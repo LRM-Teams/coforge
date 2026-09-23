@@ -4,20 +4,23 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PrismaPg } from "@prisma/adapter-pg";
-import { PrismaClient } from "@/generated/prisma/client";
-import { DEV_BROWSER_USER } from "@/server/auth/dev-skip-auth.server";
-import { ComputerRegistrar } from "@/server/computers/registration.server";
+import { PrismaClient } from "#src/generated/prisma/client";
+import { DEV_BROWSER_USER } from "#src/server/auth/dev-skip-auth.server";
+import { ComputerRegistrar } from "#src/server/computers/registration.server";
 import {
   PrismaComputerRegistrationRepository,
   PrismaWorkspaceAccess,
-} from "@/server/db/repositories/setup.repositories.server";
-import { PrismaAgentRepository } from "@/server/db/repositories/agent.repositories.server";
-import { ManageAgents } from "@/server/agents/manage-agents.server";
-import { PrismaDirectConversationRepository } from "@/server/db/repositories/direct-conversation.repositories.server";
-import { SendDirectMessage } from "@/server/conversations/direct-message.server";
-import { RedisMessageRequestIdempotency } from "@/server/conversations/redis-message-request-idempotency.server";
-import { createCentrifugoServerApi, createUsageScan } from "@/server/centrifugo/server-api.server";
-import { RedisUsageCache } from "@/server/centrifugo/usage-cache.server";
+} from "#src/server/db/repositories/setup.repositories.server";
+import { PrismaAgentRepository } from "#src/server/db/repositories/agent.repositories.server";
+import { ManageAgents } from "#src/server/agents/manage-agents.server";
+import { PrismaDirectConversationRepository } from "#src/server/db/repositories/direct-conversation.repositories.server";
+import { SendDirectMessage } from "#src/server/conversations/direct-message.server";
+import { RedisMessageRequestIdempotency } from "#src/server/conversations/redis-message-request-idempotency.server";
+import {
+  createCentrifugoServerApi,
+  createUsageScan,
+} from "#src/server/centrifugo/server-api.server";
+import { RedisUsageCache } from "#src/server/centrifugo/usage-cache.server";
 import {
   DaemonConnection,
   DaemonRuntime,

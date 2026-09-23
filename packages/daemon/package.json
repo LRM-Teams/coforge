@@ -4,6 +4,9 @@
   "private": true,
   "type": "module",
   "module": "index.ts",
+  "imports": {
+    "#src/*": "./src/*.ts"
+  },
   "scripts": {
     "test": "bun test --max-concurrency=1",
     "format": "oxfmt .",

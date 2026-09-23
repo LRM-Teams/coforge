@@ -1,8 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
 
-import { authenticateCentrifugoConnect } from "@/server/centrifugo/connect-proxy.server";
-import { getDatabaseClient } from "@/server/db/client.server";
-import { PrismaDaemonApiKeyRepository } from "@/server/db/repositories/daemon-api-key.repositories.server";
+import { authenticateCentrifugoConnect } from "#src/server/centrifugo/connect-proxy.server";
+import { getDatabaseClient } from "#src/server/db/client.server";
+import { PrismaDaemonApiKeyRepository } from "#src/server/db/repositories/daemon-api-key.repositories.server";
 
 export const Route = createFileRoute("/api/internal/centrifugo-connect")({
   server: {

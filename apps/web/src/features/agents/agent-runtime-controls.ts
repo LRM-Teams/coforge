@@ -1,8 +1,8 @@
 import { useState } from "react";
 
-import { useSubmitGuard } from "@/hooks/use-submit-guard";
-import { isAppError } from "@/lib/app-error";
-import { m } from "@/paraglide/messages";
+import { useSubmitGuard } from "#src/hooks/use-submit-guard";
+import { isAppError } from "#src/lib/app-error";
+import { m } from "#src/paraglide/messages";
 
 export type AgentControlRequest = {
   agentId: string;

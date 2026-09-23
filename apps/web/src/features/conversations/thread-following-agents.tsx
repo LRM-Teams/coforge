@@ -9,13 +9,13 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { Loading02, CpuChip01 as Cpu, XClose } from "@untitledui/icons";
 
-import { Button } from "@/components/base/buttons/button";
-import { ButtonUtility } from "@/components/base/buttons/button-utility";
-import { useAppToast } from "@/components/ui/toast";
-import { AgentDisplayAvatar } from "@/features/agents/agent-activity-avatar";
-import { useLiveAgent } from "@/features/agents/workspace-agents-realtime";
-import { cn } from "@/lib/utils";
-import { m } from "@/paraglide/messages";
+import { Button } from "#src/components/base/buttons/button";
+import { ButtonUtility } from "#src/components/base/buttons/button-utility";
+import { useAppToast } from "#src/components/ui/toast";
+import { AgentDisplayAvatar } from "#src/features/agents/agent-activity-avatar";
+import { useLiveAgent } from "#src/features/agents/workspace-agents-realtime";
+import { cn } from "#src/lib/utils";
+import { m } from "#src/paraglide/messages";
 import {
   loadPublicChannelThreadFollowingAgents,
   unfollowPublicChannelThreadAgent,

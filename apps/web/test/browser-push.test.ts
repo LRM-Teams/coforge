@@ -4,7 +4,7 @@ import {
   ensureBrowserPushSubscription,
   shouldShowAddToHomeScreenGuide,
   unsubscribeCurrentBrowserPush,
-} from "@/features/notifications/browser-push";
+} from "#src/features/notifications/browser-push";
 
 const originalNavigator = globalThis.navigator;
 const originalNotification = globalThis.Notification;

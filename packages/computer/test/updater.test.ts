@@ -3,8 +3,8 @@ import { chmod, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { ComputerUpdater } from "../src/updater";
-import { runCli } from "../src/cli";
+import { ComputerUpdater } from "#src/updater";
+import { runCli } from "#src/cli";
 
 const temporaryDirectories: string[] = [];
 const servers: Array<ReturnType<typeof Bun.serve>> = [];

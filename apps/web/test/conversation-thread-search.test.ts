@@ -8,7 +8,7 @@ import {
   positionJumpDecision,
   resolveConversationThreadRoot,
   threadRootFromMessageAnchor,
-} from "@/features/conversations/conversation-thread-search";
+} from "#src/features/conversations/conversation-thread-search";
 
 const root = { id: "root-1" };
 const reply = { id: "reply-1", threadRootId: "root-1" };

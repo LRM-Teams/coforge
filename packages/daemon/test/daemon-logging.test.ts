@@ -4,7 +4,7 @@ import { lstat, mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from "n
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { daemonLogPath, prepareDaemonLogFile } from "../src/platform/daemon-log-file";
+import { daemonLogPath, prepareDaemonLogFile } from "#src/platform/daemon-log-file";
 
 // macOS tmpdir lives under /var, a symlink; the daemon log path guard rejects
 // a linked ancestor, so resolve the root once and build state dirs under it.

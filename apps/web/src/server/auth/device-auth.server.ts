@@ -4,7 +4,7 @@ import {
   formatUserCode,
   normalizeUserCode,
   USER_CODE_LENGTH,
-} from "@/features/device-auth/device-code-format";
+} from "#src/features/device-auth/device-code-format";
 import { signComputerAccessToken } from "./computer-access-token.server";
 
 /**

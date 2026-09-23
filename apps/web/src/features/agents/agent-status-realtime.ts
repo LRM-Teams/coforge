@@ -4,7 +4,7 @@ import { parseAgentDisplaySnapshot, type AgentDisplaySnapshot } from "@lrm/cofor
 import {
   useRealtimeSubscription,
   useRealtimeSubscriptions,
-} from "@/features/realtime/browser-realtime";
+} from "#src/features/realtime/browser-realtime";
 import { AGENT_VISIBILITY } from "./agent-visibility";
 
 export type AgentStatusEvent = {

@@ -10,11 +10,11 @@ import {
 import {
   AgentWorkspaceFilesQuery,
   type WorkspaceFilesAssignment,
-} from "@/server/agents/agent-workspace-files.server";
+} from "#src/server/agents/agent-workspace-files.server";
 import {
   createAgentWorkspaceFileReadResultMethod,
   createAgentWorkspaceFilesListResultMethod,
-} from "@/server/centrifugo/agent-workspace-files-cache.server";
+} from "#src/server/centrifugo/agent-workspace-files-cache.server";
 
 function query(overrides: {
   findOwned: () => Promise<WorkspaceFilesAssignment | undefined>;

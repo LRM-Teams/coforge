@@ -1,10 +1,10 @@
 import { describe, expect, test } from "bun:test";
 
-import { createConversationReconciler } from "@/features/conversations/conversation-reconciliation";
+import { createConversationReconciler } from "#src/features/conversations/conversation-reconciliation";
 import {
   decodeMessageAvailableEvent,
   decodeNotificationAvailableEvent,
-} from "@/features/conversations/conversation-realtime";
+} from "#src/features/conversations/conversation-realtime";
 
 describe("conversation realtime", () => {
   test("decodes only the versioned message-available contract", () => {

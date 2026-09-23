@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 
-import { AppError } from "@/lib/app-error";
-import { handleAgentTaskPost } from "@/routes/api/agent/v1/tasks";
+import { AppError } from "#src/lib/app-error";
+import { handleAgentTaskPost } from "#src/routes/api/agent/v1/tasks";
 
 const principal = { workspaceId: "workspace-1", agentId: "agent-1", userId: "user-1" };
 

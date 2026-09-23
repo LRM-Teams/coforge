@@ -3,7 +3,7 @@ import {
   createProjectInput,
   projectIconUploadInput,
   updateProjectInput,
-} from "@/features/projects/projects.schemas";
+} from "#src/features/projects/projects.schemas";
 
 const update = {
   id: "b445d915-bced-446a-815c-6c7e2fb57242",

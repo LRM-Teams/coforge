@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { join } from "node:path";
-import { jobPlist } from "../src/platform/launchd-job";
+import { jobPlist } from "#src/platform/launchd-job";
 import {
   computerUpgradeCommand,
   computerUpgradeJobLabel,
@@ -8,7 +8,7 @@ import {
   computerUpgradeTaskName,
   deleteWindowsComputerUpgradeTask,
   launchWindowsComputerUpgrade,
-} from "../src/platform/computer-upgrade-launcher";
+} from "#src/platform/computer-upgrade-launcher";
 
 const id = "123e4567-e89b-42d3-a456-426614174000";
 

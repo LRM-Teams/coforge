@@ -4,8 +4,8 @@ import {
   agentControlRevision,
   type AgentControlAgent,
   type AgentControlStore,
-} from "@/server/agents/agent-control.server";
-import { AgentSessionReceiver } from "@/server/agents/agent-session.server";
+} from "#src/server/agents/agent-control.server";
+import { AgentSessionReceiver } from "#src/server/agents/agent-session.server";
 
 /** This repository's small, self-contained fixture for `authorizeLaunch`
  * — deliberately not shared with the 2400+ line `agent-control.test.ts` (see the working rules

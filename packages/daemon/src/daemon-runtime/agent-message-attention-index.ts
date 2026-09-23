@@ -11,8 +11,8 @@ import {
   isValidMessageSender,
   renderMessageSender,
 } from "@lrm/coforge-sdk/internal";
-import type { AgentProcessManager } from "../agent-runtime/agent-process-manager";
-import type { AgentConsumedSeqPort } from "../persistence/agent-consumed-seq-store";
+import type { AgentProcessManager } from "#src/agent-runtime/agent-process-manager";
+import type { AgentConsumedSeqPort } from "#src/persistence/agent-consumed-seq-store";
 import { HELD_CONTEXT_LIMIT } from "./agent-inbox-freshness";
 
 const logger = getLogger(["coforge", "daemon", "message-attention"]);

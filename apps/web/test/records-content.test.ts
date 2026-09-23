@@ -17,7 +17,7 @@ import {
   withWeekSendDismissed,
   isWeekSendDismissed,
   keyPointHistoryIndexOf,
-} from "@/features/records/records-content";
+} from "#src/features/records/records-content";
 
 test("emptyReportContent creates named display pages", () => {
   expect(emptyReportContent(["Summary", "Research"])).toEqual({

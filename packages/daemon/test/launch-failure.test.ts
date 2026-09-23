@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { launchCategoryText, launchFailureTrace } from "../src/agent-runtime/launch-failure";
+import { launchCategoryText, launchFailureTrace } from "#src/agent-runtime/launch-failure";
 
 test("launchFailureTrace extracts classified launch evidence from a PiLaunchError", () => {
   const error = {

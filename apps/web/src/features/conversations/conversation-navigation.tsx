@@ -2,23 +2,26 @@ import { createContext, useContext, useEffect, useMemo, useState, type ReactNode
 import { getRouteApi, useParams, useRouter, useRouterState } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { ArrowLeft } from "@untitledui/icons";
-import { ButtonUtility } from "@/components/base/buttons/button-utility";
-import { PageHeader } from "@/components/layout/page-header";
-import { useBreakpoint } from "@/hooks/use-breakpoint";
+import { ButtonUtility } from "#src/components/base/buttons/button-utility";
+import { PageHeader } from "#src/components/layout/page-header";
+import { useBreakpoint } from "#src/hooks/use-breakpoint";
 import { ConversationDirectory } from "./conversation-directory";
 import { LiveAgentActivityBar } from "./live-agent-activity-bar";
-import { m } from "@/paraglide/messages";
-import { cx } from "@/utils/cx";
+import { m } from "#src/paraglide/messages";
+import { cx } from "#src/utils/cx";
 import { createPublicChannel } from "./channels.functions";
 import { listSavedMessages } from "./saved-messages.functions";
-import { useCurrentWorkspaceId, useLiveAgents } from "@/features/agents/workspace-agents-realtime";
+import {
+  useCurrentWorkspaceId,
+  useLiveAgents,
+} from "#src/features/agents/workspace-agents-realtime";
 import { CreateChannelDialog } from "./create-channel-dialog";
 import { useChannelUnread } from "./conversation-unread";
 import {
   DEFAULT_CONVERSATION_OPEN_MODE,
   conversationOpenMode,
   type ConversationOpenMode,
-} from "@/features/settings/conversation-open-mode";
+} from "#src/features/settings/conversation-open-mode";
 
 const messagesRoute = getRouteApi("/_app/messages");
 const appRoute = getRouteApi("/_app");

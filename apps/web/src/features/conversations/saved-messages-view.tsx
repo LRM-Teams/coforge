@@ -2,19 +2,19 @@ import { Link } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { Bookmark, BookmarkCheck } from "@untitledui/icons";
 
-import { ButtonUtility } from "@/components/base/buttons/button-utility";
-import { PageHeader } from "@/components/layout/page-header";
+import { ButtonUtility } from "#src/components/base/buttons/button-utility";
+import { PageHeader } from "#src/components/layout/page-header";
 import {
   Empty,
   EmptyDescription,
   EmptyHeader,
   EmptyMedia,
   EmptyTitle,
-} from "@/components/ui/empty";
-import { RelativeTime } from "@/components/ui/relative-time";
-import { useAppToast } from "@/components/ui/toast";
-import { useLiveAgents } from "@/features/agents/workspace-agents-realtime";
-import { m } from "@/paraglide/messages";
+} from "#src/components/ui/empty";
+import { RelativeTime } from "#src/components/ui/relative-time";
+import { useAppToast } from "#src/components/ui/toast";
+import { useLiveAgents } from "#src/features/agents/workspace-agents-realtime";
+import { m } from "#src/paraglide/messages";
 import { MessageBody } from "./message-body";
 import { useSavedMessages } from "./conversation-navigation";
 import { unsaveMessage } from "./saved-messages.functions";

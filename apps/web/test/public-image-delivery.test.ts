@@ -6,7 +6,7 @@ import {
   publicImageUrl,
   PublicImageDeliveryConfigError,
   readPublicImageDeliveryConfig,
-} from "@/server/files/public-image-delivery.server";
+} from "#src/server/files/public-image-delivery.server";
 
 test("public image delivery is disabled when the CDN URL is unset", () => {
   expect(readPublicImageDeliveryConfig({})).toBeNull();

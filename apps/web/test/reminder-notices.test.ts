@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import type { PrismaClient } from "@/generated/prisma/client";
-import { ReminderNotices } from "@/server/conversations/reminder-notices.server";
+import type { PrismaClient } from "#src/generated/prisma/client";
+import { ReminderNotices } from "#src/server/conversations/reminder-notices.server";
 
 const authorized = {
   workspaceMembership: { findUnique: async () => ({ userId: "user-1" }) },

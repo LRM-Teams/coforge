@@ -3,8 +3,8 @@ import { realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
-import type { LaunchdJobPlatform } from "../src/platform/launchd-job";
-import { sweepLeftoverComputerUpgradeJobs } from "../src/platform/computer-upgrade-sweep";
+import type { LaunchdJobPlatform } from "#src/platform/launchd-job";
+import { sweepLeftoverComputerUpgradeJobs } from "#src/platform/computer-upgrade-sweep";
 
 // macOS tmpdir lives under /var, a symlink; resolve it so launchd-style path checks and Linux runners both work.
 const tempRoot = realpathSync(tmpdir());

@@ -1,4 +1,4 @@
-import { asRecord as record } from "../json-record";
+import { asRecord as record } from "#src/code-agent/json-record";
 import {
   client,
   type AnyMessage,
@@ -7,8 +7,8 @@ import {
   type RequestPermissionResponse,
   type SessionConfigOption,
 } from "@agentclientprotocol/sdk";
-import { JsonlProcess } from "../jsonl-process";
-import { COFORGE_DAEMON_VERSION } from "../../version";
+import { JsonlProcess } from "#src/code-agent/jsonl-process";
+import { COFORGE_DAEMON_VERSION } from "#src/version";
 
 export const KIRO_ACP_ARGS = ["acp", "--agent-engine", "v3", "--auth-method", "cli"] as const;
 

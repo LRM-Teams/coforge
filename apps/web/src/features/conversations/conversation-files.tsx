@@ -3,15 +3,20 @@ import { getRouteApi } from "@tanstack/react-router";
 import { FileIcon as FileTypeIcon } from "@untitledui/file-icons";
 import { Download01, File01, MarkerPin01, XClose } from "@untitledui/icons";
 
-import { m } from "@/paraglide/messages";
-import { getReadableFileSize } from "@/components/application/file-upload/file-upload-base";
-import { Button } from "@/components/base/buttons/button";
-import { ButtonUtility } from "@/components/base/buttons/button-utility";
-import { Dialog, DialogTrigger, Modal, ModalOverlay } from "@/components/application/modals/modal";
-import { Skeleton } from "@/components/ui/skeleton";
+import { m } from "#src/paraglide/messages";
+import { getReadableFileSize } from "#src/components/application/file-upload/file-upload-base";
+import { Button } from "#src/components/base/buttons/button";
+import { ButtonUtility } from "#src/components/base/buttons/button-utility";
+import {
+  Dialog,
+  DialogTrigger,
+  Modal,
+  ModalOverlay,
+} from "#src/components/application/modals/modal";
+import { Skeleton } from "#src/components/ui/skeleton";
 import { useState } from "react";
-import { formatDateForDisplay } from "@/lib/dates";
-import { useTimeFormat } from "@/lib/time-format-context";
+import { formatDateForDisplay } from "#src/lib/dates";
+import { useTimeFormat } from "#src/lib/time-format-context";
 
 import { AttachmentPreview } from "./attachment-preview";
 import { attachmentPreviewKind } from "./attachment-preview-kind";

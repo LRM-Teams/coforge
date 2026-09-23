@@ -8,8 +8,8 @@ import {
 import { agentEnvironment } from "./environment";
 import { JsonlProcess, JsonlRequestError } from "./jsonl-process";
 import { probeClaudeCodeVersion, resolveClaudeCodeExecutable } from "./claude-code/runtime";
-import { COFORGE_DAEMON_VERSION } from "../version";
-import { codeAgentExecutableSearchPath } from "../platform/code-agent-path";
+import { COFORGE_DAEMON_VERSION } from "#src/version";
+import { codeAgentExecutableSearchPath } from "#src/platform/code-agent-path";
 import {
   COFORGE_PROVIDER_MODELS_GENERATED,
   discoverPiModels,
@@ -27,7 +27,7 @@ import { getLogger } from "@logtape/logtape";
 import type { CodeAgentProbe } from "./contract";
 import { createCodeAgentProvider } from "./registry";
 import { asRecord } from "./json-record";
-import { diagnosticErrorCode } from "../platform/diagnostic-error-code";
+import { diagnosticErrorCode } from "#src/platform/diagnostic-error-code";
 import {
   CATALOG_CACHE_TTL_MS,
   fileStatCacheKey,

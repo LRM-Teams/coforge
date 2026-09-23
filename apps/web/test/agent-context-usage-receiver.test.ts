@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { encodeAgentContextUsage, type AgentContextUsage } from "@lrm/coforge-sdk/internal";
-import type { AgentControlAgent, AgentControlState } from "@/server/agents/agent-control.server";
-import { createAgentContextUsageMethod } from "@/server/centrifugo/agent-context-usage-receiver.server";
+import type { AgentControlAgent, AgentControlState } from "#src/server/agents/agent-control.server";
+import { createAgentContextUsageMethod } from "#src/server/centrifugo/agent-context-usage-receiver.server";
 
 function fixture() {
   const config = {

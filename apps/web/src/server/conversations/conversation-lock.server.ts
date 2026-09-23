@@ -1,4 +1,4 @@
-import type { Prisma } from "@/generated/prisma/client";
+import type { Prisma } from "#src/generated/prisma/client";
 
 /**
  * Take the conversation's row lock for the rest of the transaction. Every writer that

@@ -13,16 +13,16 @@ import {
   XClose as X,
 } from "@untitledui/icons";
 
-import { PageHeader } from "@/components/layout/page-header";
-import { Tab, TabList, TabPanel, Tabs } from "@/components/application/tabs/tabs";
-import { Avatar } from "@/components/base/avatar/avatar";
-import { Button } from "@/components/base/buttons/button";
-import { ButtonUtility } from "@/components/base/buttons/button-utility";
-import { Dropdown } from "@/components/base/dropdown/dropdown";
-import { Input } from "@/components/base/input/input";
-import { avatarInitial, avatarToneClassName } from "@/lib/avatar-tone";
-import { cn } from "@/lib/utils";
-import { m } from "@/paraglide/messages";
+import { PageHeader } from "#src/components/layout/page-header";
+import { Tab, TabList, TabPanel, Tabs } from "#src/components/application/tabs/tabs";
+import { Avatar } from "#src/components/base/avatar/avatar";
+import { Button } from "#src/components/base/buttons/button";
+import { ButtonUtility } from "#src/components/base/buttons/button-utility";
+import { Dropdown } from "#src/components/base/dropdown/dropdown";
+import { Input } from "#src/components/base/input/input";
+import { avatarInitial, avatarToneClassName } from "#src/lib/avatar-tone";
+import { cn } from "#src/lib/utils";
+import { m } from "#src/paraglide/messages";
 import { createRecordNote, type loadRecordsCatalog } from "./records.functions";
 import { sidebarPreview } from "./records-sidebar";
 import {

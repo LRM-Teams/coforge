@@ -1,8 +1,8 @@
 import { expect, test } from "bun:test";
 import { PrismaPg } from "@prisma/adapter-pg";
 import type { TaskHistoryEvent } from "@lrm/coforge-sdk/internal";
-import { PrismaClient } from "@/generated/prisma/client";
-import { TaskBoard } from "@/server/tasks/task-board.server";
+import { PrismaClient } from "#src/generated/prisma/client";
+import { TaskBoard } from "#src/server/tasks/task-board.server";
 
 const eventShape = ({ seq, eventType, actorType, actorName, payload }: TaskHistoryEvent) => ({
   seq,

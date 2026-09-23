@@ -1,8 +1,8 @@
 import { createFileRoute, notFound } from "@tanstack/react-router";
-import { PageLoadError } from "@/features/errors/page-load-error";
-import { ProjectsPending } from "@/features/projects/projects-content";
-import { ProjectDetail } from "@/features/projects/project-detail";
-import { getProject, getProjectRepository } from "@/features/projects/projects.functions";
+import { PageLoadError } from "#src/features/errors/page-load-error";
+import { ProjectsPending } from "#src/features/projects/projects-content";
+import { ProjectDetail } from "#src/features/projects/project-detail";
+import { getProject, getProjectRepository } from "#src/features/projects/projects.functions";
 
 export const Route = createFileRoute("/_app/projects/$projectSlug")({
   loader: async ({ params }) => {

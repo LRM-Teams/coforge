@@ -1,14 +1,17 @@
 import { createServerFn } from "@tanstack/react-start";
 import { setResponseHeader } from "@tanstack/react-start/server";
 import { z } from "zod";
-import { workspaceUserMiddleware, type WorkspaceUserContext } from "@/features/auth/function-auth";
-import { AgentControl } from "@/server/agents/agent-control.server";
-import { getAgentControlSignal } from "@/server/agents/agent-control-signal.server";
-import { PrismaAgentControlStore } from "@/server/db/repositories/agent-control.repositories.server";
-import { createAgentSessions } from "@/server/db/repositories/agent-session.repositories.server";
-import { PrismaDirectConversationRepository } from "@/server/db/repositories/direct-conversation.repositories.server";
-import { getAgentRuntimeLock } from "@/server/agents/agent-runtime-lock.server";
-import { createCentrifugoServerApi } from "@/server/centrifugo/server-api.server";
+import {
+  workspaceUserMiddleware,
+  type WorkspaceUserContext,
+} from "#src/features/auth/function-auth";
+import { AgentControl } from "#src/server/agents/agent-control.server";
+import { getAgentControlSignal } from "#src/server/agents/agent-control-signal.server";
+import { PrismaAgentControlStore } from "#src/server/db/repositories/agent-control.repositories.server";
+import { createAgentSessions } from "#src/server/db/repositories/agent-session.repositories.server";
+import { PrismaDirectConversationRepository } from "#src/server/db/repositories/direct-conversation.repositories.server";
+import { getAgentRuntimeLock } from "#src/server/agents/agent-runtime-lock.server";
+import { createCentrifugoServerApi } from "#src/server/centrifugo/server-api.server";
 
 const agentId = z.string().uuid();
 const executeInput = z.object({

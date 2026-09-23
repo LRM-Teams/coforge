@@ -1,4 +1,4 @@
-import { getFileDelivery, type FileDelivery } from "@/server/files/file-delivery.server";
+import { getFileDelivery, type FileDelivery } from "#src/server/files/file-delivery.server";
 import { isDeliveryInlinePreview, isInlineImage } from "./attachment-response.server";
 
 export type AttachmentView = {

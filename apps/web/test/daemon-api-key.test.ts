@@ -7,7 +7,7 @@ import {
   verifyDaemonApiKey,
   type DaemonApiKeyRecord,
   type DaemonApiKeyRepository,
-} from "@/server/auth/daemon-api-key.server";
+} from "#src/server/auth/daemon-api-key.server";
 
 class MemoryDaemonApiKeys implements DaemonApiKeyRepository {
   records = new Map<string, DaemonApiKeyRecord>();

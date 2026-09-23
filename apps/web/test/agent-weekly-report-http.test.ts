@@ -3,13 +3,13 @@ import {
   WEEKLY_REPORT_PROTOCOL_MAJOR,
   validateWeeklyReportRequest,
 } from "@lrm/coforge-sdk/internal";
-import { AppError } from "@/lib/app-error";
+import { AppError } from "#src/lib/app-error";
 import {
   executeAgentWeeklyReport,
   weeklyReportWireRequest,
-} from "@/server/agents/agent-weekly-report-http.server";
-import { weeklyReportKeyPointsHttpResponse } from "@/routes/api/agent/v1/weekly-report-key-points";
-import { weeklyReportCollectHttpResponse } from "@/routes/api/agent/v1/weekly-report-collect";
+} from "#src/server/agents/agent-weekly-report-http.server";
+import { weeklyReportKeyPointsHttpResponse } from "#src/routes/api/agent/v1/weekly-report-key-points";
+import { weeklyReportCollectHttpResponse } from "#src/routes/api/agent/v1/weekly-report-collect";
 
 const request = {
   protocolMajor: WEEKLY_REPORT_PROTOCOL_MAJOR,

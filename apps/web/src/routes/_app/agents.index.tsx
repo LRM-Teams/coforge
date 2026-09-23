@@ -4,29 +4,32 @@ import { useServerFn } from "@tanstack/react-start";
 import { useEffect } from "react";
 import { z } from "zod";
 
-import { PageLoadError } from "@/features/errors/page-load-error";
-import { AgentsContent } from "@/features/agents/agents-content";
-import { AgentsPending } from "@/features/agents/agents-pending";
+import { PageLoadError } from "#src/features/errors/page-load-error";
+import { AgentsContent } from "#src/features/agents/agents-content";
+import { AgentsPending } from "#src/features/agents/agents-pending";
 import {
   createAgent,
   deleteAgent,
   ensureWeeklyReportAssistantMember,
-} from "@/features/agents/agents.functions";
-import { useLiveAgents } from "@/features/agents/workspace-agents-realtime";
-import { getComputerRuntimeCatalog, listComputers } from "@/features/computers/computers.functions";
-import { inviteWorkspaceMember } from "@/features/workspaces/members.functions";
-import { loadMemberDirectorySummary } from "@/features/workspaces/workspaces.functions";
-import { NO_COMPUTER } from "@/features/workspaces/member-directory";
+} from "#src/features/agents/agents.functions";
+import { useLiveAgents } from "#src/features/agents/workspace-agents-realtime";
+import {
+  getComputerRuntimeCatalog,
+  listComputers,
+} from "#src/features/computers/computers.functions";
+import { inviteWorkspaceMember } from "#src/features/workspaces/members.functions";
+import { loadMemberDirectorySummary } from "#src/features/workspaces/workspaces.functions";
+import { NO_COMPUTER } from "#src/features/workspaces/member-directory";
 import {
   MEMBER_DIRECTORY_KEY,
   memberAgentsQuery,
   memberPeopleQuery,
-} from "@/features/agents/member-directory-queries";
+} from "#src/features/agents/member-directory-queries";
 import {
   agentIdFromProfileParam,
   agentProfileParamSchema,
   agentProfileTabParamSchema,
-} from "@/features/agents/profile-panel/profile-panel-search";
+} from "#src/features/agents/profile-panel/profile-panel-search";
 
 export const Route = createFileRoute("/_app/agents/")({
   validateSearch: z.object({

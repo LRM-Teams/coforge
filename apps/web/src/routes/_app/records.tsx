@@ -6,10 +6,10 @@ import {
   useParams,
 } from "@tanstack/react-router";
 
-import { PageLoadError } from "@/features/errors/page-load-error";
-import { RecordsLayout, type RecordsTab } from "@/features/records/records-layout";
-import { loadRecordsCatalog } from "@/features/records/records.functions";
-import { latestWeeklyLanding } from "@/features/records/records-sidebar";
+import { PageLoadError } from "#src/features/errors/page-load-error";
+import { RecordsLayout, type RecordsTab } from "#src/features/records/records-layout";
+import { loadRecordsCatalog } from "#src/features/records/records.functions";
+import { latestWeeklyLanding } from "#src/features/records/records-sidebar";
 
 export const Route = createFileRoute("/_app/records")({
   validateSearch: (search: Record<string, unknown>): { tab: RecordsTab } => ({

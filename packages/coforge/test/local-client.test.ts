@@ -3,8 +3,8 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { agentApiRoutes } from "@lrm/coforge-sdk/agent";
-import { connectLocal } from "../src/local-client";
-import { CliError } from "../src/cli-error";
+import { connectLocal } from "#src/local-client";
+import { CliError } from "#src/cli-error";
 
 const proxyUrl = (route: { path: string } | string) =>
   `http://proxy.test${typeof route === "string" ? route : route.path}`;

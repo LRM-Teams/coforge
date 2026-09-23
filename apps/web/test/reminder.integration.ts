@@ -10,15 +10,15 @@ import {
   encodeReminderSync,
   type AgentReminderOperationRequest,
 } from "@lrm/coforge-sdk/internal";
-import { PrismaClient } from "@/generated/prisma/client";
-import { ReminderNotices } from "@/server/conversations/reminder-notices.server";
+import { PrismaClient } from "#src/generated/prisma/client";
+import { ReminderNotices } from "#src/server/conversations/reminder-notices.server";
 import {
   createAgentReminderMethod,
   createReminderFireMethod,
   createReminderSnapshotMethod,
-} from "@/server/centrifugo/rpc-handler.server";
-import { PrismaReminderRepository } from "@/server/db/repositories/reminder.repositories.server";
-import { MAX_ACTIVE_REMINDERS, Reminders } from "@/server/reminders/reminders.server";
+} from "#src/server/centrifugo/rpc-handler.server";
+import { PrismaReminderRepository } from "#src/server/db/repositories/reminder.repositories.server";
+import { MAX_ACTIVE_REMINDERS, Reminders } from "#src/server/reminders/reminders.server";
 
 const connectionString = Bun.env.REMINDER_TEST_DATABASE_URL;
 if (!connectionString)

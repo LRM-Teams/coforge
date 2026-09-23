@@ -4,7 +4,7 @@ import {
   AGENT_VISIBILITY,
   AGENT_VISIBILITY_VALUES,
   isAgentVisibility,
-} from "@/features/agents/agent-visibility";
+} from "#src/features/agents/agent-visibility";
 
 describe("AGENT_VISIBILITY", () => {
   test("has exactly public and private", () => {

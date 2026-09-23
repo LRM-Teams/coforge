@@ -5,8 +5,8 @@ import { join } from "node:path";
 import {
   resetGitHookVersionProbeCacheForTests,
   resolveGitHookInjectionForLaunch,
-} from "../src/code-agent/git-hooks";
-import { resetGitHookShimDirectoryCacheForTests } from "../src/code-agent/git-hook-shims";
+} from "#src/code-agent/git-hooks";
+import { resetGitHookShimDirectoryCacheForTests } from "#src/code-agent/git-hook-shims";
 
 async function fakeGit(version: string | undefined): Promise<string> {
   const directory = await mkdtemp(join(tmpdir(), "coforge-fake-git-"));

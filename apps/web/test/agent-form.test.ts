@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import {
   agentEnvironmentRowsChanged,
   parseAgentEnvironmentFromForm,
-} from "@/features/agents/agent-form";
+} from "#src/features/agents/agent-form";
 
 function formWithEnvRows(rows: { key: string; value: string }[]) {
   const form = new FormData();

@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 
-import { createAgentVisibilityChangedPublisher } from "@/server/agents/agent-visibility-realtime.server";
-import { agentStatusChannel } from "@/features/agents/agent-status-realtime";
+import { createAgentVisibilityChangedPublisher } from "#src/server/agents/agent-visibility-realtime.server";
+import { agentStatusChannel } from "#src/features/agents/agent-status-realtime";
 
 // After a visibility change commits, every already-connected browser learns about it
 // through the existing shared status channel — no new subscription, and the event carries only

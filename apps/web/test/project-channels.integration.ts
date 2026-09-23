@@ -1,8 +1,8 @@
 import { expect, test } from "bun:test";
 import { PrismaPg } from "@prisma/adapter-pg";
-import { PrismaClient } from "@/generated/prisma/client";
-import { PublicChannels } from "@/server/conversations/public-channels.server";
-import { ProjectSettings } from "@/server/projects/project-settings.server";
+import { PrismaClient } from "#src/generated/prisma/client";
+import { PublicChannels } from "#src/server/conversations/public-channels.server";
+import { ProjectSettings } from "#src/server/projects/project-settings.server";
 
 test("one project owns multiple discussion channels without crossing Workspace boundaries", async () => {
   const connectionString = Bun.env.CHANNEL_TEST_DATABASE_URL;

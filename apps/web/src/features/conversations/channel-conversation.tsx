@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import type { ConversationTab } from "@/features/conversations/conversation-tabs";
+import type { ConversationTab } from "#src/features/conversations/conversation-tabs";
 import { useQuery } from "@tanstack/react-query";
 import {
   Bell01 as Bell,
@@ -9,20 +9,20 @@ import {
   Users01 as Users,
 } from "@untitledui/icons";
 import type { TaskView } from "@lrm/coforge-sdk/internal";
-import { Button } from "@/components/base/buttons/button";
-import { ButtonUtility } from "@/components/base/buttons/button-utility";
+import { Button } from "#src/components/base/buttons/button";
+import { ButtonUtility } from "#src/components/base/buttons/button-utility";
 import { ChannelMembersDialog } from "./channel-members-dialog";
 import { ConversationListButton } from "./conversation-navigation";
 import { ThreadFollowingAgents } from "./thread-following-agents";
-import { ConversationTaskTabs } from "@/features/tasks/conversation-task-tabs";
+import { ConversationTaskTabs } from "#src/features/tasks/conversation-task-tabs";
 import { loadPublicChannelMentionables } from "./channels.functions";
 import {
   ThreadedConversation,
   type DirectConversationView,
   type OwnMessageIndexEntry,
 } from "./direct-conversation";
-import { m } from "@/paraglide/messages";
-import type { AgentProfileTab } from "@/features/agents/profile-panel/profile-panel-search";
+import { m } from "#src/paraglide/messages";
+import type { AgentProfileTab } from "#src/features/agents/profile-panel/profile-panel-search";
 
 export type ChannelConversationView = Omit<DirectConversationView, "agent" | "messages"> & {
   name: string;

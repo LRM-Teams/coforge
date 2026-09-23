@@ -1,7 +1,7 @@
 import { ProgressBar } from "react-aria-components";
 import { Group, Panel, Separator, useDefaultLayout } from "react-resizable-panels";
-import type { ConversationTab } from "@/features/conversations/conversation-tabs";
-import { useStateWithRef } from "@/hooks/use-state-with-ref";
+import type { ConversationTab } from "#src/features/conversations/conversation-tabs";
+import { useStateWithRef } from "#src/hooks/use-state-with-ref";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ClientOnly, getRouteApi } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
@@ -14,21 +14,21 @@ import {
 } from "@untitledui/icons";
 import type { TaskView } from "@lrm/coforge-sdk/internal";
 
-import { ConversationTaskTabs } from "@/features/tasks/conversation-task-tabs";
+import { ConversationTaskTabs } from "#src/features/tasks/conversation-task-tabs";
 import {
   useAgentRecentActivity,
   useLiveAgent,
   useLiveAgents,
-} from "@/features/agents/workspace-agents-realtime";
-import { conversationLayoutStorage } from "@/features/conversations/layout-storage";
-import { streamState, type StreamRead } from "@/features/conversations/stream-state";
-import { AgentActivityAvatar } from "@/features/agents/agent-activity-avatar";
-import { agentDisplay } from "@/features/agents/agent-activity-presentation";
-import { Avatar } from "@/components/base/avatar/avatar";
-import { avatarInitial, avatarToneClassName } from "@/lib/avatar-tone";
-import { DELETED_AGENT_AVATAR_CLASS, DeletedAgentBadge } from "@/features/agents/deleted-agent";
-import { Button } from "@/components/base/buttons/button";
-import { ButtonUtility } from "@/components/base/buttons/button-utility";
+} from "#src/features/agents/workspace-agents-realtime";
+import { conversationLayoutStorage } from "#src/features/conversations/layout-storage";
+import { streamState, type StreamRead } from "#src/features/conversations/stream-state";
+import { AgentActivityAvatar } from "#src/features/agents/agent-activity-avatar";
+import { agentDisplay } from "#src/features/agents/agent-activity-presentation";
+import { Avatar } from "#src/components/base/avatar/avatar";
+import { avatarInitial, avatarToneClassName } from "#src/lib/avatar-tone";
+import { DELETED_AGENT_AVATAR_CLASS, DeletedAgentBadge } from "#src/features/agents/deleted-agent";
+import { Button } from "#src/components/base/buttons/button";
+import { ButtonUtility } from "#src/components/base/buttons/button-utility";
 import {
   ConversationListButton,
   useConversationDetailVisible,
@@ -39,16 +39,16 @@ import { conversationOpenPosition, unreadBoundary } from "./conversation-open-po
 import { saveMessage, unsaveMessage } from "./saved-messages.functions";
 import { latestTopLevelSequence } from "./conversation-unread";
 import { ConversationPending } from "./conversation-pending";
-import { useBreakpoint } from "@/hooks/use-breakpoint";
+import { useBreakpoint } from "#src/hooks/use-breakpoint";
 import {
   Empty,
   EmptyHeader,
   EmptyMedia,
   EmptyTitle,
   EmptyDescription,
-} from "@/components/ui/empty";
-import { RelativeTime } from "@/components/ui/relative-time";
-import { useAppToast } from "@/components/ui/toast";
+} from "#src/components/ui/empty";
+import { RelativeTime } from "#src/components/ui/relative-time";
+import { useAppToast } from "#src/components/ui/toast";
 import { MessageComposer } from "./message-composer";
 import { makeMentionBodyFormatter, type Mentionable } from "./mention-text";
 import type { ChipMention } from "./message-markdown";
@@ -67,13 +67,13 @@ import {
   useOwnMessagesIndex,
   type OwnMessageIndexEntry,
 } from "./own-messages-menu";
-import { cn } from "@/lib/utils";
-import { TaskBadge } from "@/features/tasks/task-board";
-import { TaskDetailDialog } from "@/features/tasks/task-detail-dialog";
-import { m } from "@/paraglide/messages";
-import { getLocale } from "@/paraglide/runtime";
-import { AgentProfilePanel } from "@/features/agents/profile-panel/agent-profile-panel";
-import { resolveVisibleConversationSlot } from "@/features/agents/profile-panel/profile-panel-slot";
+import { cn } from "#src/lib/utils";
+import { TaskBadge } from "#src/features/tasks/task-board";
+import { TaskDetailDialog } from "#src/features/tasks/task-detail-dialog";
+import { m } from "#src/paraglide/messages";
+import { getLocale } from "#src/paraglide/runtime";
+import { AgentProfilePanel } from "#src/features/agents/profile-panel/agent-profile-panel";
+import { resolveVisibleConversationSlot } from "#src/features/agents/profile-panel/profile-panel-slot";
 import { useConversationPositionJump, useOpenConversationThread } from "./open-conversation-thread";
 import {
   messageIdFromHash,
@@ -81,7 +81,7 @@ import {
   resolveConversationThreadRoot,
   threadRootFromMessageAnchor,
 } from "./conversation-thread-search";
-import type { AgentProfileTab } from "@/features/agents/profile-panel/profile-panel-search";
+import type { AgentProfileTab } from "#src/features/agents/profile-panel/profile-panel-search";
 
 const appRoute = getRouteApi("/_app");
 

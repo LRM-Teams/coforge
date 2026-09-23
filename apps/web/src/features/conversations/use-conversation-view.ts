@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { useRouter } from "@tanstack/react-router";
 
-import { usePanelTabOrder } from "@/features/panel-tabs/panel-tab-order-context";
+import { usePanelTabOrder } from "#src/features/panel-tabs/panel-tab-order-context";
 import { conversationSearchWithoutThread } from "./conversation-thread-search";
 import { CONVERSATION_TABS, type ConversationTab } from "./conversation-tabs";
 

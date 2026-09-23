@@ -1,7 +1,7 @@
 import { getLogger } from "@logtape/logtape";
 import { mkdir, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { collapseWhitespace, stripHeadingMarkers } from "../code-agent/agent-instructions";
+import { collapseWhitespace, stripHeadingMarkers } from "#src/code-agent/agent-instructions";
 
 const logger = getLogger(["coforge", "daemon", "agent-runtime", "agent-memory-seed"]);
 

@@ -3,11 +3,11 @@ import { Disclosure, DisclosurePanel } from "react-aria-components";
 import { type RefObject } from "react";
 
 import { type RuntimeProvider } from "@lrm/coforge-sdk/internal";
-import { Button } from "@/components/base/buttons/button";
-import { RelativeTime } from "@/components/ui/relative-time";
-import { cn } from "@/lib/utils";
-import { getLocale } from "@/paraglide/runtime";
-import { m } from "@/paraglide/messages";
+import { Button } from "#src/components/base/buttons/button";
+import { RelativeTime } from "#src/components/ui/relative-time";
+import { cn } from "#src/lib/utils";
+import { getLocale } from "#src/paraglide/runtime";
+import { m } from "#src/paraglide/messages";
 
 /** Read-only alias for the popover body's `data` shape, re-declared from the hook's return so a
  * test can render this component directly with a plain fixture (no React Query). */

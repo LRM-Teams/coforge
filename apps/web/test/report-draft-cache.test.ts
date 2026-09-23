@@ -6,7 +6,7 @@ import {
   reportBodyCharacterCount,
   resolveReportEditorContent,
   writeReportDraft,
-} from "@/features/records/report-draft-cache";
+} from "#src/features/records/report-draft-cache";
 
 test("resolveReportEditorContent adopts server body when the local draft is empty", () => {
   const server = {

@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 
-import { OAuthDeviceClient } from "../src/oauth-device-client";
-import { ComputerLogin } from "../src/login";
+import { OAuthDeviceClient } from "#src/oauth-device-client";
+import { ComputerLogin } from "#src/login";
 
 test("device client discovers RFC endpoints and starts authorization", async () => {
   const requests: Array<{ url: string; body?: string }> = [];

@@ -1,8 +1,8 @@
 import {
   userConversationChannel,
   type NotificationAvailableEvent,
-} from "@/features/conversations/conversation-realtime";
-import type { CentrifugoServerApi } from "@/server/centrifugo/server-api.server";
+} from "#src/features/conversations/conversation-realtime";
+import type { CentrifugoServerApi } from "#src/server/centrifugo/server-api.server";
 import type { NotificationPublisher } from "./web-push-notifications.server";
 
 /**

@@ -1,5 +1,5 @@
 import { decodeAgentControlResult, type AgentControlResult } from "@lrm/coforge-sdk/internal";
-import type { AgentControl } from "@/server/agents/agent-control.server";
+import type { AgentControl } from "#src/server/agents/agent-control.server";
 import type { CentrifugoRpcMethod } from "./rpc-handler.server";
 
 /** Every fixed message `AgentControl.result` (and the `requireCurrentAgentScope` it shares with

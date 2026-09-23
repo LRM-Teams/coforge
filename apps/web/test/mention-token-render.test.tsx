@@ -1,8 +1,8 @@
 import { expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 
-import { MessageBody } from "@/features/conversations/message-body";
-import { mentionHandlesByToken } from "@/features/conversations/message-markdown";
+import { MessageBody } from "#src/features/conversations/message-body";
+import { mentionHandlesByToken } from "#src/features/conversations/message-markdown";
 
 const HUMAN_ID = "d9956ab1-9063-4182-8eab-861d1559c8ee";
 

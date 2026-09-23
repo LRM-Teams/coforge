@@ -2,14 +2,14 @@ import { useState } from "react";
 import { AlertCircle, XClose as X } from "@untitledui/icons";
 import { Heading, Text } from "react-aria-components";
 
-import { Button } from "@/components/base/buttons/button";
-import { ButtonUtility } from "@/components/base/buttons/button-utility";
-import { Input } from "@/components/base/input/input";
-import { Dialog, Modal, ModalOverlay } from "@/components/application/modals/modal";
-import { FeaturedIcon } from "@/components/foundations/featured-icon/featured-icon";
-import { m } from "@/paraglide/messages";
-import { isAppError } from "@/lib/app-error";
-import { useSubmitGuard } from "@/hooks/use-submit-guard";
+import { Button } from "#src/components/base/buttons/button";
+import { ButtonUtility } from "#src/components/base/buttons/button-utility";
+import { Input } from "#src/components/base/input/input";
+import { Dialog, Modal, ModalOverlay } from "#src/components/application/modals/modal";
+import { FeaturedIcon } from "#src/components/foundations/featured-icon/featured-icon";
+import { m } from "#src/paraglide/messages";
+import { isAppError } from "#src/lib/app-error";
+import { useSubmitGuard } from "#src/hooks/use-submit-guard";
 
 /**
  * The Agent deletion confirmation. Deleting an Agent is destructive and irreversible

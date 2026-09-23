@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
-import type { PrismaClient } from "@/generated/prisma/client";
-import { RecordCatalog } from "@/server/records/record-catalog.server";
+import type { PrismaClient } from "#src/generated/prisma/client";
+import { RecordCatalog } from "#src/server/records/record-catalog.server";
 
 test("sendWeeklyAssignments creates a new parent and unread assignments for recipients", async () => {
   const created: Array<Record<string, unknown>> = [];

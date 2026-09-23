@@ -2,8 +2,8 @@ import { expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { RUNTIME_PROVIDER } from "@lrm/coforge-sdk/internal";
 
-import { AgentRuntimeConfigForm } from "@/features/agents/agent-runtime-config-dialog";
-import { m } from "@/paraglide/messages";
+import { AgentRuntimeConfigForm } from "#src/features/agents/agent-runtime-config-dialog";
+import { m } from "#src/paraglide/messages";
 
 /**
  * `AgentRuntimeConfigDialog` wraps this form in `ModalOverlay`/`Modal`/`Dialog`

@@ -1,4 +1,4 @@
-import type { PrismaClient } from "@/generated/prisma/client";
+import type { PrismaClient } from "#src/generated/prisma/client";
 import {
   parseRuntimeProvider,
   type CodeAgentModelCatalog,
@@ -8,7 +8,7 @@ import {
 import type {
   ComputerRuntimeRecord,
   ComputerRuntimeVisibilityRepository,
-} from "@/server/computers/computer-runtime-visibility.server";
+} from "#src/server/computers/computer-runtime-visibility.server";
 
 const runtimeShape = {
   id: true,

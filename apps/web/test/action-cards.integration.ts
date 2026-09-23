@@ -1,10 +1,10 @@
 import { expect, test } from "bun:test";
 import { PrismaPg } from "@prisma/adapter-pg";
-import { PrismaClient } from "@/generated/prisma/client";
-import { ActionCards, ActionCardError } from "@/server/conversations/action-cards.server";
-import type { ActionCardErrorCode } from "@/server/conversations/action-card-error.server";
-import { PrismaDirectConversationRepository } from "@/server/db/repositories/direct-conversation.repositories.server";
-import { AppError, isAppError, type AppErrorCode } from "@/lib/app-error";
+import { PrismaClient } from "#src/generated/prisma/client";
+import { ActionCards, ActionCardError } from "#src/server/conversations/action-cards.server";
+import type { ActionCardErrorCode } from "#src/server/conversations/action-card-error.server";
+import { PrismaDirectConversationRepository } from "#src/server/db/repositories/direct-conversation.repositories.server";
+import { AppError, isAppError, type AppErrorCode } from "#src/lib/app-error";
 
 /**
  * Exercises `ActionCards.prepare` (see `apps/web/src/server/conversations/action-cards.server.ts`)

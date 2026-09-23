@@ -5,8 +5,8 @@ import {
   truncateCodePoints,
   type AgentActivityDetailKind,
 } from "@lrm/coforge-sdk/internal";
-import { redactTrajectoryText } from "../agent-runtime/activity-trajectory";
-import { createAgentActivity } from "../agent-runtime/agent-activity";
+import { redactTrajectoryText } from "#src/agent-runtime/activity-trajectory";
+import { createAgentActivity } from "#src/agent-runtime/agent-activity";
 import { collapseWhitespace } from "./agent-instructions";
 
 // `TOOL_ALIASES` (shared with the web tool row labels — see

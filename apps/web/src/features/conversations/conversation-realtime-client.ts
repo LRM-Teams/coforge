@@ -4,8 +4,8 @@ import { useServerFn } from "@tanstack/react-start";
 import {
   useBrowserRealtime,
   type BrowserRealtimeSubscription,
-} from "@/features/realtime/browser-realtime";
-import { getConversationRealtimeToken } from "@/features/realtime/realtime.functions";
+} from "#src/features/realtime/browser-realtime";
+import { getConversationRealtimeToken } from "#src/features/realtime/realtime.functions";
 import {
   conversationRealtimeChannel,
   decodeMemberChangedEvent,

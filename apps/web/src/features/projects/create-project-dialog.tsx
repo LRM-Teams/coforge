@@ -2,19 +2,19 @@ import { useEffect, useRef, useState, type ComponentType, type SVGProps } from "
 import { Link } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { ChevronRight, FolderLock, GitBranch01, Share04 } from "@untitledui/icons";
-import { Dialog, Modal, ModalOverlay } from "@/components/application/modals/modal";
-import { DialogHeader } from "@/components/application/modals/dialog-header";
-import { Button } from "@/components/base/buttons/button";
-import { Input } from "@/components/base/input/input";
-import { ComboBox } from "@/components/base/select/combobox";
-import { SelectItem } from "@/components/base/select/select-item";
+import { Dialog, Modal, ModalOverlay } from "#src/components/application/modals/modal";
+import { DialogHeader } from "#src/components/application/modals/dialog-header";
+import { Button } from "#src/components/base/buttons/button";
+import { Input } from "#src/components/base/input/input";
+import { ComboBox } from "#src/components/base/select/combobox";
+import { SelectItem } from "#src/components/base/select/select-item";
 import {
   getGitHubConnection,
   listAccessibleGitHubRepositories,
-} from "@/features/integrations/github.functions";
-import { isAppError } from "@/lib/app-error";
-import { nameToSlug } from "@/lib/slug";
-import { m } from "@/paraglide/messages";
+} from "#src/features/integrations/github.functions";
+import { isAppError } from "#src/lib/app-error";
+import { nameToSlug } from "#src/lib/slug";
+import { m } from "#src/paraglide/messages";
 import { parseGitHubRepositoryInput } from "./github-repository-input";
 import { createProject } from "./projects.functions";
 import { isValidProjectSlug, PROJECT_SLUG_MAX_LENGTH } from "./projects.schemas";

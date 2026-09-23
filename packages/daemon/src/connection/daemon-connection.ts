@@ -136,10 +136,10 @@ import {
   type ChannelCommand,
   type ChannelOperation,
 } from "@lrm/coforge-sdk/internal";
-import { isAgentApiKey } from "../credentials/agent-api-key";
-import type { AgentRuntimeProviderConfig } from "../code-agent/contract";
-import type { AgentLaunchIdentity } from "../code-agent/agent-instructions";
-import { diagnosticErrorCode } from "../platform/diagnostic-error-code";
+import { isAgentApiKey } from "#src/credentials/agent-api-key";
+import type { AgentRuntimeProviderConfig } from "#src/code-agent/contract";
+import type { AgentLaunchIdentity } from "#src/code-agent/agent-instructions";
+import { diagnosticErrorCode } from "#src/platform/diagnostic-error-code";
 import { AgentWeeklyReportRequestError } from "./agent-weekly-report-request-error";
 import { controlPayloadShape } from "./control-payload";
 import { connectionLiveness, INBOUND_STALLED_MS } from "./connection-liveness";

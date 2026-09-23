@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
-import type { PrismaClient } from "@/generated/prisma/client";
-import { isAppError } from "@/lib/app-error";
-import { PublicChannels } from "@/server/conversations/public-channels.server";
+import type { PrismaClient } from "#src/generated/prisma/client";
+import { isAppError } from "#src/lib/app-error";
+import { PublicChannels } from "#src/server/conversations/public-channels.server";
 
 /**
  * P2b (#125) of the saved/pinned plan: pin/unpin with its order, the forced-unread marker, and the

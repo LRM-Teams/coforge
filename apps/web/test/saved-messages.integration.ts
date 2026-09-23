@@ -1,11 +1,11 @@
 import { expect, test } from "bun:test";
 import { PrismaPg } from "@prisma/adapter-pg";
-import { PrismaClient } from "@/generated/prisma/client";
+import { PrismaClient } from "#src/generated/prisma/client";
 import {
   listUserSavedMessages,
   saveUserMessage,
   unsaveUserMessage,
-} from "@/server/conversations/saved-messages.server";
+} from "#src/server/conversations/saved-messages.server";
 
 test("saves idempotently, lists newest-first per viewer, and unsaves safely", async () => {
   const connectionString = Bun.env.CHANNEL_TEST_DATABASE_URL;

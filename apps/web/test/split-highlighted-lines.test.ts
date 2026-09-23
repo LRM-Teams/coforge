@@ -4,7 +4,7 @@ import {
   type HastElement,
   type HastRoot,
   type HastText,
-} from "@/features/projects/split-highlighted-lines";
+} from "#src/features/projects/split-highlighted-lines";
 
 function text(value: string): HastText {
   return { type: "text", value };

@@ -1,4 +1,4 @@
-import { lockConversation } from "@/server/conversations/conversation-lock.server";
+import { lockConversation } from "#src/server/conversations/conversation-lock.server";
 import {
   AGENT_MESSAGE_METHOD,
   REMINDER_SYNC_MESSAGE_TYPE,
@@ -13,28 +13,28 @@ import {
   type TaskStatus,
   type TaskView,
 } from "@lrm/coforge-sdk/internal";
-import { ACTIVE_AGENT_WHERE } from "@/server/agents/active-agent.server";
-import { workspaceUserAvatarUrl } from "@/server/db/repositories/user-profile.repositories.server";
-import type { Prisma, PrismaClient } from "@/generated/prisma/client";
-import { AppError } from "@/lib/app-error";
+import { ACTIVE_AGENT_WHERE } from "#src/server/agents/active-agent.server";
+import { workspaceUserAvatarUrl } from "#src/server/db/repositories/user-profile.repositories.server";
+import type { Prisma, PrismaClient } from "#src/generated/prisma/client";
+import { AppError } from "#src/lib/app-error";
 import {
   messageSignalScope,
   type ConversationRealtime,
-} from "@/server/conversations/conversation-realtime.server";
-import { mentionedNames } from "@/server/conversations/mentions.server";
-import { ACTIVE_MEMBER_WHERE } from "@/server/conversations/active-member.server";
+} from "#src/server/conversations/conversation-realtime.server";
+import { mentionedNames } from "#src/server/conversations/mentions.server";
+import { ACTIVE_MEMBER_WHERE } from "#src/server/conversations/active-member.server";
 import {
   agentMessageSender,
   browserSenderHandle,
   MESSAGE_SENDER_SELECT,
   type AgentMessageSender,
-} from "@/server/conversations/sender-display.server";
+} from "#src/server/conversations/sender-display.server";
 import {
   daemonControlChannel,
   type CentrifugoServerApi,
-} from "@/server/centrifugo/server-api.server";
-import type { MessageNotifier } from "@/server/notifications/web-push-composition.server";
-import { MAX_ACTIVE_REMINDERS } from "@/server/reminders/reminders.server";
+} from "#src/server/centrifugo/server-api.server";
+import type { MessageNotifier } from "#src/server/notifications/web-push-composition.server";
+import { MAX_ACTIVE_REMINDERS } from "#src/server/reminders/reminders.server";
 
 type Dependencies = {
   realtime?: ConversationRealtime;

@@ -1,5 +1,5 @@
-import { m } from "@/paraglide/messages";
-import { isAppError } from "@/lib/app-error";
+import { m } from "#src/paraglide/messages";
+import { isAppError } from "#src/lib/app-error";
 import {
   UPGRADE_ERROR_CODE,
   parseUpgradeErrorCode,

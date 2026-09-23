@@ -1,10 +1,10 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 
-import { workspaceUserMiddleware } from "@/features/auth/function-auth";
-import { ActionCards } from "@/server/conversations/action-cards.server";
-import { CentrifugoConversationRealtime } from "@/server/conversations/conversation-realtime.server";
-import { createCentrifugoServerApi } from "@/server/centrifugo/server-api.server";
+import { workspaceUserMiddleware } from "#src/features/auth/function-auth";
+import { ActionCards } from "#src/server/conversations/action-cards.server";
+import { CentrifugoConversationRealtime } from "#src/server/conversations/conversation-realtime.server";
+import { createCentrifugoServerApi } from "#src/server/centrifugo/server-api.server";
 
 /**
  * Human commit/cancel Server Functions for Agent-prepared action cards.

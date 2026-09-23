@@ -1,7 +1,7 @@
 import type { AgentDisplaySnapshot } from "@lrm/coforge-sdk/internal";
 
-import { agentDisplay } from "@/features/agents/agent-activity-presentation";
-import type { StatusTone } from "@/components/ui/status-dot";
+import { agentDisplay } from "#src/features/agents/agent-activity-presentation";
+import type { StatusTone } from "#src/components/ui/status-dot";
 
 export type LiveAgentActivityCandidate = {
   id: string;

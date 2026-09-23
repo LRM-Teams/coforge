@@ -3,7 +3,7 @@ import { keepPreviousData, useInfiniteQuery } from "@tanstack/react-query";
 import { GridList, GridListItem, GridListLoadMoreItem, ProgressBar } from "react-aria-components";
 import { Group, Panel, Separator, useDefaultLayout } from "react-resizable-panels";
 import { getRouteApi, Link, useNavigate } from "@tanstack/react-router";
-import { useBreakpoint } from "@/hooks/use-breakpoint";
+import { useBreakpoint } from "#src/hooks/use-breakpoint";
 import {
   Calendar,
   DotsVertical,
@@ -17,18 +17,18 @@ import {
   UsersPlus,
 } from "@untitledui/icons";
 
-import { Tab, TabList, TabPanel, Tabs } from "@/components/application/tabs/tabs";
-import { ButtonGroup, ButtonGroupItem } from "@/components/base/button-group/button-group";
-import { Dropdown } from "@/components/base/dropdown/dropdown";
-import { Select } from "@/components/base/select/select";
-import { MobileNavigationButton } from "@/components/layout/sidebar/mobile-header";
-import { formatCalendarDate } from "@/lib/dates";
-import { Avatar } from "@/components/base/avatar/avatar";
-import { avatarInitial, avatarToneClassName } from "@/lib/avatar-tone";
-import { getLocale, localizeHref } from "@/paraglide/runtime";
-import { Button } from "@/components/base/buttons/button";
-import { Input } from "@/components/base/input/input";
-import { ButtonUtility } from "@/components/base/buttons/button-utility";
+import { Tab, TabList, TabPanel, Tabs } from "#src/components/application/tabs/tabs";
+import { ButtonGroup, ButtonGroupItem } from "#src/components/base/button-group/button-group";
+import { Dropdown } from "#src/components/base/dropdown/dropdown";
+import { Select } from "#src/components/base/select/select";
+import { MobileNavigationButton } from "#src/components/layout/sidebar/mobile-header";
+import { formatCalendarDate } from "#src/lib/dates";
+import { Avatar } from "#src/components/base/avatar/avatar";
+import { avatarInitial, avatarToneClassName } from "#src/lib/avatar-tone";
+import { getLocale, localizeHref } from "#src/paraglide/runtime";
+import { Button } from "#src/components/base/buttons/button";
+import { Input } from "#src/components/base/input/input";
+import { ButtonUtility } from "#src/components/base/buttons/button-utility";
 import {
   Empty,
   EmptyContent,
@@ -36,11 +36,11 @@ import {
   EmptyHeader,
   EmptyMedia,
   EmptyTitle,
-} from "@/components/ui/empty";
-import { cn } from "@/lib/utils";
-import { m } from "@/paraglide/messages";
-import { InviteMemberDialog } from "@/features/workspaces/invite-member-dialog";
-import { conversationLayoutStorage } from "@/features/conversations/layout-storage";
+} from "#src/components/ui/empty";
+import { cn } from "#src/lib/utils";
+import { m } from "#src/paraglide/messages";
+import { InviteMemberDialog } from "#src/features/workspaces/invite-member-dialog";
+import { conversationLayoutStorage } from "#src/features/conversations/layout-storage";
 import type { AgentStatusView } from "./agent-status-realtime";
 import type { AgentDisplaySnapshot } from "@lrm/coforge-sdk/internal";
 
@@ -53,8 +53,8 @@ import type {
   MemberAgent,
   MemberDirectorySummary,
   MemberPerson,
-} from "@/features/workspaces/workspaces.functions";
-import { NO_COMPUTER } from "@/features/workspaces/member-directory";
+} from "#src/features/workspaces/workspaces.functions";
+import { NO_COMPUTER } from "#src/features/workspaces/member-directory";
 import { memberAgentsQuery, memberPeopleQuery } from "./member-directory-queries";
 import { AgentProfilePanel } from "./profile-panel/agent-profile-panel";
 import { useOpenAgentProfile } from "./profile-panel/open-agent-profile";

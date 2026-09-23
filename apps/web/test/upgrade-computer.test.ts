@@ -1,8 +1,8 @@
 import { expect, test } from "bun:test";
 import { decodeComputerUpgradeIntent } from "@lrm/coforge-sdk/internal";
 
-import { UpgradeComputer } from "@/server/computers/upgrade-computer.server";
-import { RedisComputerUpgradeStore } from "@/server/computers/computer-upgrade-store.server";
+import { UpgradeComputer } from "#src/server/computers/upgrade-computer.server";
+import { RedisComputerUpgradeStore } from "#src/server/computers/computer-upgrade-store.server";
 
 function memoryRedis() {
   const values = new Map<string, string>();

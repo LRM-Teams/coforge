@@ -4,8 +4,8 @@ import {
   discoverCodeAgentInventory,
   discoverExternalCodeAgents,
   type ExternalCodeAgentProbe,
-} from "../src/code-agent/runtime-inventory";
-import { KIRO_MIN_CLI_VERSION } from "../src/code-agent/kiro/connection";
+} from "#src/code-agent/runtime-inventory";
+import { KIRO_MIN_CLI_VERSION } from "#src/code-agent/kiro/connection";
 
 function kiroProbe(versionOutput: string): ExternalCodeAgentProbe {
   return {

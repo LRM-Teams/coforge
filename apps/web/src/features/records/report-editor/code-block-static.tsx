@@ -15,7 +15,7 @@
 
 import { useMemo } from "react";
 import { toHtml } from "hast-util-to-html";
-import { cn } from "@/lib/utils";
+import { cn } from "#src/lib/utils";
 import { sharedLowlight as lowlight } from "./lowlight";
 import "./styles/code.css";
 

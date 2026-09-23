@@ -6,17 +6,17 @@ import {
   type ReminderFireRequest,
   type ReminderFireResponse,
 } from "@lrm/coforge-sdk/internal";
-import { ACTIVE_AGENT_WHERE } from "@/server/agents/active-agent.server";
-import { messageAnchorWhere } from "@/server/db/message-anchor.server";
-import { Prisma, type PrismaClient } from "@/generated/prisma/client";
+import { ACTIVE_AGENT_WHERE } from "#src/server/agents/active-agent.server";
+import { messageAnchorWhere } from "#src/server/db/message-anchor.server";
+import { Prisma, type PrismaClient } from "#src/generated/prisma/client";
 import {
   MAX_ACTIVE_REMINDERS,
   ReminderRefusal,
   nextOccurrence,
   type ReminderRepository,
   type StoredReminder,
-} from "@/server/reminders/reminders.server";
-import { ACTIVE_MEMBER_WHERE } from "@/server/conversations/active-member.server";
+} from "#src/server/reminders/reminders.server";
+import { ACTIVE_MEMBER_WHERE } from "#src/server/conversations/active-member.server";
 
 type Scope = { workspaceId: string; computerId: string; agentId: string; userId: string };
 type ReminderRow = Prisma.ReminderGetPayload<Record<string, never>>;

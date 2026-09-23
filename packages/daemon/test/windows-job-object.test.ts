@@ -3,7 +3,7 @@ import { expect, test } from "bun:test";
 import {
   createWindowsJobObject,
   windowsJobObjectsAvailable,
-} from "../src/platform/windows-job-object";
+} from "#src/platform/windows-job-object";
 
 test.skipIf(process.platform !== "win32")("Job Object reports active process count", async () => {
   expect(windowsJobObjectsAvailable()).toBe(true);

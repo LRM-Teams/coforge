@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { PrismaClient } from "@/generated/prisma/client";
+import type { PrismaClient } from "#src/generated/prisma/client";
 
 export const computerObservationSchema = z.object({
   computerVersion: z.string().trim().max(200).optional(),

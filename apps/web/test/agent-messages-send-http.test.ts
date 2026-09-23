@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
-import { handleAgentMessagesPost } from "@/routes/api/agent/v1/messages";
-import { AppError } from "@/lib/app-error";
-import { AgentSendRejectedError } from "@/server/conversations/agent-send-rejected-error.server";
+import { handleAgentMessagesPost } from "#src/routes/api/agent/v1/messages";
+import { AppError } from "#src/lib/app-error";
+import { AgentSendRejectedError } from "#src/server/conversations/agent-send-rejected-error.server";
 
 const request = (body: unknown) =>
   new Request("https://server.example/api/agent/v1/messages", {

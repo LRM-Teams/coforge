@@ -1,7 +1,10 @@
 import { expect, test } from "bun:test";
 import { encodeAgentSessionReport } from "@lrm/coforge-sdk/internal";
-import { createAgentSessionMethod } from "@/server/centrifugo/rpc-handler.server";
-import { AgentSessions, type RuntimeSessionReference } from "@/server/agents/agent-sessions.server";
+import { createAgentSessionMethod } from "#src/server/centrifugo/rpc-handler.server";
+import {
+  AgentSessions,
+  type RuntimeSessionReference,
+} from "#src/server/agents/agent-sessions.server";
 
 test("cloud selection survives recreation and stale launches cannot replace a session", async () => {
   let reference: RuntimeSessionReference | null = null;

@@ -3,8 +3,8 @@ import { dirname, join, resolve } from "node:path";
 import type {
   AgentRuntimeRecord,
   AgentRuntimeStateStore,
-} from "../agent-runtime/agent-runtime-state";
-import { agentWorkspaceDirectory } from "../agent-runtime/agent-workspace-path";
+} from "#src/agent-runtime/agent-runtime-state";
+import { agentWorkspaceDirectory } from "#src/agent-runtime/agent-workspace-path";
 
 /**
  * In-process control state: the record lives exactly as long as the

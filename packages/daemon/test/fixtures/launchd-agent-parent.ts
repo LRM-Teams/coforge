@@ -1,4 +1,4 @@
-import { LaunchdProcessOwner } from "../../src/platform/launchd-process";
+import { LaunchdProcessOwner } from "#src/platform/launchd-process";
 
 const [directory, prefix] = Bun.argv.slice(2);
 const owner = new LaunchdProcessOwner({

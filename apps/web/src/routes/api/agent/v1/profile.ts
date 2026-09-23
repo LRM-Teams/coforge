@@ -1,9 +1,9 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { agentAuthMiddleware } from "@/server/agents/agent-http-middleware.server";
+import { agentAuthMiddleware } from "#src/server/agents/agent-http-middleware.server";
 import {
   resolveAgentProfileShow,
   resolveAgentProfileUpdate,
-} from "@/server/agents/agent-profile.server";
+} from "#src/server/agents/agent-profile.server";
 
 /** `GET /api/agent/v1/profile[?target=<name>]` — `coforge profile show [<target>]`; defaults to
  * the calling Agent's own profile. `POST /api/agent/v1/profile` — `coforge profile update`,

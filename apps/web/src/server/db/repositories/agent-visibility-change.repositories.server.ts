@@ -1,10 +1,10 @@
-import type { Prisma, PrismaClient } from "@/generated/prisma/client";
-import { AGENT_VISIBILITY } from "@/features/agents/agent-visibility";
-import { ACTIVE_AGENT_WHERE } from "@/server/agents/active-agent.server";
+import type { Prisma, PrismaClient } from "#src/generated/prisma/client";
+import { AGENT_VISIBILITY } from "#src/features/agents/agent-visibility";
+import { ACTIVE_AGENT_WHERE } from "#src/server/agents/active-agent.server";
 import type {
   AgentVisibilityChangePreview,
   ChangeAgentVisibilityStore,
-} from "@/server/agents/change-agent-visibility.server";
+} from "#src/server/agents/change-agent-visibility.server";
 
 /**
  * The atomic visibility transition, scoped to a

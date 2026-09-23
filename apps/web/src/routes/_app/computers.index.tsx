@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { createFileRoute, getRouteApi } from "@tanstack/react-router";
 
-import { useBreakpoint } from "@/hooks/use-breakpoint";
+import { useBreakpoint } from "#src/hooks/use-breakpoint";
 
 const computersRoute = getRouteApi("/_app/computers");
 

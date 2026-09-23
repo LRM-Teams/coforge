@@ -14,7 +14,7 @@ import {
   type AgentWorkspaceFilesListResults,
   type PendingWorkspaceFileRead,
   type PendingWorkspaceFilesList,
-} from "@/server/agents/agent-workspace-files.server";
+} from "#src/server/agents/agent-workspace-files.server";
 import type { CentrifugoRpcMethod } from "./rpc-handler.server";
 
 // Same atomic-accept shape as Skills: compare the entire pending value so expiry/cancellation

@@ -6,9 +6,9 @@ import {
   DaemonConnection,
   type AgentMessageTransportResponse,
   type CentrifugeWorkspaceClient,
-} from "../src/connection/daemon-connection";
+} from "#src/connection/daemon-connection";
 import type { AgentSendResponse } from "@lrm/coforge-sdk/agent";
-import { AgentUpstreamRefusalError } from "../src/connection/agent-upstream-refusal-error";
+import { AgentUpstreamRefusalError } from "#src/connection/agent-upstream-refusal-error";
 import {
   AGENT_MESSAGE_ACK_METHOD,
   AGENT_STATUS_METHOD,
@@ -34,8 +34,8 @@ import {
 } from "@lrm/coforge-sdk/internal";
 import { DAEMON_RUNTIME_READY_METHOD } from "@lrm/coforge-sdk/internal";
 import { agentApiRoutes } from "@lrm/coforge-sdk/agent";
-import { AgentMessageRequestError } from "../src/connection/agent-message-request-error";
-import { AgentTransportError } from "../src/connection/agent-transport-error";
+import { AgentMessageRequestError } from "#src/connection/agent-message-request-error";
+import { AgentTransportError } from "#src/connection/agent-transport-error";
 
 /** Runs `run()` with a logtape capture sink installed for `coforge.daemon.*`, then restores the
  * previous (unconfigured) logging state. Mirrors the pattern in daemon-runtime.test.ts. */

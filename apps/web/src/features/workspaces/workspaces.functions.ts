@@ -2,19 +2,19 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { createWorkspaceInputSchema, selectWorkspaceInputSchema } from "./workspace.schemas";
 
-import { AppError } from "@/lib/app-error";
-import { authMiddleware, workspaceUserMiddleware } from "@/features/auth/function-auth";
-import { requireDatabaseClient } from "@/server/db/client.server";
+import { AppError } from "#src/lib/app-error";
+import { authMiddleware, workspaceUserMiddleware } from "#src/features/auth/function-auth";
+import { requireDatabaseClient } from "#src/server/db/client.server";
 import {
   PrismaWorkspaceCatalogStore,
   WorkspaceCatalog,
   pickWorkspace,
-} from "@/server/workspaces/catalog.server";
+} from "#src/server/workspaces/catalog.server";
 import {
   preferredWorkspaceSlugFromRequest,
   writePreferredWorkspaceSlug,
-} from "@/server/workspaces/selection.server";
-import { WorkspaceMembers } from "@/server/workspaces/members.server";
+} from "#src/server/workspaces/selection.server";
+import { WorkspaceMembers } from "#src/server/workspaces/members.server";
 import { MEMBER_PAGE_MAX, NO_COMPUTER } from "./member-directory";
 
 function catalog() {

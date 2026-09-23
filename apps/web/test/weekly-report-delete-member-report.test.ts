@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
-import type { PrismaClient } from "@/generated/prisma/client";
-import { RecordCatalog } from "@/server/records/record-catalog.server";
+import type { PrismaClient } from "#src/generated/prisma/client";
+import { RecordCatalog } from "#src/server/records/record-catalog.server";
 
 test("deleteMemberReport hides a sent submission from the author and keeps the leader copy", async () => {
   const deleted: string[] = [];

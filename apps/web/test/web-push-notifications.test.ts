@@ -8,7 +8,7 @@ import {
   type NotificationPublisher,
   type WebPushSubscriptionStore,
   type WebPushTransport,
-} from "@/server/notifications/web-push-notifications.server";
+} from "#src/server/notifications/web-push-notifications.server";
 
 const first = {
   id: "subscription-a",

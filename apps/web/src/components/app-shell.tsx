@@ -13,16 +13,19 @@ import {
 } from "@untitledui/icons";
 import { Button as AriaButton } from "react-aria-components";
 
-import type { NavItemType } from "@/components/application/app-navigation/config";
-import { Avatar } from "@/components/base/avatar/avatar";
-import { Dropdown } from "@/components/base/dropdown/dropdown";
-import { SidebarRail } from "@/components/layout/sidebar/sidebar-rail";
-import { MobileDrawerProvider } from "@/components/layout/sidebar/mobile-header";
-import { SidebarMobileDrawer } from "@/components/layout/sidebar/sidebar-channels";
-import { WorkspaceSwitcher, type WorkspaceOption } from "@/features/workspaces/workspace-switcher";
-import { avatarInitial, avatarToneClassName } from "@/lib/avatar-tone";
-import { m } from "@/paraglide/messages";
-import { localizeHref } from "@/paraglide/runtime";
+import type { NavItemType } from "#src/components/application/app-navigation/config";
+import { Avatar } from "#src/components/base/avatar/avatar";
+import { Dropdown } from "#src/components/base/dropdown/dropdown";
+import { SidebarRail } from "#src/components/layout/sidebar/sidebar-rail";
+import { MobileDrawerProvider } from "#src/components/layout/sidebar/mobile-header";
+import { SidebarMobileDrawer } from "#src/components/layout/sidebar/sidebar-channels";
+import {
+  WorkspaceSwitcher,
+  type WorkspaceOption,
+} from "#src/features/workspaces/workspace-switcher";
+import { avatarInitial, avatarToneClassName } from "#src/lib/avatar-tone";
+import { m } from "#src/paraglide/messages";
+import { localizeHref } from "#src/paraglide/runtime";
 
 export type AppUser = {
   name: string;

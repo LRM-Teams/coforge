@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { canDirectMessageAgent } from "@/server/agents/agent-visibility.server";
+import { canDirectMessageAgent } from "#src/server/agents/agent-visibility.server";
 
 /**
  * The stricter DM predicate: unlike `canSeeAgent` (which also admits an owner/admin

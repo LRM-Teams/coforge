@@ -1,9 +1,9 @@
 import { Plus, SearchLg as Search } from "@untitledui/icons";
-import { Button } from "@/components/base/buttons/button";
-import { Input } from "@/components/base/input/input";
-import { MobileNavigationButton } from "@/components/layout/sidebar/mobile-header";
-import { Skeleton } from "@/components/ui/skeleton";
-import { m } from "@/paraglide/messages";
+import { Button } from "#src/components/base/buttons/button";
+import { Input } from "#src/components/base/input/input";
+import { MobileNavigationButton } from "#src/components/layout/sidebar/mobile-header";
+import { Skeleton } from "#src/components/ui/skeleton";
+import { m } from "#src/paraglide/messages";
 
 export function AgentsPending() {
   return (

@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { Route } from "@/routes/api/agent/v1/users/$name";
+import { Route } from "#src/routes/api/agent/v1/users/$name";
 
 const handlers = Route.options.server!.handlers;
 if (!handlers || typeof handlers === "function" || typeof handlers.GET !== "function")

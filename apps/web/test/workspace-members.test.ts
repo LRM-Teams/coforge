@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import type { PrismaClient } from "@/generated/prisma/client";
-import { AppError } from "@/lib/app-error";
-import { WorkspaceMembers } from "@/server/workspaces/members.server";
+import type { PrismaClient } from "#src/generated/prisma/client";
+import { AppError } from "#src/lib/app-error";
+import { WorkspaceMembers } from "#src/server/workspaces/members.server";
 
 describe("WorkspaceMembers", () => {
   test("denies a User who is not a member before reading the directory", async () => {

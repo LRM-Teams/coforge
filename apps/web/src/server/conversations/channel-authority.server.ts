@@ -1,8 +1,8 @@
-import type { PrismaClient } from "@/generated/prisma/client";
+import type { PrismaClient } from "#src/generated/prisma/client";
 import { ACTIVE_MEMBER_WHERE } from "./active-member.server";
 import type { ChannelActor } from "./public-channels.server";
-import { isElevatedServerRole } from "@/server/workspaces/member-role.server";
-import { ACTIVE_AGENT_WHERE } from "@/server/agents/active-agent.server";
+import { isElevatedServerRole } from "#src/server/workspaces/member-role.server";
+import { ACTIVE_AGENT_WHERE } from "#src/server/agents/active-agent.server";
 
 /**
  * Channel-level roles and capability computation (superseding the earlier

@@ -10,7 +10,7 @@
 
 import { NodeViewWrapper } from "@tiptap/react";
 import type { NodeViewProps } from "@tiptap/react";
-import { Attachment } from "@/features/records/report-editor/attachment";
+import { Attachment } from "#src/features/records/report-editor/attachment";
 
 function ImageView({ node, editor, selected, deleteNode }: NodeViewProps) {
   const src = (node.attrs.src as string) || "";

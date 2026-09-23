@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import {
   readGitHubAppBotIdentity,
   readGitHubConfig,
-} from "@/server/integrations/github-config.server";
+} from "#src/server/integrations/github-config.server";
 
 test("GitHub stays unconfigured without secrets and rejects non-HTTPS or mismatched callback paths", async () => {
   expect(await readGitHubConfig({})).toBeNull();

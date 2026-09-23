@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { PrismaPg } from "@prisma/adapter-pg";
-import { PrismaClient } from "@/generated/prisma/client";
-import { resolveGitHubCommitTrailers } from "@/server/integrations/github-commit-trailers.server";
+import { PrismaClient } from "#src/generated/prisma/client";
+import { resolveGitHubCommitTrailers } from "#src/server/integrations/github-commit-trailers.server";
 
 const botEnv = {
   COFORGE_GITHUB_APP_SLUG: "coforge-staging",

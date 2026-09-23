@@ -1,4 +1,4 @@
-import { getDatabaseClient } from "@/server/db/client.server";
+import { getDatabaseClient } from "#src/server/db/client.server";
 import { recordCatalog } from "./record-catalog.server";
 
 export const WEEKLY_REPORT_SCHEDULE_TICK_ENV = "COFORGE_WEEKLY_REPORT_SCHEDULE_TICK_MS";

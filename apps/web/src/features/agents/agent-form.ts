@@ -1,7 +1,7 @@
 import { parseRuntimeProvider, RUNTIME_PROVIDER } from "@lrm/coforge-sdk/internal";
 
-import { isAppError } from "@/lib/app-error";
-import { m } from "@/paraglide/messages";
+import { isAppError } from "#src/lib/app-error";
+import { m } from "#src/paraglide/messages";
 import type { UpdateAgentInput } from "./agent.schemas";
 
 /**

@@ -1,6 +1,6 @@
 import { isNotFound, isRedirect } from "@tanstack/react-router";
 
-import { AppError, isAppError } from "@/lib/app-error";
+import { AppError, isAppError } from "#src/lib/app-error";
 
 type ErrorReport = {
   event: "server_operation_failed";

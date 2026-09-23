@@ -1,6 +1,6 @@
 import type { FC, ReactNode } from "react";
-import type { NavItemType } from "@/components/application/app-navigation/config";
-import { cx } from "@/utils/cx";
+import type { NavItemType } from "#src/components/application/app-navigation/config";
+import { cx } from "#src/utils/cx";
 
 // Adapted from Untitled's sidebar-slim.tsx (MIT; docs/design/official-components.md §7) —
 // the demo hardcodes Untitled's own logo/account card with no override

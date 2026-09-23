@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
-import { selectWeeklyReportAssistantMessages } from "@/server/records/weekly-report-assistant-chat.server";
-import { buildWeeklyReportAssistantRequestBody } from "@/server/records/weekly-report-assistant-request.server";
+import { selectWeeklyReportAssistantMessages } from "#src/server/records/weekly-report-assistant-chat.server";
+import { buildWeeklyReportAssistantRequestBody } from "#src/server/records/weekly-report-assistant-request.server";
 
 test("page-scoped message selection also isolates side-chat sessions", () => {
   const sessionA = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";

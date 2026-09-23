@@ -3,7 +3,7 @@ import { expect, test } from "bun:test";
 import {
   startWindowsWorkspaceReconcileLoop,
   WINDOWS_WORKSPACE_RECONCILE_MS,
-} from "../src/supervisor/windows-workspace-reconcile";
+} from "#src/supervisor/windows-workspace-reconcile";
 
 test("reconcile loop is null outside win32", () => {
   expect(startWindowsWorkspaceReconcileLoop(async () => {}, { platform: "linux" })).toBeNull();

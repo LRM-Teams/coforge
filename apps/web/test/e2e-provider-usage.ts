@@ -1,8 +1,11 @@
 import { PrismaPg } from "@prisma/adapter-pg";
 
-import { PrismaClient } from "@/generated/prisma/client";
-import { createCentrifugoServerApi, createUsageScan } from "@/server/centrifugo/server-api.server";
-import { getUsageCache } from "@/server/centrifugo/usage-cache.server";
+import { PrismaClient } from "#src/generated/prisma/client";
+import {
+  createCentrifugoServerApi,
+  createUsageScan,
+} from "#src/server/centrifugo/server-api.server";
+import { getUsageCache } from "#src/server/centrifugo/usage-cache.server";
 
 const workspaceSlug = required("COFORGE_E2E_WORKSPACE_SLUG");
 const databaseUrl = required("DATABASE_URL");

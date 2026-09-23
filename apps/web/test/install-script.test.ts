@@ -1,13 +1,13 @@
 import { expect, test } from "bun:test";
 
-import { isNonLocalizedRequest } from "@/server";
+import { isNonLocalizedRequest } from "#src/server";
 import {
   installPs1Handler,
   installShHandler,
   isValidReleaseFeedUrl,
   resolveReleaseFeedUrl,
   withDeploymentFeedUrl,
-} from "@/server/install/install-script.server";
+} from "#src/server/install/install-script.server";
 
 const STAGING = {
   COFORGE_RELEASE_FEED_URL: "https://releases-staging.coforge.cn",

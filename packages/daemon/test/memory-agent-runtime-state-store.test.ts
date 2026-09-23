@@ -3,7 +3,7 @@ import { realpathSync } from "node:fs";
 import { chmod, mkdir, mkdtemp, readdir, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { MemoryAgentRuntimeStateStore } from "../src/persistence/memory-agent-runtime-state-store";
+import { MemoryAgentRuntimeStateStore } from "#src/persistence/memory-agent-runtime-state-store";
 
 // macOS tmpdir lives under /var, a symlink; the store refuses linked workspace roots.
 const tempRoot = realpathSync(tmpdir());

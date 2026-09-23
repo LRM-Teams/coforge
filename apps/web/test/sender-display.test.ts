@@ -3,7 +3,7 @@ import { expect, test } from "bun:test";
 import {
   agentMessageSender,
   UnresolvedMessageSenderError,
-} from "@/server/conversations/sender-display.server";
+} from "#src/server/conversations/sender-display.server";
 
 test("a null sender is the system identity: kind system, no handle, no description", () => {
   expect(agentMessageSender(null)).toEqual({ kind: "system", handle: "", description: "" });

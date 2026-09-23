@@ -1,6 +1,6 @@
 import { useCallback } from "react";
 import { useRouter, useSearch } from "@tanstack/react-router";
-import type { AgentProfileTab } from "@/features/agents/profile-panel/profile-panel-search";
+import type { AgentProfileTab } from "#src/features/agents/profile-panel/profile-panel-search";
 
 import {
   conversationSearchWithoutAgentProfile,

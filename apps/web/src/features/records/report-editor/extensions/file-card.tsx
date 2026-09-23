@@ -17,8 +17,8 @@
 import { Node, mergeAttributes } from "@tiptap/core";
 import { ReactNodeViewRenderer, NodeViewWrapper } from "@tiptap/react";
 import type { NodeViewProps } from "@tiptap/react";
-import { escapeMarkdownLabel } from "@/features/records/report-editor/utils/escape-markdown-label";
-import { Attachment } from "@/features/records/report-editor/attachment";
+import { escapeMarkdownLabel } from "#src/features/records/report-editor/utils/escape-markdown-label";
+import { Attachment } from "#src/features/records/report-editor/attachment";
 
 const FILE_CARD_URL_PATTERN = /\/uploads\/[^)]*|https?:\/\/[^)]+|data:[^)]+/;
 const FILE_CARD_MARKDOWN_RE = new RegExp(

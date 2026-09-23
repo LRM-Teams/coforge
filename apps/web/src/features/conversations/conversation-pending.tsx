@@ -1,9 +1,9 @@
 import { useMatch, useRouter } from "@tanstack/react-router";
 import { AlertCircle } from "@untitledui/icons";
-import { Button } from "@/components/base/buttons/button";
-import { Skeleton } from "@/components/ui/skeleton";
-import { isAppError } from "@/lib/app-error";
-import { m } from "@/paraglide/messages";
+import { Button } from "#src/components/base/buttons/button";
+import { Skeleton } from "#src/components/ui/skeleton";
+import { isAppError } from "#src/lib/app-error";
+import { m } from "#src/paraglide/messages";
 import { ConversationListButton } from "./conversation-navigation";
 
 export function MessagesPending() {

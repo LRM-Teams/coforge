@@ -1,4 +1,4 @@
-import { m } from "@/paraglide/messages";
+import { m } from "#src/paraglide/messages";
 
 export type StoredWebPushSubscription = {
   id: string;

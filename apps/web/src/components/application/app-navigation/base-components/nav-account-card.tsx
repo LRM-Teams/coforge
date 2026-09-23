@@ -5,11 +5,11 @@ import { BookOpen01, ChevronSelectorVertical, LogOut01, Plus, Settings01, User01
 import { useFocusManager } from "react-aria";
 import type { ButtonProps as AriaButtonProps, DialogProps as AriaDialogProps } from "react-aria-components";
 import { Button as AriaButton, Dialog as AriaDialog, DialogTrigger as AriaDialogTrigger, Popover as AriaPopover } from "react-aria-components";
-import { AvatarLabelGroup } from "@/components/base/avatar/avatar-label-group";
-import { Button } from "@/components/base/buttons/button";
-import { RadioButtonBase } from "@/components/base/radio-buttons/radio-buttons";
-import { useBreakpoint } from "@/hooks/use-breakpoint";
-import { cx } from "@/utils/cx";
+import { AvatarLabelGroup } from "#src/components/base/avatar/avatar-label-group";
+import { Button } from "#src/components/base/buttons/button";
+import { RadioButtonBase } from "#src/components/base/radio-buttons/radio-buttons";
+import { useBreakpoint } from "#src/hooks/use-breakpoint";
+import { cx } from "#src/utils/cx";
 
 export type NavAccountType = {
     /** Unique identifier for the nav item. */

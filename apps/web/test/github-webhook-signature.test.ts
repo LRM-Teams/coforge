@@ -1,6 +1,6 @@
 import { createHmac } from "node:crypto";
 import { describe, expect, test } from "bun:test";
-import { verifyGitHubWebhookSignature } from "@/server/integrations/github-webhook.server";
+import { verifyGitHubWebhookSignature } from "#src/server/integrations/github-webhook.server";
 
 const secret = "test-webhook-secret";
 const body = JSON.stringify({ action: "created", installation: { id: 1 } });

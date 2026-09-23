@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { PrismaPg } from "@prisma/adapter-pg";
-import { PrismaClient } from "@/generated/prisma/client";
-import { WorkspaceMembers } from "@/server/workspaces/members.server";
+import { PrismaClient } from "#src/generated/prisma/client";
+import { WorkspaceMembers } from "#src/server/workspaces/members.server";
 
 test("lists only the requested Workspace directory and denies outsiders", async () => {
   const connectionString = Bun.env.CHANNEL_TEST_DATABASE_URL;

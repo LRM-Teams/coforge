@@ -1,7 +1,10 @@
 import { afterEach, expect, test } from "bun:test";
 import { decodeDaemonRuntimeUsageScanRequest } from "@lrm/coforge-sdk/internal";
 
-import { createCentrifugoServerApi, createUsageScan } from "@/server/centrifugo/server-api.server";
+import {
+  createCentrifugoServerApi,
+  createUsageScan,
+} from "#src/server/centrifugo/server-api.server";
 
 const originalFetch = globalThis.fetch;
 

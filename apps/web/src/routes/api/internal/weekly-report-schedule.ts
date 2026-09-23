@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 
-import { getDatabaseClient } from "@/server/db/client.server";
-import { recordCatalog } from "@/server/records/record-catalog.server";
+import { getDatabaseClient } from "#src/server/db/client.server";
+import { recordCatalog } from "#src/server/records/record-catalog.server";
 
 /**
  * External cron tick for periodic weekly-report send.

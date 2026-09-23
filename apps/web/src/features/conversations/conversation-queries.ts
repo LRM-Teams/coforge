@@ -18,7 +18,7 @@ import {
   nextPageCursor,
   previousPageCursor,
   type ConversationWindowCursor,
-} from "@/lib/conversation-window";
+} from "#src/lib/conversation-window";
 import {
   loadConversationAround,
   loadDirectConversation,

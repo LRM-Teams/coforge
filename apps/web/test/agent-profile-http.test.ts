@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { Route } from "@/routes/api/agent/v1/profile";
+import { Route } from "#src/routes/api/agent/v1/profile";
 
 const handlers = Route.options.server!.handlers;
 if (

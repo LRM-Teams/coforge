@@ -1,20 +1,20 @@
 import { expect, test } from "bun:test";
 import { configure, reset, type LogRecord } from "@logtape/logtape";
-import { AgentControl } from "../src/agent-runtime/agent-control";
-import { AgentSessions } from "../src/agent-runtime/agent-session";
+import { AgentControl } from "#src/agent-runtime/agent-control";
+import { AgentSessions } from "#src/agent-runtime/agent-session";
 import {
   AgentRuntimeState,
   type AgentRuntimeRecord,
   type AgentRuntimeStateStore,
-} from "../src/agent-runtime/agent-runtime-state";
+} from "#src/agent-runtime/agent-runtime-state";
 import type {
   AgentWorkspaceResetRequest,
   AgentControlResult,
   AgentControlScope,
   AgentStartIntent,
 } from "@lrm/coforge-sdk/internal";
-import { AgentSessionRecoveryError, AgentProcessCleanupError } from "../src/code-agent/contract";
-import type { LaunchRetryScheduler } from "../src/agent-runtime/agent-control";
+import { AgentSessionRecoveryError, AgentProcessCleanupError } from "#src/code-agent/contract";
+import type { LaunchRetryScheduler } from "#src/agent-runtime/agent-control";
 
 /** Every test in this file that can fail a launch asserts on the operation's own outcome, so it
  * arms no automatic retry; the retry behaviour has its own coverage in

@@ -22,15 +22,15 @@ import type {
   AgentWorkspaceFilesListResult,
 } from "@lrm/coforge-sdk/internal";
 
-import { Button } from "@/components/base/buttons/button";
-import { ButtonUtility } from "@/components/base/buttons/button-utility";
-import { useResizeObserver } from "@/hooks/use-resize-observer";
-import { copyText } from "@/features/records/report-editor/lib/clipboard";
-import { ProjectFileView, ProjectFileViewSkeleton } from "@/features/projects/project-file-view";
-import { Attachment } from "@/features/records/report-editor/attachment";
+import { Button } from "#src/components/base/buttons/button";
+import { ButtonUtility } from "#src/components/base/buttons/button-utility";
+import { useResizeObserver } from "#src/hooks/use-resize-observer";
+import { copyText } from "#src/features/records/report-editor/lib/clipboard";
+import { ProjectFileView, ProjectFileViewSkeleton } from "#src/features/projects/project-file-view";
+import { Attachment } from "#src/features/records/report-editor/attachment";
 import { workspaceImageSource } from "./agent-workspace-image";
-import { m } from "@/paraglide/messages";
-import { cn } from "@/lib/utils";
+import { m } from "#src/paraglide/messages";
+import { cn } from "#src/lib/utils";
 import { SECTION_CAPTION_CLASS } from "./inline-edit-field";
 
 /** The container width, in CSS px, at and above which the tree and the open file split

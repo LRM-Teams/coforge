@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { RUNTIME_PROVIDER } from "@lrm/coforge-sdk/internal";
-import { agentRuntimeSelectionIsAvailable } from "@/server/agents/agent-runtime-availability.server";
+import { agentRuntimeSelectionIsAvailable } from "#src/server/agents/agent-runtime-availability.server";
 
 const gpt = {
   id: "gpt-5",

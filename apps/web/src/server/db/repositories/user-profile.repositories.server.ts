@@ -1,10 +1,10 @@
-import type { PrismaClient } from "@/generated/prisma/client";
-import { AppError } from "@/lib/app-error";
+import type { PrismaClient } from "#src/generated/prisma/client";
+import { AppError } from "#src/lib/app-error";
 import {
   PROFILE_IMAGE_STYLES,
   publicImageUrl,
   type PublicImageUrlResolver,
-} from "@/server/files/public-image-delivery.server";
+} from "#src/server/files/public-image-delivery.server";
 
 export class PrismaUserProfileRepository {
   constructor(private readonly db: PrismaClient) {}

@@ -2,8 +2,8 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { acquireProcessLock } from "../src/platform/process-lock";
-import { acquireSupervisorLock } from "../src/supervisor/run-supervisor";
+import { acquireProcessLock } from "#src/platform/process-lock";
+import { acquireSupervisorLock } from "#src/supervisor/run-supervisor";
 
 const roots: string[] = [];
 

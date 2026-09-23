@@ -9,12 +9,12 @@ import {
   sweepComputerUpgradeReceipts,
   watchComputerUpgradeReceipt,
   UPGRADE_EXPIRED_WITHOUT_RECEIPT,
-} from "../src/platform/computer-upgrade-receipts";
+} from "#src/platform/computer-upgrade-receipts";
 import {
   MachineSupervisor,
   UPGRADE_OPERATION_PENDING_TTL_MS,
   type ManagedBinding,
-} from "../src/supervisor/machine-supervisor";
+} from "#src/supervisor/machine-supervisor";
 
 async function home() {
   return await mkdtemp(join(realpathSync(tmpdir()), "coforge-upgrade-receipt-"));

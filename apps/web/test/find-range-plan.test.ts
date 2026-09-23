@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { planRangeForOffsets } from "@/features/projects/find-range-plan";
+import { planRangeForOffsets } from "#src/features/projects/find-range-plan";
 
 test("match fully inside a single segment", () => {
   expect(planRangeForOffsets([11], 2, 5)).toEqual({

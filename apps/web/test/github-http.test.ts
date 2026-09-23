@@ -5,7 +5,7 @@ import {
   githubCallbackHandler,
   githubInstallationStateCookie,
   validGitHubInstallationState,
-} from "@/server/integrations/github-http.server";
+} from "#src/server/integrations/github-http.server";
 
 test("GitHub installation state is one-time, HttpOnly, and compared exactly", () => {
   const state = "state-for-this-browser";

@@ -1,9 +1,9 @@
-import type { PrismaClient } from "@/generated/prisma/client";
-import { ACTIVE_AGENT_WHERE } from "@/server/agents/active-agent.server";
+import type { PrismaClient } from "#src/generated/prisma/client";
+import { ACTIVE_AGENT_WHERE } from "#src/server/agents/active-agent.server";
 import type {
   AgentDeletionOutcome,
   AgentDeletionStore,
-} from "@/server/agents/agent-deletion.server";
+} from "#src/server/agents/agent-deletion.server";
 
 /**
  * One transaction makes a deleted Agent inert cloud-side: the Agent is marked

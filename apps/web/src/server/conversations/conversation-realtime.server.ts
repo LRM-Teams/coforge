@@ -1,12 +1,12 @@
-import type { PrismaClient } from "@/generated/prisma/client";
+import type { PrismaClient } from "#src/generated/prisma/client";
 import {
   conversationRealtimeChannel,
   userConversationChannel,
   workspaceConversationChannel,
   type MessageAvailableEvent,
   type MemberChangedEvent,
-} from "@/features/conversations/conversation-realtime";
-import type { CentrifugoServerApi } from "@/server/centrifugo/server-api.server";
+} from "#src/features/conversations/conversation-realtime";
+import type { CentrifugoServerApi } from "#src/server/centrifugo/server-api.server";
 
 export type ConversationRealtimeMessage = {
   conversationId: string;

@@ -1,10 +1,10 @@
 import { FaceSmile } from "@untitledui/icons";
 import { Popover as AriaPopover } from "react-aria-components";
 
-import { Dialog, DialogTrigger } from "@/components/application/modals/modal";
-import { Button } from "@/components/base/buttons/button";
-import { ButtonUtility } from "@/components/base/buttons/button-utility";
-import { m } from "@/paraglide/messages";
+import { Dialog, DialogTrigger } from "#src/components/application/modals/modal";
+import { Button } from "#src/components/base/buttons/button";
+import { ButtonUtility } from "#src/components/base/buttons/button-utility";
+import { m } from "#src/paraglide/messages";
 
 /**
  * One-tap emojis for message reactions. Kept to single emojis without whitespace so

@@ -5,9 +5,9 @@ import {
   resolveComputerInstallDirectory,
   resolveComputerStateDirectory,
   resolveDaemonSocketPath,
-} from "../paths";
-import { currentComputerPlatform } from "../platform";
-import { COFORGE_RELEASE_FEED_URL } from "../release-channel";
+} from "#src/paths";
+import { currentComputerPlatform } from "#src/platform";
+import { COFORGE_RELEASE_FEED_URL } from "#src/release-channel";
 import {
   launchUpgradeCoordinator,
   type LaunchUpgradeCoordinatorPaths,

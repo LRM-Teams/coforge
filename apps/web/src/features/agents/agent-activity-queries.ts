@@ -15,7 +15,7 @@ import {
 import {
   useRealtimeSubscription,
   useRealtimeSubscriptions,
-} from "@/features/realtime/browser-realtime";
+} from "#src/features/realtime/browser-realtime";
 import type { QueryClient } from "@tanstack/react-query";
 
 export const agentActivityKeys = {

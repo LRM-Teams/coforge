@@ -1,5 +1,5 @@
-import type { PrismaClient } from "@/generated/prisma/client";
-import { AppError } from "@/lib/app-error";
+import type { PrismaClient } from "#src/generated/prisma/client";
+import { AppError } from "#src/lib/app-error";
 
 const SUBJECT_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 

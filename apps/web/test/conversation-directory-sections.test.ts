@@ -3,7 +3,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import {
   readCollapsedSections,
   writeCollapsedSections,
-} from "@/features/conversations/directory-sections";
+} from "#src/features/conversations/directory-sections";
 
 function stubLocalStorage(initial?: string) {
   const store = new Map<string, string>();

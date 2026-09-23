@@ -10,14 +10,14 @@ import {
 import { XClose as X } from "@untitledui/icons";
 import { Heading } from "react-aria-components";
 
-import { BadgeWithButton } from "@/components/base/badges/badges";
-import { Button } from "@/components/base/buttons/button";
-import { ButtonUtility } from "@/components/base/buttons/button-utility";
-import { Dropdown } from "@/components/base/dropdown/dropdown";
-import { Input } from "@/components/base/input/input";
-import { Dialog, Modal, ModalOverlay } from "@/components/application/modals/modal";
-import { Select } from "@/components/base/select/select";
-import { m } from "@/paraglide/messages";
+import { BadgeWithButton } from "#src/components/base/badges/badges";
+import { Button } from "#src/components/base/buttons/button";
+import { ButtonUtility } from "#src/components/base/buttons/button-utility";
+import { Dropdown } from "#src/components/base/dropdown/dropdown";
+import { Input } from "#src/components/base/input/input";
+import { Dialog, Modal, ModalOverlay } from "#src/components/application/modals/modal";
+import { Select } from "#src/components/base/select/select";
+import { m } from "#src/paraglide/messages";
 import { isValidTemplateName, hourlySendTimes } from "./records-content";
 import { parseTemplateSections, type TemplateOutlineSection } from "./template-outline-sections";
 import { memberLabel, weekdayLabel, type TemplateMemberOption } from "./weekly-template-members";

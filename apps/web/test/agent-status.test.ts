@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 
-import { RedisAgentStatusCache } from "@/server/agents/agent-status.server";
+import { RedisAgentStatusCache } from "#src/server/agents/agent-status.server";
 
 test("returns the latest volatile Agent availability status from shared hot state", async () => {
   const values = new Map<string, string>();

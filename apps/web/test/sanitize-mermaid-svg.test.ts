@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { sanitizeMermaidSvg } from "@/features/records/report-editor/normalize-mermaid-chart";
+import { sanitizeMermaidSvg } from "#src/features/records/report-editor/normalize-mermaid-chart";
 
 describe("sanitizeMermaidSvg", () => {
   test("makes HTML void <br> tags XML-safe inside foreignObject markup", () => {

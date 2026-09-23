@@ -1,6 +1,6 @@
 import { Link } from "@tanstack/react-router";
 
-import { m } from "@/paraglide/messages";
+import { m } from "#src/paraglide/messages";
 
 /** Child member report hanging under a template weekly-report node. */
 export type TemplateChild = {

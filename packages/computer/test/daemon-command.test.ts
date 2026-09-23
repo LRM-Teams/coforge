@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import type { DaemonCommandRunner } from "@lrm/coforge-daemon";
-import { createCommand } from "../src/daemon-client";
+import { createCommand } from "#src/daemon-client/index";
 
 const output = () => {
   const lines: string[] = [];

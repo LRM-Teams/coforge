@@ -1,4 +1,4 @@
-import type { Prisma } from "@/generated/prisma/client";
+import type { Prisma } from "#src/generated/prisma/client";
 
 /**
  * A `ConversationMember` row that has not left. `leftAt` is a soft-leave marker: member rows

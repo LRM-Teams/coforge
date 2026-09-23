@@ -4,7 +4,7 @@ import {
   LAUNCH_FAILURE_BACKOFF_CAP_MS,
   LaunchFailureBackoff,
   launchFailureCooldownMs,
-} from "../src/agent-runtime/launch-failure-backoff";
+} from "#src/agent-runtime/launch-failure-backoff";
 
 test("the cooldown doubles from one second and caps at thirty", () => {
   expect([1, 2, 3, 4, 5, 6, 7, 8, 12].map((attempts) => launchFailureCooldownMs(attempts))).toEqual(

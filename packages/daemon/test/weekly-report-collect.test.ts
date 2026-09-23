@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { validateWeeklyReportCollectCommand } from "../src/connection/weekly-report-collect";
+import { validateWeeklyReportCollectCommand } from "#src/connection/weekly-report-collect";
 
 test("validateWeeklyReportCollectCommand accepts ready packs and rejects missing markdown", () => {
   const requestId = "11111111-1111-4111-8111-111111111111";
@@ -38,7 +38,7 @@ test("validateWeeklyReportCollectCommand accepts ready packs and rejects missing
 
 test("validateWeeklyReportCollectFailRunningCommand accepts turn-fail settle bodies", async () => {
   const { validateWeeklyReportCollectFailRunningCommand } =
-    await import("../src/connection/weekly-report-collect");
+    await import("#src/connection/weekly-report-collect");
   const requestId = "33333333-3333-4333-8333-333333333333";
   expect(
     validateWeeklyReportCollectFailRunningCommand({

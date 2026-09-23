@@ -9,7 +9,7 @@ import {
   resolveAgentProfileTab,
   visibleAgentProfileTabs,
   AGENT_PROFILE_TABS,
-} from "@/features/agents/profile-panel/profile-panel-search";
+} from "#src/features/agents/profile-panel/profile-panel-search";
 
 const AGENT_ID = "a1b2c3d4-e5f6-4789-a012-3456789abcde";
 

@@ -4,26 +4,26 @@ import { z } from "zod";
 import {
   ChannelConversation,
   ChannelConversationHeader,
-} from "@/features/conversations/channel-conversation";
+} from "#src/features/conversations/channel-conversation";
 import {
   ConversationLoadError,
   ConversationPending,
-} from "@/features/conversations/conversation-pending";
+} from "#src/features/conversations/conversation-pending";
 import {
   publicChannelQuery,
   publicChannelUpdates,
   useConversationQuery,
-} from "@/features/conversations/conversation-queries";
+} from "#src/features/conversations/conversation-queries";
 import {
   useConversationView,
   useShownConversationTab,
-} from "@/features/conversations/use-conversation-view";
-import { CONVERSATION_TABS } from "@/features/conversations/conversation-tabs";
-import { TaskBoard } from "@/features/tasks/task-board";
-import { ConversationFilesPanel } from "@/features/conversations/conversation-files";
-import { useTaskLayout } from "@/features/tasks/task-workflow";
-import { useConversationTasks } from "@/features/tasks/use-conversation-tasks";
-import { loadOwnConversationMessages } from "@/features/conversations/conversations.functions";
+} from "#src/features/conversations/use-conversation-view";
+import { CONVERSATION_TABS } from "#src/features/conversations/conversation-tabs";
+import { TaskBoard } from "#src/features/tasks/task-board";
+import { ConversationFilesPanel } from "#src/features/conversations/conversation-files";
+import { useTaskLayout } from "#src/features/tasks/task-workflow";
+import { useConversationTasks } from "#src/features/tasks/use-conversation-tasks";
+import { loadOwnConversationMessages } from "#src/features/conversations/conversations.functions";
 import {
   joinPublicChannel,
   markPublicChannelRead,
@@ -32,24 +32,24 @@ import {
   setPublicChannelMuted,
   sendPublicChannelMessage,
   toggleChannelMessageReaction,
-} from "@/features/conversations/channels.functions";
+} from "#src/features/conversations/channels.functions";
 import {
   agentIdFromProfileParam,
   agentProfileParamSchema,
   agentProfileTabParamSchema,
-} from "@/features/agents/profile-panel/profile-panel-search";
-import { useOpenAgentProfile } from "@/features/agents/profile-panel/open-agent-profile";
+} from "#src/features/agents/profile-panel/profile-panel-search";
+import { useOpenAgentProfile } from "#src/features/agents/profile-panel/open-agent-profile";
 import {
   useConversationReadRequiresScroll,
   useMarkConversationSeen,
-} from "@/features/conversations/conversation-navigation";
+} from "#src/features/conversations/conversation-navigation";
 import {
   latestTopLevelSequence,
   persistReadCursor,
-} from "@/features/conversations/conversation-unread";
+} from "#src/features/conversations/conversation-unread";
 import { useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { threadFollowingAgentsQueryPrefix } from "@/features/conversations/conversation-query-keys";
+import { threadFollowingAgentsQueryPrefix } from "#src/features/conversations/conversation-query-keys";
 
 export const Route = createFileRoute("/_app/messages/channels/$channelId")({
   validateSearch: z.object({

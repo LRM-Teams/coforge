@@ -1,5 +1,5 @@
-import type { PrismaClient } from "@/generated/prisma/client";
-import { AppError } from "@/lib/app-error";
+import type { PrismaClient } from "#src/generated/prisma/client";
+import { AppError } from "#src/lib/app-error";
 
 export type WeeklyReportAssistantChatSessionRecord = {
   id: string;

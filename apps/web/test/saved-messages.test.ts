@@ -3,7 +3,7 @@ import { describe, expect, test } from "bun:test";
 import {
   savedMessageView,
   type SavedMessageRow,
-} from "@/server/conversations/saved-messages.server";
+} from "#src/server/conversations/saved-messages.server";
 
 const WORKSPACE_ID = "11111111-1111-4111-8111-111111111111";
 

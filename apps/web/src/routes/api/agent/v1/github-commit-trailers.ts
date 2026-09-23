@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { z } from "zod";
-import { agentAuthMiddleware } from "@/server/agents/agent-http-middleware.server";
-import { resolveGitHubCommitTrailers } from "@/server/integrations/github-commit-trailers.server";
+import { agentAuthMiddleware } from "#src/server/agents/agent-http-middleware.server";
+import { resolveGitHubCommitTrailers } from "#src/server/integrations/github-commit-trailers.server";
 
 const requestSchema = z.object({ repository: z.string().min(1).nullable() }).strict();
 

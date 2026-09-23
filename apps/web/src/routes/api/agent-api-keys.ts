@@ -4,29 +4,29 @@ import {
   createAgentApiKey,
   findAgentApiKey,
   isAgentApiKeyBoundToComputer,
-} from "@/server/agents/agent-api-key.server";
-import { ACTIVE_AGENT_WHERE } from "@/server/agents/active-agent.server";
-import { PrismaAgentApiKeyRepository } from "@/server/db/repositories/agent-api-key.repositories.server";
-import { getDatabaseClient } from "@/server/db/client.server";
-import { verifyDaemonApiKey } from "@/server/auth/daemon-api-key.server";
-import { PrismaDaemonApiKeyRepository } from "@/server/db/repositories/daemon-api-key.repositories.server";
-import { parseAgentRuntimeConfig } from "@/server/agents/agent-runtime-config.server";
+} from "#src/server/agents/agent-api-key.server";
+import { ACTIVE_AGENT_WHERE } from "#src/server/agents/active-agent.server";
+import { PrismaAgentApiKeyRepository } from "#src/server/db/repositories/agent-api-key.repositories.server";
+import { getDatabaseClient } from "#src/server/db/client.server";
+import { verifyDaemonApiKey } from "#src/server/auth/daemon-api-key.server";
+import { PrismaDaemonApiKeyRepository } from "#src/server/db/repositories/daemon-api-key.repositories.server";
+import { parseAgentRuntimeConfig } from "#src/server/agents/agent-runtime-config.server";
 import {
   AgentRuntimeCredentials,
   readOptionalAgentRuntimeCredentialEncryptionKey,
-} from "@/server/agents/agent-runtime-credentials.server";
-import { PrismaAgentRuntimeCredentialRepository } from "@/server/db/repositories/agent-runtime-credential.repositories.server";
-import { AgentControl } from "@/server/agents/agent-control.server";
-import { PrismaAgentControlStore } from "@/server/db/repositories/agent-control.repositories.server";
-import { getAgentRuntimeLock } from "@/server/agents/agent-runtime-lock.server";
-import { createCentrifugoServerApi } from "@/server/centrifugo/server-api.server";
-import { ComputerRuntimeVisibility } from "@/server/computers/computer-runtime-visibility.server";
-import { PrismaComputerRuntimeRepository } from "@/server/db/repositories/computer-runtime.repositories.server";
-import { decryptAgentEnvironment } from "@/server/agents/agent-environment.server";
+} from "#src/server/agents/agent-runtime-credentials.server";
+import { PrismaAgentRuntimeCredentialRepository } from "#src/server/db/repositories/agent-runtime-credential.repositories.server";
+import { AgentControl } from "#src/server/agents/agent-control.server";
+import { PrismaAgentControlStore } from "#src/server/db/repositories/agent-control.repositories.server";
+import { getAgentRuntimeLock } from "#src/server/agents/agent-runtime-lock.server";
+import { createCentrifugoServerApi } from "#src/server/centrifugo/server-api.server";
+import { ComputerRuntimeVisibility } from "#src/server/computers/computer-runtime-visibility.server";
+import { PrismaComputerRuntimeRepository } from "#src/server/db/repositories/computer-runtime.repositories.server";
+import { decryptAgentEnvironment } from "#src/server/agents/agent-environment.server";
 import {
   buildAgentRuntimeContext,
   type AgentRuntimeContextComputer,
-} from "@/server/agents/agent-runtime-context.server";
+} from "#src/server/agents/agent-runtime-context.server";
 
 const createAgentApiKeyInputSchema = z.object({
   agentId: z.string().min(1),

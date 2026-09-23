@@ -5,16 +5,16 @@ import {
   type AgentSessionReport,
   type AgentSessionInvalidate,
 } from "@lrm/coforge-sdk/internal";
-import { AgentSessionReceiver } from "@/server/agents/agent-session.server";
+import { AgentSessionReceiver } from "#src/server/agents/agent-session.server";
 import {
   agentControlRevision,
   type AgentControlAgent,
   type AgentControlState,
-} from "@/server/agents/agent-control.server";
+} from "#src/server/agents/agent-control.server";
 import {
   createAgentSessionMethod,
   createAgentSessionInvalidateMethod,
-} from "@/server/centrifugo/agent-session-receiver.server";
+} from "#src/server/centrifugo/agent-session-receiver.server";
 
 test("Session RPC preserves control state and rejects stale scope, revoked access and lost writes", async () => {
   const snapshot: AgentSessionReport = {

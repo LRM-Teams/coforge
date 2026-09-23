@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 
-import { waitForUsageScanResult } from "@/features/computers/usage-poll";
+import { waitForUsageScanResult } from "#src/features/computers/usage-poll";
 
 test("usage polling waits until the new scan's own result replaces the previous one", async () => {
   const reads = [

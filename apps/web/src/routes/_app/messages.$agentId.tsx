@@ -5,47 +5,47 @@ import { z } from "zod";
 import {
   DirectConversation,
   DirectConversationHeader,
-} from "@/features/conversations/direct-conversation";
+} from "#src/features/conversations/direct-conversation";
 import {
   ConversationLoadError,
   ConversationPending,
-} from "@/features/conversations/conversation-pending";
-import { useLiveAgent } from "@/features/agents/workspace-agents-realtime";
+} from "#src/features/conversations/conversation-pending";
+import { useLiveAgent } from "#src/features/agents/workspace-agents-realtime";
 import {
   directConversationQuery,
   directConversationUpdates,
   useConversationQuery,
-} from "@/features/conversations/conversation-queries";
+} from "#src/features/conversations/conversation-queries";
 import {
   useConversationView,
   useShownConversationTab,
-} from "@/features/conversations/use-conversation-view";
-import { CONVERSATION_TABS } from "@/features/conversations/conversation-tabs";
-import { TaskBoard } from "@/features/tasks/task-board";
-import { ConversationFilesPanel } from "@/features/conversations/conversation-files";
-import { useTaskLayout } from "@/features/tasks/task-workflow";
-import { useConversationTasks } from "@/features/tasks/use-conversation-tasks";
+} from "#src/features/conversations/use-conversation-view";
+import { CONVERSATION_TABS } from "#src/features/conversations/conversation-tabs";
+import { TaskBoard } from "#src/features/tasks/task-board";
+import { ConversationFilesPanel } from "#src/features/conversations/conversation-files";
+import { useTaskLayout } from "#src/features/tasks/task-workflow";
+import { useConversationTasks } from "#src/features/tasks/use-conversation-tasks";
 import {
   loadOwnConversationMessages,
   markDirectThreadRead,
   sendDirectConversationMessage,
   toggleDirectMessageReaction,
-} from "@/features/conversations/conversations.functions";
+} from "#src/features/conversations/conversations.functions";
 import {
   agentIdFromProfileParam,
   agentProfileParamSchema,
   agentProfileTabParamSchema,
-} from "@/features/agents/profile-panel/profile-panel-search";
-import { useOpenAgentProfile } from "@/features/agents/profile-panel/open-agent-profile";
+} from "#src/features/agents/profile-panel/profile-panel-search";
+import { useOpenAgentProfile } from "#src/features/agents/profile-panel/open-agent-profile";
 import {
   useConversationReadRequiresScroll,
   useMarkConversationSeen,
-} from "@/features/conversations/conversation-navigation";
+} from "#src/features/conversations/conversation-navigation";
 import {
   latestTopLevelSequence,
   persistReadCursor,
-} from "@/features/conversations/conversation-unread";
-import { markDirectConversationRead } from "@/features/conversations/conversations.functions";
+} from "#src/features/conversations/conversation-unread";
+import { markDirectConversationRead } from "#src/features/conversations/conversations.functions";
 import { useEffect } from "react";
 
 export const Route = createFileRoute("/_app/messages/$agentId")({

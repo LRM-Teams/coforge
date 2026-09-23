@@ -3,7 +3,7 @@ import {
   HELD_SEND_AVAILABLE_ACTIONS,
   locallyHeldSend,
   planAgentInboxFreshness,
-} from "../src/daemon-runtime/agent-inbox-freshness";
+} from "#src/daemon-runtime/agent-inbox-freshness";
 
 /** One message of the held window, shaped the way the transport response carries messages. */
 function heldMessage(sequence: number) {

@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
-import { AgentAppInbox } from "../src/agent-app-inbox/agent-app-inbox";
+import { AgentAppInbox } from "#src/agent-app-inbox/agent-app-inbox";
 
 const roots: string[] = [];
 const reminderId = "123e4567-e89b-42d3-a456-426614174000";

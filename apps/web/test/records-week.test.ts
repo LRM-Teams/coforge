@@ -11,7 +11,7 @@ import {
   formatRecipientSummary,
   memberWeekTitle,
   normalizeReportContent,
-} from "@/features/records/records-content";
+} from "#src/features/records/records-content";
 
 test("formats member week titles like the design catalog", () => {
   expect(memberWeekTitle(2026, 36)).toBe("2026 W36 工作周报");

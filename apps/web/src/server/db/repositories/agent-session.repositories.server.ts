@@ -1,13 +1,13 @@
-import { Prisma, type PrismaClient } from "@/generated/prisma/client";
+import { Prisma, type PrismaClient } from "#src/generated/prisma/client";
 import { z } from "zod";
 import {
   AgentSessions,
   type AgentSessionRepository,
   type AgentSessionWriteScope,
   type RuntimeSessionReference,
-} from "@/server/agents/agent-sessions.server";
-import { parseAgentRuntimeConfig } from "@/server/agents/agent-runtime-config.server";
-import { getComputerRestartStore } from "@/server/computers/computer-restart-store.server";
+} from "#src/server/agents/agent-sessions.server";
+import { parseAgentRuntimeConfig } from "#src/server/agents/agent-runtime-config.server";
+import { getComputerRestartStore } from "#src/server/computers/computer-restart-store.server";
 
 const referenceSchema = z.object({
   provider: z.string(),

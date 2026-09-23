@@ -1,10 +1,10 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { z } from "zod";
 
-import { AppError, isAppError } from "@/lib/app-error";
-import { AgentAvatars } from "@/server/agents/agent-avatar.server";
-import { optionalBrowserUser } from "@/server/auth/require-user.server";
-import { requireDatabaseClient } from "@/server/db/client.server";
+import { AppError, isAppError } from "#src/lib/app-error";
+import { AgentAvatars } from "#src/server/agents/agent-avatar.server";
+import { optionalBrowserUser } from "#src/server/auth/require-user.server";
+import { requireDatabaseClient } from "#src/server/db/client.server";
 
 const ids = z.object({ workspaceId: z.uuid(), agentId: z.uuid() });
 

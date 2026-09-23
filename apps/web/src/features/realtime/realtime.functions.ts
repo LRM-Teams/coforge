@@ -1,15 +1,15 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 
-import { AppError } from "@/lib/app-error";
+import { AppError } from "#src/lib/app-error";
 import {
   issueBrowserRealtimeToken,
   issueConversationRealtimeToken,
   issueUserConversationSubscriptionToken,
   issueWorkspaceConversationSubscriptionToken,
-} from "@/server/auth/browser-realtime-token.server";
-import { workspaceUserMiddleware } from "@/features/auth/function-auth";
-import { ACTIVE_MEMBER_WHERE } from "@/server/conversations/active-member.server";
+} from "#src/server/auth/browser-realtime-token.server";
+import { workspaceUserMiddleware } from "#src/features/auth/function-auth";
+import { ACTIVE_MEMBER_WHERE } from "#src/server/conversations/active-member.server";
 
 export const getBrowserRealtimeConnectionToken = createServerFn({
   method: "GET",

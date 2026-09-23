@@ -4,7 +4,11 @@ import { join } from "node:path";
 
 import { expect, test } from "bun:test";
 
-import { AuthConfigError, readAuthingConfig, readSessionSecret } from "@/server/auth/config.server";
+import {
+  AuthConfigError,
+  readAuthingConfig,
+  readSessionSecret,
+} from "#src/server/auth/config.server";
 
 test("readAuthingConfig uses issuer endpoints and the request origin callback", async () => {
   const config = await readAuthingConfig(

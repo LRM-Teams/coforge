@@ -1,4 +1,4 @@
-import { cn } from "@/lib/utils";
+import { cn } from "#src/lib/utils";
 
 /** Every presence/activity colour the app draws as a dot: Computers are online or offline;
  * Agents add what they are doing right now. */

@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
-import type { Prisma, PrismaClient } from "@/generated/prisma/client";
-import { isAppError } from "@/lib/app-error";
+import type { Prisma, PrismaClient } from "#src/generated/prisma/client";
+import { isAppError } from "#src/lib/app-error";
 import {
   agentVisibilityViewerForActor,
   agentVisibilityViewerForAgent,
@@ -11,7 +11,7 @@ import {
   type AgentVisibilityViewer,
   visibleAgentWhere,
   visiblePrivateAgentWhere,
-} from "@/server/agents/agent-visibility.server";
+} from "#src/server/agents/agent-visibility.server";
 
 const WORKSPACE_ID = "workspace-1";
 const CREATOR = "user-creator";

@@ -7,8 +7,8 @@ import {
   encodeWorkspaceGetRequest,
 } from "@lrm/coforge-sdk/internal";
 
-import { createComputerHttpHandler } from "@/server/computers/computer-http.server";
-import { WorkspaceQueryUseCase } from "@/server/workspaces/query.server";
+import { createComputerHttpHandler } from "#src/server/computers/computer-http.server";
+import { WorkspaceQueryUseCase } from "#src/server/workspaces/query.server";
 
 const request = (path: "attach" | "workspace", payload: Uint8Array, token = "user-token") =>
   new Request(`https://server.example/api/computer/${path}`, {

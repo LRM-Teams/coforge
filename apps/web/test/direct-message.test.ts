@@ -1,16 +1,16 @@
 import { describe, expect, test } from "bun:test";
 import { decodeAgentMessageDelivery } from "@lrm/coforge-sdk/internal";
-import type { PrismaClient } from "@/generated/prisma/client";
+import type { PrismaClient } from "#src/generated/prisma/client";
 import {
   ReadDirectMessages,
   SendDirectMessage,
-} from "@/server/conversations/direct-message.server";
+} from "#src/server/conversations/direct-message.server";
 import type {
   MessageRequestIdempotency,
   MessageRequestScope,
-} from "@/server/conversations/message-request-idempotency.server";
-import type { DirectConversationRepository } from "@/server/db/repositories/direct-conversation.repositories.server";
-import { bestEffortMessageNotifier } from "@/server/notifications/web-push-composition.server";
+} from "#src/server/conversations/message-request-idempotency.server";
+import type { DirectConversationRepository } from "#src/server/db/repositories/direct-conversation.repositories.server";
+import { bestEffortMessageNotifier } from "#src/server/notifications/web-push-composition.server";
 
 const persisted = {
   id: "message-a",

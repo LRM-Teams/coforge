@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { RUNTIME_PROVIDER } from "@lrm/coforge-sdk/internal";
-import { RUNTIME_PROVIDER_DISPLAY_ORDER } from "@/features/agents/runtime-provider-display";
+import { RUNTIME_PROVIDER_DISPLAY_ORDER } from "#src/features/agents/runtime-provider-display";
 
 // `RUNTIME_PROVIDER_DISPLAY_ORDER` is a plain array, so the compiler cannot force every
 // RuntimeProvider value into it the way `Record<RuntimeProvider, ...>` forces the label and mark

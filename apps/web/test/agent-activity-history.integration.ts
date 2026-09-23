@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { PrismaPg } from "@prisma/adapter-pg";
-import { PrismaClient } from "@/generated/prisma/client";
-import { AgentActivityRepository } from "@/server/db/repositories/agent-activity.repositories.server";
+import { PrismaClient } from "#src/generated/prisma/client";
+import { AgentActivityRepository } from "#src/server/db/repositories/agent-activity.repositories.server";
 
 test("compact activity history preserves launch sequence across clock rollback and authorization", async () => {
   const connectionString = Bun.env.AGENT_ACTIVITY_TEST_DATABASE_URL;

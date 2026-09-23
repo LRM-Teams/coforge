@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import type { PrismaClient } from "@/generated/prisma/client";
-import { isAppError } from "@/lib/app-error";
-import { toggleUserMessageReaction } from "@/server/conversations/user-message-reactions.server";
+import type { PrismaClient } from "#src/generated/prisma/client";
+import { isAppError } from "#src/lib/app-error";
+import { toggleUserMessageReaction } from "#src/server/conversations/user-message-reactions.server";
 
 const input = {
   workspaceId: "workspace-1",

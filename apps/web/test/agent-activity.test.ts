@@ -7,7 +7,7 @@ import {
   latestActivityError,
   mergeAgentActivity,
   type ActivityEntry,
-} from "@/features/agents/agent-activity";
+} from "#src/features/agents/agent-activity";
 
 test("agentActivityChannelForAgent names the per-Agent re-routing destination", () => {
   expect(agentActivityChannelForAgent("workspace-1", "agent-1")).toBe(

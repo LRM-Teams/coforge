@@ -4,8 +4,8 @@ import {
   type OwnedChildProcess,
   type OwnedProcessTree,
   type ProcessTreeSpawner,
-} from "../../platform/process-tree";
-import { AgentProcessCleanupError } from "../contract";
+} from "#src/platform/process-tree";
+import { AgentProcessCleanupError } from "#src/code-agent/contract";
 
 const logger = getLogger(["coforge", "daemon", "code-agent", "opencode"]);
 

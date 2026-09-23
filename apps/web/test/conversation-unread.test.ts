@@ -7,12 +7,12 @@ import {
   replaceUnreadCounts,
   latestTopLevelSequence,
   persistReadCursor,
-} from "@/features/conversations/conversation-unread";
+} from "#src/features/conversations/conversation-unread";
 import {
   decodeMessageAvailableEvent,
   userConversationChannel,
   workspaceConversationChannel,
-} from "@/features/conversations/conversation-realtime";
+} from "#src/features/conversations/conversation-realtime";
 
 const channels = new Set(["channel-a", "channel-b"]);
 

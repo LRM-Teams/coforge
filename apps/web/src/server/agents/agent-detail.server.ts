@@ -1,5 +1,5 @@
-import type { Prisma } from "@/generated/prisma/client";
-import { latestActivityError, type ActivityEntry } from "@/features/agents/agent-activity";
+import type { Prisma } from "#src/generated/prisma/client";
+import { latestActivityError, type ActivityEntry } from "#src/features/agents/agent-activity";
 import type { AgentStatusCache } from "./agent-status.server";
 import type { AgentDisplay } from "./agent-display.server";
 import type { AgentDisplaySnapshot } from "@lrm/coforge-sdk/internal";

@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useRef } from "react";
-import { Avatar } from "@/components/base/avatar/avatar";
-import { Badge } from "@/components/base/badges/badges";
-import { AgentDisplayAvatar } from "@/features/agents/agent-activity-avatar";
-import { useLiveAgents } from "@/features/agents/workspace-agents-realtime";
-import { avatarInitial, avatarToneClassName } from "@/lib/avatar-tone";
-import { cx } from "@/utils/cx";
-import { m } from "@/paraglide/messages";
+import { Avatar } from "#src/components/base/avatar/avatar";
+import { Badge } from "#src/components/base/badges/badges";
+import { AgentDisplayAvatar } from "#src/features/agents/agent-activity-avatar";
+import { useLiveAgents } from "#src/features/agents/workspace-agents-realtime";
+import { avatarInitial, avatarToneClassName } from "#src/lib/avatar-tone";
+import { cx } from "#src/utils/cx";
+import { m } from "#src/paraglide/messages";
 import type { Mentionable } from "./mention-text";
 
 /**

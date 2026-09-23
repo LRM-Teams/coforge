@@ -14,13 +14,13 @@ import { FileIcon as FileTypeIcon } from "@untitledui/file-icons";
 import { ArrowUp, CheckSquare, Download01, Paperclip, Trash01, XClose } from "@untitledui/icons";
 import { Popover as AriaPopover } from "react-aria-components";
 
-import { getReadableFileSize } from "@/components/application/file-upload/file-upload-base";
-import { Avatar } from "@/components/base/avatar/avatar";
-import { Button } from "@/components/base/buttons/button";
-import { ButtonUtility } from "@/components/base/buttons/button-utility";
-import { Dropdown } from "@/components/base/dropdown/dropdown";
-import { ProgressBar } from "@/components/base/progress-indicators/progress-indicators";
-import { Dialog, DialogTrigger } from "@/components/application/modals/modal";
+import { getReadableFileSize } from "#src/components/application/file-upload/file-upload-base";
+import { Avatar } from "#src/components/base/avatar/avatar";
+import { Button } from "#src/components/base/buttons/button";
+import { ButtonUtility } from "#src/components/base/buttons/button-utility";
+import { Dropdown } from "#src/components/base/dropdown/dropdown";
+import { ProgressBar } from "#src/components/base/progress-indicators/progress-indicators";
+import { Dialog, DialogTrigger } from "#src/components/application/modals/modal";
 import {
   dragCarriesFiles,
   fileFromDropItems,
@@ -39,8 +39,8 @@ import type { Mentionable } from "./mention-text";
 import { useMentionCompletion } from "./use-mention-completion";
 import { MentionSuggestionList } from "./mention-suggestions";
 import { fileIconType } from "./message-row";
-import { cx } from "@/utils/cx";
-import { m } from "@/paraglide/messages";
+import { cx } from "#src/utils/cx";
+import { m } from "#src/paraglide/messages";
 
 export type SentMessage = {
   id: string;

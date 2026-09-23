@@ -1,7 +1,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import type { ManagedRuntimeIdentity } from "@lrm/coforge-sdk/internal";
-import { nativeCommandDiagnostic, type NativeCommandResult } from "../platform/native-command";
+import { nativeCommandDiagnostic, type NativeCommandResult } from "#src/platform/native-command";
 import { LocalDaemonLauncher } from "./launcher";
 import type { DaemonLauncher, DaemonWorkspaceConfig, LocalDaemonConnection } from "./launcher";
 

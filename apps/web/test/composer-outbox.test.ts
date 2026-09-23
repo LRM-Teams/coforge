@@ -9,8 +9,8 @@ import {
   unsentReasonAllowsRetry,
   type OutboxStorage,
   type OutgoingMessage,
-} from "@/features/conversations/composer-outbox";
-import { AppError } from "@/lib/app-error";
+} from "#src/features/conversations/composer-outbox";
+import { AppError } from "#src/lib/app-error";
 
 function memoryStorage(): OutboxStorage {
   const items = new Map<string, string>();

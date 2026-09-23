@@ -1,10 +1,10 @@
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 
-import type { PrismaClient } from "@/generated/prisma/client";
+import type { PrismaClient } from "#src/generated/prisma/client";
 import {
   bestEffortMessageNotifier,
   createWebPushNotifications,
-} from "@/server/notifications/web-push-composition.server";
+} from "#src/server/notifications/web-push-composition.server";
 
 const db = {} as PrismaClient;
 

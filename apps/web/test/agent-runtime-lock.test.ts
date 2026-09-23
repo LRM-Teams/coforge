@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { PostgresAgentRuntimeLock } from "@/server/agents/agent-runtime-lock.server";
+import { PostgresAgentRuntimeLock } from "#src/server/agents/agent-runtime-lock.server";
 
 describe("PostgresAgentRuntimeLock", () => {
   test("uses one checked-out connection for a parameterized session lock", async () => {

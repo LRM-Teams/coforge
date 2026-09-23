@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { parseWindowsTaskQuery, probeWindowsCoordinator } from "../src/status/windows-status-ports";
+import { parseWindowsTaskQuery, probeWindowsCoordinator } from "#src/status/windows-status-ports";
 
 test("parseWindowsTaskQuery treats a successful LIST dump as loaded", () => {
   expect(

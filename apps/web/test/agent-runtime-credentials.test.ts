@@ -2,12 +2,12 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { AgentRuntimeConfig } from "@/server/agents/agent-runtime-config.server";
+import type { AgentRuntimeConfig } from "#src/server/agents/agent-runtime-config.server";
 import {
   AgentRuntimeCredentials,
   readAgentRuntimeCredentialEncryptionKey,
   type AgentRuntimeCredentialRepository,
-} from "@/server/agents/agent-runtime-credentials.server";
+} from "#src/server/agents/agent-runtime-credentials.server";
 
 class MemoryAgentRuntimeCredentialRepository implements AgentRuntimeCredentialRepository {
   readonly agents = new Map<

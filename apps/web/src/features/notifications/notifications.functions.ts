@@ -1,18 +1,18 @@
 import { createServerFn } from "@tanstack/react-start";
 import { getRequest } from "@tanstack/react-start/server";
-import { authMiddleware } from "@/features/auth/function-auth";
-import { requireDatabaseClient } from "@/server/db/client.server";
+import { authMiddleware } from "#src/features/auth/function-auth";
+import { requireDatabaseClient } from "#src/server/db/client.server";
 import {
   PrismaUserPreferencesRepository,
   UserPreferences,
-} from "@/server/db/repositories/user-preferences.repositories.server";
-import { AppError, isAppError } from "@/lib/app-error";
-import { extractLocaleFromRequest } from "@/paraglide/runtime";
-import { toPublicServerError } from "@/server/errors/public-error.server";
-import { createWebPushNotifications } from "@/server/notifications/web-push-composition.server";
-import { classifyTestDelivery } from "@/server/notifications/web-push-notifications.server";
-import { PrismaWebPushSubscriptionStore } from "@/server/notifications/prisma-web-push-subscriptions.server";
-import { readWebPushPublicKey } from "@/server/notifications/web-push-transport.server";
+} from "#src/server/db/repositories/user-preferences.repositories.server";
+import { AppError, isAppError } from "#src/lib/app-error";
+import { extractLocaleFromRequest } from "#src/paraglide/runtime";
+import { toPublicServerError } from "#src/server/errors/public-error.server";
+import { createWebPushNotifications } from "#src/server/notifications/web-push-composition.server";
+import { classifyTestDelivery } from "#src/server/notifications/web-push-notifications.server";
+import { PrismaWebPushSubscriptionStore } from "#src/server/notifications/prisma-web-push-subscriptions.server";
+import { readWebPushPublicKey } from "#src/server/notifications/web-push-transport.server";
 import {
   browserNotificationPreferenceInput,
   browserPushSubscriptionInput,

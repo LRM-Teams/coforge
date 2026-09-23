@@ -1,11 +1,11 @@
-import { MEMBER_DIRECTORY_KEY } from "@/features/agents/member-directory-queries";
+import { MEMBER_DIRECTORY_KEY } from "#src/features/agents/member-directory-queries";
 import { queryOptions, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "@tanstack/react-router";
 import { useEffect } from "react";
 
-import { getAgentEnvironment, getAgentProfile } from "@/features/agents/agents.functions";
-import { agentActivityFeedQuery } from "@/features/agents/agent-activity-queries";
-import { mergeAgentActivity } from "@/features/agents/agent-activity";
+import { getAgentEnvironment, getAgentProfile } from "#src/features/agents/agents.functions";
+import { agentActivityFeedQuery } from "#src/features/agents/agent-activity-queries";
+import { mergeAgentActivity } from "#src/features/agents/agent-activity";
 
 const agentProfileKey = (agentId: string) => ["agent-profile", agentId] as const;
 export const agentEnvironmentKey = (agentId: string) => ["agent-environment", agentId] as const;

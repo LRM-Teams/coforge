@@ -1,8 +1,8 @@
-import type { PrismaClient } from "@/generated/prisma/client";
+import type { PrismaClient } from "#src/generated/prisma/client";
 import type {
   DeviceAuthorizationRecord,
   DeviceAuthorizationStore,
-} from "@/server/auth/device-auth.server";
+} from "#src/server/auth/device-auth.server";
 
 const recordShape = {
   id: true,

@@ -16,27 +16,27 @@ import {
   Columns02 as SquareSplitVertical,
   ZoomIn,
 } from "@untitledui/icons";
-import { Button } from "@/components/base/buttons/button";
-import { ButtonUtility } from "@/components/base/buttons/button-utility";
-import { Dropdown } from "@/components/base/dropdown/dropdown";
-import { cn } from "@/lib/utils";
-import { copyText } from "@/features/records/report-editor/lib/clipboard";
-import { useT } from "@/features/records/report-editor/i18n";
+import { Button } from "#src/components/base/buttons/button";
+import { ButtonUtility } from "#src/components/base/buttons/button-utility";
+import { Dropdown } from "#src/components/base/dropdown/dropdown";
+import { cn } from "#src/lib/utils";
+import { copyText } from "#src/features/records/report-editor/lib/clipboard";
+import { useT } from "#src/features/records/report-editor/i18n";
 import {
   INSERTABLE_CODE_BLOCK_LANGUAGES,
   setLastInsertedCodeBlockLanguage,
   type InsertableCodeBlockLanguage,
-} from "@/features/records/report-editor/code-block-language";
+} from "#src/features/records/report-editor/code-block-language";
 import {
   MermaidDiagram,
   type MermaidDiagramHandle,
-} from "@/features/records/report-editor/mermaid-diagram";
-import { CodeBlockIframe } from "@/features/records/report-editor/code-block-iframe";
+} from "#src/features/records/report-editor/mermaid-diagram";
+import { CodeBlockIframe } from "#src/features/records/report-editor/code-block-iframe";
 import { parseCodeFenceInfo, type MermaidViewMode } from "./code-block-fence";
 import {
   resolveMermaidViewMode,
   writeMermaidViewPreference,
-} from "@/features/records/report-editor/mermaid-view-preference";
+} from "#src/features/records/report-editor/mermaid-view-preference";
 
 // Coalesces fast keystrokes before re-rendering live previews.
 // `mermaid.initialize()` mutates a process-global config, so back-to-back

@@ -63,11 +63,13 @@ live in nested `AGENTS.md` files listed at the end.
 - Follow TanStack Start's file naming: `.functions.ts` for `createServerFn`
   wrappers (importable anywhere), `.server.ts` for server-only code, and no
   suffix for client-safe code. Everything under `src/server/` is server-only:
-  every module there ends in `.server.ts`, and `vite.config.ts` import
+  every TypeScript module there ends in `.server.ts` (data files such as the Manual topics are read only by those modules), and `vite.config.ts` import
   protection denies both `*.server.*` and `src/server/**` in the client build.
   Code the browser also needs (schemas, slugs, pure formatting) lives in the
   owning `features/` module or `src/lib/`, never in `src/server/`. Server
   Functions and function middleware live in `features/`, not `src/server/`.
+- Import through `#src/` (see the root `AGENTS.md`). Untitled UI's CLI writes
+  `@/` imports; rewrite them to `#src/` when adding a component.
 - Route loaders may call Server Functions, but must not access a database,
   filesystem, secret, or server-only SDK directly. Do not self-fetch a
   relative `/api/...` URL from an SSR loader.

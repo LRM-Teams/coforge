@@ -1,8 +1,8 @@
 import { expect, test } from "bun:test";
 import { Pool } from "pg";
 import { PrismaPg } from "@prisma/adapter-pg";
-import { PrismaClient } from "@/generated/prisma/client";
-import { isWorkspaceMemberComputer } from "@/server/computers/computer-membership.server";
+import { PrismaClient } from "#src/generated/prisma/client";
+import { isWorkspaceMemberComputer } from "#src/server/computers/computer-membership.server";
 
 const connectionString = Bun.env.MIGRATION_TEST_DATABASE_URL;
 // Runs the real query: the defect this guards against was a relation name Prisma only rejects at

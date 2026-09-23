@@ -2,14 +2,17 @@ import { createServerFn } from "@tanstack/react-start";
 import { setResponseHeader } from "@tanstack/react-start/server";
 import { encodeAgentSkillsListRequest } from "@lrm/coforge-sdk/internal";
 import { agentIdSchema } from "./agent.schemas";
-import { workspaceUserMiddleware } from "@/features/auth/function-auth";
-import { AgentSkillsQuery, findOwnedSkillsAssignment } from "@/server/agents/agent-skills.server";
+import { workspaceUserMiddleware } from "#src/features/auth/function-auth";
+import {
+  AgentSkillsQuery,
+  findOwnedSkillsAssignment,
+} from "#src/server/agents/agent-skills.server";
 import {
   createCentrifugoServerApi,
   daemonControlChannel,
-} from "@/server/centrifugo/server-api.server";
-import { getComputerStatusCache } from "@/server/centrifugo/computer-status.server";
-import { getAgentSkillsResults } from "@/server/centrifugo/agent-skills-cache.server";
+} from "#src/server/centrifugo/server-api.server";
+import { getComputerStatusCache } from "#src/server/centrifugo/computer-status.server";
+import { getAgentSkillsResults } from "#src/server/centrifugo/agent-skills-cache.server";
 
 export const getAgentSkills = createServerFn({ method: "POST" })
   .middleware([workspaceUserMiddleware])

@@ -2,17 +2,17 @@ import { useEffect, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { Shield01 } from "@untitledui/icons";
 
-import { Dialog, Modal, ModalOverlay } from "@/components/application/modals/modal";
-import { DialogHeader } from "@/components/application/modals/dialog-header";
-import { Avatar } from "@/components/base/avatar/avatar";
-import { Badge } from "@/components/base/badges/badges";
-import { Button } from "@/components/base/buttons/button";
-import { ButtonUtility } from "@/components/base/buttons/button-utility";
-import { Checkbox } from "@/components/base/checkbox/checkbox";
-import { Dropdown } from "@/components/base/dropdown/dropdown";
-import { avatarInitial, avatarToneClassName } from "@/lib/avatar-tone";
-import { isAppError } from "@/lib/app-error";
-import { m } from "@/paraglide/messages";
+import { Dialog, Modal, ModalOverlay } from "#src/components/application/modals/modal";
+import { DialogHeader } from "#src/components/application/modals/dialog-header";
+import { Avatar } from "#src/components/base/avatar/avatar";
+import { Badge } from "#src/components/base/badges/badges";
+import { Button } from "#src/components/base/buttons/button";
+import { ButtonUtility } from "#src/components/base/buttons/button-utility";
+import { Checkbox } from "#src/components/base/checkbox/checkbox";
+import { Dropdown } from "#src/components/base/dropdown/dropdown";
+import { avatarInitial, avatarToneClassName } from "#src/lib/avatar-tone";
+import { isAppError } from "#src/lib/app-error";
+import { m } from "#src/paraglide/messages";
 import {
   addPublicChannelMembers,
   leavePublicChannel,

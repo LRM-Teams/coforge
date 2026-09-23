@@ -5,12 +5,12 @@ import { join } from "node:path";
 import { expect, test } from "bun:test";
 import webPush from "web-push";
 
-import { WebPushDeliveryError } from "@/server/notifications/web-push-notifications.server";
+import { WebPushDeliveryError } from "#src/server/notifications/web-push-notifications.server";
 import {
   createWebPushRequestDetails,
   readWebPushConfig,
   WebPushLibraryTransport,
-} from "@/server/notifications/web-push-transport.server";
+} from "#src/server/notifications/web-push-transport.server";
 
 const client = webPush.generateVAPIDKeys();
 const subscription = {

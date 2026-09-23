@@ -1,7 +1,10 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
-import { workspaceUserMiddleware, type WorkspaceUserContext } from "@/features/auth/function-auth";
-import { ACTIVE_AGENT_WHERE } from "@/server/agents/active-agent.server";
+import {
+  workspaceUserMiddleware,
+  type WorkspaceUserContext,
+} from "#src/features/auth/function-auth";
+import { ACTIVE_AGENT_WHERE } from "#src/server/agents/active-agent.server";
 import {
   agentConversationInputSchema,
   agentConversationPageInputSchema,
@@ -12,15 +15,15 @@ import {
   sendConversationMessageInputSchema,
   toggleMessageReactionInputSchema,
 } from "./conversation.schemas";
-import { createCentrifugoServerApi } from "@/server/centrifugo/server-api.server";
-import { SendDirectMessage } from "@/server/conversations/direct-message.server";
-import { CentrifugoConversationRealtime } from "@/server/conversations/conversation-realtime.server";
-import { ConversationHistory } from "@/server/conversations/conversation-history.server";
-import { attachActionCardViews } from "@/server/conversations/action-cards.server";
-import { getMessageRequestIdempotency } from "@/server/conversations/redis-message-request-idempotency.server";
-import { PrismaDirectConversationRepository } from "@/server/db/repositories/direct-conversation.repositories.server";
-import { withMessageSendTrace } from "@/server/observability/tracing.server";
-import { workspaceUserAvatarUrl } from "@/server/db/repositories/user-profile.repositories.server";
+import { createCentrifugoServerApi } from "#src/server/centrifugo/server-api.server";
+import { SendDirectMessage } from "#src/server/conversations/direct-message.server";
+import { CentrifugoConversationRealtime } from "#src/server/conversations/conversation-realtime.server";
+import { ConversationHistory } from "#src/server/conversations/conversation-history.server";
+import { attachActionCardViews } from "#src/server/conversations/action-cards.server";
+import { getMessageRequestIdempotency } from "#src/server/conversations/redis-message-request-idempotency.server";
+import { PrismaDirectConversationRepository } from "#src/server/db/repositories/direct-conversation.repositories.server";
+import { withMessageSendTrace } from "#src/server/observability/tracing.server";
+import { workspaceUserAvatarUrl } from "#src/server/db/repositories/user-profile.repositories.server";
 
 /**
  * The caller's own direct conversation repository, or a failure when the Agent is not theirs.

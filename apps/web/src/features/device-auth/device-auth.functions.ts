@@ -1,15 +1,15 @@
 import { createServerFn } from "@tanstack/react-start";
 
-import { authMiddleware } from "@/features/auth/function-auth";
+import { authMiddleware } from "#src/features/auth/function-auth";
 import { userCodeInputSchema } from "./device-auth.schemas";
 import {
   approveUserCode,
   denyUserCode,
   lookupUserCode,
   type DeviceAuthorizationStore,
-} from "@/server/auth/device-auth.server";
-import { getDatabaseClient } from "@/server/db/client.server";
-import { PrismaDeviceAuthorizationStore } from "@/server/db/repositories/device-auth.repositories.server";
+} from "#src/server/auth/device-auth.server";
+import { getDatabaseClient } from "#src/server/db/client.server";
+import { PrismaDeviceAuthorizationStore } from "#src/server/db/repositories/device-auth.repositories.server";
 
 /**
  * The browser half of the device flow. Every one of these requires a signed-in user - the whole
@@ -22,7 +22,7 @@ export type DeviceCodeState = "ok" | "unknown" | "expired" | "settled" | "unavai
 /** Resolves the signed-in user for the approval page, redirecting to /login when there is none -
  * which is what makes "sign in first, then approve" a property of the route rather than an
  * instruction. Exposed as a feature server function, the way every other route reaches user
- * state, so a route file never imports a `@/server/...` module directly. */
+ * state, so a route file never imports a `#src/server/...` module directly. */
 export const getDeviceVerifyUser = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
   .handler(async ({ context }) => {

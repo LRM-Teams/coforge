@@ -1,22 +1,22 @@
 import { createFileRoute } from "@tanstack/react-router";
 import type { AgentHistoryResponse, AgentSendResponse, AgentMessage } from "@lrm/coforge-sdk/agent";
 import { isValidMentionSelectorArray } from "@lrm/coforge-sdk/internal";
-import { agentAuthMiddleware } from "@/server/agents/agent-http-middleware.server";
-import { PrismaDirectConversationRepository } from "@/server/db/repositories/direct-conversation.repositories.server";
+import { agentAuthMiddleware } from "#src/server/agents/agent-http-middleware.server";
+import { PrismaDirectConversationRepository } from "#src/server/db/repositories/direct-conversation.repositories.server";
 import {
   readAgentMessages,
   executeAgentSendMessageWithPolicy,
   type AgentMentionSelector,
   type AgentMessageRepository,
   type AgentSendMessageResult,
-} from "@/server/agents/agent-messages.server";
-import { SendDirectMessage } from "@/server/conversations/direct-message.server";
-import { getMessageRequestIdempotency } from "@/server/conversations/redis-message-request-idempotency.server";
-import { createCentrifugoServerApi } from "@/server/centrifugo/server-api.server";
-import { CentrifugoConversationRealtime } from "@/server/conversations/conversation-realtime.server";
-import { bestEffortMessageNotifier } from "@/server/notifications/web-push-composition.server";
-import { isAppError } from "@/lib/app-error";
-import { AgentSendRejectedError } from "@/server/conversations/agent-send-rejected-error.server";
+} from "#src/server/agents/agent-messages.server";
+import { SendDirectMessage } from "#src/server/conversations/direct-message.server";
+import { getMessageRequestIdempotency } from "#src/server/conversations/redis-message-request-idempotency.server";
+import { createCentrifugoServerApi } from "#src/server/centrifugo/server-api.server";
+import { CentrifugoConversationRealtime } from "#src/server/conversations/conversation-realtime.server";
+import { bestEffortMessageNotifier } from "#src/server/notifications/web-push-composition.server";
+import { isAppError } from "#src/lib/app-error";
+import { AgentSendRejectedError } from "#src/server/conversations/agent-send-rejected-error.server";
 
 export type AgentMessagesGetPrincipal = { workspaceId: string; agentId: string };
 

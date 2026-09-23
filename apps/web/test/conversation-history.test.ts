@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import type { PrismaClient } from "@/generated/prisma/client";
-import { ConversationHistory } from "@/server/conversations/conversation-history.server";
+import type { PrismaClient } from "#src/generated/prisma/client";
+import { ConversationHistory } from "#src/server/conversations/conversation-history.server";
 
 const membership = { id: "workspace-member-1" };
 

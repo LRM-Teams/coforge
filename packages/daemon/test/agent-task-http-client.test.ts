@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
-import { AgentUpstreamRefusalError } from "../src/connection/agent-upstream-refusal-error";
-import { defaultAgentTaskHttpClient } from "../src/connection/daemon-connection";
+import { AgentUpstreamRefusalError } from "#src/connection/agent-upstream-refusal-error";
+import { defaultAgentTaskHttpClient } from "#src/connection/daemon-connection";
 
 const request = {
   idempotencyKey: "request-1",

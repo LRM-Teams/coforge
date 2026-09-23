@@ -7,8 +7,8 @@ import {
   Plus,
 } from "@untitledui/icons";
 
-import { PageHeader } from "@/components/layout/page-header";
-import { ButtonUtility } from "@/components/base/buttons/button-utility";
+import { PageHeader } from "#src/components/layout/page-header";
+import { ButtonUtility } from "#src/components/base/buttons/button-utility";
 import {
   Empty,
   EmptyContent,
@@ -16,9 +16,9 @@ import {
   EmptyHeader,
   EmptyMedia,
   EmptyTitle,
-} from "@/components/ui/empty";
-import { cn } from "@/lib/utils";
-import { m } from "@/paraglide/messages";
+} from "#src/components/ui/empty";
+import { cn } from "#src/lib/utils";
+import { m } from "#src/paraglide/messages";
 import {
   computerLabel,
   operatingSystemLabel,
@@ -26,10 +26,10 @@ import {
   type ComputerPlatformInfo,
 } from "./computer-identity";
 import { ComputerTile } from "./computer-tile";
-import { Avatar } from "@/components/base/avatar/avatar";
-import { Tooltip, TooltipTrigger } from "@/components/base/tooltip/tooltip";
-import { Button } from "@/components/base/buttons/button";
-import { avatarInitial, avatarToneClassName } from "@/lib/avatar-tone";
+import { Avatar } from "#src/components/base/avatar/avatar";
+import { Tooltip, TooltipTrigger } from "#src/components/base/tooltip/tooltip";
+import { Button } from "#src/components/base/buttons/button";
+import { avatarInitial, avatarToneClassName } from "#src/lib/avatar-tone";
 import { isComputerUpdateAvailable } from "./computer-identity";
 
 export type ComputerListItem = ComputerIdentity &

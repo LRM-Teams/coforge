@@ -1,6 +1,6 @@
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import type { CodeAgentModelMetadata } from "@lrm/coforge-sdk/internal";
-import { API_KEY_ENV_BY_PROVIDER } from "../src/runtime-provider";
+import { API_KEY_ENV_BY_PROVIDER } from "#src/runtime-provider";
 
 const outputPath = new URL("../src/coforge-provider-models.generated.ts", import.meta.url);
 const runtime = await ModelRuntime.create({

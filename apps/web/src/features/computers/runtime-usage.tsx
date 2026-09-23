@@ -6,15 +6,15 @@ import {
   RUNTIME_PROVIDER_USES_EXTERNAL_CLI,
   type RuntimeProvider,
 } from "@lrm/coforge-sdk/internal";
-import { Badge } from "@/components/base/badges/badges";
-import { Button } from "@/components/base/buttons/button";
-import { HoverPopover } from "@/components/ui/hover-popover";
-import { RelativeTime } from "@/components/ui/relative-time";
-import { cn } from "@/lib/utils";
-import { m } from "@/paraglide/messages";
-import { RuntimeProviderMark } from "@/features/agents/runtime-provider-mark";
+import { Badge } from "#src/components/base/badges/badges";
+import { Button } from "#src/components/base/buttons/button";
+import { HoverPopover } from "#src/components/ui/hover-popover";
+import { RelativeTime } from "#src/components/ui/relative-time";
+import { cn } from "#src/lib/utils";
+import { m } from "#src/paraglide/messages";
+import { RuntimeProviderMark } from "#src/features/agents/runtime-provider-mark";
 import { useRuntimeUsage } from "./use-runtime-usage";
-import type { UsageReadResult, UsageResultRecord } from "@/server/centrifugo/usage-cache.server";
+import type { UsageReadResult, UsageResultRecord } from "#src/server/centrifugo/usage-cache.server";
 
 export type Runtime = {
   provider: RuntimeProvider;

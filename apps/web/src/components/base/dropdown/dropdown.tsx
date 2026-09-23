@@ -18,11 +18,11 @@ import {
     Popover as AriaPopover,
     Separator as AriaSeparator,
 } from "react-aria-components";
-import { cx } from "@/utils/cx";
-import { Avatar } from "@/components/base/avatar/avatar";
-import { CheckboxBase } from "@/components/base/checkbox/checkbox";
-import { RadioButtonBase } from "@/components/base/radio-buttons/radio-buttons";
-import { ToggleBase } from "@/components/base/toggle/toggle";
+import { cx } from "#src/utils/cx";
+import { Avatar } from "#src/components/base/avatar/avatar";
+import { CheckboxBase } from "#src/components/base/checkbox/checkbox";
+import { RadioButtonBase } from "#src/components/base/radio-buttons/radio-buttons";
+import { ToggleBase } from "#src/components/base/toggle/toggle";
 
 interface DropdownItemProps extends AriaMenuItemProps {
     /** The label of the item to be displayed. */

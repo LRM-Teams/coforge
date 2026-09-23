@@ -4,7 +4,7 @@ import {
   memoizeForRequest,
   readPreferredWorkspaceSlug,
   serializeWorkspaceCookie,
-} from "@/server/workspaces/selection.server";
+} from "#src/server/workspaces/selection.server";
 
 test("the preferred Workspace cookie is host-only and readable from the header", () => {
   const cookie = serializeWorkspaceCookie("research", false);

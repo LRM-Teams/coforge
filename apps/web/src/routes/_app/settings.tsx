@@ -4,44 +4,44 @@ import { useServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { useQueryClient } from "@tanstack/react-query";
 
-import { SettingsContent, SettingsPending } from "@/components/settings-content";
-import { useAppToast } from "@/components/ui/toast";
-import { PageLoadError } from "@/features/errors/page-load-error";
-import { saveUserProfile } from "@/features/profiles/profile.functions";
+import { SettingsContent, SettingsPending } from "#src/components/settings-content";
+import { useAppToast } from "#src/components/ui/toast";
+import { PageLoadError } from "#src/features/errors/page-load-error";
+import { saveUserProfile } from "#src/features/profiles/profile.functions";
 import {
   browserNotificationPermission,
   showPageNotification,
   syncBrowserPushSubscription,
   shouldShowAddToHomeScreenGuide,
-} from "@/features/notifications/browser-push";
+} from "#src/features/notifications/browser-push";
 import {
   saveBrowserNotificationPreference,
   sendTestBrowserNotification,
   subscribeBrowserPush,
-} from "@/features/notifications/notifications.functions";
+} from "#src/features/notifications/notifications.functions";
 import {
   getUserPreferences,
   saveConversationOpenMode,
   saveDateTimePreferences,
-} from "@/features/settings/settings.functions";
+} from "#src/features/settings/settings.functions";
 import {
   loadMyWorkspaceInvitations,
   loadWorkspaceMembers,
-} from "@/features/workspaces/members.functions";
-import { getLocale, setLocale } from "@/paraglide/runtime";
-import { readRailLabels, writeRailLabels } from "@/features/settings/rail-labels";
+} from "#src/features/workspaces/members.functions";
+import { getLocale, setLocale } from "#src/paraglide/runtime";
+import { readRailLabels, writeRailLabels } from "#src/features/settings/rail-labels";
 import {
   readLiveAgentActivity,
   writeLiveAgentActivity,
-} from "@/features/settings/live-agent-activity";
-import { readTextSize, writeTextSize, type TextSizeValue } from "@/features/settings/text-size";
+} from "#src/features/settings/live-agent-activity";
+import { readTextSize, writeTextSize, type TextSizeValue } from "#src/features/settings/text-size";
 import {
   conversationOpenMode,
   type ConversationOpenMode,
-} from "@/features/settings/conversation-open-mode";
-import { isAppError } from "@/lib/app-error";
-import type { TimeFormat } from "@/lib/time-format";
-import { m } from "@/paraglide/messages";
+} from "#src/features/settings/conversation-open-mode";
+import { isAppError } from "#src/lib/app-error";
+import type { TimeFormat } from "#src/lib/time-format";
+import { m } from "#src/paraglide/messages";
 
 type Theme = "system" | "light" | "dark";
 

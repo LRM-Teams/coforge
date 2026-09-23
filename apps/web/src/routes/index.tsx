@@ -1,8 +1,8 @@
 import { createFileRoute, redirect } from "@tanstack/react-router";
 
-import { getInstallOrigin } from "@/features/install/install.functions";
-import { LandingPage } from "@/features/landing/landing-page";
-import { getAuthenticationStatus } from "@/features/auth/current-user.functions";
+import { getInstallOrigin } from "#src/features/install/install.functions";
+import { LandingPage } from "#src/features/landing/landing-page";
+import { getAuthenticationStatus } from "#src/features/auth/current-user.functions";
 
 export const Route = createFileRoute("/")({
   beforeLoad: async () => {

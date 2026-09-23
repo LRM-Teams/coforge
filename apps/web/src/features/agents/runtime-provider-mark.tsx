@@ -1,6 +1,6 @@
 import type { RuntimeProvider } from "@lrm/coforge-sdk/internal";
 
-import { cn } from "@/lib/utils";
+import { cn } from "#src/lib/utils";
 import {
   RUNTIME_PROVIDER_MARK,
   RUNTIME_PROVIDER_MARK_IS_COLOR_ICON,

@@ -18,7 +18,7 @@
 import { Extension } from "@tiptap/core";
 import { Plugin, PluginKey } from "@tiptap/pm/state";
 import type { Slice } from "@tiptap/pm/model";
-import { serializeSliceToMarkdown } from "@/features/records/report-editor/utils/selection-markdown";
+import { serializeSliceToMarkdown } from "#src/features/records/report-editor/utils/selection-markdown";
 
 export function createMarkdownCopyExtension() {
   return Extension.create({

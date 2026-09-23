@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import {
   createWeeklyReportAssistantSessionStore,
   weeklyReportAssistantSubjectKey,
-} from "@/features/records/weekly-report-assistant-session";
+} from "#src/features/records/weekly-report-assistant-session";
 
 test("weekly report subject keys isolate independent page sessions", () => {
   expect(weeklyReportAssistantSubjectKey("report", "report-a")).toBe("report:report-a");

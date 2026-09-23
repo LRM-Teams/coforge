@@ -1,8 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
 
-import { DeviceVerifyPage } from "@/features/device-auth/device-verify-page";
-import { getDeviceVerifyUser } from "@/features/device-auth/device-auth.functions";
-import { normalizeUserCode } from "@/features/device-auth/device-code-format";
+import { DeviceVerifyPage } from "#src/features/device-auth/device-verify-page";
+import { getDeviceVerifyUser } from "#src/features/device-auth/device-auth.functions";
+import { normalizeUserCode } from "#src/features/device-auth/device-code-format";
 
 /**
  * Where a Computer's `login` sends the person sitting in front of it. Deliberately outside

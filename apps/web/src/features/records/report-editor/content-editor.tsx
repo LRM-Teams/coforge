@@ -17,7 +17,7 @@ import {
 } from "react";
 import { useEditor, EditorContent } from "@tiptap/react";
 
-import { cn } from "@/lib/utils";
+import { cn } from "#src/lib/utils";
 import { EditorBubbleMenu } from "./bubble-menu";
 import { createEditorExtensions } from "./extensions";
 import { uploadAndInsertFile } from "./extensions/file-upload";

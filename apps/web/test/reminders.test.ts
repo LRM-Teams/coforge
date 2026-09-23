@@ -7,13 +7,13 @@ import {
   type AgentReminderOperationRequest,
   type ReminderSummaryRecord,
 } from "@lrm/coforge-sdk/internal";
-import { createAgentReminderMethod } from "@/server/centrifugo/rpc-handler.server";
+import { createAgentReminderMethod } from "#src/server/centrifugo/rpc-handler.server";
 import {
   DEFAULT_REMINDER_TIMEZONE,
   Reminders,
   nextOccurrence,
   type ReminderRepository,
-} from "@/server/reminders/reminders.server";
+} from "#src/server/reminders/reminders.server";
 
 test("interval recurrence preserves due-time cadence and skips missed periods", () => {
   expect(

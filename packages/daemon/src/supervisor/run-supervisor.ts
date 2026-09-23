@@ -2,11 +2,11 @@ import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { UPGRADE_ERROR_CODE, type ManagedRuntimeIdentity } from "@lrm/coforge-sdk/internal";
-import { startDaemonLocalRpcServer, type DaemonHoldReport } from "../local-rpc";
-import { FileDaemonCredentialStore } from "../credentials/credential-store";
-import { DaemonConfigStore } from "../persistence/daemon-config";
-import { LocalDaemonLauncher } from "../daemon-host/launcher";
-import { acquireProcessLock, isLockContention, type ProcessLock } from "../platform/process-lock";
+import { startDaemonLocalRpcServer, type DaemonHoldReport } from "#src/local-rpc";
+import { FileDaemonCredentialStore } from "#src/credentials/credential-store";
+import { DaemonConfigStore } from "#src/persistence/daemon-config";
+import { LocalDaemonLauncher } from "#src/daemon-host/launcher";
+import { acquireProcessLock, isLockContention, type ProcessLock } from "#src/platform/process-lock";
 import {
   MachineSupervisor,
   UPGRADE_OPERATION_PENDING_TTL_MS,
@@ -16,8 +16,8 @@ import {
 } from "./machine-supervisor";
 import { FileBindingStore } from "./binding-store";
 import { dispose, getLogger, withContext } from "@logtape/logtape";
-import { configureDaemonLogging } from "../platform/daemon-logging";
-import { COFORGE_DAEMON_VERSION } from "../version";
+import { configureDaemonLogging } from "#src/platform/daemon-logging";
+import { COFORGE_DAEMON_VERSION } from "#src/version";
 import { SystemdWorkspaceInstance } from "./systemd-workspace-instance";
 import { LaunchdWorkspaceInstance } from "./launchd-workspace-instance";
 import { WindowsWorkspaceInstance } from "./windows-workspace-instance";
@@ -29,9 +29,9 @@ import {
   workspaceHealthJournalPath,
 } from "./workspace-health-journal";
 import { answeredWithin } from "./runner-hold";
-import { COFORGE_DAEMON_SERVER_URL } from "../connection/built-server";
-import { launchComputerUpgrade } from "../platform/computer-upgrade-launcher";
-import { sweepLeftoverComputerUpgradeJobs } from "../platform/computer-upgrade-sweep";
+import { COFORGE_DAEMON_SERVER_URL } from "#src/connection/built-server";
+import { launchComputerUpgrade } from "#src/platform/computer-upgrade-launcher";
+import { sweepLeftoverComputerUpgradeJobs } from "#src/platform/computer-upgrade-sweep";
 import { UpgradeLaunchFailedError } from "./upgrade-error";
 import {
   HeldUpgradeRecovery,
@@ -43,7 +43,7 @@ import {
   sweepComputerUpgradeReceipts,
   watchComputerUpgradeReceipt,
   type ComputerUpgradeReceipt,
-} from "../platform/computer-upgrade-receipts";
+} from "#src/platform/computer-upgrade-receipts";
 
 /** How often a Coordinator checks for a receipt from a job it is watching. */
 const UPGRADE_RECEIPT_POLL_MS = 2_000;

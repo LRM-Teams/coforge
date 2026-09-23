@@ -1,11 +1,11 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { z } from "zod";
 
-import { agentAuthMiddleware } from "@/server/agents/agent-http-middleware.server";
+import { agentAuthMiddleware } from "#src/server/agents/agent-http-middleware.server";
 import {
   reportCollectSlotOutcome,
   reportCollectorRuntimeFailure,
-} from "@/server/records/weekly-report-collect-orchestrate.server";
+} from "#src/server/records/weekly-report-collect-orchestrate.server";
 
 const slotReportSchema = z.object({
   idempotencyKey: z.string().uuid(),

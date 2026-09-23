@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
-import type { PrismaClient } from "@/generated/prisma/client";
-import { AgentActivityRepository } from "@/server/db/repositories/agent-activity.repositories.server";
+import type { PrismaClient } from "#src/generated/prisma/client";
+import { AgentActivityRepository } from "#src/server/db/repositories/agent-activity.repositories.server";
 
 test("chat activity history uses a compact parameterized member-scoped query", async () => {
   let query: unknown[] = [];

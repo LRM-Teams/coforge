@@ -1,12 +1,12 @@
 import { CheckSquare as ListTodo, MessageChatSquare, Paperclip } from "@untitledui/icons";
 
-import { ReorderableTabStrip } from "@/components/ui/reorderable-tab-strip";
+import { ReorderableTabStrip } from "#src/components/ui/reorderable-tab-strip";
 import {
   CONVERSATION_TABS,
   type ConversationTab,
-} from "@/features/conversations/conversation-tabs";
-import { usePanelTabOrder } from "@/features/panel-tabs/panel-tab-order-context";
-import { m } from "@/paraglide/messages";
+} from "#src/features/conversations/conversation-tabs";
+import { usePanelTabOrder } from "#src/features/panel-tabs/panel-tab-order-context";
+import { m } from "#src/paraglide/messages";
 
 const TABS = {
   chat: { label: m.tasks_chat_tab, icon: MessageChatSquare },

@@ -1,10 +1,10 @@
 import { infiniteQueryOptions } from "@tanstack/react-query";
 
-import { MEMBER_PAGE_SIZE } from "@/features/workspaces/member-directory";
+import { MEMBER_PAGE_SIZE } from "#src/features/workspaces/member-directory";
 import {
   loadMemberAgentPage,
   loadMemberPeoplePage,
-} from "@/features/workspaces/workspaces.functions";
+} from "#src/features/workspaces/workspaces.functions";
 
 export type MemberAgentFilters = {
   owner: "all" | "mine";

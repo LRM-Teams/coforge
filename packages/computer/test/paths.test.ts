@@ -7,7 +7,7 @@ import {
   resolveComputerInstallDirectory,
   resolveComputerStateDirectory,
   resolveDaemonSocketPath,
-} from "../src/paths";
+} from "#src/paths";
 
 test("Computer and Daemon use separate directories under the user's .coforge directory", () => {
   const input = { platform: "linux" as const, homeDirectory: "/home/alice", environment: {} };

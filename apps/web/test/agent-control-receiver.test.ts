@@ -1,8 +1,8 @@
 import { expect, test } from "bun:test";
 import { encodeAgentControlResult } from "@lrm/coforge-sdk/internal";
-import { createAgentControlResultMethod } from "@/server/centrifugo/agent-control-receiver.server";
-import type { AgentControl } from "@/server/agents/agent-control.server";
-import type { CentrifugoRpcMetadata } from "@/server/centrifugo/rpc-handler.server";
+import { createAgentControlResultMethod } from "#src/server/centrifugo/agent-control-receiver.server";
+import type { AgentControl } from "#src/server/agents/agent-control.server";
+import type { CentrifugoRpcMetadata } from "#src/server/centrifugo/rpc-handler.server";
 
 function captureWarnings() {
   const warnings: unknown[] = [];

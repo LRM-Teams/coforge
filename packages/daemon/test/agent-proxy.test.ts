@@ -1,13 +1,13 @@
 import { afterEach, expect, test } from "bun:test";
 import { agentApiRoutes } from "@lrm/coforge-sdk/agent";
-import { startAgentProxy } from "../src/agent-proxy";
-import { AgentMessageRequestError } from "../src/connection/agent-message-request-error";
-import { AgentTaskRequestError } from "../src/connection/agent-task-request-error";
-import { AgentPreflightError } from "../src/daemon-runtime/agent-preflight-error";
-import { AgentTransportError } from "../src/connection/agent-transport-error";
-import { AgentManualRequestError } from "../src/connection/agent-manual-request-error";
-import { AgentUserInfoRequestError } from "../src/connection/agent-user-info-request-error";
-import type { AgentProxyFailureBody } from "../src/agent-proxy-failure";
+import { startAgentProxy } from "#src/agent-proxy";
+import { AgentMessageRequestError } from "#src/connection/agent-message-request-error";
+import { AgentTaskRequestError } from "#src/connection/agent-task-request-error";
+import { AgentPreflightError } from "#src/daemon-runtime/agent-preflight-error";
+import { AgentTransportError } from "#src/connection/agent-transport-error";
+import { AgentManualRequestError } from "#src/connection/agent-manual-request-error";
+import { AgentUserInfoRequestError } from "#src/connection/agent-user-info-request-error";
+import type { AgentProxyFailureBody } from "#src/agent-proxy-failure";
 
 const proxies: Array<{ close(): void }> = [];
 

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import type { PrismaClient } from "@/generated/prisma/client";
-import { PrismaComputerRuntimeRepository } from "@/server/db/repositories/computer-runtime.repositories.server";
+import type { PrismaClient } from "#src/generated/prisma/client";
+import { PrismaComputerRuntimeRepository } from "#src/server/db/repositories/computer-runtime.repositories.server";
 
 function recordingTransaction() {
   const calls: Array<{ operation: string; args: unknown }> = [];

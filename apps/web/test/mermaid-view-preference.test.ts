@@ -4,7 +4,7 @@ import {
   readMermaidViewPreference,
   resolveMermaidViewMode,
   writeMermaidViewPreference,
-} from "@/features/records/report-editor/mermaid-view-preference";
+} from "#src/features/records/report-editor/mermaid-view-preference";
 
 const CHART = "flowchart TD\n  A-->B";
 

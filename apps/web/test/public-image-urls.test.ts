@@ -1,15 +1,15 @@
 import { expect, test } from "bun:test";
 
-import { computerCreatorAvatarUrl } from "@/server/computers/computer-creator-avatar.server";
+import { computerCreatorAvatarUrl } from "#src/server/computers/computer-creator-avatar.server";
 import {
   createPublicImageDelivery,
   type ProfileImageStyle,
-} from "@/server/files/public-image-delivery.server";
+} from "#src/server/files/public-image-delivery.server";
 import {
   avatarUrl,
   workspaceUserAvatarUrl,
-} from "@/server/db/repositories/user-profile.repositories.server";
-import { projectIconUrl } from "@/server/projects/project-images.server";
+} from "#src/server/db/repositories/user-profile.repositories.server";
+import { projectIconUrl } from "#src/server/projects/project-images.server";
 
 const delivery = createPublicImageDelivery({ baseUrl: "https://images-staging.coforge.cn" });
 const publicImageUrl = (objectKey: string, style: ProfileImageStyle) =>

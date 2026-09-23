@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 
-import { AppError } from "@/lib/app-error";
+import { AppError } from "#src/lib/app-error";
 import {
   assertCanCreateAgents,
   assertCanChangeMemberRole,
@@ -11,7 +11,7 @@ import {
   isAdminLike,
   normalizeInvitableRole,
   type WorkspaceMemberRole,
-} from "@/server/workspaces/member-role.server";
+} from "#src/server/workspaces/member-role.server";
 
 test("owner and admin are admin-like; member is not", () => {
   expect(isAdminLike("owner")).toBe(true);

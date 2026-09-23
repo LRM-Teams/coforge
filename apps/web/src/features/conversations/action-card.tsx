@@ -3,9 +3,9 @@ import { useServerFn } from "@tanstack/react-start";
 import { CpuChip01 as Cpu, Hash01 as Hash, UserPlus01 as UserPlus } from "@untitledui/icons";
 import { Link } from "@tanstack/react-router";
 
-import { Button } from "@/components/base/buttons/button";
-import { Badge } from "@/components/base/badges/badges";
-import { m } from "@/paraglide/messages";
+import { Button } from "#src/components/base/buttons/button";
+import { Badge } from "#src/components/base/badges/badges";
+import { m } from "#src/paraglide/messages";
 import {
   cancelActionCard,
   commitChannelAddMemberActionCard,
@@ -14,10 +14,13 @@ import {
 } from "./action-cards.functions";
 import { CreateChannelDialog } from "./create-channel-dialog";
 import { ChannelMembersDialog } from "./channel-members-dialog";
-import { AgentCreateDialog } from "@/features/agents/agent-create-dialog";
-import { createAgent } from "@/features/agents/agents.functions";
-import { getComputerRuntimeCatalog, listComputers } from "@/features/computers/computers.functions";
-import { formatAgentProfileParam } from "@/features/agents/profile-panel/profile-panel-search";
+import { AgentCreateDialog } from "#src/features/agents/agent-create-dialog";
+import { createAgent } from "#src/features/agents/agents.functions";
+import {
+  getComputerRuntimeCatalog,
+  listComputers,
+} from "#src/features/computers/computers.functions";
+import { formatAgentProfileParam } from "#src/features/agents/profile-panel/profile-panel-search";
 
 export type ActionCardRef = { id: string; displayName: string };
 type ActionCardBase = {

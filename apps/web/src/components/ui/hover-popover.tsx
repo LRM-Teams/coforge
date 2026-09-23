@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { Button, Popover, PreviewTrigger } from "react-aria-components";
 
-import { cn } from "@/lib/utils";
+import { cn } from "#src/lib/utils";
 
 // Untitled UI has no hover-triggered popover, but React Aria ships this exact interaction:
 // PreviewTrigger "displays a non-modal popover on hover, focus, or long press. Unlike a

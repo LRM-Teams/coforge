@@ -1,13 +1,13 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { agentAuthMiddleware } from "@/server/agents/agent-http-middleware.server";
+import { agentAuthMiddleware } from "#src/server/agents/agent-http-middleware.server";
 import {
   createAttachmentUploadSession,
   AttachmentUploadSessionError,
   type AttachmentUploadSessionCreated,
-} from "@/server/attachments/attachment-upload-session.server";
-import { getFileStorage } from "@/server/files/file-storage.server";
-import { PrismaDirectConversationRepository } from "@/server/db/repositories/direct-conversation.repositories.server";
-import { isAppError } from "@/lib/app-error";
+} from "#src/server/attachments/attachment-upload-session.server";
+import { getFileStorage } from "#src/server/files/file-storage.server";
+import { PrismaDirectConversationRepository } from "#src/server/db/repositories/direct-conversation.repositories.server";
+import { isAppError } from "#src/lib/app-error";
 
 /** RFC 6838 `type/subtype`, case-insensitively; matches the multipart upload route's pattern. */
 const MIME_TYPE_PATTERN = /^[a-z0-9][a-z0-9!#$&^_.+-]*\/[a-z0-9][a-z0-9!#$&^_.+-]*$/i;

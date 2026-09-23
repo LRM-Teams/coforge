@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { RedisMessageRequestIdempotency } from "@/server/conversations/redis-message-request-idempotency.server";
-import { MessageRequestInProgressError } from "@/server/conversations/message-request-idempotency.server";
+import { RedisMessageRequestIdempotency } from "#src/server/conversations/redis-message-request-idempotency.server";
+import { MessageRequestInProgressError } from "#src/server/conversations/message-request-idempotency.server";
 
 type Entry = { value: string; ttlSeconds: number };
 

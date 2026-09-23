@@ -1,5 +1,5 @@
-import { CONVERSATION_TABS } from "@/features/conversations/conversation-tabs";
-import { AGENT_PROFILE_TABS } from "@/features/agents/profile-panel/profile-panel-search";
+import { CONVERSATION_TABS } from "#src/features/conversations/conversation-tabs";
+import { AGENT_PROFILE_TABS } from "#src/features/agents/profile-panel/profile-panel-search";
 
 /**
  * A member's saved tab order for a panel's tab strip. The saved order is a list of that panel's

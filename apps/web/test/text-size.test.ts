@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-import { readTextSize, writeTextSize } from "@/features/settings/text-size";
+import { readTextSize, writeTextSize } from "#src/features/settings/text-size";
 
 const STORAGE_KEY = "coforge-text-size";
 

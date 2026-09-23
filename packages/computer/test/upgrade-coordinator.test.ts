@@ -9,14 +9,14 @@ import {
   UpgradeCoordinatorError,
   upgradeReceiptPaths,
   type UpgradeCoordinatorOptions,
-} from "../src/release/upgrade-coordinator";
-import type { UpgradeOperation } from "../src/release/upgrade-operation";
-import { ComputerUpdater, type LockedComputerUpdater } from "../src/updater";
+} from "#src/release/upgrade-coordinator";
+import type { UpgradeOperation } from "#src/release/upgrade-operation";
+import { ComputerUpdater, type LockedComputerUpdater } from "#src/updater";
 import {
   createSupervisorUpgradeLifecycle,
   type ManagedRuntimeSnapshot,
   type UpgradeLifecycle,
-} from "../src/release/upgrade-lifecycle";
+} from "#src/release/upgrade-lifecycle";
 
 const directories: string[] = [];
 

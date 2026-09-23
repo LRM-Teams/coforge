@@ -8,7 +8,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Separator } from "react-aria-components";
-import { Button } from "@/components/base/buttons/button";
+import { Button } from "#src/components/base/buttons/button";
 import { autoUpdate, computePosition, flip, hide, offset, shift } from "@floating-ui/dom";
 import { posToDOMRect } from "@tiptap/core";
 import type { Editor } from "@tiptap/core";
@@ -36,10 +36,10 @@ import {
   X,
 } from "@untitledui/icons";
 
-import { cn } from "@/lib/utils";
-import { ButtonUtility } from "@/components/base/buttons/button-utility";
-import { Dropdown } from "@/components/base/dropdown/dropdown";
-import { Input } from "@/components/base/input/input";
+import { cn } from "#src/lib/utils";
+import { ButtonUtility } from "#src/components/base/buttons/button-utility";
+import { Dropdown } from "#src/components/base/dropdown/dropdown";
+import { Input } from "#src/components/base/input/input";
 import {
   NOTE_COLORS,
   NOTE_FONT_SIZES,

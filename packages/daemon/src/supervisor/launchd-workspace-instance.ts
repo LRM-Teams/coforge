@@ -1,5 +1,5 @@
 import { dirname, join } from "node:path";
-import { LaunchdJob, stopLaunchdJobs } from "../platform/launchd-job";
+import { LaunchdJob, stopLaunchdJobs } from "#src/platform/launchd-job";
 import {
   validateWorkspaceEndpoint,
   type WorkspaceInstance,

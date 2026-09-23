@@ -6,7 +6,7 @@ import { join } from "node:path";
 import {
   listAgentWorkspaceFiles,
   readAgentWorkspaceFile,
-} from "../src/agent-runtime/agent-workspace-files";
+} from "#src/agent-runtime/agent-workspace-files";
 
 // macOS tmpdir lives under /var, a symlink; the path-safety checks reject linked ancestors.
 const tempRoot = realpathSync(tmpdir());

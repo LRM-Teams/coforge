@@ -14,71 +14,71 @@ import {
   updateAgentRoleInputSchema,
 } from "./agent.schemas";
 import { AGENT_VISIBILITY } from "./agent-visibility";
-import { publishAgentVisibilityChanged } from "@/server/agents/agent-visibility-realtime.server";
-import { ChangeAgentVisibility } from "@/server/agents/change-agent-visibility.server";
-import { PrismaChangeAgentVisibilityStore } from "@/server/db/repositories/agent-visibility-change.repositories.server";
-import { setAgentRole } from "@/server/agents/agent-role.server";
-import { AppError } from "@/lib/app-error";
-import { ACTIVE_AGENT_WHERE } from "@/server/agents/active-agent.server";
-import { AgentAvatars, agentAvatarUrl } from "@/server/agents/agent-avatar.server";
-import { isAdminLike, type WorkspaceMemberRole } from "@/server/workspaces/member-role.server";
-import { requireDatabaseClient } from "@/server/db/client.server";
+import { publishAgentVisibilityChanged } from "#src/server/agents/agent-visibility-realtime.server";
+import { ChangeAgentVisibility } from "#src/server/agents/change-agent-visibility.server";
+import { PrismaChangeAgentVisibilityStore } from "#src/server/db/repositories/agent-visibility-change.repositories.server";
+import { setAgentRole } from "#src/server/agents/agent-role.server";
+import { AppError } from "#src/lib/app-error";
+import { ACTIVE_AGENT_WHERE } from "#src/server/agents/active-agent.server";
+import { AgentAvatars, agentAvatarUrl } from "#src/server/agents/agent-avatar.server";
+import { isAdminLike, type WorkspaceMemberRole } from "#src/server/workspaces/member-role.server";
+import { requireDatabaseClient } from "#src/server/db/client.server";
 import {
   PrismaAgentRepository,
   RepositoryAgentAuthorization,
-} from "@/server/db/repositories/agent.repositories.server";
-import { ManageAgents } from "@/server/agents/manage-agents.server";
-import { AgentDeletion } from "@/server/agents/agent-deletion.server";
-import { PrismaAgentDeletionStore } from "@/server/db/repositories/agent-deletion.repositories.server";
-import { PublishAgentRuntimeControl } from "@/server/agents/agent-runtime-control.server";
-import { AgentControl } from "@/server/agents/agent-control.server";
-import { getAgentControlSignal } from "@/server/agents/agent-control-signal.server";
-import { PrismaAgentControlStore } from "@/server/db/repositories/agent-control.repositories.server";
-import { createCentrifugoServerApi } from "@/server/centrifugo/server-api.server";
+} from "#src/server/db/repositories/agent.repositories.server";
+import { ManageAgents } from "#src/server/agents/manage-agents.server";
+import { AgentDeletion } from "#src/server/agents/agent-deletion.server";
+import { PrismaAgentDeletionStore } from "#src/server/db/repositories/agent-deletion.repositories.server";
+import { PublishAgentRuntimeControl } from "#src/server/agents/agent-runtime-control.server";
+import { AgentControl } from "#src/server/agents/agent-control.server";
+import { getAgentControlSignal } from "#src/server/agents/agent-control-signal.server";
+import { PrismaAgentControlStore } from "#src/server/db/repositories/agent-control.repositories.server";
+import { createCentrifugoServerApi } from "#src/server/centrifugo/server-api.server";
 import {
   authMiddleware,
   workspaceUserMiddleware,
   type WorkspaceUserContext,
-} from "@/features/auth/function-auth";
-import { ActionCards } from "@/server/conversations/action-cards.server";
-import { CentrifugoConversationRealtime } from "@/server/conversations/conversation-realtime.server";
-import { AgentDetailQuery } from "@/server/agents/agent-detail.server";
+} from "#src/features/auth/function-auth";
+import { ActionCards } from "#src/server/conversations/action-cards.server";
+import { CentrifugoConversationRealtime } from "#src/server/conversations/conversation-realtime.server";
+import { AgentDetailQuery } from "#src/server/agents/agent-detail.server";
 import {
   agentVisibilityViewerForUser,
   assertAgentVisible,
   visiblePrivateAgentWhere,
   type AgentVisibilityViewer,
-} from "@/server/agents/agent-visibility.server";
-import { AgentActivityRepository } from "@/server/db/repositories/agent-activity.repositories.server";
-import { workspaceIdForUser } from "@/server/workspaces/enrollment.server";
-import { workspaceMemberRole } from "@/server/workspaces/members.server";
-import { workspaceUserAvatarUrl } from "@/server/db/repositories/user-profile.repositories.server";
-import { ComputerRuntimeVisibility } from "@/server/computers/computer-runtime-visibility.server";
-import { PrismaComputerRuntimeRepository } from "@/server/db/repositories/computer-runtime.repositories.server";
-import { PrismaAgentRuntimeCredentialRepository } from "@/server/db/repositories/agent-runtime-credential.repositories.server";
+} from "#src/server/agents/agent-visibility.server";
+import { AgentActivityRepository } from "#src/server/db/repositories/agent-activity.repositories.server";
+import { workspaceIdForUser } from "#src/server/workspaces/enrollment.server";
+import { workspaceMemberRole } from "#src/server/workspaces/members.server";
+import { workspaceUserAvatarUrl } from "#src/server/db/repositories/user-profile.repositories.server";
+import { ComputerRuntimeVisibility } from "#src/server/computers/computer-runtime-visibility.server";
+import { PrismaComputerRuntimeRepository } from "#src/server/db/repositories/computer-runtime.repositories.server";
+import { PrismaAgentRuntimeCredentialRepository } from "#src/server/db/repositories/agent-runtime-credential.repositories.server";
 import {
   AgentRuntimeCredentials,
   readAgentRuntimeCredentialEncryptionKey,
-} from "@/server/agents/agent-runtime-credentials.server";
-import { ChangeAgentRuntimeCredential } from "@/server/agents/change-agent-runtime-credential.server";
-import { getAgentRuntimeLock } from "@/server/agents/agent-runtime-lock.server";
-import { agentRuntimeSelectionIsAvailable } from "@/server/agents/agent-runtime-availability.server";
-import { ensureWeeklyReportAssistant } from "@/server/records/weekly-report-assistant.server";
+} from "#src/server/agents/agent-runtime-credentials.server";
+import { ChangeAgentRuntimeCredential } from "#src/server/agents/change-agent-runtime-credential.server";
+import { getAgentRuntimeLock } from "#src/server/agents/agent-runtime-lock.server";
+import { agentRuntimeSelectionIsAvailable } from "#src/server/agents/agent-runtime-availability.server";
+import { ensureWeeklyReportAssistant } from "#src/server/records/weekly-report-assistant.server";
 import {
   parseAgentRuntimeConfig,
   publicAgentRuntimeConfig,
-} from "@/server/agents/agent-runtime-config.server";
-import { getAgentStatusCache } from "@/server/agents/agent-status.server";
-import { getComputerStatusCache } from "@/server/centrifugo/computer-status.server";
-import { createAgentSessions } from "@/server/db/repositories/agent-session.repositories.server";
-import { getAgentDisplay } from "@/server/agents/agent-display.server";
-import { AgentEnvironment } from "@/server/agents/agent-environment.server";
+} from "#src/server/agents/agent-runtime-config.server";
+import { getAgentStatusCache } from "#src/server/agents/agent-status.server";
+import { getComputerStatusCache } from "#src/server/centrifugo/computer-status.server";
+import { createAgentSessions } from "#src/server/db/repositories/agent-session.repositories.server";
+import { getAgentDisplay } from "#src/server/agents/agent-display.server";
+import { AgentEnvironment } from "#src/server/agents/agent-environment.server";
 import {
   issueAgentActivitySubscriptionToken,
   issueAgentActivitySubscriptionTokenForAgent,
   issueAgentStatusSubscriptionToken,
   issueAgentStatusSubscriptionTokenForAgent,
-} from "@/server/auth/browser-realtime-token.server";
+} from "#src/server/auth/browser-realtime-token.server";
 
 type Database = ReturnType<typeof requireDatabaseClient>;
 

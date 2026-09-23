@@ -1,9 +1,9 @@
 import { formatValidationError, isValidationError } from "@lrm/coforge-sdk/internal";
-import { isAppError } from "@/lib/app-error";
-import { AgentMessageValidationError } from "@/server/conversations/agent-message-validation-error.server";
-import { MessageRequestInProgressError } from "@/server/conversations/message-request-idempotency.server";
-import { ComputerRegistrationError } from "@/server/computers/registration.server";
-import { WorkspaceQueryError } from "@/server/workspaces/query.server";
+import { isAppError } from "#src/lib/app-error";
+import { AgentMessageValidationError } from "#src/server/conversations/agent-message-validation-error.server";
+import { MessageRequestInProgressError } from "#src/server/conversations/message-request-idempotency.server";
+import { ComputerRegistrationError } from "#src/server/computers/registration.server";
+import { WorkspaceQueryError } from "#src/server/workspaces/query.server";
 
 export type HandledRequestError = { code: number; message: string };
 export class RequestAuthenticationError extends Error {}

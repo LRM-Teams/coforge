@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
 
-import { fragmentHtmlToMarkdown, messagePlainText } from "@/features/conversations/selection-copy";
+import {
+  fragmentHtmlToMarkdown,
+  messagePlainText,
+} from "#src/features/conversations/selection-copy";
 
 describe("fragmentHtmlToMarkdown", () => {
   test("keeps emphasis as markdown marks", () => {

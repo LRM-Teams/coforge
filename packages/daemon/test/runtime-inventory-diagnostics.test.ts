@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { configure, reset, type LogRecord } from "@logtape/logtape";
-import { discoverCodeAgentInventory } from "../src/code-agent/runtime-inventory";
+import { discoverCodeAgentInventory } from "#src/code-agent/runtime-inventory";
 
 async function captureDiscovery(mode: string) {
   const records: LogRecord[] = [];

@@ -1,7 +1,7 @@
 import { z } from "zod";
-import type { Prisma, PrismaClient } from "@/generated/prisma/client";
-import { AppError, isAppError } from "@/lib/app-error";
-import { gitObjectIdSchema } from "@/lib/git-object-id";
+import type { Prisma, PrismaClient } from "#src/generated/prisma/client";
+import { AppError, isAppError } from "#src/lib/app-error";
+import { gitObjectIdSchema } from "#src/lib/git-object-id";
 
 export type GitHubConfig = {
   appId: number;

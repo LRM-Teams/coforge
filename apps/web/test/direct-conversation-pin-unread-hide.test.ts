@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
-import type { PrismaClient } from "@/generated/prisma/client";
-import { isAppError } from "@/lib/app-error";
-import { PrismaDirectConversationRepository } from "@/server/db/repositories/direct-conversation.repositories.server";
+import type { PrismaClient } from "#src/generated/prisma/client";
+import { isAppError } from "#src/lib/app-error";
+import { PrismaDirectConversationRepository } from "#src/server/db/repositories/direct-conversation.repositories.server";
 
 /**
  * The DM half of P2b (#125). The sidebar's DM rows come from the live Agent list rather than a

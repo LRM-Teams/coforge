@@ -1,8 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
 
-import { requireBrowserUser } from "@/server/auth/require-user.server";
-import { getDatabaseClient } from "@/server/db/client.server";
-import { notificationOpenResponse } from "@/server/notifications/open-notification.server";
+import { requireBrowserUser } from "#src/server/auth/require-user.server";
+import { getDatabaseClient } from "#src/server/db/client.server";
+import { notificationOpenResponse } from "#src/server/notifications/open-notification.server";
 
 export const Route = createFileRoute("/notifications/open")({
   server: {

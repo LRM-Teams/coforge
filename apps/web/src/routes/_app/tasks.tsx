@@ -3,11 +3,11 @@ import { createFileRoute, useNavigate, useRouter } from "@tanstack/react-router"
 import { useServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 
-import { PageLoadError } from "@/features/errors/page-load-error";
-import { TaskOverview } from "@/features/tasks/task-overview";
-import { useTaskLayout } from "@/features/tasks/task-workflow";
-import { executeTask, loadTaskOverview } from "@/features/tasks/tasks.functions";
-import { m } from "@/paraglide/messages";
+import { PageLoadError } from "#src/features/errors/page-load-error";
+import { TaskOverview } from "#src/features/tasks/task-overview";
+import { useTaskLayout } from "#src/features/tasks/task-workflow";
+import { executeTask, loadTaskOverview } from "#src/features/tasks/tasks.functions";
+import { m } from "#src/paraglide/messages";
 
 export const Route = createFileRoute("/_app/tasks")({
   validateSearch: z.object({

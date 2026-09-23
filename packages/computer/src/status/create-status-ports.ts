@@ -9,7 +9,7 @@ import {
   workspaceStateDirectory,
   WorkspaceHealthJournal,
 } from "@lrm/coforge-daemon";
-import { resolveDaemonSocketPath } from "../paths";
+import { resolveDaemonSocketPath } from "#src/paths";
 import {
   listDarwinLeftoverUpgradeJobs,
   listDarwinWorkspaceAgents,

@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 
-import { DEV_BROWSER_USER, isDevSkipAuthEnabled } from "@/server/auth/dev-skip-auth.server";
-import { optionalBrowserUser, requireBrowserUser } from "@/server/auth/require-user.server";
+import { DEV_BROWSER_USER, isDevSkipAuthEnabled } from "#src/server/auth/dev-skip-auth.server";
+import { optionalBrowserUser, requireBrowserUser } from "#src/server/auth/require-user.server";
 
 test("isDevSkipAuthEnabled is off by default", () => {
   expect(isDevSkipAuthEnabled({ NODE_ENV: "development" })).toBe(false);

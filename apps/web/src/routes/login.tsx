@@ -1,7 +1,7 @@
 import { createFileRoute, redirect } from "@tanstack/react-router";
 
-import { LoginPage } from "@/components/login-page";
-import { getAuthenticationStatus } from "@/features/auth/current-user.functions";
+import { LoginPage } from "#src/components/login-page";
+import { getAuthenticationStatus } from "#src/features/auth/current-user.functions";
 
 export const Route = createFileRoute("/login")({
   validateSearch: (search: Record<string, unknown>) => ({

@@ -8,9 +8,9 @@ import {
 import { Link } from "@tanstack/react-router";
 import { FilterLines as ListFilter } from "@untitledui/icons";
 
-import { PageHeader } from "@/components/layout/page-header";
-import { Select } from "@/components/base/select/select";
-import { m } from "@/paraglide/messages";
+import { PageHeader } from "#src/components/layout/page-header";
+import { Select } from "#src/components/base/select/select";
+import { m } from "#src/paraglide/messages";
 import { TaskTag } from "./task-board";
 import { TaskOwner } from "./task-owner";
 import {

@@ -1,18 +1,15 @@
 import { expect, test } from "bun:test";
 import type { LogRecord } from "@logtape/logtape";
 import { configure, reset } from "@logtape/logtape";
-import { AgentControl, type LaunchRetryScheduler } from "../src/agent-runtime/agent-control";
-import { AgentSessions } from "../src/agent-runtime/agent-session";
-import {
-  AgentRuntimeState,
-  type AgentRuntimeRecord,
-} from "../src/agent-runtime/agent-runtime-state";
+import { AgentControl, type LaunchRetryScheduler } from "#src/agent-runtime/agent-control";
+import { AgentSessions } from "#src/agent-runtime/agent-session";
+import { AgentRuntimeState, type AgentRuntimeRecord } from "#src/agent-runtime/agent-runtime-state";
 import type {
   AgentControlResult,
   AgentStartIntent,
   SessionIdentity,
 } from "@lrm/coforge-sdk/internal";
-import { LAUNCH_FAILURE_MAX_ATTEMPTS } from "../src/agent-runtime/launch-failure-backoff";
+import { LAUNCH_FAILURE_MAX_ATTEMPTS } from "#src/agent-runtime/launch-failure-backoff";
 
 /** A scheduler that only records what `AgentControl` asked for, so a test drives every retry
  * itself instead of sleeping through real cooldowns. */

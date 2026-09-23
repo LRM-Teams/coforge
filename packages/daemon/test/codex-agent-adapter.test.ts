@@ -3,8 +3,8 @@ import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { CodexProvider } from "../src/code-agent/codex/provider";
-import type { AgentRuntimeEvent } from "../src/code-agent/contract";
+import { CodexProvider } from "#src/code-agent/codex/provider";
+import type { AgentRuntimeEvent } from "#src/code-agent/contract";
 
 const TEST_AGENT_INSTRUCTIONS = "Test Agent instructions.";
 

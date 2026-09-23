@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 
-import { defaultSidePanelPinned } from "@/features/records/record-side-panel-pin";
+import { defaultSidePanelPinned } from "#src/features/records/record-side-panel-pin";
 
 test("defaultSidePanelPinned matches historical auto-open surfaces", () => {
   expect(defaultSidePanelPinned("format")).toBe(true);

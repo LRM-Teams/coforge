@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 
-import { resolveAwaitingAssistantResume } from "@/features/records/record-side-panel-awaiting";
+import { resolveAwaitingAssistantResume } from "#src/features/records/record-side-panel-awaiting";
 
 const now = Date.parse("2026-09-18T06:00:00.000Z");
 

@@ -10,7 +10,7 @@ import {
   type ReminderClock,
   type ReminderReceipt,
   type ReminderReceiptStore,
-} from "../src/agent-reminder/reminder-scheduler";
+} from "#src/agent-reminder/reminder-scheduler";
 
 class MemoryStore implements ReminderReceiptStore {
   receipts: ReminderReceipt[] = [];

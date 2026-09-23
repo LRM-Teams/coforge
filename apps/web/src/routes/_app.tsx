@@ -2,25 +2,25 @@ import { useCallback } from "react";
 import { Outlet, createFileRoute, useRouter } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 
-import { AppShell } from "@/components/app-shell";
-import { TimeFormatProvider } from "@/lib/time-format-context";
-import { getUserProfile } from "@/features/profiles/profile.functions";
+import { AppShell } from "#src/components/app-shell";
+import { TimeFormatProvider } from "#src/lib/time-format-context";
+import { getUserProfile } from "#src/features/profiles/profile.functions";
 import {
   createWorkspace,
   loadWorkspaceSwitcher,
   selectWorkspace,
-} from "@/features/workspaces/workspaces.functions";
-import { loadRecordsNavAttention } from "@/features/records/records.functions";
-import { BrowserRealtimeProvider } from "@/features/realtime/browser-realtime";
-import { getBrowserRealtimeConnectionToken } from "@/features/realtime/realtime.functions";
-import { BrowserPushLifecycle } from "@/features/notifications/browser-push-lifecycle";
-import { InPageNotifications } from "@/features/notifications/in-page-notifications";
-import { getBrowserNotificationSettings } from "@/features/notifications/notifications.functions";
-import { listAgents } from "@/features/agents/agents.functions";
-import { WorkspaceAgentsProvider } from "@/features/agents/workspace-agents-realtime";
-import { getUserPreferences } from "@/features/settings/settings.functions";
-import { getPanelTabOrders } from "@/features/panel-tabs/panel-tabs.functions";
-import { PanelTabOrderProvider } from "@/features/panel-tabs/panel-tab-order-context";
+} from "#src/features/workspaces/workspaces.functions";
+import { loadRecordsNavAttention } from "#src/features/records/records.functions";
+import { BrowserRealtimeProvider } from "#src/features/realtime/browser-realtime";
+import { getBrowserRealtimeConnectionToken } from "#src/features/realtime/realtime.functions";
+import { BrowserPushLifecycle } from "#src/features/notifications/browser-push-lifecycle";
+import { InPageNotifications } from "#src/features/notifications/in-page-notifications";
+import { getBrowserNotificationSettings } from "#src/features/notifications/notifications.functions";
+import { listAgents } from "#src/features/agents/agents.functions";
+import { WorkspaceAgentsProvider } from "#src/features/agents/workspace-agents-realtime";
+import { getUserPreferences } from "#src/features/settings/settings.functions";
+import { getPanelTabOrders } from "#src/features/panel-tabs/panel-tabs.functions";
+import { PanelTabOrderProvider } from "#src/features/panel-tabs/panel-tab-order-context";
 
 export const Route = createFileRoute("/_app")({
   staleTime: Infinity,

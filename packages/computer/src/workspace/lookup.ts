@@ -1,4 +1,4 @@
-import type { AccessibleWorkspace, Credential } from "../login";
+import type { AccessibleWorkspace, Credential } from "#src/login";
 
 /** Direct lookup seam for a Workspace named by an external setup intent. */
 export interface ComputerWorkspaceRpcTransport {

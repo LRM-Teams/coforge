@@ -1,9 +1,9 @@
 import { useMatch, useRouter } from "@tanstack/react-router";
 import { AlertCircle } from "@untitledui/icons";
 
-import { Button } from "@/components/base/buttons/button";
-import { Skeleton } from "@/components/ui/skeleton";
-import { m } from "@/paraglide/messages";
+import { Button } from "#src/components/base/buttons/button";
+import { Skeleton } from "#src/components/ui/skeleton";
+import { m } from "#src/paraglide/messages";
 import { BackToComputers } from "./computer-layout";
 
 export function ComputersPending() {

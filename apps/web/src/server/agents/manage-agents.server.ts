@@ -4,20 +4,20 @@ import {
   type AgentStopIntent,
   type RuntimeProvider,
 } from "@lrm/coforge-sdk/internal";
-import { AppError } from "@/lib/app-error";
-import { AGENT_VISIBILITY, type AgentVisibility } from "@/features/agents/agent-visibility";
+import { AppError } from "#src/lib/app-error";
+import { AGENT_VISIBILITY, type AgentVisibility } from "#src/features/agents/agent-visibility";
 import { assertAgentLive } from "./active-agent.server";
 import type {
   AgentRecord,
   AgentRepository,
-} from "@/server/db/repositories/agent.repositories.server";
+} from "#src/server/db/repositories/agent.repositories.server";
 import { publicAgentRuntimeConfig } from "./agent-runtime-config.server";
 import type { AgentRuntimeCredentials } from "./agent-runtime-credentials.server";
 import type { AgentRuntimeLock } from "./agent-runtime-lock.server";
 import {
   assertCanCreateAgents,
   type WorkspaceMemberRole,
-} from "@/server/workspaces/member-role.server";
+} from "#src/server/workspaces/member-role.server";
 
 const providers = new Set<unknown>(Object.values(RUNTIME_PROVIDER));
 

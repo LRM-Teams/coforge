@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { handleAgentEventsGet } from "@/routes/api/agent/v1/events";
+import { handleAgentEventsGet } from "#src/routes/api/agent/v1/events";
 
 const request = (search = "") => new Request(`https://server.example/api/agent/v1/events${search}`);
 

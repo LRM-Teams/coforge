@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { join } from "node:path";
-import { agentEnvironment, agentRuntimeContextEnvironment } from "../src/code-agent/environment";
+import { agentEnvironment, agentRuntimeContextEnvironment } from "#src/code-agent/environment";
 
 test("inherits local host variables and overlays custom, adapter, then system values without mutating the host", () => {
   const inherited = {

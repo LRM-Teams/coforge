@@ -3,7 +3,7 @@ import { expect, test } from "bun:test";
 import {
   agentIdFromDirectKey,
   savedJumpTarget,
-} from "@/features/conversations/saved-messages-model";
+} from "#src/features/conversations/saved-messages-model";
 
 /**
  * #127's jump-back, amended after the boss's ruling (click a saved card → land at the

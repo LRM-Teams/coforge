@@ -1,9 +1,9 @@
 import { expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 
-import { FileRow } from "@/features/conversations/conversation-files";
-import type { ConversationFile } from "@/features/conversations/conversation-files.functions";
-import { m } from "@/paraglide/messages";
+import { FileRow } from "#src/features/conversations/conversation-files";
+import type { ConversationFile } from "#src/features/conversations/conversation-files.functions";
+import { m } from "#src/paraglide/messages";
 
 const file = (overrides: Partial<ConversationFile> = {}): ConversationFile => ({
   id: "file-1",

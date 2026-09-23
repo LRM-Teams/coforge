@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { tmpdir } from "node:os";
 
-import { ProcessTreeOwner } from "../src/platform/process-tree";
+import { ProcessTreeOwner } from "#src/platform/process-tree";
 
 test("spawn errors without an OS process fail synchronously", () => {
   const owner = new ProcessTreeOwner();

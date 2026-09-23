@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import type { PrismaClient } from "@/generated/prisma/client";
-import { buildUserAgentConversationCreateInput } from "@/server/db/repositories/direct-conversation.repositories.server";
-import { PrismaDirectConversationRepository } from "@/server/db/repositories/direct-conversation.repositories.server";
+import type { PrismaClient } from "#src/generated/prisma/client";
+import { buildUserAgentConversationCreateInput } from "#src/server/db/repositories/direct-conversation.repositories.server";
+import { PrismaDirectConversationRepository } from "#src/server/db/repositories/direct-conversation.repositories.server";
 
 /**
  * The real Prisma `$queryRaw` tag flattens a nested `Prisma.sql` fragment's own bind values into

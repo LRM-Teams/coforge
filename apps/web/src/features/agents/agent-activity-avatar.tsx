@@ -1,14 +1,14 @@
 import { Heading } from "react-aria-components";
 
-import { Avatar, type AvatarProps } from "@/components/base/avatar/avatar";
+import { Avatar, type AvatarProps } from "#src/components/base/avatar/avatar";
 import type { AgentDisplaySnapshot } from "@lrm/coforge-sdk/internal";
 import { DELETED_AGENT_AVATAR_CLASS, DeletedAgentBadge } from "./deleted-agent";
-import { HoverPopover } from "@/components/ui/hover-popover";
-import { StatusDot } from "@/components/ui/status-dot";
-import { ClockTime } from "@/components/ui/relative-time";
-import { avatarInitial, avatarToneClassName } from "@/lib/avatar-tone";
-import { cn } from "@/lib/utils";
-import { m } from "@/paraglide/messages";
+import { HoverPopover } from "#src/components/ui/hover-popover";
+import { StatusDot } from "#src/components/ui/status-dot";
+import { ClockTime } from "#src/components/ui/relative-time";
+import { avatarInitial, avatarToneClassName } from "#src/lib/avatar-tone";
+import { cn } from "#src/lib/utils";
+import { m } from "#src/paraglide/messages";
 import { agentDisplay, presentActivityRows } from "./agent-activity-presentation";
 import {
   POPOVER_EXCLUDED_DETAIL_KINDS,

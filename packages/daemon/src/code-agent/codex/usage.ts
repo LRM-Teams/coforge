@@ -1,11 +1,11 @@
 import { createHash } from "node:crypto";
-import type { UsageSnapshot, UsageWindow } from "../contract";
-import { UsageUnavailableError, UsageUnsupportedError } from "../contract";
-import { agentEnvironment } from "../environment";
-import { asRecord } from "../json-record";
-import { maskEmail } from "../mask-email";
-import { JsonlProcess } from "../jsonl-process";
-import { COFORGE_DAEMON_VERSION } from "../../version";
+import type { UsageSnapshot, UsageWindow } from "#src/code-agent/contract";
+import { UsageUnavailableError, UsageUnsupportedError } from "#src/code-agent/contract";
+import { agentEnvironment } from "#src/code-agent/environment";
+import { asRecord } from "#src/code-agent/json-record";
+import { maskEmail } from "#src/code-agent/mask-email";
+import { JsonlProcess } from "#src/code-agent/jsonl-process";
+import { COFORGE_DAEMON_VERSION } from "#src/version";
 import { RUNTIME_PROVIDER } from "@lrm/coforge-sdk/internal";
 
 /** Ported from Raft 1.0.32's Codex account-usage reader (`@botiverse/oar` codex/account-usage):

@@ -3,10 +3,10 @@ import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { realpathSync } from "node:fs";
 import { join } from "node:path";
-import { DaemonRuntime } from "../src/daemon-runtime/runtime";
-import type { AgentRuntimeConfig, AgentSession } from "../src/code-agent/contract";
-import type { WorkspaceConfig } from "../src/daemon-runtime/runtime";
-import { InMemoryDaemonCredentialStore } from "../src/credentials/credential-store";
+import { DaemonRuntime } from "#src/daemon-runtime/runtime";
+import type { AgentRuntimeConfig, AgentSession } from "#src/code-agent/contract";
+import type { WorkspaceConfig } from "#src/daemon-runtime/runtime";
+import { InMemoryDaemonCredentialStore } from "#src/credentials/credential-store";
 
 /** Focused daemon coverage for self-initiated launches reusing the server's last
  * launchId. Deliberately a new, small file — see the working rules for this branch — copying

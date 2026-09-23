@@ -3,11 +3,11 @@ import { describe, expect, test } from "bun:test";
 import {
   ChangeAgentVisibility,
   type ChangeAgentVisibilityStore,
-} from "@/server/agents/change-agent-visibility.server";
+} from "#src/server/agents/change-agent-visibility.server";
 import type {
   AgentRecord,
   AgentRepository,
-} from "@/server/db/repositories/agent.repositories.server";
+} from "#src/server/db/repositories/agent.repositories.server";
 
 function agent(overrides: Partial<AgentRecord> = {}): AgentRecord {
   return {

@@ -7,7 +7,7 @@ import {
   RUNNER_HOLD_MS,
   RUNNER_HOLD_POLL_MS,
   type RunnerHoldSnapshot,
-} from "../src/supervisor/runner-hold";
+} from "#src/supervisor/runner-hold";
 
 /** A virtual clock: `sleep` advances `now` instantly, so a 30s bound costs no wall time. */
 function clock() {

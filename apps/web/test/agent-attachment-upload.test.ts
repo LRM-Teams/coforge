@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
-import { AppError } from "@/lib/app-error";
-import { handleAgentAttachmentUpload } from "@/routes/api/agent/v1/attachments/index";
+import { AppError } from "#src/lib/app-error";
+import { handleAgentAttachmentUpload } from "#src/routes/api/agent/v1/attachments/index";
 
 const principal = { workspaceId: "workspace-1", agentId: "agent-1" };
 

@@ -5,9 +5,9 @@ import {
   UserCircle as UserRound,
 } from "@untitledui/icons";
 
-import { ReorderableTabStrip } from "@/components/ui/reorderable-tab-strip";
-import { usePanelTabOrder } from "@/features/panel-tabs/panel-tab-order-context";
-import { m } from "@/paraglide/messages";
+import { ReorderableTabStrip } from "#src/components/ui/reorderable-tab-strip";
+import { usePanelTabOrder } from "#src/features/panel-tabs/panel-tab-order-context";
+import { m } from "#src/paraglide/messages";
 import { visibleAgentProfileTabs, type AgentProfileTab } from "./profile-panel-search";
 
 const TABS = {

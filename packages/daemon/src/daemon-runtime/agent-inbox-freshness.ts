@@ -1,5 +1,5 @@
 import { WORKSPACE_PROTOCOL_MAJOR } from "@lrm/coforge-sdk/internal";
-import type { AgentMessageTransportResponse } from "../connection/daemon-connection";
+import type { AgentMessageTransportResponse } from "#src/connection/daemon-connection";
 
 /**
  * The daemon's own freshness decision for an outgoing send — the local half of Raft's

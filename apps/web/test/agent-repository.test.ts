@@ -3,7 +3,7 @@ import {
   RepositoryAgentAuthorization,
   type AgentRecord,
   type AgentRepository,
-} from "@/server/db/repositories/agent.repositories.server";
+} from "#src/server/db/repositories/agent.repositories.server";
 
 function repository(): AgentRepository {
   const records: AgentRecord[] = [

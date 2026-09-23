@@ -4,15 +4,15 @@ import { useServerFn } from "@tanstack/react-start";
 import { DotsHorizontal as MoreHorizontal } from "@untitledui/icons";
 import { useCallback, useEffect, useState } from "react";
 
-import { Dialog, Modal, ModalOverlay } from "@/components/application/modals/modal";
-import { ButtonUtility } from "@/components/base/buttons/button-utility";
-import { Button } from "@/components/base/buttons/button";
-import { Dropdown } from "@/components/base/dropdown/dropdown";
-import { Input } from "@/components/base/input/input";
-import { TextArea } from "@/components/base/textarea/textarea";
-import { m } from "@/paraglide/messages";
+import { Dialog, Modal, ModalOverlay } from "#src/components/application/modals/modal";
+import { ButtonUtility } from "#src/components/base/buttons/button-utility";
+import { Button } from "#src/components/base/buttons/button";
+import { Dropdown } from "#src/components/base/dropdown/dropdown";
+import { Input } from "#src/components/base/input/input";
+import { TextArea } from "#src/components/base/textarea/textarea";
+import { m } from "#src/paraglide/messages";
 import { executeTask } from "./tasks.functions";
-import { DialogHeader } from "@/components/application/modals/dialog-header";
+import { DialogHeader } from "#src/components/application/modals/dialog-header";
 
 type DetailCommand = Omit<TaskCommand, "idempotencyKey" | "conversationId"> & { number: number };
 

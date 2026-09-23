@@ -1,20 +1,20 @@
 import { expect, test } from "bun:test";
-import { handleAgentChannelsPost } from "@/routes/api/agent/v1/channels";
+import { handleAgentChannelsPost } from "#src/routes/api/agent/v1/channels";
 import {
   handleAgentChannelGet,
   handleAgentChannelPatch,
-} from "@/routes/api/agent/v1/channels_.$channel";
+} from "#src/routes/api/agent/v1/channels_.$channel";
 import {
   handleAgentChannelMembersDelete,
   handleAgentChannelMembersGet,
   handleAgentChannelMembersPost,
-} from "@/routes/api/agent/v1/channels_.$channel.members";
-import { handleAgentChannelJoinPost } from "@/routes/api/agent/v1/channels_.$channel.join";
-import { handleAgentChannelLeavePost } from "@/routes/api/agent/v1/channels_.$channel.leave";
-import { handleAgentChannelArchivePost } from "@/routes/api/agent/v1/channels_.$channel.archive";
-import { handleAgentChannelUnarchivePost } from "@/routes/api/agent/v1/channels_.$channel.unarchive";
-import { AgentChannelManagementError } from "@/server/conversations/agent-channel-management-error.server";
-import type { AgentChannelManagementRepository } from "@/server/conversations/agent-channel-management.server";
+} from "#src/routes/api/agent/v1/channels_.$channel.members";
+import { handleAgentChannelJoinPost } from "#src/routes/api/agent/v1/channels_.$channel.join";
+import { handleAgentChannelLeavePost } from "#src/routes/api/agent/v1/channels_.$channel.leave";
+import { handleAgentChannelArchivePost } from "#src/routes/api/agent/v1/channels_.$channel.archive";
+import { handleAgentChannelUnarchivePost } from "#src/routes/api/agent/v1/channels_.$channel.unarchive";
+import { AgentChannelManagementError } from "#src/server/conversations/agent-channel-management-error.server";
+import type { AgentChannelManagementRepository } from "#src/server/conversations/agent-channel-management.server";
 
 const principal = { workspaceId: "workspace-1", agentId: "agent-1" };
 const get = (path: string) => new Request(`https://server.example${path}`);

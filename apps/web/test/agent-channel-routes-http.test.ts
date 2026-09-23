@@ -1,8 +1,8 @@
 import { expect, test } from "bun:test";
-import { handleAgentChannelMutePost } from "@/routes/api/agent/v1/channels_.$channel.mute";
-import { handleAgentChannelUnmutePost } from "@/routes/api/agent/v1/channels_.$channel.unmute";
-import { handleAgentThreadUnfollowPost } from "@/routes/api/agent/v1/threads_.$thread.unfollow";
-import { AgentMessageValidationError } from "@/server/conversations/agent-message-validation-error.server";
+import { handleAgentChannelMutePost } from "#src/routes/api/agent/v1/channels_.$channel.mute";
+import { handleAgentChannelUnmutePost } from "#src/routes/api/agent/v1/channels_.$channel.unmute";
+import { handleAgentThreadUnfollowPost } from "#src/routes/api/agent/v1/threads_.$thread.unfollow";
+import { AgentMessageValidationError } from "#src/server/conversations/agent-message-validation-error.server";
 
 const principal = { workspaceId: "workspace-1", agentId: "agent-1" };
 const post = (path: string, body?: unknown) =>

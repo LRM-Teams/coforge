@@ -6,9 +6,12 @@ import {
   AgentControl,
   type AgentControlAgent,
   type AgentControlStore,
-} from "@/server/agents/agent-control.server";
-import { AgentSessionReceiver } from "@/server/agents/agent-session.server";
-import { AgentSessions, type RuntimeSessionReference } from "@/server/agents/agent-sessions.server";
+} from "#src/server/agents/agent-control.server";
+import { AgentSessionReceiver } from "#src/server/agents/agent-session.server";
+import {
+  AgentSessions,
+  type RuntimeSessionReference,
+} from "#src/server/agents/agent-sessions.server";
 import { DaemonRuntime } from "../../../packages/daemon/src/daemon-runtime/runtime";
 import { InMemoryDaemonCredentialStore } from "../../../packages/daemon/src/credentials/credential-store";
 import { AgentSessionRecoveryError } from "../../../packages/daemon/src/code-agent/contract";

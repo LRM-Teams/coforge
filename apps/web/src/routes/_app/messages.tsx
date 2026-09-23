@@ -1,16 +1,16 @@
 import { Outlet, createFileRoute } from "@tanstack/react-router";
 
-import { MessagesPending } from "@/features/conversations/conversation-pending";
-import { ConversationNavigation } from "@/features/conversations/conversation-navigation";
-import { PageLoadError } from "@/features/errors/page-load-error";
-import { listPublicChannels } from "@/features/conversations/channels.functions";
+import { MessagesPending } from "#src/features/conversations/conversation-pending";
+import { ConversationNavigation } from "#src/features/conversations/conversation-navigation";
+import { PageLoadError } from "#src/features/errors/page-load-error";
+import { listPublicChannels } from "#src/features/conversations/channels.functions";
 import {
   loadDirectConversationBadges,
   loadDirectConversationPreferences,
   type DirectConversationBadges,
-} from "@/features/conversations/conversations.functions";
-import { listProjects } from "@/features/projects/projects.functions";
-import { listSavedMessages } from "@/features/conversations/saved-messages.functions";
+} from "#src/features/conversations/conversations.functions";
+import { listProjects } from "#src/features/projects/projects.functions";
+import { listSavedMessages } from "#src/features/conversations/saved-messages.functions";
 
 const EMPTY_DIRECT_BADGES: DirectConversationBadges = { viewerId: "", unread: {} };
 
