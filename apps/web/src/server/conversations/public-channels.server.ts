@@ -344,6 +344,87 @@ export class PublicChannels {
     return { muted };
   }
 
+  /** Pins this conversation for this member only, appending it after the member's other pins
+   * unless a caller supplies an order. Unpinning removes the row rather than zeroing it, so
+   * membership and pin state stay independent of archive/leave (see `ConversationPin`). */
+  async setUserPinned(
+    workspaceId: string,
+    userId: string,
+    channelId: string,
+    pinned: boolean,
+    sortOrder?: number,
+  ) {
+    const channel = await this.channel(workspaceId, userId, channelId);
+    await this.db.$transaction(async (tx) => {
+      await lockConversation(tx, channel.id);
+      const member = await tx.conversationMember.findFirst({
+        where: { conversationId: channel.id, userId, ...ACTIVE_MEMBER_WHERE },
+        select: { id: true },
+      });
+      if (!member) throw new AppError("ACCESS_DENIED");
+      const where = { conversationId: channel.id, memberId: member.id };
+      if (!pinned) {
+        await tx.conversationPin.deleteMany({ where });
+        return;
+      }
+      const key = { conversationId_memberId: where };
+      const order =
+        sortOrder ?? (await tx.conversationPin.count({ where: { memberId: member.id } }));
+      await tx.conversationPin.upsert({
+        where: key,
+        create: {
+          conversationId: channel.id,
+          memberId: member.id,
+          workspaceId,
+          sortOrder: order,
+        },
+        update: { sortOrder: order },
+      });
+    });
+    return { pinned };
+  }
+
+  /** Marks the conversation unread for this member, or clears the marker. Marking is anchored on
+   * the newest top-level message, so the badge is at least one; a conversation with no messages
+   * has nothing to mark. */
+  async setUserUnread(workspaceId: string, userId: string, channelId: string, unread: boolean) {
+    const channel = await this.channel(workspaceId, userId, channelId);
+    let marker: number | null = null;
+    await this.db.$transaction(async (tx) => {
+      await lockConversation(tx, channel.id);
+      if (unread) {
+        const newest = await tx.message.findFirst({
+          where: { conversationId: channel.id, threadRootId: null },
+          orderBy: { sequence: "desc" },
+          select: { sequence: true },
+        });
+        marker = newest?.sequence ?? null;
+      }
+      const updated = await tx.conversationMember.updateMany({
+        where: { conversationId: channel.id, userId, ...ACTIVE_MEMBER_WHERE },
+        data: { unreadFromSequence: marker },
+      });
+      if (updated.count !== 1) throw new AppError("ACCESS_DENIED");
+    });
+    return { unread: marker !== null };
+  }
+
+  /** Closes (hides) the conversation for this member only, or brings it back. Distinct from
+   * `archivedAt` (whole conversation) and `leftAt` (membership ended): nothing else changes and
+   * the conversations stays readable. */
+  async setUserHidden(workspaceId: string, userId: string, channelId: string, hidden: boolean) {
+    const channel = await this.channel(workspaceId, userId, channelId);
+    await this.db.$transaction(async (tx) => {
+      await lockConversation(tx, channel.id);
+      const updated = await tx.conversationMember.updateMany({
+        where: { conversationId: channel.id, userId, ...ACTIVE_MEMBER_WHERE },
+        data: { hiddenAt: hidden ? new Date() : null },
+      });
+      if (updated.count !== 1) throw new AppError("ACCESS_DENIED");
+    });
+    return { hidden };
+  }
+
   async setUserThreadFollowed(
     workspaceId: string,
     userId: string,
@@ -529,6 +610,11 @@ export class PublicChannels {
               // Slack-style unread cursor (ADR 0046). Thread replies belong to their thread
               // target and never advance it, so they never count in the channel badge.
               readThroughSequence: true,
+              // Forced unread (`mark as unread`) and per-member hide/close, plus this member's
+              // pin order — the three member-level facts the conversation list renders (#121/#122).
+              unreadFromSequence: true,
+              hiddenAt: true,
+              pins: { select: { sortOrder: true } },
             },
           },
         },
@@ -550,7 +636,10 @@ export class PublicChannels {
          AND m."threadRootId" IS NULL
          AND m."senderMemberId" IS NOT NULL
          AND m."senderMemberId" IS DISTINCT FROM cm."id"
-         AND m."sequence" > cm."readThroughSequence"
+         AND (
+           m."sequence" > cm."readThroughSequence"
+           OR cm."unreadFromSequence" IS NOT NULL AND m."sequence" >= cm."unreadFromSequence"
+         )
         WHERE cm."userId" = ${userId}::uuid
           AND cm."leftAt" IS NULL
           AND cm."workspaceId" = ${workspaceId}::uuid
@@ -561,6 +650,9 @@ export class PublicChannels {
     return channels
       .map((channel) => {
         const member = channel.members[0];
+        // `.at(0)`, not `[0]`: the pinned row is genuinely optional and the type has to say so,
+        // or the row's `pinSortOrder` narrows to `number` and cannot hold "not pinned".
+        const pin = member?.pins.at(0);
         // A non-member (or soft-left viewer) sees no unread badge: the channel's history is
         // readable, but nothing new is "for them" until they join.
         return {
@@ -570,9 +662,20 @@ export class PublicChannels {
           archived: channel.archivedAt !== null,
           muted: member?.channelMuted ?? false,
           unreadCount: member ? (unreadByConversation.get(channel.id) ?? 0) : 0,
+          /// A closed chat disappears from this member's list only (see `hiddenAt` in the schema);
+          /// the conversation itself stays readable, including through its own URL.
+          hidden: member?.hiddenAt != null,
+          pinned: Boolean(member?.pins.length),
+          pinSortOrder: pin ? pin.sortOrder : null,
         };
       })
-      .sort((a, b) => Number(b.name === "general") - Number(a.name === "general"));
+      .filter((channel) => !channel.hidden)
+      .sort((a, b) =>
+        // Pinned conversations sit above the rest, in the order the member arranged them (#121).
+        a.pinned || b.pinned
+          ? Number(b.pinned) - Number(a.pinned) || (a.pinSortOrder ?? 0) - (b.pinSortOrder ?? 0)
+          : Number(b.name === "general") - Number(a.name === "general"),
+      );
   }
 
   async create(
@@ -713,6 +816,17 @@ export class PublicChannels {
           ...ACTIVE_MEMBER_WHERE,
         },
         data: { readThroughSequence: boundary },
+      });
+      // Reading past the forced `mark as unread` marker consumes it, so the badge does not come
+      // back on the next render (see the marker's note in the schema).
+      await tx.conversationMember.updateMany({
+        where: {
+          conversationId: channelId,
+          userId,
+          unreadFromSequence: { not: null, lte: boundary },
+          ...ACTIVE_MEMBER_WHERE,
+        },
+        data: { unreadFromSequence: null },
       });
     });
   }

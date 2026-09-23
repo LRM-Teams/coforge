@@ -198,6 +198,35 @@ export const setPublicChannelMuted = createServerFn({ method: "POST" })
     return channels.setUserMuted(workspaceId, userId, data.channelId, data.muted);
   });
 
+/** Pins the conversation to the top of this member's list (pin/unpin, #121). */
+export const setPublicConversationPinned = createServerFn({ method: "POST" })
+  .middleware([workspaceUserMiddleware])
+  .validator(
+    channelInput.extend({ pinned: z.boolean(), sortOrder: z.number().int().min(0).optional() }),
+  )
+  .handler(async ({ data, context }) => {
+    const { channels, workspaceId, userId } = channelScope(context);
+    return channels.setUserPinned(workspaceId, userId, data.channelId, data.pinned, data.sortOrder);
+  });
+
+/** Marks the conversation unread for this member, or clears the marker (#122). */
+export const setPublicConversationUnread = createServerFn({ method: "POST" })
+  .middleware([workspaceUserMiddleware])
+  .validator(channelInput.extend({ unread: z.boolean() }))
+  .handler(async ({ data, context }) => {
+    const { channels, workspaceId, userId } = channelScope(context);
+    return channels.setUserUnread(workspaceId, userId, data.channelId, data.unread);
+  });
+
+/** Closes (hides) the conversation for this member only, or brings it back (#122). */
+export const setPublicConversationHidden = createServerFn({ method: "POST" })
+  .middleware([workspaceUserMiddleware])
+  .validator(channelInput.extend({ hidden: z.boolean() }))
+  .handler(async ({ data, context }) => {
+    const { channels, workspaceId, userId } = channelScope(context);
+    return channels.setUserHidden(workspaceId, userId, data.channelId, data.hidden);
+  });
+
 export const markPublicChannelThreadRead = createServerFn({ method: "POST" })
   .middleware([workspaceUserMiddleware])
   .validator(channelThreadReadInput)
