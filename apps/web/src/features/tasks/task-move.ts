@@ -16,15 +16,14 @@ export function getTaskMoveCommand(
   nextStatus: TaskStatus,
 ): TaskMoveCommand | undefined {
   if (!currentMemberId || task.status === nextStatus) return undefined;
+  const own = task.owner?.memberId === currentMemberId;
 
-  if (
-    task.status === "todo" &&
-    (!task.owner || task.owner.memberId === currentMemberId) &&
-    nextStatus === "in_progress"
-  ) {
+  if (task.status === "todo" && (!task.owner || own) && nextStatus === "in_progress") {
     return { operation: "claim", number: task.number };
   }
 
+  // Only the owner works a task: anyone else may reopen it, finish it or close it.
+  if (!own && (nextStatus === "in_progress" || nextStatus === "in_review")) return undefined;
   if (nextStatus === "done" && !task.owner) return undefined;
 
   return {
