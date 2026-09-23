@@ -3,7 +3,6 @@ import { AlertCircle, CheckCircle } from "@untitledui/icons";
 import { Toaster, toast } from "sonner";
 
 import { useBreakpoint } from "@/hooks/use-breakpoint";
-import { isAppError } from "@/lib/app-error";
 import { m } from "@/paraglide/messages";
 
 const toastStyle: CSSProperties & Record<`--${string}`, string> = {
@@ -57,14 +56,10 @@ export function useAppToast() {
         duration: options?.durationMs,
       });
     },
-    error(title: string, cause?: unknown) {
-      toast.error(title, {
-        id: `error:${title}`,
-        description:
-          isAppError(cause) && cause.errorId
-            ? m.error_reference({ errorId: cause.errorId })
-            : undefined,
-      });
+    // A toast only confirms that an action failed; an error reference belongs under an inline
+    // failure, never in a toast.
+    error(title: string) {
+      toast.error(title, { id: `error:${title}` });
     },
   };
 }

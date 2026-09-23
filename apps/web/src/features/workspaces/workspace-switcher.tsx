@@ -43,8 +43,8 @@ export function WorkspaceSwitcher({
   async function select(slug: string) {
     try {
       await onSelect?.(slug);
-    } catch (error) {
-      toast.error(m.workspace_select_error(), error);
+    } catch {
+      toast.error(m.workspace_select_error());
     }
   }
 
