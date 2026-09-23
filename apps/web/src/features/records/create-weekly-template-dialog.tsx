@@ -18,6 +18,7 @@ import { Input } from "#src/components/base/input/input";
 import { Dialog, Modal, ModalOverlay } from "#src/components/application/modals/modal";
 import { Select } from "#src/components/base/select/select";
 import { m } from "#src/paraglide/messages";
+import { RECORDS_PRIMARY_BUTTON_CLASSNAME } from "./records-primary-button";
 import { isValidTemplateName, hourlySendTimes } from "./records-content";
 import { parseTemplateSections, type TemplateOutlineSection } from "./template-outline-sections";
 import { memberLabel, weekdayLabel, type TemplateMemberOption } from "./weekly-template-members";
@@ -475,7 +476,12 @@ export function CreateWeeklyTemplateDialog({
                   >
                     {m.records_template_cancel()}
                   </Button>
-                  <Button type="submit" isDisabled={saving}>
+                  <Button
+                    type="submit"
+                    color="primary"
+                    className={RECORDS_PRIMARY_BUTTON_CLASSNAME}
+                    isDisabled={saving}
+                  >
                     {m.records_template_save()}
                   </Button>
                 </div>

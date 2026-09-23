@@ -20,6 +20,7 @@ import {
   listWeeklyReportCollectorSlots,
   submitWeeklyReportCollectPlan,
 } from "./records.functions";
+import { RECORDS_PRIMARY_BUTTON_CLASSNAME } from "./records-primary-button";
 
 type SlotRow = Awaited<ReturnType<typeof listWeeklyReportCollectorSlots>>[number];
 
@@ -289,7 +290,7 @@ export function WeeklyReportCollectPlanCard(props: {
       <Button
         size="sm"
         color="primary"
-        className="w-full"
+        className={`w-full ${RECORDS_PRIMARY_BUTTON_CLASSNAME}`}
         isDisabled={busy || props.disabled}
         isLoading={busy}
         onPress={() => void onSubmit()}

@@ -22,6 +22,7 @@ import { useAppToast } from "#src/components/ui/toast";
 import { ReportSectionEditor } from "#src/features/records/report-editor/report-section-editor";
 import { KEY_POINT_EXTRACTION_TAB, KeyPointExtractionPanel } from "./key-point-extraction-panel";
 import { TeamKeyPointSection } from "./team-key-point-section";
+import { RECORDS_PRIMARY_BUTTON_CLASSNAME } from "./records-primary-button";
 import { ReportTabsEditor } from "./report-tabs-editor";
 import type { UploadResult } from "#src/features/records/report-editor/types";
 import {
@@ -466,6 +467,7 @@ function ReportDetail({
                   <Button
                     size="sm"
                     color="primary"
+                    className={RECORDS_PRIMARY_BUTTON_CLASSNAME}
                     isDisabled={saving}
                     onPress={() => void persist(contentRef.current, "submitted")}
                   >
@@ -918,7 +920,7 @@ function TemplateReportDetail({
                     <Button
                       size="sm"
                       color="primary"
-                      className="bg-primary-solid ring-transparent hover:bg-primary-solid data-loading:bg-primary-solid"
+                      className={RECORDS_PRIMARY_BUTTON_CLASSNAME}
                       isDisabled={saving || sending || !canSendAssignments || hasUnsavedEdits}
                       onPress={() => setConfirmOpen(true)}
                     >

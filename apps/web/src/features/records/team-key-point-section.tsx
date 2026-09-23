@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { AlertCircle, XClose as X } from "@untitledui/icons";
+import { AlertCircle, Stars01 as Stars, XClose as X } from "@untitledui/icons";
 import { Link } from "@tanstack/react-router";
 import { Heading, Text } from "react-aria-components";
 
@@ -10,6 +10,7 @@ import { FeaturedIcon } from "#src/components/foundations/featured-icon/featured
 import { m } from "#src/paraglide/messages";
 import type { KeyPointExtractionMeta } from "./records-content";
 import { KeyPointExtractionPanel } from "./key-point-extraction-panel";
+import { RECORDS_PRIMARY_BUTTON_CLASSNAME } from "./records-primary-button";
 
 /** Failed because nobody submitted — toast-only, never a parked panel state. */
 export function isNoneSubmittedKeyPointFailure(
@@ -75,11 +76,12 @@ export function TeamKeyPointSection({
             {m.records_key_points_edit_prompt()}
           </Link>
           {canStart ? (
-            // Match template「发送」/ assignment「重新发送」: solid primary sm, no leading icon.
             <Button
               type="button"
               size="sm"
               color="primary"
+              className={RECORDS_PRIMARY_BUTTON_CLASSNAME}
+              iconLeading={Stars}
               isDisabled={busy}
               onPress={onPressStart}
             >
@@ -145,6 +147,7 @@ export function TeamKeyPointSection({
                     type="button"
                     color="primary"
                     size="sm"
+                    className={RECORDS_PRIMARY_BUTTON_CLASSNAME}
                     isDisabled={busy}
                     onPress={() => {
                       setConfirmOpen(false);
