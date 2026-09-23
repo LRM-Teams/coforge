@@ -1,4 +1,4 @@
-import { Fragment, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
 import { useRouter } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { MessageChatSquare, Pin01, XClose } from "@untitledui/icons";
@@ -15,6 +15,10 @@ import {
 import {
   conversationRowMenuEnabled,
   conversationRowMenuItems,
+  LONG_PRESS_MS,
+  longPressAnchorPoint,
+  movedBeyondSlop,
+  rowClickSuppressed,
   type ConversationRowMenuItem,
 } from "./conversation-row-menu-model";
 
@@ -76,6 +80,21 @@ export function ConversationRowMenu({
     setAnchor({ left, top });
   };
 
+  /** The touch that might become a long-press (#128): where it started and its pending timer. */
+  const pressStart = useRef<{ x: number; y: number } | null>(null);
+  const pressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const cancelLongPress = () => {
+    if (pressTimer.current !== null) {
+      clearTimeout(pressTimer.current);
+      pressTimer.current = null;
+    }
+    pressStart.current = null;
+  };
+
+  // A row can unmount mid-hold (another pane's invalidate refetches the list): don't leak the timer.
+  useEffect(() => cancelLongPress, []);
+
   /** Runs one menu mutation, then refetches the loader so the row's order, badge and presence
    * all reflect it (the server's list owns pinned order, forced unread and the hidden filter). */
   async function run(action: () => Promise<unknown>) {
@@ -107,7 +126,11 @@ export function ConversationRowMenu({
 
   return (
     <li
-      className="relative py-px"
+      className={
+        // Long-press rows (#128): no native text selection or iOS link callout competing with
+        // the menu the hold opens.
+        enabled ? "relative py-px select-none [-webkit-touch-callout:none]" : "relative py-px"
+      }
       onContextMenu={
         enabled
           ? (event) => {
@@ -124,6 +147,53 @@ export function ConversationRowMenu({
               event.preventDefault();
               const rect = event.currentTarget.getBoundingClientRect();
               openAt(KEYBOARD_ANCHOR_X, rect.height);
+            }
+          : undefined
+      }
+      onTouchStart={
+        enabled
+          ? (event) => {
+              const touch = event.touches[0];
+              if (!touch) return;
+              const rect = event.currentTarget.getBoundingClientRect();
+              const start = { x: touch.clientX, y: touch.clientY };
+              pressStart.current = start;
+              pressTimer.current = setTimeout(() => {
+                pressTimer.current = null;
+                pressStart.current = null;
+                // The anchor comes from where the finger went down; drift past the slop
+                // (touchmove) would have cancelled this timer as a scroll.
+                const point = longPressAnchorPoint(start.x, start.y, rect);
+                openAt(point.left, point.top);
+              }, LONG_PRESS_MS);
+            }
+          : undefined
+      }
+      onTouchMove={
+        enabled
+          ? (event) => {
+              if (pressTimer.current === null || !pressStart.current) return;
+              const touch = event.touches[0];
+              if (
+                !touch ||
+                movedBeyondSlop(pressStart.current, { x: touch.clientX, y: touch.clientY })
+              ) {
+                cancelLongPress();
+              }
+            }
+          : undefined
+      }
+      onTouchEnd={enabled ? cancelLongPress : undefined}
+      onTouchCancel={enabled ? cancelLongPress : undefined}
+      onClickCapture={
+        enabled
+          ? (event) => {
+              // With the menu open the arriving click is the long-press's own release (or a tap
+              // on the row under the menu): swallow it so the row doesn't navigate under it.
+              if (!rowClickSuppressed(anchor !== null)) return;
+              event.preventDefault();
+              event.stopPropagation();
+              close();
             }
           : undefined
       }
