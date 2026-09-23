@@ -54,7 +54,7 @@ export function AgentControlDialogs({
                 {/* No padding of its own: the `Dialog` owns it. `px-*` on an *inline* `Text`
                     lands on the first and last line only, which is how a wrapped second line came
                     to sit at the dialog's edge and lose its left side to the rounded corner. */}
-                <Text slot="description" className="mt-2 text-sm text-tertiary">
+                <Text slot="description" className="mt-2 block text-sm text-tertiary">
                   {m.agent_control_stop_message({ name: agentName })}
                 </Text>
                 {control.startStopError && (

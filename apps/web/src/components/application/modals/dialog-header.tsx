@@ -25,7 +25,7 @@ export function DialogHeader({
           {title}
         </Heading>
         {description && (
-          <Text slot="description" className="mt-2 text-sm text-tertiary">
+          <Text slot="description" className="mt-2 block text-sm text-tertiary">
             {description}
           </Text>
         )}

@@ -105,7 +105,7 @@ export function CreateChannelDialog({
               <Heading slot="title" className="pr-8 text-lg font-semibold text-primary">
                 {m.channel_create()}
               </Heading>
-              <Text slot="description" className="mt-2 text-sm text-tertiary">
+              <Text slot="description" className="mt-2 block text-sm text-tertiary">
                 {m.channel_public_description()}
               </Text>
               <form onSubmit={(event) => void submit(event)} className="mt-5 flex flex-col gap-2">
