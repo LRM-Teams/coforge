@@ -2,7 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 
 import { AppError } from "../../lib/app-error";
-import { authMiddleware, workspaceUserMiddleware } from "../../server/auth/function-auth";
+import { authMiddleware, workspaceUserMiddleware } from "../auth/function-auth";
 import { requireDatabaseClient } from "../../server/db/client.server";
 import { workspaceMemberDirectory } from "../../server/workspaces/member-directory-store.server";
 import { INVITABLE_WORKSPACE_ROLES } from "../../server/workspaces/member-role.server";

@@ -1,7 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 
-import { workspaceUserMiddleware } from "../../server/auth/function-auth";
+import { workspaceUserMiddleware } from "../auth/function-auth";
 import { AppError } from "../../lib/app-error";
 
 import { recordCatalog } from "../../server/records/record-catalog.server";

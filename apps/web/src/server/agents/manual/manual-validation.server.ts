@@ -1,5 +1,5 @@
 import type { AgentManualErrorCode } from "@lrm/coforge-sdk/agent";
-import { tokenizeManualQuery } from "./manual-search";
+import { tokenizeManualQuery } from "./manual-search.server";
 
 export const MANUAL_TOPIC_SLUG_PATTERN = /^[a-z0-9]+(?:[-/][a-z0-9]+)*$/;
 export const MANUAL_TOPIC_SLUG_MAX_LENGTH = 120;

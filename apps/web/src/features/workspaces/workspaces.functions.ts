@@ -3,7 +3,7 @@ import { z } from "zod";
 import { createWorkspaceInputSchema, selectWorkspaceInputSchema } from "./workspace.schemas";
 
 import { AppError } from "../../lib/app-error";
-import { authMiddleware, workspaceUserMiddleware } from "../../server/auth/function-auth";
+import { authMiddleware, workspaceUserMiddleware } from "../auth/function-auth";
 import { requireDatabaseClient } from "../../server/db/client.server";
 import {
   PrismaWorkspaceCatalogStore,

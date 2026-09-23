@@ -17,7 +17,7 @@ import {
   isReservedWorkspaceSlug,
   isValidWorkspaceSlug,
   nameToWorkspaceSlug,
-} from "@/server/workspaces/workspace-slug";
+} from "@/features/workspaces/workspace-slug";
 import { cx } from "@/utils/cx";
 import { DialogHeader } from "@/components/application/modals/dialog-header";
 

@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { resolveAgentStatus } from "#/server/agents/agent-user-info.server";
-import { agentAuthMiddleware } from "#/server/agents/agent-http.middleware";
+import { agentAuthMiddleware } from "#/server/agents/agent-http-middleware.server";
 import { buildAgentRuntimeContext } from "#/server/agents/agent-runtime-context.server";
 import { parseAgentRuntimeConfig } from "#/server/agents/agent-runtime-config.server";
 import { ACTIVE_AGENT_WHERE } from "#/server/agents/active-agent.server";

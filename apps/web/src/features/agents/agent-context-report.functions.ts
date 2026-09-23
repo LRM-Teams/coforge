@@ -2,7 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { setResponseHeader } from "@tanstack/react-start/server";
 import { agentIdSchema } from "./agent.schemas";
 import { AppError } from "@/lib/app-error";
-import { workspaceUserMiddleware } from "../../server/auth/function-auth";
+import { workspaceUserMiddleware } from "../auth/function-auth";
 import {
   readAgentContextReport,
   scanAgentContextReport,

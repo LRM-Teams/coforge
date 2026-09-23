@@ -2,7 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 
 import { AppError } from "../../lib/app-error";
-import { workspaceUserMiddleware } from "../../server/auth/function-auth";
+import { workspaceUserMiddleware } from "../auth/function-auth";
 import { attachmentView } from "../../server/attachments/attachment-view.server";
 import { isInlineImage } from "../../server/attachments/attachment-response.server";
 

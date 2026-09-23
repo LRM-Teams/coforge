@@ -5,7 +5,7 @@ import {
   validateAgentReminderOperationRequest,
 } from "@lrm/coforge-sdk/internal";
 import { isAppError } from "#/lib/app-error";
-import { agentAuthMiddleware } from "#/server/agents/agent-http.middleware";
+import { agentAuthMiddleware } from "#/server/agents/agent-http-middleware.server";
 import { createAgentReminderService } from "#/server/agents/agent-api-http.server";
 import { ReminderRefusal } from "#/server/reminders/reminders.server";
 

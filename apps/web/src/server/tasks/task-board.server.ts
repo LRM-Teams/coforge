@@ -21,7 +21,7 @@ import {
   messageSignalScope,
   type ConversationRealtime,
 } from "../conversations/conversation-realtime.server";
-import { mentionedNames } from "../conversations/mentions";
+import { mentionedNames } from "../conversations/mentions.server";
 import { ACTIVE_MEMBER_WHERE } from "../conversations/active-member.server";
 import {
   agentMessageSender,

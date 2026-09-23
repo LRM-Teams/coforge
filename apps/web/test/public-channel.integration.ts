@@ -19,7 +19,7 @@ import {
   muteAgentChannel,
   readAgentMessages,
   unfollowAgentThread,
-} from "../src/server/agents/agent-messages.service";
+} from "../src/server/agents/agent-messages.server";
 import { SendDirectMessage } from "../src/server/conversations/direct-message.server";
 import { CentrifugoConversationRealtime } from "../src/server/conversations/conversation-realtime.server";
 import { PrismaAgentRepository } from "../src/server/db/repositories/agent.repositories.server";

@@ -1,16 +1,16 @@
 import { createFileRoute } from "@tanstack/react-router";
 import type { AgentChannelAttentionResponse } from "@lrm/coforge-sdk/agent";
-import { agentAuthMiddleware } from "#/server/agents/agent-http.middleware";
+import { agentAuthMiddleware } from "#/server/agents/agent-http-middleware.server";
 import { PrismaDirectConversationRepository } from "#/server/db/repositories/direct-conversation.repositories.server";
 import {
   muteAgentChannel,
   type AgentMessageRepository,
-} from "#/server/agents/agent-messages.service";
+} from "#/server/agents/agent-messages.server";
 import {
   agentIdempotencyKey,
   agentRouteErrorResponse,
   readAgentJsonBody,
-} from "#/server/agents/agent-http-routes.shared";
+} from "#/server/agents/agent-http-routes.server";
 
 export type AgentChannelMutePrincipal = { workspaceId: string; agentId: string };
 

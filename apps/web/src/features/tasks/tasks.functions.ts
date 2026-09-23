@@ -5,7 +5,7 @@ import { z } from "zod";
 import { CentrifugoConversationRealtime } from "../../server/conversations/conversation-realtime.server";
 import { createCentrifugoServerApi } from "../../server/centrifugo/server-api.server";
 import { bestEffortMessageNotifier } from "../../server/notifications/web-push-composition.server";
-import { workspaceUserMiddleware } from "../../server/auth/function-auth";
+import { workspaceUserMiddleware } from "../auth/function-auth";
 import { TaskBoard } from "../../server/tasks/task-board.server";
 
 const taskCommand = z

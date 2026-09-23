@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { agentAuthMiddleware } from "#/server/agents/agent-http.middleware";
+import { agentAuthMiddleware } from "#/server/agents/agent-http-middleware.server";
 import { storeAgentAttachment } from "#/server/attachments/attachment.server";
 import { PrismaDirectConversationRepository } from "#/server/db/repositories/direct-conversation.repositories.server";
 import { isAppError } from "#/lib/app-error";

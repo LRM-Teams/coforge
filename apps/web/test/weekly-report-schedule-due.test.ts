@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import {
   isWeeklyScheduleDue,
   zonedWeekdayAndTime,
-} from "../src/server/records/weekly-report-schedule-due";
+} from "../src/features/records/weekly-report-schedule-due";
 
 test("zonedWeekdayAndTime reads Friday afternoon in Asia/Shanghai", () => {
   // 2026-09-18 is a Friday; 07:00 UTC = 15:00 Asia/Shanghai

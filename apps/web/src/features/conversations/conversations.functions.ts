@@ -1,9 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
-import {
-  workspaceUserMiddleware,
-  type WorkspaceUserContext,
-} from "../../server/auth/function-auth";
+import { workspaceUserMiddleware, type WorkspaceUserContext } from "../auth/function-auth";
 import { ACTIVE_AGENT_WHERE } from "../../server/agents/active-agent.server";
 import {
   agentConversationInputSchema,

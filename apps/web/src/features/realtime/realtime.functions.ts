@@ -8,7 +8,7 @@ import {
   issueUserConversationSubscriptionToken,
   issueWorkspaceConversationSubscriptionToken,
 } from "../../server/auth/browser-realtime-token.server";
-import { workspaceUserMiddleware } from "../../server/auth/function-auth";
+import { workspaceUserMiddleware } from "../auth/function-auth";
 import { ACTIVE_MEMBER_WHERE } from "../../server/conversations/active-member.server";
 
 export const getBrowserRealtimeConnectionToken = createServerFn({

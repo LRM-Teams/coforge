@@ -1,6 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 
-import { authMiddleware } from "@/server/auth/function-auth";
+import { authMiddleware } from "@/features/auth/function-auth";
 import { userCodeInputSchema } from "./device-auth.schemas";
 import {
   approveUserCode,

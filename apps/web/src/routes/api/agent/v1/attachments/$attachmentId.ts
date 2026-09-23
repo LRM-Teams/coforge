@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { agentAuthMiddleware } from "#/server/agents/agent-http.middleware";
+import { agentAuthMiddleware } from "#/server/agents/agent-http-middleware.server";
 import { readAuthorizedAttachment } from "#/server/attachments/attachment.server";
 
 export const Route = createFileRoute("/api/agent/v1/attachments/$attachmentId")({

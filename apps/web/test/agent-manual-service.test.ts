@@ -3,7 +3,7 @@ import {
   recordManualEvent,
   resolveManualGet,
   resolveManualSearch,
-} from "../src/server/agents/agent-manual.service";
+} from "../src/server/agents/agent-manual.server";
 
 const VALID_INTENT = "Open a pull request for a bound repository";
 const VALID_REASON = "Confirm the exact clone and push commands to use";

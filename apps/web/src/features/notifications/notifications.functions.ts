@@ -1,6 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { getRequest } from "@tanstack/react-start/server";
-import { authMiddleware } from "../../server/auth/function-auth";
+import { authMiddleware } from "../auth/function-auth";
 import { requireDatabaseClient } from "../../server/db/client.server";
 import {
   PrismaUserPreferencesRepository,

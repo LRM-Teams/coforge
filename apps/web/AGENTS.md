@@ -60,10 +60,14 @@ live in nested `AGENTS.md` files listed at the end.
 - Use a Server Function (`createServerFn`) for data and mutations called by
   the Web UI. Put the public function at the owning feature seam, for example
   `src/features/agents/agents.functions.ts`.
-- Put database clients, repositories, authentication implementation, OSS,
-  Centrifugo RPC handlers, and other server-only implementations under
-  `src/server/`. Use `.server.ts` naming where a module must never enter the
-  client bundle.
+- Follow TanStack Start's file naming: `.functions.ts` for `createServerFn`
+  wrappers (importable anywhere), `.server.ts` for server-only code, and no
+  suffix for client-safe code. Everything under `src/server/` is server-only:
+  every module there ends in `.server.ts`, and `vite.config.ts` import
+  protection denies both `*.server.*` and `src/server/**` in the client build.
+  Code the browser also needs (schemas, slugs, pure formatting) lives in the
+  owning `features/` module or `src/lib/`, never in `src/server/`. Server
+  Functions and function middleware live in `features/`, not `src/server/`.
 - Route loaders may call Server Functions, but must not access a database,
   filesystem, secret, or server-only SDK directly. Do not self-fetch a
   relative `/api/...` URL from an SSR loader.

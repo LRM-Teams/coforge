@@ -3,18 +3,18 @@ import {
   manualFirstScreen,
   searchManualTopics,
   tokenizeManualQuery,
-} from "../src/server/agents/manual/manual-search";
-import type { AgentManualTopic } from "../src/server/agents/manual/manual-registry";
+} from "../src/server/agents/manual/manual-search.server";
+import type { AgentManualTopic } from "../src/server/agents/manual/manual-registry.server";
 import {
   buildManualIndexContent,
   findManualTopic,
   manualDocVersion,
   MANUAL_TOPICS,
-} from "../src/server/agents/manual/manual-registry";
+} from "../src/server/agents/manual/manual-registry.server";
 import {
   isValidManualTopicSlug,
   validateManualQuery,
-} from "../src/server/agents/manual/manual-validation";
+} from "../src/server/agents/manual/manual-validation.server";
 
 const FIXTURE_TOPICS: AgentManualTopic[] = [
   {

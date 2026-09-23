@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import type { AgentHistoryResponse, AgentSendResponse, AgentMessage } from "@lrm/coforge-sdk/agent";
 import { isValidMentionSelectorArray } from "@lrm/coforge-sdk/internal";
-import { agentAuthMiddleware } from "#/server/agents/agent-http.middleware";
+import { agentAuthMiddleware } from "#/server/agents/agent-http-middleware.server";
 import { PrismaDirectConversationRepository } from "#/server/db/repositories/direct-conversation.repositories.server";
 import {
   readAgentMessages,
@@ -9,7 +9,7 @@ import {
   type AgentMentionSelector,
   type AgentMessageRepository,
   type AgentSendMessageResult,
-} from "#/server/agents/agent-messages.service";
+} from "#/server/agents/agent-messages.server";
 import { SendDirectMessage } from "#/server/conversations/direct-message.server";
 import { getMessageRequestIdempotency } from "#/server/conversations/redis-message-request-idempotency.server";
 import { createCentrifugoServerApi } from "#/server/centrifugo/server-api.server";

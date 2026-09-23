@@ -7,7 +7,7 @@ import {
   type ReminderFireResponse,
 } from "@lrm/coforge-sdk/internal";
 import { ACTIVE_AGENT_WHERE } from "../../agents/active-agent.server";
-import { messageAnchorWhere } from "../message-anchor";
+import { messageAnchorWhere } from "../message-anchor.server";
 import { Prisma, type PrismaClient } from "../../../../generated/client";
 import {
   MAX_ACTIVE_REMINDERS,

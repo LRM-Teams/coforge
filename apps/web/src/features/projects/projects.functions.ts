@@ -1,6 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import type { PrismaClient } from "../../../generated/client";
-import { workspaceUserMiddleware } from "../../server/auth/function-auth";
+import { workspaceUserMiddleware } from "../auth/function-auth";
 import { configuredGitHub } from "../../server/integrations/github-config.server";
 import type { RepositorySelection } from "../../server/integrations/github-connection.server";
 import { gitObjectIdSchema } from "../../lib/git-object-id";

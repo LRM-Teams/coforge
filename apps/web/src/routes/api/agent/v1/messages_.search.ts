@@ -1,11 +1,11 @@
 import { createFileRoute } from "@tanstack/react-router";
 import type { AgentSearchResponse, AgentMessage } from "@lrm/coforge-sdk/agent";
-import { agentAuthMiddleware } from "#/server/agents/agent-http.middleware";
+import { agentAuthMiddleware } from "#/server/agents/agent-http-middleware.server";
 import { PrismaDirectConversationRepository } from "#/server/db/repositories/direct-conversation.repositories.server";
 import {
   searchAgentMessages,
   type AgentMessageRepository,
-} from "#/server/agents/agent-messages.service";
+} from "#/server/agents/agent-messages.server";
 
 export type AgentMessagesSearchGetPrincipal = { workspaceId: string; agentId: string };
 

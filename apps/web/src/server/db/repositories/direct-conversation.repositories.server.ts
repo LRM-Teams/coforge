@@ -9,7 +9,7 @@ import { Prisma, type PrismaClient } from "../../../../generated/client";
 import { AppError } from "../../../lib/app-error";
 import { canDirectMessageAgent } from "../../agents/agent-visibility.server";
 import { AgentMessageValidationError } from "../../conversations/agent-message-validation-error.server";
-import { messageAnchorWhere } from "../message-anchor";
+import { messageAnchorWhere } from "../message-anchor.server";
 import { getAgentChannel, PublicChannels } from "../../conversations/public-channels.server";
 import { ACTIVE_MEMBER_WHERE } from "../../conversations/active-member.server";
 import {
@@ -18,7 +18,7 @@ import {
   browserMessageMention,
   deliveryMentionsAgent,
   mentionedNames,
-} from "../../conversations/mentions";
+} from "../../conversations/mentions.server";
 import { AgentSendRejectedError } from "../../conversations/agent-send-rejected-error.server";
 import {
   MESSAGE_REACTIONS_SELECT,

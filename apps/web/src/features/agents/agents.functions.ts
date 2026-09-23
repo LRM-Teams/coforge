@@ -39,7 +39,7 @@ import {
   authMiddleware,
   workspaceUserMiddleware,
   type WorkspaceUserContext,
-} from "../../server/auth/function-auth";
+} from "../auth/function-auth";
 import { ActionCards } from "../../server/conversations/action-cards.server";
 import { CentrifugoConversationRealtime } from "../../server/conversations/conversation-realtime.server";
 import { AgentDetailQuery } from "../../server/agents/agent-detail.server";

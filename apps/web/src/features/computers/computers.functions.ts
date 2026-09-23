@@ -18,10 +18,7 @@ import {
   setRuntimeVisibilityInputSchema,
   updateComputerDisplayNameInputSchema,
 } from "./computer.schemas";
-import {
-  workspaceUserMiddleware,
-  type WorkspaceUserContext,
-} from "../../server/auth/function-auth";
+import { workspaceUserMiddleware, type WorkspaceUserContext } from "../auth/function-auth";
 import {
   createCentrifugoServerApi,
   createUsageScan,

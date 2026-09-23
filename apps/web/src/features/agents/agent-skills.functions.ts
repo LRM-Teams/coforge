@@ -2,7 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { setResponseHeader } from "@tanstack/react-start/server";
 import { encodeAgentSkillsListRequest } from "@lrm/coforge-sdk/internal";
 import { agentIdSchema } from "./agent.schemas";
-import { workspaceUserMiddleware } from "../../server/auth/function-auth";
+import { workspaceUserMiddleware } from "../auth/function-auth";
 import {
   AgentSkillsQuery,
   findOwnedSkillsAssignment,

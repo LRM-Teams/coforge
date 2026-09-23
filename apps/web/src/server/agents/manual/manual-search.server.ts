@@ -1,5 +1,5 @@
 import type { AgentManualSearchResult } from "@lrm/coforge-sdk/agent";
-import { MANUAL_TOPICS, type AgentManualTopic } from "./manual-registry";
+import { MANUAL_TOPICS, type AgentManualTopic } from "./manual-registry.server";
 
 const MAX_RESULTS = 5;
 const FIRST_SCREEN_MAX_LENGTH = 600;

@@ -8,7 +8,7 @@ import {
   listAgentWorkspaceFilesInputSchema,
   readAgentWorkspaceFileInputSchema,
 } from "./agent.schemas";
-import { workspaceUserMiddleware } from "../../server/auth/function-auth";
+import { workspaceUserMiddleware } from "../auth/function-auth";
 import {
   AgentWorkspaceFilesQuery,
   findOwnedWorkspaceFilesAssignment,

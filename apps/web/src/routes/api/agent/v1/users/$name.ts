@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { agentAuthMiddleware } from "#/server/agents/agent-http.middleware";
+import { agentAuthMiddleware } from "#/server/agents/agent-http-middleware.server";
 import { resolveAgentUserInfo } from "#/server/agents/agent-user-info.server";
 
 /** `GET /api/agent/v1/users/:name` — `coforge user info <name>`.

@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { attachmentCapabilities } from "#/server/attachments/attachment.server";
-import { agentAuthMiddleware } from "#/server/agents/agent-http.middleware";
+import { agentAuthMiddleware } from "#/server/agents/agent-http-middleware.server";
 import { getFileStorage } from "#/server/files/file-storage.server";
 
 export const Route = createFileRoute("/api/agent/v1/attachments/capabilities")({

@@ -12,7 +12,7 @@ import {
   resolveChannelAuthority,
 } from "./channel-authority.server";
 import { ACTIVE_AGENT_WHERE } from "../agents/active-agent.server";
-import { messageAnchorWhere } from "../db/message-anchor";
+import { messageAnchorWhere } from "../db/message-anchor.server";
 import { AGENT_VISIBILITY } from "../../features/agents/agent-visibility";
 import {
   agentMessageSender,
@@ -44,7 +44,7 @@ import {
   deliveryMentionsAgent,
   mentionAffinityScores,
   type BrowserMessageMentionRow,
-} from "./mentions";
+} from "./mentions.server";
 import {
   MESSAGE_REACTIONS_SELECT,
   reactionSummaries,

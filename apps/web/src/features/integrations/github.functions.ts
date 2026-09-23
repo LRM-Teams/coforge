@@ -2,7 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { getRequest, setResponseHeader } from "@tanstack/react-start/server";
 import { z } from "zod";
 import { AppError } from "../../lib/app-error";
-import { authMiddleware } from "../../server/auth/function-auth";
+import { authMiddleware } from "../auth/function-auth";
 import { configuredGitHub } from "../../server/integrations/github-config.server";
 import {
   githubInstallationStateCookie,

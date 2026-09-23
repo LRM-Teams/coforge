@@ -85,7 +85,14 @@ const config = defineConfig({
       },
     },
     paraglideVitePlugin(paraglideOptions),
-    tanstackStart(),
+    tanstackStart({
+      // Default protection only covers `*.server.*` file names; also keep the
+      // whole `src/server/` tree out of the client bundle.
+      // https://tanstack.com/start/latest/docs/framework/react/guide/import-protection
+      importProtection: {
+        client: { files: ["**/*.server.*", "**/src/server/**"] },
+      },
+    }),
     nitro({
       preset: "bun",
       // Avoid cyclic SSR chunks evaluating server functions before createSsrRpc

@@ -1,5 +1,5 @@
 import type { PrismaClient } from "../../../generated/client";
-import { agentReadableBody, mentionedNames } from "../conversations/mentions";
+import { agentReadableBody, mentionedNames } from "../conversations/mentions.server";
 import { ACTIVE_MEMBER_WHERE } from "../conversations/active-member.server";
 import { messageNotificationTag } from "./web-push-notifications.server";
 import type {

@@ -1,5 +1,5 @@
 import type { PrismaClient } from "../../../../generated/client";
-import type { AgentManualEventRepository } from "../../agents/agent-manual.service";
+import type { AgentManualEventRepository } from "../../agents/agent-manual.server";
 
 export class PrismaAgentManualEventRepository implements AgentManualEventRepository {
   constructor(private readonly db: PrismaClient) {}

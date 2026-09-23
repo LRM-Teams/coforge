@@ -1,6 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { setResponseHeader } from "@tanstack/react-start/server";
-import { workspaceUserMiddleware } from "@/server/auth/function-auth";
+import { workspaceUserMiddleware } from "@/features/auth/function-auth";
 import { AgentActivityRepository } from "@/server/db/repositories/agent-activity.repositories.server";
 import { agentIdSchema } from "./agent.schemas";
 import { ACTIVE_AGENT_WHERE } from "../../server/agents/active-agent.server";

@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 
-import { isVisibleTemplateSubmission } from "@/server/records/template-submission-visibility";
+import { isVisibleTemplateSubmission } from "@/server/records/template-submission-visibility.server";
 
 test("draft template submissions stay hidden under the parent", () => {
   expect(isVisibleTemplateSubmission("draft")).toBe(false);

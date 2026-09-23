@@ -1,6 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 
-import { workspaceUserMiddleware } from "../../server/auth/function-auth";
+import { workspaceUserMiddleware } from "../auth/function-auth";
 import {
   listUserSavedMessages,
   saveUserMessage,

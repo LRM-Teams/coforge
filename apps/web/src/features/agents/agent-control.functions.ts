@@ -1,10 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { setResponseHeader } from "@tanstack/react-start/server";
 import { z } from "zod";
-import {
-  workspaceUserMiddleware,
-  type WorkspaceUserContext,
-} from "../../server/auth/function-auth";
+import { workspaceUserMiddleware, type WorkspaceUserContext } from "../auth/function-auth";
 import { AgentControl } from "../../server/agents/agent-control.server";
 import { getAgentControlSignal } from "../../server/agents/agent-control-signal.server";
 import { PrismaAgentControlStore } from "../../server/db/repositories/agent-control.repositories.server";
