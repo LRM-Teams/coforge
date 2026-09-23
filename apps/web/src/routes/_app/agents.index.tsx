@@ -6,7 +6,11 @@ import { z } from "zod";
 import { PageLoadError } from "@/features/errors/page-load-error";
 import { AgentsContent } from "@/features/agents/agents-content";
 import { AgentsPending } from "@/features/agents/agents-pending";
-import { createAgent, ensureWeeklyReportAssistantMember } from "@/features/agents/agents.functions";
+import {
+  createAgent,
+  deleteAgent,
+  ensureWeeklyReportAssistantMember,
+} from "@/features/agents/agents.functions";
 import { useLiveAgents } from "@/features/agents/workspace-agents-realtime";
 import { getComputerRuntimeCatalog, listComputers } from "@/features/computers/computers.functions";
 import { inviteWorkspaceMember } from "@/features/workspaces/members.functions";
@@ -19,7 +23,10 @@ import {
 
 export const Route = createFileRoute("/_app/agents/")({
   validateSearch: z.object({
-    memberType: z.enum(["all", "human", "agent"]).default("all").catch("all"),
+    memberType: z.enum(["agent", "human"]).default("agent").catch("agent"),
+    owner: z.enum(["all", "mine"]).default("all").catch("all"),
+    /** A Computer id, or "none" for Agents without a Computer; absent means every Computer. */
+    computer: z.string().optional().catch(undefined),
     profile: agentProfileParamSchema,
     agentTab: agentProfileTabParamSchema,
   }),
@@ -41,12 +48,13 @@ export const Route = createFileRoute("/_app/agents/")({
 
 function AgentsPage() {
   const { computers, directory, weeklyReportAssistantAgentId } = Route.useLoaderData();
-  const { memberType, profile, agentTab } = Route.useSearch();
+  const { memberType, owner, computer, profile, agentTab } = Route.useSearch();
   const navigate = Route.useNavigate();
   const router = useRouter();
   const create = useServerFn(createAgent);
   const loadRuntimeCatalog = useServerFn(getComputerRuntimeCatalog);
   const invite = useServerFn(inviteWorkspaceMember);
+  const removeAgent = useServerFn(deleteAgent);
   const visibleAgents = useLiveAgents();
 
   // Refresh the shell Agent list once so a just-ensured weekly-report assistant appears.
@@ -60,9 +68,11 @@ function AgentsPage() {
     <AgentsContent
       directory={directory}
       memberType={memberType}
-      onMemberTypeChange={(value) => {
+      owner={owner}
+      computer={computer}
+      onFiltersChange={(filters) => {
         void navigate({
-          search: (previous) => ({ ...previous, memberType: value }),
+          search: (previous) => ({ ...previous, ...filters }),
           resetScroll: false,
         });
       }}
@@ -78,6 +88,10 @@ function AgentsPage() {
       }}
       onInviteMember={async (data) => {
         await invite({ data });
+      }}
+      onDeleteAgent={async (agentId, confirmation) => {
+        await removeAgent({ data: { agentId, confirmation } });
+        await router.invalidate({ sync: true });
       }}
     />
   );

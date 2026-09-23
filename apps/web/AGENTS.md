@@ -401,8 +401,12 @@ channels.functions.ts` exposes `loadPublicChannelMembers`/`addPublicChannelMembe
 - `features/computers/runtime-usage.tsx` owns Usage interaction eligibility:
   Codex and Claude offer on-demand scanning; Pi, CoForge, and runtimes reporting
   unsupported Usage remain plain, non-focusable identities.
-- `features/agents/agents-content.tsx` owns the Members page's mixed human/Agent
-  cards, counted type filters, search recovery, and Agent creation dialog.
+- `features/agents/agents-content.tsx` owns the Members page: the Agents /
+  Collaborators tabs (`memberType` search param, counts are directory totals),
+  the Agent-tab owner (`owner`) and Computer (`computer`) filters, search
+  recovery, the Agent and person cards (creator and creation date come from
+  `WorkspaceMembers.list`), the card menu's delete entry reusing
+  `AgentDeleteDialog`, and the Agent creation dialog.
   Clicking an Agent name opens the same right-hand `AgentProfilePanel` the
   conversation slot uses (`profile`/`agentTab` search params); `/agents/$agentId`
   redirects there. Computer prerequisites appear only after requesting Agent

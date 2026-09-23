@@ -53,6 +53,13 @@ describe("WorkspaceMembers", () => {
               description: "Builds releases",
               avatarObjectKey: "workspaces/workspace-1/agents/other-agent/avatars/pic-1/original",
               ownerId: "another-user",
+              createdAt: new Date("2026-07-23T08:00:00.000Z"),
+              owner: {
+                id: "another-user",
+                username: "ada",
+                displayName: "  Ada Lovelace  ",
+                avatarObjectKey: "avatars/another-user/9c1d/avatar",
+              },
               runtimeConfig: { apiKey: "private" },
               computer: {
                 id: "office-mac-id",
@@ -67,6 +74,13 @@ describe("WorkspaceMembers", () => {
               displayName: "Reviewer",
               description: "Reviews changes",
               ownerId: "another-user",
+              createdAt: new Date("2026-08-01T00:00:00.000Z"),
+              owner: {
+                id: "another-user",
+                username: "ada",
+                displayName: null,
+                avatarObjectKey: null,
+              },
               computer: { id: "other-machine-id", name: "other-workspace-machine", workspaces: [] },
             },
           ];
@@ -102,6 +116,8 @@ describe("WorkspaceMembers", () => {
         displayName: true,
         description: true,
         avatarObjectKey: true,
+        createdAt: true,
+        owner: { select: { id: true, username: true, displayName: true, avatarObjectKey: true } },
         computer: {
           select: {
             id: true,
@@ -119,6 +135,7 @@ describe("WorkspaceMembers", () => {
     });
     expect(result).toEqual({
       actorRole: "admin",
+      viewerId: "viewer",
       people: [
         {
           id: "other-user",
@@ -137,6 +154,12 @@ describe("WorkspaceMembers", () => {
           avatarUrl: "/api/workspaces/workspace-1/agents/other-agent/avatar?v=pic-1",
           computerId: "office-mac-id",
           computerName: "Team workstation",
+          createdAt: new Date("2026-07-23T08:00:00.000Z"),
+          owner: {
+            id: "another-user",
+            displayName: "Ada Lovelace",
+            avatarUrl: "/api/workspaces/workspace-1/users/another-user/avatar?v=9c1d",
+          },
         },
         {
           id: "detached-agent",
@@ -146,6 +169,8 @@ describe("WorkspaceMembers", () => {
           avatarUrl: null,
           computerId: null,
           computerName: null,
+          createdAt: new Date("2026-08-01T00:00:00.000Z"),
+          owner: { id: "another-user", displayName: "ada", avatarUrl: null },
         },
       ],
     });

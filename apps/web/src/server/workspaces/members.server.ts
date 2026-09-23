@@ -53,6 +53,8 @@ export class WorkspaceMembers {
           displayName: true,
           description: true,
           avatarObjectKey: true,
+          createdAt: true,
+          owner: { select: { id: true, username: true, displayName: true, avatarObjectKey: true } },
           computer: {
             select: {
               id: true,
@@ -72,6 +74,7 @@ export class WorkspaceMembers {
 
     return {
       actorRole: membership.role,
+      viewerId: userId,
       people: people.map((person) => ({
         id: person.id,
         name: person.username,
@@ -89,6 +92,16 @@ export class WorkspaceMembers {
         computerName: agent.computer?.workspaces.length
           ? agent.computer.displayName.trim() || agent.computer.name.trim()
           : null,
+        createdAt: agent.createdAt,
+        owner: {
+          id: agent.owner.id,
+          displayName: agent.owner.displayName?.trim() || agent.owner.username,
+          avatarUrl: workspaceUserAvatarUrl(
+            workspaceId,
+            agent.owner.id,
+            agent.owner.avatarObjectKey,
+          ),
+        },
       })),
     };
   }

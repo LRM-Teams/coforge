@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import {
   DEFAULT_TIME_ZONE,
+  formatCalendarDate,
   formatDateForDisplay,
   formatRelativeTime,
   resolveTimeZone,
@@ -81,6 +82,14 @@ describe("user time zone preferences", () => {
     expect(losAngeles).toContain("5:00 AM");
     expect(tokyo).toContain("Aug 31, 2026");
     expect(tokyo).toContain("9:00 PM");
+  });
+
+  test("formats a calendar date in the viewer's time zone and language, without a time", () => {
+    const instant = new Date("2026-07-22T20:00:00.000Z");
+
+    expect(formatCalendarDate(instant, "America/Los_Angeles", "en-US")).toBe("Jul 22, 2026");
+    expect(formatCalendarDate(instant, "Asia/Shanghai", "en-US")).toBe("Jul 23, 2026");
+    expect(formatCalendarDate(instant, "Asia/Shanghai", "zh-CN")).toBe("2026年7月23日");
   });
 
   test("formats past and future instants with compact localized relative semantics", () => {

@@ -88,6 +88,7 @@ test("lists only the requested Workspace directory and denies outsiders", async 
     const members = new WorkspaceMembers(db);
     expect(await members.list(workspace.id, viewer.id)).toEqual({
       actorRole: "member",
+      viewerId: viewer.id,
       people: [
         {
           id: otherOwner.id,
@@ -113,6 +114,8 @@ test("lists only the requested Workspace directory and denies outsiders", async 
           avatarUrl: null,
           computerId: computer.id,
           computerName: "Owner workstation",
+          createdAt: assignedAgent.createdAt,
+          owner: { id: otherOwner.id, displayName: "Agent Owner", avatarUrl: null },
         },
         {
           id: unassignedAgent.id,
@@ -122,6 +125,8 @@ test("lists only the requested Workspace directory and denies outsiders", async 
           avatarUrl: null,
           computerId: null,
           computerName: null,
+          createdAt: unassignedAgent.createdAt,
+          owner: { id: otherOwner.id, displayName: "Agent Owner", avatarUrl: null },
         },
       ],
     });
