@@ -161,9 +161,9 @@ export class AgentMessageAttentionIndex {
      * behavior unchanged.
      */
     private readonly hold: {
-      shouldHold(agentId: string): boolean;
+      shouldHold(agentId: string, target?: string): boolean;
       enqueue(agentId: string, message: AgentMessageDelivery): void;
-      busy(agentId: string): void;
+      busy(agentId: string, target?: string): void;
       /** The deliveries held for this Agent that it has not been shown yet. The notice counts
        * these, so its number is always a count of messages the daemon is holding right now rather
        * than a running total it would have to invalidate later. Concrete deliveries rather than a
@@ -203,7 +203,7 @@ export class AgentMessageAttentionIndex {
     const generation = this.#generation(message.agentId);
     if (generation.seenDeliveryIds.has(message.deliveryId)) {
       if (!generation.notified.has(message.deliveryId)) {
-        if (this.hold.shouldHold(message.agentId)) {
+        if (this.hold.shouldHold(message.agentId, message.target)) {
           this.hold.enqueue(message.agentId, message);
           return;
         }
@@ -260,7 +260,7 @@ export class AgentMessageAttentionIndex {
       });
       return;
     }
-    if (this.hold.shouldHold(message.agentId)) {
+    if (this.hold.shouldHold(message.agentId, message.target)) {
       this.hold.enqueue(message.agentId, message);
       return;
     }
@@ -381,7 +381,7 @@ ${rows.join("\n")}
 Run \`coforge message check\` to drain pending messages, or \`coforge message read --target @x\` to inspect one target.]`,
     );
     // ADR 0048: same synchronous-busy rule as `#notify` — this is also a `session.notify` call.
-    this.hold.busy(agentId);
+    this.hold.busy(agentId, "");
     await session.notify(notice);
     if (this.#generations.get(agentId) !== generation) return;
     this.#attention.set(agentId, byTarget);
@@ -492,7 +492,7 @@ Run \`coforge message check\` to drain pending messages, or \`coforge message re
     // ADR 0048: mark busy synchronously, in the same tick as this decision to write to the
     // session — before the next queued input for this Agent can be drained and see a stale
     // "not busy yet" state.
-    this.hold.busy(message.agentId);
+    this.hold.busy(message.agentId, message.target);
     void attention;
     // One source of truth. Every number here is a fact the daemon owns right now — the messages
     // it is announcing, plus the ones still queued for this Agent — never a per-target total
@@ -504,7 +504,9 @@ Run \`coforge message check\` to drain pending messages, or \`coforge message re
     // these messages are unread — a delivery notice can race a `check` or `read` that already
     // advanced that cursor. Only those commands answer what is left, and either may answer
     // "nothing".
-    const queued = this.hold.queued?.(message.agentId) ?? [];
+    const queued = (this.hold.queued?.(message.agentId) ?? []).filter(
+      (held) => held.target === message.target,
+    );
     const view = this.#localViewRows(announced, queued);
     const rows = this.#renderLocalViewRows(view.rows);
     const totalCount = countDistinctMessages([...announced, ...queued]);

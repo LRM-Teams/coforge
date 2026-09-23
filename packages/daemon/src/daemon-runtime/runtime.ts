@@ -602,10 +602,10 @@ export class DaemonRuntime {
         }
       },
       {
-        shouldHold: (agentId) => this.#deliveryQueue.shouldHold(agentId),
+        shouldHold: (agentId, target) => this.#deliveryQueue.shouldHold(agentId, target),
         queued: (agentId) => this.#deliveryQueue.pending(agentId),
         enqueue: (agentId, message) => this.#deliveryQueue.enqueue(agentId, message),
-        busy: (agentId) => this.#deliveryQueue.busy(agentId),
+        busy: (agentId, target) => this.#deliveryQueue.busy(agentId, target),
         // The consumed cursor outlives the process, in Raft's `consumed-seqs.json` shape: what an
         // Agent has already reviewed decides the next hold, the `seenUpToSeq` a fresh send inherits,
         // and whether a top-level send under a thread-read parent needs confirming. It lives beside
@@ -3188,7 +3188,10 @@ export class DaemonRuntime {
     agentApiKey: string,
   ): Promise<AgentMessageResponse> {
     const startedAt = performance.now();
-    const attention = this.#messageAttention.check(agentId);
+    const activeTarget = this.#deliveryQueue.activeTarget(agentId);
+    const attention = this.#messageAttention
+      .check(agentId)
+      .filter((item) => !activeTarget || item.target === activeTarget);
     const messages: AgentMessageRecord[] = [];
     let hasMore = false;
     let roundCount = 0;
@@ -3201,7 +3204,7 @@ export class DaemonRuntime {
           agentId,
           workspaceId: this.#connection.workspaceId,
           operation: "check",
-          target: "",
+          target: activeTarget ?? "",
           limit: request.limit,
         },
         agentApiKey,

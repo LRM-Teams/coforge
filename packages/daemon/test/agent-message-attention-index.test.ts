@@ -817,7 +817,7 @@ test("a later delivery is announced on its own, not added to an earlier notice's
   }
 });
 
-test("the notice's total includes deliveries still queued for a busy Agent", async () => {
+test("the notice includes only queued deliveries for its current target", async () => {
   const notices: string[] = [];
   const index = new AgentMessageAttentionIndex(
     "workspace-1",
@@ -829,7 +829,7 @@ test("the notice's total includes deliveries still queued for a busy Agent", asy
       enqueue: () => {},
       busy: () => {},
       queued: () => [
-        { ...delivery("queued-one"), target: "@ada" },
+        { ...delivery("queued-one"), target: "#general" },
         { ...delivery("queued-two"), target: "#random" },
       ],
     },
@@ -837,12 +837,11 @@ test("the notice's total includes deliveries still queued for a busy Agent", asy
 
   await index.receive({ ...delivery("with-queue", "human", "ada"), target: "#general" });
 
-  // The headline counts the announced message and the two still queued, and the lines account for
-  // all three: a total that did not appear anywhere below it was the defect this change removes.
-  expect(notices[0]).toContain("Inbox update: 3 messages delivered or held for you");
+  // Other targets remain queued without distracting the active turn.
+  expect(notices[0]).toContain("Inbox update: 2 messages delivered or held for you");
   expect(notices[0]).toContain("#general  new: 1 message");
-  expect(notices[0]).toContain("@ada  held: 1 message");
-  expect(notices[0]).toContain("#random  held: 1 message");
+  expect(notices[0]).toContain("held: 1 message");
+  expect(notices[0]).not.toContain("#random");
 });
 
 test("a sender handle that fails the handle grammar never reaches the notice", async () => {
@@ -971,7 +970,7 @@ test("a coalesced flush spanning targets gives each target its own line", async 
   // The queue is per Agent, so a batch can mix a channel and a DM. Attributing all three to the
   // last delivery's target would hide #general entirely.
   expect(notices).toHaveLength(1);
-  expect(notices[0]).toContain("Inbox update: 3 messages delivered or held for you");
+  expect(notices[0]).toContain("Inbox update: 2 messages delivered or held for you");
   expect(notices[0]).toContain("#general  new: 2 messages · latest sender @bob");
   expect(notices[0]).toContain("@ada  new: 1 message · latest sender @ada");
 });

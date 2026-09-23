@@ -935,7 +935,11 @@ export const createAgentMessageHttpClient = (
     getAgentJson<AgentEventsResponse>(httpClient, {
       ...keys,
       what: "agent events",
-      query: { idempotencyKey: request.requestId, limit: request.limit },
+      query: {
+        idempotencyKey: request.requestId,
+        limit: request.limit,
+        target: request.target || undefined,
+      },
       validate: validateAgentMessageArrayShape("events"),
     }),
   async requestChannelMute({ url, request, ...keys }) {

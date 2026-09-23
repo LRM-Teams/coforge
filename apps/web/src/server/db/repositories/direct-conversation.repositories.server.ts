@@ -531,6 +531,7 @@ export type DirectConversationRepository = {
     workspaceId: string,
     agentId: string,
     limit?: number,
+    target?: string,
   ): Promise<{
     messages: ({
       id: string;
@@ -1708,8 +1709,16 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
     workspaceId: string,
     agentId: string,
     limit = 20,
+    target?: string,
   ): Promise<{ messages: ReturnType<typeof toAgentMessage>[]; hasMore: boolean }> {
     const bounded = Math.min(Math.max(limit, 1), 100);
+    const resolved = target
+      ? await this.resolveAgentTarget(workspaceId, agentId, target)
+      : undefined;
+    const targetFilter = resolved
+      ? Prisma.sql`WHERE "conversationId" = ${resolved.conversationId}::uuid
+          AND "threadRootId" IS NOT DISTINCT FROM ${resolved.threadRootId}::uuid`
+      : Prisma.empty;
     return this.db.$transaction(async (tx) => {
       const rows = await tx.$queryRaw<
         Array<Pick<AgentRecoveryRow, "id" | "conversationId" | "threadRootId" | "sequence">>
@@ -1719,6 +1728,7 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
         )
         SELECT "id", "conversationId", "threadRootId", "sequence"
         FROM unread
+        ${targetFilter}
         ORDER BY "conversationId", "rootSequence", "sequence"
         LIMIT ${bounded + 1}`;
       const hasMore = rows.length > bounded;

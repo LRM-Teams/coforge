@@ -15,8 +15,8 @@ import { CursorTurnProcess, type CursorTurnResult } from "./turn-process";
  * Cursor CLI (`cursor-agent`) is a per-turn provider: every turn is its own child process, with
  * the prompt passed as the final argv item (no stdin channel) and the turn ending when that
  * process exits. There is no native system-prompt flag, so the standing Agent instructions are
- * sent as the whole prompt of a fresh session's very first turn; a resumed session never resends
- * them.
+ * sent as the whole prompt of a fresh session's very first turn; a resumed launch refreshes
+ * them once, with its first real input.
  */
 export class CursorProvider implements CodeAgentProvider {
   readonly provider = RUNTIME_PROVIDER.CURSOR;
@@ -77,6 +77,7 @@ class CursorAgentSession implements AgentSession {
   #closed = false;
   #currentTurn: CursorTurnProcess | undefined;
   #sessionId: string | undefined;
+  #instructionsPending: boolean;
   #resumeId: string | undefined;
   #identity: AgentSessionIdentity | undefined;
   #everCompletedTurn: boolean;
@@ -91,6 +92,7 @@ class CursorAgentSession implements AgentSession {
     this.#options = options;
     this.#command = command;
     this.#resumeId = options.sessionId;
+    this.#instructionsPending = Boolean(options.sessionId);
     this.#sessionId = options.sessionId;
     this.#everCompletedTurn = Boolean(options.sessionId);
     this.#identity = options.sessionId
@@ -205,7 +207,9 @@ class CursorAgentSession implements AgentSession {
     this.#state = "running";
     this.#pendingOutcome = undefined;
     if (this.#sessionId) this.#setIdentity("unknown");
-    const argv = this.#buildArgv(prompt);
+    const argv = this.#buildArgv(
+      this.#instructionsPending ? `${this.#options.instructions}\n\n${prompt}` : prompt,
+    );
     const environment = {
       ...agentEnvironment(this.#options.environment, Bun.env, undefined, {
         envVars: this.#options.runtime?.envVars,
@@ -214,6 +218,7 @@ class CursorAgentSession implements AgentSession {
       NO_COLOR: "1",
     };
     const turn = new CursorTurnProcess(argv, this.#options.agentWorkspaceDirectory, environment);
+    this.#instructionsPending = false;
     this.#currentTurn = turn;
     turn.onRecord((record) => this.#handleRecord(record));
     void turn.exited.then((result) => this.#onTurnExit(turn, result));

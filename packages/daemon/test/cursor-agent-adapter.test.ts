@@ -119,7 +119,7 @@ test("a resumed session spawns nothing until input arrives, then resumes the giv
       await nthCompleted(session, 1);
       const launches = await readLaunches(log);
       expect(launches).toHaveLength(1);
-      expect(launches[0]?.prompt).toBe("continue");
+      expect(launches[0]?.prompt).toBe(`${INSTRUCTIONS}\n\ncontinue`);
       expect(launches[0]?.resumeId).toBe("existing-session");
     } finally {
       await session.dispose();
@@ -186,7 +186,7 @@ test("queued sendMessage/notify while a turn runs coalesce into the next turn's 
       await bothCompleted;
       const launches = await readLaunches(log);
       expect(launches).toHaveLength(2);
-      expect(launches[0]?.prompt).toBe("first");
+      expect(launches[0]?.prompt).toBe(`${INSTRUCTIONS}\n\nfirst`);
       expect(launches[1]?.prompt).toBe("second\n\nthird");
       expect(launches[1]?.resumeId).toBe("existing-session");
     } finally {

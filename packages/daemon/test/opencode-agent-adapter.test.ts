@@ -150,7 +150,7 @@ test("a resumed session spawns nothing until real input arrives", async () => {
       await session.sendMessage("wake up");
       await completed;
       expect((await readLaunches(log))[0]).toMatchObject({
-        prompt: "wake up",
+        prompt: `${INSTRUCTIONS}\n\nwake up`,
         resumeId: "session-existing",
       });
     } finally {

@@ -139,7 +139,8 @@ submit-pack|submit-empty|submit-failure`. Daemon injects the Agent API key and
 - `daemon-runtime/` owns one Workspace child's cloud connection and Agent
   runtime operations. For held Message sends it retains only draft text and an
   opaque Web/backend token; it never decides freshness, counts hold stages, or
-  authorizes `--anyway`. It does not model runtime busy/idle turns, and
+  authorizes `--anyway`. `AgentDeliveryQueue` owns busy/idle and exact-target focus; live cross-target
+  deliveries wait, while recovery reserves an unscoped turn.
   The machine Coordinator owns no Agent runtime pool; each Workspace has an
   independent OS-managed child instance.
 - `connection/` owns the daemon's long-lived WSS connection, ordered
@@ -257,7 +258,7 @@ submit-pack|submit-empty|submit-failure`. Daemon injects the Agent API key and
   must inject the supplied instructions through
   the provider's native system/developer-instruction mechanism: Codex uses
   app-server `developerInstructions`, Claude Code uses its system-prompt-file
-  option, and CoForge Agent uses its resource-loader system-prompt override. Do
+  option, and CoForge/Pi append through the resource loader without replacing native coding instructions. Do
   not copy the text into each provider or write `AGENTS.md`/`CLAUDE.md` into the user's Agent workspace
   for providers that support native injection. Deliver Message recovery bodies
   directly as turn input and App Inbox wakeups separately; never append them to the standing

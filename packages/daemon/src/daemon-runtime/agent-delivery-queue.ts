@@ -18,8 +18,8 @@ import type { AgentMessageDelivery } from "@lrm/coforge-sdk/internal";
 export type AgentDeliveryMode = "steer" | "queue_until_idle";
 
 /** Scope decision (ADR 0048): moving Claude/Codex/Pi steering into the daemon itself, so this
- * table could eventually replace every provider's own busy handling, is a later cleanup. This PR
- * only gates the providers that have no safe busy path today — none, right now. */
+ * table could eventually replace every provider's own busy handling, is a later cleanup.
+ * Exact-target focus is an additional gate shared by all providers. */
 export const AGENT_DELIVERY_MODE: Readonly<Record<RuntimeProvider, AgentDeliveryMode>> = {
   [RUNTIME_PROVIDER.COFORGE]: "steer",
   [RUNTIME_PROVIDER.PI]: "steer",
@@ -46,6 +46,7 @@ export const AGENT_DELIVERY_MODE: Readonly<Record<RuntimeProvider, AgentDelivery
 export class AgentDeliveryQueue {
   readonly #mode = new Map<string, AgentDeliveryMode>();
   readonly #busy = new Set<string>();
+  readonly #activeTarget = new Map<string, string>();
   readonly #held = new Map<string, AgentMessageDelivery[]>();
   /** App-item ids held while busy (ADR 0048, `DaemonRuntime#notifyAppItem`) — a separate,
    * app-inbox-owned notice, not an `AgentMessageDelivery`; kept apart from `#held` so the two
@@ -78,23 +79,35 @@ export class AgentDeliveryQueue {
     this.#mode.set(agentId, mode);
   }
 
-  /** Marks the Agent's runtime as mid-turn. Only `queue_until_idle` providers gate on this. */
-  busy(agentId: string): void {
+  /** Marks the Agent's runtime as mid-turn. Different targets wait; same-target steering follows the provider mode. */
+  busy(agentId: string, target?: string): void {
     this.#busy.add(agentId);
+    // Empty target reserves an unscoped recovery turn; live messages wait for it.
+    if (target !== undefined) this.#activeTarget.set(agentId, target);
   }
 
-  /** Marks the Agent idle and returns everything held for it, oldest first, clearing the hold.
+  activeTarget(agentId: string): string | undefined {
+    return this.#activeTarget.get(agentId) || undefined;
+  }
+
+  /** Marks the Agent idle and returns the oldest target’s held messages, preserving other targets.
    * Empty when nothing was held or an explicit hold (`hold`) is still in effect. */
   idle(agentId: string): AgentMessageDelivery[] {
     this.#busy.delete(agentId);
+    this.#activeTarget.delete(agentId);
     if (this.#explicitHolds.has(agentId)) return [];
-    return this.#drain(agentId);
+    return this.#drainTarget(agentId);
   }
 
   /** True when a delivery for this Agent must be held rather than notified immediately. */
-  shouldHold(agentId: string): boolean {
+  shouldHold(agentId: string, target?: string): boolean {
     if (this.#explicitHolds.has(agentId)) return true;
-    return this.#mode.get(agentId) === "queue_until_idle" && this.#busy.has(agentId);
+    if (!this.#busy.has(agentId)) return false;
+    const activeTarget = this.#activeTarget.get(agentId);
+    return (
+      (activeTarget !== undefined && target !== activeTarget) ||
+      this.#mode.get(agentId) === "queue_until_idle"
+    );
   }
 
   /**
@@ -177,12 +190,12 @@ export class AgentDeliveryQueue {
     this.#explicitHolds.set(agentId, until ?? true);
   }
 
-  /** Clears an explicit hold and, if the Agent is not also busy, returns and clears everything
+  /** Clears an explicit hold and, if the Agent is not also busy, releases the oldest target
    * held for it (mirroring `idle`). */
   release(agentId: string): AgentMessageDelivery[] {
     this.#explicitHolds.delete(agentId);
     if (this.#busy.has(agentId)) return [];
-    return this.#drain(agentId);
+    return this.#drainTarget(agentId);
   }
 
   /** An unexpected process exit: the running turn is gone, so busy no longer applies, but
@@ -190,6 +203,7 @@ export class AgentDeliveryQueue {
    * launch (ADR 0048) — only explicit Stop (`clearAgent`) discards it. */
   onProcessExit(agentId: string): void {
     this.#busy.delete(agentId);
+    this.#activeTarget.delete(agentId);
   }
 
   /** Explicit Stop: discards this Agent's held deliveries, app items, and fallback notices along
@@ -197,10 +211,21 @@ export class AgentDeliveryQueue {
   clearAgent(agentId: string): void {
     this.#mode.delete(agentId);
     this.#busy.delete(agentId);
+    this.#activeTarget.delete(agentId);
     this.#held.delete(agentId);
     this.#heldAppItems.delete(agentId);
     this.#heldFallbackNotices.delete(agentId);
     this.#explicitHolds.delete(agentId);
+  }
+
+  #drainTarget(agentId: string): AgentMessageDelivery[] {
+    const list = this.#held.get(agentId) ?? [];
+    const target = list[0]?.target;
+    const batch = list.filter((message) => message.target === target);
+    const remaining = list.filter((message) => message.target !== target);
+    if (remaining.length) this.#held.set(agentId, remaining);
+    else this.#held.delete(agentId);
+    return batch;
   }
 
   #drain(agentId: string): AgentMessageDelivery[] {

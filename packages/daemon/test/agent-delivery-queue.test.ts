@@ -157,3 +157,39 @@ test("per-Agent state is independent", () => {
   expect(queue.shouldHold("agent-2")).toBe(false);
   expect(queue.hasQueued("agent-2")).toBe(false);
 });
+
+test("focused turns steer only the same target and release one target at a time", () => {
+  const queue = new AgentDeliveryQueue();
+  queue.setProvider("agent-1", "codex");
+  queue.busy("agent-1", "@ada");
+  queue.busy("agent-1"); // runtime activity must preserve the focus
+  expect(queue.activeTarget("agent-1")).toBe("@ada");
+  expect(queue.shouldHold("agent-1", "@ada")).toBe(false);
+  expect(queue.shouldHold("agent-1", "@ada:thread")).toBe(true);
+  expect(queue.shouldHold("agent-1", "#team")).toBe(true);
+  expect(queue.shouldHold("agent-1")).toBe(true); // App inbox waits too
+  const one = { ...delivery("one"), target: "#team" };
+  const two = { ...delivery("two"), target: "@ada:thread" };
+  const three = { ...delivery("three"), target: "#team" };
+  for (const message of [one, two, three]) queue.enqueue("agent-1", message);
+  expect(queue.idle("agent-1")).toEqual([one, three]);
+  expect(queue.activeTarget("agent-1")).toBeUndefined();
+  expect(queue.pending("agent-1")).toEqual([two]);
+  queue.busy("agent-1", "#team");
+  expect(queue.idle("agent-1")).toEqual([two]);
+  queue.busy("agent-1", "@ada:thread");
+  queue.onProcessExit("agent-1");
+  expect(queue.activeTarget("agent-1")).toBeUndefined();
+});
+
+test("recovery reserves an unscoped turn before live targets can steer", () => {
+  const queue = new AgentDeliveryQueue();
+  queue.setProvider("agent-1", "pi");
+  queue.busy("agent-1", "");
+  expect(queue.activeTarget("agent-1")).toBeUndefined();
+  expect(queue.shouldHold("agent-1", "@ada")).toBe(true);
+  queue.enqueue("agent-1", delivery("after-recovery"));
+  expect(queue.idle("agent-1")).toEqual([delivery("after-recovery")]);
+  queue.busy("agent-1", "@ada");
+  expect(queue.shouldHold("agent-1", "@ada")).toBe(false);
+});
