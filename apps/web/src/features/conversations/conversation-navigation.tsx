@@ -138,9 +138,14 @@ export function ConversationNavigation({ children }: { children: ReactNode }) {
     });
   }, [router]);
 
-  // The conversation this is becomes the one Chat reopens in this Workspace.
+  // The conversation this is becomes the one Chat reopens in this Workspace. Only a conversation
+  // the user moved to counts: a Workspace switch keeps the URL, and recording it then would file the
+  // old Workspace's conversation under the new one.
+  const rememberedPath = useRef<string | undefined>(undefined);
   useEffect(() => {
-    if (workspaceId) rememberConversation(workspaceId, pathname);
+    if (!workspaceId || pathname === rememberedPath.current) return;
+    rememberedPath.current = pathname;
+    rememberConversation(workspaceId, pathname);
   }, [workspaceId, pathname]);
 
   const visibleChannels = useMemo(() => channels.filter((listed) => !listed.archived), [channels]);

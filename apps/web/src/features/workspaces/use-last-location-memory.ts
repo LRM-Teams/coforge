@@ -21,9 +21,9 @@ export function useLastLocationMemory(workspaceSlug: string | undefined) {
       const path = router.state.location.pathname;
       if (path === recordedPath.current) return;
       if (
-        router.state.matches.some(
-          (match) => match.status === "error" || match.status === "notFound",
-        )
+        // A URL no route matches resolves "successfully" with `_notFound` set, which is how the
+        // router itself tells a failed match apart.
+        router.state.matches.some((match) => match.status !== "success" || match._notFound)
       ) {
         return;
       }

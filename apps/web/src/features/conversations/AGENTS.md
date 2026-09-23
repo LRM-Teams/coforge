@@ -10,7 +10,8 @@ These rules apply to `src/features/conversations/`.
   list scroll, and mounted conversation drafts on desktop and mobile. At `lg`
   and above, list and detail stay side by side; narrower viewports switch
   between them. Neither sidebar renders conversation lists or their creation
-  actions.
+  actions. `last-conversation.ts` holds the conversation Chat reopens on a
+  desktop; `conversation-layout.tsx` falls back to the first joined channel.
 - Direct and channel views share the empty-state layout and compact thread
   prompt in `direct-conversation.tsx`. Each supplies its own identity, media,
   and copy, and keeps its composer or join action.

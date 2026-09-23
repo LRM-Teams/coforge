@@ -52,6 +52,12 @@ describe("the last location opening the app root returns to", () => {
       "/\\evil.example",
       "https://evil.example/messages",
       "/messages/../api/me",
+      // Percent-encoded dot segments collapse when the path is parsed as a URL.
+      "/messages/%2e%2e/auth/logout",
+      "/messages/%2E%2E/api/me",
+      "/messages/.%2e/auth/logout",
+      "/messages/%2e./auth/logout",
+      "/messages/%2e/tasks",
       "/messages/channels/c1?x=1",
       "/messages/channels/c1#top",
       "javascript:alert(1)",
