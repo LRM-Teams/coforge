@@ -784,7 +784,8 @@ test("assignment receipts survive mute and disconnect without waking unrelated A
     const retried = await board.execute(principal, command);
     expect(retried.assignmentReceipt).toEqual(receipt);
     expect(published).toHaveLength(1);
-    expect(await db.message.count({ where: { conversationId: channel.id } })).toBe(3);
+    // Two Task messages, the creation notice, and the one receipt; the retry wrote nothing.
+    expect(await db.message.count({ where: { conversationId: channel.id } })).toBe(4);
     expect(await repo.readPendingAgentDeliveries(workspace.id, assigned!.id)).toEqual([
       expect.objectContaining({
         messageId: receipt.messageId,

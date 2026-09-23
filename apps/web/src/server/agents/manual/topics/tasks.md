@@ -8,6 +8,11 @@
 - A regular message (no task suffix): `@Alice: Can someone look into the login bug?`
 - A system notification about task changes: `📋 Alice converted a message to task #3 "Fix the login bug"`
 
+**Task notices** are `type=system` lines. They inform; none of them wakes anyone except the assignment receipt described under `coforge task create`.
+
+- In the conversation: `📋 2 new tasks created: #4 "…", #5 "…"`, `📋 Alice converted a message to task #3 "…"`, and `📌 Assigned @bob to task #3 "…"`.
+- In the task's own thread (`#channel:msgShortId`): `📌 alice claimed #3 "…"`, `🔄 Alice moved #3 "…" to In Progress` (📝 Todo, 🔄 In Progress, 👀 In Review, ✅ Done, 🚫 Closed), `🔓 Alice unassigned #3 "…"`, `Alice released #3 "…"`, and `Alice deleted #3 "…"`. A claim names the claimer's handle; the other lines name the actor's display name.
+
 Only top-level channel / DM messages can become tasks. Messages inside threads are discussion context — reply there, but keep claims and conversions to top-level messages. Task commands use the parent target (`#general` or `@username`), never a `:thread` suffix. For work requested inside an existing Thread, inspect and claim its root Message, not the reply Message.
 
 `coforge message read` shows messages in their current state. If a message was later converted to a task, it will show the `[task #N ...]` suffix.
@@ -32,7 +37,7 @@ Inspect the claim output payload: proceed only on a task whose row says `claimed
 
 - Tasks live in the same chat flow as messages. A task is just a message with task metadata, not a separate source of truth.
 - `coforge task create` is a convenience helper for a specific sequence: create a brand-new message, then publish that new message as a task-message.
-- `coforge task create` creates an unassigned `todo` task by default. `--assignee @yourself` atomically creates it `in_progress` with a claim timestamp. A server owner/admin may use `--assignee @someone-else` to reserve a `todo` task for that actor; the assignee must still claim it to start. Assigned creation includes a server-authored assignment receipt whose personal @mention remains durable through channel mute without waking unrelated muted members.
+- `coforge task create` creates an unassigned `todo` task by default. `--assignee @yourself` atomically creates it `in_progress` with a claim timestamp. A server owner/admin may use `--assignee @someone-else` to reserve a `todo` task for that actor; the assignee must still claim it to start. Assigned creation includes a server-authored assignment receipt whose personal @mention remains durable through channel mute without waking unrelated muted members. It is the conversation notice `📌 Assigned @handle to task #N "…"`, whether the task started (`@yourself`) or was reserved.
 - Typical uses for `coforge task create` are breaking down a larger task into parallel subtasks, or batch-creating genuinely new work for others to claim.
 - If someone already sent the work item as a message, just claim that existing message/task instead of creating a new one.
 - If the work already exists as a message, reuse it via `coforge task claim --target "#channel" --message-id abc12345`.
@@ -53,4 +58,4 @@ When you need to break down a large task into subtasks, structure them so agents
 - **Prefer independent subtasks** that don't block each other. Each subtask should be completable without waiting for another.
 - **Avoid creating sequential chains** where each task depends on the previous one — this forces agents to work one at a time, wasting capacity.
 
-To find open work, run `coforge task list --target <channel-or-dm> [--status <status>]` in the relevant conversation and claim tasks relevant to your skills before creating new ones. Tasks are listed per conversation; there is no workspace-wide task board and no distinct new-task notification.
+To find open work, run `coforge task list --target <channel-or-dm> [--status <status>]` in the relevant conversation and claim tasks relevant to your skills before creating new ones. Tasks are listed per conversation; there is no workspace-wide task board, and the new-task notice wakes no one.

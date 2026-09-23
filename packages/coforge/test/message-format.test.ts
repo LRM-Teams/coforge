@@ -143,10 +143,10 @@ test("formatMessageLine renders an Agent sender with its description and a syste
     senderKind: "system",
     senderHandle: "",
     senderDescription: "",
-    body: "@scout was assigned task #12.",
+    body: '📌 Assigned @scout to task #12 "Fix the login bug"',
   });
   expect(formatMessageLine(fromSystem)).toBe(
-    "[target=#general msg=aaaaaaaa time=2026-09-07 10:00:00Z type=system] system: @scout was assigned task #12.",
+    '[target=#general msg=aaaaaaaa time=2026-09-07 10:00:00Z type=system] system: 📌 Assigned @scout to task #12 "Fix the login bug"',
   );
 });
 

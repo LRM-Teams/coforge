@@ -11,6 +11,15 @@ test("TaskBoard enforces conversation authorization, idempotency, and ownership 
 
   const db = new PrismaClient({ adapter: new PrismaPg({ connectionString }) });
   const board = new TaskBoard(db);
+  // Fixture messages take the next free sequence: Task writes also post server notices.
+  const nextSequence = async (conversationId: string) =>
+    ((
+      await db.message.findFirst({
+        where: { conversationId },
+        orderBy: { sequence: "desc" },
+        select: { sequence: true },
+      })
+    )?.sequence ?? 0) + 1;
   const history = new ConversationHistory(db);
   const suffix = crypto.randomUUID();
   const short = suffix.slice(0, 8);
@@ -190,7 +199,7 @@ test("TaskBoard enforces conversation authorization, idempotency, and ownership 
         workspaceId: workspace.id,
         conversationId: publicChannel.id,
         senderMemberId: aliceChannelMember.id,
-        sequence: 2,
+        sequence: await nextSequence(publicChannel.id),
         body: "Thread reply",
         threadRootId: seed.tasks[0]!.messageId,
       },
@@ -208,13 +217,14 @@ test("TaskBoard enforces conversation authorization, idempotency, and ownership 
         ),
       ).rejects.toThrow("NOT_FOUND");
     }
+    const ambiguousSequence = await nextSequence(publicChannel.id);
     await db.message.createMany({
       data: [1, 2].map((tail, index) => ({
         id: `${ambiguousPrefix}-0000-4000-8000-00000000000${tail}`,
         workspaceId: workspace.id,
         conversationId: publicChannel.id,
         senderMemberId: aliceChannelMember.id,
-        sequence: 3 + index,
+        sequence: ambiguousSequence + index,
         body: `Ambiguous ${tail}`,
       })),
     });
@@ -283,7 +293,7 @@ test("TaskBoard enforces conversation authorization, idempotency, and ownership 
         workspaceId: workspace.id,
         conversationId: direct.id,
         senderMemberId: direct.members.find((member) => member.userId === alice!.id)!.id,
-        sequence: 2,
+        sequence: await nextSequence(direct.id),
         body: "Uses attachment",
         attachments: { connect: [{ id: usedAttachment.id }] },
       },
