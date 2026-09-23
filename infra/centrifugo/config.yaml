@@ -74,6 +74,10 @@ rpc:
   without_namespace:
     proxy_enabled: true
   namespaces:
+    # The namespace before the first colon in an RPC method name must be enabled here, or
+    # Centrifugo answers `104 method not found` itself and never proxies the call: the backend's
+    # own refusal is `404 unknown RPC method`, so the two are distinguishable in a log.
+    # `rpc-method-namespace.test.ts` keeps this list in step with the method vocabulary.
     - name: agent
       proxy_enabled: true
     - name: computer
@@ -82,12 +86,9 @@ rpc:
       proxy_enabled: true
     - name: daemon
       proxy_enabled: true
-    # The namespace before the first colon in an RPC method name must be enabled here, or
-    # Centrifugo answers `104 method not found` itself and never proxies the call: the backend's
-    # own refusal is `404 unknown RPC method`, so the two are distinguishable in a log. `reminder`
-    # carries the two methods a Computer's reminder scheduler calls back on
-    # (`reminder:v1:fire` / `reminder:v1:snapshot`); without it no reminder ever fires, on any
-    # Computer, and the daemon's retries end silently. `rpc-method-namespace.test.ts` keeps this
-    # list and `RPC_METHODS` in step.
+    # Only for the pre-convention `reminder:v1:*` spellings an installed Computer still sends — the
+    # callbacks themselves are `agent:v1:reminder:fire` / `agent:v1:reminder:snapshot`, since
+    # `reminder` is a domain in the naming convention, not a scope.
+    # TODO(legacy-reminder-rpc): delete this entry with the legacy aliases in `rpc-methods.ts`.
     - name: reminder
       proxy_enabled: true

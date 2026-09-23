@@ -9,6 +9,8 @@ import {
   AGENT_CONTROL_RESULT_METHOD,
   REMINDER_FIRE_METHOD,
   REMINDER_SNAPSHOT_METHOD,
+  LEGACY_REMINDER_FIRE_METHOD,
+  LEGACY_REMINDER_SNAPSHOT_METHOD,
 } from "@lrm/coforge-sdk/internal";
 import { ACTIVE_AGENT_WHERE } from "../agents/active-agent.server";
 import { createAgentSkillsListResultMethod } from "./agent-skills-cache.server";
@@ -95,6 +97,26 @@ const unavailable: CentrifugoRpcError = {
   code: 503,
   message: "protocol method dependencies are unavailable",
 };
+
+/**
+ * The reminder callbacks a Computer calls back on, registered under both their current names and the
+ * pre-convention spellings an installed Computer still sends.
+ *
+ * A rename of an RPC method cannot be atomic: the cloud deploys before the Computers upgrade, so
+ * whichever side changes first the other is still on the old name. Answering both keeps a reminder
+ * firing throughout the window; the legacy keys go when the map in the SDK's `rpc-methods.ts` goes.
+ */
+export function reminderCallbackMethods(
+  fire: CentrifugoRpcMethod,
+  snapshot: CentrifugoRpcMethod,
+): Record<string, CentrifugoRpcMethod> {
+  return {
+    [REMINDER_FIRE_METHOD]: fire,
+    [REMINDER_SNAPSHOT_METHOD]: snapshot,
+    [LEGACY_REMINDER_FIRE_METHOD]: fire,
+    [LEGACY_REMINDER_SNAPSHOT_METHOD]: snapshot,
+  };
+}
 
 const unavailableMethod: CentrifugoRpcMethod = () => unavailable;
 
@@ -262,8 +284,10 @@ export function createCentrifugoRpcHandler(db: PrismaClient | null = getDatabase
           (scope, observation) => recordComputerObservation(db, scope, observation),
           getComputerUpgradeStore(),
         ),
-        [REMINDER_FIRE_METHOD]: createReminderFireMethod(reminders),
-        [REMINDER_SNAPSHOT_METHOD]: createReminderSnapshotMethod(reminders),
+        ...reminderCallbackMethods(
+          createReminderFireMethod(reminders),
+          createReminderSnapshotMethod(reminders),
+        ),
         [DAEMON_CONNECTION_STATUS_METHOD]: createDaemonConnectionStatusMethod(
           undefined,
           reminderLease,
@@ -329,8 +353,7 @@ export function createCentrifugoRpcHandler(db: PrismaClient | null = getDatabase
       [AGENT_START_METHOD]: unavailableMethod,
       [AGENT_STATUS_METHOD]: unavailableMethod,
       [AGENT_MESSAGE_ACK_METHOD]: unavailableMethod,
-      [REMINDER_FIRE_METHOD]: unavailableMethod,
-      [REMINDER_SNAPSHOT_METHOD]: unavailableMethod,
+      ...reminderCallbackMethods(unavailableMethod, unavailableMethod),
     },
     authenticateEnvelope: (request, context) =>
       requireAuthenticatedCentrifugoUser(request, context, {

@@ -3,7 +3,7 @@
  * protocol in `@lrm/coforge-sdk/internal`.
  *
  * Names follow `<scope>:v<major>:<domain>:<action>[_result]` (see docs/architecture.md). `<scope>`
- * is the owning surface (`daemon` | `agent` | `computer` | `workspace` | `reminder`); `v<major>` is
+ * is the owning surface (`daemon` | `agent` | `computer` | `workspace`); `v<major>` is
  * the RPC-surface version and must equal the envelope `protocolMajor`; `<domain>` is a singular
  * resource noun; `<action>` is a single verb; a reply is the request name plus `_result`.
  *
@@ -62,7 +62,24 @@ export const RPC_METHODS = {
   agentWorkspaceFileRead: "agent:v1:workspace_files:read",
   agentWorkspaceFileReadResult: "agent:v1:workspace_files:read_result",
   agentReminder: "agent:v1:reminder:deliver",
-  reminderFire: "reminder:v1:fire",
-  reminderSnapshot: "reminder:v1:snapshot",
+  reminderFire: "agent:v1:reminder:fire",
+  reminderSnapshot: "agent:v1:reminder:snapshot",
   agentWeeklyReport: "agent:v1:weekly_report:get",
 } as const;
+
+/**
+ * Pre-convention spellings still accepted during an upgrade window, and nothing else: a name only
+ * belongs here while an installed Computer still sends it and the cloud must answer. The two
+ * reminder callbacks were written as `reminder:v1:*`, which made `reminder` a *scope* — the
+ * convention has it as a domain, and `agent:v1:reminder:deliver` shows the intended shape, so they
+ * are now `agent:v1:reminder:*`. An installed Computer keeps firing because the cloud answers both
+ * spellings; the names retire after the release that sends the new ones has spread.
+ *
+ * TODO(legacy-reminder-rpc): delete this map, the aliases in the cloud's RPC composition, and the
+ * now-unused `reminder` entry in the Centrifugo RPC namespaces once no supported Computer sends
+ * `reminder:v1:fire` / `reminder:v1:snapshot`.
+ */
+export const LEGACY_RPC_METHOD_NAMES = {
+  reminderFire: "reminder:v1:fire",
+  reminderSnapshot: "reminder:v1:snapshot",
+} as const satisfies Partial<Record<keyof typeof RPC_METHODS, string>>;

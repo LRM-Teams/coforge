@@ -76,6 +76,11 @@ apps/web                 →  SDK/agent + @lrm/coforge-sdk/internal
 
 - 全小写 snake_case，用 `:` 分级；`action` 只允许单个动词，不再使用 `usage_scan` 这类“动词_名词”拼接。
 - `scope` ∈ `daemon`（云↔Daemon runtime）、`agent`（云↔Agent）、`computer`、`workspace`。
+- `scope` 同时是 Centrifugo 的 RPC namespace：方法名第一个 `:` 之前的部分必须在两个部署配置的
+  `rpc.namespaces` 里登记（`infra/centrifugo/config.yaml`、`infra/staging/centrifugo/config.yaml`），
+  否则 Centrifugo 自己在转发前以 `104 method not found` 拒掉——backend 对未知方法的应答是
+  `404 unknown RPC method`，两者可区分。漏登记的代价是整条回调链静默失效，因此两个清单由
+  `rpc-method-namespace.test.ts` 互相校验。
 - `v<major>` 紧跟 scope，是 RPC 面的版本，必须与报文里的 `protocolMajor` 相等。
 - `domain` 是资源名词（单数），词表对齐 Raft Computer 的契约命名：`provider`、`model`、`usage`、`session`、`skill`、`workspace_file`、`channel`、`thread`、`message`、`task`、`reminder`、`context`、`activity`、`runtime`、`connection`、`lifecycle`；仅当 scope 本身即资源时省略。
 - 应答方法名 = 请求方法名 + `_result`。
@@ -1477,7 +1482,8 @@ PostgreSQL 的 Reminder 保存 owner、Workspace、Computer、canonical Message 
 计划通过既有单条 WSS 上的 typed `ReminderSync` snapshot/upsert/cancel 同步；Daemon
 ready 声明 `reminder:v1`，能力租约随连接状态续租。未具备该能力时创建明确失败。
 Daemon 第一次收到当前 Agent 的权威 snapshot 后才计时；重启不根据本地旧计划自启动。
-到期先原子保存 occurrence-bound receipt，再通过 `reminder:fire` 发送稳定 request ID。
+到期先原子保存 occurrence-bound receipt，再通过 `agent:v1:reminder:fire` 发送稳定 request ID
+（改名前的 `reminder:v1:fire` 在升级窗口内仍在服务端接受，见 `LEGACY_RPC_METHOD_NAMES`）。
 服务端使用自身时间，返回 accepted（含 fired）、premature（含重计时延迟）或 obsolete；
 premature 不是永久幂等结果，不能让未来的重试永远停在“尚未到期”。
 
