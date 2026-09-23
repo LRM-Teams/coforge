@@ -6,7 +6,10 @@ import {
   type MessageAvailableEvent,
   type MemberChangedEvent,
 } from "#src/features/conversations/conversation-realtime";
-import type { CentrifugoServerApi } from "#src/server/centrifugo/server-api.server";
+import {
+  createCentrifugoServerApi,
+  type CentrifugoServerApi,
+} from "#src/server/centrifugo/server-api.server";
 
 export type ConversationRealtimeMessage = {
   conversationId: string;
@@ -55,23 +58,28 @@ export async function messageSignalScope(
 
 export type ConversationRealtime = {
   messageAvailable(input: ConversationRealtimeMessage & { publicationId?: string }): Promise<void>;
-  /** A push telling open conversations their member directory is stale (join/leave/add/remove). */
-  memberChanged(input: { conversationId: string; workspaceId: string }): Promise<void>;
+  /** A push telling each named channel's open pages that its member list is stale. */
+  memberChanged(input: { workspaceId: string; conversationIds: readonly string[] }): Promise<void>;
 };
 
 export class CentrifugoConversationRealtime implements ConversationRealtime {
   constructor(private readonly centrifugo: CentrifugoServerApi) {}
 
-  async memberChanged(input: { conversationId: string; workspaceId: string }) {
-    const event: MemberChangedEvent = {
-      type: "member.changed.v1",
-      conversationId: input.conversationId,
-      workspaceId: input.workspaceId,
-    };
-    await this.centrifugo.publishJson(
-      conversationRealtimeChannel(input.conversationId),
-      event,
-      crypto.randomUUID(),
+  async memberChanged(input: { workspaceId: string; conversationIds: readonly string[] }) {
+    // One publication per channel: each event names its own conversation, which the page checks.
+    await Promise.all(
+      input.conversationIds.map((conversationId) => {
+        const event: MemberChangedEvent = {
+          type: "member.changed.v1",
+          conversationId,
+          workspaceId: input.workspaceId,
+        };
+        return this.centrifugo.publishJson(
+          conversationRealtimeChannel(conversationId),
+          event,
+          crypto.randomUUID(),
+        );
+      }),
     );
   }
 
@@ -103,5 +111,36 @@ export class CentrifugoConversationRealtime implements ConversationRealtime {
         ? this.centrifugo.publishJson(fanOutChannel, event, idempotencyKey)
         : Promise.resolve(),
     ]);
+  }
+}
+
+/**
+ * Tells the open pages of these channels that their member list changed — the composer's @-list
+ * and plain-@handle labels — once the membership write has committed. Every write that changes
+ * who is in a channel calls this, the way Slack sends `member_joined_channel` and Discord sends
+ * `GUILD_MEMBER_ADD`, so a page never polls or waits for a refresh.
+ *
+ * Best effort: the write already happened, and a page that misses the signal refetches when it
+ * regains focus or resubscribes without recovering. Without an injected publisher it uses the
+ * production Centrifugo one, so no write path can skip the signal by leaving it unwired.
+ */
+export async function announceMemberChanged(
+  realtime: Pick<ConversationRealtime, "memberChanged"> | undefined,
+  input: { workspaceId: string; conversationIds: readonly string[] },
+): Promise<void> {
+  if (input.conversationIds.length === 0) return;
+  try {
+    await (
+      realtime ?? new CentrifugoConversationRealtime(createCentrifugoServerApi())
+    ).memberChanged(input);
+  } catch (error) {
+    console.warn(
+      JSON.stringify({
+        event: "conversation_realtime:member_changed_failed",
+        workspace_id: input.workspaceId,
+        conversation_count: input.conversationIds.length,
+        error_type: error instanceof Error ? error.name : typeof error,
+      }),
+    );
   }
 }

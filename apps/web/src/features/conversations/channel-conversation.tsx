@@ -217,16 +217,15 @@ export function ChannelConversation({
   const [error, setError] = useState(false);
   // The @-completion directory refreshes while the conversation stays open: the page payload
   // carries it once per load, so members who joined after that would otherwise only appear in
-  // the composer (and in mention resolution) after a full refresh. Bounded staleness — a short
-  // stale window, a refetch when the tab regains focus, and a slow background poll — keeps the
-  // list current without hammering the directory on every keystroke.
+  // the composer (and in mention resolution) after a full refresh. Every membership write pushes
+  // `member.changed.v1`, which invalidates this query (see `useConversationQuery`); a refetch
+  // when the tab regains focus covers a push missed while the page was away.
   const freshMentionables = useQuery({
     queryKey: ["conversation", "mentionables", conversation.conversationId],
     queryFn: () =>
       loadPublicChannelMentionables({ data: { channelId: conversation.conversationId } }),
     staleTime: 15_000,
     refetchOnWindowFocus: true,
-    refetchInterval: 60_000,
   });
   const conversationWithFreshDirectory = useMemo(
     () =>

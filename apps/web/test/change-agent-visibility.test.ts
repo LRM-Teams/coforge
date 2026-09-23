@@ -43,14 +43,21 @@ function repositoryFor(record: AgentRecord | undefined): AgentRepository {
   };
 }
 
-function fixture(options?: { record?: AgentRecord; changed?: boolean }) {
+function fixture(options?: {
+  record?: AgentRecord;
+  changed?: boolean;
+  leftChannelIds?: string[];
+  announceFails?: boolean;
+}) {
   const record = options?.record ?? agent();
   const applied: Parameters<ChangeAgentVisibilityStore["apply"]>[0][] = [];
   const notified: Array<{ workspaceId: string; agentId: string }> = [];
+  const announced: Array<{ workspaceId: string; conversationIds: readonly string[] }> = [];
   const store: ChangeAgentVisibilityStore = {
     apply: async (input) => {
       applied.push(input);
-      return { changed: options?.changed ?? true };
+      const changed = options?.changed ?? true;
+      return { changed, leftChannelIds: changed ? (options?.leftChannelIds ?? []) : [] };
     },
     preview: async () => ({ channelNames: ["general"], readOnlyDirectMessageCount: 1 }),
   };
@@ -60,8 +67,14 @@ function fixture(options?: { record?: AgentRecord; changed?: boolean }) {
     async (workspaceId, agentId) => {
       notified.push({ workspaceId, agentId });
     },
+    {
+      memberChanged: async (input) => {
+        if (options?.announceFails) throw new Error("realtime unavailable");
+        announced.push(input);
+      },
+    },
   );
-  return { useCase, applied, notified, record };
+  return { useCase, applied, notified, announced, record };
 }
 
 describe("ChangeAgentVisibility", () => {
@@ -76,6 +89,27 @@ describe("ChangeAgentVisibility", () => {
       { agentId: "agent-1", workspaceId: "workspace-1", visibility: "private" },
     ]);
     expect(notified).toEqual([{ workspaceId: "workspace-1", agentId: "agent-1" }]);
+  });
+
+  test("going private tells each channel the Agent left that its member list changed", async () => {
+    const { useCase, announced } = fixture({ leftChannelIds: ["channel-1", "channel-2"] });
+    await useCase.execute(
+      { userId: "user-1", workspaceId: "workspace-1", role: "member" },
+      { agentId: "agent-1", visibility: "private" },
+    );
+    expect(announced).toEqual([
+      { workspaceId: "workspace-1", conversationIds: ["channel-1", "channel-2"] },
+    ]);
+  });
+
+  test("a member-list signal that cannot be sent never fails the visibility change", async () => {
+    const { useCase } = fixture({ leftChannelIds: ["channel-1"], announceFails: true });
+    expect(
+      await useCase.execute(
+        { userId: "user-1", workspaceId: "workspace-1", role: "member" },
+        { agentId: "agent-1", visibility: "private" },
+      ),
+    ).toEqual({ visibility: "private", changed: true });
   });
 
   test("a Workspace admin may change visibility for an Agent owned by someone else", async () => {
@@ -148,7 +182,7 @@ describe("ChangeAgentVisibility", () => {
     const useCase = new ChangeAgentVisibility(
       repositoryFor(record),
       {
-        apply: async () => ({ changed: true }),
+        apply: async () => ({ changed: true, leftChannelIds: [] }),
         preview: async () => ({ channelNames: [], readOnlyDirectMessageCount: 0 }),
       },
       async () => {

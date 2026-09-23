@@ -51,7 +51,7 @@ import {
   type MessageReactionRow,
 } from "./message-reactions.server";
 import { toggleUserMessageReaction } from "./user-message-reactions.server";
-import type { ConversationRealtime } from "./conversation-realtime.server";
+import { announceMemberChanged, type ConversationRealtime } from "./conversation-realtime.server";
 import { AgentMessageValidationError } from "./agent-message-validation-error.server";
 import { agentAvatarUrl } from "#src/server/agents/agent-avatar.server";
 import { workspaceUserAvatarUrl } from "#src/server/db/repositories/user-profile.repositories.server";
@@ -794,7 +794,7 @@ export class PublicChannels {
         data: { readThroughSequence: latest?.sequence ?? 0 },
       });
     });
-    await this.realtime?.memberChanged({ conversationId: channelId, workspaceId });
+    await announceMemberChanged(this.realtime, { workspaceId, conversationIds: [channelId] });
   }
 
   /**
@@ -850,7 +850,7 @@ export class PublicChannels {
     if (channel.channelName === "general") throw new AppError("CONFLICT");
     const wasMember = await softLeaveMember(this.db, channel.id, { userId });
     if (!wasMember) throw new AppError("ACCESS_DENIED");
-    await this.realtime?.memberChanged({ conversationId: channel.id, workspaceId });
+    await announceMemberChanged(this.realtime, { workspaceId, conversationIds: [channel.id] });
     return { left: true };
   }
 
@@ -885,7 +885,8 @@ export class PublicChannels {
     );
     if (!authority.capabilities.remove_member) throw new AppError("ACCESS_DENIED");
     const wasMember = await softLeaveMember(this.db, channel.id, target);
-    if (wasMember) await this.realtime?.memberChanged({ conversationId: channel.id, workspaceId });
+    if (wasMember)
+      await announceMemberChanged(this.realtime, { workspaceId, conversationIds: [channel.id] });
     return { removed: true, wasMember };
   }
 
@@ -1138,7 +1139,8 @@ export class PublicChannels {
     ]);
     const added =
       userIds.length - alreadyMemberUserIds.length + agentIds.length - alreadyMemberAgentIds.length;
-    if (added > 0) await this.realtime?.memberChanged({ conversationId: channelId, workspaceId });
+    if (added > 0)
+      await announceMemberChanged(this.realtime, { workspaceId, conversationIds: [channelId] });
 
     const result = await this.members(workspaceId, actor, channelId);
     return { ...result, alreadyMemberUserIds, alreadyMemberAgentIds };

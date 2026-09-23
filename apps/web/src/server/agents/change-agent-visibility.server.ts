@@ -3,6 +3,10 @@ import type { AgentVisibility } from "#src/features/agents/agent-visibility";
 import { assertAgentLive } from "./active-agent.server";
 import type { AgentRepository } from "#src/server/db/repositories/agent.repositories.server";
 import { isAdminLike, type WorkspaceMemberRole } from "#src/server/workspaces/member-role.server";
+import {
+  announceMemberChanged,
+  type ConversationRealtime,
+} from "#src/server/conversations/conversation-realtime.server";
 
 /**
  * The atomic visibility transition, or whether it was a no-op. Implementations own the
@@ -11,11 +15,11 @@ import { isAdminLike, type WorkspaceMemberRole } from "#src/server/workspaces/me
  * and Action cards are never touched — history stays exactly as it was.
  */
 export interface ChangeAgentVisibilityStore {
-  apply(input: {
-    agentId: string;
-    workspaceId: string;
-    visibility: AgentVisibility;
-  }): Promise<{ changed: boolean }>;
+  apply(input: { agentId: string; workspaceId: string; visibility: AgentVisibility }): Promise<{
+    changed: boolean;
+    /** The channels a public→private change soft-left; empty otherwise. */
+    leftChannelIds: string[];
+  }>;
   /** What a public→private change would do, for the confirmation dialog. Read-only. */
   preview(input: { agentId: string; workspaceId: string }): Promise<AgentVisibilityChangePreview>;
 }
@@ -44,6 +48,7 @@ export class ChangeAgentVisibility {
     private readonly agents: AgentRepository,
     private readonly store: ChangeAgentVisibilityStore,
     private readonly onVisibilityChanged: (workspaceId: string, agentId: string) => Promise<void>,
+    private readonly realtime?: Pick<ConversationRealtime, "memberChanged">,
   ) {}
 
   async execute(
@@ -51,12 +56,16 @@ export class ChangeAgentVisibility {
     input: { agentId: string; visibility: AgentVisibility },
   ): Promise<{ visibility: AgentVisibility; changed: boolean }> {
     const agent = await this.authorize(principal, input.agentId);
-    const { changed } = await this.store.apply({
+    const { changed, leftChannelIds } = await this.store.apply({
       agentId: agent.id,
       workspaceId: agent.workspaceId,
       visibility: input.visibility,
     });
     if (changed) await this.onVisibilityChanged(agent.workspaceId, agent.id).catch(() => {});
+    await announceMemberChanged(this.realtime, {
+      workspaceId: agent.workspaceId,
+      conversationIds: leftChannelIds,
+    });
     return { visibility: input.visibility, changed };
   }
 

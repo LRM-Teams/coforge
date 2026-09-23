@@ -12,6 +12,7 @@ import {
   channelAuthorityDeniedError,
 } from "./agent-channel-management-error.server";
 import { PublicChannels } from "./public-channels.server";
+import { announceMemberChanged, type ConversationRealtime } from "./conversation-realtime.server";
 import {
   hasChannelAdminAuthority,
   resolveChannelAuthority,
@@ -109,10 +110,11 @@ export class AgentChannelManagement {
     private readonly db: PrismaClient,
     private readonly display?: Pick<AgentDisplay, "snapshot">,
     channels?: PublicChannels,
+    private readonly realtime?: ConversationRealtime,
   ) {
     // Reused (not reimplemented) so the human "Members" dialog and the Agent CLI's
     // `channel members`/`add-member` cannot drift.
-    this.channels = channels ?? new PublicChannels(db);
+    this.channels = channels ?? new PublicChannels(db, undefined, undefined, undefined, realtime);
   }
 
   async info(workspaceId: string, agentId: string, target: string): Promise<AgentChannelInfo> {
@@ -157,6 +159,8 @@ export class AgentChannelManagement {
       create: { conversationId: channel.id, workspaceId, agentId },
       update: { leftAt: null },
     });
+    if (!existing)
+      await announceMemberChanged(this.realtime, { workspaceId, conversationIds: [channel.id] });
     return { target: `#${channel.channelName}`, joined: true, alreadyJoined: Boolean(existing) };
   }
 
@@ -169,6 +173,8 @@ export class AgentChannelManagement {
       where: { conversationId: channel.id, agentId, ...ACTIVE_MEMBER_WHERE },
       data: { leftAt: new Date() },
     });
+    if (result.count > 0)
+      await announceMemberChanged(this.realtime, { workspaceId, conversationIds: [channel.id] });
     return { target: `#${channel.channelName}`, joined: false, wasMember: result.count > 0 };
   }
 
@@ -405,6 +411,8 @@ export class AgentChannelManagement {
       });
       wasMember = result.count > 0;
     }
+    if (wasMember)
+      await announceMemberChanged(this.realtime, { workspaceId, conversationIds: [channel.id] });
     return { target: `#${channel.channelName}`, removed: true as const, wasMember };
   }
 
