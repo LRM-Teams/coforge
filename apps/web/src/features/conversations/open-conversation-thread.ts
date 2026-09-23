@@ -82,3 +82,27 @@ export function useOpenConversationThread() {
   );
   return { searchThreadRootId, openThread, openThreadFromHash, closeThread };
 }
+
+/**
+ * `?message=<uuid>` as URL search state — the Saved view's position-only jump (#127 follow-up,
+ * the boss's ruling: a saved card lands at the message's row in the stream and never opens the
+ * thread pane). The sibling of `threadRootId`: the param is read and cleared HERE, in the
+ * wrapper that owns the router, so `ConversationPane` stays free of router hooks (the
+ * thread-root tests render it standalone). Consumption is one-shot — cleared like a hash — so
+ * a later sidebar navigation can't inherit a foreign message id; a notification's
+ * `#message-<id>` hash wins outright (the pane checks it before showing the position).
+ */
+export function useConversationPositionJump() {
+  const router = useRouter();
+  const search = useSearch({ strict: false });
+  const jumpMessageId = typeof search.message === "string" ? search.message : undefined;
+  const clearJumpMessage = useCallback(() => {
+    void router.navigate({
+      to: ".",
+      replace: true,
+      resetScroll: false,
+      search: (previous: { message?: string }) => ({ ...previous, message: undefined }),
+    });
+  }, [router]);
+  return { jumpMessageId, clearJumpMessage };
+}
