@@ -16,10 +16,15 @@ import type { Mentionable } from "./mention-text";
  * conversation header use, so you can see whether an Agent is around before mentioning it; the
  * snapshot comes from the app shell's one subscription through `useLiveAgents`. People have no
  * presence in the product, so a person's avatar stays plain.
- * Pointer selection keeps the textarea focused on `pointerdown`, then commits on `click`. Delaying
- * the commit until click keeps the option mounted through the browser's touch click synthesis;
- * otherwise unmounting it on pointerdown can retarget the synthesized click to the message row
- * beneath the popup on mobile. Keyboard interaction lives in `useMentionCompletion`.
+ * Pointer selection keeps the textarea focused with `pointerdown` (prevented) and commits on
+ * `pointerup`. Committing on pointerup — rather than pointerdown or the synthesized click —
+ * is what makes taps work everywhere: canceling pointerdown suppresses the compatibility
+ * mouse events touch input relies on, so on mobile Safari no click ever arrives; and
+ * committing on pointerdown unmounts the option early enough that the synthesized click can
+ * retarget to the message row beneath the popup. `pointerup` fires for mouse, touch and pen
+ * while the option is still mounted. The `click` handler stays as a fallback (assistive tech
+ * may activate without pointer events); `choose` early-returns once the query is gone, so a
+ * second activation is a no-op. Keyboard interaction lives in `useMentionCompletion`.
  */
 export function MentionSuggestionList({
   id,
@@ -68,10 +73,14 @@ export function MentionSuggestionList({
               role="option"
               aria-selected={active}
               onPointerDown={(event) => {
-                // Keep the textarea focused. Commit on click so a mobile browser cannot synthesize
-                // its click against the message row after this option unmounts.
+                // Keep the textarea focused; the choice itself commits on pointerup below.
                 event.preventDefault();
                 event.stopPropagation();
+              }}
+              onPointerUp={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                onChoose(item);
               }}
               onClick={(event) => {
                 event.preventDefault();
