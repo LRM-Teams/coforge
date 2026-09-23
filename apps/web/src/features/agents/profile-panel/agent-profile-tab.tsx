@@ -43,7 +43,7 @@ type AgentProfile = Awaited<ReturnType<typeof getAgentProfile>>;
 
 /** A small chip-style badge for Runtime / Model / Reasoning and the Role field — the prototype's
  * `.chip`; the app has no separate chip primitive, so this reuses the official `Badge` at
- * `color="gray"`, the same "short fact" vocabulary `docs/design.md` §11 already uses. */
+ * `color="gray"`, the same "short fact" vocabulary `docs/design/color-status-typography.md` §11 already uses. */
 function FactBadge({
   children,
   icon,
@@ -152,7 +152,7 @@ function ContextUsageBadge({
 
 /**
  * The Agent profile panel's Profile tab body: label-over-value throughout, no left/right fact
- * rows, no leading row icons (`docs/design.md` §9's field-grid style, per the approved
+ * rows, no leading row icons (`docs/design/field-display.md` §9's field-grid style, per the approved
  * prototype). Managers/owners get the pencils, INFO's Role editor, RUNTIME CONFIG's credential
  * dialog and the ACTIONS section; everyone else sees a read-only Profile.
  */
@@ -499,7 +499,7 @@ export function AgentProfileTab({
               {m.agent_control_restart_reset_tooltip()}
             </Button>
             {onStartDelete && (
-              /* A danger entry button is still a button (`docs/design.md` §11 危险操作), so it
+              /* A danger entry button is still a button (`docs/design/color-status-typography.md` §11 危险操作), so it
                * gets the bordered red rather than bare red text. The one solid red belongs to the
                * confirm in `AgentDeleteDialog`; `mt-1` keeps a small break between the reversible
                * actions above and this one. */

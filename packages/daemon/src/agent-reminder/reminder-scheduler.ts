@@ -378,7 +378,7 @@ export class ReminderScheduler {
         agent_id: receipt.agentId,
         reminder_id: receipt.reminderId,
         // `reminder_version`, not `version`: the structured line already carries the build's
-        // `version` (docs/observability.md reserves it), and the two must stay tellable apart.
+        // `version` (docs/observability/structured-logging.md reserves it), and the two must stay tellable apart.
         reminder_version: receipt.version,
         attempt: receipt.attempt,
         retry_deadline: new Date(receipt.deadline).toISOString(),

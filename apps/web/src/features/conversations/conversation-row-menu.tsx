@@ -52,7 +52,7 @@ function itemLabel(item: ConversationRowMenuItem): string {
  * row — opens the member-level conversation menu (#122/#126). The popover anchors to an invisible
  * span placed at the pointer, never to the row's link, so navigation, focus and hover on the row
  * are untouched and a left click cannot open the menu. Close Chat is a two-step danger action
- * (`docs/design.md` §9): the menu item only opens the confirm, the confirm button is the one
+ * (`docs/design/field-display.md` §9): the menu item only opens the confirm, the confirm button is the one
  * solid red.
  */
 /** What the menu acts on: a channel row (membership decides) or a direct-message row (an existing

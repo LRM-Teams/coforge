@@ -2196,7 +2196,7 @@ export class DaemonRuntime {
     if (activityLaunch) {
       activityLaunch.launchId = launchId;
       // The server's Activity idempotency key is (agentId, launchId, clientSeq)
-      // (docs/observability.md); restarting it at the daemon's normal initial value under a NEW
+      // (docs/observability/activity-delivery-and-errors.md); restarting it at the daemon's normal initial value under a NEW
       // launchId is exactly what a fresh launch already does and stays disjoint from every
       // clientSeq already sent under the previous launchId.
       activityLaunch.clientSeq = 0;

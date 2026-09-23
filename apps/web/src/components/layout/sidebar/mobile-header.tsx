@@ -1,5 +1,5 @@
 // Copied from the official app-navigation/base-components/mobile-header.tsx template
-// (see docs/design.md §7), adapted so the drawer opens from each page's own
+// (see docs/design/official-components.md §7), adapted so the drawer opens from each page's own
 // header instead of a separate app header: one 48px band per page on mobile.
 import { createContext, useContext, useEffect, useState, type PropsWithChildren } from "react";
 import { useRouter } from "@tanstack/react-router";

@@ -80,7 +80,7 @@ export function toolActivity(name: string, args: unknown, occurredAt?: string) {
 /**
  * `detail` is always the generic, argument-free label (`toolActivityLabel`) — never
  * the command, path or other summary — so the Agent status header can never leak one
- * (see `docs/observability.md`). The summary itself, when there is one, travels only
+ * (see `docs/observability/running-command-summary.md`). The summary itself, when there is one, travels only
  * in the entry's `toolInput`, sanitized to satisfy the SDK's `validToolInput` (at most
  * 200 code points, no control characters).
  */

@@ -36,7 +36,7 @@ type PlatformArtifact = ArtifactIdentity & {
 };
 /** Pi's image-resize WASM: one platform-independent object per version, named explicitly (not
  * merely "some safe filename") the same way a per-target `binary` field is - see
- * docs/release.md's feed layout. */
+ * docs/release/local-distribution.md's feed layout. */
 type PhotonWasmArtifact = ArtifactIdentity & { file: string };
 
 type ReleaseManifest = {
@@ -371,7 +371,7 @@ export class ComputerUpdater {
       if (!this.#localDirectory) {
         // install.sh's/install.ps1's "artifact" phase fetches both the per-target
         // coforge-computer.gz and the platform-independent photon_rs_bg.wasm in this one pass -
-        // see docs/release.md.
+        // see docs/release/local-distribution.md.
         await runInstallationSource({
           baseUrl: this.#baseUrl.href,
           target: this.#target,
@@ -694,9 +694,9 @@ function validIdentity(value: unknown): value is ArtifactIdentity {
 
 /** The binary field is a single path segment appended directly to the download URL and to
  * on-disk paths, so it must not carry a separator or a traversal segment. It is also pinned to
- * the feed's fixed naming (docs/release.md) rather than merely validated as "some safe
- * filename": otherwise a manifest could select an unexpected executable name while retaining a
- * self-consistent checksum. */
+ * the feed's fixed naming (docs/release/local-distribution.md) rather than merely validated as
+ * "some safe filename": otherwise a manifest could select an unexpected executable name while
+ * retaining a self-consistent checksum. */
 function validPlatformEntry(value: unknown): value is { computer: PlatformArtifact } {
   const candidate = value as { computer?: unknown; daemon?: unknown } | undefined;
   return (

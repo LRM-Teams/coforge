@@ -97,7 +97,7 @@ Untitled 自己的暗色模式规则是**不改梯度数值，只改语义 token
 
 ## 6. 维护约定
 
-- 尺寸单位（rem 与 px 的分工）见 [design.md §12](design.md#12-尺寸单位rem-与-px)；本文只管颜色与字体。
+- 尺寸单位（rem 与 px 的分工）见 [design §12](design/sizing-units.md)；本文只管颜色与字体。
 - 颜色一律用 Untitled 的语义工具类（`bg-primary`、`text-tertiary`、`border-secondary`……),不写死十六进制,
   不写 `bg-[...]` 任意值,新概念先加 token 再用。
 - 只在 `coforge-theme.css` 覆盖 `--color-brand-*` 或新增 CoForge 专属 token；`theme.css` / `typography.css`

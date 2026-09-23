@@ -78,11 +78,12 @@ services:
       OTEL_SERVICE_NAME: coforge-web
       OTEL_DEPLOYMENT_ENVIRONMENT: staging
       # Which release feed this deployment's `curl .../computer/install.sh | sh` installs
-      # from. Not a secret, and deployment-specific by design: docs/release.md requires a
-      # staging entry point to install the staging build, never the production one.
+      # from. Not a secret, and deployment-specific by design:
+      # docs/release/local-feed-hosting.md requires a staging entry point to install the staging
+      # build, never the production one.
       COFORGE_RELEASE_FEED_URL: https://releases-staging.coforge.cn
       # Private user files (chat attachments, avatars) live in the staging OSS bucket; see
-      # docs/operations/aliyun-oss-cdn.md. No AccessKey pair: the ECS instance carries the
+      # docs/operations/aliyun-oss-cdn/. No AccessKey pair: the ECS instance carries the
       # `coforge-staging-web` RAM role and the SDK reads its STS token from the instance
       # metadata service (100.100.100.200), so the credential never exists as a file or
       # environment value. The internal endpoint keeps uploads off the public bandwidth.
@@ -94,7 +95,7 @@ services:
       ALIBABA_CLOUD_IMDSV1_DISABLED: "true"
       # Chat images load straight from the private CDN domain: message payloads carry a
       # Type A signed URL and /api/attachments/:id redirects to a fresh one when it expires
-      # (docs/operations/aliyun-oss-cdn.md §5.3/§10). The signing key is the CDN URL-auth
+      # (docs/operations/aliyun-oss-cdn/cdn-domains.md §5.3, staging-record.md §10). The signing key is the CDN URL-auth
       # primary key, mounted as a secret; it is not an OSS credential.
       COFORGE_FILE_DELIVERY_URL: https://files-staging.coforge.cn
       COFORGE_FILE_DELIVERY_KEY_FILE: /run/secrets/coforge_file_delivery_key

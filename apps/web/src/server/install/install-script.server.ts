@@ -6,7 +6,7 @@ import installPs1Source from "../../../../../scripts/release/install.ps1?raw";
  * `/computer/install.sh` and `/computer/install.ps1`, with one line rewritten: the release feed
  * the script downloads from.
  *
- * `docs/release.md` ("Local Computer distribution model"): each deployment serves its own pair of
+ * `docs/release/local-feed-hosting.md`: each deployment serves its own pair of
  * entry points routed to the release feed that deployment trusts, because a `curl ... | sh` taken
  * from staging must install the staging build and not the production one. The scripts themselves
  * hardcode the production feed as their default - correct for `releases.coforge.cn`, wrong for
@@ -104,7 +104,7 @@ function textResponse(body: string): Response {
 function unconfiguredResponse(): Response {
   return new Response(
     "# COFORGE_RELEASE_FEED_URL is not configured for this deployment, so there is no release\n" +
-      "# feed to install from. This is a server misconfiguration - see infra/staging/README.md.\n",
+      "# feed to install from. This is a server misconfiguration - see docs/operations/staging/github-environment.md.\n",
     {
       status: 503,
       headers: {
