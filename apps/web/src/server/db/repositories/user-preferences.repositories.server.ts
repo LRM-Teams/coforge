@@ -2,6 +2,7 @@ import type { Prisma, PrismaClient } from "../../../../generated/client";
 
 import { validateTimeZone } from "../../../lib/dates";
 import { AppError } from "../../../lib/app-error";
+import { isTimeFormat, type TimeFormat } from "../../../lib/time-format";
 import {
   isConversationOpenMode,
   DEFAULT_CONVERSATION_OPEN_MODE,
@@ -14,6 +15,8 @@ export type UserPreferencesRepository = {
   setBrowserNotificationsEnabled(userId: string, enabled: boolean): Promise<boolean>;
   getConversationOpenMode(userId: string): Promise<string>;
   setConversationOpenMode(userId: string, mode: string): Promise<string>;
+  getTimeFormat(userId: string): Promise<string | null>;
+  setTimeFormat(userId: string, timeFormat: string | null): Promise<string | null>;
 };
 
 type PreferenceValues = Omit<
@@ -64,6 +67,14 @@ export class PrismaUserPreferencesRepository implements UserPreferencesRepositor
     const saved = await this.write(userId, { conversationOpenMode: mode });
     return saved.conversationOpenMode ?? DEFAULT_CONVERSATION_OPEN_MODE;
   }
+
+  async getTimeFormat(userId: string) {
+    return (await this.read(userId))?.timeFormat ?? null;
+  }
+
+  async setTimeFormat(userId: string, timeFormat: string | null) {
+    return (await this.write(userId, { timeFormat })).timeFormat;
+  }
 }
 
 export class UserPreferences {
@@ -95,5 +106,15 @@ export class UserPreferences {
   async setConversationOpenMode(userId: string, mode: string) {
     if (!isConversationOpenMode(mode)) throw new AppError("INVALID_INPUT");
     return this.repository.setConversationOpenMode(userId, mode);
+  }
+
+  async getTimeFormat(userId: string): Promise<TimeFormat | null> {
+    const saved = await this.repository.getTimeFormat(userId);
+    return isTimeFormat(saved) ? saved : null;
+  }
+
+  async setTimeFormat(userId: string, timeFormat: string | null) {
+    if (timeFormat !== null && !isTimeFormat(timeFormat)) throw new AppError("INVALID_INPUT");
+    return this.repository.setTimeFormat(userId, timeFormat);
   }
 }

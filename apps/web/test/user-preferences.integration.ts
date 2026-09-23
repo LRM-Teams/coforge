@@ -35,6 +35,10 @@ test("a user who never saved a preference reads the defaults, and saving keeps t
     expect(await preferences.getBrowserNotificationsEnabled(user.id)).toBeTrue();
     expect(await preferences.getConversationOpenMode(user.id)).toBe("newest-unread");
 
+    expect(await preferences.getTimeFormat(user.id)).toBeNull();
+    expect(await preferences.setTimeFormat(user.id, "24h")).toBe("24h");
+    expect(await preferences.getTimeFormat(user.id)).toBe("24h");
+
     expect(await preferences.set(user.id, null)).toBeNull();
     expect(await preferences.getConversationOpenMode(user.id)).toBe("newest-unread");
   } finally {
@@ -56,6 +60,11 @@ test("preferences are removed with their user and reject values outside their se
       "user_preferences_conversationOpenMode_check",
     );
     expect(await insert("newest-read")).toBe(1);
+    await expect(
+      Promise.resolve(
+        db.$executeRaw`UPDATE "user_preferences" SET "timeFormat" = '25h' WHERE "userId" = ${user.id}::uuid`,
+      ),
+    ).rejects.toThrow("user_preferences_timeFormat_check");
 
     await new UserPreferences(new PrismaUserPreferencesRepository(db)).set(user.id, "UTC");
     await db.user.delete({ where: { id: user.id } });

@@ -19,6 +19,7 @@ import { StatusDot } from "@/components/ui/status-dot";
 import { Tooltip, TooltipTrigger } from "@/components/base/tooltip/tooltip";
 import { avatarInitial, avatarToneClassName } from "@/lib/avatar-tone";
 import { formatDateForDisplay } from "@/lib/dates";
+import { useTimeFormat } from "@/lib/time-format-context";
 import { m } from "@/paraglide/messages";
 import { getLocale } from "@/paraglide/runtime";
 import { runtimeProviderLabel } from "@/features/agents/runtime-provider-display";
@@ -87,6 +88,7 @@ function ContextUsageBadge({
   computerOnline?: boolean;
 }) {
   const locale = getLocale();
+  const timeFormat = useTimeFormat();
   const percent = Math.min(
     100,
     Math.max(0, Math.round((contextUsage.usedTokens / contextUsage.windowTokens) * 100)),
@@ -96,7 +98,7 @@ function ContextUsageBadge({
   const tooltipText = m.agent_context_usage_tooltip({
     used: numberFormat.format(contextUsage.usedTokens),
     window: numberFormat.format(contextUsage.windowTokens),
-    time: formatDateForDisplay(new Date(contextUsage.observedAtMs), timeZone, locale),
+    time: formatDateForDisplay(new Date(contextUsage.observedAtMs), timeZone, locale, timeFormat),
   });
   const context = useAgentContextReport(agentId, {
     enabled: supportsContextReport,
@@ -121,7 +123,12 @@ function ContextUsageBadge({
       label={m.agent_context_usage_tooltip({
         used: numberFormat.format(contextUsage.usedTokens),
         window: numberFormat.format(contextUsage.windowTokens),
-        time: formatDateForDisplay(new Date(contextUsage.observedAtMs), timeZone, locale),
+        time: formatDateForDisplay(
+          new Date(contextUsage.observedAtMs),
+          timeZone,
+          locale,
+          timeFormat,
+        ),
       })}
       trigger={badge}
       triggerClassName="-m-1 inline-flex rounded-lg p-1 outline-none hover:bg-primary_hover data-focus-visible:ring-2 data-focus-visible:ring-brand"

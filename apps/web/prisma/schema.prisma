@@ -124,6 +124,8 @@ model UserPreference {
   browserNotificationsEnabled Boolean?
   /// Slack's "When I view a channel" behavior: newest-read, first-unread, or newest-unread.
   conversationOpenMode        String?
+  /// Clock display: 12h or 24h. NULL follows the display language. Display only.
+  timeFormat                  String?
   createdAt                   DateTime @default(now())
   updatedAt                   DateTime @updatedAt
 

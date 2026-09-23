@@ -40,6 +40,8 @@ import {
   selectionFragmentHtml,
 } from "./selection-copy";
 import { copyText } from "../records/report-editor/lib/clipboard";
+import { useTimeFormat } from "@/lib/time-format-context";
+import { hour12For, type TimeFormat } from "@/lib/time-format";
 
 export type MessageView = {
   id: string;
@@ -113,13 +115,13 @@ const dayFormatters = new Map<string, Intl.DateTimeFormat>();
 const clockFormatters = new Map<string, Intl.DateTimeFormat>();
 function cachedFormatter(
   cache: Map<string, Intl.DateTimeFormat>,
-  locale: string,
+  key: string,
   options: Intl.DateTimeFormatOptions,
 ) {
-  let formatter = cache.get(locale);
+  let formatter = cache.get(key);
   if (!formatter) {
-    formatter = new Intl.DateTimeFormat(locale, options);
-    cache.set(locale, formatter);
+    formatter = new Intl.DateTimeFormat(key.split("|")[0], options);
+    cache.set(key, formatter);
   }
   return formatter;
 }
@@ -134,12 +136,16 @@ export function dayLabel(value: Date | string, locale?: string): string {
   }).format(new Date(value));
 }
 
-export function clockLabel(value: Date | string, locale?: string): string {
+export function clockLabel(
+  value: Date | string,
+  locale?: string,
+  timeFormat: TimeFormat | null = null,
+): string {
   if (!locale) return "";
-  return cachedFormatter(clockFormatters, locale, {
+  return cachedFormatter(clockFormatters, `${locale}|${timeFormat ?? ""}`, {
     hour: "2-digit",
     minute: "2-digit",
-    hour12: false,
+    hour12: hour12For(timeFormat),
   }).format(new Date(value));
 }
 
@@ -559,6 +565,7 @@ export function MessageRow({
    * read at all. */
   onQuoteSelection?: (quote: string) => void;
 }) {
+  const timeFormat = useTimeFormat();
   const displayName = own ? m.conversation_you() : message.senderName;
   const deleted = Boolean(message.senderDeleted);
   const openableAgentId =
@@ -625,7 +632,7 @@ export function MessageRow({
       return;
     }
     const quote = formatSelectionQuote(
-      { author: displayName, time: clockLabel(message.createdAt, dateLocale) },
+      { author: displayName, time: clockLabel(message.createdAt, dateLocale, timeFormat) },
       selection.toString(),
     );
     if (!quote) {
@@ -647,7 +654,7 @@ export function MessageRow({
       text: selection.toString(),
       ...placement,
     });
-  }, [onQuoteSelection, displayName, message.createdAt, dateLocale]);
+  }, [onQuoteSelection, displayName, message.createdAt, dateLocale, timeFormat]);
   // A gesture anywhere else (a click, a scroll, Escape) withdraws the offer. The affordance
   // itself is exempt: pointerdown on it would otherwise unmount the button before its click.
   useEffect(() => {
@@ -760,7 +767,7 @@ export function MessageRow({
             dateTime={new Date(message.createdAt).toISOString()}
             className="shrink-0 tabular-nums opacity-0 group-hover/message:opacity-100"
           >
-            {clockLabel(message.createdAt, dateLocale)}
+            {clockLabel(message.createdAt, dateLocale, timeFormat)}
           </time>
         </div>
       </li>
@@ -804,7 +811,7 @@ export function MessageRow({
               dateTime={new Date(message.createdAt).toISOString()}
               className="mt-0.5 text-xs text-quaternary tabular-nums opacity-0 group-hover/message:opacity-100 group-focus-within/message:opacity-100"
             >
-              {clockLabel(message.createdAt, dateLocale)}
+              {clockLabel(message.createdAt, dateLocale, timeFormat)}
             </time>
           ) : openableAgentId ? (
             <Button
@@ -842,7 +849,7 @@ export function MessageRow({
                 dateTime={new Date(message.createdAt).toISOString()}
                 className="shrink-0 text-xs text-tertiary tabular-nums"
               >
-                {clockLabel(message.createdAt, dateLocale)}
+                {clockLabel(message.createdAt, dateLocale, timeFormat)}
               </time>
             </p>
           )}
@@ -1070,7 +1077,7 @@ export function MessageRow({
                         dateTime={new Date(message.createdAt).toISOString()}
                         className="shrink-0 text-xs text-tertiary tabular-nums"
                       >
-                        {clockLabel(message.createdAt, dateLocale)}
+                        {clockLabel(message.createdAt, dateLocale, timeFormat)}
                       </time>
                     </p>
                     <p className="line-clamp-2 text-sm leading-5 text-secondary [overflow-wrap:anywhere]">
