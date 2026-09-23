@@ -1,11 +1,14 @@
 import { useEffect, useState } from "react";
+import { keepPreviousData, useInfiniteQuery } from "@tanstack/react-query";
+import { GridList, GridListItem, GridListLoadMoreItem, ProgressBar } from "react-aria-components";
 import { Group, Panel, Separator, useDefaultLayout } from "react-resizable-panels";
-import { getRouteApi, Link, useNavigate, useRouter } from "@tanstack/react-router";
+import { getRouteApi, Link, useNavigate } from "@tanstack/react-router";
 import { useBreakpoint } from "@/hooks/use-breakpoint";
 import {
   Calendar,
   DotsVertical,
   Eye,
+  Loading02,
   Monitor01 as Monitor,
   Plus,
   SearchLg as Search,
@@ -46,7 +49,13 @@ import { AgentCreateDialog } from "./agent-create-dialog";
 import { AgentDeleteDialog } from "./agent-delete-dialog";
 import type { RuntimeCatalog } from "./agent-runtime-fields";
 import type { CreateAgentInput } from "./agent.schemas";
-import type { WorkspaceMemberDirectory } from "@/features/workspaces/workspaces.functions";
+import type {
+  MemberAgent,
+  MemberDirectorySummary,
+  MemberPerson,
+} from "@/features/workspaces/workspaces.functions";
+import { NO_COMPUTER } from "@/features/workspaces/member-directory";
+import { memberAgentsQuery, memberPeopleQuery } from "./member-directory-queries";
 import { AgentProfilePanel } from "./profile-panel/agent-profile-panel";
 import { useOpenAgentProfile } from "./profile-panel/open-agent-profile";
 import {
@@ -75,11 +84,9 @@ export type AgentView = {
 
 export type MemberTab = "agent" | "human";
 export type OwnerFilter = "all" | "mine";
-/** The Computer filter value for Agents that have no Computer in this Workspace. */
-const NO_COMPUTER = "none";
 
 export function AgentsContent({
-  directory,
+  summary,
   memberType,
   owner,
   computer,
@@ -94,7 +101,7 @@ export function AgentsContent({
   onDeleteAgent,
   defaultCreateDialogOpen = false,
 }: {
-  directory: WorkspaceMemberDirectory;
+  summary: MemberDirectorySummary;
   memberType: MemberTab;
   owner: OwnerFilter;
   /** A Computer id, `"none"`, or undefined for every Computer. */
@@ -114,44 +121,62 @@ export function AgentsContent({
   onDeleteAgent: (agentId: string, confirmation: string) => Promise<void>;
   defaultCreateDialogOpen?: boolean;
 }) {
-  const router = useRouter();
   const { setAgentProfileTab, closeAgentProfile } = useOpenAgentProfile();
   const timeZone = appRoute.useLoaderData().timeZone;
   const locale = getLocale();
   const [search, setSearch] = useState("");
+  // The server searches; wait for a pause in typing instead of fetching on every keystroke.
+  const [query, setQuery] = useState("");
+  useEffect(() => {
+    const timer = setTimeout(() => setQuery(search.trim()), SEARCH_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+  }, [search]);
   const [open, setOpen] = useState(defaultCreateDialogOpen);
   const [inviteOpen, setInviteOpen] = useState(false);
   // The target outlives `deleteOpen` so the dialog keeps its title through the close animation.
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deferredStart, setDeferredStart] = useState(false);
-  const canInviteMember = directory.actorRole === "owner" || directory.actorRole === "admin";
+  const canInviteMember = summary.actorRole === "owner" || summary.actorRole === "admin";
   // Agent creation requires Workspace owner/admin; see ManageAgents.create / assertCanCreateAgents.
   const canCreateAgent = canInviteMember;
   // Deletion is the same owner/admin capability (ADR 0044), and only for Agents the directory marks
   // deletable; the server re-checks both.
   const canDeleteAgent = canInviteMember;
   const onAgentTab = memberType === "agent";
-  const tabTotal = onAgentTab ? directory.agents.length : directory.people.length;
+  const tabTotal = onAgentTab ? summary.agentCount : summary.peopleCount;
   const ownedAgents = new Map(agents.map((agent) => [agent.id, agent]));
-  const computerOptions = agentComputerOptions(directory.agents);
-  const query = search.trim().toLowerCase();
+  const computerOptions = [
+    ...summary.computers.map((option) => ({
+      id: option.id,
+      label: option.name || m.agent_computer_unnamed(),
+    })),
+    ...(summary.hasAgentWithoutComputer
+      ? [{ id: NO_COMPUTER, label: m.member_no_computer() }]
+      : []),
+  ];
   const filtersActive = onAgentTab && (owner === "mine" || computer !== undefined);
-  const filteredPeople = onAgentTab
-    ? []
-    : directory.people.filter((person) =>
-        `${person.displayName} ${person.name}`.toLowerCase().includes(query),
-      );
-  const filteredAgents = onAgentTab
-    ? directory.agents.filter(
-        (agent) =>
-          (owner === "all" || agent.owner.id === directory.viewerId) &&
-          (computer === undefined || (agent.computerId ?? NO_COMPUTER) === computer) &&
-          `${agent.displayName} ${agent.name} ${agent.computerName ?? ""}`
-            .toLowerCase()
-            .includes(query),
-      )
+  // Keep the cards already on screen while a changed filter or search loads its first page.
+  const agentPages = useInfiniteQuery({
+    ...memberAgentsQuery({ owner, computer, query }),
+    enabled: onAgentTab,
+    placeholderData: keepPreviousData,
+  });
+  const peoplePages = useInfiniteQuery({
+    ...memberPeopleQuery(query),
+    enabled: !onAgentTab,
+    placeholderData: keepPreviousData,
+  });
+  const pages = onAgentTab ? agentPages : peoplePages;
+  const listedAgents = onAgentTab
+    ? (agentPages.data?.pages.flatMap((page) => page.items) ?? [])
     : [];
+  const listedPeople = onAgentTab
+    ? []
+    : (peoplePages.data?.pages.flatMap((page) => page.items) ?? []);
+  const loadMore = () => {
+    if (pages.hasNextPage && !pages.isFetchingNextPage) void pages.fetchNextPage();
+  };
   const profileOpen = Boolean(profileAgentId);
   // `useBreakpoint` is true during SSR. Stay stacked until after mount so a phone never
   // first-paints the profile as a 35% column with a blank left side.
@@ -197,8 +222,8 @@ export function AgentsContent({
             type="underline"
             className="gap-6 before:hidden"
           >
-            <Tab id="agent">{m.member_tab_agents_count({ count: directory.agents.length })}</Tab>
-            <Tab id="human">{m.member_tab_humans_count({ count: directory.people.length })}</Tab>
+            <Tab id="agent">{m.member_tab_agents_count({ count: summary.agentCount })}</Tab>
+            <Tab id="human">{m.member_tab_humans_count({ count: summary.peopleCount })}</Tab>
           </TabList>
         </div>
         <div className="ml-auto flex shrink-0 items-center gap-2 @2xl/members:justify-self-end">
@@ -280,15 +305,23 @@ export function AgentsContent({
             {m.agent_deferred_start_notice()}
           </p>
         )}
-        {filteredPeople.length + filteredAgents.length ? (
-          <ul
+        {pages.isError && !pages.data ? (
+          <div role="alert" className="mt-8 flex flex-col items-center gap-3 text-center">
+            <p className="text-sm text-error-primary">{m.member_directory_load_error()}</p>
+            <Button size="sm" color="secondary" onPress={() => void pages.refetch()}>
+              {m.controls_retry()}
+            </Button>
+          </div>
+        ) : pages.isPending ? null : listedPeople.length + listedAgents.length ? (
+          <GridList
             aria-label={onAgentTab ? m.member_tab_agents() : m.member_tab_humans()}
-            className="mt-4 grid gap-4 md:grid-cols-[repeat(auto-fill,minmax(18rem,1fr))]"
+            layout="grid"
+            className="mt-4 grid gap-4 outline-none md:grid-cols-[repeat(auto-fill,minmax(18rem,1fr))]"
           >
-            {filteredPeople.map((person) => (
+            {listedPeople.map((person) => (
               <PersonCard key={person.id} person={person} />
             ))}
-            {filteredAgents.map((member) => (
+            {listedAgents.map((member) => (
               <AgentCard
                 key={member.id}
                 member={member}
@@ -309,7 +342,21 @@ export function AgentsContent({
                 }
               />
             ))}
-          </ul>
+            {/* React Aria asks for the next page as this sentinel nears the scroll area's end. */}
+            <GridListLoadMoreItem
+              onLoadMore={loadMore}
+              isLoading={pages.isFetchingNextPage}
+              className="col-span-full flex justify-center py-4"
+            >
+              <ProgressBar
+                isIndeterminate
+                aria-label={m.member_loading_more()}
+                className="text-fg-quaternary"
+              >
+                <Loading02 aria-hidden="true" className="size-5 motion-safe:animate-spin" />
+              </ProgressBar>
+            </GridListLoadMoreItem>
+          </GridList>
         ) : (
           <Empty
             className={
@@ -353,6 +400,7 @@ export function AgentsContent({
                   color="secondary"
                   onPress={() => {
                     setSearch("");
+                    setQuery("");
                     if (filtersActive) onFiltersChange({ owner: "all", computer: undefined });
                   }}
                 >
@@ -405,7 +453,6 @@ export function AgentsContent({
         onOpenChange={setInviteOpen}
         onInvite={async (input) => {
           await onInviteMember(input);
-          await router.invalidate({ sync: true });
         }}
       />
 
@@ -434,32 +481,20 @@ export function AgentsContent({
   );
 }
 
-type DirectoryAgent = WorkspaceMemberDirectory["agents"][number];
-type DirectoryPerson = WorkspaceMemberDirectory["people"][number];
+type DirectoryAgent = MemberAgent;
+type DirectoryPerson = MemberPerson;
 
 /** The Computer select's "every Computer" entry; never a real Computer id. */
 const ALL_COMPUTERS = "all";
 
-/** The Computers the listed Agents run on, by name, plus "no Computer" when any Agent has none. */
-function agentComputerOptions(agents: DirectoryAgent[]) {
-  const byId = new Map<string, string>();
-  let unassigned = false;
-  for (const agent of agents) {
-    if (agent.computerId === null) unassigned = true;
-    else byId.set(agent.computerId, agent.computerName || m.agent_computer_unnamed());
-  }
-  const options = [...byId]
-    .map(([id, label]) => ({ id, label }))
-    .sort((a, b) => a.label.localeCompare(b.label));
-  return unassigned ? [...options, { id: NO_COMPUTER, label: m.member_no_computer() }] : options;
-}
+const SEARCH_DEBOUNCE_MS = 250;
 
 const CARD_CLASS =
   "flex min-w-0 flex-col gap-2.5 rounded-xl bg-primary p-4 shadow-xs ring-1 ring-secondary ring-inset";
 
 function PersonCard({ person }: { person: DirectoryPerson }) {
   return (
-    <li className={CARD_CLASS}>
+    <GridListItem id={person.id} textValue={person.displayName} className={CARD_CLASS}>
       <Avatar
         size="lg"
         alt={person.displayName}
@@ -476,7 +511,7 @@ function PersonCard({ person }: { person: DirectoryPerson }) {
           {person.description}
         </p>
       )}
-    </li>
+    </GridListItem>
   );
 }
 
@@ -503,7 +538,11 @@ function AgentCard({
     });
 
   return (
-    <li className={cn(CARD_CLASS, selected && "ring-2 ring-brand")}>
+    <GridListItem
+      id={member.id}
+      textValue={member.displayName}
+      className={cn(CARD_CLASS, selected && "ring-2 ring-brand")}
+    >
       <div className="flex items-start justify-between gap-3">
         {ownedAgent ? (
           <AgentDisplayAvatar
@@ -604,6 +643,6 @@ function AgentCard({
           <time dateTime={new Date(member.createdAt).toISOString()}>{createdOn}</time>
         </span>
       </div>
-    </li>
+    </GridListItem>
   );
 }

@@ -38,6 +38,8 @@
   "member_created_on": "创建于",
   "member_filter_empty_description": "换个筛选条件试试，或清除筛选查看全部智能体。",
   "member_clear_filters": "清除搜索和筛选",
+  "member_directory_load_error": "成员加载失败。",
+  "member_loading_more": "正在加载更多成员…",
   "member_no_humans": "暂无人员",
   "member_no_computer": "未分配电脑",
   "agent_no_search_results": "没有符合搜索条件的成员",

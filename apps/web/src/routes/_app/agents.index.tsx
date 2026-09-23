@@ -1,3 +1,4 @@
+import { useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, useRouter } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { useEffect } from "react";
@@ -14,7 +15,13 @@ import {
 import { useLiveAgents } from "@/features/agents/workspace-agents-realtime";
 import { getComputerRuntimeCatalog, listComputers } from "@/features/computers/computers.functions";
 import { inviteWorkspaceMember } from "@/features/workspaces/members.functions";
-import { listWorkspaceMembers } from "@/features/workspaces/workspaces.functions";
+import { loadMemberDirectorySummary } from "@/features/workspaces/workspaces.functions";
+import { NO_COMPUTER } from "@/features/workspaces/member-directory";
+import {
+  MEMBER_DIRECTORY_KEY,
+  memberAgentsQuery,
+  memberPeopleQuery,
+} from "@/features/agents/member-directory-queries";
 import {
   agentIdFromProfileParam,
   agentProfileParamSchema,
@@ -27,24 +34,33 @@ export const Route = createFileRoute("/_app/agents/")({
     owner: z.enum(["all", "mine"]).default("all").catch("all"),
     /** A Computer id, or "none" for Agents without a Computer; absent means every Computer. */
     computer: z
-      .string()
-      .min(1)
-      .refine((value) => value !== "all")
+      .union([z.string().uuid(), z.literal(NO_COMPUTER)])
       .optional()
       .catch(undefined),
     profile: agentProfileParamSchema,
     agentTab: agentProfileTabParamSchema,
   }),
-  // The Agent list itself comes from the layout loader and stays live there.
-  loader: async () => {
+  loaderDeps: ({ search }) => ({
+    memberType: search.memberType,
+    owner: search.owner,
+    computer: search.computer,
+  }),
+  // Live Agent status comes from the layout's realtime provider; the directory itself is paged
+  // through the Query cache, and the loader only makes the first page ready for this tab.
+  loader: async ({ context, deps }) => {
     // Members is where Users configure the weekly-report assistant; ensure it exists here
     // (not in the global `_app` listAgents loader, which must stay failure-isolated).
-    const [assistant, computers, directory] = await Promise.all([
+    const [assistant, computers, summary] = await Promise.all([
       ensureWeeklyReportAssistantMember(),
       listComputers(),
-      listWorkspaceMembers(),
+      loadMemberDirectorySummary(),
+      deps.memberType === "agent"
+        ? context.queryClient.ensureInfiniteQueryData(
+            memberAgentsQuery({ owner: deps.owner, computer: deps.computer, query: "" }),
+          )
+        : context.queryClient.ensureInfiniteQueryData(memberPeopleQuery("")),
     ]);
-    return { computers, directory, weeklyReportAssistantAgentId: assistant.agentId };
+    return { computers, summary, weeklyReportAssistantAgentId: assistant.agentId };
   },
   pendingComponent: AgentsPending,
   errorComponent: PageLoadError,
@@ -52,7 +68,7 @@ export const Route = createFileRoute("/_app/agents/")({
 });
 
 function AgentsPage() {
-  const { computers, directory, weeklyReportAssistantAgentId } = Route.useLoaderData();
+  const { computers, summary, weeklyReportAssistantAgentId } = Route.useLoaderData();
   const { memberType, owner, computer, profile, agentTab } = Route.useSearch();
   const navigate = Route.useNavigate();
   const router = useRouter();
@@ -61,6 +77,14 @@ function AgentsPage() {
   const invite = useServerFn(inviteWorkspaceMember);
   const removeAgent = useServerFn(deleteAgent);
   const visibleAgents = useLiveAgents();
+  const queryClient = useQueryClient();
+  // Counts, filter choices and every loaded page change together after a create, delete or invite.
+  const refreshDirectory = async () => {
+    await Promise.all([
+      router.invalidate({ sync: true }),
+      queryClient.invalidateQueries({ queryKey: MEMBER_DIRECTORY_KEY }),
+    ]);
+  };
 
   // Refresh the shell Agent list once so a just-ensured weekly-report assistant appears.
   useEffect(() => {
@@ -71,7 +95,7 @@ function AgentsPage() {
 
   return (
     <AgentsContent
-      directory={directory}
+      summary={summary}
       memberType={memberType}
       owner={owner}
       computer={computer}
@@ -88,15 +112,16 @@ function AgentsPage() {
       onLoadRuntimeCatalog={(computerId) => loadRuntimeCatalog({ data: { computerId } })}
       onCreate={async (data) => {
         const result = await create({ data });
-        await router.invalidate({ sync: true });
+        await refreshDirectory();
         return result;
       }}
       onInviteMember={async (data) => {
         await invite({ data });
+        await refreshDirectory();
       }}
       onDeleteAgent={async (agentId, confirmation) => {
         await removeAgent({ data: { agentId, confirmation } });
-        await router.invalidate({ sync: true });
+        await refreshDirectory();
       }}
     />
   );
