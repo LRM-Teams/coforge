@@ -225,8 +225,9 @@ test("Workspace humans enrolled in general see one general channel; outsiders ca
         endpoint: `https://fcm.googleapis.com/wp/bob-${suffix}`,
       }),
     ]);
+    // The target names the Chat tab: a member's own tab order can put another tab first.
     expect(mentionNotification?.url).toBe(
-      `/notifications/open?workspace=${workspace.slug}&target=${encodeURIComponent(`/messages/channels/${engineering.id}#message-${mutedMention.id}`)}`,
+      `/notifications/open?workspace=${workspace.slug}&target=${encodeURIComponent(`/messages/channels/${engineering.id}?view=chat#message-${mutedMention.id}`)}`,
     );
     // An explicit @mention pierces the mute for notificationForRecipient too, with the same
     // title/body/url/tag/conversationPath the push payload carries.
@@ -292,9 +293,16 @@ test("Workspace humans enrolled in general see one general channel; outsiders ca
       `<@human:${bob.id}> please review this`,
       "Concurrent A",
     ]);
+    // A jump lands on another member's message too (#740): membership is the whole access
+    // decision, so Bob opens the window around Alice's message and an outsider is refused.
+    expect(
+      (
+        await browserHistory.loadAround(workspace.id, bob.id, engineering.id, saved.id)
+      ).messages.some((message) => message.id === saved.id),
+    ).toBe(true);
     await expect(
-      browserHistory.loadAround(workspace.id, bob.id, engineering.id, saved.id),
-    ).rejects.toThrow("NOT_FOUND");
+      browserHistory.loadAround(workspace.id, outsider.id, engineering.id, saved.id),
+    ).rejects.toThrow("ACCESS_DENIED");
     await expect(
       browserHistory.listOwnMessages(workspace.id, outsider.id, engineering.id),
     ).rejects.toThrow("ACCESS_DENIED");
@@ -356,12 +364,10 @@ test("Workspace humans enrolled in general see one general channel; outsiders ca
       });
       const id = typeof created === "string" ? created : created.id;
       try {
-        // Workspace creation itself enrolls the creator; reads never repair enrollment.
-        const general = await db.conversation.findFirst({
-          where: { workspaceId: id, channelName: "general" },
-          include: { members: true },
-        });
-        expect(general?.members.map((m) => m.userId)).toEqual([alice.id]);
+        // Workspace creation no longer creates or enrolls #general; channels are made on purpose.
+        expect(
+          await db.conversation.findFirst({ where: { workspaceId: id, channelName: "general" } }),
+        ).toBeNull();
       } finally {
         await db.workspace.delete({ where: { id } });
       }
@@ -585,6 +591,12 @@ test("Agent channel mute suppresses ordinary notices, preserves mentions and rea
         modelProvider: "openai",
         reasoning: "",
       },
+    });
+    // Creating an Agent does not enroll it anywhere; the channel's human member adds it. Joining
+    // late opens the history to it, while delivery (below) covers only what is sent afterwards.
+    await channels.addMembers(workspace.id, { userId: user.id }, general.id, {
+      userIds: [],
+      agentIds: [second.id],
     });
     expect(
       (await repo.readMessages(workspace.id, second.id, "#general")).some(
