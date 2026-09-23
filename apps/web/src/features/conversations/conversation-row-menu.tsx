@@ -109,6 +109,8 @@ export function ConversationRowMenu({
 
   /** The touch that might become a long-press (#128): where it started and its pending timer. */
   const pressStart = useRef<{ x: number; y: number } | null>(null);
+  /** The zero-size span at the pointer the popover positions against (see the JSX below). */
+  const anchorRef = useRef<HTMLSpanElement>(null);
   const pressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const cancelLongPress = () => {
@@ -229,13 +231,17 @@ export function ConversationRowMenu({
       {enabled && (
         <Dropdown.Root isOpen={anchor !== null} onOpenChange={(open) => !open && close()}>
           {/* The popover's anchor: a zero-size span at the pointer inside the row, so the row's
-              own link never carries react-aria's trigger press/keyboard handling. */}
+              own link never carries react-aria's trigger press/keyboard handling. MenuTrigger only
+              learns its trigger's ref from a pressable child, so the span is handed to the popover
+              as `triggerRef` — without it the popover has nothing to position against and opens
+              at the viewport's top-left corner. */}
           <span
+            ref={anchorRef}
             aria-hidden="true"
             className="pointer-events-none absolute size-0"
             style={{ left: anchor?.left ?? 0, top: anchor?.top ?? 0 }}
           />
-          <Dropdown.Popover placement="bottom start">
+          <Dropdown.Popover triggerRef={anchorRef} placement="bottom start">
             {confirming ? (
               <div
                 role="alertdialog"
