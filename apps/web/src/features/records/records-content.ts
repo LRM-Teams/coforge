@@ -25,6 +25,20 @@ export type KeyPointPromptHistoryEntry = {
   updatedAt: string;
 };
 
+/**
+ * Where a previously captured history entry sits in the latest history, or -1 when it is gone.
+ * The server deletes history entries by position, so a delete confirmed against an older snapshot
+ * resolves the position again instead of trusting the one it was opened with.
+ */
+export function keyPointHistoryIndexOf(
+  history: readonly KeyPointPromptHistoryEntry[],
+  entry: KeyPointPromptHistoryEntry,
+): number {
+  return history.findIndex(
+    (candidate) => candidate.updatedAt === entry.updatedAt && candidate.text === entry.text,
+  );
+}
+
 /** One prompt slot (team or personal) with history (ADR 0013 shape). */
 export type KeyPointPromptState = {
   text: string;

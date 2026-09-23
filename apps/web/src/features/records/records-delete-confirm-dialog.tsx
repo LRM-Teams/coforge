@@ -17,6 +17,7 @@ export function RecordsDeleteConfirmDialog({
   title,
   description,
   busy,
+  error,
   onOpenChange,
   onConfirm,
 }: {
@@ -24,6 +25,8 @@ export function RecordsDeleteConfirmDialog({
   title: string;
   description: string;
   busy?: boolean;
+  /** Why the last delete attempt failed; shown inline under the description. */
+  error?: string;
   onOpenChange: (open: boolean) => void;
   onConfirm: () => void | Promise<void>;
 }) {
@@ -60,11 +63,16 @@ export function RecordsDeleteConfirmDialog({
                   <Text slot="description" className="text-sm text-secondary">
                     {description}
                   </Text>
+                  {error && (
+                    <p role="alert" className="text-sm text-error-primary">
+                      {error}
+                    </p>
+                  )}
                 </div>
               </div>
               <div className="mt-6 flex justify-end gap-3">
                 <Button type="button" color="secondary" size="sm" isDisabled={busy} onPress={close}>
-                  {m.records_template_cancel()}
+                  {m.records_delete_cancel()}
                 </Button>
                 <Button
                   type="button"
@@ -75,7 +83,7 @@ export function RecordsDeleteConfirmDialog({
                   showTextWhileLoading
                   onPress={() => void onConfirm()}
                 >
-                  {busy ? m.records_delete_pending() : m.records_template_delete()}
+                  {busy ? m.records_delete_pending() : m.records_delete_confirm()}
                 </Button>
               </div>
             </>

@@ -53,6 +53,8 @@ export function AgentRuntimeCredentialDialog({
 }) {
   /** Deleting the key is a two-step flow: the entry button swaps the footer for this confirm row. */
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+  /** Set when the confirm row is cancelled, so focus lands back on the entry button it replaced. */
+  const [returnFocusToDeleteEntry, setReturnFocusToDeleteEntry] = useState(false);
   return (
     <ModalOverlay
       isOpen={open}
@@ -67,6 +69,8 @@ export function AgentRuntimeCredentialDialog({
             <form
               onSubmit={async (event: FormEvent<HTMLFormElement>) => {
                 event.preventDefault();
+                // Enter in the key field must not save while the delete confirm is showing.
+                if (confirmingDelete) return;
                 const apiKey = String(new FormData(event.currentTarget).get("apiKey") ?? "");
                 await onSave(apiKey);
               }}
@@ -116,8 +120,12 @@ export function AgentRuntimeCredentialDialog({
                     <Button
                       type="button"
                       color="secondary"
+                      autoFocus
                       isDisabled={saving}
-                      onPress={() => setConfirmingDelete(false)}
+                      onPress={() => {
+                        setReturnFocusToDeleteEntry(true);
+                        setConfirmingDelete(false);
+                      }}
                     >
                       {m.controls_cancel()}
                     </Button>
@@ -140,6 +148,7 @@ export function AgentRuntimeCredentialDialog({
                       <Button
                         type="button"
                         color="secondary-destructive"
+                        autoFocus={returnFocusToDeleteEntry}
                         isDisabled={saving}
                         onPress={() => setConfirmingDelete(true)}
                       >

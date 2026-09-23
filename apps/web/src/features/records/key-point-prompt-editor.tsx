@@ -3,7 +3,7 @@ import { RefreshCcw01 as Refresh, Trash01 as Trash } from "@untitledui/icons";
 
 import { Button } from "@/components/base/buttons/button";
 import { m } from "@/paraglide/messages";
-import type { KeyPointPromptState } from "./records-content";
+import type { KeyPointPromptHistoryEntry, KeyPointPromptState } from "./records-content";
 
 /** Current prompt + history with「重新启用」/「删除」(settings 要点提示词模板). */
 export function KeyPointPromptEditor({
@@ -23,7 +23,8 @@ export function KeyPointPromptEditor({
   onChange: (text: string) => void;
   onFocus?: () => void;
   onBlur?: () => void;
-  onDeleteHistory?: (historyIndex: number) => void;
+  /** Asks to delete this history entry; the caller confirms before deleting. */
+  onDeleteHistory?: (entry: KeyPointPromptHistoryEntry) => void;
 }) {
   return (
     <div className="min-h-0 flex-1 space-y-6 overflow-y-auto px-4 py-4 sm:px-8 sm:py-6">
@@ -81,7 +82,7 @@ export function KeyPointPromptEditor({
                         color="tertiary-destructive"
                         iconLeading={Trash}
                         isDisabled={busy}
-                        onPress={() => onDeleteHistory(historyIndex)}
+                        onPress={() => onDeleteHistory(entry)}
                       >
                         {m.records_key_points_prompt_history_delete()}
                       </Button>
