@@ -491,6 +491,8 @@ export class DaemonRuntime {
   readonly #agentContexts = new Map<string, string>();
   readonly #agentProxyTokens = new Map<string, string>();
   readonly #agentApiKeys = new Map<string, string>();
+  /** Agents launched with the weekly-report-collect skill pack (ADR 0032). */
+  readonly #collectSkillAgents = new Set<string>();
   readonly #agentLaunches = new Map<string, Promise<AgentRuntime>>();
   readonly #sessionReferences = new Map<
     string,
@@ -2045,6 +2047,10 @@ export class DaemonRuntime {
         parseAssignedSkillPacks(launchConfig.assignedSkillPacks),
         launchConfig.identity,
       );
+      if (
+        parseAssignedSkillPacks(launchConfig.assignedSkillPacks).includes("weekly-report-collect")
+      )
+        this.#collectSkillAgents.add(agentId);
       void memoryIndexReminder(workspaceDirectory).then((reminder) => {
         if (reminder) this.#messageAttention.setMemoryReminder(agentId, reminder);
       });
@@ -2062,6 +2068,7 @@ export class DaemonRuntime {
         this.#compactionTracker.dispose(agentId);
         this.#runtimeProgress.dispose(agentId);
         this.#lastContextUsage.delete(agentId);
+        this.#collectSkillAgents.delete(agentId);
         if (this.#currentActivityLaunches.get(agentId) !== launch) return;
         this.#messageAttention.clearAgent(agentId);
         // ADR 0048: an unexpected exit only clears busy — whatever a queue_until_idle provider
@@ -2423,6 +2430,11 @@ export class DaemonRuntime {
       return;
     }
     if (event.type !== "completed") return;
+    // Capture provider error text before clearing crashDetail for Activity wording.
+    const collectorFailReason =
+      event.status === "failed"
+        ? (launch.crashDetail?.message ?? "Agent runtime failed.").slice(0, 2000)
+        : undefined;
     // ADR 0055: only a genuinely successful turn clears the delivery-backoff streak and the
     // fingerprint fence; a failed or interrupted turn leaves both exactly as they were, so a
     // still-active backoff correctly keeps holding across it.
@@ -2478,7 +2490,26 @@ export class DaemonRuntime {
             ? this.#interruptedActivity(agentId)
             : this.#activity(agentId, AGENT_ACTIVITY_DETAIL_KIND.IDLE, "info", ""),
       );
+    if (collectorFailReason && this.#collectSkillAgents.has(agentId))
+      void this.#failCollectorRunningSlots(agentId, collectorFailReason).catch(() => {});
     void this.drainAppInboxNotices(agentId).catch(() => {});
+  }
+
+  /**
+   * ADR 0032: a collector turn that dies before HTTPS submit (e.g. model 405) must
+   * still settle Collect Run slots — Activity alone is not a completion boundary.
+   */
+  async #failCollectorRunningSlots(agentId: string, failureReason: string): Promise<void> {
+    const agentApiKey = this.#agentApiKeys.get(agentId);
+    if (!agentApiKey || !this.#transport.agentWeeklyReportCollect) return;
+    await this.#transport.agentWeeklyReportCollect(
+      {
+        requestId: crypto.randomUUID(),
+        failRunningSlots: true,
+        failureReason,
+      },
+      agentApiKey,
+    );
   }
 
   #rememberUsage(snapshot: UsageSnapshot): void {
@@ -3842,7 +3873,9 @@ export class DaemonRuntime {
   /** Forwards Collect Run pack submit over Agent HTTPS (ADR 0032 return path). */
   async agentWeeklyReportCollect(
     context: string,
-    command: import("../connection/weekly-report-collect").WeeklyReportCollectCommand,
+    command:
+      | import("../connection/weekly-report-collect").WeeklyReportCollectCommand
+      | import("../connection/weekly-report-collect").WeeklyReportCollectFailRunningCommand,
     agentApiKey?: string,
   ): Promise<import("../connection/weekly-report-collect").WeeklyReportCollectResult> {
     if (this.#stopping || !this.#started) throw new Error("daemon runtime is not running");

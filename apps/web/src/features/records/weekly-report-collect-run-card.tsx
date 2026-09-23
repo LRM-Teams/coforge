@@ -6,6 +6,31 @@ import { Button } from "@/components/base/buttons/button";
 import { m } from "@/paraglide/messages";
 import { loadWeeklyReportCollectRun } from "./records.functions";
 
+function collectRunStatusLabel(status: string): string {
+  switch (status) {
+    case "collecting":
+      return m.records_collect_run_status_collecting();
+    case "synthesizing":
+      return m.records_collect_run_status_synthesizing();
+    case "cancelled":
+      return m.records_collect_run_status_cancelled();
+    case "done":
+      return m.records_collect_run_status_done();
+    case "awaiting_confirm":
+      return m.records_collect_run_status_awaiting_confirm();
+    default:
+      return m.records_collect_run_status({ status });
+  }
+}
+
+function slotTitle(status: string, name: string): string {
+  if (status === "ready") return m.records_collect_pack_title({ name });
+  if (status === "running") return m.records_collect_slot_running({ name });
+  if (status === "empty") return m.records_collect_slot_empty({ name });
+  if (status === "stalled") return m.records_collect_slot_stalled({ name });
+  return m.records_collect_slot_failed({ name });
+}
+
 export function WeeklyReportCollectRunCard(props: {
   runId: string;
   /** Called while the run is synthesizing (and once when it leaves collecting). */
@@ -36,7 +61,10 @@ export function WeeklyReportCollectRunCard(props: {
           leftCollectingNotified.current = true;
           notify?.(next.status);
         }
-        if (next.status !== "collecting" && next.status !== "synthesizing" && timer) {
+        // Stop once the wave is no longer in flight — including allTerminal with
+        // status still briefly collecting before settle, or cancelled after LLM failure.
+        const inFlight = next.status === "collecting" || next.status === "synthesizing";
+        if ((!inFlight || next.allTerminal) && timer) {
           clearInterval(timer);
           timer = undefined;
         }
@@ -58,19 +86,11 @@ export function WeeklyReportCollectRunCard(props: {
 
   return (
     <div className="space-y-2">
-      <p className="text-xs text-tertiary">
-        {m.records_collect_run_status({ status: run.status })}
-      </p>
+      <p className="text-xs text-tertiary">{collectRunStatusLabel(run.status)}</p>
       {run.slots.map((slot) => {
         const open = openIds.includes(slot.id);
-        const title =
-          slot.status === "ready"
-            ? m.records_collect_pack_title({ name: slot.computerLabel })
-            : slot.status === "running"
-              ? m.records_collect_slot_running({ name: slot.computerLabel })
-              : slot.status === "empty"
-                ? m.records_collect_slot_empty({ name: slot.computerLabel })
-                : m.records_collect_slot_failed({ name: slot.computerLabel });
+        const failedLike =
+          slot.status === "failed" || slot.status === "stalled" || slot.status === "cancelled";
         return (
           <div key={slot.id} className="rounded-lg border border-secondary bg-primary">
             <Button
@@ -84,10 +104,15 @@ export function WeeklyReportCollectRunCard(props: {
               }
             >
               <span className="min-w-0 truncate text-left text-sm font-medium text-primary">
-                {title}
+                {slotTitle(slot.status, slot.computerLabel)}
               </span>
               {open ? <ChevronUp className="size-4" /> : <ChevronDown className="size-4" />}
             </Button>
+            {!open && failedLike && slot.failureReason ? (
+              <p className="border-t border-secondary px-3 py-1.5 text-xs text-error-primary line-clamp-2">
+                {slot.failureReason}
+              </p>
+            ) : null}
             {open ? (
               <div className="border-t border-secondary px-3 py-2">
                 {slot.packMarkdown ? (

@@ -46,6 +46,7 @@ import { AgentProfileRequestError } from "./connection/agent-profile-request-err
 import {
   validateWeeklyReportCollectCommand,
   type WeeklyReportCollectCommand,
+  type WeeklyReportCollectFailRunningCommand,
   type WeeklyReportCollectResult,
 } from "./connection/weekly-report-collect";
 import {
@@ -155,7 +156,7 @@ export type AgentProxyRuntime = {
   ): Promise<unknown>;
   agentWeeklyReportCollect?(
     context: string,
-    request: WeeklyReportCollectCommand,
+    request: WeeklyReportCollectCommand | WeeklyReportCollectFailRunningCommand,
     agentApiKey: string,
   ): Promise<WeeklyReportCollectResult>;
   agentWeeklyReportKeyPoints?(

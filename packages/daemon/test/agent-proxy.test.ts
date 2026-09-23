@@ -1286,6 +1286,7 @@ test("proxy forwards weekly-report-collect packs with the Agent API key path", a
       },
       agentWeeklyReportCollect: async (_context, command) => {
         calls.push(command);
+        if (!("runId" in command)) throw new Error("expected slot report command");
         return {
           requestId: command.requestId,
           runId: command.runId,

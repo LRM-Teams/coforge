@@ -60,6 +60,25 @@ test("collect slot settle helpers match ADR 0032 terminal and partial-success ru
   expect(isRetryableSlotStatus(COLLECT_SLOT_STATUS.ready)).toBe(false);
 });
 
+test("collectWaveExhausted is true only when every slot is terminal with no ready pack", async () => {
+  const { COLLECT_SLOT_STATUS, collectWaveExhausted } =
+    await import("../src/server/records/weekly-report-collect-run.server");
+  expect(collectWaveExhausted([])).toBe(false);
+  expect(
+    collectWaveExhausted([
+      { status: COLLECT_SLOT_STATUS.failed },
+      { status: COLLECT_SLOT_STATUS.empty },
+    ]),
+  ).toBe(true);
+  expect(
+    collectWaveExhausted([
+      { status: COLLECT_SLOT_STATUS.ready },
+      { status: COLLECT_SLOT_STATUS.failed },
+    ]),
+  ).toBe(false);
+  expect(collectWaveExhausted([{ status: COLLECT_SLOT_STATUS.running }])).toBe(false);
+});
+
 test("startCollectRun rejects foreign computers and zero ready collectors", async () => {
   const { startCollectRun } =
     await import("../src/server/records/weekly-report-collect-run.server");
@@ -580,4 +599,183 @@ test("acceptCollectSlotReport advances collecting→synthesizing when every slot
   expect(replay.newlyAccepted).toBe(false);
   expect(replay.synthesisStarted).toBe(false);
   expect(replay.run.status).toBe(COLLECT_RUN_STATUS.synthesizing);
+});
+
+test("acceptCollectSlotReport leaves collecting when every slot failed with no ready pack", async () => {
+  // LLM/provider failures that surface via submit-failure must not leave the run
+  // stuck on collecting — the side-chat card stops polling only after status changes.
+  const { acceptCollectSlotReport, COLLECT_RUN_STATUS, COLLECT_SLOT_STATUS } =
+    await import("../src/server/records/weekly-report-collect-run.server");
+
+  let slotStatus: string = COLLECT_SLOT_STATUS.running;
+  let slotRequestId: string | null = null;
+  let slotFailure: string | null = null;
+  let runStatus: string = COLLECT_RUN_STATUS.collecting;
+  let runCompletedAt: Date | null = null;
+
+  const slotRow = () => ({
+    id: "slot-1",
+    computerId: "computer-1",
+    collectorAgentId: "agent-1",
+    scanPaths: ["/work"],
+    status: slotStatus,
+    retryCount: 0,
+    failureReason: slotFailure,
+    packMarkdown: null,
+    requestId: slotRequestId,
+  });
+
+  const runRow = () => ({
+    id: "run-1",
+    reportId: "report-1",
+    workspaceId: "ws-1",
+    userId: "user-1",
+    status: runStatus,
+    windowKind: "week",
+    windowStart: new Date("2026-08-31T00:00:00.000Z"),
+    windowEnd: new Date("2026-09-07T00:00:00.000Z"),
+    startedAt: new Date("2026-09-17T00:00:00.000Z"),
+    completedAt: runCompletedAt,
+    createdAt: new Date("2026-09-17T00:00:00.000Z"),
+    slots: [slotRow()],
+  });
+
+  const db = {
+    weeklyReportCollectSlot: {
+      findFirst: async ({ where }: { where: { requestId?: string } }) => {
+        if (where.requestId && where.requestId === slotRequestId) {
+          return { ...slotRow(), run: runRow() };
+        }
+        return null;
+      },
+      update: async ({ data }: { data: Record<string, unknown> }) => {
+        slotStatus = String(data.status);
+        slotFailure = (data.failureReason as string | null) ?? null;
+        slotRequestId = (data.requestId as string | null) ?? null;
+        return slotRow();
+      },
+    },
+    weeklyReportCollectRun: {
+      findFirst: async () => runRow(),
+      findFirstOrThrow: async () => runRow(),
+      updateMany: async ({
+        where,
+        data,
+      }: {
+        where: { id: string; status?: string };
+        data: Record<string, unknown>;
+      }) => {
+        if (where.status !== undefined && where.status !== runStatus) {
+          return { count: 0 };
+        }
+        runStatus = String(data.status);
+        runCompletedAt = (data.completedAt as Date | null | undefined) ?? runCompletedAt;
+        return { count: 1 };
+      },
+    },
+  };
+
+  const result = await acceptCollectSlotReport(db as never, {
+    workspaceId: "ws-1",
+    agentId: "agent-1",
+    requestId: "22222222-2222-4222-8222-222222222222",
+    runId: "run-1",
+    outcome: "failed",
+    failureReason: "Error: 405 Not Allowed (nginx)",
+  });
+
+  expect(result.newlyAccepted).toBe(true);
+  expect(result.synthesisStarted).toBe(false);
+  expect(result.waveExhausted).toBe(true);
+  expect(result.run.status).toBe(COLLECT_RUN_STATUS.cancelled);
+  expect(result.run.allTerminal).toBe(true);
+  expect(result.run.canSynthesize).toBe(false);
+  expect(slotStatus).toBe(COLLECT_SLOT_STATUS.failed);
+  expect(slotFailure ?? "").toContain("405");
+  expect(runStatus).toBe(COLLECT_RUN_STATUS.cancelled);
+  expect(runCompletedAt).toBeInstanceOf(Date);
+});
+
+test("settleStaleCollectRun marks overdue running slots stalled and closes an empty wave", async () => {
+  const { settleStaleCollectRun, COLLECT_RUN_STATUS, COLLECT_SLOT_STATUS, COLLECT_SLOT_STALL_MS } =
+    await import("../src/server/records/weekly-report-collect-run.server");
+
+  let slotStatus: string = COLLECT_SLOT_STATUS.running;
+  let slotFailure: string | null = null;
+  let runStatus: string = COLLECT_RUN_STATUS.collecting;
+  let runCompletedAt: Date | null = null;
+  const startedAt = new Date("2026-09-17T00:00:00.000Z");
+
+  const slotRow = () => ({
+    id: "slot-1",
+    computerId: "computer-1",
+    collectorAgentId: "agent-1",
+    scanPaths: ["/work"],
+    status: slotStatus,
+    retryCount: 0,
+    failureReason: slotFailure,
+    packMarkdown: null,
+    requestId: null,
+  });
+
+  const runRow = () => ({
+    id: "run-1",
+    reportId: "report-1",
+    workspaceId: "ws-1",
+    userId: "user-1",
+    status: runStatus,
+    windowKind: "week",
+    windowStart: new Date("2026-08-31T00:00:00.000Z"),
+    windowEnd: new Date("2026-09-07T00:00:00.000Z"),
+    startedAt,
+    completedAt: runCompletedAt,
+    createdAt: startedAt,
+    slots: [slotRow()],
+  });
+
+  const db = {
+    weeklyReportCollectRun: {
+      findFirst: async () => runRow(),
+      findFirstOrThrow: async () => runRow(),
+      updateMany: async ({
+        where,
+        data,
+      }: {
+        where: { id: string; status?: string };
+        data: Record<string, unknown>;
+      }) => {
+        if (where.status !== undefined && where.status !== runStatus) return { count: 0 };
+        runStatus = String(data.status);
+        runCompletedAt = (data.completedAt as Date | null | undefined) ?? runCompletedAt;
+        return { count: 1 };
+      },
+    },
+    weeklyReportCollectSlot: {
+      updateMany: async ({
+        where,
+        data,
+      }: {
+        where: { runId: string; status: string };
+        data: Record<string, unknown>;
+      }) => {
+        expect(where.status).toBe(COLLECT_SLOT_STATUS.running);
+        slotStatus = String(data.status);
+        slotFailure = (data.failureReason as string | null) ?? null;
+        return { count: 1 };
+      },
+    },
+  };
+
+  const now = startedAt.getTime() + COLLECT_SLOT_STALL_MS + 1;
+  const view = await settleStaleCollectRun(
+    db as never,
+    { workspaceId: "ws-1", userId: "user-1", runId: "run-1" },
+    now,
+  );
+
+  expect(slotStatus).toBe(COLLECT_SLOT_STATUS.stalled);
+  expect(slotFailure).toMatch(/超时|模型|接口|上报/);
+  expect(view.status).toBe(COLLECT_RUN_STATUS.cancelled);
+  expect(view.allTerminal).toBe(true);
+  expect(runCompletedAt).toBeInstanceOf(Date);
 });

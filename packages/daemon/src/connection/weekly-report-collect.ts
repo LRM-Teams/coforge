@@ -7,12 +7,21 @@ export type WeeklyReportCollectCommand = {
   failureReason?: string;
 };
 
+/** Daemon turn-fail path: fail every still-running Collect slot for this Agent. */
+export type WeeklyReportCollectFailRunningCommand = {
+  requestId: string;
+  failRunningSlots: true;
+  failureReason: string;
+};
+
 export type WeeklyReportCollectResult = {
   requestId: string;
   runId: string;
   status: string;
   allTerminal: boolean;
   canSynthesize: boolean;
+  slotCount?: number;
+  waveExhausted?: boolean;
 };
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -43,5 +52,19 @@ export function validateWeeklyReportCollectCommand(
     outcome: payload.outcome,
     ...(typeof payload.packMarkdown === "string" ? { packMarkdown: payload.packMarkdown } : {}),
     ...(typeof payload.failureReason === "string" ? { failureReason: payload.failureReason } : {}),
+  };
+}
+
+export function validateWeeklyReportCollectFailRunningCommand(
+  payload: Record<string, unknown>,
+): WeeklyReportCollectFailRunningCommand | null {
+  if (typeof payload.requestId !== "string" || !UUID.test(payload.requestId)) return null;
+  if (payload.failRunningSlots !== true) return null;
+  if (typeof payload.failureReason !== "string" || payload.failureReason.length === 0) return null;
+  if (payload.failureReason.length > 2000) return null;
+  return {
+    requestId: payload.requestId,
+    failRunningSlots: true,
+    failureReason: payload.failureReason,
   };
 }
