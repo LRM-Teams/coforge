@@ -76,6 +76,12 @@ describe("getTaskMoveCommand", () => {
       status: "closed",
       expectedRevision: 4,
     });
+    expect(getTaskMoveCommand(task("in_progress"), "me", "todo")).toEqual({
+      operation: "update",
+      number: 7,
+      status: "todo",
+      expectedRevision: 4,
+    });
     expect(getTaskMoveCommand(task("done", owner("other")), "me", "todo")).toEqual({
       operation: "update",
       number: 7,

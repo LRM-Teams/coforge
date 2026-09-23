@@ -9,7 +9,7 @@ export type TaskMoveCommand =
       expectedRevision: number;
     };
 
-/** Browser movement policy mirroring TaskBoard.update authorization. */
+/** Browser movement policy mirroring TaskBoard claim and update authorization. */
 export function getTaskMoveCommand(
   task: TaskView,
   currentMemberId: string | null,
