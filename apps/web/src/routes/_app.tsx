@@ -14,6 +14,7 @@ import { loadRecordsNavAttention } from "@/features/records/records.functions";
 import { BrowserRealtimeProvider } from "@/features/realtime/browser-realtime";
 import { getBrowserRealtimeConnectionToken } from "@/features/realtime/realtime.functions";
 import { BrowserPushLifecycle } from "@/features/notifications/browser-push-lifecycle";
+import { InPageNotifications } from "@/features/notifications/in-page-notifications";
 import { getBrowserNotificationSettings } from "@/features/notifications/notifications.functions";
 import { listAgents } from "@/features/agents/agents.functions";
 import { WorkspaceAgentsProvider } from "@/features/agents/workspace-agents-realtime";
@@ -65,6 +66,13 @@ function AppLayout() {
           <BrowserPushLifecycle
             enabled={notifications.enabled}
             publicKey={notifications.publicKey}
+          />
+          {/* ADR 0065: while a tab is open, show the OS notification here instead of relying on
+              Web Push, which mainland-China staging/clients cannot reach for Chrome. */}
+          <InPageNotifications
+            enabled={notifications.enabled}
+            viewerId={user.id}
+            workspaceId={currentWorkspace?.id}
           />
           <AppShell
             user={{ name: user.name, email: user.email, avatarUrl: user.avatarUrl }}

@@ -24,8 +24,15 @@ import { SendDirectMessage } from "../src/server/conversations/direct-message.se
 import { CentrifugoConversationRealtime } from "../src/server/conversations/conversation-realtime.server";
 import { PrismaAgentRepository } from "../src/server/db/repositories/agent.repositories.server";
 import { PrismaWebPushSubscriptionStore } from "../src/server/notifications/prisma-web-push-subscriptions.server";
+import type { MessageWebPushNotification } from "../src/server/notifications/web-push-notifications.server";
 import { ConversationHistory } from "../src/server/conversations/conversation-history.server";
 import { AgentChannelManagement } from "../src/server/conversations/agent-channel-management.server";
+
+/** Flattens every recipient's browser subscriptions, matching the pre-ADR-0065 assertions this
+ * suite made directly against `notificationForMessage`'s old flat `subscriptions` field. */
+function subscriptionsOf(notification: MessageWebPushNotification | null) {
+  return notification?.recipients.flatMap((recipient) => recipient.subscriptions) ?? [];
+}
 
 test("Workspace humans enrolled in general see one general channel; outsiders cannot discover it", async () => {
   const connectionString = Bun.env.CHANNEL_TEST_DATABASE_URL;
@@ -161,7 +168,7 @@ test("Workspace humans enrolled in general see one general channel; outsiders ca
       body: "Hello Bob",
       attachmentIds: [attachment.id],
     });
-    expect((await pushSubscriptions.notificationForMessage(saved.id))?.subscriptions).toEqual([]);
+    expect(subscriptionsOf(await pushSubscriptions.notificationForMessage(saved.id))).toEqual([]);
     expect(realtimeEvents).toContainEqual({
       conversationId: engineering.id,
       messageId: saved.id,
@@ -196,14 +203,19 @@ test("Workspace humans enrolled in general see one general channel; outsiders ca
     const mutedChannel = await channels.open(workspace.id, bob.id, engineering.id);
     expect(mutedChannel.senderMemberId).not.toBe("");
     expect(mutedChannel.muted).toBeTrue();
-    expect((await pushSubscriptions.notificationForMessage(saved.id))?.subscriptions).toEqual([]);
+    expect(subscriptionsOf(await pushSubscriptions.notificationForMessage(saved.id))).toEqual([]);
     const mutedOrdinary = await send(alice.id, "Muted ordinary message");
     expect(
-      (await pushSubscriptions.notificationForMessage(mutedOrdinary.id))?.subscriptions,
+      subscriptionsOf(await pushSubscriptions.notificationForMessage(mutedOrdinary.id)),
     ).toEqual([]);
+    // notificationForRecipient shares the same recipient rule, narrowed to one already-known user
+    // (the seam `getMessageNotification` reads): muted bob is not a recipient of the ordinary
+    // message, and the sender is never their own recipient either.
+    expect(await pushSubscriptions.notificationForRecipient(mutedOrdinary.id, bob.id)).toBeNull();
+    expect(await pushSubscriptions.notificationForRecipient(mutedOrdinary.id, alice.id)).toBeNull();
     const mutedMention = await send(alice.id, `@${bob.username} please review this`);
     const mentionNotification = await pushSubscriptions.notificationForMessage(mutedMention.id);
-    expect(mentionNotification?.subscriptions).toEqual([
+    expect(subscriptionsOf(mentionNotification)).toEqual([
       expect.objectContaining({
         endpoint: `https://fcm.googleapis.com/wp/bob-${suffix}`,
       }),
@@ -211,8 +223,18 @@ test("Workspace humans enrolled in general see one general channel; outsiders ca
     expect(mentionNotification?.url).toBe(
       `/notifications/open?workspace=${workspace.slug}&target=${encodeURIComponent(`/messages/channels/${engineering.id}#message-${mutedMention.id}`)}`,
     );
+    // An explicit @mention pierces the mute for notificationForRecipient too, with the same
+    // title/body/url/tag/conversationPath the push payload carries.
+    expect(await pushSubscriptions.notificationForRecipient(mutedMention.id, bob.id)).toEqual({
+      title: mentionNotification!.title,
+      body: mentionNotification!.body,
+      url: mentionNotification!.url,
+      tag: `message:${mutedMention.id}`,
+      conversationPath: `/messages/channels/${engineering.id}`,
+    });
+    expect(await pushSubscriptions.notificationForRecipient(mutedMention.id, alice.id)).toBeNull();
     await channels.setUserMuted(workspace.id, bob.id, engineering.id, false);
-    expect((await pushSubscriptions.notificationForMessage(saved.id))?.subscriptions).toEqual([
+    expect(subscriptionsOf(await pushSubscriptions.notificationForMessage(saved.id))).toEqual([
       expect.objectContaining({
         endpoint: `https://fcm.googleapis.com/wp/bob-${suffix}`,
       }),
@@ -390,6 +412,7 @@ test("Agent channel mute suppresses ordinary notices, preserves mentions and rea
         published.push(decodeAgentMessageDelivery(payload));
       },
       publishJson: async () => {},
+      broadcast: async () => {},
     });
     const general = (await channels.list(workspace.id, user.id))[0]!;
     await db.userPreference.create({
@@ -493,6 +516,9 @@ test("Agent channel mute suppresses ordinary notices, preserves mentions and rea
       publishJson: async () => {
         throw new Error("Agent reply must not publish");
       },
+      broadcast: async () => {
+        throw new Error("Agent reply must not publish");
+      },
     };
     const agentSender = new SendDirectMessage(
       repo,
@@ -521,8 +547,9 @@ test("Agent channel mute suppresses ordinary notices, preserves mentions and rea
     expect(published.length).toBe(beforeReply);
     if (!reply.messageId) throw new Error("Agent reply did not return its message identity");
     expect(
-      (await new PrismaWebPushSubscriptionStore(db).notificationForMessage(reply.messageId))
-        ?.subscriptions,
+      subscriptionsOf(
+        await new PrismaWebPushSubscriptionStore(db).notificationForMessage(reply.messageId),
+      ),
     ).toEqual([
       expect.objectContaining({
         endpoint: `https://fcm.googleapis.com/wp/agent-mention-${workspace.id}`,
@@ -672,6 +699,7 @@ test("a channel @mention persists as a token and wakes only the mentioned Agent,
     const channels = new PublicChannels(db, new RedisMessageRequestIdempotency(redis), {
       publish: async () => {},
       publishJson: async () => {},
+      broadcast: async () => {},
     });
     const general = (await channels.list(workspace.id, user.id))[0]!;
     const repo = new PrismaDirectConversationRepository(db);
@@ -802,6 +830,7 @@ test("channel threads enforce channel scope and isolate reads, recovery, notific
         published.push(decodeAgentMessageDelivery(payload));
       },
       publishJson: async () => {},
+      broadcast: async () => {},
     });
     const general = await channels.create(workspace.id, alice.id, "threads");
     await db.conversationMember.create({
@@ -1036,7 +1065,7 @@ test("channel threads enforce channel scope and isolate reads, recovery, notific
     });
     const pushSubscriptions = new PrismaWebPushSubscriptionStore(db);
     expect(
-      (await pushSubscriptions.notificationForMessage(followerNotice.id))?.subscriptions,
+      subscriptionsOf(await pushSubscriptions.notificationForMessage(followerNotice.id)),
     ).toEqual([
       expect.objectContaining({
         endpoint: `https://fcm.googleapis.com/wp/channel-thread-${suffix}`,
@@ -1052,7 +1081,7 @@ test("channel threads enforce channel scope and isolate reads, recovery, notific
       threadRootId: root.id,
     });
     expect(
-      (await pushSubscriptions.notificationForMessage(unfollowedNotice.id))?.subscriptions,
+      subscriptionsOf(await pushSubscriptions.notificationForMessage(unfollowedNotice.id)),
     ).toEqual([]);
 
     // An Agent's first reply enrolls the root author, while a later reply respects that author's
@@ -1266,6 +1295,7 @@ test("channel members add humans and Agents; a Workspace member outside the chan
         published.push(decodeAgentMessageDelivery(payload));
       },
       publishJson: async () => {},
+      broadcast: async () => {},
     });
 
     // A plain Workspace member creates the channel (Slack: any member can create a channel).
@@ -1723,6 +1753,7 @@ test("Channel roles (ADR 0030): creator is channel admin, a plain member cannot 
     const channels = new PublicChannels(db, new RedisMessageRequestIdempotency(redis), {
       publish: async () => {},
       publishJson: async () => {},
+      broadcast: async () => {},
     });
     await enrollGeneral(db, workspace.id);
 
@@ -1896,6 +1927,7 @@ test("channel leave and member removal: owner/admin removes a human and an Agent
         published.push(decodeAgentMessageDelivery(payload));
       },
       publishJson: async () => {},
+      broadcast: async () => {},
     });
 
     const ops = await channels.create(workspace.id, owner.id, "ops");
@@ -2200,6 +2232,7 @@ test("channel unread (ADR 0046): list counts other-authored top-level messages p
     const channels = new PublicChannels(db, new RedisMessageRequestIdempotency(redis), {
       publish: async () => {},
       publishJson: async () => {},
+      broadcast: async () => {},
     });
     const engineering = await channels.create(workspace.id, alice.id, "unread-eng");
 
@@ -2301,6 +2334,7 @@ test("a thread's root author starts following that thread, so later replies reac
     const channels = new PublicChannels(db, new RedisMessageRequestIdempotency(redis), {
       publish: async () => {},
       publishJson: async () => {},
+      broadcast: async () => {},
     });
     const channel = await channels.create(workspace.id, alice.id, "rootfollow");
     await channels.join(workspace.id, bob.id, channel.id);
@@ -2408,6 +2442,7 @@ test("a channel member can list and unfollow Agents following a thread; a privat
     const channels = new PublicChannels(db, new RedisMessageRequestIdempotency(redis), {
       publish: async () => {},
       publishJson: async () => {},
+      broadcast: async () => {},
     });
     const general = (await channels.list(workspace.id, alice.id))[0]!;
     // ADR 0059's membership rule, pinned directly, so the absences below have one named cause:
@@ -2489,6 +2524,63 @@ test("a channel member can list and unfollow Agents following a thread; a privat
     await db.workspace.deleteMany({ where: { id: workspace.id } });
     await db.computer.deleteMany({ where: { ownerId: alice.id } });
     await db.user.deleteMany({ where: { id: { in: [alice.id, bob.id] } } });
+    await db.$disconnect();
+    redis.close();
+  }
+});
+
+test("a channel member without a browser push subscription is still a notificationForMessage recipient (ADR 0065)", async () => {
+  const connectionString = Bun.env.CHANNEL_TEST_DATABASE_URL;
+  if (!connectionString) throw new Error("CHANNEL_TEST_DATABASE_URL is required");
+  const db = new PrismaClient({ adapter: new PrismaPg({ connectionString }) });
+  const redis = new RedisClient(Bun.env.CHANNEL_TEST_REDIS_URL!);
+  const suffix = crypto.randomUUID().slice(0, 8);
+  const alice = await db.user.create({ data: { username: `na${suffix}` } });
+  // Notifications enabled, but this user never registered a browser subscription — the in-page
+  // path (ADR 0065) must still treat them as a recipient so a later realtime signal reaches them,
+  // even though the old flat `subscriptions` field would have silently dropped them.
+  const carol = await db.user.create({
+    data: {
+      username: `nc${suffix}`,
+      preferences: { create: { browserNotificationsEnabled: true } },
+    },
+  });
+  const workspace = await db.workspace.create({
+    data: {
+      slug: `no-subscription-${suffix}`,
+      name: "No subscription",
+      members: { create: [{ userId: alice.id }, { userId: carol.id }] },
+    },
+  });
+  try {
+    const channels = new PublicChannels(db, new RedisMessageRequestIdempotency(redis), {
+      publish: async () => {},
+      publishJson: async () => {},
+      broadcast: async () => {},
+    });
+    const room = await channels.create(workspace.id, alice.id, "no-subscription");
+    await channels.join(workspace.id, carol.id, room.id);
+    const message = await channels.send({
+      workspaceId: workspace.id,
+      userId: alice.id,
+      channelId: room.id,
+      requestId: crypto.randomUUID(),
+      body: "hello without a subscription",
+    });
+    const pushSubscriptions = new PrismaWebPushSubscriptionStore(db);
+    const notification = await pushSubscriptions.notificationForMessage(message.id);
+    expect(notification?.workspaceId).toBe(workspace.id);
+    expect(notification?.recipients).toEqual([{ userId: carol.id, subscriptions: [] }]);
+    expect(await pushSubscriptions.notificationForRecipient(message.id, carol.id)).toEqual({
+      title: notification!.title,
+      body: notification!.body,
+      url: notification!.url,
+      tag: `message:${message.id}`,
+      conversationPath: `/messages/channels/${room.id}`,
+    });
+  } finally {
+    await db.workspace.deleteMany({ where: { id: workspace.id } });
+    await db.user.deleteMany({ where: { id: { in: [alice.id, carol.id] } } });
     await db.$disconnect();
     redis.close();
   }

@@ -10,6 +10,7 @@ import { PageLoadError } from "@/features/errors/page-load-error";
 import { saveUserProfile } from "@/features/profiles/profile.functions";
 import {
   browserNotificationPermission,
+  showPageNotification,
   syncBrowserPushSubscription,
   shouldShowAddToHomeScreenGuide,
 } from "@/features/notifications/browser-push";
@@ -226,6 +227,21 @@ function SettingsPage() {
       await sendTestNotification({ data: { endpoint: subscription.endpoint } });
       return true;
     } catch (cause) {
+      // The server could not reach this browser's push service (ADR 0065): notifications still
+      // arrive while CoForge is open, so the test shows one from the page itself.
+      if (isAppError(cause) && cause.code === "PUSH_SERVICE_UNREACHABLE") {
+        try {
+          await showPageNotification({
+            title: m.preferences_browser_notifications_test_title(),
+            body: m.preferences_browser_notifications_test_body(),
+            tag: `test:${crypto.randomUUID()}`,
+            url: "/settings",
+          });
+          return true;
+        } catch (displayCause) {
+          console.warn("page notification test failed", displayCause);
+        }
+      }
       // A client-side failure with the permission granted is the browser's own push service
       // refusing to create the subscription; name that, and put the raw reason in the console.
       const browserFailed = !isAppError(cause) && browserNotificationPermission() === "granted";

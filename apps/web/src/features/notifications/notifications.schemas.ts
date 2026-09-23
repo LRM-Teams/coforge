@@ -36,3 +36,9 @@ export const browserPushUnsubscribeInput = z.object({
 });
 
 export const browserPushTestInput = browserPushUnsubscribeInput;
+
+/** The in-page notification read (ADR 0065): the viewer only ever asks about one message they were
+ * just told about over realtime, never a list. */
+export const messageNotificationInput = z.object({
+  messageId: z.uuid(),
+});

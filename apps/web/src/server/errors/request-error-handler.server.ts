@@ -34,6 +34,9 @@ export function handleRequestError(error: unknown): HandledRequestError {
       // A private Agent's direct conversation is scoped to its creator (ADR 0059): the caller can
       // see the Agent but its DM stays read-only for them, so this is a 403, not a 404.
       AGENT_DM_RESTRICTED: 403,
+      // The server could not reach this browser's push service (ADR 0065): the caller should
+      // retry another way, not treat it as a permanent failure.
+      PUSH_SERVICE_UNREACHABLE: 503,
     }[error.code];
     return { code, message: error.message };
   }

@@ -1,6 +1,14 @@
 import type { PrismaClient } from "../../../generated/client";
+import { isAppError } from "../../lib/app-error";
+import { createCentrifugoServerApi } from "../centrifugo/server-api.server";
+import { toPublicServerError } from "../errors/public-error.server";
+import { createCentrifugoNotificationPublisher } from "./in-page-notification-publisher.server";
 import { PrismaWebPushSubscriptionStore } from "./prisma-web-push-subscriptions.server";
-import { WebPushNotifications } from "./web-push-notifications.server";
+import {
+  WebPushNotifications,
+  type NotificationPublisher,
+  type WebPushTransport,
+} from "./web-push-notifications.server";
 import { readWebPushConfig, WebPushLibraryTransport } from "./web-push-transport.server";
 
 /**
@@ -13,12 +21,53 @@ export type MessageNotifier = {
   notifyMessage(messageId: string): Promise<unknown>;
 };
 
-export async function createWebPushNotifications(db: PrismaClient) {
-  const config = await readWebPushConfig();
-  return new WebPushNotifications(
-    new PrismaWebPushSubscriptionStore(db),
-    new WebPushLibraryTransport(config),
-  );
+/**
+ * `createWebPushNotifications` composes both notification paths from one recipient read. Web Push
+ * needs a valid VAPID key pair (`readWebPushConfig`); the in-page path (ADR 0065) does not, and a
+ * missing/invalid key pair must not also silence it — deployments without Web Push configured
+ * (e.g. local dev) still want in-page notifications. A misconfigured transport degrades to one
+ * that fails every delivery, logged here instead of thrown, so a caller that never subscribes for
+ * push still gets an in-page notification. Likewise a missing Centrifugo configuration drops only
+ * the in-page publication, never Web Push delivery.
+ */
+export async function createWebPushNotifications(
+  db: PrismaClient,
+  dependencies: {
+    readConfig?: typeof readWebPushConfig;
+    publisher?: NotificationPublisher;
+  } = {},
+) {
+  const readConfig = dependencies.readConfig ?? readWebPushConfig;
+  let publisher = dependencies.publisher;
+  if (!publisher) {
+    try {
+      publisher = createCentrifugoNotificationPublisher(createCentrifugoServerApi());
+    } catch (error) {
+      toPublicServerError(error);
+    }
+  }
+  let transport: WebPushTransport;
+  try {
+    transport = new WebPushLibraryTransport(await readConfig());
+  } catch (error) {
+    const reported = toPublicServerError(error);
+    console.warn(
+      JSON.stringify({
+        event: "web_push.unconfigured",
+        errorId: isAppError(reported) ? reported.errorId : undefined,
+      }),
+    );
+    // A plain Error, not `WebPushDeliveryError(undefined)`: server misconfiguration must stay
+    // classified as an ordinary failure (`TEMPORARILY_UNAVAILABLE`), not the browser-facing
+    // "push service unreachable" case `deliver()` reserves for a real send attempt that timed out
+    // or could not connect.
+    transport = {
+      async send() {
+        throw new Error("Web Push is not configured");
+      },
+    };
+  }
+  return new WebPushNotifications(new PrismaWebPushSubscriptionStore(db), transport, publisher);
 }
 
 export function bestEffortMessageNotifier(

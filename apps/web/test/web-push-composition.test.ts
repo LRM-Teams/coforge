@@ -1,9 +1,50 @@
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 
 import type { PrismaClient } from "../generated/client";
-import { bestEffortMessageNotifier } from "../src/server/notifications/web-push-composition.server";
+import {
+  bestEffortMessageNotifier,
+  createWebPushNotifications,
+} from "../src/server/notifications/web-push-composition.server";
 
 const db = {} as PrismaClient;
+
+describe("createWebPushNotifications", () => {
+  test("degrades Web Push delivery to an ordinary failure when VAPID is not configured, instead of throwing", async () => {
+    // Local dev without a VAPID key pair must still be able to show in-page notifications (ADR
+    // 0065); only Web Push delivery itself should degrade, and as `failed` (not the
+    // `unreachable`/PUSH_SERVICE_UNREACHABLE bucket `deliver()` reserves for a real send attempt
+    // that could not connect).
+    const fakeDb = {
+      webPushSubscription: {
+        findMany: async () => [
+          {
+            id: "subscription-a",
+            endpoint: "https://fcm.googleapis.com/wp/subscription-a",
+            p256dh: "public-a",
+            auth: "auth-a",
+          },
+        ],
+      },
+    } as unknown as PrismaClient;
+
+    const notifications = await createWebPushNotifications(fakeDb, {
+      readConfig: async () => {
+        throw new Error("VAPID key pair is not configured");
+      },
+      publisher: { notifyRecipients: async () => {} },
+    });
+
+    await expect(
+      notifications.sendTest("user-a", "https://fcm.googleapis.com/wp/subscription-a", "en"),
+    ).resolves.toEqual({
+      sent: 0,
+      failed: 1,
+      removed: 0,
+      unreachable: 0,
+      errorId: expect.any(String),
+    });
+  });
+});
 
 describe("bestEffortMessageNotifier", () => {
   test("resolves promptly even when delivery never settles", async () => {

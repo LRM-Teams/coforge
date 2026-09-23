@@ -55,9 +55,35 @@ export async function syncBrowserPushSubscription(
   return subscription;
 }
 
+/** Registers `/service-worker.js` if it is not already registered and waits for it to become
+ * active. Idempotent: a repeat call against the same scope returns the existing registration.
+ * Shared by Web Push registration and the in-page path (ADR 0065), which needs an active
+ * registration to call `showNotification` on even when Web Push itself was never subscribed. */
+export async function ensureServiceWorkerRegistration(): Promise<ServiceWorkerRegistration> {
+  await navigator.serviceWorker.register("/service-worker.js", { scope: "/" });
+  return navigator.serviceWorker.ready;
+}
+
+/** Shows an OS notification from the page through the service worker registration (the
+ * `Notification()` constructor throws on most mobile browsers). Clicks go through the service
+ * worker's `notificationclick`, the same as a Web Push notification. */
+export async function showPageNotification(notification: {
+  title: string;
+  body: string;
+  tag: string;
+  url: string;
+}) {
+  const registration = await ensureServiceWorkerRegistration();
+  await registration.showNotification(notification.title, {
+    body: notification.body,
+    tag: notification.tag,
+    icon: "/logo.svg",
+    data: { url: notification.url },
+  });
+}
+
 async function registerBrowserPush(publicKey: string): Promise<SerializedBrowserPushSubscription> {
-  const registration = await navigator.serviceWorker.register("/service-worker.js", { scope: "/" });
-  await navigator.serviceWorker.ready;
+  const registration = await ensureServiceWorkerRegistration();
   const applicationServerKey = decodeBase64Url(publicKey);
   let subscription = await registration.pushManager.getSubscription();
   if (subscription && !sameKey(subscription.options.applicationServerKey, applicationServerKey)) {

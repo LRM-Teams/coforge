@@ -168,6 +168,8 @@ Push 是 canonical Message commit 之后的 best-effort side effect，不是消�
 
 实现固定为 Bun 1.4 下精确 pin 的 [`web-push` 3.6.7](https://github.com/web-push-libs/web-push)（MPL-2.0 dependency license）。选择依据与 trade-off：直接实现 RFC 被拒绝，因为内容加密、VAPID 和各 push service 互操作的长期安全维护成本过高；managed provider 在当前 MVP 被拒绝，因为会引入外部 domain ownership、供应商数据边界和运行依赖；`web-push` 复用成熟的 standards implementation 且不新增业务服务，但 npm 3.6.7 release 已陈旧，因此每次采纳或运行时升级前必须以精确版本执行 Bun 1.4 的 subscription、RFC 8291 payload encryption、VAPID signing、成功发送及 404/410 compatibility tests，未通过不得进入 production。浏览器行为以 MDN 的 [Notifications API](https://developer.mozilla.org/en-US/docs/Web/API/Notifications_API) 与 [Push API](https://developer.mozilla.org/en-US/docs/Web/API/Push_API) 为实现入口，传输模型遵循 [RFC 8030](https://www.rfc-editor.org/rfc/rfc8030)。
 
+staging（Beijing）无法访问 `fcm.googleapis.com`/`jmt17.google.com`（`web.push.apple.com` 与 Mozilla 的端点可达），因此 Chrome 用户从服务端和客户端两侧都拿不到 Web Push（[ADR 0065](adr/0065-in-page-notifications.md)）。为此新增页面内通知路径：只要有一个 CoForge 标签页打开，页面本身借助既有 realtime 连接直接显示 OS Notification，不经过任何 push service；Web Push 对已关闭标签页的投递不变。接收者规则只维护一处（`PrismaWebPushSubscriptionStore`）：`notificationForMessage` 与逐用户的 `notificationForRecipient` 共用同一个 where 子句构建器，前者同时驱动 Web Push 投递与页面内发布（一次读取，二者并发执行，互不阻塞、互不失败传导），后者是浏览器收到信号后经认证 HTTPS 读取标题/正文/URL 的读取面——一个没有任何浏览器 subscription 的接收者，在页面内路径下依然是接收者。信号本身按既有规则不携带正文：`notification.available.v1 { messageId, workspaceId }` 只发往接收者自己的 `chat:user:<user_id>` 频道，与 `message.available.v1` 共用同一订阅、同一 fan-out 语义，浏览器按 `type` 字段区分二者。向多个接收者频道一次性发布使用 Centrifugo server API 的 `broadcast` 方法（而非 N 次串行 `publish`），按 `notification:<messageId>` 幂等。Web Push 配置缺失（例如本地开发未配置 VAPID key pair）不得连带使页面内路径失效——两条路径在 composition 层各自独立降级。Settings 的测试推送在每次投递都因连接失败（无 HTTP 状态码，即超时/连接失败，best-effort 分类，不保证区分网络问题与其他无状态码失败）而失败时，返回内部错误码 `PUSH_SERVICE_UNREACHABLE`，Settings 随即由页面自己显示测试通知（这正是该用户在页面打开时收到通知的方式），不向用户解释 push service 或网络细节；推送侧失败只记录在服务端日志。
+
 ### Standalone Centrifugo：实时传输面
 
 - 使用 standalone Centrifugo OSS 持有长期 WSS 连接并提供双向 RPC/订阅传输；
@@ -192,6 +194,11 @@ conversation ID、message ID、canonical sequence，以及加法可选的 worksp
 Workspace，徽标归属也无需浏览器做 conversation→Agent 反查）。Chat 页对这两条频道各持有一条
 订阅，用以为频道列表与私聊列表的未读徽标做实时 +1（见
 [ADR 0046](adr/0046-member-read-cursor-channel-unread.md)）。
+`chat:user:<user_id>` 频道还额外承载不含正文的 versioned `notification.available.v1` 信号
+（`{ messageId, workspaceId }`，[ADR 0065](adr/0065-in-page-notifications.md)），驱动页面内
+Notification；浏览器按 `type` 字段区分它与 `message.available.v1`。由于同一频道现在有两个订阅方（未读徽标与页面内通知），
+`useRealtimeSubscription` 对同一 client 上的同一频道做了引用计数式共享订阅，而不是各自
+`newSubscription`（Centrifuge 对同一频道的第二次 `newSubscription` 会抛出异常）。
 `chat` namespace 使用 Redis-backed
 5 分钟 bounded history 和强制 recovery，作为短断线 hot replay，不是消息真相。
 

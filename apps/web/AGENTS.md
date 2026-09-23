@@ -335,7 +335,20 @@ channels.functions.ts` exposes `loadPublicChannelMembers`/`addPublicChannelMembe
   token to the hook. Subscription hooks must run below `BrowserRealtimeProvider`;
   `useBrowserRealtime` throws when no provider is above, so a hook called in the
   component that renders the provider fails at first render instead of silently
-  never subscribing.
+  never subscribing. `useRealtimeSubscription` ref-counts one real `Subscription`
+  per channel per client, so more than one feature may subscribe to the same
+  channel (e.g. `chat:user:<user_id>`, shared by `useChannelUnread` and
+  `InPageNotifications` since ADR 0065) without a second `newSubscription` call,
+  which Centrifuge rejects.
+- In-page notifications (ADR 0065) belong to `features/notifications/`:
+  `in-page-notifications.ts` owns the `InPageNotifications` component (mounted in
+  `_app.tsx` next to `BrowserPushLifecycle`), its `chat:user:` subscription, and
+  the pure `isInPageNotificationEnabled`/`shouldShowInPageNotification` decisions.
+  The recipient rule and title/body/url composition stay server-owned in
+  `server/notifications/prisma-web-push-subscriptions.server.ts`
+  (`notificationForMessage`/`notificationForRecipient`, one shared where-clause);
+  `server/notifications/in-page-notification-publisher.server.ts` is the
+  Centrifugo `broadcast` adapter `WebPushNotifications` publishes through.
 
 - `src/routes/__root.tsx` owns the document shell: HTML, global head, global
   providers, styles, `HeadContent`, and `Scripts`.
