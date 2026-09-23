@@ -444,3 +444,15 @@ test("a bare #N stays prose inside code, a link, or a path", () => {
     expect(JSON.stringify(tree)).not.toContain("data-task-reference-number");
   }
 });
+
+test("a #N inside a mention chip's display name is never chipped again", () => {
+  const tree = chipify([paragraph([text(`${AGENT_TOKEN} hi #5`)])], {
+    handles: new Map([[`agent:${UUID}`, { handle: "scout", label: "Scout #5", agentId: UUID }]]),
+  });
+  rehypeTaskReferenceChips({ numbers: new Set([5]) })(tree as never);
+  const [mention, gap, task] = tree.children[0]!.children as Array<Record<string, unknown>>;
+  // The mention keeps its label as plain text; only the prose #5 after it becomes a task chip.
+  expect(mention).toMatchObject({ children: [text("@Scout #5")] });
+  expect(gap).toEqual(text(" hi "));
+  expect(task).toMatchObject({ properties: { "data-task-reference-number": 5 } });
+});
