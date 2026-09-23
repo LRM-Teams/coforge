@@ -1,3 +1,4 @@
+import { ProgressBar } from "react-aria-components";
 import {
   useEffect,
   useLayoutEffect,
@@ -11,6 +12,7 @@ import {
 import { Link, getRouteApi, useRouter } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import {
+  Loading02,
   ChevronDown,
   ChevronRightDouble,
   CheckCircle,
@@ -29,7 +31,6 @@ import {
 import { Avatar } from "@/components/base/avatar/avatar";
 import { Dropdown } from "@/components/base/dropdown/dropdown";
 import { Dialog, Modal, ModalOverlay } from "@/components/application/modals/modal";
-import { LoadingIndicator } from "@/components/ui/loading-indicator";
 import { useSendWindowCountdown } from "./use-send-window";
 import { Button } from "@/components/base/buttons/button";
 import { ButtonUtility } from "@/components/base/buttons/button-utility";
@@ -1408,10 +1409,13 @@ export function RecordSidePanel({
 
         {awaitingSynthesis ? (
           <div className="flex items-center gap-2 border-t border-secondary px-4 py-2">
-            <LoadingIndicator
-              label={m.records_side_chat_assistant_running()}
-              className="size-4 text-brand-secondary"
-            />
+            <ProgressBar
+              isIndeterminate
+              aria-label={m.records_side_chat_assistant_running()}
+              className="inline-flex shrink-0 size-4 text-brand-secondary"
+            >
+              <Loading02 aria-hidden className="size-full motion-safe:animate-spin" />
+            </ProgressBar>
             <span className="text-xs text-tertiary">{m.records_side_chat_assistant_running()}</span>
           </div>
         ) : null}

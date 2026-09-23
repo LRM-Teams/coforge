@@ -2,6 +2,7 @@ import type { Ref } from "react";
 import { RefreshCcw01 as Refresh, Trash01 as Trash } from "@untitledui/icons";
 
 import { Button } from "@/components/base/buttons/button";
+import { TextArea } from "@/components/base/textarea/textarea";
 import { m } from "@/paraglide/messages";
 import type { KeyPointPromptHistoryEntry, KeyPointPromptState } from "./records-content";
 
@@ -32,19 +33,20 @@ export function KeyPointPromptEditor({
         <h2 className="text-sm font-semibold text-primary">
           {m.records_key_points_prompt_label()}
         </h2>
-        <textarea
-          ref={textareaRef}
+        <TextArea
+          textAreaRef={textareaRef}
           aria-label={m.records_key_points_prompt_label()}
           value={text}
           // Keep editable while saving so React does not re-apply a stale `value` via disabled.
-          readOnly={busy}
+          isReadOnly={busy}
           rows={10}
-          onChange={(event) => onChange(event.target.value)}
+          onChange={onChange}
           onFocus={onFocus}
           onBlur={onBlur}
-          onCompositionEnd={(event) => onChange(event.currentTarget.value)}
+          onTextAreaCompositionEnd={(event) => onChange(event.currentTarget.value)}
           placeholder={m.records_key_points_prompt_placeholder()}
-          className="w-full resize-y rounded-xl border border-secondary bg-primary px-3 py-3 text-sm leading-6 text-primary outline-none placeholder:text-placeholder focus:border-brand focus:ring-1 focus:ring-brand read-only:opacity-80"
+          size="sm"
+          textAreaClassName="resize-y leading-6 read-only:opacity-80"
         />
       </section>
 

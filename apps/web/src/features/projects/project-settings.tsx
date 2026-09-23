@@ -4,6 +4,8 @@ import { useServerFn } from "@tanstack/react-start";
 import { ArrowLeft } from "@untitledui/icons";
 import { PageHeader } from "@/components/layout/page-header";
 import { Button } from "@/components/base/buttons/button";
+import { Input } from "@/components/base/input/input";
+import { TextArea } from "@/components/base/textarea/textarea";
 import { Select } from "@/components/base/select/select";
 import { Toggle } from "@/components/base/toggle/toggle";
 import { listAccessibleGitHubRepositories } from "@/features/integrations/github.functions";
@@ -152,17 +154,14 @@ export function ProjectSettingsPage({
             <>
               <h2 className="text-lg font-semibold">{m.project_delete()}</h2>
               <p className="text-sm text-tertiary">{m.project_delete_warning()}</p>
-              <label className="grid gap-1 text-sm font-medium">
-                {m.project_delete_confirm({ name: project.name })}
-                <input
-                  autoFocus
-                  required
-                  value={confirmation}
-                  onChange={(event) => setConfirmation(event.target.value)}
-                  disabled={busy}
-                  className="h-10 rounded-md border border-secondary bg-primary px-3"
-                />
-              </label>
+              <Input
+                label={m.project_delete_confirm({ name: project.name })}
+                autoFocus
+                isRequired
+                value={confirmation}
+                onChange={setConfirmation}
+                isDisabled={busy}
+              />
             </>
           ) : (
             <>
@@ -196,28 +195,23 @@ export function ProjectSettingsPage({
                   )}
                 </div>
               </div>
-              <label className="grid gap-1 text-sm font-medium">
-                {m.project_name()}
-                <input
-                  required
-                  maxLength={100}
-                  value={name}
-                  onChange={(event) => setName(event.target.value)}
-                  disabled={busy}
-                  className="h-10 rounded-md border border-secondary bg-primary px-3"
-                />
-              </label>
-              <label className="grid gap-1 text-sm font-medium">
-                {m.project_description()}
-                <textarea
-                  rows={3}
-                  maxLength={2000}
-                  value={description}
-                  onChange={(event) => setDescription(event.target.value)}
-                  disabled={busy}
-                  className="resize-y rounded-md border border-secondary bg-primary px-3 py-2"
-                />
-              </label>
+              <Input
+                label={m.project_name()}
+                isRequired
+                maxLength={100}
+                value={name}
+                onChange={setName}
+                isDisabled={busy}
+              />
+              <TextArea
+                label={m.project_description()}
+                rows={3}
+                maxLength={2000}
+                value={description}
+                onChange={setDescription}
+                isDisabled={busy}
+                textAreaClassName="resize-y"
+              />
               <Select
                 label={m.project_repository()}
                 selectedKey={selection}

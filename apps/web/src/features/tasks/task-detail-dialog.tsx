@@ -8,6 +8,8 @@ import { Dialog, Modal, ModalOverlay } from "@/components/application/modals/mod
 import { ButtonUtility } from "@/components/base/buttons/button-utility";
 import { Button } from "@/components/base/buttons/button";
 import { Dropdown } from "@/components/base/dropdown/dropdown";
+import { Input } from "@/components/base/input/input";
+import { TextArea } from "@/components/base/textarea/textarea";
 import { m } from "@/paraglide/messages";
 import { executeTask } from "./tasks.functions";
 import { DialogHeader } from "@/components/application/modals/dialog-header";
@@ -124,24 +126,14 @@ export function TaskDetailDialog({
                 });
               }}
             >
-              <label className="grid gap-1.5 text-sm font-medium">
-                {m.tasks_title()}
-                <input
-                  value={title}
-                  onChange={(event) => setTitle(event.currentTarget.value)}
-                  required
-                  className="h-10 rounded-lg border border-secondary bg-primary px-3 font-normal outline-none focus-visible:ring-2 focus-visible:ring-brand"
-                />
-              </label>
-              <label className="grid gap-1.5 text-sm font-medium">
-                {m.tasks_description()}
-                <textarea
-                  value={description}
-                  onChange={(event) => setDescription(event.currentTarget.value)}
-                  rows={4}
-                  className="resize-y rounded-lg border border-secondary bg-primary px-3 py-2 font-normal outline-none focus-visible:ring-2 focus-visible:ring-brand"
-                />
-              </label>
+              <Input label={m.tasks_title()} value={title} onChange={setTitle} isRequired />
+              <TextArea
+                label={m.tasks_description()}
+                value={description}
+                onChange={setDescription}
+                rows={4}
+                textAreaClassName="resize-y"
+              />
               <Button type="submit" size="sm" isDisabled={pending} className="self-start">
                 {m.tasks_save_changes()}
               </Button>
@@ -159,16 +151,14 @@ export function TaskDetailDialog({
                 });
               }}
             >
-              <label className="grid min-w-0 flex-1 gap-1.5 text-sm font-medium">
-                {m.tasks_assignee()}
-                <input
-                  value={assignee}
-                  onChange={(event) => setAssignee(event.currentTarget.value)}
-                  required
-                  placeholder="@handle"
-                  className="h-10 rounded-lg border border-secondary bg-primary px-3 font-normal outline-none focus-visible:ring-2 focus-visible:ring-brand"
-                />
-              </label>
+              <Input
+                label={m.tasks_assignee()}
+                value={assignee}
+                onChange={setAssignee}
+                isRequired
+                placeholder="@handle"
+                className="min-w-0 flex-1"
+              />
               <Button type="submit" size="sm" color="secondary" isDisabled={pending}>
                 {m.tasks_assign()}
               </Button>
