@@ -4,7 +4,7 @@ import {
   isoWeekMonday,
   isValidCollectCustomRange,
   resolveCollectWindow,
-} from "../src/features/records/weekly-report-collect-window";
+} from "#src/features/records/weekly-report-collect-window";
 
 test("resolveCollectWindow week is half-open Mon–next Mon", () => {
   const monday = isoWeekMonday(2026, 36);

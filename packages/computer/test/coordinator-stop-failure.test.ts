@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { coordinatorStopFailure } from "../src/release/upgrade-lifecycle";
+import { coordinatorStopFailure } from "#src/release/upgrade-lifecycle";
 
 test("a refused supervisor stop keeps the platform host's own reason", () => {
   const cause = new Error(

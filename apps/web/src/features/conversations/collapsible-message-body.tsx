@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState, type ComponentProps } from "react";
 import { ChevronDown } from "@untitledui/icons";
 
-import { Button } from "@/components/base/buttons/button";
-import { cn } from "@/lib/utils";
-import { m } from "@/paraglide/messages";
+import { Button } from "#src/components/base/buttons/button";
+import { cn } from "#src/lib/utils";
+import { m } from "#src/paraglide/messages";
 import { replaceMentionTokens, replaceTaskReferenceTokens } from "@lrm/coforge-sdk/internal";
 import {
   COLLAPSED_MESSAGE_MAX_HEIGHT_REM,

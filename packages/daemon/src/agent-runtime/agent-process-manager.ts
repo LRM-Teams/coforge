@@ -1,14 +1,14 @@
 import { AgentStateMachine, type AgentStatus } from "./agent-state-machine";
 import type { AgentRuntimeConfig, AgentSession } from "@coforge/agent";
-import type { CodeAgentProviderFactory } from "../code-agent/contract";
-import { AgentProcessCleanupError } from "../code-agent/contract";
+import type { CodeAgentProviderFactory } from "#src/code-agent/contract";
+import { AgentProcessCleanupError } from "#src/code-agent/contract";
 import {
   buildCoforgeAgentInstructions,
   type AgentLaunchIdentity,
-} from "../code-agent/agent-instructions";
-import { installAssignedSkills, type AssignedSkillPack } from "../code-agent/assigned-skills";
-import { agentEnvironment } from "../code-agent/environment";
-import { resolveGitHookInjectionForLaunch } from "../code-agent/git-hooks";
+} from "#src/code-agent/agent-instructions";
+import { installAssignedSkills, type AssignedSkillPack } from "#src/code-agent/assigned-skills";
+import { agentEnvironment } from "#src/code-agent/environment";
+import { resolveGitHookInjectionForLaunch } from "#src/code-agent/git-hooks";
 import { seedAgentMemory } from "./agent-memory-seed";
 import { mkdir } from "node:fs/promises";
 
@@ -37,7 +37,7 @@ export type ServerLaunchIdentity = Readonly<{
   launchId: string;
 }>;
 
-export type { CodeAgentProviderFactory } from "../code-agent/contract";
+export type { CodeAgentProviderFactory } from "#src/code-agent/contract";
 /** Owns Agent availability and runtime processes for one supervised Workspace. */
 export class AgentProcessManager {
   readonly #createProvider: CodeAgentProviderFactory;

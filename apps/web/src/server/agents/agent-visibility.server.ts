@@ -1,9 +1,9 @@
-import type { Prisma, PrismaClient } from "../../../generated/client";
-import { AGENT_VISIBILITY } from "../../features/agents/agent-visibility";
-import { AppError } from "../../lib/app-error";
+import type { Prisma, PrismaClient } from "#src/generated/prisma/client";
+import { AGENT_VISIBILITY } from "#src/features/agents/agent-visibility";
+import { AppError } from "#src/lib/app-error";
 import { ACTIVE_AGENT_WHERE } from "./active-agent.server";
-import { resolveActorServerRole } from "../conversations/channel-authority.server";
-import { isElevatedServerRole } from "../workspaces/member-role.server";
+import { resolveActorServerRole } from "#src/server/conversations/channel-authority.server";
+import { isElevatedServerRole } from "#src/server/workspaces/member-role.server";
 
 /**
  * Who is asking whether they may see a given Agent: a human Workspace member, or

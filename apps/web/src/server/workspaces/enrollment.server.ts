@@ -1,5 +1,5 @@
-import type { PrismaClient } from "../../../generated/client";
-import { AppError } from "../../lib/app-error";
+import type { PrismaClient } from "#src/generated/prisma/client";
+import { AppError } from "#src/lib/app-error";
 import { WorkspaceCatalog, PrismaWorkspaceCatalogStore } from "./catalog.server";
 
 export type EnrollmentUser = {

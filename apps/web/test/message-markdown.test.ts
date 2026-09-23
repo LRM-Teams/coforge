@@ -11,7 +11,7 @@ import {
   mentionHandlesByToken,
   rehypeMentionChips,
   rehypeTaskReferenceChips,
-} from "../src/features/conversations/message-markdown";
+} from "#src/features/conversations/message-markdown";
 
 const UUID = "550e8400-e29b-41d4-a716-446655440000";
 const OTHER_UUID = "11111111-2222-4333-8444-555555555555";

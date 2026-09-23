@@ -1,15 +1,15 @@
 import { expect, test } from "bun:test";
 import { PrismaPg } from "@prisma/adapter-pg";
-import { PrismaClient } from "../generated/client";
-import { AgentDeletion } from "../src/server/agents/agent-deletion.server";
-import { PrismaAgentDeletionStore } from "../src/server/db/repositories/agent-deletion.repositories.server";
-import { PrismaAgentRepository } from "../src/server/db/repositories/agent.repositories.server";
-import { PrismaDirectConversationRepository } from "../src/server/db/repositories/direct-conversation.repositories.server";
-import { enrollGeneralChannel } from "../src/server/conversations/public-channels.server";
-import { WorkspaceMembers, workspaceMemberRole } from "../src/server/workspaces/members.server";
-import { findWorkspaceUser } from "../src/server/agents/agent-user-info.server";
-import type { AgentVisibilityViewer } from "../src/server/agents/agent-visibility.server";
-import { TaskBoard } from "../src/server/tasks/task-board.server";
+import { PrismaClient } from "#src/generated/prisma/client";
+import { AgentDeletion } from "#src/server/agents/agent-deletion.server";
+import { PrismaAgentDeletionStore } from "#src/server/db/repositories/agent-deletion.repositories.server";
+import { PrismaAgentRepository } from "#src/server/db/repositories/agent.repositories.server";
+import { PrismaDirectConversationRepository } from "#src/server/db/repositories/direct-conversation.repositories.server";
+import { enrollGeneralChannel } from "#src/server/conversations/public-channels.server";
+import { WorkspaceMembers, workspaceMemberRole } from "#src/server/workspaces/members.server";
+import { findWorkspaceUser } from "#src/server/agents/agent-user-info.server";
+import type { AgentVisibilityViewer } from "#src/server/agents/agent-visibility.server";
+import { TaskBoard } from "#src/server/tasks/task-board.server";
 
 /**
  * End-to-end Agent deletion against local PostgreSQL. Drives the real `AgentDeletion`

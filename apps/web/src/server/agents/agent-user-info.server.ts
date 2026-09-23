@@ -5,8 +5,8 @@ import type {
   AgentUserStatus,
 } from "@lrm/coforge-sdk/agent";
 import { ACTIVE_AGENT_WHERE } from "./active-agent.server";
-import type { PrismaClient } from "../../../generated/client";
-import { agentDisplay } from "../../features/agents/agent-activity-presentation";
+import type { PrismaClient } from "#src/generated/prisma/client";
+import { agentDisplay } from "#src/features/agents/agent-activity-presentation";
 import { getAgentDisplay } from "./agent-display.server";
 import { parseAgentRuntimeConfig } from "./agent-runtime-config.server";
 import {

@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import type { TaskHistoryChange, TaskHistoryEvent } from "@lrm/coforge-sdk/internal";
-import { taskTimeline } from "../src/features/tasks/task-history-timeline";
+import { taskTimeline } from "#src/features/tasks/task-history-timeline";
 
 const event = (seq: number, change: TaskHistoryChange): TaskHistoryEvent => ({
   id: `event-${seq}`,

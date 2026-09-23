@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
-import { nameToSlug } from "../src/lib/slug";
-import { nameToWorkspaceSlug } from "../src/server/workspaces/workspace-slug";
+import { nameToSlug } from "#src/lib/slug";
+import { nameToWorkspaceSlug } from "#src/features/workspaces/workspace-slug";
 
 test("nameToSlug turns spaces and punctuation into single hyphens", () => {
   expect(nameToSlug("My Great Project!!", 100)).toBe("my-great-project");

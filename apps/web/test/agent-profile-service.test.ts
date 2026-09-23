@@ -1,7 +1,7 @@
 import { afterAll, expect, mock, test } from "bun:test";
 
 const displaySnapshots = new Map<string, string>();
-mock.module("../src/server/agents/agent-display.server", () => ({
+mock.module("#src/server/agents/agent-display.server", () => ({
   getAgentDisplay: () => ({
     snapshot: async (scope: { workspaceId: string; computerId: string; agentId: string }) => {
       const activityKind = displaySnapshots.get(scope.agentId);
@@ -23,7 +23,7 @@ mock.module("../src/server/agents/agent-display.server", () => ({
 }));
 
 const { createdAgentsFor, resolveAgentProfileShow, resolveAgentProfileUpdate } =
-  await import("../src/server/agents/agent-profile.server");
+  await import("#src/server/agents/agent-profile.server");
 
 afterAll(() => {
   mock.restore();

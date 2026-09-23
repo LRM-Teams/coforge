@@ -5,7 +5,7 @@ import {
   renderCliErrorText,
   unknownDeliveryNextAction,
   withOutputMode,
-} from "../src/cli-error";
+} from "#src/cli-error";
 
 test("text rendering prints the fixed lines in order and omits undefined fields", () => {
   const error = new CliError({ code: "SEND_FAILED", message: "boom" });

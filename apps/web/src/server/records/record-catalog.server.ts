@@ -1,6 +1,6 @@
-import type { Prisma, PrismaClient } from "../../../generated/client";
-import { AppError } from "../../lib/app-error";
-import { workspaceUserAvatarUrl } from "../db/repositories/user-profile.repositories.server";
+import type { Prisma, PrismaClient } from "#src/generated/prisma/client";
+import { AppError } from "#src/lib/app-error";
+import { workspaceUserAvatarUrl } from "#src/server/db/repositories/user-profile.repositories.server";
 import {
   currentIsoWeek,
   emptyReportContent,
@@ -18,7 +18,7 @@ import {
   withAutoSendCancelled,
   withWeekSendDismissed,
   type ReportContent,
-} from "../../features/records/records-content";
+} from "#src/features/records/records-content";
 import {
   looksLikeCollectAgainRequest,
   looksLikeMemberGenerateOfferAccept,
@@ -27,25 +27,28 @@ import {
   looksLikeSynthesizeWeeklyReportRequest,
   parseRecordAssistantPayload,
   type RecordAssistantPayload,
-} from "../../features/records/weekly-highlight-extract";
+} from "#src/features/records/weekly-highlight-extract";
 import {
   canSendWeeklyAssignmentsNow,
   currentWeekTemplateTitle,
   formatOfferSendWeekTitle,
   isWeeklySendArmed,
   splitWeeklyTemplateRoles,
-} from "../../features/records/weekly-send-window";
+} from "#src/features/records/weekly-send-window";
 import {
   alignReportContentToSections,
   parseTemplateSections,
   reportContentFromSections,
   sectionsFromReportContent,
   type TemplateOutlineSection,
-} from "../../features/records/template-outline-sections";
-import { isVisibleTemplateSubmission } from "./template-submission-visibility";
-import { canEditWeeklyReportContent } from "./weekly-report-editability";
-import { recipientUserIdsForSend } from "./weekly-report-send-recipients";
-import { isWeeklyScheduleDue, zonedCalendarDate } from "./weekly-report-schedule-due";
+} from "#src/features/records/template-outline-sections";
+import { isVisibleTemplateSubmission } from "./template-submission-visibility.server";
+import { canEditWeeklyReportContent } from "./weekly-report-editability.server";
+import { recipientUserIdsForSend } from "./weekly-report-send-recipients.server";
+import {
+  isWeeklyScheduleDue,
+  zonedCalendarDate,
+} from "#src/features/records/weekly-report-schedule-due";
 
 type Db = PrismaClient;
 
@@ -2078,7 +2081,7 @@ export class RecordCatalog {
       linkifyTeamKeyPointMarkdown,
     } = await import("./weekly-report-key-points.server");
     const { DEFAULT_PERSONAL_KEY_POINT_PROMPT, DEFAULT_TEAM_KEY_POINT_PROMPT } =
-      await import("../../features/records/records-content");
+      await import("#src/features/records/records-content");
     const content = asReportContent(report.content);
     const promptSnapshot =
       content.keyPointExtraction?.promptSnapshot ??
@@ -2141,7 +2144,7 @@ export class RecordCatalog {
 
     const { writeKeyPointExtraction } = await import("./weekly-report-key-points.server");
     const { DEFAULT_PERSONAL_KEY_POINT_PROMPT, DEFAULT_TEAM_KEY_POINT_PROMPT } =
-      await import("../../features/records/records-content");
+      await import("#src/features/records/records-content");
     const promptSnapshot =
       existing.promptSnapshot ||
       (report.kind === "template"
@@ -2198,7 +2201,7 @@ export class RecordCatalog {
    * Uses the newest applied settings stream, else the newest owned settings row.
    */
   async loadKeyPointPrompts(input: { workspaceId: string; userId: string }) {
-    const { emptyKeyPointPrompts } = await import("../../features/records/records-content");
+    const { emptyKeyPointPrompts } = await import("#src/features/records/records-content");
     const format = await this.resolvePromptFormatDoc(input);
     if (!format) return emptyKeyPointPrompts();
     return asReportContent(format.content).keyPointPrompts ?? emptyKeyPointPrompts();
@@ -2211,7 +2214,7 @@ export class RecordCatalog {
     text: string;
   }) {
     const { emptyKeyPointPrompts, withKeyPointPrompts } =
-      await import("../../features/records/records-content");
+      await import("#src/features/records/records-content");
     const { mergeKeyPointPromptSlot } = await import("./weekly-report-key-points.server");
     await requireMembership(this.db, input.workspaceId, input.userId);
     const settings = await this.db.weeklyReportTemplate.findFirst({
@@ -2252,7 +2255,7 @@ export class RecordCatalog {
     historyIndex: number;
   }) {
     const { emptyKeyPointPrompts, removeKeyPointPromptHistoryEntry, withKeyPointPrompts } =
-      await import("../../features/records/records-content");
+      await import("#src/features/records/records-content");
     await requireMembership(this.db, input.workspaceId, input.userId);
     const settings = await this.db.weeklyReportTemplate.findFirst({
       where: { workspaceId: input.workspaceId, ownerId: input.userId },

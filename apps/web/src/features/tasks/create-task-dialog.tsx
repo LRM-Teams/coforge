@@ -1,10 +1,10 @@
 import { useRef, useState, type FormEvent } from "react";
 
-import { Button } from "@/components/base/buttons/button";
-import { Input } from "@/components/base/input/input";
-import { Dialog, Modal, ModalOverlay } from "@/components/application/modals/modal";
-import { m } from "@/paraglide/messages";
-import { DialogHeader } from "@/components/application/modals/dialog-header";
+import { Button } from "#src/components/base/buttons/button";
+import { Input } from "#src/components/base/input/input";
+import { Dialog, Modal, ModalOverlay } from "#src/components/application/modals/modal";
+import { m } from "#src/paraglide/messages";
+import { DialogHeader } from "#src/components/application/modals/dialog-header";
 
 export function CreateTaskDialog({
   open,

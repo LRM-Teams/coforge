@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { readOperatingSystem } from "../src/platform/operating-system";
+import { readOperatingSystem } from "#src/platform/operating-system";
 
 test("reports macOS product version rather than Darwin kernel version", () => {
   expect(

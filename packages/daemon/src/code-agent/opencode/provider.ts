@@ -4,10 +4,10 @@ import {
   type AgentRuntimeEvent,
   type CodeAgentProvider,
   type ProviderDiscoveryOptions,
-} from "../contract";
-import { agentEnvironment } from "../environment";
-import { asRecord, eventTime } from "../json-record";
-import { discoverExternalCodeAgents } from "../runtime-inventory";
+} from "#src/code-agent/contract";
+import { agentEnvironment } from "#src/code-agent/environment";
+import { asRecord, eventTime } from "#src/code-agent/json-record";
+import { discoverExternalCodeAgents } from "#src/code-agent/runtime-inventory";
 import { discoverOpenCodeCatalog } from "./catalog";
 import { OpenCodeTurnProcess, type OpenCodeTurnResult } from "./turn-process";
 import { assertOpenCodeVersionSupported } from "./version";

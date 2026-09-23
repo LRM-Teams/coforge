@@ -5,7 +5,7 @@ import { queryOptions, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 
 import { executeTask } from "./tasks.functions";
-import { m } from "@/paraglide/messages";
+import { m } from "#src/paraglide/messages";
 
 export function mergeTaskChanges(current: TaskView[], changes: TaskView[]) {
   const changed = new Map(changes.map((task) => [task.messageId, task]));

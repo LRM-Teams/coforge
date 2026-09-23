@@ -1,9 +1,9 @@
 import { expect, test } from "bun:test";
 import { PrismaPg } from "@prisma/adapter-pg";
-import { PrismaClient } from "../generated/client";
-import { PrismaDirectConversationRepository } from "../src/server/db/repositories/direct-conversation.repositories.server";
-import { executeAgentSendMessageWithPolicy } from "../src/server/agents/agent-messages.service";
-import { SendDirectMessage } from "../src/server/conversations/direct-message.server";
+import { PrismaClient } from "#src/generated/prisma/client";
+import { PrismaDirectConversationRepository } from "#src/server/db/repositories/direct-conversation.repositories.server";
+import { executeAgentSendMessageWithPolicy } from "#src/server/agents/agent-messages.server";
+import { SendDirectMessage } from "#src/server/conversations/direct-message.server";
 
 test("thread send and unread ranges stay separate from the main conversation", async () => {
   const connectionString = Bun.env.THREAD_TEST_DATABASE_URL;

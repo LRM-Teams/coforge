@@ -1,9 +1,6 @@
 import { expect, test } from "bun:test";
 
-import {
-  discoverOpenCodeCatalog,
-  parseOpenCodeModelList,
-} from "../src/code-agent/opencode/catalog";
+import { discoverOpenCodeCatalog, parseOpenCodeModelList } from "#src/code-agent/opencode/catalog";
 
 const FIXTURE = new URL("./fixtures/opencode-fixture.ts", import.meta.url).pathname;
 

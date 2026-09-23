@@ -5,7 +5,7 @@ import {
   handleLoginStart,
   handleLogout,
 } from "./http.server";
-import { publicOrigin } from "../http/public-origin.server";
+import { publicOrigin } from "#src/server/http/public-origin.server";
 
 export function loginStartHandler({ request }: { request: Request }): Promise<Response> {
   return withAuthConfig(request, (config, sessionSecret) =>

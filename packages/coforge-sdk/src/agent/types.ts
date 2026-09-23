@@ -1,4 +1,4 @@
-import type { TaskCommand, TaskResult } from "../internal/tasks";
+import type { TaskCommand, TaskResult } from "#src/internal/tasks";
 
 /** `Omit` over a union collapses it to the keys every member shares; this keeps each member's own
  * fields. Needed wherever a union-shaped command also has to be described for the wire. */
@@ -15,5 +15,5 @@ export type AgentTaskResponse = TaskResult & {
   idempotencyKey: string;
 };
 
-export type AgentReminderRequest = import("../internal/reminder").AgentReminderOperationRequest;
-export type AgentReminderResponse = import("../internal/reminder").AgentReminderOperationResponse;
+export type AgentReminderRequest = import("#src/internal/reminder").AgentReminderOperationRequest;
+export type AgentReminderResponse = import("#src/internal/reminder").AgentReminderOperationResponse;

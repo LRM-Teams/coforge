@@ -1,14 +1,14 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { XClose } from "@untitledui/icons";
 import { Heading, Text } from "react-aria-components";
-import { Dialog, Modal, ModalOverlay } from "@/components/application/modals/modal";
-import { Button } from "@/components/base/buttons/button";
-import { ButtonUtility } from "@/components/base/buttons/button-utility";
-import { Checkbox } from "@/components/base/checkbox/checkbox";
-import { Input } from "@/components/base/input/input";
-import { Select } from "@/components/base/select/select";
-import { isAppError } from "@/lib/app-error";
-import { m } from "@/paraglide/messages";
+import { Dialog, Modal, ModalOverlay } from "#src/components/application/modals/modal";
+import { Button } from "#src/components/base/buttons/button";
+import { ButtonUtility } from "#src/components/base/buttons/button-utility";
+import { Checkbox } from "#src/components/base/checkbox/checkbox";
+import { Input } from "#src/components/base/input/input";
+import { Select } from "#src/components/base/select/select";
+import { isAppError } from "#src/lib/app-error";
+import { m } from "#src/paraglide/messages";
 
 export function CreateChannelDialog({
   open,

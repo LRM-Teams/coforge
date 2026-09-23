@@ -1,6 +1,6 @@
 import { chmod, mkdir, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import type { DaemonConfig } from "../daemon-runtime/runtime";
+import type { DaemonConfig } from "#src/daemon-runtime/runtime";
 
 /** Durable, non-secret configuration for one supervised Workspace connection. */
 export class DaemonConfigStore {

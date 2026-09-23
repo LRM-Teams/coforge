@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { AgentSessionInvalidateSchema } from "./gen/coforge/rpc/v1/workspace_pb";
+import { AgentSessionInvalidateSchema } from "#src/internal/gen/coforge/rpc/v1/workspace_pb";
 import { encodeAgentSessionInvalidate, decodeAgentSessionInvalidate } from "./index";
 
 function invalidate() {

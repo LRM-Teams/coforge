@@ -22,7 +22,7 @@ COPY scripts/release/install.ps1 scripts/release/install.ps1
 
 # Generated outputs are gitignored but required for the build: buf-generated
 # protobuf modules (packages/coforge-sdk/gen) and the prisma client
-# (apps/web/generated).
+# (apps/web/src/generated).
 RUN bun run --cwd packages/coforge-sdk generate \
   && bun run --cwd apps/web db:generate
 

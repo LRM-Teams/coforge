@@ -4,7 +4,7 @@ import type {
   AgentWorkspaceFilesListRequest,
   AgentWorkspaceFilesListResult,
 } from "@lrm/coforge-sdk/internal";
-import type { PrismaClient } from "../../../generated/client";
+import type { PrismaClient } from "#src/generated/prisma/client";
 import { ACTIVE_AGENT_WHERE } from "./active-agent.server";
 
 export type WorkspaceFilesViewer = { userId: string; workspaceId: string };

@@ -6,7 +6,7 @@ import {
   parseOutline,
   serializeOutline,
   type OutlineNode,
-} from "@/features/records/report-template-outline";
+} from "#src/features/records/report-template-outline";
 
 test("dropEdgeFromClientY uses the row midpoint", () => {
   expect(dropEdgeFromClientY(10, 0, 40)).toBe("before");

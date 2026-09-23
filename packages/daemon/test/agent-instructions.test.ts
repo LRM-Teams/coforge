@@ -7,7 +7,7 @@ import {
   buildCoforgeAgentInstructions,
   buildCoforgeCliGuideSections,
   type AgentLaunchIdentity,
-} from "../src/code-agent/agent-instructions";
+} from "#src/code-agent/agent-instructions";
 
 const AGENT_WORKSPACES: [string, string] = [
   "/coforge/workspaces/workspace-a/agents/agent-a",

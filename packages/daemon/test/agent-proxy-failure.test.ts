@@ -3,11 +3,11 @@ import {
   classifyAgentProxyFailure,
   AGENT_PROXY_CORRELATION_HEADER,
   type AgentProxyFailureClass,
-} from "../src/agent-proxy-failure";
-import { AgentTransportError } from "../src/connection/agent-transport-error";
-import { AgentPreflightError } from "../src/daemon-runtime/agent-preflight-error";
-import { AgentMessageRequestError } from "../src/connection/agent-message-request-error";
-import { AgentUpstreamRefusalError } from "../src/connection/agent-upstream-refusal-error";
+} from "#src/agent-proxy-failure";
+import { AgentTransportError } from "#src/connection/agent-transport-error";
+import { AgentPreflightError } from "#src/daemon-runtime/agent-preflight-error";
+import { AgentMessageRequestError } from "#src/connection/agent-message-request-error";
+import { AgentUpstreamRefusalError } from "#src/connection/agent-upstream-refusal-error";
 
 const context = {
   method: "POST",

@@ -3,12 +3,12 @@ import { useEffect, useId, useState, type ReactNode } from "react";
 import { Link, useRouter } from "@tanstack/react-router";
 import { Link as AriaLink } from "react-aria-components";
 
-import { Button } from "@/components/base/buttons/button";
-import { ButtonUtility } from "@/components/base/buttons/button-utility";
-import { AgentDisplayAvatar } from "@/features/agents/agent-activity-avatar";
-import type { LiveAgent } from "@/features/agents/workspace-agents-realtime";
-import { cx } from "@/utils/cx";
-import { m } from "@/paraglide/messages";
+import { Button } from "#src/components/base/buttons/button";
+import { ButtonUtility } from "#src/components/base/buttons/button-utility";
+import { AgentDisplayAvatar } from "#src/features/agents/agent-activity-avatar";
+import type { LiveAgent } from "#src/features/agents/workspace-agents-realtime";
+import { cx } from "#src/utils/cx";
+import { m } from "#src/paraglide/messages";
 import { useChannelUnreadCounts, useCloseConversationList } from "./conversation-navigation";
 import { ConversationRowMenu } from "./conversation-row-menu";
 import { directRowPreference } from "./conversation-row-menu-model";

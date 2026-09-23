@@ -1,11 +1,11 @@
 import { AlertCircle, XClose as X } from "@untitledui/icons";
 import { Heading, Text } from "react-aria-components";
 
-import { Dialog, Modal, ModalOverlay } from "@/components/application/modals/modal";
-import { Button } from "@/components/base/buttons/button";
-import { ButtonUtility } from "@/components/base/buttons/button-utility";
-import { FeaturedIcon } from "@/components/foundations/featured-icon/featured-icon";
-import { m } from "@/paraglide/messages";
+import { Dialog, Modal, ModalOverlay } from "#src/components/application/modals/modal";
+import { Button } from "#src/components/base/buttons/button";
+import { ButtonUtility } from "#src/components/base/buttons/button-utility";
+import { FeaturedIcon } from "#src/components/foundations/featured-icon/featured-icon";
+import { m } from "#src/paraglide/messages";
 
 /**
  * Confirms an irreversible delete in Records settings (a weekly template, or one key-point prompt

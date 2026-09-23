@@ -9,7 +9,7 @@ import {
   formatUtcTimestamp,
   neutralizeReferenceLiterals,
   renderSearchPreview,
-} from "../src/message-format";
+} from "#src/message-format";
 
 function message(overrides: Partial<AgentMessageRecord> = {}): AgentMessageRecord {
   return {

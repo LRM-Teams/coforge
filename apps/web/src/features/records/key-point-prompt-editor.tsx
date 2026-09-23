@@ -1,9 +1,9 @@
 import type { Ref } from "react";
 import { RefreshCcw01 as Refresh, Trash01 as Trash } from "@untitledui/icons";
 
-import { Button } from "@/components/base/buttons/button";
-import { TextArea } from "@/components/base/textarea/textarea";
-import { m } from "@/paraglide/messages";
+import { Button } from "#src/components/base/buttons/button";
+import { TextArea } from "#src/components/base/textarea/textarea";
+import { m } from "#src/paraglide/messages";
 import type { KeyPointPromptHistoryEntry, KeyPointPromptState } from "./records-content";
 
 /** Current prompt + history with「重新启用」/「删除」(settings 要点提示词模板). */

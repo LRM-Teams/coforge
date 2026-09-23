@@ -1,12 +1,12 @@
 import { useCallback, useRef } from "react";
 import { useServerFn } from "@tanstack/react-start";
 
-import { useRealtimeSubscription } from "../realtime/browser-realtime";
-import { getUserConversationSubscriptionToken } from "../realtime/realtime.functions";
+import { useRealtimeSubscription } from "#src/features/realtime/browser-realtime";
+import { getUserConversationSubscriptionToken } from "#src/features/realtime/realtime.functions";
 import {
   decodeNotificationAvailableEvent,
   userConversationChannel,
-} from "../conversations/conversation-realtime";
+} from "#src/features/conversations/conversation-realtime";
 import { browserNotificationPermission, showPageNotification } from "./browser-push";
 import { getMessageNotification } from "./notifications.functions";
 

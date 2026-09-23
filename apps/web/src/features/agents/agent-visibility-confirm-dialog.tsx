@@ -2,15 +2,15 @@ import { useEffect, useState } from "react";
 import { AlertCircle } from "@untitledui/icons";
 import { Text } from "react-aria-components";
 
-import { Button } from "@/components/base/buttons/button";
-import { Dialog, Modal, ModalOverlay } from "@/components/application/modals/modal";
-import { DialogHeader } from "@/components/application/modals/dialog-header";
-import { FeaturedIcon } from "@/components/foundations/featured-icon/featured-icon";
-import { Skeleton } from "@/components/ui/skeleton";
-import { m } from "@/paraglide/messages";
-import { isAppError } from "@/lib/app-error";
-import { useSubmitGuard } from "@/hooks/use-submit-guard";
-import type { AgentVisibilityChangePreview } from "@/server/agents/change-agent-visibility.server";
+import { Button } from "#src/components/base/buttons/button";
+import { Dialog, Modal, ModalOverlay } from "#src/components/application/modals/modal";
+import { DialogHeader } from "#src/components/application/modals/dialog-header";
+import { FeaturedIcon } from "#src/components/foundations/featured-icon/featured-icon";
+import { Skeleton } from "#src/components/ui/skeleton";
+import { m } from "#src/paraglide/messages";
+import { isAppError } from "#src/lib/app-error";
+import { useSubmitGuard } from "#src/hooks/use-submit-guard";
+import type { AgentVisibilityChangePreview } from "#src/server/agents/change-agent-visibility.server";
 import type { AgentVisibility } from "./agent-visibility";
 
 /**

@@ -1,10 +1,10 @@
 import { useState, type FormEvent } from "react";
 
-import { Button } from "@/components/base/buttons/button";
-import { Input } from "@/components/base/input/input";
-import { Dialog, Modal, ModalOverlay } from "@/components/application/modals/modal";
-import { DialogHeader } from "@/components/application/modals/dialog-header";
-import { m } from "@/paraglide/messages";
+import { Button } from "#src/components/base/buttons/button";
+import { Input } from "#src/components/base/input/input";
+import { Dialog, Modal, ModalOverlay } from "#src/components/application/modals/modal";
+import { DialogHeader } from "#src/components/application/modals/dialog-header";
+import { m } from "#src/paraglide/messages";
 
 /** One read-only runtime fact inside the dialog (Runtime / Model / Reasoning). Mirrors the
  * `RuntimeField` helper in `agent-detail.tsx`; kept local so this file has no dependency back on

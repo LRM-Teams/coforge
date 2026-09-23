@@ -2,8 +2,8 @@ import { type CSSProperties } from "react";
 import { AlertCircle, CheckCircle } from "@untitledui/icons";
 import { Toaster, toast } from "sonner";
 
-import { useBreakpoint } from "@/hooks/use-breakpoint";
-import { m } from "@/paraglide/messages";
+import { useBreakpoint } from "#src/hooks/use-breakpoint";
+import { m } from "#src/paraglide/messages";
 
 const toastStyle: CSSProperties & Record<`--${string}`, string> = {
   "--normal-bg": "var(--color-bg-primary)",

@@ -6,39 +6,39 @@ import { PrismaPg } from "@prisma/adapter-pg";
 import { encodeAgentActivity } from "@lrm/coforge-sdk/internal";
 import { parseAgentDisplaySnapshot, type AgentDisplaySnapshot } from "@lrm/coforge-sdk/internal";
 import { Centrifuge } from "centrifuge";
-import { PrismaClient } from "../generated/client";
-import { DEV_BROWSER_USER } from "../src/server/auth/dev-skip-auth.server";
+import { PrismaClient } from "#src/generated/prisma/client";
+import { DEV_BROWSER_USER } from "#src/server/auth/dev-skip-auth.server";
 import {
   issueBrowserRealtimeToken,
   issueAgentStatusSubscriptionToken,
-} from "../src/server/auth/browser-realtime-token.server";
+} from "#src/server/auth/browser-realtime-token.server";
 import {
   agentStatusChannel,
   decodeAgentStatusEvent,
   type AgentStatusEvent,
-} from "../src/features/agents/agent-status-realtime";
-import { RedisAgentStatusCache } from "../src/server/agents/agent-status.server";
-import { verifyDaemonApiKey } from "../src/server/auth/daemon-api-key.server";
-import { PrismaDaemonApiKeyRepository } from "../src/server/db/repositories/daemon-api-key.repositories.server";
-import { ComputerRegistrar } from "../src/server/computers/registration.server";
+} from "#src/features/agents/agent-status-realtime";
+import { RedisAgentStatusCache } from "#src/server/agents/agent-status.server";
+import { verifyDaemonApiKey } from "#src/server/auth/daemon-api-key.server";
+import { PrismaDaemonApiKeyRepository } from "#src/server/db/repositories/daemon-api-key.repositories.server";
+import { ComputerRegistrar } from "#src/server/computers/registration.server";
 import {
   PrismaComputerRegistrationRepository,
   PrismaWorkspaceAccess,
-} from "../src/server/db/repositories/setup.repositories.server";
+} from "#src/server/db/repositories/setup.repositories.server";
 import {
   PrismaAgentRepository,
   RepositoryAgentAuthorization,
-} from "../src/server/db/repositories/agent.repositories.server";
-import { createAgentSessions } from "../src/server/db/repositories/agent-session.repositories.server";
-import { ManageAgents } from "../src/server/agents/manage-agents.server";
-import { PublishAgentRuntimeControl } from "../src/server/agents/agent-runtime-control.server";
-import { AgentControl } from "../src/server/agents/agent-control.server";
-import { getAgentRuntimeLock } from "../src/server/agents/agent-runtime-lock.server";
-import { PrismaAgentControlStore } from "../src/server/db/repositories/agent-control.repositories.server";
-import { PrismaDirectConversationRepository } from "../src/server/db/repositories/direct-conversation.repositories.server";
-import { SendDirectMessage } from "../src/server/conversations/direct-message.server";
-import { RedisMessageRequestIdempotency } from "../src/server/conversations/redis-message-request-idempotency.server";
-import { createCentrifugoServerApi } from "../src/server/centrifugo/server-api.server";
+} from "#src/server/db/repositories/agent.repositories.server";
+import { createAgentSessions } from "#src/server/db/repositories/agent-session.repositories.server";
+import { ManageAgents } from "#src/server/agents/manage-agents.server";
+import { PublishAgentRuntimeControl } from "#src/server/agents/agent-runtime-control.server";
+import { AgentControl } from "#src/server/agents/agent-control.server";
+import { getAgentRuntimeLock } from "#src/server/agents/agent-runtime-lock.server";
+import { PrismaAgentControlStore } from "#src/server/db/repositories/agent-control.repositories.server";
+import { PrismaDirectConversationRepository } from "#src/server/db/repositories/direct-conversation.repositories.server";
+import { SendDirectMessage } from "#src/server/conversations/direct-message.server";
+import { RedisMessageRequestIdempotency } from "#src/server/conversations/redis-message-request-idempotency.server";
+import { createCentrifugoServerApi } from "#src/server/centrifugo/server-api.server";
 import {
   DaemonConnection,
   DaemonRuntime,

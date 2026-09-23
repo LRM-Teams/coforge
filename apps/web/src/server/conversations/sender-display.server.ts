@@ -1,5 +1,5 @@
 import { isValidMessageSender, type MessageSenderKind } from "@lrm/coforge-sdk/internal";
-import type { Prisma } from "../../../generated/client";
+import type { Prisma } from "#src/generated/prisma/client";
 
 /**
  * One rule for the name the browser shows as a message's sender, shared by the three browser

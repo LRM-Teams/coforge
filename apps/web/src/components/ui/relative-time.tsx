@@ -1,11 +1,11 @@
 import { useEffect, useState } from "react";
 
-import { Tooltip, TooltipTrigger } from "@/components/base/tooltip/tooltip";
-import { cn } from "@/lib/utils";
-import { formatClockTime, formatDateForDisplay, formatRelativeTime } from "@/lib/dates";
-import { getLocale } from "@/paraglide/runtime";
+import { Tooltip, TooltipTrigger } from "#src/components/base/tooltip/tooltip";
+import { cn } from "#src/lib/utils";
+import { formatClockTime, formatDateForDisplay, formatRelativeTime } from "#src/lib/dates";
+import { getLocale } from "#src/paraglide/runtime";
 
-import { useTimeFormat } from "@/lib/time-format-context";
+import { useTimeFormat } from "#src/lib/time-format-context";
 
 /** The server and client cannot agree on `now`, locale or time zone before mount, so both
  * `RelativeTime` and `ClockTime` render their live value only after mount; the markup they emit

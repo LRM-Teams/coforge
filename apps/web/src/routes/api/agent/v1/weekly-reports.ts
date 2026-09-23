@@ -1,17 +1,17 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { validateWeeklyReportRequest, type WeeklyReportRequest } from "@lrm/coforge-sdk/internal";
-import { agentAuthMiddleware } from "#/server/agents/agent-http.middleware";
+import { agentAuthMiddleware } from "#src/server/agents/agent-http-middleware.server";
 import {
   PrismaAgentRepository,
   RepositoryAgentAuthorization,
-} from "#/server/db/repositories/agent.repositories.server";
-import { recordCatalog } from "#/server/records/record-catalog.server";
-import { weeklyReportAssistantOwner } from "#/server/records/weekly-report-assistant.server";
+} from "#src/server/db/repositories/agent.repositories.server";
+import { recordCatalog } from "#src/server/records/record-catalog.server";
+import { weeklyReportAssistantOwner } from "#src/server/records/weekly-report-assistant.server";
 import {
   executeAgentWeeklyReport,
   weeklyReportWireRequest,
   type WeeklyReportWireRequest,
-} from "#/server/agents/agent-weekly-report-http.server";
+} from "#src/server/agents/agent-weekly-report-http.server";
 
 export const Route = createFileRoute("/api/agent/v1/weekly-reports")({
   server: {

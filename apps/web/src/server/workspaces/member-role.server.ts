@@ -1,4 +1,4 @@
-import { AppError } from "../../lib/app-error";
+import { AppError } from "#src/lib/app-error";
 
 export const WORKSPACE_MEMBER_ROLES = ["owner", "admin", "member"] as const;
 export type WorkspaceMemberRole = (typeof WORKSPACE_MEMBER_ROLES)[number];

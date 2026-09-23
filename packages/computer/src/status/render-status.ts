@@ -1,5 +1,5 @@
 import { workspaceHealthRecoveryCommand } from "@lrm/coforge-daemon";
-import { terminalText } from "../terminal-output";
+import { terminalText } from "#src/terminal-output";
 import type {
   ComputerStatusReport,
   PendingRequest,

@@ -2,7 +2,7 @@ import {
   WEEKLY_REPORT_SCHEDULE_TIME_ZONE,
   zonedCalendarDate,
   zonedWeekdayAndTime,
-} from "../../server/records/weekly-report-schedule-due";
+} from "./weekly-report-schedule-due";
 import { isoWeekMonday } from "./weekly-report-collect-window";
 
 /** Shanghai has no DST; civil time is UTC+8. */

@@ -3,9 +3,9 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { OpenCodeProvider } from "../src/code-agent/opencode/provider";
-import { isOpenCodeVersionUnsupported } from "../src/code-agent/opencode/version";
-import type { AgentRuntimeEvent } from "../src/code-agent/contract";
+import { OpenCodeProvider } from "#src/code-agent/opencode/provider";
+import { isOpenCodeVersionUnsupported } from "#src/code-agent/opencode/version";
+import type { AgentRuntimeEvent } from "#src/code-agent/contract";
 
 const FIXTURE = new URL("./fixtures/opencode-fixture.ts", import.meta.url).pathname;
 const INSTRUCTIONS = "Standing OpenCode instructions.";

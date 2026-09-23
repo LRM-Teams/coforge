@@ -1,4 +1,4 @@
-import { AgentMessageValidationError } from "../conversations/agent-message-validation-error.server";
+import { AgentMessageValidationError } from "#src/server/conversations/agent-message-validation-error.server";
 
 /** The optional request envelope shared by Agent POST endpoints. */
 export type AgentJsonBody = Record<string, unknown>;

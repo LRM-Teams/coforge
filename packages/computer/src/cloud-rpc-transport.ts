@@ -13,7 +13,7 @@ import {
 import { z } from "zod";
 import { loginError, RemoteRpcError } from "./errors";
 import type { AccessibleWorkspace, Credential } from "./login";
-import type { ComputerWorkspaceRpcTransport } from "./workspace/lookup";
+import type { ComputerWorkspaceRpcTransport } from "#src/workspace/lookup";
 
 const rpcEnvelopeSchema = z.union([
   z.object({ result: z.object({ b64data: z.string() }) }),

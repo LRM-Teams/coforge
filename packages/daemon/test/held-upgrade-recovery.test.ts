@@ -7,7 +7,7 @@ import {
   selectLegacyHeldRequestId,
   shouldAutoFinishHeldUpgrade,
   terminalAllowsWorkspaceRecovery,
-} from "../src/supervisor/held-upgrade-recovery";
+} from "#src/supervisor/held-upgrade-recovery";
 
 class WorkspaceFault extends Error {}
 

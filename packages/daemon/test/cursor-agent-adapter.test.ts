@@ -3,8 +3,8 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { CursorProvider } from "../src/code-agent/cursor/provider";
-import type { AgentRuntimeEvent } from "../src/code-agent/contract";
+import { CursorProvider } from "#src/code-agent/cursor/provider";
+import type { AgentRuntimeEvent } from "#src/code-agent/contract";
 
 const FIXTURE = new URL("./fixtures/cursor-agent-fixture.ts", import.meta.url).pathname;
 const INSTRUCTIONS = "Standing Cursor instructions.";

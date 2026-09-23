@@ -1,10 +1,10 @@
 import { expect, test } from "bun:test";
 import { PrismaPg } from "@prisma/adapter-pg";
-import { PrismaClient } from "../generated/client";
+import { PrismaClient } from "#src/generated/prisma/client";
 import {
   PrismaWorkspaceMemberPreferencesRepository,
   WorkspaceMemberPreferences,
-} from "../src/server/db/repositories/workspace-member-preferences.repositories.server";
+} from "#src/server/db/repositories/workspace-member-preferences.repositories.server";
 
 function database() {
   const connectionString = Bun.env.PREFERENCES_TEST_DATABASE_URL;

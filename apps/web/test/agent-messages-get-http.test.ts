@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { handleAgentMessagesGet } from "../src/routes/api/agent/v1/messages";
+import { handleAgentMessagesGet } from "#src/routes/api/agent/v1/messages";
 
 const request = (search: string) =>
   new Request(`https://server.example/api/agent/v1/messages${search}`);

@@ -3,7 +3,7 @@ import { expect, test } from "bun:test";
 import {
   looksLikeSideChatGreeting,
   parseRecordAssistantPayload,
-} from "@/features/records/weekly-highlight-extract";
+} from "#src/features/records/weekly-highlight-extract";
 
 test("parseRecordAssistantPayload accepts offer-send", () => {
   expect(parseRecordAssistantPayload({ kind: "offer-send" })).toEqual({ kind: "offer-send" });

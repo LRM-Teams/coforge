@@ -1,4 +1,4 @@
-import type { ReportContent } from "../../features/records/records-content";
+import type { ReportContent } from "#src/features/records/records-content";
 
 const OPEN = "[weekly-report-suggestion]";
 const CLOSE = "[/weekly-report-suggestion]";

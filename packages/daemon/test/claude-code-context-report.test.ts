@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { readFile } from "node:fs/promises";
-import { parseClaudeContextReport } from "../src/code-agent/claude-code/context-report";
+import { parseClaudeContextReport } from "#src/code-agent/claude-code/context-report";
 
 const FIXTURE_PATH = new URL("./fixtures/claude-context-report.md", import.meta.url).pathname;
 const fixture = () => readFile(FIXTURE_PATH, "utf8");

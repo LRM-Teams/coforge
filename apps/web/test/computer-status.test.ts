@@ -3,7 +3,7 @@ import { expect, test } from "bun:test";
 import {
   COMPUTER_STATUS_LEASE_MS,
   RedisComputerStatusCache,
-} from "../src/server/centrifugo/computer-status.server";
+} from "#src/server/centrifugo/computer-status.server";
 
 test("stores Computer status in a scoped Redis lease", async () => {
   const writes: Array<[string, string, string, string]> = [];

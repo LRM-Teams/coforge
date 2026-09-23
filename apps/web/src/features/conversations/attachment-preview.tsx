@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 
-import { Button } from "@/components/base/buttons/button";
-import { m } from "@/paraglide/messages";
+import { Button } from "#src/components/base/buttons/button";
+import { m } from "#src/paraglide/messages";
 import { mediaMimeType, type AttachmentPreviewKind } from "./attachment-preview-kind";
 import { MessageBody } from "./message-body";
 

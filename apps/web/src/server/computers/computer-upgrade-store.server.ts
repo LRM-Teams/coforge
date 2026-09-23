@@ -1,6 +1,6 @@
 import { RedisClient } from "bun";
 import { sanitizeUpgradeErrorText } from "@lrm/coforge-sdk/internal";
-import { AppError } from "@/lib/app-error";
+import { AppError } from "#src/lib/app-error";
 
 export type ComputerUpgradeStatus =
   | { requestId: string; status: "accepted"; expectedVersion: string; expiresAt: string }

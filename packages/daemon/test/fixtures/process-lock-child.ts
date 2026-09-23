@@ -1,5 +1,5 @@
-import { acquireProcessLock } from "../../src/platform/process-lock";
-import { runMachineSupervisor } from "../../src/supervisor/run-supervisor";
+import { acquireProcessLock } from "#src/platform/process-lock";
+import { runMachineSupervisor } from "#src/supervisor/run-supervisor";
 
 const [mode, path] = Bun.argv.slice(2);
 if (!mode || !path) throw new Error("mode and lock path are required");

@@ -1,5 +1,5 @@
 // The authoritative slug rule lives in
-// apps/web/src/server/workspaces/workspace-slug.ts. packages/computer cannot
+// apps/web/src/features/workspaces/workspace-slug.ts. packages/computer cannot
 // depend on the apps/web app (wrong dependency direction across the packaging
 // boundary), so this is a conservative, deliberately duplicated shape check
 // rather than a shared import: lowercase letters, digits, and single hyphens

@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
-import type { PrismaClient } from "../generated/client";
-import { RecordCatalog } from "../src/server/records/record-catalog.server";
+import type { PrismaClient } from "#src/generated/prisma/client";
+import { RecordCatalog } from "#src/server/records/record-catalog.server";
 
 test("applyConfirmedReportBody writes only after the author confirms a suggestion", async () => {
   const updates: Array<Record<string, unknown>> = [];

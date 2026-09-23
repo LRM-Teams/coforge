@@ -7,8 +7,8 @@ import {
   discoverExternalCodeAgents,
   loadCachedCodeAgentCatalogs,
   type ExternalCodeAgentProbe,
-} from "../src/code-agent/runtime-inventory";
-import { fileStatCacheKey, writeInventoryCache } from "../src/code-agent/runtime-inventory-cache";
+} from "#src/code-agent/runtime-inventory";
+import { fileStatCacheKey, writeInventoryCache } from "#src/code-agent/runtime-inventory-cache";
 
 const OPENCODE_FIXTURE = new URL("./fixtures/opencode-fixture.ts", import.meta.url).pathname;
 

@@ -15,8 +15,8 @@ import {
   useSortable,
 } from "@dnd-kit/sortable";
 
-import { Button } from "@/components/base/buttons/button";
-import { cx } from "@/utils/cx";
+import { Button } from "#src/components/base/buttons/button";
+import { cx } from "#src/utils/cx";
 
 export type ReorderableTabMeta = { label: () => string; icon: FC<{ className?: string }> };
 

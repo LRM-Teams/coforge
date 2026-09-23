@@ -1,6 +1,6 @@
 import { MessageSquare01 as MessagesSquare } from "@untitledui/icons";
 
-import { m } from "@/paraglide/messages";
+import { m } from "#src/paraglide/messages";
 
 export function EmptyConversation() {
   return (

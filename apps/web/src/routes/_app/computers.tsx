@@ -1,12 +1,15 @@
 import { useCallback, useState } from "react";
 import { Outlet, createFileRoute, getRouteApi, useParams } from "@tanstack/react-router";
-import { AddComputerDialog } from "@/features/computers/add-computer-dialog";
-import { ComputerLayout, UpgradingComputerProvider } from "@/features/computers/computer-layout";
-import { ComputersPending } from "@/features/computers/computers-pending";
-import { getLatestComputerVersion, listComputers } from "@/features/computers/computers.functions";
-import { PageLoadError } from "@/features/errors/page-load-error";
-import { getInstallOrigin } from "@/features/install/install.functions";
-import { getUserPreferences } from "@/features/settings/settings.functions";
+import { AddComputerDialog } from "#src/features/computers/add-computer-dialog";
+import { ComputerLayout, UpgradingComputerProvider } from "#src/features/computers/computer-layout";
+import { ComputersPending } from "#src/features/computers/computers-pending";
+import {
+  getLatestComputerVersion,
+  listComputers,
+} from "#src/features/computers/computers.functions";
+import { PageLoadError } from "#src/features/errors/page-load-error";
+import { getInstallOrigin } from "#src/features/install/install.functions";
+import { getUserPreferences } from "#src/features/settings/settings.functions";
 
 const appRoute = getRouteApi("/_app");
 

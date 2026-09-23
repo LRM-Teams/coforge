@@ -1,10 +1,10 @@
 import { useEffect, useState } from "react";
 import { Clock, Link01 as LinkIcon, Repeat01 as Repeat } from "@untitledui/icons";
 import { Link } from "@tanstack/react-router";
-import { Button } from "@/components/base/buttons/button";
-import { RelativeTime } from "@/components/ui/relative-time";
-import { m } from "@/paraglide/messages";
-import type { AgentReminderListItem } from "../../server/agents/agent-reminders.server";
+import { Button } from "#src/components/base/buttons/button";
+import { RelativeTime } from "#src/components/ui/relative-time";
+import { m } from "#src/paraglide/messages";
+import type { AgentReminderListItem } from "#src/server/agents/agent-reminders.server";
 
 type ListResult = Awaited<
   ReturnType<typeof import("./agent-reminders.functions").listAgentReminders>

@@ -4,16 +4,16 @@ import { createHash } from "node:crypto";
 // under `bun test` (Bun's own bundler recognizes the same `?raw` suffix), so the same import
 // works identically in the Vite production build and in the test runner without a separate
 // loader or a generated TS module.
-import actionCardsBody from "./topics/action-cards.md?raw";
-import attachmentsBody from "./topics/attachments.md?raw";
-import channelsBody from "./topics/channels.md?raw";
-import etiquetteBody from "./topics/etiquette.md?raw";
-import githubBody from "./topics/github.md?raw";
-import manualBody from "./topics/manual.md?raw";
-import memoryBody from "./topics/memory.md?raw";
-import profileBody from "./topics/profile.md?raw";
-import remindersBody from "./topics/reminders.md?raw";
-import tasksBody from "./topics/tasks.md?raw";
+import actionCardsBody from "#src/server/agents/manual/topics/action-cards.md?raw";
+import attachmentsBody from "#src/server/agents/manual/topics/attachments.md?raw";
+import channelsBody from "#src/server/agents/manual/topics/channels.md?raw";
+import etiquetteBody from "#src/server/agents/manual/topics/etiquette.md?raw";
+import githubBody from "#src/server/agents/manual/topics/github.md?raw";
+import manualBody from "#src/server/agents/manual/topics/manual.md?raw";
+import memoryBody from "#src/server/agents/manual/topics/memory.md?raw";
+import profileBody from "#src/server/agents/manual/topics/profile.md?raw";
+import remindersBody from "#src/server/agents/manual/topics/reminders.md?raw";
+import tasksBody from "#src/server/agents/manual/topics/tasks.md?raw";
 
 /** One Agent Manual topic. `slug`/`title`/`summary` are a small typed registry here
  * rather than markdown frontmatter, to avoid a frontmatter parser for two fields. */

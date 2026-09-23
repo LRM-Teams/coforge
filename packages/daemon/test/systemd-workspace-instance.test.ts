@@ -3,7 +3,7 @@ import {
   SystemdWorkspaceInstance,
   workspaceUnit,
   type WorkspaceInstanceConfig,
-} from "../src/supervisor/systemd-workspace-instance";
+} from "#src/supervisor/systemd-workspace-instance";
 
 const config: WorkspaceInstanceConfig = {
   stateRoot: "/tmp/coforge-state",

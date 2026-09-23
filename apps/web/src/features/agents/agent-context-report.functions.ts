@@ -1,13 +1,13 @@
 import { createServerFn } from "@tanstack/react-start";
 import { setResponseHeader } from "@tanstack/react-start/server";
 import { agentIdSchema } from "./agent.schemas";
-import { AppError } from "@/lib/app-error";
-import { workspaceUserMiddleware } from "../../server/auth/function-auth";
+import { AppError } from "#src/lib/app-error";
+import { workspaceUserMiddleware } from "#src/features/auth/function-auth";
 import {
   readAgentContextReport,
   scanAgentContextReport,
-} from "../../server/agents/agent-context-report.server";
-import { waitForUsageScanResult } from "../computers/usage-poll";
+} from "#src/server/agents/agent-context-report.server";
+import { waitForUsageScanResult } from "#src/features/computers/usage-poll";
 
 /**
  * The Agent profile panel's context-composition read: the last stored report plus its

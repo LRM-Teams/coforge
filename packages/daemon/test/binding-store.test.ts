@@ -2,8 +2,8 @@ import { expect, test } from "bun:test";
 import { mkdtemp, readdir, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { FileBindingStore } from "../src/supervisor/binding-store";
-import type { ManagedBinding } from "../src/supervisor/machine-supervisor";
+import { FileBindingStore } from "#src/supervisor/binding-store";
+import type { ManagedBinding } from "#src/supervisor/machine-supervisor";
 
 test("binding registry save completes on this platform without requiring directory fsync", async () => {
   const root = await mkdtemp(join(tmpdir(), "coforge-bindings-platform-"));

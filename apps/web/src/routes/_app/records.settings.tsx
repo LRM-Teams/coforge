@@ -1,11 +1,11 @@
 import { createFileRoute } from "@tanstack/react-router";
 
-import { PageLoadError } from "@/features/errors/page-load-error";
-import { WeeklyReportSettings } from "@/features/records/weekly-report-settings";
-import { loadKeyPointPrompts, loadWeeklyTemplates } from "@/features/records/records.functions";
-import { sanitizeRecordsReturnTo } from "@/features/records/records-return-to";
-import type { RecordsTab } from "@/features/records/records-layout";
-import { loadWorkspaceMembers } from "@/features/workspaces/members.functions";
+import { PageLoadError } from "#src/features/errors/page-load-error";
+import { WeeklyReportSettings } from "#src/features/records/weekly-report-settings";
+import { loadKeyPointPrompts, loadWeeklyTemplates } from "#src/features/records/records.functions";
+import { sanitizeRecordsReturnTo } from "#src/features/records/records-return-to";
+import type { RecordsTab } from "#src/features/records/records-layout";
+import { loadWorkspaceMembers } from "#src/features/workspaces/members.functions";
 
 export type SettingsSection = "templates" | "key_points";
 export type KeyPointSlotSearch = "team" | "personal";

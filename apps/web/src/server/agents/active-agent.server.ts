@@ -1,5 +1,5 @@
-import type { Prisma } from "../../../generated/client";
-import { AppError } from "../../lib/app-error";
+import type { Prisma } from "#src/generated/prisma/client";
+import { AppError } from "#src/lib/app-error";
 
 /**
  * An `Agent` row that has not been deleted. `deletedAt` is the delete marker: an

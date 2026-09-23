@@ -7,7 +7,7 @@ import {
   type CodeAgentModelMetadata,
   type RuntimeProvider,
 } from "@lrm/coforge-sdk/internal";
-import { AppError } from "@/lib/app-error";
+import { AppError } from "#src/lib/app-error";
 
 import {
   computerIdInputSchema,
@@ -21,23 +21,23 @@ import {
 import {
   workspaceUserMiddleware,
   type WorkspaceUserContext,
-} from "../../server/auth/function-auth";
+} from "#src/features/auth/function-auth";
 import {
   createCentrifugoServerApi,
   createUsageScan,
   daemonControlChannel,
-} from "../../server/centrifugo/server-api.server";
-import { getUsageCache } from "../../server/centrifugo/usage-cache.server";
-import { getComputerStatusCache } from "../../server/centrifugo/computer-status.server";
-import { computerCreatorAvatarUrl } from "../../server/computers/computer-creator-avatar.server";
-import { isWorkspaceMemberComputer } from "../../server/computers/computer-membership.server";
-import { ComputerRuntimeVisibility } from "../../server/computers/computer-runtime-visibility.server";
-import { PrismaComputerRuntimeRepository } from "../../server/db/repositories/computer-runtime.repositories.server";
-import { RestartComputer } from "../../server/computers/restart-computer.server";
-import { getComputerRestartStore } from "../../server/computers/computer-restart-store.server";
-import { getComputerUpgradeStore } from "../../server/computers/computer-upgrade-store.server";
-import { UpgradeComputer } from "../../server/computers/upgrade-computer.server";
-import { resolveReleaseFeedUrl } from "../../server/install/install-script.server";
+} from "#src/server/centrifugo/server-api.server";
+import { getUsageCache } from "#src/server/centrifugo/usage-cache.server";
+import { getComputerStatusCache } from "#src/server/centrifugo/computer-status.server";
+import { computerCreatorAvatarUrl } from "#src/server/computers/computer-creator-avatar.server";
+import { isWorkspaceMemberComputer } from "#src/server/computers/computer-membership.server";
+import { ComputerRuntimeVisibility } from "#src/server/computers/computer-runtime-visibility.server";
+import { PrismaComputerRuntimeRepository } from "#src/server/db/repositories/computer-runtime.repositories.server";
+import { RestartComputer } from "#src/server/computers/restart-computer.server";
+import { getComputerRestartStore } from "#src/server/computers/computer-restart-store.server";
+import { getComputerUpgradeStore } from "#src/server/computers/computer-upgrade-store.server";
+import { UpgradeComputer } from "#src/server/computers/upgrade-computer.server";
+import { resolveReleaseFeedUrl } from "#src/server/install/install-script.server";
 
 export const restartComputer = createServerFn({ method: "POST" })
   .middleware([workspaceUserMiddleware])

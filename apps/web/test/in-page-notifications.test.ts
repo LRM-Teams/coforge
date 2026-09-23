@@ -3,7 +3,7 @@ import { describe, expect, test } from "bun:test";
 import {
   isInPageNotificationEnabled,
   shouldShowInPageNotification,
-} from "../src/features/notifications/in-page-notifications";
+} from "#src/features/notifications/in-page-notifications";
 
 describe("isInPageNotificationEnabled", () => {
   test("requires both the preference and a granted browser permission", () => {

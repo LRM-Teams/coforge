@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import type { AgentMessageDelivery } from "@lrm/coforge-sdk/internal";
-import { AgentDeliveryQueue } from "../src/daemon-runtime/agent-delivery-queue";
+import { AgentDeliveryQueue } from "#src/daemon-runtime/agent-delivery-queue";
 
 const delivery = (id: string): AgentMessageDelivery => ({
   protocolMajor: 1,

@@ -1,4 +1,4 @@
-import { nameToSlug } from "../../lib/slug";
+import { nameToSlug } from "#src/lib/slug";
 
 export const WORKSPACE_SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 

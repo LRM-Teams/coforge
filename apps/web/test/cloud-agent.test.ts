@@ -9,12 +9,12 @@ import {
 import {
   PublishAgentRuntimeControl,
   WorkspaceAgentRecovery,
-} from "../src/server/agents/agent-runtime-control.server";
+} from "#src/server/agents/agent-runtime-control.server";
 import {
   AgentControl,
   type AgentControlAgent,
   type AgentControlStore,
-} from "../src/server/agents/agent-control.server";
+} from "#src/server/agents/agent-control.server";
 
 describe("PublishAgentRuntimeControl", () => {
   test("ready recovery publishes stored runtime config for every Workspace Agent", async () => {

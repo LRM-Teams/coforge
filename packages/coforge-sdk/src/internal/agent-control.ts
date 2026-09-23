@@ -3,7 +3,7 @@ import { create, fromBinary, toBinary } from "@bufbuild/protobuf";
 import {
   AgentWorkspaceResetRequestSchema,
   AgentControlResultSchema,
-} from "./gen/coforge/rpc/v1/agent_control_pb";
+} from "#src/internal/gen/coforge/rpc/v1/agent_control_pb";
 import { parseRuntimeProvider, type RuntimeProvider } from "./index";
 
 export const AGENT_WORKSPACE_RESET_METHOD = RPC_METHODS.agentWorkspaceReset;

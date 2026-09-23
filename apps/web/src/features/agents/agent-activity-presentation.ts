@@ -6,7 +6,7 @@ import {
   canonicalToolName,
   toolActivityLabel,
 } from "@lrm/coforge-sdk/internal";
-import type { StatusTone } from "@/components/ui/status-dot";
+import type { StatusTone } from "#src/components/ui/status-dot";
 
 export type ActivityObservation = Pick<
   ActivityEntry,

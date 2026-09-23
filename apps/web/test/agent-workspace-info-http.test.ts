@@ -3,7 +3,7 @@ import { RUNTIME_PROVIDER } from "@lrm/coforge-sdk/internal";
 
 // The live status source: only `agent-1` (on computer-1) has an "online" display snapshot; every
 // other read throws, which the route must report as "unknown", never as a failure.
-mock.module("../src/server/agents/agent-display.server", () => ({
+mock.module("#src/server/agents/agent-display.server", () => ({
   getAgentDisplay: () => ({
     snapshot: async (scope: { workspaceId: string; computerId: string; agentId: string }) => {
       if (scope.agentId !== "agent-1") throw new Error("no snapshot");
@@ -23,7 +23,7 @@ mock.module("../src/server/agents/agent-display.server", () => ({
   }),
 }));
 
-const { Route } = await import("../src/routes/api/agent/v1/workspace");
+const { Route } = await import("#src/routes/api/agent/v1/workspace");
 
 afterAll(() => {
   mock.restore();

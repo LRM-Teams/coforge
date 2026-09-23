@@ -8,12 +8,12 @@ import {
   type AgentRuntimeEvent,
   type CodeAgentProvider,
   type UsageSnapshot,
-} from "../code-agent/contract";
+} from "#src/code-agent/contract";
 import { mkdirSync } from "node:fs";
-import { readOperatingSystem } from "../platform/operating-system";
-import { ActivityTrajectory } from "../agent-runtime/activity-trajectory";
-import { CompactionTracker } from "../agent-runtime/compaction-tracker";
-import { RuntimeProgressTracker } from "../agent-runtime/runtime-progress";
+import { readOperatingSystem } from "#src/platform/operating-system";
+import { ActivityTrajectory } from "#src/agent-runtime/activity-trajectory";
+import { CompactionTracker } from "#src/agent-runtime/compaction-tracker";
+import { RuntimeProgressTracker } from "#src/agent-runtime/runtime-progress";
 import {
   buildRuntimeErrorActivity,
   buildRuntimeCrashedActivity,
@@ -21,27 +21,27 @@ import {
   scrubRuntimeErrorText,
   fingerprintRuntimeError,
   type RuntimeErrorEvent,
-} from "../agent-runtime/runtime-error-activity";
+} from "#src/agent-runtime/runtime-error-activity";
 import {
   classifyRuntimeErrorText,
   RUNTIME_ERROR_RETRY_DECISION,
   type RuntimeErrorClassification,
-} from "../agent-runtime/runtime-error-classification";
+} from "#src/agent-runtime/runtime-error-classification";
 import {
   RuntimeErrorDeliveryBackoff,
   RuntimeErrorFingerprintFence,
   runtimeErrorFingerprintFenceDetail,
   type RuntimeErrorFingerprintFenceState,
-} from "../agent-runtime/runtime-error-recovery";
+} from "#src/agent-runtime/runtime-error-recovery";
 import {
   AgentProcessManager,
   type CodeAgentProviderFactory,
   type AgentRuntime,
-} from "../agent-runtime/agent-process-manager";
-import { parseAssignedSkillPacks } from "../code-agent/assigned-skills";
-import { launchCategoryText, launchFailureTrace } from "../agent-runtime/launch-failure";
-import { agentRuntimeContextEnvironment } from "../code-agent/environment";
-import { toolActivity } from "../code-agent/tool-activity";
+} from "#src/agent-runtime/agent-process-manager";
+import { parseAssignedSkillPacks } from "#src/code-agent/assigned-skills";
+import { launchCategoryText, launchFailureTrace } from "#src/agent-runtime/launch-failure";
+import { agentRuntimeContextEnvironment } from "#src/code-agent/environment";
+import { toolActivity } from "#src/code-agent/tool-activity";
 export type DaemonConfig = {
   workspaceId: string;
   computerId: string;
@@ -50,11 +50,11 @@ export type DaemonConfig = {
 };
 /** @deprecated wire-facing callers should use DaemonConfig internally. */
 export type WorkspaceConfig = DaemonConfig;
-import type { DaemonCredentialStore } from "../credentials/credential-store";
+import type { DaemonCredentialStore } from "#src/credentials/credential-store";
 import type {
   DaemonConnectionClient,
   DaemonConnectionClientFactory,
-} from "../connection/daemon-connection";
+} from "#src/connection/daemon-connection";
 import {
   WORKSPACE_PROTOCOL_MAJOR,
   AGENT_ACTIVITY_DETAIL_KIND,
@@ -106,17 +106,17 @@ import {
   AGENT_MESSAGE_ACK_METHOD,
   freshnessDecisionFactId,
 } from "@lrm/coforge-sdk/internal";
-import { agentWorkspaceDirectory } from "../agent-runtime/agent-workspace-path";
-import { memoryIndexReminder } from "../agent-runtime/agent-memory-seed";
-import { AgentControl } from "../agent-runtime/agent-control";
-import { AgentSessions } from "../agent-runtime/agent-session";
-import { AgentRuntimeState } from "../agent-runtime/agent-runtime-state";
-import { MemoryAgentRuntimeStateStore } from "../persistence/memory-agent-runtime-state-store";
-import { listAgentSkills } from "../code-agent/agent-skills";
+import { agentWorkspaceDirectory } from "#src/agent-runtime/agent-workspace-path";
+import { memoryIndexReminder } from "#src/agent-runtime/agent-memory-seed";
+import { AgentControl } from "#src/agent-runtime/agent-control";
+import { AgentSessions } from "#src/agent-runtime/agent-session";
+import { AgentRuntimeState } from "#src/agent-runtime/agent-runtime-state";
+import { MemoryAgentRuntimeStateStore } from "#src/persistence/memory-agent-runtime-state-store";
+import { listAgentSkills } from "#src/code-agent/agent-skills";
 import {
   listAgentWorkspaceFiles,
   readAgentWorkspaceFile,
-} from "../agent-runtime/agent-workspace-files";
+} from "#src/agent-runtime/agent-workspace-files";
 import { AgentMessageAttentionIndex } from "./agent-message-attention-index";
 import { AgentDeliveryQueue } from "./agent-delivery-queue";
 import { AgentInboxStateMachine } from "./agent-inbox-state-machine";
@@ -126,21 +126,21 @@ import {
   planAgentInboxFreshness,
 } from "./agent-inbox-freshness";
 import { heldFreshnessActivity, heldFreshnessMessageCount } from "./agent-inbox-freshness-activity";
-import { AgentConsumedSeqStore } from "../persistence/agent-consumed-seq-store";
-import { AgentMessageDraftStore } from "../persistence/agent-message-draft-store";
-import { AgentAppInbox, type MintAppItem } from "../agent-app-inbox/agent-app-inbox";
-import { isAgentApiKey } from "../credentials/agent-api-key";
+import { AgentConsumedSeqStore } from "#src/persistence/agent-consumed-seq-store";
+import { AgentMessageDraftStore } from "#src/persistence/agent-message-draft-store";
+import { AgentAppInbox, type MintAppItem } from "#src/agent-app-inbox/agent-app-inbox";
+import { isAgentApiKey } from "#src/credentials/agent-api-key";
 import { AgentPreflightError } from "./agent-preflight-error";
 import {
   discoverCodeAgentRuntimes,
   discoverCodeAgentCatalogs,
   loadCachedCodeAgentCatalogs,
-} from "../code-agent/runtime-inventory";
+} from "#src/code-agent/runtime-inventory";
 import { getLogger } from "@logtape/logtape";
-import { COFORGE_DAEMON_VERSION } from "../version";
-import { ReminderScheduler, reminderAppInboxPreview } from "../agent-reminder/reminder-scheduler";
-import { FileReminderReceiptStore } from "../persistence/reminder-receipt-store";
-import { diagnosticErrorCode } from "../platform/diagnostic-error-code";
+import { COFORGE_DAEMON_VERSION } from "#src/version";
+import { ReminderScheduler, reminderAppInboxPreview } from "#src/agent-reminder/reminder-scheduler";
+import { FileReminderReceiptStore } from "#src/persistence/reminder-receipt-store";
+import { diagnosticErrorCode } from "#src/platform/diagnostic-error-code";
 import type {
   AgentActionPrepareRequest,
   AgentActionPrepareResponse,
@@ -3875,10 +3875,10 @@ export class DaemonRuntime {
   async agentWeeklyReportCollect(
     context: string,
     command:
-      | import("../connection/weekly-report-collect").WeeklyReportCollectCommand
-      | import("../connection/weekly-report-collect").WeeklyReportCollectFailRunningCommand,
+      | import("#src/connection/weekly-report-collect").WeeklyReportCollectCommand
+      | import("#src/connection/weekly-report-collect").WeeklyReportCollectFailRunningCommand,
     agentApiKey?: string,
-  ): Promise<import("../connection/weekly-report-collect").WeeklyReportCollectResult> {
+  ): Promise<import("#src/connection/weekly-report-collect").WeeklyReportCollectResult> {
     if (this.#stopping || !this.#started) throw new Error("daemon runtime is not running");
     this.#agentIdForContext(context);
     if (!this.#transport.agentWeeklyReportCollect)
@@ -3890,9 +3890,9 @@ export class DaemonRuntime {
   /** Forwards personal key-point extraction write-back over Agent HTTPS. */
   async agentWeeklyReportKeyPoints(
     context: string,
-    command: import("../connection/weekly-report-key-points").WeeklyReportKeyPointsCommand,
+    command: import("#src/connection/weekly-report-key-points").WeeklyReportKeyPointsCommand,
     agentApiKey?: string,
-  ): Promise<import("../connection/weekly-report-key-points").WeeklyReportKeyPointsResult> {
+  ): Promise<import("#src/connection/weekly-report-key-points").WeeklyReportKeyPointsResult> {
     if (this.#stopping || !this.#started) throw new Error("daemon runtime is not running");
     this.#agentIdForContext(context);
     if (!this.#transport.agentWeeklyReportKeyPoints)

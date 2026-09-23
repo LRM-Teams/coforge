@@ -6,13 +6,13 @@ import {
   XClose as X,
 } from "@untitledui/icons";
 
-import { ButtonUtility } from "@/components/base/buttons/button-utility";
-import { AgentActivityAvatar } from "@/features/agents/agent-activity-avatar";
-import { agentDisplay } from "@/features/agents/agent-activity-presentation";
-import type { AgentRuntimeControls } from "@/features/agents/agent-runtime-controls";
-import { useAgentRecentActivity } from "@/features/agents/workspace-agents-realtime";
-import { m } from "@/paraglide/messages";
-import { localizeHref } from "@/paraglide/runtime";
+import { ButtonUtility } from "#src/components/base/buttons/button-utility";
+import { AgentActivityAvatar } from "#src/features/agents/agent-activity-avatar";
+import { agentDisplay } from "#src/features/agents/agent-activity-presentation";
+import type { AgentRuntimeControls } from "#src/features/agents/agent-runtime-controls";
+import { useAgentRecentActivity } from "#src/features/agents/workspace-agents-realtime";
+import { m } from "#src/paraglide/messages";
+import { localizeHref } from "#src/paraglide/runtime";
 import type { AgentDisplaySnapshot } from "@lrm/coforge-sdk/internal";
 
 /**

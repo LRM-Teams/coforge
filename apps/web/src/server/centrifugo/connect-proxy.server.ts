@@ -1,4 +1,7 @@
-import { verifyDaemonApiKey, type DaemonApiKeyRepository } from "../auth/daemon-api-key.server";
+import {
+  verifyDaemonApiKey,
+  type DaemonApiKeyRepository,
+} from "#src/server/auth/daemon-api-key.server";
 
 type ConnectRequest = {
   data?: unknown;

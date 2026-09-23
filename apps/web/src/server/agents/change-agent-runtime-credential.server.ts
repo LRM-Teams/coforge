@@ -1,6 +1,6 @@
 import type { AgentStartIntent, AgentStopIntent } from "@lrm/coforge-sdk/internal";
 import { assertAgentLive } from "./active-agent.server";
-import type { AgentRecord } from "../db/repositories/agent.repositories.server";
+import type { AgentRecord } from "#src/server/db/repositories/agent.repositories.server";
 import type { AgentRuntimeLock } from "./agent-runtime-lock.server";
 import { agentStartIntent, agentStopIntent } from "./manage-agents.server";
 import type {

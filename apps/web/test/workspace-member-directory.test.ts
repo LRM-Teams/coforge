@@ -1,13 +1,13 @@
 import { expect, test } from "bun:test";
 
-import { AppError } from "../src/lib/app-error";
+import { AppError } from "#src/lib/app-error";
 import {
   WorkspaceMemberDirectory,
   type WorkspaceMemberDirectoryStore,
   type WorkspaceInvitationRecord,
   type WorkspaceMemberRecord,
-} from "../src/server/workspaces/member-directory.server";
-import type { WorkspaceMemberRole } from "../src/server/workspaces/member-role.server";
+} from "#src/server/workspaces/member-directory.server";
+import type { WorkspaceMemberRole } from "#src/server/workspaces/member-role.server";
 
 const workspaceId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const ownerId = "11111111-1111-4111-8111-111111111111";

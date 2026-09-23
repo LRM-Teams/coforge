@@ -4,9 +4,9 @@ import {
   AgentEnvironment,
   decryptAgentEnvironment,
   validateAgentEnvironment,
-} from "../src/server/agents/agent-environment.server";
-import { publicAgentRuntimeConfig } from "../src/server/agents/agent-runtime-config.server";
-import type { AgentRecord } from "../src/server/db/repositories/agent.repositories.server";
+} from "#src/server/agents/agent-environment.server";
+import { publicAgentRuntimeConfig } from "#src/server/agents/agent-runtime-config.server";
+import type { AgentRecord } from "#src/server/db/repositories/agent.repositories.server";
 
 const principal = { workspaceId: "workspace-1", userId: "owner-1" };
 function fixture(

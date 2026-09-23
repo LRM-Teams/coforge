@@ -6,7 +6,7 @@ import kiroMark from "@lobehub/icons-static-svg/icons/kiro-color.svg";
 import grokMark from "@lobehub/icons-static-svg/icons/grok.svg";
 import opencodeMark from "@lobehub/icons-static-svg/icons/opencode.svg";
 import piMark from "@lobehub/icons-static-svg/icons/pi.svg";
-import { m } from "@/paraglide/messages";
+import { m } from "#src/paraglide/messages";
 
 /**
  * The one display table for a RuntimeProvider: shared by the Agent runtime picker, the Agent

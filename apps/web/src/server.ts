@@ -1,8 +1,8 @@
 import handler from "@tanstack/react-start/server-entry";
 
-import { paraglideMiddleware } from "./paraglide/server";
-import { assertStartupConfig } from "./server/startup-config.server";
-import { startWeeklyReportScheduleTickFromEnv } from "./server/records/weekly-report-schedule-tick.server";
+import { paraglideMiddleware } from "#src/paraglide/server";
+import { assertStartupConfig } from "#src/server/startup-config.server";
+import { startWeeklyReportScheduleTickFromEnv } from "#src/server/records/weekly-report-schedule-tick.server";
 
 // Fail the boot, not the first request, on invalid deployment configuration.
 await assertStartupConfig();

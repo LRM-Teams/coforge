@@ -1,10 +1,10 @@
 import { ProgressBar } from "react-aria-components";
 import { Loading02, ArrowUp } from "@untitledui/icons";
 
-import { Tooltip, TooltipTrigger } from "@/components/base/tooltip/tooltip";
-import { StatusDot } from "@/components/ui/status-dot";
-import { cn } from "@/lib/utils";
-import { m } from "@/paraglide/messages";
+import { Tooltip, TooltipTrigger } from "#src/components/base/tooltip/tooltip";
+import { StatusDot } from "#src/components/ui/status-dot";
+import { cn } from "#src/lib/utils";
+import { m } from "#src/paraglide/messages";
 import { computerIcon, type ComputerIdentity } from "./computer-identity";
 
 /** Pixel-proportional pieces for each tile size, keyed off the default `md` (36px) shape. */

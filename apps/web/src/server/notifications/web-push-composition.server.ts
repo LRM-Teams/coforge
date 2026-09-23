@@ -1,7 +1,7 @@
-import type { PrismaClient } from "../../../generated/client";
-import { isAppError } from "../../lib/app-error";
-import { createCentrifugoServerApi } from "../centrifugo/server-api.server";
-import { toPublicServerError } from "../errors/public-error.server";
+import type { PrismaClient } from "#src/generated/prisma/client";
+import { isAppError } from "#src/lib/app-error";
+import { createCentrifugoServerApi } from "#src/server/centrifugo/server-api.server";
+import { toPublicServerError } from "#src/server/errors/public-error.server";
 import { createCentrifugoNotificationPublisher } from "./in-page-notification-publisher.server";
 import { PrismaWebPushSubscriptionStore } from "./prisma-web-push-subscriptions.server";
 import {

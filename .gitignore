@@ -4,7 +4,7 @@ dist/
 .data/
 .vscode/
 apps/web/src/paraglide/
-apps/web/generated/
+apps/web/src/generated/
 .amp/portals/*
 .amp/e2e/
 .amp/transfer/

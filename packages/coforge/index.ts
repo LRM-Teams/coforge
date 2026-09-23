@@ -20,7 +20,7 @@ import {
   type WeeklyReportResponse,
   WEEKLY_REPORT_SUBJECT_TYPES,
 } from "@lrm/coforge-sdk/internal";
-import { parseDurationSeconds } from "./src/reminder-duration";
+import { parseDurationSeconds } from "#src/reminder-duration";
 import {
   createAgentApiClient,
   createMessageTransportAgentApiTransport,
@@ -35,10 +35,10 @@ import {
   type GitHubCredentialResponse,
   type WorkspaceInfoRuntimeContext,
 } from "@lrm/coforge-sdk/agent";
-import { COFORGE_CLI_VERSION } from "./src/version";
-import { formatManualGet, formatManualSearchResults } from "./src/manual-format";
-import { formatProfile, formatUserInfo } from "./src/user-format";
-import { parseActionCardInput, toActionCardAction } from "./src/action-prepare-input";
+import { COFORGE_CLI_VERSION } from "#src/version";
+import { formatManualGet, formatManualSearchResults } from "#src/manual-format";
+import { formatProfile, formatUserInfo } from "#src/user-format";
+import { parseActionCardInput, toActionCardAction } from "#src/action-prepare-input";
 import {
   formatAttachmentDownloadSuccess,
   formatAttachmentUploadSuccess,
@@ -47,7 +47,7 @@ import {
   formatReadWindow,
   formatSearchResults,
   formatSendSuccess,
-} from "./src/message-format";
+} from "#src/message-format";
 import {
   formatChannelAddMember,
   formatChannelArchive,
@@ -58,14 +58,14 @@ import {
   formatChannelMembers,
   formatChannelRemoveMember,
   formatChannelUpdate,
-} from "./src/channel-format";
+} from "#src/channel-format";
 import {
   CliError,
   NO_MESSAGE_SENT_NEXT_ACTION,
   unknownDeliveryNextAction,
   withOutputMode,
-} from "./src/cli-error";
-import { attachmentMimeType, validateAttachmentUploadArgs } from "./src/attachment-upload";
+} from "#src/cli-error";
+import { attachmentMimeType, validateAttachmentUploadArgs } from "#src/attachment-upload";
 
 export { createAgentApiClient } from "@lrm/coforge-sdk/agent";
 

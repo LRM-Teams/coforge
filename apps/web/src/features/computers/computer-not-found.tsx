@@ -1,7 +1,7 @@
 import { Monitor03 as MonitorX } from "@untitledui/icons";
 
-import { PageHeader } from "@/components/layout/page-header";
-import { m } from "@/paraglide/messages";
+import { PageHeader } from "#src/components/layout/page-header";
+import { m } from "#src/paraglide/messages";
 import { BackToComputers } from "./computer-layout";
 
 /**

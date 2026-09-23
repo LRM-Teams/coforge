@@ -1,29 +1,29 @@
 import { AGENT_ACTIVITY_DETAIL_KIND } from "@lrm/coforge-sdk/internal";
 import { decodeAgentActivity, encodeAgentActivity } from "@lrm/coforge-sdk/internal";
 
-import { getDatabaseClient } from "../db/client.server";
-import { PrismaAgentRepository } from "../db/repositories/agent.repositories.server";
+import { getDatabaseClient } from "#src/server/db/client.server";
+import { PrismaAgentRepository } from "#src/server/db/repositories/agent.repositories.server";
 import {
   AgentActivityRepository,
   type TrustedAgentActivity,
-} from "../db/repositories/agent-activity.repositories.server";
+} from "#src/server/db/repositories/agent-activity.repositories.server";
 import {
   activityKindForObservation,
   getAgentDisplay,
   type AgentDisplay,
 } from "./agent-display.server";
 import { ensureAgentActivitySweep } from "./agent-activity-sweep.server";
-import { createCentrifugoServerApi } from "../centrifugo/server-api.server";
+import { createCentrifugoServerApi } from "#src/server/centrifugo/server-api.server";
 import {
   agentStatusChannel,
   agentStatusChannelForAgent,
-} from "../../features/agents/agent-status-realtime";
+} from "#src/features/agents/agent-status-realtime";
 import {
   agentActivityChannel,
   agentActivityChannelForAgent,
   isRunStartMarker,
-} from "../../features/agents/agent-activity";
-import { AGENT_VISIBILITY } from "../../features/agents/agent-visibility";
+} from "#src/features/agents/agent-activity";
+import { AGENT_VISIBILITY } from "#src/features/agents/agent-visibility";
 import type { AgentActivityKind } from "@lrm/coforge-sdk/internal";
 
 type AgentActivityPublicationDependencies = {

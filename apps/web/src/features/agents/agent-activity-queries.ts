@@ -12,7 +12,10 @@ import {
   RECENT_ACTIVITY_LIMIT,
   type ActivityEntry,
 } from "./agent-activity";
-import { useRealtimeSubscription, useRealtimeSubscriptions } from "../realtime/browser-realtime";
+import {
+  useRealtimeSubscription,
+  useRealtimeSubscriptions,
+} from "#src/features/realtime/browser-realtime";
 import type { QueryClient } from "@tanstack/react-query";
 
 export const agentActivityKeys = {

@@ -13,11 +13,11 @@ import {
     Popover as AriaPopover,
     SearchField as AriaSearchField,
 } from "react-aria-components";
-import { Button } from "@/components/base/buttons/button";
-import { HintText } from "@/components/base/input/hint-text";
-import { Label } from "@/components/base/input/label";
-import { FeaturedIcon } from "@/components/foundations/featured-icon/featured-icon";
-import { cx } from "@/utils/cx";
+import { Button } from "#src/components/base/buttons/button";
+import { HintText } from "#src/components/base/input/hint-text";
+import { Label } from "#src/components/base/input/label";
+import { FeaturedIcon } from "#src/components/foundations/featured-icon/featured-icon";
+import { cx } from "#src/utils/cx";
 import { SelectItem } from "./select-item";
 import { type CommonProps, SelectContext, type SelectItemType, sizes } from "./select-shared";
 

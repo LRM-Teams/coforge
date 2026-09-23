@@ -10,7 +10,7 @@ import {
   pickPinnedWeekTemplate,
   splitWeeklyTemplateRoles,
   weeklySendWindow,
-} from "../src/features/records/weekly-send-window";
+} from "#src/features/records/weekly-send-window";
 
 test("currentWeekTemplateTitle uses year and week", () => {
   expect(currentWeekTemplateTitle(2026, 36)).toBe("2026 W36 模板");

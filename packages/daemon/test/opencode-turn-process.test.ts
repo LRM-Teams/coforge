@@ -1,11 +1,11 @@
 import { describe, expect, test } from "bun:test";
 
-import { OpenCodeTurnProcess } from "../src/code-agent/opencode/turn-process";
+import { OpenCodeTurnProcess } from "#src/code-agent/opencode/turn-process";
 import type {
   OwnedChildProcess,
   OwnedProcessTree,
   ProcessTreeSpawner,
-} from "../src/platform/process-tree";
+} from "#src/platform/process-tree";
 
 /** Records `stdin.end()` calls so the test can assert EOF is signalled to the child. */
 class RecordingSpawner implements ProcessTreeSpawner {

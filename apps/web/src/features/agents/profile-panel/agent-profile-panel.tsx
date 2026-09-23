@@ -4,43 +4,43 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { getRouteApi, useRouter } from "@tanstack/react-router";
 import { Edit01 as Pencil, UserX01, XClose as X } from "@untitledui/icons";
 
-import { ButtonUtility } from "@/components/base/buttons/button-utility";
-import { isAppError } from "@/lib/app-error";
-import { Skeleton } from "@/components/ui/skeleton";
+import { ButtonUtility } from "#src/components/base/buttons/button-utility";
+import { isAppError } from "#src/lib/app-error";
+import { Skeleton } from "#src/components/ui/skeleton";
 import {
   Empty,
   EmptyHeader,
   EmptyMedia,
   EmptyTitle,
   EmptyDescription,
-} from "@/components/ui/empty";
-import { m } from "@/paraglide/messages";
-import { useSubmitGuard } from "@/hooks/use-submit-guard";
-import { useLiveAgent, useAgentActivityFeed } from "@/features/agents/workspace-agents-realtime";
-import { agentDisplay } from "@/features/agents/agent-activity-presentation";
-import { AgentActivityTimeline } from "@/features/agents/agent-activity-timeline";
-import { AgentReminders } from "@/features/agents/agent-reminders";
-import { listAgentReminders } from "@/features/agents/agent-reminders.functions";
-import { getAgentSkills } from "@/features/agents/agent-skills.functions";
+} from "#src/components/ui/empty";
+import { m } from "#src/paraglide/messages";
+import { useSubmitGuard } from "#src/hooks/use-submit-guard";
+import { useLiveAgent, useAgentActivityFeed } from "#src/features/agents/workspace-agents-realtime";
+import { agentDisplay } from "#src/features/agents/agent-activity-presentation";
+import { AgentActivityTimeline } from "#src/features/agents/agent-activity-timeline";
+import { AgentReminders } from "#src/features/agents/agent-reminders";
+import { listAgentReminders } from "#src/features/agents/agent-reminders.functions";
+import { getAgentSkills } from "#src/features/agents/agent-skills.functions";
 import {
   listAgentWorkspaceFiles,
   readAgentWorkspaceFile,
-} from "@/features/agents/agent-workspace-files.functions";
-import { useAgentRuntimeControls } from "@/features/agents/agent-runtime-controls";
-import { runtimeProviderLabel } from "@/features/agents/runtime-provider-display";
-import { executeAgentControl } from "@/features/agents/agent-control.functions";
-import { AgentControlDialogs } from "@/features/agents/agent-control-dialogs";
-import { AgentRuntimeCredentialDialog } from "@/features/agents/agent-runtime-credential-dialog";
+} from "#src/features/agents/agent-workspace-files.functions";
+import { useAgentRuntimeControls } from "#src/features/agents/agent-runtime-controls";
+import { runtimeProviderLabel } from "#src/features/agents/runtime-provider-display";
+import { executeAgentControl } from "#src/features/agents/agent-control.functions";
+import { AgentControlDialogs } from "#src/features/agents/agent-control-dialogs";
+import { AgentRuntimeCredentialDialog } from "#src/features/agents/agent-runtime-credential-dialog";
 import {
   AgentRuntimeConfigDialog,
   type AgentEnvironmentState,
-} from "@/features/agents/agent-runtime-config-dialog";
-import { useAgentRuntimeOptionsLoader } from "@/features/agents/agent-runtime-options";
+} from "#src/features/agents/agent-runtime-config-dialog";
+import { useAgentRuntimeOptionsLoader } from "#src/features/agents/agent-runtime-options";
 import {
   agentUpdateErrorMessage,
   parseAgentEnvironmentFromForm,
   updateAgentInputFromForm,
-} from "@/features/agents/agent-form";
+} from "#src/features/agents/agent-form";
 import {
   updateAgent,
   uploadAgentAvatar,
@@ -52,11 +52,11 @@ import {
   deleteAgent,
   changeAgentVisibility,
   previewAgentVisibilityChange,
-} from "@/features/agents/agents.functions";
-import { AgentDeleteDialog } from "@/features/agents/agent-delete-dialog";
-import { AgentVisibilityConfirmDialog } from "@/features/agents/agent-visibility-confirm-dialog";
-import type { AgentVisibility } from "@/features/agents/agent-visibility";
-import { useAppToast } from "@/components/ui/toast";
+} from "#src/features/agents/agents.functions";
+import { AgentDeleteDialog } from "#src/features/agents/agent-delete-dialog";
+import { AgentVisibilityConfirmDialog } from "#src/features/agents/agent-visibility-confirm-dialog";
+import type { AgentVisibility } from "#src/features/agents/agent-visibility";
+import { useAppToast } from "#src/components/ui/toast";
 import { AgentProfileHeader } from "./agent-profile-header";
 import { AgentProfileTabs, useAgentProfileTabOrder } from "./agent-profile-tabs";
 import { AgentProfileTab } from "./agent-profile-tab";

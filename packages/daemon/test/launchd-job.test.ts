@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { configure, reset, type LogRecord } from "@logtape/logtape";
-import { LaunchdJob } from "../src/platform/launchd-job";
+import { LaunchdJob } from "#src/platform/launchd-job";
 
 async function captureDaemonLogs<T>(operation: () => Promise<T>): Promise<LogRecord[]> {
   const records: LogRecord[] = [];

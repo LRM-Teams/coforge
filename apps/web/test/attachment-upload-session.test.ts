@@ -5,8 +5,8 @@ import {
   createAttachmentUploadSession,
   getAttachmentUploadSession,
   AttachmentUploadSessionError,
-} from "../src/server/attachments/attachment-upload-session.server";
-import type { FileStorage } from "../src/server/files/file-storage.server";
+} from "#src/server/attachments/attachment-upload-session.server";
+import type { FileStorage } from "#src/server/files/file-storage.server";
 
 type SessionRow = {
   id: string;

@@ -10,7 +10,7 @@
  * reloading the page loses a message. A retry reuses the request id, which the server treats as
  * the same send, so a message the server did accept is never posted twice.
  */
-import { isAppError } from "@/lib/app-error";
+import { isAppError } from "#src/lib/app-error";
 
 /** An attachment already uploaded for the message; its id is all a send needs. */
 export type OutgoingAttachment = { id: string; fileName: string };

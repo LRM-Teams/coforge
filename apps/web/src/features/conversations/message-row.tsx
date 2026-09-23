@@ -13,20 +13,25 @@ import {
 } from "@untitledui/icons";
 import { Modal as AriaModal, ModalOverlay as AriaModalOverlay } from "react-aria-components";
 
-import { getReadableFileSize } from "@/components/application/file-upload/file-upload-base";
-import { Avatar } from "@/components/base/avatar/avatar";
-import { Button } from "@/components/base/buttons/button";
-import { Tooltip, TooltipTrigger } from "@/components/base/tooltip/tooltip";
-import { useAppToast } from "@/components/ui/toast";
-import { ButtonUtility } from "@/components/base/buttons/button-utility";
-import { Dialog, DialogTrigger, Modal, ModalOverlay } from "@/components/application/modals/modal";
-import { AgentDisplayAvatar } from "@/features/agents/agent-activity-avatar";
-import { avatarInitial, avatarToneClassName } from "@/lib/avatar-tone";
-import { DELETED_AGENT_AVATAR_CLASS, DeletedAgentBadge } from "@/features/agents/deleted-agent";
-import { useBreakpoint } from "@/hooks/use-breakpoint";
-import { useCoarsePointer } from "@/hooks/use-coarse-pointer";
-import { cn } from "@/lib/utils";
-import { m } from "@/paraglide/messages";
+import { getReadableFileSize } from "#src/components/application/file-upload/file-upload-base";
+import { Avatar } from "#src/components/base/avatar/avatar";
+import { Button } from "#src/components/base/buttons/button";
+import { Tooltip, TooltipTrigger } from "#src/components/base/tooltip/tooltip";
+import { useAppToast } from "#src/components/ui/toast";
+import { ButtonUtility } from "#src/components/base/buttons/button-utility";
+import {
+  Dialog,
+  DialogTrigger,
+  Modal,
+  ModalOverlay,
+} from "#src/components/application/modals/modal";
+import { AgentDisplayAvatar } from "#src/features/agents/agent-activity-avatar";
+import { avatarInitial, avatarToneClassName } from "#src/lib/avatar-tone";
+import { DELETED_AGENT_AVATAR_CLASS, DeletedAgentBadge } from "#src/features/agents/deleted-agent";
+import { useBreakpoint } from "#src/hooks/use-breakpoint";
+import { useCoarsePointer } from "#src/hooks/use-coarse-pointer";
+import { cn } from "#src/lib/utils";
+import { m } from "#src/paraglide/messages";
 import { ActionCard, type ActionCardView } from "./action-card";
 import { AttachmentPreview } from "./attachment-preview";
 import { attachmentPreviewKind } from "./attachment-preview-kind";
@@ -42,9 +47,9 @@ import {
   messagePlainText,
   selectionFragmentHtml,
 } from "./selection-copy";
-import { copyText } from "../records/report-editor/lib/clipboard";
-import { useTimeFormat } from "@/lib/time-format-context";
-import { hour12For, type TimeFormat } from "@/lib/time-format";
+import { copyText } from "#src/features/records/report-editor/lib/clipboard";
+import { useTimeFormat } from "#src/lib/time-format-context";
+import { hour12For, type TimeFormat } from "#src/lib/time-format";
 
 export type MessageView = {
   id: string;

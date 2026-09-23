@@ -1,8 +1,8 @@
 import type { TaskView } from "@lrm/coforge-sdk/internal";
 
-import { Avatar } from "@/components/base/avatar/avatar";
-import { Tooltip, TooltipTrigger } from "@/components/base/tooltip/tooltip";
-import { m } from "@/paraglide/messages";
+import { Avatar } from "#src/components/base/avatar/avatar";
+import { Tooltip, TooltipTrigger } from "#src/components/base/tooltip/tooltip";
+import { m } from "#src/paraglide/messages";
 
 export function TaskOwner({ owner, showName }: { owner: TaskView["owner"]; showName: boolean }) {
   if (!owner) {

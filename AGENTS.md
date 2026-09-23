@@ -55,6 +55,16 @@ These instructions apply to the entire repository.
   `AgentRuntimePool`. Avoid vague names such as `Helper`, `Utils`,
   `Service`, `Resolver`, or `Manager` unless the name is an established
   domain role with a narrowly defined responsibility.
+- Import code in the same package through the `#src/` alias
+  (`#src/code-agent/contract`), and a sibling file through `./`. Do not write
+  `../` into the package's own `src/`. Packages declare `#src/*` in their
+  `package.json` `imports` (Node subpath imports, so each package resolves its
+  own alias even when another package compiles its source); `apps/web`, which
+  nothing imports, declares it in `tsconfig.json` because it has `.tsx`
+  modules. Web's type check applies that mapping to package source it
+  compiles, so a package `#src/x` must never name a file that also exists in
+  `apps/web/src` (`apps/web/test/import-alias-isolation.test.ts` enforces it).
+  Another package is imported by its package name.
 - Keep terminology consistent across code, protocol, logs, and documentation.
   Use one convention for each concept; do not alternate between snake_case,
   camelCase, and arbitrary synonyms for the same public field or event.

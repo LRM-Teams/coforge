@@ -1,4 +1,4 @@
-import type { WeeklyReportAssistantSuggestion } from "../../server/records/weekly-report-assistant-suggestion.server";
+import type { WeeklyReportAssistantSuggestion } from "#src/server/records/weekly-report-assistant-suggestion.server";
 
 export type WeeklyReportAssistantMessage = {
   id: string;

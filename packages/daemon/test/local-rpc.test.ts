@@ -12,11 +12,11 @@ import {
   readLocalRpcFrames,
   LOCAL_RPC_METHODS,
 } from "@lrm/coforge-sdk/internal";
-import { LocalDaemonLauncher } from "../src/daemon-host/launcher";
-import { startDaemonLocalRpcServer } from "../src/local-rpc";
-import { InMemoryDaemonCredentialStore } from "../src/credentials/credential-store";
-import type { WorkspaceConfig } from "../src/daemon-runtime/runtime";
-import type { DaemonCredentialStore } from "../src/credentials/credential-store";
+import { LocalDaemonLauncher } from "#src/daemon-host/launcher";
+import { startDaemonLocalRpcServer } from "#src/local-rpc";
+import { InMemoryDaemonCredentialStore } from "#src/credentials/credential-store";
+import type { WorkspaceConfig } from "#src/daemon-runtime/runtime";
+import type { DaemonCredentialStore } from "#src/credentials/credential-store";
 
 const servers: Array<{ close(): Promise<void> }> = [];
 const config = {

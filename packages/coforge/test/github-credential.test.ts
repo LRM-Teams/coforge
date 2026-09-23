@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { chmod, mkdtemp, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { runGitHubCli, runGitHubCredentialHelper } from "../src/github-credential";
+import { runGitHubCli, runGitHubCredentialHelper } from "#src/github-credential";
 
 test("gets the current user credential for a valid HTTPS GitHub path", async () => {
   let lookups = 0;

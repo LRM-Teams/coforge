@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { Node, mergeAttributes, nodeInputRule } from "@tiptap/core";
 import { ReactNodeViewRenderer, NodeViewWrapper } from "@tiptap/react";
 import type { NodeViewProps } from "@tiptap/react";
-import { cn } from "@/lib/utils";
+import { cn } from "#src/lib/utils";
 
 /**
  * LRM-1264 R2 — KaTeX JS (+ CSS) loads on first math node paint, not with the

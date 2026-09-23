@@ -1,5 +1,5 @@
 import { createMiddleware } from "@tanstack/react-start";
-import { getDatabaseClient } from "../db/client.server";
+import { getDatabaseClient } from "#src/server/db/client.server";
 import { authenticateAgentHttpRequest } from "./agent-api-http.server";
 
 /**

@@ -1,6 +1,6 @@
-import type { PrismaClient, Prisma } from "../../../generated/client";
+import type { PrismaClient, Prisma } from "#src/generated/prisma/client";
 import { ATTACHMENT_MAX_BYTES, ATTACHMENT_SESSION_SECONDS } from "./attachment.server";
-import type { FileStorage } from "../files/file-storage.server";
+import type { FileStorage } from "#src/server/files/file-storage.server";
 
 /**
  * Presigned direct-upload sessions: the Agent PUTs bytes straight to storage with a

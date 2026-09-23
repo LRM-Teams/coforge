@@ -4,15 +4,15 @@ import {
   describeComputerUpgradeFailure,
   describeComputerUpgradeSuccess,
   describeUpgradeRequestError,
-} from "../src/features/computers/upgrade-failure";
+} from "#src/features/computers/upgrade-failure";
 import {
   RESTART_MAX_POLLS,
   RESTART_POLL_INTERVAL_MS,
   UPGRADE_MAX_POLLS,
   UPGRADE_POLL_INTERVAL_MS,
-} from "../src/features/computers/computer-detail";
-import { AppError } from "../src/lib/app-error";
-import { m } from "@/paraglide/messages";
+} from "#src/features/computers/computer-detail";
+import { AppError } from "#src/lib/app-error";
+import { m } from "#src/paraglide/messages";
 import { COMPUTER_CLI_COMMANDS, UPGRADE_ERROR_CODE_VALUES } from "@lrm/coforge-sdk/internal";
 
 /** Every step's `command`, across every reason and every known error code, must be one of the

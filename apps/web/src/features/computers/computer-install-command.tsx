@@ -1,10 +1,14 @@
 import { useState } from "react";
 import { Check, Copy01 as Copy } from "@untitledui/icons";
 
-import { Button } from "@/components/base/buttons/button";
-import { ButtonUtility } from "@/components/base/buttons/button-utility";
-import { installCommands, loginCommand, setupCommand } from "@/features/install/install-commands";
-import { m } from "@/paraglide/messages";
+import { Button } from "#src/components/base/buttons/button";
+import { ButtonUtility } from "#src/components/base/buttons/button-utility";
+import {
+  installCommands,
+  loginCommand,
+  setupCommand,
+} from "#src/features/install/install-commands";
+import { m } from "#src/paraglide/messages";
 
 type OperatingSystem = "macos-linux" | "windows";
 

@@ -1,6 +1,6 @@
 import { createCsrfMiddleware, createMiddleware, createStart } from "@tanstack/react-start";
 
-import { toPublicServerError } from "@/server/errors/public-error.server";
+import { toPublicServerError } from "#src/server/errors/public-error.server";
 
 const csrfMiddleware = createCsrfMiddleware({
   filter: ({ handlerType }) => handlerType === "serverFn",

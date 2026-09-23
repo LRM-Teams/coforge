@@ -6,7 +6,7 @@ import {
   sendPinnedWebPushRequest,
   type FetchWebPushRequest,
   type PinnedWebPushTarget,
-} from "../src/server/notifications/web-push-egress.server";
+} from "#src/server/notifications/web-push-egress.server";
 
 test("rejects Web Push endpoints that resolve to non-public addresses", async () => {
   for (const address of [

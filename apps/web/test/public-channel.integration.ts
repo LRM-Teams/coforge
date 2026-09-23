@@ -1,32 +1,32 @@
 import { expect, test } from "bun:test";
 import { PrismaPg } from "@prisma/adapter-pg";
-import { PrismaClient } from "../generated/client";
+import { PrismaClient } from "#src/generated/prisma/client";
 import {
   PublicChannels,
   enrollGeneralChannel,
   getAgentChannel,
-} from "../src/server/conversations/public-channels.server";
+} from "#src/server/conversations/public-channels.server";
 import { RedisClient } from "bun";
-import { RedisMessageRequestIdempotency } from "../src/server/conversations/redis-message-request-idempotency.server";
-import { PrismaWorkspaceCatalogStore } from "../src/server/workspaces/catalog.server";
-import { PrismaWorkspaceEnrollmentStore } from "../src/server/workspaces/enrollment.server";
-import { readAuthorizedAttachment } from "../src/server/attachments/attachment.server";
-import { PrismaDirectConversationRepository } from "../src/server/db/repositories/direct-conversation.repositories.server";
+import { RedisMessageRequestIdempotency } from "#src/server/conversations/redis-message-request-idempotency.server";
+import { PrismaWorkspaceCatalogStore } from "#src/server/workspaces/catalog.server";
+import { PrismaWorkspaceEnrollmentStore } from "#src/server/workspaces/enrollment.server";
+import { readAuthorizedAttachment } from "#src/server/attachments/attachment.server";
+import { PrismaDirectConversationRepository } from "#src/server/db/repositories/direct-conversation.repositories.server";
 import { decodeAgentMessageDelivery } from "@lrm/coforge-sdk/internal";
-import type { CentrifugoServerApi } from "../src/server/centrifugo/server-api.server";
+import type { CentrifugoServerApi } from "#src/server/centrifugo/server-api.server";
 import {
   executeAgentSendMessageWithPolicy,
   muteAgentChannel,
   readAgentMessages,
   unfollowAgentThread,
-} from "../src/server/agents/agent-messages.service";
-import { SendDirectMessage } from "../src/server/conversations/direct-message.server";
-import { CentrifugoConversationRealtime } from "../src/server/conversations/conversation-realtime.server";
-import { PrismaAgentRepository } from "../src/server/db/repositories/agent.repositories.server";
-import { PrismaWebPushSubscriptionStore } from "../src/server/notifications/prisma-web-push-subscriptions.server";
-import type { MessageWebPushNotification } from "../src/server/notifications/web-push-notifications.server";
-import { ConversationHistory } from "../src/server/conversations/conversation-history.server";
-import { AgentChannelManagement } from "../src/server/conversations/agent-channel-management.server";
+} from "#src/server/agents/agent-messages.server";
+import { SendDirectMessage } from "#src/server/conversations/direct-message.server";
+import { CentrifugoConversationRealtime } from "#src/server/conversations/conversation-realtime.server";
+import { PrismaAgentRepository } from "#src/server/db/repositories/agent.repositories.server";
+import { PrismaWebPushSubscriptionStore } from "#src/server/notifications/prisma-web-push-subscriptions.server";
+import type { MessageWebPushNotification } from "#src/server/notifications/web-push-notifications.server";
+import { ConversationHistory } from "#src/server/conversations/conversation-history.server";
+import { AgentChannelManagement } from "#src/server/conversations/agent-channel-management.server";
 
 /** Flattens every recipient's browser subscriptions, matching the earlier assertions this
  * suite made directly against `notificationForMessage`'s old flat `subscriptions` field. */

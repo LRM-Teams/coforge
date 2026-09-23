@@ -5,7 +5,7 @@ import {
   isValidReactionEmoji,
   type MessageSenderKind,
 } from "@lrm/coforge-sdk/internal";
-import { AgentMessageValidationError } from "../conversations/agent-message-validation-error.server";
+import { AgentMessageValidationError } from "#src/server/conversations/agent-message-validation-error.server";
 
 export type AgentMessageRepository = {
   readPendingAgentContext?(

@@ -1,8 +1,8 @@
 import { expect, test } from "bun:test";
 
-import { GrokProvider } from "../src/code-agent/grok/provider";
-import { isGrokVersionUnsupported } from "../src/code-agent/grok/version";
-import type { AgentRuntimeEvent } from "../src/code-agent/contract";
+import { GrokProvider } from "#src/code-agent/grok/provider";
+import { isGrokVersionUnsupported } from "#src/code-agent/grok/version";
+import type { AgentRuntimeEvent } from "#src/code-agent/contract";
 
 const FIXTURE = new URL("./fixtures/grok-fixture.ts", import.meta.url).pathname;
 const INSTRUCTIONS = "Standing Grok instructions.";

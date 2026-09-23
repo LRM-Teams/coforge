@@ -3,7 +3,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
-import { FileComputerConfig, loadBuildProfile } from "../src/local-config";
+import { FileComputerConfig, loadBuildProfile } from "#src/local-config";
 
 const directories: string[] = [];
 

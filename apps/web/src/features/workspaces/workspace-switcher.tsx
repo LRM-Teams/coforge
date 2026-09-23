@@ -6,20 +6,20 @@ import {
   MenuItem as AriaMenuItem,
 } from "react-aria-components";
 
-import { Dialog, Modal, ModalOverlay } from "@/components/application/modals/modal";
-import { Button } from "@/components/base/buttons/button";
-import { Dropdown } from "@/components/base/dropdown/dropdown";
-import { Input } from "@/components/base/input/input";
-import { useAppToast } from "@/components/ui/toast";
-import { isAppError } from "@/lib/app-error";
-import { m } from "@/paraglide/messages";
+import { Dialog, Modal, ModalOverlay } from "#src/components/application/modals/modal";
+import { Button } from "#src/components/base/buttons/button";
+import { Dropdown } from "#src/components/base/dropdown/dropdown";
+import { Input } from "#src/components/base/input/input";
+import { useAppToast } from "#src/components/ui/toast";
+import { isAppError } from "#src/lib/app-error";
+import { m } from "#src/paraglide/messages";
 import {
   isReservedWorkspaceSlug,
   isValidWorkspaceSlug,
   nameToWorkspaceSlug,
-} from "@/server/workspaces/workspace-slug";
-import { cx } from "@/utils/cx";
-import { DialogHeader } from "@/components/application/modals/dialog-header";
+} from "#src/features/workspaces/workspace-slug";
+import { cx } from "#src/utils/cx";
+import { DialogHeader } from "#src/components/application/modals/dialog-header";
 
 export type WorkspaceOption = { id: string; slug: string; name: string };
 

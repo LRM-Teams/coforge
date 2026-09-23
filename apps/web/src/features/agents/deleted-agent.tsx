@@ -1,5 +1,5 @@
-import { Badge } from "@/components/base/badges/badges";
-import { m } from "@/paraglide/messages";
+import { Badge } from "#src/components/base/badges/badges";
+import { m } from "#src/paraglide/messages";
 
 /**
  * The single place that renders a deleted Agent's identity treatment. A deleted Agent

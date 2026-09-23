@@ -8,7 +8,7 @@ import {
   formatSelectionQuote,
   quoteSelectionText,
   selectionAffordancePlacement,
-} from "../src/features/conversations/message-quote";
+} from "#src/features/conversations/message-quote";
 
 describe("quoteSelectionText", () => {
   test("drops the blank space the browser includes around a highlight", () => {

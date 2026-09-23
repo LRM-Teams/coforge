@@ -1,5 +1,5 @@
 import type { HTMLAttributes } from "react";
-import { cx } from "@/utils/cx";
+import { cx } from "#src/utils/cx";
 import { UntitledLogoMinimal } from "./untitledui-logo-minimal";
 
 export const UntitledLogo = (props: HTMLAttributes<HTMLOrSVGElement>) => {

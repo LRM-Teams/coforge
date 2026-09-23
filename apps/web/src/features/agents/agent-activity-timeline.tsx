@@ -8,13 +8,13 @@ import {
   type CSSProperties,
 } from "react";
 import { Activity as ActivityIcon, ChevronRight } from "@untitledui/icons";
-import { Button } from "@/components/base/buttons/button";
-import { ClockTime } from "@/components/ui/relative-time";
-import { StatusDot } from "@/components/ui/status-dot";
-import { calendarDayKey, formatCalendarDayLabel } from "@/lib/dates";
-import { cn } from "@/lib/utils";
-import { getLocale } from "@/paraglide/runtime";
-import { m } from "@/paraglide/messages";
+import { Button } from "#src/components/base/buttons/button";
+import { ClockTime } from "#src/components/ui/relative-time";
+import { StatusDot } from "#src/components/ui/status-dot";
+import { calendarDayKey, formatCalendarDayLabel } from "#src/lib/dates";
+import { cn } from "#src/lib/utils";
+import { getLocale } from "#src/paraglide/runtime";
+import { m } from "#src/paraglide/messages";
 import type { ActivityEntry } from "./agent-activity";
 import { presentActivityRows, type PresentedActivityRow } from "./agent-activity-presentation";
 

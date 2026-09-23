@@ -5,7 +5,7 @@ import type {
   ReminderJob,
   ReminderSync,
 } from "@lrm/coforge-sdk/internal";
-import { APP_INBOX_PREVIEW_MAX_CHARS } from "../agent-app-inbox/registry";
+import { APP_INBOX_PREVIEW_MAX_CHARS } from "#src/agent-app-inbox/registry";
 
 const logger = getLogger(["coforge", "daemon", "reminder"]);
 const MAX_TIMER_MS = 24 * 60 * 60_000;

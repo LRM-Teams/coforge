@@ -1,15 +1,15 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { agentAuthMiddleware } from "#/server/agents/agent-http.middleware";
+import { agentAuthMiddleware } from "#src/server/agents/agent-http-middleware.server";
 import {
   AgentChannelManagement,
   type AgentChannelManagementRepository,
-} from "#/server/conversations/agent-channel-management.server";
+} from "#src/server/conversations/agent-channel-management.server";
 import {
   channelManagementErrorResponse,
   readJsonBody,
   idempotencyKeyFrom,
   idempotencyKeyFromQuery,
-} from "#/server/agents/agent-channel-routes.shared";
+} from "#src/server/agents/agent-channel-routes.server";
 
 export type AgentChannelManagementPrincipal = { workspaceId: string; agentId: string };
 

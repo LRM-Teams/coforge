@@ -3,17 +3,17 @@ import { z } from "zod";
 import {
   workspaceUserMiddleware,
   type WorkspaceUserContext,
-} from "../../server/auth/function-auth";
-import { AppError } from "../../lib/app-error";
-import { PublicChannels } from "../../server/conversations/public-channels.server";
-import { attachActionCardViews } from "../../server/conversations/action-cards.server";
-import { attachmentView } from "../../server/attachments/attachment-view.server";
+} from "#src/features/auth/function-auth";
+import { AppError } from "#src/lib/app-error";
+import { PublicChannels } from "#src/server/conversations/public-channels.server";
+import { attachActionCardViews } from "#src/server/conversations/action-cards.server";
+import { attachmentView } from "#src/server/attachments/attachment-view.server";
 import { attachmentIdsSchema, conversationPageInputSchema } from "./conversation.schemas";
-import { CentrifugoConversationRealtime } from "../../server/conversations/conversation-realtime.server";
-import { createCentrifugoServerApi } from "../../server/centrifugo/server-api.server";
-import { bestEffortMessageNotifier } from "../../server/notifications/web-push-composition.server";
-import { browserMessageMention } from "../../server/conversations/mentions";
-import { workspaceUserAvatarUrl } from "../../server/db/repositories/user-profile.repositories.server";
+import { CentrifugoConversationRealtime } from "#src/server/conversations/conversation-realtime.server";
+import { createCentrifugoServerApi } from "#src/server/centrifugo/server-api.server";
+import { bestEffortMessageNotifier } from "#src/server/notifications/web-push-composition.server";
+import { browserMessageMention } from "#src/server/conversations/mentions.server";
+import { workspaceUserAvatarUrl } from "#src/server/db/repositories/user-profile.repositories.server";
 
 const channelInput = z.object({ channelId: z.uuid() });
 const channelPageInput = channelInput.extend(conversationPageInputSchema);

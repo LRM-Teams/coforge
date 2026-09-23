@@ -14,11 +14,11 @@ import { useHydrated } from "@tanstack/react-router";
 import { Columns03 as Columns3, DotsGrid as GripVertical, List } from "@untitledui/icons";
 import { useId, useMemo, useRef, useState, type ReactNode } from "react";
 
-import { ButtonGroup, ButtonGroupItem } from "@/components/base/button-group/button-group";
-import { ButtonUtility } from "@/components/base/buttons/button-utility";
-import { Select } from "@/components/base/select/select";
-import { useBreakpoint } from "@/hooks/use-breakpoint";
-import { m } from "@/paraglide/messages";
+import { ButtonGroup, ButtonGroupItem } from "#src/components/base/button-group/button-group";
+import { ButtonUtility } from "#src/components/base/buttons/button-utility";
+import { Select } from "#src/components/base/select/select";
+import { useBreakpoint } from "#src/hooks/use-breakpoint";
+import { m } from "#src/paraglide/messages";
 import { getTaskMoveCommand } from "./task-move";
 
 export type TaskLayout = "board" | "list";

@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { parseDurationSeconds } from "../src/reminder-duration";
+import { parseDurationSeconds } from "#src/reminder-duration";
 
 test("parses a bare integer and each unit suffix", () => {
   expect(parseDurationSeconds("30")).toBe(30);

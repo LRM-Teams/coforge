@@ -1,4 +1,4 @@
-import type { PrismaClient } from "../../../generated/client";
+import type { PrismaClient } from "#src/generated/prisma/client";
 import { ACTIVE_AGENT_WHERE } from "./active-agent.server";
 
 export const AGENT_REMINDER_PAGE_SIZE = 50;

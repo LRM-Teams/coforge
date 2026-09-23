@@ -1,7 +1,7 @@
 import { afterAll, expect, mock, test } from "bun:test";
 import { RUNTIME_PROVIDER } from "@lrm/coforge-sdk/internal";
-import { AgentEnvironment } from "../src/server/agents/agent-environment.server";
-import type { AgentRuntimeConfig } from "../src/server/agents/agent-runtime-config.server";
+import { AgentEnvironment } from "#src/server/agents/agent-environment.server";
+import type { AgentRuntimeConfig } from "#src/server/agents/agent-runtime-config.server";
 
 let runtimeConfig: AgentRuntimeConfig = {
   runtime: RUNTIME_PROVIDER.PI,
@@ -50,41 +50,41 @@ const db = {
     },
   },
 };
-mock.module("../src/server/db/client.server", () => ({ getDatabaseClient: () => db }));
-mock.module("../src/server/auth/daemon-api-key.server", () => ({
+mock.module("#src/server/db/client.server", () => ({ getDatabaseClient: () => db }));
+mock.module("#src/server/auth/daemon-api-key.server", () => ({
   verifyDaemonApiKey: async (key: string) => {
     if (key !== "valid") throw new Error("invalid");
     return { computerId: "computer-1", workspaceId: "workspace-1", userId: "owner-1" };
   },
 }));
-mock.module("../src/server/centrifugo/server-api.server", () => ({
+mock.module("#src/server/centrifugo/server-api.server", () => ({
   createCentrifugoServerApi: () => ({}),
 }));
-mock.module("../src/server/agents/agent-runtime-lock.server", () => ({
+mock.module("#src/server/agents/agent-runtime-lock.server", () => ({
   getAgentRuntimeLock: () => ({}),
 }));
-mock.module("../src/server/agents/agent-control.server", () => ({
+mock.module("#src/server/agents/agent-control.server", () => ({
   AgentControl: class {
     async authorizeLaunch() {
       if (!launchAllowed) throw new Error("stale launch");
     }
   },
 }));
-mock.module("../src/server/computers/computer-runtime-visibility.server", () => ({
+mock.module("#src/server/computers/computer-runtime-visibility.server", () => ({
   ComputerRuntimeVisibility: class {
     async canSelect() {
       return true;
     }
   },
 }));
-mock.module("../src/server/db/repositories/agent-api-key.repositories.server", () => ({
+mock.module("#src/server/db/repositories/agent-api-key.repositories.server", () => ({
   PrismaAgentApiKeyRepository: class {
     async replaceActive() {
       issued++;
     }
   },
 }));
-const { Route } = await import("../src/routes/api/agent-api-keys");
+const { Route } = await import("#src/routes/api/agent-api-keys");
 const handlers = Route.options.server!.handlers;
 if (!handlers || typeof handlers === "function" || typeof handlers.POST !== "function")
   throw new Error("missing POST handler");

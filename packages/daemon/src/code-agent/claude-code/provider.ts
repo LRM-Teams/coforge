@@ -3,18 +3,18 @@ import {
   type UsageSnapshot,
   type AgentRuntimeEvent,
   type CodeAgentProvider,
-} from "../contract";
+} from "#src/code-agent/contract";
 import type { AgentSession, AgentSessionIdentity, AgentSessionOptions } from "@coforge/agent";
-import { agentEnvironment } from "../environment";
-import { JsonlProcess } from "../jsonl-process";
+import { agentEnvironment } from "#src/code-agent/environment";
+import { JsonlProcess } from "#src/code-agent/jsonl-process";
 import { RUNTIME_PROVIDER } from "@lrm/coforge-sdk/internal";
 import { readClaudeCodeUsage } from "./usage";
 import { readClaudeCodeContextReport } from "./context-report";
 import type { AgentContextReport } from "@lrm/coforge-sdk/internal";
 import { createPromptFile } from "./prompt-file";
-import { claudeStaticCatalog, discoverExternalCodeAgents } from "../runtime-inventory";
-import type { ProviderDiscoveryOptions } from "../contract";
-import { asRecord, eventTime, textContent } from "../json-record";
+import { claudeStaticCatalog, discoverExternalCodeAgents } from "#src/code-agent/runtime-inventory";
+import type { ProviderDiscoveryOptions } from "#src/code-agent/contract";
+import { asRecord, eventTime, textContent } from "#src/code-agent/json-record";
 
 export class ClaudeCodeProvider implements CodeAgentProvider {
   readonly provider = RUNTIME_PROVIDER.CLAUDE_CODE;

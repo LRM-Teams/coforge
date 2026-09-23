@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { decodeAgentActivity, encodeAgentActivity } from "@lrm/coforge-sdk/internal";
 
-import { handleAgentActivityPublication } from "../src/server/agents/agent-activity-publish.server";
+import { handleAgentActivityPublication } from "#src/server/agents/agent-activity-publish.server";
 
 const activity = {
   protocolMajor: 1,

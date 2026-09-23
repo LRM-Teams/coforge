@@ -9,15 +9,15 @@ import {
   type RuntimeProvider,
 } from "@lrm/coforge-sdk/internal";
 
-import { Button } from "@/components/base/buttons/button";
-import { ButtonUtility } from "@/components/base/buttons/button-utility";
-import { Input } from "@/components/base/input/input";
-import { Select } from "@/components/base/select/select";
+import { Button } from "#src/components/base/buttons/button";
+import { ButtonUtility } from "#src/components/base/buttons/button-utility";
+import { Input } from "#src/components/base/input/input";
+import { Select } from "#src/components/base/select/select";
 import {
   getComputerRuntimeCatalog,
   refreshComputerRuntimeCatalog,
-} from "@/features/computers/computers.functions";
-import { m } from "@/paraglide/messages";
+} from "#src/features/computers/computers.functions";
+import { m } from "#src/paraglide/messages";
 import {
   isPiBuiltinModelProvider,
   KEYED_MODEL_PROVIDERS,

@@ -10,14 +10,14 @@ import {
 } from "react";
 import { ChevronLeft, ChevronRight, XClose as X } from "@untitledui/icons";
 
-import { Button } from "@/components/base/buttons/button";
-import { ButtonUtility } from "@/components/base/buttons/button-utility";
-import { m } from "@/paraglide/messages";
+import { Button } from "#src/components/base/buttons/button";
+import { ButtonUtility } from "#src/components/base/buttons/button-utility";
+import { m } from "#src/paraglide/messages";
 import { LeaderFormatSectionsEditor } from "./leader-format-sections-editor";
-import { ReportSectionEditor } from "./report-editor/report-section-editor";
+import { ReportSectionEditor } from "#src/features/records/report-editor/report-section-editor";
 import type { ReportContent } from "./records-content";
-import { cn } from "@/lib/utils";
-import type { UploadResult } from "./report-editor/types";
+import { cn } from "#src/lib/utils";
+import type { UploadResult } from "#src/features/records/report-editor/types";
 import { RecordsReadingColumn } from "./records-reading-column";
 
 export function ReportTabsEditor({

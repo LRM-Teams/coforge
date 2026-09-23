@@ -12,6 +12,9 @@
   ],
   "type": "module",
   "module": "index.ts",
+  "imports": {
+    "#src/*": "./src/*.ts"
+  },
   "exports": {
     ".": "./index.ts",
     "./runner": "./src/cli.ts",

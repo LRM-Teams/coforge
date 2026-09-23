@@ -2,9 +2,9 @@ import { useEffect, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import githubMark from "@lobehub/icons-static-svg/icons/github.svg";
 import { InfoCircle } from "@untitledui/icons";
-import { Button } from "@/components/base/buttons/button";
-import { HoverPopover } from "@/components/ui/hover-popover";
-import { m } from "@/paraglide/messages";
+import { Button } from "#src/components/base/buttons/button";
+import { HoverPopover } from "#src/components/ui/hover-popover";
+import { m } from "#src/paraglide/messages";
 import {
   disconnectGitHub,
   getGitHubConnection,

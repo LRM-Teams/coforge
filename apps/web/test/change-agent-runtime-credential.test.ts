@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { RUNTIME_PROVIDER } from "@lrm/coforge-sdk/internal";
-import { ChangeAgentRuntimeCredential } from "../src/server/agents/change-agent-runtime-credential.server";
-import { AgentRuntimeCredentials } from "../src/server/agents/agent-runtime-credentials.server";
-import type { AgentRecord } from "../src/server/db/repositories/agent.repositories.server";
+import { ChangeAgentRuntimeCredential } from "#src/server/agents/change-agent-runtime-credential.server";
+import { AgentRuntimeCredentials } from "#src/server/agents/agent-runtime-credentials.server";
+import type { AgentRecord } from "#src/server/db/repositories/agent.repositories.server";
 
 const principal = { workspaceId: "workspace-1", userId: "user-1" };
 

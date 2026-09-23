@@ -1,15 +1,15 @@
 import { expect, test } from "bun:test";
 import { PrismaPg } from "@prisma/adapter-pg";
-import { PrismaClient } from "../generated/client";
-import { ChangeAgentVisibility } from "../src/server/agents/change-agent-visibility.server";
+import { PrismaClient } from "#src/generated/prisma/client";
+import { ChangeAgentVisibility } from "#src/server/agents/change-agent-visibility.server";
 import {
   PrismaChangeAgentVisibilityStore,
   previewAgentVisibilityChange,
-} from "../src/server/db/repositories/agent-visibility-change.repositories.server";
-import { PrismaAgentRepository } from "../src/server/db/repositories/agent.repositories.server";
-import { PrismaDirectConversationRepository } from "../src/server/db/repositories/direct-conversation.repositories.server";
-import { PublicChannels } from "../src/server/conversations/public-channels.server";
-import { workspaceMemberRole } from "../src/server/workspaces/members.server";
+} from "#src/server/db/repositories/agent-visibility-change.repositories.server";
+import { PrismaAgentRepository } from "#src/server/db/repositories/agent.repositories.server";
+import { PrismaDirectConversationRepository } from "#src/server/db/repositories/direct-conversation.repositories.server";
+import { PublicChannels } from "#src/server/conversations/public-channels.server";
+import { workspaceMemberRole } from "#src/server/workspaces/members.server";
 
 /**
  * End-to-end visibility change against local PostgreSQL. Drives the real

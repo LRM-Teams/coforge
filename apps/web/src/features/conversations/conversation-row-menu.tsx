@@ -3,9 +3,9 @@ import { useRouter } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { MessageChatSquare, Pin01, XClose } from "@untitledui/icons";
 
-import { Dropdown } from "@/components/base/dropdown/dropdown";
-import { useAppToast } from "@/components/ui/toast";
-import { m } from "@/paraglide/messages";
+import { Dropdown } from "#src/components/base/dropdown/dropdown";
+import { useAppToast } from "#src/components/ui/toast";
+import { m } from "#src/paraglide/messages";
 import {
   setDirectConversationHidden,
   setDirectConversationPinned,

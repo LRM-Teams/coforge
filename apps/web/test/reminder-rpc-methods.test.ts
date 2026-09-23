@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { reminderCallbackMethods } from "../src/server/centrifugo/rpc-composition.server";
-import type { CentrifugoRpcMethod } from "../src/server/centrifugo/rpc-handler.server";
+import { reminderCallbackMethods } from "#src/server/centrifugo/rpc-composition.server";
+import type { CentrifugoRpcMethod } from "#src/server/centrifugo/rpc-handler.server";
 
 const noop: CentrifugoRpcMethod = () => new Uint8Array();
 const other: CentrifugoRpcMethod = () => new Uint8Array();

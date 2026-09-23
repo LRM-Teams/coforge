@@ -7,7 +7,7 @@ import {
   issueAgentStatusSubscriptionTokenForAgent,
   issueConversationRealtimeToken,
   issueBrowserRealtimeToken,
-} from "../src/server/auth/browser-realtime-token.server";
+} from "#src/server/auth/browser-realtime-token.server";
 
 async function signingFixture() {
   const { privateKey, publicKey } = await generateKeyPair("EdDSA", {

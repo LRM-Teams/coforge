@@ -1,4 +1,4 @@
-import { useSubmitGuard } from "@/hooks/use-submit-guard";
+import { useSubmitGuard } from "#src/hooks/use-submit-guard";
 import { useEffect, useRef, useState, type ChangeEvent } from "react";
 import {
   BellRinging01 as BellRing,
@@ -19,29 +19,29 @@ import {
   Users01 as Users,
 } from "@untitledui/icons";
 
-import { PageHeader } from "@/components/layout/page-header";
-import { Avatar } from "@/components/base/avatar/avatar";
-import { Button } from "@/components/base/buttons/button";
-import { ButtonUtility } from "@/components/base/buttons/button-utility";
-import { Input } from "@/components/base/input/input";
-import { TextArea } from "@/components/base/textarea/textarea";
-import { Skeleton } from "@/components/ui/skeleton";
-import { Select } from "@/components/base/select/select";
-import { SelectItem } from "@/components/base/select/select-item";
-import { Toggle } from "@/components/base/toggle/toggle";
-import { ButtonGroup, ButtonGroupItem } from "@/components/base/button-group/button-group";
-import { WorkspaceMembersPanel } from "@/features/workspaces/workspace-members-panel";
-import { GitHubSettings } from "@/features/integrations/github-settings";
-import { TEXT_SIZE_OPTIONS, type TextSizeValue } from "@/features/settings/text-size";
+import { PageHeader } from "#src/components/layout/page-header";
+import { Avatar } from "#src/components/base/avatar/avatar";
+import { Button } from "#src/components/base/buttons/button";
+import { ButtonUtility } from "#src/components/base/buttons/button-utility";
+import { Input } from "#src/components/base/input/input";
+import { TextArea } from "#src/components/base/textarea/textarea";
+import { Skeleton } from "#src/components/ui/skeleton";
+import { Select } from "#src/components/base/select/select";
+import { SelectItem } from "#src/components/base/select/select-item";
+import { Toggle } from "#src/components/base/toggle/toggle";
+import { ButtonGroup, ButtonGroupItem } from "#src/components/base/button-group/button-group";
+import { WorkspaceMembersPanel } from "#src/features/workspaces/workspace-members-panel";
+import { GitHubSettings } from "#src/features/integrations/github-settings";
+import { TEXT_SIZE_OPTIONS, type TextSizeValue } from "#src/features/settings/text-size";
 import {
   isConversationOpenMode,
   type ConversationOpenMode,
-} from "@/features/settings/conversation-open-mode";
-import { avatarInitial, avatarToneClassName } from "@/lib/avatar-tone";
-import { isTimeFormat, localeTimeFormat, type TimeFormat } from "@/lib/time-format";
-import { cn } from "@/lib/utils";
-import { isAppError } from "@/lib/app-error";
-import { m } from "@/paraglide/messages";
+} from "#src/features/settings/conversation-open-mode";
+import { avatarInitial, avatarToneClassName } from "#src/lib/avatar-tone";
+import { isTimeFormat, localeTimeFormat, type TimeFormat } from "#src/lib/time-format";
+import { cn } from "#src/lib/utils";
+import { isAppError } from "#src/lib/app-error";
+import { m } from "#src/paraglide/messages";
 
 type Locale = "en" | "zh-CN";
 type Theme = "system" | "light" | "dark";

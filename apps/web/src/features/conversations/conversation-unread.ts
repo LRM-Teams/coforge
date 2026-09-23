@@ -1,11 +1,11 @@
 import { useCallback, useRef, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 
-import { useRealtimeSubscription } from "../realtime/browser-realtime";
+import { useRealtimeSubscription } from "#src/features/realtime/browser-realtime";
 import {
   getUserConversationSubscriptionToken,
   getWorkspaceConversationSubscriptionToken,
-} from "../realtime/realtime.functions";
+} from "#src/features/realtime/realtime.functions";
 import {
   decodeMessageAvailableEvent,
   userConversationChannel,

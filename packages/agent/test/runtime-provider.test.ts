@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { runtimeFetch } from "../src/runtime-provider";
+import { runtimeFetch } from "#src/runtime-provider";
 
 test("session fetch uses proxy precedence and honors exact host, wildcard, and port exclusions", async () => {
   const target = Bun.serve({ port: 0, fetch: () => new Response("direct") });

@@ -26,17 +26,17 @@ import {
   SearchField as AriaSearchField,
 } from "react-aria-components";
 
-import { Dialog, Modal, ModalOverlay } from "@/components/application/modals/modal";
-import { Badge } from "@/components/base/badges/badges";
-import { Button } from "@/components/base/buttons/button";
-import { ButtonUtility } from "@/components/base/buttons/button-utility";
-import { Dropdown } from "@/components/base/dropdown/dropdown";
-import type { Mentionable } from "@/features/conversations/mention-text";
-import { formatDateForDisplay } from "@/lib/dates";
-import { useTimeFormat } from "@/lib/time-format-context";
-import { cn } from "@/lib/utils";
-import { m } from "@/paraglide/messages";
-import { getLocale } from "@/paraglide/runtime";
+import { Dialog, Modal, ModalOverlay } from "#src/components/application/modals/modal";
+import { Badge } from "#src/components/base/badges/badges";
+import { Button } from "#src/components/base/buttons/button";
+import { ButtonUtility } from "#src/components/base/buttons/button-utility";
+import { Dropdown } from "#src/components/base/dropdown/dropdown";
+import type { Mentionable } from "#src/features/conversations/mention-text";
+import { formatDateForDisplay } from "#src/lib/dates";
+import { useTimeFormat } from "#src/lib/time-format-context";
+import { cn } from "#src/lib/utils";
+import { m } from "#src/paraglide/messages";
+import { getLocale } from "#src/paraglide/runtime";
 import { taskTimeline } from "./task-history-timeline";
 import { getTaskMoveCommand, taskStatusOptions } from "./task-move";
 import { executeTask } from "./tasks.functions";

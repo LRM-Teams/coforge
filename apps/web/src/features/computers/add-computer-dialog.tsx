@@ -1,12 +1,12 @@
 import { useState } from "react";
 import { Cloud01 as Cloud, Monitor01 as Monitor } from "@untitledui/icons";
 
-import { Button } from "@/components/base/buttons/button";
-import { Dialog, Modal, ModalOverlay } from "@/components/application/modals/modal";
-import { m } from "@/paraglide/messages";
+import { Button } from "#src/components/base/buttons/button";
+import { Dialog, Modal, ModalOverlay } from "#src/components/application/modals/modal";
+import { m } from "#src/paraglide/messages";
 import { ComputerInstallCommand } from "./computer-install-command";
 import { ComputerTypeOption } from "./computer-type-option";
-import { DialogHeader } from "@/components/application/modals/dialog-header";
+import { DialogHeader } from "#src/components/application/modals/dialog-header";
 
 type ComputerType = "local" | "cloud";
 export function AddComputerDialog({

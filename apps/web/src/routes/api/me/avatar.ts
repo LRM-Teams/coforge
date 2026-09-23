@@ -1,15 +1,15 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { z } from "zod";
 
-import type { PrismaClient } from "../../../../generated/client";
-import { AppError, isAppError } from "../../../lib/app-error";
-import { optionalBrowserUser } from "../../../server/auth/require-user.server";
-import { getDatabaseClient } from "../../../server/db/client.server";
+import type { PrismaClient } from "#src/generated/prisma/client";
+import { AppError, isAppError } from "#src/lib/app-error";
+import { optionalBrowserUser } from "#src/server/auth/require-user.server";
+import { getDatabaseClient } from "#src/server/db/client.server";
 import {
   readUserAvatar,
   removeUserAvatar,
   storeUserAvatar,
-} from "../../../server/profiles/user-avatar.server";
+} from "#src/server/profiles/user-avatar.server";
 
 const imageUploadSchema = z.object({ file: z.custom<File>(isFile) });
 

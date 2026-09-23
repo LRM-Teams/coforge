@@ -1,4 +1,4 @@
-import { ComputerUpdater } from "../../src/updater";
+import { ComputerUpdater } from "#src/updater";
 
 const updater = new ComputerUpdater({
   installRoot: Bun.argv[2]!,

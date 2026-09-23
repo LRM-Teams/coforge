@@ -1,12 +1,12 @@
-import type { PrismaClient } from "../../../../generated/client";
+import type { PrismaClient } from "#src/generated/prisma/client";
 
-import { AppError } from "../../../lib/app-error";
+import { AppError } from "#src/lib/app-error";
 import {
   isTabOrder,
   knownTabs,
   type TabOrderPanel,
   type TabOrders,
-} from "../../../features/panel-tabs/panel-tab-order";
+} from "#src/features/panel-tabs/panel-tab-order";
 
 export type WorkspaceMemberPreferencesRepository = {
   /** Each panel's saved tab ids; an empty list when the member never saved one. */

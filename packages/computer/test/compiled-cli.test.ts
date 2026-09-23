@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { buildReleaseTree } from "../../../scripts/release/build-release";
-import { ComputerUpdater } from "../src/updater";
+import { ComputerUpdater } from "#src/updater";
 
 let directory: string;
 let executable: string;

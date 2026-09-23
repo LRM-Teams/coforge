@@ -4,8 +4,8 @@ import type {
   AgentProfileView,
 } from "@lrm/coforge-sdk/agent";
 import { ACTIVE_AGENT_WHERE } from "./active-agent.server";
-import type { PrismaClient } from "../../../generated/client";
-import { AGENT_DISPLAY_NAME_MAX_LENGTH } from "../../features/agents/agent.schemas";
+import type { PrismaClient } from "#src/generated/prisma/client";
+import { AGENT_DISPLAY_NAME_MAX_LENGTH } from "#src/features/agents/agent.schemas";
 import { AGENT_NOT_VISIBLE, findWorkspaceUser, resolveAgentStatus } from "./agent-user-info.server";
 import {
   agentVisibilityViewerForActor,

@@ -1,9 +1,9 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { z } from "zod";
-import { AppError, isAppError } from "../../lib/app-error";
-import { optionalBrowserUser } from "../../server/auth/require-user.server";
-import { requireDatabaseClient } from "../../server/db/client.server";
-import { ProjectImages } from "../../server/projects/project-images.server";
+import { AppError, isAppError } from "#src/lib/app-error";
+import { optionalBrowserUser } from "#src/server/auth/require-user.server";
+import { requireDatabaseClient } from "#src/server/db/client.server";
+import { ProjectImages } from "#src/server/projects/project-images.server";
 
 export const Route = createFileRoute("/api/projects/$projectId/icon")({
   server: {

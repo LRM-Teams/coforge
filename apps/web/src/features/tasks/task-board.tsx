@@ -3,8 +3,8 @@ import { CheckSquare as ListTodo, Lock01 as Lock } from "@untitledui/icons";
 
 import { useState } from "react";
 
-import { Button } from "@/components/base/buttons/button";
-import { m } from "@/paraglide/messages";
+import { Button } from "#src/components/base/buttons/button";
+import { m } from "#src/paraglide/messages";
 import { ConversationTaskTabs } from "./conversation-task-tabs";
 import { CreateTaskDialog } from "./create-task-dialog";
 import { TaskDetailMenu } from "./task-detail-dialog";
@@ -16,8 +16,8 @@ import {
   type TaskControls,
   type TaskLayout,
 } from "./task-workflow";
-import { useSubmitGuard } from "@/hooks/use-submit-guard";
-import type { Mentionable } from "@/features/conversations/mention-text";
+import { useSubmitGuard } from "#src/hooks/use-submit-guard";
+import type { Mentionable } from "#src/features/conversations/mention-text";
 
 export type TaskBoardProps = {
   tasks: TaskView[];

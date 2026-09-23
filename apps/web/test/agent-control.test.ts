@@ -4,19 +4,19 @@ import {
   agentControlRevision,
   type AgentControlAgent,
   type AgentControlStore,
-} from "../src/server/agents/agent-control.server";
-import { AgentSessionReceiver } from "../src/server/agents/agent-session.server";
+} from "#src/server/agents/agent-control.server";
+import { AgentSessionReceiver } from "#src/server/agents/agent-session.server";
 import {
   AgentSessions,
   type RuntimeSessionReference,
-} from "../src/server/agents/agent-sessions.server";
+} from "#src/server/agents/agent-sessions.server";
 import {
   decodeAgentStartIntent,
   decodeAgentStopIntent,
   decodeAgentWorkspaceResetRequest,
 } from "@lrm/coforge-sdk/internal";
-import { isAppError } from "../src/lib/app-error";
-import type { WorkspaceMemberRole } from "../src/server/workspaces/member-role.server";
+import { isAppError } from "#src/lib/app-error";
+import type { WorkspaceMemberRole } from "#src/server/workspaces/member-role.server";
 
 function observationRace() {
   const runtimeConfig = {

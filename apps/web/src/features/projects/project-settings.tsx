@@ -2,14 +2,14 @@ import { useEffect, useState } from "react";
 import { Link, useRouter } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { ArrowLeft } from "@untitledui/icons";
-import { PageHeader } from "@/components/layout/page-header";
-import { Button } from "@/components/base/buttons/button";
-import { Input } from "@/components/base/input/input";
-import { TextArea } from "@/components/base/textarea/textarea";
-import { Select } from "@/components/base/select/select";
-import { Toggle } from "@/components/base/toggle/toggle";
-import { listAccessibleGitHubRepositories } from "@/features/integrations/github.functions";
-import { m } from "@/paraglide/messages";
+import { PageHeader } from "#src/components/layout/page-header";
+import { Button } from "#src/components/base/buttons/button";
+import { Input } from "#src/components/base/input/input";
+import { TextArea } from "#src/components/base/textarea/textarea";
+import { Select } from "#src/components/base/select/select";
+import { Toggle } from "#src/components/base/toggle/toggle";
+import { listAccessibleGitHubRepositories } from "#src/features/integrations/github.functions";
+import { m } from "#src/paraglide/messages";
 import {
   deleteProject,
   updateProject,

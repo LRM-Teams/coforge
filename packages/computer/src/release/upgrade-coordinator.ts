@@ -7,7 +7,7 @@ import {
   UpdateError,
   type LockedComputerUpdater,
   type PreparedUpdate,
-} from "../updater";
+} from "#src/updater";
 import {
   createSupervisorUpgradeLifecycle,
   type ManagedRuntimeSnapshot,

@@ -1,8 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { agentAuthMiddleware } from "#/server/agents/agent-http.middleware";
-import { storeAgentAttachment } from "#/server/attachments/attachment.server";
-import { PrismaDirectConversationRepository } from "#/server/db/repositories/direct-conversation.repositories.server";
-import { isAppError } from "#/lib/app-error";
+import { agentAuthMiddleware } from "#src/server/agents/agent-http-middleware.server";
+import { storeAgentAttachment } from "#src/server/attachments/attachment.server";
+import { PrismaDirectConversationRepository } from "#src/server/db/repositories/direct-conversation.repositories.server";
+import { isAppError } from "#src/lib/app-error";
 
 /** RFC 6838 `type/subtype`, case-insensitively; matches the parameter-free form the Agent sends. */
 const MIME_TYPE_PATTERN = /^[a-z0-9][a-z0-9!#$&^_.+-]*\/[a-z0-9][a-z0-9!#$&^_.+-]*$/i;

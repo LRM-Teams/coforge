@@ -12,11 +12,8 @@ const {
   mergeAgentStatusSnapshot,
   mergeExtraAgents,
   nextDisplayRefreshDelayMs,
-} = await import("../src/features/agents/agent-status-realtime");
-import type {
-  AgentStatusEvent,
-  AgentStatusView,
-} from "../src/features/agents/agent-status-realtime";
+} = await import("#src/features/agents/agent-status-realtime");
+import type { AgentStatusEvent, AgentStatusView } from "#src/features/agents/agent-status-realtime";
 import { parseAgentDisplaySnapshot, type AgentDisplaySnapshot } from "@lrm/coforge-sdk/internal";
 
 test("agentStatusChannelForAgent names the per-Agent re-routing destination", () => {

@@ -1,12 +1,12 @@
 import { AGENT_ACTIVITY_DETAIL_KIND } from "@lrm/coforge-sdk/internal";
 import { parseActivityEntries, type AgentActivity } from "@lrm/coforge-sdk/internal";
-import type { PrismaClient } from "../../../../generated/client";
-import { activityKindForObservation } from "../../agents/agent-display.server";
-import { ACTIVE_AGENT_WHERE } from "../../agents/active-agent.server";
+import type { PrismaClient } from "#src/generated/prisma/client";
+import { activityKindForObservation } from "#src/server/agents/agent-display.server";
+import { ACTIVE_AGENT_WHERE } from "#src/server/agents/active-agent.server";
 import {
   agentVisibilityViewerForUser,
   visibleAgentWhere,
-} from "../../agents/agent-visibility.server";
+} from "#src/server/agents/agent-visibility.server";
 
 export type TrustedAgentActivity = AgentActivity & { computerId: string };
 

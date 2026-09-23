@@ -1,7 +1,7 @@
 import type {
   AgentMessageDraftContent,
   AgentMessageDraftStore,
-} from "../persistence/agent-message-draft-store";
+} from "#src/persistence/agent-message-draft-store";
 
 /** The draft while it is only in memory: Raft's entry minus the file-only `savedAt`. */
 type InMemoryDraft = AgentMessageDraftContent & { reholdCount: number };

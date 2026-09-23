@@ -4,10 +4,10 @@ import {
   type AgentReminderOperationResponse,
   validateAgentReminderOperationRequest,
 } from "@lrm/coforge-sdk/internal";
-import { isAppError } from "#/lib/app-error";
-import { agentAuthMiddleware } from "#/server/agents/agent-http.middleware";
-import { createAgentReminderService } from "#/server/agents/agent-api-http.server";
-import { ReminderRefusal } from "#/server/reminders/reminders.server";
+import { isAppError } from "#src/lib/app-error";
+import { agentAuthMiddleware } from "#src/server/agents/agent-http-middleware.server";
+import { createAgentReminderService } from "#src/server/agents/agent-api-http.server";
+import { ReminderRefusal } from "#src/server/reminders/reminders.server";
 
 export type AgentReminderPrincipal = {
   workspaceId: string;

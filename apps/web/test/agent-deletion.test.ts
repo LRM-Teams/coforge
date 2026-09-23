@@ -1,10 +1,10 @@
 import { describe, expect, test } from "bun:test";
 
-import { AgentDeletion, type AgentDeletionStore } from "../src/server/agents/agent-deletion.server";
+import { AgentDeletion, type AgentDeletionStore } from "#src/server/agents/agent-deletion.server";
 import type {
   AgentRecord,
   AgentRepository,
-} from "../src/server/db/repositories/agent.repositories.server";
+} from "#src/server/db/repositories/agent.repositories.server";
 
 function agent(overrides: Partial<AgentRecord> = {}): AgentRecord {
   return {

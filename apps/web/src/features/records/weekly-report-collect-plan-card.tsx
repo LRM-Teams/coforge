@@ -3,13 +3,13 @@ import { Link, useNavigate } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { Edit01 as Edit, Settings01 as Settings } from "@untitledui/icons";
 
-import { Button } from "@/components/base/buttons/button";
-import { Checkbox } from "@/components/base/checkbox/checkbox";
-import { Input } from "@/components/base/input/input";
-import { Select } from "@/components/base/select/select";
-import { TextArea } from "@/components/base/textarea/textarea";
-import { formatAgentProfileParam } from "@/features/agents/profile-panel/profile-panel-search";
-import { m } from "@/paraglide/messages";
+import { Button } from "#src/components/base/buttons/button";
+import { Checkbox } from "#src/components/base/checkbox/checkbox";
+import { Input } from "#src/components/base/input/input";
+import { Select } from "#src/components/base/select/select";
+import { TextArea } from "#src/components/base/textarea/textarea";
+import { formatAgentProfileParam } from "#src/features/agents/profile-panel/profile-panel-search";
+import { m } from "#src/paraglide/messages";
 import {
   defaultCustomRangeEndingToday,
   listCollectWindowOptions,

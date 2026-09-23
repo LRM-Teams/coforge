@@ -28,21 +28,21 @@ import {
   Trash01 as Trash,
 } from "@untitledui/icons";
 
-import { Avatar } from "@/components/base/avatar/avatar";
-import { Dropdown } from "@/components/base/dropdown/dropdown";
-import { Dialog, Modal, ModalOverlay } from "@/components/application/modals/modal";
+import { Avatar } from "#src/components/base/avatar/avatar";
+import { Dropdown } from "#src/components/base/dropdown/dropdown";
+import { Dialog, Modal, ModalOverlay } from "#src/components/application/modals/modal";
 import { useSendWindowCountdown } from "./use-send-window";
-import { Button } from "@/components/base/buttons/button";
-import { ButtonUtility } from "@/components/base/buttons/button-utility";
-import { Input } from "@/components/base/input/input";
-import { TextArea } from "@/components/base/textarea/textarea";
-import { avatarInitial, avatarToneClassName } from "@/lib/avatar-tone";
-import { m } from "@/paraglide/messages";
-import { formatAgentProfileParam } from "@/features/agents/profile-panel/profile-panel-search";
-import { cx } from "@/utils/cx";
-import { shouldSendOnEnter } from "../conversations/composer-behavior";
-import { useConversationRealtime } from "../conversations/conversation-realtime-client";
-import type { WeeklyReportAssistantSuggestion } from "../../server/records/weekly-report-assistant-suggestion.server";
+import { Button } from "#src/components/base/buttons/button";
+import { ButtonUtility } from "#src/components/base/buttons/button-utility";
+import { Input } from "#src/components/base/input/input";
+import { TextArea } from "#src/components/base/textarea/textarea";
+import { avatarInitial, avatarToneClassName } from "#src/lib/avatar-tone";
+import { m } from "#src/paraglide/messages";
+import { formatAgentProfileParam } from "#src/features/agents/profile-panel/profile-panel-search";
+import { cx } from "#src/utils/cx";
+import { shouldSendOnEnter } from "#src/features/conversations/composer-behavior";
+import { useConversationRealtime } from "#src/features/conversations/conversation-realtime-client";
+import type { WeeklyReportAssistantSuggestion } from "#src/server/records/weekly-report-assistant-suggestion.server";
 import type { KeyPointExtractionMeta, ReportContent } from "./records-content";
 import { formatWeeklyReportCompletedAt } from "./records-content";
 import {

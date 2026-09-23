@@ -10,10 +10,10 @@ import {
   Modal as AriaModal,
   ModalOverlay as AriaModalOverlay,
 } from "react-aria-components";
-import { ButtonUtility } from "@/components/base/buttons/button-utility";
-import { useBreakpoint } from "@/hooks/use-breakpoint";
-import { m } from "@/paraglide/messages";
-import { cx } from "@/utils/cx";
+import { ButtonUtility } from "#src/components/base/buttons/button-utility";
+import { useBreakpoint } from "#src/hooks/use-breakpoint";
+import { m } from "#src/paraglide/messages";
+import { cx } from "#src/utils/cx";
 
 const MobileDrawerContext = createContext<{
   isOpen: boolean;

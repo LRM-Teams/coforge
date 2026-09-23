@@ -4,7 +4,7 @@ import { decodeDaemonRuntimeUsageScanRequest } from "@lrm/coforge-sdk/internal";
 import {
   createCentrifugoServerApi,
   createUsageScan,
-} from "../src/server/centrifugo/server-api.server";
+} from "#src/server/centrifugo/server-api.server";
 
 const originalFetch = globalThis.fetch;
 

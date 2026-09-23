@@ -1,7 +1,7 @@
 import { lockConversation } from "./conversation-lock.server";
-import type { Prisma, PrismaClient } from "../../../generated/client";
-import { AppError } from "../../lib/app-error";
-import { windowPageFlags } from "../../lib/conversation-window";
+import type { Prisma, PrismaClient } from "#src/generated/prisma/client";
+import { AppError } from "#src/lib/app-error";
+import { windowPageFlags } from "#src/lib/conversation-window";
 import { ACTIVE_MEMBER_WHERE } from "./active-member.server";
 import {
   channelActorMemberWhere,
@@ -11,9 +11,9 @@ import {
   resolveActorServerRole,
   resolveChannelAuthority,
 } from "./channel-authority.server";
-import { ACTIVE_AGENT_WHERE } from "../agents/active-agent.server";
-import { messageAnchorWhere } from "../db/message-anchor";
-import { AGENT_VISIBILITY } from "../../features/agents/agent-visibility";
+import { ACTIVE_AGENT_WHERE } from "#src/server/agents/active-agent.server";
+import { messageAnchorWhere } from "#src/server/db/message-anchor.server";
+import { AGENT_VISIBILITY } from "#src/features/agents/agent-visibility";
 import {
   agentMessageSender,
   browserSenderHandle,
@@ -30,8 +30,8 @@ import {
   createCentrifugoServerApi,
   daemonControlChannel,
   type CentrifugoServerApi,
-} from "../centrifugo/server-api.server";
-import type { MessageNotifier } from "../notifications/web-push-composition.server";
+} from "#src/server/centrifugo/server-api.server";
+import type { MessageNotifier } from "#src/server/notifications/web-push-composition.server";
 import {
   normalizeMentionBody,
   resolveTaskReferences,
@@ -44,7 +44,7 @@ import {
   deliveryMentionsAgent,
   mentionAffinityScores,
   type BrowserMessageMentionRow,
-} from "./mentions";
+} from "./mentions.server";
 import {
   MESSAGE_REACTIONS_SELECT,
   reactionSummaries,
@@ -53,15 +53,15 @@ import {
 import { toggleUserMessageReaction } from "./user-message-reactions.server";
 import type { ConversationRealtime } from "./conversation-realtime.server";
 import { AgentMessageValidationError } from "./agent-message-validation-error.server";
-import { agentAvatarUrl } from "../agents/agent-avatar.server";
-import { workspaceUserAvatarUrl } from "../db/repositories/user-profile.repositories.server";
-import { attachmentView } from "../attachments/attachment-view.server";
+import { agentAvatarUrl } from "#src/server/agents/agent-avatar.server";
+import { workspaceUserAvatarUrl } from "#src/server/db/repositories/user-profile.repositories.server";
+import { attachmentView } from "#src/server/attachments/attachment-view.server";
 import type { ActionCardView } from "./action-cards.server";
 import {
   agentVisibilityViewerForUser,
   canSeeAgent,
   visibleAgentWhere,
-} from "../agents/agent-visibility.server";
+} from "#src/server/agents/agent-visibility.server";
 
 /** A channel actor is either a human (by Workspace `userId`) or an Agent (by `agentId`); the
  * human/Web UI and the Agent CLI share `PublicChannels.members`/`addMembers` through this. */

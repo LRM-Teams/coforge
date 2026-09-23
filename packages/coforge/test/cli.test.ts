@@ -3,7 +3,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parseArgs, resolveReminderId, run } from "../index";
-import { CliError, renderCliErrorJson, renderCliErrorText } from "../src/cli-error";
+import { CliError, renderCliErrorJson, renderCliErrorText } from "#src/cli-error";
 import { validateTaskRequest } from "@lrm/coforge-sdk/internal";
 import {
   createAgentApiClient,

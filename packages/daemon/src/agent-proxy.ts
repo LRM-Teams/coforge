@@ -38,22 +38,22 @@ import {
   type AgentProfileUpdateRequest,
   type AgentProfileUpdateResponse,
 } from "@lrm/coforge-sdk/agent";
-import { isAgentApiKey } from "./credentials/agent-api-key";
+import { isAgentApiKey } from "#src/credentials/agent-api-key";
 import { classifyAgentProxyFailure, AGENT_PROXY_CORRELATION_HEADER } from "./agent-proxy-failure";
-import { AgentManualRequestError } from "./connection/agent-manual-request-error";
-import { AgentUserInfoRequestError } from "./connection/agent-user-info-request-error";
-import { AgentProfileRequestError } from "./connection/agent-profile-request-error";
+import { AgentManualRequestError } from "#src/connection/agent-manual-request-error";
+import { AgentUserInfoRequestError } from "#src/connection/agent-user-info-request-error";
+import { AgentProfileRequestError } from "#src/connection/agent-profile-request-error";
 import {
   validateWeeklyReportCollectCommand,
   type WeeklyReportCollectCommand,
   type WeeklyReportCollectFailRunningCommand,
   type WeeklyReportCollectResult,
-} from "./connection/weekly-report-collect";
+} from "#src/connection/weekly-report-collect";
 import {
   validateWeeklyReportKeyPointsCommand,
   type WeeklyReportKeyPointsCommand,
   type WeeklyReportKeyPointsResult,
-} from "./connection/weekly-report-key-points";
+} from "#src/connection/weekly-report-key-points";
 import { getLogger } from "@logtape/logtape";
 
 export type AgentProxy = {

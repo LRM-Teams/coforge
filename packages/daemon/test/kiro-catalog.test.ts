@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { tmpdir } from "node:os";
 import { configure, reset, type LogRecord } from "@logtape/logtape";
-import { discoverKiroCatalog } from "../src/code-agent/kiro/catalog";
+import { discoverKiroCatalog } from "#src/code-agent/kiro/catalog";
 
 test("Kiro catalog fails closed when model discovery never completes", async () => {
   expect(

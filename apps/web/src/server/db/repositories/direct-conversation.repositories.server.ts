@@ -1,41 +1,41 @@
-import { lockConversation } from "../../conversations/conversation-lock.server";
+import { lockConversation } from "#src/server/conversations/conversation-lock.server";
 import type { MessageSenderKind, MessageTaskMetadata, TaskStatus } from "@lrm/coforge-sdk/internal";
 import {
   normalizeMentionBody,
   resolveTaskReferences,
   taskReferenceNumbers,
 } from "@lrm/coforge-sdk/internal";
-import { Prisma, type PrismaClient } from "../../../../generated/client";
-import { AppError } from "../../../lib/app-error";
-import { canDirectMessageAgent } from "../../agents/agent-visibility.server";
-import { AgentMessageValidationError } from "../../conversations/agent-message-validation-error.server";
-import { messageAnchorWhere } from "../message-anchor";
-import { getAgentChannel, PublicChannels } from "../../conversations/public-channels.server";
-import { ACTIVE_MEMBER_WHERE } from "../../conversations/active-member.server";
+import { Prisma, type PrismaClient } from "#src/generated/prisma/client";
+import { AppError } from "#src/lib/app-error";
+import { canDirectMessageAgent } from "#src/server/agents/agent-visibility.server";
+import { AgentMessageValidationError } from "#src/server/conversations/agent-message-validation-error.server";
+import { messageAnchorWhere } from "#src/server/db/message-anchor.server";
+import { getAgentChannel, PublicChannels } from "#src/server/conversations/public-channels.server";
+import { ACTIVE_MEMBER_WHERE } from "#src/server/conversations/active-member.server";
 import {
   agentReadableBody,
   BROWSER_MESSAGE_MENTIONS_SELECT,
   browserMessageMention,
   deliveryMentionsAgent,
   mentionedNames,
-} from "../../conversations/mentions";
-import { AgentSendRejectedError } from "../../conversations/agent-send-rejected-error.server";
+} from "#src/server/conversations/mentions.server";
+import { AgentSendRejectedError } from "#src/server/conversations/agent-send-rejected-error.server";
 import {
   MESSAGE_REACTIONS_SELECT,
   reactionSummaries,
-} from "../../conversations/message-reactions.server";
-import { toggleUserMessageReaction } from "../../conversations/user-message-reactions.server";
+} from "#src/server/conversations/message-reactions.server";
+import { toggleUserMessageReaction } from "#src/server/conversations/user-message-reactions.server";
 import {
   agentMessageSender,
   browserSenderHandle,
   browserSenderName,
   MESSAGE_SENDER_SELECT,
-} from "../../conversations/sender-display.server";
-import { agentAvatarUrl } from "../../agents/agent-avatar.server";
+} from "#src/server/conversations/sender-display.server";
+import { agentAvatarUrl } from "#src/server/agents/agent-avatar.server";
 import { workspaceUserAvatarUrl } from "./user-profile.repositories.server";
-import { attachmentView } from "../../attachments/attachment-view.server";
-import type { ActionCardView } from "../../conversations/action-cards.server";
-import { windowPageFlags } from "../../../lib/conversation-window";
+import { attachmentView } from "#src/server/attachments/attachment-view.server";
+import type { ActionCardView } from "#src/server/conversations/action-cards.server";
+import { windowPageFlags } from "#src/lib/conversation-window";
 
 /** The three Agent-visible sender facts, spread onto every Agent-facing message shape
  * in this file so they cannot drift into three different field sets. */

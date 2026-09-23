@@ -10,20 +10,20 @@ import {
   Trash01 as Trash,
 } from "@untitledui/icons";
 
-import { PageHeader } from "@/components/layout/page-header";
-import { Avatar } from "@/components/base/avatar/avatar";
-import { Button } from "@/components/base/buttons/button";
-import { ButtonUtility } from "@/components/base/buttons/button-utility";
-import { Dropdown } from "@/components/base/dropdown/dropdown";
-import { isAppError } from "@/lib/app-error";
-import { m } from "@/paraglide/messages";
-import { avatarInitial, avatarToneClassName } from "@/lib/avatar-tone";
-import { useAppToast } from "@/components/ui/toast";
-import { ReportSectionEditor } from "./report-editor/report-section-editor";
+import { PageHeader } from "#src/components/layout/page-header";
+import { Avatar } from "#src/components/base/avatar/avatar";
+import { Button } from "#src/components/base/buttons/button";
+import { ButtonUtility } from "#src/components/base/buttons/button-utility";
+import { Dropdown } from "#src/components/base/dropdown/dropdown";
+import { isAppError } from "#src/lib/app-error";
+import { m } from "#src/paraglide/messages";
+import { avatarInitial, avatarToneClassName } from "#src/lib/avatar-tone";
+import { useAppToast } from "#src/components/ui/toast";
+import { ReportSectionEditor } from "#src/features/records/report-editor/report-section-editor";
 import { KEY_POINT_EXTRACTION_TAB, KeyPointExtractionPanel } from "./key-point-extraction-panel";
 import { TeamKeyPointSection } from "./team-key-point-section";
 import { ReportTabsEditor } from "./report-tabs-editor";
-import type { UploadResult } from "./report-editor/types";
+import type { UploadResult } from "#src/features/records/report-editor/types";
 import {
   readReportDraft,
   clearReportDraft,
@@ -58,7 +58,7 @@ import {
   withWeekSendDismissed,
   type ReportContent,
 } from "./records-content";
-import { copyText } from "./report-editor/lib/clipboard";
+import { copyText } from "#src/features/records/report-editor/lib/clipboard";
 import {
   BackToRecords,
   RecordsKeyPointReturnBack,

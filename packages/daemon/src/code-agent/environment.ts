@@ -2,7 +2,7 @@ import { dirname } from "node:path";
 import {
   codeAgentExecutableSearchPath,
   executablePathDelimiter,
-} from "../platform/code-agent-path";
+} from "#src/platform/code-agent-path";
 import type { CoforgeAgentPromptContext } from "./agent-instructions";
 import type { AgentGitHookPlan } from "@coforge/agent";
 

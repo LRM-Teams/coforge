@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { fileDeliveryStatus } from "#/server/files/file-delivery.server";
-import { publicImageDeliveryStatus } from "#/server/files/public-image-delivery.server";
+import { fileDeliveryStatus } from "#src/server/files/file-delivery.server";
+import { publicImageDeliveryStatus } from "#src/server/files/public-image-delivery.server";
 
 export const Route = createFileRoute("/health")({
   server: {

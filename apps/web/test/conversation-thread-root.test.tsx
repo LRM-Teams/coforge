@@ -1,8 +1,8 @@
 import { expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 
-import { ConversationPane } from "@/features/conversations/direct-conversation";
-import { m } from "@/paraglide/messages";
+import { ConversationPane } from "#src/features/conversations/direct-conversation";
+import { m } from "#src/paraglide/messages";
 
 /**
  * The thread pane used to draw its root as a bespoke display-only block, so the root message

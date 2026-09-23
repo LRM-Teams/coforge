@@ -9,9 +9,9 @@ import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useSta
 import type { SuggestionOptions } from "@tiptap/suggestion";
 import { PluginKey } from "@tiptap/pm/state";
 import { Calculator as Sigma, Code02 as Code2, Table as Table2 } from "@untitledui/icons";
-import { Button } from "@/components/base/buttons/button";
-import { isImeComposing } from "../lib/ime";
-import { getLastInsertedCodeBlockLanguage } from "../code-block-language";
+import { Button } from "#src/components/base/buttons/button";
+import { isImeComposing } from "#src/features/records/report-editor/lib/ime";
+import { getLastInsertedCodeBlockLanguage } from "#src/features/records/report-editor/code-block-language";
 import { createSuggestionPopupRender } from "./suggestion-popup";
 
 export type BuiltinCommandKey = "code" | "table" | "formula";

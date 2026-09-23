@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
-import type { PrismaClient } from "../generated/client";
-import { ensureWeeklyReportAssistantRuntimeSession } from "../src/server/records/weekly-report-assistant-runtime-session.server";
-import { planWeeklyReportAssistantSubjectLaunch } from "../src/server/records/weekly-report-assistant-subject-launch.server";
+import type { PrismaClient } from "#src/generated/prisma/client";
+import { ensureWeeklyReportAssistantRuntimeSession } from "#src/server/records/weekly-report-assistant-runtime-session.server";
+import { planWeeklyReportAssistantSubjectLaunch } from "#src/server/records/weekly-report-assistant-subject-launch.server";
 
 function memoryDb() {
   const rows = new Map<

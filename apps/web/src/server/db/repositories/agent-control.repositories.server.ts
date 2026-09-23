@@ -1,13 +1,13 @@
 import { z } from "zod";
 import { RUNTIME_PROVIDER_VALUES } from "@lrm/coforge-sdk/internal";
-import { Prisma, type PrismaClient } from "../../../../generated/client";
-import { parseAgentRuntimeConfig } from "../../agents/agent-runtime-config.server";
+import { Prisma, type PrismaClient } from "#src/generated/prisma/client";
+import { parseAgentRuntimeConfig } from "#src/server/agents/agent-runtime-config.server";
 import type {
   AgentControlAgent,
   AgentControlState,
   AgentControlStore,
-} from "../../agents/agent-control.server";
-import type { WorkspaceMemberRole } from "../../workspaces/member-role.server";
+} from "#src/server/agents/agent-control.server";
+import type { WorkspaceMemberRole } from "#src/server/workspaces/member-role.server";
 
 const stateSchema = z
   .object({

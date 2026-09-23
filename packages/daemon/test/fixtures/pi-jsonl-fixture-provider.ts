@@ -4,13 +4,13 @@ import type {
   AgentSessionIdentity,
   AgentSessionOptions,
 } from "@coforge/agent";
-import type { CodeAgentProvider } from "../../src/code-agent/contract";
+import type { CodeAgentProvider } from "#src/code-agent/contract";
 import { prepareAgentSessionDirectory, resolveAgentSessionFile } from "@coforge/agent";
 import { RUNTIME_PROVIDER } from "@lrm/coforge-sdk/internal";
 import { join } from "node:path";
-import { agentEnvironment } from "../../src/code-agent/environment";
-import { JsonlProcess } from "../../src/code-agent/jsonl-process";
-import { toolActivity } from "../../src/code-agent/tool-activity";
+import { agentEnvironment } from "#src/code-agent/environment";
+import { JsonlProcess } from "#src/code-agent/jsonl-process";
+import { toolActivity } from "#src/code-agent/tool-activity";
 
 /** Test-only adapter for deterministic subprocess fixtures that speak Pi's legacy JSONL RPC. */
 export class PiJsonlFixtureProvider implements CodeAgentProvider {

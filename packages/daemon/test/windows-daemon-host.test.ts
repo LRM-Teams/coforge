@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
-import { WindowsUserDaemonHost, windowsDaemonTaskXml } from "../src/daemon-host/windows-task";
-import { windowsUpgradeTaskXml } from "../src/platform/computer-upgrade-launcher";
+import { WindowsUserDaemonHost, windowsDaemonTaskXml } from "#src/daemon-host/windows-task";
+import { windowsUpgradeTaskXml } from "#src/platform/computer-upgrade-launcher";
 
 test("windowsDaemonTaskXml registers a least-privilege interactive logon task", () => {
   const xml = windowsDaemonTaskXml({

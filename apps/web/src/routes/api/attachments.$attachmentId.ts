@@ -1,15 +1,15 @@
 import { createFileRoute } from "@tanstack/react-router";
-import type { PrismaClient } from "../../../generated/client";
-import { requireBrowserUser } from "#/server/auth/require-user.server";
+import type { PrismaClient } from "#src/generated/prisma/client";
+import { requireBrowserUser } from "#src/server/auth/require-user.server";
 import {
   attachmentResponseHeaders,
   isDeliveryInlinePreview,
   isInlineImage,
-} from "#/server/attachments/attachment-response.server";
-import { readAuthorizedAttachment } from "#/server/attachments/attachment.server";
-import { getDatabaseClient } from "#/server/db/client.server";
-import { getFileDelivery, type FileDelivery } from "#/server/files/file-delivery.server";
-import type { StoredFile } from "#/server/files/file-storage.server";
+} from "#src/server/attachments/attachment-response.server";
+import { readAuthorizedAttachment } from "#src/server/attachments/attachment.server";
+import { getDatabaseClient } from "#src/server/db/client.server";
+import { getFileDelivery, type FileDelivery } from "#src/server/files/file-delivery.server";
+import type { StoredFile } from "#src/server/files/file-storage.server";
 
 export const Route = createFileRoute("/api/attachments/$attachmentId")({
   server: {

@@ -1,18 +1,15 @@
 import { describe, expect, test } from "bun:test";
 import { decodeAgentStartIntent } from "@lrm/coforge-sdk/internal";
 
-import { ManageAgents } from "../src/server/agents/manage-agents.server";
-import { AgentControl } from "../src/server/agents/agent-control.server";
-import { AgentEnvironment } from "../src/server/agents/agent-environment.server";
-import { ChangeAgentRuntimeCredential } from "../src/server/agents/change-agent-runtime-credential.server";
-import type {
-  AgentControlAgent,
-  AgentControlStore,
-} from "../src/server/agents/agent-control.server";
+import { ManageAgents } from "#src/server/agents/manage-agents.server";
+import { AgentControl } from "#src/server/agents/agent-control.server";
+import { AgentEnvironment } from "#src/server/agents/agent-environment.server";
+import { ChangeAgentRuntimeCredential } from "#src/server/agents/change-agent-runtime-credential.server";
+import type { AgentControlAgent, AgentControlStore } from "#src/server/agents/agent-control.server";
 import type {
   AgentRecord,
   AgentRepository,
-} from "../src/server/db/repositories/agent.repositories.server";
+} from "#src/server/db/repositories/agent.repositories.server";
 
 /**
  * Deleting an Agent is durable. The review of the first implementation found that only

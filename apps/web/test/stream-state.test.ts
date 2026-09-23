@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 
-import { streamState } from "@/features/conversations/stream-state";
+import { streamState } from "#src/features/conversations/stream-state";
 
 test("a stream with content shows content, whatever the read is doing", () => {
   expect(streamState(3, "loading")).toBe("messages");

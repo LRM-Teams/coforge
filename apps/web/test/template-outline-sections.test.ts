@@ -11,7 +11,7 @@ import {
   sectionsFromReportContent,
   sectionsToMarkdown,
   serializeLevel2Blocks,
-} from "@/features/records/template-outline-sections";
+} from "#src/features/records/template-outline-sections";
 
 test("parseTemplateSections accepts legacy string dimensions", () => {
   expect(parseTemplateSections(["Summary", "Research"])).toEqual([

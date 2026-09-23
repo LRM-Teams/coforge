@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 
-import { collectComputerStatus } from "../src/status/collect-status";
-import type { StatusBinding, StatusPorts, WorkspaceAgents } from "../src/status/types";
+import { collectComputerStatus } from "#src/status/collect-status";
+import type { StatusBinding, StatusPorts, WorkspaceAgents } from "#src/status/types";
 
 const NOW = new Date("2026-01-01T00:00:00.000Z");
 

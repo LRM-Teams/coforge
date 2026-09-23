@@ -3,7 +3,7 @@ import { create, toBinary } from "@bufbuild/protobuf";
 import {
   AgentSessionReportSchema,
   AgentStartIntentSchema,
-} from "./gen/coforge/rpc/v1/workspace_pb";
+} from "#src/internal/gen/coforge/rpc/v1/workspace_pb";
 import {
   encodeAgentSessionReport,
   decodeAgentSessionReport,

@@ -10,9 +10,9 @@ import {
   type TokenExchanger,
 } from "./browser-login.server";
 import { UserIdentityRepository } from "./user-identity.repository.server";
-import { getDatabaseClient } from "../db/client.server";
-import { toPublicServerError } from "../errors/public-error.server";
-import { workspaceIdForUser } from "../workspaces/enrollment.server";
+import { getDatabaseClient } from "#src/server/db/client.server";
+import { toPublicServerError } from "#src/server/errors/public-error.server";
+import { workspaceIdForUser } from "#src/server/workspaces/enrollment.server";
 
 export function handleLoginStart(input: {
   config: AuthingConfig;

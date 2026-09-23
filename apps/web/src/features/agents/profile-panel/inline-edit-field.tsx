@@ -1,11 +1,11 @@
 import { useState, type KeyboardEvent } from "react";
 import { Edit01 as Pencil } from "@untitledui/icons";
 
-import { Button } from "@/components/base/buttons/button";
-import { ButtonUtility } from "@/components/base/buttons/button-utility";
-import { Input } from "@/components/base/input/input";
-import { TextArea } from "@/components/base/textarea/textarea";
-import { m } from "@/paraglide/messages";
+import { Button } from "#src/components/base/buttons/button";
+import { ButtonUtility } from "#src/components/base/buttons/button-utility";
+import { Input } from "#src/components/base/input/input";
+import { TextArea } from "#src/components/base/textarea/textarea";
+import { m } from "#src/paraglide/messages";
 
 /** The panel's small uppercase field-group caption — the same style as the chat sidebar's
  * "CHANNELS" caption (`conversation-directory.tsx`), reused here for section labels (INFO,

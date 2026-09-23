@@ -1,9 +1,9 @@
 import { createMiddleware } from "@tanstack/react-start";
 import { getRequest } from "@tanstack/react-start/server";
-import { requireDatabaseClient } from "../db/client.server";
-import { requireWorkspaceIdForRequest } from "../workspaces/selection.server";
-import type { BrowserUser } from "./browser-login.server";
-import { requireBrowserUser } from "./require-user.server";
+import { requireDatabaseClient } from "#src/server/db/client.server";
+import { requireWorkspaceIdForRequest } from "#src/server/workspaces/selection.server";
+import type { BrowserUser } from "#src/server/auth/browser-login.server";
+import { requireBrowserUser } from "#src/server/auth/require-user.server";
 
 export type WorkspaceUserContext = {
   user: BrowserUser;

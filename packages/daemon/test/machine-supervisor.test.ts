@@ -5,11 +5,11 @@ import {
   UPGRADE_OPERATION_HISTORY,
   type ManagedBinding,
   type PendingUpgradeSettler,
-} from "../src/supervisor/machine-supervisor";
+} from "#src/supervisor/machine-supervisor";
 import {
   UpgradeLaunchesPausedError,
   UpgradeOperationPendingError,
-} from "../src/supervisor/upgrade-error";
+} from "#src/supervisor/upgrade-error";
 
 const NOW = 1_700_000_000_000;
 

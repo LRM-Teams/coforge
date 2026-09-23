@@ -1,9 +1,9 @@
-import type { Prisma, PrismaClient } from "../../../generated/client";
-import { AppError } from "../../lib/app-error";
-import { attachmentView } from "../attachments/attachment-view.server";
-import { agentAvatarUrl } from "../agents/agent-avatar.server";
-import { workspaceUserAvatarUrl } from "../db/repositories/user-profile.repositories.server";
-import { BROWSER_MESSAGE_MENTIONS_SELECT, browserMessageMention } from "./mentions";
+import type { Prisma, PrismaClient } from "#src/generated/prisma/client";
+import { AppError } from "#src/lib/app-error";
+import { attachmentView } from "#src/server/attachments/attachment-view.server";
+import { agentAvatarUrl } from "#src/server/agents/agent-avatar.server";
+import { workspaceUserAvatarUrl } from "#src/server/db/repositories/user-profile.repositories.server";
+import { BROWSER_MESSAGE_MENTIONS_SELECT, browserMessageMention } from "./mentions.server";
 import { MESSAGE_REACTIONS_SELECT, reactionSummaries } from "./message-reactions.server";
 import { browserSenderHandle, browserSenderName } from "./sender-display.server";
 import type { ActionCardView } from "./action-cards.server";

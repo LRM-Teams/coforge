@@ -11,9 +11,9 @@ import {
   createComputerUpgradeResultMethod,
   createDaemonConnectionStatusMethod,
   type CentrifugoRpcMethod,
-} from "../src/server/centrifugo/rpc-handler.server";
-import { createCentrifugoRpcHandler } from "../src/server/centrifugo/rpc-composition.server";
-import { AgentMessageValidationError } from "../src/server/conversations/agent-message-validation-error.server";
+} from "#src/server/centrifugo/rpc-handler.server";
+import { createCentrifugoRpcHandler } from "#src/server/centrifugo/rpc-composition.server";
+import { AgentMessageValidationError } from "#src/server/conversations/agent-message-validation-error.server";
 import {
   encodeAgentMessageDeliveryAck,
   encodeAgentStatus,

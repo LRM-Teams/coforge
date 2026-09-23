@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 
-import { PENDING_DELAY_MS, PENDING_MIN_MS } from "@/lib/pending-policy";
-import { getRouter } from "@/router";
+import { PENDING_DELAY_MS, PENDING_MIN_MS } from "#src/lib/pending-policy";
+import { getRouter } from "#src/router";
 
 test("the router carries the one pending policy, so no route has to restate it", () => {
   const router = getRouter();

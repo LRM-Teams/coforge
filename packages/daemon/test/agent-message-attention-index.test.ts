@@ -7,8 +7,8 @@ import type {
   AgentRecoveryMessage,
   MessageSenderKind,
 } from "@lrm/coforge-sdk/internal";
-import { AgentMessageAttentionIndex } from "../src/daemon-runtime/agent-message-attention-index";
-import { AgentConsumedSeqStore } from "../src/persistence/agent-consumed-seq-store";
+import { AgentMessageAttentionIndex } from "#src/daemon-runtime/agent-message-attention-index";
+import { AgentConsumedSeqStore } from "#src/persistence/agent-consumed-seq-store";
 
 const stateDirectories: string[] = [];
 

@@ -19,9 +19,9 @@ import type {
   DaemonHoldResponse,
   ManagedRuntimeIdentity,
 } from "@lrm/coforge-sdk/internal";
-import { DaemonConfigStore } from "../persistence/daemon-config";
-import { COFORGE_DAEMON_SERVER_URL } from "../connection/built-server";
-import { FileBindingStore } from "../supervisor/binding-store";
+import { DaemonConfigStore } from "#src/persistence/daemon-config";
+import { COFORGE_DAEMON_SERVER_URL } from "#src/connection/built-server";
+import { FileBindingStore } from "#src/supervisor/binding-store";
 
 export interface DaemonLauncher {
   preflight?(): Promise<void>;

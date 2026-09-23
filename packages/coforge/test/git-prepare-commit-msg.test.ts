@@ -6,7 +6,7 @@ import {
   repositoryFromRemoteUrl,
   runGitPrepareCommitMsg,
   type CommitTrailersLookup,
-} from "../src/git-prepare-commit-msg";
+} from "#src/git-prepare-commit-msg";
 
 const TRAILER =
   "Co-authored-by: coforge-staging[bot] <1+coforge-staging[bot]@users.noreply.github.com>";

@@ -11,16 +11,19 @@ import {
   type AgentStartIntent,
   type AgentStopIntent,
 } from "@lrm/coforge-sdk/internal";
-import { daemonControlChannel, type CentrifugoServerApi } from "../centrifugo/server-api.server";
+import {
+  daemonControlChannel,
+  type CentrifugoServerApi,
+} from "#src/server/centrifugo/server-api.server";
 import { agentStartIntent } from "./manage-agents.server";
 import type { AgentSessions } from "./agent-sessions.server";
-import type { AgentRepository } from "../db/repositories/agent.repositories.server";
+import type { AgentRepository } from "#src/server/db/repositories/agent.repositories.server";
 import type { AgentRuntimeLock } from "./agent-runtime-lock.server";
 import type { AgentControl } from "./agent-control.server";
 import type {
   AgentRecoveryContext,
   PendingAgentDelivery,
-} from "../db/repositories/direct-conversation.repositories.server";
+} from "#src/server/db/repositories/direct-conversation.repositories.server";
 
 export type AgentRuntimeControlAuthorization = {
   computerIdForAuthorizedAgent(

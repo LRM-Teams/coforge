@@ -3,7 +3,7 @@ import { create, toBinary } from "@bufbuild/protobuf";
 import {
   AgentContextScanRequestSchema,
   AgentContextScanResponseSchema,
-} from "./gen/coforge/rpc/v1/daemon_runtime_pb";
+} from "#src/internal/gen/coforge/rpc/v1/daemon_runtime_pb";
 import {
   encodeAgentContextScanRequest,
   decodeAgentContextScanRequest,

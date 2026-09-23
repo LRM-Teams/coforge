@@ -2,11 +2,11 @@ import { useEffect, useState } from "react";
 import { getRouteApi } from "@tanstack/react-router";
 import { AlertCircle, Paperclip } from "@untitledui/icons";
 
-import { Avatar } from "@/components/base/avatar/avatar";
-import { Button } from "@/components/base/buttons/button";
-import { avatarInitial, avatarToneClassName } from "@/lib/avatar-tone";
-import { cn } from "@/lib/utils";
-import { m } from "@/paraglide/messages";
+import { Avatar } from "#src/components/base/avatar/avatar";
+import { Button } from "#src/components/base/buttons/button";
+import { avatarInitial, avatarToneClassName } from "#src/lib/avatar-tone";
+import { cn } from "#src/lib/utils";
+import { m } from "#src/paraglide/messages";
 import {
   unsentReasonAllowsEdit,
   unsentReasonAllowsRetry,

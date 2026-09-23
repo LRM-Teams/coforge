@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 
-import { resolveReleaseFeedUrl, resolveServerUrl } from "../src/release-channel";
+import { resolveReleaseFeedUrl, resolveServerUrl } from "#src/release-channel";
 
 test("an unset feed URL falls back to the production default", () => {
   expect(resolveReleaseFeedUrl(undefined)).toBe("https://releases.coforge.cn/");

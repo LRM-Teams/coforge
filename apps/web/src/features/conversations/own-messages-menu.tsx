@@ -6,13 +6,13 @@ import {
   Popover as AriaPopover,
 } from "react-aria-components";
 
-import { ButtonUtility } from "@/components/base/buttons/button-utility";
-import { Dropdown } from "@/components/base/dropdown/dropdown";
-import { RelativeTime } from "@/components/ui/relative-time";
-import { useAppToast } from "@/components/ui/toast";
-import { useStateWithRef } from "@/hooks/use-state-with-ref";
-import { cn } from "@/lib/utils";
-import { m } from "@/paraglide/messages";
+import { ButtonUtility } from "#src/components/base/buttons/button-utility";
+import { Dropdown } from "#src/components/base/dropdown/dropdown";
+import { RelativeTime } from "#src/components/ui/relative-time";
+import { useAppToast } from "#src/components/ui/toast";
+import { useStateWithRef } from "#src/hooks/use-state-with-ref";
+import { cn } from "#src/lib/utils";
+import { m } from "#src/paraglide/messages";
 import { mergeMessages } from "./conversation-messages";
 
 export type OwnMessageIndexEntry = {

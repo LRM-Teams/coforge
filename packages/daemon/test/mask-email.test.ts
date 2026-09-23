@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 
-import { maskEmail } from "../src/code-agent/mask-email";
+import { maskEmail } from "#src/code-agent/mask-email";
 
 test("masks the local part like Raft's maskRuntimeAccountEmail", () => {
   // Local part shorter than 8 keeps 1 character and, with 3 remaining, no suffix.

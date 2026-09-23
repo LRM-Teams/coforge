@@ -12,7 +12,7 @@ import { rm } from "node:fs/promises";
 import { tmpdir, userInfo } from "node:os";
 import { realpathSync } from "node:fs";
 import { join } from "node:path";
-import { AGENT_STARTUP_TURN_TEXT, DaemonRuntime } from "../src/daemon-runtime/runtime";
+import { AGENT_STARTUP_TURN_TEXT, DaemonRuntime } from "#src/daemon-runtime/runtime";
 import {
   AGENT_RUNTIME_EVENT_TYPE,
   AgentProcessCleanupError,
@@ -22,16 +22,16 @@ import {
   type AgentRuntimeEvent,
   type CodeAgentProvider,
   type AgentSession,
-} from "../src/code-agent/contract";
-import type { WorkspaceConfig } from "../src/daemon-runtime/runtime";
-import { InMemoryDaemonCredentialStore } from "../src/credentials/credential-store";
+} from "#src/code-agent/contract";
+import type { WorkspaceConfig } from "#src/daemon-runtime/runtime";
+import { InMemoryDaemonCredentialStore } from "#src/credentials/credential-store";
 import {
   DaemonConnection,
   type AgentMessageTransportResponse,
   type CentrifugeWorkspaceClient,
-} from "../src/connection/daemon-connection";
-import { startAgentProxy, type AgentProxy } from "../src/agent-proxy";
-import { AgentPreflightError } from "../src/daemon-runtime/agent-preflight-error";
+} from "#src/connection/daemon-connection";
+import { startAgentProxy, type AgentProxy } from "#src/agent-proxy";
+import { AgentPreflightError } from "#src/daemon-runtime/agent-preflight-error";
 import {
   AGENT_ACTIVITY_DETAIL_KIND,
   AGENT_CONTEXT_SCAN_STATUS,

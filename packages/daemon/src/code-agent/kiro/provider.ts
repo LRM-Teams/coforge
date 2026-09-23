@@ -6,7 +6,7 @@ import type {
   AgentRuntimeEvent,
   AgentSessionIdentity,
 } from "@coforge/agent";
-import type { CodeAgentProvider } from "../contract";
+import type { CodeAgentProvider } from "#src/code-agent/contract";
 import type {
   SessionNotification,
   SessionConfigOption,
@@ -14,15 +14,15 @@ import type {
   ToolKind,
 } from "@agentclientprotocol/sdk";
 import { RUNTIME_PROVIDER } from "@lrm/coforge-sdk/internal";
-import { agentEnvironment } from "../environment";
-import { AgentSessionRecoveryError } from "../contract";
-import { scrubRuntimeErrorText } from "../../agent-runtime/runtime-error-activity";
+import { agentEnvironment } from "#src/code-agent/environment";
+import { AgentSessionRecoveryError } from "#src/code-agent/contract";
+import { scrubRuntimeErrorText } from "#src/agent-runtime/runtime-error-activity";
 import { bounded, KIRO_ACP_ARGS, KiroConnection, record } from "./connection";
 import { readKiroUsage } from "./usage";
 import { discoverKiroCatalog } from "./catalog";
-import { discoverExternalCodeAgents } from "../runtime-inventory";
+import { discoverExternalCodeAgents } from "#src/code-agent/runtime-inventory";
 import { assertKiroVersionSupported } from "./version";
-import type { ProviderDiscoveryOptions } from "../contract";
+import type { ProviderDiscoveryOptions } from "#src/code-agent/contract";
 
 // Kiro's tool_call frames never carry a programmatic name (only a
 // human-readable title, e.g. "Run Command", "Read File"), so the ACP `kind`

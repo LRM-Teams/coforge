@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
-import { handleAgentManualGet } from "../src/routes/api/agent/v1/manual";
-import { handleAgentManualSearchGet } from "../src/routes/api/agent/v1/manual_.search";
+import { handleAgentManualGet } from "#src/routes/api/agent/v1/manual";
+import { handleAgentManualSearchGet } from "#src/routes/api/agent/v1/manual_.search";
 
 const VALID_INTENT = "Open a pull request for a bound repository";
 const VALID_REASON = "Confirm the exact clone and push commands to use";

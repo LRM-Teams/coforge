@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 
 test("ensureWeeklyReportAssistantChatSession creates a first session and backfills legacy comments", async () => {
   const { ensureWeeklyReportAssistantChatSession } =
-    await import("../src/server/records/weekly-report-assistant-chat-session.server");
+    await import("#src/server/records/weekly-report-assistant-chat-session.server");
 
   let created: {
     id: string;
@@ -57,7 +57,7 @@ test("ensureWeeklyReportAssistantChatSession creates a first session and backfil
 
 test("createWeeklyReportAssistantChatSession opens an empty side-chat thread", async () => {
   const { createWeeklyReportAssistantChatSession } =
-    await import("../src/server/records/weekly-report-assistant-chat-session.server");
+    await import("#src/server/records/weekly-report-assistant-chat-session.server");
   const db = {
     workspaceMembership: {
       findUniqueOrThrow: async () => ({ workspaceId: "ws", userId: "user-1" }),

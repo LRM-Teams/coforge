@@ -2,10 +2,10 @@ import { expect, test } from "bun:test";
 import {
   readAgentContextReport,
   scanAgentContextReport,
-} from "../src/server/agents/agent-context-report.server";
+} from "#src/server/agents/agent-context-report.server";
 import { decodeAgentContextScanRequest } from "@lrm/coforge-sdk/internal";
-import type { AgentContextCache } from "../src/server/centrifugo/agent-context-cache.server";
-import type { PrismaClient } from "../generated/client";
+import type { AgentContextCache } from "#src/server/centrifugo/agent-context-cache.server";
+import type { PrismaClient } from "#src/generated/prisma/client";
 
 type AgentRow = {
   id: string;

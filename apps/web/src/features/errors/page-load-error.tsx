@@ -1,8 +1,8 @@
 import { useRouter } from "@tanstack/react-router";
 
-import { Button } from "@/components/base/buttons/button";
-import { isAppError } from "@/lib/app-error";
-import { m } from "@/paraglide/messages";
+import { Button } from "#src/components/base/buttons/button";
+import { isAppError } from "#src/lib/app-error";
+import { m } from "#src/paraglide/messages";
 
 export function PageLoadError({ error }: { error: unknown }) {
   const router = useRouter();

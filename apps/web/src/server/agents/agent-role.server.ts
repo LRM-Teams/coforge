@@ -1,6 +1,9 @@
-import type { PrismaClient } from "../../../generated/client";
-import { AppError } from "../../lib/app-error";
-import { assertCanInvite, type WorkspaceMemberRole } from "../workspaces/member-role.server";
+import type { PrismaClient } from "#src/generated/prisma/client";
+import { AppError } from "#src/lib/app-error";
+import {
+  assertCanInvite,
+  type WorkspaceMemberRole,
+} from "#src/server/workspaces/member-role.server";
 import { ACTIVE_AGENT_WHERE } from "./active-agent.server";
 
 export type SetAgentRoleInput = {
