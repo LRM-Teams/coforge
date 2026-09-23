@@ -30,7 +30,7 @@
 - **抽屉是临时导航**：选择目标后收起；提供明确关闭按钮、点击遮罩和 Escape 关闭路径，键盘与触屏都可操作。跨手机／桌面断点时关闭临时抽屉，桌面折叠状态独立保留。
 - **手机采用宽抽屉**：展开时使用「图标＋文字」全局导航，显示 Workspace 名称与个人菜单；桌面保留 70px 窄栏。关闭抽屉时正文占满宽度，不保留空列，不改为底部 Tab 栏。
 - **断点统一**：当前 AppShell 的桌面导航使用 `lg`（1024px），窄屏使用抽屉。CSS 与交互判断必须一致，不另设一套手机宽度。
-- **全局导航不展示会话**：桌面侧栏和手机抽屉只显示页面入口、Workspace 切换和个人菜单，不展示 Channels／Direct Messages 分组、会话列表或创建频道加号。频道和私聊属于 Chat 主页面；桌面在 `lg` 及以上并排显示会话列表和详情，未选择时显示详情空状态。手机先显示列表，详情里的返回按钮回到会话列表，不打开全局抽屉；仅手机采用列表／详情单页切换。
+- **全局导航不展示会话**：桌面侧栏和手机抽屉只显示页面入口、Workspace 切换和个人菜单，不展示 Channels／Direct Messages 分组、会话列表或创建频道加号。频道和私聊属于 Chat 主页面；桌面在 `lg` 及以上并排显示会话列表和详情；进入 Chat 而 URL 未指定会话时，直接打开侧栏 CHANNELS 分组里第一个已加入的频道，只有一个已加入的频道都没有时才显示详情空状态。手机先显示列表，详情里的返回按钮回到会话列表，不打开全局抽屉；仅手机采用列表／详情单页切换。
 - **实现复用，状态归属清楚**：全局抽屉由 [AppShell](../../apps/web/src/components/app-shell.tsx) 管理，页面通过 [MobileNavigationButton](../../apps/web/src/components/layout/sidebar/mobile-header.tsx) 接入；普通标题栏复用 [PageHeader](../../apps/web/src/components/layout/page-header.tsx)，详情头部提供自己的返回控件。[ConversationNavigation](../../apps/web/src/features/conversations/conversation-navigation.tsx) 维护会话列表选择、滚动和已打开会话的草稿保留，不搬到全局导航组件里。规范要求保留用户状态，不限定必须靠常驻 DOM 实现。
 
 ## 2.2 手机页面是一张连续的内容表面
