@@ -286,7 +286,7 @@ export function DirectConversationHeader({
         </span>
       </div>
       {(onShowChat || onShowTasks || onShowFiles) && (
-        <div className="-mx-4 flex h-11 items-center px-4 md:-mx-6 md:px-6">
+        <div className="-mx-4 flex h-14 items-center px-4 md:-mx-6 md:px-6">
           <ConversationTaskTabs
             active={active}
             onShowChat={onShowChat}

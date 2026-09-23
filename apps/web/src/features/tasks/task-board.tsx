@@ -71,7 +71,7 @@ export function TaskBoard({
                 <h1 className="truncate text-base font-medium">{conversationName}</h1>
               </div>
             )}
-            <div className="flex h-11 items-center border-t border-secondary">
+            <div className="flex h-14 items-center border-t border-secondary">
               <ConversationTaskTabs active="tasks" onShowChat={onShowChat} />
             </div>
           </>

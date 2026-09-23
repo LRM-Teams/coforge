@@ -324,7 +324,7 @@ export function AgentProfilePanel({
       />
       {/* The four tabs need ~465px, more than a phone is wide, so the band scrolls instead of
           pushing the panel (and with it the whole page) past the viewport. */}
-      <div className="scrollbar-hide flex h-11 shrink-0 items-center overflow-x-auto border-b border-secondary px-5">
+      <div className="scrollbar-hide flex h-14 shrink-0 items-center overflow-x-auto border-b border-secondary px-5">
         <AgentProfileTabs
           active={tab}
           tabs={tabOrder.tabs}
