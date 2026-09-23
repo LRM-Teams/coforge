@@ -417,3 +417,30 @@ test("a task token inside a code element is never chipped", () => {
   const code = (tree.children[0]!.children as Array<Record<string, unknown>>)[0]!;
   expect(code.children).toEqual([text("<@task:68>")]);
 });
+
+test("a bare #N that names a task of this conversation becomes a clickable chip", () => {
+  const tree = taskChipify([paragraph([text("就是 #132）。先看 #734")])], new Set([132]));
+  const children = tree.children[0]!.children as Array<Record<string, unknown>>;
+  expect(children[0]).toEqual(text("就是 "));
+  expect(children[1]).toMatchObject({
+    tagName: "span",
+    properties: { title: "task #132", "data-task-reference-number": 132 },
+    children: [text("#132")],
+  });
+  // #734 names no task here (a PR number, say): it stays prose.
+  expect(children[2]).toEqual(text("）。先看 #734"));
+});
+
+test("a bare #N stays prose inside code, a link, or a path", () => {
+  const numbers = new Set([5]);
+  for (const node of [
+    paragraph([{ type: "element", tagName: "code", properties: {}, children: [text("#5")] }]),
+    paragraph([
+      { type: "element", tagName: "a", properties: { href: "#" }, children: [text("#5")] },
+    ]),
+    paragraph([text("see issues/#5 and word#5 and #50 and #5a")]),
+  ]) {
+    const tree = taskChipify([node], numbers);
+    expect(JSON.stringify(tree)).not.toContain("data-task-reference-number");
+  }
+});

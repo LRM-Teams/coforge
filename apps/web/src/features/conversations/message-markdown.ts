@@ -164,6 +164,12 @@ export function rehypeMentionChips(options: {
  * readable fallback — the number is the reference — so a token is never left raw. A number present
  * in `numbers` names a task the viewer can open, and its chip carries `data-task-reference-number`
  * for the `span` renderer to turn into a control; any other number renders as plain chip text.
+ *
+ * A bare `#N` becomes the same chip when N is one of this conversation's tasks, as Raft does
+ * (`(^|[^\w/])#N\b`, checked against the channel's task numbers): people and Agents write `#132`
+ * for a task far more often than `task #132`, and messages sent before the token existed only
+ * have the bare form. Any other `#N` — a PR or issue number — stays prose, and so does anything
+ * inside code or a link.
  */
 export function rehypeTaskReferenceChips(options: { numbers: ReadonlySet<number> }) {
   const { numbers } = options;
@@ -172,11 +178,16 @@ export function rehypeTaskReferenceChips(options: { numbers: ReadonlySet<number>
   return (tree: Root) => {
     const visit = (node: Root | Element, inCode: boolean) => {
       const tagName = node.type === "element" ? node.tagName : undefined;
-      const code = inCode || tagName === "code" || tagName === "pre";
+      // A link's own text is never re-linked: it keeps pointing where its author aimed it.
+      const code = inCode || tagName === "code" || tagName === "pre" || tagName === "a";
       const next: Array<Element | Text> = [];
 
       for (const child of node.children as Array<Element | Text>) {
-        if (child.type === "text" && !code && child.value.includes("<@task:")) {
+        if (
+          child.type === "text" &&
+          !code &&
+          (child.value.includes("<@task:") || numbers.size > 0)
+        ) {
           const parts = taskChipParts(child.value, pattern, numbers);
           if (parts) {
             next.push(...parts);
@@ -194,6 +205,11 @@ export function rehypeTaskReferenceChips(options: { numbers: ReadonlySet<number>
   };
 }
 
+/** A bare `#N` task reference with Raft's boundaries: not after a word character or `/` (so
+ * `word#5` and `issues/#5` stay prose), a number without a leading zero, and a word boundary after
+ * it (so `#5a` is not `#5`). */
+const BARE_TASK_REFERENCE_PATTERN = /(^|[^\w/])#([1-9]\d*)\b/gu;
+
 /** The chip/text replacement for one text node, or `undefined` when no token matches. */
 function taskChipParts(
   value: string,
@@ -201,13 +217,31 @@ function taskChipParts(
   numbers: ReadonlySet<number>,
 ): Array<Element | Text> | undefined {
   pattern.lastIndex = 0;
-  const matches = [...value.matchAll(pattern)];
+  // Stored tokens, plus bare `#N` references to this conversation's own tasks. A bare match keeps
+  // its leading character (group 1) as text, so the chip starts at the `#`.
+  const tokens = [...value.matchAll(pattern)].map((match) => ({
+    index: match.index,
+    length: match[0].length,
+    number: Number(match[1]),
+  }));
+  const bare =
+    numbers.size === 0
+      ? []
+      : [...value.matchAll(new RegExp(BARE_TASK_REFERENCE_PATTERN.source, "gu"))]
+          .map((match) => ({
+            index: match.index + match[1]!.length,
+            length: match[0].length - match[1]!.length,
+            number: Number(match[2]),
+          }))
+          .filter((match) => numbers.has(match.number));
+  const matches = [...tokens, ...bare].sort((left, right) => left.index - right.index);
   if (matches.length === 0) return undefined;
 
   const parts: Array<Element | Text> = [];
   let offset = 0;
   for (const match of matches) {
-    const number = Number(match[1]);
+    if (match.index < offset) continue;
+    const number = match.number;
     if (match.index > offset) parts.push({ type: "text", value: value.slice(offset, match.index) });
     const clickable = numbers.has(number);
     const className = TASK_CHIP_CLASS.split(" ");
@@ -225,7 +259,7 @@ function taskChipParts(
       },
       children: [{ type: "text", value: `#${number}` }],
     });
-    offset = match.index + match[0].length;
+    offset = match.index + match.length;
   }
   if (offset < value.length) parts.push({ type: "text", value: value.slice(offset) });
   return parts;

@@ -58,8 +58,8 @@ export function MessageBody({
    * the conversation owns that slot; absent, Agent chips render as inert highlights (the
    * previous behavior), never dead controls. */
   onOpenAgentProfile?: (agentId: string) => void;
-  /** The task numbers a `task #N` reference in this body resolves to (the conversation's own
-   * tasks). A referenced number not in the set still renders `task #N`, just not as a control. */
+  /** The conversation's own task numbers: a stored `task #N` reference or a bare `#N` naming one of
+   * them becomes a clickable chip. Any other bare `#N` stays prose. */
   taskReferences?: ReadonlySet<number>;
   /** Opens a task-reference chip's detail popup. Absent, a reference stays a plain highlight. */
   onOpenTask?: (number: number) => void;
