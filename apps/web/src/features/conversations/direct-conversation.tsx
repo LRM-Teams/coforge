@@ -515,18 +515,13 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
   // composers on one thread would share and overwrite its draft), and a task message outside the
   // loaded window is fetched the way a thread link is.
   const openTaskMessageId = openTask?.messageId;
-  useEffect(() => {
-    if (!openTaskMessageId) return;
-    setVisited((previous) =>
-      previous.includes(openTaskMessageId)
-        ? previous.filter((rootId) => rootId !== openTaskMessageId)
-        : previous,
-    );
-    if (searchThreadRootId === openTaskMessageId) closeThread();
-  }, [openTaskMessageId, searchThreadRootId, closeThread]);
   const attemptedTaskLoad = useRef<string | undefined>(undefined);
   useEffect(() => {
-    if (!openTaskMessageId || attemptedTaskLoad.current === openTaskMessageId) return;
+    if (!openTaskMessageId) {
+      attemptedTaskLoad.current = undefined;
+      return;
+    }
+    if (attemptedTaskLoad.current === openTaskMessageId) return;
     if (conversation.messages.some((message) => message.id === openTaskMessageId)) return;
     attemptedTaskLoad.current = openTaskMessageId;
     void loadWindowAround(openTaskMessageId);
@@ -544,6 +539,16 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
     if (!selected) return;
     setVisited((previous) => (previous.includes(selected) ? previous : [...previous, selected]));
   }, [selected]);
+  // Runs after the add above, so a side pane for the popup's thread never re-mounts under it.
+  useEffect(() => {
+    if (!openTaskMessageId) return;
+    setVisited((previous) =>
+      previous.includes(openTaskMessageId)
+        ? previous.filter((rootId) => rootId !== openTaskMessageId)
+        : previous,
+    );
+    if (selected === openTaskMessageId) closeThread();
+  }, [openTaskMessageId, selected, closeThread]);
   const visibleSlot = resolveVisibleConversationSlot({
     threadOpen: Boolean(selected),
     profileOpen: Boolean(profileAgentId),
@@ -1137,7 +1142,12 @@ export function ConversationPane({
     previousConversationIdRef.current = conversation.conversationId;
     previousLastSequenceRef.current = lastSequence;
     if (openAtTop && firstRender) {
-      setFollowingLatest(false);
+      // Stays at the top; it still follows new replies when everything already fits, since a
+      // pane that cannot scroll never reports a reading position.
+      const history = historyRef.current;
+      setFollowingLatest(
+        Boolean(history) && history!.scrollHeight - history!.clientHeight <= PIN_TOLERANCE_PX,
+      );
       return undefined;
     }
 
