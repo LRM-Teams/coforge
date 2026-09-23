@@ -51,7 +51,11 @@ export function AgentControlDialogs({
                     onClick={close}
                   />
                 </div>
-                <Text slot="description" className="px-6 pt-4 text-sm text-tertiary">
+                {/* `block`, because an inline `Text` puts its horizontal padding on the first and
+                    last line only: the padding is on the paragraph's start and end edges, not on
+                    every line, so a wrapped second line escapes to the dialog's edge and can be
+                    clipped by its rounded corner. */}
+                <Text slot="description" className="block px-6 pt-4 text-sm text-tertiary">
                   {m.agent_control_stop_message({ name: agentName })}
                 </Text>
                 {control.startStopError && (
@@ -63,13 +67,16 @@ export function AgentControlDialogs({
                   <Button color="secondary" isDisabled={control.stopPending} onPress={close}>
                     {m.controls_cancel()}
                   </Button>
+                  {/* `iconLeading`, not a child element: the button wraps every child — icon
+                      included — in its one text span, and a block-level `svg` inside that inline
+                      span takes its own line, so the label drops below the icon. */}
                   <Button
                     color="primary"
                     data-control-stop-confirm
                     isDisabled={control.stopPending}
+                    iconLeading={Stop}
                     onPress={control.confirmStop}
                   >
-                    <Stop aria-hidden="true" />
                     {control.stopPending
                       ? m.agent_control_stop_pending()
                       : m.agent_control_stop_confirm()}
