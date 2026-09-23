@@ -105,3 +105,18 @@ test("GET /manual/search 404s when nothing matches", async () => {
   expect(result.status).toBe(404);
   expect((await result.json()).errorCode).toBe("knowledge_not_found");
 });
+
+test("Manual get and search work without justification and still record scoped audit events", async () => {
+  const events: unknown[] = [];
+  const principal = { workspaceId: "workspace-1", agentId: "agent-1" };
+  const repository = { record: async (event: unknown) => void events.push(event) };
+  expect(
+    (await handleAgentManualGet(getRequest("?topic=tasks"), principal, repository)).status,
+  ).toBe(200);
+  expect(
+    (await handleAgentManualSearchGet(searchRequest("?query=attachments"), principal, repository))
+      .status,
+  ).toBe(200);
+  expect(events).toHaveLength(2);
+  expect(events[0]).toMatchObject({ ...principal, intent: "", reason: "", outcome: "hit" });
+});

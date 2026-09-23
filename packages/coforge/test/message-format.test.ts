@@ -401,3 +401,22 @@ test("formatHeldSend collapses newlines and runs of whitespace in the preview", 
   });
   expect(output).toContain("  │ @ada 09:00  line one line two");
 });
+
+test("tracked Tasks carry one workflow pointer per window, not per message", () => {
+  const ordinary = message();
+  const first = message({ id: "bbbbbbbb-0000-4000-8000-000000000002", task: { number: 7, status: "todo" } });
+  const second = message({
+    id: "cccccccc-0000-4000-8000-000000000003",
+    task: { number: 8, status: "in_progress" },
+  });
+
+  expect(formatMessageLine(ordinary)).not.toContain("coforge manual get tasks");
+  expect(formatMessageLine(first)).not.toContain("coforge manual get tasks");
+  expect(formatReadWindow("#general", { messages: [ordinary] })).not.toContain(
+    "coforge manual get tasks",
+  );
+
+  const window = formatReadWindow("#general", { messages: [first, second] });
+  expect(window).toContain("Tracked Tasks: coforge manual get tasks");
+  expect(window.split("coforge manual get tasks")).toHaveLength(2);
+});

@@ -38,7 +38,10 @@ Rules for the provider seam and adapters in `src/code-agent/`. They extend
   need no Task, plan-first report, or per-turn memory read/write. Claim and
   review apply only to existing shared Tasks or explicitly tracked work.
   Feature workflows come from event output and the Manual, not the standing
-  prompt.
+  prompt. Manual get/search `--intent`/`--reason` are optional; deploy a
+  compatible Web before upgraded CLI/Daemon, and roll clients back before the
+  server. A check/read/resolve window that contains tracked Tasks includes
+  one Tasks-manual pointer; ordinary messages do not.
 - Every Provider injects them through the provider's native system or developer
   instruction mechanism: Codex app-server `developerInstructions`, the Claude
   Code system-prompt-file option, and the CoForge Agent resource-loader
