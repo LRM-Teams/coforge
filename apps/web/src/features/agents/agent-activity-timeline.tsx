@@ -24,7 +24,7 @@ export function AgentActivityTimeline({
   /** The Agent profile panel's narrow column: the list drops the page-level card border (the
    * panel is flat, per docs/design.md §8) in favor of plain hairline rows. Same rows,
    * same clock column, same 6px coloured dot, same monospace command text — a responsive prop
-   * rather than a second component (`apps/web/AGENTS.md`'s Activity-tab guidance). */
+   * rather than a second component (`src/features/agents/AGENTS.md`'s Activity-tab rule). */
   compact = false,
 }: {
   activity: ActivityEntry[];
