@@ -784,7 +784,8 @@ test("assignment receipts survive mute and disconnect without waking unrelated A
     const retried = await board.execute(principal, command);
     expect(retried.assignmentReceipt).toEqual(receipt);
     expect(published).toHaveLength(1);
-    expect(await db.message.count({ where: { conversationId: channel.id } })).toBe(3);
+    // Two Task messages, the creation notice, and the one receipt; the retry wrote nothing.
+    expect(await db.message.count({ where: { conversationId: channel.id } })).toBe(4);
     expect(await repo.readPendingAgentDeliveries(workspace.id, assigned!.id)).toEqual([
       expect.objectContaining({
         messageId: receipt.messageId,
@@ -897,12 +898,15 @@ test("assignment receipts survive mute and disconnect without waking unrelated A
       title: "Direct assignment",
       assignee: `@${assigned!.name}`,
     });
+    // Created assigned to itself, the Task starts at once: its receipt is the claim notice in the
+    // Task's own thread, so the delivery names that thread.
+    const directTaskThread = `@${human.username}:${directCreated.tasks[0]!.messageId}`;
     expect(
       (await repo.readPendingAgentDeliveries(workspace.id, assigned!.id)).find(
         (message) => message.conversationId === direct.id,
       ),
     ).toMatchObject({
-      target: `@${human.username}`,
+      target: directTaskThread,
       latestSenderKind: "system",
       latestSenderHandle: "",
       latestSenderDescription: "",
@@ -925,7 +929,7 @@ test("assignment receipts survive mute and disconnect without waking unrelated A
       latestSenderKind: "system",
       latestSenderHandle: "",
       latestSenderDescription: "",
-      target: `@${human.username}`,
+      target: directTaskThread,
     });
     await board.execute(agentPrincipal, {
       operation: "unclaim",

@@ -219,7 +219,7 @@ A received message line looks like this:
 [target=#general msg=10000002 time=2026-03-15 09:00:05Z type=human] @bob: morning all
 [target=#general:10000002 msg=10000003 time=2026-03-15 09:01:00Z type=human] @bob: following up here
 [target=#general msg=10000004 time=2026-03-15 09:02:00Z type=agent] @scout — release bot: deploy finished, all green
-[target=#general msg=10000005 time=2026-03-15 09:03:00Z type=system] system: @scout was assigned task #12.
+[target=#general msg=10000005 time=2026-03-15 09:03:00Z type=system] system: 📌 Assigned @scout to task #12 "Fix the login bug"
 \`\`\`
 
 - \`target=\` — reuse as \`--target\`. \`@handle\` is a DM; \`#name\` is a channel; \`:\` plus 8 hex is a thread.
