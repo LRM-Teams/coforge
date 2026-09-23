@@ -1,5 +1,5 @@
 import { join, resolve } from "node:path";
-import { resolveServerUrl } from "../../packages/computer/src/release-channel";
+import { resolveServerUrl } from "@coforge/computer/src/release-channel";
 import { zodResolvePlugin } from "../bun-resolve-zod-plugin";
 
 // The release target names this repository already uses across docs/release/, updater.ts's

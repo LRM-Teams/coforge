@@ -3,7 +3,7 @@ import { mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promise
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { ComputerUpdater } from "../../packages/computer/src/updater";
+import { ComputerUpdater } from "@coforge/computer/src/updater";
 import { buildReleaseTree, isValidReleaseVersion, type ReleaseInputs } from "./build-release";
 
 // Core acceptance: the feed tree buildReleaseTree() produces must be accepted, byte-for-byte, by

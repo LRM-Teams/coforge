@@ -107,7 +107,10 @@
     "zod": "^4.5.4"
   },
   "devDependencies": {
+    "@coforge/agent": "workspace:*",
     "@inlang/paraglide-js": "2.4.0",
+    "@lrm/coforge": "workspace:*",
+    "@lrm/coforge-daemon": "workspace:*",
     "@tailwindcss/vite": "4.3.3",
     "@types/ali-oss": "^6.23.3",
     "@types/bun": "1.4.0",

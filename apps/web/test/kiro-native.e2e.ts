@@ -27,8 +27,8 @@ import {
   InMemoryDaemonCredentialStore,
   defaultCentrifugeWorkspaceClientFactory,
   startAgentProxy,
-} from "../../../packages/daemon";
-import { createCodeAgentProvider } from "../../../packages/daemon/src/code-agent/registry";
+} from "@lrm/coforge-daemon";
+import { createCodeAgentProvider } from "@lrm/coforge-daemon";
 
 test("real Kiro v3 reads and replies through Web, Centrifugo and Daemon", async () => {
   const databaseUrl = process.env.DATABASE_URL;
