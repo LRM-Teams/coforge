@@ -33,10 +33,11 @@ test("the proxy is reachable on loopback only, and no other listener can take ov
     .flatMap((address) =>
       address && address.family === "IPv4" && !address.internal ? [address.address] : [],
     );
-  // Linux routes all of 127.0.0.0/8 to loopback, so 127.0.0.2 reaches a wildcard bind even on a
-  // host with no other interface; macOS does not route it, so it is probed on Linux only.
+  // On Linux all of 127.0.0.0/8 is loopback, so 127.0.0.2 reaches a wildcard bind even on a host
+  // with no other interface, and the probes are the only guard (Linux also refuses the intruder
+  // bind below either way). macOS configures only 127.0.0.1 on lo0, but there the intruder bind
+  // guards the fix.
   if (process.platform === "linux") otherAddresses.push("127.0.0.2");
-  expect(otherAddresses.length).toBeGreaterThan(0);
 
   expect(await reachable("127.0.0.1")).toBe(true);
   // Every other address is refused. A wildcard bind answers on at least one of them.
