@@ -106,14 +106,14 @@ describe("WebPushNotifications", () => {
       "message-a",
     );
 
-    expect(result).toEqual({ sent: 0, failed: 1, removed: 1 });
+    expect(result).toEqual({ sent: 0, failed: 1, removed: 1, errorId: expect.any(String) });
     expect(repository.removed).toEqual([first.id]);
   });
 
   test("a removed subscription leaves a trace in the log", async () => {
     // Observed 2026-09-22: a member saw only "check this browser's permission" while the server log
     // said nothing, because a pruned subscription was never logged.
-    const warn = spyOn(console, "warn").mockImplementation(() => {});
+    const error = spyOn(console, "error").mockImplementation(() => {});
     try {
       const repository = store({ subscriptions: [first] });
       const notifications = new WebPushNotifications(repository.value, {
@@ -122,18 +122,19 @@ describe("WebPushNotifications", () => {
         },
       });
 
-      await expect(notifications.sendTest("user-a", first.endpoint)).resolves.toEqual({
+      await expect(notifications.sendTest("user-a", first.endpoint, "en")).resolves.toEqual({
         sent: 0,
         failed: 0,
         removed: 1,
+        errorId: expect.any(String),
       });
-      const logged = warn.mock.calls.map((call) => String(call[0])).join("\n");
+      const logged = error.mock.calls.map((call) => String(call[0])).join("\n");
       expect(logged).toContain("web_push.subscription_removed");
       expect(logged).toContain(first.id);
       // Never the endpoint: it is a capability URL.
       expect(logged).not.toContain(first.endpoint);
     } finally {
-      warn.mockRestore();
+      error.mockRestore();
     }
   });
 
@@ -146,7 +147,7 @@ describe("WebPushNotifications", () => {
       },
     });
 
-    await expect(notifications.sendTest("user-a", first.endpoint)).resolves.toEqual({
+    await expect(notifications.sendTest("user-a", first.endpoint, "en")).resolves.toEqual({
       sent: 1,
       failed: 0,
       removed: 0,
@@ -158,6 +159,19 @@ describe("WebPushNotifications", () => {
         url: "/settings",
       }),
     ]);
+  });
+
+  test("localizes the test notification to the reader's locale", async () => {
+    const bodies: string[] = [];
+    const repository = store({ subscriptions: [first] });
+    const notifications = new WebPushNotifications(repository.value, {
+      send: async (_subscription, payload) => {
+        bodies.push(payload.body);
+      },
+    });
+
+    await notifications.sendTest("user-a", first.endpoint, "zh-CN");
+    expect(bodies).toEqual(["此设备上的浏览器通知正常工作。"]);
   });
 
   test("associates and detaches only the authenticated user's browser subscription", async () => {

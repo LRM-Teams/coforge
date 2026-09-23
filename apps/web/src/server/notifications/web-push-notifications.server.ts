@@ -1,3 +1,5 @@
+import { m } from "@/paraglide/messages";
+
 export type StoredWebPushSubscription = {
   id: string;
   endpoint: string;
@@ -40,7 +42,14 @@ export class WebPushDeliveryError extends Error {
   }
 }
 
-type DeliveryResult = { sent: number; failed: number; removed: number };
+type DeliveryResult = { sent: number; failed: number; removed: number; errorId?: string };
+
+type Locale = "en" | "zh-CN";
+
+/** One correlated id per delivery batch, so a toast can quote what the log recorded. */
+function deliveryErrorId() {
+  return crypto.randomUUID();
+}
 
 export class WebPushNotifications {
   constructor(
@@ -67,13 +76,13 @@ export class WebPushNotifications {
     });
   }
 
-  async sendTest(userId: string, endpoint: string): Promise<DeliveryResult> {
+  async sendTest(userId: string, endpoint: string, locale: Locale): Promise<DeliveryResult> {
     const subscriptions = (await this.subscriptions.subscriptionsForUser(userId)).filter(
       (subscription) => subscription.endpoint === endpoint,
     );
     return this.deliver(subscriptions, {
-      title: "CoForge",
-      body: "Browser notifications are working on this device.",
+      title: m.preferences_browser_notifications_test_title({}, { locale }),
+      body: m.preferences_browser_notifications_test_body({}, { locale }),
       url: "/settings",
       tag: `test:${crypto.randomUUID()}`,
       forceDisplay: true,
@@ -84,31 +93,32 @@ export class WebPushNotifications {
     subscriptions: StoredWebPushSubscription[],
     payload: WebPushPayload,
   ): Promise<DeliveryResult> {
+    const errorId = deliveryErrorId();
     const results = await Promise.all(
       subscriptions.map(async (subscription) => {
         try {
           await this.transport.send(subscription, payload);
           return "sent" as const;
         } catch (error) {
-          if (
-            error instanceof WebPushDeliveryError &&
-            (error.statusCode === 404 || error.statusCode === 410)
-          ) {
+          const statusCode = error instanceof WebPushDeliveryError ? error.statusCode : undefined;
+          if (statusCode === 404 || statusCode === 410) {
             await this.subscriptions.removeSubscriptionById(subscription.id);
-            console.warn(
+            console.error(
               JSON.stringify({
                 event: "web_push.subscription_removed",
+                errorId,
                 subscriptionId: subscription.id,
-                statusCode: error.statusCode,
+                statusCode,
               }),
             );
             return "removed" as const;
           }
-          console.warn(
+          console.error(
             JSON.stringify({
               event: "web_push.delivery_failed",
+              errorId,
               subscriptionId: subscription.id,
-              statusCode: error instanceof WebPushDeliveryError ? error.statusCode : undefined,
+              statusCode,
             }),
           );
           return "failed" as const;
@@ -119,6 +129,7 @@ export class WebPushNotifications {
       sent: results.filter((result) => result === "sent").length,
       failed: results.filter((result) => result === "failed").length,
       removed: results.filter((result) => result === "removed").length,
+      errorId: results.some((result) => result !== "sent") ? errorId : undefined,
     };
   }
 }

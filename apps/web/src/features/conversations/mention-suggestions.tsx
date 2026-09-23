@@ -62,7 +62,10 @@ export function MentionSuggestionList({
       onClick={(event) => event.stopPropagation()}
       className="absolute bottom-full left-3 z-20 mb-1 w-80 max-w-[calc(100%-1.5rem)] origin-bottom overflow-hidden rounded-xl bg-primary shadow-lg ring-1 ring-secondary_alt animate-in fade-in slide-in-from-bottom-1 duration-150 ease-out motion-reduce:animate-none"
     >
-      <ul className="max-h-[min(16rem,40svh)] overscroll-contain overflow-y-auto py-1 [touch-action:pan-y]">
+      <ul
+        role="presentation"
+        className="max-h-[min(16rem,40svh)] overscroll-contain overflow-y-auto py-1 [touch-action:pan-y]"
+      >
         {items.map((item, index) => {
           const active = index === activeIndex;
           return (
