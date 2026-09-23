@@ -20,7 +20,7 @@ These instructions apply to the entire repository.
 
 ## Documentation and agent instructions
 
-- Put project documentation under `docs/`. The root `README.md` is the documentation index: every document under `docs/`, every `AGENTS.md`, and every package or directory `README.md` is linked from it with one line saying what it covers.
+- Put project documentation under `docs/`. The root `README.md` is the documentation index: every document or topic directory under `docs/`, each app or package `AGENTS.md`, and every package or directory `README.md` is linked from it with one line saying what it covers. Nested `AGENTS.md` files are linked from their parent `AGENTS.md`.
 - Use progressive disclosure. A document is an overview plus links to smaller topic files; keep each Markdown file under 200 lines and split it into a directory of topic files before it grows past that.
 - Keep each `AGENTS.md` under 200 lines. It holds rules an agent cannot infer from the code: commands, conventions, boundaries, and gotchas. Do not write function-by-function descriptions, implementation walkthroughs, change history, or "historical status" notes; the code, its comments, and its tests carry those.
 - Place instructions next to the code they govern. A rule that applies only to one directory belongs in that directory's `AGENTS.md`, which agents load only when they work there. Put long, occasionally needed procedures in a skill under `.agents/skills/` with its details in linked reference files.
