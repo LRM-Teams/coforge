@@ -170,6 +170,7 @@
   "records_create_template": "Create template",
   "records_edit_template": "Edit template",
   "records_template_name": "Template name",
+  "records_format_meta_invalid": "Enter a valid title, then try again",
   "records_template_recipients": "Recipients",
   "records_template_frequency": "Frequency",
   "records_template_send_time": "Send time",

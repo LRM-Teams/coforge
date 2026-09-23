@@ -580,6 +580,11 @@ export function currentIsoWeek(date = new Date()): { year: number; week: number 
   return { year: utc.getUTCFullYear(), week };
 }
 
+/** ISO week-of-year for format meta edits (1–53). */
+export function isValidIsoWeekNumber(week: number): boolean {
+  return Number.isInteger(week) && week >= 1 && week <= 53;
+}
+
 /** Rough name budget: up to 10 CJK chars or 20 Latin letters. */
 export function isValidTemplateName(name: string): boolean {
   const trimmed = name.trim();

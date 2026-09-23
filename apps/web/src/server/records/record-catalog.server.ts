@@ -8,6 +8,7 @@ import {
   isAutoSendCancelled,
   isWeekSendDismissed,
   isValidTemplateName,
+  isValidIsoWeekNumber,
   isHourlySendTime,
   memberReportTitle,
   memberWeekTitle,
@@ -734,9 +735,34 @@ export class RecordCatalog {
   }): Promise<{ id: string; year: number; week: number; title: string; created: boolean }> {
     await requireMembership(this.db, input.workspaceId, input.userId);
     const { year, week } = currentIsoWeek(input.now ?? new Date());
-    const title = memberWeekTitle(year, week);
+    return this.ensureCycleAt({
+      workspaceId: input.workspaceId,
+      userId: input.userId,
+      year,
+      week,
+    });
+  }
+
+  /** Find or create the Workspace ISO-week bucket for `(year, week)`. */
+  async ensureCycleAt(input: {
+    workspaceId: string;
+    userId: string;
+    year: number;
+    week: number;
+  }): Promise<{ id: string; year: number; week: number; title: string; created: boolean }> {
+    await requireMembership(this.db, input.workspaceId, input.userId);
+    if (!isValidIsoWeekNumber(input.week) || !Number.isInteger(input.year)) {
+      throw new AppError("INVALID_INPUT");
+    }
+    const title = memberWeekTitle(input.year, input.week);
     const existing = await this.db.weeklyReportCycle.findUnique({
-      where: { workspaceId_year_week: { workspaceId: input.workspaceId, year, week } },
+      where: {
+        workspaceId_year_week: {
+          workspaceId: input.workspaceId,
+          year: input.year,
+          week: input.week,
+        },
+      },
       select: { id: true, year: true, week: true, title: true },
     });
     if (existing) {
@@ -751,14 +777,64 @@ export class RecordCatalog {
     const cycle = await this.db.weeklyReportCycle.create({
       data: {
         workspaceId: input.workspaceId,
-        year,
-        week,
+        year: input.year,
+        week: input.week,
         title,
         createdById: input.userId,
       },
       select: { id: true, year: true, week: true, title: true },
     });
     return { id: cycle.id, year: cycle.year, week: cycle.week, title: cycle.title, created: true };
+  }
+
+  /**
+   * Rename the live format document (and its settings stream). ISO week stays
+   * calendar-owned; overview parents with member submissions are rejected.
+   */
+  async updateFormatReportMeta(input: {
+    workspaceId: string;
+    userId: string;
+    reportId: string;
+    title: string;
+  }): Promise<{ id: string; title: string; year: number; week: number }> {
+    await requireMembership(this.db, input.workspaceId, input.userId);
+    if (!isValidTemplateName(input.title)) throw new AppError("INVALID_INPUT");
+    const title = input.title.trim();
+    const report = await this.db.weeklyReport.findFirst({
+      where: { id: input.reportId, workspaceId: input.workspaceId },
+      select: {
+        id: true,
+        authorId: true,
+        kind: true,
+        title: true,
+        settingsId: true,
+        cycle: { select: { year: true, week: true } },
+        submissions: { where: { kind: "member" }, select: { id: true }, take: 1 },
+      },
+    });
+    if (!report || report.kind !== "template") throw new AppError("NOT_FOUND");
+    if (report.authorId !== input.userId) throw new AppError("ACCESS_DENIED");
+    // Sent week overviews have member children; only the live format chip may rename.
+    if (report.submissions.length > 0) throw new AppError("ACCESS_DENIED");
+
+    if (title !== report.title) {
+      await this.db.weeklyReport.update({
+        where: { id: report.id },
+        data: { title },
+      });
+      if (report.settingsId) {
+        await this.db.weeklyReportTemplate.update({
+          where: { id: report.settingsId },
+          data: { name: title },
+        });
+      }
+    }
+    return {
+      id: report.id,
+      title,
+      year: report.cycle.year,
+      week: report.cycle.week,
+    };
   }
 
   /**

@@ -4,6 +4,7 @@ import {
   clearReportContent,
   currentIsoWeek,
   emptyReportContent,
+  isValidIsoWeekNumber,
   isValidTemplateName,
   hourlySendTimes,
   isHourlySendTime,
@@ -33,6 +34,10 @@ test("validates template name budget", () => {
   expect(isValidTemplateName("WeeklyReportTemplate")).toBe(true);
   expect(isValidTemplateName("WeeklyReportTemplates")).toBe(false);
   expect(isValidTemplateName("")).toBe(false);
+  expect(isValidIsoWeekNumber(1)).toBe(true);
+  expect(isValidIsoWeekNumber(53)).toBe(true);
+  expect(isValidIsoWeekNumber(0)).toBe(false);
+  expect(isValidIsoWeekNumber(54)).toBe(false);
 });
 
 test("hourly send times are 24 on-the-hour slots", () => {
