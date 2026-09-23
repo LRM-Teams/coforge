@@ -23,6 +23,17 @@ async function sh(script: string, extraEnv: Record<string, string> = {}) {
   return { stdout, stderr, exitCode };
 }
 
+/** Resolves once `stream` has written `line`; rejects if the stream ends first. */
+async function untilLine(stream: ReadableStream<Uint8Array>, line: string) {
+  const decoder = new TextDecoder();
+  let output = "";
+  for await (const chunk of stream) {
+    output += decoder.decode(chunk, { stream: true });
+    if (output.split("\n").includes(line)) return;
+  }
+  throw new Error(`stream ended before "${line}": ${output}`);
+}
+
 test("prepare_local_web_runtime finds bun when PATH does not include it", async () => {
   const result = await sh(
     `. "${helper}" && prepare_local_web_runtime test && command -v bun && bun --version`,
@@ -43,16 +54,18 @@ test("replace_listener_on_port stops the process holding that port", async () =>
   const port = probe.port;
   await probe.stop(true);
 
+  // `Bun.serve` returns once the socket is listening, so the holder announces readiness right
+  // after it; waiting on that line (not a fixed sleep) keeps the test correct under load.
   const holder = Bun.spawn(
     [
       process.execPath,
       "-e",
-      `Bun.serve({ hostname: "127.0.0.1", port: ${port}, fetch() { return new Response("old"); } });`,
+      `Bun.serve({ hostname: "127.0.0.1", port: ${port}, fetch() { return new Response("old"); } }); console.log("listening");`,
     ],
-    { stdout: "ignore", stderr: "ignore" },
+    { stdout: "pipe", stderr: "ignore" },
   );
+  await untilLine(holder.stdout, "listening");
 
-  await Bun.sleep(150);
   const before = await Bun.fetch(`http://127.0.0.1:${port}/`);
   expect(before.status).toBe(200);
   expect(await before.text()).toBe("old");
