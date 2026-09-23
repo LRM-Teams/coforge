@@ -4,6 +4,7 @@ import type { CodeAgentProvider } from "./contract";
 import { CursorProvider } from "./cursor/provider";
 import { CoforgeProvider, PiProvider } from "./pi/provider";
 import { KiroProvider } from "./kiro/provider";
+import { GrokProvider } from "./grok/provider";
 import { OpenCodeProvider } from "./opencode/provider";
 import { RUNTIME_PROVIDER } from "@lrm/coforge-sdk/internal";
 import type { RuntimeProvider } from "@lrm/coforge-sdk/internal";
@@ -24,6 +25,8 @@ export function createCodeAgentProvider(provider: RuntimeProvider): CodeAgentPro
       return new CursorProvider();
     case RUNTIME_PROVIDER.OPENCODE:
       return new OpenCodeProvider();
+    case RUNTIME_PROVIDER.GROK:
+      return new GrokProvider();
     default: {
       const unreachable: never = provider;
       throw new Error(`Unhandled runtime provider: ${unreachable}`);

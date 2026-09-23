@@ -44,6 +44,10 @@ const ALLOWLIST: Readonly<Record<string, string>> = {
   "packages/daemon/src/code-agent/opencode/turn-process.ts": "a logger category",
   "packages/daemon/src/code-agent/opencode/version.ts":
     "the OpenCode CLI executable name in the version-gate log and error",
+  "packages/daemon/src/code-agent/grok/provider.ts": 'the Grok CLI executable name ("grok")',
+  "packages/daemon/src/code-agent/grok/turn-process.ts": "a logger category",
+  "packages/daemon/src/code-agent/grok/version.ts":
+    "the Grok CLI executable name in the version-gate log and error",
 };
 
 const LITERAL_PATTERN = new RegExp(

@@ -29,6 +29,8 @@ export function assignedSkillsDirectory(
       return join(cwd, ".cursor", "skills");
     case RUNTIME_PROVIDER.OPENCODE:
       return join(cwd, ".opencode", "skills");
+    case RUNTIME_PROVIDER.GROK:
+      return join(cwd, ".grok", "skills");
     case RUNTIME_PROVIDER.PI:
     case RUNTIME_PROVIDER.COFORGE:
       return join(cwd, ".pi", "skills");
