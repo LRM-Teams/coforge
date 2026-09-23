@@ -9,6 +9,8 @@ import type { LiveAgent } from "@/features/agents/workspace-agents-realtime";
 import { cx } from "@/utils/cx";
 import { m } from "@/paraglide/messages";
 import { useChannelUnreadCounts, useCloseConversationList } from "./conversation-navigation";
+import { ConversationRowMenu } from "./conversation-row-menu";
+import { conversationRowMenuEnabled } from "./conversation-row-menu-model";
 import {
   readCollapsedSections,
   writeCollapsedSections,
@@ -21,6 +23,8 @@ type DirectoryChannel = {
   joined: boolean;
   /** The member muted this channel; its unread badge degrades to a bare dot. */
   muted?: boolean;
+  /** The member pinned this row; it sorts above the rest and its menu item reads "Unpin". */
+  pinned: boolean;
 };
 
 /** Slack-style badge: the count up to 99, then "99+". Hidden from AT by the row's label. */
@@ -59,6 +63,7 @@ function ConversationRow({
   muted,
   unreadCount,
   label,
+  hasMenu,
   children,
 }: {
   target: { channelId: string } | { agentId: string };
@@ -68,6 +73,8 @@ function ConversationRow({
   unreadCount?: number;
   /** The row's own name, so an unread row keeps its accessible name instead of replacing it. */
   label: string;
+  /** The row wraps in the right-click menu (#126): advertise it to assistive tech on the link. */
+  hasMenu?: boolean;
   children: ReactNode;
 }) {
   const closeList = useCloseConversationList();
@@ -78,6 +85,7 @@ function ConversationRow({
         : { to: "/messages/$agentId", params: target })}
       aria-current={current ? "page" : undefined}
       aria-label={rowLabel(unreadCount, label)}
+      aria-haspopup={hasMenu ? "menu" : undefined}
       // On mobile the list is a separate pane; choosing a row reveals the conversation even when
       // the URL is unchanged (re-opening the channel already in the address bar), which the
       // pathname-based reset in `ConversationNavigation` cannot see.
@@ -222,13 +230,14 @@ export function ConversationDirectory({
             {sortedChannels.map((channel) => {
               const current = channel.id === selectedChannelId;
               return (
-                <li key={channel.id} className="py-px">
+                <ConversationRowMenu key={channel.id} channel={channel}>
                   <ConversationRow
                     target={{ channelId: channel.id }}
                     current={current}
                     muted={!channel.joined || channel.muted}
                     unreadCount={unreadCounts[channel.id]}
                     label={`#${channel.name}`}
+                    hasMenu={conversationRowMenuEnabled(channel)}
                     icon={
                       <Hash
                         aria-hidden="true"
@@ -238,7 +247,7 @@ export function ConversationDirectory({
                   >
                     {channel.name}
                   </ConversationRow>
-                </li>
+                </ConversationRowMenu>
               );
             })}
           </ul>
