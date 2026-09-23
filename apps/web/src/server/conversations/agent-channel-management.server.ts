@@ -110,6 +110,7 @@ export class AgentChannelManagement {
     private readonly db: PrismaClient,
     private readonly display?: Pick<AgentDisplay, "snapshot">,
     channels?: PublicChannels,
+    // The whole port, not just `memberChanged`: it is also the default `PublicChannels`'.
     private readonly realtime?: ConversationRealtime,
   ) {
     // Reused (not reimplemented) so the human "Members" dialog and the Agent CLI's

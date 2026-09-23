@@ -60,10 +60,12 @@ export function subscribeToConversationRealtime<T extends RealtimeSubscription>(
     getToken: input.getToken,
   });
   subscription.on("subscribed", ({ wasRecovering, recovered }) => {
-    if (!wasRecovering || !recovered) requestReconciliation();
-    // A resubscribe that could not replay what it missed may also have missed a member change.
-    // The first subscribe needs no refetch: it follows the page's own member-list load.
-    if (wasRecovering && !recovered) input.onMemberChanged?.();
+    // Anything the subscription could not replay — before the first subscribe, or across a
+    // resubscribe that lost publications — may include a member change as well as messages.
+    if (!wasRecovering || !recovered) {
+      requestReconciliation();
+      input.onMemberChanged?.();
+    }
   });
   subscription.on("publication", ({ data }) => {
     try {
