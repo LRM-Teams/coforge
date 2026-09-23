@@ -44,4 +44,3 @@ ALTER TABLE "conversation_pins" ADD CONSTRAINT "conversation_pins_conversationId
 
 -- AddForeignKey
 ALTER TABLE "conversation_pins" ADD CONSTRAINT "conversation_pins_memberId_conversationId_workspaceId_fkey" FOREIGN KEY ("memberId", "conversationId", "workspaceId") REFERENCES "conversation_members"("id", "conversationId", "workspaceId") ON DELETE CASCADE ON UPDATE CASCADE;
-
