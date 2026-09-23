@@ -40,7 +40,9 @@ Rules for one Workspace child's runtime in `src/daemon-runtime/`. They extend
   token. Never decide freshness, count hold stages, or authorize `--anyway`
   locally.
 - Agent Task operations use the Credential Proxy and the authenticated Agent
-  HTTPS connection. Task parsing and wire contracts belong to the SDK and CLI.
+  HTTPS connection. Task parsing and wire contracts belong to the SDK and CLI;
+  the claim-before-work and acceptance workflow the Agent follows is stated
+  once, in `code-agent/agent-instructions.ts`.
 - Apply the attention/model-visible preflight to Task `claim` and status
   `update` only; `amend` gets no local preflight. After the preflight, forward
   without storing Task state or interpreting claims, status transitions, or
