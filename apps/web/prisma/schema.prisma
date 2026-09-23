@@ -81,13 +81,8 @@ model User {
   description                 String                          @default("")
   avatarObjectKey             String?
   avatarContentType           String?
-  timeZone                    String?
-  browserNotificationsEnabled Boolean                         @default(false)
-  /// Slack's "When I view a channel" behavior: newest-read (open at the newest message and
-  /// mark read), first-unread (open at the oldest unread), newest-unread (open at the newest
-  /// but keep unseen messages unread until scrolled through).
-  conversationOpenMode        String                          @default("first-unread")
   createdAt                   DateTime                        @default(now())
+  preferences                 UserPreference?
   identities                  UserIdentity[]
   gitHubConnection            GitHubConnection?
   gitHubAuthorization         GitHubAuthorization?
@@ -117,6 +112,22 @@ model User {
   committedActionCards        ActionCard[]
 
   @@map("users")
+}
+
+/// One row per user, created on the first saved preference. Every setting is nullable:
+/// NULL means "not chosen", and the default lives in code so it can change later.
+/// Closed sets are TEXT guarded by CHECK constraints in the migration, not Postgres enums.
+model UserPreference {
+  userId                      String   @id @db.Uuid
+  user                        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  timeZone                    String?
+  browserNotificationsEnabled Boolean?
+  /// Slack's "When I view a channel" behavior: newest-read, first-unread, or newest-unread.
+  conversationOpenMode        String?
+  createdAt                   DateTime @default(now())
+  updatedAt                   DateTime @updatedAt
+
+  @@map("user_preferences")
 }
 
 model WebPushSubscription {

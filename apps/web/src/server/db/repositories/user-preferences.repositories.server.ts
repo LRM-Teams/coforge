@@ -1,4 +1,4 @@
-import type { PrismaClient } from "../../../../generated/client";
+import type { Prisma, PrismaClient } from "../../../../generated/client";
 
 import { validateTimeZone } from "../../../lib/dates";
 import { AppError } from "../../../lib/app-error";
@@ -16,58 +16,53 @@ export type UserPreferencesRepository = {
   setConversationOpenMode(userId: string, mode: string): Promise<string>;
 };
 
+type PreferenceValues = Omit<
+  Prisma.UserPreferenceUncheckedCreateInput,
+  "userId" | "createdAt" | "updatedAt"
+>;
+
 export class PrismaUserPreferencesRepository implements UserPreferencesRepository {
   constructor(private readonly db: PrismaClient) {}
 
-  async getTimeZone(userId: string) {
-    const user = await this.db.user.findUnique({
-      where: { id: userId },
-      select: { timeZone: true },
+  /** A user without a row has never saved a preference, so every setting reads as its default. */
+  private read(userId: string) {
+    return this.db.userPreference.findUnique({ where: { userId } });
+  }
+
+  private write(userId: string, data: PreferenceValues) {
+    return this.db.userPreference.upsert({
+      where: { userId },
+      create: { userId, ...data },
+      update: data,
     });
-    return user?.timeZone ?? null;
+  }
+
+  async getTimeZone(userId: string) {
+    return (await this.read(userId))?.timeZone ?? null;
   }
 
   async setTimeZone(userId: string, timeZone: string | null) {
-    const user = await this.db.user.update({
-      where: { id: userId },
-      data: { timeZone },
-      select: { timeZone: true },
-    });
-    return user.timeZone;
+    return (await this.write(userId, { timeZone })).timeZone;
   }
 
   async getBrowserNotificationsEnabled(userId: string) {
-    const user = await this.db.user.findUnique({
-      where: { id: userId },
-      select: { browserNotificationsEnabled: true },
-    });
-    return user?.browserNotificationsEnabled ?? false;
+    return (await this.read(userId))?.browserNotificationsEnabled ?? false;
   }
 
   async setBrowserNotificationsEnabled(userId: string, enabled: boolean) {
-    const user = await this.db.user.update({
-      where: { id: userId },
-      data: { browserNotificationsEnabled: enabled },
-      select: { browserNotificationsEnabled: true },
-    });
-    return user.browserNotificationsEnabled;
+    return (
+      (await this.write(userId, { browserNotificationsEnabled: enabled }))
+        .browserNotificationsEnabled === true
+    );
   }
 
   async getConversationOpenMode(userId: string) {
-    const user = await this.db.user.findUnique({
-      where: { id: userId },
-      select: { conversationOpenMode: true },
-    });
-    return user?.conversationOpenMode ?? DEFAULT_CONVERSATION_OPEN_MODE;
+    return (await this.read(userId))?.conversationOpenMode ?? DEFAULT_CONVERSATION_OPEN_MODE;
   }
 
   async setConversationOpenMode(userId: string, mode: string) {
-    const user = await this.db.user.update({
-      where: { id: userId },
-      data: { conversationOpenMode: mode },
-      select: { conversationOpenMode: true },
-    });
-    return user.conversationOpenMode;
+    const saved = await this.write(userId, { conversationOpenMode: mode });
+    return saved.conversationOpenMode ?? DEFAULT_CONVERSATION_OPEN_MODE;
   }
 }
 
