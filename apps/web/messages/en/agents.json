@@ -28,6 +28,8 @@
   "member_type_filter": "Member type",
   "member_tab_agents": "Agents",
   "member_tab_humans": "Collaborators",
+  "member_tab_agents_count": "Agents ({count})",
+  "member_tab_humans_count": "Collaborators ({count})",
   "member_owner_filter": "Agent owner",
   "member_all_computers": "All computers",
   "member_agent_actions": "More actions for {name}",

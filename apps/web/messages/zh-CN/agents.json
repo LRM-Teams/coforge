@@ -28,6 +28,8 @@
   "member_type_filter": "成员类型",
   "member_tab_agents": "智能体",
   "member_tab_humans": "协作者",
+  "member_tab_agents_count": "智能体 ({count})",
+  "member_tab_humans_count": "协作者 ({count})",
   "member_owner_filter": "智能体创建人",
   "member_all_computers": "全部电脑",
   "member_agent_actions": "{name} 的更多操作",

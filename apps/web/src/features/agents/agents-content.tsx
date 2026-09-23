@@ -121,12 +121,15 @@ export function AgentsContent({
   const [search, setSearch] = useState("");
   const [open, setOpen] = useState(defaultCreateDialogOpen);
   const [inviteOpen, setInviteOpen] = useState(false);
+  // The target outlives `deleteOpen` so the dialog keeps its title through the close animation.
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
+  const [deleteOpen, setDeleteOpen] = useState(false);
   const [deferredStart, setDeferredStart] = useState(false);
   const canInviteMember = directory.actorRole === "owner" || directory.actorRole === "admin";
   // Agent creation requires Workspace owner/admin; see ManageAgents.create / assertCanCreateAgents.
   const canCreateAgent = canInviteMember;
-  // Deletion is the same owner/admin capability (ADR 0044); the server re-checks it.
+  // Deletion is the same owner/admin capability (ADR 0044), and only for Agents the directory marks
+  // deletable; the server re-checks both.
   const canDeleteAgent = canInviteMember;
   const onAgentTab = memberType === "agent";
   const tabTotal = onAgentTab ? directory.agents.length : directory.people.length;
@@ -179,25 +182,26 @@ export function AgentsContent({
       onSelectionChange={(key) => {
         if (key === "agent" || key === "human") onFiltersChange({ memberType: key });
       }}
-      className="min-h-0 min-w-0 flex-1"
+      className="@container/members min-h-0 min-w-0 flex-1"
     >
-      {/* One header row on desktop; on a phone the tabs wrap onto their own row under the title. */}
-      <header className="relative flex shrink-0 flex-wrap items-center gap-x-3 border-b border-secondary px-4 sm:px-6 md:h-12 md:flex-nowrap">
-        <div className="flex h-12 min-w-0 flex-1 items-center gap-3 md:flex-none">
+      {/* One row with centred tabs once the pane (not the viewport) is wide enough; narrower, as
+       * on a phone or beside the profile panel, the tabs wrap onto their own row. */}
+      <header className="flex shrink-0 flex-wrap items-center gap-x-3 border-b border-secondary px-4 sm:px-6 @2xl/members:grid @2xl/members:h-12 @2xl/members:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)]">
+        <div className="flex h-12 min-w-0 flex-1 items-center gap-3">
           <MobileNavigationButton />
           <h1 className="truncate text-lg font-semibold text-primary">{m.navigation_agents()}</h1>
         </div>
-        <div className="order-last flex basis-full self-end md:absolute md:inset-x-0 md:bottom-0 md:mx-auto md:w-max md:basis-auto">
+        <div className="order-last flex basis-full self-end @2xl/members:order-none @2xl/members:basis-auto">
           <TabList
             aria-label={m.member_type_filter()}
             type="underline"
             className="gap-6 before:hidden"
           >
-            <Tab id="agent">{`${m.member_tab_agents()} (${directory.agents.length})`}</Tab>
-            <Tab id="human">{`${m.member_tab_humans()} (${directory.people.length})`}</Tab>
+            <Tab id="agent">{m.member_tab_agents_count({ count: directory.agents.length })}</Tab>
+            <Tab id="human">{m.member_tab_humans_count({ count: directory.people.length })}</Tab>
           </TabList>
         </div>
-        <div className="ml-auto flex shrink-0 items-center gap-2">
+        <div className="ml-auto flex shrink-0 items-center gap-2 @2xl/members:justify-self-end">
           {onAgentTab
             ? canCreateAgent && (
                 <Button size="sm" color="primary" iconLeading={Plus} onPress={() => setOpen(true)}>
@@ -227,7 +231,7 @@ export function AgentsContent({
                 disallowEmptySelection
                 selectedKeys={[owner]}
                 onSelectionChange={(keys) => {
-                  const [next] = keys;
+                  const [next] = [...keys];
                   if (next === "all" || next === "mine") onFiltersChange({ owner: next });
                 }}
               >
@@ -263,7 +267,6 @@ export function AgentsContent({
             placeholder={`${m.filters_search()}...`}
             value={search}
             onChange={setSearch}
-
             className="w-full sm:w-80"
           />
         </div>
@@ -291,10 +294,17 @@ export function AgentsContent({
                 member={member}
                 ownedAgent={ownedAgents.get(member.id)}
                 selected={member.id === profileAgentId}
-                createdOn={formatCalendarDate(member.createdAt, timeZone, locale)}
+                // Without a time-zone preference the server and browser zones differ, so the date
+                // is only formatted after mount (the same rule as RelativeTime).
+                createdOn={
+                  timeZone || mounted ? formatCalendarDate(member.createdAt, timeZone, locale) : ""
+                }
                 onDelete={
-                  canDeleteAgent
-                    ? () => setDeleteTarget({ id: member.id, name: member.name })
+                  canDeleteAgent && member.deletable
+                    ? () => {
+                        setDeleteTarget({ id: member.id, name: member.name });
+                        setDeleteOpen(true);
+                      }
                     : undefined
                 }
               />
@@ -409,16 +419,15 @@ export function AgentsContent({
       />
 
       <AgentDeleteDialog
+        key={deleteTarget?.id}
         agentName={deleteTarget?.name ?? ""}
-        open={deleteTarget !== null}
-        onOpenChange={(nextOpen) => {
-          if (!nextOpen) setDeleteTarget(null);
-        }}
+        open={deleteOpen}
+        onOpenChange={setDeleteOpen}
         onDelete={async (confirmation) => {
           if (!deleteTarget) return;
           await onDeleteAgent(deleteTarget.id, confirmation);
           if (deleteTarget.id === profileAgentId) closeAgentProfile();
-          setDeleteTarget(null);
+          setDeleteOpen(false);
         }}
       />
     </main>
@@ -557,7 +566,7 @@ function AgentCard({
               })}
               aria-label={m.agent_open_profile({ name: member.displayName })}
               aria-current={selected ? "page" : undefined}
-              className="rounded-sm outline-focus-ring outline-offset-4 hover:underline focus-visible:outline-2"
+              className="inline-flex min-h-11 items-center rounded-sm outline-focus-ring outline-offset-4 hover:underline focus-visible:outline-2 sm:min-h-0"
             >
               {member.displayName}
             </Link>
@@ -592,9 +601,7 @@ function AgentCard({
         <span className="flex shrink-0 items-center gap-1.5">
           <Calendar aria-hidden="true" className="size-4 text-fg-quaternary" />
           <span className="sr-only">{m.member_created_on()}</span>
-          <time dateTime={new Date(member.createdAt).toISOString()} suppressHydrationWarning>
-            {createdOn}
-          </time>
+          <time dateTime={new Date(member.createdAt).toISOString()}>{createdOn}</time>
         </span>
       </div>
     </li>

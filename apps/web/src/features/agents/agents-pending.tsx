@@ -8,15 +8,15 @@ import { m } from "@/paraglide/messages";
 export function AgentsPending() {
   return (
     <main className="flex h-svh min-w-0">
-      <section className="flex min-w-0 flex-1 flex-col overflow-hidden bg-primary">
-        <header className="relative flex shrink-0 flex-wrap items-center gap-x-3 border-b border-secondary px-4 sm:px-6 md:h-12 md:flex-nowrap">
-          <div className="flex h-12 min-w-0 flex-1 items-center gap-3 md:flex-none">
+      <section className="@container/members flex min-w-0 flex-1 flex-col overflow-hidden bg-primary">
+        <header className="flex shrink-0 flex-wrap items-center gap-x-3 border-b border-secondary px-4 sm:px-6 @2xl/members:grid @2xl/members:h-12 @2xl/members:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)]">
+          <div className="flex h-12 min-w-0 flex-1 items-center gap-3">
             <MobileNavigationButton />
             <h1 className="truncate text-lg font-semibold text-primary">{m.navigation_agents()}</h1>
           </div>
           <div
             aria-hidden="true"
-            className="order-last flex basis-full gap-6 self-end md:absolute md:inset-x-0 md:bottom-0 md:mx-auto md:w-max md:basis-auto"
+            className="order-last flex basis-full gap-6 self-end @2xl/members:order-none @2xl/members:basis-auto"
           >
             {[m.member_tab_agents(), m.member_tab_humans()].map((label) => (
               <span
@@ -28,7 +28,7 @@ export function AgentsPending() {
               </span>
             ))}
           </div>
-          <div className="ml-auto flex shrink-0 items-center">
+          <div className="ml-auto flex shrink-0 items-center @2xl/members:justify-self-end">
             <Button size="sm" color="primary" iconLeading={Plus} isDisabled>
               {m.header_new_agent()}
             </Button>

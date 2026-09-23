@@ -81,6 +81,7 @@ describe("WorkspaceMembers", () => {
                 displayName: null,
                 avatarObjectKey: null,
               },
+              weeklyReportAssistant: { id: "assistant-1" },
               computer: { id: "other-machine-id", name: "other-workspace-machine", workspaces: [] },
             },
           ];
@@ -118,6 +119,7 @@ describe("WorkspaceMembers", () => {
         avatarObjectKey: true,
         createdAt: true,
         owner: { select: { id: true, username: true, displayName: true, avatarObjectKey: true } },
+        weeklyReportAssistant: { select: { id: true } },
         computer: {
           select: {
             id: true,
@@ -160,6 +162,7 @@ describe("WorkspaceMembers", () => {
             displayName: "Ada Lovelace",
             avatarUrl: "/api/workspaces/workspace-1/users/another-user/avatar?v=9c1d",
           },
+          deletable: true,
         },
         {
           id: "detached-agent",
@@ -171,6 +174,7 @@ describe("WorkspaceMembers", () => {
           computerName: null,
           createdAt: new Date("2026-08-01T00:00:00.000Z"),
           owner: { id: "another-user", displayName: "ada", avatarUrl: null },
+          deletable: false,
         },
       ],
     });

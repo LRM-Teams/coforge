@@ -116,6 +116,7 @@ test("lists only the requested Workspace directory and denies outsiders", async 
           computerName: "Owner workstation",
           createdAt: assignedAgent.createdAt,
           owner: { id: otherOwner.id, displayName: "Agent Owner", avatarUrl: null },
+          deletable: true,
         },
         {
           id: unassignedAgent.id,
@@ -127,6 +128,7 @@ test("lists only the requested Workspace directory and denies outsiders", async 
           computerName: null,
           createdAt: unassignedAgent.createdAt,
           owner: { id: otherOwner.id, displayName: "Agent Owner", avatarUrl: null },
+          deletable: true,
         },
       ],
     });
