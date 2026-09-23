@@ -535,6 +535,7 @@ export function MessageRow({
   plainMentions,
   taskReferences,
   onOpenTask,
+  channelReferences,
   onQuoteSelection,
   savedDrag,
 }: {
@@ -582,6 +583,8 @@ export function MessageRow({
   taskReferences?: ReadonlySet<number>;
   /** Opens a task-reference chip's detail popup; absent, a reference stays a highlight. */
   onOpenTask?: (number: number) => void;
+  /** The channels a body's `#name` links to, by lower-case name → channel id. */
+  channelReferences?: ReadonlyMap<string, string>;
   /** Offers "reply to this selection" on a highlight inside this row's body: the row hands back
    * the finished markdown quote, credited to the message it came from. Absent (e.g. the
    * conversation has no composer to put it in), no affordance is offered and no selection is
@@ -929,6 +932,7 @@ export function MessageRow({
                 viewerHandle={viewerHandle}
                 taskReferences={taskReferences}
                 onOpenTask={onOpenTask}
+                channelReferences={channelReferences}
                 onOpenAgentProfile={onOpenAgentProfile}
                 expanded={expanded}
                 onToggleExpanded={onToggleExpanded}

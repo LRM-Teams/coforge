@@ -90,6 +90,7 @@ import {
 import type { AgentProfileTab } from "#src/features/agents/profile-panel/profile-panel-search";
 
 const appRoute = getRouteApi("/_app");
+const messagesRoute = getRouteApi("/_app/messages");
 
 /** How close to the bottom the pane must be for a content-resize to re-pin it (see the pinning
  * ResizeObserver). Tight on purpose: the reading position itself uses a wider tolerance. */
@@ -471,6 +472,14 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
     () => new Set((props.tasks ?? []).map((task) => task.number)),
     [props.tasks],
   );
+  // A `#name` in a body links to that channel when it names one the viewer can open: the channel
+  // list the messages layout already loads for the sidebar, archived channels included (they stay
+  // readable). Keyed by name, which is stored lower-case.
+  const channels = messagesRoute.useLoaderData({ select: (data) => data.channels });
+  const channelReferences = useMemo(
+    () => new Map(channels.map((channel) => [channel.name, channel.id])),
+    [channels],
+  );
   const {
     openTaskNumber,
     openTask: openTaskReference,
@@ -488,6 +497,7 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
     streamRead: windowRead,
     taskReferences: taskNumbers,
     onOpenTask: openTaskReference,
+    channelReferences,
     onLoadMessageAround,
     root,
     conversation: {
@@ -647,6 +657,7 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
       streamRead={windowRead}
       taskReferences={taskNumbers}
       onOpenTask={openTaskReference}
+      channelReferences={channelReferences}
       jumpMessage={jumpMessageId}
       onJumpMessageConsumed={clearJumpMessage}
       onLoadMessageAround={onLoadMessageAround}
@@ -865,6 +876,7 @@ export function ConversationPane({
   plainMentions,
   taskReferences,
   onOpenTask,
+  channelReferences,
   jumpMessage,
   onJumpMessageConsumed,
 }: Omit<ConversationProps, "conversation" | "agentStatus"> & {
@@ -894,6 +906,9 @@ export function ConversationPane({
    * them from the conversation's task list. */
   taskReferences?: ReadonlySet<number>;
   onOpenTask?: (number: number) => void;
+  /** The channels a body's `#name` links to, by lower-case name → channel id. Owned by
+   * `ThreadedConversationContent`, which reads the viewer's channel list. */
+  channelReferences?: ReadonlyMap<string, string>;
   /** The Saved view's position-only jump anchor (`?message=<uuid>`; see
    * `useConversationPositionJump`). Supplied only by the main pane's wrapper — the router
    * read lives there so this pane keeps no router hooks. */
@@ -1628,6 +1643,7 @@ export function ConversationPane({
                   plainMentions={plainMentions}
                   taskReferences={taskReferences}
                   onOpenTask={onOpenTask}
+                  channelReferences={channelReferences}
                   onQuoteSelection={quoteSelection}
                   savedDrag={{ conversationId: conversation.conversationId }}
                 />
@@ -1764,6 +1780,7 @@ export function ConversationPane({
                     plainMentions={plainMentions}
                     taskReferences={taskReferences}
                     onOpenTask={onOpenTask}
+                    channelReferences={channelReferences}
                     onQuoteSelection={quoteSelection}
                     savedDrag={{ conversationId: conversation.conversationId }}
                   />
@@ -1779,6 +1796,7 @@ export function ConversationPane({
                   viewerHandle={conversation.viewerHandle}
                   taskReferences={taskReferences}
                   onOpenTask={onOpenTask}
+                  channelReferences={channelReferences}
                   onRetry={() => outbox.retry(entry)}
                   onEdit={() => outbox.edit(entry)}
                   onDiscard={() => outbox.remove(entry)}
