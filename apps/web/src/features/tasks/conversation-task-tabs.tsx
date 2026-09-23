@@ -36,9 +36,6 @@ export function ConversationTaskTabs({
   return (
     <ReorderableTabStrip
       aria-label={tabs.map((tab) => TABS[tab].label()).join(" / ")}
-      // -ml-3 cancels the first tab's own px-3 so the icon sits on the pane gutter and the
-      // row reads flush-left; only the active tab's box bleeds those 12px past the gutter.
-      className="-ml-3"
       tabs={tabs}
       meta={TABS}
       active={active}

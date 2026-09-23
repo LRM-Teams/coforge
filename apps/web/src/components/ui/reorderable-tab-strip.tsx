@@ -1,4 +1,4 @@
-import { useEffect, useRef, type ComponentProps, type FC } from "react";
+import { useCallback, useEffect, useRef, type FC } from "react";
 import {
   DndContext,
   MouseSensor,
@@ -15,14 +15,14 @@ import {
   useSortable,
 } from "@dnd-kit/sortable";
 
-import { Button } from "#src/components/base/buttons/button";
+import { Tab, TabList, Tabs } from "#src/components/application/tabs/tabs";
 import { cx } from "#src/utils/cx";
 
 export type ReorderableTabMeta = { label: () => string; icon: FC<{ className?: string }> };
 
 /**
- * A panel's tab strip whose tabs the viewer drags into their own order. Each tab is the official
- * `Button` (secondary = active, tertiary = inactive); dragging only translates along the strip
+ * A panel's tab strip whose tabs the viewer drags into their own order. It is the official
+ * horizontal `button-border` Tabs list; dragging only translates a tab along the strip
  * ([dnd-kit Sortable](https://docs.dndkit.com/presets/sortable)). A mouse drag starts after 6px
  * of movement so a click still selects; a touch drag starts after a 250ms press so a swipe still
  * scrolls a strip that overflows a phone
@@ -35,7 +35,7 @@ export function ReorderableTabStrip<T extends string>({
   onSelect,
   onReorder,
   className,
-  ...navProps
+  "aria-label": ariaLabel,
 }: {
   /** The tabs in display order. */
   tabs: readonly T[];
@@ -43,19 +43,21 @@ export function ReorderableTabStrip<T extends string>({
   active: T;
   onSelect: (tab: T) => void;
   onReorder: (order: T[]) => void;
-} & Omit<ComponentProps<"nav">, "onSelect">) {
+  className?: string;
+  "aria-label": string;
+}) {
   const sensors = useSensors(
     useSensor(MouseSensor, { activationConstraint: { distance: 6 } }),
     useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 5 } }),
   );
-  // Releasing a dragged tab is also a press on its Button; that press is swallowed so a drop only
+  // Releasing a dragged tab is also a press on it; that press is swallowed so a drop only
   // reorders. The flag is cleared when the next press starts.
   const dragged = useRef(false);
-  const navRef = useRef<HTMLElement>(null);
+  const tabsRef = useRef<HTMLDivElement>(null);
   // On a narrow viewport the strip scrolls, so the selected tab can start out of sight.
   useEffect(() => {
-    navRef.current
-      ?.querySelector('[aria-current="page"]')
+    tabsRef.current
+      ?.querySelector('[aria-selected="true"]')
       ?.scrollIntoView({ inline: "nearest", block: "nearest" });
   }, [active]);
 
@@ -75,20 +77,23 @@ export function ReorderableTabStrip<T extends string>({
       onDragEnd={dropped}
     >
       <SortableContext items={[...tabs]} strategy={horizontalListSortingStrategy}>
-        <nav ref={navRef} className={cx("flex items-center gap-1", className)} {...navProps}>
-          {tabs.map((tab) => (
-            <SortableTab
-              key={tab}
-              id={tab}
-              meta={meta[tab]}
-              active={tab === active}
-              onPressStart={() => (dragged.current = false)}
-              onPress={() => {
-                if (!dragged.current) onSelect(tab);
-              }}
-            />
-          ))}
-        </nav>
+        {/* Selection stays with the caller: a mouse press would otherwise select on press start,
+         * before a drag can begin, so each tab selects from its own `onPress` instead. */}
+        <Tabs ref={tabsRef} selectedKey={active} className={cx("w-max shrink-0", className)}>
+          <TabList type="button-border" size="sm" aria-label={ariaLabel}>
+            {tabs.map((tab) => (
+              <SortableTab
+                key={tab}
+                id={tab}
+                meta={meta[tab]}
+                onPressStart={() => (dragged.current = false)}
+                onPress={() => {
+                  if (!dragged.current) onSelect(tab);
+                }}
+              />
+            ))}
+          </TabList>
+        </Tabs>
       </SortableContext>
     </DndContext>
   );
@@ -104,48 +109,39 @@ const SILENT_ANNOUNCEMENTS = {
 function SortableTab({
   id,
   meta,
-  active,
   onPressStart,
   onPress,
 }: {
   id: string;
   meta: ReorderableTabMeta;
-  active: boolean;
   onPressStart: () => void;
   onPress: () => void;
 }) {
   const { listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
+  // The official Tab takes no ref, so the sortable node is the tab element around its label.
+  const labelRef = useCallback(
+    (label: HTMLSpanElement | null) =>
+      setNodeRef(label?.closest<HTMLElement>('[role="tab"]') ?? null),
+    [setNodeRef],
+  );
   return (
-    <div
-      ref={setNodeRef}
-      // The Button handles its own press events and stops them from bubbling, so the sensors
-      // listen in the capture phase on this wrapper instead.
-      onMouseDownCapture={(event) => {
-        onPressStart();
-        listeners?.onMouseDown?.(event);
-      }}
-      onTouchStartCapture={(event) => {
-        onPressStart();
-        listeners?.onTouchStart?.(event);
-      }}
-      onKeyDownCapture={onPressStart}
+    <Tab
+      id={id}
+      icon={meta.icon}
+      // The tab handles its own press events and stops them from bubbling, so the sensors
+      // listen in the capture phase instead.
+      onMouseDownCapture={(event) => listeners?.onMouseDown?.(event)}
+      onTouchStartCapture={(event) => listeners?.onTouchStart?.(event)}
+      onPressStart={onPressStart}
+      onPress={onPress}
       data-dragging={isDragging || undefined}
-      className="shrink-0 select-none [-webkit-touch-callout:none] data-dragging:z-10 data-dragging:cursor-grabbing"
+      className="shrink-0 select-none [-webkit-touch-callout:none] data-dragging:z-20 data-dragging:cursor-grabbing"
       style={{
         transform: transform ? `translate3d(${transform.x}px, 0, 0)` : undefined,
         transition,
       }}
     >
-      <Button
-        type="button"
-        color={active ? "secondary" : "tertiary"}
-        size="sm"
-        aria-current={active ? "page" : undefined}
-        iconLeading={meta.icon}
-        onPress={onPress}
-      >
-        {meta.label()}
-      </Button>
-    </div>
+      <span ref={labelRef}>{meta.label()}</span>
+    </Tab>
   );
 }
