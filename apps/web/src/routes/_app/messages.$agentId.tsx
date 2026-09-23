@@ -30,6 +30,7 @@ import {
   loadOwnConversationMessages,
   markDirectThreadRead,
   sendDirectConversationMessage,
+  setDirectConversationHidden,
   toggleDirectMessageReaction,
 } from "@/features/conversations/conversations.functions";
 import {
@@ -48,6 +49,7 @@ import {
 } from "@/features/conversations/conversation-unread";
 import { markDirectConversationRead } from "@/features/conversations/conversations.functions";
 import { useEffect } from "react";
+import { useReopenClosedConversation } from "@/features/conversations/reopen-closed-conversation";
 
 export const Route = createFileRoute("/_app/messages/$agentId")({
   validateSearch: z.object({
@@ -91,6 +93,11 @@ function DirectConversationPage() {
   // Opening the DM is reading it — except in the `newest-unread` preference, which keeps
   // unseen messages unread until the latest is actually viewed: the badge clears
   // immediately, but the server-side cursor only advances through `onReadLatest` below.
+  const reopen = useServerFn(setDirectConversationHidden);
+  useReopenClosedConversation(conversation.conversationId, conversation.hidden, () =>
+    reopen({ data: { agentId, hidden: false } }),
+  );
+
   const markSeen = useMarkConversationSeen();
   const advanceReadCursor = useServerFn(markDirectConversationRead);
   const readRequiresScroll = useConversationReadRequiresScroll();
