@@ -114,42 +114,26 @@ export class CentrifugoConversationRealtime implements ConversationRealtime {
   }
 }
 
-/** How long a membership write waits for its member-change signal before giving up on it. */
-const MEMBER_CHANGED_BUDGET_MS = 3_000;
-
 /**
  * Tells the open pages of these channels that their member list changed — the composer's @-list
  * and plain-@handle labels — once the membership write has committed. Every write that changes
  * who is in a channel calls this, the way Slack sends `member_joined_channel` and Discord sends
  * `GUILD_MEMBER_ADD`, so a page never polls or waits for a refresh.
  *
- * Best effort: the write already happened, and a page that misses the signal refetches when it
- * regains focus or resubscribes without recovering, so the signal gets a short time budget. Without an injected publisher it uses the
- * production Centrifugo one, so no write path can skip the signal by leaving it unwired.
+ * Best effort: the write already happened, and a page that misses the signal refetches whenever
+ * it (re)subscribes without replaying what it missed, or regains focus. Without an injected
+ * publisher it uses the production Centrifugo one, so no write path can skip the signal by
+ * leaving it unwired; that client's own deadline bounds how long the write waits.
  */
 export async function announceMemberChanged(
   realtime: Pick<ConversationRealtime, "memberChanged"> | undefined,
   input: { workspaceId: string; conversationIds: readonly string[] },
-  { budgetMs = MEMBER_CHANGED_BUDGET_MS }: { budgetMs?: number } = {},
 ): Promise<void> {
   if (input.conversationIds.length === 0) return;
-  let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-    // Bounded: an unreachable Centrifugo must not stall the request that changed membership.
-    await Promise.race([
-      (realtime ?? new CentrifugoConversationRealtime(createCentrifugoServerApi())).memberChanged(
-        input,
-      ),
-      new Promise<never>((_, reject) => {
-        timer = setTimeout(
-          () =>
-            reject(
-              Object.assign(new Error("member change signal timed out"), { name: "TimeoutError" }),
-            ),
-          budgetMs,
-        );
-      }),
-    ]);
+    await (
+      realtime ?? new CentrifugoConversationRealtime(createCentrifugoServerApi())
+    ).memberChanged(input);
   } catch (error) {
     console.warn(
       JSON.stringify({
@@ -159,7 +143,5 @@ export async function announceMemberChanged(
         error_type: error instanceof Error ? error.name : typeof error,
       }),
     );
-  } finally {
-    clearTimeout(timer);
   }
 }

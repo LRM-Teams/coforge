@@ -113,6 +113,45 @@ describe("AgentDeletion", () => {
     ]);
   });
 
+  test("the member-list signal goes out after the runtime lock is released, even when the stop fails", async () => {
+    let locked = false;
+    const announcedWhileLocked: boolean[] = [];
+    const deletion = new AgentDeletion(
+      repositoryFor(agent()),
+      {
+        delete: async () => ({
+          outcome: "deleted",
+          membershipsLeft: 1,
+          leftChannelIds: ["channel-1"],
+          remindersCanceled: 0,
+        }),
+      },
+      {
+        stop: async () => {
+          throw new Error("daemon unavailable");
+        },
+      },
+      {
+        run: async (_agentId, callback) => {
+          locked = true;
+          try {
+            return await callback();
+          } finally {
+            locked = false;
+          }
+        },
+      },
+      undefined,
+      {
+        memberChanged: async () => {
+          announcedWhileLocked.push(locked);
+        },
+      },
+    );
+    await deletion.delete(owner, "agent-1");
+    expect(announcedWhileLocked).toEqual([false]);
+  });
+
   test("an admin may delete an Agent owned by someone else", async () => {
     const { deletion } = fixture({ record: agent({ ownerId: "user-2" }) });
     const result = await deletion.delete(

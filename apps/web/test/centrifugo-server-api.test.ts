@@ -180,3 +180,27 @@ test("directs a runtime usage scan to the selected Computer's Daemon", async () 
     provider: "codex",
   });
 });
+
+test("abandons a Centrifugo call that never answers at its deadline, aborting the request", async () => {
+  let signal: AbortSignal | undefined;
+  globalThis.fetch = Object.assign(
+    (_input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+      signal = init?.signal ?? undefined;
+      return new Promise<Response>((_, reject) =>
+        signal?.addEventListener("abort", () => reject(signal?.reason)),
+      );
+    },
+    { preconnect: originalFetch.preconnect },
+  );
+
+  await expect(
+    createCentrifugoServerApi(
+      {
+        COFORGE_CENTRIFUGO_API_URL: "http://centrifugo.test/api",
+        COFORGE_CENTRIFUGO_API_KEY: "test-api-key",
+      },
+      { timeoutMs: 10 },
+    ).publishJson("chat:conversation-1", { type: "member.changed.v1" }),
+  ).rejects.toMatchObject({ name: "TimeoutError" });
+  expect(signal?.aborted).toBe(true);
+});

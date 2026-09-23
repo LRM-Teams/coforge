@@ -1,6 +1,7 @@
 import type { Prisma, PrismaClient } from "#src/generated/prisma/client";
 import { AGENT_VISIBILITY } from "#src/features/agents/agent-visibility";
 import { ACTIVE_AGENT_WHERE } from "#src/server/agents/active-agent.server";
+import { ACTIVE_CHANNEL_MEMBER_WHERE } from "#src/server/conversations/active-member.server";
 import type {
   AgentVisibilityChangePreview,
   ChangeAgentVisibilityStore,
@@ -41,19 +42,14 @@ export class PrismaChangeAgentVisibilityStore implements ChangeAgentVisibilitySt
       if (updated.count === 0) return { changed: false, leftChannelIds: [] };
       if (input.visibility !== AGENT_VISIBILITY.PRIVATE)
         return { changed: true, leftChannelIds: [] };
-      const activeChannels = {
-        workspaceId: input.workspaceId,
-        agentId: input.agentId,
-        leftAt: null,
-        conversation: { channelName: { not: null } },
-      } satisfies Prisma.ConversationMemberWhereInput;
-      const left = await tx.conversationMember.findMany({
-        where: activeChannels,
-        select: { conversationId: true },
-      });
-      await tx.conversationMember.updateMany({
-        where: activeChannels,
+      const left = await tx.conversationMember.updateManyAndReturn({
+        where: {
+          workspaceId: input.workspaceId,
+          agentId: input.agentId,
+          ...ACTIVE_CHANNEL_MEMBER_WHERE,
+        },
         data: { leftAt: new Date() },
+        select: { conversationId: true },
       });
       return { changed: true, leftChannelIds: left.map((row) => row.conversationId) };
     });
@@ -84,8 +80,7 @@ export async function previewAgentVisibilityChange(
       where: {
         workspaceId: input.workspaceId,
         agentId: input.agentId,
-        leftAt: null,
-        conversation: { channelName: { not: null } },
+        ...ACTIVE_CHANNEL_MEMBER_WHERE,
       },
       select: { conversation: { select: { channelName: true } } },
     }),

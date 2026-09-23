@@ -16,8 +16,18 @@ export type CentrifugoServerApi = {
   broadcast(channels: string[], data: unknown, idempotencyKey?: string): Promise<void>;
 };
 
-/** Server-only adapter for Centrifugo's HTTP server API. Business code never builds its HTTP body. */
-export function createCentrifugoServerApi(env = process.env): CentrifugoServerApi {
+/** How long one Centrifugo server-API call may take, connect included, before it is aborted. */
+const CENTRIFUGO_REQUEST_TIMEOUT_MS = 5_000;
+
+/**
+ * Server-only adapter for Centrifugo's HTTP server API. Business code never builds its HTTP body.
+ * Every call carries a deadline, so an unreachable Centrifugo rejects (`TimeoutError`) instead of
+ * holding the request that published.
+ */
+export function createCentrifugoServerApi(
+  env = process.env,
+  { timeoutMs = CENTRIFUGO_REQUEST_TIMEOUT_MS }: { timeoutMs?: number } = {},
+): CentrifugoServerApi {
   const endpoint = env.COFORGE_CENTRIFUGO_API_URL;
   const apiKey = env.COFORGE_CENTRIFUGO_API_KEY;
   if (!endpoint || !apiKey) throw new Error("Centrifugo server API is not configured");
@@ -31,6 +41,7 @@ export function createCentrifugoServerApi(env = process.env): CentrifugoServerAp
         "content-type": "application/json",
       },
       body: JSON.stringify({ method, params }),
+      signal: AbortSignal.timeout(timeoutMs),
     });
     if (!response.ok) throw new Error(`Centrifugo ${method} failed (${response.status})`);
     const result = (await response.json()) as {
