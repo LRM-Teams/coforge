@@ -1,3 +1,4 @@
+import { MEMBER_DIRECTORY_KEY } from "@/features/agents/member-directory-queries";
 import { queryOptions, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "@tanstack/react-router";
 import { useEffect } from "react";
@@ -58,7 +59,7 @@ export function agentEnvironmentQuery(agentId: string | undefined, enabled: bool
  * Re-fetches every surface that still shows this Agent after a panel edit.
  * The panel itself is query-cached (`agent-profile`); the DM list and conversation
  * header come from the `/_app` loader (`listAgents` → LiveAgents); message
- * `senderName` lives on the conversation query. The full Agent detail page uses
+ * `senderName` lives on the conversation query; the Members grid lives on `member-directory`. The full Agent detail page uses
  * `router.invalidate` for the loader; settings avatar upload also invalidates
  * `["conversation"]` so already-open threads pick up the new identity.
  */
@@ -70,6 +71,8 @@ export function useInvalidateAgentProfile(agentId: string | undefined) {
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: agentProfileKey(agentId) }),
       queryClient.invalidateQueries({ queryKey: ["conversation"] }),
+      // The Members grid pages its cards through the Query cache, not the route loader.
+      queryClient.invalidateQueries({ queryKey: MEMBER_DIRECTORY_KEY }),
       router.invalidate({ sync: true }),
     ]);
   };

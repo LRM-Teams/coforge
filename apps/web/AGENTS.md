@@ -426,7 +426,11 @@ channels.functions.ts` exposes `loadPublicChannelMembers`/`addPublicChannelMembe
   the Agent-tab owner (`owner`) and Computer (`computer`) filters, search
   recovery, the Agent and person cards (creator and creation date come from
   `WorkspaceMembers.list`), the card menu's delete entry reusing
-  `AgentDeleteDialog`, and the Agent creation dialog.
+  `AgentDeleteDialog`, and the Agent creation dialog. The directory is paged:
+  `WorkspaceMembers.summary` (tab totals, Computer choices), `agentPage` and
+  `peoplePage` (cursor pages with owner/Computer/search filtering in the
+  database) back `member-directory-queries.ts`; the grid is a React Aria
+  `GridList` whose `GridListLoadMoreItem` fetches the next page on scroll.
   Clicking an Agent name opens the same right-hand `AgentProfilePanel` the
   conversation slot uses (`profile`/`agentTab` search params); `/agents/$agentId`
   redirects there. Computer prerequisites appear only after requesting Agent

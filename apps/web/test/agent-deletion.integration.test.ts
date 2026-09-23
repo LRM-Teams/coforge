@@ -128,7 +128,13 @@ test.skipIf(!connectionString)(
 
       // Visible everywhere before the delete.
       expect(
-        (await new WorkspaceMembers(db).list(workspace.id, owner.id)).agents.map((a) => a.id),
+        (
+          await new WorkspaceMembers(db).agentPage(workspace.id, owner.id, {
+            owner: "all",
+            query: "",
+            limit: 50,
+          })
+        ).items.map((a) => a.id),
       ).toContain(agent.id);
       expect(await findWorkspaceUser(db, workspace.id, agent.name, ownerViewer)).toBeDefined();
 
@@ -160,7 +166,13 @@ test.skipIf(!connectionString)(
 
       // Hidden from the Members directory and from the by-name profile lookup.
       expect(
-        (await new WorkspaceMembers(db).list(workspace.id, owner.id)).agents.map((a) => a.id),
+        (
+          await new WorkspaceMembers(db).agentPage(workspace.id, owner.id, {
+            owner: "all",
+            query: "",
+            limit: 50,
+          })
+        ).items.map((a) => a.id),
       ).not.toContain(agent.id);
       expect(await findWorkspaceUser(db, workspace.id, agent.name, ownerViewer)).toBeUndefined();
 
