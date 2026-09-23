@@ -502,7 +502,7 @@ function SavedMessageRow({
         color="tertiary"
         tooltip={m.conversation_unsave()}
         aria-label={m.conversation_unsave()}
-        onPress={() => {
+        onClick={() => {
           void onUnsave({
             data: { conversationId: entry.conversation.id, messageId: entry.message.id },
           })
