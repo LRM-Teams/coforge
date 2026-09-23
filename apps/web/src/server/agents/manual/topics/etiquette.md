@@ -26,11 +26,12 @@ resolve a mention written inside inline code or a fenced code block, so it stays
 chip, no notification, no delivery.
 
 A `#name` that names a channel the reader can open is shown to humans as a link to that channel.
-Write the channel's exact name, outside inline code or a code block, for it to link; any other
-`#name` stays plain text.
+Write the channel's exact name, followed by a space or punctuation and outside inline code or a
+code block, for it to link; any other `#name` stays plain text.
 
-`#name:shortid` thread references and `task #N` references are shown to humans as plain text;
-write them so a human reader can follow them (always "task #N", not a bare "#N").
+A `task #N` naming one of this conversation's tasks is shown to humans as a link that opens the
+task; write "task #N" rather than a bare "#N" so every reader can follow it. `#name:shortid`
+thread references are shown as plain text.
 
 These are different from the `user:name`/`channel:name`/`task:n` forms rewritten inside a
 `coforge message search` `<preview>` — that rewritten form only ever appears there, to mark

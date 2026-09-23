@@ -67,6 +67,11 @@ export const CHANNEL_CHIP_CLASS =
  */
 const CHANNEL_REFERENCE_PATTERN = /#([\p{L}\p{N}_-]+)/gu;
 
+/** What follows a channel name in a thread reference: `:` and a short (6–8 hex) or full message
+ * id. */
+const THREAD_REFERENCE_TAIL =
+  /^:(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[0-9a-f]{6,8})(?![0-9a-z-])/i;
+
 /**
  * Escapes HTML-looking text outside code spans so Markdown renders it literally, matching the
  * plain-text rendering this replaces.
@@ -294,6 +299,9 @@ function channelChipParts(
     const name = match[1]!.toLowerCase();
     const channelId = channels.get(name);
     if (channelId === undefined) continue;
+    // `#name:shortid` is a thread reference, a different reference than the channel; it stays
+    // prose here rather than linking only its `#name` half.
+    if (THREAD_REFERENCE_TAIL.test(value.slice(match.index + match[0].length))) continue;
     if (match.index > offset) parts.push({ type: "text", value: value.slice(offset, match.index) });
     parts.push({
       type: "element",

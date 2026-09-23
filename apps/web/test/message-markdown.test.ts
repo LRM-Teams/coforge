@@ -515,6 +515,20 @@ test("a channel name runs through letters in any script, so it needs a boundary 
   expect(children[2]).toEqual(text("，看"));
 });
 
+test("a #name:shortid thread reference is not half-linked as a channel", () => {
+  for (const source of [
+    "see #product:abcd1234 for that",
+    "see #product:0199aa00-1234-7abc-8def-0123456789ab",
+  ])
+    expect(channelChipify([paragraph([text(source)])]).children[0]!.children).toEqual([
+      text(source),
+    ]);
+  // A colon that starts no message id leaves the channel link in place.
+  const children = channelChipify([paragraph([text("in #product: done")])]).children[0]!
+    .children as Array<Record<string, unknown>>;
+  expect(children[1]).toMatchObject({ properties: { "data-channel-id": PRODUCT_ID } });
+});
+
 test("a #name stays prose inside code, a link, or an existing chip", () => {
   for (const node of [
     paragraph([{ type: "element", tagName: "code", properties: {}, children: [text("#product")] }]),
