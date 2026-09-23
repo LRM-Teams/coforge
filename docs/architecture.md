@@ -1213,7 +1213,7 @@ Daemon 仅为被 Web/backend 暂缓的 Agent response 保存短期 continuation 
 ### 6.1 云端到 Agent
 
 1. backend 先持久化 canonical Message，再通过 Centrifugo 向目标 daemon 发布 attention；Centrifugo 不读取 PostgreSQL 或自行决定目标；
-2. daemon 按 Workspace、conversation 与 Agent scope 定位 `AgentSession`。同一 exact target 的新输入走 provider-neutral `notify` 与原生 steer；不同 target 由 `AgentDeliveryQueue` 暂存，turn 结束后每次放出一个 target。所有现有 provider 支持 steer，`queue_until_idle` 保留给未来无安全 busy 路径的 provider；ACK 时序见第 3 点。
+2. daemon 按 Workspace、conversation 与 Agent scope 定位 `AgentSession`。同一 exact target 的新输入走 provider-neutral `notify` 与原生 steer；不同 target 由 `AgentDeliveryQueue` 暂存，turn 结束后每次放出一个 target。Cursor/OpenCode 由 daemon 排队（它们只支持下一进程输入），其余 provider 使用 steer；ACK 时序见第 3 点。
 3. 只有 `AgentSession`/`notify` 成功接受 attention 后，daemon 才返回 ACK；拒绝或失败不得 ACK。Claude Code 对齐 [Raft Computer 1.0.32](agents/reference-cli-research.md)（该 stdin-write-as-success 语义在 1.0.17 中已观察到，未在 1.0.32 中重新核实）：空闲时或允许的原生运行边界成功写入 stdin 即视为 `notify` 成功，不等待 user-message 回显；ACK 不证明 provider 已理解或处理通知。Pi/Codex 仍以各自 SDK/RPC 的原生接受响应确认；
 4. ACK 只表示 attention 已被当前 Agent session 接受，不表示 Agent 执行开始、完成或产生 response；Web 仅接受已认证 Computer 为该 Agent 当前 assignment 的 ACK，并继续校验完整 delivery tuple；
 5. attention 是易失提示，断线、进程退出或 ACK 丢失都可能造成丢失或重复。每个 Agent ConversationMember 持久化单调递增的 `agentReadThroughSequence`；无锚点的普通 read 从当前 canonical boundary 的下一条消息开始，成功返回的连续查询范围可包含并跨越该 Agent 自己已发送的已知消息，但绝不能跳过查询未返回的 User 消息。`before`、`after`、`around` 等显式历史跳转与 delivery ACK 都不推进阅读位置；conversation sequence 是总顺序，不声称仅由 User 消息组成或具有额外的无缺口保证；
@@ -1869,13 +1869,13 @@ Manual 的 intent/reason 改为可选；先部署兼容服务端，再升级 Com
 CoForge 的常驻指令只负责通信、身份、保密边界及按需手册入口，不能替换运行器原生编程指令。
 Pi 与内置 CoForge 通过 SDK `appendSystemPromptOverride` 追加指令，保留原生 prompt、用户 SYSTEM/APPEND_SYSTEM 及项目资源。
 Codex 继续使用 `developerInstructions`，Claude Code 继续使用 append-system-prompt-file。
-Cursor/OpenCode 没有本适配器可用的 system 指令入口：新会话沿用 bootstrap，恢复会话在本次 launch 的第一条真实输入前补一次最新指令；后续轮次不重复。
+Cursor/OpenCode 没有本适配器可用的 system 指令入口：新会话沿用 bootstrap，恢复会话在本次 launch 的第一条真实输入前补一次最新指令；成功完成首轮后不重复；失败或中断保留刷新义务供重试。
 模型与 reasoning 仍由现有 runtime 配置传递，不强制改模型、不把不同 provider 的默认值解释为相同能力。
 参考：[Codex app-server](https://developers.openai.com/codex/app-server/)、[Cursor 参数](https://cursor.com/docs/cli/reference/parameters)、[Pi SDK](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/sdk.md)、[OpenCode CLI](https://opencode.ai/docs/cli/)。精确 SDK 行为以锁定依赖的 resource-loader/system-prompt 实现及离线 session 测试为准。
 
 `AgentDeliveryQueue` 拥有当前 exact target（含 thread id），attention index 在调用 notify 前同步登记。
-同 target 继续走 provider 原生 steer；不同 target 与 App Inbox 通知等到当前 turn 结束。
-每次 idle/release 只放出最早到达 target 的全部 held delivery，其他 target 保持排队；ACK 仍发生在 notify 接受之后。
+同 target 对支持实时输入的 provider 继续原生 steer；Cursor/OpenCode 的同 target 也由 daemon 排队并在下一轮优先续接，避免 provider 将不同会话合成一条 prompt。不同 target 与 App Inbox 通知等到当前 turn 结束。
+每次 idle 优先放出当前 target 的后续输入，否则 idle/release 放出最早到达 target 的全部 held delivery，其他 target 保持排队；ACK 仍发生在 notify 接受之后。
 `message check` 通过 SDK/HTTP events 的可选 `target` 参数，在数据库筛选之后才分页及推进 read cursor，避免排队消息被提前消费。
 通知和 attention summaries 只展示本轮 target。显式 history read 不受限制。
 恢复批次保留 unscoped check，直到恢复轮结束前暂存所有新 live target；异常退出保留排队项、清除 focus，Stop 清除全部易失状态。

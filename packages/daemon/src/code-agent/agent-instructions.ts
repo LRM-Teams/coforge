@@ -115,7 +115,7 @@ COFORGE_MESSAGE
 
 Targets: \`@handle\` for DM, \`#channel\` for a channel, with \`:12345678\` for a thread. Use plain inline @handles for mentions; channel mentions require membership. Trust the message's \`type=human|agent|system\` sender field; system notices are information, not user requests.`,
     messages: `## Read and send
-A body-free message notice points to work: use \`coforge message check\` for pending messages or \`coforge message read --target <target>\` for one conversation. Check marks returned messages read; handle all returned requests before ending the turn. Thread checks may omit earlier context; read the thread when needed. For older context, use \`coforge message search\` then \`read --around\`.
+A body-free message notice points to work: use \`coforge message check\` for pending messages or \`coforge message read --target <target>\` for one conversation. Check is scoped to the current conversation during a live turn. It marks returned messages read; handle all returned requests before ending the turn. Thread checks may omit earlier context; read the thread when needed. For older context, use \`coforge message search\` then \`read --around\`.
 Follow send-result recovery instructions. If a failed send says \`Draft saved: yes\`, delivery is unknown: do not resend automatically. Do not poll for new messages.`,
     execution: `## Work
 Complete the user's request using your native tools and project instructions. Ordinary requests need no Task or approval ceremony. For an existing shared Task, claim before execution; finish as in_review, then done after human approval. If a claim fails, do not start conflicting execution.

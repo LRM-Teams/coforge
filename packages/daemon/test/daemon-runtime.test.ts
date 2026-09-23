@@ -4690,8 +4690,21 @@ describe("DaemonRuntime", () => {
   test("active recovery rebind keeps its runtime and precedes live delivery", async () => {
     let releaseRecovery!: () => void;
     const recoveryGate = new Promise<void>((resolve) => (releaseRecovery = resolve));
+    let emit!: (event: AgentRuntimeEvent) => void;
+    const acknowledged = ackGate(1);
+    const recoveryEntered = Promise.withResolvers<void>();
     const harness = await queueHarness({
-      notify: (notice) => (notice.includes("wake only") ? recoveryGate : undefined),
+      subscribe: (listener) => {
+        emit = listener;
+      },
+      lifecycle: (event) => {
+        if (event === "ack:delivery-4") acknowledged.record("delivery-4");
+      },
+      notify: (notice) => {
+        if (!notice.includes("restart recovery")) return;
+        recoveryEntered.resolve();
+        return recoveryGate;
+      },
     });
     const active = await harness.runtime.startAgent("agent-a", config);
     const rebound = harness.runtime.startAgent("agent-a", config, undefined, "recovery", {
@@ -4721,20 +4734,23 @@ describe("DaemonRuntime", () => {
       ],
       unreadSummary: { "@grace": 9 },
     });
+    await recoveryEntered.promise;
     const live = harness.delivery(4);
-    await Bun.sleep(0);
 
-    expect(harness.notices).toHaveLength(2);
+    expect(harness.notices).toHaveLength(1);
     expect(harness.notices[0]).toContain("[CoForge inbox notice (restart recovery):");
     expect(harness.notices[0]).toContain("@ada  new: 1 message");
     expect(harness.notices[0]).not.toContain("wake only");
     expect(harness.notices[0]).not.toContain("must be ignored");
     expect(harness.notices[0]).not.toContain("@grace");
-    expect(harness.notices[1]).toContain("CoForge inbox notice");
-    expect(harness.acknowledgements).toEqual(["delivery-4"]);
+    expect(harness.acknowledgements).toEqual([]);
     releaseRecovery();
     expect(await rebound).toBe(active);
     await live;
+    expect(harness.notices).toHaveLength(1);
+    emit({ type: "completed", status: "completed" });
+    await acknowledged.done;
+    expect(harness.notices[1]).toContain("CoForge inbox notice");
     expect(harness.acknowledgements).toEqual(["delivery-4"]);
     expect(harness.sessions()).toBe(1);
     expect(harness.mints()).toBe(1);

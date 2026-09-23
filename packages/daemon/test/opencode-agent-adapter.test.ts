@@ -1,4 +1,6 @@
 import { expect, test } from "bun:test";
+import { AgentDeliveryQueue } from "../src/daemon-runtime/agent-delivery-queue";
+import type { AgentMessageDelivery } from "@lrm/coforge-sdk/internal";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -291,4 +293,96 @@ test("gates the CLI on the OpenCode v2 runtime contract", () => {
   expect(isOpenCodeVersionUnsupported("2.0.7")).toBe(false);
   // A version we cannot parse confidently is never gated.
   expect(isOpenCodeVersionUnsupported("nightly")).toBe(false);
+});
+
+test("resumed instruction refresh survives a failed first invocation", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "opencode-refresh-retry-"));
+  const log = join(directory, "launches.jsonl");
+  const session = await provider().createAgentSession({
+    agentWorkspaceDirectory: directory,
+    instructions: INSTRUCTIONS,
+    sessionId: "session-existing",
+    environment: {
+      COFORGE_OPENCODE_LAUNCH_LOG: log,
+      COFORGE_OPENCODE_FAIL_ONCE_FILE: join(directory, "failed-once"),
+    },
+  });
+  try {
+    for (const text of ["first", "retry", "later"]) {
+      const completed = nthCompleted(session, 1);
+      await session.sendMessage(text);
+      await completed;
+    }
+    const launches = await readLaunches(log);
+    expect(launches.map((launch) => launch.prompt)).toEqual([
+      `${INSTRUCTIONS}\n\nfirst`,
+      `${INSTRUCTIONS}\n\nretry`,
+      "later",
+    ]);
+  } finally {
+    await session.dispose();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("daemon focus keeps a queued correction separate from the next target", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "opencode-focused-"));
+  const log = join(directory, "launches.jsonl");
+  const queue = new AgentDeliveryQueue();
+  queue.setProvider("agent", "opencode");
+  const session = await provider().createAgentSession({
+    agentWorkspaceDirectory: directory,
+    instructions: INSTRUCTIONS,
+    sessionId: "session-existing",
+    environment: { COFORGE_OPENCODE_LAUNCH_LOG: log, COFORGE_OPENCODE_TURN_DELAY_MS: "100" },
+  });
+  let resolveDone!: () => void;
+  let rejectDone!: (error: unknown) => void;
+  const done = new Promise<void>((resolve, reject) => {
+    resolveDone = resolve;
+    rejectDone = reject;
+  });
+  let count = 0;
+  const deliver = async (message: AgentMessageDelivery) => {
+    if (queue.shouldHold("agent", message.target)) {
+      queue.enqueue("agent", message);
+      return;
+    }
+    queue.busy("agent", message.target);
+    await session.notify!(message.body);
+  };
+  const unsubscribe = session.subscribe((event) => {
+    if (event.type !== "completed") return;
+    const held = queue.idle("agent");
+    for (const message of held) void deliver(message).catch(rejectDone);
+    if (++count === 3) resolveDone();
+  });
+  const message = (id: string, target: string): AgentMessageDelivery => ({
+    protocolMajor: 1,
+    requestId: id,
+    messageId: id,
+    deliveryId: id,
+    sequence: 1,
+    workspaceId: "workspace",
+    conversationId: target,
+    agentId: "agent",
+    method: "agent:v1:message:deliver",
+    target,
+    body: id,
+  });
+  try {
+    await deliver(message("A original", "@ada"));
+    await deliver(message("B request", "@bea"));
+    await deliver(message("A correction", "@ada"));
+    await done;
+    expect((await readLaunches(log)).map((launch) => launch.prompt)).toEqual([
+      `${INSTRUCTIONS}\n\nA original`,
+      "A correction",
+      "B request",
+    ]);
+  } finally {
+    unsubscribe();
+    await session.dispose();
+    await rm(directory, { recursive: true, force: true });
+  }
 });

@@ -218,7 +218,6 @@ class CursorAgentSession implements AgentSession {
       NO_COLOR: "1",
     };
     const turn = new CursorTurnProcess(argv, this.#options.agentWorkspaceDirectory, environment);
-    this.#instructionsPending = false;
     this.#currentTurn = turn;
     turn.onRecord((record) => this.#handleRecord(record));
     void turn.exited.then((result) => this.#onTurnExit(turn, result));
@@ -349,6 +348,7 @@ class CursorAgentSession implements AgentSession {
     } else if (result.exitCode === 0) {
       // A clean exit ends the turn successfully even when no `result` frame arrived.
       status = "completed";
+      this.#instructionsPending = false;
       this.#everCompletedTurn = true;
       this.#setIdentity("resumable");
       this.#reportIdentity();

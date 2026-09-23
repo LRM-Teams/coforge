@@ -1,33 +1,19 @@
 import { RUNTIME_PROVIDER, type RuntimeProvider } from "@lrm/coforge-sdk/internal";
 import type { AgentMessageDelivery } from "@lrm/coforge-sdk/internal";
 
-/**
- * How a provider's session accepts a delivery notice while a turn is already in progress.
- * - `steer`: the provider's own `AgentSession.notify()` safely handles busy delivery on its own
- *   (Claude holds it for a native boundary, Codex sends `turn/steer`, Pi/CoForge steer the live
- *   stream, Cursor queues text for its own next per-turn process, Kiro sends its own ACP
- *   `_session/steer` extension) without losing the turn in progress. The daemon keeps calling
- *   `notify()` as soon as a delivery is accepted, exactly as before this module existed.
- * - `queue_until_idle`: the provider's `notify()` has no safe busy path at all — sending it
- *   mid-turn starts a brand-new prompt and ends the running one. No provider is in this mode
- *   today (Kiro moved to `steer` once its own `_session/steer` extension was wired in); the mode
- *   and the daemon-level hold/flush machinery it drives stay in place for a future provider that
- *   needs it, and as the seam `notice-undelivered`'s fallback redelivery reuses (see
- *   `holdFallbackNotice`/`releaseFallbackNotices` below).
- */
+/** Same-target delivery policy. Native steer providers accept input during a turn;
+ * per-turn process providers (Cursor/OpenCode) wait in this daemon queue so their
+ * internal prompt coalescing cannot mix targets. Cross-target input always waits. */
 export type AgentDeliveryMode = "steer" | "queue_until_idle";
 
-/** Scope decision (ADR 0048): moving Claude/Codex/Pi steering into the daemon itself, so this
- * table could eventually replace every provider's own busy handling, is a later cleanup.
- * Exact-target focus is an additional gate shared by all providers. */
 export const AGENT_DELIVERY_MODE: Readonly<Record<RuntimeProvider, AgentDeliveryMode>> = {
   [RUNTIME_PROVIDER.COFORGE]: "steer",
   [RUNTIME_PROVIDER.PI]: "steer",
   [RUNTIME_PROVIDER.CODEX]: "steer",
   [RUNTIME_PROVIDER.CLAUDE_CODE]: "steer",
-  [RUNTIME_PROVIDER.CURSOR]: "steer",
+  [RUNTIME_PROVIDER.CURSOR]: "queue_until_idle",
   [RUNTIME_PROVIDER.KIRO]: "steer",
-  [RUNTIME_PROVIDER.OPENCODE]: "steer",
+  [RUNTIME_PROVIDER.OPENCODE]: "queue_until_idle",
 };
 
 /**
@@ -68,13 +54,7 @@ export class AgentDeliveryQueue {
     this.setMode(agentId, AGENT_DELIVERY_MODE[provider]);
   }
 
-  /**
-   * The lower-level primitive `setProvider` calls through `AGENT_DELIVERY_MODE`. No
-   * `RuntimeProvider` maps to `queue_until_idle` today (Kiro moved to `steer` once its own
-   * `_session/steer` extension was wired in — ADR 0048), so this is also the only way to
-   * exercise that mode's gating directly, for a future provider that needs it and for this
-   * module's own tests.
-   */
+  /** Explicit policy seam for providers and lifecycle tests. */
   setMode(agentId: string, mode: AgentDeliveryMode): void {
     this.#mode.set(agentId, mode);
   }
@@ -90,13 +70,14 @@ export class AgentDeliveryQueue {
     return this.#activeTarget.get(agentId) || undefined;
   }
 
-  /** Marks the Agent idle and returns the oldest target’s held messages, preserving other targets.
+  /** Marks idle and releases current-target follow-ups first, otherwise the oldest queued target.
    * Empty when nothing was held or an explicit hold (`hold`) is still in effect. */
   idle(agentId: string): AgentMessageDelivery[] {
+    const activeTarget = this.#activeTarget.get(agentId);
     this.#busy.delete(agentId);
     this.#activeTarget.delete(agentId);
     if (this.#explicitHolds.has(agentId)) return [];
-    return this.#drainTarget(agentId);
+    return this.#drainTarget(agentId, activeTarget);
   }
 
   /** True when a delivery for this Agent must be held rather than notified immediately. */
@@ -218,9 +199,11 @@ export class AgentDeliveryQueue {
     this.#explicitHolds.delete(agentId);
   }
 
-  #drainTarget(agentId: string): AgentMessageDelivery[] {
+  #drainTarget(agentId: string, preferredTarget?: string): AgentMessageDelivery[] {
     const list = this.#held.get(agentId) ?? [];
-    const target = list[0]?.target;
+    const target = list.some((message) => message.target === preferredTarget)
+      ? preferredTarget
+      : list[0]?.target;
     const batch = list.filter((message) => message.target === target);
     const remaining = list.filter((message) => message.target !== target);
     if (remaining.length) this.#held.set(agentId, remaining);

@@ -225,7 +225,6 @@ class OpenCodeAgentSession implements AgentSession {
       NO_COLOR: "1",
     };
     const turn = new OpenCodeTurnProcess(argv, this.#options.agentWorkspaceDirectory, environment);
-    this.#instructionsPending = false;
     this.#currentTurn = turn;
     turn.onRecord((record) => this.#handleRecord(record));
     void turn.exited.then((result) => this.#onTurnExit(turn, result));
@@ -349,6 +348,7 @@ class OpenCodeAgentSession implements AgentSession {
       status = "failed";
     } else if (result.exitCode === 0) {
       status = "completed";
+      this.#instructionsPending = false;
       this.#everCompletedTurn = true;
       this.#setIdentity("resumable");
       this.#reportIdentity();

@@ -32,7 +32,7 @@ test("a queue_until_idle mode only holds while busy", () => {
 
 test("a steer provider never holds, even while busy", () => {
   const queue = new AgentDeliveryQueue();
-  for (const provider of ["pi", "codex", "claude-code", "cursor", "coforge", "kiro"] as const) {
+  for (const provider of ["pi", "codex", "claude-code", "coforge", "kiro"] as const) {
     queue.setProvider("agent-1", provider);
     queue.busy("agent-1");
     expect(queue.shouldHold("agent-1")).toBe(false);

@@ -970,7 +970,7 @@ test("a coalesced flush spanning targets gives each target its own line", async 
   // The queue is per Agent, so a batch can mix a channel and a DM. Attributing all three to the
   // last delivery's target would hide #general entirely.
   expect(notices).toHaveLength(1);
-  expect(notices[0]).toContain("Inbox update: 2 messages delivered or held for you");
+  expect(notices[0]).toContain("Inbox update: 3 messages delivered or held for you");
   expect(notices[0]).toContain("#general  new: 2 messages · latest sender @bob");
   expect(notices[0]).toContain("@ada  new: 1 message · latest sender @ada");
 });
