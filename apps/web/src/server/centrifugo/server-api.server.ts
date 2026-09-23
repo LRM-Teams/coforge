@@ -10,6 +10,10 @@ import { getAgentContextCache, type AgentContextCache } from "./agent-context-ca
 export type CentrifugoServerApi = {
   publish(channel: string, data: Uint8Array): Promise<void>;
   publishJson(channel: string, data: unknown, idempotencyKey?: string): Promise<void>;
+  /** One Centrifugo `broadcast` call to many channels at once, instead of N sequential `publish`
+   * calls (https://centrifugal.dev/docs/server/server_api#broadcast). A no-op when `channels` is
+   * empty. `idempotencyKey` acts per channel, matching `publishJson`'s per-channel semantics. */
+  broadcast(channels: string[], data: unknown, idempotencyKey?: string): Promise<void>;
 };
 
 /** Server-only adapter for Centrifugo's HTTP server API. Business code never builds its HTTP body. */
@@ -19,31 +23,47 @@ export function createCentrifugoServerApi(env = process.env): CentrifugoServerAp
   if (!endpoint || !apiKey) throw new Error("Centrifugo server API is not configured");
   const serverApiUrl = endpoint;
   const serverApiKey = apiKey;
-  async function publish(params: Record<string, unknown>) {
+  async function call(method: string, params: Record<string, unknown>) {
     const response = await fetch(serverApiUrl, {
       method: "POST",
       headers: {
         "x-api-key": serverApiKey,
         "content-type": "application/json",
       },
-      body: JSON.stringify({ method: "publish", params }),
+      body: JSON.stringify({ method, params }),
     });
-    if (!response.ok) throw new Error(`Centrifugo publish failed (${response.status})`);
-    const result = (await response.json()) as { error?: { code?: unknown } };
+    if (!response.ok) throw new Error(`Centrifugo ${method} failed (${response.status})`);
+    const result = (await response.json()) as {
+      error?: { code?: unknown };
+      result?: { responses?: Array<{ error?: { code?: unknown } }> };
+    };
     if (result.error)
       throw new Error(
-        `Centrifugo publish failed (${typeof result.error.code === "number" ? result.error.code : "command error"})`,
+        `Centrifugo ${method} failed (${typeof result.error.code === "number" ? result.error.code : "command error"})`,
+      );
+    const failed = result.result?.responses?.find((response) => response.error);
+    if (failed)
+      throw new Error(
+        `Centrifugo ${method} failed (${typeof failed.error?.code === "number" ? failed.error.code : "command error"})`,
       );
   }
   return {
     async publish(channel, data) {
       let binary = "";
       for (const byte of data) binary += String.fromCharCode(byte);
-      await publish({ channel, b64data: btoa(binary) });
+      await call("publish", { channel, b64data: btoa(binary) });
     },
     async publishJson(channel, data, idempotencyKey) {
-      await publish({
+      await call("publish", {
         channel,
+        data,
+        ...(idempotencyKey ? { idempotency_key: idempotencyKey } : {}),
+      });
+    },
+    async broadcast(channels, data, idempotencyKey) {
+      if (channels.length === 0) return;
+      await call("broadcast", {
+        channels,
         data,
         ...(idempotencyKey ? { idempotency_key: idempotencyKey } : {}),
       });

@@ -1,6 +1,9 @@
 import { expect, test } from "bun:test";
 
-import { browserPushSubscriptionInput } from "../src/features/notifications/notifications.schemas";
+import {
+  browserPushSubscriptionInput,
+  messageNotificationInput,
+} from "../src/features/notifications/notifications.schemas";
 
 const subscription = {
   endpoint: "https://push.example/subscription",
@@ -35,4 +38,13 @@ test("rejects push endpoints that are not safe absolute HTTPS URLs", () => {
       browserPushSubscriptionInput.safeParse({ ...subscription, endpoint }).success,
     ).toBeFalse();
   }
+});
+
+test("only accepts a well-formed message id for the in-page notification read", () => {
+  expect(
+    messageNotificationInput.safeParse({ messageId: "12345678-0000-4000-8000-000000000001" })
+      .success,
+  ).toBeTrue();
+  expect(messageNotificationInput.safeParse({ messageId: "not-a-uuid" }).success).toBeFalse();
+  expect(messageNotificationInput.safeParse({}).success).toBeFalse();
 });

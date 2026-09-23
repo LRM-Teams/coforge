@@ -72,6 +72,39 @@ export function decodeMessageAvailableEvent(value: unknown): MessageAvailableEve
 }
 
 /**
+ * An in-page notification signal (Frank, 2026-09-23): while a CoForge tab is open, the page shows
+ * the OS notification itself from this realtime event instead of relying on Web Push, since Google
+ * push services are unreachable from mainland-China staging and clients (see ADR 0065). It carries
+ * no message text — `docs/architecture.md`'s bodiless-event rule applies here too — so the browser
+ * fetches title/body/url over authenticated HTTPS (`getMessageNotification`) before it can show
+ * anything. Published only to the recipient's own `chat:user:<user_id>` channel.
+ */
+export type NotificationAvailableEvent = {
+  type: "notification.available.v1";
+  messageId: string;
+  workspaceId: string;
+};
+
+export function decodeNotificationAvailableEvent(value: unknown): NotificationAvailableEvent {
+  if (value instanceof Uint8Array)
+    return decodeNotificationAvailableEvent(JSON.parse(new TextDecoder().decode(value)) as unknown);
+  if (!value || typeof value !== "object" || Array.isArray(value))
+    throw new Error("invalid conversation event");
+  const type = Reflect.get(value, "type");
+  const messageId = Reflect.get(value, "messageId");
+  const workspaceId = Reflect.get(value, "workspaceId");
+  if (
+    type !== "notification.available.v1" ||
+    typeof messageId !== "string" ||
+    !messageId ||
+    typeof workspaceId !== "string" ||
+    !workspaceId
+  )
+    throw new Error("invalid conversation event");
+  return { type, messageId, workspaceId };
+}
+
+/**
  * A membership-change signal for one conversation (join, leave, add, remove): a push in the
  * IM style, telling an open conversation its member directory is stale. It carries no member
  * payload — the client refetches the directory it already knows how to load — and only goes

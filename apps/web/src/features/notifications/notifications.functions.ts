@@ -10,6 +10,7 @@ import { AppError, isAppError } from "../../lib/app-error";
 import { extractLocaleFromRequest } from "@/paraglide/runtime";
 import { toPublicServerError } from "../../server/errors/public-error.server";
 import { createWebPushNotifications } from "../../server/notifications/web-push-composition.server";
+import { classifyTestDelivery } from "../../server/notifications/web-push-notifications.server";
 import { PrismaWebPushSubscriptionStore } from "../../server/notifications/prisma-web-push-subscriptions.server";
 import { readWebPushPublicKey } from "../../server/notifications/web-push-transport.server";
 import {
@@ -17,6 +18,7 @@ import {
   browserPushSubscriptionInput,
   browserPushTestInput,
   browserPushUnsubscribeInput,
+  messageNotificationInput,
 } from "./notifications.schemas";
 
 function notificationContext(user: { id: string }) {
@@ -97,9 +99,27 @@ export const sendTestBrowserNotification = createServerFn({ method: "POST" })
         errorId: isAppError(reported) ? reported.errorId : undefined,
       });
     }
-    // Per-device failures and removals are already logged by the delivery itself, sharing the
-    // batch id the toast quotes.
-    if (result.sent === 0)
+    const classification = classifyTestDelivery(result);
+    // "unreachable" means the push service itself could not be reached (staging in mainland China
+    // cannot reach Google's push endpoints for Chrome) — Settings can say that honestly instead of
+    // "check this browser's permission". Both failures quote the batch id the delivery log records.
+    if (classification === "unreachable")
+      throw new AppError("PUSH_SERVICE_UNREACHABLE", { errorId: result.errorId });
+    if (classification === "failed")
       throw new AppError("TEMPORARILY_UNAVAILABLE", { errorId: result.errorId });
     return result;
+  });
+
+/**
+ * The in-page notification read (ADR 0065): what `InPageNotifications` fetches once the realtime
+ * `notification.available.v1` event tells it a message is worth showing. Authorization is the
+ * recipient rule itself — `notificationForRecipient` returns null for a non-recipient, which this
+ * handler reports the same as a message the caller cannot see, never distinguishing the two.
+ */
+export const getMessageNotification = createServerFn({ method: "GET" })
+  .middleware([authMiddleware])
+  .validator(messageNotificationInput)
+  .handler(async ({ data, context }) => {
+    const { user, subscriptions } = notificationContext(context.user);
+    return subscriptions.notificationForRecipient(data.messageId, user.id);
   });
