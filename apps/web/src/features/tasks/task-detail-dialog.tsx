@@ -62,10 +62,14 @@ function StatusBadge({ status }: { status: TaskStatus }) {
 export function TaskDetailMenu({
   task,
   moves = [],
+  onOpenDetails,
   ...dialog
 }: Omit<TaskDetailDialogProps, "open" | "onOpenChange" | "thread"> & {
   /** Board and list moves, listed under "Move to". */
   moves?: TaskControls["moves"];
+  /** Opens the caller's own Task popup for "View details" — a conversation's, which also shows
+   * the Task's thread. Without it the menu opens a popup of the Task alone. */
+  onOpenDetails?: () => void;
 }) {
   const [open, setOpen] = useState(false);
   return (
@@ -80,7 +84,7 @@ export function TaskDetailMenu({
         <Dropdown.Popover placement="bottom end" className="w-48">
           <Dropdown.Menu
             onAction={(key) => {
-              if (key === "details") return setOpen(true);
+              if (key === "details") return onOpenDetails ? onOpenDetails() : setOpen(true);
               moves.find((move) => move.status === key)?.onMove();
             }}
           >
@@ -108,7 +112,9 @@ export function TaskDetailMenu({
           </Dropdown.Menu>
         </Dropdown.Popover>
       </Dropdown.Root>
-      <TaskDetailDialog task={task} open={open} onOpenChange={setOpen} {...dialog} />
+      {!onOpenDetails && (
+        <TaskDetailDialog task={task} open={open} onOpenChange={setOpen} {...dialog} />
+      )}
     </>
   );
 }
