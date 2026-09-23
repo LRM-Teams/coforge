@@ -20,44 +20,47 @@ Upgrade/rollback hands off to a short-lived coordinator outside the managed
 service kill scope; foreground upgrades require the external supervisor to stop
 the process first.
 
-## Source layout and ownership
+## Module map
 
-Keep `src` organized by responsibility. New code belongs in the owning folder;
-do not grow a single `cli.ts` or `setup.ts` into an application god module.
+Keep `src` organized by responsibility. New code belongs in the owning module;
+do not grow `cli.ts` or `setup/` into an application god module. Paths are
+relative to `src/`.
 
-```text
-src/
-├── main.ts                         # binary entrypoint only
-├── cli/                            # Commander wiring, context, output, errors
-├── commands/                       # thin user-facing command adapters
-│   ├── login/
-│   ├── setup/
-│   ├── install/
-│   ├── upgrade/                    # handoff to independent coordinator
-│   └── rollback/
-├── setup/                          # Computer setup business flow
-├── auth/                           # device-code authorization and credentials
-├── workspace/                      # Direct Workspace lookup for setup intent
-├── registration/                   # Computer registration request/use case
-├── machine/                        # machine identity and platform metadata
-├── daemon/                         # scoped supervisor lifecycle and local RPC client
-├── release/                        # install/update/release metadata
-└── shared/                         # small app-wide primitives only
-```
+| Path                                 | Single responsibility                                                         |
+| ------------------------------------ | ----------------------------------------------------------------------------- |
+| `main.ts`                            | Binary entrypoint: dispatches `__daemon`, `__agent-cli`, or the Computer CLI  |
+| `cli.ts`                             | Commander command tree and thin command actions                               |
+| `cli/`                               | Human output for command results                                              |
+| `errors.ts`                          | Stable user-facing CLI error stages                                           |
+| `terminal-output.ts`                 | Terminal-safe text                                                            |
+| `setup/`                             | Computer setup business flow                                                  |
+| `workspace/`                         | Direct Workspace lookup and slug validation for setup intent                  |
+| `registration/`                      | Computer registration idempotency                                             |
+| `cloud-rpc-transport.ts`             | User-authenticated HTTPS RPC for `workspace:get` and `computer:register`      |
+| `login.ts`, `oauth-device-client.ts` | Device-code authorization                                                     |
+| `credential-store.ts`                | File-backed User credentials                                                  |
+| `machine-id.ts`, `platform.ts`       | Machine identity and platform metadata                                        |
+| `paths.ts`                           | Platform-native state and credential paths                                    |
+| `local-config.ts`                    | Reading and validating the persisted profile                                  |
+| `release-channel.ts`                 | Compiled official feed/server mapping                                         |
+| `daemon-client/`                     | Daemon lifecycle requests (`start`, `stop`, `restart`) through the supervisor |
+| `status/`                            | Read-only `status` report through per-platform ports                          |
+| `logging/`                           | Computer LogTape configuration and the `logs` follower                        |
+| `updater.ts`                         | Verified installation, launchers, and version activation                      |
+| `release/`                           | Installer scripts and the independent upgrade/rollback coordinator            |
+| `version.ts`                         | Build version                                                                 |
 
-The layout describes ownership, not permission to create empty layers. Keep an
+The map describes ownership, not permission to create empty layers. Keep an
 existing file in place when it still has one clear responsibility; move code
-only when a real boundary is needed.
+only when a real boundary is needed, and update this map in the same change.
 
 `src/updater.ts` owns verified gzip installation and the version-local
 `coforge` launcher targeting the adjacent `coforge-computer __agent-cli` entry.
 Computer owns writing it into staging, recording its identity and verifying
 it on rollback. There is no legacy installer compatibility path.
-It also owns installing and offline-verifying `photon_rs_bg.wasm` - Pi's
-image-resize library, published as one platform-independent manifest object
-per version (`docs/release.md`) and
-staged next to `coforge-computer` in `versions/<v>/` the same way the launchers
-are.
+It also owns installing and offline-verifying Pi's `photon_rs_bg.wasm`
+(`docs/release.md`), staged next to `coforge-computer` in `versions/<v>/` the
+same way as the launchers.
 `src/release/installation-source.ts` runs the embedded release installer scripts
 for curl-based version resolution and package preparation. The same scripts own
 bootstrap downloads; updater consumes local manifest/gzip bytes and never
@@ -74,30 +77,34 @@ that environment; login, setup, and lifecycle adapters share that public seam.
 
 ### Layer rules
 
-- `main.ts` and `cli/` know about process arguments and terminal concerns only.
-- `commands/` translates CLI input into application calls and translates
-  results/errors into friendly output. It must not list Workspaces, scan
-  runtimes, build registration payloads, read config files, or encode RPC.
+- `main.ts`, `cli.ts`, and `cli/` know about process arguments and terminal
+  concerns only.
+- Command actions in `cli.ts` translate CLI input into application calls and
+  translate results/errors into friendly output. They must not list
+  Workspaces, scan runtimes, build registration payloads, read config files, or
+  encode RPC.
 - `setup/` owns the Computer setup business flow. It coordinates domain ports
   without knowing Commander or terminal output formatting.
 - `workspace/` owns the direct Workspace lookup used by setup intent. Computer
   never lists or interactively selects Workspaces; do not add a picker or a
   list-selection flow.
-- `auth/`, `machine/`, `registration/`, and `daemon/` each own the
-  responsibility named by the folder. Their public methods should express
-  that responsibility, while transport, filesystem, and subprocess details
-  remain in lower adapters.
+- Authorization, machine identity, `registration/`, and `daemon-client/` each
+  own the responsibility named in the module map. Their public methods should
+  express that responsibility, while transport, filesystem, and subprocess
+  details remain in lower adapters.
 - Computer registration does not inventory Code Agent installations. Daemon
   discovers external providers from its effective PATH and reports a complete
   snapshot after startup and reconnect, so installing a provider never requires
   Computer re-registration.
-- `daemon/` contains the Computer-side local RPC client and lifecycle request;
-  it does not implement Daemon supervision or cloud WSS behavior.
-- `shared/` must not become a dumping ground. A value belongs there only when
-  it is genuinely app-wide and has no domain owner.
+- `daemon-client/` contains the Computer-side Daemon lifecycle requests; it
+  does not implement Daemon supervision or cloud WSS behavior.
+- `status/` only reads through its injected ports; it never starts, stops, or
+  configures anything.
+- Do not add a catch-all `shared/` or utilities module. A value belongs to the
+  module that owns its domain.
 
-When a new command is added, first add its directory and identify the use case
-and reusable modules it calls. Do not add a second parser, command-specific
+When a new command is added, first give its logic an owning directory (as
+`status/` does) and identify the use case and reusable modules it calls. Do not add a second parser, command-specific
 client, or command-specific copy of an existing domain operation.
 
 - Treat the compiled CLI as the public seam. Cover command help, arguments,
@@ -117,9 +124,6 @@ client, or command-specific copy of an existing domain operation.
   Computer dialog renders with the current Workspace already filled in, so the
   user copies it rather than recalling it. `COFORGE_SETUP_INTENT` remains as the
   bypass for e2e and automation. A missing or malformed value fails stably.
-  (This replaces an earlier rule against ever naming a slug on the command line:
-  no mechanism was ever built to carry an intent through `curl | sh`, and two
-  explicit commands also give "join a second Workspace" an obvious form.)
 - Computer has no long-lived cloud WebSocket. It communicates with Daemon over
   local RPC; each Daemon-supervised daemon owns its own cloud WSS
   connection and uses the versioned CoForge RPC/Protobuf protocol.
