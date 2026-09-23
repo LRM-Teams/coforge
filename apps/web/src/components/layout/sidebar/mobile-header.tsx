@@ -11,6 +11,7 @@ import {
   ModalOverlay as AriaModalOverlay,
 } from "react-aria-components";
 import { ButtonUtility } from "@/components/base/buttons/button-utility";
+import { useBreakpoint } from "@/hooks/use-breakpoint";
 import { m } from "@/paraglide/messages";
 import { cx } from "@/utils/cx";
 
@@ -24,12 +25,9 @@ export const MobileDrawerProvider = ({ children }: PropsWithChildren) => {
   const [isOpen, setOpen] = useState(false);
   const router = useRouter();
   useEffect(() => router.subscribe("onResolved", () => setOpen(false)), [router]);
-  useEffect(() => {
-    const desktop = window.matchMedia("(min-width: 1024px)");
-    const close = () => setOpen(false);
-    desktop.addEventListener("change", close);
-    return () => desktop.removeEventListener("change", close);
-  }, []);
+  // The drawer only exists below `lg`; crossing the breakpoint either way closes it.
+  const desktop = useBreakpoint("lg");
+  useEffect(() => setOpen(false), [desktop]);
   return <MobileDrawerContext value={{ isOpen, setOpen }}>{children}</MobileDrawerContext>;
 };
 

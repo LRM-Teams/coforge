@@ -1547,9 +1547,9 @@ function AssistantAttachmentCard({
       : Math.max(0, recipients.length - shown.length);
 
   return (
-    <div className="overflow-hidden rounded-xl bg-gradient-to-br from-brand-primary via-brand-primary/40 to-primary p-3">
+    <div className="overflow-hidden rounded-xl bg-gradient-to-br from-secondary via-secondary/40 to-primary p-3">
       <div className="flex items-start gap-3">
-        <div className="flex size-10 shrink-0 items-center justify-center rounded-full bg-brand-solid text-white">
+        <div className="flex size-10 shrink-0 items-center justify-center rounded-full bg-tertiary text-fg-secondary">
           <LinkIcon className="size-4" />
         </div>
         <div className="min-w-0 flex-1">

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 
 import { Tooltip, TooltipTrigger } from "@/components/base/tooltip/tooltip";
+import { cn } from "@/lib/utils";
 import { formatClockTime, formatDateForDisplay, formatRelativeTime } from "@/lib/dates";
 import { getLocale } from "@/paraglide/runtime";
 
@@ -56,7 +57,7 @@ export function RelativeTime({
       dateTime={instant.toISOString()}
       suppressHydrationWarning
       aria-label={plain ? exactTime : undefined}
-      className={plain ? className : undefined}
+      className={cn("tabular-nums", plain && className)}
     >
       {relative}
       {showExact && <span className="ml-1.5">· {exactTime}</span>}
@@ -103,7 +104,7 @@ export function ClockTime({
       dateTime={instant.toISOString()}
       suppressHydrationWarning
       aria-label={plain ? exactTime : undefined}
-      className={plain ? className : undefined}
+      className={cn("tabular-nums", plain && className)}
     >
       {clock}
     </time>

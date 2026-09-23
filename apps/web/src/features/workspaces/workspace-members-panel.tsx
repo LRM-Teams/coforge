@@ -170,7 +170,7 @@ export function WorkspaceMembersPanel(props: {
                     </div>
                   </div>
                   <div className="flex shrink-0 items-center gap-3">
-                    <Badge size="sm" color={member.role === "owner" ? "brand" : "gray"}>
+                    <Badge size="sm" color="gray">
                       {roleLabel(member.role)}
                     </Badge>
                     {hasActions && (

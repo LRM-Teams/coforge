@@ -363,7 +363,7 @@ function UsageWindow({
           <div
             className={cn(
               "h-full rounded-full",
-              window.status === "limit_reached" ? "bg-warning-solid" : "bg-brand-solid",
+              window.status === "limit_reached" ? "bg-warning-solid" : "bg-fg-tertiary",
             )}
             style={{
               width: `${Math.min(100, Math.max(0, window.usedPercent))}%`,

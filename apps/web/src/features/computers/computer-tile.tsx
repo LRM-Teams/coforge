@@ -70,7 +70,7 @@ export function ComputerTile({
       </span>
       {upgrading ? (
         <LoadingIndicator
-          className={cn("absolute text-fg-brand-primary", dims.badgeOffset, dims.loading)}
+          className={cn("absolute text-fg-tertiary", dims.badgeOffset, dims.loading)}
           label={m.computer_upgrade_in_progress()}
         />
       ) : (
@@ -80,7 +80,7 @@ export function ComputerTile({
               <span
                 aria-hidden="true"
                 className={cn(
-                  "flex items-center justify-center rounded-full border-2 border-primary bg-fg-brand-primary",
+                  "flex items-center justify-center rounded-full border-2 border-primary bg-fg-success-primary",
                   dims.badge,
                 )}
               >

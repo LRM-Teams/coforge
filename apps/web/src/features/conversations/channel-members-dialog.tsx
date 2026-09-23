@@ -48,7 +48,7 @@ function ChannelRoleControl({
   return (
     <div className="flex shrink-0 items-center gap-2">
       {isAdmin && (
-        <Badge size="sm" color="brand">
+        <Badge size="sm" color="gray">
           {m.channel_members_role_admin()}
         </Badge>
       )}
