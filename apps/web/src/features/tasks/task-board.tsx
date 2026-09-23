@@ -26,6 +26,9 @@ export type TaskBoardProps = {
   canMutate: boolean;
   loading?: boolean;
   error?: string;
+  /** Opens the Task's popup over the board. */
+  onOpenTask: (number: number) => void;
+  /** Where a Task just created from the board is shown: its message in the chat. */
   onOpenMessage: (messageId: string) => void | Promise<void>;
   onCommand: (
     command: Omit<TaskCommand, "idempotencyKey" | "conversationId"> & { number: number },
@@ -46,6 +49,7 @@ export function TaskBoard({
   canMutate,
   loading,
   error,
+  onOpenTask,
   onOpenMessage,
   onCommand,
   onShowChat,
@@ -122,7 +126,7 @@ export function TaskBoard({
                 task={task}
                 own={task.owner?.memberId === currentMemberId}
                 canMutate={canMutate}
-                onOpen={() => onOpenMessage(task.messageId)}
+                onOpen={() => onOpenTask(task.number)}
                 onCommand={onCommand}
                 controls={controls}
                 list={layout === "list"}
@@ -163,7 +167,7 @@ function ConversationTaskCard({
   task: TaskView;
   own: boolean;
   canMutate: boolean;
-  onOpen: () => void | Promise<void>;
+  onOpen: () => void;
   onCommand: TaskBoardProps["onCommand"];
   controls: TaskControls;
   list: boolean;
@@ -179,10 +183,7 @@ function ConversationTaskCard({
       list={list}
       controls={controls}
       renderTitle={(title) => (
-        <AriaButton
-          onPress={() => void Promise.resolve(onOpen()).catch(() => {})}
-          className={TASK_TITLE_CLASS}
-        >
+        <AriaButton onPress={onOpen} className={TASK_TITLE_CLASS}>
           {title}
         </AriaButton>
       )}
@@ -191,6 +192,7 @@ function ConversationTaskCard({
           <TaskDetailMenu
             task={task}
             moves={controls.moves}
+            onOpenDetails={onOpen}
             onCommand={onCommand}
             conversationName={conversationName}
             members={members}

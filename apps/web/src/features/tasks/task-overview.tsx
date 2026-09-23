@@ -112,7 +112,12 @@ function OverviewTaskCard({
     command: Omit<TaskCommand, "idempotencyKey" | "conversationId"> & { number: number },
   ) => Promise<void>;
 }) {
-  const search = { view: "tasks" as const, layout: list ? ("list" as const) : undefined };
+  // Lands on the conversation's Tasks tab with this Task's popup open.
+  const search = {
+    view: "tasks" as const,
+    layout: list ? ("list" as const) : undefined,
+    task: task.number,
+  };
   const renderTitle = (title: ReactNode) =>
     task.source.agentId ? (
       <Link

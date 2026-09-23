@@ -74,7 +74,11 @@ import { m } from "#src/paraglide/messages";
 import { getLocale } from "#src/paraglide/runtime";
 import { AgentProfilePanel } from "#src/features/agents/profile-panel/agent-profile-panel";
 import { resolveVisibleConversationSlot } from "#src/features/agents/profile-panel/profile-panel-slot";
-import { useConversationPositionJump, useOpenConversationThread } from "./open-conversation-thread";
+import {
+  useConversationPositionJump,
+  useOpenConversationTask,
+  useOpenConversationThread,
+} from "./open-conversation-thread";
 import {
   messageIdFromHash,
   positionJumpDecision,
@@ -203,6 +207,10 @@ type ConversationProps = {
   agentProfile?: { agentId: string | undefined; tab: AgentProfileTab | undefined };
   onAgentProfileTabChange?: (tab: AgentProfileTab) => void;
   onCloseAgentProfile?: () => void;
+  /** The conversation's Tasks tab. When given it replaces the message stream in the main pane;
+   * the Task popup and the thread/profile slot stay the conversation's, so a Task opened from
+   * the board shows over it without leaving the tab. */
+  tasksPane?: React.ReactNode;
 };
 
 export type ThreadedConversationProps = Omit<ConversationProps, "conversation" | "agentStatus"> & {
@@ -390,6 +398,7 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
     // only the main pane may advance the conversation-level read cursor.
     onReadLatest,
     conversationName,
+    tasksPane,
     ...conversationProps
   } = props;
   const detailVisible = useConversationDetailVisible();
@@ -460,8 +469,11 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
     () => new Set((props.tasks ?? []).map((task) => task.number)),
     [props.tasks],
   );
-  const [openTaskNumber, setOpenTaskNumber] = useState<number>();
-  const openTaskReference = useCallback((number: number) => setOpenTaskNumber(number), []);
+  const {
+    openTaskNumber,
+    openTask: openTaskReference,
+    closeTask: closeTaskReference,
+  } = useOpenConversationTask();
   const openTask =
     openTaskNumber === undefined
       ? undefined
@@ -491,7 +503,7 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
       task={openTask}
       open
       onOpenChange={(next) => {
-        if (!next) setOpenTaskNumber(undefined);
+        if (!next) closeTaskReference();
       }}
       conversationName={conversationName}
       members={conversation.mentionables}
@@ -759,7 +771,7 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
       <>
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
           <div className={cn("flex min-h-0 min-w-0 flex-1 flex-col", visibleSlot && "hidden")}>
-            {conversationMainPane}
+            {tasksPane ?? conversationMainPane}
           </div>
           {conversationSidePane && (
             <div className="flex min-h-0 min-w-0 flex-1 flex-col">{conversationSidePane}</div>
@@ -784,7 +796,7 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
           minSize="40"
           className="flex min-h-0 min-w-0 flex-col"
         >
-          {conversationMainPane}
+          {tasksPane ?? conversationMainPane}
         </Panel>
         {visibleSlot && (
           <>

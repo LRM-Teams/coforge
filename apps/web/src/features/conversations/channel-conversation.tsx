@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import type { ConversationTab } from "#src/features/conversations/conversation-tabs";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -170,6 +170,7 @@ export function ChannelConversation({
   agentProfile,
   onAgentProfileTabChange,
   onCloseAgentProfile,
+  tasksPane,
 }: {
   conversation: ChannelConversationView;
   onSend: (
@@ -212,6 +213,8 @@ export function ChannelConversation({
   agentProfile?: { agentId: string | undefined; tab: AgentProfileTab | undefined };
   onAgentProfileTabChange?: (tab: AgentProfileTab) => void;
   onCloseAgentProfile?: () => void;
+  /** The channel's Tasks tab, shown in place of the message stream (see `ThreadedConversation`). */
+  tasksPane?: ReactNode;
 }) {
   const [joining, setJoining] = useState(false);
   const [error, setError] = useState(false);
@@ -282,6 +285,7 @@ export function ChannelConversation({
       agentProfile={agentProfile}
       onAgentProfileTabChange={onAgentProfileTabChange}
       onCloseAgentProfile={onCloseAgentProfile}
+      tasksPane={tasksPane}
       tasks={tasks}
       onCreateTask={conversation.senderMemberId ? onCreateTask : undefined}
       onToggleReaction={conversation.senderMemberId ? onToggleReaction : undefined}

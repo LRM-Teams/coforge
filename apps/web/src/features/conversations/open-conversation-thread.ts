@@ -4,7 +4,9 @@ import type { AgentProfileTab } from "#src/features/agents/profile-panel/profile
 
 import {
   conversationSearchWithoutAgentProfile,
+  conversationSearchWithoutTask,
   conversationSearchWithoutThread,
+  conversationSearchWithTask,
   conversationSearchWithThread,
 } from "./conversation-thread-search";
 
@@ -81,6 +83,40 @@ export function useOpenConversationThread() {
     [router],
   );
   return { searchThreadRootId, openThread, openThreadFromHash, closeThread };
+}
+
+/**
+ * The one way the conversation UI opens or closes a Task's popup — from a Task card on the Tasks
+ * tab or a `task #N` chip in the stream. `task=<number>` is the source of truth, so a reload or a
+ * shared link reopens the popup over the same tab. Opening pushes a history entry so browser
+ * Back closes the popup; closing replaces in place, like `useOpenConversationThread`.
+ */
+export function useOpenConversationTask() {
+  const router = useRouter();
+  const search = useSearch({ strict: false });
+  const openTaskNumber = typeof search.task === "number" ? search.task : undefined;
+  const openTask = useCallback(
+    (task: number) => {
+      if (openTaskNumber === task) return;
+      void router.navigate({
+        to: ".",
+        resetScroll: false,
+        search: (previous: { task?: number }) => conversationSearchWithTask(previous, task),
+      });
+    },
+    [router, openTaskNumber],
+  );
+  const closeTask = useCallback(
+    () =>
+      void router.navigate({
+        to: ".",
+        replace: true,
+        resetScroll: false,
+        search: (previous: { task?: number }) => conversationSearchWithoutTask(previous),
+      }),
+    [router],
+  );
+  return { openTaskNumber, openTask, closeTask };
 }
 
 /**

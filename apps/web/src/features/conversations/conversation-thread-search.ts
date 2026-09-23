@@ -1,10 +1,13 @@
+import { z } from "zod";
+
 /**
  * Conversation thread selection as URL search state.
  *
  * `threadRootId` on the conversation routes is the source of truth for whether
  * the thread pane is open (TanStack Router: search params are application
  * state). `#message-<uuid>` is only a scroll target; it must not keep the pane
- * open after the user closes it.
+ * open after the user closes it. `task=<number>` likewise names the Task whose
+ * popup (the Task and its thread) is open over the conversation's current tab.
  */
 
 export function messageIdFromHash(hash: string): string | undefined {
@@ -50,6 +53,24 @@ export function conversationSearchWithoutThread<T extends { threadRootId?: strin
   previous: T,
 ): Omit<T, "threadRootId"> {
   const { threadRootId: _threadRootId, ...rest } = previous;
+  return rest;
+}
+
+/** Validates the raw `task` search param: a Task number, or `undefined` (no popup) for anything
+ * else, matching the routes' `.catch()` convention for `threadRootId`/`message`. */
+export const openTaskParamSchema = z.coerce.number().int().positive().optional().catch(undefined);
+
+export function conversationSearchWithTask<T extends object>(
+  previous: T,
+  task: number,
+): T & { task: number } {
+  return { ...previous, task };
+}
+
+export function conversationSearchWithoutTask<T extends { task?: number }>(
+  previous: T,
+): Omit<T, "task"> {
+  const { task: _task, ...rest } = previous;
   return rest;
 }
 

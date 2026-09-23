@@ -2,8 +2,11 @@ import { describe, expect, test } from "bun:test";
 
 import {
   conversationSearchWithoutAgentProfile,
+  conversationSearchWithoutTask,
   conversationSearchWithoutThread,
+  conversationSearchWithTask,
   conversationSearchWithThread,
+  openTaskParamSchema,
   messageIdFromHash,
   positionJumpDecision,
   resolveConversationThreadRoot,
@@ -131,5 +134,33 @@ describe("positionJumpDecision", () => {
       action: "show",
       id: "message-1",
     });
+  });
+});
+
+describe("openTaskParamSchema", () => {
+  test("reads a Task number from the URL", () => {
+    expect(openTaskParamSchema.parse(3)).toBe(3);
+    expect(openTaskParamSchema.parse("12")).toBe(12);
+  });
+
+  test("treats a missing or malformed value as no open Task", () => {
+    for (const value of [undefined, "", "abc", 0, "-1", 1.5, null])
+      expect(openTaskParamSchema.parse(value)).toBeUndefined();
+  });
+});
+
+describe("conversation task search updates", () => {
+  test("opens a Task popup and keeps the rest of the search", () => {
+    expect(conversationSearchWithTask({ view: "tasks", layout: "list" }, 4)).toEqual({
+      view: "tasks",
+      layout: "list",
+      task: 4,
+    });
+  });
+
+  test("closes the Task popup and keeps the rest of the search", () => {
+    expect(
+      conversationSearchWithoutTask({ view: "tasks", task: 4, threadRootId: "root-1" }),
+    ).toEqual({ view: "tasks", threadRootId: "root-1" });
   });
 });

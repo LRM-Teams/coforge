@@ -19,6 +19,7 @@ import {
   useShownConversationTab,
 } from "#src/features/conversations/use-conversation-view";
 import { CONVERSATION_TABS } from "#src/features/conversations/conversation-tabs";
+import { openTaskParamSchema } from "#src/features/conversations/conversation-thread-search";
 import { TaskBoard } from "#src/features/tasks/task-board";
 import { ConversationFilesPanel } from "#src/features/conversations/conversation-files";
 import { useTaskLayout } from "#src/features/tasks/task-workflow";
@@ -57,6 +58,7 @@ export const Route = createFileRoute("/_app/messages/channels/$channelId")({
     layout: z.enum(["board", "list"]).optional().catch(undefined),
     message: z.uuid().optional().catch(undefined),
     threadRootId: z.uuid().optional().catch(undefined),
+    task: openTaskParamSchema,
     profile: agentProfileParamSchema,
     agentTab: agentProfileTabParamSchema,
   }),
@@ -96,8 +98,16 @@ function ChannelPage() {
   });
   const { conversation } = page;
   const taskView = useConversationTasks(conversation.conversationId);
-  const { router, showChat, showTasks, showFiles, changeLayout, openTask, openMessage } =
-    useConversationView(page.ensureLoaded);
+  const {
+    router,
+    showChat,
+    showTasks,
+    showFiles,
+    changeLayout,
+    openTask,
+    openTaskThread,
+    openMessage,
+  } = useConversationView(page.ensureLoaded);
 
   // Opening the channel is reading it — except in the `newest-unread` preference, which keeps
   // unseen messages unread until the latest is actually viewed: the badge clears immediately
@@ -162,8 +172,10 @@ function ChannelPage() {
         />
       </div>
     );
-  if (view === "tasks")
-    return (
+  // The Tasks tab sits in the conversation's main pane, so a Task opened from it shows the
+  // conversation's Task popup over the board.
+  const tasksPane =
+    view === "tasks" ? (
       <TaskBoard
         header={
           <ChannelConversationHeader
@@ -185,7 +197,8 @@ function ChannelPage() {
         canMutate={Boolean(conversation.senderMemberId)}
         loading={taskView.loading}
         error={taskView.error}
-        onOpenMessage={openTask}
+        onOpenTask={openTask}
+        onOpenMessage={openTaskThread}
         onShowChat={showChat}
         onCreateTask={
           conversation.senderMemberId
@@ -204,10 +217,11 @@ function ChannelPage() {
           await taskView.command(command);
         }}
       />
-    );
+    ) : undefined;
   return (
     <ChannelConversation
       key={channelId}
+      tasksPane={tasksPane}
       conversation={conversation}
       tasks={taskView.tasks}
       onShowTasks={showTasks}
