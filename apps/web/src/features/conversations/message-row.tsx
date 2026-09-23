@@ -101,16 +101,19 @@ export type MessageThreadEntry = {
 
 export const GROUPING_WINDOW_MS = 5 * 60 * 1000;
 
-/** The top edge of the visible region a floating control must stay inside: the nearest
- * scrollport ancestor's box, or the viewport top when the element is not inside a scroller. */
-function visibleBoundaryTop(el: HTMLElement): number {
+/** The vertical edges of the visible region a floating control must stay inside: the nearest
+ * scrollport ancestor's box, or the viewport when the element is not inside a scroller. */
+function visibleBoundary(el: HTMLElement): { top: number; bottom: number } {
   let node = el.parentElement;
   while (node) {
     const overflowY = getComputedStyle(node).overflowY;
-    if (overflowY === "auto" || overflowY === "scroll") return node.getBoundingClientRect().top;
+    if (overflowY === "auto" || overflowY === "scroll") {
+      const { top, bottom } = node.getBoundingClientRect();
+      return { top, bottom };
+    }
     node = node.parentElement;
   }
-  return 0;
+  return { top: 0, bottom: window.innerHeight };
 }
 
 // Intl.DateTimeFormat construction dominates per-row formatting cost; keep one per locale.
@@ -616,6 +619,9 @@ export function MessageRow({
   // over this message while selecting another one never raises it.
   const bodyRef = useRef<HTMLDivElement>(null);
   const quoteAffordanceRef = useRef<HTMLDivElement>(null);
+  /** Whether the latest pointer press was a finger or a pen rather than a mouse: a selection made
+   * that way raises the platform's own edit menu above the highlight, so the bar goes below it. */
+  const touchSelectionRef = useRef(false);
   const toast = useAppToast();
   const savedMessages = useSavedMessages();
   const saveSaved = savedMessages?.ids.has(message.id) ?? false;
@@ -648,14 +654,16 @@ export function MessageRow({
       setQuoteOffer(undefined);
       return;
     }
-    // Anchored above the highlight and centered on it; the visible history scroller is the flip
-    // boundary, so the bar only drops below the highlight when it would scroll out of view. The
+    // Centered on the highlight, above it for a mouse selection and below it for a touch one
+    // (the platform's own edit menu takes the space above); the visible history scroller is the
+    // flip boundary, so the bar only changes side when it would scroll out of view. The
     // fragment and its text are captured now: clicking a bar button may collapse the live
     // selection, but the copy actions must still carry what the reader highlighted.
     const placement = selectionAffordancePlacement(
       range.getBoundingClientRect(),
       container.getBoundingClientRect(),
-      { top: visibleBoundaryTop(container) },
+      visibleBoundary(container),
+      touchSelectionRef.current ? "below" : "above",
     );
     setQuoteOffer({
       quote,
@@ -724,8 +732,9 @@ export function MessageRow({
       clearTimeout(timer);
       timer = setTimeout(readQuoteSelection, 200);
     };
-    const onPointerDown = () => {
+    const onPointerDown = (event: PointerEvent) => {
       pointerDownRef.current = true;
+      touchSelectionRef.current = event.pointerType !== "mouse";
     };
     const onPointerUp = () => {
       pointerDownRef.current = false;

@@ -60,26 +60,54 @@ export type AffordanceRect = Pick<
   "top" | "right" | "bottom" | "left" | "width" | "height"
 >;
 
+/** Gap between a touch highlight's bottom and the bar below it, in px: clears the selection's end
+ * handle (the knob the platform draws under the last selected line) so the bar never sits on it. */
+export const TOUCH_AFFORDANCE_GAP = 20;
+
 /**
  * Where the reply-to-selection affordance goes, relative to the message body's own box. This
  * follows the standard selection-toolbar logic (Medium's highlight menu, Floating UI's
- * `flip`/`shift`): *above* the highlight with a small gap, horizontally centered on it. Above
- * means above the *highlight*, not inside the body — on the body's first line the affordance
- * overflows upward over the sender header rather than covering the highlight. Only when above
- * would cross the visible boundary's top (the history scroller's top edge) does it flip below
- * the highlight; horizontally it stays clamped inside the body when centering would overflow
- * either edge.
+ * `flip`/`shift`): on the preferred side of the highlight with a gap, horizontally centered on
+ * it. A mouse selection prefers *above* — above the *highlight*, not inside the body, so on the
+ * body's first line the affordance overflows upward over the sender header rather than covering
+ * the highlight. A touch selection prefers *below*: the platform raises its own edit menu above
+ * the highlight (iOS Copy/Look Up, Android's selection toolbar) and web content cannot suppress
+ * it (`-webkit-touch-callout` only covers the link callout), so the bar takes the other side.
+ * The bar flips to the other side only when the preferred one would cross the visible boundary
+ * (the history scroller's edges) and the other one fits; with room on neither side (a highlight
+ * taller than the visible history) it keeps its side, pinned inside that boundary. Horizontally
+ * it stays clamped inside the body when centering would overflow either edge.
  */
 export function selectionAffordancePlacement(
   highlight: AffordanceRect,
   container: AffordanceRect,
-  boundary?: Pick<DOMRect, "top">,
+  boundary?: { top: number; bottom?: number },
+  side: "above" | "below" = "above",
 ): { top: number; left: number } {
-  const fitsAbove = !boundary || highlight.top - AFFORDANCE_HEIGHT - 4 >= boundary.top;
+  const above = highlight.top - AFFORDANCE_HEIGHT - 4;
+  const below = highlight.bottom + (side === "below" ? TOUCH_AFFORDANCE_GAP : 4);
+  const fitsAbove = !boundary || above >= boundary.top;
+  const fitsBelow = boundary?.bottom === undefined || below + AFFORDANCE_HEIGHT <= boundary.bottom;
+  const preferredFits = side === "above" ? fitsAbove : fitsBelow;
+  const otherFits = side === "above" ? fitsBelow : fitsAbove;
+  const top = preferredFits
+    ? side === "above"
+      ? above
+      : below
+    : otherFits
+      ? side === "above"
+        ? below
+        : above
+      : // Room on neither side: keep the preferred side, pinned inside the visible region.
+        Math.max(
+          boundary?.top ?? -Infinity,
+          Math.min(
+            side === "above" ? above : below,
+            (boundary?.bottom ?? Infinity) - AFFORDANCE_HEIGHT,
+          ),
+        );
   return {
-    top: fitsAbove
-      ? highlight.top - container.top - AFFORDANCE_HEIGHT - 4
-      : highlight.bottom - container.top + 4,
+    top: top - container.top,
     left: Math.max(
       0,
       Math.min(
