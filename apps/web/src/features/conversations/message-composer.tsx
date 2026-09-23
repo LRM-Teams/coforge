@@ -18,7 +18,6 @@ import { getReadableFileSize } from "#src/components/application/file-upload/fil
 import { Avatar } from "#src/components/base/avatar/avatar";
 import { Button } from "#src/components/base/buttons/button";
 import { ButtonUtility } from "#src/components/base/buttons/button-utility";
-import { Dropdown } from "#src/components/base/dropdown/dropdown";
 import { ProgressBar } from "#src/components/base/progress-indicators/progress-indicators";
 import { Dialog, DialogTrigger } from "#src/components/application/modals/modal";
 import {
@@ -560,42 +559,14 @@ export function MessageComposer({
         </p>
       )}
       <div className="flex items-center gap-2">
-        {taskMode ? (
-          <Dropdown.Root>
-            <ButtonUtility
-              icon={Paperclip}
-              size="sm"
-              color="tertiary"
-              isDisabled={composerDisabled}
-              aria-label={m.conversation_composer_actions()}
-            />
-            <Dropdown.Popover placement="top start">
-              <Dropdown.Menu>
-                <Dropdown.Item
-                  id="attachment"
-                  icon={Paperclip}
-                  label={m.conversation_attachment_label()}
-                  onAction={() => fileInputRef.current?.click()}
-                />
-                <Dropdown.Item
-                  id="task"
-                  icon={CheckSquare}
-                  label={m.tasks_as_task()}
-                  onAction={() => setAsTask(true)}
-                />
-              </Dropdown.Menu>
-            </Dropdown.Popover>
-          </Dropdown.Root>
-        ) : (
-          <ButtonUtility
-            icon={Paperclip}
-            size="sm"
-            color="tertiary"
-            isDisabled={composerDisabled}
-            tooltip={m.conversation_attachment_label()}
-            onClick={() => fileInputRef.current?.click()}
-          />
-        )}
+        <ButtonUtility
+          icon={Paperclip}
+          size="sm"
+          color="tertiary"
+          isDisabled={composerDisabled}
+          tooltip={m.conversation_attachment_label()}
+          onClick={() => fileInputRef.current?.click()}
+        />
         {attachments.map((item) => (
           <AttachmentChip
             key={item.localId}
@@ -630,6 +601,19 @@ export function MessageComposer({
           >
             {m.tasks_as_task()}
           </Button>
+        )}
+        {/* The Add-task control sits directly left of Send (the boss's ruling, #137): one icon,
+            pressed state lives in the chip above, and Send keeps its ml-auto so it stays the
+            rightmost control while this button tucks against it. */}
+        {taskMode && !asTask && (
+          <ButtonUtility
+            icon={CheckSquare}
+            size="sm"
+            color="tertiary"
+            isDisabled={composerDisabled}
+            tooltip={m.tasks_as_task()}
+            onClick={() => setAsTask(true)}
+          />
         )}
         <ButtonUtility
           type="submit"
