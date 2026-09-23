@@ -111,15 +111,19 @@ export type ComposerOutbox = {
    * returned until one of them changes, as `useSyncExternalStore` requires. */
   entries(draftKey: string): readonly OutboxEntry[];
   /** Sends once the chat's earlier sends have settled; resolves with the transport's result, or
-   * undefined when the message was kept as unsent. */
+   * undefined when the message was kept as unsent. When `deliveredMessageId` names the message the
+   * result created, the entry stays as `delivered` until that message is on screen and the caller
+   * discards it, so the pending copy never disappears before the real one is shown. */
   send<T>(
     message: OutgoingMessage,
     transport: (message: OutgoingMessage) => Promise<T>,
+    deliveredMessageId?: (result: T) => string | undefined,
   ): Promise<T | undefined>;
   /** Sends an unsent message again under its original request id. */
   retry<T>(
     localId: string,
     transport: (message: OutgoingMessage) => Promise<T>,
+    deliveredMessageId?: (result: T) => string | undefined,
   ): Promise<T | undefined>;
   /** The server stored the send with this request id as `messageId`: whatever this attempt's own
    * response says, the message exists. A request id this page never sent is ignored. */
@@ -225,6 +229,7 @@ export function createComposerOutbox(storage: OutboxStorage | null): ComposerOut
   function dispatch<T>(
     value: StoredEntry,
     transport: (message: OutgoingMessage) => Promise<T>,
+    deliveredMessageId?: (result: T) => string | undefined,
   ): Promise<T | undefined> {
     const { entry } = value;
     const message: OutgoingMessage = {
@@ -240,7 +245,11 @@ export function createComposerOutbox(storage: OutboxStorage | null): ComposerOut
     const result = previous.then(async () => {
       try {
         const delivered = await transport(message);
-        forget(message.localId);
+        const messageId = deliveredMessageId?.(delivered);
+        const current = stored.get(message.localId);
+        if (messageId && current && current.entry.state !== "delivered")
+          save({ ...current, entry: { ...message, state: "delivered", messageId } });
+        else if (!messageId) forget(message.localId);
         return delivered;
       } catch (cause) {
         // Deleted (here or in another tab) while this attempt was out: nothing to keep. Already
@@ -275,17 +284,18 @@ export function createComposerOutbox(storage: OutboxStorage | null): ComposerOut
       }
       return snapshot;
     },
-    send(message, transport) {
+    send(message, transport, deliveredMessageId) {
       submitted += 1;
       return dispatch(
         { entry: { ...message, state: "sending" }, submittedAt: submitted },
         transport,
+        deliveredMessageId,
       );
     },
-    retry(localId, transport) {
+    retry(localId, transport, deliveredMessageId) {
       const value = stored.get(localId);
       if (!value || value.entry.state !== "unsent") return Promise.resolve(undefined);
-      return dispatch(value, transport);
+      return dispatch(value, transport, deliveredMessageId);
     },
     acknowledge(requestId, messageId) {
       for (const value of stored.values()) {
