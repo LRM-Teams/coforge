@@ -674,7 +674,14 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
         };
       }}
       threadPreview={(message) => {
-        const threadReplies = repliesOf(message.id);
+        // System notices are stream bookkeeping, not a person replying: they belong to the full
+        // thread pane, never to the preview card under the root (the boss on the phone — a
+        // preview row that reads as a reply but has no content is worse than none). Filtering
+        // before the count too, so a thread with only notices shows no preview button at all;
+        // the thread pane still lists every reply when opened.
+        const threadReplies = repliesOf(message.id).filter(
+          (reply) => reply.senderKind !== "system",
+        );
         if (!threadReplies.length) return null;
         const label =
           threadReplies.length === 1
