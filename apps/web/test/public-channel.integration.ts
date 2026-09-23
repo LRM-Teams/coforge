@@ -48,9 +48,8 @@ test("Workspace humans enrolled in general see one general channel; outsiders ca
   });
   try {
     await enrollGeneral(db, workspace.id);
-    await db.user.updateMany({
-      where: { id: { in: [alice.id, bob.id] } },
-      data: { browserNotificationsEnabled: true },
+    await db.userPreference.createMany({
+      data: [alice.id, bob.id].map((userId) => ({ userId, browserNotificationsEnabled: true })),
     });
     await db.webPushSubscription.createMany({
       data: [
@@ -393,9 +392,8 @@ test("Agent channel mute suppresses ordinary notices, preserves mentions and rea
       publishJson: async () => {},
     });
     const general = (await channels.list(workspace.id, user.id))[0]!;
-    await db.user.update({
-      where: { id: user.id },
-      data: { browserNotificationsEnabled: true },
+    await db.userPreference.create({
+      data: { userId: user.id, browserNotificationsEnabled: true },
     });
     await db.webPushSubscription.create({
       data: {
@@ -1008,9 +1006,8 @@ test("channel threads enforce channel scope and isolate reads, recovery, notific
       (await channels.open(workspace.id, alice.id, general.id)).followedThreadRootIds,
     ).not.toContain(root.id);
     await channels.join(workspace.id, bob.id, general.id);
-    await db.user.update({
-      where: { id: bob.id },
-      data: { browserNotificationsEnabled: true },
+    await db.userPreference.create({
+      data: { userId: bob.id, browserNotificationsEnabled: true },
     });
     await db.webPushSubscription.create({
       data: {

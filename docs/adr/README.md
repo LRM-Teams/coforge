@@ -36,3 +36,4 @@ Do not use an ADR to silently rewrite history. Supersede the old record and link
 | [0061](0061-channel-agent-attention-routing.md) | accepted | Channel Agent attention routing |
 | [0062](0062-photon-wasm-sidecar.md) | accepted | photon_rs_bg.wasm ships as a release sidecar, not embedded in the executable |
 | [0063](0063-upgrade-progress-is-computer-state.md) | proposed | Upgrading is a state of the Computer, not of the click that started it |
+| [0064](0064-user-preferences-table.md) | accepted | Per-user settings live in a 1:1 `user_preferences` table |

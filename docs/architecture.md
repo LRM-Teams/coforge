@@ -206,7 +206,7 @@ commit 后、Centrifugo publication 前 backend 崩溃的窗口，不引入 tran
 读取游标（ADR 0046）。列表的未读数由 backend 按该游标精确计数（排除本人发言与线程
 回复），打开会话后经 `PublicChannels.markRead`/`markReadForUser` 单调推进并被钳制在会话当前
 最大 sequence；加入、被添加和 `#general` 注册都以频道当前末尾为种子，不为加入前的历史点亮徽标。
-打开位置由 `User.conversationOpenMode` 决定：`newest-read` 打开即读到最新，`first-unread`
+打开位置由 `UserPreference.conversationOpenMode`（未设置时为 `first-unread`，ADR 0064）决定：`newest-read` 打开即读到最新，`first-unread`
 定位到最早未读并显示 "New messages" 分隔线，`newest-unread` 打开到最新但只在用户自行滚动到
 最新时才推进游标（仅主 pane 可上报，线程 pane 永不推进会话游标）。
 Agent 仍使用独立的 `agentReadThroughSequence` 投递游标，两者不混用。

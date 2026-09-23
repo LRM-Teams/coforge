@@ -54,7 +54,7 @@ export class PrismaWebPushSubscriptionStore implements WebPushSubscriptionStore 
               ],
             }
           : {}),
-        user: { browserNotificationsEnabled: true },
+        user: { preferences: { browserNotificationsEnabled: true } },
       },
       select: {
         user: {
