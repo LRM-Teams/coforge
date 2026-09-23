@@ -47,3 +47,9 @@ Per-device settings (theme, text size, sidebar labels) stay in browser storage.
 user changed (a set time zone, notifications on, a non-default open mode), and
 drops the three `users` columns. Rolling back requires a reverse migration that
 re-adds the columns and copies the rows back with the old defaults.
+
+The migration is a single destructive step, not expand/contract: while the
+`migrate` service has run and the old web image is still serving, and after a
+web-image-only rollback, queries that read the dropped `users` columns fail
+(Settings loads and web-push fan-out) until the new image is serving. This is
+accepted during MVP; roll forward rather than rolling back the image alone.
