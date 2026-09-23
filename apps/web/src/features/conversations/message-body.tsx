@@ -47,6 +47,7 @@ export function MessageBody({
   onOpenAgentProfile,
   taskReferences,
   onOpenTask,
+  variant = "message",
 }: {
   body: string;
   mentions?: readonly MentionRef[];
@@ -63,6 +64,8 @@ export function MessageBody({
   taskReferences?: ReadonlySet<number>;
   /** Opens a task-reference chip's detail popup. Absent, a reference stays a plain highlight. */
   onOpenTask?: (number: number) => void;
+  /** `notice` inherits the surrounding type size, for the compact system-notice line. */
+  variant?: "message" | "notice";
 }) {
   const source = useMemo(() => escapeLiteralHtml(body), [body]);
   const handles = useMemo(() => mentionHandlesByToken(mentions), [mentions]);
@@ -86,7 +89,11 @@ export function MessageBody({
   );
 
   return (
-    <div className="message-markdown">
+    <div
+      className={
+        variant === "notice" ? "message-markdown message-markdown-notice" : "message-markdown"
+      }
+    >
       <Markdown
         remarkPlugins={REMARK_PLUGINS}
         rehypePlugins={rehypePlugins}

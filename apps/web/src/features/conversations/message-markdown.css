@@ -18,6 +18,12 @@
   overflow-wrap: anywhere;
 }
 
+/* A system notice keeps the compact, muted type of its row instead of the message size. */
+.message-markdown-notice {
+  font-size: inherit;
+  line-height: inherit;
+}
+
 /* Block rhythm: one owner per gap, and no stray leading/trailing space in a message row. */
 .message-markdown > :first-child {
   margin-top: 0;

@@ -37,6 +37,7 @@ import { AttachmentPreview } from "./attachment-preview";
 import { attachmentPreviewKind } from "./attachment-preview-kind";
 import { useSavedMessages } from "./conversation-navigation";
 import { CollapsibleMessageBody } from "./collapsible-message-body";
+import { MessageBody } from "./message-body";
 import type { ChipMention } from "./message-markdown";
 import { formatSelectionQuote, selectionAffordancePlacement } from "./message-quote";
 import { MessageReactionPicker, QUICK_REACTION_EMOJIS } from "./message-reaction-picker";
@@ -752,9 +753,10 @@ export function MessageRow({
   }, [onQuoteSelection, readQuoteSelection]);
   // A system message (task/membership notices, etc.) is not a person talking: it carries no
   // avatar and no sender heading, and renders as a compact, muted line in the stream — like
-  // Slack's channel notices. The body still goes through `MessageBody` so a `@handle` mention in
-  // it stays a resolved chip. The wrapper (`li`) is the same in both branches, so a system row
-  // costs the browser exactly what a normal one does.
+  // Slack's channel notices. The body goes through `MessageBody` (as Raft renders system messages
+  // through its one body renderer), so mentions and task references in it are chips. The wrapper
+  // (`li`) is the same in both branches, so a system row costs the browser exactly what a normal
+  // one does.
   if (message.senderKind === "system") {
     return (
       <li data-message-id={message.id} className={ROW_CLASS}>
@@ -772,10 +774,21 @@ export function MessageRow({
           data-message="system"
           className="group/message flex scroll-m-6 items-baseline gap-2 px-4 py-1 text-xs text-tertiary md:px-6"
         >
-          {/* System bodies are short plain text (task/membership notices, authored with a plain
-              `@handle`, not a mention token), so they render as a single muted line rather than
-              full Markdown. */}
-          <span className="min-w-0 flex-1 [overflow-wrap:anywhere]">{message.body}</span>
+          {/* The same body renderer as a message, so a notice's `@handle` and `#N` task
+              reference are chips like anywhere else (`task #132` in "started task #132" opens
+              the task); the `notice` variant keeps the row's compact muted type. */}
+          <div className="min-w-0 flex-1">
+            <MessageBody
+              variant="notice"
+              body={message.body}
+              mentions={message.mentions}
+              plainMentions={plainMentions}
+              viewerHandle={viewerHandle}
+              taskReferences={taskReferences}
+              onOpenTask={onOpenTask}
+              onOpenAgentProfile={onOpenAgentProfile}
+            />
+          </div>
           <time
             dateTime={new Date(message.createdAt).toISOString()}
             className="shrink-0 tabular-nums opacity-0 group-hover/message:opacity-100"
