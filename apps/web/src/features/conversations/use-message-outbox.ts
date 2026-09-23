@@ -52,13 +52,19 @@ export function useOutboxEntries(draftKey: string): readonly OutboxEntry[] {
  * attachments can be retried or deleted, not edited. */
 const sentChips = new Map<string, PendingAttachment[]>();
 
-/** Messages sent (or retried) from this page. Only their failure is announced to screen readers:
- * a failure restored from an earlier page was announced then, and must not be re-read on every
- * return to the chat. */
-const sentFromThisPage = new Set<string>();
+/** Messages sent (or retried) from this page whose failure has not been announced yet. A failure
+ * is announced to screen readers once, when it happens: not again when its row scrolls back into
+ * view or the chat is reopened, and not for a failure restored from an earlier page. */
+const unannouncedFailures = new Set<string>();
 
-export function wasSentFromThisPage(localId: string) {
-  return sentFromThisPage.has(localId);
+/** Whether this failure's row should announce itself (see `failureAnnounced`). */
+export function failureNeedsAnnouncing(localId: string) {
+  return unannouncedFailures.has(localId);
+}
+
+/** The failure's row has announced it; later renders of it stay silent. */
+export function failureAnnounced(localId: string) {
+  unannouncedFailures.delete(localId);
 }
 
 export function canEditUnsent(entry: OutboxEntry) {
@@ -73,8 +79,11 @@ export type ComposerRequest =
 
 const composerListeners = new Map<string, Set<(request: ComposerRequest) => void>>();
 
+/** Asks the chat's composer; false when none is shown to take the request. */
 function askComposer(draftKey: string, request: ComposerRequest) {
-  for (const listener of composerListeners.get(draftKey) ?? []) listener(request);
+  const listeners = composerListeners.get(draftKey);
+  for (const listener of listeners ?? []) listener(request);
+  return Boolean(listeners?.size);
 }
 
 /** Lets the composer for `draftKey` answer its conversation rows (see `ComposerRequest`). */
@@ -127,25 +136,36 @@ export function useMessageOutbox({
   async function settle(localId: string, sending: Promise<SentMessage | void | undefined>) {
     const sentMessage = await sending;
     if (sentMessage) onSent?.(sentMessage);
-    if (
-      !deviceComposerOutbox()
-        .entries(draftKey)
-        .some((entry) => entry.localId === localId)
-    )
+    // Only an unsent message can still be edited, so only its chips are worth keeping.
+    const entry = deviceComposerOutbox()
+      .entries(draftKey)
+      .find((candidate) => candidate.localId === localId);
+    if (entry?.state !== "unsent") {
       sentChips.delete(localId);
+      unannouncedFailures.delete(localId);
+    }
   }
+
+  /** The real message a send created, so the pending row stays until that message is shown. */
+  const deliveredMessageId = (sent: SentMessage | void | undefined) => sent?.id;
 
   return {
     send(message: OutgoingMessage, chips: PendingAttachment[]) {
       if (chips.length > 0) sentChips.set(message.localId, chips);
-      sentFromThisPage.add(message.localId);
-      void settle(message.localId, deviceComposerOutbox().send(message, deliver));
+      unannouncedFailures.add(message.localId);
+      void settle(
+        message.localId,
+        deviceComposerOutbox().send(message, deliver, deliveredMessageId),
+      );
     },
     retry(entry: OutboxEntry) {
-      sentFromThisPage.add(entry.localId);
+      unannouncedFailures.add(entry.localId);
       askComposer(draftKey, { kind: "focus" });
       // The same request id, so a send the server did accept is not posted twice.
-      void settle(entry.localId, deviceComposerOutbox().retry(entry.localId, deliver));
+      void settle(
+        entry.localId,
+        deviceComposerOutbox().retry(entry.localId, deliver, deliveredMessageId),
+      );
     },
     discard(entry: OutboxEntry) {
       deviceComposerOutbox().discard(entry.localId);
@@ -157,18 +177,19 @@ export function useMessageOutbox({
       sentChips.delete(entry.localId);
       askComposer(draftKey, { kind: "focus" });
     },
-    /** Hands an unsent message back to this chat's composer, then forgets it here. */
+    /** Hands an unsent message back to this chat's composer, then forgets it here; with no
+     * composer shown to take it, the message stays where it is. */
     edit(entry: OutboxEntry) {
-      const chips = sentChips.get(entry.localId) ?? [];
-      deviceComposerOutbox().discard(entry.localId);
-      sentChips.delete(entry.localId);
-      askComposer(draftKey, {
+      const taken = askComposer(draftKey, {
         kind: "edit",
         body: entry.body,
         requestId: entry.requestId,
         asTask: entry.asTask,
-        chips,
+        chips: sentChips.get(entry.localId) ?? [],
       });
+      if (!taken) return;
+      deviceComposerOutbox().discard(entry.localId);
+      sentChips.delete(entry.localId);
     },
   };
 }

@@ -206,6 +206,32 @@ describe("acknowledge", () => {
     ]);
   });
 
+  test("a successful send stays delivered as its message until it is discarded, so it never blinks out", async () => {
+    const outbox = createComposerOutbox(memoryStorage());
+    const pending = message();
+    const result = await outbox.send(
+      pending,
+      async () => ({ id: "message-9" }),
+      (sent) => sent.id,
+    );
+    expect(result).toEqual({ id: "message-9" });
+    expect(outbox.entries("chat-a")).toEqual([
+      { ...pending, state: "delivered", messageId: "message-9" },
+    ]);
+    outbox.discard(pending.localId);
+    expect(outbox.entries("chat-a")).toEqual([]);
+  });
+
+  test("a successful send whose result names no message is simply done", async () => {
+    const outbox = createComposerOutbox(memoryStorage());
+    await outbox.send(
+      message(),
+      async () => undefined,
+      () => undefined,
+    );
+    expect(outbox.entries("chat-a")).toEqual([]);
+  });
+
   test("a request id this page never sent changes nothing", async () => {
     const outbox = createComposerOutbox(memoryStorage());
     const listed = outbox.entries("chat-a");

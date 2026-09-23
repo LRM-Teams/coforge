@@ -53,5 +53,7 @@ request id.
   used to replay or claim anyone else's send.
 - The request id is idempotent for 24 h (`RESULT_TTL_SECONDS`). Retrying an interrupted message
   that did arrive more than a day earlier would post it again.
+- A failed send stays visible even while the main pane is scrolled back to older messages, drawn at
+  the foot of that window, so a failure cannot go unseen; pending rows wait for the latest window.
 - A sender's page that is not subscribed to the conversation (the reader moved elsewhere) relies on
   the send response alone, as before.

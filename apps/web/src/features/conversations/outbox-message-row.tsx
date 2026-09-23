@@ -15,7 +15,7 @@ import {
 } from "./composer-outbox";
 import type { ChipMention } from "./message-markdown";
 import { MessageBody } from "./message-body";
-import { canEditUnsent, wasSentFromThisPage } from "./use-message-outbox";
+import { canEditUnsent, failureAnnounced, failureNeedsAnnouncing } from "./use-message-outbox";
 
 const appRoute = getRouteApi("/_app");
 
@@ -41,6 +41,20 @@ function unsentReasonText(reason: UnsentReason): string {
   }
 }
 
+/** The failure sentence. It announces itself to screen readers only when the failure has just
+ * happened on this page (`failureNeedsAnnouncing`), once. */
+function UnsentReasonText({ localId, reason }: { localId: string; reason: UnsentReason }) {
+  const [announce] = useState(() => failureNeedsAnnouncing(localId));
+  useEffect(() => {
+    if (announce) failureAnnounced(localId);
+  }, [announce, localId]);
+  return (
+    <span role={announce ? "alert" : undefined} className="text-error-primary">
+      {unsentReasonText(reason)}
+    </span>
+  );
+}
+
 function useSlowSend(pending: boolean) {
   const [slow, setSlow] = useState(false);
   useEffect(() => {
@@ -61,6 +75,7 @@ function useSlowSend(pending: boolean) {
 export function OutboxMessageRow({
   entry,
   grouped,
+  composerShown,
   plainMentions,
   viewerHandle,
   onRetry,
@@ -70,6 +85,8 @@ export function OutboxMessageRow({
   entry: OutboxEntry;
   /** Continues the viewer's run of messages right above, so no avatar or name repeats. */
   grouped: boolean;
+  /** Whether the chat shows a composer that "Edit" could put the message back into. */
+  composerShown: boolean;
   plainMentions?: Map<string, ChipMention>;
   viewerHandle?: string;
   onRetry: () => void;
@@ -78,7 +95,7 @@ export function OutboxMessageRow({
 }) {
   const viewer = appRoute.useLoaderData({ select: (data) => data.user });
   const unsent = entry.state === "unsent" ? entry : undefined;
-  const slow = useSlowSend(!unsent);
+  const slow = useSlowSend(entry.state === "sending");
   const sendingLabel = slow && (
     <span className="shrink-0 text-xs text-tertiary">{m.conversation_sending()}</span>
   );
@@ -126,12 +143,7 @@ export function OutboxMessageRow({
           {unsent && (
             <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
               <AlertCircle aria-hidden="true" className="size-4 shrink-0 text-fg-error-primary" />
-              <span
-                role={wasSentFromThisPage(entry.localId) ? "alert" : undefined}
-                className="text-error-primary"
-              >
-                {unsentReasonText(unsent.reason)}
-              </span>
+              <UnsentReasonText localId={entry.localId} reason={unsent.reason} />
               {unsentReasonAllowsRetry(unsent.reason) && (
                 <>
                   <span aria-hidden="true" className="text-quaternary">
@@ -142,7 +154,7 @@ export function OutboxMessageRow({
                   </Button>
                 </>
               )}
-              {unsentReasonAllowsEdit(unsent.reason) && canEditUnsent(entry) && (
+              {composerShown && unsentReasonAllowsEdit(unsent.reason) && canEditUnsent(entry) && (
                 <>
                   <span aria-hidden="true" className="text-quaternary">
                     ·
@@ -159,6 +171,11 @@ export function OutboxMessageRow({
                 {m.conversation_unsent_discard()}
               </Button>
             </div>
+          )}
+          {unsent?.errorId && (
+            <p className="pl-6 text-xs text-tertiary">
+              {m.error_reference({ errorId: unsent.errorId })}
+            </p>
           )}
         </div>
       </div>

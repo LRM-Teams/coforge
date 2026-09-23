@@ -943,25 +943,34 @@ export function ConversationPane({
     [conversation.messages],
   );
   // A delivered message leaves the outbox once the real one is on screen, never before, so the
-  // row never blinks out between the two. Rows only sit at the foot of the loaded window, which is
-  // the conversation's latest messages only when no newer page is waiting.
-  const shownOutbox = conversation.hasNewer
-    ? []
-    : outboxEntries.filter(
-        (entry) => entry.state !== "delivered" || !loadedMessageIds.has(entry.messageId),
-      );
+  // row never blinks out between the two. A pending row belongs at the foot of the conversation,
+  // which the main pane's window reaches only when no newer page is waiting; a failure is shown
+  // regardless, so it cannot go unseen. A thread pane always holds its whole reply list.
+  const windowAtLatest = Boolean(root) || !conversation.hasNewer;
+  const shownOutbox = outboxEntries.filter((entry) =>
+    entry.state === "unsent"
+      ? true
+      : windowAtLatest && (entry.state === "sending" || !loadedMessageIds.has(entry.messageId)),
+  );
   useEffect(() => {
     for (const entry of outboxEntries)
       if (entry.state === "delivered" && loadedMessageIds.has(entry.messageId))
         outbox.discard(entry);
   }, [outboxEntries, loadedMessageIds]);
-  // Sending takes the reader to the latest messages, where the new one appears.
-  const knownOutboxIdsRef = useRef<ReadonlySet<string>>(new Set());
+  // Sending takes the reader to the latest messages, where the new one appears. Entries already
+  // there when the pane opens are not a new send: the open position stands. A thread pane only
+  // scrolls itself; asking for the main window's latest page could unload the thread's root.
+  const knownOutboxIdsRef = useRef<ReadonlySet<string> | undefined>(undefined);
   useEffect(() => {
     const known = knownOutboxIdsRef.current;
     knownOutboxIdsRef.current = new Set(outboxEntries.map((entry) => entry.localId));
-    if (outboxEntries.some((entry) => entry.state === "sending" && !known.has(entry.localId)))
-      void showLatestMessages();
+    if (!known) return;
+    if (!outboxEntries.some((entry) => entry.state === "sending" && !known.has(entry.localId)))
+      return;
+    if (root) {
+      setFollowingLatest(true);
+      scrollToLatest("smooth");
+    } else void showLatestMessages();
   }, [outboxEntries]);
   // The first pending row continues the viewer's run of messages right above it, as a sent one would.
   const lastMessage = conversation.messages.at(-1);
@@ -1484,6 +1493,7 @@ export function ConversationPane({
                   key={entry.localId}
                   entry={entry}
                   grouped={index > 0 || outboxContinuesRun}
+                  composerShown={!readOnlyNotice}
                   plainMentions={plainMentions}
                   viewerHandle={conversation.viewerHandle}
                   onRetry={() => outbox.retry(entry)}
