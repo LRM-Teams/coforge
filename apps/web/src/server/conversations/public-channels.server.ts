@@ -32,11 +32,9 @@ import {
   type CentrifugoServerApi,
 } from "#src/server/centrifugo/server-api.server";
 import type { MessageNotifier } from "#src/server/notifications/web-push-composition.server";
-import {
-  normalizeMentionBody,
-  resolveTaskReferences,
-  taskReferenceNumbers,
-} from "@lrm/coforge-sdk/internal";
+import { resolveMentionTargets } from "@lrm/coforge-sdk/internal";
+import { messageReferenceCandidates } from "#src/lib/message-references";
+import { storedMessageBody } from "./message-references.server";
 import {
   agentReadableBody,
   BROWSER_MESSAGE_MENTIONS_SELECT,
@@ -1433,7 +1431,10 @@ export class PublicChannels {
           // Resolve @mentions against the channel's active members once. The stored body keeps
           // each resolved mention as an embedded-UUID token (`<@human:…>`/`<@agent:…>`,
           // Slack-style) and every resolved mention becomes a MessageMention row in the same
-          // transaction, so renders and delivery never re-parse prose.
+          // transaction, so renders and delivery never re-parse prose. Task references
+          // (`task #68` → `<@task:68>`) and channel references (`#product` →
+          // `<@channel:uuid:product>`) are resolved in the same pass: the server decides what
+          // names a real task or channel, and anything else stays ordinary text.
           const activeMembers = await tx.conversationMember.findMany({
             where: { conversationId: channelId, ...ACTIVE_MEMBER_WHERE },
             select: {
@@ -1444,8 +1445,8 @@ export class PublicChannels {
               agent: { select: { name: true } },
             },
           });
-          const resolution = normalizeMentionBody(
-            body,
+          const resolution = resolveMentionTargets(
+            messageReferenceCandidates(body).handles,
             activeMembers.map((channelMember) =>
               channelMember.userId
                 ? {
@@ -1462,22 +1463,11 @@ export class PublicChannels {
                   },
             ),
           );
-          // Task references (`task #68`) are resolved the same way and for the same reason: the
-          // server decides what names a real task of this channel, stores a `<@task:N>` token, and
-          // a renderer never has to parse prose. A number that names no task stays ordinary text.
-          const referencedTaskNumbers = taskReferenceNumbers(resolution.body);
-          const knownTaskNumbers = referencedTaskNumbers.length
-            ? new Set(
-                (
-                  await tx.task.findMany({
-                    where: { conversationId: channelId, number: { in: referencedTaskNumbers } },
-                    select: { number: true },
-                  })
-                ).map((task) => task.number),
-              )
-            : new Set<number>();
-          const taskResolution = resolveTaskReferences(resolution.body, (number) =>
-            knownTaskNumbers.has(number),
+          const storedBody = await storedMessageBody(
+            tx,
+            { workspaceId, conversationId: channelId },
+            body,
+            resolution.target,
           );
           if (root) {
             // Everyone who takes part in a thread is a follower: whoever replies, everyone the
@@ -1539,7 +1529,7 @@ export class PublicChannels {
               conversationId: channelId,
               senderMemberId: member.id,
               threadRootId: root?.id,
-              body: taskResolution.body,
+              body: storedBody,
               sequence,
               mentions: resolution.mentions.length
                 ? {

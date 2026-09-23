@@ -14,7 +14,11 @@
  */
 import TurndownService from "turndown";
 import { gfm } from "turndown-plugin-gfm";
-import { replaceMentionTokens, replaceTaskReferenceTokens } from "@lrm/coforge-sdk/internal";
+import {
+  replaceChannelReferenceTokens,
+  replaceMentionTokens,
+  replaceTaskReferenceTokens,
+} from "@lrm/coforge-sdk/internal";
 
 import { copyText } from "#src/features/records/report-editor/lib/clipboard";
 
@@ -27,6 +31,12 @@ const turndown = new TurndownService({
   headingStyle: "atx",
 });
 turndown.use(gfm);
+// A channel chip is a router link (`data-channel-id`, see `message-body.tsx`): it copies as the
+// `#name` it reads, not as a Markdown link to the app's own URL.
+turndown.addRule("channelReference", {
+  filter: (node) => node.nodeName === "A" && node.hasAttribute("data-channel-id"),
+  replacement: (content) => content,
+});
 
 /** The rendered fragment under a selection, as an HTML string. */
 export function selectionFragmentHtml(range: Range): string {
@@ -71,23 +81,35 @@ export function copyFragmentMarkdown(html: string): Promise<boolean> {
 }
 
 /**
- * The whole message as plain text: mention tokens resolved to their `@label` and task-reference
- * tokens (`<@task:68>`) to `task #68`, Markdown source kept as typed — Discord's "Copy Text"
- * copies the raw source too, and the composer round-trips it. A token nobody resolved stays as
- * written rather than vanishing. This is also the only copy path for a collapsed long message,
- * whose body is `inert` and cannot be highlighted at all.
+ * The whole message as plain text: mention tokens resolved to their `@label`, task-reference
+ * tokens (`<@task:68>`) to `task #68` and channel-reference tokens to `#name` (the current name
+ * from `channelNames` when listed, the stored one otherwise), Markdown source kept as typed —
+ * Discord's "Copy Text" copies the raw source too, and the composer round-trips it. A mention token
+ * nobody resolved stays as written rather than vanishing. This is also the only copy path for a
+ * collapsed long message, whose body is `inert` and cannot be highlighted at all.
  */
-export function messagePlainText(message: {
-  body: string;
-  mentions?: { kind: "user" | "agent"; actorId: string; handle: string; label: string }[];
-}): string {
-  return replaceTaskReferenceTokens(
-    replaceMentionTokens(message.body, (kind, id) => {
-      const mention = message.mentions?.find(
-        (candidate) => candidate.kind === kind && candidate.actorId.toLowerCase() === id,
-      );
-      return mention ? `@${mention.label}` : undefined;
-    }),
-    (number) => `task #${number}`,
+export function messagePlainText(
+  message: {
+    body: string;
+    mentions?: readonly {
+      kind: "user" | "agent";
+      actorId: string;
+      handle: string;
+      label: string;
+    }[];
+  },
+  channelNames?: ReadonlyMap<string, string>,
+): string {
+  return replaceChannelReferenceTokens(
+    replaceTaskReferenceTokens(
+      replaceMentionTokens(message.body, (kind, id) => {
+        const mention = message.mentions?.find(
+          (candidate) => candidate.kind === kind && candidate.actorId.toLowerCase() === id,
+        );
+        return mention ? `@${mention.label}` : undefined;
+      }),
+      (number) => `task #${number}`,
+    ),
+    (id) => channelNames?.get(id),
   );
 }

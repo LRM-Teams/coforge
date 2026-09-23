@@ -178,8 +178,20 @@ test("makeMentionBodyFormatter leaves an unknown token intact rather than droppi
   expect(format?.(`<@agent:${other}>`)).toBe(`<@agent:${other}>`);
 });
 
-test("makeMentionBodyFormatter returns undefined when there is nothing to resolve", () => {
-  expect(makeMentionBodyFormatter([])).toBeUndefined();
+test("makeMentionBodyFormatter reads task and channel tokens back as text even with no mentionables", () => {
+  // A task or channel token always has a readable form, so a view with no mentionables still gets
+  // a formatter rather than showing the raw token.
+  const channelId = "33333333-3333-4333-8333-333333333333";
+  const format = makeMentionBodyFormatter([]);
+  expect(format(`see <@task:7> in <@channel:${channelId}:product>`)).toBe(
+    "see task #7 in #product",
+  );
+  expect(
+    makeMentionBodyFormatter(
+      [],
+      new Map([[channelId, "launch"]]),
+    )(`in <@channel:${channelId}:product>`),
+  ).toBe("in #launch");
 });
 
 test("an @query is found at the start of the text and after a space", () => {

@@ -256,7 +256,8 @@ export class SendDirectMessage {
         workspaceId: message.workspaceId,
         conversationId,
         agentId: message.agentId,
-        body: message.body,
+        // A DM has no mention rows; its task and channel tokens still read back as text.
+        body: agentReadableBody(message.body, []),
         method: AGENT_MESSAGE_METHOD,
         target: message.deliveryTarget ?? `@${message.latestSenderHandle}`,
         latestSenderKind: message.latestSenderKind,

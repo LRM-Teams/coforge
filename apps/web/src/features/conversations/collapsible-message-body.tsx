@@ -4,12 +4,12 @@ import { ChevronDown } from "@untitledui/icons";
 import { Button } from "#src/components/base/buttons/button";
 import { cn } from "#src/lib/utils";
 import { m } from "#src/paraglide/messages";
-import { replaceMentionTokens, replaceTaskReferenceTokens } from "@lrm/coforge-sdk/internal";
 import {
   COLLAPSED_MESSAGE_MAX_HEIGHT_REM,
   overflowsCollapsedMessage,
 } from "./collapsed-message-height";
 import { MessageBody } from "./message-body";
+import { messagePlainText } from "./selection-copy";
 
 /**
  * A message body that collapses when it is very long, with a control to show the rest — Slack's
@@ -77,18 +77,7 @@ export function CollapsibleMessageBody({
   return (
     <>
       {collapsed && (
-        <p className="sr-only">
-          {replaceTaskReferenceTokens(
-            replaceMentionTokens(body, (kind, id) => {
-              const mention = mentions?.find(
-                (candidate) =>
-                  candidate.kind === kind && candidate.actorId.toLowerCase() === id.toLowerCase(),
-              );
-              return mention ? `@${mention.label}` : undefined;
-            }),
-            (number) => `task #${number}`,
-          )}
-        </p>
+        <p className="sr-only">{messagePlainText({ body, mentions }, bodyProps.channelNames)}</p>
       )}
       <div
         ref={contentRef}

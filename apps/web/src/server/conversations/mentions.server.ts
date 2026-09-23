@@ -1,5 +1,6 @@
 import {
   MENTION_PATTERN,
+  replaceChannelReferenceTokens,
   replaceMentionTokens,
   replaceTaskReferenceTokens,
 } from "@lrm/coforge-sdk/internal";
@@ -58,17 +59,22 @@ export function browserMessageMention(row: BrowserMessageMentionRow) {
 
 /**
  * The Agent-facing body: embedded mention tokens (`<@human:uuid>`/`<@agent:uuid>`) read back as
- * plain `@handle` text, and task-reference tokens (`<@task:68>`) read back as `task #68`. The token
- * form is a storage/browser-render concern and never crosses onto the Agent channel; an unresolved
- * mention token (no matching mention row) stays as written.
+ * plain `@handle` text, task-reference tokens (`<@task:68>`) as `task #68`, and channel-reference
+ * tokens (`<@channel:uuid:product>`) as `#product`, the channel's name when the message was sent.
+ * The token form is a storage/browser-render concern and never crosses onto the Agent channel; an
+ * unresolved mention token (no matching mention row) stays as written.
  */
 export function agentReadableBody(body: string, mentions: readonly MessageMentionRef[]): string {
-  return replaceTaskReferenceTokens(
-    replaceMentionTokens(body, (type, id) => {
-      const mention = mentions.find((row) => row.kind === type && row.actorId.toLowerCase() === id);
-      return mention ? `@${mention.handle}` : undefined;
-    }),
-    (number) => `task #${number}`,
+  return replaceChannelReferenceTokens(
+    replaceTaskReferenceTokens(
+      replaceMentionTokens(body, (type, id) => {
+        const mention = mentions.find(
+          (row) => row.kind === type && row.actorId.toLowerCase() === id,
+        );
+        return mention ? `@${mention.handle}` : undefined;
+      }),
+      (number) => `task #${number}`,
+    ),
   );
 }
 

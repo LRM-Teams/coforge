@@ -8,8 +8,9 @@
  *    delete a body such as `<div>x</div>` — a data-loss regression, not a safety win. Every
  *    HTML-looking `<` outside code is escaped so it renders as the characters the author typed.
  *    GFM autolinks (`<https://…>`) and mention tokens keep their `<`.
- * 2. A stored `<@kind:uuid>` token still renders as a mention chip, and still never inside a
- *    code span or fence — the same rule `splitCodeSpans` gives the composer and the server.
+ * 2. A stored `<@kind:…>` token (a mention, a task or a channel) still renders as its chip, and
+ *    still never inside a code span or fence — the server never stores one there either (its
+ *    recognizer reads the same Markdown syntax, `#src/lib/message-syntax`).
  *
  * Chips are injected *after* `rehype-sanitize` runs. The sanitizer strips `className`, and the
  * nodes injected here are trusted — a fixed `span` whose only text is a resolved display label —
@@ -17,6 +18,7 @@
  * it runs.
  */
 import {
+  CHANNEL_REFERENCE_TOKEN_PATTERN,
   MENTION_PATTERN,
   MENTION_TOKEN_PATTERN,
   splitCodeSpans,
@@ -53,24 +55,12 @@ export const TASK_CHIP_CLASS = `${TASK_CHIP_BASE} bg-brand-primary text-brand-se
 export const TASK_CHIP_LINK_CLASS = "message-markdown-task-reference-link";
 
 /**
- * Channel-reference chip classes. A `#product` naming a channel the viewer can open renders with
- * the same soft fill as the other reference chips; the renderer turns it into a link to that
- * channel (see `message-body.tsx`).
+ * Channel-reference chip classes. A `<@channel:uuid:name>` token renders with the same soft fill as
+ * the other reference chips; the renderer turns the chip into a link to that channel (see
+ * `message-body.tsx`).
  */
 export const CHANNEL_CHIP_CLASS =
   "message-markdown-channel-reference rounded-sm px-0.5 font-medium bg-brand-primary text-brand-secondary";
-
-/**
- * A `#name` run in prose: letters in any script, digits, `_` and `-`, taken whole, so
- * `#product-launch` is never read as `#product` followed by `-launch`, and `#product频道` is the
- * name `product频道` (which names no channel). Punctuation or a space ends the name.
- */
-const CHANNEL_REFERENCE_PATTERN = /#([\p{L}\p{N}_-]+)/gu;
-
-/** What follows a channel name in a thread reference: `:` and a short (6–8 hex) or full message
- * id. */
-const THREAD_REFERENCE_TAIL =
-  /^:(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[0-9a-f]{6,8})(?![0-9a-z-])/i;
 
 /**
  * Escapes HTML-looking text outside code spans so Markdown renders it literally, matching the
@@ -178,6 +168,77 @@ export function rehypeMentionChips(options: {
 }
 
 /**
+ * Replaces stored channel-reference tokens (`<@channel:uuid:name>`) with a chip carrying the
+ * channel's id (`data-channel-id`), which the `span` renderer turns into a link to that channel.
+ *
+ * Every channel is public and readable by every Workspace member, and a token only ever names a
+ * channel of the message's own Workspace, so a viewer can always open it: the chip links whenever
+ * the host can navigate at all (`currentNames` is given). It shows the channel's current name from
+ * `currentNames` and falls back to the name the token stored — a channel the sidebar leaves out
+ * (one the viewer closed) still links. Without `currentNames` (a view that is itself one link, such
+ * as a Saved card), and inside a link the author wrote, the token reads as plain `#name`. Code
+ * keeps its text literal.
+ *
+ * Runs first among the chip passes, straight after sanitizing: the chip's `#name` is finished
+ * markup, and the task pass skips it, so a channel called `132` is never re-read as task #132.
+ */
+export function rehypeChannelReferenceChips(options: {
+  currentNames?: ReadonlyMap<string, string>;
+}) {
+  const { currentNames } = options;
+
+  return (tree: Root) => {
+    const visit = (node: Root | Element, inCode: boolean, inLink: boolean) => {
+      const tagName = node.type === "element" ? node.tagName : undefined;
+      const code = inCode || tagName === "code" || tagName === "pre";
+      const link = inLink || tagName === "a";
+      const next: Array<Element | Text> = [];
+
+      for (const child of node.children as Array<Element | Text>) {
+        if (child.type === "text" && !code && child.value.includes("<@channel:")) {
+          next.push(...channelChipParts(child.value, link ? undefined : currentNames));
+          continue;
+        }
+        if (child.type === "element") visit(child, code, link);
+        next.push(child);
+      }
+
+      node.children = next;
+    };
+
+    visit(tree, false, false);
+  };
+}
+
+/** The chip/text replacement for one text node: a chip per token when `currentNames` is given,
+ * otherwise the token's plain `#name`. */
+function channelChipParts(
+  value: string,
+  currentNames: ReadonlyMap<string, string> | undefined,
+): Array<Element | Text> {
+  const parts: Array<Element | Text> = [];
+  let offset = 0;
+  for (const match of value.matchAll(new RegExp(CHANNEL_REFERENCE_TOKEN_PATTERN.source, "gi"))) {
+    const id = match[1]!.toLowerCase();
+    const label = `#${currentNames?.get(id) ?? match[2]!}`;
+    if (match.index > offset) parts.push({ type: "text", value: value.slice(offset, match.index) });
+    parts.push(
+      currentNames
+        ? {
+            type: "element",
+            tagName: "span",
+            properties: { className: CHANNEL_CHIP_CLASS.split(" "), "data-channel-id": id },
+            children: [{ type: "text", value: label }],
+          }
+        : { type: "text", value: label },
+    );
+    offset = match.index + match[0].length;
+  }
+  if (offset < value.length) parts.push({ type: "text", value: value.slice(offset) });
+  return parts;
+}
+
+/**
  * Replaces stored task-reference tokens (`<@task:68>`) with a **number-only** chip (`#68`), skipping
  * anything inside `code` or `pre`. Raft draws the reference as the bare number, so the chip carries
  * the number rather than the prose the author typed; `title`/`aria-label` still spell "task #68" so
@@ -206,14 +267,15 @@ export function rehypeTaskReferenceChips(options: { numbers: ReadonlySet<number>
   return (tree: Root) => {
     const visit = (node: Root | Element, inSkipped: boolean) => {
       // Code keeps its text literal, a link keeps pointing where its author aimed it, and a mention
-      // chip is already a control: none of them gets a task chip inside.
+      // or channel chip is already a reference: none of them gets a task chip inside.
       const skip =
         inSkipped ||
         (node.type === "element" &&
           (node.tagName === "code" ||
             node.tagName === "pre" ||
             node.tagName === "a" ||
-            node.properties["data-mention"] !== undefined));
+            node.properties["data-mention"] !== undefined ||
+            node.properties["data-channel-id"] !== undefined));
       const next: Array<Element | Text> = [];
 
       for (const child of node.children as Array<Element | Text>) {
@@ -237,83 +299,6 @@ export function rehypeTaskReferenceChips(options: { numbers: ReadonlySet<number>
 
     visit(tree, false);
   };
-}
-
-/**
- * Replaces a `#name` that names a known channel with a chip carrying that channel's id
- * (`data-channel-id`), which the `span` renderer turns into a link to the channel. `channels` maps
- * each channel the viewer can open, by its (lower-case) name, to its id; a `#name` naming anything
- * else — a channel the viewer cannot see, a hashtag, a heading-like word — stays prose. The chip
- * shows the channel's own name, so `#Product` reads `#product`.
- *
- * Runs after the mention and task-reference passes: code keeps its text literal, a link keeps
- * pointing where its author aimed it, and a chip those passes produced is already a reference, so
- * a `#68` naming a task stays that task's chip. A `#734` that names no task can still name a
- * channel called `734`.
- */
-export function rehypeChannelReferenceChips(options: { channels: ReadonlyMap<string, string> }) {
-  const { channels } = options;
-
-  return (tree: Root) => {
-    if (channels.size === 0) return;
-    const visit = (node: Root | Element, inSkipped: boolean) => {
-      const skip =
-        inSkipped ||
-        (node.type === "element" &&
-          (node.tagName === "code" ||
-            node.tagName === "pre" ||
-            node.tagName === "a" ||
-            node.properties["data-mention"] !== undefined ||
-            node.properties["data-task-reference"] !== undefined ||
-            node.properties["data-channel-id"] !== undefined));
-      const next: Array<Element | Text> = [];
-
-      for (const child of node.children as Array<Element | Text>) {
-        if (child.type === "text" && !skip && child.value.includes("#")) {
-          const parts = channelChipParts(child.value, channels);
-          if (parts) {
-            next.push(...parts);
-            continue;
-          }
-        }
-        if (child.type === "element") visit(child, skip);
-        next.push(child);
-      }
-
-      node.children = next;
-    };
-
-    visit(tree, false);
-  };
-}
-
-/** The chip/text replacement for one text node, or `undefined` when no `#name` names a known
- * channel. */
-function channelChipParts(
-  value: string,
-  channels: ReadonlyMap<string, string>,
-): Array<Element | Text> | undefined {
-  const parts: Array<Element | Text> = [];
-  let offset = 0;
-  for (const match of value.matchAll(CHANNEL_REFERENCE_PATTERN)) {
-    const name = match[1]!.toLowerCase();
-    const channelId = channels.get(name);
-    if (channelId === undefined) continue;
-    // `#name:shortid` is a thread reference, a different reference than the channel; it stays
-    // prose here rather than linking only its `#name` half.
-    if (THREAD_REFERENCE_TAIL.test(value.slice(match.index + match[0].length))) continue;
-    if (match.index > offset) parts.push({ type: "text", value: value.slice(offset, match.index) });
-    parts.push({
-      type: "element",
-      tagName: "span",
-      properties: { className: CHANNEL_CHIP_CLASS.split(" "), "data-channel-id": channelId },
-      children: [{ type: "text", value: `#${name}` }],
-    });
-    offset = match.index + match[0].length;
-  }
-  if (parts.length === 0) return undefined;
-  if (offset < value.length) parts.push({ type: "text", value: value.slice(offset) });
-  return parts;
 }
 
 /** The chip/text replacement for one text node, or `undefined` when nothing becomes a chip. A
@@ -342,9 +327,6 @@ function taskChipParts(
         // and to assistive technology so "#68" is still readable as a task reference.
         title: `task #${number}`,
         "aria-label": `task #${number}`,
-        // Marks the chip as finished markup, so the channel-reference pass never reads its `#N`
-        // as a channel name.
-        "data-task-reference": true,
         ...(clickable ? { "data-task-reference-number": number } : {}),
       },
       children: [{ type: "text", value: `#${number}` }],

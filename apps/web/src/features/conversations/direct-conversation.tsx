@@ -459,11 +459,19 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
     return byRoot;
   }, [conversation.messages]);
   const repliesOf = (rootId: string) => repliesByRoot.get(rootId) ?? [];
-  // Preview rows would otherwise spell a mention as its raw `<@kind:uuid>` token; resolve
-  // those to `@handle` the way the message list does.
+  // A stored channel reference links to its channel under the channel's current name: the channel
+  // list the messages layout already loads for the sidebar, by id. A channel it leaves out (one the
+  // viewer closed) still links, under the name the reference stored.
+  const channels = messagesRoute.useLoaderData({ select: (data) => data.channels });
+  const channelNames = useMemo(
+    () => new Map(channels.map((channel) => [channel.id, channel.name])),
+    [channels],
+  );
+  // Preview rows would otherwise spell a reference as its raw `<@kind:…>` token; resolve those
+  // the way the message list does.
   const formatPreviewBody = useMemo(
-    () => makeMentionBodyFormatter(conversation.mentionables ?? []),
-    [conversation.mentionables],
+    () => makeMentionBodyFormatter(conversation.mentionables ?? [], channelNames),
+    [conversation.mentionables, channelNames],
   );
   // A `task #N` reference in a body renders as a chip that opens the task's detail popup. The
   // conversation's own task list decides which referenced numbers can be opened, and the popup
@@ -471,14 +479,6 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
   const taskNumbers = useMemo(
     () => new Set((props.tasks ?? []).map((task) => task.number)),
     [props.tasks],
-  );
-  // A `#name` in a body links to that channel when it names one the viewer can open: the channel
-  // list the messages layout already loads for the sidebar, archived channels included (they stay
-  // readable). Keyed by name, which is stored lower-case.
-  const channels = messagesRoute.useLoaderData({ select: (data) => data.channels });
-  const channelReferences = useMemo(
-    () => new Map(channels.map((channel) => [channel.name, channel.id])),
-    [channels],
   );
   const {
     openTaskNumber,
@@ -497,7 +497,7 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
     streamRead: windowRead,
     taskReferences: taskNumbers,
     onOpenTask: openTaskReference,
-    channelReferences,
+    channelNames,
     onLoadMessageAround,
     root,
     conversation: {
@@ -657,7 +657,7 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
       streamRead={windowRead}
       taskReferences={taskNumbers}
       onOpenTask={openTaskReference}
-      channelReferences={channelReferences}
+      channelNames={channelNames}
       jumpMessage={jumpMessageId}
       onJumpMessageConsumed={clearJumpMessage}
       onLoadMessageAround={onLoadMessageAround}
@@ -719,7 +719,7 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
                     {reply.senderName}
                   </span>
                   <span className="min-w-0 flex-1 truncate text-sm text-secondary">
-                    {formatPreviewBody?.(reply.body) ?? reply.body}
+                    {formatPreviewBody(reply.body)}
                   </span>
                   <RelativeTime
                     value={reply.createdAt}
@@ -876,7 +876,7 @@ export function ConversationPane({
   plainMentions,
   taskReferences,
   onOpenTask,
-  channelReferences,
+  channelNames,
   jumpMessage,
   onJumpMessageConsumed,
 }: Omit<ConversationProps, "conversation" | "agentStatus"> & {
@@ -906,9 +906,9 @@ export function ConversationPane({
    * them from the conversation's task list. */
   taskReferences?: ReadonlySet<number>;
   onOpenTask?: (number: number) => void;
-  /** The channels a body's `#name` links to, by lower-case name → channel id. Owned by
+  /** Channel id → current name, for the channel links in a body (see `MessageBody`). Owned by
    * `ThreadedConversationContent`, which reads the viewer's channel list. */
-  channelReferences?: ReadonlyMap<string, string>;
+  channelNames?: ReadonlyMap<string, string>;
   /** The Saved view's position-only jump anchor (`?message=<uuid>`; see
    * `useConversationPositionJump`). Supplied only by the main pane's wrapper — the router
    * read lives there so this pane keeps no router hooks. */
@@ -1133,8 +1133,8 @@ export function ConversationPane({
   // `<@agent:uuid>` token. Resolve those to `@handle` the way the message list does, using the
   // conversation's known mentionables. Applies to channels too (both render through here).
   const formatIndexBody = useMemo(
-    () => makeMentionBodyFormatter(conversation.mentionables ?? []),
-    [conversation.mentionables],
+    () => makeMentionBodyFormatter(conversation.mentionables ?? [], channelNames),
+    [conversation.mentionables, channelNames],
   );
   // Agent presence for the stream's avatars: one lookup built from the app shell's single
   // subscription, rather than each row subscribing for itself.
@@ -1643,7 +1643,7 @@ export function ConversationPane({
                   plainMentions={plainMentions}
                   taskReferences={taskReferences}
                   onOpenTask={onOpenTask}
-                  channelReferences={channelReferences}
+                  channelNames={channelNames}
                   onQuoteSelection={quoteSelection}
                 />
               </ol>
@@ -1779,7 +1779,7 @@ export function ConversationPane({
                     plainMentions={plainMentions}
                     taskReferences={taskReferences}
                     onOpenTask={onOpenTask}
-                    channelReferences={channelReferences}
+                    channelNames={channelNames}
                     onQuoteSelection={quoteSelection}
                   />
                 );
@@ -1794,7 +1794,6 @@ export function ConversationPane({
                   viewerHandle={conversation.viewerHandle}
                   taskReferences={taskReferences}
                   onOpenTask={onOpenTask}
-                  channelReferences={channelReferences}
                   onRetry={() => outbox.retry(entry)}
                   onEdit={() => outbox.edit(entry)}
                   onDiscard={() => outbox.remove(entry)}
