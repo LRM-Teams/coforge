@@ -451,7 +451,7 @@ export class ActionCards {
       input.messageId,
       "channel:create",
     );
-    const channels = new PublicChannels(this.db);
+    const channels = new PublicChannels(this.db, undefined, undefined, undefined, this.realtime);
     // The Agent-proposed description (`Conversation.description`) rides along from the
     // card's own resolved payload, not a new browser-supplied input: it is the Agent's context,
     // not something the committing human retypes.
@@ -491,7 +491,7 @@ export class ActionCards {
       input.messageId,
       "channel:add_member",
     );
-    const channels = new PublicChannels(this.db);
+    const channels = new PublicChannels(this.db, undefined, undefined, undefined, this.realtime);
     await channels.addMembers(
       principal.workspaceId,
       { userId: principal.actorUserId },

@@ -10,10 +10,16 @@ import type {
 } from "#src/server/db/repositories/agent.repositories.server";
 import type { AgentRuntimeLock } from "./agent-runtime-lock.server";
 import { agentStopIntent } from "./manage-agents.server";
+import {
+  announceMemberChanged,
+  type ConversationRealtime,
+} from "#src/server/conversations/conversation-realtime.server";
 
 /** What one delete changed. */
 export type AgentDeletionEffects = {
   membershipsLeft: number;
+  /** The channels the Agent was an active member of, whose member lists now changed. */
+  leftChannelIds: string[];
   remindersCanceled: number;
   apiKeysRevoked?: number;
 };
@@ -64,6 +70,7 @@ export class AgentDeletion {
     private readonly runtimeControl: AgentRuntimeControl,
     private readonly runtimeLock: AgentRuntimeLock,
     private readonly now: () => Date = () => new Date(),
+    private readonly realtime?: Pick<ConversationRealtime, "memberChanged">,
   ) {}
 
   async delete(
@@ -81,6 +88,10 @@ export class AgentDeletion {
       });
       // A repeated delete is an idempotent no-op; never send a second stop for it.
       if (result.outcome !== "deleted") return result;
+      await announceMemberChanged(this.realtime, {
+        workspaceId: agent.workspaceId,
+        conversationIds: result.leftChannelIds,
+      });
       await this.#stopRuntime(agent, principal.userId);
       return result;
     });

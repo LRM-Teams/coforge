@@ -12,6 +12,7 @@ import {
   type WorkspaceMemberRole,
 } from "./member-role.server";
 import { workspaceUserAvatarUrl } from "#src/server/db/repositories/user-profile.repositories.server";
+import { ACTIVE_MEMBER_WHERE } from "#src/server/conversations/active-member.server";
 
 function asRole(value: string): WorkspaceMemberRole {
   if (!isWorkspaceMemberRole(value)) throw new AppError("INTERNAL_ERROR");
@@ -214,13 +215,23 @@ export class PrismaWorkspaceMemberDirectoryStore implements WorkspaceMemberDirec
   }
 
   async removeMember(workspaceId: string, userId: string) {
-    await this.db.$transaction(async (tx) => {
+    return this.db.$transaction(async (tx) => {
       await tx.workspaceMembership.delete({
         where: { workspaceId_userId: { workspaceId, userId } },
+      });
+      const activeChannels = await tx.conversationMember.findMany({
+        where: {
+          workspaceId,
+          userId,
+          ...ACTIVE_MEMBER_WHERE,
+          conversation: { channelName: { not: null } },
+        },
+        select: { conversationId: true },
       });
       await tx.conversationMember.deleteMany({
         where: { workspaceId, userId },
       });
+      return { leftChannelIds: activeChannels.map((row) => row.conversationId) };
     });
   }
 }

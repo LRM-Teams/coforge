@@ -42,6 +42,7 @@ function repositoryFor(record: AgentRecord | undefined): AgentRepository {
 function fixture(options?: { stopFails?: boolean; record?: AgentRecord }) {
   const record = options?.record ?? agent();
   const stops: Array<{ agentId: string; userId: string }> = [];
+  const announced: Array<{ workspaceId: string; conversationIds: readonly string[] }> = [];
   const effects: Parameters<AgentDeletionStore["delete"]>[0][] = [];
   const store: AgentDeletionStore = {
     delete: async (input) => {
@@ -49,6 +50,7 @@ function fixture(options?: { stopFails?: boolean; record?: AgentRecord }) {
       return {
         outcome: "deleted",
         membershipsLeft: 2,
+        leftChannelIds: ["channel-1", "channel-2"],
         remindersCanceled: 1,
         apiKeysRevoked: 1,
       };
@@ -65,8 +67,13 @@ function fixture(options?: { stopFails?: boolean; record?: AgentRecord }) {
     },
     { run: async (_agentId, callback) => callback() },
     () => new Date("2026-09-18T04:00:00Z"),
+    {
+      memberChanged: async (input) => {
+        announced.push(input);
+      },
+    },
   );
-  return { deletion, stops, effects, record };
+  return { deletion, stops, effects, announced, record };
 }
 
 const owner = { userId: "user-1", workspaceId: "workspace-1", role: "owner" as const };
@@ -96,6 +103,14 @@ describe("AgentDeletion", () => {
       },
     ]);
     expect(stops).toEqual([{ agentId: "agent-1", userId: "user-1" }]);
+  });
+
+  test("deleting tells each channel the Agent left that its member list changed", async () => {
+    const { deletion, announced } = fixture();
+    await deletion.delete(owner, "agent-1");
+    expect(announced).toEqual([
+      { workspaceId: "workspace-1", conversationIds: ["channel-1", "channel-2"] },
+    ]);
   });
 
   test("an admin may delete an Agent owned by someone else", async () => {

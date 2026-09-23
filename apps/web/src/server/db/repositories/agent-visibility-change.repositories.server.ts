@@ -27,7 +27,7 @@ export class PrismaChangeAgentVisibilityStore implements ChangeAgentVisibilitySt
     agentId: string;
     workspaceId: string;
     visibility: string;
-  }): Promise<{ changed: boolean }> {
+  }): Promise<{ changed: boolean; leftChannelIds: string[] }> {
     return this.db.$transaction(async (tx) => {
       const updated = await tx.agent.updateMany({
         where: {
@@ -38,19 +38,24 @@ export class PrismaChangeAgentVisibilityStore implements ChangeAgentVisibilitySt
         },
         data: { visibility: input.visibility },
       });
-      if (updated.count === 0) return { changed: false };
-      if (input.visibility === AGENT_VISIBILITY.PRIVATE) {
-        await tx.conversationMember.updateMany({
-          where: {
-            workspaceId: input.workspaceId,
-            agentId: input.agentId,
-            leftAt: null,
-            conversation: { channelName: { not: null } },
-          },
-          data: { leftAt: new Date() },
-        });
-      }
-      return { changed: true };
+      if (updated.count === 0) return { changed: false, leftChannelIds: [] };
+      if (input.visibility !== AGENT_VISIBILITY.PRIVATE)
+        return { changed: true, leftChannelIds: [] };
+      const activeChannels = {
+        workspaceId: input.workspaceId,
+        agentId: input.agentId,
+        leftAt: null,
+        conversation: { channelName: { not: null } },
+      } satisfies Prisma.ConversationMemberWhereInput;
+      const left = await tx.conversationMember.findMany({
+        where: activeChannels,
+        select: { conversationId: true },
+      });
+      await tx.conversationMember.updateMany({
+        where: activeChannels,
+        data: { leftAt: new Date() },
+      });
+      return { changed: true, leftChannelIds: left.map((row) => row.conversationId) };
     });
   }
 

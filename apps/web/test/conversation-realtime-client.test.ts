@@ -6,10 +6,12 @@ type PublicationListener = (context: { data: unknown }) => void;
 type SubscribedListener = (context: { wasRecovering: boolean; recovered: boolean }) => void;
 
 function fakeClient() {
-  const publications: (PublicationListener | SubscribedListener)[] = [];
+  const publications: PublicationListener[] = [];
+  const subscribedListeners: SubscribedListener[] = [];
   const subscription = {
     on(event: string, listener: PublicationListener | SubscribedListener) {
-      if (event === "publication") publications.push(listener);
+      if (event === "publication") publications.push(listener as PublicationListener);
+      if (event === "subscribed") subscribedListeners.push(listener as SubscribedListener);
       return subscription;
     },
     subscribe() {},
@@ -21,8 +23,10 @@ function fakeClient() {
       removeSubscription() {},
     },
     publish(data: unknown) {
-      for (const listener of publications)
-        listener({ data, wasRecovering: false, recovered: false });
+      for (const listener of publications) listener({ data });
+    },
+    subscribed(context: { wasRecovering: boolean; recovered: boolean }) {
+      for (const listener of subscribedListeners) listener(context);
     },
   };
 }
@@ -71,5 +75,49 @@ describe("subscribeToConversationRealtime", () => {
 
     expect(sent).toEqual([["request-a", "message-a"]]);
     expect(reconciled).toBe(2);
+  });
+
+  test("a member change refreshes this conversation's member list, not its messages", () => {
+    const { client, publish } = fakeClient();
+    let memberChanges = 0;
+    let reconciled = 0;
+    subscribeToConversationRealtime(client, {
+      conversationId: "conversation-a",
+      getToken: async () => "token",
+      reconcile: () => {
+        reconciled += 1;
+      },
+      onMemberChanged: () => {
+        memberChanges += 1;
+      },
+    });
+
+    publish({ type: "member.changed.v1", conversationId: "conversation-a", workspaceId: "w" });
+    publish({ type: "member.changed.v1", conversationId: "conversation-b", workspaceId: "w" });
+
+    expect(memberChanges).toBe(1);
+    expect(reconciled).toBe(0);
+  });
+
+  test("a resubscribe that lost publications refreshes the member list as well as messages", () => {
+    const { client, subscribed } = fakeClient();
+    let memberChanges = 0;
+    subscribeToConversationRealtime(client, {
+      conversationId: "conversation-a",
+      getToken: async () => "token",
+      reconcile: () => {},
+      onMemberChanged: () => {
+        memberChanges += 1;
+      },
+    });
+
+    // The first subscribe follows the page's own directory load, and a recovered resubscribe
+    // replays every missed publication, so neither needs a refetch.
+    subscribed({ wasRecovering: false, recovered: false });
+    subscribed({ wasRecovering: true, recovered: true });
+    expect(memberChanges).toBe(0);
+
+    subscribed({ wasRecovering: true, recovered: false });
+    expect(memberChanges).toBe(1);
   });
 });

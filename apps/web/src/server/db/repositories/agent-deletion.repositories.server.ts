@@ -38,6 +38,15 @@ export class PrismaAgentDeletionStore implements AgentDeletionStore {
       // Already deleted: leave the original `deletedAt` and the first delete's effects alone.
       if (deleted.count === 0) return { outcome: "already-deleted" as const };
 
+      const activeChannels = await tx.conversationMember.findMany({
+        where: {
+          workspaceId: input.workspaceId,
+          agentId: input.agentId,
+          leftAt: null,
+          conversation: { channelName: { not: null } },
+        },
+        select: { conversationId: true },
+      });
       const membershipsLeft = await tx.conversationMember.updateMany({
         where: { workspaceId: input.workspaceId, agentId: input.agentId, leftAt: null },
         data: { leftAt: input.deletedAt },
@@ -57,6 +66,7 @@ export class PrismaAgentDeletionStore implements AgentDeletionStore {
       return {
         outcome: "deleted" as const,
         membershipsLeft: membershipsLeft.count,
+        leftChannelIds: activeChannels.map((row) => row.conversationId),
         remindersCanceled: remindersCanceled.count,
         apiKeysRevoked: apiKeysRevoked.count,
       };
