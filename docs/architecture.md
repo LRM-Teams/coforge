@@ -1640,9 +1640,8 @@ prepare 在同一 conversation 行锁事务内创建两行：一条普通 Messag
 
 Agent 创建仍受 ADR 0025 的 owner/admin 门槛约束：`agent:create` action card
 本身不创建 Agent，只是记录请求；下一个 PR 实现 commit 时，真正创建 Agent 的
-人类仍需满足 `assertCanCreateAgents`，本次不构成越权。standing instructions
-（`packages/daemon/src/code-agent/agent-instructions.ts`）新增一节：人类要
-求新建频道/Agent 或把某人加入频道时，Agent 用 `coforge action prepare`
+人类仍需满足 `assertCanCreateAgents`，本次不构成越权。相关指导按需从 `coforge manual get action-cards` 加载：人类要
+求新建频道/Agent 时，Agent 用 `coforge action prepare`
 提交卡片，不得声称资源已创建，只如实说明卡片已记录、后续由人类处理。
 
 `apps/web/test/action-cards.integration.ts` 用显式本地 PostgreSQL/Redis 验
@@ -1682,7 +1681,7 @@ Raft 1.0.32 的 `raft manual` / `/knowledge`：standing prompt
 `GET /api/agent/v1/manual/search`（`query`/`intent`/`reason`），响应字段名沿用 Raft
 （`docId`/`topicOrPath`/`docVersion`/`docState`/`contentType`/`content`，以及 search 的
 `slug`/`title`/`firstScreen`），路由路径改用 CoForge 自己的 `manual` 命名。`--intent`/
-`--reason` 在 CLI 侧和服务端各校验一次（12–500 字符，两者都非法时一条错误同时指出两者），
+`--reason` 可省略，CLI 与服务端仅校验非空值（12–500 字符）；缺失时记录空字符串，兼容原审计字段，无需 schema 迁移。
 每次调用（含 `not_found`）都写入 `AgentManualEvent`，非法输入的 400 不记录，写入失败不影响
 读取。搜索是关键词打分（v1 不含向量/概念扩展），标题/slug 权重高于摘要、摘要高于正文，
 含 CJK 字符的词按子串而非词边界匹配。首批内容只有 `github`、`manual` 两个主题，加上从注册表
@@ -1846,3 +1845,10 @@ machine-owner 授权模型仍未解决；在形成并批准该安全边界前，
 - [Multica Computer/Daemon/WorkspaceDaemon ownership ADR](https://github.com/LRM-Teams/multica/blob/dev/docs/adr/0020-converge-computer-daemon-workspace-daemon.md)
 
 这些资料只提供故障模式与 ownership 的历史参考。CoForge 当前 MVP 采用本文定义的易失 attention ACK、canonical Message/read-boundary 恢复，以及独立 HTTPS Agent read/send，不继承 Multica 的 durable inbox/outbox 或 delivery-ledger 设计。
+
+### Agent guidance rollout (2026-09-23)
+
+用户批准精简协作提示词：常驻层仅负责消息协议与必要边界，任务消息附带 Tasks 手册入口；
+附件、App Inbox、Reminder 和 held-send 延用对应输出中的可执行操作提示，不重复注入整份手册。
+Manual 的 intent/reason 改为可选；先部署兼容服务端，再升级 Computer/Daemon/CLI。旧 CLI
+携带字段仍可调用新服务端；新 CLI 省略字段调用旧服务端会被拒绝，因此回滚时先回滚客户端。

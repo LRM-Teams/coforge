@@ -80,13 +80,13 @@ test("formatMessageLine renders the shared bracket line with attachment and task
   });
   expect(formatMessageLine(withTask)).toBe(
     "[target=#general msg=aaaaaaaa time=2026-09-07 10:00:00Z type=human] @ada: hello there" +
-      " [task #12 status=in_progress owner=@ada]",
+      " [task #12 status=in_progress owner=@ada] (workflow: coforge manual get tasks)",
   );
 
   const withTaskNoOwner = message({ task: { number: 3, status: "todo" } });
   expect(formatMessageLine(withTaskNoOwner)).toBe(
     "[target=#general msg=aaaaaaaa time=2026-09-07 10:00:00Z type=human] @ada: hello there" +
-      " [task #3 status=todo]",
+      " [task #3 status=todo] (workflow: coforge manual get tasks)",
   );
 });
 
@@ -388,4 +388,13 @@ test("formatHeldSend collapses newlines and runs of whitespace in the preview", 
     ],
   });
   expect(output).toContain("  │ @ada 09:00  line one line two");
+});
+
+test("tracked Tasks carry contextual workflow help without burdening ordinary messages", () => {
+  expect(formatMessageLine(message())).not.toContain("coforge manual get tasks");
+  const tracked = message({ task: { number: 7, status: "todo" } });
+  expect(formatMessageLine(tracked)).toContain("coforge manual get tasks");
+  expect(formatReadWindow("#general", { messages: [tracked] })).toContain(
+    "coforge manual get tasks",
+  );
 });

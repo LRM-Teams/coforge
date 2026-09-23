@@ -2861,16 +2861,6 @@ test("manual rejects a missing topic/keywords argument", () => {
 
 test("manual client-side validates --intent/--reason (12-500 chars, trimmed) before sending", () => {
   const long = "x".repeat(20);
-  // Missing both.
-  expect(() => parseArgs(["manual", "get", "github"])).toThrow(CliError);
-  try {
-    parseArgs(["manual", "get", "github"]);
-  } catch (error) {
-    expect(error).toBeInstanceOf(CliError);
-    expect((error as CliError).code).toBe("KNOWLEDGE_INTENT_INVALID");
-    expect((error as CliError).message).toContain("--intent");
-    expect((error as CliError).message).toContain("--reason");
-  }
   // Reason too short.
   try {
     parseArgs(["manual", "get", "github", "--intent", long, "--reason", "short"]);
@@ -3312,4 +3302,19 @@ test("profile update posts the update and formats the returned profile", async (
   expect(calls).toEqual([{ displayName: "Scout Bot", description: undefined }]);
   expect(output).toContain("Display name: Scout Bot");
   expect(output).toContain("Creator: (unknown)");
+});
+
+test("Manual help needs only a topic or search query", () => {
+  expect(parseArgs(["manual", "get", "tasks"])).toEqual({
+    command: "manual-get",
+    topic: "tasks",
+    intent: "",
+    reason: "",
+  });
+  expect(parseArgs(["manual", "search", "attachments"])).toEqual({
+    command: "manual-search",
+    query: "attachments",
+    intent: "",
+    reason: "",
+  });
 });

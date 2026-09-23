@@ -43,7 +43,7 @@ function attachmentSuffix(message: AgentMessageRecord): string {
 function taskSuffix(message: AgentMessageRecord): string {
   if (!message.task) return "";
   const owner = message.task.owner ? ` owner=@${message.task.owner.handle}` : "";
-  return ` [task #${message.task.number} status=${message.task.status}${owner}]`;
+  return ` [task #${message.task.number} status=${message.task.status}${owner}] (workflow: coforge manual get tasks)`;
 }
 
 /** Channel check/resolve lines longer than this are cut; the agent can `read --around` for the rest. */

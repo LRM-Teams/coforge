@@ -590,7 +590,7 @@ export function parseArgs(
     }
   }
   throw new Error(
-    "Usage: coforge channel mute|unmute --target '#channel' | coforge channel info <target> | coforge channel members <target> | coforge channel join --target '#channel' | coforge channel leave --target '#channel' | coforge channel create --name <name> [--description <text>] [--json] | coforge channel update --target '#channel' [--name <name>] [--description <text>] [--json] | coforge channel lifecycle archive|unarchive --target '#channel' [--json] | coforge channel add-member --target '#channel' (--user @handle | --agent @handle) [--json] | coforge channel remove-member --target '#channel' (--user @handle | --agent @handle) [--json] | coforge thread unfollow --target '#channel:message-id' | coforge inbox check | coforge message check | coforge message search --query <text> [--target <target>] [--sender <handle>] [--sort relevance|recent] [--before <iso>] [--after <iso>] [--limit <n>] [--offset <n>] | coforge message read --target @user | coforge message send --target @user [--send-draft] [--anyway] [--reviewer-isolation] [--json] [--attachment-id <uuid>]... [--mention human:<uuid>:<handle>|agent:<uuid>:<handle>]... [--target-confirmed] | coforge message resolve <message-id> | coforge message react --message-id <id> --emoji <emoji> [--remove] | coforge task list|create|convert|claim|unclaim|assign|unassign|update|amend|history|delete|receipt ... | coforge attachment view [--id] <id> --output <path> [--json] | coforge attachment upload --path <file> (--target <target>|--channel <target>) [--mime-type <type>] [--json] | coforge weekly-report context --subject-type report|cycle --subject-id <uuid> | coforge weekly-report list [--cycle-id <uuid>] [--cursor <uuid>] [--limit <n>] | coforge weekly-report read --report-id <uuid> --section <name> [--max-characters <n>] | coforge weekly-report-collect submit-pack|submit-empty|submit-failure --run-id <uuid> --request-id <uuid> [--markdown <path>] [--reason <text>] | coforge action prepare --target <target> | coforge manual get <topic> --intent <text> --reason <text> | coforge manual search \"<keywords>\" --intent <text> --reason <text> | coforge whoami [--json] | coforge version [--json] | coforge user info <name> [--json] | coforge profile show [<target>] [--json] | coforge profile update [--display-name <text>] [--description <text>] [--json]",
+    "Usage: coforge channel mute|unmute --target '#channel' | coforge channel info <target> | coforge channel members <target> | coforge channel join --target '#channel' | coforge channel leave --target '#channel' | coforge channel create --name <name> [--description <text>] [--json] | coforge channel update --target '#channel' [--name <name>] [--description <text>] [--json] | coforge channel lifecycle archive|unarchive --target '#channel' [--json] | coforge channel add-member --target '#channel' (--user @handle | --agent @handle) [--json] | coforge channel remove-member --target '#channel' (--user @handle | --agent @handle) [--json] | coforge thread unfollow --target '#channel:message-id' | coforge inbox check | coforge message check | coforge message search --query <text> [--target <target>] [--sender <handle>] [--sort relevance|recent] [--before <iso>] [--after <iso>] [--limit <n>] [--offset <n>] | coforge message read --target @user | coforge message send --target @user [--send-draft] [--anyway] [--reviewer-isolation] [--json] [--attachment-id <uuid>]... [--mention human:<uuid>:<handle>|agent:<uuid>:<handle>]... [--target-confirmed] | coforge message resolve <message-id> | coforge message react --message-id <id> --emoji <emoji> [--remove] | coforge task list|create|convert|claim|unclaim|assign|unassign|update|amend|history|delete|receipt ... | coforge attachment view [--id] <id> --output <path> [--json] | coforge attachment upload --path <file> (--target <target>|--channel <target>) [--mime-type <type>] [--json] | coforge weekly-report context --subject-type report|cycle --subject-id <uuid> | coforge weekly-report list [--cycle-id <uuid>] [--cursor <uuid>] [--limit <n>] | coforge weekly-report read --report-id <uuid> --section <name> [--max-characters <n>] | coforge weekly-report-collect submit-pack|submit-empty|submit-failure --run-id <uuid> --request-id <uuid> [--markdown <path>] [--reason <text>] | coforge action prepare --target <target> | coforge manual get <topic> [--intent <text>] [--reason <text>] | coforge manual search \"<keywords>\" [--intent <text>] [--reason <text>] | coforge whoami [--json] | coforge version [--json] | coforge user info <name> [--json] | coforge profile show [<target>] [--json] | coforge profile update [--display-name <text>] [--description <text>] [--json]",
   );
 }
 
@@ -828,11 +828,11 @@ function parseChannelManagementArgs(args: readonly string[]): ChannelManagementI
 const MANUAL_INTENT_REASON_MIN_LENGTH = 12;
 const MANUAL_INTENT_REASON_MAX_LENGTH = 500;
 const MANUAL_USAGE =
-  'Usage: coforge manual get <topic> --intent "<text>" --reason "<text>" | coforge manual ' +
-  'search "<keywords>" --intent "<text>" --reason "<text>"';
+  'Usage: coforge manual get <topic> [--intent "<text>"] [--reason "<text>"] | coforge manual ' +
+  'search "<keywords>" [--intent "<text>"] [--reason "<text>"]';
 
 function isValidManualField(value: string | undefined): value is string {
-  if (value === undefined) return false;
+  if (value === undefined || value.trim() === "") return true;
   const trimmed = value.trim();
   return (
     trimmed.length >= MANUAL_INTENT_REASON_MIN_LENGTH &&
@@ -841,7 +841,7 @@ function isValidManualField(value: string | undefined): value is string {
 }
 
 /** Client-side mirror of the server's `--intent`/`--reason` validation (see
- * `apps/web/src/server/agents/manual/manual-validation.ts`): both required, trimmed, 12-500
+ * `apps/web/src/server/agents/manual/manual-validation.ts`): optional; non-empty values are trimmed, 12-500
  * characters. When both are invalid, one error names both rather than only the first checked. */
 function validateManualIntentReasonArgs(intent: string | undefined, reason: string | undefined) {
   const intentValid = isValidManualField(intent);
@@ -854,7 +854,7 @@ function validateManualIntentReasonArgs(intent: string | undefined, reason: stri
     throw new CliError({
       code: "KNOWLEDGE_INTENT_INVALID",
       message:
-        `--intent and --reason are both required and must be ${range} characters after ` +
+        `--intent and --reason, when provided, must be ${range} characters after ` +
         `trimming. ${safetyNote}`,
       retryable: false,
     });
@@ -862,14 +862,14 @@ function validateManualIntentReasonArgs(intent: string | undefined, reason: stri
     throw new CliError({
       code: "KNOWLEDGE_INTENT_INVALID",
       message:
-        `--intent is required and must be ${range} characters after trimming: state what you ` +
+        `--intent, when provided, must be ${range} characters after trimming: state what you ` +
         `ultimately want to accomplish. ${safetyNote}`,
       retryable: false,
     });
   throw new CliError({
     code: "KNOWLEDGE_REASON_INVALID",
     message:
-      `--reason is required and must be ${range} characters after trimming: state why the ` +
+      `--reason, when provided, must be ${range} characters after trimming: state why the ` +
       `Manual is needed at this point. ${safetyNote}`,
     retryable: false,
   });
@@ -915,7 +915,7 @@ function parseManualArgs(args: readonly string[]): ManualInvocation {
   }
   if (!value?.trim()) throw new Error(MANUAL_USAGE);
   validateManualIntentReasonArgs(intent, reason);
-  const context = { intent: intent!.trim(), reason: reason!.trim() };
+  const context = { intent: intent?.trim() ?? "", reason: reason?.trim() ?? "" };
   return sub === "get"
     ? { command: "manual-get", topic: value.trim(), ...context }
     : { command: "manual-search", query: value.trim(), ...context };

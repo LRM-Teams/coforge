@@ -45,8 +45,8 @@ export type AgentManualOutcome<Response> =
  * and turns the outcome into an HTTP `Response`. */
 export function resolveManualGet(input: {
   topic: unknown;
-  intent: unknown;
-  reason: unknown;
+  intent?: unknown;
+  reason?: unknown;
 }): AgentManualOutcome<AgentManualGetResponse> {
   const topic = typeof input.topic === "string" ? input.topic : "";
   if (!isValidManualTopicSlug(topic))
@@ -110,8 +110,8 @@ export function resolveManualGet(input: {
 /** Resolves `GET /api/agent/v1/manual/search`. Same shape as `resolveManualGet` above. */
 export function resolveManualSearch(input: {
   query: unknown;
-  intent: unknown;
-  reason: unknown;
+  intent?: unknown;
+  reason?: unknown;
 }): AgentManualOutcome<AgentManualSearchResponse> {
   const queryError = validateManualQuery(input.query);
   if (queryError) return { status: 400, body: { ok: false, ...queryError } };
