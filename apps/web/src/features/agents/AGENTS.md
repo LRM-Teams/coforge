@@ -76,6 +76,8 @@ These rules apply to `src/features/agents/`.
   `features/workspaces/workspaces.functions.ts` and
   `server/workspaces/members.server.ts`; owner-only Agent operations stay
   separate.
+- The per-User weekly-report assistant is an internal Agent identity excluded
+  from this directory; its Computer/Runtime setup reuses the panel.
 
 ## Controls and profile
 
