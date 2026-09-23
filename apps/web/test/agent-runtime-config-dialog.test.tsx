@@ -22,6 +22,26 @@ const initial = {
   reasoning: "high",
 };
 
+test("an unbound Agent's setup form shows the Computer picker and setup title", () => {
+  const markup = renderToStaticMarkup(
+    <AgentRuntimeConfigForm
+      computerId=""
+      computers={[
+        { id: "computer-1", displayName: "LIJIAN", online: true },
+        { id: "computer-2", displayName: "ubuntu", online: false },
+      ]}
+      initial={initial}
+      onLoad={noopLoad}
+      saving={false}
+      error=""
+      onSave={() => {}}
+    />,
+  );
+  expect(markup).toContain(m.agent_profile_setup_runtime());
+  expect(markup).toContain(m.agent_form_computer());
+  expect(markup).toContain("LIJIAN");
+});
+
 test("renders the title, Provider and Model labels, and Save alone; Reasoning waits for the catalog", () => {
   const markup = renderToStaticMarkup(
     <AgentRuntimeConfigForm
