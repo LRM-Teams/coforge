@@ -3,9 +3,18 @@
  * protocol in `@lrm/coforge-sdk/internal`.
  *
  * Names follow `<scope>:v<major>:<domain>:<action>[_result]` (see docs/architecture.md). `<scope>`
- * is the owning surface (`daemon` | `agent` | `computer` | `workspace`); `v<major>` is the
- * RPC-surface version and must equal the envelope `protocolMajor`; `<domain>` is a singular
+ * is the owning surface (`daemon` | `agent` | `computer` | `workspace` | `reminder`); `v<major>` is
+ * the RPC-surface version and must equal the envelope `protocolMajor`; `<domain>` is a singular
  * resource noun; `<action>` is a single verb; a reply is the request name plus `_result`.
+ *
+ * The `<scope>` is also the RPC namespace, and Centrifugo proxies a call only when that namespace
+ * is enabled for RPC in its configuration (`rpc.namespaces` in `infra/centrifugo/config.yaml` and
+ * `infra/staging/centrifugo/config.yaml`). An unlisted namespace is refused with
+ * `104 method not found` *before* the backend sees the call — the backend's own answer to an
+ * unknown method is `404 unknown RPC method`. The refusal therefore looks like a server that does
+ * not know the method at all, while everything downstream (retries, catch-up, the reminder that
+ * never fires) fails quietly. `rpc-method-namespace.test.ts` fails the build when the two lists
+ * drift apart.
  *
  * No other module may hard-code a method name as a string literal. The per-feature `*_METHOD`
  * constants re-export the entries below so call sites keep their readable names, and
