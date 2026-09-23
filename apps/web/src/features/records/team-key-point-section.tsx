@@ -1,6 +1,5 @@
 import { useState } from "react";
-import { AlertCircle, Stars01 as Stars, XClose as X } from "@untitledui/icons";
-import { Link } from "@tanstack/react-router";
+import { AlertCircle, XClose as X } from "@untitledui/icons";
 import { Heading, Text } from "react-aria-components";
 
 import { Dialog, Modal, ModalOverlay } from "#src/components/application/modals/modal";
@@ -8,6 +7,7 @@ import { Button } from "#src/components/base/buttons/button";
 import { ButtonUtility } from "#src/components/base/buttons/button-utility";
 import { FeaturedIcon } from "#src/components/foundations/featured-icon/featured-icon";
 import { m } from "#src/paraglide/messages";
+import { localizeHref } from "#src/paraglide/runtime";
 import type { KeyPointExtractionMeta } from "./records-content";
 import { KeyPointExtractionPanel } from "./key-point-extraction-panel";
 
@@ -43,6 +43,15 @@ export function TeamKeyPointSection({
       status === "failed" ||
       status === "pending_setup");
   const willOverwrite = status === "ready";
+  // Same solid primary control as the template「发送」/ assignment「重新发送」header actions.
+  const editPromptHref = localizeHref(
+    `/records/settings?${new URLSearchParams({
+      tab: "weekly",
+      section: "key_points",
+      slot: "team",
+      returnTo: `/records/${overviewReportId}`,
+    }).toString()}`,
+  );
 
   function onPressStart() {
     if (willOverwrite) {
@@ -62,24 +71,14 @@ export function TeamKeyPointSection({
           <p className="text-sm text-tertiary">{m.records_key_points_team_section_hint()}</p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
-          <Link
-            to="/records/settings"
-            search={{
-              tab: "weekly",
-              section: "key_points",
-              slot: "team",
-              returnTo: `/records/${overviewReportId}`,
-            }}
-            className="text-sm font-medium text-brand-secondary hover:underline"
-          >
+          <Button size="sm" color="primary" href={editPromptHref}>
             {m.records_key_points_edit_prompt()}
-          </Link>
+          </Button>
           {canStart ? (
             <Button
               type="button"
               size="sm"
               color="primary"
-              iconLeading={Stars}
               isDisabled={busy}
               onPress={onPressStart}
             >
