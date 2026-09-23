@@ -15,7 +15,9 @@ const task = (status: TaskStatus, owner: TaskView["owner"] = null): TaskView => 
 const owner = (memberId: string): NonNullable<TaskView["owner"]> => ({
   memberId,
   kind: "user",
+  id: `user-${memberId}`,
   name: memberId,
+  handle: memberId,
 });
 
 describe("getTaskMoveCommand", () => {

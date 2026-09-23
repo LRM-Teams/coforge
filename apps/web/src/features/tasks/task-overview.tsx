@@ -159,7 +159,7 @@ function TaskOverviewLink({
         <TaskDetailMenu
           task={task}
           onCommand={onCommand}
-          conversationLabel={task.source.label}
+          conversationName={task.source.label}
           currentMemberId={task.currentMemberId ?? null}
         />
       )}

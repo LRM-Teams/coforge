@@ -264,12 +264,10 @@ function TaskGroup({
         <span className="inline-flex items-center gap-2.5">
           <span
             aria-hidden="true"
-            className={`shrink-0 rounded-full ${board ? "size-3" : "size-2"} ${statusAppearance[status].background}`}
+            className={`shrink-0 rounded-full ${board ? "size-3" : "size-2"} ${TASK_STATUS_COLOR[status].dot}`}
           />
           {statusLabel(status)}
-          <span
-            className={`inline-flex min-h-5 min-w-6 shrink-0 items-center justify-center rounded-full px-2 text-xs font-medium tabular-nums ${statusAppearance[status].badge}`}
-          >
+          <span className="inline-flex min-h-5 min-w-6 shrink-0 items-center justify-center rounded-full px-2 text-xs font-medium tabular-nums bg-secondary text-secondary">
             {count}
           </span>
         </span>
@@ -297,13 +295,15 @@ export function statusLabel(status: TaskStatus) {
   }[status]();
 }
 
-const statusAppearance = {
-  todo: { background: "bg-fg-quaternary", badge: "bg-secondary text-secondary" },
-  in_progress: { background: "bg-utility-blue-500", badge: "bg-secondary text-secondary" },
-  in_review: { background: "bg-utility-amber-500", badge: "bg-secondary text-secondary" },
-  done: { background: "bg-fg-success-primary", badge: "bg-secondary text-secondary" },
-  closed: { background: "bg-offline", badge: "bg-secondary text-secondary" },
-} satisfies Record<TaskStatus, { background: string; badge: string }>;
+/** One colour per status, shared by the board columns and the task popup: the badge colour, the
+ * solid dot, and the lighter line the popup's history timeline draws between nodes. */
+export const TASK_STATUS_COLOR = {
+  todo: { badge: "orange", dot: "bg-utility-orange-500", line: "bg-utility-orange-300" },
+  in_progress: { badge: "blue", dot: "bg-utility-blue-500", line: "bg-utility-blue-300" },
+  in_review: { badge: "indigo", dot: "bg-utility-indigo-500", line: "bg-utility-indigo-300" },
+  done: { badge: "success", dot: "bg-utility-green-500", line: "bg-utility-green-300" },
+  closed: { badge: "gray", dot: "bg-utility-neutral-400", line: "bg-utility-neutral-300" },
+} as const satisfies Record<TaskStatus, { badge: string; dot: string; line: string }>;
 
 function parseTaskStatus(value: string | null): TaskStatus | undefined {
   return TASK_STATUSES.find((status) => status === value);

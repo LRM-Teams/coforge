@@ -215,26 +215,8 @@ export type ThreadedConversationProps = Omit<ConversationProps, "conversation" |
   emptyState: { title: string; description: string; media: React.ReactNode };
   threadHeaderAction?: (rootMessageId: string) => React.ReactNode;
   /** `#channel` or the direct conversation's name, shown in the task popup's header. */
-  conversationLabel: string;
-  /** Who the task popup names as assignees and offers to assign. */
-  taskMembers?: readonly Mentionable[];
+  conversationName: string;
 };
-
-/** A direct conversation's only assignable member for its Tasks: its Agent. */
-export function directConversationTaskMembers(
-  agent: DirectConversationView["agent"],
-): Mentionable[] {
-  return [
-    {
-      kind: "agent",
-      id: agent.id,
-      handle: agent.name,
-      label: agent.displayName?.trim() || agent.name,
-      description: "",
-      mentionScore: 0,
-    },
-  ];
-}
 
 export function DirectConversationHeader({
   conversation,
@@ -346,8 +328,7 @@ export function DirectConversation(props: ConversationProps) {
   return (
     <ThreadedConversation
       {...props}
-      conversationLabel={conversation.agent.displayName?.trim() || conversation.agent.name}
-      taskMembers={directConversationTaskMembers(conversation.agent)}
+      conversationName={conversation.agent.displayName?.trim() || conversation.agent.name}
       plainMentions={plainMentions}
       header={
         <DirectConversationHeader
@@ -408,8 +389,7 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
     // Held out of `conversationProps` so the thread panes (which spread it) never receive it:
     // only the main pane may advance the conversation-level read cursor.
     onReadLatest,
-    conversationLabel,
-    taskMembers,
+    conversationName,
     ...conversationProps
   } = props;
   const detailVisible = useConversationDetailVisible();
@@ -488,49 +468,70 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
       : props.tasks?.find((task) => task.number === openTaskNumber);
   const openTaskRoot =
     openTask && mainMessages.find((message) => message.id === openTask.messageId);
+  // What every thread pane shares: the side pane and the thread under the task popup.
+  const threadPaneProps = (root: DirectConversationView["messages"][number]) => ({
+    ...conversationProps,
+    streamRead: windowRead,
+    taskReferences: taskNumbers,
+    onOpenTask: openTaskReference,
+    onLoadMessageAround,
+    root,
+    conversation: {
+      ...conversation,
+      messages: repliesOf(root.id),
+      readThroughSequence: threadCursor(root.id),
+    },
+    onSend: (...[body, requestId, attachmentIds]: Parameters<typeof conversationProps.onSend>) =>
+      conversationProps.onSend(body, requestId, attachmentIds, root.id),
+  });
   const taskDialog = openTask ? (
     <TaskDetailDialog
+      // One popup instance per task: switching tasks from a chip inside the popup starts fresh.
+      key={openTask.messageId}
       task={openTask}
       open
       onOpenChange={(next) => {
         if (!next) setOpenTaskNumber(undefined);
       }}
-      conversationLabel={conversationLabel}
-      members={taskMembers}
+      conversationName={conversationName}
+      members={conversation.mentionables}
       currentMemberId={conversation.senderMemberId || null}
       thread={
         openTaskRoot &&
         ((taskSection) => (
           <ConversationPane
-            {...conversationProps}
-            taskReferences={taskNumbers}
-            onOpenTask={openTaskReference}
-            onLoadMessageAround={onLoadMessageAround}
-            root={openTaskRoot}
+            {...threadPaneProps(openTaskRoot)}
             rootSlot={taskSection}
+            openAtTop
             emptyState={{
               title: m.tasks_no_replies(),
               description: "",
               media: <MessageSquare aria-hidden="true" className="size-6 text-tertiary" />,
             }}
-            conversation={{
-              ...conversation,
-              messages: repliesOf(openTaskRoot.id),
-              readThroughSequence: threadCursor(openTaskRoot.id),
-            }}
-            onSend={(body, requestId, attachmentIds) =>
-              conversationProps.onSend(body, requestId, attachmentIds, openTaskRoot.id)
-            }
           />
         ))
       }
     />
   ) : null;
+  // The popup shows the task's thread itself, so a side pane for the same thread closes (two
+  // composers on one thread would share and overwrite its draft), and a task message outside the
+  // loaded window is fetched the way a thread link is.
+  const openTaskMessageId = openTask?.messageId;
+  const attemptedTaskLoad = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    if (!openTaskMessageId) {
+      attemptedTaskLoad.current = undefined;
+      return;
+    }
+    if (attemptedTaskLoad.current === openTaskMessageId) return;
+    if (conversation.messages.some((message) => message.id === openTaskMessageId)) return;
+    attemptedTaskLoad.current = openTaskMessageId;
+    void loadWindowAround(openTaskMessageId);
+  }, [openTaskMessageId, conversation.messages, loadWindowAround]);
   const selected = resolveConversationThreadRoot({
     searchThreadRootId,
     messages: conversation.messages,
   });
-  const selectedSequence = selected ? (repliesOf(selected).at(-1)?.sequence ?? 0) : 0;
 
   // The conversation's shared right-hand slot: Thread (`threadRootId` search) and the Agent
   // profile panel (`profile` search) are mutually exclusive. Their open hooks clear the other
@@ -540,6 +541,16 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
     if (!selected) return;
     setVisited((previous) => (previous.includes(selected) ? previous : [...previous, selected]));
   }, [selected]);
+  // Runs after the add above, so a side pane for the popup's thread never re-mounts under it.
+  useEffect(() => {
+    if (!openTaskMessageId) return;
+    setVisited((previous) =>
+      previous.includes(openTaskMessageId)
+        ? previous.filter((rootId) => rootId !== openTaskMessageId)
+        : previous,
+    );
+    if (selected === openTaskMessageId) closeThread();
+  }, [openTaskMessageId, selected, closeThread]);
   const visibleSlot = resolveVisibleConversationSlot({
     threadOpen: Boolean(selected),
     profileOpen: Boolean(profileAgentId),
@@ -558,23 +569,25 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
   // collapse the split with CSS; unmount the resizable Group and stack full-width panes
   // instead. Both panes stay mounted so drafts and scroll survive, matching the desktop slot.
   const wideViewport = useBreakpoint("md");
+  // The thread in view is marked read: the task popup's when it is open, else the side pane's.
+  const threadInView = openTaskRoot?.id ?? (detailVisible ? selected : undefined);
+  const threadInViewSequence = threadInView ? (repliesOf(threadInView).at(-1)?.sequence ?? 0) : 0;
   useEffect(() => {
     if (
-      !detailVisible ||
-      !selected ||
-      !selectedSequence ||
+      !threadInView ||
+      !threadInViewSequence ||
       reading.current ||
       document.visibilityState === "hidden"
     )
       return;
-    const boundary = threadCursor(selected) ?? 0;
-    if (selectedSequence <= boundary) return;
+    const boundary = threadCursor(threadInView) ?? 0;
+    if (threadInViewSequence <= boundary) return;
     reading.current = true;
-    void (onReadThread?.(selected, selectedSequence) ?? Promise.resolve())
+    void (onReadThread?.(threadInView, threadInViewSequence) ?? Promise.resolve())
       .then(() => {
         setReadThrough((previous) => ({
           ...previous,
-          [selected]: selectedSequence,
+          [threadInView]: threadInViewSequence,
         }));
       })
       .catch(() => {
@@ -583,7 +596,7 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
       .finally(() => {
         reading.current = false;
       });
-  }, [detailVisible, selected, selectedSequence, conversation, onReadThread, readThrough]);
+  }, [threadInView, threadInViewSequence, conversation, onReadThread, readThrough]);
 
   // Hash-only deep links (notifications) still land on `#message-<id>`. Promote
   // that into `threadRootId` search once, then leave the hash as a scroll target.
@@ -725,26 +738,13 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
             )}
           >
             <ConversationPane
-              {...conversationProps}
-              streamRead={windowRead}
-              taskReferences={taskNumbers}
-              onOpenTask={openTaskReference}
-              onLoadMessageAround={onLoadMessageAround}
-              root={root}
+              {...threadPaneProps(root)}
               onClose={closeThread}
               emptyState={{
                 title: m.conversation_thread_empty_title(),
                 description: m.conversation_thread_empty(),
                 media: <MessageSquare aria-hidden="true" className="size-6 text-tertiary" />,
               }}
-              conversation={{
-                ...conversation,
-                messages: repliesOf(rootId),
-                readThroughSequence: threadCursor(rootId),
-              }}
-              onSend={(body, requestId, attachmentIds) =>
-                conversationProps.onSend(body, requestId, attachmentIds, rootId)
-              }
               threadHeaderAction={threadHeaderAction?.(rootId)}
             />
           </section>
@@ -833,6 +833,7 @@ export function ConversationPane({
   onSend,
   root,
   rootSlot,
+  openAtTop,
   onClose,
   threadEntry,
   threadPreview,
@@ -863,6 +864,9 @@ export function ConversationPane({
   /** Shown in place of a thread's header and root row, scrolling with its replies — the task
    * popup puts the task there. */
   rootSlot?: React.ReactNode;
+  /** Opens at the top instead of the viewer's open position — the task popup's thread opens on
+   * the task, not its latest reply. */
+  openAtTop?: boolean;
   onClose?: () => void;
   threadEntry?: (message: DirectConversationView["messages"][number]) => MessageThreadEntry;
   threadPreview?: (message: DirectConversationView["messages"][number]) => React.ReactNode;
@@ -941,6 +945,7 @@ export function ConversationPane({
   const [loadingOlder, loadingOlderRef, setLoadingOlder] = useStateWithRef(false);
   const [, loadingNewerRef, setLoadingNewer] = useStateWithRef(false);
   const historyRef = useRef<HTMLDivElement>(null);
+  const messageListRef = useRef<HTMLOListElement>(null);
   /** Distance from the bottom as of the last scroll. The pinning observer decides from this
    * rather than from a fresh measurement, because by the time it runs the resize is already in
    * `scrollHeight`. */
@@ -1138,6 +1143,15 @@ export function ConversationPane({
           ).length;
     previousConversationIdRef.current = conversation.conversationId;
     previousLastSequenceRef.current = lastSequence;
+    if (openAtTop && firstRender) {
+      // Stays at the top; it still follows new replies when everything already fits, since a
+      // pane that cannot scroll never reports a reading position.
+      const history = historyRef.current;
+      setFollowingLatest(
+        Boolean(history) && history!.scrollHeight - history!.clientHeight <= PIN_TOLERANCE_PX,
+      );
+      return undefined;
+    }
 
     if (firstRender || changedConversation || followingLatestRef.current) {
       setNewMessageCount(0);
@@ -1195,8 +1209,7 @@ export function ConversationPane({
       bottomDistanceRef.current = 0;
     });
     observer.observe(history);
-    const messages = history.querySelector("ol");
-    if (messages) observer.observe(messages);
+    if (messageListRef.current) observer.observe(messageListRef.current);
     return () => observer.disconnect();
   }, [conversation.conversationId, conversation.messages.length === 0]);
 
@@ -1599,7 +1612,7 @@ export function ConversationPane({
             // Every loaded row is rendered, in normal flow. Nothing here computes a row's position
             // or its height, so no measurement can shift a row under the reader and no scroll
             // correction is needed while you read; the scrollbar is the real content height.
-            <ol className="flex flex-col pt-6">
+            <ol ref={messageListRef} className="flex flex-col pt-6">
               {conversation.messages.map((message, index) => {
                 const key = message.id;
                 const previous = conversation.messages[index - 1];

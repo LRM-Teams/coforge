@@ -8,11 +8,12 @@ export type TaskStatus = (typeof TASK_STATUSES)[number];
 export type TaskMember = {
   memberId: string;
   kind: "user" | "agent";
+  /** The User or Agent id behind the member, as history payloads name an assignee. */
+  id: string;
   name: string;
-  /** The username or Agent name; the Agent API's TaskView omits it. */
-  handle?: string;
-  /** Where the browser reads a human's avatar; absent for an Agent or a viewer surface that
-   * carries no avatar (the Agent API's TaskView). */
+  /** The username or Agent name. */
+  handle: string;
+  /** Where the browser reads a human's avatar; absent for an Agent. */
   avatarUrl?: string | null;
 };
 
@@ -25,7 +26,7 @@ export type TaskView = {
   status: TaskStatus;
   revision: number;
   owner: TaskMember | null;
-  /** Who created the Task; the Agent API's TaskView omits it. */
+  /** Who created the Task; only the history read carries it. */
   creator?: TaskMember;
   channelRef?: string;
   requiresResourceReceipt?: boolean;

@@ -8,6 +8,7 @@ import {
   type TaskCommand,
   type TaskHistoryChange,
   type TaskHistoryEvent,
+  type TaskMember,
   type TaskPrincipal,
   type TaskResult,
   type TaskStatus,
@@ -65,7 +66,6 @@ const taskSelection = {
   claimedAt: true,
   ownerMemberId: true,
   owner: { select: TASK_MEMBER_SELECT },
-  creator: { select: TASK_MEMBER_SELECT },
   // The backing message's sequence, so realtime signals need no second read.
   message: { select: { sequence: true } },
 } satisfies Prisma.TaskSelect;
@@ -119,26 +119,27 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+/** A Task's owner or creator; a conversation member is exactly one of a User or an Agent. */
 function taskMember(
   workspaceId: string,
-  member: SelectedTask["creator"],
-): NonNullable<TaskView["creator"]> {
+  member: Prisma.ConversationMemberGetPayload<{ select: typeof TASK_MEMBER_SELECT }>,
+): TaskMember {
   if (member.agent)
     return {
       memberId: member.id,
       kind: "agent",
+      id: member.agentId!,
       name: member.agent.displayName || member.agent.name,
       handle: member.agent.name,
     };
+  const user = member.user!;
   return {
     memberId: member.id,
     kind: "user",
-    name: member.user?.displayName || `@${member.user?.username}`,
-    handle: member.user?.username,
-    avatarUrl:
-      member.userId && member.user
-        ? workspaceUserAvatarUrl(workspaceId, member.userId, member.user.avatarObjectKey)
-        : null,
+    id: member.userId!,
+    name: user.displayName || `@${user.username}`,
+    handle: user.username,
+    avatarUrl: workspaceUserAvatarUrl(workspaceId, member.userId!, user.avatarObjectKey),
   };
 }
 
@@ -167,7 +168,6 @@ function view(task: SelectedTask): TaskView {
       },
     }),
     owner: task.owner && taskMember(task.workspaceId, task.owner),
-    creator: taskMember(task.workspaceId, task.creator),
   };
 }
 
@@ -1430,10 +1430,17 @@ export class TaskBoard {
       where: {
         conversationId_number: { conversationId, number: command.number! },
       },
-      select: { ...taskSelection, history: { orderBy: { seq: "asc" } } },
+      select: {
+        ...taskSelection,
+        creator: { select: TASK_MEMBER_SELECT },
+        history: { orderBy: { seq: "asc" } },
+      },
     });
     if (!task) throw new AppError("NOT_FOUND");
-    return { tasks: [view(task)], history: task.history.map(historyEventView) };
+    return {
+      tasks: [{ ...view(task), creator: taskMember(task.workspaceId, task.creator) }],
+      history: task.history.map(historyEventView),
+    };
   }
 
   private async delete(

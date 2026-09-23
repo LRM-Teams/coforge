@@ -1011,7 +1011,13 @@ test("Task update reads one revision then submits once and formats Thread-useful
               title: "Verify",
               status: command.operation === "update" ? "in_review" : "in_progress",
               revision: 5,
-              owner: { memberId: "member", kind: "agent", name: "builder" },
+              owner: {
+                memberId: "member",
+                kind: "agent",
+                id: "agent",
+                name: "builder",
+                handle: "builder",
+              },
             },
           ],
         };
@@ -1045,7 +1051,13 @@ test("Task unclaim reads one revision unless explicitly supplied and submits onc
               title: "Verify",
               status: "in_progress",
               revision: 4,
-              owner: { memberId: "member", kind: "agent", name: "builder" },
+              owner: {
+                memberId: "member",
+                kind: "agent",
+                id: "agent",
+                name: "builder",
+                handle: "builder",
+              },
             },
           ],
         };
