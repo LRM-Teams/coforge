@@ -75,6 +75,13 @@ export async function listAgentSkills(options: {
       // claim no global scope rather than guess one.
       locals = [local(".opencode/skills")];
       break;
+    case RUNTIME_PROVIDER.GROK:
+      // Grok Build discovers project skills from `.grok/skills/` in the workspace; Raft's
+      // execenv writes the same path, and its runtime home links the user's `~/.grok/skills` as
+      // the personal scope. Managed by the daemon before launch (ADR 0068).
+      locals = [local(".grok/skills")];
+      if (home) globals = [native("GROK_HOME", ".grok", "skills")];
+      break;
     case RUNTIME_PROVIDER.PI:
       locals = [local(".pi/skills", "pi"), local(".agents/skills")];
       if (home)

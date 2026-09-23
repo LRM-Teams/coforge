@@ -277,6 +277,7 @@ export const RUNTIME_PROVIDER = {
   KIRO: "kiro",
   CURSOR: "cursor",
   OPENCODE: "opencode",
+  GROK: "grok",
 } as const;
 export type RuntimeProvider = (typeof RUNTIME_PROVIDER)[keyof typeof RUNTIME_PROVIDER];
 /** Every RuntimeProvider value, for a zod `z.enum` or other exhaustive-tuple consumer. */
@@ -305,6 +306,7 @@ export const RUNTIME_PROVIDER_USES_EXTERNAL_CLI: Record<RuntimeProvider, boolean
   [RUNTIME_PROVIDER.KIRO]: true,
   [RUNTIME_PROVIDER.CURSOR]: true,
   [RUNTIME_PROVIDER.OPENCODE]: true,
+  [RUNTIME_PROVIDER.GROK]: true,
 };
 export type AgentRuntimeProviderConfig =
   | { kind: "default" }
