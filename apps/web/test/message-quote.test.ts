@@ -4,6 +4,7 @@ import {
   AFFORDANCE_HEIGHT,
   AFFORDANCE_WIDTH,
   QUOTE_SELECTION_MAX_CHARS,
+  TOUCH_AFFORDANCE_GAP,
   formatSelectionQuote,
   quoteSelectionText,
   selectionAffordancePlacement,
@@ -93,6 +94,35 @@ describe("selectionAffordancePlacement", () => {
     const firstLine = { ...highlight, top: 100, bottom: 124 };
     const placement = selectionAffordancePlacement(firstLine, container, { top: 0 });
     expect(placement.top).toBe(-AFFORDANCE_HEIGHT - 4);
+  });
+
+  // A touch selection raises the platform's own edit menu above the highlight (iOS Copy/Look Up,
+  // Android's selection toolbar), and web content cannot suppress it: the bar goes below instead,
+  // clear of the selection's end handle, so the two menus never stack.
+  test("a touch selection puts the bar below the highlight, clear of the end handle", () => {
+    const placement = selectionAffordancePlacement(highlight, container, undefined, "below");
+    expect(placement.top).toBe(164 - 100 + TOUCH_AFFORDANCE_GAP);
+  });
+
+  test("a touch selection flips above only when below would cross the visible bottom", () => {
+    const lastLine = { ...highlight, top: 276, bottom: 300 };
+    const placement = selectionAffordancePlacement(
+      lastLine,
+      container,
+      { top: 0, bottom: 320 },
+      "below",
+    );
+    expect(placement.top).toBe(276 - 100 - AFFORDANCE_HEIGHT - 4);
+  });
+
+  test("a touch selection stays below when below fits the visible bottom", () => {
+    const placement = selectionAffordancePlacement(
+      highlight,
+      container,
+      { top: 0, bottom: 320 },
+      "below",
+    );
+    expect(placement.top).toBe(164 - 100 + TOUCH_AFFORDANCE_GAP);
   });
 
   test("centers over the highlight when there is room", () => {
