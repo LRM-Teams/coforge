@@ -138,6 +138,8 @@
   "agent_runtime_save": "保存运行时配置",
   "agent_runtime_saving": "正在保存…",
   "agent_runtime_delete_key": "删除 API Key",
+  "agent_runtime_delete_key_confirm": "删除已保存的 {provider} API Key？删除后无法恢复。",
+  "agent_runtime_deleting": "正在删除…",
   "agent_runtime_save_error": "无法保存运行时配置，请重试。",
   "agent_runtime_delete_error": "无法删除 API Key，请重试。",
   "agent_control_title": "智能体控制",

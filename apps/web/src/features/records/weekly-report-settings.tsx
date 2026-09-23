@@ -18,6 +18,7 @@ import { Empty, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
 import { m } from "@/paraglide/messages";
 import { CreateWeeklyTemplateDialog } from "./create-weekly-template-dialog";
 import { KeyPointPromptEditor } from "./key-point-prompt-editor";
+import { RecordsDeleteConfirmDialog } from "./records-delete-confirm-dialog";
 import {
   emptyKeyPointPrompts,
   formatRecipientSummary,
@@ -90,6 +91,10 @@ export function WeeklyReportSettings({
   const [editing, setEditing] = useState<WeeklyTemplateList[number] | null>(null);
   const [detail, setDetail] = useState<WeeklyTemplateList[number] | null>(null);
   const [busy, setBusy] = useState(false);
+  const [templatePendingDelete, setTemplatePendingDelete] = useState<
+    WeeklyTemplateList[number] | null
+  >(null);
+  const [historyPendingDelete, setHistoryPendingDelete] = useState<number | null>(null);
 
   function readEditorText(): string {
     return textareaRef.current?.value ?? draftText;
@@ -165,6 +170,7 @@ export function WeeklyReportSettings({
       await remove({ data: { templateId: template.id } });
       await router.invalidate({ sync: true });
       if (detail?.id === template.id) setDetail(null);
+      setTemplatePendingDelete(null);
     } finally {
       setBusy(false);
     }
@@ -200,6 +206,7 @@ export function WeeklyReportSettings({
       setPrompts(saved);
       await router.invalidate({ sync: true });
       setPrompts(saved);
+      setHistoryPendingDelete(null);
     } finally {
       setBusy(false);
     }
@@ -312,10 +319,10 @@ export function WeeklyReportSettings({
                           </Button>
                           <Button
                             size="sm"
-                            color="link-destructive"
+                            color="tertiary-destructive"
                             iconLeading={Trash}
                             isDisabled={busy}
-                            onPress={() => void onDelete(template)}
+                            onPress={() => setTemplatePendingDelete(template)}
                           >
                             {m.records_template_delete()}
                           </Button>
@@ -358,10 +365,38 @@ export function WeeklyReportSettings({
               editingRef.current = false;
               setDraftText(readEditorText());
             }}
-            onDeleteHistory={(index) => void onDeleteHistory(index)}
+            onDeleteHistory={setHistoryPendingDelete}
           />
         </div>
       )}
+
+      <RecordsDeleteConfirmDialog
+        open={templatePendingDelete !== null}
+        title={m.records_template_delete_confirm_title({
+          name: templatePendingDelete?.name ?? "",
+        })}
+        description={m.records_template_delete_confirm_body()}
+        busy={busy}
+        onOpenChange={(open) => {
+          if (!open) setTemplatePendingDelete(null);
+        }}
+        onConfirm={() => {
+          if (templatePendingDelete) void onDelete(templatePendingDelete);
+        }}
+      />
+
+      <RecordsDeleteConfirmDialog
+        open={historyPendingDelete !== null}
+        title={m.records_key_points_prompt_history_delete_confirm_title()}
+        description={m.records_key_points_prompt_history_delete_confirm_body()}
+        busy={busy}
+        onOpenChange={(open) => {
+          if (!open) setHistoryPendingDelete(null);
+        }}
+        onConfirm={() => {
+          if (historyPendingDelete !== null) void onDeleteHistory(historyPendingDelete);
+        }}
+      />
 
       <WeeklyTemplateDetailDialog
         template={detail}

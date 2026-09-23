@@ -78,7 +78,7 @@ export function KeyPointPromptEditor({
                       <Button
                         type="button"
                         size="sm"
-                        color="link-destructive"
+                        color="tertiary-destructive"
                         iconLeading={Trash}
                         isDisabled={busy}
                         onPress={() => onDeleteHistory(historyIndex)}
