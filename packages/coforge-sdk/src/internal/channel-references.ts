@@ -32,6 +32,12 @@ export const THREAD_REFERENCE_PATTERN = new RegExp(
   "giu",
 );
 
+/**
+ * CoForge's channel-name grammar: what a channel can be called. A `#name` outside it can never name
+ * a channel.
+ */
+export const CHANNEL_NAME_PATTERN = /^[a-z0-9][a-z0-9_-]{0,31}$/;
+
 /** The stored-body token for one resolved channel reference: `<@channel:<uuid>:<name>>`. */
 export const CHANNEL_REFERENCE_TOKEN_PATTERN = new RegExp(
   `<@channel:(${UUID}):([a-z0-9][a-z0-9_-]*)>`,
@@ -53,7 +59,7 @@ export function replaceChannelReferenceTokens(
   currentName?: (id: string) => string | undefined,
 ): string {
   return body.replace(
-    new RegExp(CHANNEL_REFERENCE_TOKEN_PATTERN.source, "gi"),
+    CHANNEL_REFERENCE_TOKEN_PATTERN,
     (_token, id: string, name: string) => `#${currentName?.(id.toLowerCase()) ?? name}`,
   );
 }

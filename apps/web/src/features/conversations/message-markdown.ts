@@ -58,6 +58,8 @@ export const TASK_CHIP_LINK_CLASS = "message-markdown-task-reference-link";
  */
 export const CHANNEL_CHIP_CLASS =
   "message-markdown-channel-reference rounded-sm px-0.5 font-medium bg-brand-primary text-brand-secondary";
+/** The chip's `className` list, split once; nothing mutates it. */
+const CHANNEL_CHIP_CLASSES = CHANNEL_CHIP_CLASS.split(" ");
 
 /** A resolved mention as a chip needs both its stable handle (identity/self matching) and its
  * display label, plus the Agent id to open its profile panel when applicable. */
@@ -163,17 +165,19 @@ export function rehypeChannelReferenceChips(options: {
       const code = inCode || tagName === "code" || tagName === "pre";
       const link = inLink || tagName === "a";
       const next: Array<Element | Text> = [];
+      let changed = false;
 
       for (const child of node.children as Array<Element | Text>) {
         if (child.type === "text" && !code && child.value.includes("<@channel:")) {
           next.push(...channelChipParts(child.value, link ? undefined : currentNames));
+          changed = true;
           continue;
         }
         if (child.type === "element") visit(child, code, link);
         next.push(child);
       }
 
-      node.children = next;
+      if (changed) node.children = next;
     };
 
     visit(tree, false, false);
@@ -188,7 +192,7 @@ function channelChipParts(
 ): Array<Element | Text> {
   const parts: Array<Element | Text> = [];
   let offset = 0;
-  for (const match of value.matchAll(new RegExp(CHANNEL_REFERENCE_TOKEN_PATTERN.source, "gi"))) {
+  for (const match of value.matchAll(CHANNEL_REFERENCE_TOKEN_PATTERN)) {
     const id = match[1]!.toLowerCase();
     const label = `#${currentNames?.get(id) ?? match[2]!}`;
     if (match.index > offset) parts.push({ type: "text", value: value.slice(offset, match.index) });
@@ -197,7 +201,7 @@ function channelChipParts(
         ? {
             type: "element",
             tagName: "span",
-            properties: { className: CHANNEL_CHIP_CLASS.split(" "), "data-channel-id": id },
+            properties: { className: CHANNEL_CHIP_CLASSES, "data-channel-id": id },
             children: [{ type: "text", value: label }],
           }
         : { type: "text", value: label },

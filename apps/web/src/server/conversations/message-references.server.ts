@@ -1,27 +1,37 @@
-import type { PrismaClient } from "#src/generated/prisma/client";
-import type { MessageReferenceLookup, MessageReferences } from "#src/lib/message-references";
-
-type Transaction = Parameters<Parameters<PrismaClient["$transaction"]>[0]>[0];
+import {
+  resolveMentionTargets,
+  type MentionSelectorInput,
+  type MentionTarget,
+  type ResolvedMention,
+} from "@lrm/coforge-sdk/internal";
+import type { Prisma } from "#src/generated/prisma/client";
+import { readMessageReferences } from "#src/lib/message-references";
 
 /**
- * The body a send stores: every reference the server can resolve becomes its structured token, so
- * no reader ever has to parse prose again. The caller reads the body once
- * (`readMessageReferences`); this function answers its candidates from the database:
+ * The body a send stores, and the mentions it resolved: every reference the server can resolve
+ * becomes its structured token, so no reader ever has to parse prose again. The body is read once
+ * (`readMessageReferences`) and its candidates answered here:
  *
+ * - `@handle` names one of the conversation's mention `targets` (a DM passes none, so its
+ *   `@handle` stays text), with `bindings` — the CLI's `--mention` selectors — first;
  * - `task #N` names a task of this conversation;
  * - `#name` names a channel of this Workspace. Every channel is public and readable by every
  *   Workspace member (archived ones included), so any channel here is one the sender can see.
  *
- * Mentions are resolved by the caller, which knows the conversation's mention targets (a DM has
- * none), and passed in as `mention`. Anything unresolved stays byte-for-byte as written.
+ * Anything unresolved stays byte-for-byte as written.
  */
-export async function storedMessageBody(
-  tx: Pick<Transaction, "task" | "conversation">,
+export async function storeMessageBody(
+  tx: Pick<Prisma.TransactionClient, "task" | "conversation">,
   scope: { workspaceId: string; conversationId: string },
-  references: MessageReferences,
-  mention?: MessageReferenceLookup["mention"],
-): Promise<string> {
-  const { taskNumbers, channelNames } = references.candidates;
+  body: string,
+  mentionScope: {
+    targets: readonly MentionTarget[];
+    bindings?: readonly MentionSelectorInput[];
+  },
+): Promise<{ body: string; mentions: ResolvedMention[] }> {
+  const references = readMessageReferences(body);
+  const { handles, taskNumbers, channelNames } = references.candidates;
+  const mentions = resolveMentionTargets(handles, mentionScope.targets, mentionScope.bindings);
   const knownTasks = new Set(
     taskNumbers.length
       ? (
@@ -42,9 +52,12 @@ export async function storedMessageBody(
         ).map((channel) => [channel.channelName!, { id: channel.id, name: channel.channelName! }])
       : [],
   );
-  return references.resolve({
-    mention,
-    task: (number) => knownTasks.has(number),
-    channel: (name) => channelsByName.get(name),
-  });
+  return {
+    body: references.resolve({
+      mention: mentions.target,
+      task: (number) => knownTasks.has(number),
+      channel: (name) => channelsByName.get(name),
+    }),
+    mentions: mentions.mentions,
+  };
 }

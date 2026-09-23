@@ -45,7 +45,7 @@ export function replaceTaskReferenceTokens(
   resolve: (number: number) => string | undefined,
 ): string {
   return body.replace(
-    new RegExp(TASK_REFERENCE_TOKEN_PATTERN.source, "gi"),
+    TASK_REFERENCE_TOKEN_PATTERN,
     (token, digits: string) => resolve(Number(digits)) ?? token,
   );
 }

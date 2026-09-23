@@ -3,7 +3,7 @@ import { expect, test } from "bun:test";
 import {
   activeMentionQuery,
   filterMentionables,
-  makeMentionBodyFormatter,
+  makeReferenceBodyFormatter,
   type Mentionable,
 } from "#src/features/conversations/mention-text";
 
@@ -156,38 +156,38 @@ test("an Agent candidate ranks and sorts the same way as a person candidate", ()
 const AGENT_UUID = "bf69603b-642b-40d7-b877-0080e29f4306";
 const USER_UUID = "11111111-2222-4333-8444-555555555555";
 
-test("makeMentionBodyFormatter rewrites an Agent token to its display label", () => {
-  const format = makeMentionBodyFormatter([
+test("makeReferenceBodyFormatter rewrites an Agent token to its display label", () => {
+  const format = makeReferenceBodyFormatter([
     { kind: "agent", id: AGENT_UUID, handle: "kiro", label: "Kiro Reviewer" },
   ]);
   expect(format?.(`hi <@agent:${AGENT_UUID}> there`)).toBe("hi @Kiro Reviewer there");
 });
 
-test("makeMentionBodyFormatter resolves a human label and is case-insensitive on the uuid", () => {
-  const format = makeMentionBodyFormatter([
+test("makeReferenceBodyFormatter resolves a human label and is case-insensitive on the uuid", () => {
+  const format = makeReferenceBodyFormatter([
     { kind: "user", id: USER_UUID, handle: "ada", label: "Ada Lovelace" },
   ]);
   expect(format?.(`<@human:${USER_UUID.toUpperCase()}>`)).toBe("@Ada Lovelace");
 });
 
-test("makeMentionBodyFormatter leaves an unknown token intact rather than dropping it", () => {
-  const format = makeMentionBodyFormatter([
+test("makeReferenceBodyFormatter leaves an unknown token intact rather than dropping it", () => {
+  const format = makeReferenceBodyFormatter([
     { kind: "agent", id: AGENT_UUID, handle: "kiro", label: "Kiro Reviewer" },
   ]);
   const other = "e14e9498-e145-4686-9999-000000000000";
   expect(format?.(`<@agent:${other}>`)).toBe(`<@agent:${other}>`);
 });
 
-test("makeMentionBodyFormatter reads task and channel tokens back as text even with no mentionables", () => {
+test("makeReferenceBodyFormatter reads task and channel tokens back as text even with no mentionables", () => {
   // A task or channel token always has a readable form, so a view with no mentionables still gets
   // a formatter rather than showing the raw token.
   const channelId = "33333333-3333-4333-8333-333333333333";
-  const format = makeMentionBodyFormatter([]);
+  const format = makeReferenceBodyFormatter([]);
   expect(format(`see <@task:7> in <@channel:${channelId}:product>`)).toBe(
     "see task #7 in #product",
   );
   expect(
-    makeMentionBodyFormatter(
+    makeReferenceBodyFormatter(
       [],
       new Map([[channelId, "launch"]]),
     )(`in <@channel:${channelId}:product>`),

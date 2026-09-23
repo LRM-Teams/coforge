@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ComponentProps } from "react";
+import { useEffect, useMemo, useRef, useState, type ComponentProps } from "react";
 import { ChevronDown } from "@untitledui/icons";
 
 import { Button } from "#src/components/base/buttons/button";
@@ -73,12 +73,15 @@ export function CollapsibleMessageBody({
   }, [body]);
 
   const collapsed = overflowing && !expanded;
+  const { channelNames } = bodyProps;
+  const plainText = useMemo(
+    () => (collapsed ? messagePlainText({ body, mentions }, channelNames) : ""),
+    [collapsed, body, mentions, channelNames],
+  );
 
   return (
     <>
-      {collapsed && (
-        <p className="sr-only">{messagePlainText({ body, mentions }, bodyProps.channelNames)}</p>
-      )}
+      {collapsed && <p className="sr-only">{plainText}</p>}
       <div
         ref={contentRef}
         aria-hidden={collapsed || undefined}

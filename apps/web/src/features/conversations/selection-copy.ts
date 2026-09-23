@@ -14,11 +14,7 @@
  */
 import TurndownService from "turndown";
 import { gfm } from "turndown-plugin-gfm";
-import {
-  replaceChannelReferenceTokens,
-  replaceMentionTokens,
-  replaceTaskReferenceTokens,
-} from "@lrm/coforge-sdk/internal";
+import { readableBody } from "@lrm/coforge-sdk/internal";
 
 import { copyText } from "#src/features/records/report-editor/lib/clipboard";
 
@@ -100,16 +96,11 @@ export function messagePlainText(
   },
   channelNames?: ReadonlyMap<string, string>,
 ): string {
-  return replaceChannelReferenceTokens(
-    replaceTaskReferenceTokens(
-      replaceMentionTokens(message.body, (kind, id) => {
-        const mention = message.mentions?.find(
-          (candidate) => candidate.kind === kind && candidate.actorId.toLowerCase() === id,
-        );
-        return mention ? `@${mention.label}` : undefined;
-      }),
-      (number) => `task #${number}`,
-    ),
-    (id) => channelNames?.get(id),
-  );
+  return readableBody(message.body, {
+    mention: (kind, id) =>
+      message.mentions?.find(
+        (candidate) => candidate.kind === kind && candidate.actorId.toLowerCase() === id,
+      )?.label,
+    channelName: (id) => channelNames?.get(id),
+  });
 }

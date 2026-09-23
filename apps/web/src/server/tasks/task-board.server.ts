@@ -1,9 +1,7 @@
 import { lockConversation } from "#src/server/conversations/conversation-lock.server";
 import {
-  AGENT_MESSAGE_METHOD,
   REMINDER_SYNC_MESSAGE_TYPE,
   WORKSPACE_PROTOCOL_MAJOR,
-  encodeAgentMessageDelivery,
   encodeReminderSync,
   type TaskCommand,
   type TaskHistoryChange,
@@ -14,6 +12,7 @@ import {
   type TaskStatus,
   type TaskView,
 } from "@lrm/coforge-sdk/internal";
+import { encodeAgentDelivery } from "#src/server/conversations/agent-delivery.server";
 import { ACTIVE_AGENT_WHERE } from "#src/server/agents/active-agent.server";
 import { workspaceUserAvatarUrl } from "#src/server/db/repositories/user-profile.repositories.server";
 import type { Prisma, PrismaClient } from "#src/generated/prisma/client";
@@ -22,7 +21,11 @@ import {
   messageSignalScope,
   type ConversationRealtime,
 } from "#src/server/conversations/conversation-realtime.server";
-import { agentReadableBody, mentionedNames } from "#src/server/conversations/mentions.server";
+import {
+  agentReadableBody,
+  MESSAGE_MENTIONS_SELECT,
+  mentionedNames,
+} from "#src/server/conversations/mentions.server";
 import { ACTIVE_MEMBER_WHERE } from "#src/server/conversations/active-member.server";
 import {
   agentMessageSender,
@@ -76,7 +79,7 @@ const taskSelection = {
   // The backing message's sequence, so realtime signals need no second read, and its mention rows,
   // which a title converted from that message needs to read its mention tokens back.
   message: {
-    select: { sequence: true, mentions: { select: { kind: true, actorId: true, handle: true } } },
+    select: { sequence: true, mentions: MESSAGE_MENTIONS_SELECT },
   },
 } satisfies Prisma.TaskSelect;
 
@@ -758,9 +761,7 @@ export class TaskBoard {
               Promise.resolve().then(() =>
                 publisher.publish(
                   daemonControlChannel(message.workspaceId, delivery.agent.computerId!),
-                  encodeAgentMessageDelivery({
-                    protocolMajor: WORKSPACE_PROTOCOL_MAJOR,
-                    method: AGENT_MESSAGE_METHOD,
+                  encodeAgentDelivery({
                     requestId,
                     workspaceId: message.workspaceId,
                     conversationId: message.conversationId,
@@ -768,7 +769,9 @@ export class TaskBoard {
                     messageId: message.id,
                     deliveryId: delivery.deliveryId,
                     sequence: message.sequence,
+                    // A task's own message is its typed title, with no mention rows.
                     body: message.body,
+                    mentions: [],
                     target,
                     latestSenderKind: sender.kind,
                     latestSenderHandle: sender.handle,

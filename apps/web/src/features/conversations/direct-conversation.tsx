@@ -50,7 +50,7 @@ import {
 import { RelativeTime } from "#src/components/ui/relative-time";
 import { useAppToast } from "#src/components/ui/toast";
 import { MessageComposer } from "./message-composer";
-import { makeMentionBodyFormatter, type Mentionable } from "./mention-text";
+import { makeReferenceBodyFormatter, type Mentionable } from "./mention-text";
 import type { ChipMention } from "./message-markdown";
 import {
   GROUPING_WINDOW_MS,
@@ -470,7 +470,7 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
   // Preview rows would otherwise spell a reference as its raw `<@kind:…>` token; resolve those
   // the way the message list does.
   const formatPreviewBody = useMemo(
-    () => makeMentionBodyFormatter(conversation.mentionables ?? [], channelNames),
+    () => makeReferenceBodyFormatter(conversation.mentionables ?? [], channelNames),
     [conversation.mentionables, channelNames],
   );
   // A `task #N` reference in a body renders as a chip that opens the task's detail popup. The
@@ -1133,7 +1133,7 @@ export function ConversationPane({
   // `<@agent:uuid>` token. Resolve those to `@handle` the way the message list does, using the
   // conversation's known mentionables. Applies to channels too (both render through here).
   const formatIndexBody = useMemo(
-    () => makeMentionBodyFormatter(conversation.mentionables ?? [], channelNames),
+    () => makeReferenceBodyFormatter(conversation.mentionables ?? [], channelNames),
     [conversation.mentionables, channelNames],
   );
   // Agent presence for the stream's avatars: one lookup built from the app shell's single

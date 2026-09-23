@@ -220,6 +220,25 @@ test("messageReferenceCandidates lists what a sender could mean, outside code, U
   });
 });
 
+test("only a #name a channel could be called is a channel candidate", () => {
+  // `product频道` breaks the channel-name grammar, so it is never looked up; the result is the same.
+  expect(messageReferenceCandidates("#product频道, #fff and #68").channelNames).toEqual([
+    "fff",
+    "68",
+  ]);
+  expect(resolveMessageReferences("#product频道", { channel })).toBe("#product频道");
+});
+
+test("a body with no @ or # is returned as written", () => {
+  const body = "plain <b>text</b> & more";
+  expect(messageReferenceCandidates(body)).toEqual({
+    handles: [],
+    taskNumbers: [],
+    channelNames: [],
+  });
+  expect(resolveMessageReferences(body, { channel })).toBe(body);
+});
+
 // Mentions (the resolution rules the tokenizer carries over unchanged).
 
 test("replaceMentionTokens round-trips the stored mention tokens", () => {

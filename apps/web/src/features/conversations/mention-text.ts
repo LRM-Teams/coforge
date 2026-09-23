@@ -6,11 +6,7 @@
  * counts as a mention; the message renderer consumes it through `message-markdown.ts`.
  * Rendering is token-only by design (no legacy plain-`@handle` compatibility).
  */
-import {
-  replaceChannelReferenceTokens,
-  replaceMentionTokens,
-  replaceTaskReferenceTokens,
-} from "@lrm/coforge-sdk/internal";
+import { readableBody } from "@lrm/coforge-sdk/internal";
 
 /** One resolved mention row as the browser message view carries it. `handle` is stable identity;
  * `label` is the current profile display name (falling back to that handle). */
@@ -27,11 +23,11 @@ export type MentionRef = {
  * leak the raw token: a mention token (`<@agent:uuid>` / `<@human:uuid>`) to its `@label` from the
  * given mentionables, a task token to `task #N`, and a channel token to `#name` — the current name
  * from `channelNames` (channel id → name) when listed, the stored one otherwise. An unknown mention
- * token is left byte-for-byte intact (see `replaceMentionTokens`), so the caller degrades to the
+ * token is left byte-for-byte intact (see `readableBody`), so the caller degrades to the
  * raw token rather than dropping it. This is only display formatting — the stored body and wake
  * rules are unchanged.
  */
-export function makeMentionBodyFormatter(
+export function makeReferenceBodyFormatter(
   mentionables: readonly {
     kind: "user" | "agent";
     id: string;
@@ -44,16 +40,10 @@ export function makeMentionBodyFormatter(
     mentionables.map((mention) => [`${mention.kind}:${mention.id.toLowerCase()}`, mention.label]),
   );
   return (body: string) =>
-    replaceChannelReferenceTokens(
-      replaceTaskReferenceTokens(
-        replaceMentionTokens(body, (type, id) => {
-          const label = labelById.get(`${type}:${id.toLowerCase()}`);
-          return label ? `@${label}` : undefined;
-        }),
-        (number) => `task #${number}`,
-      ),
-      (id) => channelNames?.get(id),
-    );
+    readableBody(body, {
+      mention: (type, id) => labelById.get(`${type}:${id.toLowerCase()}`),
+      channelName: (id) => channelNames?.get(id),
+    });
 }
 
 export type Mentionable = {

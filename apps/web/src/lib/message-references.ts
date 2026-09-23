@@ -26,6 +26,7 @@
  * body with the answers. The token grammar and the readers live in the SDK.
  */
 import {
+  CHANNEL_NAME_PATTERN,
   CHANNEL_REFERENCE_PATTERN,
   MENTION_PATTERN,
   TASK_REFERENCE_PATTERN,
@@ -59,6 +60,16 @@ const ALTERNATIVES: readonly { pattern: RegExp; read: (match: RegExpExecArray) =
   },
 ];
 
+/**
+ * One private scanner per alternative, created once. `exec` with `lastIndex` is stateful, so the
+ * SDK's shared pattern constants are never scanned with directly; `matchesIn` sets `lastIndex`
+ * before every `exec`.
+ */
+const SCANNERS = ALTERNATIVES.map(({ pattern }) => new RegExp(pattern.source, pattern.flags));
+
+/** A character reference in Markdown source (`&amp;`, `&#35;`, `&#x23;`), tried only at `&`. */
+const CHARACTER_REFERENCE = /&(?:#[0-9]{1,7}|#[xX][0-9a-fA-F]{1,6}|[A-Za-z][A-Za-z0-9]{0,31});/y;
+
 /** Syntax whose text is never prose: code, links and their definitions, and raw HTML. */
 const NOT_PROSE = new Set<Nodes["type"]>([
   "code",
@@ -70,12 +81,13 @@ const NOT_PROSE = new Set<Nodes["type"]>([
 ]);
 
 /** What a body's prose could refer to, deduped in first-seen order. */
-export type MessageReferenceCandidates = {
+type MessageReferenceCandidates = {
   /** Every `@handle`, for resolving against the conversation's mention targets. */
   handles: string[];
   /** Every `task #N` number, for checking against the conversation's tasks. */
   taskNumbers: number[];
-  /** Every `#name`, lower-cased, for checking against the Workspace's channels. */
+  /** Every `#name` that could be a channel's name (`CHANNEL_NAME_PATTERN`), lower-cased, for
+   * checking against the Workspace's channels. */
   channelNames: string[];
 };
 
@@ -105,7 +117,8 @@ export function readMessageReferences(body: string): MessageReferences {
   for (const { reference } of references) {
     if (reference.kind === "mention") handles.add(reference.handle);
     else if (reference.kind === "task") taskNumbers.add(reference.number);
-    else if (reference.kind === "channel") channelNames.add(reference.name);
+    else if (reference.kind === "channel" && CHANNEL_NAME_PATTERN.test(reference.name))
+      channelNames.add(reference.name);
   }
   return {
     candidates: {
@@ -114,6 +127,7 @@ export function readMessageReferences(body: string): MessageReferences {
       channelNames: [...channelNames],
     },
     resolve: (lookup) => {
+      if (references.length === 0) return body;
       let result = "";
       let cursor = 0;
       for (const { reference, start, end } of references) {
@@ -146,20 +160,24 @@ function tokenFor(reference: Reference, lookup: MessageReferenceLookup): string 
 
 /** Every reference in the body's prose, in reading order, with its offsets in `body`. */
 function proseReferences(body: string): { reference: Reference; start: number; end: number }[] {
+  // Every reference starts with `@` or `#` (`task #N` included): without one there is nothing to
+  // parse for.
+  if (!body.includes("@") && !body.includes("#")) return [];
   const source = escapeLiteralHtml(body);
-  const toBody = bodyOffsets(body, source);
+  const toBody = source === body ? undefined : bodyOffsets(body, source);
   const references: { reference: Reference; start: number; end: number }[] = [];
   for (const node of proseTextNodes(parseMessageSyntax(source))) {
-    const offsets = sourceOffsets(source, node);
-    if (!offsets) continue;
-    for (const match of matchesIn(node.value)) {
-      const from = offsets.start[match.index]!;
-      const to = offsets.end[match.index + match.text.length - 1]!;
+    const matches = matchesIn(node.value);
+    if (matches.length === 0) continue;
+    const starts = sourceStarts(source, node);
+    if (!starts) continue;
+    for (const match of matches) {
+      const from = starts[match.index]!;
       // Written exactly as matched: an escape or a character reference inside it means the
       // author wrote the characters literally.
-      if (source.slice(from, to) !== match.text) continue;
+      if (!source.startsWith(match.text, from)) continue;
       // Reference text holds no `<`, so it maps back to the body one character for one.
-      const start = toBody[from]!;
+      const start = toBody ? toBody[from]! : from;
       references.push({ reference: match.reference, start, end: start + match.text.length });
     }
   }
@@ -196,48 +214,34 @@ function proseTextNodes(tree: Nodes): Text[] {
 }
 
 /**
- * Where each character of a text node's value was written in `source`: `start[i]` is the source
- * offset where value character `i` begins (the `\` of an escape, the `&` of a character
- * reference) and `end[i]` the offset right after it. Whitespace the parser dropped (a continuation
+ * Where each character of a text node's value begins in `source`: the character itself, the `\` of
+ * an escape, or the `&` of a character reference. Whitespace the parser dropped (a continuation
  * line's indent) belongs to no character. `undefined` when the node has no position or its source
  * cannot be aligned with its value; the node is then left as written.
  */
-function sourceOffsets(source: string, node: Text): { start: number[]; end: number[] } | undefined {
+function sourceStarts(source: string, node: Text): number[] | undefined {
   const from = node.position?.start.offset;
   const to = node.position?.end.offset;
   if (from === undefined || to === undefined) return undefined;
   const { value } = node;
-  const start: number[] = [];
-  const end: number[] = [];
+  const starts: number[] = [];
   let offset = from;
   for (let index = 0; index < value.length;) {
     if (offset >= to) return undefined;
-    const reference = /^&(?:#[0-9]{1,7}|#[xX][0-9a-fA-F]{1,6}|[A-Za-z][A-Za-z0-9]{0,31});/.exec(
-      source.slice(offset, Math.min(to, offset + 40)),
-    );
+    const reference = source[offset] === "&" ? characterReferenceAt(source, offset, to) : undefined;
     // An unknown name (`&nope;`) is not a character reference and stays literal in the value.
-    if (reference && value.startsWith(reference[0], index)) {
-      start[index] = offset;
-      end[index] = offset + 1;
-      index += 1;
-      offset += 1;
-    } else if (reference) {
+    if (reference && !value.startsWith(reference, index)) {
       // A character reference decodes to one character: two UTF-16 units for an astral one.
       const units = isHighSurrogate(value.charCodeAt(index)) ? 2 : 1;
-      for (let unit = 0; unit < units; unit += 1) {
-        start[index + unit] = offset;
-        end[index + unit] = offset + reference[0].length;
-      }
+      for (let unit = 0; unit < units; unit += 1) starts[index + unit] = offset;
       index += units;
-      offset += reference[0].length;
+      offset += reference.length;
     } else if (source[offset] === value[index]) {
-      start[index] = offset;
-      end[index] = offset + 1;
+      starts[index] = offset;
       index += 1;
       offset += 1;
     } else if (source[offset] === "\\" && source[offset + 1] === value[index]) {
-      start[index] = offset;
-      end[index] = offset + 2;
+      starts[index] = offset;
       index += 1;
       offset += 2;
     } else if (/\s/.test(source[offset]!)) {
@@ -246,7 +250,14 @@ function sourceOffsets(source: string, node: Text): { start: number[]; end: numb
       return undefined;
     }
   }
-  return { start, end };
+  return starts;
+}
+
+/** The character reference written at `offset`, when one ends by `to`. */
+function characterReferenceAt(source: string, offset: number, to: number): string | undefined {
+  CHARACTER_REFERENCE.lastIndex = offset;
+  const match = CHARACTER_REFERENCE.exec(source);
+  return match && offset + match[0].length <= to ? match[0] : undefined;
 }
 
 function isHighSurrogate(code: number): boolean {
@@ -258,8 +269,7 @@ function isHighSurrogate(code: number): boolean {
  * the cursor passes it, so a long text is scanned once per alternative.
  */
 function matchesIn(text: string): { reference: Reference; index: number; text: string }[] {
-  // Fresh instances: `exec` with `lastIndex` is stateful.
-  const patterns = ALTERNATIVES.map(({ pattern }) => new RegExp(pattern.source, pattern.flags));
+  const patterns = SCANNERS;
   const upcoming: (RegExpExecArray | null | undefined)[] = patterns.map(() => undefined);
   const matches: { reference: Reference; index: number; text: string }[] = [];
   let cursor = 0;

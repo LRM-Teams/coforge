@@ -72,16 +72,19 @@ export function MessageBody({
   const handles = useMemo(() => mentionHandlesByToken(mentions), [mentions]);
   // Typed against react-markdown's own plugin list so the plugin-with-options tuple form
   // type-checks without a cast.
-  const rehypePlugins = useMemo<NonNullable<Options["rehypePlugins"]>>(
-    () => [
-      rehypeSanitize,
-      // First: a channel chip is finished markup the later passes leave alone.
-      [rehypeChannelReferenceChips, { currentNames: channelNames }],
+  const hasChannelReference = source.includes("<@channel:");
+  const rehypePlugins = useMemo<NonNullable<Options["rehypePlugins"]>>(() => {
+    const plugins: NonNullable<Options["rehypePlugins"]> = [rehypeSanitize];
+    // First: a channel chip is finished markup the later passes leave alone. A body with no
+    // channel token skips the pass entirely.
+    if (hasChannelReference)
+      plugins.push([rehypeChannelReferenceChips, { currentNames: channelNames }]);
+    plugins.push(
       [rehypeMentionChips, { handles, viewerHandle, plain: plainMentions }],
       [rehypeTaskReferenceChips, { numbers: taskReferences ?? NO_TASK_NUMBERS }],
-    ],
-    [handles, viewerHandle, plainMentions, taskReferences, channelNames],
-  );
+    );
+    return plugins;
+  }, [handles, viewerHandle, plainMentions, taskReferences, channelNames, hasChannelReference]);
   // The `span` override recognises the Agent mention chip (`data-mention-agent-id`, injected by
   // `rehypeMentionChips`) and the task-reference chip (`data-task-reference-number`, injected by
   // `rehypeTaskReferenceChips`), and makes each an accessible button; the channel-reference chip
