@@ -791,10 +791,13 @@ export function MessageRow({
               full Markdown. One line, never wrapped: overflow becomes an ellipsis (the boss's
               ruling on the phone — a notice is skimmable or it is noise). The span is a flex
               item with min-w-0, so `truncate` collapses against the hover timestamp and works. */}
+          {/* The tooltip wraps the span itself: our `Tooltip` already renders RAC's
+              `TooltipTrigger` around its child, and the wrapper version put a `<button>` between
+              the flex row and this span — so the span's `min-w-0 flex-1` stopped governing the
+              row, the row grew past the container, and the whole stream scrolled sideways on a
+              phone. As a direct child the span is the flex item again, so `truncate` clips. */}
           <Tooltip title={message.body}>
-            <TooltipTrigger>
-              <span className="min-w-0 flex-1 truncate">{message.body}</span>
-            </TooltipTrigger>
+            <span className="min-w-0 flex-1 truncate">{message.body}</span>
           </Tooltip>
           <time
             dateTime={new Date(message.createdAt).toISOString()}
