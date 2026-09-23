@@ -802,6 +802,10 @@ export function startAgentProxy(input: {
   // variable or running a refresh command.
   const contexts = new Map<string, TokenBinding>();
   const server = Bun.serve({
+    // Loopback only: Agents reach the proxy at 127.0.0.1 (see `url` below). Bun's default
+    // `0.0.0.0` would expose it to the network and let another local listener bind
+    // 127.0.0.1 on the same port and receive the Agents' requests instead.
+    hostname: "127.0.0.1",
     port: input.port ?? 0,
     async fetch(request) {
       const requestUrl = new URL(request.url);
