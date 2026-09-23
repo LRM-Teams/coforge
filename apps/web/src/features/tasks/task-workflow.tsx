@@ -267,9 +267,7 @@ function TaskGroup({
             className={`shrink-0 rounded-full ${board ? "size-3" : "size-2"} ${TASK_STATUS_COLOR[status].dot}`}
           />
           {statusLabel(status)}
-          <span
-            className={`inline-flex min-h-5 min-w-6 shrink-0 items-center justify-center rounded-full px-2 text-xs font-medium tabular-nums bg-secondary text-secondary`}
-          >
+          <span className="inline-flex min-h-5 min-w-6 shrink-0 items-center justify-center rounded-full px-2 text-xs font-medium tabular-nums bg-secondary text-secondary">
             {count}
           </span>
         </span>

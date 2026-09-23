@@ -122,7 +122,7 @@ export function TaskBoard({
                 onCommand={onCommand}
                 controls={controls}
                 list={layout === "list"}
-                conversationLabel={conversationName ?? ""}
+                conversationName={conversationName}
                 members={members}
                 currentMemberId={currentMemberId || null}
               />
@@ -152,7 +152,7 @@ function TaskCard({
   onCommand,
   controls,
   list,
-  conversationLabel,
+  conversationName,
   members,
   currentMemberId,
 }: {
@@ -163,7 +163,7 @@ function TaskCard({
   onCommand: TaskBoardProps["onCommand"];
   controls: TaskControls;
   list: boolean;
-  conversationLabel: string;
+  conversationName?: string;
   members?: readonly Mentionable[];
   currentMemberId: string | null;
 }) {
@@ -188,7 +188,7 @@ function TaskCard({
             <TaskDetailMenu
               task={task}
               onCommand={onCommand}
-              conversationLabel={conversationLabel}
+              conversationName={conversationName}
               members={members}
               currentMemberId={currentMemberId}
             />

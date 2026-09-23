@@ -9,10 +9,10 @@ export type TaskMember = {
   memberId: string;
   kind: "user" | "agent";
   /** The User or Agent id behind the member, as history payloads name an assignee. */
-  id?: string;
+  id: string;
   name: string;
   /** The username or Agent name. */
-  handle?: string;
+  handle: string;
   /** Where the browser reads a human's avatar; absent for an Agent. */
   avatarUrl?: string | null;
 };
@@ -26,7 +26,7 @@ export type TaskView = {
   status: TaskStatus;
   revision: number;
   owner: TaskMember | null;
-  /** Who created the Task. */
+  /** Who created the Task; only the history read carries it. */
   creator?: TaskMember;
   channelRef?: string;
   requiresResourceReceipt?: boolean;
