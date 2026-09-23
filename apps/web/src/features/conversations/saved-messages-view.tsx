@@ -150,13 +150,14 @@ function SavedMessageCard({
             </span>
             <RelativeTime value={message.createdAt} />
           </div>
-          {message.body ? (
-            <div className="mt-1 line-clamp-3 text-sm leading-5 text-secondary [&_p]:my-0">
+          {/* Every card is the same size: the excerpt always takes two lines and hides the rest. */}
+          <div className="mt-1 line-clamp-2 h-10 overflow-hidden text-sm leading-5 text-secondary [&_p]:my-0">
+            {message.body ? (
               <MessageBody body={message.body} mentions={message.mentions} />
-            </div>
-          ) : attachmentName ? (
-            <p className="mt-1 truncate text-sm text-tertiary">{attachmentName}</p>
-          ) : null}
+            ) : attachmentName ? (
+              <span className="text-tertiary">{attachmentName}</span>
+            ) : null}
+          </div>
         </AriaLink>
         <Dropdown.Popover placement="bottom start">
           <Dropdown.Menu aria-label={m.conversation_message_actions()} onAction={handleAction}>
