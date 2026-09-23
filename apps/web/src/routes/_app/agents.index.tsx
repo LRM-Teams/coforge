@@ -54,12 +54,16 @@ export const Route = createFileRoute("/_app/agents/")({
       ensureWeeklyReportAssistantMember(),
       listComputers(),
       loadMemberDirectorySummary(),
-      deps.memberType === "agent"
-        ? context.queryClient.ensureInfiniteQueryData(
-            memberAgentsQuery({ owner: deps.owner, computer: deps.computer, query: "" }),
-          )
-        : context.queryClient.ensureInfiniteQueryData(memberPeopleQuery("")),
     ]);
+    await (deps.memberType === "agent"
+      ? context.queryClient.ensureInfiniteQueryData(
+          memberAgentsQuery(summary.workspaceId, {
+            owner: deps.owner,
+            computer: deps.computer,
+            query: "",
+          }),
+        )
+      : context.queryClient.ensureInfiniteQueryData(memberPeopleQuery(summary.workspaceId, "")));
     return { computers, summary, weeklyReportAssistantAgentId: assistant.agentId };
   },
   pendingComponent: AgentsPending,

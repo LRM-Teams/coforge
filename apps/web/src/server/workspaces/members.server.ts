@@ -79,6 +79,7 @@ export class WorkspaceMembers {
       this.db.agent.count({ where: { AND: [visibleAgents, this.withoutComputer(workspaceId)] } }),
     ]);
     return {
+      workspaceId,
       actorRole: role,
       viewerId: userId,
       agentCount,

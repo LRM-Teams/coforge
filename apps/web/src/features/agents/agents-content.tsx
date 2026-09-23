@@ -158,12 +158,12 @@ export function AgentsContent({
   const filtersActive = onAgentTab && (owner === "mine" || computer !== undefined);
   // Keep the cards already on screen while a changed filter or search loads its first page.
   const agentPages = useInfiniteQuery({
-    ...memberAgentsQuery({ owner, computer, query }),
+    ...memberAgentsQuery(summary.workspaceId, { owner, computer, query }),
     enabled: onAgentTab,
     placeholderData: keepPreviousData,
   });
   const peoplePages = useInfiniteQuery({
-    ...memberPeopleQuery(query),
+    ...memberPeopleQuery(summary.workspaceId, query),
     enabled: !onAgentTab,
     placeholderData: keepPreviousData,
   });
@@ -357,7 +357,17 @@ export function AgentsContent({
               </ProgressBar>
             </GridListLoadMoreItem>
           </GridList>
-        ) : (
+        ) : null}
+        {pages.isFetchNextPageError ? (
+          // React Aria re-arms its sentinel only when the list changes, so a failed page needs an
+          // explicit retry or the list would silently end early.
+          <div role="alert" className="mt-4 flex flex-col items-center gap-3 text-center">
+            <p className="text-sm text-error-primary">{m.member_directory_load_error()}</p>
+            <Button size="sm" color="secondary" onPress={() => void pages.fetchNextPage()}>
+              {m.controls_retry()}
+            </Button>
+          </div>
+        ) : pages.isError || pages.isPending || listedPeople.length + listedAgents.length ? null : (
           <Empty
             className={
               tabTotal ? "gap-5 px-0 py-12" : "gap-6 px-0 pt-[clamp(3rem,12svh,7rem)] pb-10"
@@ -490,7 +500,7 @@ const ALL_COMPUTERS = "all";
 const SEARCH_DEBOUNCE_MS = 250;
 
 const CARD_CLASS =
-  "flex min-w-0 flex-col gap-2.5 rounded-xl bg-primary p-4 shadow-xs ring-1 ring-secondary ring-inset";
+  "flex min-w-0 flex-col gap-2.5 rounded-xl bg-primary p-4 shadow-xs ring-1 ring-secondary outline-focus-ring ring-inset data-focus-visible:outline-2 data-focus-visible:outline-offset-2";
 
 function PersonCard({ person }: { person: DirectoryPerson }) {
   return (

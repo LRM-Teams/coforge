@@ -45,7 +45,30 @@ test("pages the Workspace directory with owner, Computer and search filters", as
       { name: "charlie", ownerId: owner!.id, computerId: computer.id },
       { name: "delta", ownerId: owner!.id, computerId: computer.id },
       { name: "echo", ownerId: owner!.id, computerId: null },
-    ];
+    ] as { name: string; ownerId: string; computerId: string | null }[];
+    // Privacy and scoping (ADR 0059): another member's private Agent on a Computer no visible Agent
+    // uses, and an Agent whose Computer belongs only to another Workspace.
+    const hiddenHost = await db.computer.create({
+      data: { ownerId: owner!.id, machineId: `pages-hidden-${suffix}`, name: "secret-host" },
+    });
+    await db.workspaceComputer.create({
+      data: { workspaceId: workspace.id, computerId: hiddenHost.id },
+    });
+    await db.agent.create({
+      data: {
+        workspaceId: workspace.id,
+        ownerId: owner!.id,
+        computerId: hiddenHost.id,
+        name: "hidden",
+        displayName: "Hidden",
+        visibility: "private",
+        runtimeConfig: {},
+      },
+    });
+    const detachedHost = await db.computer.create({
+      data: { ownerId: owner!.id, machineId: `pages-detached-${suffix}`, name: "elsewhere-host" },
+    });
+    specs.push({ name: "foxtrot", ownerId: owner!.id, computerId: detachedHost.id });
     for (const spec of specs) {
       await db.agent.create({
         data: {
@@ -64,9 +87,10 @@ test("pages the Workspace directory with owner, Computer and search filters", as
     const all = { owner: "all", query: "" } as const;
 
     expect(await members.summary(workspace.id, viewer!.id)).toEqual({
+      workspaceId: workspace.id,
       actorRole: "member",
       viewerId: viewer!.id,
-      agentCount: 5,
+      agentCount: 6,
       peopleCount: 2,
       computers: [{ id: computer.id, name: "Build Mac" }],
       hasAgentWithoutComputer: true,
@@ -83,17 +107,22 @@ test("pages the Workspace directory with owner, Computer and search filters", as
     expect(names(second)).toEqual(["charlie", "delta"]);
     const last = await members.agentPage(workspace.id, viewer!.id, {
       ...all,
-      limit: 2,
+      limit: 3,
       cursor: second.nextCursor!,
     });
-    expect(names(last)).toEqual(["echo"]);
+    expect(names(last)).toEqual(["echo", "foxtrot"]);
     expect(last.nextCursor).toBeNull();
 
     const page = (filters: { owner?: "all" | "mine"; computer?: string; query?: string }) =>
       members.agentPage(workspace.id, viewer!.id, { ...all, ...filters, limit: 24 });
     expect(names(await page({ owner: "mine" }))).toEqual(["alpha", "bravo"]);
     expect(names(await page({ computer: computer.id }))).toEqual(["alpha", "charlie", "delta"]);
-    expect(names(await page({ computer: "none" }))).toEqual(["bravo", "echo"]);
+    // A Computer attached only to another Workspace counts as no Computer here.
+    expect(names(await page({ computer: "none" }))).toEqual(["bravo", "echo", "foxtrot"]);
+    expect(names(await page({ query: "elsewhere" }))).toEqual([]);
+    expect(names(await page({ query: "hidden" }))).toEqual([]);
+    expect(names(await page({ query: "secret" }))).toEqual([]);
+    expect(names(await page({ computer: hiddenHost.id }))).toEqual([]);
     expect(names(await page({ owner: "mine", computer: "none" }))).toEqual(["bravo"]);
     // Search matches the handle, the display name and the Computer name, case-insensitively.
     expect(names(await page({ query: "ARL" }))).toEqual(["charlie"]);
@@ -122,7 +151,13 @@ test("pages the Workspace directory with owner, Computer and search filters", as
     ).rejects.toThrow("ACCESS_DENIED");
   } finally {
     await db.workspace.deleteMany({ where: { slug: `pages-${suffix}` } });
-    await db.computer.deleteMany({ where: { machineId: `pages-${suffix}` } });
+    await db.computer.deleteMany({
+      where: {
+        machineId: {
+          in: [`pages-${suffix}`, `pages-hidden-${suffix}`, `pages-detached-${suffix}`],
+        },
+      },
+    });
     await db.user.deleteMany({ where: { username: { in: usernames } } });
     await db.$disconnect();
   }
