@@ -33,6 +33,8 @@ function fixture(options: { member?: boolean; newestSequence?: number } = {}) {
   }[] = [];
   const memberId = "member-1";
   const writes: Record<string, unknown>[] = [];
+  /** Unread top-level messages from others that arrived after the member closed the chat. */
+  const activity = { arrivedSinceClosed: 0 };
   const db = {
     workspaceMembership: { findUnique: async () => ({ role: "member" }) },
     conversation: {
@@ -106,10 +108,11 @@ function fixture(options: { member?: boolean; newestSequence?: number } = {}) {
           member.unreadFromSequence !== null && options.newestSequence !== undefined
             ? Math.max(1, (options.newestSequence ?? 0) - member.unreadFromSequence + 1)
             : 0,
+        arrivedSinceClosed: activity.arrivedSinceClosed,
       },
     ],
   } as unknown as PrismaClient;
-  return { channels: new PublicChannels(db), member, pins, writes };
+  return { channels: new PublicChannels(db), member, pins, writes, activity };
 }
 
 test("pinning adds the row with the next free order, and re-pinning moves it rather than duplicating", async () => {
@@ -195,4 +198,15 @@ test("the list hides a closed chat, reports pins, and puts them first", async ()
 
   await channels.setUserHidden(WORKSPACE_ID, USER_ID, CHANNEL_ID, true);
   expect(await channels.list(WORKSPACE_ID, USER_ID)).toEqual([]);
+});
+
+test("a closed chat comes back to the list once someone else posts in it", async () => {
+  const { channels, activity } = fixture();
+  await channels.setUserHidden(WORKSPACE_ID, USER_ID, CHANNEL_ID, true);
+  expect(await channels.list(WORKSPACE_ID, USER_ID)).toEqual([]);
+
+  activity.arrivedSinceClosed = 1;
+  expect(await channels.list(WORKSPACE_ID, USER_ID)).toEqual([
+    expect.objectContaining({ id: CHANNEL_ID, hidden: false }),
+  ]);
 });

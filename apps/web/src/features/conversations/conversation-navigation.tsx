@@ -127,6 +127,7 @@ export function ConversationNavigation({ children }: { children: ReactNode }) {
   }, [router]);
 
   const visibleChannels = useMemo(() => channels.filter((listed) => !listed.archived), [channels]);
+  const hiddenAgentIds = useMemo(() => new Set(directPreferences.hidden), [directPreferences]);
   const unread = useChannelUnread({
     workspaceId,
     userId: viewerId,
@@ -134,6 +135,8 @@ export function ConversationNavigation({ children }: { children: ReactNode }) {
     openConversationId: channel?.channelId,
     // The open DM's own events must not bump its badge: they are being read right now.
     openAgentId: agent?.agentId,
+    hiddenAgentIds,
+    onClosedConversationActivity: () => void router.invalidate(),
   });
   // Every loader refresh carries the server's own persisted counts; local arithmetic
   // restarts from them (sequence boundaries survive, so no event double-counts). Direct

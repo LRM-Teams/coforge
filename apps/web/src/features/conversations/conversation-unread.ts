@@ -83,6 +83,20 @@ export function applyUnreadEvent(
   };
 }
 
+/**
+ * Whether a new message landed in a chat the sidebar is not showing because the viewer closed it:
+ * a channel missing from the listed channels, or a DM whose Agent is in the closed set. Such a
+ * message brings the chat back, so the sidebar re-reads its list. Thread replies never do.
+ */
+export function activityInClosedConversation(
+  event: UnreadEventInput,
+  listed: { conversations: ReadonlySet<string>; hiddenAgentIds: ReadonlySet<string> },
+): boolean {
+  if (event.threadRootId) return false;
+  if (event.agentId) return listed.hiddenAgentIds.has(event.agentId);
+  return !listed.conversations.has(event.conversationId);
+}
+
 /** A conversation was read: clear its badge and remember the boundary it was read to. */
 export function clearUnread(
   current: UnreadCounts,
@@ -180,6 +194,8 @@ export function useChannelUnread({
   channels,
   openConversationId,
   openAgentId,
+  hiddenAgentIds,
+  onClosedConversationActivity,
 }: {
   workspaceId?: string;
   /** The viewer, whose own direct-message signal channel carries their DM badges. */
@@ -190,12 +206,28 @@ export function useChannelUnread({
   openConversationId?: string;
   /** The Agent badge of the direct message currently shown, if a DM is open. */
   openAgentId?: string;
+  /** Agents whose DM the viewer closed; the sidebar leaves those rows out. */
+  hiddenAgentIds: ReadonlySet<string>;
+  /** A new message arrived in a closed chat: the sidebar re-reads its list to bring it back. */
+  onClosedConversationActivity: () => void;
 }): UnreadState {
   const [counts, setCounts] = useState<UnreadCounts>({});
   const getWorkspaceToken = useServerFn(getWorkspaceConversationSubscriptionToken);
   const getUserToken = useServerFn(getUserConversationSubscriptionToken);
-  const refs = useRef({ channels, openConversationId, openAgentId });
-  refs.current = { channels, openConversationId, openAgentId };
+  const refs = useRef({
+    channels,
+    openConversationId,
+    openAgentId,
+    hiddenAgentIds,
+    onClosedConversationActivity,
+  });
+  refs.current = {
+    channels,
+    openConversationId,
+    openAgentId,
+    hiddenAgentIds,
+    onClosedConversationActivity,
+  };
 
   const onPublication = useCallback((publication: { data: unknown }) => {
     try {
@@ -204,8 +236,12 @@ export function useChannelUnread({
         channels: channelRows,
         openConversationId: open,
         openAgentId: openAgent,
+        hiddenAgentIds: hiddenAgents,
+        onClosedConversationActivity: reopenFromActivity,
       } = refs.current;
       const conversations = new Set(channelRows.map((channel) => channel.id));
+      if (activityInClosedConversation(event, { conversations, hiddenAgentIds: hiddenAgents }))
+        reopenFromActivity();
       setCounts((current) =>
         applyUnreadEvent(current, event, {
           conversations,

@@ -81,8 +81,6 @@
   "conversation_menu_pin": "置顶",
   "conversation_menu_unpin": "取消置顶",
   "conversation_menu_close": "关闭会话",
-  "conversation_menu_close_description": "会话会从你的列表中消失，原链接仍可打开。",
-  "conversation_menu_confirm_close": "关闭",
   "conversation_menu_action_error": "会话设置更新失败，请重试。",
   "conversation_unsent_offline": "发送失败，请检查网络后重试",
   "conversation_unsent_unavailable": "发送失败，请稍后重试",
