@@ -1,30 +1,48 @@
 import { useEffect, useId, useRef, useState, type KeyboardEvent, type RefObject } from "react";
+import { filterMentionables, type Mentionable } from "./mention-text";
 import {
-  activeMentionQuery,
-  filterMentionables,
-  insertMention,
-  type Mentionable,
-} from "./mention-text";
+  activeReferenceQuery,
+  filterChannelSuggestions,
+  insertReference,
+  type ChannelSuggestion,
+  type ReferenceTrigger,
+} from "./reference-completion";
+
+/** One row of the composer's completion list: a member for `@`, a channel for `#`. */
+export type ReferenceSuggestion =
+  | { kind: "mention"; mention: Mentionable }
+  | { kind: "channel"; channel: ChannelSuggestion };
+
+/** The text a chosen suggestion puts in the draft (before its trailing space). */
+function referenceText(item: ReferenceSuggestion): string {
+  return item.kind === "mention" ? `@${item.mention.handle}` : `#${item.channel.name}`;
+}
 
 /**
- * The composer's @-completion behavior, self-contained: tracks the in-progress `@query` token
- * at the caret, owns the popup's open/highlight state and its keyboard interaction
- * (ArrowUp/Down cycle, Enter/Tab choose, Escape dismiss), and applies a chosen candidate by
- * splicing `@handle ` into the text through the caller's `onChange`. IME compositions are left
- * untouched. `textareaRef` must be attached to the composer textarea; the hook restores the
- * caret after an insertion.
+ * The composer's reference completion, self-contained: tracks the in-progress `@query` or
+ * `#query` token at the caret, owns the popup's open/highlight state and its keyboard
+ * interaction (ArrowUp/Down cycle, Enter/Tab choose, Escape dismiss), and applies a chosen
+ * member or channel by splicing `@handle ` or `#name ` into the text through the caller's
+ * `onChange`. IME compositions are left untouched. `textareaRef` must be attached to the
+ * composer textarea; the hook restores the caret after an insertion.
  */
-export function useMentionCompletion({
+export function useReferenceCompletion({
   mentionables,
   recentHandles,
+  channels,
+  currentChannelId,
   value,
   onChange,
 }: {
-  /** The channel's completion candidates; empty/undefined keeps the popup closed. */
+  /** The conversation's @-completion candidates; empty/undefined keeps the `@` popup closed. */
   mentionables: readonly Mentionable[] | undefined;
   /** Handles that recently sent a message in this conversation, most-recent first; ranks
    * completion candidates ahead of alphabetical order within a match tier. */
   recentHandles?: readonly string[];
+  /** The Workspace's channels for `#`-completion; empty/undefined keeps the `#` popup closed. */
+  channels?: readonly ChannelSuggestion[];
+  /** This conversation's id: when it is a channel, that channel leads the `#` list. */
+  currentChannelId?: string;
   /** The composer text (controlled). */
   value: string;
   /** Replaces the composer text after a candidate insertion. */
@@ -32,7 +50,9 @@ export function useMentionCompletion({
 }): {
   textareaRef: RefObject<HTMLTextAreaElement | null>;
   open: boolean;
-  items: Mentionable[];
+  /** The trigger of the open list, which names it for assistive tech. */
+  trigger: ReferenceTrigger | undefined;
+  items: ReferenceSuggestion[];
   activeIndex: number;
   listboxId: string;
   optionId: (index: number) => string;
@@ -41,21 +61,27 @@ export function useMentionCompletion({
   /** Wire into the textarea's keydown; true when the popup consumed the key. `composing`
    * lets the caller extend IME detection beyond `nativeEvent.isComposing`. */
   handleKeyDown: (event: KeyboardEvent<HTMLTextAreaElement>, composing?: boolean) => boolean;
-  choose: (item: Mentionable) => void;
+  choose: (item: ReferenceSuggestion) => void;
   close: () => void;
   setActiveIndex: (index: number) => void;
 } {
   const baseId = useId();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const [query, setQuery] = useState<{ start: number; query: string }>();
+  const [query, setQuery] = useState<ReturnType<typeof activeReferenceQuery>>();
   const [highlighted, setHighlighted] = useState(0);
-  // A caret position to restore once React has committed the mention insertion.
+  // A caret position to restore once React has committed the reference insertion.
   const pendingCaretRef = useRef<number | undefined>(undefined);
 
-  const items =
-    query && mentionables?.length
-      ? filterMentionables(mentionables, query.query, { recentHandles })
-      : [];
+  const items: ReferenceSuggestion[] = !query
+    ? []
+    : query.trigger === "@"
+      ? filterMentionables(mentionables ?? [], query.query, { recentHandles }).map((mention) => ({
+          kind: "mention",
+          mention,
+        }))
+      : filterChannelSuggestions(channels ?? [], query.query, { currentChannelId }).map(
+          (channel) => ({ kind: "channel", channel }),
+        );
   const open = items.length > 0;
   const activeIndex = Math.min(highlighted, items.length - 1);
 
@@ -69,19 +95,15 @@ export function useMentionCompletion({
   }, [value]);
 
   function track(text: string, caret: number | null) {
-    if (!mentionables?.length || caret === null) {
-      setQuery(undefined);
-      return;
-    }
-    setQuery(activeMentionQuery(text, caret));
+    setQuery(caret === null ? undefined : activeReferenceQuery(text, caret));
     setHighlighted(0);
   }
 
-  function choose(item: Mentionable) {
+  function choose(item: ReferenceSuggestion) {
     const textarea = textareaRef.current;
     if (!query || !textarea) return;
     const caret = textarea.selectionStart ?? query.start + query.query.length + 1;
-    const next = insertMention(value, query.start, caret, item.handle);
+    const next = insertReference(value, query.start, caret, referenceText(item));
     pendingCaretRef.current = next.caret;
     onChange(next.value);
     setQuery(undefined);
@@ -112,10 +134,11 @@ export function useMentionCompletion({
   return {
     textareaRef,
     open,
+    trigger: open ? query?.trigger : undefined,
     items,
     activeIndex,
-    listboxId: `${baseId}-mentions`,
-    optionId: (index) => `${baseId}-mention-${index}`,
+    listboxId: `${baseId}-references`,
+    optionId: (index) => `${baseId}-reference-${index}`,
     track,
     handleKeyDown,
     choose,

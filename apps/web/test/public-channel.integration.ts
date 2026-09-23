@@ -1848,6 +1848,12 @@ test("Agent channel management: authority, join/leave, archive, and add/remove m
     const archived = await manage.setArchived(workspace.id, admin.id, "#eng", true);
     expect(archived).toEqual({ target: "#eng", archived: true });
     expect((await manage.info(workspace.id, admin.id, "#eng")).archived).toBe(true);
+    // The composer's `#` list still offers an archived channel, with its description and flag.
+    expect(
+      (await new PublicChannels(db).names(workspace.id, owner.id)).find(
+        (channel) => channel.name === "eng",
+      ),
+    ).toEqual({ id: expect.any(String), name: "eng", description: "Eng team", archived: true });
     await expect(manage.join(workspace.id, admin.id, "#eng")).rejects.toThrow(
       "channel is archived",
     );
@@ -2866,11 +2872,11 @@ test("a closed channel stays closed until someone else posts a top-level message
     const root = await send(bob.id, "before the close");
     await channels.setUserHidden(workspace.id, alice.id, ops.id, true);
     expect(await listed()).toBeUndefined();
-    // A closed channel stays in the names a body's channel references link by: closing hides it
-    // from the list, not from the Workspace.
+    // A closed channel stays in the names a body's channel references link by (and the composer's
+    // `#` list offers): closing hides it from the list, not from the Workspace.
     expect(
       (await channels.names(workspace.id, alice.id)).find((channel) => channel.id === ops.id),
-    ).toEqual({ id: ops.id, name: "ops" });
+    ).toEqual({ id: ops.id, name: "ops", description: "", archived: false });
 
     // Alice's own message is not "someone else posting".
     await Bun.sleep(2); // createdAt and hiddenAt are millisecond timestamps
