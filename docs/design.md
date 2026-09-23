@@ -10,7 +10,7 @@
 - 没有设计稿时，组件与样式的依据顺序：Untitled UI React 官方组件和 `theme.css`（<https://www.untitledui.com/react/docs>，源码 <https://github.com/untitleduico/react>）优先，其次是本文；Tailwind UI 示例、shadcn 习惯或个人偏好都不作为依据。本文与官方冲突且没写明“有意偏离”时，按官方改本文。
 - 颜色以 Figma 与 [design-tokens.md](design-tokens.md) 的维护约定为准；实现复用 [styles.css](../apps/web/src/styles.css) 和 [UI primitives](../apps/web/src/components/ui)。本文不重复维护 Token 值。
 - 复用宿主的 TanStack Start、Tailwind、Untitled UI（React Aria）、图标和本地化约定。不引入另一套主题、组件库或 Vercel 品牌 CSS。
-- 本文负责内容层级、渐进披露和评审方法。Figma 尚未确定的字体、间距等不得由 Agent 编造成已批准的品牌标准；当前实现也不自动等于认可的设计范例。
+- 本文负责内容层级、渐进披露和评审方法。Figma 尚未确定的字体、间距等不得由 Agent 编造成已批准的品牌标准；当前实现也不自动等于认可的设计范例（第 7–13 节点名的范例除外）。
 - `design-taste-frontend` 的营销页规则不作为工作台默认值。不要为“去 AI 味”删除现有品牌紫、真实状态点、有效列表或表格，也不要强制添加图片、非对称布局或动效。
 
 ## 2. 先确定用户任务，再选布局
@@ -118,7 +118,7 @@
 
 推广时保留已有的空列表、无搜索结果、Computer 未找到、频道加入、消息发送失败与重试界面；
 不把这些确定状态换成骨架。安装指引、登录授权和立即发出的 Agent 控制命令不是页面数据加载，
-保持各自的流程反馈。设置通知和时区的短暂失败沿用共享 Toast，不重复增加提示层。
+保持各自的流程反馈。设置通知和时区的保存失败按第 13 节在对应设置项旁就地说明原因（现有实现仍用 Toast，属于待改存量）。
 
 - pending 骨架的策略只写一处：路由器默认值（`apps/web/src/lib/pending-policy.ts`，`defaultPendingMs` /
   `defaultPendingMinMs`），路由不再各自复述这两个数字。延迟内不显示骨架（快速请求不闪屏）；一旦到达延迟线，
@@ -133,7 +133,7 @@
   重试不重复已完成的头像操作；未经服务端确认不能声称回滚或全部保存成功。
 - Toast 在桌面位于右下角，手机（小于 768px）位于顶部居中，留出安全区；最多同时显示三条，同类型、同标题更新原条目。
   使用中性浮层、细边框、图标与简短文案，避免大面积红绿底色。正文错误色使用
-  `destructive-text` 而非填充色。使用 Sonner 默认四秒自动消失、不显示关闭按钮，保留原生堆叠、展开与减少动画支持。
+  `text-error-primary` 而非填充色。使用 Sonner 默认四秒自动消失、不显示关闭按钮，保留原生堆叠、展开与减少动画支持。
   `AppToastProvider` 统一 Toaster 配置，`useAppToast` 仅负责去重与安全错误编号，不自行实现通知队列。
 - Toast 不自动抢焦点。配置 F6 进入通知区；交互期间的暂停计时由 Sonner 负责。
   Escape 折叠通知堆叠，不承诺恢复到触发前控件；通知采用 Sonner 的礼貌播报。
@@ -229,6 +229,7 @@ UI 变更必须查看实际渲染，不以源码检查代替视觉检查。按�
 
 ## 7. 组件：只用官方
 
+- 公开首页 `features/landing` 保留已安装的 Spell / Magic UI 动效组件，其余控件同样只用官方组件；本节其余规则针对产品界面。
 - 组件通过 `npx untitledui@latest add <name>` 安装到 `src/components/base/` 和 `src/components/application/`，**源码不改**。要改外观，在调用处传 `className`；要改行为，改调用方。
 - 用户明确要求移除历史 lint 豁免后，仅有两处限定修补：`base/badges/badges.tsx` 和
   `application/app-navigation/base-components/nav-account-card.tsx` 的原生按钮替换为
@@ -332,7 +333,7 @@ UI 变更必须查看实际渲染，不以源码检查代替视觉检查。按�
 
 - 语义 token 用官方名：`bg-primary / bg-secondary / bg-tertiary`，`text-primary / text-secondary / text-tertiary / text-quaternary`，`border-primary / border-secondary`，`bg-brand-solid`，`text-brand-secondary`，`text-error-primary`。映射表见 `docs/design-tokens.md`。
 - 品牌紫只出现在：侧栏选中项、主按钮、链接、Public 徽章、自己发出的消息气泡、焦点环。其他地方一律灰阶。
-- "主按钮"指一个界面里唯一的主动作：弹窗的确认键、空状态的引导键，以及页头里该页面唯一的创建类主操作（如成员页的「新建智能体」「邀请」，2026-09-23 按设计稿确定）用 `color="primary"`。一个页头最多一个 primary；页头的其他操作和工具栏按钮一律 `color="secondary"`。其他页面的页头主操作改到时再按本条调整。
+- "主按钮"指一个界面里唯一的主动作：弹窗的确认键、onboarding 空状态的引导键，以及页头里该页面唯一的创建类主操作（如成员页的「新建智能体」「邀请」，2026-09-23 按设计稿确定）用 `color="primary"`。一个页头最多一个 primary；页头的其他操作和工具栏按钮一律 `color="secondary"`。其他页面的页头主操作改到时再按本条调整。
 - **按钮尺寸**：按钮高度只用 `size` 控制，不用 `h-*` / `py-*` 覆盖；产品界面统一默认 `sm`（36px），弹窗页脚、空状态、页头都是；`lg` 只用于登录和设备授权页；空状态引导键只有 onboarding（如 Add computer）用 primary，其余 secondary。
 - 语义色（success / error / warning）和品牌色分开，状态不用紫。
 - 不写十六进制颜色，不写 `text-white` 之外的硬编码。
@@ -375,7 +376,7 @@ UI 变更必须查看实际渲染，不以源码检查代替视觉检查。按�
 
 - 首选 Tailwind 刻度，它本身就是 rem：Tailwind v4 的 `--spacing` 是 `0.25rem`，`p-4` = 1rem，`size-12` = 3rem；`theme.css` 的字号是 `--spacing` 的倍数（`text-sm` = 0.875rem）；圆角用 `rounded-md/lg/xl` 等 token（`--radius-*` 是 rem）。
 - 刻度里没有的值写 rem 任意值：`w-[18rem]`、`md:grid-cols-[repeat(auto-fill,minmax(18rem,1fr))]`、`max-w-[36rem]`。不写 `w-[280px]`、`text-[10px]`、`rounded-[10px]`。
-- 断点用 Tailwind 的 `sm/md/lg/xl`（v4 断点本身是 rem），不写 `min-[1024px]:`。
+- 断点用 Tailwind 的 `sm/md/lg/xl` 刻度，不写 `min-[1024px]:`。注意媒体查询里的 rem 取浏览器默认字号，不随应用内「文字大小」变化；用刻度断点是为了全站一致。`xs`/`xxs` 是 `theme.css` 定义的 px 断点，照用即可。窗格宽度决定布局时（例如旁边打开了资料面板），用容器查询 `@container` 而不是视口断点。
 - 内联 `style` 里的数字在 React 中按 px 处理：`style={{ paddingLeft: 16 }}` 是 16px。要写成 rem 字符串，例如树形缩进 `style={{ paddingLeft: `${0.25 + (level - 1)}rem` }}`，或改用 CSS 变量加 Tailwind 类。
 - 自写 CSS 文件同样适用：`max-height: 18.75rem`，不写 `max-height: 300px`。
 
@@ -401,7 +402,7 @@ UI 变更必须查看实际渲染，不以源码检查代替视觉检查。按�
 
 ### 存量
 
-2026-09-23 盘点，产品代码里还有布局类 px 的文件：`features/records/report-editor/table-controls.tsx`（量出来的定位保留 px，`size-[...]`/`gap-[...]`/圆角改 rem）、`report-editor/code-block-iframe.tsx`、`report-editor/styles/code.css`（`max-height`）、`features/computers/computer-tile.tsx`、`computers-pending.tsx`、`components/settings-content.tsx`（`grid-cols`）、`features/workspaces/workspace-switcher.tsx`、`invite-member-dialog.tsx`、`features/projects/create-project-dialog.tsx`、`project-file-tree.tsx`（缩进）、`features/conversations/channel-members-dialog.tsx`、`features/agents/profile-panel/agent-workspace-tab.tsx`（缩进）。改到这些页面时顺手按本节改掉；新代码不得再增加。
+2026-09-23 盘点，产品代码里还有布局类 px 的文件：`features/records/report-editor/table-controls.tsx`（量出来的定位保留 px，`size-[...]`/`gap-[...]`/圆角改 rem）、`report-editor/code-block-iframe.tsx`、`report-editor/styles/code.css`（`max-height`）、`features/computers/computer-tile.tsx`、`computers-pending.tsx`、`components/settings-content.tsx`（`grid-cols`）、`features/workspaces/workspace-switcher.tsx`、`invite-member-dialog.tsx`、`features/projects/create-project-dialog.tsx`、`project-file-tree.tsx`（缩进）、`features/conversations/channel-members-dialog.tsx`、`features/agents/profile-panel/agent-workspace-tab.tsx`（缩进）。另有：`report-editor/code-block-static.tsx`、`report-editor/extensions/slash-command-suggestion.tsx`（`max-h-[300px]`）、`report-editor/extensions/code-block-view.tsx`（`h-[480px]`）、`features/conversations/own-messages-menu.tsx`（`max-h-[400px]`）、`components/login-page.tsx`（`max-w-[360px]`）、`components/ui/hover-popover.tsx`（`max-w-[calc(100vw-24px)]`）、`report-editor/styles/shell.css`（`min-width: 300px`、`max-width: min(360px, …)`）、`report-editor/styles/media.css`（`max-width: min(100%, 640px)`），以及 px 媒体查询 `report-editor/styles/prose.css`（768px）、`styles/attachment.css`（767px）。改到这些页面时顺手按本节改掉；新代码不得再增加。
 
 ## 13. 反馈：toast 还是内联
 
@@ -428,7 +429,7 @@ CoForge 的应用：
 - [Geist Skeleton](https://vercel.com/geist/skeleton)：与最终内容匹配的占位尺寸、骨架与操作进度的区分。
 - [Sonner 设计拆解](https://emilkowal.ski/ui/building-a-toast-component)：连续反馈、计时与交互细节。
 - [Sonner Toaster](https://sonner.emilkowal.ski/toaster) 与 [Styling](https://sonner.emilkowal.ski/styling)：实际通知原语的数量、位置、快捷键与品牌 Token 接入。
-- [shadcn/ui：Empty（Base UI）](https://ui.shadcn.com/docs/components/base/empty)：空状态组件的组合、图标和内容用法；项目业务状态与导航规则仍以本文为准。
+- [shadcn/ui：Empty](https://ui.shadcn.com/docs/components/base/empty)：仅作空状态组合方式的外部视觉参考；项目不使用 shadcn，组件按第 7 节只用官方。
 - [Untitled UI：Empty states](https://www.untitledui.com/react/components/empty-states)：轻量插画、图标和头像组合的场景化处理，以及图形、文案和操作的层级参考。
 - [Ant Design：Empty](https://ant.design/components/empty/)：简洁与完整插画的尺寸层级参考；不因此引入 Ant Design 运行时或主题。
 - [Vercel：How our agents build on-brand pages with design.md](https://vercel.com/blog/how-our-agents-build-on-brand-pages-with-design-md)：指导、样式原语、固定场景评估与反馈分流的方法。

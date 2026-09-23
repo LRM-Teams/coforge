@@ -22,15 +22,17 @@ instructions for the TanStack Start Web/backend modular monolith.
     `docs/design.md`; implement it with the components and units below and
     update the conflicting rule in the same change. Ask before inventing data
     or concepts the mockup shows but the product lacks (§1).
-  - Components: only official Untitled UI components (`components/base`,
-    `components/application`, unmodified) and the primitives listed in
-    `components/ui/README.md` (§7). Icons only from `@untitledui/icons`.
+  - Components (product UI; `features/landing` keeps its Spell / Magic UI
+    motion components): only official Untitled UI components, unmodified, and
+    the primitives listed in `components/ui/README.md`, per §7 including its
+    listed exceptions. Icons only from `@untitledui/icons`; vendor logos from
+    `@lobehub/icons-static-svg`.
   - Sizes: anything that affects layout or reading (font size, spacing, width,
     height, radius, icon/avatar size, offsets) uses rem — the Tailwind scale,
     or a rem arbitrary value such as `w-[18rem]`; never `w-[280px]`,
     `text-[10px]`, or numeric inline `style` sizes. px is only for hairlines
     (border, ring, outline, divider), stroke widths, shadows/blur, and
-    positions measured from the DOM (§12).
+    positions and sizes measured from the DOM (§12).
   - Colors: semantic tokens only, no hex or `dark:` color overrides (§11).
   - Feedback: a toast only confirms an action; anything the user must see,
     handle, or come back to stays inline (§13).

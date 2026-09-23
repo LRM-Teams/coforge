@@ -142,7 +142,7 @@ until restarted" (already used verbatim for the offline-history activity row in
 never changes `isOnline` or the short badge `label`, and stays silent for a stopped Agent whose
 Daemon has not yet caught up (still "working"/"online", not overridden into looking offline
 early). `AgentDetail` renders this caption as an extra segment of the existing header meta line,
-not inside the status `Badge` — the product design guidance (`docs/design.md` §11) keep
+not inside the status `Badge` — the product design guidance (`docs/design.md` §11) keeps
 Badges to a single status word.
 
 **E. UI.** `features/agents/agent-control.tsx` gained a Start-or-Stop button, chosen by
