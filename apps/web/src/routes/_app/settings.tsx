@@ -10,7 +10,7 @@ import { PageLoadError } from "@/features/errors/page-load-error";
 import { saveUserProfile } from "@/features/profiles/profile.functions";
 import {
   browserNotificationPermission,
-  ensureBrowserPushSubscription,
+  syncBrowserPushSubscription,
   shouldShowAddToHomeScreenGuide,
 } from "@/features/notifications/browser-push";
 import {
@@ -198,9 +198,7 @@ function SettingsPage() {
       permission = await Notification.requestPermission();
     setNotificationPermission(permission);
     if (permission !== "granted") return null;
-    const subscription = await ensureBrowserPushSubscription(notifications.publicKey);
-    await subscribePush({ data: subscription });
-    return subscription;
+    return syncBrowserPushSubscription(notifications.publicKey, (data) => subscribePush({ data }));
   }
 
   async function changeBrowserNotifications(enabled: boolean) {
@@ -223,31 +221,22 @@ function SettingsPage() {
 
   async function testBrowserNotification() {
     try {
-      // Ask when the permission is still `default`: the test cannot send anything unless it is
-      // granted, and this click is the user gesture that lets the browser prompt. Without it the
-      // button can never succeed on a browser whose permission went back to `default` - it only
-      // reaches "check this browser's permission", which offers no way to fix it from there.
-      const subscription = await registerCurrentBrowser(true);
+      // The test button is only enabled once permission is granted; "Allow in browser" asks for it.
+      const subscription = await registerCurrentBrowser(false);
       if (!subscription) throw new Error("Browser notification permission is not granted");
       await sendTestNotification({ data: { endpoint: subscription.endpoint } });
       return true;
     } catch (cause) {
-      // The whole chain used to answer with one sentence, "check this browser's permission",
-      // whatever actually went wrong - including a browser that could not create a subscription at
-      // all. A grant that is already in place and still fails is the browser's own push service, so
-      // name that, and put the raw reason in the console where whoever debugs this can read it.
-      let copy = m.preferences_browser_notifications_test_error();
-      if (isAppError(cause)) {
-        if (cause.code === "NOT_FOUND")
-          copy = m.preferences_browser_notifications_test_no_subscription();
-      } else {
-        // A client-side failure with the permission already granted is the browser's own push
-        // service refusing to create the subscription; the raw reason goes to the console.
-        console.warn("browser push test failed", cause);
-        if (browserNotificationPermission() === "granted")
-          copy = m.preferences_browser_notifications_test_browser_failed();
-      }
-      toast.error(copy, cause);
+      // A client-side failure with the permission granted is the browser's own push service
+      // refusing to create the subscription; name that, and put the raw reason in the console.
+      const browserFailed = !isAppError(cause) && browserNotificationPermission() === "granted";
+      if (!isAppError(cause)) console.warn("browser push test failed", cause);
+      toast.error(
+        browserFailed
+          ? m.preferences_browser_notifications_test_browser_failed()
+          : m.preferences_browser_notifications_test_error(),
+        cause,
+      );
       return false;
     }
   }

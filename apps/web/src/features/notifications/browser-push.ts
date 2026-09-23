@@ -45,6 +45,16 @@ export async function ensureBrowserPushSubscription(
   return withRegistrationTimeout(registerBrowserPush(publicKey));
 }
 
+/** Ensures this browser holds a subscription and saves it on the server, unless signing out. */
+export async function syncBrowserPushSubscription(
+  publicKey: string,
+  save: (subscription: SerializedBrowserPushSubscription) => Promise<unknown>,
+): Promise<SerializedBrowserPushSubscription> {
+  const subscription = await ensureBrowserPushSubscription(publicKey);
+  if (browserPushLifecycleEnabled()) await save(subscription);
+  return subscription;
+}
+
 async function registerBrowserPush(publicKey: string): Promise<SerializedBrowserPushSubscription> {
   const registration = await navigator.serviceWorker.register("/service-worker.js", { scope: "/" });
   await navigator.serviceWorker.ready;
