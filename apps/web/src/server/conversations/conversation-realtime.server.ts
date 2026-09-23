@@ -20,6 +20,9 @@ export type ConversationRealtimeMessage = {
   userId?: string;
   /** Present only for a direct message: the Agent badge this event bumps. */
   agentId?: string;
+  /** Present only for a person's send: its idempotency key, so the sender's page can match the
+   * pending copy it shows to this message (see `MessageAvailableEvent.requestId`). */
+  requestId?: string;
 };
 
 /**

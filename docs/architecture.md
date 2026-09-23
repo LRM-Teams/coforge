@@ -188,7 +188,9 @@ Agent status 与聊天订阅复用该连接。每个打开的会话使用受保�
 Message mutation 仍通过已认证 HTTPS 完成；PostgreSQL 提交 canonical Message 后，backend
 通过 Centrifugo server API 发布不含正文的 versioned `message.available.v1` 信号，其中仅有
 conversation ID、message ID、canonical sequence，以及加法可选的 workspace ID、线程锚点
-（`threadRootId`，仅线程回复携带）与私聊徽标归属的 `agentId`。同一事件同时发布到会话频道和
+（`threadRootId`，仅线程回复携带）、私聊徽标归属的 `agentId`，以及发送者本次发送的幂等键
+`requestId`（仅真人从浏览器发送的消息携带；发送者页面据此把灰色的待发送消息换成正式消息，其他人忽略，
+见 [ADR 0067](adr/0067-pending-messages-in-the-conversation.md)）。同一事件同时发布到会话频道和
 一个 fan-out 频道：频道消息发往 Workspace 级 `chat:workspace:<workspace_id>` 信号频道，
 私聊只发往该查看者自己的 `chat:user:<user_id>` 频道（私聊元数据因此不会到达整个
 Workspace，徽标归属也无需浏览器做 conversation→Agent 反查）。Chat 页对这两条频道各持有一条

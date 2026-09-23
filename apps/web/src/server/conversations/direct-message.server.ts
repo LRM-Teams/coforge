@@ -74,7 +74,7 @@ export class SendDirectMessage {
     // The sender's own message never bumps their own badge (the server's count excludes
     // self-authored messages), so a human-authored DM fans out to the conversation channel
     // only: the human is the only badge owner for this DM.
-    await this.publishBrowserEvent(message, input.conversationId, {});
+    await this.publishBrowserEvent(message, input.conversationId, {}, input.requestId);
     if (!message.agentId) throw new Error("message is not an Agent direct message");
     await this.publishUserMessageToAgent(input.requestId, input.conversationId, {
       ...message,
@@ -205,6 +205,8 @@ export class SendDirectMessage {
     message: { id: string; sequence: number; threadRootId?: string | null },
     conversationId: string,
     scope: { workspaceId?: string; userId?: string; agentId?: string },
+    /** A person's send only: lets the sender's page match its pending copy. */
+    requestId?: string,
   ) {
     if (!this.realtime) return;
     try {
@@ -216,6 +218,7 @@ export class SendDirectMessage {
         ...(scope.userId ? { userId: scope.userId } : {}),
         ...(scope.agentId ? { agentId: scope.agentId } : {}),
         ...(message.threadRootId ? { threadRootId: message.threadRootId } : {}),
+        ...(requestId ? { requestId } : {}),
       });
     } catch {
       // PostgreSQL remains canonical; browser reconciliation repairs a missed publication.

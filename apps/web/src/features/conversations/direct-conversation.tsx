@@ -49,7 +49,16 @@ import { useAppToast } from "@/components/ui/toast";
 import { MessageComposer } from "./message-composer";
 import { makeMentionBodyFormatter, type Mentionable } from "./mention-text";
 import type { ChipMention } from "./message-markdown";
-import { MessageRow, groupsWithPrevious, type MessageThreadEntry } from "./message-row";
+import {
+  GROUPING_WINDOW_MS,
+  MessageRow,
+  dayLabel,
+  groupsWithPrevious,
+  type MessageThreadEntry,
+} from "./message-row";
+import { composerDraftKey } from "./composer-draft";
+import { OutboxMessageRow } from "./outbox-message-row";
+import { useMessageOutbox, useOutboxEntries } from "./use-message-outbox";
 import {
   OwnMessagesMenu,
   useOwnMessagesIndex,
@@ -919,6 +928,48 @@ export function ConversationPane({
     fallback: loadedOwnMessages,
   });
   const ownMessages = ownIndex.messages;
+  // The viewer's messages the server has not confirmed yet (or failed to take), shown greyed at the
+  // foot of the stream until the real message replaces them (see `composer-outbox.ts`).
+  const outboxDraftKey = composerDraftKey(conversation.conversationId, root?.id);
+  const outbox = useMessageOutbox({
+    draftKey: outboxDraftKey,
+    onSend,
+    onCreateTask,
+    onSent: ownIndex.add,
+  });
+  const outboxEntries = useOutboxEntries(outboxDraftKey);
+  const loadedMessageIds = useMemo(
+    () => new Set(conversation.messages.map((message) => message.id)),
+    [conversation.messages],
+  );
+  // A delivered message leaves the outbox once the real one is on screen, never before, so the
+  // row never blinks out between the two. Rows only sit at the foot of the loaded window, which is
+  // the conversation's latest messages only when no newer page is waiting.
+  const shownOutbox = conversation.hasNewer
+    ? []
+    : outboxEntries.filter(
+        (entry) => entry.state !== "delivered" || !loadedMessageIds.has(entry.messageId),
+      );
+  useEffect(() => {
+    for (const entry of outboxEntries)
+      if (entry.state === "delivered" && loadedMessageIds.has(entry.messageId))
+        outbox.discard(entry);
+  }, [outboxEntries, loadedMessageIds]);
+  // Sending takes the reader to the latest messages, where the new one appears.
+  const knownOutboxIdsRef = useRef<ReadonlySet<string>>(new Set());
+  useEffect(() => {
+    const known = knownOutboxIdsRef.current;
+    knownOutboxIdsRef.current = new Set(outboxEntries.map((entry) => entry.localId));
+    if (outboxEntries.some((entry) => entry.state === "sending" && !known.has(entry.localId)))
+      void showLatestMessages();
+  }, [outboxEntries]);
+  // The first pending row continues the viewer's run of messages right above it, as a sent one would.
+  const lastMessage = conversation.messages.at(-1);
+  const outboxContinuesRun =
+    lastMessage !== undefined &&
+    isOwn(lastMessage) &&
+    dayLabel(lastMessage.createdAt, dateLocale) === dayLabel(new Date(), dateLocale) &&
+    Date.now() - new Date(lastMessage.createdAt).getTime() <= GROUPING_WINDOW_MS;
   // The own-messages index shows the stored body, which spells a mention as its raw
   // `<@agent:uuid>` token. Resolve those to `@handle` the way the message list does, using the
   // conversation's known mentionables. Applies to channels too (both render through here).
@@ -1361,7 +1412,7 @@ export function ConversationPane({
                 <Loading02 aria-hidden className="size-full motion-safe:animate-spin" />
               </ProgressBar>
             </div>
-          ) : conversation.messages.length === 0 ? (
+          ) : conversation.messages.length === 0 && shownOutbox.length === 0 ? (
             <Empty
               className={
                 root
@@ -1428,6 +1479,18 @@ export function ConversationPane({
                   />
                 );
               })}
+              {shownOutbox.map((entry, index) => (
+                <OutboxMessageRow
+                  key={entry.localId}
+                  entry={entry}
+                  grouped={index > 0 || outboxContinuesRun}
+                  plainMentions={plainMentions}
+                  viewerHandle={conversation.viewerHandle}
+                  onRetry={() => outbox.retry(entry)}
+                  onEdit={() => outbox.edit(entry)}
+                  onDiscard={() => outbox.remove(entry)}
+                />
+              ))}
             </ol>
           )}
           {!root &&

@@ -81,6 +81,7 @@ test("Workspace humans enrolled in general see one general channel; outsiders ca
       sequence: number;
       workspaceId?: string;
       threadRootId?: string;
+      requestId?: string;
     }> = [];
     const channels = new PublicChannels(
       db,
@@ -175,6 +176,7 @@ test("Workspace humans enrolled in general see one general channel; outsiders ca
       sequence: saved.sequence,
       workspaceId: workspace.id,
       threadRootId: undefined,
+      requestId,
     });
     expect((await send(alice.id, "Hello Bob", requestId)).id).toBe(saved.id);
     const unjoined = await channels.open(workspace.id, bob.id, engineering.id);

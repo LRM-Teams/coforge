@@ -8,6 +8,7 @@ import {
   decodeMemberChangedEvent,
   decodeMessageAvailableEvent,
 } from "./conversation-realtime";
+import { deviceComposerOutbox } from "./use-message-outbox";
 
 type RealtimeSubscription = {
   on(
@@ -40,6 +41,10 @@ export function subscribeToConversationRealtime<T extends RealtimeSubscription>(
     /** A membership change in this conversation (join/leave/add/remove): the member directory
      * (composer candidates, plain-@handle resolution) is stale and must be refetched. */
     onMemberChanged?: () => void;
+    /** A message the viewer sent from the browser now exists: its signal names the send's request
+     * id, so the page can swap its greyed pending copy for the real message (see
+     * `composer-outbox.ts`). */
+    onSentMessage?: (requestId: string, messageId: string) => void;
   },
 ) {
   const channel = conversationRealtimeChannel(input.conversationId);
@@ -57,7 +62,9 @@ export function subscribeToConversationRealtime<T extends RealtimeSubscription>(
   subscription.on("publication", ({ data }) => {
     try {
       const event = decodeMessageAvailableEvent(data);
-      if (event.conversationId === input.conversationId) requestReconciliation();
+      if (event.conversationId !== input.conversationId) return;
+      if (event.requestId) input.onSentMessage?.(event.requestId, event.messageId);
+      requestReconciliation();
       return;
     } catch {}
     // Not a message event: the other payload this channel carries is a membership change,
@@ -101,6 +108,8 @@ export function useConversationRealtime(
       getToken: () => getToken({ data: { conversationId } }),
       reconcile: () => void reconcileRef.current().catch(() => {}),
       onMemberChanged: () => memberChangedRef.current?.(),
+      onSentMessage: (requestId, messageId) =>
+        deviceComposerOutbox().acknowledge(requestId, messageId),
     });
   }, [client, conversationId, getToken]);
 }

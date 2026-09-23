@@ -5,6 +5,7 @@ import {
   draftWithUnsentMessage,
   outboxLocalIdOfStorageKey,
   unsentReason,
+  unsentReasonAllowsEdit,
   unsentReasonAllowsRetry,
   type OutboxStorage,
   type OutgoingMessage,
@@ -157,6 +158,71 @@ describe("createComposerOutbox", () => {
   });
 });
 
+describe("acknowledge", () => {
+  test("a signal naming a pending send's request id marks it delivered as that message", async () => {
+    const outbox = createComposerOutbox(memoryStorage());
+    const pending = message();
+    void outbox.send(pending, () => new Promise<never>(() => {}));
+    outbox.acknowledge(pending.requestId, "message-9");
+    expect(outbox.entries("chat-a")).toEqual([
+      { ...pending, state: "delivered", messageId: "message-9" },
+    ]);
+  });
+
+  test("a delivered message stays delivered when its own response then fails", async () => {
+    const outbox = createComposerOutbox(memoryStorage());
+    const pending = message();
+    let failAttempt!: (cause: unknown) => void;
+    let attemptStarted!: () => void;
+    const started = new Promise<void>((resolve) => {
+      attemptStarted = resolve;
+    });
+    const done = outbox.send(
+      pending,
+      () =>
+        new Promise((_, reject) => {
+          failAttempt = reject;
+          attemptStarted();
+        }),
+    );
+    await started;
+    outbox.acknowledge(pending.requestId, "message-9");
+    failAttempt(new TypeError("Failed to fetch"));
+    await done;
+    expect(outbox.entries("chat-a")).toEqual([
+      { ...pending, state: "delivered", messageId: "message-9" },
+    ]);
+  });
+
+  test("an unsent message the server turns out to have accepted is delivered, not unsent", async () => {
+    const outbox = createComposerOutbox(memoryStorage());
+    const failing = message();
+    await outbox.send(failing, async () => {
+      throw new TypeError("Failed to fetch");
+    });
+    outbox.acknowledge(failing.requestId, "message-9");
+    expect(outbox.entries("chat-a")).toEqual([
+      { ...failing, state: "delivered", messageId: "message-9" },
+    ]);
+  });
+
+  test("a request id this page never sent changes nothing", async () => {
+    const outbox = createComposerOutbox(memoryStorage());
+    const listed = outbox.entries("chat-a");
+    outbox.acknowledge("someone-elses-request", "message-9");
+    expect(outbox.entries("chat-a")).toBe(listed);
+  });
+
+  test("delivered messages are not brought back by a reload: the history already has them", async () => {
+    const storage = memoryStorage();
+    const before = createComposerOutbox(storage);
+    const pending = message();
+    void before.send(pending, () => new Promise<never>(() => {}));
+    before.acknowledge(pending.requestId, "message-9");
+    expect(createComposerOutbox(storage).entries("chat-a")).toEqual([]);
+  });
+});
+
 describe("outboxLocalIdOfStorageKey", () => {
   test("names the message an outbox storage key holds, and nothing for other keys", async () => {
     const storage = memoryStorage();
@@ -183,6 +249,14 @@ describe("unsentReason", () => {
   test("a failure that is not a lost connection is never reported as one", () => {
     expect(unsentReason(new TypeError("Cannot read properties of undefined"))).toBe("unavailable");
     expect(unsentReason(new Error("boom"))).toBe("unavailable");
+  });
+
+  test("editing is offered where a changed message could go through", () => {
+    for (const reason of ["offline", "unavailable", "denied", "rejected"] as const)
+      expect(unsentReasonAllowsEdit(reason)).toBe(true);
+    // Gone: there is nowhere left to send it. Interrupted: it may already be in the conversation.
+    for (const reason of ["gone", "interrupted"] as const)
+      expect(unsentReasonAllowsEdit(reason)).toBe(false);
   });
 
   test("a refusal that would repeat on retry is not offered a retry", () => {

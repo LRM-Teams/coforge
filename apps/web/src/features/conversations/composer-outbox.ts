@@ -43,8 +43,15 @@ export type UnsentReason =
   | "gone"
   | "rejected";
 
+/**
+ * - `sending`: on its way, shown greyed in the conversation;
+ * - `delivered`: the server has it as `messageId` (its realtime signal carried this request id),
+ *   and the entry only waits for that message to appear in the loaded conversation;
+ * - `unsent`: the send failed, for `reason`.
+ */
 export type OutboxEntry =
   | (OutgoingMessage & { state: "sending" })
+  | (OutgoingMessage & { state: "delivered"; messageId: string })
   | (OutgoingMessage & { state: "unsent"; reason: UnsentReason; errorId?: string });
 
 /** `fetch` rejects with a `TypeError` whose message names the network failure; the wording is the
@@ -80,6 +87,12 @@ export function unsentReasonAllowsRetry(reason: UnsentReason): boolean {
   return reason === "offline" || reason === "unavailable" || reason === "interrupted";
 }
 
+/** Whether putting the message back in the composer to change it can help: not when the
+ * conversation is gone, nor when the message may already be in it (retry that instead, safely). */
+export function unsentReasonAllowsEdit(reason: UnsentReason): boolean {
+  return reason !== "gone" && reason !== "interrupted";
+}
+
 /**
  * The composer text after an unsent message is put back for editing: the unsent message
  * first, then whatever has been typed since, so neither is lost.
@@ -108,7 +121,11 @@ export type ComposerOutbox = {
     localId: string,
     transport: (message: OutgoingMessage) => Promise<T>,
   ): Promise<T | undefined>;
-  /** Forgets an unsent message, e.g. because the reader deleted it or took it back to edit. */
+  /** The server stored the send with this request id as `messageId`: whatever this attempt's own
+   * response says, the message exists. A request id this page never sent is ignored. */
+  acknowledge(requestId: string, messageId: string): void;
+  /** Forgets a message: delivered and now shown for real, deleted by the reader, or taken back to
+   * edit. */
   discard(localId: string): void;
 };
 
@@ -152,12 +169,20 @@ export function createComposerOutbox(storage: OutboxStorage | null): ComposerOut
   // Whatever an earlier page left behind. A message that was still on its way then may or may
   // not have arrived; either way nothing is sending it now.
   try {
+    const keys: string[] = [];
     for (let index = 0; storage && index < storage.length; index += 1) {
       const key = storage.key(index);
-      if (!key?.startsWith(STORAGE_PREFIX)) continue;
-      const found = parseStored(storage.getItem(key));
+      if (key?.startsWith(STORAGE_PREFIX)) keys.push(key);
+    }
+    for (const key of keys) {
+      const found = parseStored(storage?.getItem(key) ?? null);
       if (!found) continue;
       const { entry } = found;
+      // Delivered: the conversation's history already has it.
+      if (entry.state === "delivered") {
+        storage?.removeItem(key);
+        continue;
+      }
       stored.set(entry.localId, {
         submittedAt: found.submittedAt,
         entry:
@@ -218,8 +243,10 @@ export function createComposerOutbox(storage: OutboxStorage | null): ComposerOut
         forget(message.localId);
         return delivered;
       } catch (cause) {
-        // Delivered or deleted from another tab while this attempt was out: nothing to keep.
-        if (!stored.has(message.localId)) return undefined;
+        // Deleted (here or in another tab) while this attempt was out: nothing to keep. Already
+        // acknowledged by its signal: the message exists whatever this response says.
+        const current = stored.get(message.localId);
+        if (!current || current.entry.state === "delivered") return undefined;
         const errorId = isAppError(cause) ? cause.errorId : undefined;
         save({
           ...value,
@@ -259,6 +286,25 @@ export function createComposerOutbox(storage: OutboxStorage | null): ComposerOut
       const value = stored.get(localId);
       if (!value || value.entry.state !== "unsent") return Promise.resolve(undefined);
       return dispatch(value, transport);
+    },
+    acknowledge(requestId, messageId) {
+      for (const value of stored.values()) {
+        if (value.entry.requestId !== requestId || value.entry.state === "delivered") continue;
+        const { localId, draftKey, body, asTask, attachments } = value.entry;
+        save({
+          ...value,
+          entry: {
+            localId,
+            draftKey,
+            body,
+            requestId,
+            asTask,
+            attachments,
+            state: "delivered",
+            messageId,
+          },
+        });
+      }
     },
     discard: forget,
   };

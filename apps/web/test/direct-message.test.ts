@@ -215,6 +215,41 @@ describe("SendDirectMessage", () => {
     expect(calls).toEqual(["persist", "browser:conversation-a:message-a:1", "daemon"]);
   });
 
+  test("signals a human message with its request id, so the sender's browser can match it", async () => {
+    const signals: unknown[] = [];
+    const repository = {
+      async getOrCreateUserAgent() {
+        return { id: "conversation-a" };
+      },
+      async sendMessage() {
+        return persisted;
+      },
+    } satisfies DirectConversationRepository;
+    const useCase = new SendDirectMessage(
+      repository,
+      new MemoryMessageRequestIdempotency(),
+      { async publish() {} },
+      {
+        async memberChanged() {},
+        async messageAvailable(input) {
+          signals.push(input);
+        },
+      },
+    );
+
+    await useCase.execute({
+      requestId: "request-a",
+      workspaceId: "workspace-a",
+      conversationId: "conversation-a",
+      senderMemberId: "member-a",
+      senderUserId: "user-a",
+      body: "Hello Agent",
+    });
+    expect(signals).toEqual([
+      expect.objectContaining({ messageId: "message-a", requestId: "request-a" }),
+    ]);
+  });
+
   test.each([
     // No sender kind resolved at all.
     { latestSenderKind: undefined, latestSenderHandle: undefined },
