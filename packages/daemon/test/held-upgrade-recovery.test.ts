@@ -132,7 +132,10 @@ test("a Coordinator restart self-completes terminal receipt plus launch-hold wit
   expect(calls).toEqual(["resume", "clear"]);
 });
 
-test("unknown or corrupt hold ownership fails closed instead of rebinding", async () => {
+test("stranded launch-hold without an owner recovers on explicit resume without settle", async () => {
+  // Local CLI upgrades write a UUID into launch-hold without recordUpgrade, so
+  // resolveHeldRequestId leaves the owner undefined. Explicit daemon:resume must
+  // still resume Workspaces and clear the hold; settle has nothing to bind to.
   const calls: string[] = [];
   const recovery = new HeldUpgradeRecovery(true, undefined, {
     settle: async () => {
@@ -148,11 +151,17 @@ test("unknown or corrupt hold ownership fails closed instead of rebinding", asyn
     onWorkspaceRecoveryError: () => {},
   });
 
-  await expect(recovery.finish("some-other-request", true)).rejects.toThrow(
-    "no recoverable upgrade owner",
-  );
-  expect(calls).toEqual([]);
-  expect(recovery.active).toBe(true);
+  expect(recovery.owns("cli-local-request")).toBe(false);
+  expect(
+    shouldAutoFinishHeldUpgrade(recovery, "cli-local-request", { status: "succeeded" }),
+  ).toBe(false);
+
+  await recovery.finish("cli-local-request");
+
+  expect(calls).toEqual(["resume", "clear"]);
+  expect(recovery.active).toBe(false);
+  await recovery.finish("cli-local-request");
+  expect(calls).toEqual(["resume", "clear"]);
 });
 
 test("explicit settlement does not deadlock by re-entering its watcher callback", async () => {
