@@ -271,8 +271,36 @@ describe("WebPushNotifications", () => {
       const logged = error.mock.calls.map((call) => String(call[0])).join("\n");
       expect(logged).toContain("web_push.subscription_removed");
       expect(logged).toContain(first.id);
+      // docs/observability.md: an error-level event must carry `outcome=failed` (#681 review).
+      expect(logged).toContain('"outcome":"failed"');
       // Never the endpoint: it is a capability URL.
       expect(logged).not.toContain(first.endpoint);
+    } finally {
+      error.mockRestore();
+    }
+  });
+
+  test("an ordinary delivery failure logs outcome=failed with its errorId", async () => {
+    const error = spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const repository = store({ subscriptions: [first] });
+      const notifications = new WebPushNotifications(repository.value, {
+        send: async () => {
+          throw new WebPushDeliveryError(500);
+        },
+      });
+      await expect(notifications.sendTest("user-a", first.endpoint, "en")).resolves.toEqual({
+        sent: 0,
+        failed: 1,
+        removed: 0,
+        errorId: expect.any(String),
+        unreachable: 0,
+      });
+      const logged = error.mock.calls.map((call) => String(call[0])).join("\n");
+      expect(logged).toContain("web_push.delivery_failed");
+      // The stable event + correlatable errorId already satisfy the rest of the contract;
+      // this is the field #681's review asked to fold in.
+      expect(logged).toContain('"outcome":"failed"');
     } finally {
       error.mockRestore();
     }

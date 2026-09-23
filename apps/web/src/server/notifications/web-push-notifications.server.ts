@@ -202,6 +202,7 @@ export class WebPushNotifications {
                 errorId,
                 subscriptionId: subscription.id,
                 statusCode,
+                outcome: "failed",
               }),
             );
             return "removed" as const;
@@ -218,6 +219,7 @@ export class WebPushNotifications {
               subscriptionId: subscription.id,
               statusCode,
               unreachable,
+              outcome: "failed",
             }),
           );
           return unreachable ? ("unreachable" as const) : ("failed" as const);
