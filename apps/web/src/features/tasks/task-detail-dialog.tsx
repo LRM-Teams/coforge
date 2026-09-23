@@ -4,7 +4,7 @@ import type {
   TaskStatus,
   TaskView,
 } from "@lrm/coforge-sdk/internal";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { getRouteApi } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import {
@@ -16,7 +16,7 @@ import {
   SearchLg,
   XClose,
 } from "@untitledui/icons";
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { useFilter } from "react-aria";
 import {
   Autocomplete as AriaAutocomplete,
@@ -40,38 +40,18 @@ import { getLocale } from "#src/paraglide/runtime";
 import { taskTimeline } from "./task-history-timeline";
 import { getTaskMoveCommand, taskStatusOptions } from "./task-move";
 import { executeTask } from "./tasks.functions";
-import { statusLabel } from "./task-workflow";
+import { statusLabel, TASK_STATUS_COLOR } from "./task-workflow";
 
 type DetailCommand = Omit<TaskCommand, "idempotencyKey" | "conversationId"> & { number: number };
 
 const appRoute = getRouteApi("/_app");
 
-const STATUS_BADGE = {
-  todo: "orange",
-  in_progress: "blue",
-  in_review: "indigo",
-  done: "success",
-  closed: "gray",
-} as const;
-const STATUS_DOT: Record<TaskStatus, string> = {
-  todo: "bg-utility-orange-500",
-  in_progress: "bg-utility-blue-500",
-  in_review: "bg-utility-indigo-500",
-  done: "bg-utility-green-500",
-  closed: "bg-utility-neutral-400",
-};
-const STATUS_LINE: Record<TaskStatus, string> = {
-  todo: "bg-utility-orange-300",
-  in_progress: "bg-utility-blue-300",
-  in_review: "bg-utility-indigo-300",
-  done: "bg-utility-green-300",
-  closed: "bg-utility-neutral-300",
-};
 const UNASSIGNED = "unassigned";
+const memberKey = (member: { kind: string; id: string }) => `${member.kind}:${member.id}`;
 
 function StatusBadge({ status }: { status: TaskStatus }) {
   return (
-    <Badge type="color" size="sm" color={STATUS_BADGE[status]}>
+    <Badge type="color" size="sm" color={TASK_STATUS_COLOR[status].badge}>
       {statusLabel(status)}
     </Badge>
   );
@@ -151,7 +131,6 @@ export function TaskDetailDialog({
   const section = (
     <TaskSection
       task={task}
-      open={open}
       onCommand={onCommand}
       members={members}
       currentMemberId={currentMemberId}
@@ -164,7 +143,11 @@ export function TaskDetailDialog({
           <div className="flex shrink-0 items-center gap-3 border-b border-secondary py-3 pr-4 pl-6">
             <div className="min-w-0 flex-1">
               <div className="truncate text-xs font-medium text-tertiary">{conversationLabel}</div>
-              <Heading slot="title" className="truncate text-md font-semibold text-primary">
+              <Heading
+                slot="title"
+                level={2}
+                className="truncate text-md font-semibold text-primary"
+              >
                 {m.tasks_details_title({ number: String(task.number) })}
               </Heading>
             </div>
@@ -189,13 +172,11 @@ export function TaskDetailDialog({
 
 function TaskSection({
   task,
-  open,
   onCommand,
   members,
   currentMemberId,
 }: {
   task: TaskView;
-  open: boolean;
   onCommand?: (command: DetailCommand) => Promise<void>;
   members?: readonly Mentionable[];
   currentMemberId: string | null;
@@ -203,14 +184,13 @@ function TaskSection({
   const execute = useServerFn(executeTask);
   const queryClient = useQueryClient();
   const [historyOpen, setHistoryOpen] = useState(false);
-  const [history, setHistory] = useState<TaskHistoryEvent[]>();
-  const [historyError, setHistoryError] = useState(false);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState(false);
-
-  const loadHistory = useCallback(async () => {
-    setHistoryError(false);
-    try {
+  // Keyed by revision: every change bumps it, so the history reloads whenever the Task changes
+  // and an older response can never overwrite a newer one.
+  const history = useQuery({
+    queryKey: ["task", "history", task.conversationId, task.number, task.revision],
+    queryFn: async () => {
       const result = await execute({
         data: {
           operation: "history",
@@ -219,19 +199,10 @@ function TaskSection({
           number: task.number,
         },
       });
-      setHistory(result.history ?? []);
-    } catch {
-      setHistoryError(true);
-    }
-  }, [execute, task.conversationId, task.number]);
-
-  // Every change bumps the revision, so the history reloads whenever the Task changes.
-  useEffect(() => {
-    if (open) void loadHistory();
-  }, [open, task.revision, loadHistory]);
-  useEffect(() => {
-    if (!open) setError(false);
-  }, [open]);
+      return result.history ?? [];
+    },
+    placeholderData: (previous) => previous,
+  });
 
   async function run(command: DetailCommand) {
     if (pending) return;
@@ -262,18 +233,18 @@ function TaskSection({
     }
   }
 
+  // History names an assignee by User/Agent id: the conversation's members first, then the
+  // Task's own owner and creator, who may have left or be missing from a DM's list.
   const memberName = (kind: "user" | "agent", id: string) =>
-    members?.find((member) => member.kind === kind && member.id === id)?.label;
+    members?.find((member) => member.kind === kind && member.id === id)?.label ??
+    [task.owner, task.creator].find((member) => member?.kind === kind && member.id === id)?.name;
   const actorName = (handle: string | null) =>
     (handle && members?.find((member) => member.handle === handle)?.label) ??
     handle ??
     m.tasks_history_unknown_member();
 
   return (
-    <section
-      aria-label={m.tasks_details_title({ number: String(task.number) })}
-      className="flex flex-col gap-4 border-b border-secondary px-6 pt-5 pb-4"
-    >
+    <section className="flex flex-col gap-4 border-b border-secondary px-6 pt-5 pb-4">
       <h3 className="line-clamp-3 text-lg font-semibold break-words text-primary">{task.title}</h3>
 
       <div className="border-b border-secondary pb-3">
@@ -287,15 +258,15 @@ function TaskSection({
           {m.tasks_history()}
         </Button>
         {historyOpen &&
-          (historyError ? (
+          (history.isError ? (
             <p role="alert" className="mt-3 text-sm text-error-primary">
               {m.tasks_history_error()}
             </p>
-          ) : history && history.length === 0 ? (
+          ) : history.data && history.data.length === 0 ? (
             <p className="mt-3 text-sm text-tertiary">{m.tasks_history_empty()}</p>
-          ) : history ? (
+          ) : history.data ? (
             <TaskTimeline
-              events={history}
+              events={history.data}
               actorName={actorName}
               assigneeName={(kind, id) => memberName(kind, id) ?? m.tasks_history_unknown_member()}
             />
@@ -368,7 +339,7 @@ function StatusMenu({
   return (
     <Dropdown.Root>
       <AriaButton
-        aria-label={m.tasks_change_status()}
+        aria-label={`${m.tasks_change_status()}: ${statusLabel(task.status)}`}
         isDisabled={disabled}
         className="cursor-pointer rounded-md outline-focus-ring focus-visible:outline-2 focus-visible:outline-offset-2 disabled:cursor-not-allowed"
       >
@@ -416,11 +387,13 @@ function AssigneeMenu({
   const [search, setSearch] = useState("");
   const name = task.owner?.name ?? m.tasks_unassigned();
   if (!members) return <span className="text-sm font-medium text-primary">{name}</span>;
-  const ownerHandle = task.owner?.handle;
+  const ownerKey = task.owner?.id
+    ? memberKey({ kind: task.owner.kind, id: task.owner.id })
+    : undefined;
   return (
     <Dropdown.Root onOpenChange={(isOpen) => isOpen && setSearch("")}>
       <AriaButton
-        aria-label={m.tasks_change_assignee()}
+        aria-label={`${m.tasks_change_assignee()}: ${name}`}
         isDisabled={disabled}
         className="inline-flex cursor-pointer items-center gap-1.5 rounded-md text-sm font-medium text-primary outline-focus-ring focus-visible:outline-2 focus-visible:outline-offset-2 disabled:cursor-not-allowed"
       >
@@ -448,22 +421,22 @@ function AssigneeMenu({
           <Dropdown.Menu
             aria-label={m.tasks_change_assignee()}
             selectionMode="single"
-            selectedKeys={[ownerHandle ?? UNASSIGNED]}
+            selectedKeys={[ownerKey ?? UNASSIGNED]}
             className="max-h-72"
             onAction={(key) => {
               if (key === UNASSIGNED) {
                 if (task.owner) onSelect(null);
                 return;
               }
-              const member = members.find((candidate) => candidate.handle === key);
-              if (member && member.handle !== ownerHandle) onSelect(member.handle);
+              const member = members.find((candidate) => memberKey(candidate) === key);
+              if (member && key !== ownerKey) onSelect(member.handle);
             }}
           >
             <Dropdown.Item id={UNASSIGNED} label={m.tasks_unassigned()} />
             {members.map((member) => (
               <Dropdown.Item
-                key={member.handle}
-                id={member.handle}
+                key={memberKey(member)}
+                id={memberKey(member)}
                 textValue={`${member.label} ${member.handle}`}
                 label={member.label}
                 avatarUrl={member.avatarUrl ?? undefined}
@@ -498,7 +471,7 @@ function TaskTimeline({
               aria-hidden="true"
               className={cn(
                 "absolute top-4 bottom-0 left-1.5 w-px -translate-x-1/2",
-                lineStatus ? STATUS_LINE[lineStatus] : "bg-border-secondary",
+                lineStatus ? TASK_STATUS_COLOR[lineStatus].line : "bg-border-secondary",
               )}
             />
           )}
@@ -506,7 +479,7 @@ function TaskTimeline({
             aria-hidden="true"
             className={cn(
               "relative mt-1 size-3 shrink-0 rounded-full",
-              status ? STATUS_DOT[status] : "border-2 border-primary bg-primary",
+              status ? TASK_STATUS_COLOR[status].dot : "border-2 border-primary bg-primary",
             )}
           />
           <div className="flex min-w-0 flex-1 flex-col gap-0.5">

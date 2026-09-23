@@ -82,6 +82,7 @@ test("Task changes record history events with their before and after state", asy
     expect(task.creator).toEqual({
       memberId: channel.members.find((member) => member.userId === alice.id)!.id,
       kind: "user",
+      id: alice.id,
       name: "Alice",
       handle: alice.username,
       avatarUrl: null,

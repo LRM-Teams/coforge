@@ -488,6 +488,8 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
     openTask && mainMessages.find((message) => message.id === openTask.messageId);
   const taskDialog = openTask ? (
     <TaskDetailDialog
+      // One popup instance per task: switching tasks from a chip inside the popup starts fresh.
+      key={openTask.messageId}
       task={openTask}
       open
       onOpenChange={(next) => {
@@ -524,6 +526,31 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
       }
     />
   ) : null;
+  // The popup shows the task's thread itself, so a side pane for the same thread closes (two
+  // composers on one thread would share and overwrite its draft), and a task message outside the
+  // loaded window is fetched the way a thread link is.
+  const openTaskMessageId = openTask?.messageId;
+  const attemptedTaskLoad = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    if (!openTaskMessageId) return;
+    setVisited((previous) => previous.filter((rootId) => rootId !== openTaskMessageId));
+    if (searchThreadRootId === openTaskMessageId) closeThread();
+    if (conversation.messages.some((message) => message.id === openTaskMessageId)) return;
+    if (attemptedTaskLoad.current === openTaskMessageId) return;
+    attemptedTaskLoad.current = openTaskMessageId;
+    void loadWindowAround(openTaskMessageId);
+  }, [openTaskMessageId, searchThreadRootId, closeThread, conversation.messages, loadWindowAround]);
+  const popupRootId = openTaskRoot?.id;
+  const popupSequence = popupRootId ? (repliesOf(popupRootId).at(-1)?.sequence ?? 0) : 0;
+  useEffect(() => {
+    if (!popupRootId || !popupSequence || document.visibilityState === "hidden") return;
+    if (popupSequence <= (threadCursor(popupRootId) ?? 0)) return;
+    void (onReadThread?.(popupRootId, popupSequence) ?? Promise.resolve())
+      .then(() => setReadThrough((previous) => ({ ...previous, [popupRootId]: popupSequence })))
+      .catch(() => {
+        // Leave unread intact; the next reply retries the read acknowledgement.
+      });
+  }, [popupRootId, popupSequence, onReadThread, threadCursor]);
   const selected = resolveConversationThreadRoot({
     searchThreadRootId,
     messages: conversation.messages,
@@ -1136,6 +1163,11 @@ export function ConversationPane({
           ).length;
     previousConversationIdRef.current = conversation.conversationId;
     previousLastSequenceRef.current = lastSequence;
+    // A thread shown under the task popup's task section opens on the task, not its latest reply.
+    if (rootSlot && firstRender) {
+      setFollowingLatest(false);
+      return undefined;
+    }
 
     if (firstRender || changedConversation || followingLatestRef.current) {
       setNewMessageCount(0);
@@ -1193,7 +1225,7 @@ export function ConversationPane({
       bottomDistanceRef.current = 0;
     });
     observer.observe(history);
-    const messages = history.querySelector("ol");
+    const messages = history.querySelector("ol[data-message-list]");
     if (messages) observer.observe(messages);
     return () => observer.disconnect();
   }, [conversation.conversationId, conversation.messages.length === 0]);
@@ -1597,7 +1629,7 @@ export function ConversationPane({
             // Every loaded row is rendered, in normal flow. Nothing here computes a row's position
             // or its height, so no measurement can shift a row under the reader and no scroll
             // correction is needed while you read; the scrollbar is the real content height.
-            <ol className="flex flex-col pt-6">
+            <ol data-message-list className="flex flex-col pt-6">
               {conversation.messages.map((message, index) => {
                 const key = message.id;
                 const previous = conversation.messages[index - 1];

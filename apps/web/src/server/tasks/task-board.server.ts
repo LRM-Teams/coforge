@@ -127,12 +127,14 @@ function taskMember(
     return {
       memberId: member.id,
       kind: "agent",
+      id: member.agentId!,
       name: member.agent.displayName || member.agent.name,
       handle: member.agent.name,
     };
   return {
     memberId: member.id,
     kind: "user",
+    ...(member.userId && { id: member.userId }),
     name: member.user?.displayName || `@${member.user?.username}`,
     handle: member.user?.username,
     avatarUrl:
