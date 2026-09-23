@@ -8,6 +8,7 @@ import {
   useState,
   type CSSProperties,
 } from "react";
+import { replaceEqualDeep } from "@tanstack/react-query";
 import { Activity as ActivityIcon, ChevronRight } from "@untitledui/icons";
 import { Button } from "#src/components/base/buttons/button";
 import { ClockTime } from "#src/components/ui/relative-time";
@@ -33,21 +34,40 @@ export function AgentActivityTimeline({
   compact?: boolean;
 }) {
   const locale = getLocale();
-  // presentActivityRows is newest-first (its own documented contract, kept for the
-  // avatar/popover's top-N slice); the timeline itself reads oldest at top, newest at bottom.
-  // Each row carries the date-separator label that precedes it, worked out once per feed change
-  // rather than on every render.
+  // Each live frame re-presents the whole feed into fresh objects. Handing an unchanged row its
+  // previous object (and calendar day) back lets `memo` skip it, so a frame re-renders only the
+  // rows it added or grew; a different zone or locale starts over.
+  const previous = useRef<{ zone: string | null; locale: string; rows: Map<string, TimelineRow> }>(
+    undefined,
+  );
   const rows = useMemo(() => {
+    const reusable =
+      previous.current?.zone === timeZone && previous.current.locale === locale
+        ? previous.current.rows
+        : new Map<string, TimelineRow>();
+    const next = new Map<string, TimelineRow>();
     let previousDay: string | undefined;
-    return [...presentActivityRows(activity)].reverse().map((row) => {
-      const day = calendarDayKey(new Date(row.observedAtMs), timeZone);
-      const dayLabel =
-        day === previousDay
-          ? undefined
-          : formatCalendarDayLabel(new Date(row.observedAtMs), timeZone, locale);
-      previousDay = day;
-      return { row, dayLabel };
-    });
+    // presentActivityRows is newest-first (its own documented contract, kept for the
+    // avatar/popover's top-N slice); the timeline itself reads oldest at top, newest at bottom.
+    const timeline = presentActivityRows(activity)
+      .reverse()
+      .map((presented) => {
+        const earlier = reusable.get(presented.key);
+        const row = earlier ? replaceEqualDeep(earlier.row, presented) : presented;
+        const day =
+          earlier?.row.observedAtMs === row.observedAtMs
+            ? earlier.day
+            : calendarDayKey(new Date(row.observedAtMs), timeZone);
+        next.set(row.key, { row, day });
+        const dayLabel =
+          day === previousDay
+            ? undefined
+            : formatCalendarDayLabel(new Date(row.observedAtMs), timeZone, locale);
+        previousDay = day;
+        return { row, dayLabel };
+      });
+    previous.current = { zone: timeZone, locale, rows: next };
+    return timeline;
   }, [activity, timeZone, locale]);
 
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -108,34 +128,17 @@ export function AgentActivityTimeline({
   );
 }
 
-type ActivityTimelineRowProps = {
-  row: PresentedActivityRow;
-  timeZone: string | null;
-  compact: boolean;
-};
-
-/** Every live frame re-presents the whole feed into fresh row objects, so rows are compared by
- * content: only a new row, or the newest statement growing, renders again. */
-function sameRowProps(previous: ActivityTimelineRowProps, next: ActivityTimelineRowProps) {
-  if (previous.timeZone !== next.timeZone || previous.compact !== next.compact) return false;
-  const a = previous.row;
-  const b = next.row;
-  const fields = Object.keys(a) as (keyof PresentedActivityRow)[];
-  return (
-    fields.length === Object.keys(b).length &&
-    fields.every((field) =>
-      field === "subagent"
-        ? a.subagent?.parentToolUseId === b.subagent?.parentToolUseId
-        : a[field] === b[field],
-    )
-  );
-}
+type TimelineRow = { row: PresentedActivityRow; day: string };
 
 const ActivityTimelineRow = memo(function ActivityTimelineRow({
   row,
   timeZone,
   compact,
-}: ActivityTimelineRowProps) {
+}: {
+  row: PresentedActivityRow;
+  timeZone: string | null;
+  compact: boolean;
+}) {
   const [expanded, setExpanded] = useState(false);
   const contentId = useId();
   const canExpand = row.expandable && row.detail.length > 200;
@@ -250,4 +253,4 @@ const ActivityTimelineRow = memo(function ActivityTimelineRow({
       </div>
     </li>
   );
-}, sameRowProps);
+});

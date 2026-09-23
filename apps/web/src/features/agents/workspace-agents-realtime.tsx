@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useMemo, type ReactNode } from "react";
-import { useQuery, useQueryClient, skipToken } from "@tanstack/react-query";
+import { usePrefetchQuery, useQuery, useQueryClient, skipToken } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import type { AgentDisplaySnapshot } from "@lrm/coforge-sdk/internal";
 
@@ -206,13 +206,13 @@ export function useAgentRecentActivity(agentId: string) {
   };
 }
 
-/** The Agent detail Activity tab's feed, kept live by the shared subscription. `activity` is
- * undefined until the first load lands. */
+/** The profile panel's Activity tab feed, kept live by the shared subscription. */
 export function useAgentActivityFeed(agentId: string) {
-  const query = useQuery(agentActivityFeedQuery(agentId));
-  return {
-    activity: query.data,
-    failed: query.isError && query.data === undefined,
-    retry: () => void query.refetch(),
-  };
+  return useQuery(agentActivityFeedQuery(agentId));
+}
+
+/** Starts loading an Agent's Activity feed without re-rendering the caller on each frame, so the
+ * Activity tab is usually ready by the time it is selected. */
+export function usePrefetchAgentActivityFeed(agentId: string) {
+  usePrefetchQuery(agentActivityFeedQuery(agentId));
 }

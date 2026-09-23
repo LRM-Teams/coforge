@@ -49,7 +49,6 @@ import {
   visiblePrivateAgentWhere,
   type AgentVisibilityViewer,
 } from "#src/server/agents/agent-visibility.server";
-import { AgentActivityRepository } from "#src/server/db/repositories/agent-activity.repositories.server";
 import { workspaceIdForUser } from "#src/server/workspaces/enrollment.server";
 import { workspaceMemberRole } from "#src/server/workspaces/members.server";
 import { workspaceUserAvatarUrl } from "#src/server/db/repositories/user-profile.repositories.server";
@@ -455,15 +454,13 @@ export const previewAgentVisibilityChange = createServerFn({ method: "GET" })
 
 /**
  * Backs `getAgentProfile`, the one seam the Members page and every conversation panel share:
- * identity, permissions, live display and runtime config summary. The Activity history is not
- * part of it: the Activity tab reads its own feed (`getAgentActivityFeed`), so the Profile tab
- * does not wait for up to 500 frames to download. Does not run
+ * identity, permissions, live display and runtime config summary. Activity history is not part
+ * of it: the Activity tab reads its own feed (`getAgentActivityFeed`). Does not run
  * `listComputers`/`getUserPreferences` — those stay owned by the route loaders that actually need
  * a Computer picker or a User's time zone preference.
  */
 async function loadAgentProfileDetail(context: WorkspaceUserContext, agentId: string) {
   const { user, db, workspaceId } = context;
-  const activity = new AgentActivityRepository(db);
   // Fetched once, ahead of `AgentDetailQuery` so `findAuthorized`'s visibility gate
   // and `canManageAgentRole` below share this single membership lookup.
   const viewerMembership = await db.workspaceMembership.findUnique({
@@ -522,7 +519,6 @@ async function loadAgentProfileDetail(context: WorkspaceUserContext, agentId: st
         assertAgentVisible(viewer, { visibility: agent.visibility, ownerId: agent.owner.id });
         return agent;
       },
-      listActivity: (workspaceId, id) => activity.list(workspaceId, id),
     },
     {
       snapshot: (scope) => getAgentStatusCache().snapshot(scope),
@@ -531,9 +527,8 @@ async function loadAgentProfileDetail(context: WorkspaceUserContext, agentId: st
       snapshot: (scope) => getAgentDisplay().snapshot(scope),
     },
   );
-  const detail = await query.get(workspaceId, agentId, user.id);
-  if (!detail) return undefined;
-  const { activity: _activity, ...result } = detail;
+  const result = await query.get(workspaceId, agentId, user.id);
+  if (!result) return undefined;
   const ownedByCurrentUser = result.owner.id === user.id;
   const runtimeCredential = ownedByCurrentUser
     ? await (await runtimeCredentials(db)).summary({ workspaceId, userId: user.id }, agentId)

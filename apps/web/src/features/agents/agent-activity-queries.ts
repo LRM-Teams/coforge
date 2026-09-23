@@ -73,7 +73,7 @@ export const workspaceActivityQuery = (workspaceId: string | undefined) =>
       : skipToken,
   });
 
-/** The Agent detail Activity tab's feed (up to 500 rows, newest first). */
+/** The profile panel's Activity tab feed (up to 500 rows, newest first). */
 export const agentActivityFeedQuery = (agentId: string) =>
   queryOptions({
     queryKey: agentActivityKeys.agent(agentId),
@@ -106,8 +106,8 @@ function applyActivityPublication(
   // A publication that beat the first snapshot must not stand in for the whole
   // history: invalidate so the snapshot still loads and merges onto it.
   if (!seeded) void queryClient.invalidateQueries({ queryKey: key });
-  // Only patches a feed tab that is already cached; the route loader seeds
-  // it, and an uncached feed has no reader to patch here.
+  // Only patches a feed that is already cached; the panel loads it on open, and an
+  // uncached feed has no reader to patch here.
   queryClient.setQueryData(
     agentActivityFeedQuery(agentId).queryKey,
     (current: ActivityEntry[] | undefined) => current && mergeAgentActivity(current, [entry]),

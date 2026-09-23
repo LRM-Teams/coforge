@@ -1,10 +1,7 @@
 import type { Prisma } from "#src/generated/prisma/client";
-import { latestActivityError, type ActivityEntry } from "#src/features/agents/agent-activity";
 import type { AgentStatusCache } from "./agent-status.server";
 import type { AgentDisplay } from "./agent-display.server";
 import type { AgentDisplaySnapshot } from "@lrm/coforge-sdk/internal";
-
-type DetailActivity = ActivityEntry & { computerId: string };
 
 type DetailComputer = {
   id: string;
@@ -49,7 +46,6 @@ export type AgentDetailSource = {
     agentId: string,
     userId: string,
   ): Promise<DetailAgent | undefined>;
-  listActivity(workspaceId: string, agentId: string): Promise<DetailActivity[]>;
 };
 
 function assignedComputer(agent: DetailAgent) {
@@ -73,7 +69,6 @@ export class AgentDetailQuery {
   async get(workspaceId: string, agentId: string, userId: string) {
     const agent = await this.source.findAuthorized(workspaceId, agentId, userId);
     if (!agent) return undefined;
-    const activity = await this.source.listActivity(workspaceId, agentId);
     let status;
     let statusReadFailed = false;
     let display: AgentDisplaySnapshot | undefined;
@@ -128,8 +123,6 @@ export class AgentDetailQuery {
           : null,
       },
       computer: assigned,
-      latestError: latestActivityError(activity),
-      activity,
     };
   }
 }
