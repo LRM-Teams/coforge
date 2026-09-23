@@ -96,7 +96,7 @@ export type MessageThreadEntry = {
   open: () => void;
 };
 
-const GROUPING_WINDOW_MS = 5 * 60 * 1000;
+export const GROUPING_WINDOW_MS = 5 * 60 * 1000;
 
 /** The top edge of the visible region a floating control must stay inside: the nearest
  * scrollport ancestor's box, or the viewport top when the element is not inside a scroller. */

@@ -39,3 +39,4 @@ Do not use an ADR to silently rewrite history. Supersede the old record and link
 | [0064](0064-user-preferences-table.md) | accepted | Per-user settings live in a 1:1 `user_preferences` table |
 | [0065](0065-in-page-notifications.md) | accepted | In-page notifications while CoForge is open |
 | [0066](0066-workspace-member-tab-order.md) | accepted | Members reorder panel tabs, saved per Workspace member |
+| [0067](0067-pending-messages-in-the-conversation.md) | accepted | The sender's pending messages show in the conversation |

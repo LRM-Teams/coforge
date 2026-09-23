@@ -1619,6 +1619,7 @@ export class PublicChannels {
           sequence: message.sequence,
           workspaceId,
           threadRootId: message.threadRootId ?? undefined,
+          requestId,
         });
       } catch {
         // PostgreSQL remains canonical; browser reconciliation repairs a missed publication.

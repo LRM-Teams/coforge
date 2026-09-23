@@ -33,6 +33,13 @@ export type MessageAvailableEvent = {
    * channel is already scoped to one viewer, so the badge key needs no conversation alias.
    */
   agentId?: string;
+  /**
+   * Set only for a message a person sent from the browser: the send's idempotency key
+   * (`requestId`). The sender's own page shows the message greyed the moment it is submitted and
+   * uses this to replace that pending copy with the real message, even when this signal outruns
+   * the send's own response. Meaningless to anyone else, who ignores it.
+   */
+  requestId?: string;
 };
 
 export function decodeMessageAvailableEvent(value: unknown): MessageAvailableEvent {
@@ -47,6 +54,7 @@ export function decodeMessageAvailableEvent(value: unknown): MessageAvailableEve
   const workspaceId = Reflect.get(value, "workspaceId");
   const threadRootId = Reflect.get(value, "threadRootId");
   const agentId = Reflect.get(value, "agentId");
+  const requestId = Reflect.get(value, "requestId");
   if (
     type !== "message.available.v1" ||
     typeof conversationId !== "string" ||
@@ -57,7 +65,8 @@ export function decodeMessageAvailableEvent(value: unknown): MessageAvailableEve
     sequence < 1 ||
     (workspaceId !== undefined && (typeof workspaceId !== "string" || !workspaceId)) ||
     (threadRootId !== undefined && (typeof threadRootId !== "string" || !threadRootId)) ||
-    (agentId !== undefined && (typeof agentId !== "string" || !agentId))
+    (agentId !== undefined && (typeof agentId !== "string" || !agentId)) ||
+    (requestId !== undefined && (typeof requestId !== "string" || !requestId))
   )
     throw new Error("invalid conversation event");
   return {
@@ -68,6 +77,7 @@ export function decodeMessageAvailableEvent(value: unknown): MessageAvailableEve
     ...(workspaceId ? { workspaceId } : {}),
     ...(threadRootId ? { threadRootId } : {}),
     ...(agentId ? { agentId } : {}),
+    ...(requestId ? { requestId } : {}),
   };
 }
 
