@@ -5,18 +5,9 @@ import rehypeSanitize from "rehype-sanitize";
 import type { Element } from "hast";
 
 import { MESSAGE_REMARK_PLUGINS, escapeLiteralHtml } from "#src/lib/message-syntax";
-import {
-  mentionHandlesByToken,
-  rehypeChannelReferenceChips,
-  rehypeMentionChips,
-  rehypeTaskReferenceChips,
-  type ChipMention,
-} from "./message-markdown";
+import { mentionHandlesByToken, rehypeReferenceChips, type ChipMention } from "./message-markdown";
 import type { MentionRef } from "./mention-text";
 import "./message-markdown.css";
-
-/** Stable empty set for the common "no task references to make clickable" case. */
-const NO_TASK_NUMBERS: ReadonlySet<number> = new Set();
 
 /**
  * A message body rendered as Markdown with mentions highlighted as inline chips.
@@ -26,8 +17,8 @@ const NO_TASK_NUMBERS: ReadonlySet<number> = new Set();
  * lists, strikethrough, autolinks, and single-newline breaks), so a body written as plain text keeps its
  * line structure. `rehype-sanitize` runs before the chip pass: message bodies are untrusted, and
  * `react-markdown`'s default schema already refuses raw HTML, `javascript:` URLs and disallowed
- * attributes. Chips are injected afterwards because they are trusted, fixed markup (see
- * `message-markdown.ts`).
+ * attributes. Chips are injected afterwards, in one pass over the stored `<@kind:…>` tokens, because
+ * they are trusted, fixed markup (see `message-markdown.ts`).
  *
  * Deliberate scope boundaries:
  *
@@ -57,8 +48,8 @@ export function MessageBody({
    * the conversation owns that slot; absent, Agent chips render as inert highlights (the
    * previous behavior), never dead controls. */
   onOpenAgentProfile?: (agentId: string) => void;
-  /** The conversation's own task numbers: a stored `task #N` reference or a bare `#N` naming one of
-   * them becomes a clickable chip. Any other bare `#N` stays prose. */
+  /** The conversation's own task numbers: a stored task reference naming one of them becomes a
+   * clickable chip; any other reads as the text `task #N`. */
   taskReferences?: ReadonlySet<number>;
   /** Opens a task-reference chip's detail popup. Absent, a reference stays a plain highlight. */
   onOpenTask?: (number: number) => void;
@@ -70,25 +61,33 @@ export function MessageBody({
 }) {
   const source = useMemo(() => escapeLiteralHtml(body), [body]);
   const handles = useMemo(() => mentionHandlesByToken(mentions), [mentions]);
+  // A body with no token and no plain `@handle` to resolve skips the chip pass entirely.
+  const hasReference =
+    source.includes("<@") || (plainMentions !== undefined && plainMentions.size > 0);
   // Typed against react-markdown's own plugin list so the plugin-with-options tuple form
   // type-checks without a cast.
-  const hasChannelReference = source.includes("<@channel:");
-  const rehypePlugins = useMemo<NonNullable<Options["rehypePlugins"]>>(() => {
-    const plugins: NonNullable<Options["rehypePlugins"]> = [rehypeSanitize];
-    // First: a channel chip is finished markup the later passes leave alone. A body with no
-    // channel token skips the pass entirely.
-    if (hasChannelReference)
-      plugins.push([rehypeChannelReferenceChips, { currentNames: channelNames }]);
-    plugins.push(
-      [rehypeMentionChips, { handles, viewerHandle, plain: plainMentions }],
-      [rehypeTaskReferenceChips, { numbers: taskReferences ?? NO_TASK_NUMBERS }],
-    );
-    return plugins;
-  }, [handles, viewerHandle, plainMentions, taskReferences, channelNames, hasChannelReference]);
-  // The `span` override recognises the Agent mention chip (`data-mention-agent-id`, injected by
-  // `rehypeMentionChips`) and the task-reference chip (`data-task-reference-number`, injected by
-  // `rehypeTaskReferenceChips`), and makes each an accessible button; the channel-reference chip
-  // (`data-channel-id`, injected by `rehypeChannelReferenceChips`) becomes a link to the channel.
+  const rehypePlugins = useMemo<NonNullable<Options["rehypePlugins"]>>(
+    () =>
+      hasReference
+        ? [
+            rehypeSanitize,
+            [
+              rehypeReferenceChips,
+              {
+                mentions: handles,
+                viewerHandle,
+                plainMentions,
+                taskNumbers: taskReferences,
+                channelNames,
+              },
+            ],
+          ]
+        : [rehypeSanitize],
+    [hasReference, handles, viewerHandle, plainMentions, taskReferences, channelNames],
+  );
+  // The `span` override recognises the chips `rehypeReferenceChips` injects: an Agent mention chip
+  // (`data-mention-agent-id`) and a task-reference chip (`data-task-reference-number`) become
+  // accessible buttons, and a channel-reference chip (`data-channel-id`) a link to the channel.
   // Every other span passes through.
   const components = useMemo<Components>(
     () => ({ ...MARKDOWN_COMPONENTS, span: chipSpan(onOpenAgentProfile, onOpenTask) }),

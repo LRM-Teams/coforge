@@ -7,6 +7,10 @@ import {
 import type { Prisma } from "#src/generated/prisma/client";
 import { readMessageReferences } from "#src/lib/message-references";
 
+/** The largest task number there can be: `tasks.number` is a PostgreSQL `integer`. A larger
+ * `#N` names no task, and is never sent to the query, which would reject it. */
+const TASK_NUMBER_MAX = 2_147_483_647;
+
 /**
  * The body a send stores, and the mentions it resolved: every reference the server can resolve
  * becomes its structured token, so no reader ever has to parse prose again. The body is read once
@@ -14,8 +18,9 @@ import { readMessageReferences } from "#src/lib/message-references";
  *
  * - `@handle` names one of the conversation's mention `targets` (a DM passes none, so its
  *   `@handle` stays text), with `bindings` — the CLI's `--mention` selectors — first;
- * - `task #N` names a task of this conversation;
- * - `#name` names a channel of this Workspace. Every channel is public and readable by every
+ * - `task #N`, or a bare `#N`, names a task of this conversation;
+ * - `#name` names a channel of this Workspace; a bare `#N` names one only when no task has that
+ *   number (see `readMessageReferences` for the full precedence). Every channel is public and readable by every
  *   Workspace member (archived ones included), so any channel here is one the sender can see.
  *
  * Anything unresolved stays byte-for-byte as written, a token the sender typed included. A token is
@@ -34,7 +39,10 @@ export async function storeMessageBody(
   },
 ): Promise<{ body: string; mentions: ResolvedMention[] }> {
   const references = readMessageReferences(body);
-  const { handles, taskNumbers, channelNames } = references.candidates;
+  const { handles, channelNames } = references.candidates;
+  const taskNumbers = references.candidates.taskNumbers.filter(
+    (number) => number <= TASK_NUMBER_MAX,
+  );
   const mentions = resolveMentionTargets(handles, mentionScope.targets, mentionScope.bindings);
   const knownTasks = new Set(
     taskNumbers.length

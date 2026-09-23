@@ -961,6 +961,34 @@ test("a #channel reference is stored as a channel token on every send path, and 
     );
     expect(convertedHuman.tasks[0]?.title).toBe(readable);
 
+    // A bare `#N` naming a task of this channel is stored as the task token and reads back as
+    // `task #N`; a number naming no task here, one beyond any task number, and a `#N` inside code
+    // stay as written.
+    const taskNumber = converted.tasks[0]!.number;
+    const bareTyped = `see #${taskNumber}, not #${taskNumber + 100} or #99999999999 or \`#${taskNumber}\``;
+    const bare = await channels.send({
+      workspaceId: workspace.id,
+      userId: user.id,
+      channelId: general.id,
+      requestId: crypto.randomUUID(),
+      body: bareTyped,
+    });
+    expect(bare.body).toBe(
+      `see <@task:${taskNumber}>, not #${taskNumber + 100} or #99999999999 or \`#${taskNumber}\``,
+    );
+    expect(publishedBody(bare.id)).toBe(
+      `see task #${taskNumber}, not #${taskNumber + 100} or #99999999999 or \`#${taskNumber}\``,
+    );
+    // The same from an Agent, and in a task's own channel only: the DM below has no such task.
+    const bareFromAgent = await sender.executeFromAgent({
+      requestId: crypto.randomUUID(),
+      workspaceId: workspace.id,
+      agentId: helper.id,
+      target: "#general",
+      body: `picking up #${taskNumber}`,
+    });
+    expect(bareFromAgent.body).toBe(`picking up <@task:${taskNumber}>`);
+
     // A human DM to the Agent: stored as a token, published to the daemon as text.
     const opened = await repo.openForUser(workspace.id, user.id, helper.id);
     const dm = await sender.execute({
@@ -969,10 +997,10 @@ test("a #channel reference is stored as a channel token on every send path, and 
       conversationId: opened.conversationId,
       senderMemberId: opened.senderMemberId,
       senderUserId: user.id,
-      body: "check #product",
+      body: `check #product and #${taskNumber}`,
     });
-    expect(dm.body).toBe(`check ${productToken}`);
-    expect(publishedBody(dm.id)).toBe("check #product");
+    expect(dm.body).toBe(`check ${productToken} and #${taskNumber}`);
+    expect(publishedBody(dm.id)).toBe(`check #product and #${taskNumber}`);
 
     // An Agent DM reply.
     const reply = await sender.executeFromAgent({

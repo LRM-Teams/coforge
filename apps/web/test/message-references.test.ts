@@ -195,6 +195,85 @@ test("a `task #N` is read as the task before its `#N` could name a channel", () 
   );
 });
 
+// Bare `#N`: a task of the conversation first, then a channel of that name.
+
+const task132 = (number: number) => number === 132;
+
+test("a bare #N naming a task of the conversation becomes a task token; any other #N stays text", () => {
+  expect(resolveMessageReferences("就是 #132）。先看 #734", { task: task132, channel })).toBe(
+    `就是 ${taskReferenceToken(132)}）。先看 #734`,
+  );
+});
+
+test("a bare #N is a task before it is a channel of the same name", () => {
+  // Channel `132` exists; task 132 does too, so the reference is the task.
+  expect(resolveMessageReferences("#132", { task: task132, channel })).toBe(
+    taskReferenceToken(132),
+  );
+  // With no task 132 it falls through to the channel called `132`, and with neither it is text.
+  expect(resolveMessageReferences("#132", { task: () => false, channel })).toBe(
+    channelReferenceToken(DIGITS.id, "132"),
+  );
+  expect(resolveMessageReferences("#132", { task: () => false })).toBe("#132");
+});
+
+test("a bare #N lists the number as a task candidate and as a channel name", () => {
+  expect(messageReferenceCandidates("#68 on its own")).toEqual({
+    handles: [],
+    taskNumbers: [68],
+    channelNames: ["68"],
+  });
+});
+
+test("a bare #N needs a boundary before it, no leading zero, and no word character after it", () => {
+  for (const body of ["issues/#132", "word#132", "#1320", "#132a", "#0132", "#132_x"])
+    expect(resolveMessageReferences(body, { task: task132 })).toBe(body);
+  // Punctuation or another script right after the number ends it.
+  expect(resolveMessageReferences("(#132), #132。#132的问题", { task: task132 })).toBe(
+    `(${taskReferenceToken(132)}), ${taskReferenceToken(132)}。${taskReferenceToken(132)}的问题`,
+  );
+  // Emphasis before the `#` is markup, not a word character.
+  expect(resolveMessageReferences("**see**#132", { task: task132 })).toBe(
+    `**see**${taskReferenceToken(132)}`,
+  );
+});
+
+test("a channel named by the whole #name run wins over a task that is only its number", () => {
+  const plan = { id: "66666666-6666-4666-8666-666666666666", name: "132-plan" };
+  const withPlan = (name: string) => (name === plan.name ? plan : channel(name));
+  expect(resolveMessageReferences("#132-plan", { task: task132, channel: withPlan })).toBe(
+    channelReferenceToken(plan.id, "132-plan"),
+  );
+  // No such channel: the number is still the task, and the rest of the run stays as written.
+  expect(resolveMessageReferences("#132-Plan", { task: task132, channel })).toBe(
+    `${taskReferenceToken(132)}-Plan`,
+  );
+  expect(messageReferenceCandidates("#132-Plan")).toEqual({
+    handles: [],
+    taskNumbers: [132],
+    channelNames: ["132-plan"],
+  });
+});
+
+test("a bare #N in code, a link, a URL, an escape or a thread reference is never a reference", () => {
+  for (const body of [
+    "`#132`",
+    "```\n#132\n```",
+    "[see #132](https://example.com)",
+    "https://github.com/org/repo/pull/7#132",
+    "<https://example.com/#132>",
+    "\\#132",
+    "#132:deadbeef",
+  ])
+    expect(resolveMessageReferences(body, { task: task132, channel })).toBe(body);
+});
+
+test("`task #N` keeps the whole phrase; a bare #N after it is read on its own", () => {
+  expect(
+    resolveMessageReferences("task #132 and #132", { task: task132, channel: () => undefined }),
+  ).toBe(`${taskReferenceToken(132)} and ${taskReferenceToken(132)}`);
+});
+
 test("mentions, tasks and channels resolve together in one pass", () => {
   const { handles } = messageReferenceCandidates("@ada see task #7 in #product");
   const resolution = resolveMentionTargets(handles, [ADA]);
@@ -386,9 +465,10 @@ test("task candidates are prose references outside code, deduped in first-seen o
   expect(messageReferenceCandidates(body).taskNumbers).toEqual([68, 70]);
 });
 
-test("a bare #68 or a longer word is not a task candidate", () => {
-  expect(messageReferenceCandidates("#68 on its own").taskNumbers).toEqual([]);
-  expect(messageReferenceCandidates("mytask #5").taskNumbers).toEqual([]);
+test("a longer word before #N is not the words `task #N`", () => {
+  expect(resolveMessageReferences("mytask #5", { task: (number) => number === 5 })).toBe(
+    `mytask ${taskReferenceToken(5)}`,
+  );
   expect(messageReferenceCandidates("task #680").taskNumbers).toEqual([680]);
 });
 
