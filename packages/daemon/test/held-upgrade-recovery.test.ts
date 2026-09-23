@@ -152,9 +152,9 @@ test("stranded launch-hold without an owner recovers on explicit resume without 
   });
 
   expect(recovery.owns("cli-local-request")).toBe(false);
-  expect(
-    shouldAutoFinishHeldUpgrade(recovery, "cli-local-request", { status: "succeeded" }),
-  ).toBe(false);
+  expect(shouldAutoFinishHeldUpgrade(recovery, "cli-local-request", { status: "succeeded" })).toBe(
+    false,
+  );
 
   await recovery.finish("cli-local-request");
 

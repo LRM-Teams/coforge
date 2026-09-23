@@ -497,6 +497,7 @@ process.exitCode = 1;
     operation: "upgrade",
     selection: "2.0.0",
     origin: "cli",
+    quiet: false,
   };
   await expect(
     launchUpgradeCoordinator(operation, {
