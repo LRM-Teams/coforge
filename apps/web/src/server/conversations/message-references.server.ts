@@ -18,9 +18,11 @@ import { readMessageReferences } from "#src/lib/message-references";
  * - `#name` names a channel of this Workspace. Every channel is public and readable by every
  *   Workspace member (archived ones included), so any channel here is one the sender can see.
  *
- * Every stored token is server-written: a task or channel token the sender typed is stored as its
- * text (`task #N`, `#name`), and a typed mention token stays inert as it always was. Anything
- * unresolved stays byte-for-byte as written.
+ * Anything unresolved stays byte-for-byte as written, a token the sender typed included. A token is
+ * a claim, never trusted as stored: every consumer checks it against authoritative data (a mention
+ * token against the message's mention rows, a channel token against the Workspace's channels, a
+ * task token against the conversation's tasks), so a typed token does nothing that typing the
+ * text could not.
  */
 export async function storeMessageBody(
   tx: Pick<Prisma.TransactionClient, "task" | "conversation">,

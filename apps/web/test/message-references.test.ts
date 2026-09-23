@@ -293,46 +293,6 @@ test("list continuation lines and table cells need no marker handling", () => {
   );
 });
 
-// Tokens typed into a body: only the server writes a stored token.
-
-test("a channel or task token typed by the sender is stored as its text", () => {
-  const forged = "99999999-9999-4999-8999-999999999999";
-  expect(
-    resolveMessageReferences(`see <@channel:${forged}:evil> and <@task:5>, then #product`, {
-      channel,
-      task: () => true,
-    }),
-  ).toBe(`see #evil and task #5, then ${product}`);
-  // Inside code it is code, and stays as written.
-  expect(resolveMessageReferences(`\`<@channel:${forged}:evil>\``, { channel })).toBe(
-    `\`<@channel:${forged}:evil>\``,
-  );
-});
-
-test("a typed token is stored as its text however it is spelled", () => {
-  const forged = "99999999-9999-4999-8999-999999999999";
-  for (const [body, stored] of [
-    [`&lt;@channel:${forged}:evil>`, "#evil"],
-    [`\\<@channel:${forged}:evil2>`, "#evil2"],
-    [`&#60;@task:7>`, "task #7"],
-    [`&#x3c;@channel:${forged}:evil>`, "#evil"],
-    [`<&#64;channel:${forged}:evil>`, "#evil"],
-    [`&lt;&commat;channel&colon;${forged}&colon;evil&gt;`, "#evil"],
-    [`see **&lt;@task:7>** now`, "see **task #7** now"],
-    [`> quote\n> &lt;@channel:${forged}:evil> and #product`, `> quote\n> #evil and ${product}`],
-  ])
-    expect(resolveMessageReferences(body!, { channel })).toBe(stored!);
-});
-
-test("a node the parser rewrites beyond alignment is stored as literal text, typed tokens read", () => {
-  // The parser replaces NUL with U+FFFD, so this node cannot be aligned with its source. It still
-  // holds a typed token, so it is written back as escaped literal text: no token survives, and
-  // nothing else in it becomes a reference.
-  expect(resolveMessageReferences("a\u0000 <@task:7> *b* #product", { channel })).toBe(
-    `a\uFFFD task \\#7 *b* ${product}`,
-  );
-});
-
 test("a continuation line's leading `>` is a marker only as far as the line then aligns", () => {
   // An escaped `\\>` after the marker is content.
   expect(quoted("> a\n> \\> b #product")).toBe(`> a\n> \\> b ${product}`);
@@ -340,21 +300,19 @@ test("a continuation line's leading `>` is a marker only as far as the line then
   expect(quoted("a\n    > b #product")).toBe(`a\n    > b ${product}`);
 });
 
-test("a mention token typed by the sender stays as written and is never read as a handle", () => {
-  // Before this change a typed `<@agent:uuid>` was stored verbatim and stayed inert (no mention
-  // row); it still is, and its `@agent` is not a handle even when a member is called `agent`.
-  const agentNamedAgent = {
-    key: "member-agent",
-    type: "agent" as const,
-    id: HELPER.id,
-    handle: "agent",
-  };
-  const body = `<@agent:${ADA.id}> hi`;
-  expect(messageReferenceCandidates(body).handles).toEqual([]);
-  const resolution = resolveMentionTargets(messageReferenceCandidates(body).handles, [
-    agentNamedAgent,
-  ]);
-  expect(resolveMessageReferences(body, { mention: resolution.target })).toBe(body);
+// Text a GFM autolink splits off: the new nodes carry no source position.
+
+test("a reference next to a bare email or URL inside emphasis resolves", () => {
+  expect(quoted("_see #product x@y.io_")).toBe(`_see ${product} x@y.io_`);
+  expect(quoted("_#product a@b.com and #random_")).toBe(`_${product} a@b.com and ${random}_`);
+  expect(quoted("_&lt; #product a@b.com_")).toBe(`_&lt; ${product} a@b.com_`);
+  expect(quoted("*a https://x.io/#random b #product*")).toBe(
+    `*a https://x.io/#random b ${product}*`,
+  );
+  expect(quoted("_@ada see task #5 x@y.io_")).toBe(`_${ada} see task #5 x@y.io_`);
+  expect(resolveMessageReferences("_see task #5 x@y.io_", { task: (number) => number === 5 })).toBe(
+    `_see ${taskReferenceToken(5)} x@y.io_`,
+  );
 });
 
 // Mentions (the resolution rules the tokenizer carries over unchanged).

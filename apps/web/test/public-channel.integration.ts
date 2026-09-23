@@ -912,15 +912,18 @@ test("a #channel reference is stored as a channel token on every send path, and 
     ).toEqual([helper.id]);
     expect(publishedBody(quote.id)).toBe("> **Ada** 10:00:\n> @helper see #product\n\nagreed");
 
-    // A token the sender typed is stored as its text: only the server writes a stored token.
+    // A token the sender typed is stored as typed: it is a claim every consumer checks (the web
+    // links a channel only when the Workspace has its id), and an Agent reads it as plain text.
+    const forgedChannel = crypto.randomUUID();
     const forged = await channels.send({
       workspaceId: workspace.id,
       userId: user.id,
       channelId: general.id,
       requestId: crypto.randomUUID(),
-      body: `see <@channel:${crypto.randomUUID()}:evil> and <@task:9>`,
+      body: `see <@channel:${forgedChannel}:evil> and <@task:9>`,
     });
-    expect(forged.body).toBe("see #evil and task #9");
+    expect(forged.body).toBe(`see <@channel:${forgedChannel}:evil> and <@task:9>`);
+    expect(publishedBody(forged.id)).toBe("see #evil and task #9");
 
     // An Agent channel message.
     const fromAgent = await sender.executeFromAgent({
@@ -2835,6 +2838,11 @@ test("a closed channel stays closed until someone else posts a top-level message
     const root = await send(bob.id, "before the close");
     await channels.setUserHidden(workspace.id, alice.id, ops.id, true);
     expect(await listed()).toBeUndefined();
+    // A closed channel stays in the names a body's channel references link by: closing hides it
+    // from the list, not from the Workspace.
+    expect(
+      (await channels.names(workspace.id, alice.id)).find((channel) => channel.id === ops.id),
+    ).toEqual({ id: ops.id, name: "ops" });
 
     // Alice's own message is not "someone else posting".
     await Bun.sleep(2); // createdAt and hiddenAt are millisecond timestamps

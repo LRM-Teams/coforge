@@ -373,7 +373,7 @@ function taskChipify(children: unknown[], numbers: ReadonlySet<number> = new Set
 }
 
 test("a task token renders as a number-only chip", () => {
-  const tree = taskChipify([paragraph([text("with <@task:68> next")])]);
+  const tree = taskChipify([paragraph([text("with <@task:68> next")])], new Set([68]));
   const children = tree.children[0]!.children as Array<Record<string, unknown>>;
   expect(children[0]).toEqual(text("with "));
   expect(children[1]).toMatchObject({
@@ -395,16 +395,10 @@ test("a referenced number known here becomes a clickable chip", () => {
   expect(properties["data-task-reference-number"]).toBe(68);
 });
 
-test("a number that names no task still reads `#N`, but is not a control", () => {
-  const tree = taskChipify([paragraph([text("<@task:999>")])], new Set([68]));
-  const chip = (tree.children[0]!.children as Array<Record<string, unknown>>)[0]!;
-  const properties = chip.properties as {
-    className: string[];
-    "data-task-reference-number"?: number;
-  };
-  expect(properties.className).toEqual(TASK_CHIP_CLASS.split(" "));
-  expect(properties["data-task-reference-number"]).toBeUndefined();
-  expect(chip.children).toEqual([text("#999")]);
+test("a task token naming no task of this conversation reads as plain text, with no chip", () => {
+  // A token is a claim, checked against the conversation's tasks.
+  const tree = taskChipify([paragraph([text("see <@task:999>.")])], new Set([68]));
+  expect(tree.children[0]!.children).toEqual([text("see "), text("task #999"), text(".")]);
 });
 
 test("a task token inside a code element is never chipped", () => {
@@ -487,14 +481,11 @@ test("a channel token becomes a chip carrying the channel id and its current nam
   expect(after).toEqual(text(" now"));
 });
 
-test("a channel the current names do not list still links, under the name the token stored", () => {
-  // Every channel is readable by every Workspace member, so linking follows access, not whether
-  // the sidebar happens to list the channel (a closed one is left out of it).
+test("a channel token whose id the Workspace does not have reads as plain #name, with no link", () => {
+  // A token is a claim, checked against the Workspace's channels (closed ones included): an unknown
+  // or forged id gets no chip and no link, only the name as text — what typing `#name` gives.
   const tree = channelChipify([paragraph([text(CHANNEL_TOKEN)])], new Map());
-  expect(tree.children[0]!.children[0]).toMatchObject({
-    properties: { "data-channel-id": CHANNEL_ID },
-    children: [text("#product")],
-  });
+  expect(tree.children[0]!.children).toEqual([text("#product")]);
 });
 
 test("without a place to navigate from, a channel token reads as plain #name", () => {
@@ -537,7 +528,7 @@ test("a channel token inside code, and a plain #name anywhere, stay as written",
 
 test("a channel chip named like a task number is never chipped again as that task", () => {
   const token = `<@channel:${CHANNEL_ID}:132>`;
-  const tree = channelChipify([paragraph([text(token)])], new Map());
+  const tree = channelChipify([paragraph([text(token)])], new Map([[CHANNEL_ID, "132"]]));
   rehypeTaskReferenceChips({ numbers: new Set([132]) })(tree as never);
   expect(tree.children[0]!.children[0]).toMatchObject({
     properties: { "data-channel-id": CHANNEL_ID },

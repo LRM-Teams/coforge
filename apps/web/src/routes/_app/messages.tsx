@@ -3,7 +3,10 @@ import { Outlet, createFileRoute } from "@tanstack/react-router";
 import { MessagesPending } from "#src/features/conversations/conversation-pending";
 import { ConversationNavigation } from "#src/features/conversations/conversation-navigation";
 import { PageLoadError } from "#src/features/errors/page-load-error";
-import { listPublicChannels } from "#src/features/conversations/channels.functions";
+import {
+  listChannelNames,
+  listPublicChannels,
+} from "#src/features/conversations/channels.functions";
 import {
   loadDirectConversationBadges,
   loadDirectConversationPreferences,
@@ -25,8 +28,9 @@ const EMPTY_DIRECT_PREFERENCES: DirectConversationPreferences = {
 
 export const Route = createFileRoute("/_app/messages")({
   loader: async () => {
-    const [channels, projects, badges, saved, directPreferences] = await Promise.all([
+    const [channels, channelNames, projects, badges, saved, directPreferences] = await Promise.all([
       listPublicChannels(),
+      listChannelNames(),
       listProjects(),
       loadDirectConversationBadges().catch(() => EMPTY_DIRECT_BADGES),
       // Saved (#127) tolerates a failed read the way the badges do: the chat page stays up and
@@ -36,6 +40,8 @@ export const Route = createFileRoute("/_app/messages")({
     ]);
     return {
       channels,
+      // Every channel by id, closed ones included: the authority a body's channel links check.
+      channelNames,
       projects,
       directUnread: badges.unread,
       directPreferences,

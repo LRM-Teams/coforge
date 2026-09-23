@@ -62,10 +62,10 @@ export function MessageBody({
   taskReferences?: ReadonlySet<number>;
   /** Opens a task-reference chip's detail popup. Absent, a reference stays a plain highlight. */
   onOpenTask?: (number: number) => void;
-  /** Channel id → current name, for a host that can navigate: a stored channel reference becomes a
-   * link to that channel, under its current name when listed here and the name the reference
-   * stored otherwise. Absent (e.g. a Saved card, itself one link), a reference reads as plain
-   * `#name`. */
+  /** Every channel of the Workspace, id → current name (closed ones included), for a host that can
+   * navigate: a stored channel reference whose id is listed becomes a link to that channel under
+   * its current name; any other id reads as the plain `#name` it stored. Absent (e.g. a Saved card,
+   * itself one link), every reference reads as plain `#name`. */
   channelNames?: ReadonlyMap<string, string>;
 }) {
   const source = useMemo(() => escapeLiteralHtml(body), [body]);

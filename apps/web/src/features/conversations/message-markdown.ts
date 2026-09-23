@@ -143,13 +143,12 @@ export function rehypeMentionChips(options: {
  * Replaces stored channel-reference tokens (`<@channel:uuid:name>`) with a chip carrying the
  * channel's id (`data-channel-id`), which the `span` renderer turns into a link to that channel.
  *
- * Every channel is public and readable by every Workspace member, and a token only ever names a
- * channel of the message's own Workspace, so a viewer can always open it: the chip links whenever
- * the host can navigate at all (`currentNames` is given). It shows the channel's current name from
- * `currentNames` and falls back to the name the token stored — a channel the sidebar leaves out
- * (one the viewer closed) still links. Without `currentNames` (a view that is itself one link, such
- * as a Saved card), and inside a link the author wrote, the token reads as plain `#name`. Code
- * keeps its text literal.
+ * A token is a claim, like a mention token: it is checked against `currentNames`, every channel of
+ * the Workspace by id (closed and archived ones included). Only a token whose id is listed becomes
+ * a chip, labelled with that channel's current name; any other id — unknown, deleted or forged —
+ * reads as the plain `#name` it stored, with no link and no chip, which is what typing `#name`
+ * gives. Without `currentNames` (a view that is itself one link, such as a Saved card), and inside
+ * a link the author wrote, every token reads as plain `#name`. Code keeps its text literal.
  *
  * Runs first among the chip passes, straight after sanitizing: the chip's `#name` is finished
  * markup, and the task pass skips it, so a channel called `132` is never re-read as task #132.
@@ -194,17 +193,17 @@ function channelChipParts(
   let offset = 0;
   for (const match of value.matchAll(CHANNEL_REFERENCE_TOKEN_PATTERN)) {
     const id = match[1]!.toLowerCase();
-    const label = `#${currentNames?.get(id) ?? match[2]!}`;
+    const current = currentNames?.get(id);
     if (match.index > offset) parts.push({ type: "text", value: value.slice(offset, match.index) });
     parts.push(
-      currentNames
-        ? {
+      current === undefined
+        ? { type: "text", value: `#${match[2]!}` }
+        : {
             type: "element",
             tagName: "span",
             properties: { className: CHANNEL_CHIP_CLASSES, "data-channel-id": id },
-            children: [{ type: "text", value: label }],
-          }
-        : { type: "text", value: label },
+            children: [{ type: "text", value: `#${current}` }],
+          },
     );
     offset = match.index + match[0].length;
   }
@@ -216,10 +215,10 @@ function channelChipParts(
  * Replaces stored task-reference tokens (`<@task:68>`) with a **number-only** chip (`#68`), skipping
  * anything inside `code` or `pre`. Raft draws the reference as the bare number, so the chip carries
  * the number rather than the prose the author typed; `title`/`aria-label` still spell "task #68" so
- * a hover and a screen reader keep the meaning. Unlike a mention token, a task token always has a
- * readable fallback — the number is the reference — so a token is never left raw. A number present
- * in `numbers` names a task the viewer can open, and its chip carries `data-task-reference-number`
- * for the `span` renderer to turn into a control; any other number renders as plain chip text.
+ * a hover and a screen reader keep the meaning. A token is a claim, checked against `numbers`, the
+ * conversation's own tasks: only a listed number becomes a chip, carrying
+ * `data-task-reference-number` for the `span` renderer to turn into a control. Any other number —
+ * a stale or forged token — reads as the plain text `task #N`, with no chip.
  *
  * A bare `#N` (`BARE_TASK_REFERENCE_PATTERN`) becomes the same chip when N is one of this
  * conversation's tasks, as Raft does: people and Agents write `#132`
@@ -287,24 +286,26 @@ function taskChipParts(
   for (const match of value.matchAll(pattern)) {
     const token = match[1];
     const number = Number(token ?? match[2]);
-    if (token === undefined && !numbers.has(number)) continue;
+    const known = numbers.has(number);
+    if (token === undefined && !known) continue;
     if (match.index > offset) parts.push({ type: "text", value: value.slice(offset, match.index) });
-    const clickable = numbers.has(number);
-    const className = TASK_CHIP_CLASS.split(" ");
-    if (clickable) className.push(TASK_CHIP_LINK_CLASS);
-    parts.push({
-      type: "element",
-      tagName: "span",
-      properties: {
-        className,
-        // The chip shows only the number (Raft's treatment); the words stay available to a hover
-        // and to assistive technology so "#68" is still readable as a task reference.
-        title: `task #${number}`,
-        "aria-label": `task #${number}`,
-        ...(clickable ? { "data-task-reference-number": number } : {}),
-      },
-      children: [{ type: "text", value: `#${number}` }],
-    });
+    parts.push(
+      known
+        ? {
+            type: "element",
+            tagName: "span",
+            properties: {
+              className: [...TASK_CHIP_CLASS.split(" "), TASK_CHIP_LINK_CLASS],
+              // The chip shows only the number (Raft's treatment); the words stay available to a
+              // hover and to assistive technology so "#68" is still readable as a task reference.
+              title: `task #${number}`,
+              "aria-label": `task #${number}`,
+              "data-task-reference-number": number,
+            },
+            children: [{ type: "text", value: `#${number}` }],
+          }
+        : { type: "text", value: `task #${number}` },
+    );
     offset = match.index + match[0].length;
   }
   if (parts.length === 0) return undefined;

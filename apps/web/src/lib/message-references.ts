@@ -7,18 +7,10 @@
  *
  * Each prose `text` node is read left to right against one ordered set of alternatives:
  *
- * 1. a stored token the sender typed (`<@human|agent:uuid>`, `<@task:N>`, `<@channel:uuid:name>`),
- *    however it is spelled: alternatives run on the parsed text, where escapes (`\<`) and character
- *    references (`&lt;`, `&#x3c;`, `&commat;`) are already decoded, exactly as the renderer sees it.
- *    Only the server writes a stored token: a typed task or channel token's whole source span is
- *    stored as its text (`task #N`, `#name`), so its label and link are never the sender's to
- *    choose; a node that cannot be aligned is stored as escaped literal text instead. A typed mention
- *    token stays as written and inert, as it always was (no mention row, no wake), and its
- *    `@agent` is never read as a handle;
- * 2. a mention, `@handle` (`MENTION_PATTERN`);
- * 3. a thread reference, `#name:shortid` (`THREAD_REFERENCE_PATTERN`) — kept as text for now;
- * 4. a task reference, `task #N` (`TASK_REFERENCE_PATTERN`);
- * 5. a channel reference, `#name` (`CHANNEL_REFERENCE_PATTERN`).
+ * 1. a mention, `@handle` (`MENTION_PATTERN`);
+ * 2. a thread reference, `#name:shortid` (`THREAD_REFERENCE_PATTERN`) — kept as text for now;
+ * 3. a task reference, `task #N` (`TASK_REFERENCE_PATTERN`);
+ * 4. a channel reference, `#name` (`CHANNEL_REFERENCE_PATTERN`).
  *
  * The earliest match wins, and at the same position the earlier alternative wins. A match is
  * consumed whether or not it resolves, which is what gives each reference its precedence: a thread
@@ -29,6 +21,10 @@
  * identical. A match whose source is not exactly its text — an escaped `\#name`, a character
  * reference — is written literally, not referenced.
  *
+ * A token already in the body is not special here: like a mention token, it is a claim that every
+ * consumer checks against authoritative data (the renderer links a channel token only when the
+ * viewer's channel list has its id, and chips a task token only for a task of the conversation).
+ *
  * Resolution is two steps because the server's lookups are queries: `readMessageReferences` reads
  * the body once and lists its `candidates`, the caller looks those up, and `resolve` rewrites the
  * body with the answers. The token grammar and the readers live in the SDK.
@@ -36,11 +32,8 @@
 import {
   CHANNEL_NAME_PATTERN,
   CHANNEL_REFERENCE_PATTERN,
-  CHANNEL_REFERENCE_TOKEN_PATTERN,
   MENTION_PATTERN,
-  MENTION_TOKEN_PATTERN,
   TASK_REFERENCE_PATTERN,
-  TASK_REFERENCE_TOKEN_PATTERN,
   THREAD_REFERENCE_PATTERN,
   channelReferenceToken,
   mentionToken,
@@ -53,9 +46,6 @@ import { decodeNumericCharacterReference } from "micromark-util-decode-numeric-c
 import { escapeLiteralHtml, parseMessageSyntax } from "./message-syntax";
 
 type Reference =
-  /** A stored token already in the body: `text` is what it is stored as instead, `undefined` to
-   * keep it as written. */
-  | { kind: "typed"; text: string | undefined }
   | { kind: "mention"; handle: string }
   | { kind: "thread" }
   | { kind: "task"; number: number }
@@ -63,15 +53,6 @@ type Reference =
 
 /** The alternatives in precedence order. Each reads its own match into a `Reference`. */
 const ALTERNATIVES: readonly { pattern: RegExp; read: (match: RegExpExecArray) => Reference }[] = [
-  { pattern: MENTION_TOKEN_PATTERN, read: () => ({ kind: "typed", text: undefined }) },
-  {
-    pattern: TASK_REFERENCE_TOKEN_PATTERN,
-    read: (match) => ({ kind: "typed", text: `task #${Number(match[1])}` }),
-  },
-  {
-    pattern: CHANNEL_REFERENCE_TOKEN_PATTERN,
-    read: (match) => ({ kind: "typed", text: `#${match[2]!}` }),
-  },
   { pattern: MENTION_PATTERN, read: (match) => ({ kind: "mention", handle: match[1]! }) },
   { pattern: THREAD_REFERENCE_PATTERN, read: () => ({ kind: "thread" }) },
   {
@@ -96,9 +77,8 @@ const SCANNERS = ALTERNATIVES.map(({ pattern }) => new RegExp(pattern.source, pa
 const CHARACTER_REFERENCE =
   /&(?:#([0-9]{1,7})|#[xX]([0-9a-fA-F]{1,6})|([A-Za-z][A-Za-z0-9]{0,31}));/y;
 
-/** ASCII punctuation, which a backslash always makes literal in Markdown — except `<`, which
- * `escapeLiteralHtml` already keeps literal. */
-const ESCAPABLE = /[!"#$%&'()*+,\-./:;=>?@[\\\]^_`{|}~]/g;
+/** ASCII punctuation: what a backslash escapes in Markdown. */
+const ASCII_PUNCTUATION = /[!-/:-@[-`{-~]/;
 
 /** Syntax whose text is never prose: code, links and their definitions, and raw HTML. */
 const NOT_PROSE = new Set<Nodes["type"]>([
@@ -173,8 +153,6 @@ export function readMessageReferences(body: string): MessageReferences {
 
 function tokenFor(reference: Reference, lookup: MessageReferenceLookup): string | undefined {
   switch (reference.kind) {
-    case "typed":
-      return reference.text;
     case "mention": {
       const target = lookup.mention?.(reference.handle);
       return target && mentionToken(target.type, target.id);
@@ -192,74 +170,35 @@ function tokenFor(reference: Reference, lookup: MessageReferenceLookup): string 
 
 /** Every reference in the body's prose, in reading order, with its offsets in `body`. */
 function proseReferences(body: string): { reference: Reference; start: number; end: number }[] {
-  // Every reference holds an `@` or a `#` (`task #N` included), written as such or as a character
-  // reference (`&commat;`, `&#35;`): without one there is nothing to parse for.
-  if (!body.includes("@") && !body.includes("#") && !body.includes("&")) return [];
+  // Every reference starts with a literal `@` or `#` (`task #N` included): without one there is
+  // nothing to parse for.
+  if (!body.includes("@") && !body.includes("#")) return [];
   const source = escapeLiteralHtml(body);
   const toBody = source === body ? undefined : bodyOffsets(body, source);
-  const bodyOffset = (offset: number) => (toBody ? toBody[offset]! : offset);
   const references: { reference: Reference; start: number; end: number }[] = [];
-  for (const node of proseTextNodes(parseMessageSyntax(source))) {
+  // Where the last aligned text ended: a text node with no position is looked for after it.
+  let cursor = 0;
+  for (const { node, within } of proseTextNodes(parseMessageSyntax(source), undefined)) {
     const matches = matchesIn(node.value);
-    if (matches.length === 0) continue;
-    const spans = sourceSpans(source, node);
-    if (!spans) {
-      // The node could not be aligned with its source. A token the sender typed must still never
-      // be stored, so the node is rewritten as literal text with its typed tokens read back;
-      // nothing else in it is a reference.
-      const rewritten = typedTokensAsLiteralText(node.value, matches);
-      if (rewritten !== undefined)
-        references.push({
-          reference: { kind: "typed", text: rewritten },
-          start: bodyOffset(node.position!.start.offset!),
-          end: bodyOffset(node.position!.end.offset!),
-        });
+    if (matches.length === 0) {
+      // Only a node that holds a match is aligned; a positioned one still moves the cursor on.
+      cursor = node.position?.end.offset ?? cursor;
       continue;
     }
+    const aligned = alignNode(source, node, within, cursor);
+    if (!aligned) continue;
+    cursor = aligned.end;
     for (const match of matches) {
-      const from = spans.start[match.index]!;
-      if (match.reference.kind === "typed") {
-        // However it was spelled — an escape, a character reference — a typed token is replaced
-        // whole, from its first character's source to its last's.
-        const to = spans.end[match.index + match.text.length - 1]!;
-        references.push({
-          reference: match.reference,
-          start: bodyOffset(from),
-          end: bodyOffset(to),
-        });
-        continue;
-      }
+      const from = aligned.starts[match.index]!;
       // Written exactly as matched: an escape or a character reference inside it means the
       // author wrote the characters literally.
       if (!source.startsWith(match.text, from)) continue;
       // Reference text holds no `<`, so it maps back to the body one character for one.
-      const start = bodyOffset(from);
+      const start = toBody ? toBody[from]! : from;
       references.push({ reference: match.reference, start, end: start + match.text.length });
     }
   }
   return references;
-}
-
-/**
- * A text node's value as literal Markdown, with each typed task or channel token read back as
- * text; `undefined` when it holds none. Every ASCII punctuation character is backslash-escaped, so
- * the Markdown reads back exactly as that text.
- */
-function typedTokensAsLiteralText(
-  value: string,
-  matches: readonly { reference: Reference; index: number; text: string }[],
-): string | undefined {
-  let text = "";
-  let cursor = 0;
-  let typed = false;
-  for (const match of matches) {
-    if (match.reference.kind !== "typed" || match.reference.text === undefined) continue;
-    text += value.slice(cursor, match.index) + match.reference.text;
-    cursor = match.index + match.text.length;
-    typed = true;
-  }
-  if (!typed) return undefined;
-  return (text + value.slice(cursor)).replace(ESCAPABLE, "\\$&");
 }
 
 /**
@@ -284,17 +223,52 @@ function bodyOffsets(body: string, source: string): number[] {
   return offsets;
 }
 
-/** The prose `text` nodes of a tree, in document order. */
-function proseTextNodes(tree: Nodes): Text[] {
-  if (tree.type === "text") return [tree];
+type SourceRange = { start: number; end: number };
+
+/**
+ * The prose `text` nodes of a tree, in document order, each with the source range of its nearest
+ * positioned ancestor. GFM's autolink-literal transform splits text around a bare URL or email
+ * address into new nodes that carry no position; such a node is found inside that range.
+ */
+function proseTextNodes(
+  tree: Nodes,
+  within: SourceRange | undefined,
+): { node: Text; within: SourceRange | undefined }[] {
+  const start = tree.position?.start.offset;
+  const end = tree.position?.end.offset;
+  const range = start !== undefined && end !== undefined ? { start, end } : within;
+  if (tree.type === "text") return [{ node: tree, within }];
   if (NOT_PROSE.has(tree.type) || !("children" in tree)) return [];
-  return tree.children.flatMap((child) => proseTextNodes(child));
+  return tree.children.flatMap((child) => proseTextNodes(child, range));
 }
 
 /**
- * Where each character of a text node's value was written in `source`: `start[i]` is where value
- * character `i` begins — the character itself, the `\\` of an escape, or the `&` of a character
- * reference — and `end[i]` is right after it.
+ * Where a text node's characters were written in `source`, and where it ends. A positioned node
+ * is aligned from its own start; a node with no position at the first offset, from `cursor` on
+ * inside its ancestor's range, where its whole value aligns. `undefined` when it cannot be
+ * aligned; its references are then left as written.
+ */
+function alignNode(
+  source: string,
+  node: Text,
+  within: SourceRange | undefined,
+  cursor: number,
+): { starts: number[]; end: number } | undefined {
+  const start = node.position?.start.offset;
+  const end = node.position?.end.offset;
+  if (start !== undefined && end !== undefined) return sourceStarts(source, node.value, start, end);
+  if (!within) return undefined;
+  for (let from = Math.max(cursor, within.start); from < within.end; from += 1) {
+    const aligned = sourceStarts(source, node.value, from, within.end);
+    if (aligned) return aligned;
+  }
+  return undefined;
+}
+
+/**
+ * Where each character of `value` begins in `source`, aligned from `from` and within `to`: the
+ * character itself, the `\` of an escape, or the `&` of a character reference; and the offset
+ * after the last one.
  *
  * What the parser dropped belongs to no character: whitespace (a line's trailing spaces) and, at
  * the start of a continuation line, its indentation and container markers — a quote's `>`
@@ -302,15 +276,14 @@ function proseTextNodes(tree: Nodes): Text[] {
  * and a table cell never spans lines, so a quote marker is the only non-whitespace syntax a
  * continuation line drops. How much of a line's leading `>`/whitespace run is syntax is decided per
  * line: the shortest prefix after which the whole line aligns.
- *
- * `undefined` when the node has no position or its source cannot be aligned with its value.
  */
-function sourceSpans(source: string, node: Text): { start: number[]; end: number[] } | undefined {
-  const from = node.position?.start.offset;
-  const to = node.position?.end.offset;
-  if (from === undefined || to === undefined) return undefined;
-  const { value } = node;
-  const spans = { start: [] as number[], end: [] as number[] };
+function sourceStarts(
+  source: string,
+  value: string,
+  from: number,
+  to: number,
+): { starts: number[]; end: number } | undefined {
+  const starts: number[] = [];
   let offset = from;
   let index = 0;
   while (index < value.length) {
@@ -318,23 +291,23 @@ function sourceSpans(source: string, node: Text): { start: number[]; end: number
     const lineEnd = value.indexOf("\n", index);
     const last = lineEnd === -1 ? value.length : lineEnd + 1;
     let aligned: number | undefined;
-    if (index === 0) aligned = alignLine(source, offset, to, value, index, last, spans);
+    if (index === 0) aligned = alignLine(source, offset, to, value, index, last, starts);
     else {
       let prefix = offset;
       while (prefix < to && /[ \t>]/.test(source[prefix]!)) prefix += 1;
       for (let start = offset; start <= prefix && aligned === undefined; start += 1)
-        aligned = alignLine(source, start, to, value, index, last, spans);
+        aligned = alignLine(source, start, to, value, index, last, starts);
     }
     if (aligned === undefined) return undefined;
     offset = aligned;
     index = last;
   }
-  return spans;
+  return { starts, end: offset };
 }
 
 /**
- * Aligns value characters `[index, last)` from source offset `offset`, recording their spans; the
- * source offset after the last one, or `undefined` when they do not align.
+ * Aligns value characters `[index, last)` from source offset `offset`, recording where each
+ * begins; the source offset after the last one, or `undefined` when they do not align.
  */
 function alignLine(
   source: string,
@@ -343,29 +316,30 @@ function alignLine(
   value: string,
   index: number,
   last: number,
-  spans: { start: number[]; end: number[] },
+  starts: number[],
 ): number | undefined {
   while (index < last) {
     if (offset >= to) return undefined;
-    const reference = source[offset] === "&" ? characterReferenceAt(source, offset, to) : undefined;
+    const character = source[offset]!;
+    const reference = character === "&" ? characterReferenceAt(source, offset, to) : undefined;
     if (reference && value.startsWith(reference.decoded, index)) {
-      for (let unit = 0; unit < reference.decoded.length; unit += 1) {
-        spans.start[index + unit] = offset;
-        spans.end[index + unit] = offset + reference.text.length;
-      }
+      for (let unit = 0; unit < reference.decoded.length; unit += 1) starts[index + unit] = offset;
       index += reference.decoded.length;
       offset += reference.text.length;
-    } else if (source[offset] === value[index]) {
-      spans.start[index] = offset;
-      spans.end[index] = offset + 1;
-      index += 1;
-      offset += 1;
-    } else if (source[offset] === "\\" && source[offset + 1] === value[index]) {
-      spans.start[index] = offset;
-      spans.end[index] = offset + 2;
+    } else if (
+      character === "\\" &&
+      ASCII_PUNCTUATION.test(source[offset + 1] ?? "") &&
+      source[offset + 1] === value[index]
+    ) {
+      // A backslash escape: the pair is one character of the value.
+      starts[index] = offset;
       index += 1;
       offset += 2;
-    } else if (/\s/.test(source[offset]!)) {
+    } else if (character === value[index]) {
+      starts[index] = offset;
+      index += 1;
+      offset += 1;
+    } else if (/\s/.test(character)) {
       offset += 1;
     } else {
       return undefined;
@@ -376,7 +350,8 @@ function alignLine(
 
 /**
  * The character reference written at `offset` and what it decodes to, when one ends by `to` —
- * decoded the way the parser decodes it. An unknown name (`&nope;`) is not a reference.
+ * decoded with the parser's own decoders, so a reference that decodes to several characters
+ * aligns exactly. An unknown name (`&nope;`) is not a reference.
  */
 function characterReferenceAt(
   source: string,
@@ -400,13 +375,12 @@ function characterReferenceAt(
  * the cursor passes it, so a long text is scanned once per alternative.
  */
 function matchesIn(text: string): { reference: Reference; index: number; text: string }[] {
-  const patterns = SCANNERS;
-  const upcoming: (RegExpExecArray | null | undefined)[] = patterns.map(() => undefined);
+  const upcoming: (RegExpExecArray | null | undefined)[] = SCANNERS.map(() => undefined);
   const matches: { reference: Reference; index: number; text: string }[] = [];
   let cursor = 0;
   for (;;) {
     let best = -1;
-    for (const [index, pattern] of patterns.entries()) {
+    for (const [index, pattern] of SCANNERS.entries()) {
       const pending = upcoming[index];
       if (pending === undefined || (pending !== null && pending.index < cursor)) {
         pattern.lastIndex = cursor;

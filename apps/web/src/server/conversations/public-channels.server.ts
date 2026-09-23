@@ -583,6 +583,20 @@ export class PublicChannels {
     if (!agent) throw new AppError("ACCESS_DENIED");
   }
 
+  /**
+   * Every channel of the Workspace by id and current name, closed and archived ones included: the
+   * authority a body's channel references are checked against before they link (see
+   * `rehypeChannelReferenceChips`). Every channel is public, so every member can open each one.
+   */
+  async names(workspaceId: string, userId: string) {
+    await this.authorize(workspaceId, userId);
+    const channels = await this.db.conversation.findMany({
+      where: { workspaceId, channelName: { not: null } },
+      select: { id: true, channelName: true },
+    });
+    return channels.map((channel) => ({ id: channel.id, name: channel.channelName! }));
+  }
+
   async list(workspaceId: string, userId: string) {
     await this.authorize(workspaceId, userId);
     const [channels, unread] = await Promise.all([

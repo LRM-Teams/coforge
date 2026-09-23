@@ -459,13 +459,12 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
     return byRoot;
   }, [conversation.messages]);
   const repliesOf = (rootId: string) => repliesByRoot.get(rootId) ?? [];
-  // A stored channel reference links to its channel under the channel's current name: the channel
-  // list the messages layout already loads for the sidebar, by id. A channel it leaves out (one the
-  // viewer closed) still links, under the name the reference stored.
-  const channels = messagesRoute.useLoaderData({ select: (data) => data.channels });
+  // A stored channel reference links to its channel, under its current name, only when the
+  // Workspace has that channel: every channel by id, closed ones included, from the messages layout.
+  const channelList = messagesRoute.useLoaderData({ select: (data) => data.channelNames });
   const channelNames = useMemo(
-    () => new Map(channels.map((channel) => [channel.id, channel.name])),
-    [channels],
+    () => new Map(channelList.map((channel) => [channel.id, channel.name])),
+    [channelList],
   );
   // Preview rows would otherwise spell a reference as its raw `<@kind:…>` token; resolve those
   // the way the message list does.
