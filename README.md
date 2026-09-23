@@ -5,8 +5,6 @@ run inside local workspaces. The cloud owns conversations and durable message
 delivery; local workspace processes connect outbound and adapt resident agent
 runtimes through provider-neutral code-agent adapters.
 
-The project is in its architecture-validation phase.
-
 ## Architecture
 
 ```text
@@ -17,50 +15,61 @@ Browser -> Caddy -> TanStack Start / Bun backend -> PostgreSQL
                                 +---- backend
 
 coforge-computer <-Unix socket-> coforge-daemon -> N Agent runtime OS children
-
-Runtime inventory metadata uses `provider + kind` as the runtime identity (for
-example, `pi:builtin` and `pi:external` may coexist on one Computer). Runtime
-configuration is selected in the Agent creation UI and validated against the
-selected Computer's latest inventory before an `agent:start` intent is published.
 ```
 
-- Web/backend: TanStack Start with Bun 1.4 as the business-control runtime
-- Realtime transport: standalone Centrifugo OSS over WebSocket
-- Realtime hot state: self-hosted Redis Docker; never canonical durability
-- Canonical cloud state: self-hosted PostgreSQL Docker with backup/restore gates
-- Local package components: Bun 1.4
-- Edge and local deployment: Caddy and Docker
-- Development tool versions: mise
+- Web/backend: TanStack Start with Bun 1.4; PostgreSQL through Prisma
+- Realtime transport: standalone Centrifugo OSS over WebSocket, Redis for hot state
+- Local product: one `coforge-computer` executable containing the Computer and
+  Daemon roles, which run as separate OS processes
+- Edge and deployment: Caddy and Docker; tool versions pinned by mise
 
-Only `coforge-computer` and `coforge-daemon` are local packageable components. The
-Computer package depends on the Daemon package for build and distribution, so
-users install one Computer distribution containing both compatible payloads.
-Computer and Daemon still run as independent OS processes. The daemon owns one
-Workspace connection and directly manages Agent runtime child processes; there
-is no DaemonRuntime layer or Computer-to-Agent operation.
-The independently packable `@coforge/agent` runtime package uses the Pi SDK and
-is installed as an exact Daemon dependency; it is not a user installation
-entry point.
+The architecture invariants every change must respect are in
+[AGENTS.md](AGENTS.md#architecture-invariants).
 
-See [the database design](docs/database-schema.md) for the current
-conversation and delivery model. See [the release contract](docs/release.md)
-for cloud deployment, atomic Computer installation bundles and compatibility
-release sets, exact-artifact production promotion, per-user installation, and
-rollback rules. PostgreSQL data access is standardized on Prisma; see the
-[Web/backend agent instructions](apps/web/AGENTS.md).
-Computer and Daemon share the single LogTape-based contract documented in
-[local application logging](docs/local-logging.md); implementation is pending.
+## Documentation
+
+| Document | Covers |
+| --- | --- |
+| [AGENTS.md](AGENTS.md) | Repository rules: decisions, module design, delivery, toolchain, architecture invariants |
+| [apps/web/AGENTS.md](apps/web/AGENTS.md) | Web/backend rules and module map |
+| [packages/computer/AGENTS.md](packages/computer/AGENTS.md) | Computer package rules and module map |
+| [packages/daemon/AGENTS.md](packages/daemon/AGENTS.md) | Daemon package rules and module map |
+| [docs/database-schema.md](docs/database-schema.md) | Database schema and conversation/delivery model |
+| [docs/reliable-message-delivery.md](docs/reliable-message-delivery.md) | Message delivery guarantees |
+| [docs/observability.md](docs/observability.md) | Agent Activity, status, and observability baseline |
+| [docs/local-logging.md](docs/local-logging.md) | Computer/Daemon logging contract |
+| [docs/release.md](docs/release.md) | Release contract: deployment, Computer distribution, promotion, rollback |
+| [docs/design.md](docs/design.md) | Product UI design guidance |
+| [docs/design-tokens.md](docs/design-tokens.md) | Design tokens |
+| [docs/operations/aliyun-oss-cdn.md](docs/operations/aliyun-oss-cdn.md) | OSS/CDN provisioning runbook |
+| [docs/operations/cdn-certificates.md](docs/operations/cdn-certificates.md) | CDN certificate renewal runbook |
+| [docs/agents/testing.md](docs/agents/testing.md) | Testing guidance for agents |
+| [docs/agents/e2e-testing.md](docs/agents/e2e-testing.md) | Live OpenRouter integration test |
+| [docs/agents/mise-tasks.md](docs/agents/mise-tasks.md) | Mise task policy |
+| [docs/agents/reference-cli-research.md](docs/agents/reference-cli-research.md) | Studying the Raft Computer 1.0.32 reference |
+| [apps/web/README.md](apps/web/README.md) | Web app setup and scripts |
+| [apps/web/src/components/ui/README.md](apps/web/src/components/ui/README.md) | UI component inventory and exceptions |
+| [packages/computer/README.md](packages/computer/README.md) | `coforge-computer` package |
+| [packages/daemon/README.md](packages/daemon/README.md) | `coforge-daemon` package |
+| [packages/agent/README.md](packages/agent/README.md) | Built-in Pi-based Agent runtime |
+| [packages/coforge/README.md](packages/coforge/README.md) | Agent-facing `coforge` CLI |
+| [packages/coforge-sdk/README.md](packages/coforge-sdk/README.md) | Shared contracts and transports |
+| [infra/README.md](infra/README.md) | Local Docker Compose services |
+| [infra/staging/README.md](infra/staging/README.md) | Staging environment |
+
+Project skills live in `.agents/skills`; `skills-lock.json` pins the upstream ones.
 
 ## Repository layout
 
 ```text
 apps/web                Web UI and backend control plane
-apps/web/prisma         Planned Prisma schema and migrations
 packages/computer       Machine-level setup and supervisor package component
 packages/daemon         Single-workspace daemon and code-agent adapter package component
 packages/agent          Independently packable built-in Agent runtime using Pi SDK
-docs                    Data-model, release, and operations documentation
-packages                Shared and independently packable components
+packages/coforge        Agent CLI
+packages/coforge-sdk    Shared protocol and Agent SDK
+docs                    Project documentation
+infra                   Local and staging deployment
 ```
 
 ## Development
@@ -80,37 +89,5 @@ mise run check
 mise run build
 ```
 
-GitHub Actions runs the focused infrastructure and Computer checks for every
-pull request and every push to `main`. Dependency installation uses
-frozen-lockfile mode. Runtime versions continue to come from `mise.toml`.
-
-Standalone Centrifugo and Redis now have a local Docker Compose deployment in
-[`infra/README.md`](infra/README.md). PostgreSQL and Backend proxy/API wiring
-remain separate implementation slices.
-
-Computer has exactly one active Workspace binding. Setup receives one external
-Workspace setup intent; Computer never lists or selects Workspaces. Switching
-stops the old daemon runtime/WSS/Agents, replaces only the active config, and
-retains old local data, credentials, and Agent directories.
-
-## Development workflow
-
-Create each change on a short-lived feature branch and merge it into `main` only
-through an approved CR/PR. Direct pushes to `main` are not allowed. Keep CRs
-narrow, use English Conventional Commit messages, rebase the latest
-`origin/main`, and run the short relevant checks before requesting review.
-During MVP, ordinary changes use one Agent review and target a 5–10 minute
-review-to-merge cycle; only broad or difficult-to-reverse decisions require
-Frank's explicit approval.
-
-Use test-driven development for behavioral changes: agree the public test seam,
-then work one vertical slice at a time with a failing test followed by the
-smallest passing implementation. Refactoring belongs to independent review.
-Read [AGENTS.md](AGENTS.md) for the normative decision gates, review
-requirements, and architecture-change rules.
-
-Project-level engineering and release skills are maintained under
-`.agents/skills`. Upstream engineering skills are pinned by `skills-lock.json`;
-the repository-owned `coforge-release` Skill points to `docs/release.md` as its
-canonical contract. They are shared by supported coding agents when working in
-this repository.
+Every change goes through a short-lived branch and an approved PR; see
+[AGENTS.md](AGENTS.md#collaboration-and-delivery).
