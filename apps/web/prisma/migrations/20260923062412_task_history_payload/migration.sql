@@ -17,6 +17,10 @@ SET "payload" = jsonb_build_object(
 
 ALTER TABLE "task_history_events" ALTER COLUMN "payload" SET NOT NULL;
 
+-- actorName now holds the actor's handle; old rows stored a display name and no member id, so
+-- the handle cannot be recovered and the name is cleared rather than shown as a handle.
+UPDATE "task_history_events" SET "actorName" = NULL;
+
 ALTER TABLE "task_history_events" DROP COLUMN "afterDescription",
 DROP COLUMN "afterTitle",
 DROP COLUMN "beforeDescription",

@@ -44,15 +44,8 @@ export type TaskClaimResult = {
   reason?: string;
 };
 
-/** One recorded Task change; `payload` carries the before/after facts its `eventType` names. */
-export type TaskHistoryEvent = {
-  id: string;
-  seq: number;
-  actorType: "user" | "agent" | "system";
-  /** The actor's handle when the event was recorded. */
-  actorName: string | null;
-  createdAt: string;
-} & (
+/** One Task change as history records it: `payload` carries the facts its `eventType` names. */
+export type TaskHistoryChange =
   | { eventType: "created"; payload: { taskNumber: number; status: TaskStatus } }
   | { eventType: "status_changed"; payload: { from: TaskStatus; to: TaskStatus } }
   | {
@@ -70,8 +63,16 @@ export type TaskHistoryEvent = {
         /** The Task revision this amendment produced; absent on amendments recorded before it. */
         revision?: number;
       };
-    }
-);
+    };
+
+export type TaskHistoryEvent = {
+  id: string;
+  seq: number;
+  actorType: "user" | "agent" | "system";
+  /** The actor's handle when the event was recorded. */
+  actorName: string | null;
+  createdAt: string;
+} & TaskHistoryChange;
 
 export type TaskCommand = {
   operation:

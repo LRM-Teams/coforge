@@ -821,12 +821,32 @@ test("Task history lists each event with its payload under the Task header", asy
             createdAt: "2026-09-23T06:00:00.000Z",
             payload: { from: "todo", to: "in_progress" },
           },
+          {
+            id: "system-event",
+            seq: 4,
+            eventType: "assignee_changed",
+            actorType: "system",
+            actorName: null,
+            createdAt: "2026-09-23T06:01:00.000Z",
+            payload: { assigneeId: null, assigneeType: null },
+          },
+          {
+            id: "legacy-event",
+            seq: 5,
+            eventType: "amended",
+            actorType: "user",
+            actorName: null,
+            createdAt: "2026-09-23T06:02:00.000Z",
+            payload: { changes: { title: { from: "Ship", to: "Ship it" } } },
+          },
         ],
       }),
     }),
   ).toBe(
     "## Task #2 history — revision 3\n\nShip it\n\n" +
-      'seq=3 time=2026-09-23T06:00:00.000Z actor=@builder type=status_changed\n  {"from":"todo","to":"in_progress"}',
+      'seq=3 time=2026-09-23T06:00:00.000Z actor=@builder type=status_changed\n  {"from":"todo","to":"in_progress"}\n' +
+      'seq=4 time=2026-09-23T06:01:00.000Z actor=@system type=assignee_changed\n  {"assigneeId":null,"assigneeType":null}\n' +
+      'seq=5 time=2026-09-23T06:02:00.000Z actor=<unresolved> type=amended\n  {"changes":{"title":{"from":"Ship","to":"Ship it"}}}',
   );
   expect(await run(args, { ...base, task: async () => ({ tasks: [task], history: [] }) })).toBe(
     "## Task #2 history — revision 3\n\nShip it\n\nNo recorded events.",

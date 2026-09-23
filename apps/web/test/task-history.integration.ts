@@ -4,14 +4,15 @@ import type { TaskHistoryEvent } from "@lrm/coforge-sdk/internal";
 import { PrismaClient } from "../generated/client";
 import { TaskBoard } from "../src/server/tasks/task-board.server";
 
-const eventShape = ({ eventType, actorType, actorName, payload }: TaskHistoryEvent) => ({
+const eventShape = ({ seq, eventType, actorType, actorName, payload }: TaskHistoryEvent) => ({
+  seq,
   eventType,
   actorType,
   actorName,
   payload,
 });
 
-test("every Task change records one history event with its before and after state", async () => {
+test("Task changes record history events with their before and after state", async () => {
   const connectionString = Bun.env.TASK_TEST_DATABASE_URL ?? Bun.env.DATABASE_URL;
   if (!connectionString)
     throw new Error("TASK_TEST_DATABASE_URL or DATABASE_URL must point to local PostgreSQL");
@@ -54,8 +55,6 @@ test("every Task change records one history event with its before and after stat
     },
     include: { members: true },
   });
-  const memberOf = (id: string) =>
-    channel.members.find((member) => member.userId === id || member.agentId === id)!.id;
   const board = new TaskBoard(db);
   const asAlice = { workspaceId: workspace.id, userId: alice.id };
   const asBob = { workspaceId: workspace.id, userId: bob.id };
@@ -67,6 +66,9 @@ test("every Task change records one history event with its before and after stat
       ...("agentId" in principal ? { target: `#${channel.channelName}` } : inChannel),
       ...command,
     } as Parameters<TaskBoard["execute"]>[1]);
+  const byAlice = { actorType: "user", actorName: alice.username } as const;
+  const byBob = { actorType: "user", actorName: bob.username } as const;
+  const byAgent = { actorType: "agent", actorName: agent.name } as const;
   const history = async (number: number) =>
     (await run(asAlice, { operation: "history", number })).history!.map(eventShape);
 
@@ -90,53 +92,51 @@ test("every Task change records one history event with its before and after stat
 
     expect(await history(task.number)).toEqual([
       {
+        seq: 1,
         eventType: "created",
-        actorType: "user",
-        actorName: alice.username,
+        ...byAlice,
         payload: { taskNumber: task.number, status: "todo" },
       },
       {
+        seq: 2,
         eventType: "assignee_changed",
-        actorType: "user",
-        actorName: alice.username,
+        ...byAlice,
         payload: { assigneeId: bob.id, assigneeType: "user" },
       },
       {
+        seq: 3,
         eventType: "status_changed",
-        actorType: "user",
-        actorName: bob.username,
+        ...byBob,
         payload: { from: "todo", to: "in_progress" },
       },
       {
+        seq: 4,
         eventType: "status_changed",
-        actorType: "user",
-        actorName: bob.username,
+        ...byBob,
         payload: { from: "in_progress", to: "in_review" },
       },
       {
+        seq: 5,
         eventType: "amended",
-        actorType: "user",
-        actorName: alice.username,
+        ...byAlice,
         payload: {
           changes: { title: { from: "Ship history", to: "Ship task history" } },
           revision: 4,
         },
       },
       {
+        seq: 6,
         eventType: "status_changed",
-        actorType: "user",
-        actorName: alice.username,
+        ...byAlice,
         payload: { from: "in_review", to: "done" },
       },
       {
+        seq: 7,
         eventType: "assignee_changed",
-        actorType: "user",
-        actorName: alice.username,
+        ...byAlice,
         payload: { assigneeId: null, assigneeType: null },
       },
     ]);
-    const events = (await run(asAlice, { operation: "history", number: task.number })).history!;
-    expect(events.map((event) => event.seq)).toEqual([1, 2, 3, 4, 5, 6, 7]);
 
     const claimable = (await run(asAlice, { operation: "create", title: "Claim me" })).tasks[0]!;
     await run(asAgent, { operation: "claim", number: claimable.number });
@@ -149,33 +149,33 @@ test("every Task change records one history event with its before and after stat
     const agentAssignee = { assigneeId: agent.id, assigneeType: "agent" as const };
     expect(await history(claimable.number)).toEqual([
       {
+        seq: 1,
         eventType: "created",
-        actorType: "user",
-        actorName: alice.username,
+        ...byAlice,
         payload: { taskNumber: claimable.number, status: "todo" },
       },
       {
+        seq: 2,
         eventType: "assignee_changed",
-        actorType: "agent",
-        actorName: agent.name,
+        ...byAgent,
         payload: agentAssignee,
       },
       {
+        seq: 3,
         eventType: "status_changed",
-        actorType: "agent",
-        actorName: agent.name,
+        ...byAgent,
         payload: { from: "todo", to: "in_progress" },
       },
       {
+        seq: 4,
         eventType: "assignee_changed",
-        actorType: "agent",
-        actorName: agent.name,
+        ...byAgent,
         payload: { assigneeId: null, assigneeType: null },
       },
       {
+        seq: 5,
         eventType: "assignee_changed",
-        actorType: "user",
-        actorName: alice.username,
+        ...byAlice,
         payload: agentAssignee,
       },
     ]);
@@ -189,24 +189,62 @@ test("every Task change records one history event with its before and after stat
     ).tasks[0]!;
     expect(await history(started.number)).toEqual([
       {
+        seq: 1,
         eventType: "created",
-        actorType: "agent",
-        actorName: agent.name,
+        ...byAgent,
         payload: { taskNumber: started.number, status: "in_progress" },
       },
       {
+        seq: 2,
         eventType: "assignee_changed",
-        actorType: "agent",
-        actorName: agent.name,
+        ...byAgent,
         payload: agentAssignee,
       },
     ]);
+
+    // Retries and no-op commands change nothing, so they record nothing.
+    const retryKey = crypto.randomUUID();
+    const batch = await run(asAlice, {
+      operation: "create",
+      titles: ["Batch one", "Batch two"],
+      idempotencyKey: retryKey,
+    });
+    await run(asAlice, {
+      operation: "create",
+      titles: ["Batch one", "Batch two"],
+      idempotencyKey: retryKey,
+    });
+    for (const created of batch.tasks)
+      expect(await history(created.number)).toEqual([
+        {
+          seq: 1,
+          eventType: "created",
+          ...byAlice,
+          payload: { taskNumber: created.number, status: "todo" },
+        },
+      ]);
+    const assignKey = crypto.randomUUID();
+    const reassign = {
+      operation: "assign",
+      number: claimable.number,
+      assignee: `@${bob.username}`,
+      idempotencyKey: assignKey,
+    };
+    await run(asAlice, reassign);
+    const afterAssign = await history(claimable.number);
+    await run(asAlice, reassign);
+    await run(asAlice, { ...reassign, idempotencyKey: crypto.randomUUID() });
+    expect(await history(claimable.number)).toEqual(afterAssign);
+    await run(asAlice, { operation: "unassign", number: task.number });
+    expect(await history(task.number)).toHaveLength(7);
+    await run(asAgent, { operation: "claim", number: started.number });
+    expect(await history(started.number)).toHaveLength(2);
 
     const message = await db.message.create({
       data: {
         workspaceId: workspace.id,
         conversationId: channel.id,
-        senderMemberId: memberOf(bob.id),
+        senderMemberId: channel.members.find((member) => member.userId === bob.id)!.id,
         sequence: 1_000,
         body: "Convert me",
       },
@@ -214,9 +252,9 @@ test("every Task change records one history event with its before and after stat
     const converted = (await run(asBob, { operation: "convert", messageId: message.id })).tasks[0]!;
     expect(await history(converted.number)).toEqual([
       {
+        seq: 1,
         eventType: "created",
-        actorType: "user",
-        actorName: bob.username,
+        ...byBob,
         payload: { taskNumber: converted.number, status: "todo" },
       },
     ]);

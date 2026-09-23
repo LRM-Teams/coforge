@@ -12,6 +12,7 @@ import {
   type MentionSelectorInput as MentionSelector,
   type ReminderSummaryRecord,
   type TaskCommand,
+  type TaskHistoryEvent,
   type TaskResult,
   type TaskStatus,
   type WorkspaceInfoResponse,
@@ -2252,25 +2253,22 @@ function formatTasks(result: TaskResult, reviewerIsolation = false): string {
     .join("\n");
 }
 
+function historyActor(event: TaskHistoryEvent): string {
+  if (event.actorType === "system") return "@system";
+  return event.actorName ? `@${event.actorName}` : "<unresolved>";
+}
+
 function formatTaskHistory(result: TaskResult): string {
-  const task = result.tasks[0];
-  const header = task
-    ? `## Task #${task.number} history — revision ${task.revision}\n\n${task.title}`
-    : "";
+  const task = result.tasks[0]!;
   const events = result.history?.length
     ? result.history
-        .map((event) => {
-          const actor =
-            event.actorType === "system"
-              ? "@system"
-              : event.actorName
-                ? `@${event.actorName}`
-                : "<unresolved>";
-          return `seq=${event.seq} time=${event.createdAt} actor=${actor} type=${event.eventType}\n  ${JSON.stringify(event.payload)}`;
-        })
+        .map(
+          (event) =>
+            `seq=${event.seq} time=${event.createdAt} actor=${historyActor(event)} type=${event.eventType}\n  ${JSON.stringify(event.payload)}`,
+        )
         .join("\n")
     : "No recorded events.";
-  return header ? `${header}\n\n${events}` : events;
+  return `## Task #${task.number} history — revision ${task.revision}\n\n${task.title}\n\n${events}`;
 }
 
 function reviewerIsolationFromEnvironment(): boolean {
