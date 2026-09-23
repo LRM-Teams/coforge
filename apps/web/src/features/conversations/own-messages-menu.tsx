@@ -63,10 +63,10 @@ export function useOwnMessagesIndex({
       const page = await onLoad(beforeSequence);
       setHasOlder(page.hasOlder);
       setIndex((current) => mergeMessages(current, page.messages));
-    } catch (cause) {
+    } catch {
       scrollAnchorRef.current = undefined;
       scrollToLatestRef.current = false;
-      if (reportError) toast.error(m.conversation_history_load_error(), cause);
+      if (reportError) toast.error(m.conversation_history_load_error());
     } finally {
       setLoading(false);
     }

@@ -186,8 +186,8 @@ function SettingsPage() {
     try {
       await saveOpenMode({ data: { mode: nextMode } });
       await router.invalidate({ sync: true });
-    } catch (cause) {
-      toast.error(m.settings_save_error(), cause);
+    } catch {
+      toast.error(m.settings_save_error());
     }
   }
 
@@ -206,16 +206,16 @@ function SettingsPage() {
       if (enabled && !(await registerCurrentBrowser(true))) return;
       await saveNotificationPreference({ data: { enabled } });
       await router.invalidate({ sync: true });
-    } catch (cause) {
-      toast.error(m.preferences_browser_notifications_save_error(), cause);
+    } catch {
+      toast.error(m.preferences_browser_notifications_save_error());
     }
   }
 
   async function enableBrowserNotifications() {
     try {
       await registerCurrentBrowser(true);
-    } catch (cause) {
-      toast.error(m.preferences_browser_notifications_save_error(), cause);
+    } catch {
+      toast.error(m.preferences_browser_notifications_save_error());
     }
   }
 
@@ -250,7 +250,6 @@ function SettingsPage() {
         browserFailed
           ? m.preferences_browser_notifications_test_browser_failed()
           : m.preferences_browser_notifications_test_error(),
-        cause,
       );
       return false;
     }

@@ -133,6 +133,7 @@
     }
   ],
   "conversation_thread_following_agents_error": "Could not load following Agents.",
+  "conversation_thread_following_agents_unfollow_error": "Could not stop the Agent following this thread.",
   "conversation_thread_unfollow_agent": "Stop {name} following this thread",
   "conversation_you": "You",
   "tasks_tab": "Tasks",

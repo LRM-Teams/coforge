@@ -372,7 +372,7 @@ function AccountSettings({
   const [saving, guard] = useSubmitGuard();
   const [pendingAvatar, setPendingAvatar] = useState<File | null>(null);
   const [removeAvatar, setRemoveAvatar] = useState(false);
-  const [saveError, setSaveError] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<SaveError | null>(null);
   const [saveSuccess, setSaveSuccess] = useState(false);
   // Show the just-picked image immediately, before it is uploaded on Save. Without this the
   // preview keeps showing the saved `profile.avatarUrl` until a save round-trips, which reads as
@@ -438,11 +438,7 @@ function AccountSettings({
           : avatarChanged
             ? m.settings_avatar_save_error()
             : m.settings_profile_save_error();
-        const reference =
-          isAppError(cause) && cause.errorId
-            ? ` ${m.error_reference({ errorId: cause.errorId })}`
-            : "";
-        setSaveError(`${message}${reference}`);
+        setSaveError(saveErrorFrom(message, cause));
       }
     });
   }
@@ -560,9 +556,9 @@ function AccountSettings({
 
             <footer className="flex flex-wrap items-center justify-end gap-3 border-t border-secondary py-4">
               {saveError && (
-                <p role="alert" className="mr-auto text-sm text-error-primary">
-                  {saveError}
-                </p>
+                <div className="mr-auto">
+                  <SaveErrorMessage error={saveError} />
+                </div>
               )}
               <Button type="button" color="secondary" isDisabled={saving} onPress={cancelEditing}>
                 {m.settings_profile_cancel()}
@@ -786,7 +782,7 @@ function LanguageRegionSettings({
   const [draftTimeZone, setDraftTimeZone] = useState(timeZone ?? "");
   const [draftTimeFormat, setDraftTimeFormat] = useState<TimeFormat>(effectiveTimeFormat);
   const [saving, guard] = useSubmitGuard();
-  const [saveError, setSaveError] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<SaveError | null>(null);
 
   useEffect(() => {
     setDraftTimeZone(timeZone ?? "");
@@ -807,11 +803,7 @@ function LanguageRegionSettings({
             timeFormat === null && draftTimeFormat === effectiveTimeFormat ? null : draftTimeFormat,
         });
       } catch (cause) {
-        const reference =
-          isAppError(cause) && cause.errorId
-            ? ` ${m.error_reference({ errorId: cause.errorId })}`
-            : "";
-        setSaveError(`${m.settings_save_error()}${reference}`);
+        setSaveError(saveErrorFrom(m.settings_save_error(), cause));
       }
     });
   }
@@ -983,16 +975,32 @@ function SettingsCardFooter({
   error,
   children,
 }: {
-  error?: string | null;
+  error?: SaveError | null;
   children: React.ReactNode;
 }) {
   return (
     <div className="flex flex-col items-start gap-2">
       {children}
-      {error && (
-        <p role="alert" className="text-sm text-error-primary">
-          {error}
-        </p>
+      {error && <SaveErrorMessage error={error} />}
+    </div>
+  );
+}
+
+type SaveError = { message: string; errorId?: string };
+
+function saveErrorFrom(message: string, cause: unknown): SaveError {
+  return { message, errorId: isAppError(cause) ? cause.errorId : undefined };
+}
+
+// The failure sentence stays red; its error reference sits on its own grey line below it.
+function SaveErrorMessage({ error }: { error: SaveError }) {
+  return (
+    <div className="flex flex-col gap-1">
+      <p role="alert" className="text-sm text-error-primary">
+        {error.message}
+      </p>
+      {error.errorId && (
+        <p className="text-xs text-tertiary">{m.error_reference({ errorId: error.errorId })}</p>
       )}
     </div>
   );

@@ -817,9 +817,8 @@ export function ConversationPane({
   const toggleReaction = useCallback(
     (messageId: string, emoji: string, active: boolean) => {
       if (!onToggleReaction) return;
-      void onToggleReaction(messageId, emoji, active).catch((cause: unknown) => {
-        const message = m.conversation_reaction_error();
-        toast.error(message, cause);
+      void onToggleReaction(messageId, emoji, active).catch(() => {
+        toast.error(m.conversation_reaction_error());
       });
     },
     [onToggleReaction, toast],
@@ -1241,10 +1240,10 @@ export function ConversationPane({
       pendingLatestRef.current = true;
       try {
         await onShowLatest();
-      } catch (cause) {
+      } catch {
         pendingLatestRef.current = false;
         setFollowingLatest(false);
-        toast.error(m.conversation_history_load_error(), cause);
+        toast.error(m.conversation_history_load_error());
         return;
       }
     }
@@ -1259,9 +1258,9 @@ export function ConversationPane({
       pendingMessageIdRef.current = messageId;
       try {
         await onLoadMessageAround(messageId);
-      } catch (cause) {
+      } catch {
         pendingMessageIdRef.current = undefined;
-        toast.error(m.conversation_history_load_error(), cause);
+        toast.error(m.conversation_history_load_error());
       }
       return;
     }

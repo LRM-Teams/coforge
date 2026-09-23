@@ -84,8 +84,8 @@ export function WorkspaceMembersPanel(props: {
     try {
       await action();
       await refresh();
-    } catch (error) {
-      toast.error(m.workspace_members_action_failed(), error);
+    } catch {
+      toast.error(m.workspace_members_action_failed());
     }
   }
 

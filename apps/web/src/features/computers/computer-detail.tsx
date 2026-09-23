@@ -288,12 +288,7 @@ export function ComputerDetail({
                     settle(() => {
                       if (result.status === "completed") {
                         setRestartState("completed");
-                        toast.success(
-                          m.computer_restart_completed({
-                            version: result.daemonVersion,
-                            process: result.workerInstanceId,
-                          }),
-                        );
+                        toast.success(m.computer_restart_completed());
                       } else if (result.status === "accepted") {
                         setRestartState("accepted");
                       } else {
@@ -431,7 +426,7 @@ export function ComputerDetail({
                       )}
                       {upgrade.errorId && (
                         <p className="mt-1.5 text-xs text-tertiary">
-                          {m.computer_upgrade_error_reference({ id: upgrade.errorId })}
+                          {m.error_reference({ errorId: upgrade.errorId })}
                         </p>
                       )}
                     </div>

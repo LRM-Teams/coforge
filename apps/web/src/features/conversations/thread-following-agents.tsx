@@ -138,8 +138,8 @@ export function ThreadFollowingAgents({
           ? { ...current, agents: current.agents.filter((agent) => agent.id !== agentId) }
           : current,
       );
-    } catch (cause) {
-      toast.error(m.conversation_thread_following_agents_error(), cause);
+    } catch {
+      toast.error(m.conversation_thread_following_agents_unfollow_error());
     }
   }
 
