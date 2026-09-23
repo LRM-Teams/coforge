@@ -160,6 +160,59 @@ export const markDirectConversationRead = createServerFn({ method: "POST" })
     await conversations.markReadForUser?.(workspaceId, user.id, data.agentId, data.throughSequence);
   });
 
+/** Pins the viewer's DM with this Agent above the rest of their list, or unpins it (#121). */
+export const setDirectConversationPinned = createServerFn({ method: "POST" })
+  .middleware([workspaceUserMiddleware])
+  .validator(
+    agentConversationInputSchema.extend({
+      pinned: z.boolean(),
+      sortOrder: z.number().int().min(0).optional(),
+    }),
+  )
+  .handler(async ({ context, data }) => {
+    const { user, workspaceId } = context;
+    const conversations = await ownedConversations(context, data.agentId);
+    return conversations.setPinnedForUser(
+      workspaceId,
+      user.id,
+      data.agentId,
+      data.pinned,
+      data.sortOrder,
+    );
+  });
+
+/** Marks the viewer's DM with this Agent unread, or clears the marker (#122). */
+export const setDirectConversationUnread = createServerFn({ method: "POST" })
+  .middleware([workspaceUserMiddleware])
+  .validator(agentConversationInputSchema.extend({ unread: z.boolean() }))
+  .handler(async ({ context, data }) => {
+    const { user, workspaceId } = context;
+    const conversations = await ownedConversations(context, data.agentId);
+    return conversations.setUnreadForUser(workspaceId, user.id, data.agentId, data.unread);
+  });
+
+/** Closes the viewer's DM with this Agent in their list only, or brings it back (#122). */
+export const setDirectConversationHidden = createServerFn({ method: "POST" })
+  .middleware([workspaceUserMiddleware])
+  .validator(agentConversationInputSchema.extend({ hidden: z.boolean() }))
+  .handler(async ({ context, data }) => {
+    const { user, workspaceId } = context;
+    const conversations = await ownedConversations(context, data.agentId);
+    return conversations.setHiddenForUser(workspaceId, user.id, data.agentId, data.hidden);
+  });
+
+/**
+ * The sidebar's DM preferences, keyed by Agent id: which of the viewer's DMs are pinned (with their
+ * order) and which are closed. DM rows come from the live Agent list rather than a server list, so
+ * this is what lets the sidebar order and filter them the way the channel list does for channels.
+ */
+export const loadDirectConversationPreferences = createServerFn({ method: "GET" })
+  .middleware([workspaceUserMiddleware])
+  .handler(async ({ context }) => {
+    const { user, db, workspaceId } = context;
+    return new PrismaDirectConversationRepository(db).preferencesForUser(workspaceId, user.id);
+  });
+
 export const sendDirectConversationMessage = createServerFn({ method: "POST" })
   .middleware([workspaceUserMiddleware])
   .validator(sendConversationMessageInputSchema)
