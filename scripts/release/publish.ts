@@ -296,7 +296,7 @@ async function objectExists(client: OSS, objectKey: string): Promise<boolean> {
 }
 
 /** Refuses to republish a version that already completed. Published versions are immutable: the
- * feed's CDN caches `<version>/*` for 365 days (docs/operations/aliyun-oss-cdn.md), so a second
+ * feed's CDN caches `<version>/*` for 365 days (docs/operations/aliyun-oss-cdn/staging-record.md), so a second
  * publish under the same version would leave different bytes on different edge nodes for up to a
  * year - `install.sh` verifying an old sidecar against an old binary would silently install the
  * older build. A publish that failed partway through never wrote the manifest, so retrying that

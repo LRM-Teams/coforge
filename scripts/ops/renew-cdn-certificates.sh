@@ -9,10 +9,10 @@
 # certificate does nothing for traffic CDN terminates before it ever reaches
 # Caddy.
 #
-# Frank's decision (2026-09-20, see docs/operations/cdn-certificates.md):
+# Frank's decision (2026-09-20, see docs/operations/cdn-certificates/):
 # Alibaba moved SSL certificates to a paid subscription model on 2026-02-24,
 # so the free per-domain certificate this runbook used before (see the old
-# warning in docs/operations/aliyun-oss-cdn.md section 10) can no longer be
+# warning in docs/operations/aliyun-oss-cdn/staging-record.md, section 10) can no longer be
 # re-issued from the console. This script replaces that manual, non-renewing
 # path with acme.sh: DNS-01 validation through Alibaba DNS (dns_ali) proves
 # domain ownership without exposing the origin, and the ali_cdn deploy hook
@@ -37,7 +37,7 @@
 # not near expiry unless FORCE_RENEW=1 is set, and re-deploying an unchanged
 # certificate to CDN is a no-op set call.
 #
-# See docs/operations/cdn-certificates.md for the RAM policy this needs, the
+# See docs/operations/cdn-certificates/ for the RAM policy this needs, the
 # first-run procedure, and how to roll back to a manually uploaded
 # certificate.
 set -euo pipefail
@@ -46,7 +46,7 @@ set -euo pipefail
 # One CDN accelerated domain per line. Adding a production domain later is a
 # one-line addition here; nothing else in this script encodes a domain name.
 # Keep this list identical to the one documented in
-# docs/operations/cdn-certificates.md so the two cannot drift.
+# docs/operations/cdn-certificates/domains.md so the two cannot drift.
 CDN_DOMAINS=(
 	"files-staging.coforge.cn"
 	"releases-staging.coforge.cn"
@@ -85,7 +85,7 @@ require_credentials() {
 			printf 'renew-cdn-certificates: Ali_Key and/or Ali_Secret are not set.\n'
 			printf 'dns_ali (DNS-01 validation) and ali_cdn (certificate deployment) both read these two variables.\n'
 			printf 'Create or locate a RAM AccessKey scoped to alidns:AddDomainRecord, alidns:DeleteDomainRecord,\n'
-			printf 'alidns:DescribeDomainRecords and cdn:SetCdnDomainSSLCertificate (see docs/operations/cdn-certificates.md),\n'
+			printf 'alidns:DescribeDomainRecords and cdn:SetCdnDomainSSLCertificate (see docs/operations/cdn-certificates/ram-permissions.md),\n'
 			printf 'then run:\n'
 			printf '  export Ali_Key="<ram-access-key-id>"\n'
 			printf '  export Ali_Secret="<ram-access-key-secret>"\n'

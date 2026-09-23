@@ -182,7 +182,7 @@ submit-pack|submit-empty|submit-failure`. Daemon injects the Agent API key and
   identity — never mints a fresh `launchId` — for any launch it initiates itself (an idle,
   exited-but-wakeable Agent woken by a message delivery or an App Inbox item), continuing the
   `clientSeq` counter instead of restarting it (the server's Activity idempotency key is
-  `(agentId, launchId, clientSeq)`, `docs/observability.md`) and sending no `previousLaunchId`
+  `(agentId, launchId, clientSeq)`, `docs/observability/activity-delivery-and-errors.md`) and sending no `previousLaunchId`
   hand-over for the unchanged identity. An Agent with no remembered identity (never brought under
   `AgentControl`, or forgotten by an explicit Stop) still mints, unchanged. `AgentControl.wake()`
   is the mirror image of `stopped()`: it makes the on-disk record truthful (`phase: "running"`)

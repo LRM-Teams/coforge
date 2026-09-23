@@ -14,7 +14,7 @@
  * domain, because Alibaba Cloud grants the CDN bucket-wide read per origin and configures URL
  * signing per domain: a domain that serves an unsigned object key can serve every object key in
  * its bucket. One domain, one bucket, one trust zone, as [ADR 0006] already requires of the
- * attachment and release domains. See docs/architecture.md and docs/operations/aliyun-oss-cdn.md.
+ * attachment and release domains. See docs/architecture.md and docs/operations/aliyun-oss-cdn/.
  *
  * Env:
  * - `COFORGE_IMAGE_DELIVERY_URL` — the public image CDN origin, e.g.
@@ -38,7 +38,7 @@
  * bounded (an unsigned URL with arbitrary `x-oss-process` parameters is an invitation to burn
  * processing cost), and the bucket's source-image protection can then refuse anything else.
  * These names are part of provisioning: the styles must exist on the image bucket before the
- * domain serves traffic (docs/operations/aliyun-oss-cdn.md §11).
+ * domain serves traffic (docs/operations/aliyun-oss-cdn/profile-image-domain.md §11).
  */
 export const PROFILE_IMAGE_STYLES = {
   /** Every user avatar, at twice the largest place one is drawn. */

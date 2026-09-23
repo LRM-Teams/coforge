@@ -1406,7 +1406,7 @@ export function ConversationPane({
       {root ? (
         <header className="flex h-12 shrink-0 items-center gap-2 border-b border-secondary px-4 md:px-6">
           {/* Borderless utility strip: the -ml-1.5 cancels the button's p-1.5 so the arrow glyph
-              itself lands on the pane gutter (docs/design.md §8 optical alignment). */}
+              itself lands on the pane gutter (docs/design/page-skeleton-and-density.md §8 optical alignment). */}
           <ButtonUtility
             icon={ArrowLeft}
             size="sm"

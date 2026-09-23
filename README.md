@@ -42,7 +42,7 @@ The independently packable `@coforge/agent` runtime package uses the Pi SDK and
 is installed as an exact Daemon dependency; it is not a user installation
 entry point.
 
-See [the database design](docs/database-schema.md) for the current
+See [the database design](docs/database-schema/README.md) for the current
 conversation and delivery model. See [the release contract](docs/release.md)
 for cloud deployment, atomic Computer installation bundles and compatibility
 release sets, exact-artifact production promotion, per-user installation, and

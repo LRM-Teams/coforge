@@ -7,7 +7,7 @@ import { readEnvSecret } from "./env-secret.server";
  * live in `FileStorage`; this port signs a short-lived HTTPS URL on a CDN domain that fronts the
  * private OSS bucket so the browser can be redirected straight to it instead of the backend
  * proxying every byte. See docs/architecture.md ("Private CDN adapter") and
- * docs/operations/aliyun-oss-cdn.md §5.3/§10. A signed URL is a bearer credential like any other
+ * docs/operations/aliyun-oss-cdn/cdn-domains.md (§5.3) and staging-record.md (§10). A signed URL is a bearer credential like any other
  * presigned URL: callers must never log it.
  *
  * Env:
@@ -23,7 +23,7 @@ import { readEnvSecret } from "./env-secret.server";
  *
  * The signed URL's TTL is not configurable: it is the fixed {@link FILE_DELIVERY_TTL_SECONDS},
  * which must equal the Alibaba Cloud CDN console's 鉴权URL有效时长 for the delivery domain (see
- * docs/operations/aliyun-oss-cdn.md §10); the console must stay at its default of 1800 seconds.
+ * docs/operations/aliyun-oss-cdn/staging-record.md §10); the console must stay at its default of 1800 seconds.
  */
 export interface FileDelivery {
   /** Signed, short-lived HTTPS URL for exactly this object key. */

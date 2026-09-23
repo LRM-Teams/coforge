@@ -6,20 +6,20 @@ instructions for the TanStack Start Web/backend modular monolith.
 ## Product design
 
 - Before designing or changing product UI, read and follow
-  [the product design guidance](../../docs/design.md). It is the single design
+  [the product design guidance](../../docs/design/README.md). It is the single design
   document for `apps/web` (task-led hierarchy, progressive disclosure, official
   components, layout, fields, color, sizing units, feedback, and rendered
   verification); colors and fonts live in
   [design tokens](../../docs/design-tokens.md). Do not create another design or
-  UI-guideline document; change `docs/design.md` instead.
+  UI-guideline document; change `docs/design/` instead.
 - For list/detail pages and empty states apply sections 2.1–2.2 and 5.1, and
   run the checklist and acceptance checks in section 6. State why a different
   user task requires an exception before implementing one. Do not treat
   existing pages as automatic exceptions; adapt the affected flow when changing
   it, without expanding into unrelated page redesigns.
-- Hard rules that apply to every UI change (details in `docs/design.md`):
+- Hard rules that apply to every UI change (details in `docs/design/`):
   - Mockups: when a design mockup is provided, it wins over the defaults in
-    `docs/design.md`; implement it with the components and units below and
+    `docs/design/`; implement it with the components and units below and
     update the conflicting rule in the same change. Ask before inventing data
     or concepts the mockup shows but the product lacks (§1).
   - Components (product UI; `features/landing` keeps its Spell / Magic UI

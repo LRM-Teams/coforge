@@ -46,7 +46,7 @@ export function AgentProfileHeader({
   return (
     // Same 20px gutter as the panel body (px-5): the bordered utility buttons align by box edge,
     // while the borderless Close pulls -mr-1.5 so its glyph lands on the gutter
-    // (docs/design.md §8 optical alignment).
+    // (docs/design/page-skeleton-and-density.md §8 optical alignment).
     <header className="flex h-12 shrink-0 items-center gap-2 border-b border-secondary px-5 py-0">
       <AgentActivityAvatar
         agent={agent}

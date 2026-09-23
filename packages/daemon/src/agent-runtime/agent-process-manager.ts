@@ -50,7 +50,7 @@ export class AgentProcessManager {
    * separate from `AgentRestartConfig`, because `start()` replaces that whole entry on every
    * call and this counter must survive that replacement to let a woken launch continue it
    * instead of restarting at 0 under a reused `launchId` — the server's Activity idempotency key
-   * is `(agentId, launchId, clientSeq)` (docs/observability.md). Cleared alongside the restart
+   * is `(agentId, launchId, clientSeq)` (docs/observability/activity-delivery-and-errors.md). Cleared alongside the restart
    * config on `stop()`/`shutdown()`. */
   readonly #launchClientSeq = new Map<string, number>();
 

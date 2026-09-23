@@ -20,7 +20,7 @@ export const SUBFIELD_LABEL_CLASS = "text-xs text-tertiary";
 
 /**
  * Label-over-value inline edit: hover/focus reveals nothing extra (the pencil sits beside the
- * label, always visible to a viewer who can edit — `docs/design.md` §9's hover affordance
+ * label, always visible to a viewer who can edit — `docs/design/field-display.md` §9's hover affordance
  * is for read-only-by-default fields; here the brief's approved prototype keeps the pencil
  * present). A press swaps the value for an official Input/TextArea with Save/Cancel; Escape
  * cancels. Used for Display name and Description only — Role reuses the existing `Select`, and
