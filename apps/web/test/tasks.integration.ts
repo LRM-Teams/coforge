@@ -898,15 +898,12 @@ test("assignment receipts survive mute and disconnect without waking unrelated A
       title: "Direct assignment",
       assignee: `@${assigned!.name}`,
     });
-    // Created assigned to itself, the Task starts at once: its receipt is the claim notice in the
-    // Task's own thread, so the delivery names that thread.
-    const directTaskThread = `@${human.username}:${directCreated.tasks[0]!.messageId}`;
     expect(
       (await repo.readPendingAgentDeliveries(workspace.id, assigned!.id)).find(
         (message) => message.conversationId === direct.id,
       ),
     ).toMatchObject({
-      target: directTaskThread,
+      target: `@${human.username}`,
       latestSenderKind: "system",
       latestSenderHandle: "",
       latestSenderDescription: "",
@@ -929,7 +926,7 @@ test("assignment receipts survive mute and disconnect without waking unrelated A
       latestSenderKind: "system",
       latestSenderHandle: "",
       latestSenderDescription: "",
-      target: directTaskThread,
+      target: `@${human.username}`,
     });
     await board.execute(agentPrincipal, {
       operation: "unclaim",

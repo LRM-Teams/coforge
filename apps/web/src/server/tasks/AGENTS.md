@@ -12,11 +12,14 @@ contract is `packages/coforge-sdk/src/internal/tasks.ts`.
   synchronization. Never add a second task scheduler.
 - TaskBoard creates the server-authored assignment Message and the assignee's
   delivery eligibility in the same transaction.
-- Every Task change posts its server notice (wording in `task-notices.server.ts`)
-  in the same transaction, under the conversation lock: creation, conversion and
-  assignment in the conversation; claims, status moves, unassignment, release
-  and deletion in the Task's own thread. Only the assignment receipt carries a
-  delivery; every other notice wakes no one.
+- Task writes post their server notice (wording in `task-notices.server.ts`)
+  through `withNotices`, which holds the conversation lock and signals open
+  pages after the commit. Creation, conversion and assignment post in the
+  conversation; claims, status moves, unassignment, release and deletion post
+  in the Task's own thread. `amend`, the resource `receipt`, `history`, `list`
+  and no-op writes post nothing. Only the assignment receipt is delivered,
+  pushed and fanned out to unread badges; other notices reach only the
+  conversation's own realtime channel.
 - A null Message sender is the server identity, never a fabricated member.
   Authenticated send adapters always supply their member identity. Message
   reads and browser projections expose the server identity as `system` without

@@ -27,7 +27,6 @@ import { ACTIVE_MEMBER_WHERE } from "#src/server/conversations/active-member.ser
 import {
   agentMessageSender,
   browserSenderHandle,
-  browserSenderName,
   MESSAGE_SENDER_SELECT,
   type AgentMessageSender,
 } from "#src/server/conversations/sender-display.server";
@@ -37,7 +36,13 @@ import {
 } from "#src/server/centrifugo/server-api.server";
 import type { MessageNotifier } from "#src/server/notifications/web-push-composition.server";
 import { MAX_ACTIVE_REMINDERS } from "#src/server/reminders/reminders.server";
-import { taskNotice } from "./task-notices.server";
+import {
+  assigneeMention,
+  noticeActor,
+  noticeText,
+  quotedTask,
+  type QuotedTask,
+} from "./task-notices.server";
 
 type Dependencies = {
   realtime?: ConversationRealtime;
@@ -74,10 +79,7 @@ const taskSelection = {
 
 type SelectedTask = Prisma.TaskGetPayload<{ select: typeof taskSelection }>;
 type Transaction = Parameters<Parameters<PrismaClient["$transaction"]>[0]>[0];
-/**
- * The acting conversation member; its user/Agent handle names it in Task history, and its display
- * name in Task notices.
- */
+/** The acting conversation member; its user/Agent handle names it in Task history and notices. */
 type Member = {
   id: string;
   userId: string | null;
@@ -92,14 +94,34 @@ const MEMBER_SELECT = {
   user: { select: { username: true, displayName: true } },
   agent: { select: { name: true, displayName: true } },
 } satisfies Prisma.ConversationMemberSelect;
-/** A server notice TaskBoard wrote; published once its transaction commits. */
-type Notice = {
+/** One conversation of one Workspace: where a Task lives and where its notices go. */
+type ConversationRef = { conversationId: string; workspaceId: string };
+/** A server notice as written; open pages learn of it once its transaction commits. */
+type PostedNotice = ConversationRef & {
   id: string;
-  conversationId: string;
-  workspaceId: string;
   sequence: number;
   threadRootId: string | null;
+  body: string;
 };
+type NoticeInput = { id?: string; threadRootId?: string; body: string; deliverTo?: string | null };
+/** The Task fields a notice quotes; `messageId` is also the root of the Task's thread. */
+type NoticeSubject = { messageId: string; number: number; title: string };
+/**
+ * Writes the notices of one Task change, inside the transaction `withNotices` opened under the
+ * conversation lock. Ordinary notices are signalled to open pages after the commit; a receipt is
+ * the caller's to publish (`publishAssignmentReceipt`), because it is delivered and pushed.
+ */
+type NoticeWriter = {
+  /** The Tasks as notices quote them: clean titles, in the given order. */
+  quote(tasks: readonly NoticeSubject[]): Promise<QuotedTask[]>;
+  /** A top-level notice in the conversation. */
+  inConversation(body: string): Promise<PostedNotice>;
+  /** A reply in the Task's own thread. */
+  inThread(task: NoticeSubject, body: (task: QuotedTask) => string): Promise<PostedNotice>;
+  /** The assignee's receipt: its fixed id and its one delivery to an Agent assignee. */
+  receipt(input: { id: string; body: string; deliverTo: string | null }): Promise<PostedNotice>;
+};
+
 type HistoryEvent = Prisma.TaskHistoryEventGetPayload<{ select: undefined }>;
 
 export type TaskOverview = {
@@ -392,22 +414,17 @@ export class TaskBoard {
     }
     const member = scope.member!;
     if (command.operation === "create") return this.create(scope, member, principal, command);
-    if (command.operation === "convert")
-      return this.convertOrClaim(scope.conversationId, scope.workspaceId, member, command, false);
-    if (command.operation === "claim")
-      return this.claim(scope.conversationId, scope.workspaceId, member, command);
-    if (command.operation === "unclaim") return this.unclaim(scope.conversationId, member, command);
-    if (command.operation === "assign")
-      return this.assign(scope.conversationId, scope.workspaceId, member, command);
-    if (command.operation === "unassign")
-      return this.unassign(scope.conversationId, scope.workspaceId, member, command);
+    if (command.operation === "convert") return this.convertOrClaim(scope, member, command, false);
+    if (command.operation === "claim") return this.claim(scope, member, command);
+    if (command.operation === "unclaim") return this.unclaim(scope, member, command);
+    if (command.operation === "assign") return this.assign(scope, member, command);
+    if (command.operation === "unassign") return this.unassign(scope, member, command);
     if (command.operation === "amend") return this.amend(scope.conversationId, member, command);
     if (command.operation === "history") return this.history(scope.conversationId, command);
-    if (command.operation === "delete")
-      return this.delete(scope.conversationId, scope.workspaceId, member, command);
+    if (command.operation === "delete") return this.delete(scope, member, command);
     if (command.operation === "receipt")
       return this.receipt(scope.conversationId, scope.workspaceId, member, command);
-    return this.update(scope.conversationId, member, command);
+    return this.update(scope, member, command);
   }
 
   private validateCommand(command: TaskCommand) {
@@ -644,7 +661,13 @@ export class TaskBoard {
         ...ACTIVE_MEMBER_WHERE,
         OR: [{ user: { username: name } }, { agent: { name, ...ACTIVE_AGENT_WHERE } }],
       },
-      select: { id: true, userId: true, agentId: true },
+      select: {
+        id: true,
+        userId: true,
+        agentId: true,
+        user: { select: { username: true } },
+        agent: { select: { name: true } },
+      },
     });
   }
 
@@ -767,8 +790,7 @@ export class TaskBoard {
       `${member.id}:create:${command.idempotencyKey}:assignment`,
       1,
     );
-    const result = await this.db.$transaction(async (tx) => {
-      await lockConversation(tx, scope.conversationId);
+    const result = await this.withNotices(scope, async (tx, notices) => {
       const retried = await tx.task.findMany({
         where: {
           conversationId: scope.conversationId,
@@ -796,7 +818,6 @@ export class TaskBoard {
           sequences: [] as number[],
           receipt,
           started: assignee?.id === member.id,
-          notices: [] as Notice[],
         };
       }
       if (command.attachmentId) {
@@ -905,32 +926,18 @@ export class TaskBoard {
           historyRows(task.messageId, member, creationChanges(task), 0),
         ),
       });
-      const place = { conversationId: scope.conversationId, workspaceId: scope.workspaceId };
-      const notices = [await this.writeNotice(tx, { ...place, body: taskNotice.created(tasks) })];
-      // The assignee's receipt keeps its fixed id and its one delivery. Created assigned to
-      // oneself, a Task starts at once: that is a claim, posted in each Task's thread, and the
-      // first one is the receipt. Reserved for someone else, it is one channel assignment notice.
-      let receipt: (Notice & { body: string }) | null = null;
-      if (assignee && started) {
-        const handle = browserSenderHandle(member)!;
-        for (const [index, task] of tasks.entries()) {
-          const claim = await this.writeNotice(tx, {
-            ...place,
-            threadRootId: task.messageId,
-            body: taskNotice.claimed(handle, task),
-            ...(index === 0 && { id: receiptId, deliverTo: assignee.agentId }),
-          });
-          if (index === 0) receipt = claim;
-          else notices.push(claim);
-        }
-      } else if (assignee)
-        receipt = await this.writeNotice(tx, {
-          ...place,
-          id: receiptId,
-          body: taskNotice.assigned(command.assignee!, tasks),
-          deliverTo: assignee.agentId,
-        });
-      return { tasks, created: true, sequences, receipt, started, notices };
+      const quoted = await notices.quote(tasks);
+      await notices.inConversation(noticeText.created(quoted));
+      // The assignee's receipt, started or only reserved: one assignment notice in the
+      // conversation, with its fixed id and its one delivery to an Agent assignee.
+      const receipt = assignee
+        ? await notices.receipt({
+            id: receiptId,
+            body: noticeText.assigned(assigneeMention(assignee), quoted),
+            deliverTo: assignee.agentId,
+          })
+        : null;
+      return { tasks, created: true, sequences, receipt, started };
     });
     if (result.created) {
       // PostgreSQL is canonical: a missed notification, realtime event or daemon push is
@@ -980,7 +987,6 @@ export class TaskBoard {
         }
       }
       await Promise.all(effects);
-      await this.signalNotices(result.notices);
       if (result.receipt)
         await this.publishAssignmentReceipt(result.receipt.id, command.idempotencyKey);
     }
@@ -999,72 +1005,107 @@ export class TaskBoard {
   }
 
   /**
-   * Post one server notice (a null sender) in the conversation, or in a Task's thread. Only an
-   * assignment receipt names `deliverTo`, the assignee Agent it is delivered to. The caller holds
-   * the conversation row lock, shared with ordinary sends and mute changes.
+   * Run one Task change in a transaction that holds the conversation row lock (shared with
+   * ordinary sends, since a notice takes the next message sequence), then tell open pages about
+   * the notices it posted. Every Task write that posts a notice goes through here, so neither the
+   * lock nor the signal can be left out.
    */
+  private async withNotices<T>(
+    conversation: ConversationRef,
+    change: (tx: Transaction, notices: NoticeWriter) => Promise<T>,
+  ): Promise<T> {
+    const posted: PostedNotice[] = [];
+    const result = await this.db.$transaction(async (tx) => {
+      await lockConversation(tx, conversation.conversationId);
+      const post = (input: NoticeInput) => this.writeNotice(tx, conversation, input);
+      const postAndSignal = async (input: NoticeInput) => {
+        const notice = await post(input);
+        posted.push(notice);
+        return notice;
+      };
+      const quote = async (tasks: readonly NoticeSubject[]) => {
+        const mentions = await tx.messageMention.findMany({
+          where: { messageId: { in: tasks.map((task) => task.messageId) } },
+          select: { messageId: true, kind: true, actorId: true, handle: true },
+        });
+        return tasks.map((task) =>
+          quotedTask(
+            task,
+            mentions.filter((mention) => mention.messageId === task.messageId),
+          ),
+        );
+      };
+      return change(tx, {
+        quote,
+        inConversation: (body) => postAndSignal({ body }),
+        inThread: async (task, body) => {
+          const [quoted] = await quote([task]);
+          return postAndSignal({ body: body(quoted!), threadRootId: task.messageId });
+        },
+        receipt: post,
+      });
+    });
+    await this.signalNotices(posted);
+    return result;
+  }
+
+  /** Post one server notice (a null sender); only a receipt names the Agent it is delivered to. */
   private async writeNotice(
     tx: Transaction,
-    input: {
-      id?: string;
-      conversationId: string;
-      workspaceId: string;
-      threadRootId?: string;
-      body: string;
-      deliverTo?: string | null;
-    },
-  ) {
+    conversation: ConversationRef,
+    input: NoticeInput,
+  ): Promise<PostedNotice> {
     const latest = await tx.message.findFirst({
-      where: { conversationId: input.conversationId },
+      where: { conversationId: conversation.conversationId },
       orderBy: { sequence: "desc" },
       select: { sequence: true },
     });
     const sequence = (latest?.sequence ?? 0) + 1;
+    // Named fields only: callers pass wider scope objects that are also a ConversationRef.
+    const { conversationId, workspaceId } = conversation;
     return tx.message.create({
       data: {
         id: input.id,
-        conversationId: input.conversationId,
-        workspaceId: input.workspaceId,
+        conversationId,
+        workspaceId,
         threadRootId: input.threadRootId,
         body: input.body,
         sequence,
         deliveries: input.deliverTo
-          ? {
-              create: {
-                workspaceId: input.workspaceId,
-                conversationId: input.conversationId,
-                agentId: input.deliverTo,
-                sequence,
-              },
-            }
+          ? { create: { conversationId, workspaceId, agentId: input.deliverTo, sequence } }
           : undefined,
+      },
+      select: {
+        id: true,
+        conversationId: true,
+        workspaceId: true,
+        sequence: true,
+        threadRootId: true,
+        body: true,
       },
     });
   }
 
-  /** Tell open pages about committed notices. They wake no one, so nothing else is sent. */
-  private async signalNotices(notices: readonly Notice[]) {
+  /**
+   * Tell the conversation's open pages about committed notices. Only that per-conversation
+   * signal: notices never count as unread, so the Workspace/user channel that drives sidebar
+   * badges is left out, and they wake and push no one.
+   */
+  private async signalNotices(notices: readonly PostedNotice[]) {
     const realtime = this.dependencies.realtime;
-    if (!notices.length || !realtime) return;
-    try {
-      const first = notices[0]!;
-      const scope = await messageSignalScope(this.db, first.conversationId, first.workspaceId);
-      await Promise.allSettled(
-        notices.map((notice) =>
-          Promise.resolve().then(() =>
-            realtime.messageAvailable({
-              conversationId: notice.conversationId,
-              messageId: notice.id,
-              sequence: notice.sequence,
-              ...(notice.threadRootId && { threadRootId: notice.threadRootId }),
-              ...scope,
-            }),
-          ),
+    if (!realtime) return;
+    await Promise.allSettled(
+      notices.map((notice) =>
+        Promise.resolve().then(() =>
+          realtime.messageAvailable({
+            conversationId: notice.conversationId,
+            messageId: notice.id,
+            sequence: notice.sequence,
+            ...(notice.threadRootId && { threadRootId: notice.threadRootId }),
+          }),
         ),
-      );
-    } catch {
-      // PostgreSQL is canonical; browser reconciliation repairs a missed publication.
-    }
+      ),
+    );
   }
 
   private async publishAssignmentReceipt(messageId: string, requestId: string) {
@@ -1089,9 +1130,6 @@ export class TaskBoard {
       message.conversationId,
       message.workspaceId,
     );
-    const parent = message.conversation.channelName
-      ? `#${message.conversation.channelName}`
-      : `@${message.conversation.members[0]!.user!.username}`;
     // A failed notification never rolls back or misreports a committed assignment.
     await Promise.allSettled([
       Promise.resolve().then(() =>
@@ -1099,7 +1137,6 @@ export class TaskBoard {
           conversationId: message.conversationId,
           messageId: message.id,
           sequence: message.sequence,
-          ...(message.threadRootId && { threadRootId: message.threadRootId }),
           ...signalScope,
         }),
       ),
@@ -1107,7 +1144,9 @@ export class TaskBoard {
       this.publishDeliveries(
         message,
         requestId,
-        message.threadRootId ? `${parent}:${message.threadRootId}` : parent,
+        message.conversation.channelName
+          ? `#${message.conversation.channelName}`
+          : `@${message.conversation.members[0]!.user!.username}`,
         agentMessageSender(null),
       ),
     ]);
@@ -1129,15 +1168,13 @@ export class TaskBoard {
   }
 
   private async convertOrClaim(
-    conversationId: string,
-    workspaceId: string,
+    conversation: ConversationRef,
     member: Member,
     command: TaskCommand,
     claim: boolean,
   ) {
-    const { task, notices } = await this.db.$transaction(async (tx) => {
-      await lockConversation(tx, conversationId);
-      const notices: Notice[] = [];
+    const { conversationId, workspaceId } = conversation;
+    const task = await this.withNotices(conversation, async (tx, notices) => {
       let existing = command.number
         ? await tx.task.findUnique({
             where: {
@@ -1178,20 +1215,17 @@ export class TaskBoard {
         await tx.taskHistoryEvent.createMany({
           data: historyRows(existing.messageId, member, creationChanges(existing), 0),
         });
-        notices.push(
-          await this.writeNotice(tx, {
-            conversationId,
-            workspaceId,
-            body: taskNotice.converted(browserSenderName(member), existing),
-          }),
+        const [quoted] = await notices.quote([existing]);
+        await notices.inConversation(
+          noticeText.converted(noticeActor(member).displayName, quoted!),
         );
       }
-      if (!claim) return { task: existing, notices };
+      if (!claim) return existing;
       if (
         existing.ownerMemberId === member.id &&
         (existing.status === "in_progress" || existing.status === "in_review")
       )
-        return { task: existing, notices };
+        return existing;
       if (existing.status === "done" || existing.status === "closed")
         throw new AppError("CONFLICT");
       if (existing.ownerMemberId && existing.ownerMemberId !== member.id)
@@ -1208,24 +1242,17 @@ export class TaskBoard {
         },
       );
       // Claiming a Todo Task also moves it to In Progress; the claim notice says both.
-      notices.push(
-        await this.writeNotice(tx, {
-          conversationId,
-          workspaceId,
-          threadRootId: claimed.messageId,
-          body: taskNotice.claimed(browserSenderHandle(member)!, claimed),
-        }),
+      await notices.inThread(claimed, (quoted) =>
+        noticeText.claimed(noticeActor(member).handle, quoted),
       );
-      return { task: claimed, notices };
+      return claimed;
     });
     await this.signalTaskChange(task);
-    await this.signalNotices(notices);
     return { tasks: [view(task)] };
   }
 
   private async claim(
-    conversationId: string,
-    workspaceId: string,
+    conversation: ConversationRef,
     member: Member,
     command: TaskCommand,
   ): Promise<TaskResult> {
@@ -1241,8 +1268,7 @@ export class TaskBoard {
     ];
     if (selectors.length === 1) {
       const result = await this.convertOrClaim(
-        conversationId,
-        workspaceId,
+        conversation,
         member,
         { ...command, number: selectors[0]!.number, messageId: selectors[0]!.messageId },
         true,
@@ -1259,8 +1285,7 @@ export class TaskBoard {
     for (const selector of selectors) {
       try {
         const result = await this.convertOrClaim(
-          conversationId,
-          workspaceId,
+          conversation,
           member,
           {
             ...command,
@@ -1290,7 +1315,8 @@ export class TaskBoard {
     return { tasks, claims };
   }
 
-  private async unclaim(conversationId: string, member: Member, command: TaskCommand) {
+  private async unclaim(conversation: ConversationRef, member: Member, command: TaskCommand) {
+    const { conversationId } = conversation;
     const task = await this.db.task.findUnique({
       where: {
         conversationId_number: { conversationId, number: command.number! },
@@ -1300,8 +1326,7 @@ export class TaskBoard {
     if (!task) throw new AppError("NOT_FOUND");
     if (task.ownerMemberId !== member.id) throw new AppError("ACCESS_DENIED");
     if (task.status === "done") throw new AppError("CONFLICT");
-    const { updated, notice } = await this.db.$transaction(async (tx) => {
-      await lockConversation(tx, conversationId);
+    const updated = await this.withNotices(conversation, async (tx, notices) => {
       const { task: updated } = await this.commitTaskChange(
         tx,
         member,
@@ -1313,20 +1338,17 @@ export class TaskBoard {
         },
         { ownerMemberId: null, claimedAt: null },
       );
-      const notice = await this.writeNotice(tx, {
-        conversationId,
-        workspaceId: task.workspaceId,
-        threadRootId: updated.messageId,
-        body: taskNotice.released(browserSenderName(member), updated),
-      });
-      return { updated, notice };
+      await notices.inThread(updated, (quoted) =>
+        noticeText.released(noticeActor(member).displayName, quoted),
+      );
+      return updated;
     });
     await this.signalTaskChange(updated);
-    await this.signalNotices([notice]);
     return { tasks: [view(updated)] };
   }
 
-  private async update(conversationId: string, member: Member, command: TaskCommand) {
+  private async update(conversation: ConversationRef, member: Member, command: TaskCommand) {
+    const { conversationId } = conversation;
     const task = await this.db.task.findUnique({
       where: {
         conversationId_number: { conversationId, number: command.number! },
@@ -1350,8 +1372,7 @@ export class TaskBoard {
       throw new AppError("CONFLICT");
     if (command.status === "done" && task.createsResource && !task.resourceReceipt)
       throw new AppError("CONFLICT");
-    const { updated, notices } = await this.db.$transaction(async (tx) => {
-      await lockConversation(tx, conversationId);
+    const updated = await this.withNotices(conversation, async (tx, notices) => {
       const { task: updated } = await this.commitTaskChange(
         tx,
         member,
@@ -1359,41 +1380,36 @@ export class TaskBoard {
         { ownerMemberId: task.ownerMemberId },
         { status: command.status },
       );
-      if (updated.status === task.status) return { updated, notices: [] };
-      const notice = await this.writeNotice(tx, {
-        conversationId,
-        workspaceId: task.workspaceId,
-        threadRootId: updated.messageId,
-        body: taskNotice.moved(browserSenderName(member), updated, status(updated.status)),
-      });
-      return { updated, notices: [notice] };
+      if (updated.status !== task.status)
+        await notices.inThread(updated, (quoted) =>
+          noticeText.moved(noticeActor(member).displayName, quoted, status(updated.status)),
+        );
+      return updated;
     });
     await this.signalTaskChange(updated);
-    await this.signalNotices(notices);
     return { tasks: [view(updated)] };
   }
 
   private async assign(
-    conversationId: string,
-    workspaceId: string,
+    conversation: ConversationRef,
     member: Member,
     command: TaskCommand,
   ): Promise<TaskResult> {
+    const { conversationId, workspaceId } = conversation;
     if (command.assignee !== null && !command.assignee?.match(/^@[a-z0-9][a-z0-9_-]{0,63}$/))
       throw new AppError("INVALID_INPUT");
     const receiptId = await indexedRequestId(
       `${member.id}:assign:${command.number}:${command.idempotencyKey}:assignment`,
       1,
     );
-    const result = await this.db.$transaction(async (tx) => {
-      await lockConversation(tx, conversationId);
+    const result = await this.withNotices(conversation, async (tx, notices) => {
       const receipt = await tx.message.findUnique({ where: { id: receiptId } });
       if (receipt) {
         const task = await tx.task.findUnique({
           where: { conversationId_number: { conversationId, number: command.number! } },
           select: taskSelection,
         });
-        return { task, receipt, changed: false, notices: [] as Notice[] };
+        return { task, receipt, changed: false };
       }
       const owner = command.assignee
         ? await this.memberByHandle(tx, conversationId, workspaceId, command.assignee)
@@ -1414,7 +1430,7 @@ export class TaskBoard {
       if (command.expectedRevision !== undefined && current.revision !== command.expectedRevision)
         throw new AppError("CONFLICT");
       if (current.ownerMemberId === (owner?.id ?? null))
-        return { task: current, receipt: null, changed: false, notices: [] };
+        return { task: current, receipt: null, changed: false };
       const { task } = await this.commitTaskChange(
         tx,
         member,
@@ -1422,36 +1438,24 @@ export class TaskBoard {
         { ownerMemberId: current.ownerMemberId },
         { ownerMemberId: owner?.id ?? null, claimedAt: null },
       );
-      if (!owner)
-        return {
-          task,
-          changed: true,
-          receipt: null,
-          notices: [
-            await this.writeNotice(tx, {
-              conversationId,
-              workspaceId,
-              threadRootId: task.messageId,
-              body: taskNotice.unassigned(browserSenderName(member), task),
-            }),
-          ],
-        };
+      if (!owner) {
+        await notices.inThread(task, (quoted) =>
+          noticeText.unassigned(noticeActor(member).displayName, quoted),
+        );
+        return { task, changed: true, receipt: null };
+      }
       return {
         task,
         changed: true,
-        notices: [],
-        receipt: await this.writeNotice(tx, {
+        receipt: await notices.receipt({
           id: receiptId,
-          conversationId,
-          workspaceId,
-          body: taskNotice.assigned(command.assignee!, [task]),
+          body: noticeText.assigned(assigneeMention(owner), await notices.quote([task])),
           deliverTo: owner.agentId,
         }),
       };
     });
     const { task, receipt } = result;
     if (task && result.changed) await this.signalTaskChange(task);
-    await this.signalNotices(result.notices);
     if (receipt && result.changed)
       await this.publishAssignmentReceipt(receipt.id, command.idempotencyKey);
     return {
@@ -1473,19 +1477,18 @@ export class TaskBoard {
    * minus the assignment receipt, since there is no one to notify.
    */
   private async unassign(
-    conversationId: string,
-    workspaceId: string,
+    conversation: ConversationRef,
     member: Member,
     command: TaskCommand,
   ): Promise<TaskResult> {
-    const result = await this.db.$transaction(async (tx) => {
-      await lockConversation(tx, conversationId);
+    const { conversationId, workspaceId } = conversation;
+    const result = await this.withNotices(conversation, async (tx, notices) => {
       const current = await tx.task.findUnique({
         where: { conversationId_number: { conversationId, number: command.number! } },
         select: taskSelection,
       });
       if (!current) throw new AppError("NOT_FOUND");
-      if (!current.ownerMemberId) return { task: current, changed: false, notices: [] };
+      if (!current.ownerMemberId) return { task: current, changed: false };
       if (current.ownerMemberId !== member.id) await this.requireManager(tx, workspaceId, member);
       if (command.expectedRevision !== undefined && current.revision !== command.expectedRevision)
         throw new AppError("CONFLICT");
@@ -1496,16 +1499,12 @@ export class TaskBoard {
         { ownerMemberId: current.ownerMemberId },
         { ownerMemberId: null, claimedAt: null },
       );
-      const notice = await this.writeNotice(tx, {
-        conversationId,
-        workspaceId,
-        threadRootId: task.messageId,
-        body: taskNotice.unassigned(browserSenderName(member), task),
-      });
-      return { task, changed: true, notices: [notice] };
+      await notices.inThread(task, (quoted) =>
+        noticeText.unassigned(noticeActor(member).displayName, quoted),
+      );
+      return { task, changed: true };
     });
     if (result.changed) await this.signalTaskChange(result.task);
-    await this.signalNotices(result.notices);
     return { tasks: [view(result.task)] };
   }
 
@@ -1560,31 +1559,29 @@ export class TaskBoard {
   }
 
   private async delete(
-    conversationId: string,
-    workspaceId: string,
+    conversation: ConversationRef,
     member: Member,
     command: TaskCommand,
   ): Promise<TaskResult> {
-    const notice = await this.db.$transaction(async (tx) => {
-      await lockConversation(tx, conversationId);
+    await this.withNotices(conversation, async (tx, notices) => {
       const task = await tx.task.findUnique({
         where: {
-          conversationId_number: { conversationId, number: command.number! },
+          conversationId_number: {
+            conversationId: conversation.conversationId,
+            number: command.number!,
+          },
         },
         select: { messageId: true, creatorMemberId: true, number: true, title: true },
       });
       if (!task) throw new AppError("NOT_FOUND");
-      if (task.creatorMemberId !== member.id) await this.requireManager(tx, workspaceId, member);
+      if (task.creatorMemberId !== member.id)
+        await this.requireManager(tx, conversation.workspaceId, member);
       await tx.task.delete({ where: { messageId: task.messageId } });
       // The message stays, so its thread keeps the record of the Task it was.
-      return this.writeNotice(tx, {
-        conversationId,
-        workspaceId,
-        threadRootId: task.messageId,
-        body: taskNotice.deleted(browserSenderName(member), task),
-      });
+      await notices.inThread(task, (quoted) =>
+        noticeText.deleted(noticeActor(member).displayName, quoted),
+      );
     });
-    await this.signalNotices([notice]);
     return { tasks: [] };
   }
 
