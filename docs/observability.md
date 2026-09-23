@@ -347,6 +347,8 @@ finished"/"Thinking finished"），仅当 `detail` 为空（旧版 daemon、或�
 
 MVP 默认保留结构化运行日志 30 天、审计/发布证据 90 天；部署可延长但不可缩短安全审计所需窗口。日志收集器和指标端点只允许受控内网访问，Caddy 不把管理探针或指标公开给终端用户。导出和调试样本必须经过脱敏，访问受最小权限控制。
 
+staging 的全部容器使用 Docker `journald` 日志驱动，写入 rootless `deploy` 用户的持久化 journal（主机把 `/var/log/journal` bind mount 到数据盘 `/data/journal`，保留 30 天），因此部署重建容器后日志仍在；默认 `json-file` 日志会随容器一起删除。按容器名用 `journalctl --user -t <容器名>` 查询，主机一次性配置与查询方式见 [`infra/staging/README.md`](../infra/staging/README.md#container-logs)。集中式采集（如阿里云 SLS）留待生产环境按需决定。
+
 ## 实施顺序
 
 1. 先在 Web/backend、Computer 和 Daemon 统一 JSON logger、request ID 和敏感字段过滤。
