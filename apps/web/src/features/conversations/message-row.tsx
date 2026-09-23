@@ -470,7 +470,7 @@ export function AttachmentCard({ attachment }: { attachment: MessageView["attach
 }
 
 /** The "new messages" divider (Slack-style): a brand rule naming where unread begins. */
-function UnreadDivider() {
+export function UnreadDivider() {
   return (
     <div
       role="separator"
@@ -484,6 +484,19 @@ function UnreadDivider() {
       <span className="shrink-0 text-xs text-brand-secondary">
         {m.conversation_unread_divider()}
       </span>
+    </div>
+  );
+}
+
+/** The date rule drawn above the first message of a day. */
+export function DayDivider({ value, locale }: { value: Date | string; locale?: string }) {
+  return (
+    <div className="flex items-center gap-3 px-4 py-2 md:px-6">
+      <span aria-hidden="true" className="h-px flex-1 bg-secondary" />
+      <span className="shrink-0 bg-primary px-2 text-xs text-tertiary tabular-nums">
+        {dayLabel(value, locale)}
+      </span>
+      <span aria-hidden="true" className="h-px flex-1 bg-secondary" />
     </div>
   );
 }
@@ -751,26 +764,24 @@ export function MessageRow({
     };
   }, [onQuoteSelection, readQuoteSelection]);
   // A system message (task/membership notices, etc.) is not a person talking: it carries no
-  // avatar and no sender heading, and renders as a compact, muted line in the stream — like
-  // Slack's channel notices. The body still goes through `MessageBody` so a `@handle` mention in
-  // it stays a resolved chip. The wrapper (`li`) is the same in both branches, so a system row
-  // costs the browser exactly what a normal one does.
+  // avatar and no sender heading, and renders as a compact, muted line of plain text in the
+  // stream — like Slack's channel notices. It still carries the unread divider and the jump
+  // highlight, since the unread run can begin at a notice and a jump can land on one. The
+  // wrapper (`li`) is the same in both branches, so a system row costs the browser exactly what a
+  // normal one does. A run of two or more notices is folded into one summary line by
+  // `SystemMessageGroup`, which renders these rows when opened.
   if (message.senderKind === "system") {
     return (
       <li data-message-id={message.id} className={ROW_CLASS}>
-        {dayChanged && (
-          <div className="flex items-center gap-3 px-4 py-2 md:px-6">
-            <span aria-hidden="true" className="h-px flex-1 bg-secondary" />
-            <span className="shrink-0 bg-primary px-2 text-xs text-tertiary tabular-nums">
-              {dayLabel(message.createdAt, dateLocale)}
-            </span>
-            <span aria-hidden="true" className="h-px flex-1 bg-secondary" />
-          </div>
-        )}
+        {unreadStartsHere && <UnreadDivider />}
+        {dayChanged && <DayDivider value={message.createdAt} locale={dateLocale} />}
         <div
           id={`message-${message.id}`}
           data-message="system"
-          className="group/message flex scroll-m-6 items-baseline gap-2 px-4 py-1 text-xs text-tertiary md:px-6"
+          className={cn(
+            "group/message flex scroll-m-6 items-baseline gap-2 px-4 py-1 text-xs text-tertiary transition-[background-color,box-shadow] duration-500 target:bg-tertiary target:ring-2 target:ring-brand/50 target:ring-offset-4 target:ring-offset-primary md:px-6",
+            highlighted && "bg-tertiary ring-2 ring-brand/50 ring-offset-4 ring-offset-primary",
+          )}
         >
           {/* System bodies are short plain text (task/membership notices, authored with a plain
               `@handle`, not a mention token), so they render as a single muted line rather than
@@ -800,15 +811,7 @@ export function MessageRow({
   return (
     <li data-message-id={message.id} className={ROW_CLASS}>
       {unreadStartsHere && <UnreadDivider />}
-      {dayChanged && (
-        <div className="flex items-center gap-3 px-4 py-2 md:px-6">
-          <span aria-hidden="true" className="h-px flex-1 bg-secondary" />
-          <span className="shrink-0 bg-primary px-2 text-xs text-tertiary tabular-nums">
-            {dayLabel(message.createdAt, dateLocale)}
-          </span>
-          <span aria-hidden="true" className="h-px flex-1 bg-secondary" />
-        </div>
-      )}
+      {dayChanged && <DayDivider value={message.createdAt} locale={dateLocale} />}
       <div
         id={`message-${message.id}`}
         data-message={own ? "own" : "other"}
