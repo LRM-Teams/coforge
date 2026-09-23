@@ -670,7 +670,7 @@ export class PublicChannels {
           unreadCount: member ? (unreadByConversation.get(channel.id) ?? 0) : 0,
           /// A closed chat disappears from this member's list only (see `hiddenAt` in the schema);
           /// the conversation itself stays readable, including through its own URL. A new message
-          /// from someone else brings it back, and opening it reopens it for good.
+          /// from someone else brings it back.
           hidden: member?.hiddenAt != null && !reopenedByActivity.has(channel.id),
           pinned: Boolean(member?.pins.length),
           pinSortOrder: pin ? pin.sortOrder : null,
@@ -1244,8 +1244,6 @@ export class PublicChannels {
       senderMemberId: member?.id ?? "",
       viewerHandle: member?.user?.username,
       muted: member?.channelMuted ?? false,
-      // The viewer closed this chat: opening it is what brings it back to their list.
-      hidden: member?.hiddenAt != null,
       // The viewer's conversation-level read cursor over top-level messages:
       // the client positions the initial view at the first unread message and draws the
       // divider there. Undefined for a non-member (nothing is "unread for them").
