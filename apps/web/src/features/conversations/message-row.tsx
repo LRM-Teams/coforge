@@ -519,6 +519,7 @@ export function MessageRow({
   onToggleExpanded,
   agentDisplay,
   unreadStartsHere,
+  highlighted,
   dateLocale,
   threadEntry,
   threadPreview,
@@ -546,6 +547,10 @@ export function MessageRow({
   agentDisplay?: (agentId: string) => AgentDisplaySnapshot | undefined;
   /** The conversation's unread run begins at this row: draws the divider above. */
   unreadStartsHere?: boolean;
+  /** A position jump just landed on this row, so it wears the anchor highlight for a moment. The
+   * `#message-<id>` deep link gets that from `:target` below; a saved jump carries no hash
+   * (#713) and the pane highlights the row by id instead — same classes, either way. */
+  highlighted?: boolean;
   dateLocale?: string;
   threadEntry?: (message: MessageView) => MessageThreadEntry;
   threadPreview?: (message: MessageView) => ReactNode;
@@ -820,6 +825,7 @@ export function MessageRow({
         onClick={openActions}
         className={cn(
           "group/message relative flex scroll-m-6 gap-3 px-4 transition-[background-color,box-shadow] duration-500 hover:bg-secondary focus-within:bg-secondary target:bg-active target:ring-2 target:ring-brand/50 target:ring-offset-4 target:ring-offset-primary md:px-6",
+          highlighted && "bg-active ring-2 ring-brand/50 ring-offset-4 ring-offset-primary",
           grouped ? "py-0.5" : "py-2",
         )}
       >
