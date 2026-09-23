@@ -1596,7 +1596,7 @@ describe("PrismaDirectConversationRepository", () => {
   });
 
   test("markRead clamps the boundary to the conversation end and stays monotone", async () => {
-    let updated: { where: object; data: object } | undefined;
+    const updated: { where: object; data: object }[] = [];
     const db = {
       agent: {
         findFirst: async () => ({ id: "agent-1" }),
@@ -1611,7 +1611,7 @@ describe("PrismaDirectConversationRepository", () => {
           },
           conversationMember: {
             updateMany: async (input: { where: object; data: object }) => {
-              updated = input;
+              updated.push(input);
             },
           },
         }),
@@ -1624,18 +1624,31 @@ describe("PrismaDirectConversationRepository", () => {
       "agent-1",
       10_000,
     );
-    expect(updated).toEqual({
-      where: {
-        conversationId: "conversation-1",
-        userId: "user-1",
-        readThroughSequence: { lt: 7 },
-        leftAt: null,
+    expect(updated).toEqual([
+      {
+        where: {
+          conversationId: "conversation-1",
+          userId: "user-1",
+          readThroughSequence: { lt: 7 },
+          leftAt: null,
+        },
+        data: { readThroughSequence: 7 },
       },
-      data: { readThroughSequence: 7 },
-    });
+      // Reading to the end also consumes a forced `mark as unread` marker at or below it, so the
+      // badge cannot come back on the next render (P2b, #125).
+      {
+        where: {
+          conversationId: "conversation-1",
+          userId: "user-1",
+          unreadFromSequence: { not: null, lte: 7 },
+          leftAt: null,
+        },
+        data: { unreadFromSequence: null },
+      },
+    ]);
 
     // An empty conversation refuses to move the cursor to a non-positive boundary.
-    updated = undefined;
+    updated.length = 0;
     const emptyDb = {
       agent: {
         findFirst: async () => ({ id: "agent-1" }),
@@ -1650,7 +1663,7 @@ describe("PrismaDirectConversationRepository", () => {
           },
           conversationMember: {
             updateMany: async (input: { where: object; data: object }) => {
-              updated = input;
+              updated.push(input);
             },
           },
         }),
@@ -1661,7 +1674,7 @@ describe("PrismaDirectConversationRepository", () => {
       "agent-1",
       5,
     );
-    expect(updated).toBeUndefined();
+    expect(updated).toEqual([]);
   });
 
   test("rejects a pending delivery without a valid public username target", async () => {

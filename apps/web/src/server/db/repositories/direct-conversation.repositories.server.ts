@@ -988,6 +988,148 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
     return { conversationId: conversation.id, senderMemberId: member.id };
   }
 
+  /**
+   * The viewer's own membership of their DM with this Agent, resolved without creating anything:
+   * a preference must not bring a conversation into existence as a side effect. `NOT_FOUND` covers
+   * both "no DM yet" and "not this viewer's DM", so the mutations cannot probe another pair.
+   */
+  private async memberForPreference(workspaceId: string, userId: string, agentId: string) {
+    const conversation = await this.findUserAgentConversation(workspaceId, userId, agentId);
+    if (!conversation) throw new AppError("NOT_FOUND");
+    const member = await this.db.conversationMember.findFirst({
+      where: { conversationId: conversation.id, userId, leftAt: null },
+      select: { id: true },
+    });
+    if (!member) throw new AppError("NOT_FOUND");
+    return { conversationId: conversation.id, memberId: member.id };
+  }
+
+  /** Pins the viewer's DM with this Agent above the rest of their list, or unpins it (#121). The
+   * conversation lock orders it against concurrent writes the way the channel side does. */
+  async setPinnedForUser(
+    workspaceId: string,
+    userId: string,
+    agentId: string,
+    pinned: boolean,
+    sortOrder?: number,
+  ) {
+    const { conversationId, memberId } = await this.memberForPreference(
+      workspaceId,
+      userId,
+      agentId,
+    );
+    await this.db.$transaction(async (tx) => {
+      await lockConversation(tx, conversationId);
+      const where = { conversationId, memberId };
+      if (!pinned) {
+        await tx.conversationPin.deleteMany({ where });
+        return;
+      }
+      const order = sortOrder ?? (await tx.conversationPin.count({ where: { memberId } }));
+      await tx.conversationPin.upsert({
+        where: { conversationId_memberId: where },
+        create: { conversationId, memberId, workspaceId, sortOrder: order },
+        update: { sortOrder: order },
+      });
+    });
+    return { pinned };
+  }
+
+  /** Marks the viewer's DM with this Agent unread, anchored on its newest top-level message, or
+   * clears the marker. A DM with no messages has nothing to mark. */
+  async setUnreadForUser(workspaceId: string, userId: string, agentId: string, unread: boolean) {
+    const { conversationId } = await this.memberForPreference(workspaceId, userId, agentId);
+    let marker: number | null = null;
+    await this.db.$transaction(async (tx) => {
+      await lockConversation(tx, conversationId);
+      if (unread) {
+        const newest = await tx.message.findFirst({
+          where: { conversationId, threadRootId: null },
+          orderBy: { sequence: "desc" },
+          select: { sequence: true },
+        });
+        marker = newest?.sequence ?? null;
+      }
+      await tx.conversationMember.updateMany({
+        where: { conversationId, userId, leftAt: null },
+        data: { unreadFromSequence: marker },
+      });
+    });
+    return { unread: marker !== null };
+  }
+
+  /** Closes the viewer's DM with this Agent in their list only, or brings it back. */
+  async setHiddenForUser(workspaceId: string, userId: string, agentId: string, hidden: boolean) {
+    const { conversationId } = await this.memberForPreference(workspaceId, userId, agentId);
+    await this.db.$transaction(async (tx) => {
+      await lockConversation(tx, conversationId);
+      await tx.conversationMember.updateMany({
+        where: { conversationId, userId, leftAt: null },
+        data: { hiddenAt: hidden ? new Date() : null },
+      });
+    });
+    return { hidden };
+  }
+
+  /**
+   * What the sidebar needs about the viewer's own DMs, keyed the way it addresses them: an Agent id
+   * (DM rows come from the live Agent list, not from a server list). Pins carry their order; hidden
+   * DMs are listed so the sidebar can leave them out.
+   */
+  async preferencesForUser(workspaceId: string, userId: string) {
+    const dmScope = {
+      workspaceId,
+      userId,
+      leftAt: null,
+      conversation: { directKey: { not: null } },
+    };
+    const [conversations, pins, hidden] = await Promise.all([
+      // Which of the live Agent rows are conversations at all: DM rows come from the Agent list, so
+      // this is the only way the sidebar can tell a started DM from an Agent it has never written
+      // to — and a preference must not be offered on the latter (it would only answer NOT_FOUND).
+      this.db.conversationMember.findMany({
+        where: dmScope,
+        select: {
+          conversation: {
+            select: { members: { where: { agentId: { not: null } }, select: { agentId: true } } },
+          },
+        },
+      }),
+      this.db.conversationPin.findMany({
+        where: {
+          workspaceId,
+          member: { userId, leftAt: null },
+          conversation: { directKey: { not: null } },
+        },
+        select: {
+          sortOrder: true,
+          conversation: {
+            select: { members: { where: { agentId: { not: null } }, select: { agentId: true } } },
+          },
+        },
+      }),
+      this.db.conversationMember.findMany({
+        where: { ...dmScope, hiddenAt: { not: null } },
+        select: {
+          conversation: {
+            select: { members: { where: { agentId: { not: null } }, select: { agentId: true } } },
+          },
+        },
+      }),
+    ]);
+    return {
+      conversations: conversations.flatMap((row) =>
+        row.conversation.members.map((member) => member.agentId!),
+      ),
+      pinned: pins
+        .flatMap((pin) =>
+          pin.conversation.members.map((m) => ({ agentId: m.agentId!, sortOrder: pin.sortOrder })),
+        )
+        .sort((left, right) => left.sortOrder - right.sortOrder),
+      hidden: hidden.flatMap((row) => row.conversation.members.map((m) => m.agentId!)),
+    };
+  }
+
   async openForUser(
     workspaceId: string,
     userId: string,
@@ -1194,7 +1336,10 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
        AND m."threadRootId" IS NULL
        AND m."senderMemberId" IS NOT NULL
        AND m."senderMemberId" IS DISTINCT FROM cm."id"
-       AND m."sequence" > cm."readThroughSequence"
+       AND (
+         m."sequence" > cm."readThroughSequence"
+         OR cm."unreadFromSequence" IS NOT NULL AND m."sequence" >= cm."unreadFromSequence"
+       )
       WHERE cm."userId" = ${userId}::uuid
         AND cm."leftAt" IS NULL
         AND cm."workspaceId" = ${workspaceId}::uuid
@@ -1229,6 +1374,17 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
           leftAt: null,
         },
         data: { readThroughSequence: boundary },
+      });
+      // Reading past the forced `mark as unread` marker consumes it, so the badge does not come
+      // back on the next render (same rule as the channel side).
+      await tx.conversationMember.updateMany({
+        where: {
+          conversationId: conversation.id,
+          userId,
+          unreadFromSequence: { not: null, lte: boundary },
+          leftAt: null,
+        },
+        data: { unreadFromSequence: null },
       });
     });
   }
