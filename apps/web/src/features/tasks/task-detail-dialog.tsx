@@ -27,7 +27,6 @@ import {
 } from "react-aria-components";
 
 import { Dialog, Modal, ModalOverlay } from "#src/components/application/modals/modal";
-import { Avatar } from "#src/components/base/avatar/avatar";
 import { Badge } from "#src/components/base/badges/badges";
 import { Button } from "#src/components/base/buttons/button";
 import { ButtonUtility } from "#src/components/base/buttons/button-utility";
@@ -39,6 +38,7 @@ import { cn } from "#src/lib/utils";
 import { m } from "#src/paraglide/messages";
 import { getLocale } from "#src/paraglide/runtime";
 import { taskTimeline } from "./task-history-timeline";
+import { TaskPerson } from "./task-owner";
 import { getTaskMoveCommand, taskStatusOptions } from "./task-move";
 import { executeTask } from "./tasks.functions";
 import { conversationTasksQuery } from "./use-conversation-tasks";
@@ -160,7 +160,7 @@ export function TaskDetailDialog({
           // With a thread the popup is a workspace; without one it only wraps the task.
           thread
             ? "h-[min(86vh,56rem)] w-[min(60rem,calc(100vw-2rem))]"
-            : "max-h-[86vh] w-[min(40rem,calc(100vw-2rem))]",
+            : "w-[min(40rem,calc(100vw-2rem))]",
         )}
       >
         <Dialog className="flex min-h-0 flex-1 flex-col overflow-hidden">
@@ -276,9 +276,8 @@ function TaskSection({
     <section className="flex flex-col gap-5 border-b border-secondary px-6 pt-5 pb-5">
       <h3 className="line-clamp-3 text-lg font-semibold break-words text-primary">{task.title}</h3>
 
-      <dl className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-x-8 gap-y-3 text-sm">
-        <dt className="text-tertiary">{m.tasks_overview_status()}</dt>
-        <dd className="flex min-h-7 items-center">
+      <dl className="grid grid-cols-1 gap-x-8 gap-y-4 sm:grid-cols-3">
+        <TaskField label={m.tasks_overview_status()}>
           <StatusMenu
             task={task}
             currentMemberId={currentMemberId}
@@ -288,9 +287,8 @@ function TaskSection({
               if (command) void run(command);
             }}
           />
-        </dd>
-        <dt className="text-tertiary">{m.tasks_overview_owner()}</dt>
-        <dd className="flex min-h-7 min-w-0 items-center">
+        </TaskField>
+        <TaskField label={m.tasks_overview_owner()}>
           <AssigneeMenu
             task={task}
             members={members}
@@ -303,11 +301,14 @@ function TaskSection({
               )
             }
           />
-        </dd>
-        <dt className="text-tertiary">{m.tasks_created_by()}</dt>
-        <dd className="flex min-h-7 min-w-0 items-center">
-          {creator ? <Person person={creator} /> : <span className="text-tertiary">—</span>}
-        </dd>
+        </TaskField>
+        <TaskField label={m.tasks_created_by()}>
+          {creator ? (
+            <TaskPerson person={creator} />
+          ) : (
+            history.isError && <span className="text-sm text-tertiary">—</span>
+          )}
+        </TaskField>
       </dl>
       {error && (
         <p role="alert" className="text-sm text-error-primary">
@@ -333,18 +334,13 @@ function TaskSection({
   );
 }
 
-/** An avatar and name, as the popup shows the assignee and the creator. */
-function Person({ person }: { person: { name: string; avatarUrl?: string | null } }) {
+/** One field of the popup: its label above, its value (or the control that edits it) below. */
+function TaskField({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <span className="flex min-w-0 items-center gap-2 font-medium text-primary">
-      <Avatar
-        size="xs"
-        initials={person.name.trim().charAt(0).toUpperCase()}
-        alt=""
-        src={person.avatarUrl ?? undefined}
-      />
-      <span className="truncate">{person.name}</span>
-    </span>
+    <div className="flex min-w-0 flex-col gap-1">
+      <dt className="text-sm text-tertiary">{label}</dt>
+      <dd className="flex min-h-8 min-w-0 items-center">{children}</dd>
+    </div>
   );
 }
 
@@ -362,12 +358,12 @@ function EditableTrigger({
     <AriaButton
       aria-label={label}
       isDisabled={disabled}
-      className="group -mx-2 inline-flex min-w-0 cursor-pointer items-center gap-1.5 rounded-md px-2 py-1 text-sm font-medium text-primary outline-focus-ring transition-colors hover:bg-primary_hover focus-visible:outline-2 disabled:cursor-not-allowed"
+      className="group -mx-2 inline-flex min-w-0 cursor-pointer items-center gap-1.5 rounded-md px-2 py-1 text-sm font-medium text-primary outline-focus-ring transition-colors focus-visible:outline-2 enabled:hover:bg-primary_hover disabled:cursor-not-allowed"
     >
       {children}
       <Edit05
         aria-hidden="true"
-        className="size-3.5 shrink-0 text-fg-quaternary opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100 [@media(any-pointer:coarse)]:opacity-100"
+        className="size-3.5 shrink-0 text-fg-quaternary opacity-0 transition-opacity group-focus-visible:opacity-100 group-enabled:group-hover:opacity-100"
       />
     </AriaButton>
   );
@@ -436,7 +432,7 @@ function AssigneeMenu({
   const [search, setSearch] = useState("");
   const name = task.owner?.name ?? m.tasks_unassigned();
   const value = task.owner ? (
-    <Person person={task.owner} />
+    <TaskPerson person={task.owner} />
   ) : (
     <span className="text-tertiary">{name}</span>
   );

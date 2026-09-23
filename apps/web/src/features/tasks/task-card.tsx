@@ -87,7 +87,7 @@ export function TaskCard({
       {tools && (
         // After the title in the DOM so assistive tech names the task first. Shown on hover or
         // focus, and always wherever a touch pointer exists.
-        <div className="absolute top-2.5 right-1.5 opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100 has-[[aria-expanded=true]]:opacity-100 [@media(any-pointer:coarse)]:opacity-100">
+        <div className="absolute top-2.5 right-1.5 opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100 has-[[aria-expanded=true]]:opacity-100 any-pointer-coarse:opacity-100">
           {tools}
         </div>
       )}
