@@ -77,7 +77,8 @@ export class PrismaWebPushSubscriptionStore implements WebPushSubscriptionStore 
     const conversationPath = channelName
       ? `/messages/channels/${message.conversationId}`
       : `/messages/${agentId}`;
-    const anchoredTarget = `${conversationPath}#message-${message.id}`;
+    // The message lives in the Chat tab; the server rendering the target never sees the hash.
+    const anchoredTarget = `${conversationPath}?view=chat#message-${message.id}`;
     const url = `/notifications/open?workspace=${encodeURIComponent(message.conversation.workspace.slug)}&target=${encodeURIComponent(anchoredTarget)}`;
     return {
       message: {

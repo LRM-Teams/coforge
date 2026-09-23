@@ -218,7 +218,11 @@ function AnchorLink({
       className={className}
       to="/messages/channels/$channelId"
       params={{ channelId: anchor.channelId }}
-      search={{ message: anchor.messageId, threadRootId: anchor.threadRootId ?? undefined }}
+      search={{
+        view: "chat",
+        message: anchor.messageId,
+        threadRootId: anchor.threadRootId ?? undefined,
+      }}
       hash={`message-${anchor.messageId}`}
     >
       {children}
@@ -228,7 +232,11 @@ function AnchorLink({
       className={className}
       to="/messages/$agentId"
       params={{ agentId: anchor.agentId }}
-      search={{ message: anchor.messageId, threadRootId: anchor.threadRootId ?? undefined }}
+      search={{
+        view: "chat",
+        message: anchor.messageId,
+        threadRootId: anchor.threadRootId ?? undefined,
+      }}
       hash={`message-${anchor.messageId}`}
     >
       {children}

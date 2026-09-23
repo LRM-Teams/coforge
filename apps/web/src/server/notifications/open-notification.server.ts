@@ -1,7 +1,10 @@
 import { serializeWorkspaceCookie } from "../workspaces/selection.server";
 
 const UUID = "[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}";
-const MESSAGE_TARGET = new RegExp(`^/messages/(?:channels/)?${UUID}(?:#message-${UUID})?$`, "i");
+const MESSAGE_TARGET = new RegExp(
+  `^/messages/(?:channels/)?${UUID}(?:\\?view=chat#message-${UUID})?$`,
+  "i",
+);
 
 export async function notificationOpenResponse(input: {
   request: Request;
