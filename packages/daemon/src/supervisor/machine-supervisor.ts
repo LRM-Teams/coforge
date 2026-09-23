@@ -90,7 +90,7 @@ export interface WorkspaceProcesses {
   /**
    * Asks one Workspace daemon to stop admitting new turns and reports which of its Agents are
    * still busy. Optional: a `WorkspaceProcesses` that cannot reach its children simply restarts
-   * with today's behaviour (ADR 0021).
+   * with today's behaviour.
    */
   hold?(binding: ManagedBinding, reason: string): Promise<RunnerHoldSnapshot>;
   /** Lifts a hold on a daemon that, against expectations, survived: only called when the OS stop
@@ -417,13 +417,13 @@ export class MachineSupervisor {
     });
   }
   /**
-   * Bounded runner hold before a restart stops a live Workspace daemon (ADR 0021). Without it
+   * Bounded runner hold before a restart stops a live Workspace daemon. Without it
    * `#stop` hands the Agents the ~2s SIGTERM/SIGKILL ladder in `DaemonRuntime.stop()`, which is
    * not enough for a tool call. Only `restart` holds: `stop` is an operator saying "now".
    *
    * Nothing releases the hold afterwards, and nothing needs to. It is in-memory in the Workspace
-   * daemon and `#stop` kills that process; the replacement is born without a hold (ADR 0020,
-   * "the hold is never persisted"). The one exception is a stop that fails: the daemon survives
+   * daemon and `#stop` kills that process; the replacement is born without a hold
+   * (the hold is never persisted). The one exception is a stop that fails: the daemon survives
    * held, so `#advanceRestart` releases it before rethrowing; a later retry re-asks, which is
    * idempotent.
    *

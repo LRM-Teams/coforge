@@ -67,7 +67,7 @@ export async function issueAgentStatusSubscriptionToken(
 }
 
 /**
- * ADR 0059: a private Agent's per-Agent Activity channel. Callers must check `canSeeAgent` for
+ * A private Agent's per-Agent Activity channel. Callers must check `canSeeAgent` for
  * `input.agentId` before calling this — the token itself grants exactly this one channel, so a
  * viewer who cannot see the Agent must never be issued one.
  */

@@ -18,7 +18,7 @@ export type AgentContextViewer = { userId: string; workspaceId: string };
 
 /** The Computer/launch/session scope one context scan runs against, resolved from the Agent's own
  * record. `launchId`/`sessionId` are what the server currently believes is live; the daemon
- * re-checks both against its own state before running anything (ADR 0051). */
+ * re-checks both against its own state before running anything. */
 export type AgentContextAssignment = {
   computerId: string;
   provider: string;
@@ -52,7 +52,7 @@ export async function readAgentContextReport(
 }
 
 /**
- * Asks the Agent's Computer for a fresh context-window composition (ADR 0051). Gated on the same
+ * Asks the Agent's Computer for a fresh context-window composition. Gated on the same
  * ownership rule as the read path plus the Computer being online; the daemon re-checks the
  * launch/session itself, so a request naming a launch the daemon has already superseded is
  * refused there without running the CLI. The previous report stays readable through

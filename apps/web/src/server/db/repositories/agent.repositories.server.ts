@@ -18,13 +18,13 @@ export type AgentRecord = {
   ownerId: string;
   computerId?: string;
   runtimeConfig: AgentRuntimeConfig;
-  /** Set when a user stopped this Agent (ADR 0038); undefined/null means not stopped. Config,
+  /** Set when a user stopped this Agent; undefined/null means not stopped. Config,
    * credential and environment mutations read this to skip the stop→…→start dance. */
   stoppedAt?: Date | null;
-  /** Set when a user deleted this Agent (ADR 0044); undefined/null means live. Only the
+  /** Set when a user deleted this Agent; undefined/null means live. Only the
    * deletion module and the deleted-sender message projection read this. */
   deletedAt?: Date | null;
-  /** ADR 0059; optional on this shared record type — every creation path but the weekly-report
+  /** Optional on this shared record type — every creation path but the weekly-report
    * Collector (created `"private"`) still omits it and gets the schema's `"public"` default. A
    * row actually read through `mapAgent` always carries a real value — `"public"` unless the
    * persisted column reads exactly `"private"`, which fails closed the same way
@@ -91,7 +91,7 @@ export interface AgentRepository {
   getById(id: string): Promise<AgentRecord | undefined>;
   listInWorkspace(workspaceId: string): Promise<AgentRecord[]>;
   listForComputer(workspaceId: string, computerId: string): Promise<AgentRecord[]>;
-  /** Deleted Agents still assigned to one Computer (ADR 0044): recovery stops these rather than
+  /** Deleted Agents still assigned to one Computer: recovery stops these rather than
    * starting them, so a delete whose Stop never reached an offline Daemon is reconciled. */
   listDeletedForComputer(workspaceId: string, computerId: string): Promise<AgentRecord[]>;
   listOwnedInWorkspace(workspaceId: string, ownerId: string): Promise<AgentRecord[]>;

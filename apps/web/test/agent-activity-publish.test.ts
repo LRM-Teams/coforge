@@ -291,7 +291,7 @@ describe("Agent activity publication", () => {
     expect(history).toHaveLength(0);
   });
 
-  // ADR 0021, amended: tool_end, thinking_end and compaction_finished are ordinary status
+  // tool_end, thinking_end and compaction_finished are ordinary status
   // observations now — persisted like compacting_context/subagent_activity below, not
   // liveness-only like runtime_progress.
   test("persists compacting_context, subagent_activity, tool_end, thinking_end and compaction_finished to history like other visible working kinds", async () => {
@@ -474,13 +474,13 @@ describe("Agent activity publication", () => {
     });
   });
 
-  // ADR 0059: a private Agent still records history/display exactly like a public one, but its
+  // A private Agent still records history/display exactly like a public one, but its
   // frame is re-routed to its own per-Agent channel instead of the shared broadcast, and the
   // shared publish itself is refused. Centrifugo's publish proxy accepts an `error` result as a
   // plain denial without touching the connection (see
   // https://centrifugal.dev/docs/server/proxy#publish-proxy) — the least noisy refusal, unlike a
   // `disconnect` result, which would drop the Daemon's whole connection over one re-routed Agent.
-  describe("a private Agent (ADR 0059)", () => {
+  describe("a private Agent", () => {
     test("re-routes the frame to its per-Agent activity channel and refuses the shared broadcast", async () => {
       const history: unknown[] = [];
       const published: Array<{ channel: string; data: Uint8Array }> = [];

@@ -95,8 +95,7 @@ message AgentSessionReport {
 // delivered as Activity. `reason` is "missing" or "provider_replay_rejected".
 // No control-fence fields (no start_request_id/control_epoch, unlike
 // AgentSessionReport): the server's exact match is on launch_id + session_id
-// alone (docs/adr/0040-agent-session-invalidate.md, "Why no control fence
-// fields"). This message never shipped, so its fields are numbered
+// alone. This message never shipped, so its fields are numbered
 // contiguously rather than reserving the two removed tags.
 message AgentSessionInvalidate {
   uint32 protocol_major = 1;
@@ -112,7 +111,7 @@ message AgentSessionInvalidate {
 }
 
 // Fire-and-forget daemon-to-cloud notice of the Agent's current context-window usage, observed
-// at the top-level Claude Code `result` record (ADR 0050). Claude Code only for now; a provider
+// at the top-level Claude Code `result` record. Claude Code only for now; a provider
 // with no such signal never emits it. Never delivered as Activity. This message never shipped,
 // so its fields are numbered contiguously.
 message AgentContextUsage {
@@ -152,7 +151,7 @@ message AgentStartIntent {
   optional string previous_launch_id = 16;
   optional string session_mode = 17;
   optional uint32 control_epoch = 18;
-  // ADR 0041: the server mints one launchId per control operation's start step
+  // The server mints one launchId per control operation's start step
   // (`AgentControlState.launchId`) and supplies it here; the daemon adopts it
   // for the launch it makes (or, on a Start that meets an already-running
   // process, for the rebind that keeps that process). Required whenever
@@ -180,7 +179,7 @@ message AgentRecoveryMessage {
   string conversation_id = 3;
   uint64 sequence = 4;
   string target = 5;
-  // Closed vocabulary: "human", "agent", "system" (ADR 0052).
+  // Closed vocabulary: "human", "agent", "system".
   string latest_sender_kind = 6;
   // Public handle without a leading "@"; required for "human"/"agent", empty for "system".
   string latest_sender_handle = 7;
@@ -226,13 +225,13 @@ message AgentMessageDelivery {
   uint64 sequence = 10;
   // Public target identity; never expose internal agent/user ids to Agents.
   string target = 11;
-  // Closed vocabulary: "human", "agent", "system" (ADR 0052).
+  // Closed vocabulary: "human", "agent", "system".
   string latest_sender_kind = 12;
   // Public handle without a leading "@"; required for "human"/"agent", empty for "system".
   string latest_sender_handle = 13;
   // The sender's role text; empty when there is none.
   string latest_sender_description = 14;
-  // Present when the sender knows whether this delivery personally @mentioned the recipient Agent (ADR 0061).
+  // Present when the sender knows whether this delivery personally @mentioned the recipient Agent.
   optional bool mentions_agent = 15;
 }
 

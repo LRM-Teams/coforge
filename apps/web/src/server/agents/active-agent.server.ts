@@ -2,12 +2,12 @@ import type { Prisma } from "../../../generated/client";
 import { AppError } from "../../lib/app-error";
 
 /**
- * An `Agent` row that has not been deleted (ADR 0044). `deletedAt` is the delete marker: an
+ * An `Agent` row that has not been deleted. `deletedAt` is the delete marker: an
  * Agent row can never be hard-deleted once it owns a Message, Task or Action card
  * (`Message.sender`, `Task.creator`/`owner` and `ActionCard.preparedByAgent` are
  * `onDelete: Restrict`), so "is this Agent currently live" must always be spelled with this
  * filter rather than by row existence alone — the same shape `ACTIVE_MEMBER_WHERE` already
- * established for channel membership (ADR 0024/0031).
+ * established for channel membership.
  *
  * A deleted Agent keeps its Messages and Tasks so history stays readable, but is hidden from
  * every directory, list, wake, control and profile lookup, and can never mint another Agent API
@@ -17,7 +17,7 @@ import { AppError } from "../../lib/app-error";
 export const ACTIVE_AGENT_WHERE = { deletedAt: null } satisfies Prisma.AgentWhereInput;
 
 /**
- * Refuse a mutation aimed at a deleted Agent (ADR 0044). The filter above hides a deleted Agent
+ * Refuse a mutation aimed at a deleted Agent. The filter above hides a deleted Agent
  * from live *reads*; this is the matching guard for *writes* and control, which must resolve the
  * raw row first (recovery has to observe a deleted Agent to reconcile a process the Daemon still
  * reports as running). One owner of the refusal keeps the answer consistent: every caller that

@@ -1218,7 +1218,7 @@ function rebindScope(overrides: Partial<AgentStartIntent> = {}): AgentStartInten
   };
 }
 
-test("a Start that meets an already-running process under an older, terminal operation rebinds (ADR 0041)", async () => {
+test("a Start that meets an already-running process under an older, terminal operation rebinds", async () => {
   let record: AgentRuntimeRecord | undefined;
   let active = false;
   let launches = 0;
@@ -1627,7 +1627,7 @@ test("back-to-back Starts for the same Agent serialize through state.run: exactl
   expect(started).toHaveLength(2);
 });
 
-test("a managed Start intent with no launchId sends a failed result instead of minting one locally (ADR 0041)", async () => {
+test("a managed Start intent with no launchId sends a failed result instead of minting one locally", async () => {
   let record: AgentRuntimeRecord | undefined;
   const results: AgentControlResult[] = [];
   let launches = 0;

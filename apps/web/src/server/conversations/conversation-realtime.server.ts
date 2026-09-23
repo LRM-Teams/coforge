@@ -26,7 +26,7 @@ export type ConversationRealtimeMessage = {
 };
 
 /**
- * The realtime fan-out scope for one conversation's messages (ADR 0046). A channel message goes
+ * The realtime fan-out scope for one conversation's messages. A channel message goes
  * to the Workspace signal channel; a direct message goes only to its human viewer's own channel,
  * naming the Agent badge it belongs to, so DM metadata never reaches the Workspace. A direct
  * conversation that does not have exactly one human and one Agent (unreachable through the

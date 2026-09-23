@@ -3,7 +3,7 @@
 # accelerated domains that terminate TLS at the edge.
 #
 # Caddy's automatic Let's Encrypt only covers staging.coforge.cn, which Caddy
-# serves directly (see docs/architecture.md). The three domains below are
+# serves directly. The three domains below are
 # fronted by Alibaba Cloud CDN instead, and CDN needs its own certificate
 # uploaded through the SetCdnDomainSSLCertificate API; Caddy issuing a
 # certificate does nothing for traffic CDN terminates before it ever reaches

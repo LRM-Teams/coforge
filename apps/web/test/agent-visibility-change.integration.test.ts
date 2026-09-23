@@ -12,7 +12,7 @@ import { PublicChannels } from "../src/server/conversations/public-channels.serv
 import { workspaceMemberRole } from "../src/server/workspaces/members.server";
 
 /**
- * End-to-end visibility change against local PostgreSQL (ADR 0059). Drives the real
+ * End-to-end visibility change against local PostgreSQL. Drives the real
  * `ChangeAgentVisibility` + `PrismaChangeAgentVisibilityStore` and the real DM repository
  * enforcement, then asserts through the other live-view seams (channel membership, an existing
  * DM's read/write behavior, the preview query) — the same shape as

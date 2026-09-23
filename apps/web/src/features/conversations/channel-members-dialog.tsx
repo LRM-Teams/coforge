@@ -31,7 +31,7 @@ type LoadState =
 
 /** Badge + Promote/Demote control for one roster row, reused for humans and Agents. The "Admin"
  * badge is always shown so every member can see who is a channel admin; the Dropdown itself only
- * renders when the viewer has `manage_roles` on this channel (ADR 0030). */
+ * renders when the viewer has `manage_roles` on this channel. */
 function ChannelRoleControl({
   channelRole,
   canManageRoles,
@@ -74,7 +74,7 @@ function ChannelRoleControl({
 
 /** Channel member roster and add-members action, opened from the channel header, or (with
  * `preselected`/`commit`) from an Agent-prepared `channel:add_member` action card's commit
- * button (ADR 0027 "Commit and cancel"). */
+ * button. */
 type PendingRemoval = { kind: "user" | "agent"; id: string; name: string };
 
 export function ChannelMembersDialog({

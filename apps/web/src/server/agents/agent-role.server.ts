@@ -14,8 +14,8 @@ export type SetAgentRoleInput = {
 
 /**
  * Changes an Agent's own server role (`Agent.role`), one of the two bases
- * `channel-authority.server.ts#resolveChannelAuthority` derives channel-admin authority from
- * (see ADR 0024, ADR 0030). Gated the same way inviting a Workspace member at a role is: the
+ * `channel-authority.server.ts#resolveChannelAuthority` derives channel-admin authority from.
+ * Gated the same way inviting a Workspace member at a role is: the
  * actor must be `owner`/`admin`, and the assigned role itself can only be `admin` or `member`.
  */
 export async function setAgentRole(

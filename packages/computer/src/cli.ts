@@ -531,7 +531,7 @@ export type RestartSupervisorLocal = {
 /**
  * Restarts the Coordinator process itself through the platform host - `coforge-computer restart
  * --supervisor` - rather than a Workspace runtime the ordinary `restart` command targets. Engages
- * the same runner hold a Coordinator-initiated restart uses today (ADR 0021) so a live tool call
+ * the same runner hold a Coordinator-initiated restart uses today so a live tool call
  * is not cut, unless the Coordinator cannot be reached at all: that unreachable case is exactly
  * why this command exists, so it restarts anyway rather than refusing.
  */

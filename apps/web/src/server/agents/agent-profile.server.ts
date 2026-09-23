@@ -38,10 +38,10 @@ function invalidProfileUpdate(error: string): AgentProfileUpdateOutcome {
 }
 
 /** Agents this human owns (`Agent.ownerId`), each with its live status. CoForge Agents can never
- * own another Agent (`Agent.ownerId` always references a human `User`; see ADR 0025), so this is
+ * own another Agent (`Agent.ownerId` always references a human `User`), so this is
  * only ever populated for a human profile view — an Agent's own view never carries it.
  *
- * ADR 0059: filtered by the CALLER's own visibility, not the profile owner's — a private Agent
+ * Filtered by the CALLER's own visibility, not the profile owner's — a private Agent
  * this human created is listed back to themself (or to an owner/admin), but stays absent from
  * this same list shown to any other caller. */
 export async function createdAgentsFor(
@@ -134,7 +134,7 @@ export async function resolveAgentProfileShow(
       where: { id_workspaceId: { id: principal.agentId, workspaceId: principal.workspaceId } },
       select: { name: true, deletedAt: true },
     });
-    // ADR 0044: a deleted Agent has no profile; its key is already refused at authentication.
+    // A deleted Agent has no profile; its key is already refused at authentication.
     if (!selfAgent || selfAgent.deletedAt)
       return {
         status: 404,
@@ -170,7 +170,7 @@ export async function resolveAgentProfileShow(
 }
 
 /** Resolves `POST /api/agent/v1/profile`. Applies only to the calling Agent (self); the Username
- * is fixed at creation and is never accepted here (see PR #310 / ADR agent identity model). */
+ * is fixed at creation and is never accepted here (see PR #310). */
 export async function resolveAgentProfileUpdate(
   db: PrismaClient,
   principal: { workspaceId: string; agentId: string },
@@ -217,7 +217,7 @@ export async function resolveAgentProfileUpdate(
     select: { name: true },
   });
   // Self-service: an Agent updating its own profile always sees the result it just wrote back
-  // (ADR 0059's "same creator" rule covers an Agent seeing itself), never a second membership
+  // (the "same creator" visibility rule covers an Agent seeing itself), never a second membership
   // lookup beyond the one `agentVisibilityViewerForActor` already makes.
   const viewer = await agentVisibilityViewerForActor(db, principal.workspaceId, {
     agentId: principal.agentId,

@@ -16,12 +16,11 @@ export type AgentRestartAction = "restart" | "reset-session" | "full-reset";
 export type AgentControlExecute = (request: AgentControlRequest) => Promise<void>;
 
 /**
- * The Start/Stop/Restart/Reset-session/Full-reset state machine behind Agent control (ADR 0038),
+ * The Start/Stop/Restart/Reset-session/Full-reset state machine behind Agent control,
  * extracted out of `AgentControl` so the Agent detail page and the Agent profile panel's header
- * icon buttons and Actions section can trigger the same dialogs without duplicating this logic
- * (`docs/adr/0038-*.md` "Refactor that file so the dialogs/logic are reusable"). A caller renders
- * `StopConfirmDialog`/`RestartResetDialog` once per page/panel and wires trigger buttons to the
- * functions this hook returns.
+ * icon buttons and Actions section can trigger the same dialogs without duplicating this logic.
+ * A caller renders `StopConfirmDialog`/`RestartResetDialog` once per page/panel and wires trigger
+ * buttons to the functions this hook returns.
  */
 export function useAgentRuntimeControls({
   agentId,
@@ -40,7 +39,7 @@ export function useAgentRuntimeControls({
   canFullReset: boolean;
   onExecute: AgentControlExecute;
   /** `agentDisplay(display).isOnline`: chooses Stop (online, including an errored Agent) or Start
-   * (offline). The live display, not a separate subscription (ADR 0038). */
+   * (offline). The live display, not a separate subscription. */
   isOnline?: boolean;
   /** The assigned Computer's last-known connection state from existing page data; not a new
    * realtime subscription. `undefined` (no Computer, or unknown) shows no note. */
@@ -115,7 +114,7 @@ export function useAgentRuntimeControls({
     void guardStart(async () => {
       try {
         await onExecute({ agentId, action: "start", requestId: crypto.randomUUID() });
-        // A Computer known to be offline never got the Start; the persisted intent (ADR 0038)
+        // A Computer known to be offline never got the Start; the persisted intent
         // still resumes it at the next Daemon `ready`, so this is a note, not a failure.
         if (computerOnline === false) setStartDeferred(true);
       } catch (cause) {

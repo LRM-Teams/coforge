@@ -23,7 +23,7 @@ export type MessageNotifier = {
 
 /**
  * `createWebPushNotifications` composes both notification paths from one recipient read. Web Push
- * needs a valid VAPID key pair (`readWebPushConfig`); the in-page path (ADR 0065) does not, and a
+ * needs a valid VAPID key pair (`readWebPushConfig`); the in-page path does not, and a
  * missing/invalid key pair must not also silence it — deployments without Web Push configured
  * (e.g. local dev) still want in-page notifications. A misconfigured transport degrades to one
  * that fails every delivery, logged here instead of thrown, so a caller that never subscribes for

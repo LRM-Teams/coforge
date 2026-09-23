@@ -87,7 +87,7 @@ describe("canSeeAgent", () => {
       expected: true,
     },
     {
-      name: "an admin-role Agent (ADR 0024) sees any private Agent",
+      name: "an admin-role Agent sees any private Agent",
       viewer: adminRoleAgentViewer,
       expected: true,
     },
@@ -195,7 +195,7 @@ describe("visibleAgentWhere agrees with canSeeAgent", () => {
 });
 
 /**
- * ADR 0059 realtime gap fix: an owner/admin (or a private Agent's creator) can see private
+ * Realtime gap fix: an owner/admin (or a private Agent's creator) can see private
  * Agents beyond their own `listAgents` roster — e.g. another member's private Agent — and the
  * browser needs their ids to subscribe the matching per-Agent realtime channels. This predicate
  * must agree with `canSeeAgent` AND the routing rule every publisher already uses: anything other

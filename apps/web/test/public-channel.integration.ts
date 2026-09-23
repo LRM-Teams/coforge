@@ -28,7 +28,7 @@ import type { MessageWebPushNotification } from "../src/server/notifications/web
 import { ConversationHistory } from "../src/server/conversations/conversation-history.server";
 import { AgentChannelManagement } from "../src/server/conversations/agent-channel-management.server";
 
-/** Flattens every recipient's browser subscriptions, matching the pre-ADR-0065 assertions this
+/** Flattens every recipient's browser subscriptions, matching the earlier assertions this
  * suite made directly against `notificationForMessage`'s old flat `subscriptions` field. */
 function subscriptionsOf(notification: MessageWebPushNotification | null) {
   return notification?.recipients.flatMap((recipient) => recipient.subscriptions) ?? [];
@@ -252,7 +252,7 @@ test("Workspace humans enrolled in general see one general channel; outsiders ca
       [
         [1, alice.username, alice.username, "Hello Bob"],
         [2, alice.username, alice.username, "Muted ordinary message"],
-        // A resolved mention is stored as an embedded-UUID token (ADR 0022 / PR #338) and carries a
+        // A resolved mention is stored as an embedded-UUID token (PR #338) and carries a
         // MessageMention row; the browser renders the handle from that row, never by re-parsing
         // prose. `agentReadableBody` is what turns the token back into `@handle` for Agents.
         [3, alice.username, alice.username, `<@human:${bob.id}> please review this`],
@@ -1476,7 +1476,7 @@ test("Agent channel management: authority, join/leave, archive, and add/remove m
       },
     });
     // Never joins #eng either: `server_role` basis grants admin authority independent of
-    // membership (ADR 0030) — "a server admin without membership can still archive".
+    // membership — "a server admin without membership can still archive".
     const nonMemberServerAdmin = await db.agent.create({
       data: {
         workspaceId: workspace.id,
@@ -1495,7 +1495,7 @@ test("Agent channel management: authority, join/leave, archive, and add/remove m
       },
     });
 
-    // Authority (Slack's default, ADR 0025): any Agent that belongs to the Workspace may
+    // Authority (Slack's default): any Agent that belongs to the Workspace may
     // create a channel — including a plain, non-admin Agent — the same as `PublicChannels
     // .create` for humans. The creator becomes a member.
     const created = await manage.create(workspace.id, member.id, "#eng", "Engineering");
@@ -1523,7 +1523,7 @@ test("Agent channel management: authority, join/leave, archive, and add/remove m
 
     // Roster reflects both Agents, tagging the caller "self" and the creator "admin". `admin`'s
     // basis is its own server role (`Agent.role`); `member`'s is the `channelRole` it got as
-    // #eng's creator (ADR 0030) — neither is #general, so both bases are reported.
+    // #eng's creator — neither is #general, so both bases are reported.
     const roster = await manage.members(workspace.id, member.id, "#eng");
     expect(roster.agents.sort((a, b) => a.name.localeCompare(b.name))).toEqual([
       {
@@ -1579,14 +1579,14 @@ test("Agent channel management: authority, join/leave, archive, and add/remove m
       manage.removeMember(workspace.id, admin.id, "#general", { agent: `@${member.name}` }),
     ).rejects.toThrow("cannot remove a member from #general");
 
-    // Update requires admin authority (channel-aware, ADR 0030) and at least one field; general
+    // Update requires admin authority (channel-aware) and at least one field; general
     // is reserved. `member` is #eng's creator, so it is itself a channel admin now (channelRole
     // "admin") — `outsiderAgent` (never a member, plain `Agent.role`) exercises the plain
     // denial instead.
     await expect(
       manage.update(workspace.id, outsiderAgent.id, "#eng", { name: "x" }),
     ).rejects.toThrow("this Agent's owner lacks admin authority for update");
-    // Positive path for the OTHER basis (`channel_role`, ADR 0030): #eng's creator may update
+    // Positive path for the OTHER basis (`channel_role`): #eng's creator may update
     // its own channel with no server-role admin authority at all.
     const channelRoleUpdate = await manage.update(workspace.id, member.id, "#eng", {
       description: "Updated via channel_role admin",
@@ -1621,7 +1621,7 @@ test("Agent channel management: authority, join/leave, archive, and add/remove m
     expect((await manage.info(workspace.id, admin.id, "#eng")).archived).toBe(false);
 
     // `server_role` basis needs no membership at all: a server admin who never joined #eng can
-    // still archive/unarchive it (ADR 0030).
+    // still archive/unarchive it.
     const nonMemberArchived = await manage.setArchived(
       workspace.id,
       nonMemberServerAdmin.id,
@@ -1631,7 +1631,7 @@ test("Agent channel management: authority, join/leave, archive, and add/remove m
     expect(nonMemberArchived).toEqual({ target: "#eng", archived: true });
     await manage.setArchived(workspace.id, nonMemberServerAdmin.id, "#eng", false);
 
-    // add-member (Slack's default, ADR 0025): the acting Agent must itself already be an
+    // add-member (Slack's default): the acting Agent must itself already be an
     // active member of the channel — not gated by Agent.role admin authority, reused from
     // `PublicChannels.addMembers`. Unknown handle 404s; a human must already be a Workspace
     // member (also enforced by the shared method, surfaced as the same 404).
@@ -1737,7 +1737,7 @@ test("Agent channel management: authority, join/leave, archive, and add/remove m
   }
 });
 
-test("Channel roles (ADR 0030): creator is channel admin, a plain member cannot archive, promote/demote via setChannelRole, server admin without membership, #general's roles are fixed", async () => {
+test("Channel roles: creator is channel admin, a plain member cannot archive, promote/demote via setChannelRole, server admin without membership, #general's roles are fixed", async () => {
   const connectionString = Bun.env.CHANNEL_TEST_DATABASE_URL;
   if (!connectionString) throw new Error("CHANNEL_TEST_DATABASE_URL is required");
   const db = new PrismaClient({ adapter: new PrismaPg({ connectionString }) });
@@ -1768,7 +1768,7 @@ test("Channel roles (ADR 0030): creator is channel admin, a plain member cannot 
     });
     await enrollGeneral(db, workspace.id);
 
-    // The creator is the channel's own admin (ADR 0030): `channelRole` "admin", basis
+    // The creator is the channel's own admin: `channelRole` "admin", basis
     // "channel_role", and every admin capability except on `#general`.
     const channel = await channels.create(workspace.id, creator.id, "roles-eng");
     await channels.join(workspace.id, plainMember.id, channel.id);
@@ -2095,7 +2095,7 @@ test("channel leave and member removal: owner/admin removes a human and an Agent
   }
 });
 
-test("Agent channel info exposes a bound Project (ADR 0026) scoped to the Agent's own Workspace; an unbound channel omits it, and another Workspace's Project never leaks", async () => {
+test("Agent channel info exposes a bound Project scoped to the Agent's own Workspace; an unbound channel omits it, and another Workspace's Project never leaks", async () => {
   const connectionString = Bun.env.CHANNEL_TEST_DATABASE_URL;
   if (!connectionString) throw new Error("CHANNEL_TEST_DATABASE_URL is required");
   const db = new PrismaClient({ adapter: new PrismaPg({ connectionString }) });
@@ -2144,7 +2144,7 @@ test("Agent channel info exposes a bound Project (ADR 0026) scoped to the Agent'
       data: { workspaceId: foreignWorkspace.id, name: "Foreign", slug: `foreign-${suffix}` },
     });
 
-    // A Project discussion group (ADR 0026): bound to `boundProject`, which itself has a
+    // A Project discussion group: bound to `boundProject`, which itself has a
     // GitHub repository.
     const withGithub = await db.conversation.create({
       data: {
@@ -2222,7 +2222,7 @@ test("Agent channel info exposes a bound Project (ADR 0026) scoped to the Agent'
   }
 });
 
-test("channel unread (ADR 0046): list counts other-authored top-level messages past the cursor, markRead advances monotonically, threads never count, join/addMembers seed the cursor", async () => {
+test("channel unread: list counts other-authored top-level messages past the cursor, markRead advances monotonically, threads never count, join/addMembers seed the cursor", async () => {
   const connectionString = Bun.env.CHANNEL_TEST_DATABASE_URL;
   if (!connectionString)
     throw new Error("CHANNEL_TEST_DATABASE_URL must point to local PostgreSQL");
@@ -2434,7 +2434,7 @@ test("a channel member can list and unfollow Agents following a thread; a privat
         runtimeConfig: {},
       },
     });
-    // ADR 0059: a private Agent is never an active channel member — not even in #general. It
+    // A private Agent is never an active channel member — not even in #general. It
     // cannot be @mentioned there (mentions resolve against active members), is never delivered a
     // channel reply, and so never becomes a thread follower. Only the public `helper` can appear
     // in any follower list below; `scout` is here to prove it stays absent even for its creator.
@@ -2456,7 +2456,7 @@ test("a channel member can list and unfollow Agents following a thread; a privat
       broadcast: async () => {},
     });
     const general = (await channels.list(workspace.id, alice.id))[0]!;
-    // ADR 0059's membership rule, pinned directly, so the absences below have one named cause:
+    // The membership rule, pinned directly, so the absences below have one named cause:
     // #general enrolls every public Agent and no private one.
     expect(
       (
@@ -2524,7 +2524,7 @@ test("a channel member can list and unfollow Agents following a thread; a privat
         helper.id,
       ),
     ).toEqual({ followed: false });
-    // `helper` was the only follower alice could see (see the ADR 0059 note above), so
+    // `helper` was the only follower alice could see (see the membership-rule note above), so
     // unfollowing it leaves the list empty — the private `scout` is not a hidden fallback.
     expect(
       (
@@ -2540,7 +2540,7 @@ test("a channel member can list and unfollow Agents following a thread; a privat
   }
 });
 
-test("a channel member without a browser push subscription is still a notificationForMessage recipient (ADR 0065)", async () => {
+test("a channel member without a browser push subscription is still a notificationForMessage recipient", async () => {
   const connectionString = Bun.env.CHANNEL_TEST_DATABASE_URL;
   if (!connectionString) throw new Error("CHANNEL_TEST_DATABASE_URL is required");
   const db = new PrismaClient({ adapter: new PrismaPg({ connectionString }) });
@@ -2548,7 +2548,7 @@ test("a channel member without a browser push subscription is still a notificati
   const suffix = crypto.randomUUID().slice(0, 8);
   const alice = await db.user.create({ data: { username: `na${suffix}` } });
   // Notifications enabled, but this user never registered a browser subscription — the in-page
-  // path (ADR 0065) must still treat them as a recipient so a later realtime signal reaches them,
+  // path must still treat them as a recipient so a later realtime signal reaches them,
   // even though the old flat `subscriptions` field would have silently dropped them.
   const carol = await db.user.create({
     data: {

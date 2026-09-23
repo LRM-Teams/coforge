@@ -53,7 +53,7 @@ export type UpgradeProbe = {
  * or reuse of the old Supervisor identity. Workspace children remain stopped under launch-hold
  * until the terminal receipt is committed and `resumeLaunches` reconciles them.
  *
- * When `restartsInPlace` is true (launchd, ADR 0032), `stop` performs only the pre-switch
+ * When `restartsInPlace` is true (launchd), `stop` performs only the pre-switch
  * restartability check and `start` performs the in-place kickstart; neither one actually stops or
  * starts a process tree, so `switchStageText` (`upgrade-coordinator.ts`) must not describe them
  * as if they did. */
@@ -117,14 +117,14 @@ export function createSupervisorUpgradeLifecycle(
         : "cn.coforge.computer.daemon");
   let previousSupervisorId: string | undefined;
   let supervisorWasRunning = false;
-  // Capability check (ADR 0032), never an `instanceof`/platform branch: only `LaunchdDaemonHost`
+  // Capability check, never an `instanceof`/platform branch: only `LaunchdDaemonHost`
   // declares this, so `host` narrows through the `in` checks below wherever it matters.
   const restartsInPlace = "restartsInPlace" in host && host.restartsInPlace === true;
   // Set once this upgrade has proven the label was loaded (the first, pre-activation `stop()`
   // call). A *second* `stop()` finding it not loaded is the rollback path re-entering after a
   // kickstart that never completed, not a foreground-supervised Computer that never had a
   // launchd job at all — `restart()`'s own bootstrap fallback recovers that, so it must not abort
-  // the restore (ADR 0032).
+  // the restore.
   let inPlaceRestartVerified = false;
   return {
     restartsInPlace,
@@ -178,7 +178,7 @@ export function createSupervisorUpgradeLifecycle(
           return response;
         },
         // The wait itself now lives in the daemon package, shared with the Coordinator's restart
-        // hold (ADR 0021). Keep this path's own logger and `upgrade:` event names (ADR 0020).
+        // hold. Keep this path's own logger and `upgrade:` event names.
         logger,
         eventPrefix: "upgrade",
       });

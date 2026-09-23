@@ -65,7 +65,7 @@ export class AgentSessionReceiver {
    * Session. Clears the current Session association the same way "Reset Session" does
    * (`clearSession`), preserving the old native Session row, and leaves every other control
    * state field untouched. The user learns of the invalidate only through the daemon's own
-   * cold-start Activity (ADR 0040, matching Raft); this never marks the state `recovered` —
+   * cold-start Activity (matching Raft); this never marks the state `recovered` —
    * that stays `AgentControl.result`'s and the Session snapshot path's own, separate signal.
    */
   async invalidate(

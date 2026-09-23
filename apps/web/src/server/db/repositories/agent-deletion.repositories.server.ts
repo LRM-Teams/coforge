@@ -3,7 +3,7 @@ import { ACTIVE_AGENT_WHERE } from "../../agents/active-agent.server";
 import type { AgentDeletionOutcome, AgentDeletionStore } from "../../agents/agent-deletion.server";
 
 /**
- * One transaction makes a deleted Agent inert cloud-side (ADR 0044): the Agent is marked
+ * One transaction makes a deleted Agent inert cloud-side: the Agent is marked
  * `deletedAt`, its Agent API keys are revoked, its public-channel memberships are soft-left
  * (which is what stops delivery and wake, since both read `ACTIVE_MEMBER_WHERE`), and its
  * scheduled Reminders are canceled. Messages, Tasks and Action cards are deliberately left

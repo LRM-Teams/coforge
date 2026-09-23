@@ -554,7 +554,7 @@ export class TaskBoard {
       where: {
         conversationId,
         workspaceId,
-        // ADR 0044/0024: a deleted Agent (or anyone who left) is not an assignable member. Without
+        // A deleted Agent (or anyone who left) is not an assignable member. Without
         // this, a deleted Agent stayed a valid Task assignee and still received delivery rows.
         ...ACTIVE_MEMBER_WHERE,
         OR: [{ user: { username: name } }, { agent: { name, ...ACTIVE_AGENT_WHERE } }],
@@ -733,7 +733,7 @@ export class TaskBoard {
               ? {
                   conversationId: scope.conversationId,
                   agentId: { not: null },
-                  // ADR 0044: never deliver a Task to a deleted Agent.
+                  // Never deliver a Task to a deleted Agent.
                   ...ACTIVE_MEMBER_WHERE,
                   agent: ACTIVE_AGENT_WHERE,
                   OR: [{ channelMuted: false }, { agent: { name: { in: names } } }],

@@ -181,7 +181,7 @@ test("invalid maps fail before stop and never echo values", async () => {
   ).toHaveLength(64);
 });
 
-test("a stopped Agent saves the environment without the stop -> ... -> start dance (ADR 0038)", async () => {
+test("a stopped Agent saves the environment without the stop -> ... -> start dance", async () => {
   const f = fixture({ stopped: true });
   expect(await f.environment.save(principal, "agent-1", { TOKEN: "secret" })).toEqual({
     restart: "deferred",

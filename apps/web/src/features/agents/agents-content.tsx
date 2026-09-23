@@ -140,7 +140,7 @@ export function AgentsContent({
   const canInviteMember = summary.actorRole === "owner" || summary.actorRole === "admin";
   // Agent creation requires Workspace owner/admin; see ManageAgents.create / assertCanCreateAgents.
   const canCreateAgent = canInviteMember;
-  // Deletion is the same owner/admin capability (ADR 0044), and only for Agents the directory marks
+  // Deletion is the same owner/admin capability, and only for Agents the directory marks
   // deletable; the server re-checks both.
   const canDeleteAgent = canInviteMember;
   const onAgentTab = memberType === "agent";

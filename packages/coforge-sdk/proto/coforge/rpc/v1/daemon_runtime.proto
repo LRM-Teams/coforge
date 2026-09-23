@@ -143,7 +143,7 @@ message CodeAgentModelCatalog {
 // Server -> daemon, on the daemon control channel (like DaemonRuntimeUsageScanRequest above), but
 // per-Agent rather than per-provider: it names the Agent whose context-window composition to
 // read, and the launch/session the server currently believes is live, so the daemon can refuse a
-// request naming a launch it has already superseded. Claude Code only today (ADR 0051); the
+// request naming a launch it has already superseded. Claude Code only today; the
 // daemon replies `unsupported` for every other provider.
 message AgentContextScanRequest {
   uint32 protocol_major = 1;

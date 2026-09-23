@@ -15,7 +15,7 @@ export const Route = createFileRoute("/api/agent/v1/workspace")({
     handlers: {
       GET: async ({ context: { principal, db } }) => {
         try {
-          // ADR 0059: a private Agent invisible to the caller is absent from the roster.
+          // A private Agent invisible to the caller is absent from the roster.
           const viewer = await agentVisibilityViewerForActor(db, principal.workspaceId, {
             agentId: principal.agentId,
           });

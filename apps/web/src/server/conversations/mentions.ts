@@ -11,7 +11,7 @@ export function mentionedNames(body: string) {
 /** The mention-row projection every body reader needs to resolve embedded tokens. */
 export type MessageMentionRef = { kind: string; actorId: string; handle: string };
 
-/** True when `mentions` contains a personal @mention of this Agent (ADR 0061). */
+/** True when `mentions` contains a personal @mention of this Agent. */
 export function deliveryMentionsAgent(
   mentions: readonly Pick<MessageMentionRef, "kind" | "actorId">[] | undefined,
   agentId: string,

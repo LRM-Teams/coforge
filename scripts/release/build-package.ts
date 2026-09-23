@@ -29,7 +29,7 @@ const define =
         "process.env.COFORGE_DAEMON_VERSION": JSON.stringify(manifest.version),
         "process.env.COFORGE_DAEMON_SERVER_URL": JSON.stringify(serverUrl),
         // Bundled `@lrm/coforge/runner` (`__agent-cli` dispatch) needs the same real version
-        // inlined for `coforge version`/`coforge --version` (docs/adr/0036-agent-manual.md).
+        // inlined for `coforge version`/`coforge --version`.
         "Bun.env.COFORGE_CLI_VERSION": JSON.stringify(manifest.version),
       }
     : {

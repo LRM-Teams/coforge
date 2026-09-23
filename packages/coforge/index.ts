@@ -262,7 +262,7 @@ export type MessageTransport = {
   actionPrepare?(target: string, action: ActionCardAction): Promise<ActionPrepareResult>;
   manualGet?(topic: string, intent: string, reason: string): Promise<AgentManualGetResponse>;
   manualSearch?(query: string, intent: string, reason: string): Promise<AgentManualSearchResponse>;
-  /** `coforge version`'s local-only Daemon query (ADR 0036); never reaches Web/backend. */
+  /** `coforge version`'s local-only Daemon query; never reaches Web/backend. */
   version?(): Promise<AgentVersionResponse>;
   userInfo?(name: string): Promise<AgentUserInfoResponse>;
   profileShow?(target?: string): Promise<AgentProfileShowResponse>;
@@ -691,7 +691,7 @@ function parseWorkspaceInfoArgs(args: readonly string[]): WorkspaceInfoInvocatio
 const CHANNEL_MANAGEMENT_BOOLEAN_FLAGS = new Set(["--private", "--public", "--json"]);
 
 /** Rejects `--private`/`--public`, which Raft accepts but CoForge does not; every channel is
- * public and there is no private/visibility column (see ADR 0024). */
+ * public and there is no private/visibility column. */
 function privateChannelsUnsupportedError(): CliError {
   return new CliError({
     code: "UNSUPPORTED",
@@ -1346,7 +1346,7 @@ function trimmedEnv(value: string | undefined): string | undefined {
 }
 
 /**
- * `coforge whoami`: deliberately local (ADR 0036's placement-table rows) — it answers "what
+ * `coforge whoami`: deliberately local — it answers "what
  * identity and endpoint would my next command use", read only from the process environment the
  * Daemon already set for this Agent process (`code-agent/environment.ts`). It never makes a
  * request. `COFORGE_DAEMON_SOCKET` is always set to `""` for an Agent launch (`daemon-runtime/

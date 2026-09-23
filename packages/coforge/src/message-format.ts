@@ -1,6 +1,6 @@
 import { renderMessageSender, type AgentMessageRecord } from "@lrm/coforge-sdk/internal";
 
-/** The sender exactly as an Agent-visible message line shows it (ADR 0052, decision C):
+/** The sender exactly as an Agent-visible message line shows it:
  * `system` for a system message, `@handle — description` when a description exists, `@handle`
  * alone otherwise. */
 function messageSender(message: AgentMessageRecord): string {
@@ -240,8 +240,8 @@ type SendResponse = {
 };
 
 /**
- * `recentUnread` is only ever non-empty when the send bypassed a freshness hold via `--anyway`
- * (see ADR 0022); every other successful send passes an empty array or `undefined`.
+ * `recentUnread` is only ever non-empty when the send bypassed a freshness hold via `--anyway`;
+ * every other successful send passes an empty array or `undefined`.
  */
 export function formatSendSuccess(
   target: string,

@@ -16,7 +16,7 @@ export type ActivityObservation = Pick<
 export type ActivityTone = Exclude<StatusTone, "online">;
 type Tone = ActivityTone;
 /** Activity labels are not internationalized (AGENTS.md); reused verbatim for the persisted
- * "user stopped this Agent" (ADR 0038) status text, not just the offline-history activity row. */
+ * "user stopped this Agent" status text, not just the offline-history activity row. */
 export const STOPPED_STATUS_DETAIL = "Stopped — won't receive messages until restarted";
 export type ActivityRow = {
   label: string;
@@ -32,7 +32,7 @@ export type ActivityRow = {
 };
 
 /**
- * ADR 0021 (amended): tool_end, thinking_end and compaction_finished are entry-less status
+ * tool_end, thinking_end and compaction_finished are entry-less status
  * frames that are now persisted and shown live like any other Activity. Their primary label
  * still comes from the ordinary activity-kind classification above (`activityKindForObservation`
  * on the server puts all three under "working", so the primary label reads "Working" the same as
@@ -128,7 +128,7 @@ function presentEntryItem(
 
 function activityAtoms(observation: ActivityObservation): ActivityAtom[] {
   const { detailKind: kind, level, detail } = observation;
-  // ADR 0021: any activity reclassified as subagent_activity (a trajectory
+  // Any activity reclassified as subagent_activity (a trajectory
   // entry carrying a subagent scope) shows one unified label, regardless of
   // its underlying entries.
   if (kind === AGENT_ACTIVITY_DETAIL_KIND.SUBAGENT_ACTIVITY && level !== "error") {
@@ -296,7 +296,7 @@ export function presentActivityRows(activity: readonly ActivityEntry[]): Present
 /**
  * Format a cloud decision. No clocks, process facts or history reduction here.
  *
- * `stopped` (ADR 0038, a user-persisted intent, not a display fact) never changes `isOnline` or
+ * `stopped` (a user-persisted intent, not a display fact) never changes `isOnline` or
  * `label` — the Start/Stop button choice and the short status word stay exactly what the Daemon
  * reports. It only adds `statusDetail`, an un-internationalized caption (AGENTS.md) reusing the
  * existing Activity "Stopped — …" sentence, shown only when the display itself is already

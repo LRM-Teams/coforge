@@ -6,7 +6,7 @@ import type { CentrifugoServerApi } from "../centrifugo/server-api.server";
 import type { NotificationPublisher } from "./web-push-notifications.server";
 
 /**
- * Publishes the bodiless `notification.available.v1` in-page signal (ADR 0065) to every
+ * Publishes the bodiless `notification.available.v1` in-page signal to every
  * recipient's own `chat:user:<user_id>` channel in one Centrifugo `broadcast` call, idempotent per
  * message (`notification:<messageId>`, which `broadcast` applies per recipient channel).
  */

@@ -14,7 +14,7 @@ import type { AgentVisibilityChangePreview } from "@/server/agents/change-agent-
 import type { AgentVisibility } from "./agent-visibility";
 
 /**
- * The visibility-change confirmation (ADR 0059): public→private lists consequences (channels it
+ * The visibility-change confirmation: public→private lists consequences (channels it
  * will leave, existing DMs becoming read-only, Tasks staying assigned) fetched from
  * `previewAgentVisibilityChange`; private→public confirms inline with a static note about
  * private-period Activity becoming visible — no preview fetch, since nothing becomes read-only in
@@ -33,7 +33,7 @@ export function AgentVisibilityConfirmDialog({
 }: {
   agentName: string;
   /** The Agent's creator's display name; used in the public->private intro when the viewer is a
-   * Workspace owner/admin changing someone else's Agent (ADR 0059's "who can still see it" set
+   * Workspace owner/admin changing someone else's Agent (the "who can still see it" set
    * is the creator, not "you," in that case). */
   creatorName: string;
   /** Whether the current viewer is this Agent's own creator. */

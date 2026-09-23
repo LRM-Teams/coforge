@@ -150,7 +150,7 @@ export function agentEnvironment(
     ["url.https://github.com/.insteadOf", "git@github.com:"],
     ["url.https://github.com/.insteadOf", "ssh://git@github.com/"],
   ];
-  // The commit co-author trailer hook (ADR 0048). `config-hook` runs
+  // The commit co-author trailer hook. `config-hook` runs
   // alongside the repository's own hooks (git >= 2.54); `hooks-path` needs `COFORGE_GIT_CONFIG_
   // BASE_COUNT` so the Daemon's forwarding shim can recover the pre-injection hooks path (see
   // `git-hook-shims.ts`) - the value is `gitConfigCount` exactly as inherited, before any of this

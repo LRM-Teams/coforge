@@ -24,7 +24,7 @@ export type AgentCreateInput = {
   reasoning?: string;
   computerId: string;
   apiKey?: string;
-  /** ADR 0059; defaults to public when omitted, matching every creation path except the
+  /** Defaults to public when omitted, matching every creation path except the
    * weekly-report Collector Agent, which is created private outside this use case. */
   visibility?: AgentVisibility;
 };
@@ -155,7 +155,7 @@ export class ManageAgents {
         current.ownerId !== principal.userId
       )
         throw new Error("Agent is not authorized");
-      // ADR 0044: a deleted Agent has no editable configuration. Refused here rather than only by
+      // A deleted Agent has no editable configuration. Refused here rather than only by
       // the restart below, so a stopped/deleted Agent cannot be silently rewritten either.
       assertAgentLive(current);
       const computerId = input.computerId ?? current.computerId;
@@ -210,7 +210,7 @@ export class ManageAgents {
         }))
       )
         throw new AppError("INVALID_INPUT", { errorId: "agent-runtime-unavailable" });
-      // ADR 0038: a stopped Agent has nothing running under the old configuration, so config
+      // A stopped Agent has nothing running under the old configuration, so config
       // changes persist without the stop -> ... -> start dance; a confirmed Stop would make a
       // stopped Agent on an offline Computer uneditable.
       const stopped = Boolean(current.stoppedAt);

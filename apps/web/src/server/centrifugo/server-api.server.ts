@@ -91,7 +91,7 @@ export function createUsageScan(
   })();
 }
 
-/** Server → daemon context-composition scan (ADR 0051): one Agent, its own launch/session echoed
+/** Server → daemon context-composition scan: one Agent, its own launch/session echoed
  * for correlation only — the daemon still resolves its own current launch/session before running
  * anything. The launch/session the server fills in come from its own record of the Agent's
  * current control state, supplied by the caller. */

@@ -70,7 +70,7 @@ test("omits probeId on decode when the frame was not a probe reply", () => {
   expect(decoded.probeId).toBeUndefined();
 });
 
-// ADR 0021: each new detail kind round-trips through the codec exactly like
+// Each new detail kind round-trips through the codec exactly like
 // any other stable string value; detail_kind is a plain proto string field.
 for (const detailKind of [
   AGENT_ACTIVITY_DETAIL_KIND.TOOL_END,

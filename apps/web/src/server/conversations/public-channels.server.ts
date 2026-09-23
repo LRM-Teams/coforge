@@ -71,7 +71,7 @@ export type ChannelActor = { userId: string } | { agentId: string };
  * Soft-leaves one member's row (sets `leftAt`) if it is currently active; a no-op (returns
  * `false`) if the row is missing or already left. This is the one write both `leave` and
  * `removeMember` use, for both the human/Web UI (`PublicChannels.leave`/`removeMember`) and the
- * Agent CLI (`AgentChannelManagement.leave`/`removeMember`, ADR 0024/0031) — the soft-leave write
+ * Agent CLI (`AgentChannelManagement.leave`/`removeMember`) — the soft-leave write
  * itself lives in exactly one place regardless of who is leaving/removing whom.
  */
 export async function softLeaveMember(
@@ -174,7 +174,7 @@ export function channelMessageView(message: ChannelMessageRow, workspaceId: stri
     /** The Agent identity behind an agent-sent message, so the browser can open that Agent's
      * profile panel from the row (message-row.tsx). `undefined` for a user or system message. */
     senderAgentId: message.sender?.agentId ?? undefined,
-    /** True when the sending Agent has since been deleted (ADR 0044): the row renders its sender
+    /** True when the sending Agent has since been deleted: the row renders its sender
      * greyed with a `DELETED` marker, and no longer opens that Agent's profile. */
     senderDeleted: Boolean(message.sender?.agent?.deletedAt),
     senderAvatarUrl: message.sender?.user
@@ -227,7 +227,7 @@ export async function enrollGeneralChannel(db: Prisma.TransactionClient, workspa
     })),
     skipDuplicates: true,
   });
-  // ADR 0059/0061: a private Agent is never an active channel member. Even this legacy/test
+  // A private Agent is never an active channel member. Even this legacy/test
   // #general fixture must not enroll one, and later repair/backfill passes keep it out too.
   const agents = await db.agent.findMany({
     where: { workspaceId, visibility: AGENT_VISIBILITY.PUBLIC, ...ACTIVE_AGENT_WHERE },
@@ -446,7 +446,7 @@ export class PublicChannels {
   }
 
   /**
-   * Agents currently following this channel Thread that the viewer may see (ADR 0059).
+   * Agents currently following this channel Thread that the viewer may see.
    * Workspace members can read the list with the parent channel; only an active channel
    * member may later unfollow one of them.
    */
@@ -512,7 +512,7 @@ export class PublicChannels {
   /**
    * A human channel member removes an Agent from this Thread's follow set. The Agent stays a
    * channel member; only subsequent ordinary thread notices stop. The viewer must be allowed
-   * to see that Agent (ADR 0059) — a private Agent they cannot see is `NOT_FOUND`.
+   * to see that Agent — a private Agent they cannot see is `NOT_FOUND`.
    */
   async unfollowAgentFromThread(
     workspaceId: string,
@@ -542,7 +542,7 @@ export class PublicChannels {
     });
     const viewer = await agentVisibilityViewerForUser(this.db, workspaceId, userId);
     // Same answer for a missing Agent and a private Agent the viewer cannot see, so the
-    // unfollow path cannot be used to probe ADR 0059 visibility.
+    // unfollow path cannot be used to probe private-Agent visibility.
     if (!agentMember?.agent || !canSeeAgent(viewer, agentMember.agent))
       throw new AppError("NOT_FOUND");
     await this.setThreadFollowed(agentMember.id, workspaceId, channelId, root.id, false);
@@ -607,7 +607,7 @@ export class PublicChannels {
             select: {
               id: true,
               channelMuted: true,
-              // Slack-style unread cursor (ADR 0046). Thread replies belong to their thread
+              // Slack-style unread cursor. Thread replies belong to their thread
               // target and never advance it, so they never count in the channel badge.
               readThroughSequence: true,
               // Forced unread (`mark as unread`) and per-member hide/close, plus this member's
@@ -703,7 +703,7 @@ export class PublicChannels {
           channelName: name,
           ...(projectId ? { projectId } : {}),
           ...(description !== undefined ? { description } : {}),
-          // The creator becomes the channel's first admin (ADR 0030).
+          // The creator becomes the channel's first admin.
           members: { create: { userId, channelRole: "admin" } },
         },
         select: { id: true },
@@ -716,7 +716,7 @@ export class PublicChannels {
   }
 
   /**
-   * Promotes/demotes a channel member's stored `channelRole` (ADR 0030). Human-only: there is
+   * Promotes/demotes a channel member's stored `channelRole`. Human-only: there is
    * no Agent command for changing channel roles (Raft's rule, matched verbatim in
    * `agent-instructions.ts`). The actor needs `manage_roles` — Workspace owner/admin, or channel
    * admin of this specific channel — and `#general`'s roles are fixed (nobody can be its
@@ -791,7 +791,7 @@ export class PublicChannels {
   }
 
   /**
-   * Advances the human member's top-level read cursor (ADR 0046). Monotone and clamped to the
+   * Advances the human member's top-level read cursor. Monotone and clamped to the
    * conversation's current maximum sequence: a stale client cannot move the boundary backwards,
    * and an over-eager client cannot push it past the conversation (which would swallow future
    * messages into "already read").
@@ -836,7 +836,7 @@ export class PublicChannels {
    * Slack: any member may leave a channel they belong to). Never `#general` (`CONFLICT`, Slack:
    * "It's not possible to leave a reserved legacy #general channel"). Soft-left (`leftAt` set), not
    * deleted: the same row's mute preference and read boundary survive a later `join`, which clears
-   * `leftAt` again. ADR 0031.
+   * `leftAt` again.
    */
   async leave(workspaceId: string, userId: string, channelId: string) {
     const channel = await this.channel(workspaceId, userId, channelId);
@@ -849,10 +849,10 @@ export class PublicChannels {
 
   /**
    * A channel admin (either basis) removes a human or Agent from a public channel — originally
-   * Slack's "Workspace Owners and Admins can remove people from public channels" (ADR 0031), now
-   * generalized to the `remove_member` capability (ADR 0030) so a channel admin via stored
+   * Slack's "Workspace Owners and Admins can remove people from public channels", now
+   * generalized to the `remove_member` capability so a channel admin via stored
    * `channelRole` may also remove members from a channel it administers, the same authority the
-   * Agent CLI's `remove-member` already has (ADR 0024). Never `#general` (`CONFLICT`, Slack:
+   * Agent CLI's `remove-member` already has. Never `#general` (`CONFLICT`, Slack:
    * "It's not possible to remove people from the #general … channel"). A plain member without
    * either admin basis is denied `ACCESS_DENIED` before any row is touched. Soft-left, same as
    * `leave`: messages, tasks and thread history stay; the row (mute preference, read boundary)
@@ -888,7 +888,7 @@ export class PublicChannels {
    * (has an active ConversationMember row in this channel). Any Workspace
    * member or Agent may read this; channels are public within the Workspace.
    * Shared by the human "Members" dialog and the Agent CLI's `channel
-   * members`/`add-member` (see ADR 0024/0025); a soft-left row (`leftAt` set)
+   * members`/`add-member`; a soft-left row (`leftAt` set)
    * never counts as a current member.
    */
   async members(workspaceId: string, actor: ChannelActor, channelId: string) {
@@ -926,7 +926,7 @@ export class PublicChannels {
         select: { id: true, username: true, displayName: true, avatarObjectKey: true },
         orderBy: [{ username: "asc" }, { id: "asc" }],
       }),
-      // ADR 0059: a private Agent can never join a channel, so it is never an add-candidate
+      // A private Agent can never join a channel, so it is never an add-candidate
       // either — unconditionally, the same "channels never contain a private Agent" invariant
       // `addMembers` enforces, not a viewer-scoped visibility read.
       this.db.agent.findMany({
@@ -969,13 +969,13 @@ export class PublicChannels {
 
     return {
       canAddMembers: isActiveMember,
-      // The actor's own channel role/admin basis/capabilities on this channel (ADR 0030).
+      // The actor's own channel role/admin basis/capabilities on this channel.
       channelRole: actorRow?.channelRole,
       channelAdminBasis: actorAdminBasis,
       channelCapabilities: capabilities,
-      // Aliases of the capability matrix above, kept for the existing ADR 0031 human UI
+      // Aliases of the capability matrix above, kept for the existing human UI
       // (`ChannelMembersDialog`'s Remove/Leave actions): `remove_member`/`leave` are now the
-      // single source of truth, a strict superset of ADR 0031's original owner/admin-only rule
+      // single source of truth, a strict superset of the original owner/admin-only rule
       // — a channel admin via `channelRole` (not just a Workspace owner/admin) may also remove
       // members from a channel it administers.
       canRemoveMembers: capabilities.remove_member,
@@ -1072,7 +1072,7 @@ export class PublicChannels {
         select: { id: true, visibility: true },
       });
       if (targetAgents.length !== agentIds.length) throw new AppError("INVALID_INPUT");
-      // ADR 0059: a private Agent is never an active channel member — reject the whole add
+      // A private Agent is never an active channel member — reject the whole add
       // rather than silently drop it, with a stable code + explanation for the caller.
       if (targetAgents.some((agent) => agent.visibility !== AGENT_VISIBILITY.PUBLIC))
         throw new AppError("INVALID_INPUT", { errorId: "agent-private" });
@@ -1237,7 +1237,7 @@ export class PublicChannels {
       senderMemberId: member?.id ?? "",
       viewerHandle: member?.user?.username,
       muted: member?.channelMuted ?? false,
-      // The viewer's conversation-level read cursor over top-level messages (ADR 0046):
+      // The viewer's conversation-level read cursor over top-level messages:
       // the client positions the initial view at the first unread message and draws the
       // divider there. Undefined for a non-member (nothing is "unread for them").
       readThroughSequence: member?.readThroughSequence,
@@ -1629,7 +1629,7 @@ export class PublicChannels {
     // `@handle` text — the stored body keeps mentions as embedded-UUID tokens, so translate.
     const publisher = this.publisher ?? createCentrifugoServerApi();
     const agentBody = agentReadableBody(message.body, message.mentions);
-    // Routed through the shared projection (ADR 0052) rather than two non-null assertions on
+    // Routed through the shared projection rather than two non-null assertions on
     // `sender.user`, which broke for an Agent-authored channel delivery.
     const sender = agentMessageSender(message.sender);
     await Promise.all(

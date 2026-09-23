@@ -7,8 +7,8 @@ import { PrismaDirectConversationRepository } from "../src/server/db/repositorie
 import { AppError, isAppError, type AppErrorCode } from "../src/lib/app-error";
 
 /**
- * Exercises `ActionCards.prepare` (see `apps/web/src/server/conversations/action-cards.server.ts`
- * and ADR 0027) against local PostgreSQL: handle resolution for all three action-card kinds,
+ * Exercises `ActionCards.prepare` (see `apps/web/src/server/conversations/action-cards.server.ts`)
+ * against local PostgreSQL: handle resolution for all three action-card kinds,
  * target-grammar reuse from Agent `message send`, and the conflict/validation error shapes the
  * HTTP route (`apps/web/src/routes/api/agent/v1/actions/prepare.ts`) maps to 422/403/409.
  */
@@ -167,7 +167,7 @@ test("prepare persists channel:create with handles resolved to UUIDs and a reada
     });
 
     // One publication, carrying the Workspace the browser scopes the signal to. The event is
-    // additive (ADR 0046): it may grow further fields, so pin the meaningful ones and the count.
+    // additive: it may grow further fields, so pin the meaningful ones and the count.
     expect(ctx.realtimeEvents).toEqual([
       expect.objectContaining({
         conversationId: ctx.hub.id,
@@ -398,7 +398,7 @@ test("prepare posts into a thread when the target names a root message", async (
 });
 
 /**
- * Commit/cancel (ADR 0027 "Commit and cancel"): a human executes the real operation under their
+ * Commit/cancel: a human executes the real operation under their
  * own identity, then the card is marked `executed`/`cancelled`. Reuses `setup()`'s fixture: alice
  * is Workspace owner and Scout's (`ctx.agent`) owner, bob is a plain member and Helper's
  * (`ctx.bobsAgent`) owner, dave is Workspace admin.
@@ -435,9 +435,8 @@ test("commit channel:create executes PublicChannels.create + addMembers and mark
       include: { members: true },
     });
     expect(created.channelName).toBe(name);
-    // ADR 0031: the Agent-proposed description rides along from the card's own resolved payload
-    // and is now persisted on the created Conversation (ADR 0024 added the column; ADR 0027's
-    // "known gap" is closed).
+    // The Agent-proposed description rides along from the card's own resolved payload
+    // and is now persisted on the created Conversation.
     expect(created.description).toBe(description);
     expect(created.members.some((member) => member.userId === ctx.bob.id)).toBe(true);
 
@@ -563,7 +562,7 @@ test("agent:create guard/mark: pending precheck, workspace scoping, and marking 
 
     // `ManageAgents.create`'s own authority gate (`assertCanCreateAgents`, owner/admin only) is
     // covered by `manage-agents.test.ts`; here we only own the guard-before/mark-after seam
-    // `agents.functions.ts#createAgent` calls around it (see ADR 0027 "Commit and cancel").
+    // `agents.functions.ts#createAgent` calls around it.
     const created = await ctx.db.agent.create({
       data: {
         workspaceId: ctx.workspace.id,

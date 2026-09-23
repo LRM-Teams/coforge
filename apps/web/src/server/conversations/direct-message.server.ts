@@ -135,7 +135,7 @@ export class SendDirectMessage {
       },
     );
     // A channel message fans out to the Workspace; a DM goes only to its human viewer, naming
-    // the sending Agent's badge so the browser needs no conversation alias (ADR 0046).
+    // the sending Agent's badge so the browser needs no conversation alias.
     await this.publishBrowserEvent(
       message,
       conversation.id,

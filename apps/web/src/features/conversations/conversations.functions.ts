@@ -27,7 +27,7 @@ import { workspaceUserAvatarUrl } from "../../server/db/repositories/user-profil
 
 /**
  * The caller's own direct conversation repository, or a failure when the Agent is not theirs.
- * `canSend` distinguishes writing from reading: a deleted Agent's DM stays readable (ADR 0044
+ * `canSend` distinguishes writing from reading: a deleted Agent's DM stays readable (it
  * keeps its history, rendered with a `DELETED` sender), but no new message may be sent to it.
  */
 async function ownedConversations(
@@ -122,7 +122,7 @@ export const markDirectThreadRead = createServerFn({ method: "POST" })
   });
 
 /** Per-DM unread for the sidebar, keyed by the Agent row that owns each badge — the same key
- * the realtime publication carries, so no conversation→Agent alias map is needed (ADR 0046). */
+ * the realtime publication carries, so no conversation→Agent alias map is needed. */
 export type DirectConversationUnread = Record<string, number>;
 
 export type DirectConversationBadges = {
@@ -150,7 +150,7 @@ export const loadDirectConversationBadges = createServerFn({ method: "GET" })
     return { viewerId: user.id, unread };
   });
 
-/** Advances the DM read cursor for the sidebar badge; monotone and clamped (ADR 0046). */
+/** Advances the DM read cursor for the sidebar badge; monotone and clamped. */
 export const markDirectConversationRead = createServerFn({ method: "POST" })
   .middleware([workspaceUserMiddleware])
   .validator(agentConversationInputSchema.extend({ throughSequence: z.number().int().positive() }))

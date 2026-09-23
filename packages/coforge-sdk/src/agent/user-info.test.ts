@@ -78,7 +78,7 @@ test("decodeAgentUserInfoErrorResponse accepts and rejects", () => {
   expect(decodeAgentUserInfoErrorResponse(HUMAN_VALUE)).toBeUndefined();
 });
 
-test("decodeAgentUserInfoErrorResponse accepts agent_not_visible (ADR 0059)", () => {
+test("decodeAgentUserInfoErrorResponse accepts agent_not_visible", () => {
   const error: AgentUserInfoErrorResponse = {
     ok: false,
     errorCode: "agent_not_visible",

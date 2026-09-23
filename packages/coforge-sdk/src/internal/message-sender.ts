@@ -2,9 +2,9 @@ import { codePointLength } from "./truncate";
 import { MENTION_HANDLE_PATTERN } from "./mentions";
 
 /**
- * A message's sender is a kind, a handle and a description — not one fused string (ADR 0052).
- * `MessageSenderKind` follows the `activityKind` convention (ADR 0021,
- * `packages/coforge-sdk/src/internal/agent-display.ts`): a proto `string`, a closed TS union, and
+ * A message's sender is a kind, a handle and a description — not one fused string.
+ * `MessageSenderKind` follows the `activityKind` convention
+ * (`packages/coforge-sdk/src/internal/agent-display.ts`): a proto `string`, a closed TS union, and
  * a `Set` guard, with no proto enum — this repository's protobuf schemas define none.
  */
 export type MessageSenderKind = "human" | "agent" | "system";
@@ -48,7 +48,7 @@ export function isPrintableSenderHandle(value: string): boolean {
 }
 
 /**
- * The one boundary rule for a `(kind, handle)` pair (ADR 0052, decision B/D): `kind` must be a
+ * The one boundary rule for a `(kind, handle)` pair: `kind` must be a
  * known value, `human`/`agent` require a handle matching the public handle grammar, and `system`
  * requires an empty handle. Used at every wire boundary that carries a sender or latest-sender
  * pair, so a malformed pair is rejected the same way everywhere instead of reaching a render.
@@ -73,7 +73,7 @@ export function assertValidMessageSender(
 }
 
 /**
- * Renders a sender exactly as the Agent-visible message line shows it (ADR 0052, decision C):
+ * Renders a sender exactly as the Agent-visible message line shows it:
  * `system` for a system message, `@handle — description` when a description exists, `@handle`
  * alone otherwise.
  */

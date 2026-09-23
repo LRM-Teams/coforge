@@ -185,7 +185,7 @@ export async function handleAgentMessagesPost(
     // text failure.
     if (isAppError(error) && error.code === "CONFLICT")
       return new Response("channel is archived", { status: 409 });
-    // A private Agent's direct conversation stays scoped to its own creator (ADR 0059): a stable
+    // A private Agent's direct conversation stays scoped to its own creator: a stable
     // code with an explanation, the same rule this route already follows for the other named
     // failures above, rather than a bare 500.
     if (isAppError(error) && error.code === "AGENT_DM_RESTRICTED")

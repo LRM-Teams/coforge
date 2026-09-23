@@ -305,7 +305,7 @@ test("POST /channels/:channel/members maps an unknown handle to its declared 404
   expect(await result.text()).toBe("member not found: @nobody");
 });
 
-test("POST /channels/:channel/members maps an errorCode-carrying failure to a JSON envelope (ADR 0059)", async () => {
+test("POST /channels/:channel/members maps an errorCode-carrying failure to a JSON envelope", async () => {
   const result = await handleAgentChannelMembersPost(
     post("/api/agent/v1/channels/%23eng/members", { agent: "@ghost" }),
     "#eng",

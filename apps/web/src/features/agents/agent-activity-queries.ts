@@ -27,8 +27,8 @@ export type RecentActivityByAgent = Record<string, ActivityEntry[]>;
 // Shared by the queryFn's per-agent merge and the publication patch, so both
 // sides of the cache apply the same merge and the same cap. Also keeps this
 // short "recent activity" cache free of the ordinary status rows the Agent
-// detail feed now shows (tool_end/thinking_end/compaction_finished; ADR
-// 0021, amended) — filtered here, upstream of the cap, so a run of those
+// detail feed now shows (tool_end/thinking_end/compaction_finished) —
+// filtered here, upstream of the cap, so a run of those
 // doesn't crowd out the popover's genuinely noteworthy events.
 const mergeRecent = (current: ActivityEntry[] | undefined, incoming: ActivityEntry[]) =>
   mergeAgentActivity(
@@ -83,7 +83,7 @@ export const agentActivityFeedQuery = (agentId: string) =>
   });
 
 /** Shared by the shared-channel and per-Agent-channel subscriptions below, so a private Agent's
- * frame — arriving only on its own per-Agent channel now (ADR 0059) — patches the exact same
+ * frame — arriving only on its own per-Agent channel now — patches the exact same
  * cache shapes a public Agent's frame patches on the shared channel. */
 function applyActivityPublication(
   queryClient: QueryClient,
@@ -116,7 +116,7 @@ function applyActivityPublication(
  * both query shapes so a gap left by a disconnect is closed by a refetch;
  * publications in between patch the cache directly.
  *
- * `privateAgentIds` (ADR 0059) are the viewer's own visible private Agents: their Activity no
+ * `privateAgentIds` are the viewer's own visible private Agents: their Activity no
  * longer arrives on the shared channel at all, so each gets its own per-Agent subscription on
  * the same shared client.
  */

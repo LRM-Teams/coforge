@@ -459,7 +459,7 @@ test("stopping the Agent's launch clears its compaction watchdog without leaking
   }
 });
 
-// ADR 0021: tool_end/thinking_end/compaction_finished are busy-but-filler,
+// tool_end/thinking_end/compaction_finished are busy-but-filler,
 // exactly like runtime_progress — they re-arm the heartbeat.
 for (const detailKind of ["tool_end", "thinking_end", "compaction_finished"] as const) {
   test(`${detailKind} is busy-but-filler: it re-arms the heartbeat`, async () => {

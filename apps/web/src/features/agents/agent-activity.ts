@@ -25,7 +25,7 @@ export type ActivityEntry = {
 
 export const agentActivityChannel = (workspaceId: string) => `agent:activity:${workspaceId}`;
 
-/** The re-routed destination for a private Agent's Activity (ADR 0059): the publish proxy
+/** The re-routed destination for a private Agent's Activity: the publish proxy
  * forwards the same raw frame here instead of the shared `agentActivityChannel`, and only a
  * viewer who can currently see that Agent is ever issued a subscription token for it. */
 export const agentActivityChannelForAgent = (workspaceId: string, agentId: string) =>
@@ -35,7 +35,7 @@ export const agentActivityChannelForAgent = (workspaceId: string, agentId: strin
 export const RECENT_ACTIVITY_LIMIT = 5;
 
 /**
- * ADR 0021 (amended): `runtime_progress` is the one detail kind that stays a
+ * `runtime_progress` is the one detail kind that stays a
  * content-free liveness filler — never persisted, never shown anywhere.
  * `tool_end`, `thinking_end` and `compaction_finished` are ordinary status
  * rows now (persisted to history, part of the live Activity timeline); they
@@ -93,11 +93,11 @@ export function decodeActivityObservation(
       !Number.isSafeInteger(event.observedAtMs) ||
       event.observedAtMs < 1 ||
       // A busy heartbeat only renews the display lease; a content-free
-      // runtime_progress frame carries no rendered content (ADR 0021,
-      // amended — tool_end/thinking_end/compaction_finished no longer belong
-      // here, see POPOVER_EXCLUDED_DETAIL_KINDS); a run-start marker carries
+      // runtime_progress frame carries no rendered content
+      // (tool_end/thinking_end/compaction_finished no longer belong here, see
+      // POPOVER_EXCLUDED_DETAIL_KINDS); a run-start marker carries
       // no rendered content either (see isRunStartMarker); a reply to the
-      // server's own liveness probe (ADR 0020) is a liveness fact, not new
+      // server's own liveness probe is a liveness fact, not new
       // content. None of these belong in the Activity timeline or the
       // recent-activity list.
       event.isHeartbeat === true ||

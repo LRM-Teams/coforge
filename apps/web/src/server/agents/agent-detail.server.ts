@@ -35,9 +35,9 @@ type DetailAgent = {
   };
   runtimeConfig: Prisma.JsonValue;
   weeklyReportAssistant?: { id: string } | null;
-  /** Set when a user stopped this Agent (ADR 0038). */
+  /** Set when a user stopped this Agent. */
   stoppedAt?: Date | null;
-  /** Who can see this Agent (ADR 0059); optional so a caller that has not started selecting it
+  /** Who can see this Agent; optional so a caller that has not started selecting it
    * yet still satisfies this type. */
   visibility?: string;
   avatarObjectKey?: string | null;

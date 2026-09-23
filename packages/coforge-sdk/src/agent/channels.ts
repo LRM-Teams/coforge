@@ -2,7 +2,7 @@
 
 /** Computed, never stored: `server_role` when the actor's Workspace/Agent server role is
  * owner/admin; otherwise `channel_role` when its own membership's stored `channelRole` is
- * `admin`; otherwise absent. `server_role` wins when both apply (ADR 0030). */
+ * `admin`; otherwise absent. `server_role` wins when both apply. */
 export type AgentChannelAdminBasis = "server_role" | "channel_role";
 
 export const AGENT_CHANNEL_CAPABILITIES = [
@@ -33,7 +33,7 @@ export type AgentChannelInfo = {
   channelAdminBasis?: AgentChannelAdminBasis;
   /** Every capability name; only the ones this Agent may currently invoke are `true`. */
   channelCapabilities: AgentChannelCapabilities;
-  /** Present only when this channel is a Project discussion group (ADR 0026) for a Project the
+  /** Present only when this channel is a Project discussion group for a Project the
    * Agent's own Workspace owns. Field names and source match `workspace info --projects`
    * (`WorkspaceInfoProject`), so an Agent can match the two surfaces up. Absent on an older
    * server that predates this field. */
@@ -59,7 +59,7 @@ export type AgentChannelRosterAgent = {
   displayName: string;
   description: string;
   /** The member's own server role (a rename of this field's former `role` name, matching
-   * Raft's `serverRole`; see ADR 0030). */
+   * Raft's `serverRole`). */
   serverRole: string;
   /** Present for a `#channel` roster (every listed member is active there); absent for the
    * `@user` DM roster, which has no channel-role concept. */
@@ -151,7 +151,7 @@ export type AgentChannelRemoveMemberResponse = {
   wasMember: boolean;
 };
 
-/** `agent_not_visible` (ADR 0059): `channel add-member --agent <handle>` resolves to a private
+/** `agent_not_visible`: `channel add-member --agent <handle>` resolves to a private
  * Agent the calling Agent cannot see — the same stable outcome `user-info.ts`/`profile.ts` carry,
  * distinct from the plain-text "member not found"/"channel not found" bodies every other channel
  * command error still uses. */

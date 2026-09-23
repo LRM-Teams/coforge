@@ -30,7 +30,7 @@ export function CreateChannelDialog({
   /** Prefills, but does not force, the channel name — e.g. the project slug when
    * creating a project's first discussion group. */
   defaultName?: string;
-  /** An Agent-prepared `channel:create` action card's initial humans/Agents (ADR 0027): shown as
+  /** An Agent-prepared `channel:create` action card's initial humans/Agents: shown as
    * preselected, individually deselectable checkboxes. */
   initialMembers?: {
     humans: { id: string; displayName: string }[];

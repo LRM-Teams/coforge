@@ -13,8 +13,7 @@ const AGENT_PACKAGE_DIRECTORY = resolve(REPO_ROOT, "packages/agent");
  * pi-coding-agent`, a `packages/agent` dependency) depends on `@silvia-odwyer/photon-node`,
  * whose package directory ships the wasm file next to its `package.json`; walking that exact
  * dependency chain (rather than a fixed `node_modules/.bun/...` path) is what keeps this resolver
- * correct across package-manager layout changes and version bumps of either package - see
- * docs/adr/0062-photon-wasm-sidecar.md.
+ * correct across package-manager layout changes and version bumps of either package.
  *
  * `fromDirectory` lets tests point resolution at a fixture tree instead of the real installed
  * dependency. */

@@ -41,8 +41,8 @@ type Runtime = {
     reason: AgentSessionInvalidateReason,
   ): void;
   /**
-   * Rebinds an already-running process to a newer control scope without spawning a second one
-   * (docs/adr/0041): a Start that finds `running(agentId)` true under an older, TERMINAL
+   * Rebinds an already-running process to a newer control scope without spawning a second one:
+   * a Start that finds `running(agentId)` true under an older, TERMINAL
    * operation adopts the new request instead of being rejected, mirroring Raft's
    * `rebindRunningStart`. `launchId` is the identity the running process adopts for every later
    * daemon->server message about it (today always `intent.launchId`, the server-supplied id for
@@ -340,7 +340,7 @@ export class AgentControl {
       )
         throw new Error("previous_control_not_completed");
       if (!intent.launchId) {
-        // ADR 0041: the server mints and supplies launchId for every managed start; the SDK
+        // The server mints and supplies launchId for every managed start; the SDK
         // decode step already rejects a controlEpoch-carrying intent with none, so this is a
         // defensive, should-not-happen guard. Checked before the running-process branch below:
         // a rebind needs a launchId to adopt just as much as a fresh launch needs one to use.
@@ -357,11 +357,11 @@ export class AgentControl {
       if (this.runtime.running(intent.agentId)) {
         const runningSessionId = record?.identity?.sessionId;
         // A different native session must not keep the previous process. Rebind
-        // (ADR 0041) only adopts a new control scope for the session already running.
+        // only adopts a new control scope for the session already running.
         if (intent.sessionId && runningSessionId && intent.sessionId !== runningSessionId) {
           await this.runtime.stop(intent.agentId);
         } else if (
-          // ADR 0041: same native session, older terminal operation — adopt the new scope
+          // Same native session, older terminal operation — adopt the new scope
           // instead of spawning. A different sessionId is handled above and must not rebind.
           record &&
           record.phase === "running" &&
@@ -374,7 +374,7 @@ export class AgentControl {
           // The process is running but there is no matching running record to rebind to (the
           // record is missing, or claims a different phase — should not happen). Send a failed
           // result so the server's new operation terminates instead of hanging forever, then
-          // still throw so this stays diagnosable (ADR 0033's `control_code` logging).
+          // still throw so this stays diagnosable (`control_code` logging).
           const sequence = (record?.scope.epoch === scope.epoch ? record.sequence : 0) + 1;
           await this.runtime
             .result({ ...scope, phase: "failed", sequence, errorCode: "agent_already_running" })
@@ -604,7 +604,7 @@ export class AgentControl {
     this.#launchFailures.clear();
   }
   /**
-   * A Start met an already-running process under an older, terminal operation (docs/adr/0041).
+   * A Start met an already-running process under an older, terminal operation.
    * Keeps the process — never spawns, never stops it — and adopts the new scope: the record
    * moves to the new epoch/requestId, keeps `identity`/`daemonInstanceId`, and takes the new
    * `launchId` the server minted for this operation. Sequence restarts the way a fresh record's
@@ -670,7 +670,7 @@ export class AgentControl {
     });
   }
   /**
-   * The mirror image of `stopped()` (docs/adr/0042): a daemon-initiated (self-launched) wake
+   * The mirror image of `stopped()`: a daemon-initiated (self-launched) wake
    * that reused this Agent's remembered `launchId` makes the on-disk record truthful again —
    * without it, a later server Start would find `phase: "stopped"` (or a stale `launchId`) and
    * either fail to rebind or spawn a second process. Never touches `scope`/`requestId`/`epoch`:

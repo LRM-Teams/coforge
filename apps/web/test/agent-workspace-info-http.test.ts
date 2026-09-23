@@ -68,7 +68,7 @@ function baseDb(selfAgent: unknown, rosterOverride?: unknown[]) {
         );
       },
       findUnique: async () => selfAgent,
-      // ADR 0059: `agentVisibilityViewerForActor` resolving the calling Agent's own ownerId/role;
+      // `agentVisibilityViewerForActor` resolving the calling Agent's own ownerId/role;
       // `agent-1` (the caller in every test here) owns nothing else in the fixtures below, so a
       // fixed, non-elevated identity that never matches another Agent's `ownerId` is enough.
       findFirst: async () => ({ ownerId: "user-scout-owner", role: "member" }),
@@ -208,7 +208,7 @@ test("workspace info omits runtimeContext entirely when the calling Agent record
   expect(body.runtimeContext).toBeUndefined();
 });
 
-test("workspace info roster query hides a private Agent the caller cannot see (ADR 0059)", async () => {
+test("workspace info roster query hides a private Agent the caller cannot see", async () => {
   await request(PRINCIPAL, { id: "agent-1", name: "scout", runtimeConfig: {}, computerId: null });
   expect(lastRosterQuery).toMatchObject({
     where: {

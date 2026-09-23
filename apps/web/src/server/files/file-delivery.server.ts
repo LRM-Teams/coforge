@@ -6,7 +6,7 @@ import { readEnvSecret } from "./env-secret.server";
  * Private CDN delivery for immutable object keys (chat attachment images today). Bytes still
  * live in `FileStorage`; this port signs a short-lived HTTPS URL on a CDN domain that fronts the
  * private OSS bucket so the browser can be redirected straight to it instead of the backend
- * proxying every byte. See docs/architecture.md ("Private CDN adapter") and
+ * proxying every byte. See
  * docs/operations/aliyun-oss-cdn.md §5.3/§10. A signed URL is a bearer credential like any other
  * presigned URL: callers must never log it.
  *

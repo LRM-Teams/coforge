@@ -68,7 +68,7 @@ function chipList(items: ActionCardRef[]) {
   );
 }
 
-/** Renders an Agent-prepared action card below its message body (ADR 0027 "Commit and cancel").
+/** Renders an Agent-prepared action card below its message body.
  * Owns its own commit/cancel dialogs and a self-refresh after acting; the conversation view also
  * refreshes every currently pending card on realtime signals and window focus (see
  * `conversation-queries.ts`). */

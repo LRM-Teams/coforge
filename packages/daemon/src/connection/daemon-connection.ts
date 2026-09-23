@@ -497,7 +497,7 @@ export interface DaemonConnectionClient {
   /** Fire-and-forget: never blocks or fails a launch. Buffered latest-per-agent while
    * disconnected and flushed on reconnect, like `sendAgentActivity`. */
   sendSessionInvalidate?(message: AgentSessionInvalidate): void;
-  /** Fire-and-forget: never blocks or fails a turn (ADR 0050). Buffered latest-per-agent while
+  /** Fire-and-forget: never blocks or fails a turn. Buffered latest-per-agent while
    * disconnected and flushed on reconnect, like `sendSessionInvalidate`. */
   sendAgentContextUsage?(message: AgentContextUsage): void;
   sendAgentDeliveryAck?(ack: AgentMessageDeliveryAck): Promise<void>;
@@ -705,7 +705,7 @@ async function getAgentJson<Result>(
 
 /**
  * GETs an Agent Manual route, whose JSON error body is always `{ ok: false, errorCode, error }`
- * (Raft-aligned; see ADR 0036), unlike the plain-text/allowlisted `messages` error contract
+ * (Raft-aligned), unlike the plain-text/allowlisted `messages` error contract
  * `getAgentJson` assumes. A well-formed error body becomes a typed `AgentManualRequestError`
  * carrying its `errorCode` through to the CLI; anything else is a genuine transport failure.
  */
@@ -1336,7 +1336,7 @@ export class DaemonConnection implements DaemonConnectionClient {
    * been logged; suppresses repeats for the rest of this connection's lifetime (fix for a log
    * line that used to repeat on every rejected attempt). */
   #loggedUnknownSessionInvalidateMethod = false;
-  /** Latest-per-agent, like `#pendingSessionInvalidate` (ADR 0050). No launch-observation drop
+  /** Latest-per-agent, like `#pendingSessionInvalidate`. No launch-observation drop
    * rule here: the server's own launch-fence gate already rejects a stale one, and a context
    * reading is superseded by the next one anyway. */
   readonly #pendingContextUsage = new Map<string, AgentContextUsage>();
@@ -1344,7 +1344,7 @@ export class DaemonConnection implements DaemonConnectionClient {
    * `#loggedUnknownSessionInvalidateMethod`, for `agent:context:usage`. */
   #loggedUnknownContextUsageMethod = false;
   /** Same one-per-connection-lifetime log suppression as
-   * `#loggedUnknownSessionInvalidateMethod`, for `agent:context_scan_result` (ADR 0051). */
+   * `#loggedUnknownSessionInvalidateMethod`, for `agent:context_scan_result`. */
   #loggedUnknownContextScanResultMethod = false;
   readonly #latestStatuses = new Map<string, AgentStatus>();
   readonly #restartRequestIds = new Set<string>();
@@ -1536,7 +1536,7 @@ export class DaemonConnection implements DaemonConnectionClient {
     this.#publishSessionInvalidate(this.#client, message);
   }
 
-  /** Fire-and-forget; never awaited by a caller and never fails a turn (ADR 0050). */
+  /** Fire-and-forget; never awaited by a caller and never fails a turn. */
   sendAgentContextUsage(message: AgentContextUsage): void {
     if (!this.#connected || !this.#client) {
       this.#pendingContextUsage.set(message.agentId, message);
@@ -2175,7 +2175,7 @@ export class DaemonConnection implements DaemonConnectionClient {
   }
 
   /**
-   * The direct-upload session routes (ADR 0028) are plain JSON, unlike the multipart upload
+   * The direct-upload session routes are plain JSON, unlike the multipart upload
    * above; each simply forwards its body (if any) to the matching cloud route with the same
    * Agent-scoped headers `agentAttachment`/`agentAttachmentUpload` already add.
    */

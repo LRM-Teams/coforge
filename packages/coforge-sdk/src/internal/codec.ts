@@ -678,7 +678,7 @@ function validateAgentContextUsage(value: {
 export function encodeAgentStartIntent(value: AgentStartIntent): Uint8Array {
   if (value.controlEpoch !== undefined)
     assertPositiveControlCounter(value.controlEpoch, "Agent control epoch");
-  // ADR 0041: the server mints and supplies launchId for every managed (controlEpoch-carrying)
+  // The server mints and supplies launchId for every managed (controlEpoch-carrying)
   // start; a start intent with an epoch but no launchId is an internal bug, not a wire concern.
   if (value.controlEpoch !== undefined && !value.launchId?.trim())
     throw new Error("managed Agent start intent requires a launchId");
@@ -754,7 +754,7 @@ export function decodeAgentStartIntent(bytes: Uint8Array): AgentStartIntent {
     throw new Error(`unsupported runtime provider: ${v.provider}`);
   if (v.controlEpoch !== undefined)
     assertPositiveControlCounter(v.controlEpoch, "Agent control epoch");
-  // ADR 0041: a managed start (one carrying controlEpoch) must carry the server-minted
+  // A managed start (one carrying controlEpoch) must carry the server-minted
   // launchId; a decoded intent that fails this is malformed, not merely "unmanaged."
   if (v.controlEpoch !== undefined && !v.launchId?.trim())
     throw new Error("invalid agent start intent: managed start requires a launchId");

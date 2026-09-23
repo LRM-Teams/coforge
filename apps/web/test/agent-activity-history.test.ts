@@ -7,7 +7,7 @@ test("chat activity history uses a compact parameterized member-scoped query", a
   const db = {
     workspaceMembership: { findUnique: async () => ({ role: "member" }) },
     agent: {
-      // ADR 0059: the viewer's own visible-Agent ids are read once, through the shared
+      // The viewer's own visible-Agent ids are read once, through the shared
       // `visibleAgentWhere` seam, and passed into the CTE's WHERE — never re-derived in SQL.
       findMany: async () => [{ id: "agent-1" }, { id: "agent-empty" }],
     },
@@ -61,7 +61,7 @@ test("chat activity history uses a compact parameterized member-scoped query", a
     },
     { id: "agent-empty", activity: [] },
   ]);
-  // Two WHERE clauses now also exclude the popover-hidden status kinds (ADR 0021, amended):
+  // Two WHERE clauses now also exclude the popover-hidden status kinds:
   // tool_end, thinking_end, compaction_finished, review_finished, once per CTE.
   const excludedKinds = ["tool_end", "thinking_end", "compaction_finished", "review_finished"];
   expect(query.slice(1)).toEqual([

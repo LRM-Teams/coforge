@@ -34,7 +34,7 @@ export type AgentContextPopoverData = {
 
 /** The categorical swatches for the stacked bar and table dots (`bg-avatar-1..6`, `lib/
  * avatar-tone.ts`'s palette), plus a neutral for Free space. No red/amber: nothing here signals
- * a threshold (ADR 0051). */
+ * a threshold. */
 const CATEGORY_TONES = [
   "bg-avatar-1",
   "bg-avatar-2",

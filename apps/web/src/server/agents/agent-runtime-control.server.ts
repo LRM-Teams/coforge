@@ -112,7 +112,7 @@ export class WorkspaceAgentRecovery {
   ) {
     const runningAgents = new Set(runningAgentIds);
     const agents = await this.agents.listForComputer(workspaceId, computerId);
-    // ADR 0044: a deleted Agent is never recovered — but if the Daemon still reports one running
+    // A deleted Agent is never recovered — but if the Daemon still reports one running
     // (its Stop never reached an offline Daemon, or its result was lost), reconcile with a Stop.
     // Deleted Agents are listed separately because `listForComputer` only returns live ones.
     const control = this.control;
@@ -139,7 +139,7 @@ export class WorkspaceAgentRecovery {
           if (!agent || agent.workspaceId !== workspaceId || agent.computerId !== computerId)
             return;
           if (agent.stoppedAt) {
-            // ADR 0038: a user stopped this Agent; nothing here may start or wake it. If the
+            // A user stopped this Agent; nothing here may start or wake it. If the
             // Daemon still reports it running (Stop requested while offline, or its result was
             // lost), reconcile with a Stop through AgentControl, without blocking the rest of
             // recovery on its result.

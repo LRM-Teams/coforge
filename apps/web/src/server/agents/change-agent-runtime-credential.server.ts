@@ -62,9 +62,9 @@ export class ChangeAgentRuntimeCredential {
         agent.ownerId !== principal.userId
       )
         throw new Error("Agent is not authorized");
-      // ADR 0044: a deleted Agent has no runtime credential to edit, and no restart either.
+      // A deleted Agent has no runtime credential to edit, and no restart either.
       assertAgentLive(agent);
-      // ADR 0038: a stopped Agent has nothing running to protect from the old credential; persist
+      // A stopped Agent has nothing running to protect from the old credential; persist
       // without the stop -> ... -> start dance.
       if (agent.stoppedAt) {
         const stoppedResult = await mutation();

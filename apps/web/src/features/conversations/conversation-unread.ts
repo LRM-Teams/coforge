@@ -13,7 +13,7 @@ import {
 } from "./conversation-realtime";
 
 /**
- * Sidebar unread state for the Chat page (ADR 0046, Slack/Discord model): a per-badge count
+ * Sidebar unread state for the Chat page (Slack/Discord model): a per-badge count
  * of unread top-level messages, seeded from the server's persisted read cursors and kept
  * live by realtime signals. Opening a conversation clears its badge; every list fetch
  * replaces local arithmetic with the server's own count.
@@ -99,7 +99,7 @@ export function clearUnread(
 
 /**
  * The highest top-level sequence in a loaded conversation page — the boundary "I have read
- * everything shown in the main pane". Thread replies never advance it (ADR 0046). Shared by
+ * everything shown in the main pane". Thread replies never advance it. Shared by
  * the channel and DM routes so the two mark-read paths cannot drift.
  */
 export function latestTopLevelSequence(

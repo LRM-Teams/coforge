@@ -4,7 +4,7 @@
  * `getAgentChannel`'s `ACCESS_DENIED`/`INVALID_INPUT` for an ordinary channel-access or
  * malformed-target failure), this class is only ever thrown for the conditions `sendAgentMessage`
  * itself raises: an unavailable attachment or a mention binding that does not match a conversation
- * member (both inside its own transaction), and — ADR 0059 — a private Agent's own outbound
+ * member (both inside its own transaction), and a private Agent's own outbound
  * direct message, which stays read-only for everyone but its creator. The route maps only this
  * class; every other thrown error (including `AppError`) is left to propagate exactly as it did
  * before this type existed.

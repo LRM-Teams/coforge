@@ -43,7 +43,7 @@ const stateSchema = z
     controlSequence: z.number().int().nonnegative(),
     sessionSequence: z.number().int().nonnegative(),
     errorCode: z.string().optional(),
-    /** Legacy field from ADR 0035, removed by ADR 0039 (latest command wins, no abandonment).
+    /** Legacy field, since removed (latest command wins, no abandonment).
      * Accepted here only so a row persisted before this change still parses; ignored by every
      * reader and never written by `controlState()` below, since `AgentControlState` no longer
      * has this field at the TypeScript level. */
@@ -91,7 +91,7 @@ export class PrismaAgentControlStore implements AgentControlStore {
       return undefined;
     // `updatedAtMs` (legacy, ignored, never written — see `stateSchema`) is dropped here so it
     // never reaches `AgentControlState`/the rest of the application, even for a row persisted
-    // before ADR 0039 removed the field. `storedControlState` below keeps the raw, unstripped
+    // before the field was removed. `storedControlState` below keeps the raw, unstripped
     // JSON for `replace()`'s compare-and-swap predicate, so a legacy row's extra key does not
     // make that predicate lose against the real stored value.
     const state =
@@ -194,7 +194,7 @@ export class PrismaAgentControlStore implements AgentControlStore {
           // from `before.state` (`controlState(before.state)`): a legacy row can still carry an
           // `updatedAtMs` key `before.state` never reflects, and Postgres JSONB `=` is structural
           // — an extra key would make a reconstructed predicate lose the CAS against every
-          // legacy row (ADR 0039).
+          // legacy row.
           controlState: {
             equals:
               before.storedControlState == null
@@ -206,7 +206,7 @@ export class PrismaAgentControlStore implements AgentControlStore {
           controlState: controlState(checked),
           ...(clearSession || changedRequest ? { runtimeSession: Prisma.DbNull } : {}),
           ...(clearSession ? { currentSessionId: null } : {}),
-          // ADR 0038: last-writer-wins, not part of the CAS predicate above — the caller already
+          // Last-writer-wins, not part of the CAS predicate above — the caller already
           // decided this write is safe to make in the same statement as the control state.
           ...(options?.stoppedAt !== undefined ? { stoppedAt: options.stoppedAt } : {}),
         },

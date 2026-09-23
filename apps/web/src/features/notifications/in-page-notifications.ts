@@ -38,7 +38,7 @@ export function shouldShowInPageNotification(input: {
 
 /**
  * Shows the OS notification itself from the realtime `notification.available.v1` signal while a
- * CoForge tab is open (ADR 0065): Google's push services are unreachable from mainland-China
+ * CoForge tab is open: Google's push services are unreachable from mainland-China
  * staging and clients, so Web Push alone never reaches Chrome there. Renders nothing; Web Push
  * (`BrowserPushLifecycle`) still owns delivery once every tab is closed.
  *

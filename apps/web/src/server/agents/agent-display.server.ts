@@ -20,7 +20,7 @@ const WORKING_LEASE_MS = 90_000;
 // never has to scan Agent state directly to find stale busy leases.
 const LEASES_KEY = "coforge:agent-display:activity-leases";
 
-// ADR 0021: busy-but-filler detail kinds. Like runtime_progress, these only
+// Busy-but-filler detail kinds. Like runtime_progress, these only
 // renew the display lease; they carry no content worth showing or keeping.
 export const LIVENESS_ONLY_DETAIL_KINDS: ReadonlySet<string> = new Set([
   AGENT_ACTIVITY_DETAIL_KIND.RUNTIME_PROGRESS,
@@ -42,17 +42,17 @@ const workingKinds = new Set([
   "freshness_hold",
   "runtime_progress",
   "runtime_reconnecting",
-  // A stored native session was unusable and the daemon is cold-starting a new one (ADR 0040).
+  // A stored native session was unusable and the daemon is cold-starting a new one.
   "runtime_unavailable",
   "starting",
   "checking_messages",
   "compacting_context",
-  // ADR 0021 liveness-only fillers: still "working" while visible.
+  // Liveness-only fillers: still "working" while visible.
   "tool_end",
   "thinking_end",
   "compaction_finished",
   "review_finished",
-  // ADR 0021 visible, stored busy detail kinds.
+  // Visible, stored busy detail kinds.
   "subagent_activity",
   // The Agent's provider entered a review pass.
   "reviewing_changes",
@@ -151,7 +151,7 @@ local function snapshot(state, workspace_id, computer_id, agent_id, now)
         if state.activity.expiresAt < expires_at then expires_at = state.activity.expiresAt end
       end
     end
-    -- ADR 0050: AgentStatus carries no launch id, so the strongest fence available here is
+    -- AgentStatus carries no launch id, so the strongest fence available here is
     -- "the same daemon instance the active process reports" plus "not a launch OBSERVE_ACTIVITY
     -- has since retired" — the same bounded, best-effort fence retiredLaunchId already is, not a
     -- database race fence. A dead/superseded launch's reading never paints the badge.
@@ -198,7 +198,7 @@ local preserve_provisional = not current and state.activityVisible and state.act
   state.activity.daemonInstanceId == ARGV[6]
 local reset_activity = (current and (not same_instance or current.status == "inactive")) or ARGV[5] == "inactive"
 if reset_activity or (not preserve_provisional and not current) then state.activityVisible = false end
--- ADR 0050: the process going inactive, or a different daemon instance taking over, makes any
+-- The process going inactive, or a different daemon instance taking over, makes any
 -- stored context-window reading stale.
 if reset_activity then state.contextUsage = nil end
 state.process = {
@@ -242,7 +242,7 @@ if previous then
     -- Retain one retired launch only. Cross-launch observedAt ordering is a bounded
     -- best-effort fence, not permanent history or a database race fence.
     state.retiredLaunchId = previous.launchId
-    -- ADR 0050: a context-window reading from the launch just retired is stale.
+    -- A context-window reading from the launch just retired is stale.
     if state.contextUsage and state.contextUsage.launchId == previous.launchId then
       state.contextUsage = nil
     end
@@ -399,13 +399,13 @@ export interface AgentDisplay {
     activity: AgentActivity & { computerId: string },
     fence: { daemonInstanceId: string; launchId: string },
   ): Promise<AgentDisplaySnapshot | undefined>;
-  /** ADR 0050: sets the Agent's current context-window reading, guarded by the same
+  /** Sets the Agent's current context-window reading, guarded by the same
    * daemonInstanceId/clientSeq ordering rule `observeStatus` uses. */
   putContextUsage(message: AgentContextUsage): Promise<AgentDisplaySnapshot | undefined>;
   snapshot(scope: Scope): Promise<AgentDisplaySnapshot>;
   /** Up to `limit` scopes whose busy lease score is at or before `now`, oldest first. */
   staleLeases(now: number, limit: number): Promise<Scope[]>;
-  /** Advances one Agent's pending liveness probe; see ADR 0020 for the outcome semantics. */
+  /** Advances one Agent's pending liveness probe. */
   sweepStale(
     scope: Scope,
     args: { probeId: string; timeoutMs: number },

@@ -296,7 +296,7 @@ function expiredSnapshot(scope: { workspaceId: string; computerId: string; agent
   };
 }
 
-test("sweepOne publishes a private Agent's synthesized display to its per-Agent status channel (ADR 0059)", async () => {
+test("sweepOne publishes a private Agent's synthesized display to its per-Agent status channel", async () => {
   const privateScope = { workspaceId: "workspace-p", computerId: "computer-p", agentId: "agent-p" };
   const snapshot = expiredSnapshot(privateScope);
   const display = {

@@ -51,7 +51,7 @@ const UPGRADE_RECEIPT_POLL_MS = 2_000;
 /**
  * How long the Coordinator waits for one Workspace daemon to answer a runner hold. A Workspace
  * that does not answer is reported unreachable and counted as idle: a wedged or dead Workspace
- * daemon must never be able to block a Computer upgrade (ADR 0020) or a restart (ADR 0021).
+ * daemon must never be able to block a Computer upgrade or a restart.
  */
 const RUNNER_HOLD_WORKSPACE_TIMEOUT_MS = 5_000;
 
@@ -201,7 +201,7 @@ async function runWithSupervisorLock(
    * Asks one Workspace daemon to hold (or release) its runners. A Workspace that does not answer
    * inside `RUNNER_HOLD_WORKSPACE_TIMEOUT_MS`, answers `accepted: false`, or fails outright is
    * reported unreachable and counted as idle: a wedged or dead Workspace daemon must never be
-   * able to block a Computer upgrade (ADR 0020) or a restart (ADR 0021). Shared by the
+   * able to block a Computer upgrade or a restart. Shared by the
    * Coordinator-wide fan-out below and by the per-Workspace restart hold.
    */
   const holdWorkspaceRunners = async (
@@ -402,7 +402,7 @@ async function runWithSupervisorLock(
       },
       // Per-Workspace, so a restart never reaches past its own target: an unscoped restart holds
       // each enabled binding in turn as the loop gets to it, not the whole machine at once. The
-      // Coordinator-wide fan-out below stays the upgrade's path (ADR 0021).
+      // Coordinator-wide fan-out below stays the upgrade's path.
       hold: (binding, reason) =>
         holdWorkspaceRunners(binding.workspaceId, "hold", reason, "restart"),
       release: (binding, reason) =>
@@ -699,7 +699,7 @@ async function runWithSupervisorLock(
   } finally {
     // Every upgrade receipt watch is Coordinator-owned and must not outlive this process: an
     // uncancelled one is exactly the pending `Bun.sleep` that kept the Coordinator alive past its
-    // own shutdown (ADR 0032/0037). Aborting resolves each watch's current sleep immediately, so
+    // own shutdown. Aborting resolves each watch's current sleep immediately, so
     // awaiting them here costs no meaningful time.
     upgradeWatchController.abort();
     await Promise.allSettled(upgradeWatches);
