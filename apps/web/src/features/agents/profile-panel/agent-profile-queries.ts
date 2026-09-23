@@ -1,11 +1,8 @@
 import { MEMBER_DIRECTORY_KEY } from "#src/features/agents/member-directory-queries";
 import { queryOptions, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "@tanstack/react-router";
-import { useEffect } from "react";
 
 import { getAgentEnvironment, getAgentProfile } from "#src/features/agents/agents.functions";
-import { agentActivityFeedQuery } from "#src/features/agents/agent-activity-queries";
-import { mergeAgentActivity } from "#src/features/agents/agent-activity";
 
 const agentProfileKey = (agentId: string) => ["agent-profile", agentId] as const;
 export const agentEnvironmentKey = (agentId: string) => ["agent-environment", agentId] as const;
@@ -21,23 +18,10 @@ export function agentProfileQuery(agentId: string | undefined) {
   });
 }
 
-/**
- * Loads the panel's profile payload and, on arrival, seeds the shared Activity feed cache
- * (`agent-activity-queries.ts`'s `agentActivityFeedQuery`) exactly like the full Agent detail
- * route's loader does — so the Activity tab and the live `useAgentActivityFeed` subscription see
- * the same history whichever surface opened first.
- */
+/** Loads the panel's profile payload. Activity history is not in it; the Activity tab reads the
+ * shared feed through `useAgentActivityFeed`. */
 export function useAgentProfileData(agentId: string | undefined) {
-  const query = useQuery(agentProfileQuery(agentId));
-  const queryClient = useQueryClient();
-  const activity = query.data?.activity;
-  useEffect(() => {
-    if (!agentId || !activity) return;
-    queryClient.setQueryData(agentActivityFeedQuery(agentId).queryKey, (current) =>
-      mergeAgentActivity(current ?? [], activity),
-    );
-  }, [agentId, activity, queryClient]);
-  return query;
+  return useQuery(agentProfileQuery(agentId));
 }
 
 /**

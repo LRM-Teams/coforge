@@ -13,19 +13,53 @@ export function resolveTimeZone(preference: string | null | undefined, browserTi
   return DEFAULT_TIME_ZONE;
 }
 
+let cachedBrowserTimeZone: string | undefined;
+
+/** The zone a timestamp is shown in: the viewer's saved preference, else the browser's own. The
+ * browser zone is read once per page load, like the formatters below that bake it in. */
+function displayTimeZone(preference: string | null | undefined) {
+  if (preference && isValidTimeZone(preference)) return preference;
+  cachedBrowserTimeZone ??=
+    typeof Intl !== "undefined" ? Intl.DateTimeFormat().resolvedOptions().timeZone : undefined;
+  return resolveTimeZone(undefined, cachedBrowserTimeZone);
+}
+
+// Building an `Intl.DateTimeFormat` costs far more than formatting with one, and a long list
+// formats the same few shapes hundreds of times per render, so each shape is built once.
+const dateTimeFormats = new Map<string, Intl.DateTimeFormat>();
+
+function dateTimeFormat(locale: string, options: Intl.DateTimeFormatOptions) {
+  const key = `${locale}\u0000${JSON.stringify(options)}`;
+  let format = dateTimeFormats.get(key);
+  if (!format) {
+    format = new Intl.DateTimeFormat(locale, options);
+    dateTimeFormats.set(key, format);
+  }
+  return format;
+}
+
+const relativeTimeFormats = new Map<string, Intl.RelativeTimeFormat>();
+
+function relativeTimeFormat(locale: string) {
+  let format = relativeTimeFormats.get(locale);
+  if (!format) {
+    format = new Intl.RelativeTimeFormat(locale, { numeric: "auto", style: "narrow" });
+    relativeTimeFormats.set(locale, format);
+  }
+  return format;
+}
+
 export function formatDateForDisplay(
   value: Date | string,
   timeZone: string | null | undefined,
   locale = typeof navigator === "undefined" ? "en-US" : navigator.language,
   timeFormat: TimeFormat | null = null,
 ) {
-  const browserTimeZone =
-    typeof Intl !== "undefined" ? Intl.DateTimeFormat().resolvedOptions().timeZone : undefined;
-  return new Intl.DateTimeFormat(locale, {
+  return dateTimeFormat(locale, {
     dateStyle: "medium",
     timeStyle: "short",
     hour12: hour12For(timeFormat),
-    timeZone: resolveTimeZone(timeZone, browserTimeZone),
+    timeZone: displayTimeZone(timeZone),
   }).format(new Date(value));
 }
 
@@ -36,15 +70,11 @@ export function formatCalendarDate(
   timeZone: string | null | undefined,
   locale = typeof navigator === "undefined" ? "en-US" : navigator.language,
 ) {
-  const browserTimeZone =
-    typeof Intl !== "undefined" ? Intl.DateTimeFormat().resolvedOptions().timeZone : undefined;
-  const zone = resolveTimeZone(timeZone, browserTimeZone);
+  const zone = displayTimeZone(timeZone);
   if (!locale.toLowerCase().startsWith("zh")) {
-    return new Intl.DateTimeFormat(locale, { dateStyle: "medium", timeZone: zone }).format(
-      new Date(value),
-    );
+    return dateTimeFormat(locale, { dateStyle: "medium", timeZone: zone }).format(new Date(value));
   }
-  const parts = new Intl.DateTimeFormat(locale, {
+  const parts = dateTimeFormat(locale, {
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
@@ -63,24 +93,20 @@ export function formatClockTime(
   locale = typeof navigator === "undefined" ? "en-US" : navigator.language,
   timeFormat: TimeFormat | null = null,
 ) {
-  const browserTimeZone =
-    typeof Intl !== "undefined" ? Intl.DateTimeFormat().resolvedOptions().timeZone : undefined;
-  return new Intl.DateTimeFormat(locale, {
+  return dateTimeFormat(locale, {
     hour: "2-digit",
     minute: "2-digit",
     second: "2-digit",
     hour12: hour12For(timeFormat),
-    timeZone: resolveTimeZone(timeZone, browserTimeZone),
+    timeZone: displayTimeZone(timeZone),
   }).format(new Date(value));
 }
 
 /** A sortable `YYYY-MM-DD` key for the calendar day `value` falls on in `timeZone`, used to
  * detect a day change between two instants (not for display). */
 export function calendarDayKey(value: Date | string, timeZone: string | null | undefined) {
-  const browserTimeZone =
-    typeof Intl !== "undefined" ? Intl.DateTimeFormat().resolvedOptions().timeZone : undefined;
-  return new Intl.DateTimeFormat("en-CA", {
-    timeZone: resolveTimeZone(timeZone, browserTimeZone),
+  return dateTimeFormat("en-CA", {
+    timeZone: displayTimeZone(timeZone),
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
@@ -93,11 +119,9 @@ export function formatCalendarDayLabel(
   timeZone: string | null | undefined,
   locale = typeof navigator === "undefined" ? "en-US" : navigator.language,
 ) {
-  const browserTimeZone =
-    typeof Intl !== "undefined" ? Intl.DateTimeFormat().resolvedOptions().timeZone : undefined;
-  return new Intl.DateTimeFormat(locale, {
+  return dateTimeFormat(locale, {
     dateStyle: "medium",
-    timeZone: resolveTimeZone(timeZone, browserTimeZone),
+    timeZone: displayTimeZone(timeZone),
   }).format(new Date(value));
 }
 
@@ -108,10 +132,7 @@ export function formatRelativeTime(
 ) {
   const seconds = (new Date(value).getTime() - now.getTime()) / 1_000;
   const absoluteSeconds = Math.abs(seconds);
-  const formatter = new Intl.RelativeTimeFormat(locale, {
-    numeric: "auto",
-    style: "narrow",
-  });
+  const formatter = relativeTimeFormat(locale);
   if (absoluteSeconds < 60) return formatter.format(0, "second");
 
   const units: Array<[Intl.RelativeTimeFormatUnit, number]> = [
@@ -128,11 +149,17 @@ export function formatRelativeTime(
   return formatter.format(amount, unit);
 }
 
+// Only accepted zones are remembered: they are a small fixed set, while rejected values can be
+// arbitrary user input (`validateTimeZone` runs on the server).
+const validTimeZones = new Set<string>();
+
 function isValidTimeZone(value: string) {
+  if (validTimeZones.has(value)) return true;
   try {
     new Intl.DateTimeFormat("en-US", { timeZone: value }).format();
-    return true;
   } catch {
     return false;
   }
+  validTimeZones.add(value);
+  return true;
 }

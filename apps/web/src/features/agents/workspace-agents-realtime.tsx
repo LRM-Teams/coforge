@@ -206,7 +206,13 @@ export function useAgentRecentActivity(agentId: string) {
   };
 }
 
-/** The Agent detail Activity tab's feed, kept live by the shared subscription. */
+/** The Agent detail Activity tab's feed, kept live by the shared subscription. `activity` is
+ * undefined until the first load lands. */
 export function useAgentActivityFeed(agentId: string) {
-  return useQuery(agentActivityFeedQuery(agentId)).data;
+  const query = useQuery(agentActivityFeedQuery(agentId));
+  return {
+    activity: query.data,
+    failed: query.isError && query.data === undefined,
+    retry: () => void query.refetch(),
+  };
 }

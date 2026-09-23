@@ -196,6 +196,8 @@
   "agent_workspace_select_file": "选择一个文件以预览。",
   "agent_activity_empty": "暂无活动",
   "agent_activity_empty_description": "启动、运行、停止和失败记录将显示在这里。",
+  "agent_activity_loading": "正在加载活动…",
+  "agent_activity_error": "无法加载活动。",
   "agent_activity_starting": "正在启动",
   "agent_activity_running_command": "正在运行命令",
   "agent_activity_reading_file": "正在读取文件",

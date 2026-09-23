@@ -1,5 +1,6 @@
 import {
   Fragment,
+  memo,
   useId,
   useLayoutEffect,
   useMemo,
@@ -31,12 +32,26 @@ export function AgentActivityTimeline({
   timeZone: string | null;
   compact?: boolean;
 }) {
+  const locale = getLocale();
   // presentActivityRows is newest-first (its own documented contract, kept for the
   // avatar/popover's top-N slice); the timeline itself reads oldest at top, newest at bottom.
-  const rows = useMemo(() => [...presentActivityRows(activity)].reverse(), [activity]);
+  // Each row carries the date-separator label that precedes it, worked out once per feed change
+  // rather than on every render.
+  const rows = useMemo(() => {
+    let previousDay: string | undefined;
+    return [...presentActivityRows(activity)].reverse().map((row) => {
+      const day = calendarDayKey(new Date(row.observedAtMs), timeZone);
+      const dayLabel =
+        day === previousDay
+          ? undefined
+          : formatCalendarDayLabel(new Date(row.observedAtMs), timeZone, locale);
+      previousDay = day;
+      return { row, dayLabel };
+    });
+  }, [activity, timeZone, locale]);
 
   const scrollRef = useRef<HTMLDivElement>(null);
-  const newest = rows.at(-1);
+  const newest = rows.at(-1)?.row;
   // Re-runs whenever a row is appended or the newest row grows (a streamed statement merging
   // in another fragment) — the two ways the list can change without an explicit "load more".
   const newestSignal = newest ? `${newest.key}:${newest.detail.length}` : "";
@@ -65,8 +80,6 @@ export function AgentActivityTimeline({
       </div>
     );
 
-  const locale = getLocale();
-
   return (
     <div ref={scrollRef} className="h-full overflow-y-auto">
       <ol
@@ -76,41 +89,53 @@ export function AgentActivityTimeline({
           compact ? "px-4" : "mt-6 rounded-xl border border-secondary px-4 md:px-6",
         )}
       >
-        {rows.map((row, index) => {
-          const previous = rows[index - 1];
-          const dayChanged =
-            !previous ||
-            calendarDayKey(new Date(previous.observedAtMs), timeZone) !==
-              calendarDayKey(new Date(row.observedAtMs), timeZone);
-          return (
-            <Fragment key={row.key}>
-              {dayChanged && (
-                <li
-                  aria-hidden="true"
-                  className="py-2 text-center text-xs font-medium text-tertiary"
-                  style={{ contentVisibility: "auto", containIntrinsicSize: "auto 36px" }}
-                >
-                  {formatCalendarDayLabel(new Date(row.observedAtMs), timeZone, locale)}
-                </li>
-              )}
-              <ActivityTimelineRow row={row} timeZone={timeZone} compact={compact} />
-            </Fragment>
-          );
-        })}
+        {rows.map(({ row, dayLabel }) => (
+          <Fragment key={row.key}>
+            {dayLabel && (
+              <li
+                aria-hidden="true"
+                className="py-2 text-center text-xs font-medium text-tertiary"
+                style={{ contentVisibility: "auto", containIntrinsicSize: "auto 36px" }}
+              >
+                {dayLabel}
+              </li>
+            )}
+            <ActivityTimelineRow row={row} timeZone={timeZone} compact={compact} />
+          </Fragment>
+        ))}
       </ol>
     </div>
   );
 }
 
-function ActivityTimelineRow({
-  row,
-  timeZone,
-  compact,
-}: {
+type ActivityTimelineRowProps = {
   row: PresentedActivityRow;
   timeZone: string | null;
   compact: boolean;
-}) {
+};
+
+/** Every live frame re-presents the whole feed into fresh row objects, so rows are compared by
+ * content: only a new row, or the newest statement growing, renders again. */
+function sameRowProps(previous: ActivityTimelineRowProps, next: ActivityTimelineRowProps) {
+  if (previous.timeZone !== next.timeZone || previous.compact !== next.compact) return false;
+  const a = previous.row;
+  const b = next.row;
+  const fields = Object.keys(a) as (keyof PresentedActivityRow)[];
+  return (
+    fields.length === Object.keys(b).length &&
+    fields.every((field) =>
+      field === "subagent"
+        ? a.subagent?.parentToolUseId === b.subagent?.parentToolUseId
+        : a[field] === b[field],
+    )
+  );
+}
+
+const ActivityTimelineRow = memo(function ActivityTimelineRow({
+  row,
+  timeZone,
+  compact,
+}: ActivityTimelineRowProps) {
   const [expanded, setExpanded] = useState(false);
   const contentId = useId();
   const canExpand = row.expandable && row.detail.length > 200;
@@ -225,4 +250,4 @@ function ActivityTimelineRow({
       </div>
     </li>
   );
-}
+}, sameRowProps);
