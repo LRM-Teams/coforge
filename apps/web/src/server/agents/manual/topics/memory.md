@@ -71,16 +71,10 @@ Put code, clones, and artifacts in `work/`, not the Agent workspace root. Update
 proactively: when you learn something important, write it in `notes/` and add a one-line
 pointer in MEMORY.md if it is new.
 
-## Compaction safety
+## Recovery and updates
 
-Your context will be periodically compressed to stay within limits. When this happens, you lose
-your in-context conversation history; MEMORY.md is your recovery point after compression.
-
-- MEMORY.md must point to everything; it does not contain everything. After reading it and the
-  one note Active Context names, you should know who you are, what you were doing, and where
-  the details live.
-- Before a long task, write a brief Active Context pointer (≤ 5 lines) in MEMORY.md so you can
-  resume if interrupted mid-task.
-- After completing work, update `notes/` and the MEMORY.md index so nothing is lost.
-- Do not grow MEMORY.md to preserve channel history, task dumps, or other-Agent diaries —
-  those belong in `notes/`.
+Read MEMORY.md and relevant notes when resuming without sufficient context, not on every turn.
+Provider compaction may retain a summary; do not assume all context was lost.
+Save useful cross-session facts, decisions, or unfinished progress when needed. Ordinary requests
+need no before/after bookkeeping. The layout above is guidance when maintaining memory, not a
+prerequisite for doing the user's work.

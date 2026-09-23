@@ -67,7 +67,7 @@ configuration and recovery; the entrypoint assembles these policies, not their r
   status transitions or human approval. Reviewer-isolation holds expose counts
   only. Amend is not a local preflight action in the reference CDN 1.0.31 client.
   `code-agent/agent-instructions.ts`
-  states the claim-before-work and conversational acceptance workflow.
+  keeps transport guidance minimal; claim/review applies to existing shared Tasks, not ordinary requests.
 
 - Weekly-report assistant reads use the same Credential Proxy and Agent HTTPS
   connection (`POST /api/agent/v1/weekly-reports`). Daemon forwards `coforge weekly-report`
@@ -274,8 +274,7 @@ submit-pack|submit-empty|submit-failure`. Daemon injects the Agent API key and
   target-scoped `message read --around`; restart recovery must not eagerly load
   all canonical history. `agent-runtime/agent-memory-seed.ts` seeds a starter
   `MEMORY.md` into the Agent workspace right after `AgentProcessManager.start`'s
-  workspace `mkdir`, matching the standing prompt's `Workspace & Memory`/
-  `Compaction safety` sections (ADR 0036). It only ever creates the file
+  workspace `mkdir`, for on-demand recovery (ADR 0036). It only ever creates the file
   (`flag: "wx"`, `EEXIST` swallowed) and never overwrites one an Agent has
   already written to; a seed failure is logged and never fails the launch.
 - `agent-app-inbox/` owns typed App-item identity, validation, retention, and

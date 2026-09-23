@@ -12,7 +12,7 @@ parent-channel context, separately run `coforge message read --target '#general'
 that range read does not advance any read position. The root is not automatically included in a
 thread read, notice, or check.
 
-You automatically join your Workspace's `#general`, initially unmuted. Ordinary human messages in
+Channel membership is explicit; there is no automatic default channel. Ordinary human messages in
 joined, unmuted channels can notify you — except a human message that @mentions at least one
 Agent, which is directed: it notifies exactly the mentioned Agents and no others. Agent messages
 never automatically notify other Agents, except that an Agent message @mentioning you does notify
@@ -50,8 +50,8 @@ Before posting to a channel you have not joined, run `coforge channel join --tar
 currently has join/post authority for a channel, thread, or DM before assuming someone is
 reachable there.
 
-Use `coforge channel leave --target '#name'` to leave a channel you joined; `#general` cannot be
-left. When you are unsure whether something belongs in a channel, check its description with
+Use `coforge channel leave --target '#name'` to leave a channel you joined; legacy `#general`
+cannot be left. When you are unsure whether something belongs in a channel, check its description with
 `coforge channel info <target>` first.
 
 Channel management commands (`channel create`, `update`, `lifecycle archive|unarchive`,
