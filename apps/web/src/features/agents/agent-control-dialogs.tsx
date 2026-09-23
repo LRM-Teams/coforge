@@ -1,4 +1,4 @@
-import { RefreshCcw01 as RotateCcw, Stop, XClose as X } from "@untitledui/icons";
+import { RefreshCcw01 as RotateCcw, XClose as X } from "@untitledui/icons";
 import { Heading, Text } from "react-aria-components";
 
 import { Button } from "@/components/base/buttons/button";
@@ -32,13 +32,13 @@ export function AgentControlDialogs({
         }}
       >
         <Modal className="w-[calc(100vw-2rem)] max-w-lg">
-          <Dialog className="overflow-hidden text-left">
+          <Dialog className="p-6 text-left">
             {({ close }) => (
               <>
-                <div className="flex shrink-0 items-start justify-between gap-4 px-6 pt-6">
+                <div className="flex shrink-0 items-start justify-between gap-4">
                   <Heading
                     slot="title"
-                    className="min-w-0 text-xl font-semibold text-primary wrap-anywhere sm:text-2xl"
+                    className="min-w-0 text-base font-semibold text-primary wrap-anywhere"
                   >
                     {m.agent_control_stop_dialog_title()}
                   </Heading>
@@ -51,30 +51,36 @@ export function AgentControlDialogs({
                     onClick={close}
                   />
                 </div>
-                {/* `block`, because an inline `Text` puts its horizontal padding on the first and
-                    last line only: the padding is on the paragraph's start and end edges, not on
-                    every line, so a wrapped second line escapes to the dialog's edge and can be
-                    clipped by its rounded corner. */}
-                <Text slot="description" className="block px-6 pt-4 text-sm text-tertiary">
+                {/* No padding of its own: the `Dialog` owns it. `px-*` on an *inline* `Text`
+                    lands on the first and last line only, which is how a wrapped second line came
+                    to sit at the dialog's edge and lose its left side to the rounded corner. */}
+                <Text slot="description" className="mt-2 text-sm text-tertiary">
                   {m.agent_control_stop_message({ name: agentName })}
                 </Text>
                 {control.startStopError && (
-                  <p role="alert" className="px-6 pt-4 text-sm text-error-primary">
+                  <p role="alert" className="mt-2 text-sm text-error-primary">
                     {control.startStopError}
                   </p>
                 )}
-                <div className="mt-6 flex shrink-0 flex-wrap justify-end gap-3 border-t border-secondary px-6 py-4">
-                  <Button color="secondary" isDisabled={control.stopPending} onPress={close}>
+                <div className="mt-6 flex shrink-0 flex-wrap justify-end gap-3">
+                  <Button
+                    className="min-w-28"
+                    color="secondary"
+                    isDisabled={control.stopPending}
+                    onPress={close}
+                  >
                     {m.controls_cancel()}
                   </Button>
-                  {/* `iconLeading`, not a child element: the button wraps every child — icon
-                      included — in its one text span, and a block-level `svg` inside that inline
-                      span takes its own line, so the label drops below the icon. */}
+                  {/* No icon: the two buttons answer one question, so they carry the same
+                      weight and the same box (`min-w-28` with the same `sm` size). The confirm
+                      button was two lines tall when an icon was passed as a child — every child
+                      lands in the button's one text span, where a block-level `svg` takes a line
+                      of its own — and the reference dialog Frank sent keeps the pair plain. */}
                   <Button
+                    className="min-w-28"
                     color="primary"
                     data-control-stop-confirm
                     isDisabled={control.stopPending}
-                    iconLeading={Stop}
                     onPress={control.confirmStop}
                   >
                     {control.stopPending
@@ -89,13 +95,13 @@ export function AgentControlDialogs({
       </ModalOverlay>
       <ModalOverlay isOpen={control.restartOpen} onOpenChange={control.closeRestart}>
         <Modal className="w-[calc(100vw-2rem)] max-w-lg">
-          <Dialog className="overflow-hidden text-left">
+          <Dialog className="p-6 text-left">
             {({ close }) => (
               <>
-                <div className="flex shrink-0 items-start justify-between gap-4 px-6 pt-6">
+                <div className="flex shrink-0 items-start justify-between gap-4">
                   <Heading
                     slot="title"
-                    className="min-w-0 text-xl font-semibold text-primary wrap-anywhere sm:text-2xl"
+                    className="min-w-0 text-base font-semibold text-primary wrap-anywhere"
                   >
                     {m.agent_control_dialog_title({ name: agentName })}
                   </Heading>
@@ -111,7 +117,7 @@ export function AgentControlDialogs({
                   {control.selected.description}
                 </Text>
                 <div
-                  className="grid min-h-0 gap-3 overflow-y-auto px-6 py-6"
+                  className="grid min-h-0 gap-3 overflow-y-auto py-2"
                   role="group"
                   aria-label={m.agent_control_title()}
                 >
@@ -137,11 +143,12 @@ export function AgentControlDialogs({
                     </p>
                   )}
                 </div>
-                <div className="flex shrink-0 flex-wrap justify-end gap-3 border-t border-secondary px-6 py-4">
-                  <Button color="secondary" onPress={close}>
+                <div className="mt-6 flex shrink-0 flex-wrap justify-end gap-3">
+                  <Button className="min-w-28" color="secondary" onPress={close}>
                     {m.controls_cancel()}
                   </Button>
                   <Button
+                    className="min-w-28"
                     color={control.destructive ? "primary-destructive" : "primary"}
                     data-control-submit
                     iconLeading={RotateCcw}
