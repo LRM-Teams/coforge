@@ -209,12 +209,24 @@ test.skipIf(!connectionString)(
         sorted([team.id, ops.id]),
       );
 
+      const scoutDirect = await directMessages.getOrCreateUserAgent(
+        workspace.id,
+        owner.id,
+        scout.id,
+      );
       const madePrivate = await new PrismaChangeAgentVisibilityStore(db).apply({
         agentId: scout.id,
         workspaceId: workspace.id,
         visibility: "private",
       });
       expect(sorted(madePrivate.leftChannelIds)).toEqual(sorted([team.id, ops.id]));
+      // Going private leaves channels only; the Agent stays in its direct conversations.
+      expect(
+        await db.conversationMember.findFirst({
+          where: { conversationId: scoutDirect.id, agentId: scout.id },
+          select: { leftAt: true },
+        }),
+      ).toEqual({ leftAt: null });
 
       await channels.leave(workspace.id, bob.id, ops.id);
       const removed = await new PrismaWorkspaceMemberDirectoryStore(db).removeMember(
