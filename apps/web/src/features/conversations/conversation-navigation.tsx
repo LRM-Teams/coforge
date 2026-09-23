@@ -10,6 +10,7 @@ import { LiveAgentActivityBar } from "./live-agent-activity-bar";
 import { m } from "@/paraglide/messages";
 import { cx } from "@/utils/cx";
 import { createPublicChannel } from "./channels.functions";
+import { listSavedMessages } from "./saved-messages.functions";
 import { useCurrentWorkspaceId, useLiveAgents } from "@/features/agents/workspace-agents-realtime";
 import { CreateChannelDialog } from "./create-channel-dialog";
 import { useChannelUnread } from "./conversation-unread";
@@ -39,6 +40,20 @@ type UnreadControls = {
 const UnreadContext = createContext<UnreadControls>({ counts: {}, clear: () => {} });
 const OpenModeContext = createContext<ConversationOpenMode>(DEFAULT_CONVERSATION_OPEN_MODE);
 
+type SavedMessageViews = Awaited<ReturnType<typeof listSavedMessages>>;
+
+/** The viewer's Saved list (#127): loader-seeded, re-read after every toggle — one source of
+ * truth for the row stars, the sidebar entry, and the Saved view. */
+type SavedMessagesState = {
+  entries: SavedMessageViews;
+  /** The saved message ids a row's star consults. */
+  ids: ReadonlySet<string>;
+  /** Re-reads the saved list from the server after a save or unsave. */
+  refresh: () => Promise<void>;
+};
+
+const SavedMessagesContext = createContext<SavedMessagesState | null>(null);
+
 export function useConversationDetailVisible() {
   return useContext(ConversationListContext)?.detailVisible ?? true;
 }
@@ -67,6 +82,11 @@ export function useConversationOpenMode(): ConversationOpenMode {
   return useContext(OpenModeContext);
 }
 
+/** The Saved list controls; null where no Chat page is above (rows then offer no save). */
+export function useSavedMessages(): SavedMessagesState | null {
+  return useContext(SavedMessagesContext);
+}
+
 /**
  * Whether the read cursor must wait for the user to actually reach the bottom
  * (`newest-unread`): opening the conversation clears the sidebar badge but the
@@ -78,7 +98,7 @@ export function useConversationReadRequiresScroll(): boolean {
 
 /** Keep both panels mounted so returning to the list preserves scroll and drafts. */
 export function ConversationNavigation({ children }: { children: ReactNode }) {
-  const { channels, projects, directUnread, viewerId } = messagesRoute.useLoaderData();
+  const { channels, projects, directUnread, viewerId, saved } = messagesRoute.useLoaderData();
   const { conversationOpenMode: savedOpenMode } = appRoute.useLoaderData();
   const openMode = conversationOpenMode(savedOpenMode);
   const agents = useLiveAgents();
@@ -132,6 +152,19 @@ export function ConversationNavigation({ children }: { children: ReactNode }) {
     () => ({ counts, clear: unread.clear }),
     [counts, unread.clear],
   );
+  // Saved (#127): the loader seeds it, every toggle re-reads it — the row stars and the Saved
+  // view both follow this one list; router invalidations refresh it with the rest of the loader.
+  const [savedEntries, setSavedEntries] = useState<SavedMessageViews>(saved);
+  useEffect(() => setSavedEntries(saved), [saved]);
+  const reloadSaved = useServerFn(listSavedMessages);
+  const savedMessages = useMemo<SavedMessagesState>(
+    () => ({
+      entries: savedEntries,
+      ids: new Set(savedEntries.map((entry) => entry.message.id)),
+      refresh: async () => setSavedEntries(await reloadSaved()),
+    }),
+    [savedEntries, reloadSaved],
+  );
 
   return (
     <ConversationListContext
@@ -143,34 +176,37 @@ export function ConversationNavigation({ children }: { children: ReactNode }) {
     >
       <OpenModeContext value={openMode}>
         <UnreadContext value={controls}>
-          <main className="flex h-svh min-w-0 flex-col bg-primary lg:flex-row">
-            <section
-              className={cx(
-                "min-h-0 flex-1 flex-col lg:flex lg:w-72 lg:flex-none lg:border-r lg:border-secondary",
-                showList ? "flex" : "hidden",
-              )}
-            >
-              <PageHeader heading={m.navigation_chat()} />
-              <div className="min-h-0 flex-1 overflow-y-auto py-4">
-                <ConversationDirectory
-                  channels={visibleChannels}
-                  agents={agents}
-                  selectedChannelId={channel?.channelId}
-                  selectedAgentId={agent?.agentId}
-                  onCreateChannel={() => setCreating(true)}
-                />
+          <SavedMessagesContext value={savedMessages}>
+            <main className="flex h-svh min-w-0 flex-col bg-primary lg:flex-row">
+              <section
+                className={cx(
+                  "min-h-0 flex-1 flex-col lg:flex lg:w-72 lg:flex-none lg:border-r lg:border-secondary",
+                  showList ? "flex" : "hidden",
+                )}
+              >
+                <PageHeader heading={m.navigation_chat()} />
+                <div className="min-h-0 flex-1 overflow-y-auto py-4">
+                  <ConversationDirectory
+                    channels={visibleChannels}
+                    agents={agents}
+                    selectedChannelId={channel?.channelId}
+                    selectedAgentId={agent?.agentId}
+                    selectedSaved={pathname === "/messages/saved"}
+                    onCreateChannel={() => setCreating(true)}
+                  />
+                </div>
+                <LiveAgentActivityBar agents={agents} />
+              </section>
+              <div
+                className={cx(
+                  "min-h-0 min-w-0 flex-1 flex-col lg:flex",
+                  showList ? "hidden" : "flex",
+                )}
+              >
+                {children}
               </div>
-              <LiveAgentActivityBar agents={agents} />
-            </section>
-            <div
-              className={cx(
-                "min-h-0 min-w-0 flex-1 flex-col lg:flex",
-                showList ? "hidden" : "flex",
-              )}
-            >
-              {children}
-            </div>
-          </main>
+            </main>
+          </SavedMessagesContext>
           {creating && (
             <CreateChannelDialog
               open={creating}

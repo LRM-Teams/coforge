@@ -4,6 +4,7 @@ import type { ConversationTab } from "@/features/conversations/conversation-tabs
 import { useStateWithRef } from "@/hooks/use-state-with-ref";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ClientOnly, getRouteApi } from "@tanstack/react-router";
+import { useServerFn } from "@tanstack/react-start";
 import {
   Loading02,
   ArrowDown,
@@ -32,8 +33,10 @@ import {
   ConversationListButton,
   useConversationDetailVisible,
   useConversationOpenMode,
+  useSavedMessages,
 } from "./conversation-navigation";
 import { conversationOpenPosition, unreadBoundary } from "./conversation-open-position";
+import { saveMessage, unsaveMessage } from "./saved-messages.functions";
 import { latestTopLevelSequence } from "./conversation-unread";
 import { ConversationPending } from "./conversation-pending";
 import { useBreakpoint } from "@/hooks/use-breakpoint";
@@ -834,6 +837,28 @@ export function ConversationPane({
     },
     [onToggleReaction, toast],
   );
+  // Saving (#127) is viewer-global state with a conversation-scoped write: the pane owns the
+  // conversation id, the Chat page's Saved context owns the list every star (and the Saved view)
+  // reads. Membership-gated exactly like the channel gates its row actions; outside the Chat
+  // page there is no context, so the rows simply offer no save.
+  const savedMessages = useSavedMessages();
+  const saveMessageFn = useServerFn(saveMessage);
+  const unsaveMessageFn = useServerFn(unsaveMessage);
+  const onToggleSave =
+    savedMessages && conversation.senderMemberId
+      ? async (messageId: string, saved: boolean) => {
+          if (saved) {
+            await saveMessageFn({
+              data: { conversationId: conversation.conversationId, messageId },
+            });
+          } else {
+            await unsaveMessageFn({
+              data: { conversationId: conversation.conversationId, messageId },
+            });
+          }
+          await savedMessages.refresh();
+        }
+      : undefined;
   const [followingLatest, followingLatestRef, setFollowingLatest] = useStateWithRef(true);
   const [loadingOlder, loadingOlderRef, setLoadingOlder] = useStateWithRef(false);
   const [, loadingNewerRef, setLoadingNewer] = useStateWithRef(false);
@@ -1384,6 +1409,7 @@ export function ConversationPane({
                   dateLocale={dateLocale}
                   messageFooter={messageFooter}
                   onToggleReaction={onToggleReaction ? toggleReaction : undefined}
+                  onToggleSave={onToggleSave}
                   onOpenAgentProfile={onOpenAgentProfile}
                   viewerHandle={conversation.viewerHandle}
                   plainMentions={plainMentions}
@@ -1479,6 +1505,7 @@ export function ConversationPane({
                     threadPreview={threadPreview}
                     messageFooter={messageFooter}
                     onToggleReaction={onToggleReaction ? toggleReaction : undefined}
+                    onToggleSave={onToggleSave}
                     onOpenAgentProfile={onOpenAgentProfile}
                     viewerHandle={conversation.viewerHandle}
                     plainMentions={plainMentions}

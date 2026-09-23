@@ -1,4 +1,4 @@
-import { ChevronRight, Hash01 as Hash, Plus } from "@untitledui/icons";
+import { Bookmark, ChevronRight, Hash01 as Hash, Plus } from "@untitledui/icons";
 import { useEffect, useId, useState, type ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
 
@@ -66,7 +66,7 @@ function ConversationRow({
   hasMenu,
   children,
 }: {
-  target: { channelId: string } | { agentId: string };
+  target: { channelId: string } | { agentId: string } | { view: "saved" };
   current?: boolean;
   icon: ReactNode;
   muted?: boolean;
@@ -82,7 +82,9 @@ function ConversationRow({
     <Link
       {...("channelId" in target
         ? { to: "/messages/channels/$channelId", params: target }
-        : { to: "/messages/$agentId", params: target })}
+        : "agentId" in target
+          ? { to: "/messages/$agentId", params: target }
+          : { to: "/messages/saved" })}
       aria-current={current ? "page" : undefined}
       aria-label={rowLabel(unreadCount, label)}
       aria-haspopup={hasMenu ? "menu" : undefined}
@@ -180,12 +182,15 @@ export function ConversationDirectory({
   agents,
   selectedChannelId,
   selectedAgentId,
+  selectedSaved,
   onCreateChannel,
 }: {
   channels: DirectoryChannel[];
   agents: LiveAgent[];
   selectedChannelId?: string;
   selectedAgentId?: string;
+  /** The Saved view is open — its sidebar entry renders as the current row. */
+  selectedSaved?: boolean;
   /** Opens the create-channel flow from the "+" next to the CHANNELS caption. */
   onCreateChannel?: () => void;
 }) {
@@ -207,6 +212,21 @@ export function ConversationDirectory({
     });
   return (
     <>
+      <div className="mt-2 px-4">
+        <ConversationRow
+          target={{ view: "saved" }}
+          current={selectedSaved}
+          label={m.conversation_saved_nav()}
+          icon={
+            <Bookmark
+              aria-hidden="true"
+              className={cx("size-4", selectedSaved ? "text-brand-secondary" : "text-tertiary")}
+            />
+          }
+        >
+          {m.conversation_saved_nav()}
+        </ConversationRow>
+      </div>
       <div className="mt-2">
         <DirectorySection
           label={m.channels_title()}

@@ -9,15 +9,19 @@ import {
   type DirectConversationBadges,
 } from "@/features/conversations/conversations.functions";
 import { listProjects } from "@/features/projects/projects.functions";
+import { listSavedMessages } from "@/features/conversations/saved-messages.functions";
 
 const EMPTY_DIRECT_BADGES: DirectConversationBadges = { viewerId: "", unread: {} };
 
 export const Route = createFileRoute("/_app/messages")({
   loader: async () => {
-    const [channels, projects, badges] = await Promise.all([
+    const [channels, projects, badges, saved] = await Promise.all([
       listPublicChannels(),
       listProjects(),
       loadDirectConversationBadges().catch(() => EMPTY_DIRECT_BADGES),
+      // Saved (#127) tolerates a failed read the way the badges do: the chat page stays up and
+      // simply starts from an empty saved list.
+      listSavedMessages().catch(() => []),
     ]);
     return {
       channels,
@@ -26,6 +30,7 @@ export const Route = createFileRoute("/_app/messages")({
       // Absent when the badge read failed: the sidebar then holds no personal signal channel
       // rather than subscribing to one keyed by an empty id.
       viewerId: badges.viewerId || undefined,
+      saved,
     };
   },
   pendingComponent: MessagesPending,

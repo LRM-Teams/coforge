@@ -38,6 +38,7 @@ import { Route as AppComputersIndexRouteImport } from './routes/_app/computers.i
 import { Route as AppComputersComputerIdRouteImport } from './routes/_app/computers.$computerId'
 import { Route as AppMessagesIndexRouteImport } from './routes/_app/messages.index'
 import { Route as AppMessagesAgentIdRouteImport } from './routes/_app/messages.$agentId'
+import { Route as AppMessagesSavedRouteImport } from './routes/_app/messages.saved'
 import { Route as AppProjectsIndexRouteImport } from './routes/_app/projects.index'
 import { Route as AppProjectsProjectSlugRouteImport } from './routes/_app/projects.$projectSlug'
 import { Route as AppRecordsIndexRouteImport } from './routes/_app/records.index'
@@ -243,6 +244,11 @@ const AppMessagesIndexRoute = AppMessagesIndexRouteImport.update({
 const AppMessagesAgentIdRoute = AppMessagesAgentIdRouteImport.update({
   id: '/$agentId',
   path: '/$agentId',
+  getParentRoute: () => AppMessagesRoute,
+} as any)
+const AppMessagesSavedRoute = AppMessagesSavedRouteImport.update({
+  id: '/saved',
+  path: '/saved',
   getParentRoute: () => AppMessagesRoute,
 } as any)
 const AppProjectsIndexRoute = AppProjectsIndexRouteImport.update({
@@ -614,6 +620,7 @@ export interface FileRoutesByFullPath {
   '/agents/$agentId': typeof AppAgentsAgentIdRoute
   '/computers/$computerId': typeof AppComputersComputerIdRoute
   '/messages/$agentId': typeof AppMessagesAgentIdRoute
+  '/messages/saved': typeof AppMessagesSavedRoute
   '/projects/$projectSlug': typeof AppProjectsProjectSlugRoute
   '/records/$recordId': typeof AppRecordsRecordIdRoute
   '/records/settings': typeof AppRecordsSettingsRoute
@@ -702,6 +709,7 @@ export interface FileRoutesByTo {
   '/agents/$agentId': typeof AppAgentsAgentIdRoute
   '/computers/$computerId': typeof AppComputersComputerIdRoute
   '/messages/$agentId': typeof AppMessagesAgentIdRoute
+  '/messages/saved': typeof AppMessagesSavedRoute
   '/projects/$projectSlug': typeof AppProjectsProjectSlugRoute
   '/records/$recordId': typeof AppRecordsRecordIdRoute
   '/records/settings': typeof AppRecordsSettingsRoute
@@ -795,6 +803,7 @@ export interface FileRoutesById {
   '/_app/agents/$agentId': typeof AppAgentsAgentIdRoute
   '/_app/computers/$computerId': typeof AppComputersComputerIdRoute
   '/_app/messages/$agentId': typeof AppMessagesAgentIdRoute
+  '/_app/messages/saved': typeof AppMessagesSavedRoute
   '/_app/projects/$projectSlug': typeof AppProjectsProjectSlugRoute
   '/_app/records/$recordId': typeof AppRecordsRecordIdRoute
   '/_app/records/settings': typeof AppRecordsSettingsRoute
@@ -888,6 +897,7 @@ export interface FileRouteTypes {
     | '/agents/$agentId'
     | '/computers/$computerId'
     | '/messages/$agentId'
+    | '/messages/saved'
     | '/projects/$projectSlug'
     | '/records/$recordId'
     | '/records/settings'
@@ -976,6 +986,7 @@ export interface FileRouteTypes {
     | '/agents/$agentId'
     | '/computers/$computerId'
     | '/messages/$agentId'
+    | '/messages/saved'
     | '/projects/$projectSlug'
     | '/records/$recordId'
     | '/records/settings'
@@ -1068,6 +1079,7 @@ export interface FileRouteTypes {
     | '/_app/agents/$agentId'
     | '/_app/computers/$computerId'
     | '/_app/messages/$agentId'
+    | '/_app/messages/saved'
     | '/_app/projects/$projectSlug'
     | '/_app/records/$recordId'
     | '/_app/records/settings'
@@ -1399,6 +1411,13 @@ declare module '@tanstack/react-router' {
       path: '/$agentId'
       fullPath: '/messages/$agentId'
       preLoaderRoute: typeof AppMessagesAgentIdRouteImport
+      parentRoute: typeof AppMessagesRoute
+    }
+    '/_app/messages/saved': {
+      id: '/_app/messages/saved'
+      path: '/saved'
+      fullPath: '/messages/saved'
+      preLoaderRoute: typeof AppMessagesSavedRouteImport
       parentRoute: typeof AppMessagesRoute
     }
     '/_app/projects/': {
@@ -1847,12 +1866,14 @@ const AppComputersRouteWithChildren = AppComputersRoute._addFileChildren(
 
 interface AppMessagesRouteChildren {
   AppMessagesAgentIdRoute: typeof AppMessagesAgentIdRoute
+  AppMessagesSavedRoute: typeof AppMessagesSavedRoute
   AppMessagesIndexRoute: typeof AppMessagesIndexRoute
   AppMessagesChannelsChannelIdRoute: typeof AppMessagesChannelsChannelIdRoute
 }
 
 const AppMessagesRouteChildren: AppMessagesRouteChildren = {
   AppMessagesAgentIdRoute: AppMessagesAgentIdRoute,
+  AppMessagesSavedRoute: AppMessagesSavedRoute,
   AppMessagesIndexRoute: AppMessagesIndexRoute,
   AppMessagesChannelsChannelIdRoute: AppMessagesChannelsChannelIdRoute,
 }
