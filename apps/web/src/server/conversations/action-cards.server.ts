@@ -423,7 +423,7 @@ export class ActionCards {
           messageId,
           sequence: message.sequence,
           // A card prepared inside a thread stays a thread reply here: republishing it without
-          // its anchor would let the browser count it as a channel message (ADR 0046).
+          // its anchor would let the browser count it as a channel message.
           ...(message.threadRootId ? { threadRootId: message.threadRootId } : {}),
           ...(await messageSignalScope(this.db, conversationId, message.workspaceId)),
         });
@@ -452,7 +452,7 @@ export class ActionCards {
       "channel:create",
     );
     const channels = new PublicChannels(this.db);
-    // The Agent-proposed description (`Conversation.description`, ADR 0024) rides along from the
+    // The Agent-proposed description (`Conversation.description`) rides along from the
     // card's own resolved payload, not a new browser-supplied input: it is the Agent's context,
     // not something the committing human retypes.
     const payload = card.payload as ResolvedActionCardPayload & { type: "channel:create" };
@@ -709,8 +709,8 @@ export class ActionCards {
         });
     if (!agent)
       throw new ActionCardError(422, "INVALID_HANDLE", `unknown agent handle: ${value}`, { field });
-    // Every Agent an action card names becomes a channel member, and a private Agent never is one
-    // (ADR 0059). Refusing here also keeps its display name out of a card rendered to the channel.
+    // Every Agent an action card names becomes a channel member, and a private Agent never is one.
+    // Refusing here also keeps its display name out of a card rendered to the channel.
     if (agent.visibility !== AGENT_VISIBILITY.PUBLIC)
       throw new ActionCardError(
         422,

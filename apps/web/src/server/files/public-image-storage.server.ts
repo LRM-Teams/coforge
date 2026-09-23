@@ -14,7 +14,7 @@ import {
  * They need their own bucket because the CDN's private-origin authorization is bucket-wide per
  * origin: the domain that serves an unsigned object key can serve every key in the bucket behind
  * it. Keeping profile images in the private files bucket would therefore publish every chat
- * attachment the moment that domain exists. One bucket, one domain, one trust zone (ADR 0006).
+ * attachment the moment that domain exists. One bucket, one domain, one trust zone.
  *
  * Env, in addition to the private store's (`file-storage.server.ts`):
  * - `COFORGE_IMAGE_OSS_BUCKET` — the profile-image bucket, in the same account and region as the

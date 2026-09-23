@@ -4,7 +4,7 @@ import { PrismaClient } from "../generated/client";
 import { PrismaDirectConversationRepository } from "../src/server/db/repositories/direct-conversation.repositories.server";
 
 /**
- * Direct-message unread counts against real PostgreSQL (ADR 0046). The mocked repository test
+ * Direct-message unread counts against real PostgreSQL. The mocked repository test
  * can only assert the SQL text; this one pins the behavior the badge actually depends on: the
  * count is keyed by the conversation's *agent* member row (a DM has two member rows, so the
  * viewer's own row has a null `agentId`), zero-unread DMs still produce a row so a later event

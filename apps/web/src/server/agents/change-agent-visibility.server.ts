@@ -5,7 +5,7 @@ import type { AgentRepository } from "../db/repositories/agent.repositories.serv
 import { isAdminLike, type WorkspaceMemberRole } from "../workspaces/member-role.server";
 
 /**
- * The atomic visibility transition, or whether it was a no-op (ADR 0059). Implementations own the
+ * The atomic visibility transition, or whether it was a no-op. Implementations own the
  * public↔private side effects in one transaction: public→private soft-leaves every active channel
  * membership; private→public does not restore channel membership automatically. Messages, Tasks
  * and Action cards are never touched — history stays exactly as it was.
@@ -25,15 +25,14 @@ export type AgentVisibilityChangePreview = {
    * Agent already private or in no active channel. */
   channelNames: string[];
   /** Existing direct conversations that would become read-only: every DM the Agent has with
-   * someone other than its own creator, who alone keeps write access to a private Agent's DM
-   * (ADR 0059). */
+   * someone other than its own creator, who alone keeps write access to a private Agent's DM. */
   readOnlyDirectMessageCount: number;
 };
 
 type VisibilityPrincipal = { userId: string; workspaceId: string; role: WorkspaceMemberRole };
 
 /**
- * Changes one Agent's visibility (ADR 0059 "Changing visibility, both directions"). Authorized
+ * Changes one Agent's visibility, both directions. Authorized
  * for the Agent's own creator or a human Workspace owner/admin only — never an Agent, and never a
  * plain member acting on someone else's Agent. `onVisibilityChanged` tells connected browsers
  * (`publishAgentVisibilityChanged`); it runs once, after the transaction commits, and only when the
@@ -75,7 +74,7 @@ export class ChangeAgentVisibility {
     const agent = await this.agents.getById(agentId);
     if (!agent || agent.workspaceId !== principal.workspaceId) throw new AppError("NOT_FOUND");
     // A deleted Agent has no visibility left to change, the same "already inert" refusal every
-    // other post-delete mutation gives (ADR 0044).
+    // other post-delete mutation gives.
     assertAgentLive(agent);
     const isCreator = agent.ownerId === principal.userId;
     if (!isCreator && !isAdminLike(principal.role)) throw new AppError("ACCESS_DENIED");

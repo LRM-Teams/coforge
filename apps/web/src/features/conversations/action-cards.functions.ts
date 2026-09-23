@@ -7,8 +7,8 @@ import { CentrifugoConversationRealtime } from "../../server/conversations/conve
 import { createCentrifugoServerApi } from "../../server/centrifugo/server-api.server";
 
 /**
- * Human commit/cancel Server Functions for Agent-prepared action cards (ADR 0027 "Commit and
- * cancel"). `channel:create` and `channel:add_member` commit here, reusing `PublicChannels`
+ * Human commit/cancel Server Functions for Agent-prepared action cards.
+ * `channel:create` and `channel:add_member` commit here, reusing `PublicChannels`
  * through `ActionCards`. `agent:create` commits through the existing `createAgent` Server
  * Function in `agents.functions.ts` instead (it already submits the human's full runtime form and
  * enforces `assertCanCreateAgents`); this module only guards it before and marks it after — see

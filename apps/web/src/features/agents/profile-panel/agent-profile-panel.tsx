@@ -248,7 +248,7 @@ export function AgentProfilePanel({
   }
 
   if (query.isError) {
-    // ADR 0059: an Agent that exists but is private to someone else answers a distinct, detail-
+    // An Agent that exists but is private to someone else answers a distinct, detail-
     // free state — no "you may not have access, or it was removed" guess, just the one fact.
     const notVisible = isAppError(query.error) && query.error.code === "AGENT_NOT_VISIBLE";
     return (
@@ -289,7 +289,7 @@ export function AgentProfilePanel({
           description: profile?.description ?? undefined,
           avatarUrl: profile?.avatarUrl,
         }}
-        // ADR 0059: `liveAgent` (the shared realtime roster) is blank for an Agent outside the
+        // `liveAgent` (the shared realtime roster) is blank for an Agent outside the
         // viewer's own `listAgents` roster until its first live publication arrives — e.g. an
         // owner/admin's placeholder for another member's private Agent. `getAgentProfile`
         // (`profile`, this panel's own authorized fetch) already computes an initial
@@ -358,7 +358,7 @@ export function AgentProfilePanel({
             // Realtime once a display snapshot has arrived, the initial `getAgentProfile` load
             // until then — trusting `liveAgent.display`'s own (possibly explicitly null)
             // `contextUsage` once present, never falling back past it to a stale initial read.
-            // Display-only (ADR 0050): nothing here triggers on any threshold.
+            // Display-only: nothing here triggers on any threshold.
             contextUsage={
               liveAgent?.display
                 ? (liveAgent.display.contextUsage ?? null)

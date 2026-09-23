@@ -43,7 +43,7 @@ type AgentActivityPublicationDependencies = {
   ): Promise<{ daemonInstanceId: string; launchId: string } | undefined>;
   display?: Pick<AgentDisplay, "observeActivity">;
   publishJson?(channel: string, data: unknown): Promise<void>;
-  /** ADR 0059: the Agent's current visibility, read fresh (no cache) for every publication —
+  /** The Agent's current visibility, read fresh (no cache) for every publication —
    * never assumed from a prior request, and never optional: a caller that cannot answer this
    * question must not silently fall back to the shared channel. A recognized non-`"public"`
    * value routes the frame to the per-Agent channels; an unrecognized persisted value fails
@@ -114,8 +114,8 @@ export async function handleAgentActivityPublication(
     // A busy heartbeat, a content-free runtime_progress frame, a content-free run-start
     // marker (thinking_started/model_response_started with no entries — see
     // isRunStartMarker), or a reply to the server's own liveness probe only renews the
-    // display lease; none of them carry anything worth keeping in history. ADR 0021
-    // (amended): tool_end, thinking_end and compaction_finished are ordinary status
+    // display lease; none of them carry anything worth keeping in history.
+    // tool_end, thinking_end and compaction_finished are ordinary status
     // observations now and are persisted like any other Activity — the log records tool
     // and thinking completion, only content-free progress pings stay lease-only.
     const isFillerActivity =
@@ -123,7 +123,7 @@ export async function handleAgentActivityPublication(
       activity.detailKind === AGENT_ACTIVITY_DETAIL_KIND.RUNTIME_PROGRESS ||
       isRunStartMarker(activity.detailKind, activity.entries) ||
       Boolean(activity.probeId);
-    // ADR 0059: read fresh, no cache. `agentBelongsToWorkspace` above already rejected an Agent
+    // Read fresh, no cache. `agentBelongsToWorkspace` above already rejected an Agent
     // that is not in the workspace; "lookup found nothing to route by" here is the only other
     // way to reach `undefined`, and it is rejected the same way — never assumed public. A
     // recognized non-"public" value routes to the per-Agent channels; an unrecognized persisted
@@ -219,7 +219,7 @@ export function createAgentActivityPublicationHandler() {
           }),
         ),
       observe: (observation) => activity.record(observation),
-      // ADR 0059. The same `agents.getById` lookup `agentBelongsToWorkspace`/
+      // The same `agents.getById` lookup `agentBelongsToWorkspace`/
       // `agentBelongsToComputer` already run above — no dedicated query, never cached.
       agentVisibility: async (workspaceId, agentId) => {
         const agent = await agents.getById(agentId);

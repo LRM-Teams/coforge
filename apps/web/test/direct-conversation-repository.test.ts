@@ -986,7 +986,7 @@ describe("PrismaDirectConversationRepository", () => {
   });
 
   test("fails closed rather than shipping a degraded sender when no name can be resolved", async () => {
-    // ADR 0052 (decision B): an author row the database cannot produce (both `users.username`
+    // An author row the database cannot produce (both `users.username`
     // and `agents.name` are NOT NULL) must fail with a named error rather than substitute
     // `"@agent"` or a bare `"@"` — the shape that previously poisoned daemon ready recovery.
     const db = {
@@ -1230,8 +1230,8 @@ describe("PrismaDirectConversationRepository", () => {
       { where: { id: "attach-a" }, data: { messageId: "message-new", position: 1 } },
     ]);
 
-    // The uploaderAgentId gap ADR 0022 named: a different Agent's unlinked attachment is
-    // rejected, closing the gap ADR 0023's upload route opened it up to fix.
+    // The uploaderAgentId gap: a different Agent's unlinked attachment is rejected, which
+    // closes that gap.
     await expect(
       repository.sendAgentMessage("conversation-1", "agent-1", "not mine", ["attach-foreign"]),
     ).rejects.toThrow("attachment is not available for this message");
@@ -1378,7 +1378,7 @@ describe("PrismaDirectConversationRepository", () => {
     ]);
   });
 
-  test("sendMessage rejects a non-creator sending into a since-privatized DM (ADR 0059)", async () => {
+  test("sendMessage rejects a non-creator sending into a since-privatized DM", async () => {
     const db = {
       conversation: {
         findUnique: async () => ({
@@ -1410,7 +1410,7 @@ describe("PrismaDirectConversationRepository", () => {
     ).rejects.toMatchObject({ name: "AppError", code: "AGENT_DM_RESTRICTED" });
   });
 
-  test("sendAgentMessage rejects a private Agent's own outbound DM to a non-creator (ADR 0059)", async () => {
+  test("sendAgentMessage rejects a private Agent's own outbound DM to a non-creator", async () => {
     const db = {
       agent: {
         findUnique: async () => ({ ownerId: "user-1", visibility: "private" }),
@@ -1442,7 +1442,7 @@ describe("PrismaDirectConversationRepository", () => {
     ).rejects.toMatchObject({ name: "AgentSendRejectedError", status: 403 });
   });
 
-  describe("getOrCreateUserAgent (ADR 0059)", () => {
+  describe("getOrCreateUserAgent", () => {
     function fixture(options: { visibility: string; ownerId: string; existing?: { id: string } }) {
       const created: unknown[] = [];
       const db = {
@@ -1500,7 +1500,7 @@ describe("PrismaDirectConversationRepository", () => {
     });
   });
 
-  describe("openForUser reports dmWritable (ADR 0059)", () => {
+  describe("openForUser reports dmWritable", () => {
     function fixture(options: { visibility: string; ownerId: string; viewerId: string }) {
       const db = {
         conversation: {

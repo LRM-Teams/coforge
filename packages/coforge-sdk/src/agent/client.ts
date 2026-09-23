@@ -54,7 +54,7 @@ export type AgentAttachmentUploadResponse = {
 };
 
 /**
- * Presigned direct-upload sessions (ADR 0028), mirroring Raft 1.0.32's
+ * Presigned direct-upload sessions, mirroring Raft 1.0.32's
  * `attachment-upload-sessions` state machine. `create`'s request field is `target` (this
  * repo's `#channel`/`@user` grammar), not Raft's resolved `channelId`.
  */

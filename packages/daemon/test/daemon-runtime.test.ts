@@ -348,7 +348,7 @@ test("a duplicate fenced start wakes the managed runtime without replaying recov
   }
 });
 
-test("a Start that meets an already-running process rebinds it: exactly one launch, the next session report/status/activity carry the new scope (ADR 0041)", async () => {
+test("a Start that meets an already-running process rebinds it: exactly one launch, the next session report/status/activity carry the new scope", async () => {
   const stateDirectory = join(tempRoot, `coforge-rebind-${crypto.randomUUID()}`);
   const credentials = new InMemoryDaemonCredentialStore();
   await credentials.save(connection.workspaceId, connection.computerId, "token-a");
@@ -4873,7 +4873,7 @@ describe("DaemonRuntime", () => {
       await Promise.resolve();
       await expect(runtime.startAgent("agent-a", config)).rejects.toThrow("stopping");
       releaseOldDispose();
-      // Stop's outcome depends only on the local process exiting (docs/adr/0033): the process
+      // Stop's outcome depends only on the local process exiting: the process
       // exited fine, so the revoke failure above never rejects the Stop itself.
       await expect(stopping).resolves.toBeUndefined();
 
@@ -6056,7 +6056,7 @@ describe("DaemonRuntime", () => {
       ),
     ).rejects.toThrow("not running");
     releaseStop();
-    // Revoke stays best-effort at shutdown (docs/adr/0033) and is never retried (docs/adr/0043):
+    // Revoke stays best-effort at shutdown and is never retried:
     // the failed revoke above never fails the overall Stop, and a second stop() sends nothing.
     await expect(stopping).resolves.toBeUndefined();
     await runtime.stop();
@@ -6098,8 +6098,8 @@ describe("DaemonRuntime", () => {
     try {
       await runtime.start(configuredConnection);
       await runtime.startAgent("agent-a", config);
-      // Revoke stays best-effort at shutdown (docs/adr/0033): the 503 above never fails the
-      // Stop. It is not retried either (docs/adr/0043), so the second stop() sends nothing and
+      // Revoke stays best-effort at shutdown: the 503 above never fails the
+      // Stop. It is not retried either, so the second stop() sends nothing and
       // the transport is recreated regardless of the revoke outcome.
       await expect(runtime.stop()).resolves.toBeUndefined();
       await runtime.stop();
@@ -6505,7 +6505,7 @@ describe("DaemonRuntime", () => {
       statuses.length = 0;
       activities.length = 0;
 
-      // Stop's outcome depends only on the local process exiting (docs/adr/0033): the process
+      // Stop's outcome depends only on the local process exiting: the process
       // stops cleanly even though the remote revoke above rejects, so stopAgent resolves.
       await expect(runtime.stopAgent("agent-a")).resolves.toBeUndefined();
       expect(revokeAttempts).toBe(1);
@@ -6514,7 +6514,7 @@ describe("DaemonRuntime", () => {
         activities.some((activity) => activity.detailKind === AGENT_ACTIVITY_DETAIL_KIND.STOPPED),
       ).toBe(true);
 
-      // The daemon never retries a revoke (docs/adr/0043): reconnects leave the failure where it
+      // The daemon never retries a revoke: reconnects leave the failure where it
       // is, and the server invalidates the key at the Agent's next launch instead.
       reconnect?.();
       await Bun.sleep(0);
@@ -6663,7 +6663,7 @@ describe("DaemonRuntime", () => {
   });
 });
 
-/** A fake session (ADR 0048) whose `subscribe` listener the test drives directly, so it can
+/** A fake session whose `subscribe` listener the test drives directly, so it can
  * simulate a provider's busy/idle transitions (`progress` while a turn runs, `completed` at turn
  * end) without a real provider process. */
 function deliveryQueueSession() {
@@ -6731,7 +6731,7 @@ function ackGate(count: number) {
   };
 }
 
-describe("Agent delivery queue (ADR 0048)", () => {
+describe("Agent delivery queue", () => {
   async function deliveryQueueHarness(
     provider: AgentRuntimeConfig["provider"],
     acks = ackGate(0),
@@ -6790,7 +6790,7 @@ describe("Agent delivery queue (ADR 0048)", () => {
   }
 
   test("a busy Kiro-mode Agent is delivered to immediately too, now that Kiro is steer mode", async () => {
-    // ADR 0048 (revised): Kiro's own AgentSession.notify steers a running turn through its ACP
+    // Kiro's own AgentSession.notify steers a running turn through its ACP
     // `_session/steer` extension instead of replacing it — see kiro-agent-adapter.test.ts for
     // that provider-level behavior. At the daemon level this fake session stands in for any
     // steer-mode provider, so `shouldHold` for "kiro" now behaves exactly like "pi" below.
@@ -6833,7 +6833,7 @@ describe("Agent delivery queue (ADR 0048)", () => {
   // busy", via the new setMode primitive that exists for exactly this).
 
   test("a fallback notice (steer could not deliver it) is held and redelivered once at turn end, without a second ACK", async () => {
-    // ADR 0048 (revised): a steer-mode provider's own notify() can accept a notice and later
+    // A steer-mode provider's own notify() can accept a notice and later
     // learn it never actually reached the model - Kiro's own ACP `steering_cleared` without a
     // prior `steering_injected`, or `_session/steer` failing outright (kiro-agent-adapter.test.ts
     // covers when Kiro itself emits this). At the daemon level, `notice-undelivered` is a plain
@@ -6874,7 +6874,7 @@ describe("Agent delivery queue (ADR 0048)", () => {
     expect(fake.notices).toEqual(["STEERED-BUT-NEVER-INJECTED"]);
   });
 
-  describe("runtime-error delivery backoff and fingerprint fence (ADR 0055)", () => {
+  describe("runtime-error delivery backoff and fingerprint fence", () => {
     afterEach(() => jest.useRealTimers());
 
     test("a retryable runtime error holds a new delivery and releases it once the backoff elapses", async () => {

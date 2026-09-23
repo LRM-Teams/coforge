@@ -51,7 +51,7 @@ export function agentUpdateErrorMessage(cause: unknown): string {
 /**
  * The Runtime config dialog's Advanced env rows are plain `[name="envKey"]`/`[name="envValue"]`
  * inputs (`agent-runtime-config-dialog.tsx`), read back here as parallel `FormData.getAll()`
- * arrays. Empty keys are dropped; the last duplicate key wins (ADR 0045). No name-format validation here — the
+ * arrays. Empty keys are dropped; the last duplicate key wins. No name-format validation here — the
  * server (`agent-environment.server.ts`'s `validateAgentEnvironment`) is the single source of
  * truth for what a valid variable name is.
  */

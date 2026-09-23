@@ -95,7 +95,7 @@ const ROW_TOP_GAP_PX = 12;
 export type DirectConversationView = {
   conversationId: string;
   senderMemberId: string;
-  /** The viewer's read cursor over this view's messages (ADR 0046): the channel's member
+  /** The viewer's read cursor over this view's messages: the channel's member
    * cursor for a channel pane, that thread's `thread_reads` cursor for a thread pane. The
    * first message past it is the first unread; the initial view positions there and draws the
    * divider. Absent for a non-member, a fully-read fresh seed, or an unvisited thread. */
@@ -110,7 +110,7 @@ export type DirectConversationView = {
     deletedAt?: Date | null;
     avatarUrl?: string | null;
   };
-  /** Whether the viewer may still send here (ADR 0059): a private Agent's DM stays scoped to its
+  /** Whether the viewer may still send here: a private Agent's DM stays scoped to its
    * own creator, so an existing DM held by anyone else reads read-only once it goes private.
    * The server enforces the same rule on send; this only chooses the composer or the notice. */
   dmWritable?: boolean;
@@ -131,7 +131,7 @@ export type DirectConversationView = {
      * server-authored message. */
     senderHandle?: string;
     senderAgentId?: string;
-    /** True when the sending Agent has since been deleted (ADR 0044). */
+    /** True when the sending Agent has since been deleted. */
     senderDeleted?: boolean;
     senderAvatarUrl?: string | null;
     body: string;
@@ -231,7 +231,7 @@ export function DirectConversationHeader({
   const display = useLiveAgent(conversation.agent.id)?.display;
   const timeZone = appRoute.useLoaderData().timeZone;
   const displayLabel = agentDisplay(display).label;
-  // ADR 0044: a deleted Agent's DM stays readable, but offers no profile and no new messages.
+  // A deleted Agent's DM stays readable, but offers no profile and no new messages.
   const deleted = Boolean(conversation.agent.deletedAt);
   const openProfile =
     onOpenAgentProfile && !deleted ? () => onOpenAgentProfile(conversation.agent.id) : undefined;
@@ -294,9 +294,9 @@ export function DirectConversationHeader({
 
 export function DirectConversation(props: ConversationProps) {
   const { conversation } = props;
-  // ADR 0044: a deleted Agent's DM stays readable, but nothing new can be sent to it.
+  // A deleted Agent's DM stays readable, but nothing new can be sent to it.
   const deleted = Boolean(conversation.agent.deletedAt);
-  // ADR 0059: a private Agent's DM stays scoped to its own creator; this viewer's existing DM
+  // A private Agent's DM stays scoped to its own creator; this viewer's existing DM
   // reads read-only. Independent of, and checked after, the deletion case above.
   const dmRestricted = !deleted && conversation.dmWritable === false;
   // A DM carries no member directory: its only member counterpart is the conversation's own
@@ -1297,7 +1297,7 @@ export function ConversationPane({
     if (followingLatest) setNewMessageCount(0);
     // A genuine scroll transition into the latest run is the only signal that the user read
     // it. Open positioning sets `followingLatest` directly and never passes through here, so
-    // it cannot mark a conversation read (ADR 0046's `newest-unread` mode).
+    // it cannot mark a conversation read (the `newest-unread` mode).
     if (followingLatest && !wasFollowingLatest && !root) {
       const through = latestTopLevelSequence(conversation.messages);
       if (through > 0) onReadLatest?.(through);

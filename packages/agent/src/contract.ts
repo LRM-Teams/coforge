@@ -70,7 +70,7 @@ export type AgentSessionIdentity = Readonly<{
   sessionId: string;
   state: "empty" | "resumable" | "unknown";
 }>;
-/** How a launch injects the commit co-author trailer hook into the Agent's git (ADR 0048):
+/** How a launch injects the commit co-author trailer hook into the Agent's git:
  * `config-hook` for git >= 2.54's config-based hooks, `hooks-path` for an older git pointed at the
  * Daemon's forwarding shim directory. */
 export type AgentGitHookPlan =
@@ -94,7 +94,7 @@ export type AgentSessionOptions = AgentSessionCommonOptions;
 export type AgentRuntimeEvent =
   | { type: "activity"; activity: AgentActivity }
   | { type: "usage"; snapshot: UsageSnapshot }
-  // A provider-observed context-window reading (ADR 0050), distinct from the plan-usage
+  // A provider-observed context-window reading, distinct from the plan-usage
   // `usage` event above. Claude Code reports this at the top-level `result` record; a
   // provider with no such signal never emits it.
   | { type: "context-usage"; usedTokens: number; windowTokens: number; occurredAt?: string }
@@ -151,7 +151,7 @@ export type AgentRuntimeEvent =
    * learned it never actually reached the model — a native steer request the provider's own
    * turn-boundary protocol failed to admit, or a queued one its native buffer discarded before
    * injecting. `text` is the exact notice text `notify` was given; the daemon core is the only
-   * one that decides whether and how to redeliver it (ADR 0048's daemon-owned delivery queue) —
+   * one that decides whether and how to redeliver it (the daemon-owned delivery queue) —
    * the provider does not retry on its own and does not know about ACK/attention state.
    */
   | { type: "notice-undelivered"; text: string };

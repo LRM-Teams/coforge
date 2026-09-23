@@ -298,7 +298,7 @@ test("Tasks keep a short summary and defer the full reference to the Manual", ()
   expect(instructions).toContain("set the task to `in_review` so a human can validate it");
   expect(instructions).toContain("then to `done` after approval");
   expect(instructions).toContain("`coforge manual get tasks`");
-  // The long reference lives in the `tasks` Manual topic (ADR 0036), not in the standing prompt.
+  // The long reference lives in the `tasks` Manual topic, not in the standing prompt.
   expect(instructions).not.toContain("**What `coforge task create` really means:**");
   expect(instructions).not.toContain("**Amendments are auditable:**");
   expect(instructions).not.toContain("Task updates use revisions");

@@ -1,9 +1,7 @@
 /**
  * Standing instructions for a daemon-spawned Agent, one builder per section, so a section can be
  * read, tested and changed on its own. Every Agent today is spawned by the Daemon, so there is
- * one variant of each section; a self-hosted Agent client would add an audience parameter. Why
- * each section exists and what it was compared against: ADR 0036, "Prompt versus Manual
- * placement".
+ * one variant of each section; a self-hosted Agent client would add an audience parameter.
  */
 
 /**
@@ -83,8 +81,8 @@ function buildIdentityOpening(context: CoforgeAgentPromptContext): string {
   return `${who} — a collaborative platform for human-AI collaboration, serving as a shared message service for humans and agents who may be running on different computers.`;
 }
 
-/** CoForge adopted the MEMORY.md convention on 2026-09-17 (ADR 0036, "Prompt versus Manual
- * placement", step 2): the Agent workspace persists a seeded, Agent-owned MEMORY.md alongside
+/** CoForge adopted the MEMORY.md convention on 2026-09-17: the Agent
+ * workspace persists a seeded, Agent-owned MEMORY.md alongside
  * every other workspace file (see `agent-memory-seed.ts`). */
 function buildWhoYouAreSection(): string {
   return `## Who you are
@@ -142,7 +140,7 @@ function buildInitialRoleSection(description: string): string {
  * `## How these instructions apply`, placed after Runtime Context and before the CLI guide
  * sections (not inside `buildCoforgeCliGuideSections`). Three sentences: personal defaults a
  * user may override, Workspace policy that follows the recorded role, and the role-check
- * command. Long-form authority detail is not repeated here (ADR 0036 P3).
+ * command. Long-form authority detail is not repeated here.
  */
 function buildHowInstructionsApplySection(): string {
   return `## How these instructions apply
@@ -185,8 +183,8 @@ function buildCriticalRulesSection(extraCriticalRules: readonly string[]): strin
 
 /**
  * What an Agent does, in order, each time it wakes: acknowledge early, recover only the context
- * it needs, handle the turn, reply, and finish before stopping. Step 2 reads MEMORY.md first
- * (ADR 0036, "Prompt versus Manual placement", step 4), then only the one note Active Context
+ * it needs, handle the turn, reply, and finish before stopping. Step 2 reads MEMORY.md first,
+ * then only the one note Active Context
  * points to, falling back to `coforge message search`/`read` when earlier discussion is
  * missing — consistent with the Messages section's own guidance.
  */
@@ -206,7 +204,7 @@ function buildStartupSequenceSection(): string {
  * held Task context; `agent-instructions.test.ts` renders a fixture through that function, so the
  * examples cannot drift from the code. `type=` in the bracket header states the sender's kind
  * explicitly — `human`, `agent`, or `system` — so the model is never left to guess it from the
- * sender text's shape (ADR 0052). The opening paragraph defers to `### Messages`: once a check
+ * sender text's shape. The opening paragraph defers to `### Messages`: once a check
  * returns pending messages, they are processed before the turn ends.
  */
 function buildMessagingSection(): string {
@@ -273,7 +271,7 @@ function buildTasksSection(): string {
 
 /**
  * The Agent's own handle plus the one standing formatting rule. Long-form mention resolution
- * and etiquette live in `coforge manual get etiquette` (ADR 0036 P3). The two identity bullets
+ * and etiquette live in `coforge manual get etiquette`. The two identity bullets
  * are omitted when the launch identity has no `name`.
  */
 function buildMentionsSection(identity?: AgentLaunchIdentity): string {
@@ -312,7 +310,7 @@ function buildCommunicationStyleSection(): string {
 
 /**
  * Standing memory hard rules. The template, what-to-memorize list, and notes layout live in
- * `coforge manual get memory` (ADR 0036 P3).
+ * `coforge manual get memory`.
  */
 function buildWorkspaceAndMemorySection(): string {
   return `## Workspace & Memory
@@ -327,7 +325,7 @@ function buildCompactionSafetySection(): string {
 Context is compressed periodically and in-context history is lost. MEMORY.md is your recovery point after compression: after reading it and the one note Active Context names, you should know who you are, what you were doing, and where details live. Before a long task, write a brief Active Context pointer; after work, update \`notes/\` and the index.`;
 }
 
-/** One-line-per-topic catalog. Long-form how-to is fetched on demand (ADR 0036). */
+/** One-line-per-topic catalog. Long-form how-to is fetched on demand. */
 function buildManualIndexSection(): string {
   return `## Agent Manual
 

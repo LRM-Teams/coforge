@@ -65,7 +65,7 @@ function publicChannelsFixture(target: {
   return { channels: new PublicChannels(db) };
 }
 
-test("PublicChannels.addMembers rejects a private Agent target with a stable code (ADR 0059)", async () => {
+test("PublicChannels.addMembers rejects a private Agent target with a stable code", async () => {
   const { channels } = publicChannelsFixture({ id: "agent-ghost", visibility: "private" });
 
   const error = await channels
@@ -90,7 +90,7 @@ test("PublicChannels.addMembers accepts a public Agent target", async () => {
   expect(result.alreadyMemberAgentIds).toEqual([]);
 });
 
-test("PublicChannels.members never offers a private Agent as an add-candidate (ADR 0059, mention-candidate consequence)", async () => {
+test("PublicChannels.members never offers a private Agent as an add-candidate (mention-candidate consequence)", async () => {
   const { channels } = publicChannelsFixture({
     id: "agent-public",
     name: "scout",
@@ -132,7 +132,7 @@ function agentChannelManagementFixture(callerVisibility: string | undefined) {
   return new AgentChannelManagement(db);
 }
 
-test("AgentChannelManagement.join rejects a private calling Agent (ADR 0059)", async () => {
+test("AgentChannelManagement.join rejects a private calling Agent", async () => {
   const management = agentChannelManagementFixture("private");
 
   const error = await management
@@ -159,7 +159,7 @@ test("AgentChannelManagement.join allows a public calling Agent", async () => {
   expect(result.joined).toBe(true);
 });
 
-test("AgentChannelManagement.create rejects a private calling Agent (ADR 0059)", async () => {
+test("AgentChannelManagement.create rejects a private calling Agent", async () => {
   const management = agentChannelManagementFixture("private");
 
   const error = await management
@@ -193,7 +193,7 @@ function agentChannelManagementAddMemberFixture(options: {
   return new AgentChannelManagement(db);
 }
 
-test("AgentChannelManagement.addMember treats an invisible private target as agent_not_visible (ADR 0059 §B)", async () => {
+test("AgentChannelManagement.addMember treats an invisible private target as agent_not_visible", async () => {
   const management = agentChannelManagementAddMemberFixture({
     callerOwnerId: "user-caller",
     target: { id: "agent-ghost", ownerId: "user-someone-else", visibility: "private" },
@@ -210,7 +210,7 @@ test("AgentChannelManagement.addMember treats an invisible private target as age
   expect(managementError.message).toBe("@ghost is not visible to you.");
 });
 
-test("AgentChannelManagement.addMember rejects a visible-but-private target with a clear reason (ADR 0059)", async () => {
+test("AgentChannelManagement.addMember rejects a visible-but-private target with a clear reason", async () => {
   const management = agentChannelManagementAddMemberFixture({
     callerOwnerId: "user-caller",
     target: { id: "agent-mine", ownerId: "user-caller", visibility: "private" },

@@ -7,7 +7,7 @@ import {
 } from "../src/server/agents/agent-control.server";
 import { AgentSessionReceiver } from "../src/server/agents/agent-session.server";
 
-/** ADR 0042 research: this repository's small, self-contained fixture for `authorizeLaunch`
+/** This repository's small, self-contained fixture for `authorizeLaunch`
  * — deliberately not shared with the 2400+ line `agent-control.test.ts` (see the working rules
  * for this branch). Builds a managed Agent whose last operation completed a Start chain, the
  * same shape `AgentControl.start()` leaves behind after a successful managed Start. */
@@ -59,19 +59,19 @@ function controlFor(agent: AgentControlAgent) {
   return new AgentControl(store, { publish: async () => {} }, { run: async (_id, work) => work() });
 }
 
-test("authorizeLaunch refuses a self-initiated launch for a managed Agent whose last operation completed (ADR 0042 research, pre-fix)", async () => {
+test("authorizeLaunch refuses a self-initiated launch for a managed Agent whose last operation completed (pre-fix)", async () => {
   // This is exactly what the daemon sends for today's self-initiated wake (packages/daemon/src/
   // daemon-runtime/runtime.ts #requestLaunchConfig, `control` undefined => no controlEpoch/
   // requestId/launchId at all) against an Agent that has already completed a managed Start —
-  // i.e. every Agent that has ever been started under AgentControl. Proves docs/adr/0042
-  // research question 3: this is REFUSED today, not accepted.
+  // i.e. every Agent that has ever been started under AgentControl. Proves this is REFUSED
+  // today, not accepted.
   const agent = completedManagedAgent();
   await expect(
     controlFor(agent).authorizeLaunch({ agentId: "a", workspaceId: "w", computerId: "c" }),
   ).rejects.toThrow("Stale Agent launch");
 });
 
-/** The launch-config request a daemon-initiated wake sends after ADR 0042: the remembered
+/** The launch-config request a daemon-initiated wake sends after the fix: the remembered
  * requestId/controlEpoch/launchId, exactly matching the state `completedManagedAgent()` builds. */
 const reusedWakeInput = {
   agentId: "a",
@@ -109,7 +109,7 @@ test("authorizeLaunch refuses a wake against a stopped operation", async () => {
   );
 });
 
-test("authorizeLaunch refuses a wake for a user-stopped Agent even under its exact last scope (ADR 0038)", async () => {
+test("authorizeLaunch refuses a wake for a user-stopped Agent even under its exact last scope", async () => {
   const agent = completedManagedAgent();
   agent.stoppedAt = new Date("2026-09-17T00:00:00Z");
   await expect(controlFor(agent).authorizeLaunch(reusedWakeInput)).rejects.toThrow(

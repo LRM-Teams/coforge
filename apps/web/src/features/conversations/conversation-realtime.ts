@@ -84,8 +84,8 @@ export function decodeMessageAvailableEvent(value: unknown): MessageAvailableEve
 /**
  * An in-page notification signal (Frank, 2026-09-23): while a CoForge tab is open, the page shows
  * the OS notification itself from this realtime event instead of relying on Web Push, since Google
- * push services are unreachable from mainland-China staging and clients (see ADR 0065). It carries
- * no message text — `docs/architecture.md`'s bodiless-event rule applies here too — so the browser
+ * push services are unreachable from mainland-China staging and clients. It carries
+ * no message text — the bodiless-event rule applies here too — so the browser
  * fetches title/body/url over authenticated HTTPS (`getMessageNotification`) before it can show
  * anything. Published only to the recipient's own `chat:user:<user_id>` channel.
  */

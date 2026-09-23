@@ -4,7 +4,7 @@
  * operations need 400/403/404/409 depending on the failure, so the status travels with the
  * error instead of being inferred by the route.
  *
- * `errorCode` is the one exception to "plain text": ADR 0059's `agent_not_visible` (the CLI's
+ * `errorCode` is the one exception to "plain text": `agent_not_visible` (the CLI's
  * stable "this Agent is private and you cannot see it" outcome, distinct from a genuinely
  * unknown handle) needs a real wire field the CLI can read, not a message string it would have
  * to pattern-match. `channelManagementErrorResponse` serializes it as the same `{ ok: false,

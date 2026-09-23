@@ -60,7 +60,7 @@ export type MessageView = {
   /** The sender's Agent id, present only when `senderKind === "agent"`; opens the Agent profile
    * panel (`features/agents/profile-panel/`) from the avatar or the sender name. */
   senderAgentId?: string;
-  /** True when the sending Agent has since been deleted (ADR 0044): the sender renders greyed
+  /** True when the sending Agent has since been deleted: the sender renders greyed
    * with a `DELETED` marker, and no longer opens that Agent's profile. */
   senderDeleted?: boolean;
   senderAvatarUrl?: string | null;
@@ -85,8 +85,8 @@ export type MessageView = {
     label: string;
   }[];
   reactions?: { emoji: string; count: number; reactors: string[] }[];
-  /** Present when this message is the summary posted for an Agent-prepared action card
-   * (ADR 0027). Replaces the plain-text draft hint line with the interactive card; the
+  /** Present when this message is the summary posted for an Agent-prepared action card.
+   * Replaces the plain-text draft hint line with the interactive card; the
    * underlying `body` stays available to assistive technology. */
   actionCard?: ActionCardView;
 };
@@ -544,7 +544,7 @@ export function MessageRow({
   /** The live display snapshot for one Agent, from the app shell's subscription. Absent where the
    * surface has no access to it; the avatar then renders without a dot rather than as a wrong one. */
   agentDisplay?: (agentId: string) => AgentDisplaySnapshot | undefined;
-  /** The conversation's unread run begins at this row (ADR 0046): draws the divider above. */
+  /** The conversation's unread run begins at this row: draws the divider above. */
   unreadStartsHere?: boolean;
   dateLocale?: string;
   threadEntry?: (message: MessageView) => MessageThreadEntry;
@@ -587,7 +587,7 @@ export function MessageRow({
       ? message.senderAgentId
       : undefined;
   // A deleted sender is inert and visually muted: no profile affordance, a grey avatar tone, and
-  // a `DELETED` badge beside the name (ADR 0044).
+  // a `DELETED` badge beside the name.
   // An Agent's avatar in the stream carries the same online/working/thinking/error/offline dot the
   // sidebar, conversation header and @-mention popup use, so you can tell whether the Agent that
   // wrote a message is around right now without opening its profile. The snapshot comes from the

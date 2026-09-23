@@ -215,12 +215,12 @@ model Agent {
   avatarContentType         String?
   /// Agent's own server role for management authority: owner | admin | member (never "owner" in
   /// practice today, since only a human is ever created as a Workspace owner). Independent of
-  /// `Agent.ownerId`'s WorkspaceMembership role; see ADR 0024.
+  /// `Agent.ownerId`'s WorkspaceMembership role.
   role                      String                     @default("member")
   /// Who can see this Agent at all: "public" is
   /// visible workspace-wide; "private" is visible only to its creator (`ownerId`), other Agents
   /// sharing that same creator, and a viewer whose own server role is owner/admin. Existing rows
-  /// default to "public". See ADR 0059.
+  /// default to "public".
   visibility                String                     @default("public")
   createdAt                 DateTime                   @default(now())
   ownerId                   String                     @db.Uuid
@@ -230,14 +230,14 @@ model Agent {
   runtimeSession            Json?
   /// Current control request and fencing only, not Session history or a job queue.
   controlState              Json?
-  /// Set when a user stopped this Agent (ADR 0038): nothing may start or wake it except an
+  /// Set when a user stopped this Agent: nothing may start or wake it except an
   /// explicit user Start, Restart, Reset session or Full reset. Independent of `controlState`.
   stoppedAt                 DateTime?
-  /// Soft delete (ADR 0044): a deleted Agent is hidden from every directory, list, wake and
+  /// Soft delete: a deleted Agent is hidden from every directory, list, wake and
   /// profile lookup, but its Messages, Tasks and Action cards are kept so history stays
   /// readable. Never hard-deleted: `Message.sender`, `Task.creator/owner` and
   /// `ActionCard.preparedByAgent` are `onDelete: Restrict`, the same blocker `leftAt` solved
-  /// for channel membership (ADR 0024/0031).
+  /// for channel membership.
   deletedAt                 DateTime?
   currentSessionId          String?                    @db.Uuid
   currentSession            AgentSession?              @relation("CurrentAgentSession", fields: [currentSessionId], references: [id], onDelete: SetNull)
@@ -447,7 +447,7 @@ model AgentActivity {
   @@map("agent_activities")
 }
 
-/// One `coforge manual get|search` call (ADR 0036): who asked, what topic/query with its
+/// One `coforge manual get|search` call: who asked, what topic/query with its
 /// required intent/reason, and whether it hit. Written for both `hit` and `not_found`; an
 /// invalid-input 400 (bad topic slug, invalid query, invalid intent/reason) is never recorded.
 model AgentManualEvent {
@@ -550,7 +550,7 @@ model WorkspaceMembership {
   @@map("workspace_memberships")
 }
 
-/// A member's own settings inside one Workspace, removed with the membership. See ADR 0065.
+/// A member's own settings inside one Workspace, removed with the membership.
 model WorkspaceMemberPreference {
   workspaceId          String              @db.Uuid
   userId               String              @db.Uuid
@@ -701,7 +701,7 @@ model ConversationMember {
   /// conversation. Agents keep their own delivery cursor above; a human's
   /// channel-list unread count is `top-level messages with sequence > this`
   /// excluding their own messages. Thread replies never advance it: reading a
-  /// thread does not consume unread in the channel's main target (see ADR 0046).
+  /// thread does not consume unread in the channel's main target.
   readThroughSequence      Int               @default(0)
   channelMuted             Boolean           @default(false)
   /// Soft leave marker. Member rows can never be deleted once they own a Message/Task
@@ -712,7 +712,7 @@ model ConversationMember {
   /// membership row; #general members always stay "member" (nobody can be channel admin of
   /// #general, its rules are fixed). Never the sole authority source — see
   /// `channel-authority.server.ts`'s admin-basis computation, which also considers the actor's
-  /// Workspace/Agent server role. See ADR 0030.
+  /// Workspace/Agent server role.
   channelRole              String            @default("member")
   /// Forced unread marker (mark-as-unread): top-level messages with sequence >= this read as
   /// unread regardless of readThroughSequence. Null = none. Cleared when the member reads past it.
@@ -770,7 +770,7 @@ model Message {
   @@index([conversationId, threadRootId, sequence])
   @@index([conversationId, createdAt])
   /// Serves workspace-wide top-level message scans with sequence ranges — the
-  /// sidebar's unread counts (ADR 0046) and future inbox-style reads.
+  /// sidebar's unread counts and future inbox-style reads.
   @@index([workspaceId, threadRootId, sequence])
   @@map("messages")
 }
@@ -962,7 +962,7 @@ model Attachment {
   workspaceId     String       @db.Uuid
   conversationId  String       @db.Uuid
   /// Exactly one of `uploaderId` / `uploaderAgentId` is set; enforced in
-  /// `storeAttachment`/`storeAgentAttachment`, not a DB check constraint (see ADR 0023).
+  /// `storeAttachment`/`storeAgentAttachment`, not a DB check constraint.
   uploaderId      String?      @db.Uuid
   uploaderAgentId String?      @db.Uuid
   messageId       String?      @db.Uuid
@@ -986,7 +986,7 @@ model Attachment {
   @@map("attachments")
 }
 
-/// A reserved presigned-upload session (ADR 0028): the Agent PUTs bytes straight to storage,
+/// A reserved presigned-upload session: the Agent PUTs bytes straight to storage,
 /// then `complete` verifies the object and creates the `Attachment` row that `attachmentId`
 /// reserves ahead of time. `attachmentId` is not a foreign key — that row does not exist until
 /// verification succeeds — only a unique reservation the eventual `Attachment.id` must match.

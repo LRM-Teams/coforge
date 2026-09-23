@@ -236,7 +236,7 @@ test("cloud and daemon preserve Restart identity, reset sessions, fence Full Res
   }
 });
 
-test("a Start that meets an already-running process rebinds it: one process, prepare/verify/accept intact, wake delivered (ADR 0041)", async () => {
+test("a Start that meets an already-running process rebinds it: one process, prepare/verify/accept intact, wake delivered", async () => {
   // macOS resolves os.tmpdir() through the /var -> /private/var symlink, which the
   // store's symlinked-ancestor guard rightly rejects; anchor the fixture on the real path.
   const root = await mkdtemp(join(await realpath(tmpdir()), "control-rebind-"));
@@ -270,7 +270,7 @@ test("a Start that meets an already-running process rebinds it: one process, pre
     },
   };
   // The real `AgentSessions` (`agent-sessions.server.ts`) `prepare`/`verify`/`accept` seam, not
-  // just `AgentSessionReceiver` — this is what proves ADR 0041's `prepare()` fix (rule 6): the
+  // just `AgentSessionReceiver` — this is what proves the `prepare()` fix: the
   // server-supplied launchId is carried into `RuntimeSessionReference` ahead of the Daemon's own
   // report, so a rebind's later Session report is accepted by exact launchId match.
   let sessionRef: RuntimeSessionReference | null = null;
@@ -333,7 +333,7 @@ test("a Start that meets an already-running process rebinds it: one process, pre
     { timeoutMs: 5_000, fallbackMs: 200 },
     sessions,
     undefined,
-    // ADR 0038's recovery-context seam: a user-initiated Start's wake message.
+    // The recovery-context seam: a user-initiated Start's wake message.
     {
       async readAgentRecoveryContext() {
         return {

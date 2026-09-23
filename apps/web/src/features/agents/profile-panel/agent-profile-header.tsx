@@ -61,7 +61,7 @@ export function AgentProfileHeader({
         {/* What the Agent is doing, under its name — the line a direct message's header already
             shows, from the same `agentDisplay` the avatar's label reads, so the two cannot
             disagree. Nothing is shown when there is no live display: a deleted Agent has no
-            status to report (ADR 0044) and "Status unknown" is not news. */}
+            status to report and "Status unknown" is not news. */}
         {display && (
           <p role="status" className="truncate text-xs text-tertiary">
             {statusLabel}

@@ -19,7 +19,7 @@ import installPs1Source from "../../../../../scripts/release/install.ps1?raw";
  *   Prisma migration stage); the repository's `scripts/` directory does not exist inside the
  *   running container, so a runtime `readFile` would fail there even though it works locally.
  * - The script content is static regardless of which Computer/Daemon release version is
- *   currently `latest` (ADR 0007: integrity is checksum-based, not a signed per-version
+ *   currently `latest` (integrity is checksum-based, not a signed per-version
  *   envelope) - publishing a new release must never require redeploying the web app just to
  *   keep serving these two files. Embedding at build time means these routes only change when
  *   `scripts/release/install.sh`/`install.ps1` themselves change, which already requires a web

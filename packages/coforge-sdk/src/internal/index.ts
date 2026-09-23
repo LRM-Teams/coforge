@@ -1,5 +1,5 @@
 import { RPC_METHODS } from "./rpc-methods";
-/** TypeScript boundary approved by ADR 0004; codec/transport remains an adapter concern. */
+/** TypeScript boundary; codec/transport remains an adapter concern. */
 export const COMPUTER_REGISTER_METHOD = RPC_METHODS.computerRegister;
 export const COMPUTER_REGISTER_PROTOCOL_MAJOR = 1 as const;
 export const WORKSPACE_LIST_METHOD = RPC_METHODS.workspaceList;
@@ -30,7 +30,7 @@ export const MODEL_REFRESH_MESSAGE_TYPE =
   "coforge.rpc.v1.DaemonRuntimeProviderModelRefreshRequest" as const;
 export const MODEL_REFRESH_RESPONSE_MESSAGE_TYPE =
   "coforge.rpc.v1.DaemonRuntimeProviderModelRefreshResponse" as const;
-/** Server -> daemon, on the daemon control channel like the usage scan (ADR 0051); per-Agent
+/** Server -> daemon, on the daemon control channel like the usage scan; per-Agent
  * rather than per-provider, so it decodes through the same `#route` chain in
  * `daemon-connection.ts` rather than a dedicated method the daemon calls. */
 export const AGENT_CONTEXT_SCAN_METHOD = RPC_METHODS.agentContextScan;
@@ -100,7 +100,7 @@ export const AGENT_ACTIVITY_DETAIL_KIND = {
   RUNTIME_RECONNECTING: "runtime_reconnecting",
   RUNTIME_ERROR: "runtime_error",
   // A stored native Session could not be resumed (missing, or rejected on replay); the
-  // daemon reported it invalidated and is cold-starting without it (ADR 0040). Working-level,
+  // daemon reported it invalidated and is cold-starting without it. Working-level,
   // like `runtime_reconnecting` above: it narrates a fallback in progress, not a terminal state.
   RUNTIME_UNAVAILABLE: "runtime_unavailable",
   // Content-free provider stream/system event (no rendered text): keeps the
@@ -169,8 +169,7 @@ export type AgentSessionInvalidateReason =
  * Fire-and-forget daemon-to-cloud notice that a stored native Session is gone or was
  * rejected on replay; the daemon is cold-starting without it. Never delivered as Activity.
  * No control-fence fields (no `startRequestId`/`controlEpoch`, unlike `AgentSessionReport`):
- * the server's exact match is on `launchId` + `sessionId` alone — see ADR 0040, "Why no
- * control fence fields".
+ * the server's exact match is on `launchId` + `sessionId` alone.
  */
 export type AgentSessionInvalidate = {
   protocolMajor: number;
@@ -187,7 +186,7 @@ export type AgentSessionInvalidate = {
 export const AGENT_CONTEXT_USAGE_METHOD = RPC_METHODS.agentContextUsage;
 /**
  * Fire-and-forget daemon-to-cloud notice of the Agent's current context-window usage, observed
- * at the top-level Claude Code `result` record (ADR 0050). Never delivered as Activity; a
+ * at the top-level Claude Code `result` record. Never delivered as Activity; a
  * provider with no such signal never emits it (Claude Code only today). This message never
  * shipped, so its fields are numbered contiguously.
  */
@@ -241,8 +240,7 @@ export type WorkspaceInfoResponse = {
    * `buildAgentRuntimeContext`). Every field is optional and omitted rather than sent empty, so an
    * older CLI decoder degrades cleanly. Never carries another Agent's runtime config. Named type
    * `WorkspaceInfoRuntimeContext` lives in `@lrm/coforge-sdk/agent` (`client.ts`) instead of here,
-   * so the two subpaths never export a same-named type (see "Agent SDK 与内部 protocol 的边界" in
-   * `docs/architecture.md`).
+   * so the two subpaths never export a same-named type.
    */
   runtimeContext?: {
     agentId?: string;
@@ -315,7 +313,7 @@ export type AgentRuntimeProviderConfig =
 /**
  * Stable, machine-readable reasons a Computer upgrade did not complete, carried on the wire in
  * `ComputerUpgradeResult.errorCode` and, locally between the Coordinator and a Workspace daemon,
- * on `DaemonCommandResponse.errorCode` (ADR 0041). One owner, same
+ * on `DaemonCommandResponse.errorCode`. One owner, same
  * discipline as `RUNTIME_PROVIDER`: every throw site names one of these values instead of a
  * caller parsing `error`'s free text.
  *
@@ -513,7 +511,7 @@ export type DaemonRuntimeProviderModelRefreshResponse = DaemonRuntimeProviderMod
   message?: string;
   catalogs?: CodeAgentModelCatalog[];
 };
-/** Server -> daemon, on the daemon control channel like the usage scan (ADR 0051). Per-Agent: the
+/** Server -> daemon, on the daemon control channel like the usage scan. Per-Agent: the
  * server fills `launchId`/`sessionId` from its own record of the Agent's current control state;
  * the daemon still resolves its own current launch/session independently before running anything
  * (see `DaemonRuntime.scanAgentContext`) rather than trusting these fields outright. */
@@ -547,7 +545,7 @@ export type AgentContextScanResponse = AgentContextScanRequest & {
   reportJson?: Uint8Array;
 };
 /**
- * A parsed Claude Code `/context` report (ADR 0051): what the current context window is made of,
+ * A parsed Claude Code `/context` report: what the current context window is made of,
  * by category, plus the per-item Memory files/Skills lists. Claude Code only today; a provider
  * with no equivalent signal never produces one. Categories are free text, kept exactly as the CLI
  * printed them (English, Claude Code's own labels — never translated); `"Free space"` is
@@ -578,7 +576,7 @@ export type AgentStartIntent = {
   sessionMode?: "create" | "resume";
   previousLaunchId?: string;
   controlEpoch?: number;
-  /** ADR 0041: the server-minted launchId for this control operation's start step; required
+  /** The server-minted launchId for this control operation's start step; required
    * whenever `controlEpoch` is set (every managed start). */
   launchId?: string;
   providerConfig?: AgentRuntimeProviderConfig;
@@ -631,7 +629,7 @@ export type AgentMessageDelivery = {
   latestSenderKind?: import("./message-sender").MessageSenderKind;
   latestSenderHandle?: string;
   latestSenderDescription?: string;
-  /** True when this delivery personally @mentioned the recipient Agent (ADR 0061). */
+  /** True when this delivery personally @mentioned the recipient Agent. */
   mentionsAgent?: boolean;
 };
 export type AgentMessageDeliveryAck = Omit<

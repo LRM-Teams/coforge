@@ -26,7 +26,7 @@ export type AgentDeletionOutcome =
  * One atomic transition from live to deleted: mark the Agent and make it inert cloud-side
  * (revoke Agent API keys, soft-leave channel memberships, cancel scheduled Reminders). Message,
  * Task and Action-card rows are never touched — their `Restrict` foreign keys make them
- * undeletable, and history must stay readable (ADR 0044).
+ * undeletable, and history must stay readable.
  */
 export interface AgentDeletionStore {
   delete(input: {
@@ -41,7 +41,7 @@ type AgentRuntimeControl = {
 };
 
 /**
- * Deletes one Agent (ADR 0044). Authorization is Raft's `deleteAgents` capability — Workspace
+ * Deletes one Agent. Authorization is Raft's `deleteAgents` capability — Workspace
  * owner/admin only, never by Agent ownership alone. Runs under the Agent runtime lock so a
  * concurrent config/credential change cannot interleave with the delete.
  *

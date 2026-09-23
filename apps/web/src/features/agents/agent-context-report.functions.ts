@@ -10,7 +10,7 @@ import {
 import { waitForUsageScanResult } from "../computers/usage-poll";
 
 /**
- * The Agent profile panel's context-composition read (ADR 0051): the last stored report plus its
+ * The Agent profile panel's context-composition read: the last stored report plus its
  * freshness state, exactly the shape the runtime usage popover reads. Unavailable for a viewer
  * who does not own the Agent, an Agent without a Claude Code runtime, or an Agent with no
  * Computer at all.
@@ -27,7 +27,7 @@ export const getAgentContextReport = createServerFn({ method: "GET" })
   });
 
 /**
- * Runs a fresh context-composition scan against the Agent's Computer (ADR 0051) and waits for
+ * Runs a fresh context-composition scan against the Agent's Computer and waits for
  * that scan's own result — the previously cached report (if any) stays readable through
  * `getAgentContextReport` the whole time. Refused with a stable code for a non-Claude-Code Agent
  * or a viewer who does not own the Agent.

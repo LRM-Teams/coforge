@@ -82,7 +82,7 @@ export async function authenticateAgentHttpRequest(request: Request, db: PrismaC
         }),
       ),
   });
-  // ADR 0044: deleting an Agent revokes its keys, but a key minted before the delete could still
+  // Deleting an Agent revokes its keys, but a key minted before the delete could still
   // be in flight; check the Agent itself so a deleted Agent can never act through the HTTP API.
   const agent = await db.agent.findFirst({
     where: {

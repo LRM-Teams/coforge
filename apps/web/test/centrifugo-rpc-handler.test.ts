@@ -381,7 +381,7 @@ describe("CentrifugoRpcHandler", () => {
     ).toEqual({ code: 403, message: "Agent status is not authorized" });
   });
 
-  // ADR 0059: `agent:status` reports feed both the raw active/inactive event and the reduced
+  // `agent:status` reports feed both the raw active/inactive event and the reduced
   // `agent:display` snapshot onto the browser status channel — the same per-Agent-or-shared split
   // the publish proxy, the Activity sweep and the context-usage receiver already apply, folded
   // into the same Agent row this method already fetches for authorization above (no extra query).

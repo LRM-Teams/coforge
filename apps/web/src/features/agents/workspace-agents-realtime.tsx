@@ -29,11 +29,11 @@ export type LiveAgent = {
   avatarUrl?: string | null;
   status: AgentStatusView;
   display?: AgentDisplaySnapshot;
-  /** ADR 0059. Optional: an Agent shape that predates this field (or came from a path that never
+  /** Optional: an Agent shape that predates this field (or came from a path that never
    * set it) reads as `"public"`, matching the same fail-open default the create/list paths use
-   * before this ADR existed. */
+   * for Agents created before visibility existed. */
   visibility?: AgentVisibility;
-  /** ADR 0059: set only on a placeholder standing in for an Agent visible to the viewer but
+  /** Set only on a placeholder standing in for an Agent visible to the viewer but
    * outside their own `listAgents` roster (`extraAgentPlaceholder`) — no real name/description,
    * so `useLiveAgents()` (the Members directory, DM sidebar, mention list) filters it out;
    * `useLiveAgent(id)` still returns it so the profile panel gets its live status/Activity. */
@@ -48,7 +48,7 @@ const WorkspaceIdContext = createContext<string | undefined>(undefined);
 const visiblePrivateAgentIdsKey = (workspaceId: string | undefined) =>
   ["agent-visibility", "visible-private-ids", workspaceId ?? null] as const;
 
-/** ADR 0059 realtime gap: a placeholder `LiveAgent` for an Agent visible to the viewer but
+/** Realtime gap: a placeholder `LiveAgent` for an Agent visible to the viewer but
  * outside their own `listAgents` roster (e.g. an owner/admin viewing another member's private
  * Agent) — "inactive" until a live per-Agent publication says otherwise, matching `listAgents`'s
  * own "nothing heard yet" default. Its name/description are blank; any surface reading it (the
@@ -87,7 +87,7 @@ export function WorkspaceAgentsProvider({
   const getVisiblePrivateIds = useServerFn(listVisiblePrivateAgentIds);
   const queryClient = useQueryClient();
 
-  // ADR 0059 realtime gap: ids of private Agents visible to this viewer beyond their own
+  // Realtime gap: ids of private Agents visible to this viewer beyond their own
   // `listAgents` roster (an owner/admin, or a private Agent's creator viewing it from outside
   // their own roster). Refetched on `agent:visibility_changed` below (a viewer gaining or losing
   // sight of an already-existing Agent); refetching on focus/reconnect also catches a private
@@ -142,7 +142,7 @@ export function WorkspaceAgentsProvider({
     workspaceId ? (agentId) => getPrivateActivityToken({ data: { agentId } }) : undefined,
   );
 
-  // ADR 0059: an Agent no longer visible to this viewer (dropped by `mergeAgentStatusSnapshot`
+  // An Agent no longer visible to this viewer (dropped by `mergeAgentStatusSnapshot`
   // from the fresh `refresh()` list, e.g. after `agent:visibility_changed`) must not leave its
   // recent-activity entry behind in the shared cache.
   useEffect(() => {
@@ -172,7 +172,7 @@ export function WorkspaceAgentsProvider({
 
 /** The live Agent list (with realtime status), for the sidebar's Direct message section. */
 /** The Members directory / DM sidebar / mention list roster: never includes an `isExtra`
- * placeholder (ADR 0059), since those carry no real name/description and exist only so
+ * placeholder, since those carry no real name/description and exist only so
  * `useLiveAgent(id)` can serve live status/Activity for an Agent outside the viewer's own
  * roster. */
 export function useLiveAgents(): LiveAgent[] {

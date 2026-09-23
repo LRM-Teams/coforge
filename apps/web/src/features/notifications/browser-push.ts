@@ -57,7 +57,7 @@ export async function syncBrowserPushSubscription(
 
 /** Registers `/service-worker.js` if it is not already registered and waits for it to become
  * active. Idempotent: a repeat call against the same scope returns the existing registration.
- * Shared by Web Push registration and the in-page path (ADR 0065), which needs an active
+ * Shared by Web Push registration and the in-page path, which needs an active
  * registration to call `showNotification` on even when Web Push itself was never subscribed. */
 export async function ensureServiceWorkerRegistration(): Promise<ServiceWorkerRegistration> {
   await navigator.serviceWorker.register("/service-worker.js", { scope: "/" });

@@ -111,7 +111,7 @@ export const sendTestBrowserNotification = createServerFn({ method: "POST" })
   });
 
 /**
- * The in-page notification read (ADR 0065): what `InPageNotifications` fetches once the realtime
+ * The in-page notification read: what `InPageNotifications` fetches once the realtime
  * `notification.available.v1` event tells it a message is worth showing. Authorization is the
  * recipient rule itself — `notificationForRecipient` returns null for a non-recipient, which this
  * handler reports the same as a message the caller cannot see, never distinguishing the two.

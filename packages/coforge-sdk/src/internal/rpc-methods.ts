@@ -2,7 +2,7 @@
  * The single owner of every internal RPC method name — the cloud ↔ Computer/Daemon/Agent wire
  * protocol in `@lrm/coforge-sdk/internal`.
  *
- * Names follow `<scope>:v<major>:<domain>:<action>[_result]` (see docs/architecture.md). `<scope>`
+ * Names follow `<scope>:v<major>:<domain>:<action>[_result]`. `<scope>`
  * is the owning surface (`daemon` | `agent` | `computer` | `workspace`); `v<major>` is
  * the RPC-surface version and must equal the envelope `protocolMajor`; `<domain>` is a singular
  * resource noun; `<action>` is a single verb; a reply is the request name plus `_result`.

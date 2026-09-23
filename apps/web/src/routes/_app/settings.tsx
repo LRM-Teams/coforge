@@ -227,7 +227,7 @@ function SettingsPage() {
       await sendTestNotification({ data: { endpoint: subscription.endpoint } });
       return true;
     } catch (cause) {
-      // The server could not reach this browser's push service (ADR 0065): notifications still
+      // The server could not reach this browser's push service: notifications still
       // arrive while CoForge is open, so the test shows one from the page itself.
       if (isAppError(cause) && cause.code === "PUSH_SERVICE_UNREACHABLE") {
         try {

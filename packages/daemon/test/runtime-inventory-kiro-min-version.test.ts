@@ -40,7 +40,7 @@ async function captureWarnings(run: () => Promise<unknown>) {
 }
 
 describe("Kiro minimum CLI version gate", () => {
-  test("does not report Kiro and logs a warning when the CLI is below the ADR 0010 baseline", async () => {
+  test("does not report Kiro and logs a warning when the CLI is below the compatibility baseline", async () => {
     const records = await captureWarnings(async () => {
       const runtimes = await discoverExternalCodeAgents(kiroProbe("kiro-cli 2.16.0\n"));
       expect(runtimes).toEqual([]);

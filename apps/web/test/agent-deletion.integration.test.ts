@@ -12,7 +12,7 @@ import type { AgentVisibilityViewer } from "../src/server/agents/agent-visibilit
 import { TaskBoard } from "../src/server/tasks/task-board.server";
 
 /**
- * End-to-end Agent deletion against local PostgreSQL (ADR 0044). Drives the real `AgentDeletion`
+ * End-to-end Agent deletion against local PostgreSQL. Drives the real `AgentDeletion`
  * and `PrismaAgentDeletionStore`, then asserts through the *other* live-view seams — the Members
  * directory, the DM read path, the by-name profile lookup, the message projection, the repository
  * listings and the unique Agent name constraint — so the test proves the delete actually makes the
@@ -103,7 +103,7 @@ test.skipIf(!connectionString)(
   "deleting an Agent hides it from every live view and keeps its history readable",
   async () => {
     const { db, workspace, owner, member, agent } = await setup();
-    // The Agent's own creator (ADR 0059); trivially visible regardless of `visibility`, so this
+    // The Agent's own creator; trivially visible regardless of `visibility`, so this
     // test's `findWorkspaceUser` calls exercise deletion, never a visibility rejection.
     const ownerViewer: AgentVisibilityViewer = { kind: "user", userId: owner.id, role: "owner" };
     try {

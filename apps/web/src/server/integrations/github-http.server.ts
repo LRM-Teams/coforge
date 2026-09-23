@@ -114,7 +114,7 @@ const GITHUB_EVENT_HEADER = "x-github-event";
 
 /**
  * GitHub subscribes here instead of the settings page polling api.github.com (slow and
- * sometimes timing out from the production server's network path). See ADR 0019.
+ * sometimes timing out from the production server's network path).
  * Always reads the raw body once and verifies its signature before any JSON parsing.
  */
 export async function githubWebhookHandler({ request }: { request: Request }) {

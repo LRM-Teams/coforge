@@ -17,7 +17,7 @@ const delivery = (id: string): AgentMessageDelivery => ({
 });
 
 test("a queue_until_idle mode only holds while busy", () => {
-  // No RuntimeProvider maps to queue_until_idle today (ADR 0048: Kiro moved to steer once its
+  // No RuntimeProvider maps to queue_until_idle today (Kiro moved to steer once its
   // own _session/steer extension was wired in); setMode exercises the mode directly, since
   // setProvider alone cannot reach it any more.
   const queue = new AgentDeliveryQueue();

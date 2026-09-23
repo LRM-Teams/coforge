@@ -221,7 +221,7 @@ export function createAgentStatusMethod(
         // The optional display read model cannot reject an accepted process fact.
       }
     }
-    // ADR 0059: folded into the Agent row already fetched above for authorization — no extra
+    // Folded into the Agent row already fetched above for authorization — no extra
     // query, and never optional in effect: `visibility === undefined` (the lookup found nothing
     // to route by; never happens once the authorization check above passed for a real Agent row)
     // skips fan-out entirely — fails closed — rather than guessing the shared channel. The
@@ -540,7 +540,7 @@ export function createDaemonRuntimeProviderModelRefreshResultMethod(): Centrifug
 }
 
 /**
- * The Daemon's terminal report for one Agent context-composition scan (ADR 0051). Mirrors the
+ * The Daemon's terminal report for one Agent context-composition scan. Mirrors the
  * usage-scan result method's principal checks; a valid `report_json` is parsed and stored, and
  * nothing else here interprets the report - the Web feature owns that. A result the daemon could
  * not produce (`no_session`, `unparsed`, ...) is still stored, as the visible reason the popover

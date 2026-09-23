@@ -83,7 +83,7 @@ test("decodeAgentProfileErrorResponse accepts and rejects", () => {
   expect(decodeAgentProfileErrorResponse(AGENT_VALUE)).toBeUndefined();
 });
 
-test("decodeAgentProfileErrorResponse accepts agent_not_visible (ADR 0059)", () => {
+test("decodeAgentProfileErrorResponse accepts agent_not_visible", () => {
   const error: AgentProfileErrorResponse = {
     ok: false,
     errorCode: "agent_not_visible",

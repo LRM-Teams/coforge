@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { decodeAgentChannelErrorResponse, type AgentChannelErrorResponse } from "./channels";
 
-test("decodeAgentChannelErrorResponse accepts agent_not_visible (ADR 0059)", () => {
+test("decodeAgentChannelErrorResponse accepts agent_not_visible", () => {
   const error: AgentChannelErrorResponse = {
     ok: false,
     errorCode: "agent_not_visible",

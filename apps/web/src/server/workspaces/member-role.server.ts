@@ -33,7 +33,7 @@ export function assertCanCreateAgents(actorRole: WorkspaceMemberRole): void {
  * Raft capability table (`shared/src/serverPermissions.ts`): `deleteAgents` sits with
  * `createAgents`/`editAgents` in `ADMIN_SERVER_CAPABILITIES` and is absent from
  * `MEMBER_SERVER_CAPABILITIES`, so deleting an Agent is Workspace owner/admin only — not even the
- * Agent's own owner may delete it as a plain member (ADR 0044).
+ * Agent's own owner may delete it as a plain member.
  */
 export function assertCanDeleteAgents(actorRole: WorkspaceMemberRole): void {
   if (!isAdminLike(actorRole)) throw new AppError("ACCESS_DENIED");

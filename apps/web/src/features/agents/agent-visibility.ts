@@ -1,8 +1,8 @@
 /**
- * Per-Agent visibility (ADR 0059). `"public"` is visible
+ * Per-Agent visibility. `"public"` is visible
  * Workspace-wide; `"private"` is visible only to its creator, other Agents sharing that same
  * creator, and a viewer whose own server role is owner/admin. Every Agent defaults to `"public"`;
- * new weekly-report Collector Agents (ADR 0032) and WeeklyReportAssistant Agents are created
+ * new weekly-report Collector Agents and WeeklyReportAssistant Agents are created
  * `"private"`.
  *
  * Kept Web-only (not part of `@lrm/coforge-sdk`): visibility is never sent to the Daemon or

@@ -199,7 +199,7 @@ export function useConversationQuery<M extends PageMessage, T extends Conversati
     // A new conversation starts a new reconciler; later pages of the same one keep it.
     [conversationId],
   );
-  /** Refreshes just the pending action cards currently shown (ADR 0027 "Commit and cancel"),
+  /** Refreshes just the pending action cards currently shown,
    * without re-fetching the whole page; reads the live message list at call time via the closure
    * captured into `reconcileRef` by `useConversationRealtime`. */
   const refreshActionCards = async () => {

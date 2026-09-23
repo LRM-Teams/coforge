@@ -78,7 +78,7 @@ export function messageNotificationTag(messageId: string): string {
   return `message:${messageId}`;
 }
 
-/** Publishes the bodiless `notification.available.v1` in-page signal (ADR 0065) to every recipient's
+/** Publishes the bodiless `notification.available.v1` in-page signal to every recipient's
  * own `chat:user:<user_id>` channel. Best-effort from `WebPushNotifications`' point of view: a
  * rejection is caught and logged, never thrown into the canonical send path. */
 export type NotificationPublisher = {
@@ -105,8 +105,8 @@ function deliveryErrorId() {
 }
 
 /**
- * Classifies a `sendTest` result into the honest-error decision the Settings test button needs
- * (ADR 0065): `"unreachable"` only when every attempted delivery failed because the push service
+ * Classifies a `sendTest` result into the honest-error decision the Settings test button needs:
+ * `"unreachable"` only when every attempted delivery failed because the push service
  * itself could not be reached (never a mix with an ordinary failure or a removed subscription —
  * either of those means the browser's own permission/subscription is the real story), `"failed"`
  * for any other zero-`sent` outcome, `"sent"` otherwise.
@@ -210,7 +210,7 @@ export class WebPushNotifications {
           // No status code means the transport never got a response at all (timeout, connection
           // refused, DNS failure, or an egress/encryption error it could not distinguish from one)
           // rather than the push service answering with a failure — the best signal available, not
-          // a pure network classifier (see ADR 0065).
+          // a pure network classifier.
           const unreachable = error instanceof WebPushDeliveryError && statusCode === undefined;
           console.error(
             JSON.stringify({

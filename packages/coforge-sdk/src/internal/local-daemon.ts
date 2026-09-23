@@ -265,7 +265,7 @@ export type AgentMessageRecord = {
   /** Always present, possibly empty; order matches send/upload order. */
   attachments: LocalAttachment[];
   task?: MessageTaskMetadata;
-  /** True when this message personally @mentioned the reading Agent (ADR 0061). */
+  /** True when this message personally @mentioned the reading Agent. */
   mentionsAgent?: boolean;
 };
 export type MessageTaskMetadata = {
@@ -359,7 +359,7 @@ export type MessageAttentionSummary = {
   firstPendingSequence: number;
   latestSequence: number;
   latestSenderKind?: MessageSenderKind;
-  /** Public handle without a leading "@". No description on this summary (ADR 0052, decision D). */
+  /** Public handle without a leading "@". No description on this summary. */
   latestSenderHandle?: string;
   flags: string[];
 };

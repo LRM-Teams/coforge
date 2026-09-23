@@ -75,13 +75,13 @@ function AppLayout() {
       >
         <WorkspaceAgentsProvider workspaceId={currentWorkspace?.id} agents={agents}>
           <PanelTabOrderProvider workspaceId={currentWorkspace?.id} orders={tabOrders}>
-            {/* ADR: the server prunes dead web-push subscriptions (404/410), and nothing else ever
+            {/* The server prunes dead web-push subscriptions (404/410), and nothing else ever
             re-registers them — without this the phone stays silent until a manual toggle. */}
             <BrowserPushLifecycle
               enabled={notifications.enabled}
               publicKey={notifications.publicKey}
             />
-            {/* ADR 0065: while a tab is open, show the OS notification here instead of relying on
+            {/* While a tab is open, show the OS notification here instead of relying on
                 Web Push, which mainland-China staging/clients cannot reach for Chrome. */}
             <InPageNotifications
               enabled={notifications.enabled}

@@ -123,7 +123,7 @@ export const addPublicChannelMembers = createServerFn({ method: "POST" })
     });
   });
 
-/** Promote/demote a channel member's stored `channelRole` (ADR 0030). Human-only: there is no
+/** Promote/demote a channel member's stored `channelRole`. Human-only: there is no
  * Agent CLI/API route for this. `PublicChannels.setChannelRole` enforces `manage_roles`
  * (Workspace owner/admin, or channel admin of this channel) and rejects `#general`. */
 export const setPublicChannelMemberRole = createServerFn({ method: "POST" })

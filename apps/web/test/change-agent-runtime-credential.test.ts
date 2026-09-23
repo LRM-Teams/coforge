@@ -183,7 +183,7 @@ describe("ChangeAgentRuntimeCredential", () => {
     });
   });
 
-  test("a stopped Agent saves the credential without the stop -> ... -> start dance (ADR 0038)", async () => {
+  test("a stopped Agent saves the credential without the stop -> ... -> start dance", async () => {
     const { credentialChange, events } = fixture({ stopped: true });
 
     const result = await credentialChange.save(principal, "agent-1", "sk-secret-value-1234");

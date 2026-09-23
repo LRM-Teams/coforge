@@ -26,7 +26,7 @@ export type AgentCreateComputerOption = {
 };
 
 /** The Agent-create form, shared by the Members page ("New agent") and an `agent:create`
- * action card's commit button (ADR 0027 "Commit and cancel"). `defaults` prefills the form;
+ * action card's commit button. `defaults` prefills the form;
  * `computerLocked` mirrors a card's `requiredComputer` by disabling the Computer selector. */
 export function AgentCreateDialog({
   open,

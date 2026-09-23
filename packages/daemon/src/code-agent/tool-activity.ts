@@ -213,7 +213,7 @@ function resolveCoforgeInvocation(tokens: readonly string[]): CoforgeInvocation 
       summary: allowlistedString(tokens[3], 120),
     };
   } else if (category === "whoami") {
-    // Deliberately local (ADR 0036): no wire call, so it is always read-only, unconditionally.
+    // Deliberately local: no wire call, so it is always read-only, unconditionally.
     return { tool: "whoami" };
   } else if (category === "version") {
     return { tool: "get_version" };

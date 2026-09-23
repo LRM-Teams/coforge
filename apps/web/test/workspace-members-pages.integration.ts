@@ -46,7 +46,7 @@ test("pages the Workspace directory with owner, Computer and search filters", as
       { name: "delta", ownerId: owner!.id, computerId: computer.id },
       { name: "echo", ownerId: owner!.id, computerId: null },
     ] as { name: string; ownerId: string; computerId: string | null }[];
-    // Privacy and scoping (ADR 0059): another member's private Agent on a Computer no visible Agent
+    // Privacy and scoping: another member's private Agent on a Computer no visible Agent
     // uses, and an Agent whose Computer belongs only to another Workspace.
     const hiddenHost = await db.computer.create({
       data: { ownerId: owner!.id, machineId: `pages-hidden-${suffix}`, name: "secret-host" },

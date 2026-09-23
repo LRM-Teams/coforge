@@ -308,7 +308,7 @@ export async function runDaemon(args: string[], computerVersion?: string): Promi
             recoveredUpgradeResults: terminalUpgradeResults(config),
             // Re-reads the same per-Workspace config file the Coordinator wrote before starting
             // this process - and may rewrite again while this process keeps running, once its
-            // continuous upgrade-receipt watch settles an operation (ADR 0037) - so a result
+            // continuous upgrade-receipt watch settles an operation - so a result
             // settled after this process started is still reported on the next reconnect.
             refreshUpgradeResults: async () => terminalUpgradeResults(await configStore.load()),
             acknowledgeUpgradeResult: supervisorSocket
@@ -356,7 +356,7 @@ export async function runDaemon(args: string[], computerVersion?: string): Promi
         },
         inbox: async (context: string, request: LocalInboxRequest) =>
           requireRuntime().inbox(context, request),
-        // Runner hold (ADR 0020). A Workspace with no configured runtime has nothing to drain and
+        // Runner hold. A Workspace with no configured runtime has nothing to drain and
         // reports itself quiescent, so it never holds an upgrade up.
         async hold(reason: string) {
           return { held: true, busyAgents: stampWorkspace(runtime?.holdRunners(reason)) };

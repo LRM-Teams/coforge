@@ -43,7 +43,7 @@ const PENDING_WINDOW_LIMIT = HELD_CONTEXT_LIMIT;
 /**
  * Agent-authored parent-channel chatter should not wake other Agents unless it personally
  * @mentions them. Human ordinary channel messages still wake every delivered Agent so each can
- * decide whether to participate; ADR 0061 retires the old default #general channel separately.
+ * decide whether to participate; the old default #general channel is retired separately.
  */
 function shouldWakeForDelivery(message: AgentMessageDelivery): boolean {
   const target = message.target ?? "";
@@ -76,8 +76,8 @@ type LocalViewRow = {
 };
 
 /**
- * Validates a `(kind, handle)` pair before it can reach a model-visible notice (ADR 0052,
- * decision D): the kind must be one of the closed values and the handle must match the public
+ * Validates a `(kind, handle)` pair before it can reach a model-visible notice:
+ * the kind must be one of the closed values and the handle must match the public
  * handle grammar (or be empty for `system`). This replaces the former regex guard on a single
  * composed string — a newline can no longer reach a notice through a sender name, because the
  * handle is matched against the handle grammar and the kind against the closed set separately.
@@ -151,7 +151,7 @@ export class AgentMessageAttentionIndex {
     private readonly sendAck: (ack: AgentMessageDeliveryAck) => Promise<void>,
     private readonly messageReceived: (agentId: string) => void = () => {},
     /**
-     * The daemon-owned delivery queue (ADR 0048, `agent-delivery-queue.ts`). `shouldHold` decides
+     * The daemon-owned delivery queue (`agent-delivery-queue.ts`). `shouldHold` decides
      * whether this delivery must wait rather than reach `AgentSession.notify` now; `enqueue`
      * records it as held once this class has already updated its own attention/dedupe
      * bookkeeping for it. `busy` marks the Agent mid-turn — called synchronously, right before
@@ -274,7 +274,7 @@ export class AgentMessageAttentionIndex {
   }
 
   /**
-   * Delivers every notice `AgentDeliveryQueue` held for `agentId` (ADR 0048), oldest first, as
+   * Delivers every notice `AgentDeliveryQueue` held for `agentId`, oldest first, as
    * one call to `AgentSession.notify` once the Agent is idle — the daemon core is the only
    * caller, right after `AgentDeliveryQueue.idle`/`release` hands back what it drained. `receive`
    * already recorded each held delivery's attention while it was held, so `#notify`'s existing
@@ -380,7 +380,7 @@ Inbox update: ${totalCount} message${totalCount === 1 ? "" : "s"} delivered or h
 ${rows.join("\n")}
 Run \`coforge message check\` to drain pending messages, or \`coforge message read --target @x\` to inspect one target.]`,
     );
-    // ADR 0048: same synchronous-busy rule as `#notify` — this is also a `session.notify` call.
+    // Same synchronous-busy rule as `#notify` — this is also a `session.notify` call.
     this.hold.busy(agentId);
     await session.notify(notice);
     if (this.#generations.get(agentId) !== generation) return;
@@ -407,7 +407,7 @@ Run \`coforge message check\` to drain pending messages, or \`coforge message re
 
   /**
    * One line per target, in the order the targets first appear: what this notice announces (`new`)
-   * and what stays queued for this Agent (`held`). The delivery queue is per Agent (ADR 0048), so
+   * and what stays queued for this Agent (`held`). The delivery queue is per Agent, so
    * a coalesced flush can mix a channel, a DM and a thread; attributing the whole batch to the
    * last delivery's target would hide the others.
    *
@@ -489,7 +489,7 @@ Run \`coforge message check\` to drain pending messages, or \`coforge message re
     if (!session?.notify)
       return Promise.reject(new Error("Agent session cannot receive a wakeup notice"));
     if (!message.target) return Promise.reject(new Error("delivery target is missing"));
-    // ADR 0048: mark busy synchronously, in the same tick as this decision to write to the
+    // Mark busy synchronously, in the same tick as this decision to write to the
     // session — before the next queued input for this Agent can be drained and see a stale
     // "not busy yet" state.
     this.hold.busy(message.agentId);

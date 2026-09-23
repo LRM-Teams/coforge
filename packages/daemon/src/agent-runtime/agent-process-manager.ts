@@ -22,7 +22,7 @@ export type AgentRuntime = Readonly<{
 export type AgentRestartConfig = Readonly<{
   config: AgentRuntimeConfig;
   sessionId: string | undefined;
-  /** The server's last launch identity for this Agent (docs/adr/0042), set on a managed launch
+  /** The server's last launch identity for this Agent, set on a managed launch
    * or a rebind. A self-initiated (daemon-woken) launch reuses it instead of minting a new
    * `launchId`. Lives only as long as this restart config does: `start()` replaces this whole
    * entry (so callers must re-apply it after every `start()`), and `stop()`/`shutdown()` delete
@@ -30,7 +30,7 @@ export type AgentRestartConfig = Readonly<{
   serverLaunch?: ServerLaunchIdentity;
 }>;
 
-/** The server-minted scope a launch was authorized under (docs/adr/0041, 0042). */
+/** The server-minted scope a launch was authorized under. */
 export type ServerLaunchIdentity = Readonly<{
   requestId: string;
   controlEpoch: number;
@@ -46,7 +46,7 @@ export class AgentProcessManager {
   readonly #restartConfigs = new Map<string, AgentRestartConfig>();
   readonly #states = new Map<string, AgentStateMachine>();
   readonly #stopping = new Set<string>();
-  /** The Activity `clientSeq` last sent for this Agent (docs/adr/0042). Kept in its own map,
+  /** The Activity `clientSeq` last sent for this Agent. Kept in its own map,
    * separate from `AgentRestartConfig`, because `start()` replaces that whole entry on every
    * call and this counter must survive that replacement to let a woken launch continue it
    * instead of restarting at 0 under a reused `launchId` — the server's Activity idempotency key
@@ -102,7 +102,7 @@ export class AgentProcessManager {
         packs: assignedSkillPacks,
       });
     }
-    // Probed against the same PATH the Agent's own git calls will search (ADR 0048).
+    // Probed against the same PATH the Agent's own git calls will search.
     const gitHooks = await this.#resolveGitHooks(
       agentEnvironment(environment, Bun.env, process.platform, { envVars: config.envVars }).PATH,
     );
@@ -172,7 +172,7 @@ export class AgentProcessManager {
     return this.#restartConfigs.get(agentId);
   }
 
-  /** Re-applies the server's last launch identity to this Agent's restart config (docs/adr/0042).
+  /** Re-applies the server's last launch identity to this Agent's restart config.
    * A no-op when there is no restart config to attach it to (the Agent is not currently
    * running/wakeable) — there is nothing for a later wake to read it back from anyway. */
   rememberServerLaunch(agentId: string, serverLaunch: ServerLaunchIdentity): void {

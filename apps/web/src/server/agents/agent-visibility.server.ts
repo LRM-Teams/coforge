@@ -6,13 +6,13 @@ import { resolveActorServerRole } from "../conversations/channel-authority.serve
 import { isElevatedServerRole } from "../workspaces/member-role.server";
 
 /**
- * Who is asking whether they may see a given Agent (ADR 0059): a human Workspace member, or
+ * Who is asking whether they may see a given Agent: a human Workspace member, or
  * another Agent acting through the Agent CLI/API. Carries what `canSeeAgent` and
  * `visibleAgentWhere` need (plus the acting Agent's own id) — never a full `User`/`Agent` row — so a caller that already
  * authenticated an actor never has to re-fetch one to answer a visibility question.
  *
  * `role` is the viewer's own server role (a human's `WorkspaceMembership.role`, or an Agent's
- * own `Agent.role`; ADR 0024) exactly as `resolveActorServerRole` returns it: `undefined` when
+ * own `Agent.role`) exactly as `resolveActorServerRole` returns it: `undefined` when
  * the actor has no membership/Agent row, and never assumed to be a recognized
  * `WorkspaceMemberRole` — `isElevatedServerRole` fails closed on anything else.
  */
@@ -21,7 +21,7 @@ export type AgentVisibilityViewer =
   | { kind: "agent"; agentId: string; ownerId: string; role: string | undefined };
 
 /** The Workspace-member id a private Agent must be owned by for `viewer` to count as its
- * creator: the human's own id, or the acting Agent's own `ownerId` (ADR 0059 — "same creator"
+ * creator: the human's own id, or the acting Agent's own `ownerId` ("same creator"
  * includes the Agent seeing itself). */
 function viewerCreatorId(viewer: AgentVisibilityViewer): string {
   return viewer.kind === "user" ? viewer.userId : viewer.ownerId;
@@ -86,8 +86,8 @@ export async function agentVisibilityViewerForActor(
  * Pure in-memory check: can `viewer` see `agent`? A public Agent is visible to everyone in the
  * Workspace; anything else — `"private"`, or an unrecognized value, since the column is a plain
  * `String` rather than a database enum — is visible only to its own creator, another Agent
- * sharing that same creator, or a viewer whose own server role is owner/admin (ADR 0059's rule
- * table). Fails closed the same way `visibleAgentWhere` does, so the two never disagree on a row.
+ * sharing that same creator, or a viewer whose own server role is owner/admin.
+ * Fails closed the same way `visibleAgentWhere` does, so the two never disagree on a row.
  */
 export function canSeeAgent(
   viewer: AgentVisibilityViewer,
@@ -99,7 +99,7 @@ export function canSeeAgent(
 }
 
 /**
- * Whether `userId` may open or send a direct message with `agent` (ADR 0059's "Manage stays
+ * Whether `userId` may open or send a direct message with `agent` (the "Manage stays
  * independent of see-and-DM" rule). Stricter than `canSeeAgent`: an owner/admin viewer can see
  * and manage another member's private Agent, but a private Agent's direct conversation stays
  * scoped to its own creator, so the elevated-role escape hatch `canSeeAgent` grants does not apply
@@ -127,8 +127,8 @@ export function visibleAgentWhere(viewer: AgentVisibilityViewer): Prisma.AgentWh
 }
 
 /**
- * The `Prisma.AgentWhereInput` fragment for every non-public Agent `viewer` can currently see
- * (ADR 0059): their own private Agent(s), or — for an elevated viewer — every non-public Agent
+ * The `Prisma.AgentWhereInput` fragment for every non-public Agent `viewer` can currently see:
+ * their own private Agent(s), or — for an elevated viewer — every non-public Agent
  * in the Workspace. Composed with `ACTIVE_AGENT_WHERE` and a `workspaceId` scope by the caller.
  * Built for the realtime per-Agent subscription set: a viewer's own `listAgents` roster (their
  * owned Agents) is narrower than what they are authorized to see — an owner/admin, or a private
@@ -143,7 +143,7 @@ export function visiblePrivateAgentWhere(viewer: AgentVisibilityViewer): Prisma.
 }
 
 /**
- * Refuse a lookup aimed at an Agent `viewer` is not allowed to see (ADR 0059). Callers that
+ * Refuse a lookup aimed at an Agent `viewer` is not allowed to see. Callers that
  * resolve an Agent by id/name/handle call this right after loading the row. The answer names
  * only the fact that the viewer cannot see it (the profile panel says so); it carries none of
  * the Agent's details.

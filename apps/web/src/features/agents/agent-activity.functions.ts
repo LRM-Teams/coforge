@@ -40,7 +40,7 @@ export const getAgentActivityFeed = createServerFn({ method: "GET" })
       select: { id: true, ownerId: true, visibility: true },
     });
     if (!agent) throw new Error("Agent not found");
-    // ADR 0059: reached directly (not only through the profile panel that normally gated this
+    // Reached directly (not only through the profile panel that normally gated this
     // tab), so the same visibility check applies here too.
     const viewer = await agentVisibilityViewerForUser(db, workspaceId, user.id);
     assertAgentVisible(viewer, agent);

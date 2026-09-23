@@ -392,7 +392,7 @@ describe("watchComputerUpgradeReceipt", () => {
     }
   });
 
-  test("a real process exits promptly once aborted, even with a ten-minute budget (ADR 0037)", async () => {
+  test("a real process exits promptly once aborted, even with a ten-minute budget", async () => {
     // The 2026-09-17 incident: an uncancelled receipt watch's pending `Bun.sleep` kept the
     // Coordinator alive past its own shutdown, past launchd's 5s SIGKILL window. Only a real
     // process exit can prove no timer is left pending, so this measures one.

@@ -641,7 +641,7 @@ describe("ManageAgents", () => {
     }
   });
 
-  test("a stopped Agent persists a runtime update without the stop -> ... -> start dance (ADR 0038)", async () => {
+  test("a stopped Agent persists a runtime update without the stop -> ... -> start dance", async () => {
     const { agentManagement, records, controls } = fixture();
     records.push({
       id: "agent-1",
@@ -725,7 +725,7 @@ describe("ManageAgents", () => {
     expect(deferred.controls).toEqual(["stop", "persist", "start"]);
   });
 
-  test("a created Agent defaults to public visibility (ADR 0059)", async () => {
+  test("a created Agent defaults to public visibility", async () => {
     const { agentManagement, records } = fixture();
     await agentManagement.create(
       { userId: "user-1", workspaceId: "workspace-1", role: "admin" as const },

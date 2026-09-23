@@ -37,7 +37,7 @@ import { attachmentView } from "../../attachments/attachment-view.server";
 import type { ActionCardView } from "../../conversations/action-cards.server";
 import { windowPageFlags } from "../../../lib/conversation-window";
 
-/** The three Agent-visible sender facts (ADR 0052), spread onto every Agent-facing message shape
+/** The three Agent-visible sender facts, spread onto every Agent-facing message shape
  * in this file so they cannot drift into three different field sets. */
 type AgentFacingSender = {
   senderKind: MessageSenderKind;
@@ -230,7 +230,7 @@ function toAgentMessage(
     senderHandle: sender.handle,
     senderDescription: sender.description,
     // An Agent reads message text, not the browser card UI; append the card's current state so it
-    // never claims a resource exists before a human has actually committed the card (ADR 0027).
+    // never claims a resource exists before a human has actually committed the card.
     body: row.actionCard ? `${body} [action card: ${row.actionCard.state}]` : body,
     createdAt: row.createdAt,
     target,
@@ -255,7 +255,7 @@ function toBrowserMessage(message: BrowserMessageRow, workspaceId: string) {
     /** The sender's Agent id, present only for an Agent-sent message; opens the Agent profile
      * panel from a message row (`features/agents/profile-panel/`). */
     senderAgentId: message.sender?.agentId ?? undefined,
-    /** True when the sending Agent has since been deleted (ADR 0044): the row renders its sender
+    /** True when the sending Agent has since been deleted: the row renders its sender
      * greyed with a `DELETED` marker, and no longer opens that Agent's profile. */
     senderDeleted: Boolean(message.sender?.agent?.deletedAt),
     senderAvatarUrl: message.sender?.userId
@@ -303,7 +303,7 @@ function unreadForAgentWhere(agentId: string, isChannel: boolean) {
  *
  * `senderAgentName`/`senderAgentDescription` and `senderUsername`/`senderUserDescription` carry
  * the message's own author (an Agent, else a human) as separate columns rather than one merged
- * name, so the caller can tell which kind it is and attach its description (ADR 0052); a raw SQL
+ * name, so the caller can tell which kind it is and attach its description; a raw SQL
  * statement cannot call the shared `agentMessageSender` projection directly. `otherUsername` is
  * the *recipient* — the conversation's other active member, which a DM target needs and a
  * message's sender cannot supply.
@@ -555,7 +555,7 @@ export type DirectConversationRepository = {
     seenUpToSequence: number,
   ): Promise<number>;
   /** Per-DM unread for the sidebar: other-authored top-level messages past the member's
-   * cursor, keyed by the Agent whose row the badge belongs to (ADR 0046). One grouped query
+   * cursor, keyed by the Agent whose row the badge belongs to. One grouped query
    * for the whole Workspace; the agent member row is the join, never the viewer's own row. */
   unreadCountsForUser?(
     workspaceId: string,
@@ -598,7 +598,7 @@ export type DirectConversationRepository = {
       mentions?: { kind: string; actorId: string; handle: string }[];
       /** Always present, possibly empty; order matches send order. */
       attachments: AttachmentMetadata[];
-      // The sending Agent's identity, for delivery envelopes (ADR 0052).
+      // The sending Agent's identity, for delivery envelopes.
     } & Partial<LatestSenderFields>
   >;
   openForUser?(
@@ -609,11 +609,11 @@ export type DirectConversationRepository = {
   ): Promise<{
     conversationId: string;
     senderMemberId: string;
-    /** The viewer's conversation-level read cursor over top-level messages (ADR 0046). */
+    /** The viewer's conversation-level read cursor over top-level messages. */
     readThroughSequence?: number;
     threadReadThrough?: Record<string, number>;
     agent: { id: string; name: string; displayName: string; deletedAt: Date | null };
-    /** Whether this viewer may still send here (ADR 0059); see `PrismaDirectConversationRepository`. */
+    /** Whether this viewer may still send here; see `PrismaDirectConversationRepository`. */
     dmWritable: boolean;
     hasOlder: boolean;
     hasNewer?: boolean;
@@ -940,7 +940,7 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
 
   async getOrCreateUserAgent(workspaceId: string, userId: string, agentId: string) {
     // Deliberately *not* filtered by `ACTIVE_AGENT_WHERE`: a deleted Agent's direct conversation
-    // stays readable (ADR 0044 keeps history), and `ownedConversations` decides per operation
+    // stays readable (history is kept), and `ownedConversations` decides per operation
     // whether reading or writing is allowed. Starting a new conversation with a deleted Agent is
     // unreachable anyway — the DM list and profile affordances no longer offer one.
     const agent = await this.db.agent.findFirst({
@@ -951,7 +951,7 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
     const where = { workspaceId_directKey: { workspaceId, directKey: keyFor(userId, agentId) } };
     const existing = await this.db.conversation.findUnique({ where, select: { id: true } });
     if (existing) return existing;
-    // A brand-new DM with a private Agent may only ever be started by its own creator (ADR 0059):
+    // A brand-new DM with a private Agent may only ever be started by its own creator:
     // an existing DM someone else already had stays readable/read-only (handled above by
     // returning it unconditionally), but nobody else may open a first one.
     if (!canDirectMessageAgent(userId, agent)) throw new AppError("AGENT_DM_RESTRICTED");
@@ -1151,7 +1151,7 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
             userId: true,
             agentId: true,
             // The viewer's own conversation-level read cursor: the client positions the
-            // initial view at the first unread message and draws the divider there (ADR 0046).
+            // initial view at the first unread message and draws the divider there.
             readThroughSequence: true,
             threadReads: {
               select: { rootMessageId: true, readThroughSequence: true },
@@ -1177,7 +1177,7 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
                 deletedAt: true,
                 avatarObjectKey: true,
                 // Not sent to the browser (see the trimmed `agent:` field below); read only to
-                // compute `dmWritable` (ADR 0059).
+                // compute `dmWritable`.
                 ownerId: true,
                 visibility: true,
               },
@@ -1230,7 +1230,7 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
         sender.threadReads.map((r) => [r.rootMessageId, r.readThroughSequence]),
       ),
       // Never `agentMember.agent` wholesale: `ownerId`/`visibility` are read above only to
-      // compute `dmWritable` (ADR 0059) and must not reach the browser payload.
+      // compute `dmWritable` and must not reach the browser payload.
       agent: {
         id: agentMember.agent.id,
         name: agentMember.agent.name,
@@ -1242,9 +1242,9 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
           agentMember.agent.avatarObjectKey,
         ),
       },
-      // Whether this viewer may still send here (ADR 0059): a private Agent's DM stays scoped to
+      // Whether this viewer may still send here: a private Agent's DM stays scoped to
       // its own creator, so an existing DM held by anyone else reads read-only once it goes
-      // private. Independent of `deletedAt`'s own read-only rule (ADR 0044).
+      // private. Independent of `deletedAt`'s own read-only rule.
       dmWritable: canDirectMessageAgent(userId, agentMember.agent),
       viewerHandle: sender.user?.username,
       // Who a mention here can be resolved to. A direct conversation has no candidate affinity to
@@ -1453,7 +1453,7 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
     if (!sender) throw new Error("sender is not a conversation member");
     if (conversation.members.length !== 2 || agents.length !== 1 || !agents[0]?.agentId)
       throw new Error("only User-Agent direct conversations are supported");
-    // A private Agent's direct conversation stays scoped to its own creator (ADR 0059): once it
+    // A private Agent's direct conversation stays scoped to its own creator: once it
     // goes private, an existing DM held by anyone else stops accepting new messages, though its
     // history stays readable.
     if (agents[0].agent && !canDirectMessageAgent(senderUserId, agents[0].agent))
@@ -1609,7 +1609,7 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
     return deliveries.map((delivery) => {
       // An Agent-authored message has no `user` on its sender row, so a `user.username`-only
       // derivation produced a bare `@` and rejected every pending Agent message. Reuse the one
-      // sender projection every Agent read path calls (`agentMessageSender`, ADR 0052): it
+      // sender projection every Agent read path calls (`agentMessageSender`): it
       // throws a named error rather than shipping a degraded identity, and the handle it
       // returns is already checked against the public handle grammar.
       const sender = agentMessageSender(delivery.message.sender);
@@ -1823,7 +1823,7 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
       // The author, read from the message in every conversation kind. A DM's other member is its
       // *recipient*, so deriving the sender from the conversation attributes the message to the
       // wrong side — and, in a conversation with no user member, to nothing at all. Routed through
-      // the shared projection (ADR 0052) so a missing name fails loudly rather than degrading.
+      // the shared projection so a missing name fails loudly rather than degrading.
       const sender = agentMessageSender(
         row.senderMemberId === null
           ? null
@@ -2163,8 +2163,8 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
     const user = conversation.members.find((m) => m.userId && !m.leftAt);
     if (!sender || (!conversation.channelName && !user))
       throw new Error("agent is not a conversation member");
-    // A private Agent's own outbound DM is just as read-only as the human side of it (ADR 0059:
-    // "neither side can send"). Channels are unaffected — a private Agent is never a channel
+    // A private Agent's own outbound DM is just as read-only as the human side of it
+    // ("neither side can send"). Channels are unaffected — a private Agent is never a channel
     // member in the first place, so this only ever narrows the direct-conversation case.
     if (!conversation.channelName && user) {
       const self = await this.db.agent.findUnique({
@@ -2182,8 +2182,8 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
       : undefined;
     const result = await this.db.$transaction(async (tx) => {
       const sequence = await allocateSequence(tx, conversationId);
-      // The sending Agent must be the same Agent that uploaded each attachment (ADR 0022's
-      // "Known limitation" of never checking uploader identity, closed by ADR 0023's Agent
+      // The sending Agent must be the same Agent that uploaded each attachment (the
+      // earlier limitation of never checking uploader identity, closed by the Agent
       // upload route: `uploaderAgentId` now names the uploading Agent). Validated before the
       // message exists, then linked (messageId + position) once it does.
       const requestedAttachmentIds = attachmentIds ?? [];
@@ -2371,7 +2371,7 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
       );
       return { ...created, attachments };
     });
-    // Never falls back to the internal Agent id: a missing name fails loudly (ADR 0052, decision B).
+    // Never falls back to the internal Agent id: a missing name fails loudly.
     const senderIdentity = agentMessageSender({ agentId, agent: sender.agent, user: null });
     return {
       ...result,

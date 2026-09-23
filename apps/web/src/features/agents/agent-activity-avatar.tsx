@@ -42,7 +42,7 @@ export function AgentDisplayAvatar({
   display?: AgentDisplaySnapshot;
   /** The user stopped this Agent; see `agentDisplay`. */
   stopped?: boolean;
-  /** ADR 0044: the Agent was deleted. Its avatar renders greyed wherever it appears, so a deleted
+  /** The Agent was deleted. Its avatar renders greyed wherever it appears, so a deleted
    * identity is recognisable outside message rows too (DM header, mention chips, member cards). */
   deleted?: boolean;
   size?: AvatarSize;
@@ -92,7 +92,7 @@ export function AgentActivityAvatar({
   activity: readonly ActivityEntry[];
   loading?: boolean;
   error?: boolean;
-  /** ADR 0044: render the deleted treatment instead of a live status. */
+  /** Render the deleted treatment instead of a live status. */
   deleted?: boolean;
   size?: AvatarSize;
   timeZone?: string | null;
@@ -107,8 +107,8 @@ export function AgentActivityAvatar({
   // 500-row history cap) — a statement cut at that boundary just shows what loaded.
   // Filtered here too (defense in depth alongside agent-activity-queries.ts's mergeRecent):
   // this component is also fed the Agent detail page's full, unfiltered feed directly, which
-  // now legitimately contains tool_end/thinking_end/compaction_finished status rows (ADR 0021,
-  // amended) that don't belong in this short "recent activity" popover.
+  // now legitimately contains tool_end/thinking_end/compaction_finished status rows
+  // that don't belong in this short "recent activity" popover.
   const recent = presentActivityRows(
     activity.filter((entry) => !POPOVER_EXCLUDED_DETAIL_KINDS.has(entry.detailKind)),
   ).slice(0, RECENT_ACTIVITY_LIMIT);
@@ -119,7 +119,7 @@ export function AgentActivityAvatar({
       onPress={onPress}
       label={[
         agent.displayName,
-        // ADR 0044: a deleted Agent has no live status, so the popover trigger must not announce
+        // A deleted Agent has no live status, so the popover trigger must not announce
         // one (the inner avatar's own label is already corrected in `AgentDisplayAvatar`).
         deleted ? m.agent_deleted_badge() : view.label,
         m.agent_avatar_recent(),

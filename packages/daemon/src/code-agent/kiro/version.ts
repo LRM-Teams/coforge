@@ -22,7 +22,7 @@ function isVersionBelow(version: string, minimum: string): boolean {
   return false;
 }
 
-/** Kiro's ACP launch (`KIRO_ACP_ARGS`) requires the ADR 0010 baseline. */
+/** Kiro's ACP launch (`KIRO_ACP_ARGS`) requires the compatibility baseline. */
 export function isKiroVersionUnsupported(version: string): boolean {
   return isVersionBelow(version, KIRO_MIN_CLI_VERSION);
 }
@@ -55,7 +55,7 @@ async function readKiroVersion(command: readonly string[]): Promise<string | und
 }
 
 /**
- * Re-checks a Kiro Agent launch's base command against the ADR 0010 minimum immediately before
+ * Re-checks a Kiro Agent launch's base command against the compatibility minimum immediately before
  * spawn. Runtime discovery already gates the reported inventory; this covers an existing Agent on
  * a Computer whose CLI is too old. A probe that fails, times out, or returns an unparseable
  * version never gates; only a confidently-parsed lower version blocks the launch.

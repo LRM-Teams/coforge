@@ -53,7 +53,7 @@ export class WorkspaceMembers {
       select: { userId: true, role: true },
     });
     if (!membership) throw new AppError("ACCESS_DENIED");
-    // ADR 0059: the same seam every Agent list applies, built from the membership role fetched
+    // The same seam every Agent list applies, built from the membership role fetched
     // here — never a second role lookup.
     const visibility: AgentVisibilityViewer = { kind: "user", userId, role: membership.role };
     return { role: membership.role, visibleAgents: this.visibleAgents(workspaceId, visibility) };

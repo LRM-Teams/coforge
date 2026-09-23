@@ -1,4 +1,4 @@
-/** Text renderers for `coforge manual get|search` (ADR 0036), matching Raft 1.0.32's `raft
+/** Text renderers for `coforge manual get|search`, matching Raft 1.0.32's `raft
  * manual` stdout formats verbatim. */
 
 import type { AgentManualSearchResult } from "@lrm/coforge-sdk/agent";

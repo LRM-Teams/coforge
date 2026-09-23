@@ -489,7 +489,7 @@ test("drops a pending session invalidate once a newer launch is observed via the
   );
 });
 
-test("a rebind's immediate session re-report drops a pending invalidate for the launch it replaced (ADR 0041)", async () => {
+test("a rebind's immediate session re-report drops a pending invalidate for the launch it replaced", async () => {
   // `AgentControl.start()`'s rebind path never touches this connection layer directly — it
   // re-reports the Session through the SAME `reportAgentSession` seam a fresh launch already
   // uses (`DaemonRuntime#rebindAgent`), so the existing `#observeLaunchIdentity` drop rule this

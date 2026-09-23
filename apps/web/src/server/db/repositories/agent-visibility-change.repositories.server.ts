@@ -7,7 +7,7 @@ import type {
 } from "../../agents/change-agent-visibility.server";
 
 /**
- * The atomic visibility transition (ADR 0059 "Changing visibility, both directions"), scoped to a
+ * The atomic visibility transition, scoped to a
  * still-live Agent (`ACTIVE_AGENT_WHERE`): a repeated call with the same visibility is a no-op
  * (`changed: false`) so a double submit never soft-leaves or re-joins twice.
  *

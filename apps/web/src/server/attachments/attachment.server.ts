@@ -5,7 +5,7 @@ import { ACTIVE_MEMBER_WHERE } from "../conversations/active-member.server";
 
 export const ATTACHMENT_MAX_BYTES = 10 * 1024 * 1024;
 export const ATTACHMENT_SESSION_SECONDS = 900;
-/** `COFORGE_ATTACHMENT_DIRECT_UPLOAD_THRESHOLD_BYTES` default (ADR 0028): 1 MiB. */
+/** `COFORGE_ATTACHMENT_DIRECT_UPLOAD_THRESHOLD_BYTES` default: 1 MiB. */
 export const ATTACHMENT_DIRECT_UPLOAD_THRESHOLD_DEFAULT_BYTES = 1024 * 1024;
 
 export type AttachmentCapabilities = {
@@ -16,7 +16,7 @@ export type AttachmentCapabilities = {
 };
 
 /**
- * Reports server-authoritative attachment upload limits (ADR 0028). `directUploadEnabled` is
+ * Reports server-authoritative attachment upload limits. `directUploadEnabled` is
  * `true` only when the active storage backend implements `presignPut` (currently `OssFileStorage`
  * only; `LocalFileStorage` has none, so local dev always reports direct upload disabled).
  */

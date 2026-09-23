@@ -93,7 +93,7 @@ test("formats only the cloud display decision even when its raw detail kind conf
   });
 });
 
-test("a stopped Agent (ADR 0038) keeps its real display kind and label, adding only a status caption", () => {
+test("a stopped Agent keeps its real display kind and label, adding only a status caption", () => {
   const offline = display({ activityKind: "offline", detailKind: "model_response_started" });
   expect(agentDisplay(offline, { stopped: true })).toMatchObject({
     kind: "offline",
@@ -148,7 +148,6 @@ test("status presentation uses backend detail instead of hardcoding the received
   ]);
 });
 
-// ADR 0021
 test("compacting_context uses a dedicated label instead of the generic working text", () => {
   const observation = {
     activityKind: "working" as const,
@@ -166,7 +165,6 @@ test("compacting_context uses a dedicated label instead of the generic working t
   ]);
 });
 
-// ADR 0021, amended
 test.each([
   ["tool_end", "Tool finished"],
   ["thinking_end", "Thinking finished"],
@@ -538,7 +536,7 @@ describe("Agent detail", () => {
     });
   });
 
-  test("propagates AGENT_NOT_VISIBLE from findAuthorized instead of reading it as absent (ADR 0059)", async () => {
+  test("propagates AGENT_NOT_VISIBLE from findAuthorized instead of reading it as absent", async () => {
     const query = new AgentDetailQuery({
       findAuthorized: async () => {
         throw new AppError("AGENT_NOT_VISIBLE");
@@ -553,7 +551,7 @@ describe("Agent detail", () => {
     );
   });
 
-  test("exposes stopped from stoppedAt (ADR 0038)", async () => {
+  test("exposes stopped from stoppedAt", async () => {
     const baseAgent = {
       id: "agent-1",
       workspaceId: "workspace-1",

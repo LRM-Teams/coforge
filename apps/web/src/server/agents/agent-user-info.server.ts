@@ -24,14 +24,14 @@ export type AgentUserInfoOutcome =
   | { status: 404; body: AgentUserInfoErrorBody };
 
 /** `findWorkspaceUser`'s distinct answer for a name that resolves to a real, private Agent the
- * viewer cannot see (ADR 0059 §B) — never conflated with a name that matches nothing at all. */
+ * viewer cannot see — never conflated with a name that matches nothing at all. */
 export const AGENT_NOT_VISIBLE = "agent-not-visible" as const;
 
 /**
  * Live status + a short `availability` reason, sourced the same way the Workspace Agents list
  * reads it (`agents.functions.ts#listAgents`): the Redis-backed Agent display projection
  * (`agent-display.server.ts`) reduced through `agentDisplay()`, the single online/offline
- * decision the rest of the product reads (see ADR 0038). An Agent with no assigned Computer, or
+ * decision the rest of the product reads. An Agent with no assigned Computer, or
  * whose display snapshot cannot be read, is reported "unknown" rather than guessed as offline.
  */
 export async function resolveAgentStatus(
@@ -80,10 +80,10 @@ export type ResolvedWorkspaceUser =
     };
 
 /** Finds a human or Agent by Username in one Workspace. Agent names and human usernames are
- * disjoint identifier spaces (see CONTEXT.md), so an Agent match always wins first with no
+ * disjoint identifier spaces, so an Agent match always wins first with no
  * ambiguity in practice. Shared by `user info` and `profile show`.
  *
- * ADR 0059 §B: a private Agent `viewer` cannot see answers the distinct `AGENT_NOT_VISIBLE`
+ * A private Agent `viewer` cannot see answers the distinct `AGENT_NOT_VISIBLE`
  * sentinel, never conflated with `undefined` (a name that matches nothing at all) — the Web
  * profile panel and the Agent CLI both render the specific "not visible" explanation instead of a
  * generic "not found"; only the human/Agent's other details stay withheld. */
@@ -154,7 +154,7 @@ export async function findWorkspaceUser(
   };
 }
 
-/** Public channels (every Conversation with a `channelName` is public; see ADR 0024/0025) both
+/** Public channels (every Conversation with a `channelName` is public) both
  * the caller and the target currently belong to (`leftAt: null`). Never inspects a channel the
  * caller itself is not a member of, so a channel invisible to the caller can never leak here. */
 async function sharedChannelMemberships(
@@ -190,7 +190,7 @@ async function sharedChannelMemberships(
   return memberships;
 }
 
-/** Resolves `GET /api/agent/v1/users/:name` (ADR: "user info" placement, see docs/adr/0036).
+/** Resolves `GET /api/agent/v1/users/:name`.
  * Narrow, visible facts about one human or Agent in the caller's Workspace, plus the public
  * channels both the caller and the target belong to. 404s as `user_not_found` when neither a
  * human nor an Agent of that name exists in the caller's Workspace. */

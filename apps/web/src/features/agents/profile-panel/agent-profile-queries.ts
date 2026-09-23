@@ -44,7 +44,7 @@ export function useAgentProfileData(agentId: string | undefined) {
  * The RUNTIME CONFIG section's masked env chips and the Runtime config dialog's Advanced rows
  * share this one load: owner-only (the GET itself enforces it; `enabled` just avoids firing the
  * request for a viewer who can never get anything back), short `staleTime` since it reflects a
- * value that can change from another surface (`ADR 0038`'s deferred-save + external restart).
+ * value that can change from another surface (deferred save + external restart).
  */
 export function agentEnvironmentQuery(agentId: string | undefined, enabled: boolean) {
   return queryOptions({

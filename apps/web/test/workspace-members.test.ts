@@ -188,7 +188,7 @@ describe("WorkspaceMembers", () => {
     expect(JSON.stringify(result)).not.toContain("avatarObjectKey");
   });
 
-  test("hides a private Agent owned by someone else from a plain member's directory (ADR 0059)", async () => {
+  test("hides a private Agent owned by someone else from a plain member's directory", async () => {
     let agentQuery: object | undefined;
     const db = {
       workspaceMembership: {

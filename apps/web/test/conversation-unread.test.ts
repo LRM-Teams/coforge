@@ -113,7 +113,7 @@ describe("applyUnreadEvent", () => {
   test("bumps a DM badge by the event's own Agent id, with no conversation alias", () => {
     // The user channel is already scoped to this viewer and names its badge directly, so the
     // event needs no listed-conversation check: a DM created after the last list fetch still
-    // bumps live (ADR 0046).
+    // bumps live.
     const next = applyUnreadEvent(
       {},
       { conversationId: "dm-conversation", sequence: 4, agentId: "agent-1" },

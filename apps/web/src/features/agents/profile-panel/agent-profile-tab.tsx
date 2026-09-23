@@ -62,14 +62,14 @@ function FactBadge({
 }
 
 /**
- * The Agent's current context-window usage, next to the Runtime badge — display only (ADR 0050):
+ * The Agent's current context-window usage, next to the Runtime badge — display only:
  * nothing here triggers on any threshold, and it never colors by how full the window is. Hidden
  * entirely by the caller when there is no reading. The tooltip's observed time uses the same
  * `formatDateForDisplay` helper (workspace time zone, viewer locale) the Runtime usage popover's
  * `RelativeTime` already renders through.
  *
- * For a Claude Code Agent the badge is also the trigger of the context-breakdown popover (ADR
- * 0051): hover shows the last stored report with the same auto-refresh-once/Refresh pattern the
+ * For a Claude Code Agent the badge is also the trigger of the context-breakdown popover:
+ * hover shows the last stored report with the same auto-refresh-once/Refresh pattern the
  * Runtime usage popover uses. Other runtimes keep the plain badge + tooltip.
  */
 function ContextUsageBadge({
@@ -176,7 +176,7 @@ export function AgentProfileTab({
 }: {
   profile: NonNullable<AgentProfile>;
   timeZone: string | null;
-  /** The Agent's current context-window usage (ADR 0050), or `null` when there is no reading —
+  /** The Agent's current context-window usage, or `null` when there is no reading —
    * hidden entirely in that case. Display only; nothing triggers on it. */
   contextUsage?: { usedTokens: number; windowTokens: number; observedAtMs: number } | null;
   /** `canManageAgentRole || ownedByCurrentUser` — gates every pencil, the ACTIONS section. */
@@ -188,8 +188,8 @@ export function AgentProfileTab({
   onAvatarChange?: (file: File) => Promise<void>;
   onAvatarRemove?: () => Promise<void>;
   onSaveRole?: (role: "admin" | "member") => Promise<void>;
-  /** Opens the container's `AgentVisibilityConfirmDialog` for the given target visibility (ADR
-   * 0059). Present only for the creator or a human Workspace owner/admin. */
+  /** Opens the container's `AgentVisibilityConfirmDialog` for the given target visibility.
+   * Present only for the creator or a human Workspace owner/admin. */
   onRequestVisibilityChange?: (target: AgentVisibility) => void;
   runtimeCredentialDialog: ReactNode;
   /** Opens the container's `AgentRuntimeConfigDialog` (see `agent-profile-panel.tsx`). The
@@ -198,7 +198,7 @@ export function AgentProfileTab({
   /** Owner-only, same as the old Agent detail page's Skills section. Omitted for a viewer who
    * does not own the Agent. */
   onLoadSkills?: () => Promise<AgentSkillsLoadResult>;
-  /** Opens the container's `AgentDeleteDialog` (ADR 0044). Present only when the viewer holds
+  /** Opens the container's `AgentDeleteDialog`. Present only when the viewer holds
    * Raft's `deleteAgents` capability and this Agent is a delete target at all. */
   onStartDelete?: () => void;
   /** Owner-only read view of the Agent's launch environment overrides, masked; editing happens in
@@ -520,7 +520,7 @@ export function AgentProfileTab({
 }
 
 /**
- * Visibility (ADR 0059) reads as a badge, same as Role; an authorized viewer (creator or
+ * Visibility reads as a badge, same as Role; an authorized viewer (creator or
  * Workspace owner/admin) gets a pencil that swaps it for the Select — both directions have real
  * consequences, so picking an option still opens the container's confirmation dialog rather
  * than applying immediately.

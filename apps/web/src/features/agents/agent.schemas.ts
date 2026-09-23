@@ -97,10 +97,10 @@ export const createAgentInputSchema = z
     ...agentInputShape,
     name: nameSchema,
     computerId: z.string().min(1),
-    /** Present when this create submits an Agent-prepared `agent:create` action card
-     * (ADR 0027 "Commit and cancel"); marks the card `executed` after the Agent is created. */
+    /** Present when this create submits an Agent-prepared `agent:create` action card;
+     * marks the card `executed` after the Agent is created. */
     actionCardMessageId: z.uuid().optional(),
-    /** Who can see this new Agent (ADR 0059); defaults to public, matching every creation path
+    /** Who can see this new Agent; defaults to public, matching every creation path
      * except the weekly-report Collector Agent, which is created private outside this schema. */
     visibility: z.enum(AGENT_VISIBILITY_VALUES).default(AGENT_VISIBILITY.PUBLIC),
   })
@@ -119,10 +119,10 @@ export const updateAgentInputSchema = z
 export type UpdateAgentInput = z.infer<typeof updateAgentInputSchema>;
 
 export const agentIdSchema = z.uuid();
-/** ADR 0059's per-Agent realtime subscription token endpoints; any Server Function that only
+/** The per-Agent realtime subscription token endpoints; any Server Function that only
  * needs an authorized Agent id shares this shape rather than repeating the object literal. */
 export const agentIdInputSchema = z.object({ agentId: agentIdSchema });
-/** ADR 0044: deleting an Agent is name-confirmed, the same guard `ProjectSettings.delete` uses —
+/** Deleting an Agent is name-confirmed, the same guard `ProjectSettings.delete` uses —
  * the server re-checks the typed name against the current row in the delete itself, so a
  * concurrent rename cannot bypass confirmation. */
 export const deleteAgentInputSchema = z.object({
@@ -136,7 +136,7 @@ export const updateAgentRoleInputSchema = z.object({
 });
 export type UpdateAgentRoleInput = z.infer<typeof updateAgentRoleInputSchema>;
 
-/** ADR 0059: changes an Agent's visibility, both directions. `changeAgentVisibility` is the only
+/** Changes an Agent's visibility, both directions. `changeAgentVisibility` is the only
  * server function that writes this field; `createAgentInputSchema.visibility` is create-time only. */
 export const changeAgentVisibilityInputSchema = z.object({
   agentId: agentIdSchema,

@@ -66,7 +66,7 @@ export type RealtimeSubscriptionError = {
  * One real Centrifuge `Subscription` per channel, shared by every `useRealtimeSubscription` call
  * for that channel on this client — `newSubscription` throws "already exists" on a second call for
  * the same channel, and more than one feature legitimately subscribes to the same `chat:user:`
- * channel (the sidebar's unread badges and, since ADR 0065, in-page notifications). The first
+ * channel (the sidebar's unread badges and in-page notifications). The first
  * caller creates and subscribes it; the last caller's cleanup unsubscribes and removes it. Each
  * caller's own `onPublication`/`onSubscribed`/`onError` still only ever sees its own latest
  * closure, exactly as before sharing.
@@ -190,7 +190,7 @@ export function useRealtimeSubscription({
 
 /**
  * Subscribes a dynamic *set* of authorized channels on the shared Workspace connection — the
- * per-Agent channels ADR 0059 adds for the viewer's own visible private Agents, one activity and
+ * per-Agent channels added for the viewer's own visible private Agents, one activity and
  * one status channel per Agent, whose membership changes as Agents are created, deleted or
  * change visibility. `useRealtimeSubscription` only ever manages one fixed channel; this hook is
  * its sibling for a channel list, on the same shared client, diffed by channel name so an Agent

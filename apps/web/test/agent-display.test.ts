@@ -482,7 +482,7 @@ test("activityKindForObservation is stateless and leaves unknown facts unclassif
   expect(activityKindForObservation({ detailKind: "runtime_reconnecting", level: "info" })).toBe(
     "working",
   );
-  // Cold start after a session invalidate (ADR 0040) must be visible, not dropped.
+  // Cold start after a session invalidate must be visible, not dropped.
   expect(activityKindForObservation({ detailKind: "runtime_unavailable", level: "info" })).toBe(
     "working",
   );
@@ -491,7 +491,6 @@ test("activityKindForObservation is stateless and leaves unknown facts unclassif
   expect(activityKindForObservation({ detailKind: "future", level: "info" })).toBeUndefined();
 });
 
-// ADR 0021
 test("activityKindForObservation classifies the new detail kinds", () => {
   for (const detailKind of [
     "tool_end",

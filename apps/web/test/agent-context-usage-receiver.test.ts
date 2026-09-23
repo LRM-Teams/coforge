@@ -204,7 +204,7 @@ test("is an idempotent no-op for a stale launch, unknown Agent, or foreign scope
   expect(calls).toBe(0);
 });
 
-// ADR 0059: the reading is a display fact like any other `agent:display` push, so it follows the
+// The reading is a display fact like any other `agent:display` push, so it follows the
 // same per-Agent-or-shared status channel split the sweep and publish proxy use.
 test("routes the display snapshot to a private Agent's per-Agent status channel", async () => {
   const { agent, message } = fixture();

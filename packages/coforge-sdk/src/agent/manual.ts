@@ -1,5 +1,5 @@
 /**
- * Wire contract for `coforge manual get|search`, CoForge's server-served Agent Manual (ADR 0036).
+ * Wire contract for `coforge manual get|search`, CoForge's server-served Agent Manual.
  * Modelled on Raft 1.0.32's `raft manual` / `/knowledge` routes: same response field names and
  * shape (`docId`, `topicOrPath`, `docVersion`, `docState`, `contentType`, `content`, `results`
  * with `slug`/`title`/`firstScreen`), CoForge's own route names (`manual`, not `knowledge`).
@@ -55,7 +55,7 @@ export const AGENT_MANUAL_ERROR_CODES = [
 export type AgentManualErrorCode = (typeof AGENT_MANUAL_ERROR_CODES)[number];
 
 /** Error shape for both manual routes, Raft-aligned (`ok: false`), unlike this repo's other
- * sibling Agent routes (see ADR 0036 for why the manual routes keep Raft's shape here). */
+ * sibling Agent routes. */
 export type AgentManualErrorResponse = {
   ok: false;
   errorCode: AgentManualErrorCode;

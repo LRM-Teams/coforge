@@ -117,7 +117,7 @@ export type AgentProxyRuntime = {
     request: AgentManualSearchRequest,
     agentApiKey: string,
   ): Promise<AgentManualSearchResponse>;
-  /** `coforge version`'s local-only query (ADR 0036): answered entirely by the live Daemon, never
+  /** `coforge version`'s local-only query: answered entirely by the live Daemon, never
    * forwarded to Web/backend. */
   version?(
     context: string,
@@ -176,7 +176,7 @@ const LOCAL_ATTACHMENT_UPLOAD_PATH = agentApiRoutes.local.attachments.upload.pat
 // Mirrors `apps/web`'s `ATTACHMENT_MAX_BYTES` (10 MiB) plus slack for multipart framing
 // overhead (boundary markers, field headers); the daemon package cannot import from `apps/web`.
 const ATTACHMENT_UPLOAD_MAX_BYTES = 10 * 1024 * 1024 + 64 * 1024;
-// The four presigned-direct-upload session routes (ADR 0028) are plain JSON, so they reuse the
+// The four presigned-direct-upload session routes are plain JSON, so they reuse the
 // JSON body path below rather than the multipart forwarding above. `create` is a fixed path;
 // `complete`/`cancel`/`get` share a `/:uploadId[/complete]` prefix.
 const LOCAL_UPLOAD_SESSION_CREATE_PATH = agentApiRoutes.local.attachmentUploadSessions.create.path;
@@ -331,8 +331,8 @@ function operationFamily(prefix: string, fallback: string) {
     `${prefix}${typeof fields.operation === "string" ? fields.operation : fallback}`;
 }
 
-/** The Manual routes answer a domain error as JSON `{ ok: false, errorCode, error }` (ADR 0036,
- * Raft-aligned), so an `AgentManualRequestError` is forwarded rather than classified. */
+/** The Manual routes answer a domain error as JSON `{ ok: false, errorCode, error }`
+ * (Raft-aligned), so an `AgentManualRequestError` is forwarded rather than classified. */
 function manualDomainFailure(error: unknown): Response | undefined {
   if (!(error instanceof AgentManualRequestError)) return undefined;
   return Response.json(
@@ -342,7 +342,7 @@ function manualDomainFailure(error: unknown): Response | undefined {
 }
 
 /** `user info` answers a domain error as JSON `{ ok: false, errorCode, error }` (same convention
- * as the Manual routes; ADR 0036), so an `AgentUserInfoRequestError` is forwarded rather than
+ * as the Manual routes), so an `AgentUserInfoRequestError` is forwarded rather than
  * classified. */
 function userInfoDomainFailure(error: unknown): Response | undefined {
   if (!(error instanceof AgentUserInfoRequestError)) return undefined;

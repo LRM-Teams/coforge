@@ -37,11 +37,11 @@ export type AgentChannelInfo = {
    * "each part only when present". */
   channelRole?: string;
   /** Present only when the acting Agent has channel-admin authority on this channel — either
-   * basis (ADR 0030). */
+   * basis. */
   channelAdminBasis?: ChannelAdminBasis;
   /** Every capability name; only the ones this Agent may currently invoke are `true`. */
   channelCapabilities: ChannelCapabilities;
-  /** Present only when this channel is a Project discussion group (ADR 0026) for a Project the
+  /** Present only when this channel is a Project discussion group for a Project the
    * Agent's own Workspace owns. Field names and source match `workspace info --projects`
    * (`WorkspaceInfoProject` in `@lrm/coforge-sdk`), so an Agent can match the two surfaces up. */
   project?: {
@@ -108,7 +108,7 @@ export class AgentChannelManagement {
     channels?: PublicChannels,
   ) {
     // Reused (not reimplemented) so the human "Members" dialog and the Agent CLI's
-    // `channel members`/`add-member` cannot drift (ADR 0024/0025).
+    // `channel members`/`add-member` cannot drift.
     this.channels = channels ?? new PublicChannels(db);
   }
 
@@ -175,7 +175,7 @@ export class AgentChannelManagement {
     rawName: string,
     description: string | undefined,
   ) {
-    // Slack's default (ADR 0025): any Agent that belongs to the Workspace may create a
+    // Slack's default: any Agent that belongs to the Workspace may create a
     // channel, the same as `PublicChannels.create` for humans — no admin gate.
     const agent = await this.db.agent.findFirst({
       where: { id: agentId, workspaceId },
@@ -192,7 +192,7 @@ export class AgentChannelManagement {
           workspaceId,
           channelName: name,
           description: description ?? "",
-          // The creator becomes the channel's first admin (ADR 0030), same as a human creator.
+          // The creator becomes the channel's first admin, same as a human creator.
           members: { create: { agentId, channelRole: "admin" } },
         },
       });
@@ -221,8 +221,8 @@ export class AgentChannelManagement {
       throw new AgentChannelManagementError(400, "update requires --name or --description");
     const channelName = this.parseChannelTarget(target);
     const channel = await this.findChannel(workspaceId, channelName);
-    // Channel-aware authority (ADR 0030): the acting Agent's own server role (owner/admin) or
-    // its `channelRole` on THIS channel (admin) — replaces ADR 0024's channel-blind
+    // Channel-aware authority: the acting Agent's own server role (owner/admin) or
+    // its `channelRole` on THIS channel (admin) — replaces the earlier channel-blind
     // `agentHasAdminAuthority`.
     if (!(await hasChannelAdminAuthority(this.db, workspaceId, { agentId }, channel)))
       throw channelAuthorityDeniedError("update");
@@ -265,7 +265,7 @@ export class AgentChannelManagement {
   }
 
   /**
-   * Slack rule (ADR 0025): the acting Agent must itself be an active member of the target
+   * Slack rule: the acting Agent must itself be an active member of the target
    * channel — enforced inside `PublicChannels.addMembers`, not re-implemented here. This method
    * only resolves the `@handle` to an id (so a genuinely unknown handle is a 404, distinct from
    * a real Workspace member/Agent the actor isn't allowed to add-through) and reshapes the
@@ -295,7 +295,7 @@ export class AgentChannelManagement {
         select: { id: true, ownerId: true, visibility: true },
       });
       if (!agentRow) throw new AgentChannelManagementError(404, `member not found: @${handle}`);
-      // ADR 0059 §B: a private Agent the calling Agent cannot see answers the stable
+      // A private Agent the calling Agent cannot see answers the stable
       // `agent_not_visible` outcome with an explanation, distinct from a genuinely nonexistent
       // handle's plain "member not found" — the same distinction `user info`/`profile show`
       // make. A private Agent the caller CAN see (its own creator, or an owner/admin) still
@@ -405,7 +405,7 @@ export class AgentChannelManagement {
     return { target: `#${channel.channelName}`, removed: true as const, wasMember };
   }
 
-  /** ADR 0059: a private Agent can neither join nor create a channel — the acting Agent's OWN
+  /** A private Agent can neither join nor create a channel — the acting Agent's OWN
    * visibility, independent of any target. Reused by `join()` and `create()`. */
   private async assertCallerNotPrivate(
     workspaceId: string,

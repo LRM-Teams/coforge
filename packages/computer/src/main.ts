@@ -9,7 +9,7 @@ if (Bun.argv[2] === "__agent-cli") {
   await runAgentCli(Bun.argv.slice(3));
 } else if (Bun.argv[2] === "__daemon") {
   const { runMachineSupervisor } = await import("@lrm/coforge-daemon");
-  // Belt and braces (ADR 0037): shutdown here is fully awaited - `runMachineSupervisor` only
+  // Belt and braces: shutdown here is fully awaited - `runMachineSupervisor` only
   // resolves after every Coordinator-owned background wait (the upgrade receipt watch, in
   // particular) has been cancelled and its logging disposed. Exiting explicitly the moment it
   // resolves means a background wait this entrypoint failed to cancel can no longer keep the
@@ -33,7 +33,7 @@ if (Bun.argv[2] === "__agent-cli") {
 } else if (Bun.argv[2] === "__workspace-daemon") {
   const { runDaemon } = await import("@lrm/coforge-daemon");
   const { COFORGE_COMPUTER_VERSION } = await import("./version");
-  // Belt and braces (ADR 0037), same reasoning as `__daemon`: `runDaemon` only resolves once its
+  // Belt and braces, same reasoning as `__daemon`: `runDaemon` only resolves once its
   // own SIGINT/SIGTERM shutdown has stopped every Workspace runtime, closed the Agent proxy and
   // local RPC server, and disposed logging.
   try {

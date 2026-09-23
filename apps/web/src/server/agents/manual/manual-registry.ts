@@ -15,7 +15,7 @@ import profileBody from "./topics/profile.md?raw";
 import remindersBody from "./topics/reminders.md?raw";
 import tasksBody from "./topics/tasks.md?raw";
 
-/** One Agent Manual topic (ADR 0036). `slug`/`title`/`summary` are a small typed registry here
+/** One Agent Manual topic. `slug`/`title`/`summary` are a small typed registry here
  * rather than markdown frontmatter, to avoid a frontmatter parser for two fields. */
 export type AgentManualTopic = {
   slug: string;

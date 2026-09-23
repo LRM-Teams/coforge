@@ -126,7 +126,7 @@ describe("answeredWithin", () => {
     );
   });
 
-  test("an answered race leaves nothing that keeps the process alive (ADR 0032)", async () => {
+  test("an answered race leaves nothing that keeps the process alive", async () => {
     // The 2026-09-17 incident: the losing `Bun.sleep(5_000)` of a settled race kept the
     // Coordinator alive 5 s past its own shutdown. Only a real process exit can prove the absence
     // of a pending timer, so this measures one.

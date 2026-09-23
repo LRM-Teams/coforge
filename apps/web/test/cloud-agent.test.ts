@@ -233,7 +233,7 @@ describe("PublishAgentRuntimeControl", () => {
     });
   });
 
-  // --- ADR 0038: stopped Agents are excluded from ready recovery -------------------------------
+  // --- Stopped Agents are excluded from ready recovery -----------------------------------------
 
   test("recoverWorkspace skips a stopped Agent the Daemon also reports not running", async () => {
     const payloads: Uint8Array[] = [];

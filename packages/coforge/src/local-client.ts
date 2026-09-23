@@ -228,7 +228,7 @@ function manualFailedCode(errorCode: string | undefined): string {
 }
 
 /**
- * GETs one of the two Agent Manual routes (`ADR 0036`) through the local daemon proxy. Unlike
+ * GETs one of the two Agent Manual routes through the local daemon proxy. Unlike
  * `call` above (the multiplexed `messages` operation), the Manual routes always answer a domain
  * error as JSON `{ ok: false, errorCode, error }`, so that `errorCode` becomes the `CliError`
  * code directly, and a `knowledge_not_found` gets the Raft-aligned "browse the index" guidance.
@@ -276,7 +276,7 @@ async function manualRequest<T>(
 }
 
 /**
- * GETs the local-only `/api/agent/v1/version` route (ADR 0036's placement-table rows): unlike
+ * GETs the local-only `/api/agent/v1/version` route: unlike
  * `manualRequest` above, this never reaches Web/backend, so a non-ok response is always a local
  * proxy/daemon condition, never a domain error envelope. A network/timeout failure is reported as
  * "the live daemon could not be queried", matching `coforge version`'s own refusal wording for a
@@ -1080,7 +1080,7 @@ export function connectLocal(
     });
     if (!response.ok) {
       const rawText = await response.text();
-      // ADR 0059: a JSON-enveloped `errorCode` (currently only `agent_not_visible`) is a real
+      // A JSON-enveloped `errorCode` (currently only `agent_not_visible`) is a real
       // wire field the CLI renders directly, checked ahead of every other rule below — its own
       // explanation must never be discarded in favor of a fixed "Channel not found" message.
       let parsedBody: unknown;

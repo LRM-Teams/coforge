@@ -7,7 +7,7 @@ import type {
 import { agentWorkspaceDirectory } from "../agent-runtime/agent-workspace-path";
 
 /**
- * In-process control state (ADR 0056 task #54 step ②): the record lives exactly as long as the
+ * In-process control state: the record lives exactly as long as the
  * daemon process that owns it. Nothing about an Agent's control operation survives a daemon
  * restart — the server re-dispatches what should still be running (Daemon-ready recovery), so a
  * stale operation can no longer outlive the writer it was waiting on, and the dual-run fence is

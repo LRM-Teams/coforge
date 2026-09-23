@@ -1018,7 +1018,7 @@ test("channel: a 404 from a target operation becomes CliError NOT_FOUND with a f
   expect(cliError.retryable).toBe(false);
 });
 
-test("channel: an agent_not_visible JSON envelope becomes CliError AGENT_NOT_VISIBLE, never the fixed Channel-not-found text (ADR 0059)", async () => {
+test("channel: an agent_not_visible JSON envelope becomes CliError AGENT_NOT_VISIBLE, never the fixed Channel-not-found text", async () => {
   spyOn(globalThis, "fetch").mockResolvedValue(
     Response.json(
       { ok: false, errorCode: "agent_not_visible", error: "@ghost is not visible to you." },

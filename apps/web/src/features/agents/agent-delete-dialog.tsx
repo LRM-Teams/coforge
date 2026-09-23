@@ -12,7 +12,7 @@ import { isAppError } from "@/lib/app-error";
 import { useSubmitGuard } from "@/hooks/use-submit-guard";
 
 /**
- * The Agent deletion confirmation (ADR 0044). Deleting an Agent is destructive and irreversible
+ * The Agent deletion confirmation. Deleting an Agent is destructive and irreversible
  * from the UI, so it is confirmed by typing the Agent's username — the same name-confirmed shape
  * `ProjectSettings` uses for a project — rather than a bare confirm dialog. The server re-checks
  * the typed name against the Agent's current row, so this is a real guard, not only UI gating.
