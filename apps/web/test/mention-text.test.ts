@@ -1,7 +1,6 @@
 import { expect, test } from "bun:test";
 
 import {
-  activeMentionQuery,
   filterMentionables,
   makeReferenceBodyFormatter,
   type Mentionable,
@@ -192,40 +191,4 @@ test("makeReferenceBodyFormatter reads task and channel tokens back as text even
       new Map([[channelId, "launch"]]),
     )(`in <@channel:${channelId}:product>`),
   ).toBe("in #launch");
-});
-
-test("an @query is found at the start of the text and after a space", () => {
-  expect(activeMentionQuery("@al", 3)).toEqual({ start: 0, query: "al" });
-  expect(activeMentionQuery("hi @al", 6)).toEqual({ start: 3, query: "al" });
-  expect(activeMentionQuery("hi @", 4)).toEqual({ start: 3, query: "" });
-});
-
-test("a mention starts only at the start of the text or after whitespace (the strict convention)", () => {
-  // Task #64: typing the message first and then @-mentioning without a space does NOT open the
-  // popup, because that is Slack's and Discord's boundary. The looser rule (fire after any
-  // non-handle character, which would also cover CJK text) was tried and rejected in favour of
-  // aligning with the convention.
-  expect(activeMentionQuery("写点东西@alice", "写点东西@alice".length)).toBeUndefined();
-  expect(activeMentionQuery("写点东西 @alice", "写点东西 @alice".length)).toEqual({
-    start: 5,
-    query: "alice",
-  });
-  expect(activeMentionQuery("done!@al", 7)).toBeUndefined();
-  expect(activeMentionQuery("done! @al", "done! @al".length)).toEqual({ start: 6, query: "al" });
-});
-
-test("a handle-shaped character is not a boundary, so an email or a second @ stays plain text", () => {
-  expect(activeMentionQuery("foo@bar", 7)).toBeUndefined();
-  expect(activeMentionQuery("@ada@b", 6)).toBeUndefined();
-  expect(activeMentionQuery("no at sign here", 15)).toBeUndefined();
-});
-
-test("the query ends at the caret, not at the end of the text", () => {
-  expect(activeMentionQuery("@alice wrote", 3)).toEqual({ start: 0, query: "al" });
-  expect(activeMentionQuery("hi @alice more", 6)).toEqual({ start: 3, query: "al" });
-  expect(activeMentionQuery("hi @alice more", 5)).toEqual({ start: 3, query: "a" });
-});
-
-test("a caret before any @ finds nothing", () => {
-  expect(activeMentionQuery("@alice", 0)).toBeUndefined();
 });

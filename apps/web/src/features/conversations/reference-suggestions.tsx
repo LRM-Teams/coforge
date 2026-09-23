@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef } from "react";
+import { Hash01 as Hash } from "@untitledui/icons";
 import { Avatar } from "#src/components/base/avatar/avatar";
 import { Badge } from "#src/components/base/badges/badges";
 import { AgentDisplayAvatar } from "#src/features/agents/agent-activity-avatar";
@@ -6,12 +7,17 @@ import { useLiveAgents } from "#src/features/agents/workspace-agents-realtime";
 import { avatarInitial, avatarToneClassName } from "#src/lib/avatar-tone";
 import { cx } from "#src/utils/cx";
 import { m } from "#src/paraglide/messages";
+import type { AgentDisplaySnapshot } from "@lrm/coforge-sdk/internal";
 import type { Mentionable } from "./mention-text";
+import type { ChannelSuggestion, ReferenceTrigger } from "./reference-completion";
+import type { ReferenceSuggestion } from "./use-reference-completion";
 
 /**
- * The @-completion popup above the composer textarea: a listbox of the channel's mentionable
- * members filtered to the in-progress query. Each row shows the member's avatar, display name,
- * handle and (for people who have one) profile description, plus an "Agent" badge for Agents.
+ * The reference-completion popup above the composer textarea: a listbox of the conversation's
+ * mentionable members (`@`) or the Workspace's channels (`#`), filtered to the in-progress query.
+ * A member row shows the avatar, display name, handle and (for people who have one) profile
+ * description, plus an "Agent" badge for Agents. A channel row shows a `#` icon, the name, the
+ * description, and an "Archived" badge on an archived channel.
  * An Agent's avatar carries the same online/working/thinking/error/offline dot the sidebar and
  * conversation header use, so you can see whether an Agent is around before mentioning it; the
  * snapshot comes from the app shell's one subscription through `useLiveAgents`. People have no
@@ -24,10 +30,11 @@ import type { Mentionable } from "./mention-text";
  * retarget to the message row beneath the popup. `pointerup` fires for mouse, touch and pen
  * while the option is still mounted. The `click` handler stays as a fallback (assistive tech
  * may activate without pointer events); `choose` early-returns once the query is gone, so a
- * second activation is a no-op. Keyboard interaction lives in `useMentionCompletion`.
+ * second activation is a no-op. Keyboard interaction lives in `useReferenceCompletion`.
  */
-export function MentionSuggestionList({
+export function ReferenceSuggestionList({
   id,
+  trigger,
   items,
   activeIndex,
   optionId,
@@ -35,10 +42,11 @@ export function MentionSuggestionList({
   onHighlight,
 }: {
   id: string;
-  items: readonly Mentionable[];
+  trigger: ReferenceTrigger;
+  items: readonly ReferenceSuggestion[];
   activeIndex: number;
   optionId: (index: number) => string;
-  onChoose: (item: Mentionable) => void;
+  onChoose: (item: ReferenceSuggestion) => void;
   onHighlight: (index: number) => void;
 }) {
   const activeOptionRef = useRef<HTMLLIElement>(null);
@@ -57,7 +65,11 @@ export function MentionSuggestionList({
     <div
       role="listbox"
       id={id}
-      aria-label={m.conversation_mention_suggestions()}
+      aria-label={
+        trigger === "#"
+          ? m.conversation_channel_suggestions()
+          : m.conversation_mention_suggestions()
+      }
       onPointerDown={(event) => event.stopPropagation()}
       onClick={(event) => event.stopPropagation()}
       className="absolute bottom-full left-3 z-20 mb-1 w-80 max-w-[calc(100%-1.5rem)] origin-bottom overflow-hidden rounded-xl bg-primary shadow-lg ring-1 ring-secondary_alt animate-in fade-in slide-in-from-bottom-1 duration-150 ease-out motion-reduce:animate-none"
@@ -70,7 +82,11 @@ export function MentionSuggestionList({
           const active = index === activeIndex;
           return (
             <li
-              key={`${item.kind}:${item.id}`}
+              key={
+                item.kind === "mention"
+                  ? `${item.mention.kind}:${item.mention.id}`
+                  : `channel:${item.channel.id}`
+              }
               ref={active ? activeOptionRef : undefined}
               id={optionId(index)}
               role="option"
@@ -96,42 +112,86 @@ export function MentionSuggestionList({
                 active && "bg-secondary",
               )}
             >
-              {item.kind === "agent" ? (
-                <AgentDisplayAvatar
-                  name={item.label}
-                  src={item.avatarUrl}
-                  display={displayByAgentId.get(item.id)}
-                  size="sm"
+              {item.kind === "mention" ? (
+                <MentionRow
+                  mention={item.mention}
+                  display={displayByAgentId.get(item.mention.id)}
                 />
               ) : (
-                <Avatar
-                  size="sm"
-                  alt=""
-                  src={item.avatarUrl}
-                  initials={avatarInitial(item.label)}
-                  contentClassName={avatarToneClassName(item.label)}
-                />
-              )}
-              <div className="min-w-0 flex-1">
-                <p className="flex items-baseline gap-1.5 text-sm">
-                  <span className="min-w-0 truncate font-medium text-primary">{item.label}</span>
-                  {item.label !== item.handle && (
-                    <span className="shrink-0 text-tertiary">@{item.handle}</span>
-                  )}
-                </p>
-                {item.description && (
-                  <p className="truncate text-xs text-tertiary">{item.description}</p>
-                )}
-              </div>
-              {item.kind === "agent" && (
-                <Badge size="sm" color="gray" type="modern" className="ml-auto shrink-0">
-                  {m.member_agent()}
-                </Badge>
+                <ChannelRow channel={item.channel} />
               )}
             </li>
           );
         })}
       </ul>
     </div>
+  );
+}
+
+/** A member row: avatar (an Agent's with its live status dot), name, handle, description. */
+function MentionRow({
+  mention,
+  display,
+}: {
+  mention: Mentionable;
+  display: AgentDisplaySnapshot | undefined;
+}) {
+  return (
+    <>
+      {mention.kind === "agent" ? (
+        <AgentDisplayAvatar
+          name={mention.label}
+          src={mention.avatarUrl}
+          display={display}
+          size="sm"
+        />
+      ) : (
+        <Avatar
+          size="sm"
+          alt=""
+          src={mention.avatarUrl}
+          initials={avatarInitial(mention.label)}
+          contentClassName={avatarToneClassName(mention.label)}
+        />
+      )}
+      <div className="min-w-0 flex-1">
+        <p className="flex items-baseline gap-1.5 text-sm">
+          <span className="min-w-0 truncate font-medium text-primary">{mention.label}</span>
+          {mention.label !== mention.handle && (
+            <span className="shrink-0 text-tertiary">@{mention.handle}</span>
+          )}
+        </p>
+        {mention.description && (
+          <p className="truncate text-xs text-tertiary">{mention.description}</p>
+        )}
+      </div>
+      {mention.kind === "agent" && (
+        <Badge size="sm" color="gray" type="modern" className="ml-auto shrink-0">
+          {m.member_agent()}
+        </Badge>
+      )}
+    </>
+  );
+}
+
+/** A channel row: `#` icon, name, description, and an "Archived" badge on an archived channel. */
+function ChannelRow({ channel }: { channel: ChannelSuggestion }) {
+  return (
+    <>
+      <span aria-hidden="true" className="flex size-8 shrink-0 items-center justify-center">
+        <Hash className="size-4 text-tertiary" />
+      </span>
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-sm font-medium text-primary">{channel.name}</p>
+        {channel.description && (
+          <p className="truncate text-xs text-tertiary">{channel.description}</p>
+        )}
+      </div>
+      {channel.archived && (
+        <Badge size="sm" color="gray" type="modern" className="ml-auto shrink-0">
+          {m.conversation_channel_archived()}
+        </Badge>
+      )}
+    </>
   );
 }

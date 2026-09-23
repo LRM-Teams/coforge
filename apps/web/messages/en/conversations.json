@@ -260,6 +260,8 @@
   "action_card_suggested_computer": "Suggested computer: {name}",
   "action_card_initial_members": "Initial members",
   "conversation_mention_suggestions": "Mention suggestions",
+  "conversation_channel_suggestions": "Channel suggestions",
+  "conversation_channel_archived": "Archived",
   "files_tab": "Files",
   "files_empty": "No files have been shared in this conversation yet.",
   "files_download": "Download",

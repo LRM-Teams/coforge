@@ -35,8 +35,9 @@ import {
   writeComposerDraft,
 } from "./composer-draft";
 import type { Mentionable } from "./mention-text";
-import { useMentionCompletion } from "./use-mention-completion";
-import { MentionSuggestionList } from "./mention-suggestions";
+import type { ChannelSuggestion } from "./reference-completion";
+import { useReferenceCompletion } from "./use-reference-completion";
+import { ReferenceSuggestionList } from "./reference-suggestions";
 import { fileIconType } from "./message-row";
 import { cx } from "#src/utils/cx";
 import { m } from "#src/paraglide/messages";
@@ -221,6 +222,7 @@ export function MessageComposer({
   inThread,
   mentionables,
   recentHandles,
+  channels,
   quotedDraft,
   onSend,
   onCreateTask,
@@ -233,11 +235,13 @@ export function MessageComposer({
   threadRootId?: string;
   /** Thread composers cannot create Tasks. */
   inThread: boolean;
-  /** The channel's @-completion candidates; absent outside channels (no popup, no mention). */
+  /** The conversation's @-completion candidates; absent or empty, `@` opens no popup. */
   mentionables?: readonly Mentionable[];
   /** Handles that recently sent a message in this conversation, most-recent first (channels
    * only); ranks @-completion candidates ahead of alphabetical order. */
   recentHandles?: readonly string[];
+  /** The Workspace's channels for #-completion; `conversationId` leads the list when it is one. */
+  channels?: readonly ChannelSuggestion[];
   /** A finished quote from a message the reader highlighted (`message-row.tsx`'s reply-to-
    * selection), to be appended to the draft. The `id` is what makes a repeat insertion of the same
    * text land again, so it is the caller's monotone counter — never a content hash. */
@@ -268,10 +272,12 @@ export function MessageComposer({
   useEffect(() => {
     writeComposerDraft(draftKey, body);
   }, [draftKey, body]);
-  // @-completion (channels only): query tracking, popup state, and keyboard interaction.
-  const mention = useMentionCompletion({
+  // @-member and #-channel completion: query tracking, popup state, and keyboard interaction.
+  const completion = useReferenceCompletion({
     mentionables,
     recentHandles,
+    channels,
+    currentChannelId: conversationId,
     value: body,
     onChange: (next) => {
       setBody(next);
@@ -356,7 +362,7 @@ export function MessageComposer({
   }
 
   function focusComposer() {
-    const textarea = mention.textareaRef.current;
+    const textarea = completion.textareaRef.current;
     if (!textarea) return;
     textarea.focus({ preventScroll: true });
     textarea.setSelectionRange(textarea.value.length, textarea.value.length);
@@ -392,7 +398,7 @@ export function MessageComposer({
     retryRef.current = undefined;
     setBody("");
     clearComposerDraft(draftKey);
-    mention.close();
+    completion.close();
     setAttachments([]);
     setAsTask(false);
     // A click on the send button moved focus there; typing continues in the composer.
@@ -420,9 +426,9 @@ export function MessageComposer({
   });
 
   function keyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
-    // The open @-completion owns navigation and confirmation keys; Enter must not send while a
+    // The open completion owns navigation and confirmation keys; Enter must not send while a
     // candidate is being picked. During IME composition the keys belong to the IME.
-    if (mention.handleKeyDown(event, isComposingRef.current)) return;
+    if (completion.handleKeyDown(event, isComposingRef.current)) return;
     const send = shouldSendOnEnter(
       {
         key: event.key,
@@ -519,38 +525,41 @@ export function MessageComposer({
       </label>
       <textarea
         id={composerId}
-        ref={mention.textareaRef}
+        ref={completion.textareaRef}
         rows={1}
         value={body}
         disabled={composerDisabled}
         onChange={(event) => {
           setBody(event.target.value);
-          mention.track(event.target.value, event.target.selectionStart);
+          completion.track(event.target.value, event.target.selectionStart);
           if (retryRef.current && event.target.value.trim() !== retryRef.current.body)
             retryRef.current = undefined;
         }}
         onSelect={(event) =>
-          mention.track(event.currentTarget.value, event.currentTarget.selectionStart)
+          completion.track(event.currentTarget.value, event.currentTarget.selectionStart)
         }
-        onBlur={mention.close}
+        onBlur={completion.close}
         onKeyDown={keyDown}
         onCompositionStart={compositionStart}
         onCompositionEnd={compositionEnd}
         onPaste={paste}
-        aria-expanded={mention.open || undefined}
-        aria-controls={mention.open ? mention.listboxId : undefined}
-        aria-activedescendant={mention.open ? mention.optionId(mention.activeIndex) : undefined}
+        aria-expanded={completion.open || undefined}
+        aria-controls={completion.open ? completion.listboxId : undefined}
+        aria-activedescendant={
+          completion.open ? completion.optionId(completion.activeIndex) : undefined
+        }
         placeholder={m.conversation_message_placeholder()}
         className="max-h-40 min-h-10 w-full resize-none bg-transparent px-2 py-1 text-md leading-6 outline-none [field-sizing:content] placeholder:text-placeholder disabled:opacity-50"
       />
-      {mention.open && (
-        <MentionSuggestionList
-          id={mention.listboxId}
-          items={mention.items}
-          activeIndex={mention.activeIndex}
-          optionId={mention.optionId}
-          onChoose={mention.choose}
-          onHighlight={mention.setActiveIndex}
+      {completion.open && completion.trigger && (
+        <ReferenceSuggestionList
+          id={completion.listboxId}
+          trigger={completion.trigger}
+          items={completion.items}
+          activeIndex={completion.activeIndex}
+          optionId={completion.optionId}
+          onChoose={completion.choose}
+          onHighlight={completion.setActiveIndex}
         />
       )}
       {attachments.length > MAX_ATTACHMENTS && (

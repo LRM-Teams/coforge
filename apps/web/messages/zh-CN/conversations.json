@@ -246,6 +246,8 @@
   "action_card_suggested_computer": "建议的电脑：{name}",
   "action_card_initial_members": "初始成员",
   "conversation_mention_suggestions": "提及建议",
+  "conversation_channel_suggestions": "频道建议",
+  "conversation_channel_archived": "已归档",
   "files_tab": "文件",
   "files_empty": "这个会话还没有发过文件。",
   "files_download": "下载",

@@ -1,6 +1,7 @@
 /**
  * Pure mention text logic for the conversation UI, free of React and DOM types: the composer's
- * @-completion query detection, filtering, and insertion. The mention grammar
+ * @-completion ranking (query detection and insertion are shared with the `#` channel list in
+ * `reference-completion.ts`). The mention grammar
  * (`MENTION_TOKEN_PATTERN`, `splitCodeSpans`) is the server's single definition in
  * `@lrm/coforge-sdk/internal/mentions`, so highlight and wake rules can never disagree about what
  * counts as a mention; the message renderer consumes it through `message-markdown.ts`.
@@ -66,28 +67,6 @@ export type Mentionable = {
 };
 
 /**
- * The @-completion query at the caret: the in-progress token starts at `@` (at the text start or
- * after whitespace) and runs to the caret using handle characters only. Returns the token's start
- * offset (the `@` itself) and the typed query without it. `undefined` when the caret is not inside
- * such a token — e.g. after another word, inside an email address, or past a completed mention
- * followed by more handle characters.
- *
- * The boundary is deliberately the strict one (Slack's and Discord's): `@` opens the popup only at
- * the start of a word, never against the end of one. A looser boundary (`@` after any non-handle
- * character, which would also fire straight after CJK text) was tried for task #64 and rejected —
- * align with the convention rather than inventing a house rule.
- */
-export function activeMentionQuery(
-  value: string,
-  caret: number,
-): { start: number; query: string } | undefined {
-  const beforeCaret = value.slice(0, caret);
-  const match = /(?:^|[\s])@([a-z0-9_-]*)$/.exec(beforeCaret);
-  if (!match) return undefined;
-  return { start: caret - match[1].length - 1, query: match[1] };
-}
-
-/**
  * The best match tier for one candidate against a lower-cased query, or `undefined` when it
  * does not match at all. Lower is a better match: 0 exact, 1 a handle/label prefix, 2 a later
  * label word's prefix (e.g. a surname), 3 any other substring hit. Matching reads the handle,
@@ -150,20 +129,4 @@ export function filterMentionables(
   });
 
   return ranked.slice(0, limit).map((entry) => entry.item);
-}
-
-/**
- * Replace the in-progress token `[start, caret)` with `@handle ` and return the new value and
- * caret position (after the trailing space, which keeps a completed mention from re-opening
- * the completion).
- */
-export function insertMention(
-  value: string,
-  start: number,
-  caret: number,
-  handle: string,
-): { value: string; caret: number } {
-  const inserted = `@${handle} `;
-  const next = value.slice(0, start) + inserted + value.slice(caret);
-  return { value: next, caret: start + inserted.length };
 }

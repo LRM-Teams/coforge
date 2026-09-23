@@ -586,15 +586,22 @@ export class PublicChannels {
   /**
    * Every channel of the Workspace by id and current name, closed and archived ones included: the
    * authority a body's channel references are checked against before they link (see
-   * `rehypeReferenceChips`). Every channel is public, so every member can open each one.
+   * `rehypeReferenceChips`), and what the composer's `#` list offers, with each channel's
+   * description and archived flag for its row. Every channel is public, so every member can open
+   * each one.
    */
   async names(workspaceId: string, userId: string) {
     await this.authorize(workspaceId, userId);
     const channels = await this.db.conversation.findMany({
       where: { workspaceId, channelName: { not: null } },
-      select: { id: true, channelName: true },
+      select: { id: true, channelName: true, description: true, archivedAt: true },
     });
-    return channels.map((channel) => ({ id: channel.id, name: channel.channelName! }));
+    return channels.map((channel) => ({
+      id: channel.id,
+      name: channel.channelName!,
+      description: channel.description.trim(),
+      archived: channel.archivedAt !== null,
+    }));
   }
 
   async list(workspaceId: string, userId: string) {

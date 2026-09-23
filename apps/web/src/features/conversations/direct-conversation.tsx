@@ -51,6 +51,7 @@ import { RelativeTime } from "#src/components/ui/relative-time";
 import { useAppToast } from "#src/components/ui/toast";
 import { MessageComposer } from "./message-composer";
 import { makeReferenceBodyFormatter, type Mentionable } from "./mention-text";
+import type { ChannelSuggestion } from "./reference-completion";
 import type { ChipMention } from "./message-markdown";
 import {
   GROUPING_WINDOW_MS,
@@ -497,6 +498,7 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
     taskReferences: taskNumbers,
     onOpenTask: openTaskReference,
     channelNames,
+    channels: channelList,
     onLoadMessageAround,
     root,
     conversation: {
@@ -657,6 +659,7 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
       taskReferences={taskNumbers}
       onOpenTask={openTaskReference}
       channelNames={channelNames}
+      channels={channelList}
       jumpMessage={jumpMessageId}
       onJumpMessageConsumed={clearJumpMessage}
       onLoadMessageAround={onLoadMessageAround}
@@ -883,6 +886,7 @@ export function ConversationPane({
   taskReferences,
   onOpenTask,
   channelNames,
+  channels,
   jumpMessage,
   onJumpMessageConsumed,
 }: Omit<ConversationProps, "conversation" | "agentStatus"> & {
@@ -915,6 +919,9 @@ export function ConversationPane({
   /** Channel id → current name, for the channel links in a body (see `MessageBody`). Owned by
    * `ThreadedConversationContent`, which reads the viewer's channel list. */
   channelNames?: ReadonlyMap<string, string>;
+  /** Every channel of the Workspace, for the composer's `#` list. Owned by
+   * `ThreadedConversationContent`, which reads it from the messages layout. */
+  channels?: readonly ChannelSuggestion[];
   /** The Saved view's position-only jump anchor (`?message=<uuid>`; see
    * `useConversationPositionJump`). Supplied only by the main pane's wrapper — the router
    * read lives there so this pane keeps no router hooks. */
@@ -1877,6 +1884,7 @@ export function ConversationPane({
           inThread={Boolean(root)}
           mentionables={mentionCandidates}
           recentHandles={recentHandles}
+          channels={channels}
           onSend={onSend}
           onCreateTask={onCreateTask}
           onSent={ownIndex.add}
