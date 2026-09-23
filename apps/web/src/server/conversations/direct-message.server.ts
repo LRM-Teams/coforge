@@ -1,10 +1,5 @@
-import {
-  AGENT_MESSAGE_METHOD,
-  WORKSPACE_PROTOCOL_MAJOR,
-  encodeAgentMessageDelivery,
-  isChannelMessageTarget,
-  isPrintableSenderHandle,
-} from "@lrm/coforge-sdk/internal";
+import { isChannelMessageTarget, isPrintableSenderHandle } from "@lrm/coforge-sdk/internal";
+import { encodeAgentDelivery } from "./agent-delivery.server";
 import type { CentrifugoServerApi } from "#src/server/centrifugo/server-api.server";
 import { daemonControlChannel } from "#src/server/centrifugo/server-api.server";
 import type {
@@ -13,7 +8,7 @@ import type {
 } from "#src/server/db/repositories/direct-conversation.repositories.server";
 import type { MessageRequestIdempotency } from "./message-request-idempotency.server";
 import type { ConversationRealtime } from "./conversation-realtime.server";
-import { agentReadableBody, deliveryMentionsAgent } from "./mentions.server";
+import { deliveryMentionsAgent } from "./mentions.server";
 import type { MessageNotifier } from "#src/server/notifications/web-push-composition.server";
 
 export class ReadDirectMessages {
@@ -167,8 +162,6 @@ export class SendDirectMessage {
     } & Partial<LatestSenderFields>,
   ) {
     if (!message.deliveries?.length) return;
-    // Agents read plain `@handle` text; the stored body keeps mentions as embedded-UUID tokens.
-    const body = agentReadableBody(message.body, message.mentions ?? []);
     await Promise.allSettled(
       message.deliveries.flatMap((delivery) =>
         delivery.computerId
@@ -176,9 +169,7 @@ export class SendDirectMessage {
               Promise.resolve().then(() =>
                 this.centrifugo.publish(
                   daemonControlChannel(message.workspaceId, delivery.computerId!),
-                  encodeAgentMessageDelivery({
-                    protocolMajor: WORKSPACE_PROTOCOL_MAJOR,
-                    method: AGENT_MESSAGE_METHOD,
+                  encodeAgentDelivery({
                     requestId,
                     workspaceId: message.workspaceId,
                     conversationId,
@@ -186,7 +177,8 @@ export class SendDirectMessage {
                     messageId: message.id,
                     deliveryId: delivery.deliveryId,
                     sequence: message.sequence,
-                    body,
+                    body: message.body,
+                    mentions: message.mentions ?? [],
                     target: message.target ?? "",
                     latestSenderKind: message.latestSenderKind,
                     latestSenderHandle: message.latestSenderHandle,
@@ -247,8 +239,7 @@ export class SendDirectMessage {
     if (!message.computerId) throw new Error("Agent is not assigned to a Computer");
     await this.centrifugo.publish(
       daemonControlChannel(message.workspaceId, message.computerId),
-      encodeAgentMessageDelivery({
-        protocolMajor: WORKSPACE_PROTOCOL_MAJOR,
+      encodeAgentDelivery({
         requestId,
         messageId: message.id,
         deliveryId: message.deliveryId,
@@ -256,8 +247,9 @@ export class SendDirectMessage {
         workspaceId: message.workspaceId,
         conversationId,
         agentId: message.agentId,
+        // A DM has no mention rows; its task and channel tokens still read back as text.
         body: message.body,
-        method: AGENT_MESSAGE_METHOD,
+        mentions: [],
         target: message.deliveryTarget ?? `@${message.latestSenderHandle}`,
         latestSenderKind: message.latestSenderKind,
         latestSenderHandle: message.latestSenderHandle,

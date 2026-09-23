@@ -149,23 +149,24 @@ export type MentionTarget = {
 export type ResolvedMention = MentionTarget;
 
 /**
- * Resolves a body being persisted against the conversation's mention targets and returns the
- * stored form plus the resolved mention set, in one pass:
+ * Resolves the `@handle`s a body being persisted names (the Web recognizer's candidate handles,
+ * in first-appearance order) against the conversation's mention targets. The body itself is
+ * rewritten by that recognizer, with `target` as its mention lookup.
  *
  * - Resolution merges structured `bindings` (the CLI's `--mention` selectors; unmatched ones
- *   are ignored — member validation is the repository's job) with plain `@handle` text matches
- *   outside code spans.
+ *   are ignored — member validation is the repository's job) with the plain `@handle` text
+ *   matches.
  * - A handle shared by a User and an Agent member is ambiguous; the Agent wins, because an
  *   Agent mention is what steers delivery, and the binding form stays available to disambiguate.
- * - Every occurrence of a resolved handle outside code is rewritten to its embedded-UUID token;
- *   unresolved `@handle` text stays as written.
- * - The result is deduped by member key; order is bindings first, then first text appearance.
+ * - `target` answers every resolved handle with the member its occurrences are rewritten to;
+ *   an unresolved `@handle` stays as written.
+ * - `mentions` is deduped by member key; order is bindings first, then first text appearance.
  */
-export function normalizeMentionBody(
-  body: string,
+export function resolveMentionTargets(
+  handles: readonly string[],
   targets: readonly MentionTarget[],
   bindings: readonly MentionSelectorInput[] = [],
-): { body: string; mentions: ResolvedMention[] } {
+): { mentions: ResolvedMention[]; target: (handle: string) => MentionTarget | undefined } {
   const byKey = new Map<string, ResolvedMention>();
   for (const binding of bindings) {
     const match = targets.find(
@@ -182,26 +183,11 @@ export function normalizeMentionBody(
     const map = target.type === "agent" ? agentByHandle : userByHandle;
     if (!map.has(target.handle)) map.set(target.handle, target);
   }
-  for (const segment of splitCodeSpans(body)) {
-    if (segment.code) continue;
-    for (const match of segment.text.matchAll(new RegExp(MENTION_PATTERN.source, "g"))) {
-      const handle = match[1]!;
-      const target = agentByHandle.get(handle) ?? userByHandle.get(handle);
-      if (target && !byKey.has(target.key)) byKey.set(target.key, target);
-    }
+  for (const handle of handles) {
+    const target = agentByHandle.get(handle) ?? userByHandle.get(handle);
+    if (target && !byKey.has(target.key)) byKey.set(target.key, target);
   }
-  const tokenByHandle = new Map<string, string>();
-  for (const mention of byKey.values())
-    tokenByHandle.set(mention.handle, mentionToken(mention.type, mention.id));
-  const normalized = splitCodeSpans(body)
-    .map((segment) =>
-      segment.code || tokenByHandle.size === 0
-        ? segment.text
-        : segment.text.replace(
-            new RegExp(MENTION_PATTERN.source, "g"),
-            (text, handle: string) => tokenByHandle.get(handle) ?? text,
-          ),
-    )
-    .join("");
-  return { body: normalized, mentions: [...byKey.values()] };
+  const targetByHandle = new Map<string, MentionTarget>();
+  for (const mention of byKey.values()) targetByHandle.set(mention.handle, mention);
+  return { mentions: [...byKey.values()], target: (handle) => targetByHandle.get(handle) };
 }

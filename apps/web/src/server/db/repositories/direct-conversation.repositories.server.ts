@@ -1,10 +1,5 @@
 import { lockConversation } from "#src/server/conversations/conversation-lock.server";
 import type { MessageSenderKind, MessageTaskMetadata, TaskStatus } from "@lrm/coforge-sdk/internal";
-import {
-  normalizeMentionBody,
-  resolveTaskReferences,
-  taskReferenceNumbers,
-} from "@lrm/coforge-sdk/internal";
 import { Prisma, type PrismaClient } from "#src/generated/prisma/client";
 import { AppError } from "#src/lib/app-error";
 import { canDirectMessageAgent } from "#src/server/agents/agent-visibility.server";
@@ -15,11 +10,13 @@ import { ACTIVE_MEMBER_WHERE } from "#src/server/conversations/active-member.ser
 import {
   agentReadableBody,
   BROWSER_MESSAGE_MENTIONS_SELECT,
+  MESSAGE_MENTIONS_SELECT,
   browserMessageMention,
   deliveryMentionsAgent,
   mentionedNames,
 } from "#src/server/conversations/mentions.server";
 import { AgentSendRejectedError } from "#src/server/conversations/agent-send-rejected-error.server";
+import { storeMessageBody } from "#src/server/conversations/message-references.server";
 import {
   MESSAGE_REACTIONS_SELECT,
   reactionSummaries,
@@ -131,11 +128,6 @@ const ATTACHMENT_SELECT = {
   select: { id: true, fileName: true, contentType: true, sizeBytes: true, objectKey: true },
   orderBy: { position: "asc" },
 } satisfies Prisma.MessageSelect["attachments"];
-
-/** Stable mention identity for Agent-facing text; Agents always read the immutable handle. */
-const MESSAGE_MENTIONS_SELECT = {
-  select: { kind: true, actorId: true, handle: true },
-} satisfies NonNullable<Prisma.MessageSelect["mentions"]>;
 
 /** Message projection sent to the browser client. */
 const BROWSER_MESSAGE_SELECT = {
@@ -1516,13 +1508,21 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
         if (!attachment) throw new Error("attachment is not available for this message");
         attachments.push(attachment);
       }
+      // A DM keeps plain `@handle` text (no mention targets), but its task and channel
+      // references are stored as tokens like every other conversation's.
+      const stored = await storeMessageBody(
+        tx,
+        { workspaceId: conversation.workspaceId, conversationId },
+        body,
+        { targets: [] },
+      );
       const created = await tx.message.create({
         data: {
           conversationId,
           workspaceId: conversation.workspaceId,
           senderMemberId,
           threadRootId: root?.id,
-          body,
+          body: stored.body,
           sequence,
           deliveries: {
             create: {
@@ -2267,56 +2267,43 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
           mentionedMemberIds.push(match.id);
         }
       }
-      // Channel bodies are persisted in the Slack-style token form: every @mention that
+      // Bodies are persisted in the Slack-style token form. In a channel every @mention that
       // resolves to an active member — whether given as a structured `--mention` selector or
-      // written plainly — becomes a `<@kind:uuid>` token plus a MessageMention row. DMs keep
-      // plain text (no mention structure there).
-      const resolution = conversation.channelName
-        ? normalizeMentionBody(
-            body,
-            conversation.members
-              .filter((member) => !member.leftAt)
-              .map((member) =>
-                member.userId
-                  ? {
-                      key: member.id,
-                      type: "user" as const,
-                      id: member.userId,
-                      handle: member.user!.username,
-                    }
-                  : {
-                      key: member.id,
-                      type: "agent" as const,
-                      id: member.agentId!,
-                      handle: member.agent!.name,
-                    },
-              ),
-            mentions ?? [],
-          )
-        : { body, mentions: [] };
-      // The same structured-reference treatment as mentions, but for tasks and on every
-      // conversation: a `task #N` that names a real task here becomes a stored `<@task:N>` token,
-      // so a renderer reads the reference back as a chip instead of parsing prose.
-      const referencedTaskNumbers = taskReferenceNumbers(resolution.body);
-      const knownTaskNumbers = referencedTaskNumbers.length
-        ? new Set(
-            (
-              await tx.task.findMany({
-                where: { conversationId, number: { in: referencedTaskNumbers } },
-                select: { number: true },
-              })
-            ).map((task) => task.number),
-          )
-        : new Set<number>();
-      const taskResolution = resolveTaskReferences(resolution.body, (number) =>
-        knownTaskNumbers.has(number),
+      // written plainly — becomes a `<@kind:uuid>` token plus a MessageMention row; a DM keeps
+      // plain `@handle` text (no mention targets). On every conversation a `task #N` naming a
+      // real task becomes `<@task:N>` and a `#name` naming a Workspace channel becomes
+      // `<@channel:uuid:name>`, so a renderer reads each back as a chip instead of parsing prose.
+      const stored = await storeMessageBody(
+        tx,
+        { workspaceId: conversation.workspaceId, conversationId },
+        body,
+        {
+          targets: conversation.channelName
+            ? conversation.members
+                .filter((member) => !member.leftAt)
+                .map((member) =>
+                  member.userId
+                    ? {
+                        key: member.id,
+                        type: "user" as const,
+                        id: member.userId,
+                        handle: member.user!.username,
+                      }
+                    : {
+                        key: member.id,
+                        type: "agent" as const,
+                        id: member.agentId!,
+                        handle: member.agent!.name,
+                      },
+                )
+            : [],
+          bindings: mentions ?? [],
+        },
       );
       // Other Agents this channel message wakes: every resolved Agent mention. An Agent message
       // without an Agent mention never notifies another Agent, and an Agent never wakes itself.
       const mentionedAgentIds = new Set(
-        resolution.mentions
-          .filter((mention) => mention.type === "agent")
-          .map((mention) => mention.id),
+        stored.mentions.filter((mention) => mention.type === "agent").map((mention) => mention.id),
       );
       mentionedAgentIds.delete(agentId);
       if (conversation.channelName && root) {
@@ -2357,11 +2344,11 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
           workspaceId: conversation.workspaceId,
           senderMemberId: sender.id,
           threadRootId: root?.id,
-          body: taskResolution.body,
+          body: stored.body,
           sequence,
-          mentions: resolution.mentions.length
+          mentions: stored.mentions.length
             ? {
-                create: resolution.mentions.map((mention) => ({
+                create: stored.mentions.map((mention) => ({
                   memberId: mention.key,
                   workspaceId: conversation.workspaceId,
                   kind: mention.type,

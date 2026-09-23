@@ -1,16 +1,14 @@
 import {
-  AGENT_MESSAGE_METHOD,
   AGENT_START_METHOD,
   AGENT_ACTIVITY_METHOD,
-  WORKSPACE_PROTOCOL_MAJOR,
   decodeAgentActivity,
-  encodeAgentMessageDelivery,
   encodeAgentStartIntent,
   encodeAgentStopIntent,
   type AgentActivity,
   type AgentStartIntent,
   type AgentStopIntent,
 } from "@lrm/coforge-sdk/internal";
+import { encodeAgentDelivery } from "#src/server/conversations/agent-delivery.server";
 import {
   daemonControlChannel,
   type CentrifugoServerApi,
@@ -164,13 +162,13 @@ export class WorkspaceAgentRecovery {
               deliveries.map((delivery) =>
                 this.api.publish(
                   daemonControlChannel(workspaceId, computerId),
-                  encodeAgentMessageDelivery({
-                    protocolMajor: WORKSPACE_PROTOCOL_MAJOR,
+                  encodeAgentDelivery({
                     requestId: crypto.randomUUID(),
                     workspaceId,
                     agentId: agent.id,
-                    method: AGENT_MESSAGE_METHOD,
                     ...delivery,
+                    // Pending deliveries are already read back as text; reading again is a no-op.
+                    mentions: [],
                   }),
                 ),
               ),

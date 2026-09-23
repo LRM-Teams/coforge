@@ -1,5 +1,9 @@
 import type { PrismaClient } from "#src/generated/prisma/client";
-import { agentReadableBody, mentionedNames } from "#src/server/conversations/mentions.server";
+import {
+  agentReadableBody,
+  MESSAGE_MENTIONS_SELECT,
+  mentionedNames,
+} from "#src/server/conversations/mentions.server";
 import { ACTIVE_MEMBER_WHERE } from "#src/server/conversations/active-member.server";
 import { messageNotificationTag } from "./web-push-notifications.server";
 import type {
@@ -46,7 +50,7 @@ export class PrismaWebPushSubscriptionStore implements WebPushSubscriptionStore 
         sender: {
           select: { agent: { select: { name: true } }, user: { select: { username: true } } },
         },
-        mentions: { select: { kind: true, actorId: true, handle: true } },
+        mentions: MESSAGE_MENTIONS_SELECT,
         conversation: {
           include: {
             workspace: { select: { slug: true } },

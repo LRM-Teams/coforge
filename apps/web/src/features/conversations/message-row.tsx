@@ -534,7 +534,7 @@ export function MessageRow({
   plainMentions,
   taskReferences,
   onOpenTask,
-  channelReferences,
+  channelNames,
   onQuoteSelection,
 }: {
   message: MessageView;
@@ -578,8 +578,8 @@ export function MessageRow({
   taskReferences?: ReadonlySet<number>;
   /** Opens a task-reference chip's detail popup; absent, a reference stays a highlight. */
   onOpenTask?: (number: number) => void;
-  /** The channels a body's `#name` links to, by lower-case name → channel id. */
-  channelReferences?: ReadonlyMap<string, string>;
+  /** Channel id → current name, for the channel links in the body (see `MessageBody`). */
+  channelNames?: ReadonlyMap<string, string>;
   /** Offers "reply to this selection" on a highlight inside this row's body: the row hands back
    * the finished markdown quote, credited to the message it came from. Absent (e.g. the
    * conversation has no composer to put it in), no affordance is offered and no selection is
@@ -816,7 +816,7 @@ export function MessageRow({
   // #544's whole-message copy (the IM-standard "Copy text", the only copy path for a collapsed,
   // unselectable body) rides the action strip on desktop and the tap action sheet on the mobile
   // shell; the sheet therefore also opens for a message with no thread and no reactions.
-  const copyable = Boolean(messagePlainText(message).trim());
+  const copyable = Boolean(messagePlainText(message, channelNames).trim());
   return (
     <li data-message-id={message.id} className={ROW_CLASS}>
       {unreadStartsHere && <UnreadDivider />}
@@ -908,7 +908,7 @@ export function MessageRow({
                 viewerHandle={viewerHandle}
                 taskReferences={taskReferences}
                 onOpenTask={onOpenTask}
-                channelReferences={channelReferences}
+                channelNames={channelNames}
                 onOpenAgentProfile={onOpenAgentProfile}
                 expanded={expanded}
                 onToggleExpanded={onToggleExpanded}
@@ -1060,7 +1060,7 @@ export function MessageRow({
               icon={Copy01}
               tooltip={m.conversation_message_copy_text()}
               onClick={() => {
-                void copyText(messagePlainText(message)).then((copied) => {
+                void copyText(messagePlainText(message, channelNames)).then((copied) => {
                   if (copied) toast.success(m.conversation_message_copied());
                   else toast.error(m.conversation_copy_failed());
                 });
@@ -1123,7 +1123,7 @@ export function MessageRow({
                       </time>
                     </p>
                     <p className="line-clamp-2 text-sm leading-5 text-secondary [overflow-wrap:anywhere]">
-                      {message.body}
+                      {messagePlainText(message, channelNames)}
                     </p>
                   </div>
                 </div>
@@ -1201,7 +1201,7 @@ export function MessageRow({
                       iconLeading={Copy01}
                       onPress={() => {
                         setActionsOpen(false);
-                        void copyText(messagePlainText(message)).then((copied) => {
+                        void copyText(messagePlainText(message, channelNames)).then((copied) => {
                           if (copied) toast.success(m.conversation_message_copied());
                           else toast.error(m.conversation_copy_failed());
                         });

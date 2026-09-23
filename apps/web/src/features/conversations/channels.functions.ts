@@ -45,6 +45,15 @@ export const listPublicChannels = createServerFn({ method: "GET" })
     return channels.list(workspaceId, userId);
   });
 
+/** Every channel's id and current name, closed ones included: what a body's channel references
+ * link by. */
+export const listChannelNames = createServerFn({ method: "GET" })
+  .middleware([workspaceUserMiddleware])
+  .handler(async ({ context }) => {
+    const { channels, workspaceId, userId } = channelScope(context);
+    return channels.names(workspaceId, userId);
+  });
+
 export const createPublicChannel = createServerFn({ method: "POST" })
   .middleware([workspaceUserMiddleware])
   .validator(

@@ -2,12 +2,10 @@ import { useMemo, type ComponentPropsWithoutRef, type KeyboardEvent } from "reac
 import { Link } from "@tanstack/react-router";
 import Markdown, { type Components, type ExtraProps, type Options } from "react-markdown";
 import rehypeSanitize from "rehype-sanitize";
-import remarkBreaks from "remark-breaks";
-import remarkGfm from "remark-gfm";
 import type { Element } from "hast";
 
+import { MESSAGE_REMARK_PLUGINS, escapeLiteralHtml } from "#src/lib/message-syntax";
 import {
-  escapeLiteralHtml,
   mentionHandlesByToken,
   rehypeChannelReferenceChips,
   rehypeMentionChips,
@@ -17,20 +15,15 @@ import {
 import type { MentionRef } from "./mention-text";
 import "./message-markdown.css";
 
-/** Stable across renders: neither list depends on the message being rendered. */
-const REMARK_PLUGINS = [remarkGfm, remarkBreaks];
-
 /** Stable empty set for the common "no task references to make clickable" case. */
 const NO_TASK_NUMBERS: ReadonlySet<number> = new Set();
-
-/** Stable empty map for the common "no channels to link" case. */
-const NO_CHANNELS: ReadonlyMap<string, string> = new Map();
 
 /**
  * A message body rendered as Markdown with mentions highlighted as inline chips.
  *
- * The source is prepared by `escapeLiteralHtml`, then parsed with GFM (tables, task lists,
- * strikethrough, autolinks) and single-newline breaks, so a body written as plain text keeps its
+ * The source is prepared by `escapeLiteralHtml`, then parsed in the message dialect
+ * (`MESSAGE_REMARK_PLUGINS`, shared with the send-time reference recognizer: GFM tables, task
+ * lists, strikethrough, autolinks, and single-newline breaks), so a body written as plain text keeps its
  * line structure. `rehype-sanitize` runs before the chip pass: message bodies are untrusted, and
  * `react-markdown`'s default schema already refuses raw HTML, `javascript:` URLs and disallowed
  * attributes. Chips are injected afterwards because they are trusted, fixed markup (see
@@ -52,7 +45,7 @@ export function MessageBody({
   onOpenAgentProfile,
   taskReferences,
   onOpenTask,
-  channelReferences,
+  channelNames,
 }: {
   body: string;
   mentions?: readonly MentionRef[];
@@ -69,24 +62,29 @@ export function MessageBody({
   taskReferences?: ReadonlySet<number>;
   /** Opens a task-reference chip's detail popup. Absent, a reference stays a plain highlight. */
   onOpenTask?: (number: number) => void;
-  /** The channels the viewer can open, by lower-case name → channel id: a `#name` naming one of
-   * them becomes a link to that channel. Absent, every `#name` stays prose. */
-  channelReferences?: ReadonlyMap<string, string>;
+  /** Every channel of the Workspace, id → current name (closed ones included), for a host that can
+   * navigate: a stored channel reference whose id is listed becomes a link to that channel under
+   * its current name; any other id reads as the plain `#name` it stored. Absent (e.g. a Saved card,
+   * itself one link), every reference reads as plain `#name`. */
+  channelNames?: ReadonlyMap<string, string>;
 }) {
   const source = useMemo(() => escapeLiteralHtml(body), [body]);
   const handles = useMemo(() => mentionHandlesByToken(mentions), [mentions]);
   // Typed against react-markdown's own plugin list so the plugin-with-options tuple form
   // type-checks without a cast.
-  const rehypePlugins = useMemo<NonNullable<Options["rehypePlugins"]>>(
-    () => [
-      rehypeSanitize,
+  const hasChannelReference = source.includes("<@channel:");
+  const rehypePlugins = useMemo<NonNullable<Options["rehypePlugins"]>>(() => {
+    const plugins: NonNullable<Options["rehypePlugins"]> = [rehypeSanitize];
+    // First: a channel chip is finished markup the later passes leave alone. A body with no
+    // channel token skips the pass entirely.
+    if (hasChannelReference)
+      plugins.push([rehypeChannelReferenceChips, { currentNames: channelNames }]);
+    plugins.push(
       [rehypeMentionChips, { handles, viewerHandle, plain: plainMentions }],
       [rehypeTaskReferenceChips, { numbers: taskReferences ?? NO_TASK_NUMBERS }],
-      // After the task pass, so a `#68` naming a task stays that task's chip.
-      [rehypeChannelReferenceChips, { channels: channelReferences ?? NO_CHANNELS }],
-    ],
-    [handles, viewerHandle, plainMentions, taskReferences, channelReferences],
-  );
+    );
+    return plugins;
+  }, [handles, viewerHandle, plainMentions, taskReferences, channelNames, hasChannelReference]);
   // The `span` override recognises the Agent mention chip (`data-mention-agent-id`, injected by
   // `rehypeMentionChips`) and the task-reference chip (`data-task-reference-number`, injected by
   // `rehypeTaskReferenceChips`), and makes each an accessible button; the channel-reference chip
@@ -100,7 +98,7 @@ export function MessageBody({
   return (
     <div className="message-markdown">
       <Markdown
-        remarkPlugins={REMARK_PLUGINS}
+        remarkPlugins={MESSAGE_REMARK_PLUGINS}
         rehypePlugins={rehypePlugins}
         components={components}
       >
@@ -149,7 +147,14 @@ function chipSpan(
     const channelId = (props as Record<string, unknown>)["data-channel-id"];
     if (typeof channelId === "string") {
       return (
-        <Link to="/messages/channels/$channelId" params={{ channelId }} className={className}>
+        // `data-channel-id` stays on the anchor so a copied selection reads it back as `#name`
+        // (see `selection-copy.ts`), not as a Markdown link to the app's URL.
+        <Link
+          to="/messages/channels/$channelId"
+          params={{ channelId }}
+          className={className}
+          data-channel-id={channelId}
+        >
           {children}
         </Link>
       );

@@ -6,7 +6,7 @@
  * counts as a mention; the message renderer consumes it through `message-markdown.ts`.
  * Rendering is token-only by design (no legacy plain-`@handle` compatibility).
  */
-import { replaceMentionTokens, replaceTaskReferenceTokens } from "@lrm/coforge-sdk/internal";
+import { readableBody } from "@lrm/coforge-sdk/internal";
 
 /** One resolved mention row as the browser message view carries it. `handle` is stable identity;
  * `label` is the current profile display name (falling back to that handle). */
@@ -18,33 +18,32 @@ export type MentionRef = {
 };
 
 /**
- * A function that rewrites a stored body's mention tokens (`<@agent:uuid>` / `<@human:uuid>`) to
- * their `@handle`, using the given mentionables, or `undefined` when there is nothing to resolve.
- * Used by list/summary views (e.g. the own-messages jump index) that show the stored body as
- * plain text and would otherwise leak the raw token. An unknown token is left byte-for-byte
- * intact (see `replaceMentionTokens`), so the caller degrades to the raw token rather than
- * dropping it. This is only display formatting — the stored body and wake rules are unchanged.
+ * A function that rewrites a stored body's tokens for list/summary views (e.g. the own-messages
+ * jump index, the thread previews) that show the stored body as plain text and would otherwise
+ * leak the raw token: a mention token (`<@agent:uuid>` / `<@human:uuid>`) to its `@label` from the
+ * given mentionables, a task token to `task #N`, and a channel token to `#name` — the current name
+ * from `channelNames` (channel id → name) when listed, the stored one otherwise. An unknown mention
+ * token is left byte-for-byte intact (see `readableBody`), so the caller degrades to the
+ * raw token rather than dropping it. This is only display formatting — the stored body and wake
+ * rules are unchanged.
  */
-export function makeMentionBodyFormatter(
+export function makeReferenceBodyFormatter(
   mentionables: readonly {
     kind: "user" | "agent";
     id: string;
     handle: string;
     label: string;
   }[],
-): ((body: string) => string) | undefined {
+  channelNames?: ReadonlyMap<string, string>,
+): (body: string) => string {
   const labelById = new Map(
     mentionables.map((mention) => [`${mention.kind}:${mention.id.toLowerCase()}`, mention.label]),
   );
-  if (labelById.size === 0) return undefined;
   return (body: string) =>
-    replaceTaskReferenceTokens(
-      replaceMentionTokens(body, (type, id) => {
-        const label = labelById.get(`${type}:${id.toLowerCase()}`);
-        return label ? `@${label}` : undefined;
-      }),
-      (number) => `task #${number}`,
-    );
+    readableBody(body, {
+      mention: (type, id) => labelById.get(`${type}:${id.toLowerCase()}`),
+      channelName: (id) => channelNames?.get(id),
+    });
 }
 
 export type Mentionable = {

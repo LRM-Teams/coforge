@@ -1,15 +1,15 @@
-import { useEffect, useRef, useState, type ComponentProps } from "react";
+import { useEffect, useMemo, useRef, useState, type ComponentProps } from "react";
 import { ChevronDown } from "@untitledui/icons";
 
 import { Button } from "#src/components/base/buttons/button";
 import { cn } from "#src/lib/utils";
 import { m } from "#src/paraglide/messages";
-import { replaceMentionTokens, replaceTaskReferenceTokens } from "@lrm/coforge-sdk/internal";
 import {
   COLLAPSED_MESSAGE_MAX_HEIGHT_REM,
   overflowsCollapsedMessage,
 } from "./collapsed-message-height";
 import { MessageBody } from "./message-body";
+import { messagePlainText } from "./selection-copy";
 
 /**
  * A message body that collapses when it is very long, with a control to show the rest — Slack's
@@ -73,23 +73,15 @@ export function CollapsibleMessageBody({
   }, [body]);
 
   const collapsed = overflowing && !expanded;
+  const { channelNames } = bodyProps;
+  const plainText = useMemo(
+    () => (collapsed ? messagePlainText({ body, mentions }, channelNames) : ""),
+    [collapsed, body, mentions, channelNames],
+  );
 
   return (
     <>
-      {collapsed && (
-        <p className="sr-only">
-          {replaceTaskReferenceTokens(
-            replaceMentionTokens(body, (kind, id) => {
-              const mention = mentions?.find(
-                (candidate) =>
-                  candidate.kind === kind && candidate.actorId.toLowerCase() === id.toLowerCase(),
-              );
-              return mention ? `@${mention.label}` : undefined;
-            }),
-            (number) => `task #${number}`,
-          )}
-        </p>
-      )}
+      {collapsed && <p className="sr-only">{plainText}</p>}
       <div
         ref={contentRef}
         aria-hidden={collapsed || undefined}

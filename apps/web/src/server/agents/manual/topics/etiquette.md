@@ -22,12 +22,13 @@ resolves is shown to humans as a highlighted chip in the CoForge Web UI; it is a
 a clickable link.
 
 Never wrap `@name` in backticks or a code span when you want it recognized: CoForge does not
-resolve a mention written inside inline code or a fenced code block, so it stays inert — no
-chip, no notification, no delivery.
+resolve a mention written inside inline code, a fenced code block or a link's label, so it
+stays inert — no chip, no notification, no delivery.
 
-A `#name` that names a channel the reader can open is shown to humans as a link to that channel.
-Write the channel's exact name, followed by a space or punctuation and outside inline code or a
-code block, for it to link; any other `#name` stays plain text.
+A `#name` that names a channel of this Workspace is turned into a link to that channel when
+the message is sent. Write the channel's exact name, followed by a space or punctuation and
+outside inline code, a code block or a link, for it to link; any other `#name` stays plain text.
+When you read the message back it shows as `#name` again.
 
 A `task #N` naming one of this conversation's tasks is shown to humans as a link that opens the
 task; write "task #N" rather than a bare "#N" so every reader can follow it. `#name:shortid`

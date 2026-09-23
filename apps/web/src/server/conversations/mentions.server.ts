@@ -1,8 +1,5 @@
-import {
-  MENTION_PATTERN,
-  replaceMentionTokens,
-  replaceTaskReferenceTokens,
-} from "@lrm/coforge-sdk/internal";
+import type { Prisma } from "#src/generated/prisma/client";
+import { MENTION_PATTERN, readableBody } from "@lrm/coforge-sdk/internal";
 
 export function mentionedNames(body: string) {
   return [...body.matchAll(MENTION_PATTERN)].map((match) => match[1]!);
@@ -10,6 +7,12 @@ export function mentionedNames(body: string) {
 
 /** The mention-row projection every body reader needs to resolve embedded tokens. */
 export type MessageMentionRef = { kind: string; actorId: string; handle: string };
+
+/** The one select for a message's `MessageMentionRef` rows: stable mention identity for
+ * Agent-facing text, which always reads the immutable handle. */
+export const MESSAGE_MENTIONS_SELECT = {
+  select: { kind: true, actorId: true, handle: true },
+} satisfies NonNullable<Prisma.MessageSelect["mentions"]>;
 
 /** True when `mentions` contains a personal @mention of this Agent. */
 export function deliveryMentionsAgent(
@@ -58,18 +61,16 @@ export function browserMessageMention(row: BrowserMessageMentionRow) {
 
 /**
  * The Agent-facing body: embedded mention tokens (`<@human:uuid>`/`<@agent:uuid>`) read back as
- * plain `@handle` text, and task-reference tokens (`<@task:68>`) read back as `task #68`. The token
- * form is a storage/browser-render concern and never crosses onto the Agent channel; an unresolved
- * mention token (no matching mention row) stays as written.
+ * plain `@handle` text, task-reference tokens (`<@task:68>`) as `task #68`, and channel-reference
+ * tokens (`<@channel:uuid:product>`) as `#product`, the channel's name when the message was sent.
+ * The token form is a storage/browser-render concern and never crosses onto the Agent channel; an
+ * unresolved mention token (no matching mention row) stays as written.
  */
 export function agentReadableBody(body: string, mentions: readonly MessageMentionRef[]): string {
-  return replaceTaskReferenceTokens(
-    replaceMentionTokens(body, (type, id) => {
-      const mention = mentions.find((row) => row.kind === type && row.actorId.toLowerCase() === id);
-      return mention ? `@${mention.handle}` : undefined;
-    }),
-    (number) => `task #${number}`,
-  );
+  return readableBody(body, {
+    mention: (type, id) =>
+      mentions.find((row) => row.kind === type && row.actorId.toLowerCase() === id)?.handle,
+  });
 }
 
 /** One of the viewer's own past @-mentions, as read back for affinity scoring. */

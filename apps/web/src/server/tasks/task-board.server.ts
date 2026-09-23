@@ -1,9 +1,7 @@
 import { lockConversation } from "#src/server/conversations/conversation-lock.server";
 import {
-  AGENT_MESSAGE_METHOD,
   REMINDER_SYNC_MESSAGE_TYPE,
   WORKSPACE_PROTOCOL_MAJOR,
-  encodeAgentMessageDelivery,
   encodeReminderSync,
   type TaskCommand,
   type TaskHistoryChange,
@@ -14,6 +12,7 @@ import {
   type TaskStatus,
   type TaskView,
 } from "@lrm/coforge-sdk/internal";
+import { encodeAgentDelivery } from "#src/server/conversations/agent-delivery.server";
 import { ACTIVE_AGENT_WHERE } from "#src/server/agents/active-agent.server";
 import { workspaceUserAvatarUrl } from "#src/server/db/repositories/user-profile.repositories.server";
 import type { Prisma, PrismaClient } from "#src/generated/prisma/client";
@@ -22,7 +21,11 @@ import {
   messageSignalScope,
   type ConversationRealtime,
 } from "#src/server/conversations/conversation-realtime.server";
-import { mentionedNames } from "#src/server/conversations/mentions.server";
+import {
+  agentReadableBody,
+  MESSAGE_MENTIONS_SELECT,
+  mentionedNames,
+} from "#src/server/conversations/mentions.server";
 import { ACTIVE_MEMBER_WHERE } from "#src/server/conversations/active-member.server";
 import {
   agentMessageSender,
@@ -73,8 +76,11 @@ const taskSelection = {
   claimedAt: true,
   ownerMemberId: true,
   owner: { select: TASK_MEMBER_SELECT },
-  // The backing message's sequence, so realtime signals need no second read.
-  message: { select: { sequence: true } },
+  // The backing message's sequence, so realtime signals need no second read, and its mention rows,
+  // which a title converted from that message needs to read its mention tokens back.
+  message: {
+    select: { sequence: true, mentions: MESSAGE_MENTIONS_SELECT },
+  },
 } satisfies Prisma.TaskSelect;
 
 type SelectedTask = Prisma.TaskGetPayload<{ select: typeof taskSelection }>;
@@ -184,7 +190,10 @@ function view(task: SelectedTask): TaskView {
     messageId: task.messageId,
     conversationId: task.conversationId,
     number: task.number,
-    title: task.title,
+    // A title converted from a message keeps that message's stored tokens; they read back as text
+    // (`@handle`, `task #N`, `#name`) here, the view both the task board and an Agent's `task`
+    // commands read.
+    title: agentReadableBody(task.title, task.message.mentions),
     description: task.description,
     status: status(task.status),
     revision: task.revision,
@@ -248,7 +257,13 @@ function taskChanges(before: SelectedTask, after: SelectedTask): TaskHistoryChan
       payload: { from: status(before.status), to: status(after.status) },
     });
   const amended: Extract<TaskHistoryChange, { eventType: "amended" }>["payload"]["changes"] = {};
-  if (before.title !== after.title) amended.title = { from: before.title, to: after.title };
+  // History records the titles as `view` shows them, so a converted title's tokens are never
+  // written into the record.
+  if (before.title !== after.title)
+    amended.title = {
+      from: agentReadableBody(before.title, before.message.mentions),
+      to: agentReadableBody(after.title, after.message.mentions),
+    };
   if (before.description !== after.description)
     amended.description = { from: before.description, to: after.description };
   if (amended.title || amended.description)
@@ -746,9 +761,7 @@ export class TaskBoard {
               Promise.resolve().then(() =>
                 publisher.publish(
                   daemonControlChannel(message.workspaceId, delivery.agent.computerId!),
-                  encodeAgentMessageDelivery({
-                    protocolMajor: WORKSPACE_PROTOCOL_MAJOR,
-                    method: AGENT_MESSAGE_METHOD,
+                  encodeAgentDelivery({
                     requestId,
                     workspaceId: message.workspaceId,
                     conversationId: message.conversationId,
@@ -756,7 +769,9 @@ export class TaskBoard {
                     messageId: message.id,
                     deliveryId: delivery.deliveryId,
                     sequence: message.sequence,
+                    // A task's own message is its typed title, with no mention rows.
                     body: message.body,
+                    mentions: [],
                     target,
                     latestSenderKind: sender.kind,
                     latestSenderHandle: sender.handle,

@@ -21,24 +21,15 @@ import {
 } from "./sender-display.server";
 import type { MessageRequestIdempotency } from "./message-request-idempotency.server";
 import { getMessageRequestIdempotency } from "./redis-message-request-idempotency.server";
-import {
-  AGENT_MESSAGE_METHOD,
-  WORKSPACE_PROTOCOL_MAJOR,
-  encodeAgentMessageDelivery,
-} from "@lrm/coforge-sdk/internal";
+import { encodeAgentDelivery } from "./agent-delivery.server";
 import {
   createCentrifugoServerApi,
   daemonControlChannel,
   type CentrifugoServerApi,
 } from "#src/server/centrifugo/server-api.server";
 import type { MessageNotifier } from "#src/server/notifications/web-push-composition.server";
+import { storeMessageBody } from "./message-references.server";
 import {
-  normalizeMentionBody,
-  resolveTaskReferences,
-  taskReferenceNumbers,
-} from "@lrm/coforge-sdk/internal";
-import {
-  agentReadableBody,
   BROWSER_MESSAGE_MENTIONS_SELECT,
   browserMessageMention,
   deliveryMentionsAgent,
@@ -590,6 +581,20 @@ export class PublicChannels {
       select: { id: true },
     });
     if (!agent) throw new AppError("ACCESS_DENIED");
+  }
+
+  /**
+   * Every channel of the Workspace by id and current name, closed and archived ones included: the
+   * authority a body's channel references are checked against before they link (see
+   * `rehypeChannelReferenceChips`). Every channel is public, so every member can open each one.
+   */
+  async names(workspaceId: string, userId: string) {
+    await this.authorize(workspaceId, userId);
+    const channels = await this.db.conversation.findMany({
+      where: { workspaceId, channelName: { not: null } },
+      select: { id: true, channelName: true },
+    });
+    return channels.map((channel) => ({ id: channel.id, name: channel.channelName! }));
   }
 
   async list(workspaceId: string, userId: string) {
@@ -1433,7 +1438,10 @@ export class PublicChannels {
           // Resolve @mentions against the channel's active members once. The stored body keeps
           // each resolved mention as an embedded-UUID token (`<@human:…>`/`<@agent:…>`,
           // Slack-style) and every resolved mention becomes a MessageMention row in the same
-          // transaction, so renders and delivery never re-parse prose.
+          // transaction, so renders and delivery never re-parse prose. Task references
+          // (`task #68` → `<@task:68>`) and channel references (`#product` →
+          // `<@channel:uuid:product>`) are resolved in the same pass: the server decides what
+          // names a real task or channel, and anything else stays ordinary text.
           const activeMembers = await tx.conversationMember.findMany({
             where: { conversationId: channelId, ...ACTIVE_MEMBER_WHERE },
             select: {
@@ -1444,40 +1452,27 @@ export class PublicChannels {
               agent: { select: { name: true } },
             },
           });
-          const resolution = normalizeMentionBody(
+          const stored = await storeMessageBody(
+            tx,
+            { workspaceId, conversationId: channelId },
             body,
-            activeMembers.map((channelMember) =>
-              channelMember.userId
-                ? {
-                    key: channelMember.id,
-                    type: "user" as const,
-                    id: channelMember.userId,
-                    handle: channelMember.user!.username,
-                  }
-                : {
-                    key: channelMember.id,
-                    type: "agent" as const,
-                    id: channelMember.agentId!,
-                    handle: channelMember.agent!.name,
-                  },
-            ),
-          );
-          // Task references (`task #68`) are resolved the same way and for the same reason: the
-          // server decides what names a real task of this channel, stores a `<@task:N>` token, and
-          // a renderer never has to parse prose. A number that names no task stays ordinary text.
-          const referencedTaskNumbers = taskReferenceNumbers(resolution.body);
-          const knownTaskNumbers = referencedTaskNumbers.length
-            ? new Set(
-                (
-                  await tx.task.findMany({
-                    where: { conversationId: channelId, number: { in: referencedTaskNumbers } },
-                    select: { number: true },
-                  })
-                ).map((task) => task.number),
-              )
-            : new Set<number>();
-          const taskResolution = resolveTaskReferences(resolution.body, (number) =>
-            knownTaskNumbers.has(number),
+            {
+              targets: activeMembers.map((channelMember) =>
+                channelMember.userId
+                  ? {
+                      key: channelMember.id,
+                      type: "user" as const,
+                      id: channelMember.userId,
+                      handle: channelMember.user!.username,
+                    }
+                  : {
+                      key: channelMember.id,
+                      type: "agent" as const,
+                      id: channelMember.agentId!,
+                      handle: channelMember.agent!.name,
+                    },
+              ),
+            },
           );
           if (root) {
             // Everyone who takes part in a thread is a follower: whoever replies, everyone the
@@ -1485,7 +1480,7 @@ export class PublicChannels {
             // message being replied to. Without that last one, a reply under someone's own
             // message never enrolls them, and since a thread reply is not a parent-channel post,
             // nothing would ever notify them of the discussion started under their message.
-            const participants = [member.id, ...resolution.mentions.map((mention) => mention.key)];
+            const participants = [member.id, ...stored.mentions.map((mention) => mention.key)];
             // Only while the thread is brand new: an explicit `thread unfollow` is a decision, and
             // a later reply must not silently enroll the root author back into the thread.
             const existingFollower = await tx.threadFollow.findFirst({
@@ -1514,7 +1509,7 @@ export class PublicChannels {
           // author. Reaching the whole channel from inside a thread meant a human replying to one
           // Agent woke every unmuted Agent in it (reported 2026-09-21). A root author who explicitly
           // unfollowed stays out, which is why this reads follows and not authorship.
-          const mentionedAgentIds = resolution.mentions
+          const mentionedAgentIds = stored.mentions
             .filter((mention) => mention.type === "agent")
             .map((mention) => mention.id);
           const recipients =
@@ -1539,11 +1534,11 @@ export class PublicChannels {
               conversationId: channelId,
               senderMemberId: member.id,
               threadRootId: root?.id,
-              body: taskResolution.body,
+              body: stored.body,
               sequence,
-              mentions: resolution.mentions.length
+              mentions: stored.mentions.length
                 ? {
-                    create: resolution.mentions.map((mention) => ({
+                    create: stored.mentions.map((mention) => ({
                       memberId: mention.key,
                       workspaceId,
                       kind: mention.type,
@@ -1634,10 +1629,9 @@ export class PublicChannels {
         // PostgreSQL remains canonical; browser reconciliation repairs a missed publication.
       }
     }
-    // Every Agent's push goes out at once; a failure still rejects the send. Agents read plain
-    // `@handle` text — the stored body keeps mentions as embedded-UUID tokens, so translate.
+    // Every Agent's push goes out at once; a failure still rejects the send. The encoder reads the
+    // stored tokens back as text for the Agent.
     const publisher = this.publisher ?? createCentrifugoServerApi();
-    const agentBody = agentReadableBody(message.body, message.mentions);
     // Routed through the shared projection rather than two non-null assertions on
     // `sender.user`, which broke for an Agent-authored channel delivery.
     const sender = agentMessageSender(message.sender);
@@ -1647,9 +1641,7 @@ export class PublicChannels {
         .map((delivery) =>
           publisher.publish(
             daemonControlChannel(input.workspaceId, delivery.agent.computerId!),
-            encodeAgentMessageDelivery({
-              protocolMajor: WORKSPACE_PROTOCOL_MAJOR,
-              method: AGENT_MESSAGE_METHOD,
+            encodeAgentDelivery({
               requestId,
               workspaceId,
               conversationId: channelId,
@@ -1657,7 +1649,8 @@ export class PublicChannels {
               messageId: message.id,
               deliveryId: delivery.deliveryId,
               sequence: message.sequence,
-              body: agentBody,
+              body: message.body,
+              mentions: message.mentions,
               target: `#${channel.channelName}${message.threadRootId ? `:${message.threadRootId}` : ""}`,
               latestSenderKind: sender.kind,
               latestSenderHandle: sender.handle,
