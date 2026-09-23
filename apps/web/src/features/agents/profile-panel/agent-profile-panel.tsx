@@ -4,7 +4,6 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { getRouteApi, useRouter } from "@tanstack/react-router";
 import { Edit01 as Pencil, UserX01, XClose as X } from "@untitledui/icons";
 
-import { Button } from "#src/components/base/buttons/button";
 import { ButtonUtility } from "#src/components/base/buttons/button-utility";
 import { isAppError } from "#src/lib/app-error";
 import { Skeleton } from "#src/components/ui/skeleton";
@@ -17,7 +16,11 @@ import {
 } from "#src/components/ui/empty";
 import { m } from "#src/paraglide/messages";
 import { useSubmitGuard } from "#src/hooks/use-submit-guard";
-import { useLiveAgent, useAgentActivityFeed } from "#src/features/agents/workspace-agents-realtime";
+import {
+  useAgentActivityFeed,
+  useLiveAgent,
+  usePrefetchAgentActivityFeed,
+} from "#src/features/agents/workspace-agents-realtime";
 import { agentDisplay } from "#src/features/agents/agent-activity-presentation";
 import { AgentActivityTimeline } from "#src/features/agents/agent-activity-timeline";
 import { AgentReminders } from "#src/features/agents/agent-reminders";
@@ -63,6 +66,7 @@ import { AgentProfileHeader } from "./agent-profile-header";
 import { AgentProfileTabs, useAgentProfileTabOrder } from "./agent-profile-tabs";
 import { AgentProfileTab } from "./agent-profile-tab";
 import { AgentWorkspaceTab } from "./agent-workspace-tab";
+import { PanelMessage } from "./panel-message";
 import {
   resolveAgentProfileTab,
   type AgentProfileTab as ProfileTabId,
@@ -70,7 +74,7 @@ import {
 import {
   agentEnvironmentKey,
   agentEnvironmentQuery,
-  useAgentProfileData,
+  agentProfileQuery,
   useInvalidateAgentProfile,
 } from "./agent-profile-queries";
 
@@ -109,12 +113,10 @@ export function AgentProfilePanel({
     return () => document.removeEventListener("keydown", onKeyDown);
   }, [onClose]);
   const liveAgent = useLiveAgent(agentId);
-  const query = useAgentProfileData(agentId);
+  const query = useQuery(agentProfileQuery(agentId));
   const profile = query.data;
   const invalidate = useInvalidateAgentProfile(agentId);
-  // Requested as soon as the panel opens, whichever tab shows, so Activity is usually ready by
-  // the time it is selected.
-  const activityFeed = useAgentActivityFeed(agentId);
+  usePrefetchAgentActivityFeed(agentId);
 
   const knownName = profile?.displayName ?? liveAgent?.displayName ?? "";
   const canManage = profile ? profile.canManageAgentRole || profile.ownedByCurrentUser : false;
@@ -313,9 +315,8 @@ export function AgentProfilePanel({
         // viewer's own `listAgents` roster until its first live publication arrives — e.g. an
         // owner/admin's placeholder for another member's private Agent. `getAgentProfile`
         // (`profile`, this panel's own authorized fetch) already computes an initial
-        // status/display snapshot for any Agent the viewer can see, exactly like `activity`'s
-        // fallback below; prefer the live one once a publication lands, but seed from the
-        // authorized fetch instead of showing nothing.
+        // status/display snapshot for any Agent the viewer can see; prefer the live one once a
+        // publication lands, but seed from the authorized fetch instead of showing nothing.
         display={liveAgent?.display ?? profile?.display}
         timeZone={timeZone}
         controls={controls}
@@ -353,7 +354,7 @@ export function AgentProfilePanel({
             <Skeleton className="h-24 w-full" />
           </div>
         ) : tab === "activity" ? (
-          <AgentActivityTab feed={activityFeed} timeZone={timeZone} />
+          <AgentActivityTab agentId={agentId} timeZone={timeZone} />
         ) : tab === "reminders" ? (
           <div className="px-5 pb-5">
             <AgentReminders
@@ -565,34 +566,24 @@ export function AgentProfilePanel({
   );
 }
 
-function AgentActivityTab({
-  feed,
-  timeZone,
-}: {
-  feed: ReturnType<typeof useAgentActivityFeed>;
-  timeZone: string | null;
-}) {
-  if (feed.failed)
+function AgentActivityTab({ agentId, timeZone }: { agentId: string; timeZone: string | null }) {
+  const feed = useAgentActivityFeed(agentId);
+  if (feed.data) return <AgentActivityTimeline activity={feed.data} timeZone={timeZone} compact />;
+  if (feed.isError && !feed.isFetching)
     return (
-      <div className="flex flex-col items-center gap-3 px-6 py-10 text-center">
-        <p role="alert" className="text-sm text-tertiary">
-          {m.agent_activity_error()}
-        </p>
-        <Button size="sm" color="secondary" onPress={feed.retry}>
-          {m.controls_retry()}
-        </Button>
-      </div>
+      <PanelMessage text={m.agent_activity_error()} alert onRetry={() => void feed.refetch()} />
     );
-  if (!feed.activity)
-    return (
-      <div className="flex flex-col gap-5 px-4 py-4" aria-label={m.agent_activity_loading()}>
-        {["w-2/5", "w-3/5", "w-1/2", "w-3/4"].map((width) => (
-          <div key={width} className="grid grid-cols-[3.5rem_1fr] gap-2">
-            <Skeleton className="h-4 w-12" />
-            <Skeleton className={`h-4 ${width}`} />
-          </div>
-        ))}
-      </div>
-    );
-  return <AgentActivityTimeline activity={feed.activity} timeZone={timeZone} compact />;
+  return (
+    <div aria-busy="true" className="flex flex-col gap-5 px-4 py-4">
+      <p role="status" className="sr-only">
+        {m.agent_activity_loading()}
+      </p>
+      {["w-2/5", "w-3/5", "w-1/2", "w-3/4"].map((width) => (
+        <div key={width} className="grid grid-cols-[3.5rem_1fr] gap-2">
+          <Skeleton className="h-4 w-12" />
+          <Skeleton className={`h-4 ${width}`} />
+        </div>
+      ))}
+    </div>
+  );
 }

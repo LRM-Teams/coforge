@@ -8,9 +8,10 @@ import { getLocale } from "#src/paraglide/runtime";
 
 import { useTimeFormat } from "#src/lib/time-format-context";
 
-/** The server and client cannot agree on `now`, locale or time zone before mount, so both
- * `RelativeTime` and `ClockTime` render their live value only after mount; the markup they emit
- * before that carries just the ISO instant via `dateTime`, which hydrates without a mismatch. */
+/** The server and client cannot agree on `now`, locale or time zone before mount, so
+ * `RelativeTime` renders its live value only after mount (`ClockTime` waits for hydration the same
+ * way); the markup emitted before that carries just the ISO instant via `dateTime`, which hydrates
+ * without a mismatch. */
 function useClientNow() {
   const [now, setNow] = useState<Date | null>(null);
   useEffect(() => {

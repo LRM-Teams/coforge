@@ -7,7 +7,8 @@ These rules apply to `src/features/agents/`.
 - `WorkspaceAgentsProvider` (`workspace-agents-realtime.tsx`) is the app
   shell's one Agent status subscription and one Activity subscription.
   Avatars, pages, and panels read through its hooks (`useLiveAgents`,
-  `useLiveAgent`, `useAgentRecentActivity`, `useAgentActivityFeed`) and never
+  `useLiveAgent`, `useAgentRecentActivity`, `useAgentActivityFeed`,
+  `usePrefetchAgentActivityFeed`) and never
   open connections or subscribe themselves. The conversations feature does not
   own Agent state.
 - `agent-status-realtime.ts` consumes backend display snapshots from the

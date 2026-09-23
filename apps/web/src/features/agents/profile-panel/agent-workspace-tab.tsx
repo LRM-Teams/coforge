@@ -32,6 +32,7 @@ import { workspaceImageSource } from "./agent-workspace-image";
 import { m } from "#src/paraglide/messages";
 import { cn } from "#src/lib/utils";
 import { SECTION_CAPTION_CLASS } from "./inline-edit-field";
+import { PanelMessage } from "./panel-message";
 
 /** The container width, in CSS px, at and above which the tree and the open file split
  * side-by-side (the wide Members-page pane). Below it, the file replaces the tree and a
@@ -384,12 +385,12 @@ function TreeRoot({
       </div>
     );
   }
-  if (state.status === "offline") return <TreeMessage text={m.agent_workspace_offline()} />;
+  if (state.status === "offline") return <PanelMessage text={m.agent_workspace_offline()} />;
   if (state.status === "timeout")
-    return <TreeMessage text={m.agent_workspace_timeout()} onRetry={onRetry} />;
+    return <PanelMessage text={m.agent_workspace_timeout()} onRetry={onRetry} />;
   if (state.status !== "ready")
-    return <TreeMessage text={m.agent_workspace_unavailable()} onRetry={onRetry} />;
-  if (state.entries.length === 0) return <TreeMessage text={m.agent_workspace_empty()} />;
+    return <PanelMessage text={m.agent_workspace_unavailable()} onRetry={onRetry} />;
+  if (state.entries.length === 0) return <PanelMessage text={m.agent_workspace_empty()} />;
 
   return (
     <WorkspaceTree
@@ -565,19 +566,6 @@ function WorkspaceTree({
     >
       {renderRow}
     </Tree>
-  );
-}
-
-function TreeMessage({ text, onRetry }: { text: string; onRetry?: () => void }) {
-  return (
-    <div className="flex flex-col items-center gap-3 px-4 py-10 text-center">
-      <p className="text-sm text-tertiary">{text}</p>
-      {onRetry && (
-        <Button size="sm" color="secondary" onPress={onRetry}>
-          {m.agent_workspace_retry()}
-        </Button>
-      )}
-    </div>
   );
 }
 

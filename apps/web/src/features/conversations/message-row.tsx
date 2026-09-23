@@ -50,6 +50,7 @@ import {
 import { copyText } from "#src/features/records/report-editor/lib/clipboard";
 import { useTimeFormat } from "#src/lib/time-format-context";
 import { hour12For, type TimeFormat } from "#src/lib/time-format";
+import { dateTimeFormat } from "#src/lib/dates";
 
 export type MessageView = {
   id: string;
@@ -121,26 +122,10 @@ function visibleBoundary(el: HTMLElement): { top: number; bottom: number } {
   return { top: 0, bottom: window.innerHeight };
 }
 
-// Intl.DateTimeFormat construction dominates per-row formatting cost; keep one per locale.
-const dayFormatters = new Map<string, Intl.DateTimeFormat>();
-const clockFormatters = new Map<string, Intl.DateTimeFormat>();
-function cachedFormatter(
-  cache: Map<string, Intl.DateTimeFormat>,
-  key: string,
-  options: Intl.DateTimeFormatOptions,
-) {
-  let formatter = cache.get(key);
-  if (!formatter) {
-    formatter = new Intl.DateTimeFormat(key.split("|")[0], options);
-    cache.set(key, formatter);
-  }
-  return formatter;
-}
-
 export function dayLabel(value: Date | string, locale?: string): string {
   // Keep server/first-client markup identical; browser locale and zone apply after mount.
   if (!locale) return new Date(value).toISOString().slice(0, 10);
-  return cachedFormatter(dayFormatters, locale, {
+  return dateTimeFormat(locale, {
     year: "numeric",
     month: "short",
     day: "numeric",
@@ -153,7 +138,7 @@ export function clockLabel(
   timeFormat: TimeFormat | null = null,
 ): string {
   if (!locale) return "";
-  return cachedFormatter(clockFormatters, `${locale}|${timeFormat ?? ""}`, {
+  return dateTimeFormat(locale, {
     hour: "2-digit",
     minute: "2-digit",
     hour12: hour12For(timeFormat),

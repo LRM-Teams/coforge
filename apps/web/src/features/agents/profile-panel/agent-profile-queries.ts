@@ -1,5 +1,5 @@
 import { MEMBER_DIRECTORY_KEY } from "#src/features/agents/member-directory-queries";
-import { queryOptions, useQuery, useQueryClient } from "@tanstack/react-query";
+import { queryOptions, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "@tanstack/react-router";
 
 import { getAgentEnvironment, getAgentProfile } from "#src/features/agents/agents.functions";
@@ -16,12 +16,6 @@ export function agentProfileQuery(agentId: string | undefined) {
     enabled: Boolean(agentId),
     staleTime: 15_000,
   });
-}
-
-/** Loads the panel's profile payload. Activity history is not in it; the Activity tab reads the
- * shared feed through `useAgentActivityFeed`. */
-export function useAgentProfileData(agentId: string | undefined) {
-  return useQuery(agentProfileQuery(agentId));
 }
 
 /**
