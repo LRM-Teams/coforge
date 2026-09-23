@@ -28,19 +28,21 @@ test("the proxy is reachable on loopback only, and no other listener can take ov
       },
       () => false,
     );
-  const interfaceAddresses = Object.values(networkInterfaces())
+  const otherAddresses = Object.values(networkInterfaces())
     .flat()
     .flatMap((address) =>
       address && address.family === "IPv4" && !address.internal ? [address.address] : [],
     );
+  // Linux routes all of 127.0.0.0/8 to loopback, so 127.0.0.2 reaches a wildcard bind even on a
+  // host with no other interface; macOS does not route it, so it is probed on Linux only.
+  if (process.platform === "linux") otherAddresses.push("127.0.0.2");
+  expect(otherAddresses.length).toBeGreaterThan(0);
 
   expect(await reachable("127.0.0.1")).toBe(true);
-  // Every other interface is refused. A wildcard bind answers on at least one of them.
+  // Every other address is refused. A wildcard bind answers on at least one of them.
   expect(
-    await Promise.all(
-      interfaceAddresses.map(async (address) => [address, await reachable(address)]),
-    ),
-  ).toEqual(interfaceAddresses.map((address) => [address, false]));
+    await Promise.all(otherAddresses.map(async (address) => [address, await reachable(address)])),
+  ).toEqual(otherAddresses.map((address) => [address, false]));
 
   // A wildcard bind would also let this more specific bind succeed and receive the Agents'
   // requests to 127.0.0.1 (macOS allows it; Linux refuses it either way).

@@ -115,6 +115,7 @@ describe("AgentDeletion", () => {
 
   test("the member-list signal goes out after the runtime lock is released, even when the stop fails", async () => {
     let locked = false;
+    let stopAttempts = 0;
     const announcedWhileLocked: boolean[] = [];
     const deletion = new AgentDeletion(
       repositoryFor(agent()),
@@ -128,6 +129,7 @@ describe("AgentDeletion", () => {
       },
       {
         stop: async () => {
+          stopAttempts += 1;
           throw new Error("daemon unavailable");
         },
       },
@@ -149,6 +151,7 @@ describe("AgentDeletion", () => {
       },
     );
     await deletion.delete(owner, "agent-1");
+    expect(stopAttempts).toBe(1);
     expect(announcedWhileLocked).toEqual([false]);
   });
 
