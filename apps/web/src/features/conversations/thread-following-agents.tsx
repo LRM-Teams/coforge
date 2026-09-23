@@ -147,14 +147,12 @@ export function ThreadFollowingAgents({
 
   return (
     <AriaDialogTrigger>
-      <Button
-        color="tertiary"
+      <ButtonUtility
+        icon={lead ? <LeadFollowingAgentAvatar agent={lead} /> : <Cpu data-icon />}
         size="sm"
+        color="tertiary"
         aria-label={m.conversation_thread_following_agents_count({ count })}
-        className="h-8 w-8 rounded-md p-1.5! *:data-icon:size-5"
-      >
-        {lead ? <LeadFollowingAgentAvatar agent={lead} /> : <Cpu data-icon />}
-      </Button>
+      />
       <AriaPopover
         placement="bottom end"
         offset={8}

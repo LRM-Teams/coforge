@@ -1,4 +1,5 @@
 import { createServerFn } from "@tanstack/react-start";
+import { getRequest } from "@tanstack/react-start/server";
 import { authMiddleware } from "../../server/auth/function-auth";
 import { requireDatabaseClient } from "../../server/db/client.server";
 import {
@@ -6,6 +7,7 @@ import {
   UserPreferences,
 } from "../../server/db/repositories/user-preferences.repositories.server";
 import { AppError, isAppError } from "../../lib/app-error";
+import { extractLocaleFromRequest } from "@/paraglide/runtime";
 import { toPublicServerError } from "../../server/errors/public-error.server";
 import { createWebPushNotifications } from "../../server/notifications/web-push-composition.server";
 import { PrismaWebPushSubscriptionStore } from "../../server/notifications/prisma-web-push-subscriptions.server";
@@ -81,7 +83,12 @@ export const sendTestBrowserNotification = createServerFn({ method: "POST" })
       throw new AppError("ACCESS_DENIED");
     let result;
     try {
-      result = await (await createWebPushNotifications(db)).sendTest(user.id, data.endpoint);
+      const sender = await createWebPushNotifications(db);
+      result = await sender.sendTest(
+        user.id,
+        data.endpoint,
+        extractLocaleFromRequest(getRequest()),
+      );
     } catch (error) {
       // An unusable configuration (bad key pair, missing private key file) or any other refusal:
       // log it with an id the reader's toast can quote.
@@ -90,7 +97,9 @@ export const sendTestBrowserNotification = createServerFn({ method: "POST" })
         errorId: isAppError(reported) ? reported.errorId : undefined,
       });
     }
-    // Per-device failures and removals are already logged by the delivery itself.
-    if (result.sent === 0) throw new AppError("TEMPORARILY_UNAVAILABLE");
+    // Per-device failures and removals are already logged by the delivery itself, sharing the
+    // batch id the toast quotes.
+    if (result.sent === 0)
+      throw new AppError("TEMPORARILY_UNAVAILABLE", { errorId: result.errorId });
     return result;
   });
