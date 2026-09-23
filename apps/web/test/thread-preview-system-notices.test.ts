@@ -64,7 +64,7 @@ describe("the thread pane path stays unfiltered (#139's second rule)", () => {
     // pane's data source was filtered too — the drift this test exists to catch.
     const filterCount = source.split('senderKind !== "system"').length - 1;
     expect(filterCount).toBe(1);
-    expect(source).toContain("senderKind !== \"system\"");
+    expect(source).toContain('senderKind !== "system"');
     // The thread pane reads `repliesOf(...)` — the unfiltered grouping — as its messages
     // (`threadPaneProps(root)`; the open task popup's thread does too).
     expect(source).toContain("messages: repliesOf(root.id),");
