@@ -91,7 +91,6 @@
   "conversation_new_messages": "{count} 条新消息",
   "conversation_back_to_bottom": "回到底部",
   "conversation_message_navigation": "消息导航",
-  "conversation_message_actions": "消息操作",
   "conversation_your_messages": "我发送的消息",
   "conversation_loading_your_messages": "正在加载我发送的消息…",
   "conversation_load_older": "加载更早消息",
@@ -198,5 +197,8 @@
   "files_download": "下载",
   "files_locate_message": "定位到消息",
   "files_loading": "加载中…",
-  "files_load_failed": "文件加载失败"
+  "files_load_failed": "文件加载失败",
+  "channel_agent_subscription_label": "接收普通频道消息",
+  "channel_agent_subscription_accessible": "让 {name} 接收普通频道消息",
+  "channel_agent_subscription_error": "更新 Agent 订阅失败，请重试。"
 }

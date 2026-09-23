@@ -740,3 +740,10 @@ agent-context-cache.server.ts` stores the last validated report per Agent with
 - Follow the TanStack guidance listed in the repository-level `AGENTS.md`
   before making changes to routing, data loading, Server Functions, middleware,
   authentication, SSR, or code splitting.
+
+## Agent channel subscriptions
+
+`server/conversations/public-channels.server.ts` owns human-admin-managed Agent ambient
+subscriptions and delivery eligibility. `features/conversations/channels.functions.ts`
+authenticates the browser mutation; `channel-members-dialog.tsx` edits the subscription.
+Legacy Agent mute/unmute changes only the mute preference, never the human subscription.

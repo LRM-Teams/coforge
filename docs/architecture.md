@@ -18,7 +18,7 @@ CoForge 让用户通过 Web 私聊或群聊多个 code agent，同时把 Agent �
 - 云端业务控制面、实时传输面与本地执行面边界清晰；
 - 先以最少服务跑通纵向链路，不提前引入 Kubernetes 或微服务拆分。
 
-首版是消息系统，不是命令或工作流平台。当前垂直切片支持一个 Workspace 内 User↔Agent 的 DirectConversation，以及真人和 Agent 参与的公开频道。频道通知遵循成员 mute 设置与真人个人 mention 规则，Agent 发言不自动唤醒其他 Agent。run、stream event、generic job 和 workflow 暂不进入骨架核心。周报多机采集的窄域 Collect Run（[ADR 0032](adr/0032-weekly-report-collectors-and-collect-run.md)）是 Records 专用例外，不得推广为通用工作流引擎。
+首版是消息系统，不是命令或工作流平台。当前垂直切片支持一个 Workspace 内 User↔Agent 的 DirectConversation，以及真人和 Agent 参与的公开频道。频道普通通知要求人类明确开启 Agent 订阅，并遵循 mute 设置；个人 @mention 定向唤醒。run、stream event、generic job 和 workflow 暂不进入骨架核心。周报多机采集的窄域 Collect Run（[ADR 0032](adr/0032-weekly-report-collectors-and-collect-run.md)）是 Records 专用例外，不得推广为通用工作流引擎。
 
 ## 2. 总体拓扑
 
@@ -1396,10 +1396,9 @@ conversation 行锁排序。Agent 发言（包括 mention）仍不唤醒其他 A
 可按既有 browser push 规则获知并成为 follower。
 
 ConversationMember 的 `channelMuted` 默认 false；Agent 使用自身凭证执行
-`coforge channel mute|unmute --target '#general'`。已加入且未 mute 的 Agent 可以接收
+`coforge channel mute|unmute --target '#general'`。已加入、人类已开启旁听订阅且未 mute 的 Agent 可以接收
 普通真人消息通知；mute 后仅真人明确 `@agent-name` 或已 follow Thread 的普通真人回复穿透。
-Agent 发言及互相 mention
-均不自动唤醒，避免回复循环。mute 不等于 leave，不撤销主动读取历史或发送权限。
+Agent 普通发言不自动唤醒，明确 @Agent 的交接定向唤醒。mute 不等于 leave，不撤销主动读取历史或发送权限。
 
 mute 变更与消息创建使用同一 conversation 行锁串行化，仅影响之后创建消息的通知资格。
 消息事务按当时的成员偏好和 mention 写入 AgentMessageDelivery，重试沿用既有 delivery 身份，
@@ -1852,3 +1851,14 @@ machine-owner 授权模型仍未解决；在形成并批准该安全边界前，
 附件、App Inbox、Reminder 和 held-send 延用对应输出中的可执行操作提示，不重复注入整份手册。
 Manual 的 intent/reason 改为可选；先部署兼容服务端，再升级 Computer/Daemon/CLI。旧 CLI
 携带字段仍可调用新服务端；新 CLI 省略字段调用旧服务端会被拒绝，因此回滚时先回滚客户端。
+
+### Human-managed Agent ambient subscriptions (2026-09-23)
+
+普通父频道消息只投递给 `ConversationMember.agentChannelSubscribed=true` 且未 mute 的 Agent。
+新旧成员默认均不订阅；这是新独立字段，旧 mute 偏好、成员关系、历史和游标均保留。
+频道管理员通过 Members 中的开关管理订阅；服务端在频道锁内验证当前人类权限与目标有效成员关系。
+开启同时解除旧 mute；Agent 的旧 mute/unmute 接口不能修改订阅。DM、明确 @mention、
+指派回执和已关注线程仍使用原有投递路径；关闭旁听不关闭这些显式关注。普通 Task 创建广播也
+遵守该订阅，指派与提及不受影响。旧数据不重放。线程不会因一次回复结束自动取消关注。
+先部署新增默认 false 列，再部署 Web；Daemon 协议不变。回滚 Web 会恢复原来的普通频道广播，
+所以回滚前应明确告知用户；无需删除新列或改写旧 mute 值。

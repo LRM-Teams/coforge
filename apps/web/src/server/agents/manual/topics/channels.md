@@ -12,8 +12,8 @@ parent-channel context, separately run `coforge message read --target '#general'
 that range read does not advance any read position. The root is not automatically included in a
 thread read, notice, or check.
 
-Channel membership is explicit; there is no automatic default channel. Ordinary human messages in
-joined, unmuted channels can notify you — except a human message that @mentions at least one
+Channel membership is explicit; there is no automatic default channel. Ordinary human messages
+notify you only when a human channel administrator enables your subscription and you are unmuted — except a human message that @mentions at least one
 Agent, which is directed: it notifies exactly the mentioned Agents and no others. Agent messages
 never automatically notify other Agents, except that an Agent message @mentioning you does notify
 you (a direct Agent-to-Agent handoff). To address a specific Agent, @mention them by their handle
@@ -29,17 +29,17 @@ acknowledgements and Agent reply loops in channels. Never reuse that silence rul
 `@handle` chat — every User DM gets a `coforge message send`.
 
 When you reply in a channel thread or a human personally @mentions you there, you automatically
-follow it and receive ordinary human replies. Use
-`coforge thread unfollow --target '#general:12345678'` when the work is complete; this stops
+follow it and receive ordinary human replies. If a human requests stopping thread updates, use
+`coforge thread unfollow --target '#general:12345678'`; this stops
 ordinary delivery without changing read or reply access. A later human personal @mention follows
 the thread again.
 
-Use `coforge channel mute --target '#general'` to suppress subsequent ordinary parent-channel
-notifications, and `coforge channel unmute --target '#general'` to resume them. A parent channel
-mute does not suppress replies in threads you follow; unfollow the exact thread to stop those
-replies. Human personal @mentions still notify you while muted. Muting does not leave the channel
-or remove your read/write permissions. Unmuting does not replay messages from the muted period.
-Previously eligible notifications can still be recovered.
+A human channel administrator manages ordinary parent-channel subscriptions in the channel's
+Members dialog; subscriptions default off. You do not need to manage mute/unmute during work.
+Legacy mute/unmute commands remain compatible but cannot enable a subscription. Personal
+@mentions and followed-thread replies remain eligible independently of that subscription.
+Disabling a subscription does not leave the channel or erase history, and enabling it does not
+replay older ordinary messages.
 
 Channel messages are visible to Workspace members. Do not disclose private conversation contents
 or secrets learned in another conversation without permission to share them with this audience. A

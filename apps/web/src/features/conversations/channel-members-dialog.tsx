@@ -19,6 +19,7 @@ import {
   loadPublicChannelMembers,
   removePublicChannelMember,
   setPublicChannelMemberRole,
+  setAgentChannelSubscription,
 } from "./channels.functions";
 
 type ChannelMembersView = Awaited<ReturnType<typeof loadPublicChannelMembers>>;
@@ -110,6 +111,8 @@ export function ChannelMembersDialog({
   const load = useServerFn(loadPublicChannelMembers);
   const addMembers = useServerFn(addPublicChannelMembers);
   const setRole = useServerFn(setPublicChannelMemberRole);
+  const setSubscription = useServerFn(setAgentChannelSubscription);
+  const [subscriptionPending, setSubscriptionPending] = useState(false);
   const removeMember = useServerFn(removePublicChannelMember);
   const leaveChannel = useServerFn(leavePublicChannel);
   const [state, setState] = useState<LoadState>({ status: "loading" });
@@ -235,6 +238,20 @@ export function ChannelMembersDialog({
       );
     } finally {
       setSubmitting(false);
+    }
+  }
+
+  async function submitSubscription(agentId: string, subscribed: boolean) {
+    setSubscriptionPending(true);
+    setError("");
+    try {
+      await setSubscription({ data: { channelId, agentId, subscribed } });
+      const data = await load({ data: { channelId } });
+      setState({ status: "ready", data });
+    } catch {
+      setError(m.channel_agent_subscription_error());
+    } finally {
+      setSubscriptionPending(false);
     }
   }
 
@@ -391,6 +408,22 @@ export function ChannelMembersDialog({
                               </Button>
                             )}
                           </div>
+                          {!commit && (
+                            <Checkbox
+                              size="sm"
+                              label={m.channel_agent_subscription_label()}
+                              aria-label={m.channel_agent_subscription_accessible({
+                                name: agent.displayName,
+                              })}
+                              isSelected={agent.channelSubscribed}
+                              isDisabled={
+                                subscriptionPending || !state.data.channelCapabilities.manage_roles
+                              }
+                              onChange={(subscribed) =>
+                                void submitSubscription(agent.id, subscribed)
+                              }
+                            />
+                          )}
                           {pendingRemoval?.kind === "agent" && pendingRemoval.id === agent.id && (
                             <RemoveConfirm
                               text={m.channel_members_remove_confirm({ name: agent.displayName })}

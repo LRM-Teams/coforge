@@ -190,6 +190,20 @@ export const removePublicChannelMember = createServerFn({ method: "POST" })
     );
   });
 
+export const setAgentChannelSubscription = createServerFn({ method: "POST" })
+  .middleware([workspaceUserMiddleware])
+  .validator(channelInput.extend({ agentId: z.uuid(), subscribed: z.boolean() }))
+  .handler(async ({ data, context }) => {
+    const { channels, workspaceId, userId } = channelScope(context);
+    return channels.setAgentChannelSubscribed(
+      workspaceId,
+      userId,
+      data.channelId,
+      data.agentId,
+      data.subscribed,
+    );
+  });
+
 export const setPublicChannelMuted = createServerFn({ method: "POST" })
   .middleware([workspaceUserMiddleware])
   .validator(channelInput.extend({ muted: z.boolean() }))

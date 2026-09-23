@@ -124,7 +124,7 @@ export type ChannelAuthority = {
  * authority ad hoc.
  */
 export async function resolveChannelAuthority(
-  db: PrismaClient,
+  db: Pick<PrismaClient, "workspaceMembership" | "agent" | "conversationMember">,
   workspaceId: string,
   actor: ChannelActor,
   channel: { id: string; channelName: string | null },

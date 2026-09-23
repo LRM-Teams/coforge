@@ -313,6 +313,39 @@ export class PublicChannels {
     return { muted };
   }
 
+  /** Only human channel administrators may enable ambient Agent attention. */
+  async setAgentChannelSubscribed(
+    workspaceId: string,
+    userId: string,
+    channelId: string,
+    agentId: string,
+    subscribed: boolean,
+  ) {
+    const channel = await this.channel(workspaceId, userId, channelId);
+    if (channel.archivedAt) throw new AppError("CONFLICT");
+    await this.db.$transaction(async (tx) => {
+      await lockConversation(tx, channelId);
+      const authority = await resolveChannelAuthority(tx, workspaceId, { userId }, channel);
+      if (!authority.capabilities.manage_roles) throw new AppError("ACCESS_DENIED");
+      const updated = await tx.conversationMember.updateMany({
+        where: {
+          conversationId: channelId,
+          workspaceId,
+          agentId,
+          ...ACTIVE_MEMBER_WHERE,
+          agent: { workspaceId, ...ACTIVE_AGENT_WHERE, visibility: AGENT_VISIBILITY.PUBLIC },
+        },
+        data: {
+          agentChannelSubscribed: subscribed,
+          ...(subscribed ? { channelMuted: false } : {}),
+        },
+      });
+      if (updated.count !== 1) throw new AppError("NOT_FOUND");
+    });
+    await this.realtime?.memberChanged({ conversationId: channelId, workspaceId });
+    return { subscribed };
+  }
+
   async setAgentThreadFollowed(
     workspaceId: string,
     agentId: string,
@@ -791,6 +824,7 @@ export class PublicChannels {
         where: { conversationId: channelId, ...ACTIVE_MEMBER_WHERE },
         select: {
           channelRole: true,
+          agentChannelSubscribed: true,
           user: {
             select: { id: true, username: true, displayName: true, avatarObjectKey: true },
           },
@@ -892,6 +926,7 @@ export class PublicChannels {
           channelRole: row.channelRole,
           channelAdminBasis: deriveChannelAdminBasis(row.agent!.role, row.channelRole),
           computerId: row.agent!.computerId,
+          channelSubscribed: row.agentChannelSubscribed,
         })),
       candidates: {
         humans: workspaceUsers
@@ -1385,7 +1420,7 @@ export class PublicChannels {
           // Agent delivery.
           //
           // Without an Agent mention the audience depends on what the message *is*: a top-level
-          // message belongs to the channel, so every unmuted Agent member receives it; a reply
+          // message reaches only human-subscribed, unmuted Agent members; a reply
           // belongs to its thread, so it reaches the thread's **followers** — the set the block
           // above enrolls: whoever replies, everyone the reply mentions, and the thread's root
           // author. Reaching the whole channel from inside a thread meant a human replying to one
@@ -1405,7 +1440,7 @@ export class PublicChannels {
                     ...ACTIVE_MEMBER_WHERE,
                     ...(root
                       ? { threadFollows: { some: { rootMessageId: root.id } } }
-                      : { channelMuted: false }),
+                      : { channelMuted: false, agentChannelSubscribed: true }),
                   },
                   select: { agentId: true },
                 });

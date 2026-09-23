@@ -92,7 +92,6 @@
   "conversation_new_messages": "{count} new messages",
   "conversation_back_to_bottom": "Back to bottom",
   "conversation_message_navigation": "Message navigation",
-  "conversation_message_actions": "Message actions",
   "conversation_your_messages": "Your messages",
   "conversation_loading_your_messages": "Loading your messages…",
   "conversation_load_older": "Load older messages",
@@ -208,5 +207,8 @@
   "files_download": "Download",
   "files_locate_message": "View in chat",
   "files_loading": "Loading…",
-  "files_load_failed": "Failed to load files"
+  "files_load_failed": "Failed to load files",
+  "channel_agent_subscription_label": "Listen to ordinary channel messages",
+  "channel_agent_subscription_accessible": "Let {name} listen to ordinary channel messages",
+  "channel_agent_subscription_error": "Could not update the Agent subscription. Try again."
 }

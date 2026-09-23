@@ -736,7 +736,10 @@ export class TaskBoard {
                   // ADR 0044: never deliver a Task to a deleted Agent.
                   ...ACTIVE_MEMBER_WHERE,
                   agent: ACTIVE_AGENT_WHERE,
-                  OR: [{ channelMuted: false }, { agent: { name: { in: names } } }],
+                  OR: [
+                    { channelMuted: false, agentChannelSubscribed: true },
+                    { agent: { name: { in: names } } },
+                  ],
                 }
               : {
                   conversationId: scope.conversationId,

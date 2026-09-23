@@ -685,6 +685,8 @@ model ConversationMember {
   /// thread does not consume unread in the channel's main target (see ADR 0046).
   readThroughSequence      Int               @default(0)
   channelMuted             Boolean           @default(false)
+  /// Human-managed opt-in to ordinary parent-channel Agent attention.
+  agentChannelSubscribed   Boolean           @default(false)
   /// Soft leave marker. Member rows can never be deleted once they own a Message/Task
   /// (onDelete: Restrict), so "left" is represented here instead of by row absence.
   /// Re-joining clears this and keeps the row, so read boundaries and mute preferences survive.

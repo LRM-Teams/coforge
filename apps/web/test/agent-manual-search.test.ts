@@ -150,7 +150,7 @@ test("the tasks topic carries the full task reference removed from the standing 
 });
 
 test("P3 topics hold the how-to moved out of the standing prompt", () => {
-  expect(findManualTopic("channels")?.body).toContain("coforge channel mute --target '#general'");
+  expect(findManualTopic("channels")?.body).toContain("subscriptions default off");
   expect(findManualTopic("reminders")?.body).toContain(
     "A reminder wakes only the Agent that scheduled it.",
   );

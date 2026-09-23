@@ -313,3 +313,7 @@ approves the schema gate (ADR 0009). Tables:
 - `record_notes` — notes tab placeholder
 - `record_comments` — side-panel comments with `authorType`
   `user` | `system` | `assistant` for future AI
+
+`ConversationMember.agentChannelSubscribed` is a human-managed, default-false opt-in to ordinary
+parent-channel Agent attention. It is independent of the legacy `channelMuted` preference; human
+notifications and thread follows keep their existing fields. No message history is rewritten.
