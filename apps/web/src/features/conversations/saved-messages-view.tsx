@@ -23,9 +23,11 @@ import { agentIdFromDirectKey, savedJumpTarget } from "./saved-messages-model";
 /**
  * The Saved view (#127), the detail side of the Chat page's list/detail layout: each bookmarked
  * message is a card with its conversation label, sender, time, and a clamped body excerpt. The
- * whole card jumps back through the existing `#message-<id>` hash anchor; the trailing bookmark
- * unsaves in one click (instantly reversible, so no confirm — the card disappearing is the
- * confirmation, design.md §13).
+ * whole card jumps back to the message's position in its conversation — a thread reply lands on
+ * its root's row and the pane never auto-opens the thread (position-only `?message=` search
+ * param, not the notification deep link's `#message-<id>` hash; see `saved-messages-model`) —
+ * the trailing bookmark unsaves in one click (instantly reversible, so no confirm — the card
+ * disappearing is the confirmation, design.md §13).
  */
 export function SavedMessagesView() {
   const saved = useSavedMessages();
@@ -54,7 +56,7 @@ export function SavedMessagesView() {
       ) : (
         <ol className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-4">
           {entries.map((entry) => {
-            const jump = savedJumpTarget(entry.conversation, entry.message.id);
+            const jump = savedJumpTarget(entry.conversation, entry.message);
             const agentId = agentIdFromDirectKey(entry.conversation.directKey);
             const conversationLabel = entry.conversation.channelName
               ? `#${entry.conversation.channelName}`
@@ -63,9 +65,9 @@ export function SavedMessagesView() {
                 : m.conversation_saved_dm();
             const jumpProps =
               jump.to === "/messages/channels/$channelId"
-                ? { to: jump.to, params: jump.params, hash: jump.hash }
+                ? { to: jump.to, params: jump.params, search: jump.search }
                 : jump.to === "/messages/$agentId"
-                  ? { to: jump.to, params: jump.params, hash: jump.hash }
+                  ? { to: jump.to, params: jump.params, search: jump.search }
                   : { to: jump.to };
             const attachmentName = entry.message.attachments[0]?.fileName;
             return (

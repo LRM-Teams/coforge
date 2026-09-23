@@ -74,7 +74,7 @@ import { m } from "@/paraglide/messages";
 import { getLocale } from "@/paraglide/runtime";
 import { AgentProfilePanel } from "@/features/agents/profile-panel/agent-profile-panel";
 import { resolveVisibleConversationSlot } from "@/features/agents/profile-panel/profile-panel-slot";
-import { useOpenConversationThread } from "./open-conversation-thread";
+import { useConversationPositionJump, useOpenConversationThread } from "./open-conversation-thread";
 import {
   messageIdFromHash,
   resolveConversationThreadRoot,
@@ -385,6 +385,9 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
   const detailVisible = useConversationDetailVisible();
   const { searchThreadRootId, openThread, openThreadFromHash, closeThread } =
     useOpenConversationThread();
+  // The Saved view's `?message=` position jump reads its search state here, next to the
+  // thread's — the wrapper owns the router so `ConversationPane` below stays hook-free.
+  const { jumpMessageId, clearJumpMessage } = useConversationPositionJump();
   const [visited, setVisited] = useState<string[]>([]);
   // Replacing the window with an "around" read leaves the stream with no messages until its answer
   // lands; the stream must show loading, not "empty", while that is happening (stream-state.ts).
@@ -556,6 +559,8 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
       streamRead={windowRead}
       taskReferences={taskNumbers}
       onOpenTask={openTaskReference}
+      jumpMessage={jumpMessageId}
+      onJumpMessageConsumed={clearJumpMessage}
       onLoadMessageAround={onLoadMessageAround}
       onReadLatest={onReadLatest}
       header={header}
@@ -783,6 +788,8 @@ export function ConversationPane({
   plainMentions,
   taskReferences,
   onOpenTask,
+  jumpMessage,
+  onJumpMessageConsumed,
 }: Omit<ConversationProps, "conversation" | "agentStatus"> & {
   conversation: Omit<DirectConversationView, "agent">;
   header?: React.ReactNode;
@@ -804,6 +811,12 @@ export function ConversationPane({
    * them from the conversation's task list. */
   taskReferences?: ReadonlySet<number>;
   onOpenTask?: (number: number) => void;
+  /** The Saved view's position-only jump anchor (`?message=<uuid>`; see
+   * `useConversationPositionJump`). Supplied only by the main pane's wrapper — the router
+   * read lives there so this pane keeps no router hooks. */
+  jumpMessage?: string;
+  /** Called exactly once per consumed jump, to strip the param one-shot like a hash. */
+  onJumpMessageConsumed?: () => void;
 }) {
   const openMode = useConversationOpenMode();
   // The candidate list keeps every member, the viewer included, because it is also what *resolves*
@@ -1355,6 +1368,30 @@ export function ConversationPane({
       .getElementById(`message-${messageId}`)
       ?.scrollIntoView({ block: "center", behavior: "smooth" });
   }
+
+  // The Saved view's `?message=<uuid>` jump (#127 follow-up): position-only by design. The
+  // hash deep-link path above auto-promotes to the thread pane (`openThreadFromHash`), which
+  // a saved card must never trigger — the ruling is "land at the message's row in the
+  // stream, never in the thread". The wrapper owns the router read (this pane stays free of
+  // router hooks so the thread-root tests can render it standalone); this consumes the param
+  // exactly once — load the window around the anchor + scroll through the same `showMessage`
+  // machinery (its pending-ref pass scrolls after the window swap, so an old reply lands
+  // correctly) — and strips the param one-shot, like a hash, so a later sidebar navigation
+  // can't inherit a foreign message id. A notification's hash wins outright: two landing
+  // mechanisms never run together.
+  const attemptedJumpRef = useRef<string | undefined>(undefined);
+  const showMessageRef = useRef(showMessage);
+  showMessageRef.current = showMessage;
+  useEffect(() => {
+    if (!jumpMessage) {
+      attemptedJumpRef.current = undefined;
+      return;
+    }
+    if (attemptedJumpRef.current === jumpMessage) return;
+    attemptedJumpRef.current = jumpMessage;
+    if (!window.location.hash) void showMessageRef.current(jumpMessage);
+    onJumpMessageConsumed?.();
+  }, [jumpMessage, onJumpMessageConsumed]);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
