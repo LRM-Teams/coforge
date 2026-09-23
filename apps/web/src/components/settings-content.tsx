@@ -26,7 +26,6 @@ import { ButtonUtility } from "@/components/base/buttons/button-utility";
 import { Input } from "@/components/base/input/input";
 import { TextArea } from "@/components/base/textarea/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ComboBox } from "@/components/base/select/combobox";
 import { Select } from "@/components/base/select/select";
 import { SelectItem } from "@/components/base/select/select-item";
 import { Toggle } from "@/components/base/toggle/toggle";
@@ -847,19 +846,17 @@ function LanguageRegionSettings({
             label={m.preferences_time_zone()}
             description={m.language_region_time_zone_description()}
           >
-            <ComboBox
+            <Select
               aria-label={m.preferences_time_zone()}
               className="max-w-sm"
-              placeholder={m.preferences_time_zone_search_placeholder()}
-              shortcut={false}
               items={timeZoneOptions}
-              selectedKey={draftTimeZone || "system"}
-              onSelectionChange={(key) => {
+              value={draftTimeZone || "system"}
+              onChange={(key) => {
                 if (key !== null) setDraftTimeZone(key === "system" ? "" : String(key));
               }}
             >
               {(option) => <SelectItem id={option.id} label={option.label} />}
-            </ComboBox>
+            </Select>
           </SettingsField>
           <SettingsField
             label={m.language_region_time_format()}
