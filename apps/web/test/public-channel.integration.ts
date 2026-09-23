@@ -894,6 +894,34 @@ test("a #channel reference is stored as a channel token on every send path, and 
     );
     expect((await repo.resolveAgentMessage(workspace.id, helper.id, human.id)).body).toBe(readable);
 
+    // A quote that spans lines keeps its references, and its mention wakes the Agent as before.
+    const quote = await channels.send({
+      workspaceId: workspace.id,
+      userId: user.id,
+      channelId: general.id,
+      requestId: crypto.randomUUID(),
+      body: "> **Ada** 10:00:\n> @helper see #product\n\nagreed",
+    });
+    expect(quote.body).toBe(
+      `> **Ada** 10:00:\n> <@agent:${helper.id}> see ${productToken}\n\nagreed`,
+    );
+    expect(
+      (await db.agentMessageDelivery.findMany({ where: { messageId: quote.id } })).map(
+        (row) => row.agentId,
+      ),
+    ).toEqual([helper.id]);
+    expect(publishedBody(quote.id)).toBe("> **Ada** 10:00:\n> @helper see #product\n\nagreed");
+
+    // A token the sender typed is stored as its text: only the server writes a stored token.
+    const forged = await channels.send({
+      workspaceId: workspace.id,
+      userId: user.id,
+      channelId: general.id,
+      requestId: crypto.randomUUID(),
+      body: `see <@channel:${crypto.randomUUID()}:evil> and <@task:9>`,
+    });
+    expect(forged.body).toBe("see #evil and task #9");
+
     // An Agent channel message.
     const fromAgent = await sender.executeFromAgent({
       requestId: crypto.randomUUID(),

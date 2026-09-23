@@ -7,6 +7,7 @@ import {
   taskReferenceToken,
   type MentionTarget,
 } from "@lrm/coforge-sdk/internal";
+import { formatSelectionQuote } from "#src/features/conversations/message-quote";
 import { readMessageReferences, type MessageReferenceLookup } from "#src/lib/message-references";
 
 /** What a body could mean, read the way a send reads it. */
@@ -237,6 +238,92 @@ test("a body with no @ or # is returned as written", () => {
     channelNames: [],
   });
   expect(resolveMessageReferences(body, { channel })).toBe(body);
+});
+
+// Container syntax the parser drops from continuation lines: a quote's `>` markers.
+
+const product = channelReferenceToken(PRODUCT.id, "product");
+const random = channelReferenceToken(RANDOM.id, "random");
+const ada = `<@human:${ADA.id}>`;
+const quoted = (body: string) => {
+  const resolution = resolveMentionTargets(messageReferenceCandidates(body).handles, [ADA]);
+  return resolveMessageReferences(body, { mention: resolution.target, channel });
+};
+
+test("references on every line of a multi-line quote resolve", () => {
+  expect(quoted("> quote #product\n> more #random")).toBe(`> quote ${product}\n> more ${random}`);
+  expect(quoted("> @ada line one\n> line two #product")).toBe(
+    `> ${ada} line one\n> line two ${product}`,
+  );
+  expect(messageReferenceCandidates("> @ada line one\n> line two #product").handles).toEqual([
+    "ada",
+  ]);
+});
+
+test("a lazy continuation line of a quote resolves", () => {
+  expect(quoted("> q1\n> q2\n@ada what about #product")).toBe(
+    `> q1\n> q2\n${ada} what about ${product}`,
+  );
+});
+
+test("a nested quote, an indented marker and a quote in a list item resolve", () => {
+  expect(quoted("> > nested #product\n> > more #random")).toBe(
+    `> > nested ${product}\n> > more ${random}`,
+  );
+  expect(quoted("> a\n   >   b #product")).toBe(`> a\n   >   b ${product}`);
+  expect(quoted("- a\n  > q #product\n  > r #random")).toBe(
+    `- a\n  > q ${product}\n  > r ${random}`,
+  );
+});
+
+test("a reply-to-selection quote keeps its references", () => {
+  const body = `${formatSelectionQuote({ author: "Ada", time: "10:00" }, "@ada see #product\nand #random")}\n\nreply #product`;
+  expect(quoted(body)).toBe(
+    `> **Ada** 10:00:\n> ${ada} see ${product}\n> and ${random}\n\nreply ${product}`,
+  );
+});
+
+test("list continuation lines and table cells need no marker handling", () => {
+  expect(quoted("- item #product\n  continued #random")).toBe(
+    `- item ${product}\n  continued ${random}`,
+  );
+  expect(quoted("1. item\n   more #product")).toBe(`1. item\n   more ${product}`);
+  expect(quoted("| a |\n|---|\n| #product |\n| x #random |")).toBe(
+    `| a |\n|---|\n| ${product} |\n| x ${random} |`,
+  );
+});
+
+// Tokens typed into a body: only the server writes a stored token.
+
+test("a channel or task token typed by the sender is stored as its text", () => {
+  const forged = "99999999-9999-4999-8999-999999999999";
+  expect(
+    resolveMessageReferences(`see <@channel:${forged}:evil> and <@task:5>, then #product`, {
+      channel,
+      task: () => true,
+    }),
+  ).toBe(`see #evil and task #5, then ${product}`);
+  // Inside code it is code, and stays as written.
+  expect(resolveMessageReferences(`\`<@channel:${forged}:evil>\``, { channel })).toBe(
+    `\`<@channel:${forged}:evil>\``,
+  );
+});
+
+test("a mention token typed by the sender stays as written and is never read as a handle", () => {
+  // Before this change a typed `<@agent:uuid>` was stored verbatim and stayed inert (no mention
+  // row); it still is, and its `@agent` is not a handle even when a member is called `agent`.
+  const agentNamedAgent = {
+    key: "member-agent",
+    type: "agent" as const,
+    id: HELPER.id,
+    handle: "agent",
+  };
+  const body = `<@agent:${ADA.id}> hi`;
+  expect(messageReferenceCandidates(body).handles).toEqual([]);
+  const resolution = resolveMentionTargets(messageReferenceCandidates(body).handles, [
+    agentNamedAgent,
+  ]);
+  expect(resolveMessageReferences(body, { mention: resolution.target })).toBe(body);
 });
 
 // Mentions (the resolution rules the tokenizer carries over unchanged).

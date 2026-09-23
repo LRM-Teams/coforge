@@ -7,10 +7,15 @@
  *
  * Each prose `text` node is read left to right against one ordered set of alternatives:
  *
- * 1. a mention, `@handle` (`MENTION_PATTERN`);
- * 2. a thread reference, `#name:shortid` (`THREAD_REFERENCE_PATTERN`) — kept as text for now;
- * 3. a task reference, `task #N` (`TASK_REFERENCE_PATTERN`);
- * 4. a channel reference, `#name` (`CHANNEL_REFERENCE_PATTERN`).
+ * 1. a stored token the sender typed (`<@human|agent:uuid>`, `<@task:N>`, `<@channel:uuid:name>`).
+ *    Only the server writes a stored token: a typed task or channel token is stored as its text
+ *    (`task #N`, `#name`), so its label and link are never the sender's to choose. A typed mention
+ *    token stays as written and inert, as it always was (no mention row, no wake), and its
+ *    `@agent` is never read as a handle;
+ * 2. a mention, `@handle` (`MENTION_PATTERN`);
+ * 3. a thread reference, `#name:shortid` (`THREAD_REFERENCE_PATTERN`) — kept as text for now;
+ * 4. a task reference, `task #N` (`TASK_REFERENCE_PATTERN`);
+ * 5. a channel reference, `#name` (`CHANNEL_REFERENCE_PATTERN`).
  *
  * The earliest match wins, and at the same position the earlier alternative wins. A match is
  * consumed whether or not it resolves, which is what gives each reference its precedence: a thread
@@ -28,8 +33,11 @@
 import {
   CHANNEL_NAME_PATTERN,
   CHANNEL_REFERENCE_PATTERN,
+  CHANNEL_REFERENCE_TOKEN_PATTERN,
   MENTION_PATTERN,
+  MENTION_TOKEN_PATTERN,
   TASK_REFERENCE_PATTERN,
+  TASK_REFERENCE_TOKEN_PATTERN,
   THREAD_REFERENCE_PATTERN,
   channelReferenceToken,
   mentionToken,
@@ -40,6 +48,9 @@ import type { Nodes, Text } from "mdast";
 import { escapeLiteralHtml, parseMessageSyntax } from "./message-syntax";
 
 type Reference =
+  /** A stored token already in the body: `text` is what it is stored as instead, `undefined` to
+   * keep it as written. */
+  | { kind: "typed"; text: string | undefined }
   | { kind: "mention"; handle: string }
   | { kind: "thread" }
   | { kind: "task"; number: number }
@@ -47,6 +58,15 @@ type Reference =
 
 /** The alternatives in precedence order. Each reads its own match into a `Reference`. */
 const ALTERNATIVES: readonly { pattern: RegExp; read: (match: RegExpExecArray) => Reference }[] = [
+  { pattern: MENTION_TOKEN_PATTERN, read: () => ({ kind: "typed", text: undefined }) },
+  {
+    pattern: TASK_REFERENCE_TOKEN_PATTERN,
+    read: (match) => ({ kind: "typed", text: `task #${Number(match[1])}` }),
+  },
+  {
+    pattern: CHANNEL_REFERENCE_TOKEN_PATTERN,
+    read: (match) => ({ kind: "typed", text: `#${match[2]!}` }),
+  },
   { pattern: MENTION_PATTERN, read: (match) => ({ kind: "mention", handle: match[1]! }) },
   { pattern: THREAD_REFERENCE_PATTERN, read: () => ({ kind: "thread" }) },
   {
@@ -143,6 +163,8 @@ export function readMessageReferences(body: string): MessageReferences {
 
 function tokenFor(reference: Reference, lookup: MessageReferenceLookup): string | undefined {
   switch (reference.kind) {
+    case "typed":
+      return reference.text;
     case "mention": {
       const target = lookup.mention?.(reference.handle);
       return target && mentionToken(target.type, target.id);
@@ -215,9 +237,13 @@ function proseTextNodes(tree: Nodes): Text[] {
 
 /**
  * Where each character of a text node's value begins in `source`: the character itself, the `\` of
- * an escape, or the `&` of a character reference. Whitespace the parser dropped (a continuation
- * line's indent) belongs to no character. `undefined` when the node has no position or its source
- * cannot be aligned with its value; the node is then left as written.
+ * an escape, or the `&` of a character reference. What the parser dropped belongs to no
+ * character: whitespace (a continuation line's indent, a line's trailing spaces) and, at the start
+ * of a continuation line, container markers — a quote's `>` (nested, indented, inside a list item).
+ * A list item's continuation lines carry only indentation and a table cell never spans lines, so a
+ * quote marker is the only non-whitespace syntax a continuation line drops. `undefined` when the
+ * node has no position or its source cannot be aligned with its value; the node is then left as
+ * written.
  */
 function sourceStarts(source: string, node: Text): number[] | undefined {
   const from = node.position?.start.offset;
@@ -226,8 +252,16 @@ function sourceStarts(source: string, node: Text): number[] | undefined {
   const { value } = node;
   const starts: number[] = [];
   let offset = from;
+  // Inside a continuation line's prefix: after a line ending, before its first content character.
+  let linePrefix = false;
   for (let index = 0; index < value.length;) {
     if (offset >= to) return undefined;
+    const character = source[offset]!;
+    if (linePrefix && (character === ">" || character === " " || character === "\t")) {
+      offset += 1;
+      continue;
+    }
+    linePrefix = false;
     const reference = source[offset] === "&" ? characterReferenceAt(source, offset, to) : undefined;
     // An unknown name (`&nope;`) is not a character reference and stays literal in the value.
     if (reference && !value.startsWith(reference, index)) {
@@ -238,6 +272,7 @@ function sourceStarts(source: string, node: Text): number[] | undefined {
       offset += reference.length;
     } else if (source[offset] === value[index]) {
       starts[index] = offset;
+      linePrefix = character === "\n";
       index += 1;
       offset += 1;
     } else if (source[offset] === "\\" && source[offset + 1] === value[index]) {

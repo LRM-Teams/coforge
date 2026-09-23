@@ -1117,7 +1117,7 @@ export function MessageRow({
                       </time>
                     </p>
                     <p className="line-clamp-2 text-sm leading-5 text-secondary [overflow-wrap:anywhere]">
-                      {message.body}
+                      {messagePlainText(message, channelNames)}
                     </p>
                   </div>
                 </div>
