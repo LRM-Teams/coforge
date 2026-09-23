@@ -32,7 +32,7 @@ const channels = [
   { id: "c2", joined: true, archived: false },
   { id: "c3", joined: true, archived: true },
 ];
-const lists = { channels, agentIds: ["a1"] };
+const lists = { channels, agentIds: ["a1", "a2"], hiddenAgentIds: ["a2"] };
 
 describe("the conversation Chat reopens", () => {
   beforeEach(stubLocalStorage);
@@ -63,6 +63,11 @@ describe("the conversation Chat reopens", () => {
     expect(rememberedConversation("w1")).toEqual({ channelId: "c1" });
   });
 
+  test("is nothing when an older version stored it in another shape", () => {
+    localStorage.setItem("coforge-last-conversation:w1", JSON.stringify({ channelId: "c1" }));
+    expect(rememberedConversation("w1")).toBeUndefined();
+  });
+
   test("is nothing before any conversation was opened or without storage", () => {
     expect(rememberedConversation("w1")).toBeUndefined();
     // A private window or SSR can have no localStorage at all.
@@ -84,12 +89,18 @@ describe("where Chat lands", () => {
     expect(landingConversation({ channelId: "deleted" }, lists)).toEqual({ channelId: "c1" });
     expect(landingConversation({ channelId: "c3" }, lists)).toEqual({ channelId: "c1" });
     expect(landingConversation({ agentId: "removed" }, lists)).toEqual({ channelId: "c1" });
+    // A direct message the viewer closed is out of the list.
+    expect(landingConversation({ agentId: "a2" }, lists)).toEqual({ channelId: "c1" });
     expect(landingConversation(undefined, lists)).toEqual({ channelId: "c1" });
   });
 
   test("is nothing without a remembered conversation or a joined channel", () => {
     expect(
-      landingConversation(undefined, { channels: [channels[0]!, channels[3]!], agentIds: [] }),
+      landingConversation(undefined, {
+        channels: [channels[0]!, channels[3]!],
+        agentIds: [],
+        hiddenAgentIds: [],
+      }),
     ).toBeUndefined();
   });
 });

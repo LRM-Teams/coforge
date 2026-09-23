@@ -64,11 +64,17 @@ export function firstJoinedChannel(channels: readonly ListedChannel[]): string |
 
 /**
  * Where Chat lands: the remembered conversation while it is still listed (an archived or deleted
- * channel, or a removed or closed direct message, is not), else the first joined channel.
+ * channel, a removed Agent, or a direct message the viewer closed is not), else the first joined
+ * channel.
  */
 export function landingConversation(
   remembered: ConversationTarget | undefined,
-  lists: { channels: readonly ListedChannel[]; agentIds: readonly string[] },
+  lists: {
+    channels: readonly ListedChannel[];
+    agentIds: readonly string[];
+    /** Direct messages the viewer closed: out of the list until someone writes in them again. */
+    hiddenAgentIds: readonly string[];
+  },
 ): ConversationTarget | undefined {
   if (remembered && "view" in remembered) return remembered;
   if (remembered && "channelId" in remembered) {
@@ -77,7 +83,12 @@ export function landingConversation(
     );
     if (listed) return remembered;
   }
-  if (remembered && "agentId" in remembered && lists.agentIds.includes(remembered.agentId)) {
+  if (
+    remembered &&
+    "agentId" in remembered &&
+    lists.agentIds.includes(remembered.agentId) &&
+    !lists.hiddenAgentIds.includes(remembered.agentId)
+  ) {
     return remembered;
   }
   const channelId = firstJoinedChannel(lists.channels);

@@ -15,8 +15,8 @@ import {
   useSavedMessages,
 } from "./conversation-navigation";
 import { ConversationRowMenu } from "./conversation-row-menu";
-import { conversationRoute, type ConversationTarget } from "./last-conversation";
 import { directRowPreference } from "./conversation-row-menu-model";
+import { conversationRoute, type ConversationTarget } from "./last-conversation";
 import {
   readCollapsedSections,
   writeCollapsedSections,

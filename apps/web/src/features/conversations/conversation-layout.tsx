@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect } from "react";
 import { getRouteApi, useNavigate, useRouterState } from "@tanstack/react-router";
 import { MessageSquare01 as MessagesSquare } from "@untitledui/icons";
 
@@ -31,23 +31,21 @@ export function EmptyConversation() {
   const workspaceId = useCurrentWorkspaceId();
   const desktop = useBreakpoint("lg");
   const navigate = useNavigate();
-  const navigated = useRef(false);
+  // While any navigation is under way (the landing one included) the pane leaves it alone; once
+  // the router settles back here — say a Chat click interrupted the landing — it lands again.
+  const navigating = useRouterState({ select: (state) => state.status === "pending" });
   useEffect(() => {
-    if (!desktop || navigated.current) return;
+    if (!desktop || navigating) return;
     const target = landingConversation(
       workspaceId ? rememberedConversation(workspaceId) : undefined,
       {
         channels,
-        // A closed direct message is out of the list until someone writes in it again.
-        agentIds: agents
-          .map((agent) => agent.id)
-          .filter((agentId) => !directPreferences.hidden.includes(agentId)),
+        agentIds: agents.map((agent) => agent.id),
+        hiddenAgentIds: directPreferences.hidden,
       },
     );
-    if (!target) return;
-    navigated.current = true;
-    void navigate({ ...conversationRoute(target), replace: true });
-  }, [desktop, workspaceId, channels, agents, directPreferences, navigate]);
+    if (target) void navigate({ ...conversationRoute(target), replace: true });
+  }, [desktop, navigating, workspaceId, channels, agents, directPreferences, navigate]);
 
   // While a channel or direct message is opening, this pane would still ask for the choice just
   // made until the router's pending fallback is due: show the conversation skeleton instead. The
