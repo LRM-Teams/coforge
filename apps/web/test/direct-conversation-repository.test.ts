@@ -1442,6 +1442,152 @@ describe("PrismaDirectConversationRepository", () => {
     ).rejects.toMatchObject({ name: "AgentSendRejectedError", status: 403 });
   });
 
+  test("sendAgentMessage rejoins a soft-left Agent on a DM before sending", async () => {
+    const memberUpdates: { where: unknown; data: unknown }[] = [];
+    const tx = {
+      $queryRaw: async () => [],
+      message: {
+        findFirst: async () => null,
+        create: async ({ data }: { data: { body: string } }) => ({
+          id: "message-rejoined",
+          body: data.body,
+          createdAt: new Date("2026-09-23T10:00:00Z"),
+          sequence: 9,
+          threadRootId: null,
+          mentions: [],
+          deliveries: [],
+        }),
+      },
+      attachment: { findMany: async () => [] },
+      conversationMember: { findMany: async () => [] },
+      threadFollow: { createMany: async () => {} },
+      task: { findMany: async () => [] },
+    };
+    const db = {
+      agent: {
+        findUnique: async () => ({
+          ownerId: "user-1",
+          visibility: "public",
+          deletedAt: null,
+        }),
+      },
+      conversation: {
+        findUnique: async () => ({
+          id: "conversation-1",
+          workspaceId: "workspace-1",
+          channelName: null,
+          members: [
+            {
+              id: "member-agent",
+              agentId: "agent-1",
+              userId: null,
+              leftAt: new Date("2026-09-18T09:32:30Z"),
+              agent: { name: "agent-1", description: "" },
+            },
+            { id: "member-user", agentId: null, userId: "user-1", leftAt: null },
+          ],
+        }),
+      },
+      conversationMember: {
+        update: async ({ where, data }: { where: unknown; data: unknown }) => {
+          memberUpdates.push({ where, data });
+          return {};
+        },
+      },
+      $transaction: async (fn: (client: unknown) => unknown) => fn(tx),
+    } as unknown as PrismaClient;
+
+    const result = await new PrismaDirectConversationRepository(db).sendAgentMessage(
+      "conversation-1",
+      "agent-1",
+      "hello after rejoin",
+    );
+
+    expect(memberUpdates).toEqual([{ where: { id: "member-agent" }, data: { leftAt: null } }]);
+    expect(result).toMatchObject({ id: "message-rejoined", sequence: 9 });
+  });
+
+  test("sendAgentMessage rejects a soft-left Agent on a channel without rejoining", async () => {
+    const memberUpdates: unknown[] = [];
+    const db = {
+      conversation: {
+        findUnique: async () => ({
+          id: "channel-1",
+          workspaceId: "workspace-1",
+          channelName: "team",
+          archivedAt: null,
+          members: [
+            {
+              id: "member-agent",
+              agentId: "agent-1",
+              userId: null,
+              leftAt: new Date("2026-09-18T09:32:30Z"),
+              agent: { name: "agent-1", description: "" },
+            },
+          ],
+        }),
+      },
+      conversationMember: {
+        update: async (input: unknown) => {
+          memberUpdates.push(input);
+          return {};
+        },
+      },
+      $transaction: async () => {
+        throw new Error("transaction must not run");
+      },
+    } as unknown as PrismaClient;
+
+    await expect(
+      new PrismaDirectConversationRepository(db).sendAgentMessage("channel-1", "agent-1", "hello"),
+    ).rejects.toMatchObject({ name: "AgentSendRejectedError", status: 403 });
+    expect(memberUpdates).toEqual([]);
+  });
+
+  test("sendAgentMessage does not rejoin a soft-left DM when the Agent is deleted", async () => {
+    const memberUpdates: unknown[] = [];
+    const db = {
+      agent: {
+        findUnique: async () => ({ deletedAt: new Date("2026-09-18T09:32:30Z") }),
+      },
+      conversation: {
+        findUnique: async () => ({
+          id: "conversation-1",
+          workspaceId: "workspace-1",
+          channelName: null,
+          members: [
+            {
+              id: "member-agent",
+              agentId: "agent-1",
+              userId: null,
+              leftAt: new Date("2026-09-18T09:32:30Z"),
+              agent: { name: "agent-1", description: "" },
+            },
+            { id: "member-user", agentId: null, userId: "user-1", leftAt: null },
+          ],
+        }),
+      },
+      conversationMember: {
+        update: async (input: unknown) => {
+          memberUpdates.push(input);
+          return {};
+        },
+      },
+      $transaction: async () => {
+        throw new Error("transaction must not run");
+      },
+    } as unknown as PrismaClient;
+
+    await expect(
+      new PrismaDirectConversationRepository(db).sendAgentMessage(
+        "conversation-1",
+        "agent-1",
+        "hello",
+      ),
+    ).rejects.toMatchObject({ name: "AgentSendRejectedError", status: 403 });
+    expect(memberUpdates).toEqual([]);
+  });
+
   describe("getOrCreateUserAgent", () => {
     function fixture(options: { visibility: string; ownerId: string; existing?: { id: string } }) {
       const created: unknown[] = [];
