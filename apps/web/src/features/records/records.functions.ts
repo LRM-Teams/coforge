@@ -285,6 +285,23 @@ export const saveWeeklyReportContent = createServerFn({ method: "POST" })
     });
   });
 
+export const updateFormatReportMeta = createServerFn({ method: "POST" })
+  .middleware([workspaceUserMiddleware])
+  .validator(
+    z.object({
+      reportId: z.string().uuid(),
+      title: z.string().trim().min(1),
+    }),
+  )
+  .handler(async ({ data, context: { user, db, workspaceId } }) => {
+    return recordCatalog(db).updateFormatReportMeta({
+      workspaceId,
+      userId: user.id,
+      reportId: data.reportId,
+      title: data.title,
+    });
+  });
+
 export const markWeeklyAssignmentOpened = createServerFn({ method: "POST" })
   .middleware([workspaceUserMiddleware])
   .validator(z.object({ reportId: z.string().uuid() }))

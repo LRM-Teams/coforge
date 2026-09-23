@@ -43,11 +43,13 @@ import {
   saveWeeklyReportContent,
   sendWeeklyReportAssignments,
   setWeeklyReportFavorite,
+  updateFormatReportMeta,
 } from "./records.functions";
 import {
   clearReportContent,
   formatWeeklyReportCompletedAt,
   isAutoSendCancelled,
+  isValidTemplateName,
   isWeekSendDismissed,
   normalizeReportContent,
   reportContentToMarkdown,
@@ -588,6 +590,7 @@ function TemplateReportDetail({
   const toast = useAppToast();
   const setFormatEditing = useFormatEditHint();
   const save = useServerFn(saveWeeklyReportContent);
+  const saveFormatMeta = useServerFn(updateFormatReportMeta);
   const sendAssignments = useServerFn(sendWeeklyReportAssignments);
   const startTeamKeyPoints = useServerFn(startTeamKeyPointExtraction);
   const removeOverview = useServerFn(deleteOverviewReport);
@@ -598,6 +601,7 @@ function TemplateReportDetail({
   const [content, setContent] = useState(() =>
     normalizeLeaderFormatTabs(readReportDraft(report.id) ?? normalizeReportContent(report.content)),
   );
+  const [titleDraft, setTitleDraft] = useState(report.title);
   const [teamKeyPointBusy, setTeamKeyPointBusy] = useState(false);
   const contentRef = useRef(content);
   contentRef.current = content;
@@ -612,6 +616,10 @@ function TemplateReportDetail({
   useEffect(() => {
     setSideOpen(readSidePanelPinned("report", report.id, formatSurface));
   }, [report.id, formatSurface]);
+
+  useEffect(() => {
+    setTitleDraft(report.title);
+  }, [report.id, report.title]);
   const [saving, setSaving] = useState(false);
   const [sending, setSending] = useState(false);
   const [dirty, setDirty] = useState(() => {
@@ -627,7 +635,8 @@ function TemplateReportDetail({
   const [canSendAssignments, setCanSendAssignments] = useState(Boolean(report.canSendAssignments));
   const [sideRefresh, setSideRefresh] = useState(0);
   const sendSchedule = report.sendSchedule;
-  const hasUnsavedEdits = dirty;
+  const metaDirty = !isOverview && titleDraft.trim() !== report.title;
+  const hasUnsavedEdits = dirty || metaDirty;
 
   const sendWindow = useMemo(
     () =>
@@ -714,6 +723,25 @@ function TemplateReportDetail({
   }
 
   async function saveFormatEdits() {
+    if (metaDirty) {
+      const nextTitle = titleDraft.trim();
+      if (!isValidTemplateName(nextTitle)) {
+        toast.error(m.records_format_meta_invalid());
+        return;
+      }
+      setSaving(true);
+      try {
+        await saveFormatMeta({
+          data: {
+            reportId: reportIdRef.current,
+            title: nextTitle,
+          },
+        });
+        await router.invalidate({ sync: true });
+      } finally {
+        setSaving(false);
+      }
+    }
     if (dirty) {
       await persist(contentRef.current, undefined, undefined, { askToSend: true });
     }
@@ -860,9 +888,20 @@ function TemplateReportDetail({
                 {returnTo ? <RecordsKeyPointReturnBack returnTo={returnTo} /> : <BackToRecords />}
                 <WeekBadge week={report.cycle.week} />
               </span>
-              <h1 className="min-w-0 truncate text-base font-semibold text-primary sm:text-lg">
-                {report.title}
-              </h1>
+              {isOverview ? (
+                <h1 className="min-w-0 truncate text-base font-semibold text-primary sm:text-lg">
+                  {report.title}
+                </h1>
+              ) : (
+                <input
+                  type="text"
+                  aria-label={m.records_template_name()}
+                  value={titleDraft}
+                  disabled={saving || sending}
+                  onChange={(event) => setTitleDraft(event.target.value)}
+                  className="min-w-0 flex-1 truncate bg-transparent text-base font-semibold text-primary outline-none placeholder:text-tertiary focus-visible:outline-none disabled:opacity-60 sm:text-lg"
+                />
+              )}
               <div className="ml-auto flex shrink-0 items-center gap-1">
                 {isOverview ? null : (
                   <>
