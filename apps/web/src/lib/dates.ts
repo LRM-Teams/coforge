@@ -25,6 +25,20 @@ export function formatDateForDisplay(
   }).format(new Date(value));
 }
 
+/** The calendar day only (for example "Jul 23, 2026" / "2026年7月23日"), no time of day. */
+export function formatCalendarDate(
+  value: Date | string,
+  timeZone: string | null | undefined,
+  locale = typeof navigator === "undefined" ? "en-US" : navigator.language,
+) {
+  const browserTimeZone =
+    typeof Intl !== "undefined" ? Intl.DateTimeFormat().resolvedOptions().timeZone : undefined;
+  return new Intl.DateTimeFormat(locale, {
+    dateStyle: "medium",
+    timeZone: resolveTimeZone(timeZone, browserTimeZone),
+  }).format(new Date(value));
+}
+
 /** Absolute 24h wall-clock time (`HH:MM:SS`), for contexts that need a fixed
  * timestamp instead of relative text (the Activity timeline's clock column). */
 export function formatClockTime(
