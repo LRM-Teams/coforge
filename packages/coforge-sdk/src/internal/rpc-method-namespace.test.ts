@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { RPC_METHODS } from "./rpc-methods";
+import { LEGACY_RPC_METHOD_NAMES, RPC_METHODS } from "./rpc-methods";
 
 /**
  * Guards the other half of an RPC method name: the namespace before its first colon.
@@ -15,7 +15,9 @@ import { RPC_METHODS } from "./rpc-methods";
  * day the reminder scheduler shipped: the namespace was never listed.
  *
  * The two files below are the deployment's copy of the RPC namespace vocabulary, so this test owns
- * the invariant "every scope the wire uses is enabled everywhere it is deployed".
+ * the invariant "every scope the wire uses is enabled everywhere it is deployed" — including the
+ * pre-convention spellings an installed Computer still sends, because a namespace dropped one
+ * release too early breaks exactly those clients and nothing else.
  */
 const REPO_ROOT = join(import.meta.dir, "../../../..");
 
@@ -49,7 +51,7 @@ export function rpcNamespaces(config: string): string[] {
 function usedNamespaces(): string[] {
   return [
     ...new Set(
-      Object.values(RPC_METHODS).map((method) => {
+      [...Object.values(RPC_METHODS), ...Object.values(LEGACY_RPC_METHOD_NAMES)].map((method) => {
         const colon = method.indexOf(":");
         if (colon <= 0) throw new Error(`method without a namespace: ${method}`);
         return method.slice(0, colon);

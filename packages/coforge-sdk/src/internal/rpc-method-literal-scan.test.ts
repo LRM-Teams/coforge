@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { RPC_METHODS } from "./rpc-methods";
+import { LEGACY_RPC_METHOD_NAMES, RPC_METHODS } from "./rpc-methods";
 
 /**
  * Guards the one-owner rule for the internal RPC method vocabulary: every wire method name lives
@@ -9,7 +9,9 @@ import { RPC_METHODS } from "./rpc-methods";
  * a string literal. Consumer code must import the per-feature `*_METHOD` constant (or `RPC_METHODS`)
  * instead, so a rename touches one place and reviewers can trust a single source of truth.
  */
-const SCANNED_METHODS = Object.values(RPC_METHODS);
+// The accepted pre-convention spellings are part of the same vocabulary: they may live in
+// `rpc-methods.ts` and be read from there, never re-typed at a call site.
+const SCANNED_METHODS = [...Object.values(RPC_METHODS), ...Object.values(LEGACY_RPC_METHOD_NAMES)];
 
 const REPO_ROOT = join(import.meta.dir, "../../../..");
 

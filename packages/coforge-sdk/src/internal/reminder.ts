@@ -1,4 +1,4 @@
-import { RPC_METHODS } from "./rpc-methods";
+import { LEGACY_RPC_METHOD_NAMES, RPC_METHODS } from "./rpc-methods";
 import { create, fromBinary, toBinary } from "@bufbuild/protobuf";
 import {
   AgentReminderOperationRequestSchema,
@@ -13,6 +13,9 @@ import {
 export const AGENT_REMINDER_METHOD = RPC_METHODS.agentReminder;
 export const REMINDER_FIRE_METHOD = RPC_METHODS.reminderFire;
 export const REMINDER_SNAPSHOT_METHOD = RPC_METHODS.reminderSnapshot;
+/** Accepted spellings of the two callbacks above while an installed Computer still sends them. */
+export const LEGACY_REMINDER_FIRE_METHOD = LEGACY_RPC_METHOD_NAMES.reminderFire;
+export const LEGACY_REMINDER_SNAPSHOT_METHOD = LEGACY_RPC_METHOD_NAMES.reminderSnapshot;
 export const REMINDER_SYNC_MESSAGE_TYPE = "coforge.rpc.v1.ReminderSync" as const;
 export const REMINDER_CAPABILITY = "reminder:v1" as const;
 
