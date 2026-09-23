@@ -8,7 +8,7 @@ import {
   type AgentVisibilityViewer,
 } from "#src/server/agents/agent-visibility.server";
 import { workspaceUserAvatarUrl } from "#src/server/db/repositories/user-profile.repositories.server";
-import { MEMBER_PAGE_MAX, NO_COMPUTER } from "#src/features/workspaces/member-directory";
+import { MEMBER_PAGE_MAX } from "#src/features/workspaces/member-directory";
 
 /** The actor's Workspace role; ACCESS_DENIED when the user is not a member. */
 export async function workspaceMemberRole(
@@ -25,12 +25,9 @@ export async function workspaceMemberRole(
 }
 
 export type AgentOwnerFilter = "all" | "mine";
-/** A Computer id, or `NO_COMPUTER` for Agents with no Computer in this Workspace. */
-export type AgentComputerFilter = string;
 
 export type AgentPageInput = {
   owner: AgentOwnerFilter;
-  computer?: AgentComputerFilter;
   query: string;
   cursor?: string;
   limit: number;
@@ -66,42 +63,14 @@ export class WorkspaceMembers {
     return { workspaceId, ...ACTIVE_AGENT_WHERE, ...visibleAgentWhere(viewer) };
   }
 
-  /** Tab totals and the Computer filter's choices; unaffected by any filter or search. */
+  /** Tab totals; unaffected by any filter or search. */
   async summary(workspaceId: string, userId: string) {
     const { role, visibleAgents } = await this.viewer(workspaceId, userId);
-    const [agentCount, peopleCount, computers, withoutComputer] = await Promise.all([
+    const [agentCount, peopleCount] = await Promise.all([
       this.db.agent.count({ where: visibleAgents }),
       this.db.workspaceMembership.count({ where: { workspaceId } }),
-      this.db.computer.findMany({
-        where: {
-          workspaces: { some: { workspaceId } },
-          agents: { some: visibleAgents },
-        },
-        select: { id: true, name: true, displayName: true },
-      }),
-      this.db.agent.count({ where: { AND: [visibleAgents, this.withoutComputer(workspaceId)] } }),
     ]);
-    return {
-      workspaceId,
-      actorRole: role,
-      viewerId: userId,
-      agentCount,
-      peopleCount,
-      computers: computers
-        .map((computer) => ({
-          id: computer.id,
-          name: computer.displayName.trim() || computer.name.trim(),
-        }))
-        .sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id)),
-      hasAgentWithoutComputer: withoutComputer > 0,
-    };
-  }
-
-  /** An Agent's Computer counts only while that Computer is attached to this Workspace. */
-  private withoutComputer(workspaceId: string) {
-    return {
-      OR: [{ computerId: null }, { computer: { workspaces: { none: { workspaceId } } } }],
-    };
+    return { workspaceId, actorRole: role, viewerId: userId, agentCount, peopleCount };
   }
 
   async agentPage(workspaceId: string, userId: string, input: AgentPageInput) {
@@ -113,11 +82,6 @@ export class WorkspaceMembers {
         AND: [
           visibleAgents,
           input.owner === "mine" ? { ownerId: userId } : {},
-          input.computer === undefined
-            ? {}
-            : input.computer === NO_COMPUTER
-              ? this.withoutComputer(workspaceId)
-              : { computerId: input.computer, computer: { workspaces: { some: { workspaceId } } } },
           query
             ? {
                 OR: [

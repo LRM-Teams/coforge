@@ -8,7 +8,7 @@ import {
   ReminderFireResponseSchema,
   ReminderSnapshotRequestSchema,
   ReminderSyncSchema,
-} from "./gen/coforge/rpc/v1/reminder_pb";
+} from "#src/internal/gen/coforge/rpc/v1/reminder_pb";
 
 export const AGENT_REMINDER_METHOD = RPC_METHODS.agentReminder;
 export const REMINDER_FIRE_METHOD = RPC_METHODS.reminderFire;

@@ -8,8 +8,6 @@ import {
 
 export type MemberAgentFilters = {
   owner: "all" | "mine";
-  /** A Computer id, `NO_COMPUTER`, or undefined for every Computer. */
-  computer?: string;
   query: string;
 };
 

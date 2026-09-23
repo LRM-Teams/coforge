@@ -95,7 +95,11 @@ describe("user time zone preferences", () => {
 
     expect(formatCalendarDate(instant, "America/Los_Angeles", "en-US")).toBe("Jul 22, 2026");
     expect(formatCalendarDate(instant, "Asia/Shanghai", "en-US")).toBe("Jul 23, 2026");
-    expect(formatCalendarDate(instant, "Asia/Shanghai", "zh-CN")).toBe("2026年7月23日");
+    expect(formatCalendarDate(instant, "America/Los_Angeles", "zh-CN")).toBe("2026.07.22");
+    expect(formatCalendarDate(instant, "Asia/Shanghai", "zh-CN")).toBe("2026.07.23");
+    expect(formatCalendarDate(new Date("2026-01-05T12:00:00.000Z"), "UTC", "zh-CN")).toBe(
+      "2026.01.05",
+    );
   });
 
   test("saves a 12- or 24-hour time format, or clears it back to the language default", async () => {

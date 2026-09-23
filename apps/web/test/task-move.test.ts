@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { TaskStatus, TaskView } from "@lrm/coforge-sdk/internal";
-import { getTaskMoveCommand } from "#src/features/tasks/task-move";
+import { getTaskMoveCommand, taskStatusOptions } from "#src/features/tasks/task-move";
 
 const task = (status: TaskStatus, owner: TaskView["owner"] = null): TaskView => ({
   messageId: "message-1",
@@ -85,5 +85,45 @@ describe("getTaskMoveCommand", () => {
       status: "todo",
       expectedRevision: 4,
     });
+  });
+});
+
+describe("taskStatusOptions", () => {
+  test("offers the current status first, then the statuses a Task may move to from it", () => {
+    const mine = owner("me");
+    expect(taskStatusOptions(task("todo", mine), "me")).toEqual(["todo", "in_progress", "closed"]);
+    expect(taskStatusOptions(task("in_progress", mine), "me")).toEqual([
+      "in_progress",
+      "in_review",
+      "done",
+      "closed",
+    ]);
+    expect(taskStatusOptions(task("in_review", mine), "me")).toEqual([
+      "in_review",
+      "done",
+      "in_progress",
+      "closed",
+    ]);
+    expect(taskStatusOptions(task("done", mine), "me")).toEqual([
+      "done",
+      "todo",
+      "in_progress",
+      "in_review",
+      "closed",
+    ]);
+    expect(taskStatusOptions(task("closed", mine), "me")).toEqual([
+      "closed",
+      "todo",
+      "in_progress",
+    ]);
+  });
+
+  test("drops moves the viewer cannot make", () => {
+    expect(taskStatusOptions(task("in_review"), "me")).toEqual([
+      "in_review",
+      "in_progress",
+      "closed",
+    ]);
+    expect(taskStatusOptions(task("todo"), null)).toEqual(["todo"]);
   });
 });

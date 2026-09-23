@@ -212,7 +212,27 @@ export type ThreadedConversationProps = Omit<ConversationProps, "conversation" |
   readOnlyNotice?: React.ReactNode;
   emptyState: { title: string; description: string; media: React.ReactNode };
   threadHeaderAction?: (rootMessageId: string) => React.ReactNode;
+  /** `#channel` or the direct conversation's name, shown in the task popup's header. */
+  conversationLabel: string;
+  /** Who the task popup names as assignees and offers to assign. */
+  taskMembers?: readonly Mentionable[];
 };
+
+/** A direct conversation's only assignable member for its Tasks: its Agent. */
+export function directConversationTaskMembers(
+  agent: DirectConversationView["agent"],
+): Mentionable[] {
+  return [
+    {
+      kind: "agent",
+      id: agent.id,
+      handle: agent.name,
+      label: agent.displayName?.trim() || agent.name,
+      description: "",
+      mentionScore: 0,
+    },
+  ];
+}
 
 export function DirectConversationHeader({
   conversation,
@@ -324,6 +344,8 @@ export function DirectConversation(props: ConversationProps) {
   return (
     <ThreadedConversation
       {...props}
+      conversationLabel={conversation.agent.displayName?.trim() || conversation.agent.name}
+      taskMembers={directConversationTaskMembers(conversation.agent)}
       plainMentions={plainMentions}
       header={
         <DirectConversationHeader
@@ -384,6 +406,8 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
     // Held out of `conversationProps` so the thread panes (which spread it) never receive it:
     // only the main pane may advance the conversation-level read cursor.
     onReadLatest,
+    conversationLabel,
+    taskMembers,
     ...conversationProps
   } = props;
   const detailVisible = useConversationDetailVisible();
@@ -460,6 +484,8 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
     openTaskNumber === undefined
       ? undefined
       : props.tasks?.find((task) => task.number === openTaskNumber);
+  const openTaskRoot =
+    openTask && mainMessages.find((message) => message.id === openTask.messageId);
   const taskDialog = openTask ? (
     <TaskDetailDialog
       task={openTask}
@@ -467,6 +493,35 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
       onOpenChange={(next) => {
         if (!next) setOpenTaskNumber(undefined);
       }}
+      conversationLabel={conversationLabel}
+      members={taskMembers}
+      currentMemberId={conversation.senderMemberId || null}
+      thread={
+        openTaskRoot &&
+        ((taskSection) => (
+          <ConversationPane
+            {...conversationProps}
+            taskReferences={taskNumbers}
+            onOpenTask={openTaskReference}
+            onLoadMessageAround={onLoadMessageAround}
+            root={openTaskRoot}
+            rootSlot={taskSection}
+            emptyState={{
+              title: m.tasks_no_replies(),
+              description: "",
+              media: <MessageSquare aria-hidden="true" className="size-6 text-tertiary" />,
+            }}
+            conversation={{
+              ...conversation,
+              messages: repliesOf(openTaskRoot.id),
+              readThroughSequence: threadCursor(openTaskRoot.id),
+            }}
+            onSend={(body, requestId, attachmentIds) =>
+              conversationProps.onSend(body, requestId, attachmentIds, openTaskRoot.id)
+            }
+          />
+        ))
+      }
     />
   ) : null;
   const selected = resolveConversationThreadRoot({
@@ -775,6 +830,7 @@ export function ConversationPane({
   streamRead = "settled",
   onSend,
   root,
+  rootSlot,
   onClose,
   threadEntry,
   threadPreview,
@@ -802,6 +858,9 @@ export function ConversationPane({
   /** Whether this stream's read has completed - see `stream-state.ts`. */
   streamRead?: StreamRead;
   root?: DirectConversationView["messages"][number];
+  /** Shown in place of a thread's header and root row, scrolling with its replies — the task
+   * popup puts the task there. */
+  rootSlot?: React.ReactNode;
   onClose?: () => void;
   threadEntry?: (message: DirectConversationView["messages"][number]) => MessageThreadEntry;
   threadPreview?: (message: DirectConversationView["messages"][number]) => React.ReactNode;
@@ -1421,7 +1480,7 @@ export function ConversationPane({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      {root ? (
+      {rootSlot ? null : root ? (
         <header className="flex h-12 shrink-0 items-center gap-2 border-b border-secondary px-4 md:px-6">
           {/* Borderless utility strip: the -ml-1.5 cancels the button's p-1.5 so the arrow glyph
               itself lands on the pane gutter (docs/design/page-skeleton-and-density.md §8 optical alignment). */}
@@ -1451,7 +1510,8 @@ export function ConversationPane({
           onScroll={trackReadingPosition}
           className="h-full overflow-y-auto pb-6 [scrollbar-width:thin]"
         >
-          {root && (
+          {rootSlot}
+          {root && !rootSlot && (
             <div aria-label={m.conversation_thread_root()} className="mt-4 bg-secondary">
               {/* The root is an ordinary message row so it keeps every message affordance
                   (hover toolbar on wide shells, tap action sheet below `lg`, reactions, action

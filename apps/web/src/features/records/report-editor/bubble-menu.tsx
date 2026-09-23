@@ -48,7 +48,7 @@ import {
   hexToNoteColor,
   noteColorToHex,
   type NoteColor,
-} from "./utils/text-style";
+} from "#src/features/records/report-editor/utils/text-style";
 
 function shouldShowBubbleMenu(editor: Editor): boolean {
   if (!editor.isEditable || editor.isDestroyed) return false;

@@ -42,6 +42,14 @@ type Dependencies = {
   publisher?: Pick<CentrifugoServerApi, "publish">;
 };
 
+const TASK_MEMBER_SELECT = {
+  id: true,
+  userId: true,
+  agentId: true,
+  user: { select: { username: true, displayName: true, avatarObjectKey: true } },
+  agent: { select: { name: true, displayName: true } },
+} satisfies Prisma.ConversationMemberSelect;
+
 const taskSelection = {
   messageId: true,
   conversationId: true,
@@ -56,15 +64,8 @@ const taskSelection = {
   revision: true,
   claimedAt: true,
   ownerMemberId: true,
-  owner: {
-    select: {
-      id: true,
-      userId: true,
-      agentId: true,
-      user: { select: { username: true, displayName: true, avatarObjectKey: true } },
-      agent: { select: { name: true, displayName: true } },
-    },
-  },
+  owner: { select: TASK_MEMBER_SELECT },
+  creator: { select: TASK_MEMBER_SELECT },
   // The backing message's sequence, so realtime signals need no second read.
   message: { select: { sequence: true } },
 } satisfies Prisma.TaskSelect;
@@ -118,6 +119,29 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+function taskMember(
+  workspaceId: string,
+  member: SelectedTask["creator"],
+): NonNullable<TaskView["creator"]> {
+  if (member.agent)
+    return {
+      memberId: member.id,
+      kind: "agent",
+      name: member.agent.displayName || member.agent.name,
+      handle: member.agent.name,
+    };
+  return {
+    memberId: member.id,
+    kind: "user",
+    name: member.user?.displayName || `@${member.user?.username}`,
+    handle: member.user?.username,
+    avatarUrl:
+      member.userId && member.user
+        ? workspaceUserAvatarUrl(workspaceId, member.userId, member.user.avatarObjectKey)
+        : null,
+  };
+}
+
 function view(task: SelectedTask): TaskView {
   const resourceReceipt = task.resourceReceipt;
   return {
@@ -142,27 +166,8 @@ function view(task: SelectedTask): TaskView {
         tracking: String(resourceReceipt.tracking ?? ""),
       },
     }),
-    owner: task.owner
-      ? task.owner.agent
-        ? {
-            memberId: task.owner.id,
-            kind: "agent",
-            name: task.owner.agent.displayName || task.owner.agent.name,
-          }
-        : {
-            memberId: task.owner.id,
-            kind: "user",
-            name: task.owner.user?.displayName || `@${task.owner.user?.username}`,
-            avatarUrl:
-              task.owner.userId && task.owner.user
-                ? workspaceUserAvatarUrl(
-                    task.workspaceId,
-                    task.owner.userId,
-                    task.owner.user.avatarObjectKey,
-                  )
-                : null,
-          }
-      : null,
+    owner: task.owner && taskMember(task.workspaceId, task.owner),
+    creator: taskMember(task.workspaceId, task.creator),
   };
 }
 

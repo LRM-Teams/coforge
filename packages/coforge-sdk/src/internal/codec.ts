@@ -4,7 +4,7 @@ import { assertValidMessageSender, isValidMessageSender } from "./message-sender
 import {
   ComputerRegisterRequestSchema,
   ComputerRegisterResponseSchema,
-} from "./gen/coforge/rpc/v1/computer_pb";
+} from "#src/internal/gen/coforge/rpc/v1/computer_pb";
 import {
   RUNTIME_PROVIDER,
   AGENT_SESSION_INVALIDATE_REASONS,
@@ -21,7 +21,7 @@ import {
   WorkspaceListRequestSchema,
   WorkspaceListResponseSchema,
   ActivitySystemEntrySchema,
-} from "./gen/coforge/rpc/v1/workspace_pb";
+} from "#src/internal/gen/coforge/rpc/v1/workspace_pb";
 import {
   DaemonRuntimeCodeAgentsUpdateRequestSchema,
   DaemonRuntimeProviderModelRefreshRequestSchema,
@@ -34,7 +34,7 @@ import {
   ComputerRestartIntentSchema,
   ComputerUpgradeIntentSchema,
   ComputerUpgradeResultSchema,
-} from "./gen/coforge/rpc/v1/daemon_runtime_pb";
+} from "#src/internal/gen/coforge/rpc/v1/daemon_runtime_pb";
 import {
   AgentSessionReportSchema,
   AgentSessionInvalidateSchema,
@@ -46,7 +46,7 @@ import {
   AgentActivitySchema,
   AgentStatusSchema,
   AgentMessageDeliveryAckSchema,
-} from "./gen/coforge/rpc/v1/workspace_pb";
+} from "#src/internal/gen/coforge/rpc/v1/workspace_pb";
 import type {
   AgentSessionReport,
   AgentSessionInvalidate,

@@ -65,7 +65,7 @@ These rules apply to `src/features/agents/`.
 ## Members page
 
 - Tab counts are directory totals. Directory pages come from server cursor
-  pages that filter by owner, Computer, and search in the database; do not
+  pages that filter by owner and search in the database; do not
   filter loaded pages on the client.
 - Clicking an Agent name opens the same right-hand `AgentProfilePanel` the
   conversation slot uses (`profile`/`agentTab` search params);

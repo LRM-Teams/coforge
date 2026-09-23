@@ -4,6 +4,18 @@ import type { AgentMessageRecord } from "./local-daemon";
 export const TASK_STATUSES = ["todo", "in_progress", "in_review", "done", "closed"] as const;
 export type TaskStatus = (typeof TASK_STATUSES)[number];
 
+/** A conversation member named on a Task: its owner or its creator. */
+export type TaskMember = {
+  memberId: string;
+  kind: "user" | "agent";
+  name: string;
+  /** The username or Agent name; the Agent API's TaskView omits it. */
+  handle?: string;
+  /** Where the browser reads a human's avatar; absent for an Agent or a viewer surface that
+   * carries no avatar (the Agent API's TaskView). */
+  avatarUrl?: string | null;
+};
+
 export type TaskView = {
   messageId: string;
   conversationId: string;
@@ -12,14 +24,9 @@ export type TaskView = {
   description?: string | null;
   status: TaskStatus;
   revision: number;
-  owner: {
-    memberId: string;
-    kind: "user" | "agent";
-    name: string;
-    /** Where the browser reads a human owner's avatar; absent for an Agent owner or a viewer
-     * surface that carries no avatar (the Agent API's TaskView). */
-    avatarUrl?: string | null;
-  } | null;
+  owner: TaskMember | null;
+  /** Who created the Task; the Agent API's TaskView omits it. */
+  creator?: TaskMember;
   channelRef?: string;
   requiresResourceReceipt?: boolean;
   resourceReceiptRecordedAt?: string | null;

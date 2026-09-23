@@ -1,7 +1,10 @@
-import { readFileDeliveryConfig, rememberFileDeliveryConfig } from "./files/file-delivery.server";
-import { readPublicImageDeliveryConfig } from "./files/public-image-delivery.server";
-import { readPublicImageStorageConfig } from "./files/public-image-storage.server";
-import { readWeeklyReportScheduleTickMs } from "./records/weekly-report-schedule-tick.server";
+import {
+  readFileDeliveryConfig,
+  rememberFileDeliveryConfig,
+} from "#src/server/files/file-delivery.server";
+import { readPublicImageDeliveryConfig } from "#src/server/files/public-image-delivery.server";
+import { readPublicImageStorageConfig } from "#src/server/files/public-image-storage.server";
+import { readWeeklyReportScheduleTickMs } from "#src/server/records/weekly-report-schedule-tick.server";
 
 /**
  * Deployment configuration that must be valid before the server accepts a single request.

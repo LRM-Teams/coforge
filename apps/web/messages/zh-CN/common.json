@@ -21,8 +21,6 @@
   "content_archived_agents": "归档智能体",
   "filters_mine": "我的",
   "filters_all": "全部",
-  "filters_computer": "电脑",
-  "filters_search": "搜索成员",
   "login_title": "登录 CoForge",
   "login_description": "使用邮箱验证码进入 CoForge。",
   "login_action": "继续",

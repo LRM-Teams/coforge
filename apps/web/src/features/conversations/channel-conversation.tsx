@@ -268,6 +268,8 @@ export function ChannelConversation({
   return (
     <ThreadedConversation
       conversation={conversationWithFreshDirectory}
+      conversationLabel={`#${conversation.name}`}
+      taskMembers={conversationWithFreshDirectory.mentionables}
       plainMentions={plainMentions}
       onSend={onSend}
       onLoadOlder={onLoadOlder}

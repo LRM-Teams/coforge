@@ -6,8 +6,8 @@
  * preference across refresh without rewriting someone else's markdown.
  */
 
-import type { MermaidViewMode } from "./extensions/code-block-fence";
-import { normalizeMermaidView } from "./extensions/code-block-fence";
+import type { MermaidViewMode } from "#src/features/records/report-editor/extensions/code-block-fence";
+import { normalizeMermaidView } from "#src/features/records/report-editor/extensions/code-block-fence";
 
 const STORAGE_PREFIX = "coforge:mermaid-view:v1:";
 

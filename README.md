@@ -53,6 +53,7 @@ The architecture invariants every change must respect are in
 | [packages/daemon/README.md](packages/daemon/README.md) | `coforge-daemon` package |
 | [packages/agent/README.md](packages/agent/README.md) | Built-in Pi-based Agent runtime |
 | [packages/coforge/README.md](packages/coforge/README.md) | Agent-facing `coforge` CLI |
+| [docs/agent-cli/](docs/agent-cli/README.md) | `coforge` Agent CLI command reference |
 | [packages/coforge-sdk/README.md](packages/coforge-sdk/README.md) | Shared contracts and transports |
 | [infra/README.md](infra/README.md) | Local Docker Compose services |
 | [docs/operations/staging/](docs/operations/staging/README.md) | Staging environment runbook |

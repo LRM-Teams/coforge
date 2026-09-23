@@ -7,7 +7,7 @@ import { useBreakpoint } from "#src/hooks/use-breakpoint";
 import {
   Calendar,
   DotsVertical,
-  Eye,
+  Edit01,
   Loading02,
   Monitor01 as Monitor,
   Plus,
@@ -20,7 +20,7 @@ import {
 import { Tab, TabList, TabPanel, Tabs } from "#src/components/application/tabs/tabs";
 import { ButtonGroup, ButtonGroupItem } from "#src/components/base/button-group/button-group";
 import { Dropdown } from "#src/components/base/dropdown/dropdown";
-import { Select } from "#src/components/base/select/select";
+import { Tooltip, TooltipTrigger } from "#src/components/base/tooltip/tooltip";
 import { MobileNavigationButton } from "#src/components/layout/sidebar/mobile-header";
 import { formatCalendarDate } from "#src/lib/dates";
 import { Avatar } from "#src/components/base/avatar/avatar";
@@ -54,14 +54,13 @@ import type {
   MemberDirectorySummary,
   MemberPerson,
 } from "#src/features/workspaces/workspaces.functions";
-import { NO_COMPUTER } from "#src/features/workspaces/member-directory";
 import { memberAgentsQuery, memberPeopleQuery } from "./member-directory-queries";
-import { AgentProfilePanel } from "./profile-panel/agent-profile-panel";
-import { useOpenAgentProfile } from "./profile-panel/open-agent-profile";
+import { AgentProfilePanel } from "#src/features/agents/profile-panel/agent-profile-panel";
+import { useOpenAgentProfile } from "#src/features/agents/profile-panel/open-agent-profile";
 import {
   formatAgentProfileParam,
   type AgentProfileTab,
-} from "./profile-panel/profile-panel-search";
+} from "#src/features/agents/profile-panel/profile-panel-search";
 
 type ComputerOption = {
   id: string;
@@ -89,7 +88,6 @@ export function AgentsContent({
   summary,
   memberType,
   owner,
-  computer,
   onFiltersChange,
   agents,
   computers,
@@ -104,13 +102,7 @@ export function AgentsContent({
   summary: MemberDirectorySummary;
   memberType: MemberTab;
   owner: OwnerFilter;
-  /** A Computer id, `"none"`, or undefined for every Computer. */
-  computer?: string;
-  onFiltersChange: (filters: {
-    memberType?: MemberTab;
-    owner?: OwnerFilter;
-    computer?: string | undefined;
-  }) => void;
+  onFiltersChange: (filters: { memberType?: MemberTab; owner?: OwnerFilter }) => void;
   agents: AgentView[];
   computers: ComputerOption[];
   profileAgentId?: string;
@@ -146,19 +138,11 @@ export function AgentsContent({
   const onAgentTab = memberType === "agent";
   const tabTotal = onAgentTab ? summary.agentCount : summary.peopleCount;
   const ownedAgents = new Map(agents.map((agent) => [agent.id, agent]));
-  const computerOptions = [
-    ...summary.computers.map((option) => ({
-      id: option.id,
-      label: option.name || m.agent_computer_unnamed(),
-    })),
-    ...(summary.hasAgentWithoutComputer
-      ? [{ id: NO_COMPUTER, label: m.member_no_computer() }]
-      : []),
-  ];
-  const filtersActive = onAgentTab && (owner === "mine" || computer !== undefined);
+  const filtersActive = onAgentTab && owner === "mine";
+  const searchLabel = onAgentTab ? m.member_search_agents() : m.member_search_humans();
   // Keep the cards already on screen while a changed filter or search loads its first page.
   const agentPages = useInfiniteQuery({
-    ...memberAgentsQuery(summary.workspaceId, { owner, computer, query }),
+    ...memberAgentsQuery(summary.workspaceId, { owner, query }),
     enabled: onAgentTab,
     placeholderData: keepPreviousData,
   });
@@ -214,7 +198,9 @@ export function AgentsContent({
       <header className="flex shrink-0 flex-wrap items-center gap-x-3 border-b border-secondary px-4 sm:px-6 @2xl/members:grid @2xl/members:h-12 @2xl/members:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)]">
         <div className="flex h-12 min-w-0 flex-1 items-center gap-3">
           <MobileNavigationButton />
-          <h1 className="truncate text-lg font-semibold text-primary">{m.navigation_agents()}</h1>
+          <h1 className="truncate text-lg font-semibold text-primary">
+            {m.member_directory_title()}
+          </h1>
         </div>
         <div className="order-last flex basis-full self-end @2xl/members:order-none @2xl/members:basis-auto">
           <TabList
@@ -248,48 +234,27 @@ export function AgentsContent({
       {tabTotal > 0 && (
         <div className="flex shrink-0 flex-wrap items-center gap-3 px-4 pt-5 sm:px-6">
           {onAgentTab && (
-            <>
-              <ButtonGroup
-                aria-label={m.member_owner_filter()}
-                size="sm"
-                selectionMode="single"
-                disallowEmptySelection
-                selectedKeys={[owner]}
-                onSelectionChange={(keys) => {
-                  const [next] = [...keys];
-                  if (next === "all" || next === "mine") onFiltersChange({ owner: next });
-                }}
-              >
-                <ButtonGroupItem id="mine">{m.filters_mine()}</ButtonGroupItem>
-                <ButtonGroupItem id="all">{m.filters_all()}</ButtonGroupItem>
-              </ButtonGroup>
-              <Select
-                aria-label={m.filters_computer()}
-                size="sm"
-                placeholder={m.filters_computer()}
-                selectedKey={computer ?? null}
-                onSelectionChange={(key) =>
-                  onFiltersChange({
-                    computer: key === ALL_COMPUTERS || key === null ? undefined : String(key),
-                  })
-                }
-                className="w-44"
-                popoverClassName="min-w-56"
-              >
-                {[{ id: ALL_COMPUTERS, label: m.member_all_computers() }, ...computerOptions].map(
-                  (option) => (
-                    <Select.Item key={option.id} id={option.id} label={option.label} />
-                  ),
-                )}
-              </Select>
-            </>
+            <ButtonGroup
+              aria-label={m.member_owner_filter()}
+              size="sm"
+              selectionMode="single"
+              disallowEmptySelection
+              selectedKeys={[owner]}
+              onSelectionChange={(keys) => {
+                const [next] = [...keys];
+                if (next === "all" || next === "mine") onFiltersChange({ owner: next });
+              }}
+            >
+              <ButtonGroupItem id="mine">{m.filters_mine()}</ButtonGroupItem>
+              <ButtonGroupItem id="all">{m.filters_all()}</ButtonGroupItem>
+            </ButtonGroup>
           )}
           <Input
             type="search"
             size="sm"
             icon={Search}
-            aria-label={m.filters_search()}
-            placeholder={`${m.filters_search()}...`}
+            aria-label={searchLabel}
+            placeholder={`${searchLabel}...`}
             value={search}
             onChange={setSearch}
             className="w-full sm:w-80"
@@ -332,6 +297,8 @@ export function AgentsContent({
                 createdOn={
                   timeZone || mounted ? formatCalendarDate(member.createdAt, timeZone, locale) : ""
                 }
+                // Editing follows the profile panel's rule: Workspace owner/admin or the creator.
+                canEdit={canInviteMember || member.owner.id === summary.viewerId}
                 onDelete={
                   canDeleteAgent && member.deletable
                     ? () => {
@@ -411,7 +378,7 @@ export function AgentsContent({
                   onPress={() => {
                     setSearch("");
                     setQuery("");
-                    if (filtersActive) onFiltersChange({ owner: "all", computer: undefined });
+                    if (filtersActive) onFiltersChange({ owner: "all" });
                   }}
                 >
                   {filtersActive ? m.member_clear_filters() : m.agent_clear_search()}
@@ -494,9 +461,6 @@ export function AgentsContent({
 type DirectoryAgent = MemberAgent;
 type DirectoryPerson = MemberPerson;
 
-/** The Computer select's "every Computer" entry; never a real Computer id. */
-const ALL_COMPUTERS = "all";
-
 const SEARCH_DEBOUNCE_MS = 250;
 
 const CARD_CLASS =
@@ -530,21 +494,28 @@ function AgentCard({
   ownedAgent,
   selected,
   createdOn,
+  canEdit,
   onDelete,
 }: {
   member: DirectoryAgent;
   ownedAgent?: AgentView;
   selected: boolean;
   createdOn: string;
+  canEdit: boolean;
   /** Present only for a viewer who may delete Agents. */
   onDelete?: () => void;
 }) {
   const navigate = useNavigate();
-  const openProfile = () =>
+  // Editing happens in the profile panel's Profile tab.
+  const openProfileToEdit = () =>
     void navigate({
       to: "/agents",
       resetScroll: false,
-      search: (previous) => ({ ...previous, profile: formatAgentProfileParam(member.id) }),
+      search: (previous) => ({
+        ...previous,
+        profile: formatAgentProfileParam(member.id),
+        agentTab: "profile",
+      }),
     });
 
   return (
@@ -582,21 +553,29 @@ function AgentCard({
               size="sm"
               color="tertiary"
               tooltip={m.member_agent_actions({ name: member.displayName })}
+              // Greyed out, as in the design, when the viewer may neither edit nor delete.
+              isDisabled={!canEdit && !onDelete}
             />
             <Dropdown.Popover placement="bottom end" className="w-44">
               <Dropdown.Menu
                 onAction={(key) => {
-                  if (key === "details") openProfile();
+                  if (key === "edit") openProfileToEdit();
                   if (key === "delete") onDelete?.();
                 }}
               >
-                <Dropdown.Item id="details" icon={Eye} label={m.member_view_details()} />
+                {canEdit ? <Dropdown.Item id="edit" icon={Edit01} label={m.agent_edit()} /> : null}
                 {onDelete ? (
-                  <Dropdown.Item
-                    id="delete"
-                    icon={Trash01}
-                    label={m.agent_profile_action_delete()}
-                  />
+                  // A destructive menu item is red text (docs/design/color-status-typography.md);
+                  // the official item colours its label and icon grey, so both go in as children.
+                  <Dropdown.Item id="delete" textValue={m.member_agent_delete()}>
+                    <span className="flex items-center text-error-primary">
+                      <Trash01
+                        aria-hidden="true"
+                        className="mr-2 size-4 shrink-0 stroke-[2.25px]"
+                      />
+                      {m.member_agent_delete()}
+                    </span>
+                  </Dropdown.Item>
                 ) : null}
               </Dropdown.Menu>
             </Dropdown.Popover>
@@ -636,24 +615,28 @@ function AgentCard({
         {member.description}
       </p>
       <div className="mt-auto flex min-w-0 items-center gap-4 pt-1 text-sm text-tertiary">
-        <span className="flex min-w-0 items-center gap-2">
-          <Avatar
-            size="xs"
-            alt=""
-            src={member.owner.avatarUrl ?? undefined}
-            initials={avatarInitial(member.owner.displayName)}
-            contentClassName={avatarToneClassName(member.owner.displayName)}
-          />
-          <span className="sr-only">{m.member_created_by()}</span>
-          <span className="truncate">{member.owner.displayName}</span>
-        </span>
-        <span className="flex shrink-0 items-center gap-1.5">
-          <Calendar aria-hidden="true" className="size-4 text-fg-quaternary" />
-          <span className="sr-only">{m.member_created_on()}</span>
-          <time className="tabular-nums" dateTime={new Date(member.createdAt).toISOString()}>
-            {createdOn}
-          </time>
-        </span>
+        <Tooltip title={m.member_created_by()} arrow>
+          <TooltipTrigger className="flex min-w-0 cursor-default items-center gap-2 rounded-sm outline-focus-ring focus-visible:outline-2">
+            <Avatar
+              size="xs"
+              alt=""
+              src={member.owner.avatarUrl ?? undefined}
+              initials={avatarInitial(member.owner.displayName)}
+              contentClassName={avatarToneClassName(member.owner.displayName)}
+            />
+            <span className="sr-only">{m.member_created_by()}</span>
+            <span className="truncate">{member.owner.displayName}</span>
+          </TooltipTrigger>
+        </Tooltip>
+        <Tooltip title={m.member_created_on()} arrow>
+          <TooltipTrigger className="flex shrink-0 cursor-default items-center gap-1.5 rounded-sm outline-focus-ring focus-visible:outline-2">
+            <Calendar aria-hidden="true" className="size-4 text-fg-quaternary" />
+            <span className="sr-only">{m.member_created_on()}</span>
+            <time className="tabular-nums" dateTime={new Date(member.createdAt).toISOString()}>
+              {createdOn}
+            </time>
+          </TooltipTrigger>
+        </Tooltip>
       </div>
     </GridListItem>
   );

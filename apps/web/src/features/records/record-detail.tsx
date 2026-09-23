@@ -19,11 +19,11 @@ import { isAppError } from "#src/lib/app-error";
 import { m } from "#src/paraglide/messages";
 import { avatarInitial, avatarToneClassName } from "#src/lib/avatar-tone";
 import { useAppToast } from "#src/components/ui/toast";
-import { ReportSectionEditor } from "./report-editor/report-section-editor";
+import { ReportSectionEditor } from "#src/features/records/report-editor/report-section-editor";
 import { KEY_POINT_EXTRACTION_TAB, KeyPointExtractionPanel } from "./key-point-extraction-panel";
 import { TeamKeyPointSection } from "./team-key-point-section";
 import { ReportTabsEditor } from "./report-tabs-editor";
-import type { UploadResult } from "./report-editor/types";
+import type { UploadResult } from "#src/features/records/report-editor/types";
 import {
   readReportDraft,
   clearReportDraft,
@@ -58,7 +58,7 @@ import {
   withWeekSendDismissed,
   type ReportContent,
 } from "./records-content";
-import { copyText } from "./report-editor/lib/clipboard";
+import { copyText } from "#src/features/records/report-editor/lib/clipboard";
 import {
   BackToRecords,
   RecordsKeyPointReturnBack,

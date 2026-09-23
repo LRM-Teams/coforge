@@ -2,7 +2,7 @@ import { type FC, type ReactNode, useEffect, useState } from "react";
 import { User01 } from "@untitledui/icons";
 import { cx } from "#src/utils/cx";
 import { AvatarOnlineIndicator, VerifiedTick } from "./base-components";
-import { AvatarCount } from "./base-components/avatar-count";
+import { AvatarCount } from "#src/components/base/avatar/base-components/avatar-count";
 
 export interface AvatarProps {
     size?: "xs" | "sm" | "md" | "lg" | "xl" | "2xl";

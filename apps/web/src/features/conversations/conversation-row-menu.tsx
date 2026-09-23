@@ -3,7 +3,6 @@ import { useRouter } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { MessageChatSquare, Pin01, XClose } from "@untitledui/icons";
 
-import { Button } from "#src/components/base/buttons/button";
 import { Dropdown } from "#src/components/base/dropdown/dropdown";
 import { useAppToast } from "#src/components/ui/toast";
 import { m } from "#src/paraglide/messages";
@@ -46,22 +45,21 @@ export type ConversationRowMenuTarget =
  * The list item around a conversation row: the row's link is the trigger of a React Aria context
  * menu (`MenuTrigger trigger="contextMenu"`, #122/#126/#128). The framework opens it on right
  * click, long-press on touch and the platform's keyboard/screen-reader shortcuts, and places it
- * at that point; a left click stays an ordinary navigation. Close Chat is a two-step danger action
- * (`docs/design.md` §9): the menu item only opens the confirm, the confirm button is the one
- * solid red.
+ * at that point; a left click stays an ordinary navigation. Close Chat acts at once, without a
+ * confirm: it only hides the chat from the viewer's own list, and a new message from someone else
+ * or opening the chat brings it back.
  */
 export function ConversationRowMenu({
   target,
   children,
 }: {
   target: ConversationRowMenuTarget;
-  /** The row, whose link must be a React Aria pressable (`RowLink`): the trigger attaches to the
+  /** The row, whose link must be a React Aria link (`ConversationRow`): the trigger attaches to the
    * first pressable inside it. */
   children: ReactNode;
 }) {
   const enabled = target.kind === "channel" ? conversationRowMenuEnabled(target) : target.enabled;
   const [open, setOpen] = useState(false);
-  const [confirming, setConfirming] = useState(false);
   const [pending, setPending] = useState(false);
   const router = useRouter();
   const toast = useAppToast();
@@ -87,18 +85,13 @@ export function ConversationRowMenu({
 
   const items = conversationRowMenuItems(target);
 
-  const onOpenChange = (next: boolean) => {
-    setOpen(next);
-    if (!next) setConfirming(false);
-  };
-
   /** Runs one menu mutation, then refetches the loader so the row's order, badge and presence
    * all reflect it (the server's list owns pinned order, forced unread and the hidden filter). */
   async function run(action: () => Promise<unknown>) {
     setPending(true);
     try {
       await action();
-      onOpenChange(false);
+      setOpen(false);
       await router.invalidate({ sync: true });
     } catch (cause) {
       // The menu stays open with its items disabled-then-re-enabled, so the failed action is
@@ -117,7 +110,7 @@ export function ConversationRowMenu({
     } else if (key === "pin") {
       void run(calls.pin);
     } else if (key === "close-chat") {
-      setConfirming(true);
+      void run(calls.hide);
     }
   }
 
@@ -126,55 +119,29 @@ export function ConversationRowMenu({
   return (
     // No native text selection or iOS link callout competing with the menu a long-press opens.
     <li className="py-px select-none [-webkit-touch-callout:none]">
-      <Dropdown.Root trigger="contextMenu" isOpen={open} onOpenChange={onOpenChange}>
+      <Dropdown.Root trigger="contextMenu" isOpen={open} onOpenChange={setOpen}>
         {children}
         <Dropdown.Popover placement="bottom start">
-          {confirming ? (
-            <div
-              role="alertdialog"
-              aria-label={m.conversation_menu_close()}
-              className="flex flex-col gap-3 p-3"
-            >
-              <p className="text-sm text-secondary">{m.conversation_menu_close_description()}</p>
-              <div className="flex justify-end gap-2">
-                <Button
-                  color="secondary"
-                  size="sm"
-                  autoFocus
+          {/* Selecting an item must not close the menu: each mutation keeps it open until it
+              succeeds (`run` closes it), so a failure can be retried in place. */}
+          <Dropdown.Menu
+            aria-label={m.conversation_menu_label()}
+            onAction={handleAction}
+            shouldCloseOnSelect={false}
+          >
+            {items.map((item) => (
+              <Fragment key={item.id}>
+                {item.id === "close-chat" && <Dropdown.Separator />}
+                <Dropdown.Item
+                  id={item.id}
+                  icon={itemIcon(item.id)}
+                  label={itemLabel(item)}
+                  selectionIndicator="none"
                   isDisabled={pending}
-                  onPress={() => setConfirming(false)}
-                  className="min-w-28"
-                >
-                  {m.controls_cancel()}
-                </Button>
-                <Button
-                  color="primary-destructive"
-                  size="sm"
-                  isDisabled={pending}
-                  isLoading={pending}
-                  onPress={() => void run(calls.hide)}
-                  className="min-w-28"
-                >
-                  {m.conversation_menu_confirm_close()}
-                </Button>
-              </div>
-            </div>
-          ) : (
-            <Dropdown.Menu aria-label={m.conversation_menu_label()} onAction={handleAction}>
-              {items.map((item) => (
-                <Fragment key={item.id}>
-                  {item.id === "close-chat" && <Dropdown.Separator />}
-                  <Dropdown.Item
-                    id={item.id}
-                    icon={itemIcon(item.id)}
-                    label={itemLabel(item)}
-                    selectionIndicator="none"
-                    isDisabled={pending}
-                  />
-                </Fragment>
-              ))}
-            </Dropdown.Menu>
-          )}
+                />
+              </Fragment>
+            ))}
+          </Dropdown.Menu>
         </Dropdown.Popover>
       </Dropdown.Root>
     </li>

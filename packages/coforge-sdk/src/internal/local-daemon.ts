@@ -4,11 +4,11 @@ import {
   DaemonHandshakeResponseSchema,
   DaemonCommandRequestSchema,
   DaemonCommandResponseSchema,
-} from "./gen/coforge/rpc/v1/daemon_pb";
+} from "#src/internal/gen/coforge/rpc/v1/daemon_pb";
 import {
   DaemonRuntimeConfigureRequestSchema,
   DaemonRuntimeConfigureResponseSchema,
-} from "./gen/coforge/rpc/v1/daemon_runtime_pb";
+} from "#src/internal/gen/coforge/rpc/v1/daemon_runtime_pb";
 import {
   LocalRpcRequestSchema,
   LocalRpcResponseSchema,
@@ -22,7 +22,7 @@ import {
   UsageScanResponseSchema,
   DaemonHoldRequestSchema,
   DaemonHoldResponseSchema,
-} from "./gen/coforge/rpc/v1/local_rpc_pb";
+} from "#src/internal/gen/coforge/rpc/v1/local_rpc_pb";
 import { assertValidMessageSender, type MessageSenderKind } from "./message-sender";
 
 export const LOCAL_RPC_PROTOCOL_MAJOR = 1 as const;

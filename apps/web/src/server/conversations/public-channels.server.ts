@@ -624,8 +624,11 @@ export class PublicChannels {
       // messages are already-read by definition; a soft-left membership has no badge. Driven
       // from the viewer's own channel memberships so the sequence range is an index condition
       // against `messages(conversationId, threadRootId, sequence)`, never a workspace-wide scan.
-      this.db.$queryRaw<{ conversationId: string; unread: number }[]>`
-        SELECT cm."conversationId" AS "conversationId", COUNT(m."id")::int AS "unread"
+      // `arrivedSinceClosed` counts the unread ones posted after the member closed the chat:
+      // any of them brings a closed chat back to the list.
+      this.db.$queryRaw<{ conversationId: string; unread: number; arrivedSinceClosed: number }[]>`
+        SELECT cm."conversationId" AS "conversationId", COUNT(m."id")::int AS "unread",
+          COUNT(m."id") FILTER (WHERE m."createdAt" > cm."hiddenAt")::int AS "arrivedSinceClosed"
         FROM "conversation_members" cm
         JOIN "conversations" c
           ON c."id" = cm."conversationId"
@@ -647,6 +650,9 @@ export class PublicChannels {
       `,
     ]);
     const unreadByConversation = new Map(unread.map((row) => [row.conversationId, row.unread]));
+    const reopenedByActivity = new Set(
+      unread.filter((row) => row.arrivedSinceClosed > 0).map((row) => row.conversationId),
+    );
     return channels
       .map((channel) => {
         const member = channel.members[0];
@@ -663,8 +669,9 @@ export class PublicChannels {
           muted: member?.channelMuted ?? false,
           unreadCount: member ? (unreadByConversation.get(channel.id) ?? 0) : 0,
           /// A closed chat disappears from this member's list only (see `hiddenAt` in the schema);
-          /// the conversation itself stays readable, including through its own URL.
-          hidden: member?.hiddenAt != null,
+          /// the conversation itself stays readable, including through its own URL. A new message
+          /// from someone else brings it back, and opening it reopens it for good.
+          hidden: member?.hiddenAt != null && !reopenedByActivity.has(channel.id),
           pinned: Boolean(member?.pins.length),
           pinSortOrder: pin ? pin.sortOrder : null,
         };
@@ -1237,6 +1244,8 @@ export class PublicChannels {
       senderMemberId: member?.id ?? "",
       viewerHandle: member?.user?.username,
       muted: member?.channelMuted ?? false,
+      // The viewer closed this chat: opening it is what brings it back to their list.
+      hidden: member?.hiddenAt != null,
       // The viewer's conversation-level read cursor over top-level messages:
       // the client positions the initial view at the first unread message and draws the
       // divider there. Undefined for a non-member (nothing is "unread for them").

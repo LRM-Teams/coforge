@@ -2,8 +2,8 @@ import { constants } from "node:fs";
 import { access, mkdir, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { RUNTIME_PROVIDER, type RuntimeProvider } from "@lrm/coforge-sdk/internal";
-import { WEEKLY_REPORT_SKILL_FILES } from "./skills/weekly-report";
-import { WEEKLY_REPORT_COLLECT_SKILL_FILES } from "./skills/weekly-report-collect";
+import { WEEKLY_REPORT_SKILL_FILES } from "#src/code-agent/skills/weekly-report";
+import { WEEKLY_REPORT_COLLECT_SKILL_FILES } from "#src/code-agent/skills/weekly-report-collect";
 
 export type AssignedSkillPack = "weekly-report" | "weekly-report-collect";
 

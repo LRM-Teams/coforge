@@ -1,6 +1,6 @@
 import { create, toBinary } from "@bufbuild/protobuf";
 import { expect, test } from "bun:test";
-import { AgentStartIntentSchema } from "./gen/coforge/rpc/v1/workspace_pb";
+import { AgentStartIntentSchema } from "#src/internal/gen/coforge/rpc/v1/workspace_pb";
 import { AGENT_START_MESSAGE_TYPE, decodeAgentStartIntent, encodeAgentStartIntent } from "./index";
 
 const base = {

@@ -29,6 +29,8 @@ function fixture(options: { exists?: boolean } = {}) {
     sortOrder: number;
   }[] = [];
   const created: Record<string, unknown>[] = [];
+  /** When the Agent last posted a top-level message in the DM, if ever. */
+  const activity = { lastAgentMessageAt: null as Date | null };
   const db = {
     // `getOrCreateUserAgent` (used by markReadForUser) resolves the Agent first.
     agent: { findFirst: async () => ({ id: AGENT_ID, ownerId: USER_ID, visibility: "public" }) },
@@ -47,7 +49,17 @@ function fixture(options: { exists?: boolean } = {}) {
         // `preferencesForUser` asks twice: the existing DMs, and the closed ones.
         where.hiddenAt
           ? exists && member.hiddenAt !== null
-            ? [{ conversation: { members: [{ agentId: AGENT_ID }] } }]
+            ? [
+                {
+                  hiddenAt: member.hiddenAt,
+                  conversation: {
+                    members: [{ agentId: AGENT_ID }],
+                    messages: activity.lastAgentMessageAt
+                      ? [{ createdAt: activity.lastAgentMessageAt }]
+                      : [],
+                  },
+                },
+              ]
             : []
           : exists
             ? [{ conversation: { members: [{ agentId: AGENT_ID }] } }]
@@ -95,6 +107,7 @@ function fixture(options: { exists?: boolean } = {}) {
     member,
     pins,
     created,
+    activity,
   };
 }
 
@@ -176,4 +189,16 @@ test("preferences report existing DMs, pins in order, and closed DMs", async () 
     pinned: [],
     hidden: [],
   });
+});
+
+test("a closed DM comes back once the Agent posts after it was closed", async () => {
+  const { repository, member, activity } = fixture();
+  await repository.setHiddenForUser(WORKSPACE_ID, USER_ID, AGENT_ID, true);
+
+  // A reply from before the close does not reopen it.
+  activity.lastAgentMessageAt = new Date(member.hiddenAt!.getTime() - 1_000);
+  expect((await repository.preferencesForUser(WORKSPACE_ID, USER_ID)).hidden).toEqual([AGENT_ID]);
+
+  activity.lastAgentMessageAt = new Date(member.hiddenAt!.getTime() + 1_000);
+  expect((await repository.preferencesForUser(WORKSPACE_ID, USER_ID)).hidden).toEqual([]);
 });

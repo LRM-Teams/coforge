@@ -44,12 +44,12 @@ if (Bun.argv[2] === "__agent-cli") {
     process.exit(1);
   }
 } else if (Bun.argv[2] === "__upgrade") {
-  const { runUpgradeCoordinator } = await import("./release/upgrade-coordinator");
+  const { runUpgradeCoordinator } = await import("#src/release/upgrade-coordinator");
   await runUpgradeCoordinator(Bun.argv.slice(3));
 } else if (Bun.argv[2] === "__remote-upgrade") {
   // The operation is built once, here, from arguments alone; nothing downstream reads the
   // environment for its identity.
-  const { parseRemoteUpgradeOperation } = await import("./release/upgrade-operation");
+  const { parseRemoteUpgradeOperation } = await import("#src/release/upgrade-operation");
   const operation = parseRemoteUpgradeOperation(Bun.argv.slice(2));
   const { runRemoteUpgrade } = await import("./cli");
   await runRemoteUpgrade(operation);

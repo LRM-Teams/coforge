@@ -155,7 +155,14 @@ function TaskOverviewLink({
   const actions = (
     <div className="flex shrink-0 items-center">
       {controls.handle}
-      {onCommand && <TaskDetailMenu task={task} onCommand={onCommand} />}
+      {onCommand && (
+        <TaskDetailMenu
+          task={task}
+          onCommand={onCommand}
+          conversationLabel={task.source.label}
+          currentMemberId={task.currentMemberId ?? null}
+        />
+      )}
     </div>
   );
   if (list) {

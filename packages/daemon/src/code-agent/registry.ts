@@ -1,11 +1,11 @@
-import { ClaudeCodeProvider } from "./claude-code/provider";
-import { CodexProvider } from "./codex/provider";
+import { ClaudeCodeProvider } from "#src/code-agent/claude-code/provider";
+import { CodexProvider } from "#src/code-agent/codex/provider";
 import type { CodeAgentProvider } from "./contract";
-import { CursorProvider } from "./cursor/provider";
-import { CoforgeProvider, PiProvider } from "./pi/provider";
-import { KiroProvider } from "./kiro/provider";
-import { GrokProvider } from "./grok/provider";
-import { OpenCodeProvider } from "./opencode/provider";
+import { CursorProvider } from "#src/code-agent/cursor/provider";
+import { CoforgeProvider, PiProvider } from "#src/code-agent/pi/provider";
+import { KiroProvider } from "#src/code-agent/kiro/provider";
+import { GrokProvider } from "#src/code-agent/grok/provider";
+import { OpenCodeProvider } from "#src/code-agent/opencode/provider";
 import { RUNTIME_PROVIDER } from "@lrm/coforge-sdk/internal";
 import type { RuntimeProvider } from "@lrm/coforge-sdk/internal";
 

@@ -117,7 +117,7 @@ describe("WorkspaceMembers", () => {
       take: 25,
     });
     expect(queries.agents).toMatchObject({
-      where: { AND: [{ workspaceId: "workspace-1", deletedAt: null }, {}, {}, {}] },
+      where: { AND: [{ workspaceId: "workspace-1", deletedAt: null }, {}, {}] },
       select: {
         id: true,
         name: true,

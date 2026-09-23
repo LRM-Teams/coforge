@@ -30,6 +30,7 @@ import {
   markPublicChannelThreadRead,
   setPublicChannelThreadFollowed,
   setPublicChannelMuted,
+  setPublicConversationHidden,
   sendPublicChannelMessage,
   toggleChannelMessageReaction,
 } from "#src/features/conversations/channels.functions";
@@ -48,6 +49,7 @@ import {
   persistReadCursor,
 } from "#src/features/conversations/conversation-unread";
 import { useEffect } from "react";
+import { useReopenClosedConversation } from "#src/features/conversations/reopen-closed-conversation";
 import { useQueryClient } from "@tanstack/react-query";
 import { threadFollowingAgentsQueryPrefix } from "#src/features/conversations/conversation-query-keys";
 
@@ -103,6 +105,11 @@ function ChannelPage() {
   // unseen messages unread until the latest is actually viewed: the badge clears immediately
   // and every event it already counted is remembered, but the server-side cursor only
   // advances through `onReadLatest` below.
+  const reopen = useServerFn(setPublicConversationHidden);
+  useReopenClosedConversation(conversation.conversationId, conversation.hidden, () =>
+    reopen({ data: { channelId, hidden: false } }),
+  );
+
   const markSeen = useMarkConversationSeen();
   const advanceReadCursor = useServerFn(markPublicChannelRead);
   const readRequiresScroll = useConversationReadRequiresScroll();
@@ -180,6 +187,7 @@ function ChannelPage() {
         onLayoutChange={changeLayout}
         tasks={taskView.tasks}
         conversationName={`#${conversation.name}`}
+        members={conversation.mentionables}
         currentMemberId={conversation.senderMemberId}
         canMutate={Boolean(conversation.senderMemberId)}
         loading={taskView.loading}

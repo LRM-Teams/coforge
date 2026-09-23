@@ -1,9 +1,9 @@
 import { QueryClient } from "@tanstack/react-query";
 import { createRouter as createTanStackRouter } from "@tanstack/react-router";
 import { setupRouterSsrQueryIntegration } from "@tanstack/react-router-ssr-query";
-import { GlobalError } from "./features/errors/page-load-error";
-import { deLocalizeUrl, localizeUrl } from "./paraglide/runtime";
-import { PENDING_DELAY_MS, PENDING_MIN_MS } from "./lib/pending-policy";
+import { GlobalError } from "#src/features/errors/page-load-error";
+import { deLocalizeUrl, localizeUrl } from "#src/paraglide/runtime";
+import { PENDING_DELAY_MS, PENDING_MIN_MS } from "#src/lib/pending-policy";
 import { routeTree } from "./routeTree.gen";
 
 export function getRouter() {

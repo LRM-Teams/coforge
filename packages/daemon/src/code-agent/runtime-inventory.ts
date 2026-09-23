@@ -7,7 +7,10 @@ import {
 } from "@lrm/coforge-sdk/internal";
 import { agentEnvironment } from "./environment";
 import { JsonlProcess, JsonlRequestError } from "./jsonl-process";
-import { probeClaudeCodeVersion, resolveClaudeCodeExecutable } from "./claude-code/runtime";
+import {
+  probeClaudeCodeVersion,
+  resolveClaudeCodeExecutable,
+} from "#src/code-agent/claude-code/runtime";
 import { COFORGE_DAEMON_VERSION } from "#src/version";
 import { codeAgentExecutableSearchPath } from "#src/platform/code-agent-path";
 import {
@@ -16,13 +19,16 @@ import {
   getAgentDir,
   PI_SDK_VERSION,
 } from "@coforge/agent";
-import { COFORGE_AGENT_RUNTIME_METADATA } from "./pi/metadata";
-import { discoverKiroCatalog } from "./kiro/catalog";
-import { isKiroVersionUnsupported, logKiroVersionUnsupported } from "./kiro/version";
-import { discoverCursorCatalog } from "./cursor/catalog";
-import { isGrokVersionUnsupported, logGrokVersionUnsupported } from "./grok/version";
-import { discoverOpenCodeCatalog } from "./opencode/catalog";
-import { isOpenCodeVersionUnsupported, logOpenCodeVersionUnsupported } from "./opencode/version";
+import { COFORGE_AGENT_RUNTIME_METADATA } from "#src/code-agent/pi/metadata";
+import { discoverKiroCatalog } from "#src/code-agent/kiro/catalog";
+import { isKiroVersionUnsupported, logKiroVersionUnsupported } from "#src/code-agent/kiro/version";
+import { discoverCursorCatalog } from "#src/code-agent/cursor/catalog";
+import { isGrokVersionUnsupported, logGrokVersionUnsupported } from "#src/code-agent/grok/version";
+import { discoverOpenCodeCatalog } from "#src/code-agent/opencode/catalog";
+import {
+  isOpenCodeVersionUnsupported,
+  logOpenCodeVersionUnsupported,
+} from "#src/code-agent/opencode/version";
 import { getLogger } from "@logtape/logtape";
 import type { CodeAgentProbe } from "./contract";
 import { createCodeAgentProvider } from "./registry";

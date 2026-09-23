@@ -13,7 +13,7 @@ import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { acquireProcessLock, isLockContention } from "@lrm/coforge-daemon";
 import { isValidReleaseVersion } from "@lrm/coforge-sdk/internal";
-import { runInstallationSource } from "./release/installation-source";
+import { runInstallationSource } from "#src/release/installation-source";
 
 const CHECKSUM_PATTERN = /^[0-9a-f]{64}$/;
 // Matches the pointer file, a version directory, and a manifest.json platform entry: a bare

@@ -1,6 +1,6 @@
 import { create, toBinary } from "@bufbuild/protobuf";
 import { expect, test } from "bun:test";
-import { AgentActivityProbeSchema } from "./gen/coforge/rpc/v1/workspace_pb";
+import { AgentActivityProbeSchema } from "#src/internal/gen/coforge/rpc/v1/workspace_pb";
 import {
   AGENT_ACTIVITY_PROBE_MESSAGE_TYPE,
   decodeAgentActivityProbe,

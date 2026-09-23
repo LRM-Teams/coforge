@@ -3,7 +3,7 @@ import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "#src/generated/prisma/client";
 import { WorkspaceMembers } from "#src/server/workspaces/members.server";
 
-test("pages the Workspace directory with owner, Computer and search filters", async () => {
+test("pages the Workspace directory with owner and search filters", async () => {
   const connectionString = Bun.env.CHANNEL_TEST_DATABASE_URL;
   if (!connectionString)
     throw new Error("CHANNEL_TEST_DATABASE_URL must point to local PostgreSQL");
@@ -92,8 +92,6 @@ test("pages the Workspace directory with owner, Computer and search filters", as
       viewerId: viewer!.id,
       agentCount: 6,
       peopleCount: 2,
-      computers: [{ id: computer.id, name: "Build Mac" }],
-      hasAgentWithoutComputer: true,
     });
 
     const first = await members.agentPage(workspace.id, viewer!.id, { ...all, limit: 2 });
@@ -113,17 +111,12 @@ test("pages the Workspace directory with owner, Computer and search filters", as
     expect(names(last)).toEqual(["echo", "foxtrot"]);
     expect(last.nextCursor).toBeNull();
 
-    const page = (filters: { owner?: "all" | "mine"; computer?: string; query?: string }) =>
+    const page = (filters: { owner?: "all" | "mine"; query?: string }) =>
       members.agentPage(workspace.id, viewer!.id, { ...all, ...filters, limit: 24 });
     expect(names(await page({ owner: "mine" }))).toEqual(["alpha", "bravo"]);
-    expect(names(await page({ computer: computer.id }))).toEqual(["alpha", "charlie", "delta"]);
-    // A Computer attached only to another Workspace counts as no Computer here.
-    expect(names(await page({ computer: "none" }))).toEqual(["bravo", "echo", "foxtrot"]);
     expect(names(await page({ query: "elsewhere" }))).toEqual([]);
     expect(names(await page({ query: "hidden" }))).toEqual([]);
     expect(names(await page({ query: "secret" }))).toEqual([]);
-    expect(names(await page({ computer: hiddenHost.id }))).toEqual([]);
-    expect(names(await page({ owner: "mine", computer: "none" }))).toEqual(["bravo"]);
     // Search matches the handle, the display name and the Computer name, case-insensitively.
     expect(names(await page({ query: "ARL" }))).toEqual(["charlie"]);
     expect(names(await page({ query: "build mac" }))).toEqual(["alpha", "charlie", "delta"]);

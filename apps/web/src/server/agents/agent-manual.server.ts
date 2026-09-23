@@ -9,13 +9,13 @@ import {
   findManualTopic,
   manualDocVersion,
   MANUAL_INDEX_TOPIC,
-} from "./manual/manual-registry.server";
-import { searchManualTopics } from "./manual/manual-search.server";
+} from "#src/server/agents/manual/manual-registry.server";
+import { searchManualTopics } from "#src/server/agents/manual/manual-search.server";
 import {
   isValidManualTopicSlug,
   validateManualIntentReason,
   validateManualQuery,
-} from "./manual/manual-validation.server";
+} from "#src/server/agents/manual/manual-validation.server";
 
 // The Raft-aligned "browse the index" guidance for a not-found topic/query is a CLI-side
 // `suggestedNextAction` (see `packages/coforge/src/cli-error.ts`'s `MANUAL_NOT_FOUND_NEXT_ACTION`),

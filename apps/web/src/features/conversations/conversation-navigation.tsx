@@ -130,6 +130,7 @@ export function ConversationNavigation({ children }: { children: ReactNode }) {
   }, [router]);
 
   const visibleChannels = useMemo(() => channels.filter((listed) => !listed.archived), [channels]);
+  const hiddenAgentIds = useMemo(() => new Set(directPreferences.hidden), [directPreferences]);
   const unread = useChannelUnread({
     workspaceId,
     userId: viewerId,
@@ -137,6 +138,8 @@ export function ConversationNavigation({ children }: { children: ReactNode }) {
     openConversationId: channel?.channelId,
     // The open DM's own events must not bump its badge: they are being read right now.
     openAgentId: agent?.agentId,
+    hiddenAgentIds,
+    onClosedConversationActivity: () => void router.invalidate(),
   });
   // Every loader refresh carries the server's own persisted counts; local arithmetic
   // restarts from them (sequence boundaries survive, so no event double-counts). Direct
@@ -165,7 +168,18 @@ export function ConversationNavigation({ children }: { children: ReactNode }) {
     () => ({
       entries: savedEntries,
       ids: new Set(savedEntries.map((entry) => entry.message.id)),
-      refresh: async () => setSavedEntries(await reloadSaved()),
+      // A failed re-read must not reject into the caller's save handler: the write has already
+      // succeeded, and the row's catch reports any rejection as "couldn't save" — or, through a
+      // shared loader copy, as "messages could not be loaded" — both wrong about what happened
+      // (#132). Keep the previous list, so the star stays truthful, and let the next toggle or
+      // route invalidation pick the fresh list up.
+      refresh: async () => {
+        try {
+          setSavedEntries(await reloadSaved());
+        } catch (error) {
+          console.error("saved messages refresh failed", error);
+        }
+      },
     }),
     [savedEntries, reloadSaved],
   );
