@@ -9,9 +9,7 @@ import {
   TASK_CHIP_LINK_CLASS,
   type ChipMention,
   mentionHandlesByToken,
-  rehypeChannelReferenceChips,
-  rehypeMentionChips,
-  rehypeTaskReferenceChips,
+  rehypeReferenceChips,
 } from "#src/features/conversations/message-markdown";
 import { escapeLiteralHtml } from "#src/lib/message-syntax";
 
@@ -20,7 +18,7 @@ const OTHER_UUID = "11111111-2222-4333-8444-555555555555";
 const AGENT_TOKEN = `<@agent:${UUID}>`;
 const HUMAN_TOKEN = `<@human:${OTHER_UUID}>`;
 
-/** Runs the chip plugin over a tree shaped like the one `rehype-sanitize` leaves behind. */
+/** Runs the chip pass over a tree shaped like the one `rehype-sanitize` leaves behind. */
 function chipify(
   children: unknown[],
   options: {
@@ -30,10 +28,10 @@ function chipify(
   } = {},
 ) {
   const tree = { type: "root", children } as never;
-  rehypeMentionChips({
-    handles: options.handles ?? new Map(),
+  rehypeReferenceChips({
+    mentions: options.handles ?? new Map(),
     viewerHandle: options.viewerHandle,
-    plain: options.plain,
+    plainMentions: options.plain,
   })(tree);
   return tree as { children: Array<Record<string, unknown>> };
 }
@@ -365,10 +363,10 @@ test("a plain handle of the viewer renders with the self chip class", () => {
   ).toBe(true);
 });
 
-/** Runs the task-reference chip plugin over a tree shaped like the sanitized one. */
+/** Runs the chip pass over a tree shaped like the sanitized one, for a conversation's tasks. */
 function taskChipify(children: unknown[], numbers: ReadonlySet<number> = new Set()) {
   const tree = { type: "root", children } as never;
-  rehypeTaskReferenceChips({ numbers })(tree);
+  rehypeReferenceChips({ mentions: new Map(), taskNumbers: numbers })(tree);
   return tree as { children: Array<Record<string, unknown>> };
 }
 
@@ -401,6 +399,23 @@ test("a task token naming no task of this conversation reads as plain text, with
   expect(tree.children[0]!.children).toEqual([text("see "), text("task #999"), text(".")]);
 });
 
+test("a task token or a plain @handle inside a link is text, never a control inside a link", () => {
+  const link = (value: string) =>
+    paragraph([
+      { type: "element", tagName: "a", properties: { href: "/x" }, children: [text(value)] },
+    ]);
+  const task = taskChipify([link("<@task:68>")], new Set([68]));
+  expect((task.children[0]!.children as Array<Record<string, unknown>>)[0]!.children).toEqual([
+    text("task #68"),
+  ]);
+  const plain = chipify([link("ask @ada")], {
+    plain: new Map([["ada", { handle: "ada", label: "Ada Lovelace" }]]),
+  });
+  expect((plain.children[0]!.children as Array<Record<string, unknown>>)[0]!.children).toEqual([
+    text("ask @ada"),
+  ]);
+});
+
 test("a task token inside a code element is never chipped", () => {
   const tree = taskChipify(
     [
@@ -414,51 +429,12 @@ test("a task token inside a code element is never chipped", () => {
   expect(code.children).toEqual([text("<@task:68>")]);
 });
 
-test("a bare #N that names a task of this conversation becomes a clickable chip", () => {
-  const tree = taskChipify([paragraph([text("就是 #132）。先看 #734")])], new Set([132]));
-  const children = tree.children[0]!.children as Array<Record<string, unknown>>;
-  expect(children[0]).toEqual(text("就是 "));
-  expect(children[1]).toMatchObject({
-    tagName: "span",
-    properties: { title: "task #132", "data-task-reference-number": 132 },
-    children: [text("#132")],
-  });
-  // #734 names no task here (a PR number, say): it stays prose.
-  expect(children[2]).toEqual(text("）。先看 #734"));
-});
-
-test("a bare #N stays prose inside code, a link, or a path", () => {
-  const numbers = new Set([5]);
-  for (const node of [
-    paragraph([{ type: "element", tagName: "code", properties: {}, children: [text("#5")] }]),
-    paragraph([
-      { type: "element", tagName: "a", properties: { href: "#" }, children: [text("#5")] },
-    ]),
-    paragraph([text("see issues/#5 and word#5 and #50 and #5a")]),
-  ]) {
-    const tree = taskChipify([node], numbers);
-    expect(JSON.stringify(tree)).not.toContain("data-task-reference-number");
-  }
-});
-
-test("a #N inside a mention chip's display name is never chipped again", () => {
-  const tree = chipify([paragraph([text(`${AGENT_TOKEN} hi #5`)])], {
-    handles: new Map([[`agent:${UUID}`, { handle: "scout", label: "Scout #5", agentId: UUID }]]),
-  });
-  rehypeTaskReferenceChips({ numbers: new Set([5]) })(tree as never);
-  const [mention, gap, task] = tree.children[0]!.children as Array<Record<string, unknown>>;
-  // The mention keeps its label as plain text; only the prose #5 after it becomes a task chip.
-  expect(mention).toMatchObject({ children: [text("@Scout #5")] });
-  expect(gap).toEqual(text(" hi "));
-  expect(task).toMatchObject({ properties: { "data-task-reference-number": 5 } });
-});
-
 const CHANNEL_ID = "33333333-3333-4333-8333-333333333333";
 const CHANNEL_TOKEN = `<@channel:${CHANNEL_ID}:product>`;
 
 function channelChipify(children: unknown[], currentNames?: ReadonlyMap<string, string>) {
   const tree = { type: "root", children } as never;
-  rehypeChannelReferenceChips({ currentNames })(tree);
+  rehypeReferenceChips({ mentions: new Map(), channelNames: currentNames })(tree);
   return tree as { children: Array<{ children: Array<Record<string, unknown>> }> };
 }
 
@@ -524,14 +500,4 @@ test("a channel token inside code, and a plain #name anywhere, stay as written",
   const [code, prose] = tree.children[0]!.children;
   expect(code!.children).toEqual([text(CHANNEL_TOKEN)]);
   expect(prose).toEqual(text(" and #product"));
-});
-
-test("a channel chip named like a task number is never chipped again as that task", () => {
-  const token = `<@channel:${CHANNEL_ID}:132>`;
-  const tree = channelChipify([paragraph([text(token)])], new Map([[CHANNEL_ID, "132"]]));
-  rehypeTaskReferenceChips({ numbers: new Set([132]) })(tree as never);
-  expect(tree.children[0]!.children[0]).toMatchObject({
-    properties: { "data-channel-id": CHANNEL_ID },
-    children: [text("#132")],
-  });
 });

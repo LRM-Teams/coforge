@@ -10,11 +10,17 @@
  * 1. a mention, `@handle` (`MENTION_PATTERN`);
  * 2. a thread reference, `#name:shortid` (`THREAD_REFERENCE_PATTERN`) — kept as text for now;
  * 3. a task reference, `task #N` (`TASK_REFERENCE_PATTERN`);
- * 4. a channel reference, `#name` (`CHANNEL_REFERENCE_PATTERN`).
+ * 4. a bare `#N` (`BARE_TASK_REFERENCE_PATTERN`): one of the conversation's tasks, otherwise a
+ *    channel of that name;
+ * 5. a channel reference, `#name` (`CHANNEL_REFERENCE_PATTERN`).
  *
  * The earliest match wins, and at the same position the earlier alternative wins. A match is
  * consumed whether or not it resolves, which is what gives each reference its precedence: a thread
  * reference's `#name` is never also a channel, and the `#N` of `task #N` is never also a channel.
+ * A bare `#N` therefore carries its own fall-through: it is read with the whole `#name` run it
+ * starts, and resolves to the task N, else the channel that run names. When the run is longer than
+ * the number (`#132-plan`), a channel with that whole name comes first, so a channel name that
+ * starts with digits still reads whole; failing that, the number is still the task.
  *
  * What resolves becomes its stored token, spliced into the body as written at the node's source
  * offsets (mapped back through the escaping), so every byte outside a replaced reference stays
@@ -30,6 +36,7 @@
  * body with the answers. The token grammar and the readers live in the SDK.
  */
 import {
+  BARE_TASK_REFERENCE_PATTERN,
   CHANNEL_NAME_PATTERN,
   CHANNEL_REFERENCE_PATTERN,
   MENTION_PATTERN,
@@ -49,22 +56,57 @@ type Reference =
   | { kind: "mention"; handle: string }
   | { kind: "thread" }
   | { kind: "task"; number: number }
+  /** A bare `#N`: `name` is the whole `#name` run it starts, lower-cased, and `rest` what that run
+   * holds after the number, as written (empty when the run is just the number). */
+  | { kind: "bareNumber"; number: number; name: string; rest: string }
   | { kind: "channel"; name: string };
 
-/** The alternatives in precedence order. Each reads its own match into a `Reference`. */
-const ALTERNATIVES: readonly { pattern: RegExp; read: (match: RegExpExecArray) => Reference }[] = [
-  { pattern: MENTION_PATTERN, read: (match) => ({ kind: "mention", handle: match[1]! }) },
-  { pattern: THREAD_REFERENCE_PATTERN, read: () => ({ kind: "thread" }) },
+/** One alternative's reading of its match: the reference, and the text it consumes. */
+type Reading = { reference: Reference; text: string };
+
+/** The `#name` run a channel reference reads, anchored where a bare `#N` starts. */
+const CHANNEL_RUN = new RegExp(CHANNEL_REFERENCE_PATTERN.source, "uy");
+
+/** The alternatives in precedence order. Each reads its own match into a `Reading`. */
+const ALTERNATIVES: readonly { pattern: RegExp; read: (match: RegExpExecArray) => Reading }[] = [
+  {
+    pattern: MENTION_PATTERN,
+    read: (match) => ({ reference: { kind: "mention", handle: match[1]! }, text: match[0] }),
+  },
+  {
+    pattern: THREAD_REFERENCE_PATTERN,
+    read: (match) => ({ reference: { kind: "thread" }, text: match[0] }),
+  },
   {
     pattern: TASK_REFERENCE_PATTERN,
-    read: (match) => ({ kind: "task", number: Number(match[1]) }),
+    read: (match) => ({ reference: { kind: "task", number: Number(match[1]) }, text: match[0] }),
   },
+  { pattern: BARE_TASK_REFERENCE_PATTERN, read: readBareNumber },
   {
     pattern: CHANNEL_REFERENCE_PATTERN,
     // Channel names are stored lower-case, so a reference matches regardless of case.
-    read: (match) => ({ kind: "channel", name: match[1]!.toLowerCase() }),
+    read: (match) => ({
+      reference: { kind: "channel", name: match[1]!.toLowerCase() },
+      text: match[0],
+    }),
   },
 ];
+
+/** A bare `#N`, read with the whole `#name` run it starts, so it can fall through to a channel. */
+function readBareNumber(match: RegExpExecArray): Reading {
+  CHANNEL_RUN.lastIndex = match.index;
+  // The run always matches here: a bare `#N` is itself a `#name` run.
+  const run = CHANNEL_RUN.exec(match.input)![0];
+  return {
+    reference: {
+      kind: "bareNumber",
+      number: Number(match[1]),
+      name: run.slice(1).toLowerCase(),
+      rest: run.slice(match[0].length),
+    },
+    text: run,
+  };
+}
 
 /**
  * One private scanner per alternative, created once. `exec` with `lastIndex` is stateful, so the
@@ -94,7 +136,7 @@ const NOT_PROSE = new Set<Nodes["type"]>([
 type MessageReferenceCandidates = {
   /** Every `@handle`, for resolving against the conversation's mention targets. */
   handles: string[];
-  /** Every `task #N` number, for checking against the conversation's tasks. */
+  /** Every `task #N` and bare `#N` number, for checking against the conversation's tasks. */
   taskNumbers: number[];
   /** Every `#name` that could be a channel's name (`CHANNEL_NAME_PATTERN`), lower-cased, for
    * checking against the Workspace's channels. */
@@ -127,7 +169,10 @@ export function readMessageReferences(body: string): MessageReferences {
   for (const { reference } of references) {
     if (reference.kind === "mention") handles.add(reference.handle);
     else if (reference.kind === "task") taskNumbers.add(reference.number);
-    else if (reference.kind === "channel" && CHANNEL_NAME_PATTERN.test(reference.name))
+    else if (reference.kind === "bareNumber") {
+      taskNumbers.add(reference.number);
+      if (CHANNEL_NAME_PATTERN.test(reference.name)) channelNames.add(reference.name);
+    } else if (reference.kind === "channel" && CHANNEL_NAME_PATTERN.test(reference.name))
       channelNames.add(reference.name);
   }
   return {
@@ -161,6 +206,14 @@ function tokenFor(reference: Reference, lookup: MessageReferenceLookup): string 
       return undefined;
     case "task":
       return lookup.task?.(reference.number) ? taskReferenceToken(reference.number) : undefined;
+    case "bareNumber": {
+      const task = lookup.task?.(reference.number);
+      const channel = lookup.channel?.(reference.name);
+      // The task comes first, except against a channel named by a run longer than the number.
+      if (channel && (reference.rest || !task))
+        return channelReferenceToken(channel.id, channel.name);
+      return task ? taskReferenceToken(reference.number) + reference.rest : undefined;
+    }
     case "channel": {
       const channel = lookup.channel?.(reference.name);
       return channel && channelReferenceToken(channel.id, channel.name);
@@ -391,11 +444,8 @@ function matchesIn(text: string): { reference: Reference; index: number; text: s
     }
     if (best === -1) return matches;
     const match = upcoming[best]!;
-    matches.push({
-      reference: ALTERNATIVES[best]!.read(match),
-      index: match.index,
-      text: match[0],
-    });
-    cursor = match.index + match[0].length;
+    const { reference, text: read } = ALTERNATIVES[best]!.read(match);
+    matches.push({ reference, index: match.index, text: read });
+    cursor = match.index + read.length;
   }
 }
