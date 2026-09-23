@@ -2,13 +2,14 @@ import type { TaskCommand, TaskView } from "@lrm/coforge-sdk/internal";
 import { CheckSquare as ListTodo, Lock01 as Lock } from "@untitledui/icons";
 
 import { useState } from "react";
+import { Button as AriaButton } from "react-aria-components";
 
 import { Button } from "#src/components/base/buttons/button";
 import { m } from "#src/paraglide/messages";
 import { ConversationTaskTabs } from "./conversation-task-tabs";
 import { CreateTaskDialog } from "./create-task-dialog";
 import { TaskDetailMenu } from "./task-detail-dialog";
-import { TaskOwner } from "./task-owner";
+import { TASK_TITLE_CLASS, TaskCard } from "./task-card";
 import {
   TaskLayoutToggle,
   TaskWorkflow,
@@ -57,7 +58,10 @@ export function TaskBoard({
 }: TaskBoardProps) {
   const [createOpen, setCreateOpen] = useState(false);
   return (
-    <section aria-label={m.tasks_board()} className="flex min-h-0 flex-1 flex-col bg-primary">
+    <section
+      aria-label={m.tasks_board()}
+      className="flex min-h-0 min-w-0 flex-1 flex-col bg-primary"
+    >
       {header}
       <header className="shrink-0 border-b border-secondary px-4 md:px-6">
         {!header && (
@@ -114,7 +118,7 @@ export function TaskBoard({
             currentMemberId={() => currentMemberId || null}
             onMove={(_task, command) => onCommand(command)}
             renderTask={(task, controls) => (
-              <TaskCard
+              <ConversationTaskCard
                 task={task}
                 own={task.owner?.memberId === currentMemberId}
                 canMutate={canMutate}
@@ -144,7 +148,7 @@ export function TaskBoard({
   );
 }
 
-function TaskCard({
+function ConversationTaskCard({
   task,
   own,
   canMutate,
@@ -170,44 +174,33 @@ function TaskCard({
   const [pending, guard] = useSubmitGuard();
   const available = task.status === "todo" && (!task.owner || own);
   return (
-    <article className="rounded-xl border border-secondary bg-primary p-4 shadow-xs transition-shadow hover:shadow-md">
-      <div className="flex items-start justify-between gap-2">
-        <Button
-          type="button"
-          color="tertiary"
+    <TaskCard
+      task={task}
+      list={list}
+      controls={controls}
+      renderTitle={(title) => (
+        <AriaButton
           onPress={() => void Promise.resolve(onOpen()).catch(() => {})}
-          className="h-auto min-w-0 flex-1 items-start px-0 text-left whitespace-normal hover:bg-transparent"
+          className={TASK_TITLE_CLASS}
         >
-          <span className="line-clamp-3 text-sm leading-snug font-semibold text-primary [overflow-wrap:anywhere]">
-            {task.title}
-          </span>
-        </Button>
-        {canMutate && (
-          <div className="-mt-1 -mr-1.5 flex shrink-0 items-center">
-            {controls.handle}
-            <TaskDetailMenu
-              task={task}
-              onCommand={onCommand}
-              conversationName={conversationName}
-              members={members}
-              currentMemberId={currentMemberId}
-            />
-          </div>
-        )}
-      </div>
-      {task.description && (
-        <p className="mt-2 line-clamp-2 text-sm leading-relaxed text-tertiary [overflow-wrap:anywhere]">
-          {task.description}
-        </p>
+          {title}
+        </AriaButton>
       )}
-      <div className="mt-3 flex flex-wrap gap-1.5">
-        <TaskTag>#{task.number}</TaskTag>
-      </div>
-      <div className="mt-3 flex items-center justify-between gap-3 border-t border-secondary pt-3">
-        <TaskOwner owner={task.owner} showName={list || !canMutate} />
-        {canMutate && (
-          <div className="flex min-w-0 flex-wrap items-center justify-end gap-1">
-            {controls.status}
+      menu={
+        canMutate && (
+          <TaskDetailMenu
+            task={task}
+            moves={controls.moves}
+            onCommand={onCommand}
+            conversationName={conversationName}
+            members={members}
+            currentMemberId={currentMemberId}
+          />
+        )
+      }
+      actions={
+        canMutate && (
+          <div className="flex shrink-0 items-center gap-1">
             {available && (
               <TaskAction
                 label={m.tasks_claim()}
@@ -232,9 +225,9 @@ function TaskCard({
               <Lock aria-label={m.tasks_owned_by_other()} className="size-3.5 text-fg-quaternary" />
             )}
           </div>
-        )}
-      </div>
-    </article>
+        )
+      }
+    />
   );
 
   function runCommand(command: Parameters<TaskBoardProps["onCommand"]>[0]) {
@@ -254,22 +247,13 @@ function TaskAction({
   return (
     <Button
       type="button"
-      color="tertiary"
+      color="secondary"
       size="xs"
-      className="h-6 px-1.5"
       isDisabled={disabled}
       onPress={() => void onClick().catch(() => {})}
     >
       {label}
     </Button>
-  );
-}
-
-export function TaskTag({ children }: { children: React.ReactNode }) {
-  return (
-    <span className="inline-flex max-w-full items-center rounded-md bg-secondary px-2 py-0.5 text-xs font-medium text-secondary">
-      <span className="truncate">{children}</span>
-    </span>
   );
 }
 
