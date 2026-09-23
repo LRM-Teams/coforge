@@ -1,7 +1,7 @@
 /**
  * What a message stream may show right now.
  *
- * `docs/design.md:107` allows an empty state "only once the read has completed and the result really
+ * `docs/design/component-decisions.md:22` allows an empty state "only once the read has completed and the result really
  * is empty". A stream that calls itself empty while a read is still in flight flips between two
  * states in front of the reader - which is what opening a conversation did (#112/#113). The rule
  * lives here, once, so the main stream, a thread pane and a direct conversation all answer it the

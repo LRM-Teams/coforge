@@ -36,7 +36,7 @@ overseas-to-mainland accelerated traffic (`AccO2MIn`).
 
 The existing staging CDN policy revalidates `/latest` and `*.json` on each
 request, while versioned binaries are immutable (see
-`docs/operations/aliyun-oss-cdn.md`, Section 10). Routine publication does not
+`docs/operations/aliyun-oss-cdn/staging-record.md`, Section 10). Routine publication does not
 request the CDN, change CDN configuration, or issue purge requests. Independent
 infrastructure CDN acceptance tooling remains available to test the exact
 consumer URL without cache-busting query parameters from an appropriate network;
@@ -64,7 +64,7 @@ Platform coverage and remaining acceptance gaps are explicit:
 Distribution credentials come from GitHub OIDC federation to the Alibaba Cloud
 RAM role `coforge-release-publisher` (`ALIBABA_CLOUD_ROLE_ARN`/
 `ALIBABA_CLOUD_OIDC_PROVIDER_ARN`, resolved through `@alicloud/credentials`'s
-default chain with V4 request signing; see `infra/staging/README.md` and
+default chain with V4 request signing; see `docs/operations/staging/computer-release-trigger.md` and
 `.github/workflows/release-staging.yml`) - no long-term AccessKey is stored for
 this publisher. Updater commands (`packages/computer/src/updater.ts`,
 `install.sh`, `install.ps1`) were already implemented before this publish

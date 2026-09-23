@@ -34,17 +34,17 @@ The architecture invariants every change must respect are in
 | [apps/web/AGENTS.md](apps/web/AGENTS.md) | Web/backend rules and module map |
 | [packages/computer/AGENTS.md](packages/computer/AGENTS.md) | Computer package rules and module map |
 | [packages/daemon/AGENTS.md](packages/daemon/AGENTS.md) | Daemon package rules and module map |
-| [docs/database-schema.md](docs/database-schema.md) | Database schema and conversation/delivery model |
+| [docs/database-schema/](docs/database-schema/README.md) | Database schema and conversation/delivery model |
 | [docs/reliable-message-delivery.md](docs/reliable-message-delivery.md) | Message delivery guarantees |
-| [docs/observability.md](docs/observability.md) | Agent Activity, status, and observability baseline |
+| [docs/observability/](docs/observability/README.md) | Agent Activity, status, and observability baseline |
 | [docs/local-logging.md](docs/local-logging.md) | Computer/Daemon logging contract |
 | [docs/release/](docs/release/README.md) | Release contract: deployment, Computer distribution, promotion, rollback |
-| [docs/design.md](docs/design.md) | Product UI design guidance |
+| [docs/design/](docs/design/README.md) | Product UI design guidance |
 | [docs/design-tokens.md](docs/design-tokens.md) | Design tokens |
-| [docs/operations/aliyun-oss-cdn.md](docs/operations/aliyun-oss-cdn.md) | OSS/CDN provisioning runbook |
-| [docs/operations/cdn-certificates.md](docs/operations/cdn-certificates.md) | CDN certificate renewal runbook |
+| [docs/operations/aliyun-oss-cdn/](docs/operations/aliyun-oss-cdn/README.md) | OSS/CDN provisioning runbook |
+| [docs/operations/cdn-certificates/](docs/operations/cdn-certificates/README.md) | CDN certificate renewal runbook |
 | [docs/agents/testing.md](docs/agents/testing.md) | Testing guidance for agents |
-| [docs/agents/e2e-testing.md](docs/agents/e2e-testing.md) | Live OpenRouter integration test |
+| [docs/agents/e2e-testing/](docs/agents/e2e-testing/README.md) | Live OpenRouter integration test |
 | [docs/agents/mise-tasks.md](docs/agents/mise-tasks.md) | Mise task policy |
 | [docs/agents/reference-cli-research.md](docs/agents/reference-cli-research.md) | Studying the Raft Computer 1.0.32 reference |
 | [apps/web/README.md](apps/web/README.md) | Web app setup and scripts |
@@ -55,7 +55,7 @@ The architecture invariants every change must respect are in
 | [packages/coforge/README.md](packages/coforge/README.md) | Agent-facing `coforge` CLI |
 | [packages/coforge-sdk/README.md](packages/coforge-sdk/README.md) | Shared contracts and transports |
 | [infra/README.md](infra/README.md) | Local Docker Compose services |
-| [infra/staging/README.md](infra/staging/README.md) | Staging environment |
+| [docs/operations/staging/](docs/operations/staging/README.md) | Staging environment runbook |
 
 Project skills live in `.agents/skills`; `skills-lock.json` pins the upstream ones.
 

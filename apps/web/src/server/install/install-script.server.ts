@@ -104,7 +104,7 @@ function textResponse(body: string): Response {
 function unconfiguredResponse(): Response {
   return new Response(
     "# COFORGE_RELEASE_FEED_URL is not configured for this deployment, so there is no release\n" +
-      "# feed to install from. This is a server misconfiguration - see infra/staging/README.md.\n",
+      "# feed to install from. This is a server misconfiguration - see docs/operations/staging/github-environment.md.\n",
     {
       status: 503,
       headers: {

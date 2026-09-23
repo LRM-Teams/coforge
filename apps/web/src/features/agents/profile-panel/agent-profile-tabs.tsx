@@ -44,7 +44,7 @@ export function AgentProfileTabs({
     <ReorderableTabStrip
       aria-label={m.agent_profile_panel_tabs()}
       // Borderless tab strip: the -ml-3 cancels the first button's px-3 so its icon lands on the
-      // panel gutter (docs/design.md §8 optical alignment).
+      // panel gutter (docs/design/page-skeleton-and-density.md §8 optical alignment).
       className="-ml-3 w-max shrink-0"
       tabs={tabs}
       meta={TABS}

@@ -161,4 +161,4 @@ delivery ledger。若未来故障证据证明需要 durable 接管记录，必�
 
 ## 参考代码与基线
 
-相关现状见 [`docs/database-schema.md`](database-schema.md)、`apps/web/prisma/schema.prisma`、`packages/coforge-sdk/proto/coforge/rpc/v1/workspace.proto`、Web 的 direct-message use case，以及 Daemon 的 `connection`、`daemon-runtime`、`agent-runtime`、`code-agent/contract.ts`。这些代码显示当前链路仍在实现中，不能反向扩大本文已确认范围。
+相关现状见 [`docs/database-schema/`](database-schema/README.md)、`apps/web/prisma/schema.prisma`、`packages/coforge-sdk/proto/coforge/rpc/v1/workspace.proto`、Web 的 direct-message use case，以及 Daemon 的 `connection`、`daemon-runtime`、`agent-runtime`、`code-agent/contract.ts`。这些代码显示当前链路仍在实现中，不能反向扩大本文已确认范围。

@@ -27,7 +27,7 @@ import { agentIdFromDirectKey, savedJumpTarget } from "./saved-messages-model";
  * its root's row and the pane never auto-opens the thread (position-only `?message=` search
  * param, not the notification deep link's `#message-<id>` hash; see `saved-messages-model`) —
  * the trailing bookmark unsaves in one click (instantly reversible, so no confirm — the card
- * disappearing is the confirmation, design.md §13).
+ * disappearing is the confirmation, docs/design/toast-vs-inline.md §13).
  */
 export function SavedMessagesView() {
   const saved = useSavedMessages();

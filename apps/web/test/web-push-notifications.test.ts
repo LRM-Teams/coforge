@@ -271,7 +271,7 @@ describe("WebPushNotifications", () => {
       const logged = error.mock.calls.map((call) => String(call[0])).join("\n");
       expect(logged).toContain("web_push.subscription_removed");
       expect(logged).toContain(first.id);
-      // docs/observability.md: an error-level event must carry `outcome=failed` (#681 review).
+      // docs/observability/structured-logging.md: an error-level event must carry `outcome=failed` (#681 review).
       expect(logged).toContain('"outcome":"failed"');
       // Never the endpoint: it is a capability URL.
       expect(logged).not.toContain(first.endpoint);
