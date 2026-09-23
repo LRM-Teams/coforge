@@ -178,12 +178,16 @@ export class ConversationHistory {
     requestedLimit = 41,
   ) {
     await this.authorize(workspaceId, userId, conversationId);
+    // The anchor is any root message in this conversation. No sender filter: a saved jump (#127)
+    // lands on other members' and Agent messages too, and the viewer's membership — checked just
+    // above — is the whole access decision. (The notification deep link only ever targeted the
+    // viewer's own sends, which is where the old `sender: { userId }` came from; it made every
+    // other-sender anchor a NOT_FOUND and the jump read as a history-load failure.)
     const anchor = await this.db.message.findFirst({
       where: {
         id: messageId,
         conversationId,
         threadRootId: null,
-        sender: { userId },
       },
       select: { sequence: true },
     });
