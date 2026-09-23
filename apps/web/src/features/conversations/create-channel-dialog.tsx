@@ -1,10 +1,11 @@
-import { useEffect, useId, useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { XClose } from "@untitledui/icons";
 import { Heading, Text } from "react-aria-components";
 import { Dialog, Modal, ModalOverlay } from "@/components/application/modals/modal";
 import { Button } from "@/components/base/buttons/button";
 import { ButtonUtility } from "@/components/base/buttons/button-utility";
 import { Checkbox } from "@/components/base/checkbox/checkbox";
+import { Input } from "@/components/base/input/input";
 import { Select } from "@/components/base/select/select";
 import { isAppError } from "@/lib/app-error";
 import { m } from "@/paraglide/messages";
@@ -36,7 +37,6 @@ export function CreateChannelDialog({
     agents: { id: string; displayName: string }[];
   };
 }) {
-  const id = useId();
   const [name, setName] = useState(defaultName);
   const [projectId, setProjectId] = useState("");
   const [selectedUserIds, setSelectedUserIds] = useState<Set<string>>(
@@ -109,24 +109,17 @@ export function CreateChannelDialog({
                 {m.channel_public_description()}
               </Text>
               <form onSubmit={(event) => void submit(event)} className="mt-5 flex flex-col gap-2">
-                <label htmlFor={id} className="text-sm font-medium">
-                  {m.channel_name()}
-                </label>
-                <input
-                  id={id}
+                <Input
+                  label={m.channel_name()}
+                  hint={m.channel_name_hint()}
                   value={name}
-                  onChange={(event) => setName(event.target.value)}
-                  required
+                  onChange={setName}
+                  isRequired
                   maxLength={32}
                   pattern="[a-z0-9][a-z0-9_\-]{0,31}"
                   placeholder="engineering"
-                  disabled={saving}
-                  aria-describedby={`${id}-hint`}
-                  className="h-10 rounded-lg border border-secondary bg-primary px-3 text-sm shadow-xs outline-none placeholder:text-tertiary focus:border-brand focus:ring-1 focus:ring-brand disabled:opacity-50"
+                  isDisabled={saving}
                 />
-                <p id={`${id}-hint`} className="text-xs text-tertiary">
-                  {m.channel_name_hint()}
-                </p>
                 {projects.length > 0 && (
                   <Select
                     aria-label="Project"

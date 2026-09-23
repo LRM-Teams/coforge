@@ -1,8 +1,10 @@
+import { ProgressBar } from "react-aria-components";
 import { Group, Panel, Separator, useDefaultLayout } from "react-resizable-panels";
 import { useStateWithRef } from "@/hooks/use-state-with-ref";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ClientOnly, getRouteApi } from "@tanstack/react-router";
 import {
+  Loading02,
   ArrowDown,
   ArrowLeft,
   ChevronRight,
@@ -18,7 +20,6 @@ import {
 } from "@/features/agents/workspace-agents-realtime";
 import { conversationLayoutStorage } from "@/features/conversations/layout-storage";
 import { streamState, type StreamRead } from "@/features/conversations/stream-state";
-import { LoadingIndicator } from "@/components/ui/loading-indicator";
 import { AgentActivityAvatar } from "@/features/agents/agent-activity-avatar";
 import { agentDisplay } from "@/features/agents/agent-activity-presentation";
 import { Avatar } from "@/components/base/avatar/avatar";
@@ -1351,7 +1352,13 @@ export function ConversationPane({
                 root ? "px-4 py-8 md:px-6" : "px-4 pt-[clamp(2rem,10svh,5rem)] pb-8 md:px-6",
               )}
             >
-              <LoadingIndicator className="size-4" label={m.conversation_loading()} />
+              <ProgressBar
+                isIndeterminate
+                aria-label={m.conversation_loading()}
+                className="inline-flex shrink-0 size-4"
+              >
+                <Loading02 aria-hidden className="size-full motion-safe:animate-spin" />
+              </ProgressBar>
             </div>
           ) : conversation.messages.length === 0 ? (
             <Empty

@@ -14,6 +14,7 @@ import {
 } from "@untitledui/icons";
 
 import { PageHeader } from "@/components/layout/page-header";
+import { Tab, TabList, TabPanel, Tabs } from "@/components/application/tabs/tabs";
 import { Avatar } from "@/components/base/avatar/avatar";
 import { Button } from "@/components/base/buttons/button";
 import { ButtonUtility } from "@/components/base/buttons/button-utility";
@@ -170,7 +171,13 @@ export function RecordsLayout({
           )}
         >
           <PageHeader heading={m.records_title()} />
-          <div className="flex min-h-0 flex-1 flex-col">
+          <Tabs
+            selectedKey={tab}
+            onSelectionChange={(key) => {
+              if (key === "weekly" || key === "notes") onTabChange(key);
+            }}
+            className="min-h-0 flex-1"
+          >
             <div className="space-y-3 px-3 pt-3">
               <Input
                 type="search"
@@ -181,27 +188,17 @@ export function RecordsLayout({
                 onChange={setQuery}
                 placeholder={m.records_search_placeholder()}
               />
-              <div
-                role="group"
-                aria-label={m.records_title()}
-                className="flex gap-4 border-b border-secondary px-1"
-              >
-                <TabButton
-                  active={tab === "weekly"}
-                  icon={<FileText aria-hidden="true" className="size-4" />}
-                  label={m.records_tab_weekly()}
-                  onClick={() => onTabChange("weekly")}
-                />
-                <TabButton
-                  active={tab === "notes"}
-                  icon={<Edit aria-hidden="true" className="size-4" />}
-                  label={m.records_tab_notes()}
-                  onClick={() => onTabChange("notes")}
-                />
-              </div>
+              <TabList aria-label={m.records_title()} type="underline" className="gap-4 px-1">
+                <Tab id="weekly" icon={FileText}>
+                  {m.records_tab_weekly()}
+                </Tab>
+                <Tab id="notes" icon={Edit}>
+                  {m.records_tab_notes()}
+                </Tab>
+              </TabList>
             </div>
 
-            <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
+            <TabPanel id={tab} className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
               {tab === "weekly" ? (
                 <div className="space-y-5">
                   <div className="space-y-2">
@@ -428,7 +425,7 @@ export function RecordsLayout({
                   )}
                 </CollapsibleSection>
               )}
-            </div>
+            </TabPanel>
 
             <div className="relative border-t border-secondary px-2 py-2">
               {formatEditing && !settingsHintDismissed ? (
@@ -499,7 +496,7 @@ export function RecordsLayout({
                 </Dropdown.Popover>
               </Dropdown.Root>
             </div>
-          </div>
+          </Tabs>
         </nav>
 
         <section
@@ -634,37 +631,6 @@ function SidebarMore({ hiddenCount, onExpand }: { hiddenCount: number; onExpand:
       className="mt-0.5 w-full justify-start px-2.5 text-xs text-tertiary"
     >
       {m.records_sidebar_more({ count: hiddenCount })}
-    </Button>
-  );
-}
-
-function TabButton({
-  active,
-  icon,
-  label,
-  onClick,
-}: {
-  active: boolean;
-  icon: ReactNode;
-  label: string;
-  onClick: () => void;
-}) {
-  return (
-    <Button
-      type="button"
-      size="sm"
-      color="tertiary"
-      aria-pressed={active}
-      onPress={onClick}
-      iconLeading={icon}
-      className={cn(
-        "-mb-px rounded-none px-0.5 pb-2.5",
-        active
-          ? "border-b-2 border-primary text-primary"
-          : "border-b-2 border-transparent text-tertiary",
-      )}
-    >
-      {label}
     </Button>
   );
 }

@@ -1,10 +1,13 @@
 import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
-import { List } from "@untitledui/icons";
-import { MenuItem as AriaMenuItem, Popover as AriaPopover } from "react-aria-components";
+import { Loading02, List } from "@untitledui/icons";
+import {
+  ProgressBar,
+  MenuItem as AriaMenuItem,
+  Popover as AriaPopover,
+} from "react-aria-components";
 
 import { ButtonUtility } from "@/components/base/buttons/button-utility";
 import { Dropdown } from "@/components/base/dropdown/dropdown";
-import { LoadingIndicator } from "@/components/ui/loading-indicator";
 import { RelativeTime } from "@/components/ui/relative-time";
 import { useAppToast } from "@/components/ui/toast";
 import { useStateWithRef } from "@/hooks/use-state-with-ref";
@@ -191,7 +194,13 @@ export function OwnMessagesMenu({
               messages.length ? "sticky top-0 z-10 h-7 rounded-md bg-primary" : "h-14",
             )}
           >
-            <LoadingIndicator className="size-4" label={m.conversation_loading_your_messages()} />
+            <ProgressBar
+              isIndeterminate
+              aria-label={m.conversation_loading_your_messages()}
+              className="inline-flex shrink-0 size-4"
+            >
+              <Loading02 aria-hidden className="size-full motion-safe:animate-spin" />
+            </ProgressBar>
           </div>
         )}
         <Dropdown.Menu

@@ -1,7 +1,7 @@
-import { ArrowUp } from "@untitledui/icons";
+import { ProgressBar } from "react-aria-components";
+import { Loading02, ArrowUp } from "@untitledui/icons";
 
 import { Tooltip, TooltipTrigger } from "@/components/base/tooltip/tooltip";
-import { LoadingIndicator } from "@/components/ui/loading-indicator";
 import { StatusDot } from "@/components/ui/status-dot";
 import { cn } from "@/lib/utils";
 import { m } from "@/paraglide/messages";
@@ -69,10 +69,18 @@ export function ComputerTile({
         <Icon className={dims.icon} />
       </span>
       {upgrading ? (
-        <LoadingIndicator
-          className={cn("absolute text-fg-tertiary", dims.badgeOffset, dims.loading)}
-          label={m.computer_upgrade_in_progress()}
-        />
+        <ProgressBar
+          isIndeterminate
+          aria-label={m.computer_upgrade_in_progress()}
+          className={cn(
+            "inline-flex shrink-0",
+            "absolute text-fg-tertiary",
+            dims.badgeOffset,
+            dims.loading,
+          )}
+        >
+          <Loading02 aria-hidden className="size-full motion-safe:animate-spin" />
+        </ProgressBar>
       ) : (
         updateAvailableVersion && (
           <Tooltip title={m.computer_new_version({ version: updateAvailableVersion })}>

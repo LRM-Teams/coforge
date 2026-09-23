@@ -1,4 +1,5 @@
 import {
+  ProgressBar,
   Dialog as AriaDialog,
   DialogTrigger as AriaDialogTrigger,
   Heading,
@@ -6,11 +7,10 @@ import {
 } from "react-aria-components";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { CpuChip01 as Cpu, XClose } from "@untitledui/icons";
+import { Loading02, CpuChip01 as Cpu, XClose } from "@untitledui/icons";
 
 import { Button } from "@/components/base/buttons/button";
 import { ButtonUtility } from "@/components/base/buttons/button-utility";
-import { LoadingIndicator } from "@/components/ui/loading-indicator";
 import { useAppToast } from "@/components/ui/toast";
 import { AgentDisplayAvatar } from "@/features/agents/agent-activity-avatar";
 import { useLiveAgent } from "@/features/agents/workspace-agents-realtime";
@@ -180,10 +180,13 @@ export function ThreadFollowingAgents({
               </div>
               {query.isPending ? (
                 <div role="status" className="flex h-14 items-center justify-center text-tertiary">
-                  <LoadingIndicator
-                    className="size-4"
-                    label={m.conversation_thread_following_agents()}
-                  />
+                  <ProgressBar
+                    isIndeterminate
+                    aria-label={m.conversation_thread_following_agents()}
+                    className="inline-flex shrink-0 size-4"
+                  >
+                    <Loading02 aria-hidden className="size-full motion-safe:animate-spin" />
+                  </ProgressBar>
                 </div>
               ) : query.isError ? (
                 <p role="alert" className="px-3 py-3 text-sm text-error-primary">

@@ -96,6 +96,8 @@
   "records_assistant_confirm_no": "No",
   "records_collect_plan_window": "Collection window",
   "records_collect_plan_range": "Date range",
+  "records_collect_plan_start_date": "Start date",
+  "records_collect_plan_end_date": "End date",
   "records_collect_plan_computers": "Computers",
   "records_collect_plan_paths": "Scan paths",
   "records_collect_plan_gear": "Configure collector",

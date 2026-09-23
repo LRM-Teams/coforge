@@ -5,7 +5,9 @@ import { Edit01 as Edit, Settings01 as Settings } from "@untitledui/icons";
 
 import { Button } from "@/components/base/buttons/button";
 import { Checkbox } from "@/components/base/checkbox/checkbox";
+import { Input } from "@/components/base/input/input";
 import { Select } from "@/components/base/select/select";
+import { TextArea } from "@/components/base/textarea/textarea";
 import { formatAgentProfileParam } from "@/features/agents/profile-panel/profile-panel-search";
 import { m } from "@/paraglide/messages";
 import {
@@ -169,19 +171,21 @@ export function WeeklyReportCollectPlanCard(props: {
         </Select>
         {windowKind === "custom" ? (
           <div className="grid grid-cols-2 gap-2">
-            <input
+            <Input
               type="date"
-              className="rounded-lg border border-secondary bg-primary px-2 py-1.5 text-sm"
+              size="sm"
+              aria-label={m.records_collect_plan_start_date()}
               value={customStart}
-              onChange={(event) => setCustomStart(event.target.value)}
-              disabled={busy || props.disabled}
+              onChange={setCustomStart}
+              isDisabled={busy || props.disabled}
             />
-            <input
+            <Input
               type="date"
-              className="rounded-lg border border-secondary bg-primary px-2 py-1.5 text-sm"
+              size="sm"
+              aria-label={m.records_collect_plan_end_date()}
               value={customEnd}
-              onChange={(event) => setCustomEnd(event.target.value)}
-              disabled={busy || props.disabled}
+              onChange={setCustomEnd}
+              isDisabled={busy || props.disabled}
             />
           </div>
         ) : (
@@ -253,16 +257,18 @@ export function WeeklyReportCollectPlanCard(props: {
                   ) : null}
                 </div>
                 <div className="flex items-start gap-2 pl-7">
-                  <textarea
-                    className="min-h-12 flex-1 rounded-md border border-secondary bg-secondary px-2 py-1 font-mono text-xs text-secondary"
+                  <TextArea
+                    size="sm"
+                    className="min-w-0 flex-1"
+                    textAreaClassName="min-h-12 font-mono text-xs"
                     value={pathsByComputer[slot.computerId] ?? ""}
-                    onChange={(event) =>
+                    onChange={(value) =>
                       setPathsByComputer((prev) => ({
                         ...prev,
-                        [slot.computerId]: event.target.value,
+                        [slot.computerId]: value,
                       }))
                     }
-                    disabled={busy || props.disabled}
+                    isDisabled={busy || props.disabled}
                     aria-label={m.records_collect_plan_paths()}
                   />
                   <Edit className="mt-1 size-4 shrink-0 text-tertiary" aria-hidden />

@@ -96,6 +96,8 @@
   "records_assistant_confirm_no": "不是",
   "records_collect_plan_window": "采集时间",
   "records_collect_plan_range": "时间区间",
+  "records_collect_plan_start_date": "开始日期",
+  "records_collect_plan_end_date": "结束日期",
   "records_collect_plan_computers": "采集电脑",
   "records_collect_plan_paths": "扫描路径",
   "records_collect_plan_gear": "配置采集 Agent",

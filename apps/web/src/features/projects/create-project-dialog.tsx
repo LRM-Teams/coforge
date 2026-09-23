@@ -5,6 +5,7 @@ import { ChevronRight, FolderLock, GitBranch01, Share04 } from "@untitledui/icon
 import { Dialog, Modal, ModalOverlay } from "@/components/application/modals/modal";
 import { DialogHeader } from "@/components/application/modals/dialog-header";
 import { Button } from "@/components/base/buttons/button";
+import { Input } from "@/components/base/input/input";
 import { ComboBox } from "@/components/base/select/combobox";
 import { SelectItem } from "@/components/base/select/select-item";
 import {
@@ -258,32 +259,23 @@ export function CreateProjectDialog({
               ) : (
                 <form onSubmit={submit}>
                   <div className="grid gap-4 px-6 py-6">
-                    <label className="grid gap-1 text-sm">
-                      {m.project_name()}
-                      <input
-                        required
-                        value={name}
-                        onChange={(e) => changeName(e.target.value)}
-                        className="h-9 rounded-md border border-secondary bg-primary px-3"
-                      />
-                    </label>
-                    <label className="grid gap-1 text-sm">
-                      {m.project_slug()}
-                      <input
-                        required
+                    <Input label={m.project_name()} isRequired value={name} onChange={changeName} />
+                    <div className="grid gap-1.5">
+                      <Input
+                        label={m.project_slug()}
+                        isRequired
                         pattern="[a-z0-9]+(?:-[a-z0-9]+)*"
                         maxLength={PROJECT_SLUG_MAX_LENGTH}
                         value={slug}
-                        onChange={(e) => changeSlug(e.target.value)}
-                        aria-invalid={slugError ? true : undefined}
-                        className="h-9 rounded-md border border-secondary bg-primary px-3"
+                        onChange={changeSlug}
+                        isInvalid={Boolean(slugError)}
                       />
                       {slugError && (
                         <p role="alert" className="text-sm text-error-primary">
                           {slugError}
                         </p>
                       )}
-                    </label>
+                    </div>
                     {needsRepository && (
                       <>
                         <ComboBox
