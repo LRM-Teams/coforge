@@ -416,12 +416,13 @@ export class TaskBoard {
     if (command.operation === "create") return this.create(scope, member, principal, command);
     if (command.operation === "convert") return this.convertOrClaim(scope, member, command, false);
     if (command.operation === "claim") return this.claim(scope, member, command);
-    if (command.operation === "unclaim") return this.unclaim(scope, member, command);
+    if (command.operation === "unclaim") return this.unclaim(scope.conversationId, member, command);
     if (command.operation === "assign") return this.assign(scope, member, command);
     if (command.operation === "unassign") return this.unassign(scope, member, command);
     if (command.operation === "amend") return this.amend(scope.conversationId, member, command);
     if (command.operation === "history") return this.history(scope.conversationId, command);
-    if (command.operation === "delete") return this.delete(scope, member, command);
+    if (command.operation === "delete")
+      return this.delete(scope.conversationId, scope.workspaceId, member, command);
     if (command.operation === "receipt")
       return this.receipt(scope.conversationId, scope.workspaceId, member, command);
     return this.update(scope, member, command);
@@ -1315,8 +1316,7 @@ export class TaskBoard {
     return { tasks, claims };
   }
 
-  private async unclaim(conversation: ConversationRef, member: Member, command: TaskCommand) {
-    const { conversationId } = conversation;
+  private async unclaim(conversationId: string, member: Member, command: TaskCommand) {
     const task = await this.db.task.findUnique({
       where: {
         conversationId_number: { conversationId, number: command.number! },
@@ -1326,8 +1326,8 @@ export class TaskBoard {
     if (!task) throw new AppError("NOT_FOUND");
     if (task.ownerMemberId !== member.id) throw new AppError("ACCESS_DENIED");
     if (task.status === "done") throw new AppError("CONFLICT");
-    const updated = await this.withNotices(conversation, async (tx, notices) => {
-      const { task: updated } = await this.commitTaskChange(
+    const { task: updated } = await this.db.$transaction((tx) =>
+      this.commitTaskChange(
         tx,
         member,
         task,
@@ -1337,12 +1337,8 @@ export class TaskBoard {
           status: { not: "done" },
         },
         { ownerMemberId: null, claimedAt: null },
-      );
-      await notices.inThread(updated, (quoted) =>
-        noticeText.released(noticeActor(member).displayName, quoted),
-      );
-      return updated;
-    });
+      ),
+    );
     await this.signalTaskChange(updated);
     return { tasks: [view(updated)] };
   }
@@ -1559,29 +1555,20 @@ export class TaskBoard {
   }
 
   private async delete(
-    conversation: ConversationRef,
+    conversationId: string,
+    workspaceId: string,
     member: Member,
     command: TaskCommand,
   ): Promise<TaskResult> {
-    await this.withNotices(conversation, async (tx, notices) => {
-      const task = await tx.task.findUnique({
-        where: {
-          conversationId_number: {
-            conversationId: conversation.conversationId,
-            number: command.number!,
-          },
-        },
-        select: { messageId: true, creatorMemberId: true, number: true, title: true },
-      });
-      if (!task) throw new AppError("NOT_FOUND");
-      if (task.creatorMemberId !== member.id)
-        await this.requireManager(tx, conversation.workspaceId, member);
-      await tx.task.delete({ where: { messageId: task.messageId } });
-      // The message stays, so its thread keeps the record of the Task it was.
-      await notices.inThread(task, (quoted) =>
-        noticeText.deleted(noticeActor(member).displayName, quoted),
-      );
+    const task = await this.db.task.findUnique({
+      where: {
+        conversationId_number: { conversationId, number: command.number! },
+      },
+      select: { messageId: true, creatorMemberId: true },
     });
+    if (!task) throw new AppError("NOT_FOUND");
+    if (task.creatorMemberId !== member.id) await this.requireManager(this.db, workspaceId, member);
+    await this.db.task.delete({ where: { messageId: task.messageId } });
     return { tasks: [] };
   }
 

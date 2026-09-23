@@ -158,6 +158,22 @@ test("creating Tasks posts one channel notice naming each of them", async () => 
       thread: null,
     },
   ]);
+
+  // A fenced code block is not prose: the quote skips it whole, and a title with no prose left
+  // is named by its number alone.
+  mark = await latestSequence();
+  const [afterCode, onlyCode] = (
+    await run(asAlice, {
+      operation: "create",
+      titles: ["```ts\nconst plan = 1;\n```\nRun the plan", "```\nnpm test\n```"],
+    })
+  ).tasks;
+  expect(await noticesAfter(mark)).toEqual([
+    {
+      body: `📋 2 new tasks created: #${afterCode!.number} "Run the plan", #${onlyCode!.number}`,
+      thread: null,
+    },
+  ]);
 });
 
 test("a converted message's notices quote its first line with mentions read as @handles", async () => {
@@ -203,7 +219,7 @@ test("a converted message's notices quote its first line with mentions read as @
   ]);
 });
 
-test("claims, moves, unassignment, release and deletion post in the Task's own thread", async () => {
+test("claims, moves and unassignment post in the Task's own thread", async () => {
   const { run, latestSequence, noticesAfter, asAlice, asBob, asAgent } =
     await channelFixture("thread");
   const [shipTask, docsTask, testsTask] = (
@@ -261,20 +277,23 @@ test("claims, moves, unassignment, release and deletion post in the Task's own t
     unassigned,
   ]);
 
-  // Giving up one's own claim is a release; a member without a display name is named by username.
+  // A member without a display name is named by username.
   await run(asBob, { operation: "claim", number: testsTask!.number });
   mark = await latestSequence();
-  await run(asBob, { operation: "unclaim", number: testsTask!.number });
+  await run(asBob, { operation: "update", number: testsTask!.number, status: "in_review" });
   expect(await noticesAfter(mark)).toEqual([
-    inThread(testsTask, `${bob.username} released #${testsTask!.number} "Add tests"`),
+    inThread(testsTask, `👀 ${bob.username} moved #${testsTask!.number} "Add tests" to In Review`),
   ]);
+});
 
-  // Deleting a Task says so in the thread of the message it was.
-  mark = await latestSequence();
-  await run(asAlice, { operation: "delete", number: testsTask!.number });
-  expect(await noticesAfter(mark)).toEqual([
-    inThread(testsTask, `Alice An deleted #${testsTask!.number} "Add tests"`),
-  ]);
+test("unclaiming and deleting a Task post no notice", async () => {
+  const { run, latestSequence, noticesAfter, asAlice, asBob } = await channelFixture("silent");
+  const task = (await run(asAlice, { operation: "create", title: "Quiet task" })).tasks[0]!;
+  await run(asBob, { operation: "claim", number: task.number });
+  const mark = await latestSequence();
+  await run(asBob, { operation: "unclaim", number: task.number });
+  await run(asAlice, { operation: "delete", number: task.number });
+  expect(await noticesAfter(mark)).toEqual([]);
 });
 
 test("only the assignment receipt is delivered, pushed and fanned out to unread badges", async () => {
