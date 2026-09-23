@@ -19,7 +19,6 @@ import { useAppToast } from "#src/components/ui/toast";
 import { copyText } from "#src/features/records/report-editor/lib/clipboard";
 import type { SavedMessageView } from "#src/server/conversations/saved-messages.server";
 import { m } from "#src/paraglide/messages";
-import { MessageBody } from "./message-body";
 import { useSavedMessages } from "./conversation-navigation";
 import { unsaveMessage } from "./saved-messages.functions";
 import { savedJumpTarget } from "./saved-messages-model";
@@ -150,14 +149,13 @@ function SavedMessageCard({
             </span>
             <RelativeTime value={message.createdAt} />
           </div>
-          {/* Every card is the same size: the excerpt always takes two lines and hides the rest. */}
-          <div className="mt-1 line-clamp-2 h-10 overflow-hidden text-sm leading-5 text-secondary [&_p]:my-0">
-            {message.body ? (
-              <MessageBody body={message.body} mentions={message.mentions} />
-            ) : attachmentName ? (
-              <span className="text-tertiary">{attachmentName}</span>
-            ) : null}
-          </div>
+          {/* Every card is the same size: a plain-text excerpt in one type size, always two lines
+              tall, the rest hidden. */}
+          <p className="mt-1 line-clamp-2 h-10 text-sm leading-5 break-words text-secondary">
+            {message.body
+              ? messagePlainText({ body: message.body, mentions: message.mentions })
+              : (attachmentName ?? "")}
+          </p>
         </AriaLink>
         <Dropdown.Popover placement="bottom start">
           <Dropdown.Menu aria-label={m.conversation_message_actions()} onAction={handleAction}>
