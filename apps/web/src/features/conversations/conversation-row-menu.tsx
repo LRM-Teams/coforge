@@ -47,7 +47,7 @@ export type ConversationRowMenuTarget =
  * menu (`MenuTrigger trigger="contextMenu"`, #122/#126/#128). The framework opens it on right
  * click, long-press on touch and the platform's keyboard/screen-reader shortcuts, and places it
  * at that point; a left click stays an ordinary navigation. Close Chat is a two-step danger action
- * (`docs/design.md` §9): the menu item only opens the confirm, the confirm button is the one
+ * (`docs/design/field-display.md` §9): the menu item only opens the confirm, the confirm button is the one
  * solid red.
  */
 export function ConversationRowMenu({
@@ -55,7 +55,7 @@ export function ConversationRowMenu({
   children,
 }: {
   target: ConversationRowMenuTarget;
-  /** The row, whose link must be a React Aria pressable (`RowLink`): the trigger attaches to the
+  /** The row, whose link must be a React Aria link (`ConversationRow`): the trigger attaches to the
    * first pressable inside it. */
   children: ReactNode;
 }) {
@@ -160,7 +160,13 @@ export function ConversationRowMenu({
               </div>
             </div>
           ) : (
-            <Dropdown.Menu aria-label={m.conversation_menu_label()} onAction={handleAction}>
+            // Selecting an item must not close the menu: Close Chat swaps in its confirm, and the
+            // mutations keep it open until they succeed (`run` closes it) so a failure can retry.
+            <Dropdown.Menu
+              aria-label={m.conversation_menu_label()}
+              onAction={handleAction}
+              shouldCloseOnSelect={false}
+            >
               {items.map((item) => (
                 <Fragment key={item.id}>
                   {item.id === "close-chat" && <Dropdown.Separator />}
