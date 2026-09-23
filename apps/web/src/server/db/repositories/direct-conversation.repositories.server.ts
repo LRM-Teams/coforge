@@ -2176,10 +2176,30 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
     });
     if (!conversation) throw new Error("conversation scope is not authorized");
     if (conversation.channelName && conversation.archivedAt) throw new AppError("CONFLICT");
-    const sender = conversation.members.find((m) => m.agentId === agentId && !m.leftAt);
+    let sender = conversation.members.find((m) => m.agentId === agentId && !m.leftAt);
     const user = conversation.members.find((m) => m.userId && !m.leftAt);
+    // A soft-left DM membership is not an intentional leave: visibility changes never touch
+    // DMs, and a deleted Agent cannot call send (keys revoked). Clear `leftAt` on the same
+    // row — the channel rejoin pattern — so a still-live Agent can deliver again instead of
+    // surfacing a bare 500. Channel soft-leaves stay rejected; those are intentional removals.
+    if (!sender && !conversation.channelName) {
+      const softLeft = conversation.members.find((m) => m.agentId === agentId && m.leftAt);
+      if (softLeft) {
+        const self = await this.db.agent.findUnique({
+          where: { id: agentId },
+          select: { deletedAt: true },
+        });
+        if (self && !self.deletedAt) {
+          await this.db.conversationMember.update({
+            where: { id: softLeft.id },
+            data: { leftAt: null },
+          });
+          sender = { ...softLeft, leftAt: null };
+        }
+      }
+    }
     if (!sender || (!conversation.channelName && !user))
-      throw new Error("agent is not a conversation member");
+      throw new AgentSendRejectedError(403, "agent is not a conversation member");
     // A private Agent's own outbound DM is just as read-only as the human side of it
     // ("neither side can send"). Channels are unaffected — a private Agent is never a channel
     // member in the first place, so this only ever narrows the direct-conversation case.
