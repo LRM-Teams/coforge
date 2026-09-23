@@ -88,6 +88,9 @@ const appRoute = getRouteApi("/_app");
 /** How close to the bottom the pane must be for a content-resize to re-pin it (see the pinning
  * ResizeObserver). Tight on purpose: the reading position itself uses a wider tolerance. */
 const PIN_TOLERANCE_PX = 4;
+/** How long a landed position jump keeps its highlight. The hash deep link leans on `:target`,
+ * which lasts until the hash moves; the saved jump has no hash to lean on, so it needs a bound. */
+const JUMP_HIGHLIGHT_MS = 2500;
 
 /** The gap left above a row the pane scrolls to (`applyOpenPosition`). */
 const ROW_TOP_GAP_PX = 12;
@@ -898,6 +901,19 @@ export function ConversationPane({
     { rowId?: string; offset: number; height: number; top: number } | undefined
   >(undefined);
   const pendingMessageIdRef = useRef<string | undefined>(undefined);
+  // The row a position jump just landed on, highlighted for a moment: `?message=` deliberately
+  // carries no hash (#713), so the landed row has no `:target` to take the anchor highlight from
+  // (message-row.tsx renders both treatments with the same classes).
+  const [jumpHighlightId, setJumpHighlightId] = useState<string | undefined>(undefined);
+  const jumpHighlightTimer = useRef<number | undefined>(undefined);
+  const flashMessageRow = useCallback((messageId: string) => {
+    setJumpHighlightId(messageId);
+    window.clearTimeout(jumpHighlightTimer.current);
+    jumpHighlightTimer.current = window.setTimeout(() => {
+      setJumpHighlightId((current) => (current === messageId ? undefined : current));
+    }, JUMP_HIGHLIGHT_MS);
+  }, []);
+  useEffect(() => () => window.clearTimeout(jumpHighlightTimer.current), []);
   // The row the pane still owes an open scroll. Rows are all in the DOM, so this is only held
   // when the container had no height to scroll within yet (a hidden branch); the pinning
   // observer retries it once the pane is laid out.
@@ -1213,7 +1229,8 @@ export function ConversationPane({
     if (!message) return;
     pendingMessageIdRef.current = undefined;
     message.scrollIntoView({ block: "center", behavior: "smooth" });
-  }, [conversation.messages]);
+    flashMessageRow(messageId);
+  }, [conversation.messages, flashMessageRow]);
 
   useLayoutEffect(() => {
     if (!pendingLatestRef.current || conversation.hasNewer) return;
@@ -1368,6 +1385,7 @@ export function ConversationPane({
     document
       .getElementById(`message-${messageId}`)
       ?.scrollIntoView({ block: "center", behavior: "smooth" });
+    flashMessageRow(messageId);
   }
 
   // The Saved view's `?message=<uuid>` jump (#127 follow-up): position-only by design. The
@@ -1542,6 +1560,7 @@ export function ConversationPane({
                     dayChanged={dayChanged}
                     grouped={grouped}
                     unreadStartsHere={unreadStartsHere}
+                    highlighted={message.id === jumpHighlightId}
                     expanded={expandedMessages.has(message.id)}
                     onToggleExpanded={() => toggleExpandedMessage(message.id)}
                     agentDisplay={agentDisplayFor}
