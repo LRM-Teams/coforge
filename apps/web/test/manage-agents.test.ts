@@ -137,8 +137,8 @@ describe("ManageAgents", () => {
       ownerId: "user-1",
       name: "weekly-report-assistant-user-1",
       displayName: "周报助手",
-      // Prisma stores an unbound Agent as SQL NULL, not a missing field.
-      computerId: null,
+      // Unbound Agents have no Computer assignment (repository maps SQL NULL → undefined).
+      computerId: undefined,
       runtimeConfig: {
         runtime: RUNTIME_PROVIDER.COFORGE,
         provider: { kind: "default" },
