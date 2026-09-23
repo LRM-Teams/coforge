@@ -1,8 +1,11 @@
-import { Link } from "@tanstack/react-router";
+import { Link, useRouter } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
-import { Bookmark, BookmarkCheck } from "@untitledui/icons";
+import { Bookmark, BookmarkCheck, Copy01, Link01, MessageTextSquare01 } from "@untitledui/icons";
+import { Link as AriaLink } from "react-aria-components";
 
+import { Avatar } from "#src/components/base/avatar/avatar";
 import { ButtonUtility } from "#src/components/base/buttons/button-utility";
+import { Dropdown } from "#src/components/base/dropdown/dropdown";
 import { PageHeader } from "#src/components/layout/page-header";
 import {
   Empty,
@@ -13,34 +16,41 @@ import {
 } from "#src/components/ui/empty";
 import { RelativeTime } from "#src/components/ui/relative-time";
 import { useAppToast } from "#src/components/ui/toast";
-import { useLiveAgents } from "#src/features/agents/workspace-agents-realtime";
+import { copyText } from "#src/features/records/report-editor/lib/clipboard";
+import type { SavedMessageView } from "#src/server/conversations/saved-messages.server";
 import { m } from "#src/paraglide/messages";
 import { MessageBody } from "./message-body";
 import { useSavedMessages } from "./conversation-navigation";
 import { unsaveMessage } from "./saved-messages.functions";
-import { agentIdFromDirectKey, savedJumpTarget } from "./saved-messages-model";
+import { savedJumpTarget } from "./saved-messages-model";
 
 /**
- * The Saved view (#127), the detail side of the Chat page's list/detail layout: each bookmarked
- * message is a card with its conversation label, sender, time, and a clamped body excerpt. The
- * whole card jumps back to the message's position in its conversation — a thread reply lands on
- * its root's row and the pane never auto-opens the thread (position-only `?message=` search
- * param, not the notification deep link's `#message-<id>` hash; see `saved-messages-model`) —
- * the trailing bookmark unsaves in one click (instantly reversible, so no confirm — the card
- * disappearing is the confirmation, docs/design/toast-vs-inline.md §13).
+ * The Saved view (#127), reached from the single Saved entry at the top of the Chat sidebar: a
+ * header with the bookmark count, then one card per bookmarked message — where it was said
+ * (`#channel`, or `@sender` in a direct message), a Thread tag for a reply, the sender's avatar
+ * and name, the time, and a clamped body excerpt. The whole card jumps back to the message's
+ * position in its conversation — a thread reply lands on its root's row and the pane never
+ * auto-opens the thread (position-only `?message=` search param, not the notification deep link's
+ * `#message-<id>` hash; see `saved-messages-model`). The trailing bookmark unsaves in one click
+ * (instantly reversible, so no confirm — the card disappearing is the confirmation,
+ * docs/design/toast-vs-inline.md §13); a right click on the card offers copy link, copy as
+ * Markdown and remove.
  */
 export function SavedMessagesView() {
   const saved = useSavedMessages();
-  const agents = useLiveAgents();
-  const toast = useAppToast();
-  const unsave = useServerFn(unsaveMessage);
   const entries = saved?.entries ?? [];
   if (!saved) return null;
-  const agentName = (agentId: string) => agents.find((agent) => agent.id === agentId)?.displayName;
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <PageHeader heading={m.conversation_saved_title()} />
+      <PageHeader
+        heading={m.conversation_saved_nav()}
+        meta={
+          <span className="shrink-0 text-sm text-tertiary">
+            {m.conversation_saved_count({ count: entries.length })}
+          </span>
+        }
+      />
       {entries.length === 0 ? (
         <div className="flex min-h-0 flex-1 items-center justify-center px-6">
           <Empty>
@@ -55,68 +65,140 @@ export function SavedMessagesView() {
         </div>
       ) : (
         <ol className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-4">
-          {entries.map((entry) => {
-            const jump = savedJumpTarget(entry.conversation, entry.message);
-            const agentId = agentIdFromDirectKey(entry.conversation.directKey);
-            const conversationLabel = entry.conversation.channelName
-              ? `#${entry.conversation.channelName}`
-              : agentId
-                ? (agentName(agentId) ?? m.conversation_saved_dm())
-                : m.conversation_saved_dm();
-            const jumpProps =
-              jump.to === "/messages/channels/$channelId"
-                ? { to: jump.to, params: jump.params, search: jump.search }
-                : jump.to === "/messages/$agentId"
-                  ? { to: jump.to, params: jump.params, search: jump.search }
-                  : { to: jump.to };
-            const attachmentName = entry.message.attachments[0]?.fileName;
-            return (
-              <li
-                key={entry.message.id}
-                className="flex items-start gap-2 rounded-xl border border-secondary bg-primary p-3 transition-colors hover:bg-secondary"
-              >
-                <Link
-                  {...jumpProps}
-                  className="min-w-0 flex-1 rounded-lg outline-focus-ring focus-visible:z-10 focus-visible:outline-2 focus-visible:outline-offset-2"
-                >
-                  <div className="flex items-center gap-2 text-xs text-tertiary">
-                    <span className="truncate font-medium text-secondary">{conversationLabel}</span>
-                    <span aria-hidden="true">·</span>
-                    <span className="truncate">{entry.message.senderName}</span>
-                    <span aria-hidden="true">·</span>
-                    <RelativeTime value={entry.message.createdAt} />
-                  </div>
-                  {entry.message.body ? (
-                    <div className="mt-1 line-clamp-3 text-sm leading-5 text-secondary [&_p]:my-0">
-                      <MessageBody body={entry.message.body} mentions={entry.message.mentions} />
-                    </div>
-                  ) : attachmentName ? (
-                    <p className="mt-1 truncate text-sm text-tertiary">{attachmentName}</p>
-                  ) : null}
-                </Link>
-                <ButtonUtility
-                  icon={BookmarkCheck}
-                  size="xs"
-                  color="tertiary"
-                  tooltip={m.conversation_unsave()}
-                  aria-label={m.conversation_unsave()}
-                  onClick={() => {
-                    void unsave({
-                      data: {
-                        conversationId: entry.conversation.id,
-                        messageId: entry.message.id,
-                      },
-                    })
-                      .then(() => saved.refresh())
-                      .catch(() => toast.error(m.conversation_save_failed()));
-                  }}
-                  className="shrink-0"
-                />
-              </li>
-            );
-          })}
+          {entries.map((entry) => (
+            <SavedMessageCard key={entry.message.id} entry={entry} onRefresh={saved.refresh} />
+          ))}
         </ol>
       )}
     </div>
+  );
+}
+
+type SavedMenuAction = "copy-link" | "copy-markdown" | "remove";
+
+function SavedMessageCard({
+  entry,
+  onRefresh,
+}: {
+  entry: SavedMessageView;
+  onRefresh: () => Promise<void>;
+}) {
+  const router = useRouter();
+  const toast = useAppToast();
+  const unsave = useServerFn(unsaveMessage);
+  const { conversation, message } = entry;
+  const jump = savedJumpTarget(conversation, message);
+  const jumpProps =
+    jump.to === "/messages/channels/$channelId"
+      ? { to: jump.to, params: jump.params, search: jump.search }
+      : jump.to === "/messages/$agentId"
+        ? { to: jump.to, params: jump.params, search: jump.search }
+        : { to: jump.to };
+  const href = router.buildLocation(jumpProps).href;
+  const place = conversation.channelName
+    ? `#${conversation.channelName}`
+    : `@${message.senderName}`;
+  const attachmentName = message.attachments[0]?.fileName;
+
+  function remove() {
+    void unsave({ data: { conversationId: conversation.id, messageId: message.id } })
+      .then(onRefresh)
+      .catch(() => toast.error(m.conversation_save_failed()));
+  }
+
+  function copy(text: string, success: string) {
+    void copyText(text).then((copied) => {
+      if (copied) toast.success(success);
+      else toast.error(m.conversation_copy_failed());
+    });
+  }
+
+  function handleAction(key: unknown) {
+    const action = key as SavedMenuAction;
+    if (action === "copy-link") {
+      copy(new URL(href, window.location.origin).href, m.conversation_saved_link_copied());
+    } else if (action === "copy-markdown") {
+      copy(message.body ?? "", m.conversation_copy_as_markdown_success());
+    } else if (action === "remove") {
+      remove();
+    }
+  }
+
+  return (
+    <li className="flex items-start gap-2 rounded-xl border border-secondary bg-primary p-3 transition-colors hover:bg-secondary">
+      {/* The card is a React Aria link so the context menu (`MenuTrigger trigger="contextMenu"`)
+          can use it as its trigger; `render` hands the element to TanStack's `Link`, which owns
+          navigation (react-aria.adobe.com/Link, client-side routing). A left click stays an
+          ordinary jump. */}
+      <Dropdown.Root trigger="contextMenu">
+        <AriaLink
+          href={href}
+          render={(props) =>
+            "href" in props ? <Link {...props} {...jumpProps} /> : <span {...props} />
+          }
+          className="min-w-0 flex-1 rounded-lg outline-focus-ring focus-visible:z-10 focus-visible:outline-2 focus-visible:outline-offset-2"
+        >
+          <div className="flex min-w-0 items-center gap-2 text-xs text-tertiary">
+            <span className="truncate font-medium text-tertiary">{place}</span>
+            {message.threadRootId && (
+              <span className="inline-flex shrink-0 items-center gap-1 text-quaternary">
+                <MessageTextSquare01 aria-hidden="true" className="size-3" />
+                {m.conversation_thread()}
+              </span>
+            )}
+            <span className="inline-flex min-w-0 items-center gap-1.5">
+              <Avatar
+                size="xs"
+                src={message.senderAvatarUrl ?? null}
+                alt={message.senderName}
+                className="size-4 shrink-0"
+              />
+              <span className="truncate font-semibold text-secondary">{message.senderName}</span>
+            </span>
+            <RelativeTime value={message.createdAt} />
+          </div>
+          {message.body ? (
+            <div className="mt-1 line-clamp-3 text-sm leading-5 text-secondary [&_p]:my-0">
+              <MessageBody body={message.body} mentions={message.mentions} />
+            </div>
+          ) : attachmentName ? (
+            <p className="mt-1 truncate text-sm text-tertiary">{attachmentName}</p>
+          ) : null}
+        </AriaLink>
+        <Dropdown.Popover placement="bottom start">
+          <Dropdown.Menu aria-label={m.conversation_message_actions()} onAction={handleAction}>
+            <Dropdown.Item
+              id="copy-link"
+              icon={Link01}
+              label={m.conversation_saved_copy_link()}
+              selectionIndicator="none"
+            />
+            <Dropdown.Item
+              id="copy-markdown"
+              icon={Copy01}
+              label={m.conversation_copy_as_markdown()}
+              selectionIndicator="none"
+              isDisabled={!message.body}
+            />
+            <Dropdown.Separator />
+            <Dropdown.Item
+              id="remove"
+              icon={BookmarkCheck}
+              label={m.conversation_unsave()}
+              selectionIndicator="none"
+            />
+          </Dropdown.Menu>
+        </Dropdown.Popover>
+      </Dropdown.Root>
+      <ButtonUtility
+        icon={BookmarkCheck}
+        size="xs"
+        color="tertiary"
+        tooltip={m.conversation_unsave()}
+        aria-label={m.conversation_unsave()}
+        onClick={remove}
+        className="shrink-0"
+      />
+    </li>
   );
 }

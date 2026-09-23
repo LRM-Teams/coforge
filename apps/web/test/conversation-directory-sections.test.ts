@@ -61,22 +61,3 @@ describe("Chat sidebar section collapse state", () => {
     expect(readCollapsedSections()).toEqual(["channels"]);
   });
 });
-
-describe("the SAVED section's drop guard", () => {
-  test("accepts a message drag payload and rejects everything else", async () => {
-    const { savedDropPayload } = await import("#src/features/conversations/saved-drop-model");
-    expect(
-      savedDropPayload(
-        JSON.stringify({ conversationId: "conversation-1", messageId: "message-9" }),
-      ),
-    ).toEqual({ conversationId: "conversation-1", messageId: "message-9" });
-    // A foreign drag (other app data, garbage, empty strings) is simply not a bookmark.
-    expect(savedDropPayload(undefined)).toBeUndefined();
-    expect(savedDropPayload("")).toBeUndefined();
-    expect(savedDropPayload("not json")).toBeUndefined();
-    expect(savedDropPayload('{"messageId":"message-9"}')).toBeUndefined();
-    expect(savedDropPayload('{"conversationId":""}')).toBeUndefined();
-    expect(savedDropPayload('["conversation-1","message-9"]')).toBeUndefined();
-    expect(savedDropPayload('{"conversationId":1,"messageId":"message-9"}')).toBeUndefined();
-  });
-});

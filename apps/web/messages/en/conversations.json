@@ -268,11 +268,20 @@
   "files_load_failed": "Failed to load files",
   "conversation_save": "Save message",
   "conversation_save_failed": "Couldn't save the message",
-  "conversation_unsave": "Remove from saved",
+  "conversation_unsave": "Remove from Saved",
   "conversation_saved_nav": "Saved",
-  "conversation_saved_title": "Saved messages",
+  "conversation_saved_count": [
+    {
+      "declarations": ["input count", "local countPlural = count: plural"],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=one": "{count} saved item",
+        "countPlural=other": "{count} saved items"
+      }
+    }
+  ],
   "conversation_saved_empty_title": "No saved messages yet",
-  "conversation_saved_empty_description": "Bookmark a message and it will show up here, ready to jump back to its conversation.",
-  "conversation_saved_drop_hint": "Drag a message's avatar here to save it",
-  "conversation_saved_dm": "Direct message"
+  "conversation_saved_empty_description": "Save a message by selecting its bookmark icon.",
+  "conversation_saved_copy_link": "Copy link",
+  "conversation_saved_link_copied": "Link copied"
 }
