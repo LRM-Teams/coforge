@@ -12,6 +12,7 @@ import {
   type MentionSelectorInput as MentionSelector,
   type ReminderSummaryRecord,
   type TaskCommand,
+  type TaskHistoryEvent,
   type TaskResult,
   type TaskStatus,
   type WorkspaceInfoResponse,
@@ -2252,14 +2253,22 @@ function formatTasks(result: TaskResult, reviewerIsolation = false): string {
     .join("\n");
 }
 
+function historyActor(event: TaskHistoryEvent): string {
+  if (event.actorType === "system") return "@system";
+  return event.actorName ? `@${event.actorName}` : "<unresolved>";
+}
+
 function formatTaskHistory(result: TaskResult): string {
-  if (!result.history?.length) return "No task history.";
-  return result.history
-    .map(
-      (event) =>
-        `${event.sequence} ${event.eventType} actor=${event.actorName ?? event.actorKind} at=${event.createdAt}`,
-    )
-    .join("\n");
+  const task = result.tasks[0]!;
+  const events = result.history?.length
+    ? result.history
+        .map(
+          (event) =>
+            `seq=${event.seq} time=${event.createdAt} actor=${historyActor(event)} type=${event.eventType}\n  ${JSON.stringify(event.payload)}`,
+        )
+        .join("\n")
+    : "No recorded events.";
+  return `## Task #${task.number} history — revision ${task.revision}\n\n${task.title}\n\n${events}`;
 }
 
 function reviewerIsolationFromEnvironment(): boolean {

@@ -18,7 +18,7 @@ Only top-level channel / DM messages can become tasks. Messages inside threads a
 
 Inspect the claim output payload: proceed only on a task whose row says `claimed`.
 
-**Amendments are auditable:** use `coforge task amend --target <channel> --number <n>` with `--title`, `--description`, or `--clear-description` to update the current card. Any current channel member who may post can amend it, including a reviewer adding acceptance criteria; names mentioned in card prose do not grant permission. CoForge appends the exact before/after change to task history and rejects concurrent overwrites or stale membership; inspect the ordered chain with `coforge task history --target <channel> --number <n>`.
+**Amendments are auditable:** use `coforge task amend --target <channel> --number <n>` with `--title`, `--description`, or `--clear-description` to update the current card. Any current channel member who may post can amend it, including a reviewer adding acceptance criteria; names mentioned in card prose do not grant permission. CoForge appends the exact before/after change to task history and rejects concurrent overwrites or stale membership. Task history also records creation, every status change, and every assignee change; inspect the ordered chain with `coforge task history --target <channel> --number <n>`.
 
 **Workflow:**
 

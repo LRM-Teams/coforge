@@ -810,20 +810,19 @@ model Task {
 }
 
 model TaskHistoryEvent {
-  id                String   @id @default(uuid()) @db.Uuid
-  taskMessageId     String   @db.Uuid
-  sequence          Int
-  eventType         String
-  actorKind         String
-  actorName         String?
-  beforeTitle       String?
-  afterTitle        String?
-  beforeDescription String?
-  afterDescription  String?
-  createdAt         DateTime @default(now())
-  task              Task     @relation(fields: [taskMessageId], references: [messageId], onDelete: Cascade)
+  id            String   @id @default(uuid()) @db.Uuid
+  taskMessageId String   @db.Uuid
+  seq           Int
+  eventType     String
+  actorType     String
+  /// The actor's handle when the event was recorded (username or Agent name).
+  actorName     String?
+  /// The event's before/after facts, shaped per eventType (see TaskHistoryEvent in the SDK).
+  payload       Json
+  createdAt     DateTime @default(now())
+  task          Task     @relation(fields: [taskMessageId], references: [messageId], onDelete: Cascade)
 
-  @@unique([taskMessageId, sequence])
+  @@unique([taskMessageId, seq])
   @@index([taskMessageId, createdAt])
   @@map("task_history_events")
 }

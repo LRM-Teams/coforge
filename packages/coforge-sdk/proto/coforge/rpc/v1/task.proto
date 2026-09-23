@@ -37,18 +37,6 @@ message TaskClaimResult {
   bool success = 3;
   optional string reason = 4;
 }
-message TaskHistoryEvent {
-  string id = 1;
-  uint32 sequence = 2;
-  string event_type = 3;
-  string actor_kind = 4;
-  optional string actor_name = 5;
-  optional string before_title = 6;
-  optional string after_title = 7;
-  optional string before_description = 8;
-  optional string after_description = 9;
-  string created_at = 10;
-}
 message TaskAssignmentReceipt {
   string message_id = 1;
   string content = 2;

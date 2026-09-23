@@ -197,7 +197,7 @@ export function TaskDetailDialog({
                   ) : (
                     history.map((event) => (
                       <li key={event.id} className="rounded-lg bg-secondary px-3 py-2">
-                        <span className="font-medium">{event.actorName ?? event.actorKind}</span>{" "}
+                        <span className="font-medium">{event.actorName ?? event.actorType}</span>{" "}
                         <span className="text-tertiary">{event.eventType}</span>
                         <time className="ml-2 text-xs text-tertiary" dateTime={event.createdAt}>
                           {new Date(event.createdAt).toLocaleString()}
