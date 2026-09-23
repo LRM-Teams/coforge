@@ -135,7 +135,7 @@ function SortableTab({
       onPressStart={onPressStart}
       onPress={onPress}
       data-dragging={isDragging || undefined}
-      className="shrink-0 select-none [-webkit-touch-callout:none] data-dragging:z-20 data-dragging:cursor-grabbing"
+      className="shrink-0 select-none [-webkit-touch-callout:none] data-dragging:z-20 data-dragging:cursor-grabbing data-dragging:transition-none"
       style={{
         transform: transform ? `translate3d(${transform.x}px, 0, 0)` : undefined,
         transition,
