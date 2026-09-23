@@ -2,7 +2,7 @@ import type { FC, ReactNode } from "react";
 import type { NavItemType } from "@/components/application/app-navigation/config";
 import { cx } from "@/utils/cx";
 
-// Adapted from Untitled's sidebar-slim.tsx (MIT; docs/ui-guidelines.md §2) —
+// Adapted from Untitled's sidebar-slim.tsx (MIT; docs/design.md §7) —
 // the demo hardcodes Untitled's own logo/account card with no override
 // props. Desktop keeps the rail visible; mobile uses a separate wide drawer.
 

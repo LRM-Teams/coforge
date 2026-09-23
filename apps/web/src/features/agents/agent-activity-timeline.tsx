@@ -22,7 +22,7 @@ export function AgentActivityTimeline({
   activity,
   timeZone,
   /** The Agent profile panel's narrow column: the list drops the page-level card border (the
-   * panel is flat, per docs/ui-guidelines.md §3) in favor of plain hairline rows. Same rows,
+   * panel is flat, per docs/design.md §8) in favor of plain hairline rows. Same rows,
    * same clock column, same 6px coloured dot, same monospace command text — a responsive prop
    * rather than a second component (`apps/web/AGENTS.md`'s Activity-tab guidance). */
   compact = false,

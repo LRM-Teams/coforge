@@ -142,7 +142,7 @@ until restarted" (already used verbatim for the offline-history activity row in
 never changes `isOnline` or the short badge `label`, and stays silent for a stopped Agent whose
 Daemon has not yet caught up (still "working"/"online", not overridden into looking offline
 early). `AgentDetail` renders this caption as an extra segment of the existing header meta line,
-not inside the status `Badge` — the product UI guidelines (`docs/ui-guidelines.md` §9) keep
+not inside the status `Badge` — the product design guidance (`docs/design.md` §11) keep
 Badges to a single status word.
 
 **E. UI.** `features/agents/agent-control.tsx` gained a Start-or-Stop button, chosen by
@@ -240,7 +240,7 @@ and reuses the file's existing Dialog/Modal building blocks for Stop's confirmat
     flag that changes far less often than online/offline; out of scope for this record.
   - Raft colours its Stop confirmation orange. Untitled UI has no warning Button variant, and Stop
     is reversible, so `*-destructive` would overstate it. The confirm button is the dialog's one
-    primary action and uses `color="primary"` (`docs/ui-guidelines.md` §8).
+    primary action and uses `color="primary"` (`docs/design.md` §11).
   - No component-level (DOM/interaction) test was added for the Start/Stop button or Stop confirm
     flow: `apps/web/test` has exactly one `.tsx` test today (`login-page.test.tsx`), and it only
     renders static markup (`renderToStaticMarkup`, no jsdom/happy-dom, no click simulation) — there

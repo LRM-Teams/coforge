@@ -87,7 +87,7 @@ export function ChannelConversationHeader({
           {m.channel_public()}
         </span>
         {/* Borderless utility strip: the -mr-1.5 cancels the last button's p-1.5 so its glyph
-            lands on the pane gutter (docs/ui-guidelines.md §3 optical alignment). */}
+            lands on the pane gutter (docs/design.md §8 optical alignment). */}
         <div className="-mr-1.5 flex shrink-0 items-center gap-3">
           <ButtonUtility
             icon={Users}
