@@ -105,8 +105,9 @@ export function AgentCreateDialog({
                   title={m.agent_form_title()}
                   description={m.agent_form_description()}
                   onClose={close}
+                  className="px-4 pt-4 sm:px-6 sm:pt-6"
                 />
-                <div className="grid gap-4 px-6 py-6 sm:grid-cols-2">
+                <div className="grid gap-3 px-4 py-4 sm:grid-cols-2 sm:gap-4 sm:px-6 sm:py-6">
                   <Select
                     name="computerId"
                     isRequired
@@ -152,7 +153,7 @@ export function AgentCreateDialog({
                   <TextArea
                     label={m.agent_profile_description()}
                     name="description"
-                    rows={3}
+                    rows={2}
                     defaultValue={defaults?.description}
                     placeholder={m.agent_form_description_placeholder()}
                     className="min-w-0 sm:col-span-2"
@@ -196,7 +197,7 @@ export function AgentCreateDialog({
                     </HintText>
                   )}
                 </div>
-                <div className="grid grid-cols-2 gap-3 border-t border-secondary px-6 py-4 sm:flex sm:justify-end">
+                <div className="grid grid-cols-2 gap-3 border-t border-secondary px-4 py-3 sm:flex sm:justify-end sm:px-6 sm:py-4">
                   <Button
                     type="button"
                     color="secondary"
