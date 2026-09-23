@@ -5,6 +5,7 @@ import {
   conversationSearchWithoutThread,
   conversationSearchWithThread,
   messageIdFromHash,
+  positionJumpDecision,
   resolveConversationThreadRoot,
   threadRootFromMessageAnchor,
 } from "../src/features/conversations/conversation-thread-search";
@@ -87,5 +88,48 @@ describe("conversation thread search updates", () => {
         threadRootId: "root-1",
       }),
     ).toEqual({ view: "chat", profile: "agent:1" });
+  });
+});
+
+describe("positionJumpDecision", () => {
+  // apps/web's suite is renderToString-only (effects never run, no DOM harness), so the pane's
+  // consume rules — the ones the boss's saved-jump ruling ("land at the message's row in the
+  // stream, never in the thread") depends on — are pinned as this pure table instead of an
+  // integration test: show on first sight; a notification's hash wins (consume without
+  // showing); never re-show a consumed id; reset when the param clears so leaving the
+  // conversation and re-clicking the same saved card jumps again.
+  test("first sight without a hash shows the position jump", () => {
+    expect(positionJumpDecision("message-1", "", undefined)).toEqual({
+      action: "show",
+      id: "message-1",
+    });
+  });
+
+  test("any hash consumes the param without showing — the deep link owns the landing", () => {
+    expect(positionJumpDecision("message-1", "#message-other", undefined)).toEqual({
+      action: "consume",
+      id: "message-1",
+    });
+  });
+
+  test("the same id once consumed is ignored, so re-renders never re-jump", () => {
+    expect(positionJumpDecision("message-1", "", "message-1")).toEqual({ action: "ignore" });
+  });
+
+  test("a different id is shown — the marker tracks the id, never a boolean", () => {
+    // Clicking a second saved card in the same conversation right after the first was consumed
+    // must still land; a future `boolean consumed` simplification would break this.
+    expect(positionJumpDecision("message-2", "", "message-1")).toEqual({
+      action: "show",
+      id: "message-2",
+    });
+  });
+
+  test("an absent param resets the marker, so re-clicking the same card jumps again", () => {
+    expect(positionJumpDecision(undefined, "", "message-1")).toEqual({ action: "idle" });
+    expect(positionJumpDecision("message-1", "", undefined)).toEqual({
+      action: "show",
+      id: "message-1",
+    });
   });
 });

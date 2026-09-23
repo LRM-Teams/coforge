@@ -59,3 +59,36 @@ export function conversationSearchWithoutAgentProfile<
   const { profile: _profile, agentTab: _agentTab, ...rest } = previous;
   return rest;
 }
+
+/** The pane's consume decision for `?message=<uuid>` — see `positionJumpDecision`. */
+export type PositionJumpDecision =
+  | { action: "idle" }
+  | { action: "ignore" }
+  | { action: "show"; id: string }
+  | { action: "consume"; id: string };
+
+/**
+ * The pane's consume rules for `?message=<uuid>` — the Saved view's position-only jump (why a
+ * param and never a hash: see `saved-messages-model`) — as a pure decision table. The pane
+ * effect is a thin switch over this; apps/web's tests are renderToString-only (effects never
+ * run, no DOM harness), so the rules are pinned here instead of an integration test:
+ *
+ * - first sight, no hash → `show`: load the window around the anchor and scroll
+ *   (`ConversationPane.showMessage`);
+ * - any hash present → `consume` only: the `#message-<id>` notification deep link owns the
+ *   landing, two mechanisms never run together, but the param is still stripped;
+ * - the same id already consumed → `ignore`: re-renders must not jump twice;
+ * - param absent → `idle`: clear the marker, so leaving the conversation and re-clicking the
+ *   same saved card jumps again.
+ *
+ * `consumed` is the pane's attempted-marker; `hash` is `window.location.hash`.
+ */
+export function positionJumpDecision(
+  jumpMessage: string | undefined,
+  hash: string,
+  consumed: string | undefined,
+): PositionJumpDecision {
+  if (!jumpMessage) return { action: "idle" };
+  if (consumed === jumpMessage) return { action: "ignore" };
+  return hash ? { action: "consume", id: jumpMessage } : { action: "show", id: jumpMessage };
+}
