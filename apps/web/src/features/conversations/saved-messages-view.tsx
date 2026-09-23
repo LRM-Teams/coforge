@@ -23,6 +23,7 @@ import { MessageBody } from "./message-body";
 import { useSavedMessages } from "./conversation-navigation";
 import { unsaveMessage } from "./saved-messages.functions";
 import { savedJumpTarget } from "./saved-messages-model";
+import { messagePlainText } from "./selection-copy";
 
 /**
  * The Saved view (#127), reached from the single Saved entry at the top of the Chat sidebar: a
@@ -74,8 +75,6 @@ export function SavedMessagesView() {
   );
 }
 
-type SavedMenuAction = "copy-link" | "copy-markdown" | "remove";
-
 function SavedMessageCard({
   entry,
   onRefresh,
@@ -94,7 +93,8 @@ function SavedMessageCard({
       : jump.to === "/messages/$agentId"
         ? { to: jump.to, params: jump.params, search: jump.search }
         : { to: jump.to };
-  const href = router.buildLocation(jumpProps).href;
+  // The localized URL (`publicHref`), the one the card links to and the address bar shows.
+  const href = router.buildLocation(jumpProps).publicHref;
   const place = conversation.channelName
     ? `#${conversation.channelName}`
     : `@${message.senderName}`;
@@ -114,18 +114,22 @@ function SavedMessageCard({
   }
 
   function handleAction(key: unknown) {
-    const action = key as SavedMenuAction;
-    if (action === "copy-link") {
+    if (key === "copy-link") {
       copy(new URL(href, window.location.origin).href, m.conversation_saved_link_copied());
-    } else if (action === "copy-markdown") {
-      copy(message.body ?? "", m.conversation_copy_as_markdown_success());
-    } else if (action === "remove") {
+    } else if (key === "copy-markdown" && message.body) {
+      // Markdown source as typed, with mentions and task references spelled out.
+      copy(
+        messagePlainText({ body: message.body, mentions: message.mentions }),
+        m.conversation_copy_as_markdown_success(),
+      );
+    } else if (key === "remove") {
       remove();
     }
   }
 
   return (
-    <li className="flex items-start gap-2 rounded-xl border border-secondary bg-primary p-3 transition-colors hover:bg-secondary">
+    // No native text selection or iOS link callout competing with the menu a long-press opens.
+    <li className="flex items-start gap-2 rounded-xl border border-secondary bg-primary p-3 transition-colors select-none [-webkit-touch-callout:none] hover:bg-secondary">
       {/* The card is a React Aria link so the context menu (`MenuTrigger trigger="contextMenu"`)
           can use it as its trigger; `render` hands the element to TanStack's `Link`, which owns
           navigation (react-aria.adobe.com/Link, client-side routing). A left click stays an
@@ -150,7 +154,7 @@ function SavedMessageCard({
               <Avatar
                 size="xs"
                 src={message.senderAvatarUrl ?? null}
-                alt={message.senderName}
+                alt=""
                 className="size-4 shrink-0"
               />
               <span className="truncate font-semibold text-secondary">{message.senderName}</span>

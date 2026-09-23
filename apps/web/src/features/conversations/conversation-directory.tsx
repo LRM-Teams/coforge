@@ -222,6 +222,7 @@ export function ConversationDirectory({
   onCreateChannel?: () => void;
 }) {
   const unreadCounts = useChannelUnreadCounts();
+  const savedCount = useSavedMessages()?.entries.length;
   const sortedChannels = [...channels].sort((left, right) =>
     left.joined === right.joined ? 0 : left.joined ? -1 : 1,
   );
@@ -238,7 +239,6 @@ export function ConversationDirectory({
     );
   /** Both groups start expanded so SSR and the first client render agree; the stored preference
    * is applied right after mount (`localStorage` is unavailable during SSR). */
-  const savedCount = useSavedMessages()?.entries.length;
   const [collapsed, setCollapsed] = useState<DirectorySectionId[]>([]);
   useEffect(() => setCollapsed(readCollapsedSections()), []);
   const toggle = (id: DirectorySectionId) =>
@@ -256,7 +256,12 @@ export function ConversationDirectory({
           target={{ view: "saved" }}
           current={selectedSaved}
           count={savedCount}
-          label={m.conversation_saved_nav()}
+          // The count is shown visually only; screen readers get it in the row's name.
+          label={
+            savedCount
+              ? `${m.conversation_saved_nav()}, ${m.conversation_saved_count({ count: savedCount })}`
+              : m.conversation_saved_nav()
+          }
           icon={
             <Bookmark
               aria-hidden="true"
