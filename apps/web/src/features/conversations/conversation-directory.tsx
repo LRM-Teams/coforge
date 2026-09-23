@@ -1,15 +1,28 @@
-import { Bookmark, ChevronRight, Hash01 as Hash, Plus } from "@untitledui/icons";
-import { useEffect, useId, useState, type ReactNode } from "react";
+import { BookmarkCheck, ChevronRight, Hash01 as Hash, Plus } from "@untitledui/icons";
+import { useEffect, useId, useState, type DragEvent, type ReactNode } from "react";
 import { Link, useRouter } from "@tanstack/react-router";
 import { Link as AriaLink } from "react-aria-components";
+import { useServerFn } from "@tanstack/react-start";
 
+import { Avatar } from "#src/components/base/avatar/avatar";
 import { Button } from "#src/components/base/buttons/button";
 import { ButtonUtility } from "#src/components/base/buttons/button-utility";
 import { AgentDisplayAvatar } from "#src/features/agents/agent-activity-avatar";
 import type { LiveAgent } from "#src/features/agents/workspace-agents-realtime";
+import { RelativeTime } from "#src/components/ui/relative-time";
+import { useAppToast } from "#src/components/ui/toast";
+import type { SavedMessageView } from "#src/server/conversations/saved-messages.server";
 import { cx } from "#src/utils/cx";
 import { m } from "#src/paraglide/messages";
-import { useChannelUnreadCounts, useCloseConversationList } from "./conversation-navigation";
+import {
+  useChannelUnreadCounts,
+  useCloseConversationList,
+  useSavedMessages,
+} from "./conversation-navigation";
+import { savedJumpTarget } from "./saved-messages-model";
+import { saveMessage, unsaveMessage } from "./saved-messages.functions";
+import { MessageBody } from "./message-body";
+import { savedDropPayload, SAVED_DRAG_MIME } from "./saved-drop-model";
 import { ConversationRowMenu } from "./conversation-row-menu";
 import { directRowPreference } from "./conversation-row-menu-model";
 import {
@@ -188,7 +201,7 @@ export function ConversationDirectory({
   directPreferences,
   selectedChannelId,
   selectedAgentId,
-  selectedSaved,
+  selectedSaved: _selectedSaved,
   onCreateChannel,
 }: {
   channels: DirectoryChannel[];
@@ -203,7 +216,8 @@ export function ConversationDirectory({
   };
   selectedChannelId?: string;
   selectedAgentId?: string;
-  /** The Saved view is open — its sidebar entry renders as the current row. */
+  /** The Saved view is open — kept for call-site stability; the section never reads as
+   * "current" because it spans conversations. */
   selectedSaved?: boolean;
   /** Opens the create-channel flow from the "+" next to the CHANNELS caption. */
   onCreateChannel?: () => void;
@@ -237,21 +251,10 @@ export function ConversationDirectory({
     });
   return (
     <>
-      <div className="mt-2 px-4">
-        <ConversationRow
-          target={{ view: "saved" }}
-          current={selectedSaved}
-          label={m.conversation_saved_nav()}
-          icon={
-            <Bookmark
-              aria-hidden="true"
-              className={cx("size-4", selectedSaved ? "text-brand-secondary" : "text-tertiary")}
-            />
-          }
-        >
-          {m.conversation_saved_nav()}
-        </ConversationRow>
-      </div>
+      <SavedDirectorySection
+        collapsed={collapsed.includes("saved")}
+        onToggle={() => toggle("saved")}
+      />
       <div className="mt-2">
         <DirectorySection
           label={m.channels_title()}
@@ -337,5 +340,177 @@ export function ConversationDirectory({
         </DirectorySection>
       </div>
     </>
+  );
+}
+
+/**
+ * The SAVED section (#127, the boss's 2026-09-23 ruling): a dedicated sidebar group like CHANNELS,
+ * not the old single entry. One row per bookmarked message — the sender's avatar and name with the
+ * time and a clamped body excerpt, no group label (the boss's ruling: "不用显示群，要显示头像和
+ * username") — and the row jumps to the message's position in its conversation (the same jump the
+ * Saved view's cards use). The whole section is the drop target: dragging a message row's avatar
+ * here bookmarks it; the per-row bookmark unsaves. The Saved detail view stays reachable at
+ * `/messages/saved` for deep links; the section is the primary surface.
+ */
+function SavedDirectorySection({
+  collapsed,
+  onToggle,
+}: {
+  collapsed: boolean;
+  onToggle: () => void;
+}) {
+  const saved = useSavedMessages();
+  const router = useRouter();
+  const closeList = useCloseConversationList();
+  const unsave = useServerFn(unsaveMessage);
+  const save = useServerFn(saveMessage);
+  const toast = useAppToast();
+  const entries = saved?.entries ?? [];
+  const [dropActive, setDropActive] = useState(false);
+
+  /** Accepts a dragged message row's payload; a foreign drag is ignored in place. */
+  async function onDrop(event: DragEvent<HTMLUListElement>) {
+    event.preventDefault();
+    setDropActive(false);
+    const payload = savedDropPayload(event.dataTransfer.getData(SAVED_DRAG_MIME));
+    if (!payload) return;
+    try {
+      await save({ data: payload });
+      await saved?.refresh();
+    } catch (cause) {
+      console.error("drop-to-save failed", cause);
+      toast.error(m.conversation_save_failed());
+    }
+  }
+
+  return (
+    <div className="mt-2">
+      <DirectorySection
+        label={m.conversation_saved_nav()}
+        expanded={!collapsed}
+        onToggle={onToggle}
+        action={
+          entries.length ? (
+            <span aria-hidden="true" className="mr-1 text-xs tabular-nums text-quaternary">
+              {entries.length}
+            </span>
+          ) : undefined
+        }
+      >
+        <ul
+          aria-label={m.conversation_saved_nav()}
+          className={cx(
+            "mx-2 flex flex-col rounded-lg",
+            dropActive && "outline-2 outline-dashed outline-brand/50",
+          )}
+          onDragOver={(event) => {
+            if (!event.dataTransfer.types.includes(SAVED_DRAG_MIME)) return;
+            event.preventDefault();
+            event.dataTransfer.dropEffect = "copy";
+            setDropActive(true);
+          }}
+          onDragLeave={() => setDropActive(false)}
+          onDrop={(event) => void onDrop(event)}
+        >
+          {entries.length === 0 ? (
+            <li
+              aria-hidden="true"
+              className="mx-1 my-1 rounded-md px-2 py-2 text-xs leading-5 text-quaternary"
+            >
+              {m.conversation_saved_drop_hint()}
+            </li>
+          ) : (
+            entries.map((entry) => (
+              <SavedMessageRow
+                key={entry.message.id}
+                entry={entry}
+                onUnsave={unsave}
+                onSavedRefresh={saved}
+                router={router}
+                closeList={closeList}
+                toast={toast}
+              />
+            ))
+          )}
+        </ul>
+      </DirectorySection>
+    </div>
+  );
+}
+
+/** One bookmarked message as a sidebar row: the sender's avatar and name, the time, and a clamped
+ * body excerpt. The whole row jumps to the message's position; the trailing bookmark unsaves. */
+function SavedMessageRow({
+  entry,
+  onUnsave,
+  onSavedRefresh,
+  router,
+  closeList,
+  toast,
+}: {
+  entry: SavedMessageView;
+  onUnsave: ReturnType<typeof useServerFn<typeof unsaveMessage>>;
+  onSavedRefresh: ReturnType<typeof useSavedMessages>;
+  router: ReturnType<typeof useRouter>;
+  closeList: () => void;
+  toast: ReturnType<typeof useAppToast>;
+}) {
+  const jump = savedJumpTarget(entry.conversation, entry.message);
+  const jumpProps =
+    jump.to === "/messages/channels/$channelId"
+      ? { to: jump.to, params: jump.params, search: jump.search }
+      : jump.to === "/messages/$agentId"
+        ? { to: jump.to, params: jump.params, search: jump.search }
+        : { to: jump.to };
+  return (
+    <li className="group/saved-row relative">
+      <AriaLink
+        href={router.buildLocation(jumpProps).href}
+        render={(props) =>
+          "href" in props ? <Link {...props} {...jumpProps} /> : <span {...props} />
+        }
+        onPress={closeList}
+        className="flex min-w-0 items-start gap-2 rounded-md px-2 py-1.5 outline-focus-ring focus-visible:outline-2 focus-visible:outline-offset-2 hover:bg-primary_hover"
+      >
+        <Avatar
+          size="xs"
+          src={entry.message.senderAvatarUrl ?? null}
+          alt={entry.message.senderName}
+          className="mt-0.5 shrink-0"
+        />
+        <span className="flex min-w-0 flex-1 flex-col">
+          <span className="flex min-w-0 items-baseline gap-2">
+            <span className="truncate text-sm font-medium text-secondary">
+              {entry.message.senderName}
+            </span>
+            <RelativeTime value={entry.message.createdAt} />
+          </span>
+          {entry.message.body ? (
+            <span className="mt-0.5 line-clamp-2 text-xs leading-4 text-tertiary [&_p]:my-0">
+              <MessageBody body={entry.message.body} mentions={entry.message.mentions} />
+            </span>
+          ) : entry.message.attachments[0] ? (
+            <span className="mt-0.5 truncate text-xs text-quaternary">
+              {entry.message.attachments[0].fileName}
+            </span>
+          ) : null}
+        </span>
+      </AriaLink>
+      <ButtonUtility
+        icon={BookmarkCheck}
+        size="xs"
+        color="tertiary"
+        tooltip={m.conversation_unsave()}
+        aria-label={m.conversation_unsave()}
+        onPress={() => {
+          void onUnsave({
+            data: { conversationId: entry.conversation.id, messageId: entry.message.id },
+          })
+            .then(() => onSavedRefresh?.refresh())
+            .catch(() => toast.error(m.conversation_save_failed()));
+        }}
+        className="absolute top-1 right-2 shrink-0 opacity-0 transition-opacity group-hover/saved-row:opacity-100"
+      />
+    </li>
   );
 }

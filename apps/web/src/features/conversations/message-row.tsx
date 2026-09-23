@@ -48,6 +48,7 @@ import {
   selectionFragmentHtml,
 } from "./selection-copy";
 import { copyText } from "#src/features/records/report-editor/lib/clipboard";
+import { SAVED_DRAG_MIME } from "./saved-drop-model";
 import { useTimeFormat } from "#src/lib/time-format-context";
 import { hour12For, type TimeFormat } from "#src/lib/time-format";
 import { dateTimeFormat } from "#src/lib/dates";
@@ -522,6 +523,7 @@ export function MessageRow({
   taskReferences,
   onOpenTask,
   onQuoteSelection,
+  savedDrag,
 }: {
   message: MessageView;
   own: boolean;
@@ -553,6 +555,9 @@ export function MessageRow({
   /** Opens the Agent profile panel; present only where the conversation owns that slot
    * (`features/agents/profile-panel/`'s `openAgentProfile`). Absent, the avatar/name render inert. */
   onOpenAgentProfile?: (agentId: string) => void;
+  /** Present where the surface can bookmark: the avatar becomes the drag handle that carries
+   * this message into the sidebar's SAVED section (save-by-drag). Absent, the avatar is inert. */
+  savedDrag?: { conversationId: string };
   /** The viewing user's handle; a mention of it renders with the stronger "me" chip. */
   viewerHandle?: string;
   /** The conversation's member directory as handle → chip, so a plain `@handle` in the body
@@ -827,18 +832,43 @@ export function MessageRow({
             >
               {clockLabel(message.createdAt, dateLocale, timeFormat)}
             </time>
-          ) : openableAgentId ? (
-            <Button
-              color="tertiary"
-              noTextPadding
-              aria-label={m.agent_open_profile({ name: message.senderName })}
-              onPress={() => onOpenAgentProfile?.(openableAgentId)}
-              className="h-auto w-auto min-w-0 rounded-full p-0 hover:bg-transparent"
-            >
-              {avatar}
-            </Button>
           ) : (
-            avatar
+            <span
+              // The avatar is the drag handle for save-by-drag (#127 follow-up, the boss's
+              // "直接 drag 到 PINNED"): the row itself stays non-draggable so quoting keeps its
+              // native text-selection drag. A foreign drag (no payload written) is a no-op at
+              // the drop target.
+              draggable={savedDrag !== undefined}
+              onDragStart={
+                savedDrag
+                  ? (event) => {
+                      event.dataTransfer.setData(
+                        SAVED_DRAG_MIME,
+                        JSON.stringify({
+                          conversationId: savedDrag.conversationId,
+                          messageId: message.id,
+                        }),
+                      );
+                      event.dataTransfer.effectAllowed = "copy";
+                    }
+                  : undefined
+              }
+              className="cursor-grab active:cursor-grabbing"
+            >
+              {openableAgentId ? (
+                <Button
+                  color="tertiary"
+                  noTextPadding
+                  aria-label={m.agent_open_profile({ name: message.senderName })}
+                  onPress={() => onOpenAgentProfile?.(openableAgentId)}
+                  className="h-auto w-auto min-w-0 rounded-full p-0 hover:bg-transparent"
+                >
+                  {avatar}
+                </Button>
+              ) : (
+                avatar
+              )}
+            </span>
           )}
         </div>
         <div className="flex min-w-0 flex-1 flex-col gap-0.5">

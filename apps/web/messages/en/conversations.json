@@ -230,5 +230,6 @@
   "conversation_saved_title": "Saved messages",
   "conversation_saved_empty_title": "No saved messages yet",
   "conversation_saved_empty_description": "Bookmark a message and it will show up here, ready to jump back to its conversation.",
+  "conversation_saved_drop_hint": "Drag a message's avatar here to save it",
   "conversation_saved_dm": "Direct message"
 }

@@ -1554,6 +1554,7 @@ export function ConversationPane({
                   taskReferences={taskReferences}
                   onOpenTask={onOpenTask}
                   onQuoteSelection={quoteSelection}
+                  savedDrag={{ conversationId: conversation.conversationId }}
                 />
               </ol>
             </div>
@@ -1651,6 +1652,7 @@ export function ConversationPane({
                     taskReferences={taskReferences}
                     onOpenTask={onOpenTask}
                     onQuoteSelection={quoteSelection}
+                    savedDrag={{ conversationId: conversation.conversationId }}
                   />
                 );
               })}
