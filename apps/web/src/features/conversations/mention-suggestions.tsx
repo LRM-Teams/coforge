@@ -37,6 +37,9 @@ export function MentionSuggestionList({
   onHighlight: (index: number) => void;
 }) {
   const activeOptionRef = useRef<HTMLLIElement>(null);
+  /** A touch commit happens on pointerup (see the row handlers); the browser may still synthesize
+   * a click for that tap, which must not choose the same option twice. */
+  const suppressNextClickRef = useRef(false);
   const liveAgents = useLiveAgents();
   const displayByAgentId = useMemo(
     () => new Map(liveAgents.map((agent) => [agent.id, agent.display])),
@@ -68,14 +71,26 @@ export function MentionSuggestionList({
               role="option"
               aria-selected={active}
               onPointerDown={(event) => {
-                // Keep the textarea focused. Commit on click so a mobile browser cannot synthesize
-                // its click against the message row after this option unmounts.
+                // Keep the textarea focused. Safari fires no click after a prevented pointerdown,
+                // so only the mouse pointer is prevented here — a touch commits on pointerup
+                // below, and the ref guard eats the synthetic click that may follow it.
+                event.stopPropagation();
+                if (event.pointerType === "mouse") event.preventDefault();
+              }}
+              onPointerUp={(event) => {
+                if (event.pointerType === "mouse") return;
                 event.preventDefault();
                 event.stopPropagation();
+                suppressNextClickRef.current = true;
+                onChoose(item);
               }}
               onClick={(event) => {
                 event.preventDefault();
                 event.stopPropagation();
+                if (suppressNextClickRef.current) {
+                  suppressNextClickRef.current = false;
+                  return;
+                }
                 onChoose(item);
               }}
               onMouseEnter={() => onHighlight(index)}
