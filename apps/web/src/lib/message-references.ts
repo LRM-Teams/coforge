@@ -1,8 +1,9 @@
 /**
- * The one send-time recognizer of a message body's references. It reads the body's Markdown syntax
- * tree (`parseMessageSyntax`, the dialect the renderer uses), so only prose is ever a reference:
+ * The one send-time recognizer of a message body's references. It reads the Markdown syntax tree
+ * the renderer reads — the same dialect (`parseMessageSyntax`) over the same input
+ * (`escapeLiteralHtml(body)`) — so only what the renderer shows as prose is ever a reference:
  * nothing under code, a code block, a link (a GFM autolink included), a link reference, a
- * definition or raw HTML is read.
+ * definition or HTML is read.
  *
  * Each prose `text` node is read left to right against one ordered set of alternatives:
  *
@@ -16,13 +17,13 @@
  * reference's `#name` is never also a channel, and the `#N` of `task #N` is never also a channel.
  *
  * What resolves becomes its stored token, spliced into the body as written at the node's source
- * offsets, so every byte outside a replaced reference stays identical. A match whose source is not
- * exactly its text — an escaped `\#name`, a character reference — is written literally, not
- * referenced.
+ * offsets (mapped back through the escaping), so every byte outside a replaced reference stays
+ * identical. A match whose source is not exactly its text — an escaped `\#name`, a character
+ * reference — is written literally, not referenced.
  *
- * Resolution is two steps because the server's lookups are queries: `messageReferenceCandidates`
- * lists what the body could mean, the caller looks those up, and `resolveMessageReferences`
- * rewrites the body with the answers. The token grammar and the readers live in the SDK.
+ * Resolution is two steps because the server's lookups are queries: `readMessageReferences` reads
+ * the body once and lists its `candidates`, the caller looks those up, and `resolve` rewrites the
+ * body with the answers. The token grammar and the readers live in the SDK.
  */
 import {
   CHANNEL_REFERENCE_PATTERN,
@@ -35,7 +36,7 @@ import {
 } from "@lrm/coforge-sdk/internal";
 import type { Nodes, Text } from "mdast";
 
-import { parseMessageSyntax } from "./message-syntax";
+import { escapeLiteralHtml, parseMessageSyntax } from "./message-syntax";
 
 type Reference =
   | { kind: "mention"; handle: string }
@@ -85,33 +86,45 @@ export type MessageReferenceLookup = {
   channel?: (name: string) => { id: string; name: string } | undefined;
 };
 
-/** Lists the references a body's prose could mean, for the caller to look up. */
-export function messageReferenceCandidates(body: string): MessageReferenceCandidates {
+/** A body's references, read once: what they could mean, and the rewrite once they are answered. */
+export type MessageReferences = {
+  candidates: MessageReferenceCandidates;
+  /**
+   * The body with every reference `lookup` resolves rewritten into its stored token —
+   * `<@human|agent:uuid>`, `<@task:N>`, `<@channel:uuid:name>` — and every other byte as written.
+   */
+  resolve: (lookup: MessageReferenceLookup) => string;
+};
+
+/** Reads a body's prose references once, for the caller to look up and then resolve. */
+export function readMessageReferences(body: string): MessageReferences {
+  const references = proseReferences(body);
   const handles = new Set<string>();
   const taskNumbers = new Set<number>();
   const channelNames = new Set<string>();
-  for (const { reference } of proseReferences(body)) {
+  for (const { reference } of references) {
     if (reference.kind === "mention") handles.add(reference.handle);
     else if (reference.kind === "task") taskNumbers.add(reference.number);
     else if (reference.kind === "channel") channelNames.add(reference.name);
   }
-  return { handles: [...handles], taskNumbers: [...taskNumbers], channelNames: [...channelNames] };
-}
-
-/**
- * Rewrites every reference `lookup` resolves into its stored token — `<@human|agent:uuid>`,
- * `<@task:N>`, `<@channel:uuid:name>` — and leaves every other byte of the body as written.
- */
-export function resolveMessageReferences(body: string, lookup: MessageReferenceLookup): string {
-  let result = "";
-  let cursor = 0;
-  for (const { reference, start, end } of proseReferences(body)) {
-    const token = tokenFor(reference, lookup);
-    if (token === undefined) continue;
-    result += body.slice(cursor, start) + token;
-    cursor = end;
-  }
-  return result + body.slice(cursor);
+  return {
+    candidates: {
+      handles: [...handles],
+      taskNumbers: [...taskNumbers],
+      channelNames: [...channelNames],
+    },
+    resolve: (lookup) => {
+      let result = "";
+      let cursor = 0;
+      for (const { reference, start, end } of references) {
+        const token = tokenFor(reference, lookup);
+        if (token === undefined) continue;
+        result += body.slice(cursor, start) + token;
+        cursor = end;
+      }
+      return result + body.slice(cursor);
+    },
+  };
 }
 
 function tokenFor(reference: Reference, lookup: MessageReferenceLookup): string | undefined {
@@ -131,22 +144,48 @@ function tokenFor(reference: Reference, lookup: MessageReferenceLookup): string 
   }
 }
 
-/** Every reference in the body's prose, in reading order, with its source offsets in `body`. */
+/** Every reference in the body's prose, in reading order, with its offsets in `body`. */
 function proseReferences(body: string): { reference: Reference; start: number; end: number }[] {
+  const source = escapeLiteralHtml(body);
+  const toBody = bodyOffsets(body, source);
   const references: { reference: Reference; start: number; end: number }[] = [];
-  for (const node of proseTextNodes(parseMessageSyntax(body))) {
-    const source = sourceOffsets(body, node);
-    if (!source) continue;
+  for (const node of proseTextNodes(parseMessageSyntax(source))) {
+    const offsets = sourceOffsets(source, node);
+    if (!offsets) continue;
     for (const match of matchesIn(node.value)) {
-      const start = source.start[match.index]!;
-      const end = source.end[match.index + match.text.length - 1]!;
+      const from = offsets.start[match.index]!;
+      const to = offsets.end[match.index + match.text.length - 1]!;
       // Written exactly as matched: an escape or a character reference inside it means the
       // author wrote the characters literally.
-      if (body.slice(start, end) !== match.text) continue;
-      references.push({ reference: match.reference, start, end });
+      if (source.slice(from, to) !== match.text) continue;
+      // Reference text holds no `<`, so it maps back to the body one character for one.
+      const start = toBody[from]!;
+      references.push({ reference: match.reference, start, end: start + match.text.length });
     }
   }
   return references;
+}
+
+/**
+ * The body offset of each offset of its Markdown source. `escapeLiteralHtml` only ever turns a
+ * `<` into `&lt;`, so the two differ exactly there: each of those four source characters maps to
+ * the body's `<`.
+ */
+function bodyOffsets(body: string, source: string): number[] {
+  const offsets: number[] = [];
+  let at = 0;
+  for (let index = 0; index < source.length;) {
+    if (body[at] === "<" && source.startsWith("&lt;", index)) {
+      offsets.push(at, at, at, at);
+      index += 4;
+    } else {
+      offsets.push(at);
+      index += 1;
+    }
+    at += 1;
+  }
+  offsets.push(at);
+  return offsets;
 }
 
 /** The prose `text` nodes of a tree, in document order. */
@@ -157,13 +196,13 @@ function proseTextNodes(tree: Nodes): Text[] {
 }
 
 /**
- * Where each character of a text node's value was written in `body`: `start[i]` is the source
+ * Where each character of a text node's value was written in `source`: `start[i]` is the source
  * offset where value character `i` begins (the `\` of an escape, the `&` of a character
  * reference) and `end[i]` the offset right after it. Whitespace the parser dropped (a continuation
  * line's indent) belongs to no character. `undefined` when the node has no position or its source
  * cannot be aligned with its value; the node is then left as written.
  */
-function sourceOffsets(body: string, node: Text): { start: number[]; end: number[] } | undefined {
+function sourceOffsets(source: string, node: Text): { start: number[]; end: number[] } | undefined {
   const from = node.position?.start.offset;
   const to = node.position?.end.offset;
   if (from === undefined || to === undefined) return undefined;
@@ -174,7 +213,7 @@ function sourceOffsets(body: string, node: Text): { start: number[]; end: number
   for (let index = 0; index < value.length;) {
     if (offset >= to) return undefined;
     const reference = /^&(?:#[0-9]{1,7}|#[xX][0-9a-fA-F]{1,6}|[A-Za-z][A-Za-z0-9]{0,31});/.exec(
-      body.slice(offset, Math.min(to, offset + 40)),
+      source.slice(offset, Math.min(to, offset + 40)),
     );
     // An unknown name (`&nope;`) is not a character reference and stays literal in the value.
     if (reference && value.startsWith(reference[0], index)) {
@@ -191,17 +230,17 @@ function sourceOffsets(body: string, node: Text): { start: number[]; end: number
       }
       index += units;
       offset += reference[0].length;
-    } else if (body[offset] === value[index]) {
+    } else if (source[offset] === value[index]) {
       start[index] = offset;
       end[index] = offset + 1;
       index += 1;
       offset += 1;
-    } else if (body[offset] === "\\" && body[offset + 1] === value[index]) {
+    } else if (source[offset] === "\\" && source[offset + 1] === value[index]) {
       start[index] = offset;
       end[index] = offset + 2;
       index += 1;
       offset += 2;
-    } else if (/\s/.test(body[offset]!)) {
+    } else if (/\s/.test(source[offset]!)) {
       offset += 1;
     } else {
       return undefined;

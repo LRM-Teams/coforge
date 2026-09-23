@@ -8,12 +8,12 @@ import {
   TASK_CHIP_CLASS,
   TASK_CHIP_LINK_CLASS,
   type ChipMention,
-  escapeLiteralHtml,
   mentionHandlesByToken,
   rehypeChannelReferenceChips,
   rehypeMentionChips,
   rehypeTaskReferenceChips,
 } from "#src/features/conversations/message-markdown";
+import { escapeLiteralHtml } from "#src/lib/message-syntax";
 
 const UUID = "550e8400-e29b-41d4-a716-446655440000";
 const OTHER_UUID = "11111111-2222-4333-8444-555555555555";

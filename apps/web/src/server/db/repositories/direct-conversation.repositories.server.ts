@@ -1,7 +1,7 @@
 import { lockConversation } from "#src/server/conversations/conversation-lock.server";
 import type { MessageSenderKind, MessageTaskMetadata, TaskStatus } from "@lrm/coforge-sdk/internal";
 import { resolveMentionTargets } from "@lrm/coforge-sdk/internal";
-import { messageReferenceCandidates } from "#src/lib/message-references";
+import { readMessageReferences } from "#src/lib/message-references";
 import { Prisma, type PrismaClient } from "#src/generated/prisma/client";
 import { AppError } from "#src/lib/app-error";
 import { canDirectMessageAgent } from "#src/server/agents/agent-visibility.server";
@@ -1519,7 +1519,7 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
       const storedBody = await storedMessageBody(
         tx,
         { workspaceId: conversation.workspaceId, conversationId },
-        body,
+        readMessageReferences(body),
       );
       const created = await tx.message.create({
         data: {
@@ -2276,9 +2276,11 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
       // resolves to an active member — whether given as a structured `--mention` selector or
       // written plainly — becomes a `<@kind:uuid>` token plus a MessageMention row. DMs keep
       // plain `@handle` text (no mention structure there).
+      // The body is read once; its candidates are answered below and then resolved together.
+      const references = readMessageReferences(body);
       const resolution = conversation.channelName
         ? resolveMentionTargets(
-            messageReferenceCandidates(body).handles,
+            references.candidates.handles,
             conversation.members
               .filter((member) => !member.leftAt)
               .map((member) =>
@@ -2306,7 +2308,7 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
       const storedBody = await storedMessageBody(
         tx,
         { workspaceId: conversation.workspaceId, conversationId },
-        body,
+        references,
         resolution.target,
       );
       // Other Agents this channel message wakes: every resolved Agent mention. An Agent message

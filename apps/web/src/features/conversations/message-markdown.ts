@@ -6,8 +6,9 @@
  *
  * 1. Raw HTML stays literal. `react-markdown` drops HTML by default, which would silently
  *    delete a body such as `<div>x</div>` — a data-loss regression, not a safety win. Every
- *    HTML-looking `<` outside code is escaped so it renders as the characters the author typed.
- *    GFM autolinks (`<https://…>`) and mention tokens keep their `<`.
+ *    HTML-looking `<` outside code is escaped (`escapeLiteralHtml`, `#src/lib/message-syntax`) so
+ *    it renders as the characters the author typed. GFM autolinks (`<https://…>`) and reference
+ *    tokens keep their `<`.
  * 2. A stored `<@kind:…>` token (a mention, a task or a channel) still renders as its chip, and
  *    still never inside a code span or fence — the server never stores one there either (its
  *    recognizer reads the same Markdown syntax, `#src/lib/message-syntax`).
@@ -21,16 +22,12 @@ import {
   CHANNEL_REFERENCE_TOKEN_PATTERN,
   MENTION_PATTERN,
   MENTION_TOKEN_PATTERN,
-  splitCodeSpans,
   BARE_TASK_REFERENCE_PATTERN,
   TASK_REFERENCE_TOKEN_PATTERN,
 } from "@lrm/coforge-sdk/internal";
 import type { Element, Root, Text } from "hast";
 
 import type { MentionRef } from "./mention-text";
-
-/** A URI scheme right after `<` means a GFM autolink, not an HTML tag. */
-const URI_SCHEME = /^[a-zA-Z][a-zA-Z0-9+.-]*:/;
 
 /**
  * Complete class literals so Tailwind's source scan emits every utility. The chip treatment
@@ -61,33 +58,6 @@ export const TASK_CHIP_LINK_CLASS = "message-markdown-task-reference-link";
  */
 export const CHANNEL_CHIP_CLASS =
   "message-markdown-channel-reference rounded-sm px-0.5 font-medium bg-brand-primary text-brand-secondary";
-
-/**
- * Escapes HTML-looking text outside code spans so Markdown renders it literally, matching the
- * plain-text rendering this replaces.
- *
- * Only `<` is escaped. Escaping `&` as well would corrupt a bare URL autolink: GFM reads the
- * literal `https://x?a=1&amp;b=2` as the URL text and escapes its `&` again, so the link and its
- * label both end up showing `&amp;`. Decoding an entity such as `&lt;` into `<` is ordinary
- * Markdown behavior and loses no information.
- *
- * Code spans and fences pass through byte-for-byte: their contents already render as literal
- * code, and rewriting them would corrupt the sample the author wrote.
- */
-export function escapeLiteralHtml(body: string): string {
-  return splitCodeSpans(body)
-    .map((segment) => {
-      if (segment.code) return segment.text;
-      return segment.text.replace(/</g, (character, offset: number, whole: string) => {
-        const rest = whole.slice(offset + 1);
-        // `<https://…>` is a GFM autolink and `<@agent:uuid>` is a mention token. Both must
-        // keep their `<` or the autolink and the chip are destroyed.
-        if (URI_SCHEME.test(rest) || rest.startsWith("@")) return character;
-        return "&lt;";
-      });
-    })
-    .join("");
-}
 
 /** A resolved mention as a chip needs both its stable handle (identity/self matching) and its
  * display label, plus the Agent id to open its profile panel when applicable. */

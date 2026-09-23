@@ -4,9 +4,8 @@ import Markdown, { type Components, type ExtraProps, type Options } from "react-
 import rehypeSanitize from "rehype-sanitize";
 import type { Element } from "hast";
 
-import { MESSAGE_REMARK_PLUGINS } from "#src/lib/message-syntax";
+import { MESSAGE_REMARK_PLUGINS, escapeLiteralHtml } from "#src/lib/message-syntax";
 import {
-  escapeLiteralHtml,
   mentionHandlesByToken,
   rehypeChannelReferenceChips,
   rehypeMentionChips,

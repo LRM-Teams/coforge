@@ -33,7 +33,7 @@ import {
 } from "#src/server/centrifugo/server-api.server";
 import type { MessageNotifier } from "#src/server/notifications/web-push-composition.server";
 import { resolveMentionTargets } from "@lrm/coforge-sdk/internal";
-import { messageReferenceCandidates } from "#src/lib/message-references";
+import { readMessageReferences } from "#src/lib/message-references";
 import { storedMessageBody } from "./message-references.server";
 import {
   agentReadableBody,
@@ -1445,8 +1445,10 @@ export class PublicChannels {
               agent: { select: { name: true } },
             },
           });
+          // The body is read once; its candidates are answered below and then resolved together.
+          const references = readMessageReferences(body);
           const resolution = resolveMentionTargets(
-            messageReferenceCandidates(body).handles,
+            references.candidates.handles,
             activeMembers.map((channelMember) =>
               channelMember.userId
                 ? {
@@ -1466,7 +1468,7 @@ export class PublicChannels {
           const storedBody = await storedMessageBody(
             tx,
             { workspaceId, conversationId: channelId },
-            body,
+            references,
             resolution.target,
           );
           if (root) {

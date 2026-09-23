@@ -1,16 +1,12 @@
 import type { PrismaClient } from "#src/generated/prisma/client";
-import {
-  messageReferenceCandidates,
-  resolveMessageReferences,
-  type MessageReferenceLookup,
-} from "#src/lib/message-references";
+import type { MessageReferenceLookup, MessageReferences } from "#src/lib/message-references";
 
 type Transaction = Parameters<Parameters<PrismaClient["$transaction"]>[0]>[0];
 
 /**
  * The body a send stores: every reference the server can resolve becomes its structured token, so
- * no reader ever has to parse prose again. One tokenizer reads the body (see
- * `resolveMessageReferences`); this function answers its candidates from the database:
+ * no reader ever has to parse prose again. The caller reads the body once
+ * (`readMessageReferences`); this function answers its candidates from the database:
  *
  * - `task #N` names a task of this conversation;
  * - `#name` names a channel of this Workspace. Every channel is public and readable by every
@@ -22,10 +18,10 @@ type Transaction = Parameters<Parameters<PrismaClient["$transaction"]>[0]>[0];
 export async function storedMessageBody(
   tx: Pick<Transaction, "task" | "conversation">,
   scope: { workspaceId: string; conversationId: string },
-  body: string,
+  references: MessageReferences,
   mention?: MessageReferenceLookup["mention"],
 ): Promise<string> {
-  const { taskNumbers, channelNames } = messageReferenceCandidates(body);
+  const { taskNumbers, channelNames } = references.candidates;
   const knownTasks = new Set(
     taskNumbers.length
       ? (
@@ -46,7 +42,7 @@ export async function storedMessageBody(
         ).map((channel) => [channel.channelName!, { id: channel.id, name: channel.channelName! }])
       : [],
   );
-  return resolveMessageReferences(body, {
+  return references.resolve({
     mention,
     task: (number) => knownTasks.has(number),
     channel: (name) => channelsByName.get(name),

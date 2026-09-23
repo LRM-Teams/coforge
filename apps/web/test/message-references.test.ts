@@ -7,7 +7,13 @@ import {
   taskReferenceToken,
   type MentionTarget,
 } from "@lrm/coforge-sdk/internal";
-import { messageReferenceCandidates, resolveMessageReferences } from "#src/lib/message-references";
+import { readMessageReferences, type MessageReferenceLookup } from "#src/lib/message-references";
+
+/** What a body could mean, read the way a send reads it. */
+const messageReferenceCandidates = (body: string) => readMessageReferences(body).candidates;
+/** The stored body once `lookup` answers the candidates. */
+const resolveMessageReferences = (body: string, lookup: MessageReferenceLookup) =>
+  readMessageReferences(body).resolve(lookup);
 
 const ADA = {
   key: "member-ada",
@@ -128,21 +134,25 @@ test("a reference on an indented continuation line still resolves in place", () 
   );
 });
 
-test("raw HTML is not prose: an HTML block's lines are left as written", () => {
-  // CommonMark reads a line that opens with a tag as an HTML block running to the next blank
-  // line. The recognizer parses the body as written, so nothing in that block is a reference.
+test("HTML-looking lines are prose, the way the renderer shows them", () => {
+  // The renderer escapes `<` before it parses, so a line opening with a tag is not an HTML block
+  // there; the recognizer reads the same structure, so the references on those lines resolve.
   const body = "<details>\n@ada see #product\n</details>";
   expect(messageReferenceCandidates(body)).toEqual({
-    handles: [],
-    taskNumbers: [],
-    channelNames: [],
-  });
-  // Inline HTML is only its tags; the prose between them is still read.
-  expect(messageReferenceCandidates("hi <b>@ada</b> #product")).toEqual({
     handles: ["ada"],
     taskNumbers: [],
     channelNames: ["product"],
   });
+  const resolution = resolveMentionTargets(messageReferenceCandidates(body).handles, [ADA]);
+  expect(resolveMessageReferences(body, { mention: resolution.target, channel })).toBe(
+    `<details>\n<@human:${ADA.id}> see ${channelReferenceToken(PRODUCT.id, "product")}\n</details>`,
+  );
+  expect(
+    resolveMessageReferences("hi <b>@ada</b> and a < b #product", {
+      mention: resolution.target,
+      channel,
+    }),
+  ).toBe(`hi <b><@human:${ADA.id}></b> and a < b ${channelReferenceToken(PRODUCT.id, "product")}`);
 });
 
 test("an @mention in a link's label is part of the link, not a mention", () => {
