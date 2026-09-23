@@ -15,6 +15,20 @@ afterEach(() => {
   for (const proxy of proxies.splice(0)) proxy.close();
 });
 
+test("the proxy listens on loopback only, so no other local listener can take over its port", () => {
+  const proxy = startAgentProxy({ runtime: { agentMessage: async () => ({}) } });
+  proxies.push(proxy);
+  const port = Number(new URL(proxy.url).port);
+  // A wildcard listener would let this more specific bind succeed and steal every request the
+  // Agent sends to 127.0.0.1 — and would make the proxy reachable from the network.
+  let intruder: ReturnType<typeof Bun.serve> | undefined;
+  try {
+    intruder = Bun.serve({ hostname: "127.0.0.1", port, fetch: () => new Response("intruder") });
+  } catch {}
+  void intruder?.stop(true);
+  expect(intruder).toBeUndefined();
+});
+
 test("proxy classifies Agent message failures: known validation passes through, upstream HTTP status passes through", async () => {
   for (const [failure, status, expected] of [
     [
