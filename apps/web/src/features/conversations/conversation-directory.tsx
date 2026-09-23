@@ -10,7 +10,7 @@ import { cx } from "@/utils/cx";
 import { m } from "@/paraglide/messages";
 import { useChannelUnreadCounts, useCloseConversationList } from "./conversation-navigation";
 import { ConversationRowMenu } from "./conversation-row-menu";
-import { conversationRowMenuEnabled } from "./conversation-row-menu-model";
+import { conversationRowMenuEnabled, directRowPreference } from "./conversation-row-menu-model";
 import {
   readCollapsedSections,
   writeCollapsedSections,
@@ -180,6 +180,7 @@ function DirectorySection({
 export function ConversationDirectory({
   channels,
   agents,
+  directPreferences,
   selectedChannelId,
   selectedAgentId,
   selectedSaved,
@@ -187,6 +188,14 @@ export function ConversationDirectory({
 }: {
   channels: DirectoryChannel[];
   agents: LiveAgent[];
+  /** The viewer's own DM preferences (P2b, #708): which Agent rows are conversations, which are
+   * pinned (and in what order), and which are closed. DM rows come from the Agent list, so this is
+   * the only thing that can tell them apart. */
+  directPreferences: {
+    conversations: readonly string[];
+    pinned: readonly { agentId: string; sortOrder: number }[];
+    hidden: readonly string[];
+  };
   selectedChannelId?: string;
   selectedAgentId?: string;
   /** The Saved view is open — its sidebar entry renders as the current row. */
@@ -198,6 +207,17 @@ export function ConversationDirectory({
   const sortedChannels = [...channels].sort((left, right) =>
     left.joined === right.joined ? 0 : left.joined ? -1 : 1,
   );
+  /** Closed DMs leave the list; pinned ones come first, in the order the member arranged them,
+   * then the Agent list's own order (the server owns both facts, this only reads them). */
+  const sortedAgents = agents
+    .map((agent) => ({ agent, preference: directRowPreference(directPreferences, agent.id) }))
+    .filter(({ preference }) => !preference.hidden)
+    .sort((left, right) =>
+      left.preference.pinned || right.preference.pinned
+        ? Number(right.preference.pinned) - Number(left.preference.pinned) ||
+          (left.preference.sortOrder ?? 0) - (right.preference.sortOrder ?? 0)
+        : 0,
+    );
   /** Both groups start expanded so SSR and the first client render agree; the stored preference
    * is applied right after mount (`localStorage` is unavailable during SSR). */
   const [collapsed, setCollapsed] = useState<DirectorySectionId[]>([]);
@@ -250,7 +270,7 @@ export function ConversationDirectory({
             {sortedChannels.map((channel) => {
               const current = channel.id === selectedChannelId;
               return (
-                <ConversationRowMenu key={channel.id} channel={channel}>
+                <ConversationRowMenu key={channel.id} target={{ kind: "channel", ...channel }}>
                   <ConversationRow
                     target={{ channelId: channel.id }}
                     current={current}
@@ -281,13 +301,22 @@ export function ConversationDirectory({
           onToggle={() => toggle("agents")}
         >
           <ul aria-label={m.messages_agents_action()} className="flex flex-col px-4 pb-3">
-            {agents.map((agent) => (
-              <li key={agent.id} className="py-px">
+            {sortedAgents.map(({ agent, preference }) => (
+              <ConversationRowMenu
+                key={agent.id}
+                target={{
+                  kind: "direct",
+                  agentId: agent.id,
+                  enabled: preference.enabled,
+                  pinned: preference.pinned,
+                }}
+              >
                 <ConversationRow
                   target={{ agentId: agent.id }}
                   current={agent.id === selectedAgentId}
                   unreadCount={unreadCounts[agent.id]}
                   label={agent.displayName}
+                  hasMenu={preference.enabled}
                   icon={
                     <AgentDisplayAvatar
                       name={agent.displayName}
@@ -299,7 +328,7 @@ export function ConversationDirectory({
                 >
                   {agent.displayName}
                 </ConversationRow>
-              </li>
+              </ConversationRowMenu>
             ))}
           </ul>
         </DirectorySection>

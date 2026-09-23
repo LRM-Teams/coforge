@@ -98,7 +98,8 @@ export function useConversationReadRequiresScroll(): boolean {
 
 /** Keep both panels mounted so returning to the list preserves scroll and drafts. */
 export function ConversationNavigation({ children }: { children: ReactNode }) {
-  const { channels, projects, directUnread, viewerId, saved } = messagesRoute.useLoaderData();
+  const { channels, projects, directUnread, directPreferences, viewerId, saved } =
+    messagesRoute.useLoaderData();
   const { conversationOpenMode: savedOpenMode } = appRoute.useLoaderData();
   const openMode = conversationOpenMode(savedOpenMode);
   const agents = useLiveAgents();
@@ -189,6 +190,7 @@ export function ConversationNavigation({ children }: { children: ReactNode }) {
                   <ConversationDirectory
                     channels={visibleChannels}
                     agents={agents}
+                    directPreferences={directPreferences}
                     selectedChannelId={channel?.channelId}
                     selectedAgentId={agent?.agentId}
                     selectedSaved={pathname === "/messages/saved"}

@@ -8,6 +8,11 @@ import { Dropdown } from "@/components/base/dropdown/dropdown";
 import { useAppToast } from "@/components/ui/toast";
 import { m } from "@/paraglide/messages";
 import {
+  setDirectConversationHidden,
+  setDirectConversationPinned,
+  setDirectConversationUnread,
+} from "./conversations.functions";
+import {
   setPublicConversationHidden,
   setPublicConversationPinned,
   setPublicConversationUnread,
@@ -50,25 +55,47 @@ function itemLabel(item: ConversationRowMenuItem): string {
  * (`docs/design.md` §9): the menu item only opens the confirm, the confirm button is the one
  * solid red.
  */
+/** What the menu acts on: a channel row (membership decides) or a direct-message row (an existing
+ * conversation decides — a preference must not create one). */
+export type ConversationRowMenuTarget =
+  | { kind: "channel"; id: string; joined: boolean; pinned: boolean }
+  | { kind: "direct"; agentId: string; enabled: boolean; pinned: boolean };
+
 export function ConversationRowMenu({
-  channel,
+  target,
   children,
 }: {
-  channel: { id: string; joined: boolean; pinned: boolean };
+  target: ConversationRowMenuTarget;
   children: ReactNode;
 }) {
-  const enabled = conversationRowMenuEnabled(channel);
+  const enabled = target.kind === "channel" ? conversationRowMenuEnabled(target) : target.enabled;
   /** `null` = closed; otherwise the anchor point relative to this row. */
   const [anchor, setAnchor] = useState<RowAnchor | null>(null);
   const [confirming, setConfirming] = useState(false);
   const [pending, setPending] = useState(false);
   const router = useRouter();
   const toast = useAppToast();
-  const setPinned = useServerFn(setPublicConversationPinned);
-  const setUnread = useServerFn(setPublicConversationUnread);
-  const setHidden = useServerFn(setPublicConversationHidden);
+  const setChannelPinned = useServerFn(setPublicConversationPinned);
+  const setChannelUnread = useServerFn(setPublicConversationUnread);
+  const setChannelHidden = useServerFn(setPublicConversationHidden);
+  const setDirectPinned = useServerFn(setDirectConversationPinned);
+  const setDirectUnread = useServerFn(setDirectConversationUnread);
+  const setDirectHidden = useServerFn(setDirectConversationHidden);
+  // One set of calls per row kind; the two interfaces differ only in how they name the target.
+  const calls =
+    target.kind === "channel"
+      ? {
+          unread: () => setChannelUnread({ data: { channelId: target.id, unread: true } }),
+          pin: () => setChannelPinned({ data: { channelId: target.id, pinned: !target.pinned } }),
+          hide: () => setChannelHidden({ data: { channelId: target.id, hidden: true } }),
+        }
+      : {
+          unread: () => setDirectUnread({ data: { agentId: target.agentId, unread: true } }),
+          pin: () => setDirectPinned({ data: { agentId: target.agentId, pinned: !target.pinned } }),
+          hide: () => setDirectHidden({ data: { agentId: target.agentId, hidden: true } }),
+        };
 
-  const items = conversationRowMenuItems(channel);
+  const items = conversationRowMenuItems(target);
 
   const close = () => {
     setAnchor(null);
@@ -116,9 +143,9 @@ export function ConversationRowMenu({
   function handleAction(key: unknown) {
     if (pending) return;
     if (key === "mark-unread") {
-      void run(() => setUnread({ data: { channelId: channel.id, unread: true } }));
+      void run(calls.unread);
     } else if (key === "pin") {
-      void run(() => setPinned({ data: { channelId: channel.id, pinned: !channel.pinned } }));
+      void run(calls.pin);
     } else if (key === "close-chat") {
       setConfirming(true);
     }
@@ -232,9 +259,7 @@ export function ConversationRowMenu({
                     size="sm"
                     isDisabled={pending}
                     isLoading={pending}
-                    onPress={() =>
-                      void run(() => setHidden({ data: { channelId: channel.id, hidden: true } }))
-                    }
+                    onPress={() => void run(calls.hide)}
                     className="min-w-28"
                   >
                     {m.conversation_menu_confirm_close()}
