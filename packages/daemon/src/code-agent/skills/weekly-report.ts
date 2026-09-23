@@ -143,6 +143,8 @@ Insert.
 [/weekly-report-suggestion]
 \`\`\`
 
+\`content.tabs\` is required: put every section under \`tabs\`, never as bare keys
+on \`content\` (e.g. do not emit \`"content":{"Summary":{"markdown":"…"}}\`).
 Each tab value MUST be an object with a \`markdown\` string (not a bare string).
 Always close the envelope with \`[/weekly-report-suggestion]\`.
 The product shows that markdown as a draft preview and an Insert button.

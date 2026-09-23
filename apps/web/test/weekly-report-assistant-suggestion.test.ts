@@ -115,6 +115,76 @@ test("body-edit tabs accept plain markdown strings as well as {markdown} objects
   });
 });
 
+test("body-edit content accepts a flat tab map when Agents omit the tabs wrapper", () => {
+  // Incident shape: synthesizer put Summary/Research/… directly under content.
+  const body = [
+    "W39 周报草稿已整理完成。",
+    "",
+    "[weekly-report-suggestion]",
+    JSON.stringify({
+      type: "body-edit",
+      reportId: "e3951155-f545-4d47-aee2-172d9ca10db4",
+      summary: "W39：周报与 Records 产品完善",
+      content: {
+        Summary: {
+          markdown: "## Work Summary:\n本周围绕周报产品和跨平台运行基础设施完成两条主线。\n",
+        },
+        Research: { markdown: "本周采集包未记录独立的研究课题。\n" },
+        Technique: { markdown: "- 采用按报告隔离的 Assistant session。\n" },
+        Achievements: { markdown: "- 完成周报产品 polish。\n" },
+      },
+    }),
+    "[/weekly-report-suggestion]",
+  ].join("\n");
+  expect(parseWeeklyReportAssistantSuggestion(body)).toEqual({
+    type: "body-edit",
+    reportId: "e3951155-f545-4d47-aee2-172d9ca10db4",
+    summary: "W39：周报与 Records 产品完善",
+    content: {
+      tabs: {
+        Summary: {
+          markdown: "## Work Summary:\n本周围绕周报产品和跨平台运行基础设施完成两条主线。\n",
+        },
+        Research: { markdown: "本周采集包未记录独立的研究课题。\n" },
+        Technique: { markdown: "- 采用按报告隔离的 Assistant session。\n" },
+        Achievements: { markdown: "- 完成周报产品 polish。\n" },
+      },
+    },
+  });
+});
+
+test("body-edit suggestions with no usable tabs are ignored", () => {
+  expect(
+    parseWeeklyReportAssistantSuggestion(
+      buildWeeklyReportAssistantSuggestionBody({
+        displayText: "nothing to insert",
+        suggestion: {
+          type: "body-edit",
+          reportId: "e3951155-f545-4d47-aee2-172d9ca10db4",
+          summary: "empty draft",
+          content: { tabs: {} },
+        },
+      }),
+    ),
+  ).toBeNull();
+  expect(
+    parseWeeklyReportAssistantSuggestion(
+      [
+        "empty flat content",
+        "",
+        "[weekly-report-suggestion]",
+        JSON.stringify({
+          type: "body-edit",
+          reportId: "e3951155-f545-4d47-aee2-172d9ca10db4",
+          summary: "empty draft",
+          content: {},
+        }),
+        "[/weekly-report-suggestion]",
+      ].join("\n"),
+    ),
+  ).toBeNull();
+});
+
 test("body-edit suggestions still parse when the closing fence is omitted", () => {
   const payload = {
     type: "body-edit",
