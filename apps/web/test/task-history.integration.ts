@@ -79,6 +79,13 @@ test("Task changes record history events with their before and after state", asy
       assignee: `@${bob.username}`,
     });
     const task = created.tasks[0]!;
+    expect(task.creator).toEqual({
+      memberId: channel.members.find((member) => member.userId === alice.id)!.id,
+      kind: "user",
+      name: "Alice",
+      handle: alice.username,
+      avatarUrl: null,
+    });
     await run(asBob, { operation: "update", number: task.number, status: "in_progress" });
     await run(asBob, { operation: "update", number: task.number, status: "in_progress" });
     await run(asBob, { operation: "update", number: task.number, status: "in_review" });

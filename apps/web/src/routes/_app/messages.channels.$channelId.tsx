@@ -180,6 +180,7 @@ function ChannelPage() {
         onLayoutChange={changeLayout}
         tasks={taskView.tasks}
         conversationName={`#${conversation.name}`}
+        members={conversation.mentionables}
         currentMemberId={conversation.senderMemberId}
         canMutate={Boolean(conversation.senderMemberId)}
         loading={taskView.loading}
