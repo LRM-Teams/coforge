@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { RedisUsageCache, USAGE_STALE_AFTER_MS } from "../src/server/centrifugo/usage-cache.server";
+import { RedisUsageCache, USAGE_STALE_AFTER_MS } from "@/server/centrifugo/usage-cache.server";
 
 function fakeRedis() {
   const values = new Map<string, string>();

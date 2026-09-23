@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { workspaceImageSource } from "../src/features/agents/profile-panel/agent-workspace-image";
+import { workspaceImageSource } from "@/features/agents/profile-panel/agent-workspace-image";
 
 test("a workspace image read becomes a data URL the image renderer can show", () => {
   expect(workspaceImageSource({ contentType: "image/png", contentBase64: "aGk=" })).toBe(

@@ -1,7 +1,7 @@
-import type { PrismaClient } from "../../../generated/client";
-import { AppError } from "../../lib/app-error";
-import { configuredGitHub } from "../integrations/github-config.server";
-import type { RepositorySelection } from "../integrations/github-connection.server";
+import type { PrismaClient } from "@/generated/prisma/client";
+import { AppError } from "@/lib/app-error";
+import { configuredGitHub } from "@/server/integrations/github-config.server";
+import type { RepositorySelection } from "@/server/integrations/github-connection.server";
 
 /** The repository a Project row links to, or null while any part of the link is missing. */
 export function linkedRepositoryOf(project: {

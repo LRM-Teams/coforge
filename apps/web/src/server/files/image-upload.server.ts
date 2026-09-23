@@ -1,4 +1,4 @@
-import { AppError } from "../../lib/app-error";
+import { AppError } from "@/lib/app-error";
 
 export const IMAGE_MAX_BYTES = 5 * 1024 * 1024;
 const CONTENT_SIGNATURES = {

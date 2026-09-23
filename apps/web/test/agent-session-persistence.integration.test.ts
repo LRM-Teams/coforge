@@ -1,9 +1,9 @@
 import { expect, test } from "bun:test";
 import { Pool } from "pg";
 import { PrismaPg } from "@prisma/adapter-pg";
-import { Prisma, PrismaClient } from "../generated/client";
-import { AgentSessions } from "../src/server/agents/agent-sessions.server";
-import { PrismaAgentSessionRepository } from "../src/server/db/repositories/agent-session.repositories.server";
+import { Prisma, PrismaClient } from "@/generated/prisma/client";
+import { AgentSessions } from "@/server/agents/agent-sessions.server";
+import { PrismaAgentSessionRepository } from "@/server/db/repositories/agent-session.repositories.server";
 
 const connectionString = Bun.env.MIGRATION_TEST_DATABASE_URL;
 test.skipIf(!connectionString)(

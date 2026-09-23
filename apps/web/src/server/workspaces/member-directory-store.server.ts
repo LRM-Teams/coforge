@@ -1,5 +1,5 @@
-import type { PrismaClient } from "../../../generated/client";
-import { AppError } from "../../lib/app-error";
+import type { PrismaClient } from "@/generated/prisma/client";
+import { AppError } from "@/lib/app-error";
 import {
   WorkspaceMemberDirectory,
   type WorkspaceInvitationRecord,
@@ -11,7 +11,7 @@ import {
   type InvitableWorkspaceRole,
   type WorkspaceMemberRole,
 } from "./member-role.server";
-import { workspaceUserAvatarUrl } from "../db/repositories/user-profile.repositories.server";
+import { workspaceUserAvatarUrl } from "@/server/db/repositories/user-profile.repositories.server";
 
 function asRole(value: string): WorkspaceMemberRole {
   if (!isWorkspaceMemberRole(value)) throw new AppError("INTERNAL_ERROR");

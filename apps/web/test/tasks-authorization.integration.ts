@@ -1,8 +1,8 @@
 import { expect, test } from "bun:test";
 import { PrismaPg } from "@prisma/adapter-pg";
-import { PrismaClient } from "../generated/client";
-import { ConversationHistory } from "../src/server/conversations/conversation-history.server";
-import { TaskBoard } from "../src/server/tasks/task-board.server";
+import { PrismaClient } from "@/generated/prisma/client";
+import { ConversationHistory } from "@/server/conversations/conversation-history.server";
+import { TaskBoard } from "@/server/tasks/task-board.server";
 
 test("TaskBoard enforces conversation authorization, idempotency, and ownership under contention", async () => {
   const connectionString = Bun.env.TASK_TEST_DATABASE_URL ?? Bun.env.DATABASE_URL;

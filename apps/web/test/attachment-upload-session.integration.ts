@@ -1,12 +1,12 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { PrismaPg } from "@prisma/adapter-pg";
-import { PrismaClient } from "../generated/client";
-import type { FileStorage } from "../src/server/files/file-storage.server";
+import { PrismaClient } from "@/generated/prisma/client";
+import type { FileStorage } from "@/server/files/file-storage.server";
 import {
   cancelAttachmentUploadSession,
   completeAttachmentUploadSession,
   createAttachmentUploadSession,
-} from "../src/server/attachments/attachment-upload-session.server";
+} from "@/server/attachments/attachment-upload-session.server";
 
 // Run against a disposable local PostgreSQL, e.g.:
 //   ATTACHMENT_UPLOAD_SESSION_TEST_DATABASE_URL=postgresql://coforge:...@127.0.0.1:5433/coforge_attachment_upload_test \

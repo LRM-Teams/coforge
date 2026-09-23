@@ -4,7 +4,7 @@ import {
   WEEKLY_REPORT_SCHEDULE_TICK_ENV,
   readWeeklyReportScheduleTickMs,
   startWeeklyReportScheduleTick,
-} from "../src/server/records/weekly-report-schedule-tick.server";
+} from "@/server/records/weekly-report-schedule-tick.server";
 
 test("readWeeklyReportScheduleTickMs accepts a positive interval and ignores unset", () => {
   expect(readWeeklyReportScheduleTickMs({})).toBeUndefined();

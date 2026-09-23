@@ -6,7 +6,7 @@ import {
   readBrowserSession,
   startBrowserLogin,
   type TokenExchanger,
-} from "../../src/server/auth/browser-login.server";
+} from "@/server/auth/browser-login.server";
 
 const sessionSecret = "test-session-secret-at-least-32-characters";
 const config = {

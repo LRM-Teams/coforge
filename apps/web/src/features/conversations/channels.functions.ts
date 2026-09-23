@@ -1,16 +1,16 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
-import { workspaceUserMiddleware, type WorkspaceUserContext } from "../auth/function-auth";
-import { AppError } from "../../lib/app-error";
-import { PublicChannels } from "../../server/conversations/public-channels.server";
-import { attachActionCardViews } from "../../server/conversations/action-cards.server";
-import { attachmentView } from "../../server/attachments/attachment-view.server";
+import { workspaceUserMiddleware, type WorkspaceUserContext } from "@/features/auth/function-auth";
+import { AppError } from "@/lib/app-error";
+import { PublicChannels } from "@/server/conversations/public-channels.server";
+import { attachActionCardViews } from "@/server/conversations/action-cards.server";
+import { attachmentView } from "@/server/attachments/attachment-view.server";
 import { attachmentIdsSchema, conversationPageInputSchema } from "./conversation.schemas";
-import { CentrifugoConversationRealtime } from "../../server/conversations/conversation-realtime.server";
-import { createCentrifugoServerApi } from "../../server/centrifugo/server-api.server";
-import { bestEffortMessageNotifier } from "../../server/notifications/web-push-composition.server";
-import { browserMessageMention } from "../../server/conversations/mentions.server";
-import { workspaceUserAvatarUrl } from "../../server/db/repositories/user-profile.repositories.server";
+import { CentrifugoConversationRealtime } from "@/server/conversations/conversation-realtime.server";
+import { createCentrifugoServerApi } from "@/server/centrifugo/server-api.server";
+import { bestEffortMessageNotifier } from "@/server/notifications/web-push-composition.server";
+import { browserMessageMention } from "@/server/conversations/mentions.server";
+import { workspaceUserAvatarUrl } from "@/server/db/repositories/user-profile.repositories.server";
 
 const channelInput = z.object({ channelId: z.uuid() });
 const channelPageInput = channelInput.extend(conversationPageInputSchema);

@@ -4,7 +4,7 @@ import { Link } from "@tanstack/react-router";
 import { Button } from "@/components/base/buttons/button";
 import { RelativeTime } from "@/components/ui/relative-time";
 import { m } from "@/paraglide/messages";
-import type { AgentReminderListItem } from "../../server/agents/agent-reminders.server";
+import type { AgentReminderListItem } from "@/server/agents/agent-reminders.server";
 
 type ListResult = Awaited<
   ReturnType<typeof import("./agent-reminders.functions").listAgentReminders>

@@ -3,7 +3,7 @@ import { expect, test } from "bun:test";
 import {
   mentionAffinityScores,
   type RecentMentionRow,
-} from "../src/server/conversations/mentions.server";
+} from "@/server/conversations/mentions.server";
 
 const NOW = new Date("2026-09-17T12:00:00Z");
 const HOUR = 60 * 60 * 1000;

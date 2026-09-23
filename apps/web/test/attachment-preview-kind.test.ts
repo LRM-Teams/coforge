@@ -3,7 +3,7 @@ import { describe, expect, test } from "bun:test";
 import {
   attachmentPreviewKind,
   isFrameableDocumentUrl,
-} from "../src/features/conversations/attachment-preview-kind";
+} from "@/features/conversations/attachment-preview-kind";
 
 const APP_ORIGIN = "https://app.coforge.cn";
 const DELIVERY_ORIGIN = "https://files.coforge.cn";

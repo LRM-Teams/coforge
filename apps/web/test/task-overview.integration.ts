@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { PrismaPg } from "@prisma/adapter-pg";
-import { PrismaClient } from "../generated/client";
-import { TaskBoard } from "../src/server/tasks/task-board.server";
+import { PrismaClient } from "@/generated/prisma/client";
+import { TaskBoard } from "@/server/tasks/task-board.server";
 
 test("TaskBoard overview returns every visible Workspace task without leaking private conversations", async () => {
   const connectionString = Bun.env.TASK_TEST_DATABASE_URL ?? Bun.env.DATABASE_URL;

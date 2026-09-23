@@ -1,10 +1,10 @@
 import { expect, test } from "bun:test";
-import type { PrismaClient } from "../generated/client";
-import { RecordCatalog } from "../src/server/records/record-catalog.server";
+import type { PrismaClient } from "@/generated/prisma/client";
+import { RecordCatalog } from "@/server/records/record-catalog.server";
 import {
   looksLikeMemberGenerateOfferAccept,
   parseRecordAssistantPayload,
-} from "../src/features/records/weekly-highlight-extract";
+} from "@/features/records/weekly-highlight-extract";
 
 test("looksLikeMemberGenerateOfferAccept matches E1 intent", () => {
   expect(looksLikeMemberGenerateOfferAccept("需要")).toBe(true);
@@ -17,7 +17,7 @@ test("looksLikeCollectAgainRequest and synthesize intents match product phrases"
     looksLikeCollectAgainRequest,
     looksLikeSynthesizeWeeklyReportRequest,
     looksLikeMemberReportRuleIntent,
-  } = await import("../src/features/records/weekly-highlight-extract");
+  } = await import("@/features/records/weekly-highlight-extract");
   expect(looksLikeCollectAgainRequest("再采集一遍")).toBe(true);
   expect(looksLikeCollectAgainRequest("重新采集")).toBe(true);
   expect(looksLikeCollectAgainRequest("随便聊聊")).toBe(false);
@@ -32,7 +32,7 @@ test("looksLikeCollectAgainRequest and synthesize intents match product phrases"
 
 test("shouldUseMemberReportRulePath only on member-assignee surface", async () => {
   const { shouldUseMemberReportRulePath } =
-    await import("../src/features/records/weekly-highlight-extract");
+    await import("@/features/records/weekly-highlight-extract");
   expect(shouldUseMemberReportRulePath("member-assignee", "重新整理")).toBe(true);
   expect(shouldUseMemberReportRulePath("member-assignee", "整理周报")).toBe(true);
   expect(shouldUseMemberReportRulePath("plain", "重新整理")).toBe(false);

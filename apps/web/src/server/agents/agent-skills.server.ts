@@ -4,7 +4,7 @@ import type {
   RuntimeProvider,
 } from "@lrm/coforge-sdk/internal";
 import { ACTIVE_AGENT_WHERE } from "./active-agent.server";
-import type { PrismaClient } from "../../../generated/client";
+import type { PrismaClient } from "@/generated/prisma/client";
 import { parseAgentRuntimeConfig } from "./agent-runtime-config.server";
 
 export type SkillsViewer = { userId: string; workspaceId: string };

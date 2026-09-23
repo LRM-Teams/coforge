@@ -4,7 +4,7 @@ import type { AgentActivity, AgentStatus } from "@lrm/coforge-sdk/internal";
 import {
   RedisAgentDisplay,
   activityKindForObservation,
-} from "../src/server/agents/agent-display.server";
+} from "@/server/agents/agent-display.server";
 
 const redisServer = Bun.which("redis-server");
 const port = 20_000 + Math.floor(Math.random() * 20_000);

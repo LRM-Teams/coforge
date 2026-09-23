@@ -6,10 +6,10 @@ import {
   readAuthorizedAttachment,
   storeAgentAttachment,
   storeAttachment,
-} from "../src/server/attachments/attachment.server";
-import { AppError } from "../src/lib/app-error";
-import { handleAttachmentUpload } from "../src/routes/api/attachments";
-import { handleAttachmentDownload } from "../src/routes/api/attachments.$attachmentId";
+} from "@/server/attachments/attachment.server";
+import { AppError } from "@/lib/app-error";
+import { handleAttachmentUpload } from "@/routes/api/attachments";
+import { handleAttachmentDownload } from "@/routes/api/attachments.$attachmentId";
 
 function fakeStorage(
   open?: () => Promise<{ body: Blob; contentType: string | null; sizeBytes: number }>,
@@ -317,7 +317,7 @@ function attachmentUploadRequest(): Request {
 
 test("attachment responses render safe images inline and everything else as a download", async () => {
   const { attachmentResponseHeaders } =
-    await import("../src/server/attachments/attachment-response.server");
+    await import("@/server/attachments/attachment-response.server");
   const png = attachmentResponseHeaders({ fileName: 'shot".png', contentType: "image/png" }, false);
   expect(png["Content-Type"]).toBe("image/png");
   expect(png["Content-Disposition"]).toBe('inline; filename="shot_.png"');

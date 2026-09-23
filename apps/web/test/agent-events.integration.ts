@@ -1,11 +1,11 @@
 import { expect, test } from "bun:test";
 import { PrismaPg } from "@prisma/adapter-pg";
-import { PrismaClient } from "../generated/client";
-import { PrismaDirectConversationRepository } from "../src/server/db/repositories/direct-conversation.repositories.server";
+import { PrismaClient } from "@/generated/prisma/client";
+import { PrismaDirectConversationRepository } from "@/server/db/repositories/direct-conversation.repositories.server";
 import {
   PublicChannels,
   enrollGeneralChannel,
-} from "../src/server/conversations/public-channels.server";
+} from "@/server/conversations/public-channels.server";
 
 test("events drain returns unread rows in canonical order, advances read boundaries, and pages by limit", async () => {
   const connectionString = Bun.env.EVENTS_TEST_DATABASE_URL;

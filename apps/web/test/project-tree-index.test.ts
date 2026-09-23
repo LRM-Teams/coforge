@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { ancestorPaths, buildTreeIndex, childrenOf } from "../src/features/projects/tree-index";
+import { ancestorPaths, buildTreeIndex, childrenOf } from "@/features/projects/tree-index";
 
 const sha = "a".repeat(40);
 

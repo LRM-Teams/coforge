@@ -1,5 +1,5 @@
-import { AppError } from "../../lib/app-error";
-import { requireDatabaseClient } from "../db/client.server";
+import { AppError } from "@/lib/app-error";
+import { requireDatabaseClient } from "@/server/db/client.server";
 import { GitHubConnection, type GitHubConfig } from "./github-connection.server";
 
 const GITHUB_APP_SLUG = /^[a-z0-9-]+$/;

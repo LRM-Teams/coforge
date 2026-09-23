@@ -1,5 +1,8 @@
-import type { PrismaClient } from "../../../../generated/client";
-import type { DaemonApiKeyRecord, DaemonApiKeyRepository } from "../../auth/daemon-api-key.server";
+import type { PrismaClient } from "@/generated/prisma/client";
+import type {
+  DaemonApiKeyRecord,
+  DaemonApiKeyRepository,
+} from "@/server/auth/daemon-api-key.server";
 
 export class PrismaDaemonApiKeyRepository implements DaemonApiKeyRepository {
   constructor(private readonly db: PrismaClient) {}

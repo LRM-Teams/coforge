@@ -5,18 +5,18 @@ import {
   isAgentApiKeyBoundToComputer,
   type AgentApiKeyRepository,
 } from "./agent-api-key.server";
-import { verifyDaemonApiKey } from "../auth/daemon-api-key.server";
-import type { PrismaClient } from "../../../generated/client";
-import { getDatabaseClient } from "../db/client.server";
-import { PrismaAgentApiKeyRepository } from "../db/repositories/agent-api-key.repositories.server";
-import { PrismaDaemonApiKeyRepository } from "../db/repositories/daemon-api-key.repositories.server";
-import { createCentrifugoServerApi } from "../centrifugo/server-api.server";
-import { CentrifugoRpcAuthenticationError } from "../centrifugo/rpc-handler.server";
+import { verifyDaemonApiKey } from "@/server/auth/daemon-api-key.server";
+import type { PrismaClient } from "@/generated/prisma/client";
+import { getDatabaseClient } from "@/server/db/client.server";
+import { PrismaAgentApiKeyRepository } from "@/server/db/repositories/agent-api-key.repositories.server";
+import { PrismaDaemonApiKeyRepository } from "@/server/db/repositories/daemon-api-key.repositories.server";
+import { createCentrifugoServerApi } from "@/server/centrifugo/server-api.server";
+import { CentrifugoRpcAuthenticationError } from "@/server/centrifugo/rpc-handler.server";
 import { ACTIVE_AGENT_WHERE } from "./active-agent.server";
-import { PrismaReminderRepository } from "../db/repositories/reminder.repositories.server";
-import { Reminders } from "../reminders/reminders.server";
-import { getReminderCapabilityLease } from "../reminders/reminder-capability.server";
-import { daemonControlChannel } from "../centrifugo/server-api.server";
+import { PrismaReminderRepository } from "@/server/db/repositories/reminder.repositories.server";
+import { Reminders } from "@/server/reminders/reminders.server";
+import { getReminderCapabilityLease } from "@/server/reminders/reminder-capability.server";
+import { daemonControlChannel } from "@/server/centrifugo/server-api.server";
 
 type DaemonPrincipal = {
   userId: string;

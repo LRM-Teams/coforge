@@ -5,9 +5,9 @@ import type {
   AgentReminderOperationResponse,
 } from "@lrm/coforge-sdk/internal";
 
-import { AppError } from "../src/lib/app-error";
-import { handleAgentReminderPost } from "../src/routes/api/agent/v1/reminders";
-import { ReminderRefusal } from "../src/server/reminders/reminders.server";
+import { AppError } from "@/lib/app-error";
+import { handleAgentReminderPost } from "@/routes/api/agent/v1/reminders";
+import { ReminderRefusal } from "@/server/reminders/reminders.server";
 
 const principal = {
   workspaceId: "11111111-1111-4111-8111-111111111111",

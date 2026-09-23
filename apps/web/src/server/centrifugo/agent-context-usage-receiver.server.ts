@@ -1,12 +1,12 @@
 import { decodeAgentContextUsage, type AgentContextUsage } from "@lrm/coforge-sdk/internal";
-import type { AgentControlStore } from "../agents/agent-control.server";
-import type { AgentDisplay } from "../agents/agent-display.server";
+import type { AgentControlStore } from "@/server/agents/agent-control.server";
+import type { AgentDisplay } from "@/server/agents/agent-display.server";
 import type { CentrifugoServerApi } from "./server-api.server";
 import {
   agentStatusChannel,
   agentStatusChannelForAgent,
-} from "../../features/agents/agent-status-realtime";
-import { AGENT_VISIBILITY } from "../../features/agents/agent-visibility";
+} from "@/features/agents/agent-status-realtime";
+import { AGENT_VISIBILITY } from "@/features/agents/agent-visibility";
 import type { CentrifugoRpcMethod } from "./rpc-handler.server";
 
 /**

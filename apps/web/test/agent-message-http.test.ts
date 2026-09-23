@@ -4,8 +4,8 @@ import {
   createAgentApiKey,
   type AgentApiKeyRecord,
   type AgentApiKeyRepository,
-} from "../src/server/agents/agent-api-key.server";
-import { authenticateAgentMessageRequest } from "../src/server/agents/agent-api-http.server";
+} from "@/server/agents/agent-api-key.server";
+import { authenticateAgentMessageRequest } from "@/server/agents/agent-api-http.server";
 
 class MemoryAgentApiKeys implements AgentApiKeyRepository {
   record?: AgentApiKeyRecord;

@@ -1,10 +1,10 @@
-import type { PrismaClient } from "../../../generated/client";
-import { AppError } from "../../lib/app-error";
-import { createCentrifugoServerApi } from "../centrifugo/server-api.server";
-import { CentrifugoConversationRealtime } from "../conversations/conversation-realtime.server";
-import { getMessageRequestIdempotency } from "../conversations/redis-message-request-idempotency.server";
-import { SendDirectMessage } from "../conversations/direct-message.server";
-import { PrismaDirectConversationRepository } from "../db/repositories/direct-conversation.repositories.server";
+import type { PrismaClient } from "@/generated/prisma/client";
+import { AppError } from "@/lib/app-error";
+import { createCentrifugoServerApi } from "@/server/centrifugo/server-api.server";
+import { CentrifugoConversationRealtime } from "@/server/conversations/conversation-realtime.server";
+import { getMessageRequestIdempotency } from "@/server/conversations/redis-message-request-idempotency.server";
+import { SendDirectMessage } from "@/server/conversations/direct-message.server";
+import { PrismaDirectConversationRepository } from "@/server/db/repositories/direct-conversation.repositories.server";
 import {
   ensureCollector,
   listOwnedComputerSlots,
@@ -21,7 +21,7 @@ import {
   type CollectRunComputerInput,
   type CollectWindowKind,
 } from "./weekly-report-collect-run.server";
-import { resolveCollectWindow } from "../../features/records/weekly-report-collect-window";
+import { resolveCollectWindow } from "@/features/records/weekly-report-collect-window";
 import { RecordCatalog } from "./record-catalog.server";
 import { resolveLatestChatSessionId } from "./weekly-report-assistant-chat-session.server";
 

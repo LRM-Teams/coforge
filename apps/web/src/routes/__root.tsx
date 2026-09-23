@@ -4,7 +4,7 @@ import { HeadContent, Scripts, createRootRouteWithContext } from "@tanstack/reac
 import { AppToastProvider } from "@/components/ui/toast";
 import { getLocale } from "@/paraglide/runtime";
 
-import appCss from "../styles.css?url";
+import appCss from "@/styles.css?url";
 
 const themeScript = `try{var theme=localStorage.getItem("coforge-theme");if(theme==="dark"||((!theme||theme==="system")&&matchMedia("(prefers-color-scheme: dark)").matches)){document.documentElement.classList.add("dark-mode")}if(localStorage.getItem("coforge-rail-labels")==="hide"){document.documentElement.classList.add("rail-labels-hidden")}var textSizePercents={sm:"90%",lg:"110%",xl:"125%",xxl:"140%"};var textSize=localStorage.getItem("coforge-text-size");if(textSize&&textSizePercents[textSize]){document.documentElement.style.fontSize=textSizePercents[textSize]}}catch{}`;
 

@@ -1,17 +1,17 @@
-import { AppError } from "../../lib/app-error";
-import type { PrismaClient } from "../../../generated/client";
-import { SendDirectMessage } from "../conversations/direct-message.server";
-import type { MessageRequestIdempotency } from "../conversations/message-request-idempotency.server";
-import { getMessageRequestIdempotency } from "../conversations/redis-message-request-idempotency.server";
+import { AppError } from "@/lib/app-error";
+import type { PrismaClient } from "@/generated/prisma/client";
+import { SendDirectMessage } from "@/server/conversations/direct-message.server";
+import type { MessageRequestIdempotency } from "@/server/conversations/message-request-idempotency.server";
+import { getMessageRequestIdempotency } from "@/server/conversations/redis-message-request-idempotency.server";
 import {
   CentrifugoConversationRealtime,
   type ConversationRealtime,
-} from "../conversations/conversation-realtime.server";
+} from "@/server/conversations/conversation-realtime.server";
 import {
   createCentrifugoServerApi,
   type CentrifugoServerApi,
-} from "../centrifugo/server-api.server";
-import { PrismaDirectConversationRepository } from "../db/repositories/direct-conversation.repositories.server";
+} from "@/server/centrifugo/server-api.server";
+import { PrismaDirectConversationRepository } from "@/server/db/repositories/direct-conversation.repositories.server";
 import { RecordCatalog } from "./record-catalog.server";
 import { ensureWeeklyReportAssistant } from "./weekly-report-assistant.server";
 import { ensureWeeklyReportAssistantRuntimeSession } from "./weekly-report-assistant-runtime-session.server";

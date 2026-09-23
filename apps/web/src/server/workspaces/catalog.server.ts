@@ -1,9 +1,9 @@
-import type { PrismaClient } from "../../../generated/client";
-import { AppError } from "../../lib/app-error";
+import type { PrismaClient } from "@/generated/prisma/client";
+import { AppError } from "@/lib/app-error";
 import {
   isReservedWorkspaceSlug,
   isValidWorkspaceSlug,
-} from "../../features/workspaces/workspace-slug";
+} from "@/features/workspaces/workspace-slug";
 
 export type WorkspaceRecord = { id: string; slug: string; name: string };
 

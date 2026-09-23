@@ -9,7 +9,7 @@ import {
   searchAgentMessages,
   unfollowAgentThread,
   type AgentMessageRepository,
-} from "../src/server/agents/agent-messages.server";
+} from "@/server/agents/agent-messages.server";
 
 function repository(overrides: Partial<AgentMessageRepository> = {}): AgentMessageRepository {
   return {

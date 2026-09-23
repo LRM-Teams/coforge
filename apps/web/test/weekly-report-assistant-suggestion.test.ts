@@ -4,7 +4,7 @@ import {
   parseWeeklyReportAssistantSuggestion,
   weeklyReportAssistantSuggestionDisplayBody,
   type WeeklyReportAssistantSuggestion,
-} from "../src/server/records/weekly-report-assistant-suggestion.server";
+} from "@/server/records/weekly-report-assistant-suggestion.server";
 
 test("prose that mentions the suggestion tag does not truncate the display body", () => {
   const body = [

@@ -1,5 +1,8 @@
-import type { PrismaClient } from "../../../../generated/client";
-import type { AgentApiKeyRecord, AgentApiKeyRepository } from "../../agents/agent-api-key.server";
+import type { PrismaClient } from "@/generated/prisma/client";
+import type {
+  AgentApiKeyRecord,
+  AgentApiKeyRepository,
+} from "@/server/agents/agent-api-key.server";
 
 export class PrismaAgentApiKeyRepository implements AgentApiKeyRepository {
   constructor(private readonly db: PrismaClient) {}

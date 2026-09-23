@@ -87,10 +87,11 @@ const config = defineConfig({
     paraglideVitePlugin(paraglideOptions),
     tanstackStart({
       // Default protection only covers `*.server.*` file names; also keep the
-      // whole `src/server/` tree out of the client bundle.
+      // whole `src/server/` tree and the generated Prisma client out of the
+      // client bundle.
       // https://tanstack.com/start/latest/docs/framework/react/guide/import-protection
       importProtection: {
-        client: { files: ["**/*.server.*", "**/src/server/**"] },
+        client: { files: ["**/*.server.*", "**/src/server/**", "**/src/generated/**"] },
       },
     }),
     nitro({

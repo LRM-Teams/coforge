@@ -8,20 +8,20 @@ import {
   listAgentWorkspaceFilesInputSchema,
   readAgentWorkspaceFileInputSchema,
 } from "./agent.schemas";
-import { workspaceUserMiddleware } from "../auth/function-auth";
+import { workspaceUserMiddleware } from "@/features/auth/function-auth";
 import {
   AgentWorkspaceFilesQuery,
   findOwnedWorkspaceFilesAssignment,
-} from "../../server/agents/agent-workspace-files.server";
+} from "@/server/agents/agent-workspace-files.server";
 import {
   createCentrifugoServerApi,
   daemonControlChannel,
-} from "../../server/centrifugo/server-api.server";
-import { getComputerStatusCache } from "../../server/centrifugo/computer-status.server";
+} from "@/server/centrifugo/server-api.server";
+import { getComputerStatusCache } from "@/server/centrifugo/computer-status.server";
 import {
   getAgentWorkspaceFileReadResults,
   getAgentWorkspaceFilesListResults,
-} from "../../server/centrifugo/agent-workspace-files-cache.server";
+} from "@/server/centrifugo/agent-workspace-files-cache.server";
 
 function buildQuery(db: Parameters<typeof findOwnedWorkspaceFilesAssignment>[0]) {
   return new AgentWorkspaceFilesQuery({

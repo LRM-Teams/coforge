@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { resolveAgentChannelStatus } from "../src/server/agents/agent-channel-status.server";
+import { resolveAgentChannelStatus } from "@/server/agents/agent-channel-status.server";
 
 const scope = { workspaceId: "workspace-1", computerId: "computer-1", agentId: "agent-1" };
 

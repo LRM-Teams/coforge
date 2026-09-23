@@ -1,7 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
-import { authMiddleware } from "../auth/function-auth";
-import { requireDatabaseClient } from "../../server/db/client.server";
-import { PrismaUserProfileRepository } from "../../server/db/repositories/user-profile.repositories.server";
+import { authMiddleware } from "@/features/auth/function-auth";
+import { requireDatabaseClient } from "@/server/db/client.server";
+import { PrismaUserProfileRepository } from "@/server/db/repositories/user-profile.repositories.server";
 import { saveUserProfileInputSchema } from "./profile.schemas";
 
 function profiles() {

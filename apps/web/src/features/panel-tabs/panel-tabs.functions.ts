@@ -1,11 +1,11 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 
-import { workspaceUserMiddleware } from "../auth/function-auth";
+import { workspaceUserMiddleware } from "@/features/auth/function-auth";
 import {
   PrismaWorkspaceMemberPreferencesRepository,
   WorkspaceMemberPreferences,
-} from "../../server/db/repositories/workspace-member-preferences.repositories.server";
+} from "@/server/db/repositories/workspace-member-preferences.repositories.server";
 import { TAB_ORDER_PANELS } from "./panel-tab-order";
 
 /** The signed-in member's tab orders in their selected Workspace. */

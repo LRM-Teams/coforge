@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 
-import { computerRegistrationJwks } from "#/server/auth/daemon-api-key.server";
+import { computerRegistrationJwks } from "@/server/auth/daemon-api-key.server";
 
 export const Route = createFileRoute("/api/jwks")({
   server: {

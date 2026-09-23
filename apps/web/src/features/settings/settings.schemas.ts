@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { TIME_FORMATS } from "../../lib/time-format";
+import { TIME_FORMATS } from "@/lib/time-format";
 
 export const saveDateTimePreferencesInputSchema = z.object({
   timeZone: z.string().nullable(),

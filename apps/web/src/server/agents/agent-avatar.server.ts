@@ -1,14 +1,14 @@
-import type { PrismaClient } from "../../../generated/client";
-import { AppError } from "../../lib/app-error";
-import { toPublicServerError } from "../errors/public-error.server";
-import type { FileStorage } from "../files/file-storage.server";
+import type { PrismaClient } from "@/generated/prisma/client";
+import { AppError } from "@/lib/app-error";
+import { toPublicServerError } from "@/server/errors/public-error.server";
+import type { FileStorage } from "@/server/files/file-storage.server";
 import {
   PROFILE_IMAGE_STYLES,
   publicImageUrl,
   type PublicImageUrlResolver,
-} from "../files/public-image-delivery.server";
-import { getPublicImageStorage } from "../files/public-image-storage.server";
-import { validateImage } from "../files/image-upload.server";
+} from "@/server/files/public-image-delivery.server";
+import { getPublicImageStorage } from "@/server/files/public-image-storage.server";
+import { validateImage } from "@/server/files/image-upload.server";
 import { ACTIVE_AGENT_WHERE } from "./active-agent.server";
 import { agentVisibilityViewerForUser, assertAgentVisible } from "./agent-visibility.server";
 

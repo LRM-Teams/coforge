@@ -1,9 +1,9 @@
 import { encodeComputerUpgradeIntent } from "@lrm/coforge-sdk/internal";
 import { AppError } from "@/lib/app-error";
 
-import type { CentrifugoServerApi } from "../centrifugo/server-api.server";
-import { daemonControlChannel } from "../centrifugo/server-api.server";
-import type { ComputerStatusCache } from "../centrifugo/computer-status.server";
+import type { CentrifugoServerApi } from "@/server/centrifugo/server-api.server";
+import { daemonControlChannel } from "@/server/centrifugo/server-api.server";
+import type { ComputerStatusCache } from "@/server/centrifugo/computer-status.server";
 import type { RedisComputerUpgradeStore } from "./computer-upgrade-store.server";
 
 export class UpgradeComputer {

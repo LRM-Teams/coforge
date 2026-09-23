@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 
 import type { AgentDisplaySnapshot } from "@lrm/coforge-sdk/internal";
 
-import { selectLiveAgentActivity } from "../src/features/conversations/live-agent-activity";
+import { selectLiveAgentActivity } from "@/features/conversations/live-agent-activity";
 
 function agent(id: string, displayName: string, display?: Partial<AgentDisplaySnapshot>) {
   return {

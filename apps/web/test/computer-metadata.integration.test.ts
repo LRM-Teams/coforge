@@ -1,9 +1,9 @@
 import { expect, test } from "bun:test";
 import { Pool } from "pg";
 import { PrismaPg } from "@prisma/adapter-pg";
-import { PrismaClient } from "../generated/client";
-import { recordComputerObservation } from "../src/server/computers/computer-metadata.server";
-import { handleComputerCreatorAvatar } from "../src/server/computers/computer-creator-avatar.server";
+import { PrismaClient } from "@/generated/prisma/client";
+import { recordComputerObservation } from "@/server/computers/computer-metadata.server";
+import { handleComputerCreatorAvatar } from "@/server/computers/computer-creator-avatar.server";
 
 const connectionString = Bun.env.MIGRATION_TEST_DATABASE_URL;
 test.skipIf(!connectionString)(

@@ -1,4 +1,4 @@
-import type { LatestSenderFields } from "../db/repositories/direct-conversation.repositories.server";
+import type { LatestSenderFields } from "@/server/db/repositories/direct-conversation.repositories.server";
 
 export type PersistedDirectMessage = {
   id: string;

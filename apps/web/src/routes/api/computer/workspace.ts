@@ -1,7 +1,7 @@
 import { WORKSPACE_GET_METHOD } from "@lrm/coforge-sdk/internal";
 import { createFileRoute } from "@tanstack/react-router";
 
-import { createComputerHttpHandler } from "#/server/computers/computer-http.server";
+import { createComputerHttpHandler } from "@/server/computers/computer-http.server";
 
 const handler = createComputerHttpHandler();
 

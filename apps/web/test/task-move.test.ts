@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { TaskStatus, TaskView } from "@lrm/coforge-sdk/internal";
-import { getTaskMoveCommand } from "../src/features/tasks/task-move";
+import { getTaskMoveCommand } from "@/features/tasks/task-move";
 
 const task = (status: TaskStatus, owner: TaskView["owner"] = null): TaskView => ({
   messageId: "message-1",

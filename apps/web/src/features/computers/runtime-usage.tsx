@@ -14,10 +14,7 @@ import { cn } from "@/lib/utils";
 import { m } from "@/paraglide/messages";
 import { RuntimeProviderMark } from "@/features/agents/runtime-provider-mark";
 import { useRuntimeUsage } from "./use-runtime-usage";
-import type {
-  UsageReadResult,
-  UsageResultRecord,
-} from "../../server/centrifugo/usage-cache.server";
+import type { UsageReadResult, UsageResultRecord } from "@/server/centrifugo/usage-cache.server";
 
 export type Runtime = {
   provider: RuntimeProvider;

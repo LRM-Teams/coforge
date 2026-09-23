@@ -4,12 +4,15 @@ import { encodeAgentActivityProbe } from "@lrm/coforge-sdk/internal";
 import {
   agentStatusChannel,
   agentStatusChannelForAgent,
-} from "../../features/agents/agent-status-realtime";
-import { AGENT_VISIBILITY } from "../../features/agents/agent-visibility";
-import { createCentrifugoServerApi, daemonControlChannel } from "../centrifugo/server-api.server";
-import type { CentrifugoServerApi } from "../centrifugo/server-api.server";
+} from "@/features/agents/agent-status-realtime";
+import { AGENT_VISIBILITY } from "@/features/agents/agent-visibility";
+import {
+  createCentrifugoServerApi,
+  daemonControlChannel,
+} from "@/server/centrifugo/server-api.server";
+import type { CentrifugoServerApi } from "@/server/centrifugo/server-api.server";
 import { getAgentDisplay, type AgentDisplay, type Scope } from "./agent-display.server";
-import { getDatabaseClient } from "../db/client.server";
+import { getDatabaseClient } from "@/server/db/client.server";
 
 /** How often `AgentActivitySweep.tick()` looks for stale busy leases. */
 export const ACTIVITY_SWEEP_INTERVAL_MS = 5_000;

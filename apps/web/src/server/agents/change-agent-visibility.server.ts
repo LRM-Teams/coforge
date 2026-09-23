@@ -1,8 +1,8 @@
-import { AppError } from "../../lib/app-error";
-import type { AgentVisibility } from "../../features/agents/agent-visibility";
+import { AppError } from "@/lib/app-error";
+import type { AgentVisibility } from "@/features/agents/agent-visibility";
 import { assertAgentLive } from "./active-agent.server";
-import type { AgentRepository } from "../db/repositories/agent.repositories.server";
-import { isAdminLike, type WorkspaceMemberRole } from "../workspaces/member-role.server";
+import type { AgentRepository } from "@/server/db/repositories/agent.repositories.server";
+import { isAdminLike, type WorkspaceMemberRole } from "@/server/workspaces/member-role.server";
 
 /**
  * The atomic visibility transition, or whether it was a no-op. Implementations own the

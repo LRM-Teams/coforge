@@ -1,8 +1,8 @@
-import type { PrismaClient } from "../../../../generated/client";
-import { parseAgentRuntimeConfig } from "../../agents/agent-runtime-config.server";
-import type { AgentRuntimeCredentialRepository } from "../../agents/agent-runtime-credentials.server";
-import type { AgentEnvironmentRepository } from "../../agents/agent-environment.server";
-import { ACTIVE_AGENT_WHERE } from "../../agents/active-agent.server";
+import type { PrismaClient } from "@/generated/prisma/client";
+import { parseAgentRuntimeConfig } from "@/server/agents/agent-runtime-config.server";
+import type { AgentRuntimeCredentialRepository } from "@/server/agents/agent-runtime-credentials.server";
+import type { AgentEnvironmentRepository } from "@/server/agents/agent-environment.server";
+import { ACTIVE_AGENT_WHERE } from "@/server/agents/active-agent.server";
 
 export class PrismaAgentRuntimeCredentialRepository
   implements AgentRuntimeCredentialRepository, AgentEnvironmentRepository

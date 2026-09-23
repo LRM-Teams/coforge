@@ -1,7 +1,7 @@
 import { Extension } from "@tiptap/core";
 import { Plugin, PluginKey, TextSelection } from "@tiptap/pm/state";
-import type { UploadResult } from "../types";
-import { createSafeId } from "../lib/ids";
+import type { UploadResult } from "@/features/records/report-editor/types";
+import { createSafeId } from "@/features/records/report-editor/lib/ids";
 import { clipboardPrefersTextOverFiles } from "./clipboard-paste";
 
 /** Find and remove a fileCard node by uploadId. */

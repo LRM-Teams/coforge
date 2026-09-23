@@ -3,10 +3,10 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PrismaPg } from "@prisma/adapter-pg";
-import { PrismaClient } from "../generated/client";
-import { prepareDaemonApiKey } from "../src/server/auth/daemon-api-key.server";
-import { DEV_BROWSER_USER } from "../src/server/auth/dev-skip-auth.server";
-import { PrismaAgentControlStore } from "../src/server/db/repositories/agent-control.repositories.server";
+import { PrismaClient } from "@/generated/prisma/client";
+import { prepareDaemonApiKey } from "@/server/auth/daemon-api-key.server";
+import { DEV_BROWSER_USER } from "@/server/auth/dev-skip-auth.server";
+import { PrismaAgentControlStore } from "@/server/db/repositories/agent-control.repositories.server";
 import {
   DaemonConnection,
   DaemonRuntime,

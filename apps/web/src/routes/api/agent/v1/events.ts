@@ -1,11 +1,11 @@
 import { createFileRoute } from "@tanstack/react-router";
 import type { AgentEventsResponse } from "@lrm/coforge-sdk/agent";
-import { agentAuthMiddleware } from "#/server/agents/agent-http-middleware.server";
-import { PrismaDirectConversationRepository } from "#/server/db/repositories/direct-conversation.repositories.server";
+import { agentAuthMiddleware } from "@/server/agents/agent-http-middleware.server";
+import { PrismaDirectConversationRepository } from "@/server/db/repositories/direct-conversation.repositories.server";
 import {
   drainAgentEvents,
   type AgentMessageRepository,
-} from "#/server/agents/agent-messages.server";
+} from "@/server/agents/agent-messages.server";
 
 export type AgentEventsGetPrincipal = { workspaceId: string; agentId: string };
 

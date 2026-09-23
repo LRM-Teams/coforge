@@ -1,14 +1,14 @@
 import { describe, expect, test } from "bun:test";
 
-import { AppError } from "../src/lib/app-error";
-import { AgentDetailQuery } from "../src/server/agents/agent-detail.server";
+import { AppError } from "@/lib/app-error";
+import { AgentDetailQuery } from "@/server/agents/agent-detail.server";
 import {
   presentActivity,
   presentActivityRows,
   agentDisplay,
-} from "../src/features/agents/agent-activity-presentation";
+} from "@/features/agents/agent-activity-presentation";
 import type { AgentDisplaySnapshot } from "@lrm/coforge-sdk/internal";
-import type { ActivityEntry } from "../src/features/agents/agent-activity";
+import type { ActivityEntry } from "@/features/agents/agent-activity";
 
 function display(overrides: Partial<AgentDisplaySnapshot> = {}): AgentDisplaySnapshot {
   return {

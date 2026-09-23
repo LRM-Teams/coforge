@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { RedisComputerUpgradeStore } from "../src/server/computers/computer-upgrade-store.server";
+import { RedisComputerUpgradeStore } from "@/server/computers/computer-upgrade-store.server";
 
 function memoryRedis(seed?: Record<string, string>) {
   const values = new Map<string, string>(Object.entries(seed ?? {}));

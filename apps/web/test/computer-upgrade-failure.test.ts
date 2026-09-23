@@ -4,14 +4,14 @@ import {
   describeComputerUpgradeFailure,
   describeComputerUpgradeSuccess,
   describeUpgradeRequestError,
-} from "../src/features/computers/upgrade-failure";
+} from "@/features/computers/upgrade-failure";
 import {
   RESTART_MAX_POLLS,
   RESTART_POLL_INTERVAL_MS,
   UPGRADE_MAX_POLLS,
   UPGRADE_POLL_INTERVAL_MS,
-} from "../src/features/computers/computer-detail";
-import { AppError } from "../src/lib/app-error";
+} from "@/features/computers/computer-detail";
+import { AppError } from "@/lib/app-error";
 import { m } from "@/paraglide/messages";
 import { COMPUTER_CLI_COMMANDS, UPGRADE_ERROR_CODE_VALUES } from "@lrm/coforge-sdk/internal";
 

@@ -1,6 +1,6 @@
 import { timingSafeEqual } from "node:crypto";
-import { optionalBrowserUser } from "../auth/require-user.server";
-import { requireDatabaseClient } from "../db/client.server";
+import { optionalBrowserUser } from "@/server/auth/require-user.server";
+import { requireDatabaseClient } from "@/server/db/client.server";
 import { configuredGitHub, readGitHubConfig } from "./github-config.server";
 import { applyGitHubWebhookEvent, verifyGitHubWebhookSignature } from "./github-webhook.server";
 

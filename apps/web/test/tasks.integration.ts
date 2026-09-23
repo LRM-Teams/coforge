@@ -1,10 +1,10 @@
 import { expect, test } from "bun:test";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { decodeAgentMessageDelivery } from "@lrm/coforge-sdk/internal";
-import { PrismaClient } from "../generated/client";
-import { TaskBoard } from "../src/server/tasks/task-board.server";
-import { PrismaDirectConversationRepository } from "../src/server/db/repositories/direct-conversation.repositories.server";
-import { PublicChannels } from "../src/server/conversations/public-channels.server";
+import { PrismaClient } from "@/generated/prisma/client";
+import { TaskBoard } from "@/server/tasks/task-board.server";
+import { PrismaDirectConversationRepository } from "@/server/db/repositories/direct-conversation.repositories.server";
+import { PublicChannels } from "@/server/conversations/public-channels.server";
 
 test("TaskBoard atomically creates, converts, claims and revision-checks message Tasks", async () => {
   const connectionString = Bun.env.TASK_TEST_DATABASE_URL ?? Bun.env.DATABASE_URL;

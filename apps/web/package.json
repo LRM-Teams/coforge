@@ -3,9 +3,6 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "imports": {
-    "#/*": "./src/*"
-  },
   "scripts": {
     "dev": "bun --bun vite dev --port 8788 --host 127.0.0.1 --strictPort",
     "dev:frontend": "bun run ./scripts/start-web.ts",

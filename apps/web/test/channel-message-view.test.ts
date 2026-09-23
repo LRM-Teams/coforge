@@ -3,7 +3,7 @@ import { expect, test } from "bun:test";
 import {
   channelMessageView,
   type ChannelMessageRow,
-} from "../src/server/conversations/public-channels.server";
+} from "@/server/conversations/public-channels.server";
 
 const WORKSPACE_ID = "11111111-2222-4333-8444-555555555555";
 

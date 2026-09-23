@@ -2,18 +2,18 @@ import { expect, test } from "bun:test";
 import { mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { PrismaPg } from "@prisma/adapter-pg";
-import { PrismaClient } from "../generated/client";
-import { ComputerRegistrar } from "../src/server/computers/registration.server";
-import { PublicChannels } from "../src/server/conversations/public-channels.server";
-import { TaskBoard } from "../src/server/tasks/task-board.server";
-import { PrismaAgentRepository } from "../src/server/db/repositories/agent.repositories.server";
+import { PrismaClient } from "@/generated/prisma/client";
+import { ComputerRegistrar } from "@/server/computers/registration.server";
+import { PublicChannels } from "@/server/conversations/public-channels.server";
+import { TaskBoard } from "@/server/tasks/task-board.server";
+import { PrismaAgentRepository } from "@/server/db/repositories/agent.repositories.server";
 import {
   PrismaComputerRegistrationRepository,
   PrismaWorkspaceAccess,
-} from "../src/server/db/repositories/setup.repositories.server";
-import { ManageAgents } from "../src/server/agents/manage-agents.server";
-import { RedisMessageRequestIdempotency } from "../src/server/conversations/redis-message-request-idempotency.server";
-import { createCentrifugoServerApi } from "../src/server/centrifugo/server-api.server";
+} from "@/server/db/repositories/setup.repositories.server";
+import { ManageAgents } from "@/server/agents/manage-agents.server";
+import { RedisMessageRequestIdempotency } from "@/server/conversations/redis-message-request-idempotency.server";
+import { createCentrifugoServerApi } from "@/server/centrifugo/server-api.server";
 import {
   DaemonConnection,
   DaemonRuntime,

@@ -3,7 +3,7 @@ import { RedisClient } from "bun";
 import {
   LocalAgentControlSignal,
   RedisAgentControlSignal,
-} from "../src/server/agents/agent-control-signal.server";
+} from "@/server/agents/agent-control-signal.server";
 
 describe("LocalAgentControlSignal", () => {
   test("notify wakes every waiter for that Agent only", async () => {

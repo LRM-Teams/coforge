@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 
 import { encodeDaemonRuntimeReadyRequest } from "@lrm/coforge-sdk/internal";
 
-import { createDaemonRuntimeReadyMethod } from "../src/server/centrifugo/rpc-handler.server";
+import { createDaemonRuntimeReadyMethod } from "@/server/centrifugo/rpc-handler.server";
 
 const principal = () => ({
   userId: "user-1",

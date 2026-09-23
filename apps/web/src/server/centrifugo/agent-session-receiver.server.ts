@@ -4,8 +4,8 @@ import {
   type AgentSessionReport,
   type AgentSessionInvalidate,
 } from "@lrm/coforge-sdk/internal";
-import type { AgentSessionReceiver } from "../agents/agent-session.server";
-import type { AgentSessions } from "../agents/agent-sessions.server";
+import type { AgentSessionReceiver } from "@/server/agents/agent-session.server";
+import type { AgentSessions } from "@/server/agents/agent-sessions.server";
 import type { CentrifugoRpcMethod } from "./rpc-handler.server";
 
 /** Every fixed message this handler's collaborators throw for a rejected snapshot: the shared

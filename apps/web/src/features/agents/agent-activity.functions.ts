@@ -3,11 +3,11 @@ import { setResponseHeader } from "@tanstack/react-start/server";
 import { workspaceUserMiddleware } from "@/features/auth/function-auth";
 import { AgentActivityRepository } from "@/server/db/repositories/agent-activity.repositories.server";
 import { agentIdSchema } from "./agent.schemas";
-import { ACTIVE_AGENT_WHERE } from "../../server/agents/active-agent.server";
+import { ACTIVE_AGENT_WHERE } from "@/server/agents/active-agent.server";
 import {
   agentVisibilityViewerForUser,
   assertAgentVisible,
-} from "../../server/agents/agent-visibility.server";
+} from "@/server/agents/agent-visibility.server";
 
 export const getWorkspaceActivity = createServerFn({ method: "GET" })
   .middleware([workspaceUserMiddleware])

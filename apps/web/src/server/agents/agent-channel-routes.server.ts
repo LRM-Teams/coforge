@@ -1,4 +1,4 @@
-import { AgentChannelManagementError } from "../conversations/agent-channel-management-error.server";
+import { AgentChannelManagementError } from "@/server/conversations/agent-channel-management-error.server";
 
 export {
   agentIdempotencyKey as idempotencyKeyFrom,

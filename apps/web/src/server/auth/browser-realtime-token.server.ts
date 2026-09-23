@@ -3,16 +3,16 @@ import { importJWK, SignJWT, type JWK } from "jose";
 import {
   agentStatusChannel,
   agentStatusChannelForAgent,
-} from "../../features/agents/agent-status-realtime";
+} from "@/features/agents/agent-status-realtime";
 import {
   agentActivityChannel,
   agentActivityChannelForAgent,
-} from "../../features/agents/agent-activity";
+} from "@/features/agents/agent-activity";
 import {
   conversationRealtimeChannel,
   userConversationChannel,
   workspaceConversationChannel,
-} from "../../features/conversations/conversation-realtime";
+} from "@/features/conversations/conversation-realtime";
 
 async function browserRealtimeSigner(
   environment: Record<string, string | undefined>,

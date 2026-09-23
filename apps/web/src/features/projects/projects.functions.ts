@@ -1,16 +1,16 @@
 import { createServerFn } from "@tanstack/react-start";
-import type { PrismaClient } from "../../../generated/client";
-import { workspaceUserMiddleware } from "../auth/function-auth";
-import { configuredGitHub } from "../../server/integrations/github-config.server";
-import type { RepositorySelection } from "../../server/integrations/github-connection.server";
-import { gitObjectIdSchema } from "../../lib/git-object-id";
-import { linkedRepositoryOf } from "../../server/projects/project-files.server";
-import { AppError, isAppError } from "../../lib/app-error";
-import { ProjectSettings } from "../../server/projects/project-settings.server";
+import type { PrismaClient } from "@/generated/prisma/client";
+import { workspaceUserMiddleware } from "@/features/auth/function-auth";
+import { configuredGitHub } from "@/server/integrations/github-config.server";
+import type { RepositorySelection } from "@/server/integrations/github-connection.server";
+import { gitObjectIdSchema } from "@/lib/git-object-id";
+import { linkedRepositoryOf } from "@/server/projects/project-files.server";
+import { AppError, isAppError } from "@/lib/app-error";
+import { ProjectSettings } from "@/server/projects/project-settings.server";
 import { z } from "zod";
 import { createProjectInput, projectIconUploadInput, updateProjectInput } from "./projects.schemas";
-import { ProjectImages, projectIconUrl } from "../../server/projects/project-images.server";
-import { workspaceUserAvatarUrl } from "../../server/db/repositories/user-profile.repositories.server";
+import { ProjectImages, projectIconUrl } from "@/server/projects/project-images.server";
+import { workspaceUserAvatarUrl } from "@/server/db/repositories/user-profile.repositories.server";
 
 export const uploadProjectIcon = createServerFn({ method: "POST" })
   .middleware([workspaceUserMiddleware])

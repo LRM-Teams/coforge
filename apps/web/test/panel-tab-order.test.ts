@@ -5,11 +5,11 @@ import {
   isTabOrder,
   knownTabs,
   reorderTabs,
-} from "../src/features/panel-tabs/panel-tab-order";
+} from "@/features/panel-tabs/panel-tab-order";
 import {
   WorkspaceMemberPreferences,
   type WorkspaceMemberPreferencesRepository,
-} from "../src/server/db/repositories/workspace-member-preferences.repositories.server";
+} from "@/server/db/repositories/workspace-member-preferences.repositories.server";
 
 describe("panel tab order", () => {
   test("shows the visible tabs in the saved order, then any unsaved ones in their default order", () => {

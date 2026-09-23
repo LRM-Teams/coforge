@@ -2,27 +2,27 @@ import { expect, test } from "bun:test";
 import { mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { PrismaPg } from "@prisma/adapter-pg";
-import { PrismaClient } from "../generated/client";
-import { ComputerRegistrar } from "../src/server/computers/registration.server";
-import { PublicChannels } from "../src/server/conversations/public-channels.server";
-import { PrismaAgentRepository } from "../src/server/db/repositories/agent.repositories.server";
+import { PrismaClient } from "@/generated/prisma/client";
+import { ComputerRegistrar } from "@/server/computers/registration.server";
+import { PublicChannels } from "@/server/conversations/public-channels.server";
+import { PrismaAgentRepository } from "@/server/db/repositories/agent.repositories.server";
 import {
   PrismaComputerRegistrationRepository,
   PrismaWorkspaceAccess,
-} from "../src/server/db/repositories/setup.repositories.server";
-import { ManageAgents } from "../src/server/agents/manage-agents.server";
-import { PublishAgentRuntimeControl } from "../src/server/agents/agent-runtime-control.server";
-import { RepositoryAgentAuthorization } from "../src/server/db/repositories/agent.repositories.server";
-import { createAgentSessions } from "../src/server/db/repositories/agent-session.repositories.server";
-import { PrismaAgentControlStore } from "../src/server/db/repositories/agent-control.repositories.server";
-import { AgentControl } from "../src/server/agents/agent-control.server";
-import { getAgentRuntimeLock } from "../src/server/agents/agent-runtime-lock.server";
+} from "@/server/db/repositories/setup.repositories.server";
+import { ManageAgents } from "@/server/agents/manage-agents.server";
+import { PublishAgentRuntimeControl } from "@/server/agents/agent-runtime-control.server";
+import { RepositoryAgentAuthorization } from "@/server/db/repositories/agent.repositories.server";
+import { createAgentSessions } from "@/server/db/repositories/agent-session.repositories.server";
+import { PrismaAgentControlStore } from "@/server/db/repositories/agent-control.repositories.server";
+import { AgentControl } from "@/server/agents/agent-control.server";
+import { getAgentRuntimeLock } from "@/server/agents/agent-runtime-lock.server";
 import {
   AgentRuntimeCredentials,
   readAgentRuntimeCredentialEncryptionKey,
-} from "../src/server/agents/agent-runtime-credentials.server";
-import { RedisMessageRequestIdempotency } from "../src/server/conversations/redis-message-request-idempotency.server";
-import { createCentrifugoServerApi } from "../src/server/centrifugo/server-api.server";
+} from "@/server/agents/agent-runtime-credentials.server";
+import { RedisMessageRequestIdempotency } from "@/server/conversations/redis-message-request-idempotency.server";
+import { createCentrifugoServerApi } from "@/server/centrifugo/server-api.server";
 import {
   DaemonConnection,
   DaemonRuntime,

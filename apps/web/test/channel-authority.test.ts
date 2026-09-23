@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import {
   deriveChannelAdminBasis,
   deriveChannelCapabilities,
-} from "../src/server/conversations/channel-authority.server";
+} from "@/server/conversations/channel-authority.server";
 
 test("deriveChannelAdminBasis: server_role wins when both apply, channel_role when only stored, none otherwise", () => {
   expect(deriveChannelAdminBasis("owner", "member")).toBe("server_role");

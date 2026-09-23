@@ -1,17 +1,14 @@
 import { expect, test } from "bun:test";
 
-import { saveUserProfileInputSchema } from "../src/features/profiles/profile.schemas";
-import { AppError } from "../src/lib/app-error";
-import {
-  PROFILE_IMAGE_MAX_BYTES,
-  storeUserAvatar,
-} from "../src/server/profiles/user-avatar.server";
+import { saveUserProfileInputSchema } from "@/features/profiles/profile.schemas";
+import { AppError } from "@/lib/app-error";
+import { PROFILE_IMAGE_MAX_BYTES, storeUserAvatar } from "@/server/profiles/user-avatar.server";
 import {
   handleAvatarDelete,
   handleAvatarDownload,
   handleAvatarUpload,
-} from "../src/routes/api/me/avatar";
-import { handleWorkspaceUserAvatar } from "../src/server/profiles/workspace-user-avatar.server";
+} from "@/routes/api/me/avatar";
+import { handleWorkspaceUserAvatar } from "@/server/profiles/workspace-user-avatar.server";
 
 test("workspace user avatar serves the requested sender only to workspace members", async () => {
   const response = await handleWorkspaceUserAvatar(

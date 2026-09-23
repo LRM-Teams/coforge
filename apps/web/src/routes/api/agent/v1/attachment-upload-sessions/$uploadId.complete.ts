@@ -1,10 +1,10 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { agentAuthMiddleware } from "#/server/agents/agent-http-middleware.server";
+import { agentAuthMiddleware } from "@/server/agents/agent-http-middleware.server";
 import {
   completeAttachmentUploadSession,
   AttachmentUploadSessionError,
-} from "#/server/attachments/attachment-upload-session.server";
-import { getFileStorage } from "#/server/files/file-storage.server";
+} from "@/server/attachments/attachment-upload-session.server";
+import { getFileStorage } from "@/server/files/file-storage.server";
 
 function errorResponse(code: string, message: string, status: number, retryable: boolean) {
   return Response.json({ error: message, code, retryable }, { status });

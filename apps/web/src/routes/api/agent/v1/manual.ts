@@ -1,11 +1,11 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { agentAuthMiddleware } from "#/server/agents/agent-http-middleware.server";
-import { PrismaAgentManualEventRepository } from "#/server/db/repositories/agent-manual-event.repositories.server";
+import { agentAuthMiddleware } from "@/server/agents/agent-http-middleware.server";
+import { PrismaAgentManualEventRepository } from "@/server/db/repositories/agent-manual-event.repositories.server";
 import {
   recordManualEvent,
   resolveManualGet,
   type AgentManualEventRepository,
-} from "#/server/agents/agent-manual.server";
+} from "@/server/agents/agent-manual.server";
 
 export type AgentManualGetPrincipal = { workspaceId: string; agentId: string };
 

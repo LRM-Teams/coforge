@@ -11,7 +11,7 @@ import {
   getFileDelivery,
   readFileDeliveryConfig,
   rememberFileDeliveryConfig,
-} from "../src/server/files/file-delivery.server";
+} from "@/server/files/file-delivery.server";
 
 test("delivery is disabled when the CDN URL is unset", async () => {
   expect(await readFileDeliveryConfig({})).toBeNull();

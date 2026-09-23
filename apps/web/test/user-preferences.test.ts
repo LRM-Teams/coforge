@@ -8,12 +8,12 @@ import {
   formatRelativeTime,
   resolveTimeZone,
   validateTimeZone,
-} from "../src/lib/dates";
-import { localeTimeFormat } from "../src/lib/time-format";
+} from "@/lib/dates";
+import { localeTimeFormat } from "@/lib/time-format";
 import {
   UserPreferences,
   type UserPreferencesRepository,
-} from "../src/server/db/repositories/user-preferences.repositories.server";
+} from "@/server/db/repositories/user-preferences.repositories.server";
 
 describe("user time zone preferences", () => {
   test("uses the browser/system time zone when no preference is saved", () => {

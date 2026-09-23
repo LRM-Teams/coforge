@@ -3,9 +3,9 @@ import { queryOptions, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "@tanstack/react-router";
 import { useEffect } from "react";
 
-import { getAgentEnvironment, getAgentProfile } from "../agents.functions";
-import { agentActivityFeedQuery } from "../agent-activity-queries";
-import { mergeAgentActivity } from "../agent-activity";
+import { getAgentEnvironment, getAgentProfile } from "@/features/agents/agents.functions";
+import { agentActivityFeedQuery } from "@/features/agents/agent-activity-queries";
+import { mergeAgentActivity } from "@/features/agents/agent-activity";
 
 const agentProfileKey = (agentId: string) => ["agent-profile", agentId] as const;
 export const agentEnvironmentKey = (agentId: string) => ["agent-environment", agentId] as const;

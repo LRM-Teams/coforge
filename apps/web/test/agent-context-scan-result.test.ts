@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { createAgentContextScanResultMethod } from "../src/server/centrifugo/rpc-handler.server";
+import { createAgentContextScanResultMethod } from "@/server/centrifugo/rpc-handler.server";
 import { encodeAgentContextScanResponse } from "@lrm/coforge-sdk/internal";
 
 const principal = (agentId?: string) => ({

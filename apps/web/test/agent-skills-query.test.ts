@@ -4,8 +4,8 @@ import {
   type AgentSkillsListRequest,
   type AgentSkillsListResult,
 } from "@lrm/coforge-sdk/internal";
-import { AgentSkillsQuery, type SkillsAssignment } from "../src/server/agents/agent-skills.server";
-import { createAgentSkillsListResultMethod } from "../src/server/centrifugo/agent-skills-cache.server";
+import { AgentSkillsQuery, type SkillsAssignment } from "@/server/agents/agent-skills.server";
+import { createAgentSkillsListResultMethod } from "@/server/centrifugo/agent-skills-cache.server";
 
 test("Skills query binds the owner's assignment and rechecks it before returning metadata", async () => {
   let assignment: { computerId: string; provider: "codex"; revision: string } | undefined = {

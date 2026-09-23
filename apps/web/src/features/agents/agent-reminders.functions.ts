@@ -2,11 +2,11 @@ import { createServerFn } from "@tanstack/react-start";
 import { setResponseHeader } from "@tanstack/react-start/server";
 import { z } from "zod";
 import { agentIdSchema } from "./agent.schemas";
-import { workspaceUserMiddleware } from "../auth/function-auth";
+import { workspaceUserMiddleware } from "@/features/auth/function-auth";
 import {
   AgentRemindersQuery,
   prismaAgentReminderReadStore,
-} from "../../server/agents/agent-reminders.server";
+} from "@/server/agents/agent-reminders.server";
 
 const listSchema = z.object({
   agentId: agentIdSchema,

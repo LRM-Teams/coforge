@@ -6,7 +6,7 @@
  * "the oldest message past the cursor", so the decision lives here as a framework-free
  * function that the pane, its divider snapshot and the tests all share.
  */
-import type { ConversationOpenMode } from "../settings/conversation-open-mode";
+import type { ConversationOpenMode } from "@/features/settings/conversation-open-mode";
 
 /** The unread boundary: the oldest message the viewer has not read in this pane. */
 export type UnreadBoundary = { id: string; sequence: number };

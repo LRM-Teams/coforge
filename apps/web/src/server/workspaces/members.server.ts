@@ -1,11 +1,14 @@
-import type { PrismaClient } from "../../../generated/client";
-import { AppError } from "../../lib/app-error";
+import type { PrismaClient } from "@/generated/prisma/client";
+import { AppError } from "@/lib/app-error";
 import type { WorkspaceMemberRole } from "./member-role.server";
-import { ACTIVE_AGENT_WHERE } from "../agents/active-agent.server";
-import { agentAvatarUrl } from "../agents/agent-avatar.server";
-import { visibleAgentWhere, type AgentVisibilityViewer } from "../agents/agent-visibility.server";
-import { workspaceUserAvatarUrl } from "../db/repositories/user-profile.repositories.server";
-import { MEMBER_PAGE_MAX, NO_COMPUTER } from "../../features/workspaces/member-directory";
+import { ACTIVE_AGENT_WHERE } from "@/server/agents/active-agent.server";
+import { agentAvatarUrl } from "@/server/agents/agent-avatar.server";
+import {
+  visibleAgentWhere,
+  type AgentVisibilityViewer,
+} from "@/server/agents/agent-visibility.server";
+import { workspaceUserAvatarUrl } from "@/server/db/repositories/user-profile.repositories.server";
+import { MEMBER_PAGE_MAX, NO_COMPUTER } from "@/features/workspaces/member-directory";
 
 /** The actor's Workspace role; ACCESS_DENIED when the user is not a member. */
 export async function workspaceMemberRole(

@@ -1,7 +1,13 @@
 import type { AgentStopIntent } from "@lrm/coforge-sdk/internal";
-import { AppError } from "../../lib/app-error";
-import { assertCanDeleteAgents, type WorkspaceMemberRole } from "../workspaces/member-role.server";
-import type { AgentRecord, AgentRepository } from "../db/repositories/agent.repositories.server";
+import { AppError } from "@/lib/app-error";
+import {
+  assertCanDeleteAgents,
+  type WorkspaceMemberRole,
+} from "@/server/workspaces/member-role.server";
+import type {
+  AgentRecord,
+  AgentRepository,
+} from "@/server/db/repositories/agent.repositories.server";
 import type { AgentRuntimeLock } from "./agent-runtime-lock.server";
 import { agentStopIntent } from "./manage-agents.server";
 

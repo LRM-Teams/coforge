@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
-import { createCentrifugoNotificationPublisher } from "../src/server/notifications/in-page-notification-publisher.server";
-import { userConversationChannel } from "../src/features/conversations/conversation-realtime";
+import { createCentrifugoNotificationPublisher } from "@/server/notifications/in-page-notification-publisher.server";
+import { userConversationChannel } from "@/features/conversations/conversation-realtime";
 
 describe("createCentrifugoNotificationPublisher", () => {
   test("broadcasts one bodiless notification.available.v1 event to every recipient's own channel", async () => {

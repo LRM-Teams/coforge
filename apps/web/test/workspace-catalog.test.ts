@@ -1,11 +1,11 @@
 import { expect, test } from "bun:test";
-import { AppError } from "../src/lib/app-error";
+import { AppError } from "@/lib/app-error";
 
 import {
   WorkspaceCatalog,
   type WorkspaceCatalogStore,
   type WorkspaceRecord,
-} from "../src/server/workspaces/catalog.server";
+} from "@/server/workspaces/catalog.server";
 
 const ada = "11111111-1111-4111-8111-111111111111";
 const grace = "22222222-2222-4222-8222-222222222222";

@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 
-import { attachmentView } from "../src/server/attachments/attachment-view.server";
+import { attachmentView } from "@/server/attachments/attachment-view.server";
 
 const row = {
   id: "a1",

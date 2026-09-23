@@ -1,9 +1,9 @@
 import { expect, test } from "bun:test";
 
-import { FileDeliveryConfigError } from "../src/server/files/file-delivery.server";
-import { FileStorageConfigError } from "../src/server/files/file-storage.server";
-import { PublicImageDeliveryConfigError } from "../src/server/files/public-image-delivery.server";
-import { assertStartupConfig } from "../src/server/startup-config.server";
+import { FileDeliveryConfigError } from "@/server/files/file-delivery.server";
+import { FileStorageConfigError } from "@/server/files/file-storage.server";
+import { PublicImageDeliveryConfigError } from "@/server/files/public-image-delivery.server";
+import { assertStartupConfig } from "@/server/startup-config.server";
 
 test("boots without CDN delivery when it is not configured", async () => {
   await expect(assertStartupConfig({})).resolves.toBeUndefined();

@@ -1,8 +1,8 @@
 import {
   createCentrifugoServerApi,
   type CentrifugoServerApi,
-} from "../centrifugo/server-api.server";
-import { agentStatusChannel } from "../../features/agents/agent-status-realtime";
+} from "@/server/centrifugo/server-api.server";
+import { agentStatusChannel } from "@/features/agents/agent-status-realtime";
 
 /**
  * The `agent:visibility_changed` publisher. After a visibility change commits, every

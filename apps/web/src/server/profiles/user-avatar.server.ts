@@ -1,11 +1,11 @@
-import type { PrismaClient } from "../../../generated/client";
-import { AppError } from "../../lib/app-error";
-import { avatarUrl } from "../db/repositories/user-profile.repositories.server";
-import type { FileStorage } from "../files/file-storage.server";
-import { getPublicImageStorage } from "../files/public-image-storage.server";
-import { validateImage } from "../files/image-upload.server";
+import type { PrismaClient } from "@/generated/prisma/client";
+import { AppError } from "@/lib/app-error";
+import { avatarUrl } from "@/server/db/repositories/user-profile.repositories.server";
+import type { FileStorage } from "@/server/files/file-storage.server";
+import { getPublicImageStorage } from "@/server/files/public-image-storage.server";
+import { validateImage } from "@/server/files/image-upload.server";
 
-export { IMAGE_MAX_BYTES as PROFILE_IMAGE_MAX_BYTES } from "../files/image-upload.server";
+export { IMAGE_MAX_BYTES as PROFILE_IMAGE_MAX_BYTES } from "@/server/files/image-upload.server";
 
 export async function storeUserAvatar(
   db: PrismaClient,

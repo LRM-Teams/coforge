@@ -1,10 +1,10 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 
-import { AppError } from "../../lib/app-error";
-import { workspaceUserMiddleware } from "../auth/function-auth";
-import { attachmentView } from "../../server/attachments/attachment-view.server";
-import { isInlineImage } from "../../server/attachments/attachment-response.server";
+import { AppError } from "@/lib/app-error";
+import { workspaceUserMiddleware } from "@/features/auth/function-auth";
+import { attachmentView } from "@/server/attachments/attachment-view.server";
+import { isInlineImage } from "@/server/attachments/attachment-response.server";
 
 export type ConversationFile = {
   id: string;

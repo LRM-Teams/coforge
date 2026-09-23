@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { handleWorkspaceUserAvatar } from "../../../../../../server/profiles/workspace-user-avatar.server";
+import { handleWorkspaceUserAvatar } from "@/server/profiles/workspace-user-avatar.server";
 
 export const Route = createFileRoute("/api/workspaces/$workspaceId/users/$userId/avatar")({
   server: {

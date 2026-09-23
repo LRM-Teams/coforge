@@ -1,6 +1,6 @@
-import type { Prisma, PrismaClient } from "../../../generated/client";
+import type { Prisma, PrismaClient } from "@/generated/prisma/client";
 import { createHash } from "node:crypto";
-import { AppError } from "../../lib/app-error";
+import { AppError } from "@/lib/app-error";
 import { collectorRuntimeConfigured } from "./weekly-report-collector.server";
 
 export const COLLECT_RUN_STATUS = {

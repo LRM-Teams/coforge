@@ -4,7 +4,7 @@ import {
   conversationRowMenuEnabled,
   conversationRowMenuItems,
   directRowPreference,
-} from "../src/features/conversations/conversation-row-menu-model";
+} from "@/features/conversations/conversation-row-menu-model";
 
 /**
  * P3a (#126) of the saved/pinned plan: the conversation row's right-click menu. The mockup

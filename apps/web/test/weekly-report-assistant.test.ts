@@ -1,11 +1,11 @@
 import { expect, test } from "bun:test";
-import type { PrismaClient } from "../generated/client";
-import { RecordCatalog } from "../src/server/records/record-catalog.server";
+import type { PrismaClient } from "@/generated/prisma/client";
+import { RecordCatalog } from "@/server/records/record-catalog.server";
 import {
   WEEKLY_REPORT_ASSISTANT_DISPLAY_NAME,
   ensureWeeklyReportAssistant,
   weeklyReportAssistantAgentName,
-} from "../src/server/records/weekly-report-assistant.server";
+} from "@/server/records/weekly-report-assistant.server";
 
 test("weekly report assistants keep a fixed display name and User-scoped Agent identity", () => {
   expect(WEEKLY_REPORT_ASSISTANT_DISPLAY_NAME).toBe("周报助手");

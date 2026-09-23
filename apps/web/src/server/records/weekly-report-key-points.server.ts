@@ -1,11 +1,11 @@
-import type { PrismaClient } from "../../../generated/client";
-import { AppError } from "../../lib/app-error";
-import { createCentrifugoServerApi } from "../centrifugo/server-api.server";
-import { CentrifugoConversationRealtime } from "../conversations/conversation-realtime.server";
-import { PrismaDirectConversationRepository } from "../db/repositories/direct-conversation.repositories.server";
-import { getMessageRequestIdempotency } from "../conversations/redis-message-request-idempotency.server";
-import { SendDirectMessage } from "../conversations/direct-message.server";
-import { parseAgentRuntimeConfig } from "../agents/agent-runtime-config.server";
+import type { PrismaClient } from "@/generated/prisma/client";
+import { AppError } from "@/lib/app-error";
+import { createCentrifugoServerApi } from "@/server/centrifugo/server-api.server";
+import { CentrifugoConversationRealtime } from "@/server/conversations/conversation-realtime.server";
+import { PrismaDirectConversationRepository } from "@/server/db/repositories/direct-conversation.repositories.server";
+import { getMessageRequestIdempotency } from "@/server/conversations/redis-message-request-idempotency.server";
+import { SendDirectMessage } from "@/server/conversations/direct-message.server";
+import { parseAgentRuntimeConfig } from "@/server/agents/agent-runtime-config.server";
 import {
   DEFAULT_PERSONAL_KEY_POINT_PROMPT,
   DEFAULT_TEAM_KEY_POINT_PROMPT,
@@ -17,8 +17,8 @@ import {
   type ReportContent,
   applyKeyPointPromptText,
   emptyKeyPointPrompts,
-} from "../../features/records/records-content";
-import { linkifyKeyPointSourceAttributions } from "../../features/records/key-point-source-links";
+} from "@/features/records/records-content";
+import { linkifyKeyPointSourceAttributions } from "@/features/records/key-point-source-links";
 import { ensureWeeklyReportAssistant } from "./weekly-report-assistant.server";
 import { ensureWeeklyReportAssistantChatSession } from "./weekly-report-assistant-chat-session.server";
 

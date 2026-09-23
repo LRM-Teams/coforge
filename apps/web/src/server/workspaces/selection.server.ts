@@ -1,5 +1,5 @@
 import { getRequest, setResponseHeader } from "@tanstack/react-start/server";
-import type { PrismaClient } from "../../../generated/client";
+import type { PrismaClient } from "@/generated/prisma/client";
 
 import { requireExistingWorkspaceId } from "./enrollment.server";
 

@@ -18,23 +18,23 @@ import {
   setRuntimeVisibilityInputSchema,
   updateComputerDisplayNameInputSchema,
 } from "./computer.schemas";
-import { workspaceUserMiddleware, type WorkspaceUserContext } from "../auth/function-auth";
+import { workspaceUserMiddleware, type WorkspaceUserContext } from "@/features/auth/function-auth";
 import {
   createCentrifugoServerApi,
   createUsageScan,
   daemonControlChannel,
-} from "../../server/centrifugo/server-api.server";
-import { getUsageCache } from "../../server/centrifugo/usage-cache.server";
-import { getComputerStatusCache } from "../../server/centrifugo/computer-status.server";
-import { computerCreatorAvatarUrl } from "../../server/computers/computer-creator-avatar.server";
-import { isWorkspaceMemberComputer } from "../../server/computers/computer-membership.server";
-import { ComputerRuntimeVisibility } from "../../server/computers/computer-runtime-visibility.server";
-import { PrismaComputerRuntimeRepository } from "../../server/db/repositories/computer-runtime.repositories.server";
-import { RestartComputer } from "../../server/computers/restart-computer.server";
-import { getComputerRestartStore } from "../../server/computers/computer-restart-store.server";
-import { getComputerUpgradeStore } from "../../server/computers/computer-upgrade-store.server";
-import { UpgradeComputer } from "../../server/computers/upgrade-computer.server";
-import { resolveReleaseFeedUrl } from "../../server/install/install-script.server";
+} from "@/server/centrifugo/server-api.server";
+import { getUsageCache } from "@/server/centrifugo/usage-cache.server";
+import { getComputerStatusCache } from "@/server/centrifugo/computer-status.server";
+import { computerCreatorAvatarUrl } from "@/server/computers/computer-creator-avatar.server";
+import { isWorkspaceMemberComputer } from "@/server/computers/computer-membership.server";
+import { ComputerRuntimeVisibility } from "@/server/computers/computer-runtime-visibility.server";
+import { PrismaComputerRuntimeRepository } from "@/server/db/repositories/computer-runtime.repositories.server";
+import { RestartComputer } from "@/server/computers/restart-computer.server";
+import { getComputerRestartStore } from "@/server/computers/computer-restart-store.server";
+import { getComputerUpgradeStore } from "@/server/computers/computer-upgrade-store.server";
+import { UpgradeComputer } from "@/server/computers/upgrade-computer.server";
+import { resolveReleaseFeedUrl } from "@/server/install/install-script.server";
 
 export const restartComputer = createServerFn({ method: "POST" })
   .middleware([workspaceUserMiddleware])

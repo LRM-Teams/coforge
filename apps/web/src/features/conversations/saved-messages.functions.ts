@@ -1,11 +1,11 @@
 import { createServerFn } from "@tanstack/react-start";
 
-import { workspaceUserMiddleware } from "../auth/function-auth";
+import { workspaceUserMiddleware } from "@/features/auth/function-auth";
 import {
   listUserSavedMessages,
   saveUserMessage,
   unsaveUserMessage,
-} from "../../server/conversations/saved-messages.server";
+} from "@/server/conversations/saved-messages.server";
 import { savedMessageInputSchema } from "./conversation.schemas";
 
 /** The viewer's own bookmark on one message; idempotent, returns the resulting state. */

@@ -1,4 +1,4 @@
-import type { PrismaClient } from "../../../generated/client";
+import type { PrismaClient } from "@/generated/prisma/client";
 
 export class UserIdentityRepository {
   constructor(private readonly db: PrismaClient) {}

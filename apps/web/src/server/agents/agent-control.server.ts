@@ -7,11 +7,14 @@ import {
   type AgentStartIntent,
   type SessionIdentity,
 } from "@lrm/coforge-sdk/internal";
-import { daemonControlChannel, type CentrifugoServerApi } from "../centrifugo/server-api.server";
+import {
+  daemonControlChannel,
+  type CentrifugoServerApi,
+} from "@/server/centrifugo/server-api.server";
 import type { AgentRuntimeConfig } from "./agent-runtime-config.server";
 import { runtimeStartFields } from "./manage-agents.server";
 import { assertAgentLive } from "./active-agent.server";
-import { AppError } from "../../lib/app-error";
+import { AppError } from "@/lib/app-error";
 import { canSeeAgent } from "./agent-visibility.server";
 import type { AgentRuntimeLock } from "./agent-runtime-lock.server";
 import type { AgentSessions } from "./agent-sessions.server";
@@ -20,7 +23,7 @@ import {
   assertHasAgentControlCapability,
   type AgentControlCapability,
   type WorkspaceMemberRole,
-} from "../workspaces/member-role.server";
+} from "@/server/workspaces/member-role.server";
 
 /** Only the recovery fields a Start intent may carry; a full `AgentStartIntent` (e.g.
  * `recover()`'s) structurally satisfies this too. */

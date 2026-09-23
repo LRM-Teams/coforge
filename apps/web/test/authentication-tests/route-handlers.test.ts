@@ -4,7 +4,7 @@ import {
   currentUserHandler,
   loginStartHandler,
   logoutHandler,
-} from "../../src/server/auth/route-handlers.server";
+} from "@/server/auth/route-handlers.server";
 
 test("login start returns a safe 503 when Authing config is missing", async () => {
   const previous = {

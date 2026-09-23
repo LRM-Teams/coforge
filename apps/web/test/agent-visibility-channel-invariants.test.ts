@@ -1,10 +1,10 @@
 import { expect, test } from "bun:test";
-import type { PrismaClient } from "../generated/client";
-import { isAppError } from "../src/lib/app-error";
-import { PublicChannels } from "../src/server/conversations/public-channels.server";
-import { PrismaAgentRepository } from "../src/server/db/repositories/agent.repositories.server";
-import { AgentChannelManagement } from "../src/server/conversations/agent-channel-management.server";
-import { AgentChannelManagementError } from "../src/server/conversations/agent-channel-management-error.server";
+import type { PrismaClient } from "@/generated/prisma/client";
+import { isAppError } from "@/lib/app-error";
+import { PublicChannels } from "@/server/conversations/public-channels.server";
+import { PrismaAgentRepository } from "@/server/db/repositories/agent.repositories.server";
+import { AgentChannelManagement } from "@/server/conversations/agent-channel-management.server";
+import { AgentChannelManagementError } from "@/server/conversations/agent-channel-management-error.server";
 
 const WORKSPACE_ID = "workspace-1";
 

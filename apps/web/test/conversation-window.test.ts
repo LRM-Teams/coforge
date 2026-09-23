@@ -9,7 +9,7 @@ import {
   nextPageCursor,
   previousPageCursor,
   windowPageFlags,
-} from "../src/lib/conversation-window";
+} from "@/lib/conversation-window";
 
 describe("previousPageCursor", () => {
   test("pages up from the oldest loaded sequence while older history remains", () => {

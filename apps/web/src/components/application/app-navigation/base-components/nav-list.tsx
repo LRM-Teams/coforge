@@ -1,5 +1,5 @@
 import { cx } from "@/utils/cx";
-import type { NavItemDividerType, NavItemType } from "../config";
+import type { NavItemDividerType, NavItemType } from "@/components/application/app-navigation/config";
 import { NavItemBase } from "./nav-item";
 
 interface NavListProps {

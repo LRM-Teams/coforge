@@ -1,5 +1,5 @@
 import Highlight from "@tiptap/extension-highlight";
-import { matchHighlightAt } from "../utils/highlight-match";
+import { matchHighlightAt } from "@/features/records/report-editor/utils/highlight-match";
 
 /**
  * HighlightExtension — text highlight mark (`==text==` ⇄ <mark>).

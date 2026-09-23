@@ -1,8 +1,8 @@
-import type { PrismaClient } from "../../../generated/client";
-import { AppError } from "../../lib/app-error";
-import type { GitHubConnection } from "../integrations/github-connection.server";
-import { getFileStorage, type FileStorage } from "../files/file-storage.server";
-import { toPublicServerError } from "../errors/public-error.server";
+import type { PrismaClient } from "@/generated/prisma/client";
+import { AppError } from "@/lib/app-error";
+import type { GitHubConnection } from "@/server/integrations/github-connection.server";
+import { getFileStorage, type FileStorage } from "@/server/files/file-storage.server";
+import { toPublicServerError } from "@/server/errors/public-error.server";
 
 export class ProjectSettings {
   constructor(

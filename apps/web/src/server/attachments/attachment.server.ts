@@ -1,7 +1,11 @@
-import type { PrismaClient } from "../../../generated/client";
-import { AppError } from "../../lib/app-error";
-import { getFileStorage, type FileStorage, type StoredFile } from "../files/file-storage.server";
-import { ACTIVE_MEMBER_WHERE } from "../conversations/active-member.server";
+import type { PrismaClient } from "@/generated/prisma/client";
+import { AppError } from "@/lib/app-error";
+import {
+  getFileStorage,
+  type FileStorage,
+  type StoredFile,
+} from "@/server/files/file-storage.server";
+import { ACTIVE_MEMBER_WHERE } from "@/server/conversations/active-member.server";
 
 export const ATTACHMENT_MAX_BYTES = 10 * 1024 * 1024;
 export const ATTACHMENT_SESSION_SECONDS = 900;

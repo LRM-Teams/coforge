@@ -6,21 +6,24 @@ import type { RefObject } from "react";
 import StarterKit from "@tiptap/starter-kit";
 import CodeBlockLowlight from "@tiptap/extension-code-block-lowlight";
 import Placeholder from "@tiptap/extension-placeholder";
-import { sharedLowlight } from "../lowlight";
+import { sharedLowlight } from "@/features/records/report-editor/lowlight";
 import Link from "@tiptap/extension-link";
 import Typography from "@tiptap/extension-typography";
 import Image from "@tiptap/extension-image";
 import TableRow from "@tiptap/extension-table-row";
 import TableHeader from "@tiptap/extension-table-header";
 import TableCell from "@tiptap/extension-table-cell";
-import { StableTableView } from "../stable-table-view";
-import { TABLE_CELL_DEFAULT_WIDTH, TableWithColwidthMarkdown } from "../table-markdown";
+import { StableTableView } from "@/features/records/report-editor/stable-table-view";
+import {
+  TABLE_CELL_DEFAULT_WIDTH,
+  TableWithColwidthMarkdown,
+} from "@/features/records/report-editor/table-markdown";
 import { PatchedListItem, PatchedTaskItem, PatchedTaskList } from "./list-item";
 import { Markdown } from "@tiptap/markdown";
 import { ReactNodeViewRenderer } from "@tiptap/react";
 import type { AnyExtension } from "@tiptap/core";
-import type { UploadResult } from "../types";
-import { escapeMarkdownLabel } from "../utils/escape-markdown-label";
+import type { UploadResult } from "@/features/records/report-editor/types";
+import { escapeMarkdownLabel } from "@/features/records/report-editor/utils/escape-markdown-label";
 import { SlashCommandExtension } from "./slash-command-extension";
 import { createBlockCommandSuggestion } from "./slash-command-suggestion";
 import { CodeBlockView } from "./code-block-view";

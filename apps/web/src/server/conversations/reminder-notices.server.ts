@@ -1,4 +1,4 @@
-import type { PrismaClient } from "../../../generated/client";
+import type { PrismaClient } from "@/generated/prisma/client";
 import { ConversationHistory } from "./conversation-history.server";
 
 const noticeType = (type: string): "created" | "fired" =>

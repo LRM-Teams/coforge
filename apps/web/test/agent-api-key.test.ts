@@ -7,7 +7,7 @@ import {
   isAgentApiKeyBoundToComputer,
   type AgentApiKeyRecord,
   type AgentApiKeyRepository,
-} from "../src/server/agents/agent-api-key.server";
+} from "@/server/agents/agent-api-key.server";
 
 class MemoryAgentApiKeys implements AgentApiKeyRepository {
   records = new Map<string, AgentApiKeyRecord>();

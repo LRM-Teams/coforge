@@ -4,12 +4,12 @@ import {
   allSlotsTerminal,
   canSynthesizeFromSlots,
   isRetryableSlotStatus,
-} from "../src/server/records/weekly-report-collect-run.server";
+} from "@/server/records/weekly-report-collect-run.server";
 import {
   WEEKLY_REPORT_COLLECTOR_DISPLAY_NAME_PREFIX,
   weeklyReportCollectorAgentName,
   weeklyReportCollectorDisplayName,
-} from "../src/server/records/weekly-report-collector.server";
+} from "@/server/records/weekly-report-collector.server";
 
 test("collector Agent names stay stable and User-Computer scoped", () => {
   expect(weeklyReportCollectorAgentName("computer-a")).toBe("weekly-report-collector-computer-a");
@@ -62,7 +62,7 @@ test("collect slot settle helpers match ADR 0032 terminal and partial-success ru
 
 test("collectWaveExhausted is true only when every slot is terminal with no ready pack", async () => {
   const { COLLECT_SLOT_STATUS, collectWaveExhausted } =
-    await import("../src/server/records/weekly-report-collect-run.server");
+    await import("@/server/records/weekly-report-collect-run.server");
   expect(collectWaveExhausted([])).toBe(false);
   expect(
     collectWaveExhausted([
@@ -80,9 +80,8 @@ test("collectWaveExhausted is true only when every slot is terminal with no read
 });
 
 test("startCollectRun rejects foreign computers and zero ready collectors", async () => {
-  const { startCollectRun } =
-    await import("../src/server/records/weekly-report-collect-run.server");
-  const { AppError } = await import("../src/lib/app-error");
+  const { startCollectRun } = await import("@/server/records/weekly-report-collect-run.server");
+  const { AppError } = await import("@/lib/app-error");
 
   const db = {
     weeklyReport: {
@@ -160,7 +159,7 @@ test("startCollectRun rejects foreign computers and zero ready collectors", asyn
 });
 
 test("ensureCollector refuses a Computer the User does not own", async () => {
-  const { ensureCollector } = await import("../src/server/records/weekly-report-collector.server");
+  const { ensureCollector } = await import("@/server/records/weekly-report-collector.server");
 
   const db: any = {
     weeklyReportCollectorBinding: {
@@ -190,7 +189,7 @@ test("ensureCollector refuses a Computer the User does not own", async () => {
 });
 
 test("ensureCollector creates a private Collector Agent for an owned Computer", async () => {
-  const { ensureCollector } = await import("../src/server/records/weekly-report-collector.server");
+  const { ensureCollector } = await import("@/server/records/weekly-report-collector.server");
   const createdAgents: Array<Record<string, unknown>> = [];
   const db: any = {
     $transaction: async (fn: (tx: any) => Promise<unknown>) => fn(db),
@@ -253,7 +252,7 @@ test("ensureCollector creates a private Collector Agent for an owned Computer", 
 });
 
 test("ensureCollector reclaims an orphan Agent and creates the missing binding", async () => {
-  const { ensureCollector } = await import("../src/server/records/weekly-report-collector.server");
+  const { ensureCollector } = await import("@/server/records/weekly-report-collector.server");
   let createdBinding: unknown = null;
   let visibilityPatch: unknown = null;
   const db: any = {
@@ -330,7 +329,7 @@ test("ensureCollector reclaims an orphan Agent and creates the missing binding",
 
 test("startCollectRun creates a collecting run with running slots for ready collectors", async () => {
   const { startCollectRun, COLLECT_RUN_STATUS, COLLECT_SLOT_STATUS } =
-    await import("../src/server/records/weekly-report-collect-run.server");
+    await import("@/server/records/weekly-report-collect-run.server");
 
   let created: Record<string, unknown> | null = null;
   const db = {
@@ -432,7 +431,7 @@ test("startCollectRun creates a collecting run with running slots for ready coll
 
 test("buildCollectSynthesizerWakeText includes status board and ready packs", async () => {
   const { buildCollectSynthesizerWakeText } =
-    await import("../src/server/records/weekly-report-collect-orchestrate.server");
+    await import("@/server/records/weekly-report-collect-orchestrate.server");
   const text = buildCollectSynthesizerWakeText({
     reportId: "report-1",
     runId: "run-1",
@@ -463,7 +462,7 @@ test("buildCollectSynthesizerWakeText includes status board and ready packs", as
 
 test("buildCollectorWakeBody requires owner-scoped harvest and lists identity hints", async () => {
   const { buildCollectorWakeBody } =
-    await import("../src/server/records/weekly-report-collect-orchestrate.server");
+    await import("@/server/records/weekly-report-collect-orchestrate.server");
   const text = buildCollectorWakeBody({
     runId: "run-1",
     reportId: "report-1",
@@ -484,7 +483,7 @@ test("buildCollectorWakeBody requires owner-scoped harvest and lists identity hi
 
 test("buildCollectSynthesizerWakeText forwards user revision guidance", async () => {
   const { buildCollectSynthesizerWakeText } =
-    await import("../src/server/records/weekly-report-collect-orchestrate.server");
+    await import("@/server/records/weekly-report-collect-orchestrate.server");
   const text = buildCollectSynthesizerWakeText({
     reportId: "report-1",
     runId: "run-1",
@@ -504,7 +503,7 @@ test("buildCollectSynthesizerWakeText forwards user revision guidance", async ()
 
 test("acceptCollectSlotReport advances collecting→synthesizing when every slot is ready", async () => {
   const { acceptCollectSlotReport, COLLECT_RUN_STATUS, COLLECT_SLOT_STATUS } =
-    await import("../src/server/records/weekly-report-collect-run.server");
+    await import("@/server/records/weekly-report-collect-run.server");
 
   let slotStatus: string = COLLECT_SLOT_STATUS.running;
   let slotRequestId: string | null = null;
@@ -605,7 +604,7 @@ test("acceptCollectSlotReport leaves collecting when every slot failed with no r
   // LLM/provider failures that surface via submit-failure must not leave the run
   // stuck on collecting — the side-chat card stops polling only after status changes.
   const { acceptCollectSlotReport, COLLECT_RUN_STATUS, COLLECT_SLOT_STATUS } =
-    await import("../src/server/records/weekly-report-collect-run.server");
+    await import("@/server/records/weekly-report-collect-run.server");
 
   let slotStatus: string = COLLECT_SLOT_STATUS.running;
   let slotRequestId: string | null = null;
@@ -698,7 +697,7 @@ test("acceptCollectSlotReport leaves collecting when every slot failed with no r
 
 test("settleStaleCollectRun marks overdue running slots stalled and closes an empty wave", async () => {
   const { settleStaleCollectRun, COLLECT_RUN_STATUS, COLLECT_SLOT_STATUS, COLLECT_SLOT_STALL_MS } =
-    await import("../src/server/records/weekly-report-collect-run.server");
+    await import("@/server/records/weekly-report-collect-run.server");
 
   let slotStatus: string = COLLECT_SLOT_STATUS.running;
   let slotFailure: string | null = null;

@@ -3,7 +3,7 @@ import {
   ComputerRuntimeVisibility,
   type ComputerRuntimeRecord,
   type ComputerRuntimeVisibilityRepository,
-} from "../src/server/computers/computer-runtime-visibility.server";
+} from "@/server/computers/computer-runtime-visibility.server";
 
 function fixture() {
   const records: ComputerRuntimeRecord[] = [

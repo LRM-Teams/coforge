@@ -16,7 +16,7 @@ import TurndownService from "turndown";
 import { gfm } from "turndown-plugin-gfm";
 import { replaceMentionTokens, replaceTaskReferenceTokens } from "@lrm/coforge-sdk/internal";
 
-import { copyText } from "../records/report-editor/lib/clipboard";
+import { copyText } from "@/features/records/report-editor/lib/clipboard";
 
 /** One service for the feature: fenced code, ATX headings, `-` bullets and `*` emphasis match
  * what the composer and body renderer accept. */

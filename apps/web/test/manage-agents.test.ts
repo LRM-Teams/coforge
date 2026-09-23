@@ -1,11 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import { RUNTIME_PROVIDER } from "@lrm/coforge-sdk/internal";
-import { ManageAgents } from "../src/server/agents/manage-agents.server";
-import { parseAgentRuntimeConfig } from "../src/server/agents/agent-runtime-config.server";
+import { ManageAgents } from "@/server/agents/manage-agents.server";
+import { parseAgentRuntimeConfig } from "@/server/agents/agent-runtime-config.server";
 import type {
   AgentRecord,
   AgentRepository,
-} from "../src/server/db/repositories/agent.repositories.server";
+} from "@/server/db/repositories/agent.repositories.server";
 
 function fixture(options?: {
   publishFails?: boolean;

@@ -1,12 +1,12 @@
-import type { Prisma, PrismaClient } from "../../../../generated/client";
+import type { Prisma, PrismaClient } from "@/generated/prisma/client";
 
-import { validateTimeZone } from "../../../lib/dates";
-import { AppError } from "../../../lib/app-error";
-import { isTimeFormat, type TimeFormat } from "../../../lib/time-format";
+import { validateTimeZone } from "@/lib/dates";
+import { AppError } from "@/lib/app-error";
+import { isTimeFormat, type TimeFormat } from "@/lib/time-format";
 import {
   isConversationOpenMode,
   DEFAULT_CONVERSATION_OPEN_MODE,
-} from "../../../features/settings/conversation-open-mode";
+} from "@/features/settings/conversation-open-mode";
 
 export type UserPreferencesRepository = {
   getTimeZone(userId: string): Promise<string | null>;

@@ -5,7 +5,7 @@ import {
   filterMentionables,
   makeMentionBodyFormatter,
   type Mentionable,
-} from "../src/features/conversations/mention-text";
+} from "@/features/conversations/mention-text";
 
 function person(handle: string, label: string, description = "", mentionScore = 0): Mentionable {
   return {

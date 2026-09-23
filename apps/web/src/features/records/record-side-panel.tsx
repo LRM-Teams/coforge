@@ -40,9 +40,9 @@ import { avatarInitial, avatarToneClassName } from "@/lib/avatar-tone";
 import { m } from "@/paraglide/messages";
 import { formatAgentProfileParam } from "@/features/agents/profile-panel/profile-panel-search";
 import { cx } from "@/utils/cx";
-import { shouldSendOnEnter } from "../conversations/composer-behavior";
-import { useConversationRealtime } from "../conversations/conversation-realtime-client";
-import type { WeeklyReportAssistantSuggestion } from "../../server/records/weekly-report-assistant-suggestion.server";
+import { shouldSendOnEnter } from "@/features/conversations/composer-behavior";
+import { useConversationRealtime } from "@/features/conversations/conversation-realtime-client";
+import type { WeeklyReportAssistantSuggestion } from "@/server/records/weekly-report-assistant-suggestion.server";
 import type { KeyPointExtractionMeta, ReportContent } from "./records-content";
 import { formatWeeklyReportCompletedAt } from "./records-content";
 import {

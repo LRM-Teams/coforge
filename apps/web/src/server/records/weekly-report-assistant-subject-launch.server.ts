@@ -1,11 +1,11 @@
-import type { PrismaClient } from "../../../generated/client";
-import { AgentControl } from "../agents/agent-control.server";
-import { getAgentControlSignal } from "../agents/agent-control-signal.server";
-import { getAgentRuntimeLock } from "../agents/agent-runtime-lock.server";
-import { createCentrifugoServerApi } from "../centrifugo/server-api.server";
-import { PrismaDirectConversationRepository } from "../db/repositories/direct-conversation.repositories.server";
-import { PrismaAgentControlStore } from "../db/repositories/agent-control.repositories.server";
-import { createAgentSessions } from "../db/repositories/agent-session.repositories.server";
+import type { PrismaClient } from "@/generated/prisma/client";
+import { AgentControl } from "@/server/agents/agent-control.server";
+import { getAgentControlSignal } from "@/server/agents/agent-control-signal.server";
+import { getAgentRuntimeLock } from "@/server/agents/agent-runtime-lock.server";
+import { createCentrifugoServerApi } from "@/server/centrifugo/server-api.server";
+import { PrismaDirectConversationRepository } from "@/server/db/repositories/direct-conversation.repositories.server";
+import { PrismaAgentControlStore } from "@/server/db/repositories/agent-control.repositories.server";
+import { createAgentSessions } from "@/server/db/repositories/agent-session.repositories.server";
 
 export type WeeklyReportAssistantLaunchPlan =
   | { action: "deliver" }

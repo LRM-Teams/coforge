@@ -1,4 +1,4 @@
-import { AppError } from "../../lib/app-error";
+import { AppError } from "@/lib/app-error";
 import {
   assertCanChangeMemberRole,
   assertCanInvite,

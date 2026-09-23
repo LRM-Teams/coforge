@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { buildAgentRuntimeContext } from "../src/server/agents/agent-runtime-context.server";
+import { buildAgentRuntimeContext } from "@/server/agents/agent-runtime-context.server";
 
 test("buildAgentRuntimeContext maps every known Workspace/Computer field", () => {
   expect(

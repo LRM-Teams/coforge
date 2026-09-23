@@ -1,18 +1,18 @@
 import { RUNTIME_PROVIDER } from "@lrm/coforge-sdk/internal";
-import type { PrismaClient } from "../../../generated/client";
+import type { PrismaClient } from "@/generated/prisma/client";
 import { ACTIVE_AGENT_WHERE } from "./active-agent.server";
 import { parseAgentRuntimeConfig } from "./agent-runtime-config.server";
 import {
   createAgentContextScan,
   createCentrifugoServerApi,
   type CentrifugoServerApi,
-} from "../centrifugo/server-api.server";
+} from "@/server/centrifugo/server-api.server";
 import {
   getAgentContextCache,
   type AgentContextCache,
   type AgentContextReadResult,
-} from "../centrifugo/agent-context-cache.server";
-import { getComputerStatusCache } from "../centrifugo/computer-status.server";
+} from "@/server/centrifugo/agent-context-cache.server";
+import { getComputerStatusCache } from "@/server/centrifugo/computer-status.server";
 
 export type AgentContextViewer = { userId: string; workspaceId: string };
 

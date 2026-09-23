@@ -4,7 +4,7 @@ import {
   RECORDS_SIDEBAR_PREVIEW_LIMIT,
   latestWeeklyLanding,
   sidebarPreview,
-} from "../src/features/records/records-sidebar";
+} from "@/features/records/records-sidebar";
 
 test("latestWeeklyLanding prefers the first submission on the newest week", () => {
   expect(

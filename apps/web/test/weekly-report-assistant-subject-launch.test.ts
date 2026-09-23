@@ -8,13 +8,13 @@ import {
   AgentControl,
   agentControlRevision,
   type AgentControlAgent,
-} from "../src/server/agents/agent-control.server";
-import { AgentSessions } from "../src/server/agents/agent-sessions.server";
+} from "@/server/agents/agent-control.server";
+import { AgentSessions } from "@/server/agents/agent-sessions.server";
 import {
   alignWeeklyReportAssistantSubjectRuntime,
   planWeeklyReportAssistantSubjectLaunch,
   type WeeklyReportAssistantSubjectRuntime,
-} from "../src/server/records/weekly-report-assistant-subject-launch.server";
+} from "@/server/records/weekly-report-assistant-subject-launch.server";
 
 const MAPPED = "11111111-1111-4111-8111-111111111111";
 

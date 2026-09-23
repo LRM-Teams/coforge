@@ -1,9 +1,9 @@
 import { expect, test } from "bun:test";
 import { PrismaPg } from "@prisma/adapter-pg";
-import { PrismaClient } from "../generated/client";
-import type { FileStorage } from "../src/server/files/file-storage.server";
-import { ProjectImages } from "../src/server/projects/project-images.server";
-import { ProjectSettings } from "../src/server/projects/project-settings.server";
+import { PrismaClient } from "@/generated/prisma/client";
+import type { FileStorage } from "@/server/files/file-storage.server";
+import { ProjectImages } from "@/server/projects/project-images.server";
+import { ProjectSettings } from "@/server/projects/project-settings.server";
 
 test("project images authorize members, validate uploads, replace bytes and clean up on deletion", async () => {
   const connectionString = Bun.env.CHANNEL_TEST_DATABASE_URL;

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-import { subscribeToConversationRealtime } from "../src/features/conversations/conversation-realtime-client";
+import { subscribeToConversationRealtime } from "@/features/conversations/conversation-realtime-client";
 
 type PublicationListener = (context: { data: unknown }) => void;
 type SubscribedListener = (context: { wasRecovering: boolean; recovered: boolean }) => void;

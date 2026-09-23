@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import type { PrismaClient } from "../generated/client";
+import type { PrismaClient } from "@/generated/prisma/client";
 import {
   applyPersonalKeyPointExtraction,
   applyTeamKeyPointExtraction,
@@ -9,11 +9,11 @@ import {
   mergeKeyPointPromptSlot,
   startPersonalKeyPointExtraction,
   startTeamKeyPointExtraction,
-} from "../src/server/records/weekly-report-key-points.server";
-import { emptyKeyPointPrompts } from "../src/features/records/records-content";
-import { AppError } from "../src/lib/app-error";
-import { SendDirectMessage } from "../src/server/conversations/direct-message.server";
-import { looksLikeTeamKeyPointReorganizeRequest } from "../src/features/records/weekly-highlight-extract";
+} from "@/server/records/weekly-report-key-points.server";
+import { emptyKeyPointPrompts } from "@/features/records/records-content";
+import { AppError } from "@/lib/app-error";
+import { SendDirectMessage } from "@/server/conversations/direct-message.server";
+import { looksLikeTeamKeyPointReorganizeRequest } from "@/features/records/weekly-highlight-extract";
 
 test("looksLikeTeamKeyPointReorganizeRequest matches overview side-chat phrases", () => {
   expect(looksLikeTeamKeyPointReorganizeRequest("重新整理")).toBe(true);
@@ -692,7 +692,7 @@ test("applyTeamKeyPointExtraction parks side-chat-confirm delivery as awaiting_c
 });
 
 test("applyConfirmedKeyPointMarkdown writes ready extraction without replacing body tabs", async () => {
-  const { RecordCatalog } = await import("../src/server/records/record-catalog.server");
+  const { RecordCatalog } = await import("@/server/records/record-catalog.server");
   let written: unknown = null;
   const db = {
     workspaceMembership: {

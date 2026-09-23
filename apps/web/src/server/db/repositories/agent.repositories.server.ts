@@ -1,12 +1,12 @@
-import type { PrismaClient } from "../../../../generated/client";
-import { ACTIVE_AGENT_WHERE } from "../../agents/active-agent.server";
+import type { PrismaClient } from "@/generated/prisma/client";
+import { ACTIVE_AGENT_WHERE } from "@/server/agents/active-agent.server";
 import {
   parseAgentRuntimeConfig,
   type AgentRuntimeConfig,
-} from "../../agents/agent-runtime-config.server";
-import { AGENT_VISIBILITY, type AgentVisibility } from "../../../features/agents/agent-visibility";
+} from "@/server/agents/agent-runtime-config.server";
+import { AGENT_VISIBILITY, type AgentVisibility } from "@/features/agents/agent-visibility";
 
-export type { AgentRuntimeConfig } from "../../agents/agent-runtime-config.server";
+export type { AgentRuntimeConfig } from "@/server/agents/agent-runtime-config.server";
 
 export type AgentRecord = {
   id: string;

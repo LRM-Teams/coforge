@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
-import { handleAgentMessageResolveGet } from "../src/routes/api/agent/v1/messages_.$messageId.resolve";
-import { handleAgentMessageReaction } from "../src/routes/api/agent/v1/messages_.$messageId.reactions";
-import { AgentMessageValidationError } from "../src/server/conversations/agent-message-validation-error.server";
+import { handleAgentMessageResolveGet } from "@/routes/api/agent/v1/messages_.$messageId.resolve";
+import { handleAgentMessageReaction } from "@/routes/api/agent/v1/messages_.$messageId.reactions";
+import { AgentMessageValidationError } from "@/server/conversations/agent-message-validation-error.server";
 
 const principal = { workspaceId: "workspace-1", agentId: "agent-1" };
 

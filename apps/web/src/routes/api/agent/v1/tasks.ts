@@ -2,9 +2,9 @@ import { createFileRoute } from "@tanstack/react-router";
 import type { AgentTaskRequest } from "@lrm/coforge-sdk/agent";
 import { TASK_STATUSES, type TaskPrincipal, type TaskResult } from "@lrm/coforge-sdk/internal";
 import { z } from "zod";
-import { AppError } from "#/lib/app-error";
-import { agentAuthMiddleware } from "#/server/agents/agent-http-middleware.server";
-import { TaskBoard } from "#/server/tasks/task-board.server";
+import { AppError } from "@/lib/app-error";
+import { agentAuthMiddleware } from "@/server/agents/agent-http-middleware.server";
+import { TaskBoard } from "@/server/tasks/task-board.server";
 
 const taskOperations = [
   "list",

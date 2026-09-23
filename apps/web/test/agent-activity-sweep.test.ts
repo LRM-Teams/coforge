@@ -2,18 +2,18 @@ import { afterAll, beforeAll, describe, expect, spyOn, test } from "bun:test";
 import { RedisClient } from "bun";
 import type { AgentActivity, AgentStatus } from "@lrm/coforge-sdk/internal";
 import { decodeAgentActivityProbe } from "@lrm/coforge-sdk/internal";
-import { RedisAgentDisplay } from "../src/server/agents/agent-display.server";
+import { RedisAgentDisplay } from "@/server/agents/agent-display.server";
 import {
   ACTIVITY_PROBE_TIMEOUT_MS,
   AgentActivitySweep,
   RedisAgentActivitySweepLock,
   type AgentActivitySweepLock,
-} from "../src/server/agents/agent-activity-sweep.server";
-import { daemonControlChannel } from "../src/server/centrifugo/server-api.server";
+} from "@/server/agents/agent-activity-sweep.server";
+import { daemonControlChannel } from "@/server/centrifugo/server-api.server";
 import {
   agentStatusChannel,
   agentStatusChannelForAgent,
-} from "../src/features/agents/agent-status-realtime";
+} from "@/features/agents/agent-status-realtime";
 
 const redisServer = Bun.which("redis-server");
 const port = 20_000 + Math.floor(Math.random() * 20_000);

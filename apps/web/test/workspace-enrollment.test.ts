@@ -3,7 +3,7 @@ import { expect, test } from "bun:test";
 import {
   WorkspaceEnrollment,
   type WorkspaceEnrollmentStore,
-} from "../src/server/workspaces/enrollment.server";
+} from "@/server/workspaces/enrollment.server";
 
 const ada = {
   id: "11111111-1111-4111-8111-111111111111",

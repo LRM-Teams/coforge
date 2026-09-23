@@ -42,7 +42,7 @@ import {
   messagePlainText,
   selectionFragmentHtml,
 } from "./selection-copy";
-import { copyText } from "../records/report-editor/lib/clipboard";
+import { copyText } from "@/features/records/report-editor/lib/clipboard";
 import { useTimeFormat } from "@/lib/time-format-context";
 import { hour12For, type TimeFormat } from "@/lib/time-format";
 

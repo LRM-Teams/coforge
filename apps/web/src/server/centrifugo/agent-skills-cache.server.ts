@@ -8,7 +8,7 @@ import {
   sameSkillsScope,
   type AgentSkillsResults,
   type PendingSkills,
-} from "../agents/agent-skills.server";
+} from "@/server/agents/agent-skills.server";
 import type { CentrifugoRpcMethod } from "./rpc-handler.server";
 
 // Compare the entire pending value atomically: expiry/cancellation cannot race

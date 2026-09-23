@@ -3,7 +3,7 @@ import { expect, test } from "bun:test";
 import {
   browserPushSubscriptionInput,
   messageNotificationInput,
-} from "../src/features/notifications/notifications.schemas";
+} from "@/features/notifications/notifications.schemas";
 
 const subscription = {
   endpoint: "https://push.example/subscription",

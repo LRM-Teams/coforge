@@ -1,11 +1,11 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 
-import { AppError } from "../../lib/app-error";
-import { authMiddleware, workspaceUserMiddleware } from "../auth/function-auth";
-import { requireDatabaseClient } from "../../server/db/client.server";
-import { workspaceMemberDirectory } from "../../server/workspaces/member-directory-store.server";
-import { INVITABLE_WORKSPACE_ROLES } from "../../server/workspaces/member-role.server";
+import { AppError } from "@/lib/app-error";
+import { authMiddleware, workspaceUserMiddleware } from "@/features/auth/function-auth";
+import { requireDatabaseClient } from "@/server/db/client.server";
+import { workspaceMemberDirectory } from "@/server/workspaces/member-directory-store.server";
+import { INVITABLE_WORKSPACE_ROLES } from "@/server/workspaces/member-role.server";
 
 const inviteInputSchema = z.object({
   username: z.string().trim().min(1),

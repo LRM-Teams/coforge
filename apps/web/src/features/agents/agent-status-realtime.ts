@@ -1,7 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { parseAgentDisplaySnapshot, type AgentDisplaySnapshot } from "@lrm/coforge-sdk/internal";
 
-import { useRealtimeSubscription, useRealtimeSubscriptions } from "../realtime/browser-realtime";
+import {
+  useRealtimeSubscription,
+  useRealtimeSubscriptions,
+} from "@/features/realtime/browser-realtime";
 import { AGENT_VISIBILITY } from "./agent-visibility";
 
 export type AgentStatusEvent = {

@@ -5,10 +5,10 @@ import {
   type ActionCardKind,
   type ResolvedActionCardPayload,
 } from "@lrm/coforge-sdk/agent";
-import { AGENT_VISIBILITY } from "../../features/agents/agent-visibility";
-import { ACTIVE_AGENT_WHERE } from "../agents/active-agent.server";
-import type { Prisma, PrismaClient } from "../../../generated/client";
-import { AppError } from "../../lib/app-error";
+import { AGENT_VISIBILITY } from "@/features/agents/agent-visibility";
+import { ACTIVE_AGENT_WHERE } from "@/server/agents/active-agent.server";
+import type { Prisma, PrismaClient } from "@/generated/prisma/client";
+import { AppError } from "@/lib/app-error";
 import { ActionCardError } from "./action-card-error.server";
 import { lockConversation } from "./conversation-lock.server";
 import {
@@ -17,10 +17,10 @@ import {
   resolveChannelThreadRoot,
 } from "./public-channels.server";
 import { ConversationHistory } from "./conversation-history.server";
-import { allocateSequence } from "../db/repositories/direct-conversation.repositories.server";
+import { allocateSequence } from "@/server/db/repositories/direct-conversation.repositories.server";
 import { messageSignalScope, type ConversationRealtime } from "./conversation-realtime.server";
-import { isAdminLike } from "../workspaces/member-role.server";
-import { workspaceMemberRole } from "../workspaces/members.server";
+import { isAdminLike } from "@/server/workspaces/member-role.server";
+import { workspaceMemberRole } from "@/server/workspaces/members.server";
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 

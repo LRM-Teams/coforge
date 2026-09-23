@@ -1,7 +1,7 @@
-import type { PrismaClient } from "../../../generated/client";
-import { AppError, isAppError } from "../../lib/app-error";
-import { optionalBrowserUser } from "../auth/require-user.server";
-import { getDatabaseClient } from "../db/client.server";
+import type { PrismaClient } from "@/generated/prisma/client";
+import { AppError, isAppError } from "@/lib/app-error";
+import { optionalBrowserUser } from "@/server/auth/require-user.server";
+import { getDatabaseClient } from "@/server/db/client.server";
 import { readUserAvatar } from "./user-avatar.server";
 
 export async function handleWorkspaceUserAvatar(

@@ -1,5 +1,5 @@
 import { RedisClient } from "bun";
-import type { ComputerRestartStatus } from "../../features/computers/computer.schemas";
+import type { ComputerRestartStatus } from "@/features/computers/computer.schemas";
 
 const RESTART_TIMEOUT_MS = 60_000;
 const RESTART_TTL_SECONDS = 5 * 60;

@@ -1,11 +1,11 @@
 import { expect, test } from "bun:test";
 import { PrismaPg } from "@prisma/adapter-pg";
-import { PrismaClient } from "../generated/client";
-import { AgentControl, agentControlRevision } from "../src/server/agents/agent-control.server";
+import { PrismaClient } from "@/generated/prisma/client";
+import { AgentControl, agentControlRevision } from "@/server/agents/agent-control.server";
 import { decodeAgentStartIntent, type AgentStartIntent } from "@lrm/coforge-sdk/internal";
-import { AgentSessions } from "../src/server/agents/agent-sessions.server";
-import { PrismaAgentControlStore } from "../src/server/db/repositories/agent-control.repositories.server";
-import { PrismaAgentSessionRepository } from "../src/server/db/repositories/agent-session.repositories.server";
+import { AgentSessions } from "@/server/agents/agent-sessions.server";
+import { PrismaAgentControlStore } from "@/server/db/repositories/agent-control.repositories.server";
+import { PrismaAgentSessionRepository } from "@/server/db/repositories/agent-session.repositories.server";
 
 test("recovery creates a new current AgentSession and preserves the previous native identity", async () => {
   const connectionString = Bun.env.AGENT_SESSION_TEST_DATABASE_URL;

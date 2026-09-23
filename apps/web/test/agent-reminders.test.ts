@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import type { PrismaClient } from "../generated/client";
+import type { PrismaClient } from "@/generated/prisma/client";
 import {
   AGENT_REMINDER_PAGE_SIZE,
   AgentRemindersQuery,

@@ -1,10 +1,7 @@
 import { expect, test } from "bun:test";
-import { PrismaAgentControlStore } from "../src/server/db/repositories/agent-control.repositories.server";
-import {
-  agentControlRevision,
-  type AgentControlState,
-} from "../src/server/agents/agent-control.server";
-import type { PrismaClient } from "../generated/client";
+import { PrismaAgentControlStore } from "@/server/db/repositories/agent-control.repositories.server";
+import { agentControlRevision, type AgentControlState } from "@/server/agents/agent-control.server";
+import type { PrismaClient } from "@/generated/prisma/client";
 
 /**
  * `updatedAtMs`/abandonment was removed entirely, but a row persisted before that change

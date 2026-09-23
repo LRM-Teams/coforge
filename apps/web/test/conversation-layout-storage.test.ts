@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 
-import { conversationLayoutStorage } from "../src/features/conversations/layout-storage";
+import { conversationLayoutStorage } from "@/features/conversations/layout-storage";
 
 const key = "coforge-conversation-layout-storage-test";
 
