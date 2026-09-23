@@ -81,15 +81,14 @@ export class AgentDeletion {
     const result = await this.runtimeLock.run(agentId, async () => {
       const agent = await this.agents.getById(agentId);
       if (!agent || agent.workspaceId !== principal.workspaceId) throw new AppError("NOT_FOUND");
-      const result = await this.store.delete({
+      const outcome = await this.store.delete({
         agentId: agent.id,
         workspaceId: agent.workspaceId,
         deletedAt: this.now(),
       });
       // A repeated delete is an idempotent no-op; never send a second stop for it.
-      if (result.outcome !== "deleted") return result;
-      await this.#stopRuntime(agent, principal.userId);
-      return result;
+      if (outcome.outcome === "deleted") await this.#stopRuntime(agent, principal.userId);
+      return outcome;
     });
     // Outside the runtime lock: a slow browser signal must never hold up the Agent's runtime.
     if (result.outcome === "deleted")

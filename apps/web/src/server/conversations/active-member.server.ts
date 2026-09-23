@@ -8,3 +8,9 @@ import type { Prisma } from "#src/generated/prisma/client";
  * read boundary or mute preference set before leaving survives a later re-join.
  */
 export const ACTIVE_MEMBER_WHERE = { leftAt: null } satisfies Prisma.ConversationMemberWhereInput;
+
+/** An active membership of a channel (a conversation with a channel name), not of a DM. */
+export const ACTIVE_CHANNEL_MEMBER_WHERE = {
+  ...ACTIVE_MEMBER_WHERE,
+  conversation: { channelName: { not: null } },
+} satisfies Prisma.ConversationMemberWhereInput;

@@ -67,12 +67,13 @@ async function setup() {
     });
   const helper = await createAgent("helper");
   const scout = await createAgent("scout");
-  const { realtime } = recordingRealtime();
+  const { realtime, announced } = recordingRealtime();
   const channels = new PublicChannels(db, undefined, undefined, undefined, realtime);
   const teamName = `team-${suffix}`;
   const team = await channels.create(workspace.id, owner.id, teamName);
   const ops = await channels.create(workspace.id, owner.id, `ops-${suffix}`);
-  return { db, workspace, owner, bob, helper, scout, team, teamName, ops };
+  // Creating a channel announces nothing, so the recorder starts empty.
+  return { db, channels, announced, workspace, owner, bob, helper, scout, team, teamName, ops };
 }
 
 function restoreEnv(name: string, value: string | undefined) {
@@ -89,10 +90,8 @@ async function teardown(db: PrismaClient, workspaceId: string, userIds: string[]
 test.skipIf(!connectionString)(
   "joining, adding, removing and leaving each tell the channel its member list changed",
   async () => {
-    const { db, workspace, owner, bob, helper, team } = await setup();
+    const { db, channels, announced, workspace, owner, bob, helper, team } = await setup();
     try {
-      const { realtime, announced } = recordingRealtime();
-      const channels = new PublicChannels(db, undefined, undefined, undefined, realtime);
       const change = { workspaceId: workspace.id, conversationIds: [team.id] };
 
       await channels.join(workspace.id, bob.id, team.id);
@@ -187,15 +186,8 @@ test.skipIf(!connectionString)(
 test.skipIf(!connectionString)(
   "deleting an Agent, making it private and removing a person each report the channels they left",
   async () => {
-    const { db, workspace, owner, bob, helper, scout, team, ops } = await setup();
+    const { db, channels, workspace, owner, bob, helper, scout, team, ops } = await setup();
     try {
-      const channels = new PublicChannels(
-        db,
-        undefined,
-        undefined,
-        undefined,
-        recordingRealtime().realtime,
-      );
       for (const channel of [team, ops]) {
         await channels.addMembers(workspace.id, { userId: owner.id }, channel.id, {
           userIds: [bob.id],

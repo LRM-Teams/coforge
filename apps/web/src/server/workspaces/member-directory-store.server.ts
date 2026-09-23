@@ -12,7 +12,7 @@ import {
   type WorkspaceMemberRole,
 } from "./member-role.server";
 import { workspaceUserAvatarUrl } from "#src/server/db/repositories/user-profile.repositories.server";
-import { ACTIVE_MEMBER_WHERE } from "#src/server/conversations/active-member.server";
+import { ACTIVE_CHANNEL_MEMBER_WHERE } from "#src/server/conversations/active-member.server";
 
 function asRole(value: string): WorkspaceMemberRole {
   if (!isWorkspaceMemberRole(value)) throw new AppError("INTERNAL_ERROR");
@@ -220,12 +220,7 @@ export class PrismaWorkspaceMemberDirectoryStore implements WorkspaceMemberDirec
         where: { workspaceId_userId: { workspaceId, userId } },
       });
       const activeChannels = await tx.conversationMember.findMany({
-        where: {
-          workspaceId,
-          userId,
-          ...ACTIVE_MEMBER_WHERE,
-          conversation: { channelName: { not: null } },
-        },
+        where: { workspaceId, userId, ...ACTIVE_CHANNEL_MEMBER_WHERE },
         select: { conversationId: true },
       });
       await tx.conversationMember.deleteMany({

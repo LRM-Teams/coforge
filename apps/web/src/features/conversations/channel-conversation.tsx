@@ -215,15 +215,16 @@ export function ChannelConversation({
 }) {
   const [joining, setJoining] = useState(false);
   const [error, setError] = useState(false);
-  // The @-completion directory refreshes while the conversation stays open: the page payload
-  // carries it once per load, so members who joined after that would otherwise only appear in
-  // the composer (and in mention resolution) after a full refresh. Every membership write pushes
-  // `member.changed.v1`, which invalidates this query (see `useConversationQuery`); a refetch
-  // when the tab regains focus covers a push missed while the page was away.
+  // The @-completion directory stays current while the conversation is open. It starts from the
+  // page payload's copy (no second load on mount) and is refetched when a membership write pushes
+  // `member.changed.v1`, when the subscription could not replay what it missed — including the
+  // first subscribe, which covers changes made while the page loaded (see `useConversationQuery`)
+  // — and when the tab regains focus.
   const freshMentionables = useQuery({
     queryKey: ["conversation", "mentionables", conversation.conversationId],
     queryFn: () =>
       loadPublicChannelMentionables({ data: { channelId: conversation.conversationId } }),
+    initialData: conversation.mentionables,
     staleTime: 15_000,
     refetchOnWindowFocus: true,
   });

@@ -1,5 +1,6 @@
 import type { PrismaClient } from "#src/generated/prisma/client";
 import { ACTIVE_AGENT_WHERE } from "#src/server/agents/active-agent.server";
+import { ACTIVE_CHANNEL_MEMBER_WHERE } from "#src/server/conversations/active-member.server";
 import type {
   AgentDeletionOutcome,
   AgentDeletionStore,
@@ -42,8 +43,7 @@ export class PrismaAgentDeletionStore implements AgentDeletionStore {
         where: {
           workspaceId: input.workspaceId,
           agentId: input.agentId,
-          leftAt: null,
-          conversation: { channelName: { not: null } },
+          ...ACTIVE_CHANNEL_MEMBER_WHERE,
         },
         select: { conversationId: true },
       });
