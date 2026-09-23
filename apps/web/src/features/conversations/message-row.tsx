@@ -791,7 +791,11 @@ export function MessageRow({
               full Markdown. One line, never wrapped: overflow becomes an ellipsis (the boss's
               ruling on the phone — a notice is skimmable or it is noise). The span is a flex
               item with min-w-0, so `truncate` collapses against the hover timestamp and works. */}
-          <span className="min-w-0 flex-1 truncate">{message.body}</span>
+          <Tooltip title={message.body}>
+            <TooltipTrigger>
+              <span className="min-w-0 flex-1 truncate">{message.body}</span>
+            </TooltipTrigger>
+          </Tooltip>
           <time
             dateTime={new Date(message.createdAt).toISOString()}
             className="shrink-0 tabular-nums opacity-0 group-hover/message:opacity-100"
