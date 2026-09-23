@@ -1,8 +1,9 @@
 import { createRequire } from "node:module";
 import { dirname, resolve } from "node:path";
 
-/** The exact file name docs/release.md's feed layout and packages/computer/src/updater.ts's
- * manifest.photonWasm.file both pin - never "some safe filename". */
+/** The exact file name docs/release/local-distribution.md's feed layout and
+ * packages/computer/src/updater.ts's manifest.photonWasm.file both pin - never "some safe
+ * filename". */
 export const PHOTON_WASM_FILE = "photon_rs_bg.wasm";
 
 const REPO_ROOT = resolve(import.meta.dir, "../..");

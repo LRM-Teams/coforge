@@ -2,7 +2,7 @@ import { join, resolve } from "node:path";
 import { resolveServerUrl } from "../../packages/computer/src/release-channel";
 import { zodResolvePlugin } from "../bun-resolve-zod-plugin";
 
-// The release target names this repository already uses across docs/release.md, updater.ts's
+// The release target names this repository already uses across docs/release/, updater.ts's
 // manifest.platforms keys and install.sh's/install.ps1's `uname`/architecture switch, mapped to
 // the `Bun.build({ compile: { target } })` string that actually cross-compiles each one. Verified
 // against Bun 1.4.0 by compiling this repository's own entrypoints for every target below and

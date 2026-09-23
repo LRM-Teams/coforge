@@ -3,7 +3,8 @@
  * Publishes one unified Computer release version to the local-distribution feed on Alibaba Cloud
  * OSS: compile every target, assemble the version tree (build-release.ts), upload every object
  * it lists, read each one back and compare bytes, and only then write the feed's mutable
- * `latest` pointer - in that fixed order. docs/release.md ("Local Computer distribution model"):
+ * `latest` pointer - in that fixed order. docs/release/local-distribution.md ("Local Computer
+ * distribution model"):
  * "`latest` is the feed's only mutable object, and it is written last - every object under the
  * new `<version>/` it will point to is uploaded and verified first. A publish that fails partway
  * through therefore leaves at most an unreferenced version directory; `latest` never points at
@@ -331,8 +332,9 @@ export interface UploadOptions {
   allowExisting?: boolean;
   /** Whether to move the feed's `latest` pointer once the objects are up. `false` uploads and
    * verifies this version's objects only — what a per-platform job must do, because `latest` is the
-   * feed's only mutable object and docs/release.md requires it to be written last, never pointing at
-   * an incomplete version. The finalize job moves it once every platform's objects are up. */
+   * feed's only mutable object and docs/release/local-distribution.md requires it to be written
+   * last, never pointing at an incomplete version. The finalize job moves it once every platform's
+   * objects are up. */
   activate?: boolean;
 }
 

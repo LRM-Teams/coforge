@@ -40,8 +40,8 @@ export type ReleaseInputs = {
   artifacts: Record<string, { computer: Uint8Array }>;
   /** Pi's image-resize WASM (`@silvia-odwyer/photon-node`'s `photon_rs_bg.wasm`), published once
    * per version as a platform-independent sidecar next to the per-platform binaries - see
-   * docs/release.md. Resolved from the installed dependency by scripts/release/photon-wasm.ts,
-   * never committed to the repository. */
+   * docs/release/local-distribution.md. Resolved from the installed dependency by
+   * scripts/release/photon-wasm.ts, never committed to the repository. */
   photonWasm: Uint8Array;
 };
 
@@ -51,9 +51,10 @@ export type ReleaseTree = {
 };
 
 /** Writes the whole `<version>/` tree plus `manifest.json` into outputDirectory - everything
- * docs/release.md's feed layout describes except `latest`, which belongs to the publish step
- * (uploading and only then advancing the pointer), not to a build. Producing `latest` here would
- * let a build that never gets uploaded look, on disk, indistinguishable from a published release. */
+ * docs/release/local-distribution.md's feed layout describes except `latest`, which belongs to the
+ * publish step (uploading and only then advancing the pointer), not to a build. Producing `latest`
+ * here would let a build that never gets uploaded look, on disk, indistinguishable from a published
+ * release. */
 export async function buildReleaseTree(
   inputs: ReleaseInputs,
   outputDirectory: string,
@@ -83,7 +84,8 @@ export async function buildReleaseTree(
 
     // The checksum that goes into the manifest and the checksum that goes into the sidecar are
     // the exact same value, computed exactly once, right here - not two separate sha256() calls
-    // that happen to agree today. docs/release.md: "the two must never be allowed to diverge".
+    // that happen to agree today. docs/release/main-to-staging.md: "the two must never be allowed
+    // to diverge".
     const computerIdentity = artifactIdentity(artifact.computer);
     const compressedComputer = Bun.gzipSync(Buffer.from(artifact.computer), { level: 9 });
     platforms[target] = {

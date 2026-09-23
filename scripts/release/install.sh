@@ -6,7 +6,8 @@ default_feed_url="https://releases.coforge.cn"
 # one-shot the user explicitly runs (`curl ... | sh`), not the long-lived compiled binary that
 # ./packages/computer/src/release-channel.ts hardens by inlining the feed URL at build time - an
 # attacker able to set this variable in the invoking shell can equally set PATH or https_proxy to
-# reach the same result, so there is no additional boundary to enforce here. See docs/release.md.
+# reach the same result, so there is no additional boundary to enforce here. See
+# docs/release/per-user-installation.md.
 feed_url=${COFORGE_RELEASE_FEED_URL:-$default_feed_url}
 feed_url=${feed_url%/}
 

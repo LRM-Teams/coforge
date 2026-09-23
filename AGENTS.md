@@ -150,7 +150,7 @@ These instructions apply to the entire repository.
 - Read and apply `tdd` for behavioral implementation and `codebase-design` when choosing or changing a test seam.
 - The repository keeps no separate glossary. Do not create `CONTEXT.md`, even when `domain-modeling` suggests one.
 - Use `code-review` from an independent context with an explicit fixed point. The coordinator must include this instruction in every Standards and Spec reviewer brief: perform the assigned review directly; do not invoke `code-review` again or spawn additional reviewers.
-- Use `coforge-release` when inspecting or executing a cloud test deployment, publishing a local Computer installation candidate assembled from the `coforge-computer` and `coforge-daemon` packages, preparing or executing an exact-artifact production promotion, verifying release evidence, or rolling back. [`docs/release.md`](docs/release.md) is the canonical release contract; the Skill is only its execution layer.
+- Use `coforge-release` when inspecting or executing a cloud test deployment, publishing a local Computer installation candidate assembled from the `coforge-computer` and `coforge-daemon` packages, preparing or executing an exact-artifact production promotion, verifying release evidence, or rolling back. [`docs/release/README.md`](docs/release/README.md) is the overview of the canonical release contract, with one topic file per concern under `docs/release/`; the Skill is only its execution layer.
 - When comparing CoForge with Raft Computer, the reference is the shipped
   binary 1.0.32, not any npm release. Read
   [the Raft Computer 1.0.32 research guide](docs/agents/reference-cli-research.md)

@@ -15,7 +15,7 @@ profile image 域名（头像与项目图标）
 是第三个 trust zone，staging 与生产都尚未 provision；第 11 节是它的专用步骤，其余各节
 的通用要求同样适用。
 
-本文把 [`release.md`](../release.md) 与仓库 `AGENTS.md` 已批准的边界转换为 operator 步骤，不改变应用授权或
+本文把 [`release/`](../release/README.md) 与仓库 `AGENTS.md` 已批准的边界转换为 operator 步骤，不改变应用授权或
 发行协议。所有 `${...}` 均为执行时参数，不能原样提交到控制台。
 
 ## 1. 开始前的硬门禁
@@ -118,7 +118,7 @@ CDN 侧对 Bucket 内的部分资源做访问限制」。因此跨类隔离不�
 `workspaces/{workspace_id}/attachments/{attachment_id}/original`；profile image bucket
 只允许 `users/{user_id}/avatars/{avatar_id}/original` 与
 `workspaces/{workspace_id}/projects/{project_id}/icons/{icon_id}/original`；发行 bucket 只允许
-[`release.md`](../release.md) 定义的 immutable trees、`channels.json` 与 installer
+[`release/local-distribution.md`](../release/local-distribution.md) 定义的 immutable trees、`channels.json` 与 installer
 入口。第 6 节的随机 `acceptance/` canary 是上线前唯一临时例外，验收后必须删除；不要
 提前创建目录占位对象。
 
