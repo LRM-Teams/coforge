@@ -148,6 +148,39 @@ describe("ConversationHistory", () => {
     ).rejects.toThrow("ACCESS_DENIED");
   });
 
+  test("rejects the around window for a non-member before any message read", async () => {
+    // The around read's anchor lookup deliberately has no sender filter (a saved jump #127 lands
+    // on other members' and Agent messages), so the membership decision must sit entirely in
+    // `authorize` — a non-member never reaches a message query.
+    const messageQueries: object[] = [];
+    const db = {
+      workspaceMembership: { findUnique: async () => membership },
+      conversation: {
+        findFirst: async () => ({
+          directKey: "agent:agent-2|user:user-2",
+          channelName: null,
+          members: [],
+        }),
+      },
+      message: {
+        findFirst: async (input: object) => {
+          messageQueries.push(input);
+          return { sequence: 10 };
+        },
+      },
+    } as unknown as PrismaClient;
+
+    await expect(
+      new ConversationHistory(db).loadAround(
+        "workspace-1",
+        "user-1",
+        "other-direct-conversation",
+        "message-10",
+      ),
+    ).rejects.toThrow("ACCESS_DENIED");
+    expect(messageQueries).toHaveLength(0);
+  });
+
   test("loads an around window for any root message in the requested conversation", async () => {
     const messageQueries: object[] = [];
     const message = (id: string, sequence: number) => ({
