@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useHydrated } from "@tanstack/react-router";
 
 import { Tooltip, TooltipTrigger } from "#src/components/base/tooltip/tooltip";
 import { cn } from "#src/lib/utils";
@@ -78,7 +79,8 @@ export function RelativeTime({
 /**
  * A fixed wall-clock time with seconds, in the viewer's hour cycle, for contexts that need an absolute timestamp
  * instead of `RelativeTime`'s "6h ago" text — the Activity timeline's clock column. Shares
- * `RelativeTime`'s hydration-safe mount gate and exact-timestamp Tooltip wiring.
+ * `RelativeTime`'s exact-timestamp Tooltip wiring; an absolute time never changes, so it only
+ * waits for hydration instead of ticking a per-instance clock (the timeline renders hundreds).
  */
 export function ClockTime({
   value,
@@ -93,12 +95,12 @@ export function ClockTime({
    * inside another interactive element, and expose the exact time via `aria-label` only. */
   plain?: boolean;
 }) {
-  const now = useClientNow();
+  const hydrated = useHydrated();
   const instant = new Date(value);
   const locale = getLocale();
   const timeFormat = useTimeFormat();
-  const exactTime = now ? formatDateForDisplay(instant, timeZone, locale, timeFormat) : "";
-  const clock = now ? formatClockTime(instant, timeZone, locale, timeFormat) : "";
+  const exactTime = hydrated ? formatDateForDisplay(instant, timeZone, locale, timeFormat) : "";
+  const clock = hydrated ? formatClockTime(instant, timeZone, locale, timeFormat) : "";
   const timeElement = (
     <time
       dateTime={instant.toISOString()}

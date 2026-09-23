@@ -47,7 +47,6 @@ function profileFixture(overrides: Partial<AgentProfile> = {}): AgentProfile {
     stopped: false,
     status: { value: "active", expiresAt: null, ordering: null },
     latestError: undefined,
-    activity: [],
     ownedByCurrentUser: false,
     runtimeCredential: null,
     canManageAgentRole: false,

@@ -196,6 +196,8 @@
   "agent_workspace_select_file": "Select a file to preview.",
   "agent_activity_empty": "No Activity yet",
   "agent_activity_empty_description": "Launch, running, stop, and failure observations will appear here.",
+  "agent_activity_loading": "Loading activity…",
+  "agent_activity_error": "Activity could not be loaded.",
   "agent_activity_starting": "Starting",
   "agent_activity_running_command": "Running command",
   "agent_activity_reading_file": "Reading file",

@@ -4,6 +4,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { getRouteApi, useRouter } from "@tanstack/react-router";
 import { Edit01 as Pencil, UserX01, XClose as X } from "@untitledui/icons";
 
+import { Button } from "#src/components/base/buttons/button";
 import { ButtonUtility } from "#src/components/base/buttons/button-utility";
 import { isAppError } from "#src/lib/app-error";
 import { Skeleton } from "#src/components/ui/skeleton";
@@ -110,8 +111,9 @@ export function AgentProfilePanel({
   const query = useAgentProfileData(agentId);
   const profile = query.data;
   const invalidate = useInvalidateAgentProfile(agentId);
-  const liveActivity = useAgentActivityFeed(agentId);
-  const activity = liveActivity ?? profile?.activity ?? [];
+  // Requested as soon as the panel opens, whichever tab shows, so Activity is usually ready by
+  // the time it is selected.
+  const activityFeed = useAgentActivityFeed(agentId);
 
   const knownName = profile?.displayName ?? liveAgent?.displayName ?? "";
   const canManage = profile ? profile.canManageAgentRole || profile.ownedByCurrentUser : false;
@@ -333,7 +335,7 @@ export function AgentProfilePanel({
             <Skeleton className="h-24 w-full" />
           </div>
         ) : tab === "activity" ? (
-          <AgentActivityTimeline activity={activity} timeZone={timeZone} compact />
+          <AgentActivityTab feed={activityFeed} timeZone={timeZone} />
         ) : tab === "reminders" ? (
           <div className="px-5 pb-5">
             <AgentReminders
@@ -542,4 +544,36 @@ export function AgentProfilePanel({
       )}
     </div>
   );
+}
+
+function AgentActivityTab({
+  feed,
+  timeZone,
+}: {
+  feed: ReturnType<typeof useAgentActivityFeed>;
+  timeZone: string | null;
+}) {
+  if (feed.failed)
+    return (
+      <div className="flex flex-col items-center gap-3 px-6 py-10 text-center">
+        <p role="alert" className="text-sm text-tertiary">
+          {m.agent_activity_error()}
+        </p>
+        <Button size="sm" color="secondary" onPress={feed.retry}>
+          {m.controls_retry()}
+        </Button>
+      </div>
+    );
+  if (!feed.activity)
+    return (
+      <div className="flex flex-col gap-5 px-4 py-4" aria-label={m.agent_activity_loading()}>
+        {["w-2/5", "w-3/5", "w-1/2", "w-3/4"].map((width) => (
+          <div key={width} className="grid grid-cols-[3.5rem_1fr] gap-2">
+            <Skeleton className="h-4 w-12" />
+            <Skeleton className={`h-4 ${width}`} />
+          </div>
+        ))}
+      </div>
+    );
+  return <AgentActivityTimeline activity={feed.activity} timeZone={timeZone} compact />;
 }

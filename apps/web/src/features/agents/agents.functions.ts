@@ -455,7 +455,9 @@ export const previewAgentVisibilityChange = createServerFn({ method: "GET" })
 
 /**
  * Backs `getAgentProfile`, the one seam the Members page and every conversation panel share:
- * identity, permissions, live display, runtime config summary and Activity. Does not run
+ * identity, permissions, live display and runtime config summary. The Activity history is not
+ * part of it: the Activity tab reads its own feed (`getAgentActivityFeed`), so the Profile tab
+ * does not wait for up to 500 frames to download. Does not run
  * `listComputers`/`getUserPreferences` — those stay owned by the route loaders that actually need
  * a Computer picker or a User's time zone preference.
  */
@@ -529,8 +531,9 @@ async function loadAgentProfileDetail(context: WorkspaceUserContext, agentId: st
       snapshot: (scope) => getAgentDisplay().snapshot(scope),
     },
   );
-  const result = await query.get(workspaceId, agentId, user.id);
-  if (!result) return undefined;
+  const detail = await query.get(workspaceId, agentId, user.id);
+  if (!detail) return undefined;
+  const { activity: _activity, ...result } = detail;
   const ownedByCurrentUser = result.owner.id === user.id;
   const runtimeCredential = ownedByCurrentUser
     ? await (await runtimeCredentials(db)).summary({ workspaceId, userId: user.id }, agentId)
