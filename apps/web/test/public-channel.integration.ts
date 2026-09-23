@@ -293,8 +293,9 @@ test("Workspace humans enrolled in general see one general channel; outsiders ca
       `<@human:${bob.id}> please review this`,
       "Concurrent A",
     ]);
-    // A jump lands on another member's message too (#740): membership is the whole access
-    // decision, so Bob opens the window around Alice's message and an outsider is refused.
+    // A jump lands on another member's message too (#740): for a channel, Workspace membership is
+    // the whole access decision, so Bob opens the window around Alice's message and an outsider
+    // is refused.
     expect(
       (
         await browserHistory.loadAround(workspace.id, bob.id, engineering.id, saved.id)
@@ -598,6 +599,7 @@ test("Agent channel mute suppresses ordinary notices, preserves mentions and rea
       userIds: [],
       agentIds: [second.id],
     });
+    expect(await repo.readPendingAgentDeliveries(workspace.id, second.id)).toEqual([]);
     expect(
       (await repo.readMessages(workspace.id, second.id, "#general")).some(
         (m) => m.id === reply.messageId,
