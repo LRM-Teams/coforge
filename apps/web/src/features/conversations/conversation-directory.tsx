@@ -1,6 +1,7 @@
 import { Bookmark, ChevronRight, Hash01 as Hash, Plus } from "@untitledui/icons";
 import { useEffect, useId, useState, type ReactNode } from "react";
-import { Link } from "@tanstack/react-router";
+import { createLink } from "@tanstack/react-router";
+import { Link as AriaLink } from "react-aria-components";
 
 import { Button } from "@/components/base/buttons/button";
 import { ButtonUtility } from "@/components/base/buttons/button-utility";
@@ -10,7 +11,7 @@ import { cx } from "@/utils/cx";
 import { m } from "@/paraglide/messages";
 import { useChannelUnreadCounts, useCloseConversationList } from "./conversation-navigation";
 import { ConversationRowMenu } from "./conversation-row-menu";
-import { conversationRowMenuEnabled, directRowPreference } from "./conversation-row-menu-model";
+import { directRowPreference } from "./conversation-row-menu-model";
 import {
   readCollapsedSections,
   writeCollapsedSections,
@@ -53,6 +54,11 @@ function rowLabel(unreadCount: number | undefined, label: string): string | unde
   return m.channel_unread_accessible({ channel: label, count: unreadCount });
 }
 
+/** A router link that is also a React Aria pressable, so the conversation menu's
+ * `MenuTrigger trigger="contextMenu"` can use the row itself as its trigger (TanStack Router's
+ * documented React Aria pairing: https://tanstack.com/router/latest/docs/framework/react/guide/custom-link). */
+const RowLink = createLink(AriaLink);
+
 // A local row (not NavItemBase — its `icon` slot hardcodes size-5 and can't
 // take an Avatar) so channel and DM rows share one grid: 20px icon column,
 // text starting at the same x, and the same current/hover treatment.
@@ -63,7 +69,6 @@ function ConversationRow({
   muted,
   unreadCount,
   label,
-  hasMenu,
   children,
 }: {
   target: { channelId: string } | { agentId: string } | { view: "saved" };
@@ -73,13 +78,11 @@ function ConversationRow({
   unreadCount?: number;
   /** The row's own name, so an unread row keeps its accessible name instead of replacing it. */
   label: string;
-  /** The row wraps in the right-click menu (#126): advertise it to assistive tech on the link. */
-  hasMenu?: boolean;
   children: ReactNode;
 }) {
   const closeList = useCloseConversationList();
   return (
-    <Link
+    <RowLink
       {...("channelId" in target
         ? { to: "/messages/channels/$channelId", params: target }
         : "agentId" in target
@@ -87,7 +90,6 @@ function ConversationRow({
           : { to: "/messages/saved" })}
       aria-current={current ? "page" : undefined}
       aria-label={rowLabel(unreadCount, label)}
-      aria-haspopup={hasMenu ? "menu" : undefined}
       // On mobile the list is a separate pane; choosing a row reveals the conversation even when
       // the URL is unchanged (re-opening the channel already in the address bar), which the
       // pathname-based reset in `ConversationNavigation` cannot see.
@@ -111,7 +113,7 @@ function ConversationRow({
         {children}
       </span>
       {unreadCount ? muted ? <UnreadDot /> : <UnreadBadge count={unreadCount} /> : null}
-    </Link>
+    </RowLink>
   );
 }
 
@@ -277,7 +279,6 @@ export function ConversationDirectory({
                     muted={!channel.joined || channel.muted}
                     unreadCount={unreadCounts[channel.id]}
                     label={`#${channel.name}`}
-                    hasMenu={conversationRowMenuEnabled(channel)}
                     icon={
                       <Hash
                         aria-hidden="true"
@@ -316,7 +317,6 @@ export function ConversationDirectory({
                   current={agent.id === selectedAgentId}
                   unreadCount={unreadCounts[agent.id]}
                   label={agent.displayName}
-                  hasMenu={preference.enabled}
                   icon={
                     <AgentDisplayAvatar
                       name={agent.displayName}

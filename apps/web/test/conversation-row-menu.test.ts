@@ -3,6 +3,7 @@ import { expect, test } from "bun:test";
 import {
   conversationRowMenuEnabled,
   conversationRowMenuItems,
+  directRowPreference,
 } from "../src/features/conversations/conversation-row-menu-model";
 
 /**
@@ -30,4 +31,33 @@ test("the pin item carries the row's pinned state so the label can read Pin or U
   const pinned = conversationRowMenuItems({ pinned: true });
   expect(unpinned.find((item) => item.id === "pin")?.pinned).toBe(false);
   expect(pinned.find((item) => item.id === "pin")?.pinned).toBe(true);
+});
+
+test("a DM row is enabled, pinned and hidden only by its own preferences", () => {
+  const preferences = {
+    conversations: ["agent-dm"],
+    pinned: [{ agentId: "agent-dm", sortOrder: 3 }],
+    hidden: ["agent-closed"],
+  };
+
+  // A conversation: the menu is offered, and its pin carries the order the sidebar sorts by.
+  expect(directRowPreference(preferences, "agent-dm")).toEqual({
+    enabled: true,
+    pinned: true,
+    hidden: false,
+    sortOrder: 3,
+  });
+
+  // An Agent the viewer has never written to: a row, but not a conversation — no menu, because a
+  // preference could only answer NOT_FOUND.
+  expect(directRowPreference(preferences, "agent-new")).toEqual({
+    enabled: false,
+    pinned: false,
+    hidden: false,
+    sortOrder: null,
+  });
+
+  // A closed conversation is filtered out of the list; only a conversation can be closed, so an
+  // Agent row is never hidden by this rule.
+  expect(directRowPreference(preferences, "agent-closed").hidden).toBe(true);
 });
