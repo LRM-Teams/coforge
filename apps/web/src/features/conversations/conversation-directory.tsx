@@ -1,6 +1,6 @@
 import { Bookmark, ChevronRight, Hash01 as Hash, Plus } from "@untitledui/icons";
 import { useEffect, useId, useState, type ReactNode } from "react";
-import { createLink } from "@tanstack/react-router";
+import { Link, useRouter } from "@tanstack/react-router";
 import { Link as AriaLink } from "react-aria-components";
 
 import { Button } from "@/components/base/buttons/button";
@@ -54,11 +54,6 @@ function rowLabel(unreadCount: number | undefined, label: string): string | unde
   return m.channel_unread_accessible({ channel: label, count: unreadCount });
 }
 
-/** A router link that is also a React Aria pressable, so the conversation menu's
- * `MenuTrigger trigger="contextMenu"` can use the row itself as its trigger (TanStack Router's
- * documented React Aria pairing: https://tanstack.com/router/latest/docs/framework/react/guide/custom-link). */
-const RowLink = createLink(AriaLink);
-
 // A local row (not NavItemBase — its `icon` slot hardcodes size-5 and can't
 // take an Avatar) so channel and DM rows share one grid: 20px icon column,
 // text starting at the same x, and the same current/hover treatment.
@@ -81,19 +76,27 @@ function ConversationRow({
   children: ReactNode;
 }) {
   const closeList = useCloseConversationList();
+  const router = useRouter();
+  const route =
+    "channelId" in target
+      ? ({ to: "/messages/channels/$channelId", params: target } as const)
+      : "agentId" in target
+        ? ({ to: "/messages/$agentId", params: target } as const)
+        : ({ to: "/messages/saved" } as const);
   return (
-    <RowLink
-      {...("channelId" in target
-        ? { to: "/messages/channels/$channelId", params: target }
-        : "agentId" in target
-          ? { to: "/messages/$agentId", params: target }
-          : { to: "/messages/saved" })}
+    // The row is a React Aria link so the conversation menu's `MenuTrigger trigger="contextMenu"`
+    // can use it as its trigger; `render` hands the element to TanStack's `Link`, which owns
+    // navigation (React Aria's documented client-side routing pattern, react-aria.adobe.com/Link).
+    <AriaLink
+      href={router.buildLocation(route).href}
+      // `href` is always set, so React Aria renders an `<a>`; the check narrows the props type.
+      render={(props) => ("href" in props ? <Link {...props} {...route} /> : <span {...props} />)}
       aria-current={current ? "page" : undefined}
       aria-label={rowLabel(unreadCount, label)}
       // On mobile the list is a separate pane; choosing a row reveals the conversation even when
       // the URL is unchanged (re-opening the channel already in the address bar), which the
       // pathname-based reset in `ConversationNavigation` cannot see.
-      onClick={closeList}
+      onPress={closeList}
       className={cx(
         "flex max-h-9 w-full cursor-pointer items-center gap-2 rounded-md p-2 outline-focus-ring transition duration-100 ease-linear select-none focus-visible:z-10 focus-visible:outline-2 focus-visible:outline-offset-2",
         current ? "bg-sidebar-accent" : "hover:bg-primary_hover",
@@ -113,7 +116,7 @@ function ConversationRow({
         {children}
       </span>
       {unreadCount ? muted ? <UnreadDot /> : <UnreadBadge count={unreadCount} /> : null}
-    </RowLink>
+    </AriaLink>
   );
 }
 
