@@ -20,6 +20,7 @@ import {
   MENTION_PATTERN,
   MENTION_TOKEN_PATTERN,
   splitCodeSpans,
+  BARE_TASK_REFERENCE_PATTERN,
   TASK_REFERENCE_TOKEN_PATTERN,
 } from "@lrm/coforge-sdk/internal";
 import type { Element, Root, Text } from "hast";
@@ -165,28 +166,41 @@ export function rehypeMentionChips(options: {
  * in `numbers` names a task the viewer can open, and its chip carries `data-task-reference-number`
  * for the `span` renderer to turn into a control; any other number renders as plain chip text.
  *
- * A bare `#N` becomes the same chip when N is one of this conversation's tasks, as Raft does
- * (`(^|[^\w/])#N\b`, checked against the channel's task numbers): people and Agents write `#132`
+ * A bare `#N` (`BARE_TASK_REFERENCE_PATTERN`) becomes the same chip when N is one of this
+ * conversation's tasks, as Raft does: people and Agents write `#132`
  * for a task far more often than `task #132`, and messages sent before the token existed only
  * have the bare form. Any other `#N` — a PR or issue number — stays prose, and so does anything
  * inside code or a link.
  */
 export function rehypeTaskReferenceChips(options: { numbers: ReadonlySet<number> }) {
   const { numbers } = options;
-  const pattern = new RegExp(TASK_REFERENCE_TOKEN_PATTERN.source, "gi");
+  // One pass over each text node: a stored token, or (only when this conversation has tasks) a
+  // bare `#N`. `matchAll` clones the regex, so the shared instance never carries `lastIndex`.
+  const pattern = new RegExp(
+    numbers.size > 0
+      ? `${TASK_REFERENCE_TOKEN_PATTERN.source}|${BARE_TASK_REFERENCE_PATTERN.source}`
+      : TASK_REFERENCE_TOKEN_PATTERN.source,
+    "gi",
+  );
 
   return (tree: Root) => {
-    const visit = (node: Root | Element, inCode: boolean) => {
-      const tagName = node.type === "element" ? node.tagName : undefined;
-      // A link's own text is never re-linked: it keeps pointing where its author aimed it.
-      const code = inCode || tagName === "code" || tagName === "pre" || tagName === "a";
+    const visit = (node: Root | Element, inSkipped: boolean) => {
+      // Code keeps its text literal, a link keeps pointing where its author aimed it, and a mention
+      // chip is already a control: none of them gets a task chip inside.
+      const skip =
+        inSkipped ||
+        (node.type === "element" &&
+          (node.tagName === "code" ||
+            node.tagName === "pre" ||
+            node.tagName === "a" ||
+            node.properties["data-mention"] !== undefined));
       const next: Array<Element | Text> = [];
 
       for (const child of node.children as Array<Element | Text>) {
         if (
           child.type === "text" &&
-          !code &&
-          (child.value.includes("<@task:") || numbers.size > 0)
+          !skip &&
+          (child.value.includes("<@task:") || (numbers.size > 0 && child.value.includes("#")))
         ) {
           const parts = taskChipParts(child.value, pattern, numbers);
           if (parts) {
@@ -194,7 +208,7 @@ export function rehypeTaskReferenceChips(options: { numbers: ReadonlySet<number>
             continue;
           }
         }
-        if (child.type === "element") visit(child, code);
+        if (child.type === "element") visit(child, skip);
         next.push(child);
       }
 
@@ -205,43 +219,19 @@ export function rehypeTaskReferenceChips(options: { numbers: ReadonlySet<number>
   };
 }
 
-/** A bare `#N` task reference with Raft's boundaries: not after a word character or `/` (so
- * `word#5` and `issues/#5` stay prose), a number without a leading zero, and a word boundary after
- * it (so `#5a` is not `#5`). */
-const BARE_TASK_REFERENCE_PATTERN = /(^|[^\w/])#([1-9]\d*)\b/gu;
-
-/** The chip/text replacement for one text node, or `undefined` when no token matches. */
+/** The chip/text replacement for one text node, or `undefined` when nothing becomes a chip. A
+ * stored token (group 1) is always a chip; a bare `#N` (group 2) only when N is a task here. */
 function taskChipParts(
   value: string,
   pattern: RegExp,
   numbers: ReadonlySet<number>,
 ): Array<Element | Text> | undefined {
-  pattern.lastIndex = 0;
-  // Stored tokens, plus bare `#N` references to this conversation's own tasks. A bare match keeps
-  // its leading character (group 1) as text, so the chip starts at the `#`.
-  const tokens = [...value.matchAll(pattern)].map((match) => ({
-    index: match.index,
-    length: match[0].length,
-    number: Number(match[1]),
-  }));
-  const bare =
-    numbers.size === 0
-      ? []
-      : [...value.matchAll(new RegExp(BARE_TASK_REFERENCE_PATTERN.source, "gu"))]
-          .map((match) => ({
-            index: match.index + match[1]!.length,
-            length: match[0].length - match[1]!.length,
-            number: Number(match[2]),
-          }))
-          .filter((match) => numbers.has(match.number));
-  const matches = [...tokens, ...bare].sort((left, right) => left.index - right.index);
-  if (matches.length === 0) return undefined;
-
   const parts: Array<Element | Text> = [];
   let offset = 0;
-  for (const match of matches) {
-    if (match.index < offset) continue;
-    const number = match.number;
+  for (const match of value.matchAll(pattern)) {
+    const token = match[1];
+    const number = Number(token ?? match[2]);
+    if (token === undefined && !numbers.has(number)) continue;
     if (match.index > offset) parts.push({ type: "text", value: value.slice(offset, match.index) });
     const clickable = numbers.has(number);
     const className = TASK_CHIP_CLASS.split(" ");
@@ -259,8 +249,9 @@ function taskChipParts(
       },
       children: [{ type: "text", value: `#${number}` }],
     });
-    offset = match.index + match.length;
+    offset = match.index + match[0].length;
   }
+  if (parts.length === 0) return undefined;
   if (offset < value.length) parts.push({ type: "text", value: value.slice(offset) });
   return parts;
 }
@@ -317,6 +308,9 @@ function chipParts(
         tagName: "span",
         properties: {
           className,
+          // Marks the chip as finished markup, so the task-reference pass never nests a chip in a
+          // display name such as "Scout #5".
+          "data-mention": true,
           ...(mention.agentId ? { "data-mention-agent-id": mention.agentId } : {}),
         },
         children: [{ type: "text", value: `@${mention.label}` }],
