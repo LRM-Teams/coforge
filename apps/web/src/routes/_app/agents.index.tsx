@@ -16,7 +16,6 @@ import { useLiveAgents } from "@/features/agents/workspace-agents-realtime";
 import { getComputerRuntimeCatalog, listComputers } from "@/features/computers/computers.functions";
 import { inviteWorkspaceMember } from "@/features/workspaces/members.functions";
 import { loadMemberDirectorySummary } from "@/features/workspaces/workspaces.functions";
-import { NO_COMPUTER } from "@/features/workspaces/member-directory";
 import {
   MEMBER_DIRECTORY_KEY,
   memberAgentsQuery,
@@ -32,18 +31,12 @@ export const Route = createFileRoute("/_app/agents/")({
   validateSearch: z.object({
     memberType: z.enum(["agent", "human"]).default("agent").catch("agent"),
     owner: z.enum(["all", "mine"]).default("all").catch("all"),
-    /** A Computer id, or "none" for Agents without a Computer; absent means every Computer. */
-    computer: z
-      .union([z.string().uuid(), z.literal(NO_COMPUTER)])
-      .optional()
-      .catch(undefined),
     profile: agentProfileParamSchema,
     agentTab: agentProfileTabParamSchema,
   }),
   loaderDeps: ({ search }) => ({
     memberType: search.memberType,
     owner: search.owner,
-    computer: search.computer,
   }),
   // Live Agent status comes from the layout's realtime provider; the directory itself is paged
   // through the Query cache, and the loader only makes the first page ready for this tab.
@@ -59,7 +52,6 @@ export const Route = createFileRoute("/_app/agents/")({
       ? context.queryClient.ensureInfiniteQueryData(
           memberAgentsQuery(summary.workspaceId, {
             owner: deps.owner,
-            computer: deps.computer,
             query: "",
           }),
         )
@@ -73,7 +65,7 @@ export const Route = createFileRoute("/_app/agents/")({
 
 function AgentsPage() {
   const { computers, summary, weeklyReportAssistantAgentId } = Route.useLoaderData();
-  const { memberType, owner, computer, profile, agentTab } = Route.useSearch();
+  const { memberType, owner, profile, agentTab } = Route.useSearch();
   const navigate = Route.useNavigate();
   const router = useRouter();
   const create = useServerFn(createAgent);
@@ -102,7 +94,6 @@ function AgentsPage() {
       summary={summary}
       memberType={memberType}
       owner={owner}
-      computer={computer}
       onFiltersChange={(filters) => {
         void navigate({
           search: (previous) => ({ ...previous, ...filters }),

@@ -29,7 +29,8 @@ export function formatDateForDisplay(
   }).format(new Date(value));
 }
 
-/** The calendar day only (for example "Jul 23, 2026" / "2026年7月23日"), no time of day. */
+/** The calendar day only, no time of day: "2026.07.23" in Chinese, the language's own medium
+ * date elsewhere (for example "Jul 23, 2026"). */
 export function formatCalendarDate(
   value: Date | string,
   timeZone: string | null | undefined,
@@ -37,10 +38,21 @@ export function formatCalendarDate(
 ) {
   const browserTimeZone =
     typeof Intl !== "undefined" ? Intl.DateTimeFormat().resolvedOptions().timeZone : undefined;
-  return new Intl.DateTimeFormat(locale, {
-    dateStyle: "medium",
-    timeZone: resolveTimeZone(timeZone, browserTimeZone),
-  }).format(new Date(value));
+  const zone = resolveTimeZone(timeZone, browserTimeZone);
+  if (!locale.toLowerCase().startsWith("zh")) {
+    return new Intl.DateTimeFormat(locale, { dateStyle: "medium", timeZone: zone }).format(
+      new Date(value),
+    );
+  }
+  const parts = new Intl.DateTimeFormat(locale, {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    timeZone: zone,
+  }).formatToParts(new Date(value));
+  const part = (type: "year" | "month" | "day") =>
+    parts.find((entry) => entry.type === type)?.value ?? "";
+  return `${part("year")}.${part("month")}.${part("day")}`;
 }
 
 /** Absolute wall-clock time with seconds, for contexts that need a fixed timestamp instead of

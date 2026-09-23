@@ -15,7 +15,7 @@ import {
   writePreferredWorkspaceSlug,
 } from "../../server/workspaces/selection.server";
 import { WorkspaceMembers } from "../../server/workspaces/members.server";
-import { MEMBER_PAGE_MAX, NO_COMPUTER } from "./member-directory";
+import { MEMBER_PAGE_MAX } from "./member-directory";
 
 function catalog() {
   const db = requireDatabaseClient();
@@ -52,7 +52,6 @@ export const loadMemberAgentPage = createServerFn({ method: "GET" })
     z.object({
       ...pageInput,
       owner: z.enum(["all", "mine"]),
-      computer: z.union([z.string().uuid(), z.literal(NO_COMPUTER)]).optional(),
     }),
   )
   .handler(async ({ data, context }) => {

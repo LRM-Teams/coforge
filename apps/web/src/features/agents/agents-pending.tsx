@@ -12,7 +12,9 @@ export function AgentsPending() {
         <header className="flex shrink-0 flex-wrap items-center gap-x-3 border-b border-secondary px-4 sm:px-6 @2xl/members:grid @2xl/members:h-12 @2xl/members:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)]">
           <div className="flex h-12 min-w-0 flex-1 items-center gap-3">
             <MobileNavigationButton />
-            <h1 className="truncate text-lg font-semibold text-primary">{m.navigation_agents()}</h1>
+            <h1 className="truncate text-lg font-semibold text-primary">
+              {m.member_directory_title()}
+            </h1>
           </div>
           <div
             aria-hidden="true"
@@ -36,13 +38,12 @@ export function AgentsPending() {
         </header>
         <div className="flex shrink-0 flex-wrap items-center gap-3 px-4 pt-5 sm:px-6">
           <Skeleton aria-hidden="true" className="h-9 w-32 rounded-lg" />
-          <Skeleton aria-hidden="true" className="h-9 w-44 rounded-lg" />
           <Input
             type="search"
             size="sm"
             icon={Search}
-            aria-label={m.filters_search()}
-            placeholder={`${m.filters_search()}...`}
+            aria-label={m.member_search_agents()}
+            placeholder={`${m.member_search_agents()}...`}
 
             isDisabled
             className="w-full sm:w-80"
