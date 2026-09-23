@@ -1,11 +1,7 @@
 import { useEffect } from "react";
 import { useServerFn } from "@tanstack/react-start";
 
-import {
-  browserNotificationPermission,
-  browserPushLifecycleEnabled,
-  ensureBrowserPushSubscription,
-} from "./browser-push";
+import { browserNotificationPermission, syncBrowserPushSubscription } from "./browser-push";
 import { subscribeBrowserPush } from "./notifications.functions";
 
 export function BrowserPushLifecycle({
@@ -19,13 +15,10 @@ export function BrowserPushLifecycle({
 
   useEffect(() => {
     if (!enabled || !publicKey || browserNotificationPermission() !== "granted") return;
-    void ensureBrowserPushSubscription(publicKey)
-      .then((subscription) => {
-        if (browserPushLifecycleEnabled()) return subscribe({ data: subscription });
-      })
-      .catch(() => {
-        // Settings shows actionable permission and subscription errors.
-      });
+    syncBrowserPushSubscription(publicKey, (data) => subscribe({ data })).catch((cause) => {
+      // Settings shows actionable errors; this background re-registration only leaves a trace.
+      console.warn("browser push re-registration failed", cause);
+    });
   }, [enabled, publicKey, subscribe]);
 
   return null;

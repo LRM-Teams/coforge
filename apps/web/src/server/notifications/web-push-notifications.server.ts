@@ -42,15 +42,6 @@ export class WebPushDeliveryError extends Error {
 
 type DeliveryResult = { sent: number; failed: number; removed: number };
 
-/** The endpoint's host alone - the endpoint itself is a capability URL. */
-function safeEndpointHost(endpoint: string): string {
-  try {
-    return new URL(endpoint).host;
-  } catch {
-    return "invalid";
-  }
-}
-
 export class WebPushNotifications {
   constructor(
     private readonly subscriptions: WebPushSubscriptionStore,
@@ -63,11 +54,6 @@ export class WebPushNotifications {
 
   unsubscribe(userId: string, endpoint: string) {
     return this.subscriptions.removeSubscription(userId, endpoint);
-  }
-
-  /** Registered-device count for a user, used to make a zero-delivery test distinguishable. */
-  countSubscriptions(userId: string): Promise<number> {
-    return this.subscriptions.subscriptionsForUser(userId).then((all) => all.length);
   }
 
   async notifyMessage(messageId: string): Promise<DeliveryResult> {
@@ -85,16 +71,6 @@ export class WebPushNotifications {
     const subscriptions = (await this.subscriptions.subscriptionsForUser(userId)).filter(
       (subscription) => subscription.endpoint === endpoint,
     );
-    if (subscriptions.length === 0) {
-      // The member has subscriptions on record, yet none for this browser's endpoint: neither sent
-      // nor logged anywhere, which left "check this browser's permission" as the only clue.
-      console.warn(
-        JSON.stringify({
-          event: "web_push.test_no_subscription",
-          endpointHost: safeEndpointHost(endpoint),
-        }),
-      );
-    }
     return this.deliver(subscriptions, {
       title: "CoForge",
       body: "Browser notifications are working on this device.",
@@ -119,6 +95,13 @@ export class WebPushNotifications {
             (error.statusCode === 404 || error.statusCode === 410)
           ) {
             await this.subscriptions.removeSubscriptionById(subscription.id);
+            console.warn(
+              JSON.stringify({
+                event: "web_push.subscription_removed",
+                subscriptionId: subscription.id,
+                statusCode: error.statusCode,
+              }),
+            );
             return "removed" as const;
           }
           console.warn(
