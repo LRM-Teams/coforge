@@ -22,7 +22,7 @@ const messagesRoute = getRouteApi("/_app/messages");
  * With nothing to open, the pane asks for a choice.
  */
 export function EmptyConversation() {
-  const { channels } = messagesRoute.useLoaderData();
+  const { channels, directPreferences } = messagesRoute.useLoaderData();
   const agents = useLiveAgents();
   const workspaceId = useCurrentWorkspaceId();
   const landingChannelId = channels.find((channel) => channel.joined && !channel.archived)?.id;
@@ -35,7 +35,10 @@ export function EmptyConversation() {
     const remembered = workspaceId
       ? rememberedConversation(workspaceId, {
           channelIds: channels.filter((channel) => !channel.archived).map((channel) => channel.id),
-          agentIds: agents.map((agent) => agent.id),
+          // A closed direct message is out of the list until someone writes in it again.
+          agentIds: agents
+            .map((agent) => agent.id)
+            .filter((agentId) => !directPreferences.hidden.includes(agentId)),
         })
       : undefined;
     const target = remembered ?? (landingChannelId ? { channelId: landingChannelId } : undefined);
@@ -56,7 +59,7 @@ export function EmptyConversation() {
     } else {
       void navigate({ to: "/messages/saved", replace: true });
     }
-  }, [desktop, workspaceId, channels, agents, landingChannelId, navigate]);
+  }, [desktop, workspaceId, channels, agents, directPreferences, landingChannelId, navigate]);
 
   // The router keeps this pane up until the chosen conversation's own pending fallback is due, so
   // for that moment it would still ask for a choice the user has just made: show the conversation

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import {
   rememberConversation,
@@ -29,6 +29,9 @@ const available = { channelIds: ["c1", "c2"], agentIds: ["a1"] };
 
 describe("the conversation Chat reopens", () => {
   beforeEach(stubLocalStorage);
+  afterEach(() => {
+    Reflect.deleteProperty(globalThis, "localStorage");
+  });
 
   test("is the channel, direct message, or Saved view opened last in this Workspace", () => {
     rememberConversation("w1", "/messages/channels/c2");

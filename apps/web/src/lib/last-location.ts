@@ -30,7 +30,9 @@ const APP_PATH = new RegExp(
 export type LastLocation = { workspaceSlug: string; path: string };
 
 function isAppPath(path: string): boolean {
-  return APP_PATH.test(path) && !path.split("/").some((segment) => segment === "..");
+  // A URL parser collapses dot segments, encoded ones (`%2e%2e`) included, before anything opens
+  // the path; only a path it leaves untouched is the page it names.
+  return APP_PATH.test(path) && new URL(path, "http://coforge.invalid").pathname === path;
 }
 
 /** The `Set-Cookie`/`document.cookie` string remembering `location`, or `undefined` when the page
