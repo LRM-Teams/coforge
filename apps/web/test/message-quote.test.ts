@@ -125,6 +125,42 @@ describe("selectionAffordancePlacement", () => {
     expect(placement.top).toBe(164 - 100 + TOUCH_AFFORDANCE_GAP);
   });
 
+  test("a mouse selection ignores the visible bottom while above fits", () => {
+    const lastLine = { ...highlight, top: 276, bottom: 300 };
+    const placement = selectionAffordancePlacement(lastLine, container, { top: 0, bottom: 320 });
+    expect(placement.top).toBe(276 - 100 - AFFORDANCE_HEIGHT - 4);
+  });
+
+  test("a touch selection stays below when the bar ends exactly on the visible bottom", () => {
+    const bottom = 164 + TOUCH_AFFORDANCE_GAP + AFFORDANCE_HEIGHT;
+    const placement = selectionAffordancePlacement(
+      highlight,
+      container,
+      { top: 0, bottom },
+      "below",
+    );
+    expect(placement.top).toBe(164 - 100 + TOUCH_AFFORDANCE_GAP);
+  });
+
+  // A highlight taller than the visible history (a long selection dragged to the screen's edge)
+  // leaves room on neither side: the bar keeps its side but stays inside the visible region.
+  test("a touch selection with room on neither side pins the bar to the visible bottom", () => {
+    const tall = { ...highlight, top: 110, bottom: 318, height: 208 };
+    const placement = selectionAffordancePlacement(
+      tall,
+      container,
+      { top: 120, bottom: 320 },
+      "below",
+    );
+    expect(placement.top).toBe(320 - AFFORDANCE_HEIGHT - 100);
+  });
+
+  test("a mouse selection with room on neither side pins the bar to the visible top", () => {
+    const tall = { ...highlight, top: 110, bottom: 318, height: 208 };
+    const placement = selectionAffordancePlacement(tall, container, { top: 120, bottom: 320 });
+    expect(placement.top).toBe(120 - 100);
+  });
+
   test("centers over the highlight when there is room", () => {
     // 150 (highlight's horizontal center inside the body) minus half the affordance.
     expect(selectionAffordancePlacement(highlight, container).left).toBe(

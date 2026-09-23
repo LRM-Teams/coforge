@@ -619,8 +619,8 @@ export function MessageRow({
   // over this message while selecting another one never raises it.
   const bodyRef = useRef<HTMLDivElement>(null);
   const quoteAffordanceRef = useRef<HTMLDivElement>(null);
-  /** Whether the gesture that made the selection was a touch: the platform then raises its own
-   * edit menu above the highlight, so the bar goes below it. */
+  /** Whether the latest pointer press was a finger or a pen rather than a mouse: a selection made
+   * that way raises the platform's own edit menu above the highlight, so the bar goes below it. */
   const touchSelectionRef = useRef(false);
   const toast = useAppToast();
   const savedMessages = useSavedMessages();
@@ -734,7 +734,7 @@ export function MessageRow({
     };
     const onPointerDown = (event: PointerEvent) => {
       pointerDownRef.current = true;
-      touchSelectionRef.current = event.pointerType === "touch";
+      touchSelectionRef.current = event.pointerType !== "mouse";
     };
     const onPointerUp = () => {
       pointerDownRef.current = false;

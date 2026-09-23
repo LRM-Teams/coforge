@@ -74,8 +74,9 @@ export const TOUCH_AFFORDANCE_GAP = 20;
  * the highlight (iOS Copy/Look Up, Android's selection toolbar) and web content cannot suppress
  * it (`-webkit-touch-callout` only covers the link callout), so the bar takes the other side.
  * The bar flips to the other side only when the preferred one would cross the visible boundary
- * (the history scroller's edges); horizontally it stays clamped inside the body when centering
- * would overflow either edge.
+ * (the history scroller's edges) and the other one fits; with room on neither side (a highlight
+ * taller than the visible history) it keeps its side, pinned inside that boundary. Horizontally
+ * it stays clamped inside the body when centering would overflow either edge.
  */
 export function selectionAffordancePlacement(
   highlight: AffordanceRect,
@@ -87,9 +88,26 @@ export function selectionAffordancePlacement(
   const below = highlight.bottom + (side === "below" ? TOUCH_AFFORDANCE_GAP : 4);
   const fitsAbove = !boundary || above >= boundary.top;
   const fitsBelow = boundary?.bottom === undefined || below + AFFORDANCE_HEIGHT <= boundary.bottom;
-  const placeAbove = side === "above" ? fitsAbove : !fitsBelow;
+  const preferredFits = side === "above" ? fitsAbove : fitsBelow;
+  const otherFits = side === "above" ? fitsBelow : fitsAbove;
+  const top = preferredFits
+    ? side === "above"
+      ? above
+      : below
+    : otherFits
+      ? side === "above"
+        ? below
+        : above
+      : // Room on neither side: keep the preferred side, pinned inside the visible region.
+        Math.max(
+          boundary?.top ?? -Infinity,
+          Math.min(
+            side === "above" ? above : below,
+            (boundary?.bottom ?? Infinity) - AFFORDANCE_HEIGHT,
+          ),
+        );
   return {
-    top: (placeAbove ? above : below) - container.top,
+    top: top - container.top,
     left: Math.max(
       0,
       Math.min(
