@@ -230,8 +230,7 @@ gh variable list --env staging --repo LRM-Teams/coforge
 | `COFORGE_DAEMON_*` / `COFORGE_RELEASE_FEED_URL` | 已发布的二进制 | **编译期内联**；改环境变量无效，必须重新构建发布 |
 
 最后一行最容易踩：那两个值看着像运行时环境变量，但它们在 `bun build --compile` 时就被
-写死进二进制了。这是刻意的——见
-[ADR 0007](../../docs/adr/0007-checksum-manifest-release-distribution.md)。
+写死进二进制了。这是刻意的：发行版不做签名，靠 checksum manifest 校验。
 
 `COFORGE_RELEASE_FEED_URL` **有两个消费者，同一个值**：
 
@@ -317,8 +316,7 @@ changing login behavior. This does not configure production or deploy automatica
 
 Settings no longer polls GitHub on every page load: it reads a database cache
 and refreshes it in the background, kept fresh by the three webhook events
-above (installation, installation_repositories, github_app_authorization). See
-[ADR 0019](../../docs/adr/0019-github-installation-cache-and-webhooks.md).
+above (installation, installation_repositories, github_app_authorization).
 
 Manual acceptance after configuration and approved migration/deployment:
 

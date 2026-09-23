@@ -42,15 +42,12 @@ The independently packable `@coforge/agent` runtime package uses the Pi SDK and
 is installed as an exact Daemon dependency; it is not a user installation
 entry point.
 
-See [the architecture baseline](docs/architecture.md) for the canonical
-boundaries and [the database design](docs/database-schema.md) for the current
+See [the database design](docs/database-schema.md) for the current
 conversation and delivery model. See [the release contract](docs/release.md)
 for cloud deployment, atomic Computer installation bundles and compatibility
 release sets, exact-artifact production promotion, per-user installation, and
-rollback rules. The accepted realtime and MVP data-service decision is recorded
-in [ADR 0001](docs/adr/0001-standalone-centrifugo-and-compose-data-services.md).
-PostgreSQL data access is standardized on Prisma; see [ADR 0003](docs/adr/0003-prisma-as-postgresql-data-access.md)
-and the [Web/backend agent instructions](apps/web/AGENTS.md).
+rollback rules. PostgreSQL data access is standardized on Prisma; see the
+[Web/backend agent instructions](apps/web/AGENTS.md).
 Computer and Daemon share the single LogTape-based contract documented in
 [local application logging](docs/local-logging.md); implementation is pending.
 
@@ -62,7 +59,7 @@ apps/web/prisma         Planned Prisma schema and migrations
 packages/computer       Machine-level setup and supervisor package component
 packages/daemon         Single-workspace daemon and code-agent adapter package component
 packages/agent          Independently packable built-in Agent runtime using Pi SDK
-docs                    Architecture, ADRs, and data-model documentation
+docs                    Data-model, release, and operations documentation
 packages                Shared and independently packable components
 ```
 

@@ -11,8 +11,8 @@ intentionally keeps Agent execution
 
 ## Implementation contract
 
-When implementation starts, use this layout and workflow unless a later ADR
-supersedes it:
+When implementation starts, use this layout and workflow unless a later
+approved decision supersedes it:
 
 ```text
 apps/web/
@@ -270,15 +270,14 @@ kind column because the current schema supports only User↔Agent direct chat.
 One row per user for account-level settings (time zone, time format, browser
 notifications, conversation open mode), keyed by `userId` with `ON DELETE CASCADE`. Every setting
 column is nullable and NULL means the code default; closed sets are TEXT with a
-`CHECK` constraint. See [ADR 0064](adr/0064-user-preferences-table.md).
+`CHECK` constraint.
 
 ### `workspace_member_preferences`
 
 One row per Workspace membership for a member's own settings inside that Workspace, keyed by
 `(workspaceId, userId)` with a foreign key to `workspace_memberships` and `ON DELETE CASCADE`.
 `conversationTabOrder` and `agentProfileTabOrder` are `TEXT[]` tab-id lists (empty = default
-order, first tab opens by default), each limited to its panel's ids by a `CHECK`. See
-[ADR 0066](adr/0066-workspace-member-tab-order.md).
+order, first tab opens by default), each limited to its panel's ids by a `CHECK`.
 
 ## Identity boundaries
 
@@ -302,8 +301,7 @@ constrained now.
 The DirectConversation, ConversationMember, and Message tables are included in
 the `20260828000003_direct_conversations` migration. Setup-owned identity and Workspace connection tables are
 implemented separately under `apps/web/prisma/schema.prisma` and its migration.
-The project-level data-access choice is recorded in
-[`ADR 0003`](adr/0003-prisma-as-postgresql-data-access.md): approved
+Approved
 implementations use Prisma schema, generated Prisma Client, and Prisma Migrate.
 That approval does not approve the draft messaging tables or their future SQL
 migrations.
@@ -312,7 +310,7 @@ migrations.
 
 Weekly-report persistence is modeled in `apps/web/prisma/schema.prisma` and
 migration `20260910000000_workspace_records`. Status is **proposed** until Frank
-approves the schema gate (ADR 0009). Tables:
+approves the schema gate. Tables:
 
 - `weekly_report_cycles` — ISO week bucket per Workspace
 - `weekly_reports` — member or template document (`content` JSONB outline)

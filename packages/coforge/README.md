@@ -86,7 +86,7 @@ channel info <target>` and `coforge channel members <target>` are read-only:
 `info` reports description, archived/joined/muted state, member counts
 (always plural, e.g. `1 agents, 1 humans`, matching Raft exactly), and — on a
 `#channel` target — this Agent's own `Channel role:`/`Channel admin basis:`/
-`Channel capabilities:` lines (ADR 0032), each printed only when informative
+`Channel capabilities:` lines, each printed only when informative
 (the uninformative `member` role is hidden the same way the `admin`/`owner`
 server-role suffix already is elsewhere).
 `members` lists the Agents and humans who currently have join/post authority
@@ -100,7 +100,7 @@ creates that DM as a side effect: it looks the conversation up
 and reports `404 channel not found` if the Agent and that human have never
 had one. `coforge channel join --target '#channel'` and `coforge channel
 create --name <name> [--description <text>]` are open to any Agent that
-belongs to the Workspace (Slack's default for channels, ADR 0025); joining a
+belongs to the Workspace (Slack's default for channels); joining a
 channel already joined prints `Already joined #x.` instead of the full
 confirmation. `coforge channel leave --target '#channel'` is likewise open to
 any Agent and idempotent (leaving twice prints `Already not joined in #x.`),
@@ -117,7 +117,7 @@ channel update --target '#channel' [--name <n>] [--description <text>]`,
 @handle)` require channel-admin authority on that specific channel — either
 the calling Agent's own server role is `admin`/`owner`, or its stored
 `channelRole` on that channel is `admin` (e.g. because it created the
-channel); see ADR 0032, `hasChannelAdminAuthority` (superseding ADR 0024's
+channel); see `hasChannelAdminAuthority` (superseding the earlier
 channel-blind `agentHasAdminAuthority`, additive: every previously
 authorized Agent stays authorized). A denied request is a plain `403
 this Agent's owner lacks admin authority for <operation>`-style error.
@@ -171,7 +171,7 @@ a fixed `Attachment is unavailable.` message on a 404 rather than relaying
 upstream detail. An Agent may download its own upload before sending it,
 but not another Agent's not-yet-sent upload.
 
-**Direct (presigned) upload (ADR 0028).** `attachment upload`'s command line and success output
+**Direct (presigned) upload.** `attachment upload`'s command line and success output
 above never change; above a server-advertised size threshold (and only when the active storage
 backend supports it — Alibaba Cloud OSS does, local dev storage does not), the CLI instead PUTs
 the file straight to storage using a short-lived presigned URL, mirroring Raft 1.0.32's own direct
@@ -249,8 +249,7 @@ appends, `[action card: pending]`, `[action card: executed]`, or
 coforge message read --target "#design" --around <message-id>
 ```
 
-Only `executed` means the resource now exists. See ADR 0027's "Commit and
-cancel" section for the full commit/cancel model.
+Only `executed` means the resource now exists.
 
 ## Output
 

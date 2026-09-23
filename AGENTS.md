@@ -76,12 +76,10 @@ tanstackIntent:
 
 These instructions apply to the entire repository.
 
-## Read the architecture first
+## Decisions
 
-- Read [`docs/architecture.md`](docs/architecture.md) before changing package boundaries, process ownership, transport, delivery semantics, persistence, infrastructure, or runtime versions.
-- Treat that document as the canonical architecture source. Update it in the same change whenever an architectural decision changes.
-- Keep `docs/architecture.md` as the single maintained architecture source; do not create a duplicate HTML companion.
-- Do not turn an unresolved question into code or a repository convention. Present the options and trade-offs in `#coforge`, then record the decision before implementation; use Frank's approval only when the decision meets a gate below.
+- Do not turn an unresolved question into code or a repository convention. Present the options and trade-offs in `#coforge`, then record the decision in the CR description before implementation; use Frank's approval only when the decision meets a gate below.
+- This repository keeps no ADRs and no separate architecture document. Do not create `docs/adr/` or `docs/architecture.md`, even when a skill suggests one. The architecture invariants below and the owning app's `AGENTS.md` are the maintained rules.
 
 ## Module design and implementation discipline
 
@@ -183,7 +181,7 @@ These instructions apply to the entire repository.
   in `mise.toml`, substantial procedural logic in checked executable scripts,
   and CI-provider concerns in workflow YAML.
 
-- Do not silently change a runtime or tool version. Update `mise.toml`, affected lockfiles, CI, and architecture documentation together.
+- Do not silently change a runtime or tool version. Update `mise.toml`, affected lockfiles, and CI together.
 - Protobuf schemas under `packages/coforge-sdk/proto` must pass `buf lint` and
   `buf format --diff --exit-code`; do not use TypeScript lint rules as a
   substitute for `.proto` validation.
@@ -226,7 +224,7 @@ These instructions apply to the entire repository.
 - Caddy owns public TLS and edge proxying. Standalone Centrifugo OSS owns WSS/RPC transport mechanics only. Web/backend owns authentication, conversations, persistence, and routing decisions.
 - PostgreSQL is accessed through Web/backend. Centrifugo must not acquire domain or database ownership.
 - Redis is Centrifugo broker/presence/hot-history state plus Web message-request idempotency state. PostgreSQL canonical Message/read state is the message recovery boundary; any daemon status spool does not make Agent Activity reliable.
-- Agent Activity is best-effort observation over the dedicated `agent:activity:<workspace_id>` Centrifugo namespace, or, for a private Agent (ADR 0059), the re-routed per-Agent `agent:activity:<workspace_id>:<agent_id>` (with a matching per-Agent `agent:status:<workspace_id>:<agent_id>` for `agent:display`) — Daemon always publishes to the shared namespace unchanged; the Web publish proxy picks the destination from the Agent's current visibility. Daemon does not wait, retry, spool, or require an application ACK; publish-proxy authorization must validate the trusted connection scope before allowing the publication.
+- Agent Activity is best-effort observation over the dedicated `agent:activity:<workspace_id>` Centrifugo namespace, or, for a private Agent, the re-routed per-Agent `agent:activity:<workspace_id>:<agent_id>` (with a matching per-Agent `agent:status:<workspace_id>:<agent_id>` for `agent:display`) — Daemon always publishes to the shared namespace unchanged; the Web publish proxy picks the destination from the Agent's current visibility. Daemon does not wait, retry, spool, or require an application ACK; publish-proxy authorization must validate the trusted connection scope before allowing the publication.
 - Do not reintroduce the removed custom Go realtime-gateway, add Fiber, or embed Centrifuge as a production path.
 - The current MVP has no local durable message inbox/outbox and no complete per-Agent delivery ledger. ACK only after `CodeAgentSession`/`notify` successfully accepts the attention; ACK does not mean the Agent run finished.
 - Recover lost volatile attention from cloud canonical Message/read boundaries. Agent→Web read/send uses the independent HTTPS RPC and retries the same `request_id`; do not route it through WSS.
