@@ -10,7 +10,7 @@ import { FeaturedIcon } from "#src/components/foundations/featured-icon/featured
 import { m } from "#src/paraglide/messages";
 import type { KeyPointExtractionMeta } from "./records-content";
 import { KeyPointExtractionPanel } from "./key-point-extraction-panel";
-import { RECORDS_PRIMARY_BUTTON_CLASSNAME } from "./records-primary-button";
+import { RECORDS_AI_PRIMARY_BUTTON_CLASSNAME } from "./records-primary-button";
 
 /** Failed because nobody submitted — toast-only, never a parked panel state. */
 export function isNoneSubmittedKeyPointFailure(
@@ -80,7 +80,7 @@ export function TeamKeyPointSection({
               type="button"
               size="sm"
               color="primary"
-              className={RECORDS_PRIMARY_BUTTON_CLASSNAME}
+              className={RECORDS_AI_PRIMARY_BUTTON_CLASSNAME}
               iconLeading={Stars}
               isDisabled={busy}
               onPress={onPressStart}
