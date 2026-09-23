@@ -5,9 +5,12 @@
 ## 1. 来源与优先级
 
 - 保留真实业务含义、用户任务、权限与安全要求，以及可访问性；不能为了简洁隐藏风险或改变事实。
+- 本文是 `apps/web` 产品界面唯一的设计规范（原 `docs/ui-guidelines.md` 已并入第 7–13 节），颜色与字体见 design-tokens.md。不另建设计或 UI 规范文档，规则变化直接改本文。
+- **有设计稿时以设计稿为准**（2026-09-23 确定）：页面结构、控件选择、主次、间距和文案按设计稿实现，实现时仍用 Untitled UI 官方组件和 rem 刻度。设计稿与本文冲突时按设计稿做，并在同一改动里修改本文对应条款；设计稿没覆盖的部分按本文。设计稿里有、产品里没有对应数据或概念的内容（例如运行统计、归档），先向需求方确认，不编造数据或新概念。
+- 没有设计稿时，组件与样式的依据顺序：Untitled UI React 官方组件和 `theme.css`（<https://www.untitledui.com/react/docs>，源码 <https://github.com/untitleduico/react>）优先，其次是本文；Tailwind UI 示例、shadcn 习惯或个人偏好都不作为依据。本文与官方冲突且没写明“有意偏离”时，按官方改本文。
 - 颜色以 Figma 与 [design-tokens.md](design-tokens.md) 的维护约定为准；实现复用 [styles.css](../apps/web/src/styles.css) 和 [UI primitives](../apps/web/src/components/ui)。本文不重复维护 Token 值。
-- 复用宿主的 TanStack Start、Tailwind、Base UI、图标和本地化约定。不引入另一套主题、组件库或 Vercel 品牌 CSS。
-- 本文负责内容层级、渐进披露和评审方法。Figma 尚未确定的字体、间距等不得由 Agent 编造成已批准的品牌标准；当前实现也不自动等于认可的设计范例。
+- 复用宿主的 TanStack Start、Tailwind、Untitled UI（React Aria）、图标和本地化约定。不引入另一套主题、组件库或 Vercel 品牌 CSS。
+- 本文负责内容层级、渐进披露和评审方法。Figma 尚未确定的字体、间距等不得由 Agent 编造成已批准的品牌标准；当前实现也不自动等于认可的设计范例（第 7–13 节点名的范例除外）。
 - `design-taste-frontend` 的营销页规则不作为工作台默认值。不要为“去 AI 味”删除现有品牌紫、真实状态点、有效列表或表格，也不要强制添加图片、非对称布局或动效。
 
 ## 2. 先确定用户任务，再选布局
@@ -101,7 +104,7 @@
 工作台覆盖聊天、Agent 列表和详情、Computer 列表和详情、设置首屏与个人资料保存。
 创建和编辑 Agent、运行时凭据、Computer 运行时可见性使用就地错误与防重复提交。
 参考 Linear 的稳定层级、Geist 的尺寸占位、Sonner 的连续反馈；保留 CoForge
-品牌色和其他 Base UI 原语，Toast 使用 Sonner。以下时间与布局是样板的工程默认值，
+品牌色和 Untitled UI 官方组件，Toast 使用 Sonner。以下时间与布局是样板的工程默认值，
 不是 Figma 已发布的品牌标准，也不是对参考产品参数的复刻。
 
 | 场景 | 呈现方式 |
@@ -115,7 +118,7 @@
 
 推广时保留已有的空列表、无搜索结果、Computer 未找到、频道加入、消息发送失败与重试界面；
 不把这些确定状态换成骨架。安装指引、登录授权和立即发出的 Agent 控制命令不是页面数据加载，
-保持各自的流程反馈。设置通知和时区的短暂失败沿用共享 Toast，不重复增加提示层。
+保持各自的流程反馈。设置通知和时区的保存失败按第 13 节在对应设置项旁就地说明原因（现有实现仍用 Toast，属于待改存量）。
 
 - pending 骨架的策略只写一处：路由器默认值（`apps/web/src/lib/pending-policy.ts`，`defaultPendingMs` /
   `defaultPendingMinMs`），路由不再各自复述这两个数字。延迟内不显示骨架（快速请求不闪屏）；一旦到达延迟线，
@@ -130,7 +133,7 @@
   重试不重复已完成的头像操作；未经服务端确认不能声称回滚或全部保存成功。
 - Toast 在桌面位于右下角，手机（小于 768px）位于顶部居中，留出安全区；最多同时显示三条，同类型、同标题更新原条目。
   使用中性浮层、细边框、图标与简短文案，避免大面积红绿底色。正文错误色使用
-  `destructive-text` 而非填充色。使用 Sonner 默认四秒自动消失、不显示关闭按钮，保留原生堆叠、展开与减少动画支持。
+  `text-error-primary` 而非填充色。使用 Sonner 默认四秒自动消失、不显示关闭按钮，保留原生堆叠、展开与减少动画支持。
   `AppToastProvider` 统一 Toaster 配置，`useAppToast` 仅负责去重与安全错误编号，不自行实现通知队列。
 - Toast 不自动抢焦点。配置 F6 进入通知区；交互期间的暂停计时由 Sonner 负责。
   Escape 折叠通知堆叠，不承诺恢复到触发前控件；通知采用 Sonner 的礼貌播报。
@@ -193,6 +196,16 @@ UI 变更必须查看实际渲染，不以源码检查代替视觉检查。按�
 4. 帮助是否能用鼠标、键盘和触屏获取，展开后是否遮挡操作？
 5. 是否存在意外横向溢出、截断、低对比度或无法到达的操作？
 6. 错误与空状态是否真实，文案是否保留业务含义？
+7. 只用官方组件和 `components/ui` 清单里的原语
+8. 平铺发丝线，没有卡片岛屿
+9. 字段按第 9 节选对写法：表单和长值用网格，短事实用列表；同一个 section 不混用
+10. 页头和正文没有重复的事实
+11. 没有提示句，值里没有 label 前缀
+12. 只用语义 token，品牌紫只在第 11 节列的位置
+13. 操作区按第 8 节做了光学对齐：无边框按钮内容贴沟槽，盒式控件盒边贴沟槽
+14. 可交互元素 hover 全是小手，禁用态是 `not-allowed`
+15. 亮暗两张截图都看过
+16. 尺寸单位按第 12 节：会影响排版和阅读的尺寸用 rem（Tailwind 刻度），px 只用于细线；把设置里的「文字大小」调到最大看过一遍
 
 涉及上述模式时，再执行对应的交互验收：
 
@@ -214,13 +227,209 @@ UI 变更必须查看实际渲染，不以源码检查代替视觉检查。按�
 
 本节定义后续工作方式，不表示仓库已经具备自动视觉评测平台，也不要求每次小修都重新生成整套页面。
 
+## 7. 组件：只用官方
+
+- 公开首页 `features/landing` 保留已安装的 Spell / Magic UI 动效组件，其余控件同样只用官方组件；本节其余规则针对产品界面。
+- 组件通过 `npx untitledui@latest add <name>` 安装到 `src/components/base/` 和 `src/components/application/`，**源码不改**。要改外观，在调用处传 `className`；要改行为，改调用方。
+- 用户明确要求移除历史 lint 豁免后，仅有两处限定修补：`base/badges/badges.tsx` 和
+  `application/app-navigation/base-components/nav-account-card.tsx` 的原生按钮替换为
+  React Aria Button，保留官方样式和公开接口；未使用的 `base/select/select-native.tsx` 已移除。
+  这不是任意修改官方源码的许可；升级时保留这两处限定修补并重新验证。
+- 例外：`application/app-navigation/sidebar-navigation/` 下的 `sidebar-simple.tsx`、`sidebar-slim.tsx`
+  和 `base-components/mobile-header.tsx` 是官方的**演示模板**（写死 Untitled 自己的 logo、搜索框、假账号卡片、固定像素宽度），不是可参数化的
+  组件。这两个文件允许复制到 `src/components/layout/sidebar/` 后按需修改；复制之后就是 CoForge 自己
+  的代码，不再受"源码不改"约束。复制体内部继续调用的 `app-navigation/base-components/**`
+  （`NavItemBase`、`NavButton`、`NavList`、`MobileNavigationHeader` 等）和 `components/base/**`
+  仍然原样不改。
+- 升级用 `npx untitledui@latest upgrade`，升级后跑 `bun run check` 和 `bun run test`。
+- 允许自写的只有官方没有对应物的原语，放在 `src/components/ui/`：Empty、Skeleton、Toast 包装、RelativeTime、InputOTP、HoverPopover。自写原语只能组合 React Aria 和官方组件，不能复制官方文件再改。
+- `src/components/ui/README.md` 维护"偏离官方组件清单"：每个自写文件一行，写明为什么官方没有。清单之外不允许出现非官方组件。
+- 图标只用 `@untitledui/icons`。厂商 logo（Claude Code、Codex 等）用 `@lobehub/icons-static-svg`。
+- `.oxlintrc.json` / `scripts/oxlint-plugin.js` 不得新增或扩大豁免，除非事先获得用户明确同意，
+  官方组件也不例外。申请时写明具体文件、规则、原因和失去的检查；历史豁免不构成授权。
+  产品代码（`src/features/**`、`src/components/ui/**`、`src/components/layout/**`、路由、测试）
+  命中规则就改代码，不要放宽规则；任何地方都不写
+  `oxlint-disable`、`@ts-ignore`、`@ts-expect-error` 注释。
+
+## 8. 页面骨架与密度
+
+参照 Linear、Notion 和 Untitled UI 自带的 sidebar-navigation。
+
+- 应用侧栏用官方 `SidebarNavigationSimple`（展开，280px）和 `SidebarNavigationSlim`（收缩，68px）。侧栏底色用 CoForge 的 `--color-sidebar`（亮 `#f8f7fe`，暗色为紫黑渐变），右侧一条 `border-secondary`。这是唯一有意偏离官方（官方侧栏是 `bg-primary`）的地方，目的是品牌辨识。
+- 内容区 `bg-primary`，贴边铺满。页面内的多个面板（列表 + 详情、对话 + thread）之间只用 1px `border-secondary` 分隔。
+- **不用**卡片岛屿：页面级面板没有 `rounded`、没有 `border` 包边、没有 gutter、没有阴影。卡片只用于内容里真正独立的对象（一个附件、一条运行时），以及第 9 节的事实列表分组。
+- 侧栏可拖拽：默认 280，范围 240 到 360。手柄不可见，热区 6 到 8px 压在分隔线上，hover 或拖拽时显示 2px 品牌色线。
+- 页头高度 48px（`h-12`），标题 `text-lg font-semibold`，右侧放主操作。侧栏 logo 行同高，logo 和页面标题共一条基线。页头下方的二级操作区（筛选、tab、工具条）高 44px（`h-11`），里面的控件一律 36px（`size="sm"`），不另加上下内边距。
+- 操作区光学对齐：无边框的按钮排（`color="tertiary"` 的 `Button` 标签带、`ButtonUtility` 图标簇）让按钮**内容**（图标或文字）对齐面板沟槽，用负 margin 抵消按钮内边距——`size="sm"` 按钮是 `px-3`，左缘用 `-ml-3`；`ButtonUtility` 是 `p-1.5`，用 `-ml-1.5`，右缘镜像用 `-mr-1.5`。激活态的浅色药丸盒超出沟槽那 12px 是有意的（Linear、Notion 同）。有边框的盒式控件（Input、Select、`ButtonGroup`、卡片）反过来：盒边缘对齐沟槽，**不加**负 margin。范例：会话页 Chat / Tasks / Files 标签带（`conversation-task-tabs.tsx`）。
+- 可交互元素 hover 一律显示小手：`styles.css` 的基础层已让 `button:not(:disabled)` 全局 `cursor: pointer`，链接走浏览器默认；非 button 的自定义触发器（`role="button"`、hover popover 触发器、可点 chip）必须自己显式补 `cursor: pointer`。禁用态用 `cursor: not-allowed`（官方 Button 自带）。不要用 `cursor: default` 暗示可点。
+
+### 密度
+
+- 正文字号 `text-sm`（14px），`text-md`（16px）只用于对话正文和空状态标题。`text-xs` 只用于时间戳和徽章。
+- 列表行高 40 到 48px，字段行高 44px，表格行高 44px。
+- section 之间 `border-secondary`，section 内边距 `py-6 px-8`。
+- 页面能一屏看完的，不要让它两屏。
+
+#### 聊天消息流
+
+用户确认参考 Slack 消息流：采用保留头像的 [Clean 布局](https://slack.com/help/articles/213893898-Change-how-messages-are-displayed)，不是隐藏头像的 Compact 模式或左右气泡。
+消息、附件和任务引用沿正文列左对齐；同一发送者五分钟内的连续消息合组，跨日期不合组。
+短日期分隔与时分时间戳承担辅助信息，已有 thread 才在消息下显示回复摘要。
+[Slack thread 示例](https://slack.com/help/articles/115000769927-Use-threads-to-organize-discussions)是按需消息操作的参考；Web 的触摸适配保留无描边的消息菜单入口，不能只靠 hover。
+输入区与附件排版参考 [Untitled Messaging examples](https://www.untitledui.com/react/components/messaging)，继续组合已安装的官方基础组件，不复制受 PRO 授权限制的源码。
+“作为任务发送”放在输入区次级菜单，开启后显示可取消的模式标签，成功发送后恢复普通消息。
+
+## 9. 字段展示：表单和长值用网格，短事实用列表
+
+两种写法，按内容选一种。同一个 section 里不混用。
+
+**字段网格：label 在上，value 在下。** 用于表单、可编辑字段、长值（路径、命令、URL）和字段很多的页面。表单也是这个方向（官方 Input 的 label 就在上方），读和写是同一套语法。
+
+- label：`text-sm text-tertiary`，常规字重。value：`text-sm font-medium text-primary`。两者间距 4px。
+- 多个字段排成网格：`md:grid-cols-2 xl:grid-cols-3`，`gap-x-8 gap-y-6`。长值独占一整行。
+- 字段之间不画线。只在 section 之间画一条 `border-secondary`，section 内边距 `py-6 px-8`。
+- 可编辑字段外观和只读字段一致。hover 出现浅底和铅笔，点击原地换成官方 Input 加 Save / Cancel，Escape 取消。不要常驻的编辑图标。
+
+**事实列表：label 在左，value 在右。** 用于详情页上只读的短事实：不超过 8 条，每个值一行放得下。参照 macOS 系统设置的「关于本机」。范例：Computer 详情页。
+
+- 一行一个事实。label：`text-sm font-medium text-primary`，不折行。value：`text-sm text-tertiary`，靠右，不在词中间折行。行高至少 44px，行间一条 `border-secondary`，最后一行后面不画。
+- 语义用 `<dl>`，每行一个 `<div>` 包一对 `<dt>` / `<dd>`。
+- 作用于某个事实的操作放在那一行的行尾：`size="sm"`、`color="secondary"` 的官方 Button，一行最多一个。进行中就是这个按钮的 loading 状态。
+- 针对那个事实的说明或错误放在那一行主行的下面，占满整行，不和值、按钮横排。错误按第 13 节：一句原因，下面一行灰色小字的参考编号。主行在任何状态下都保持单行、不变形。
+- 窄容器里行尾操作折到值的下面，label 顶对齐。
+- 作用于整个对象的操作（比如重启）不进列表，放页头右侧。
+- 一组事实可以包在 `rounded-xl bg-secondary` 的浅底分组里，没有 border、没有阴影；分组标题 `text-sm font-semibold`，放在分组外、和行内文字左对齐。这是内容里的一组事实，不是第 8 节禁止的页面级卡片岛屿。
+- 详情页顶部可以用居中的身份区（大号对象图标带状态点，下面是名称）。只用于「某一个对象」的详情页，列表页和表单页不用。名称可以改时，铅笔常驻挂在名称右侧、不挤偏名称：居中的标题没有可以 hover 出浅底的字段框，触屏上也没有 hover。
+
+两种写法共用：
+
+- 标识符类的值（主机名、版本号、ID、路径）用 `font-mono`。
+- 空值显示 `—`，不显示 "N/A"、"Unknown"、"暂无"。
+- label 要在上下文里不产生歧义：「System」下面的版本号写「CoForge version」，不写「Version」。
+
+## 10. 信息层级与文字
+
+### 每个事实只出现一次
+
+这是最常被违反的一条。
+
+- **页头承担"扫一眼"**：名字、状态徽章、两三个最关键的事实（OS、版本、时间）放在页头一行灰字里。
+- **正文不重复页头**。页头已经有的信息，Overview 里不再列一遍。
+- 列表项已经显示的信息（版本号、状态点），详情页头不再以同样形式重复。
+- 同一个对象的两个表示相同时只显示一个：`andong3` 和 `@andong3` 只留一个；显示名和主机名相同时只留一个。
+- 相关的事实合并成一句：`Added by <头像> andong3 · 6h ago` 代替 Creator 和 Added 两个字段。
+
+### 少写字
+
+- 不写解释性提示句（"Hover a runtime to see usage"）。交互该由控件外观暗示，暗示不了就改控件。
+- 值里不带 label 的前缀："2.1.266" 而不是 "Version 2.1.266"，label 已经是 Version。
+- 徽章只写状态词：Online、Public、Private。不写 "Status: Online"。
+- 按钮只写动词：Restart、Save、Add。不写 "Click to restart"。
+- 空状态一句话：说明为什么空和下一步做什么，不超过两行。
+
+## 11. 颜色、状态、排版与深色模式
+
+### 颜色
+
+- 语义 token 用官方名：`bg-primary / bg-secondary / bg-tertiary`，`text-primary / text-secondary / text-tertiary / text-quaternary`，`border-primary / border-secondary`，`bg-brand-solid`，`text-brand-secondary`，`text-error-primary`。映射表见 `docs/design-tokens.md`。
+- 品牌紫只出现在：侧栏选中项、主按钮、链接、Public 徽章、自己发出的消息气泡、焦点环。其他地方一律灰阶。
+- "主按钮"指一个界面里唯一的主动作：弹窗的确认键、onboarding 空状态的引导键，以及页头里该页面唯一的创建类主操作（如成员页的「新建智能体」「邀请」，2026-09-23 按设计稿确定）用 `color="primary"`。一个页头最多一个 primary；页头的其他操作和工具栏按钮一律 `color="secondary"`。其他页面的页头主操作改到时再按本条调整。
+- **按钮尺寸**：按钮高度只用 `size` 控制，不用 `h-*` / `py-*` 覆盖；产品界面统一默认 `sm`（36px），弹窗页脚、空状态、页头都是；`lg` 只用于登录和设备授权页；空状态引导键只有 onboarding（如 Add computer）用 primary，其余 secondary。
+- 语义色（success / error / warning）和品牌色分开，状态不用紫。
+- 不写十六进制颜色，不写 `text-white` 之外的硬编码。
+
+#### 危险操作
+
+- 危险操作分两步：入口键打开流程，确认键完成它。两者用哪种红，取决于"它是不是一个按钮"，不取决于它有多危险。
+- 确认键（最后那一下，不可撤销）：`color="primary-destructive"`（实心红）。一个危险操作面里只允许一处实心红；有等待态用 `isLoading` + `showTextWhileLoading`。
+- 入口键（打开删除 / 重置 / 移除流程的那个按钮）：`color="secondary-destructive"`（描边红字）。它本身就是一个按钮，就要长得像按钮；纯红字放在页脚、设置分区或竖排操作区里会读成一段文字，而不是可点的东西。
+- `color="tertiary-destructive"`（纯红字）只用在本来就没有按钮形态的位置：列表行的 hover 操作、下拉菜单项、图标按钮。正文里的真链接用 `link-destructive`。
+- 说明文字不装进红色警示框，用 `FeaturedIcon` + 灰色描述（参照 `weekly-send-confirm-dialog.tsx`）。
+- 选中项卡片不用红色，和非危险选项同款。
+- 按钮图标一律走 `iconLeading`，不作子元素，否则图标会挤到文字上方。
+
+### 状态与徽章
+
+- 在线状态用头像右下的圆点（官方 Avatar 的 `status`），不单独写 "Online" 文字，除非在页头徽章里。
+- 徽章用官方 `Badge`：品牌色 = 对外可见（Public），灰 = 默认（Private），绿 = 成功 / 在线，红 = 错误。徽章不是按钮，不加描边按钮样式。
+
+### 排版
+
+- UI 字体 Inter，中文回退苹方 / 微软雅黑 / Noto Sans CJK。代码、终端、标识符用 JetBrains Mono。Geist Sans 只用于公开首页标题。
+- 时间戳和计数加 `tabular-nums`。
+
+### 深色模式
+
+- 用 Untitled 的 `dark-mode` 类，`theme.css` 原样使用。
+- 所有颜色只走 token，不允许 `dark:` 前缀里写具体颜色。
+- 每个新页面亮暗各截一张图再合并。
+
+## 12. 尺寸单位：rem 与 px
+
+一句话：**会影响排版和阅读的尺寸用 rem，细线用 px。**
+
+原因：设置里的「文字大小」（`features/settings/text-size.ts`）通过改 `<html>` 的 `font-size` 缩放整个界面，浏览器和系统的默认字号设置也只作用于根字号。rem 是根字号的倍数，会跟着一起缩放；px 是固定值，不会。文字变大而 px 写死的宽度、间距不变，就会换行变多、挤压或溢出（[WCAG 1.4.4 Resize Text](https://www.w3.org/WAI/WCAG22/Understanding/resize-text.html)）。
+
+### 用 rem
+
+字号、行高、间距（padding / margin / gap / 缩进）、宽高、最小/最大宽度、网格列宽、圆角、图标和头像尺寸、定位偏移。
+
+- 首选 Tailwind 刻度，它本身就是 rem：Tailwind v4 的 `--spacing` 是 `0.25rem`，`p-4` = 1rem，`size-12` = 3rem；`theme.css` 的字号是 `--spacing` 的倍数（`text-sm` = 0.875rem）；圆角用 `rounded-md/lg/xl` 等 token（`--radius-*` 是 rem）。
+- 刻度里没有的值写 rem 任意值：`w-[18rem]`、`md:grid-cols-[repeat(auto-fill,minmax(18rem,1fr))]`、`max-w-[36rem]`。不写 `w-[280px]`、`text-[10px]`、`rounded-[10px]`。
+- 断点用 Tailwind 的 `sm/md/lg/xl` 刻度，不写 `min-[1024px]:`。注意媒体查询里的 rem 取浏览器默认字号，不随应用内「文字大小」变化；用刻度断点是为了全站一致。`xs`/`xxs` 是 `theme.css` 定义的 px 断点，照用即可。窗格宽度决定布局时（例如旁边打开了资料面板），用容器查询 `@container` 而不是视口断点。
+- 内联 `style` 里的数字在 React 中按 px 处理：`style={{ paddingLeft: 16 }}` 是 16px。要写成 rem 字符串，例如树形缩进 `style={{ paddingLeft: `${0.25 + (level - 1)}rem` }}`，或改用 CSS 变量加 Tailwind 类。
+- 自写 CSS 文件同样适用：`max-height: 18.75rem`，不写 `max-height: 300px`。
+
+### 用 px
+
+不应该随文字放大的细节，放大它们只会让界面变粗糙：
+
+- 边框、分隔线、描边：`border`、`ring-1`、`divide-y`、`outline-offset-2`、`1px solid`。Tailwind 的 `border` / `ring` / `outline` 宽度本来就是 px，直接用。
+- 图标线条粗细：`stroke-[2.25px]` 这类。
+- 阴影、模糊：`shadow-*` token、`blur(8px)`。
+- 从 DOM 量出来的实际位置和尺寸：`getBoundingClientRect()`、`scrollTop`、拖拽坐标都是 px，据此定位浮层时直接用 px，不要换算成 rem。
+- `sr-only` 这类 1px 隐藏技巧。
+
+### 不受约束的范围
+
+- Untitled UI 官方组件（`src/components/base/**`、`application/**`、`foundations/**`）按第 7 节源码不改，里面的 `rounded-[10px]`、`pr-[calc(...+1px)]` 等保持上游原样。
+- `theme.css` / `typography.css` 保持 CLI 生成的原样（见 `docs/design-tokens.md`）。
+- 公开首页 `features/landing` 按冻结视觉保留。
+
+### 文档里的像素数
+
+本文里写的 `48px`、`36px` 这类数字，是默认文字大小（根字号 16px）下对应 Tailwind 类的换算，方便对照设计稿（`h-12` = 3rem = 48px）。实现时写括号里的 Tailwind 类，不要照着数字写 `h-[48px]`。
+
+### 存量
+
+2026-09-23 盘点，产品代码里还有布局类 px 的文件：`features/records/report-editor/table-controls.tsx`（量出来的定位保留 px，`size-[...]`/`gap-[...]`/圆角改 rem）、`report-editor/code-block-iframe.tsx`、`report-editor/styles/code.css`（`max-height`）、`features/computers/computer-tile.tsx`、`computers-pending.tsx`、`components/settings-content.tsx`（`grid-cols`）、`features/workspaces/workspace-switcher.tsx`、`invite-member-dialog.tsx`、`features/projects/create-project-dialog.tsx`、`project-file-tree.tsx`（缩进）、`features/conversations/channel-members-dialog.tsx`、`features/agents/profile-panel/agent-workspace-tab.tsx`（缩进）。另有：`report-editor/code-block-static.tsx`、`report-editor/extensions/slash-command-suggestion.tsx`（`max-h-[300px]`）、`report-editor/extensions/code-block-view.tsx`（`h-[480px]`）、`features/conversations/own-messages-menu.tsx`（`max-h-[400px]`）、`components/login-page.tsx`（`max-w-[360px]`）、`components/ui/hover-popover.tsx`（`max-w-[calc(100vw-24px)]`）、`report-editor/styles/shell.css`（`min-width: 300px`、`max-width: min(360px, …)`）、`report-editor/styles/media.css`（`max-width: min(100%, 640px)`），以及 px 媒体查询 `report-editor/styles/prose.css`（768px）、`styles/attachment.css`（767px）。改到这些页面时顺手按本节改掉；新代码不得再增加。
+
+## 13. 反馈：toast 还是内联
+
+这是主流设计系统的共识，不是本项目自创的规则：toast（本应用用 Sonner，经 `components/ui/toast.tsx` 的 `useAppToast` 使用）只确认用户刚做完的一个动作，不携带需要用户处理的错误。
+
+- Shopify Polaris [Toast](https://polaris-react.shopify.com/components/internal-only/toast) — 动作之后的反馈；避免用 toast 呈现错误，需要持续存在的错误放在受影响区域自己的 [Banner](https://polaris.shopify.com/components/banner) 里。
+- Atlassian [Messages 模式](https://atlassian.design/patterns/messages/)：只需要最小交互的确认用 [Flag](https://atlassian.design/components/flag)；需要用户处理或重要信息用 [Inline message](https://atlassian.design/components/inline-message)，放在受影响区域里。
+- Material 3 [Snackbar 规范](https://m3.material.io/components/snackbar/guidelines)：一行文字，最多一个操作，打断最小，不要求用户操作，一次只显示一条。
+- NN/g [错误提示指南](https://www.nngroup.com/articles/error-message-guidelines/)：只有最小交互成本的问题才适合用 toast/banner；用户必须看到或必须处理的错误留在页面内、持续显示。
+
+CoForge 的应用：
+
+- 用户必须看到、必须处理、或者导航离开再回来还要能找到的状态，一律内联显示在受影响的区域里：进行中状态带 spinner 并禁用控件、失败要给出原因和重试、离线的 Computer、字段校验。
+- toast 最多是一行确认文字。
+- 同一件事不能同时用两种方式呈现。
+- 不显示原始错误码或线路字符串。
+- 错误参考编号只能出现在内联失败说明下方的一行灰色小字里。
+
+范例：Computer 升级（进行中内联显示；成功后内联更新版本号，另外配一条 toast；失败内联显示原因和重试按钮，不发 toast）与 Computer 重启（只用 toast，不留内联状态）。
+
 ## 参考
 
 - [Linear UI redesign](https://linear.app/now/how-we-redesigned-the-linear-ui)：导航、标题、面板的稳定层级及跨视图验证。
 - [Geist Skeleton](https://vercel.com/geist/skeleton)：与最终内容匹配的占位尺寸、骨架与操作进度的区分。
 - [Sonner 设计拆解](https://emilkowal.ski/ui/building-a-toast-component)：连续反馈、计时与交互细节。
 - [Sonner Toaster](https://sonner.emilkowal.ski/toaster) 与 [Styling](https://sonner.emilkowal.ski/styling)：实际通知原语的数量、位置、快捷键与品牌 Token 接入。
-- [shadcn/ui：Empty（Base UI）](https://ui.shadcn.com/docs/components/base/empty)：空状态组件的组合、图标和内容用法；项目业务状态与导航规则仍以本文为准。
+- [shadcn/ui：Empty](https://ui.shadcn.com/docs/components/base/empty)：仅作空状态组合方式的外部视觉参考；项目不使用 shadcn，组件按第 7 节只用官方。
 - [Untitled UI：Empty states](https://www.untitledui.com/react/components/empty-states)：轻量插画、图标和头像组合的场景化处理，以及图形、文案和操作的层级参考。
 - [Ant Design：Empty](https://ant.design/components/empty/)：简洁与完整插画的尺寸层级参考；不因此引入 Ant Design 运行时或主题。
 - [Vercel：How our agents build on-brand pages with design.md](https://vercel.com/blog/how-our-agents-build-on-brand-pages-with-design-md)：指导、样式原语、固定场景评估与反馈分流的方法。

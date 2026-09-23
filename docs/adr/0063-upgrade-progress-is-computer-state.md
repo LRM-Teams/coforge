@@ -34,7 +34,7 @@ into a failure on screen:
    code the "check status, then restart `--supervisor` if it stays stuck"
    guidance, but the headline asserted a fault, and the step list read as
    remediation for a job that was running normally.
-3. **Nothing survives leaving the page.** `docs/ui-guidelines.md` §13 already
+3. **Nothing survives leaving the page.** `docs/design.md` §13 already
    requires the opposite: *"用户必须看到、必须处理、或者导航离开再回来还要能找到的状态，一律内联显示在受影响的区域里"* and lists
    Computer upgrades among the inline examples ("进行中状态带 spinner 并禁用控件"). Reload mid-upgrade
    today and the page shows neither progress nor the pending operation; the new
@@ -59,7 +59,7 @@ changes none of it:
   request only when `computerVersion === daemonVersion === expectedVersion` and
   the `workerInstanceId` has changed (ADR 0030, ADR 0037);
 - failure copy already maps every `UPGRADE_ERROR_CODE` to a headline and real
-  commands, inline, never as a toast (ADR 0041, `docs/ui-guidelines.md` §13).
+  commands, inline, never as a toast (ADR 0041, `docs/design.md` §13).
 
 What is missing is not correctness of the machine protocol. It is that **the
 browser, not the Computer, is where upgrade progress lives today**.
@@ -162,7 +162,7 @@ indeterminate spinner with no sense of whether anything is happening.
 
 ## Consequences
 
-- `docs/ui-guidelines.md` §13's "navigation away and back must still find it"
+- `docs/design.md` §13's "navigation away and back must still find it"
   becomes true for upgrades, and its "no two presentations of the same fact"
   rule stays true because the row, not a toast, carries the state.
 - The refusal path stops being user-visible in normal operation; a member who

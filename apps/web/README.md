@@ -5,7 +5,7 @@ built with TanStack Start and Bun. Its UI foundation is Untitled UI with
 React Aria, Tailwind CSS v4, and Untitled UI icons.
 
 Components use Untitled's semantic tokens with the CoForge brand overrides.
-See the [UI guidelines](../../docs/ui-guidelines.md) and
+See the [product design guidance](../../docs/design.md) and
 [design tokens](../../docs/design-tokens.md). Light and dark modes are both
 supported. The public homepage retains its installed Spell and Magic UI motion
 components; theme adaptation belongs at their call sites, not in upstream source.

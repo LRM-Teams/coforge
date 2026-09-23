@@ -6,18 +6,38 @@ instructions for the TanStack Start Web/backend modular monolith.
 ## Product design
 
 - Before designing or changing product UI, read and follow
-  [the product design guidance](../../docs/design.md), including progressive
-  disclosure, task-led hierarchy, and rendered verification.
-- That document is the maintained source for interaction rules. For similar
-  list/detail pages and empty states, apply sections 2.1–2.2 and 5.1, and run
-  the applicable acceptance checks in section 6. State why a different user
-  task requires an exception before implementing one. Do not duplicate these
-  rules in another design document or treat existing pages as automatic
-  exceptions; adapt the affected flow when changing it, without expanding into
-  unrelated page redesigns.
-- Reuse the existing UI primitives and the color ownership defined in
-  [design tokens](../../docs/design-tokens.md). Do not apply marketing-page
-  defaults from `design-taste-frontend` to the product workspace.
+  [the product design guidance](../../docs/design.md). It is the single design
+  document for `apps/web` (task-led hierarchy, progressive disclosure, official
+  components, layout, fields, color, sizing units, feedback, and rendered
+  verification); colors and fonts live in
+  [design tokens](../../docs/design-tokens.md). Do not create another design or
+  UI-guideline document; change `docs/design.md` instead.
+- For list/detail pages and empty states apply sections 2.1–2.2 and 5.1, and
+  run the checklist and acceptance checks in section 6. State why a different
+  user task requires an exception before implementing one. Do not treat
+  existing pages as automatic exceptions; adapt the affected flow when changing
+  it, without expanding into unrelated page redesigns.
+- Hard rules that apply to every UI change (details in `docs/design.md`):
+  - Mockups: when a design mockup is provided, it wins over the defaults in
+    `docs/design.md`; implement it with the components and units below and
+    update the conflicting rule in the same change. Ask before inventing data
+    or concepts the mockup shows but the product lacks (§1).
+  - Components (product UI; `features/landing` keeps its Spell / Magic UI
+    motion components): only official Untitled UI components, unmodified, and
+    the primitives listed in `components/ui/README.md`, per §7 including its
+    listed exceptions. Icons only from `@untitledui/icons`; vendor logos from
+    `@lobehub/icons-static-svg`.
+  - Sizes: anything that affects layout or reading (font size, spacing, width,
+    height, radius, icon/avatar size, offsets) uses rem — the Tailwind scale,
+    or a rem arbitrary value such as `w-[18rem]`; never `w-[280px]`,
+    `text-[10px]`, or numeric inline `style` sizes. px is only for hairlines
+    (border, ring, outline, divider), stroke widths, shadows/blur, and
+    positions and sizes measured from the DOM (§12).
+  - Colors: semantic tokens only, no hex or `dark:` color overrides (§11).
+  - Feedback: a toast only confirms an action; anything the user must see,
+    handle, or come back to stays inline (§13).
+- Do not apply marketing-page defaults from `design-taste-frontend` to the
+  product workspace.
 - Keep supplemental explanations behind accessible, on-demand help when
   appropriate; keep essential constraints, errors, and risks visible. Help
   must work for keyboard and touch users, not only on hover.

@@ -149,7 +149,7 @@ optional real `coforge-computer` command, never a raw code.
 already-composed view) replaces collapsing a terminal poll failure into an
 `Error`'s message string, which could not have carried a steps list.
 `computer-detail.tsx` renders the headline and steps inline where the
-failure already showed (never a toast - see `docs/ui-guidelines.md` §13),
+failure already showed (never a toast - see `docs/design.md` §13),
 keeps the existing quiet "Error reference {id}" line, and gives each command
 the app's existing mono-command-plus-copy-button treatment
 (`ComputerInstallCommand`'s `ButtonUtility` + Copy/Check pattern, sized for
