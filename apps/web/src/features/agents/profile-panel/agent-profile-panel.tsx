@@ -78,7 +78,7 @@ const appRoute = getRouteApi("/_app");
  * The conversation's right-hand slot content when the Agent profile is the visible panel: same
  * chrome as the Thread panel (48px header band, 44px tab band, flat body, no page-level card),
  * built from `getAgentProfile` plus the existing workspace realtime hooks for live status/activity
- * — never its own subscription (`apps/web/AGENTS.md`'s panel-ownership rule).
+ * — never its own subscription (`src/features/agents/AGENTS.md`'s Agent-state rule).
  */
 export function AgentProfilePanel({
   agentId,
