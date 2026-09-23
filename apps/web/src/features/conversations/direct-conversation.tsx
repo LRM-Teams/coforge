@@ -1496,6 +1496,8 @@ export function ConversationPane({
                   composerShown={!readOnlyNotice}
                   plainMentions={plainMentions}
                   viewerHandle={conversation.viewerHandle}
+                  taskReferences={taskReferences}
+                  onOpenTask={onOpenTask}
                   onRetry={() => outbox.retry(entry)}
                   onEdit={() => outbox.edit(entry)}
                   onDiscard={() => outbox.remove(entry)}
