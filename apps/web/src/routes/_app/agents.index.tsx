@@ -26,7 +26,12 @@ export const Route = createFileRoute("/_app/agents/")({
     memberType: z.enum(["agent", "human"]).default("agent").catch("agent"),
     owner: z.enum(["all", "mine"]).default("all").catch("all"),
     /** A Computer id, or "none" for Agents without a Computer; absent means every Computer. */
-    computer: z.string().optional().catch(undefined),
+    computer: z
+      .string()
+      .min(1)
+      .refine((value) => value !== "all")
+      .optional()
+      .catch(undefined),
     profile: agentProfileParamSchema,
     agentTab: agentProfileTabParamSchema,
   }),

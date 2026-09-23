@@ -55,6 +55,7 @@ export class WorkspaceMembers {
           avatarObjectKey: true,
           createdAt: true,
           owner: { select: { id: true, username: true, displayName: true, avatarObjectKey: true } },
+          weeklyReportAssistant: { select: { id: true } },
           computer: {
             select: {
               id: true,
@@ -102,6 +103,9 @@ export class WorkspaceMembers {
             agent.owner.avatarObjectKey,
           ),
         },
+        // A weekly-report assistant is protected from deletion (AgentDeletion refuses it), so the
+        // directory never offers a Delete that is certain to fail.
+        deletable: !agent.weeklyReportAssistant,
       })),
     };
   }
