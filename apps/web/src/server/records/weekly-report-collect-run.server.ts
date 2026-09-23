@@ -1,4 +1,5 @@
 import type { Prisma, PrismaClient } from "../../../generated/client";
+import { createHash } from "node:crypto";
 import { AppError } from "../../lib/app-error";
 import { collectorRuntimeConfigured } from "./weekly-report-collector.server";
 
@@ -18,6 +19,12 @@ export const COLLECT_SLOT_STATUS = {
   stalled: "stalled",
   cancelled: "cancelled",
 } as const;
+
+/** ADR 0032 platform settle ceiling for one collect wave. */
+export const COLLECT_SLOT_STALL_MS = 15 * 60_000;
+
+export const COLLECT_SLOT_STALL_REASON =
+  "采集超时：采集 Agent 在限定时间内未上报结果（常见原因：模型接口失败或进程异常）。";
 
 export type CollectWindowKind = "week" | "month" | "quarter" | "year" | "custom";
 
@@ -69,6 +76,11 @@ export function allSlotsTerminal(slots: Array<{ status: string }>): boolean {
 export function canSynthesizeFromSlots(slots: Array<{ status: string }>): boolean {
   if (!allSlotsTerminal(slots) || slots.length === 0) return false;
   return slots.some((slot) => slot.status === COLLECT_SLOT_STATUS.ready);
+}
+
+/** Wave finished with no usable pack — run must leave `collecting` so the UI can stop. */
+export function collectWaveExhausted(slots: Array<{ status: string }>): boolean {
+  return slots.length > 0 && allSlotsTerminal(slots) && !canSynthesizeFromSlots(slots);
 }
 
 export function isRetryableSlotStatus(status: string): boolean {
@@ -251,12 +263,16 @@ export type AcceptCollectSlotReportResult = {
   newlyAccepted: boolean;
   /** True once when this accept moves the run from collecting into synthesizing. */
   synthesisStarted: boolean;
+  /** True once when every slot is terminal with no ready pack and the run leaves collecting. */
+  waveExhausted: boolean;
 };
 
 /**
  * Accepts a collector pack or terminal failure for one slot (Agent HTTPS).
  * Idempotent on requestId. When every slot is terminal and ≥1 is ready, advances
- * the run from collecting → synthesizing (ADR 0032 settle).
+ * the run from collecting → synthesizing (ADR 0032 settle). When every slot is
+ * terminal with no ready pack, advances collecting → cancelled so the UI leaves
+ * the endless「采集中」state (e.g. model-provider 405 with submit-failure).
  */
 export async function acceptCollectSlotReport(
   db: PrismaClient,
@@ -285,6 +301,7 @@ export async function acceptCollectSlotReport(
       }),
       newlyAccepted: false,
       synthesisStarted: false,
+      waveExhausted: false,
     };
   }
 
@@ -296,7 +313,12 @@ export async function acceptCollectSlotReport(
   const slot = run.slots.find((row) => row.collectorAgentId === input.agentId);
   if (!slot) throw new AppError("ACCESS_DENIED");
   if (TERMINAL_SLOT_STATUSES.has(slot.status) && slot.requestId) {
-    return { run: toRunView(run), newlyAccepted: false, synthesisStarted: false };
+    return {
+      run: toRunView(run),
+      newlyAccepted: false,
+      synthesisStarted: false,
+      waveExhausted: false,
+    };
   }
 
   const packMarkdown = input.outcome === "ready" ? (input.packMarkdown ?? "").trim() : null;
@@ -321,15 +343,21 @@ export async function acceptCollectSlotReport(
   });
 
   let synthesisStarted = false;
-  if (
-    refreshed.status === COLLECT_RUN_STATUS.collecting &&
-    canSynthesizeFromSlots(refreshed.slots)
-  ) {
-    const advanced = await db.weeklyReportCollectRun.updateMany({
-      where: { id: run.id, status: COLLECT_RUN_STATUS.collecting },
-      data: { status: COLLECT_RUN_STATUS.synthesizing },
-    });
-    synthesisStarted = advanced.count === 1;
+  let waveExhausted = false;
+  if (refreshed.status === COLLECT_RUN_STATUS.collecting) {
+    if (canSynthesizeFromSlots(refreshed.slots)) {
+      const advanced = await db.weeklyReportCollectRun.updateMany({
+        where: { id: run.id, status: COLLECT_RUN_STATUS.collecting },
+        data: { status: COLLECT_RUN_STATUS.synthesizing },
+      });
+      synthesisStarted = advanced.count === 1;
+    } else if (collectWaveExhausted(refreshed.slots)) {
+      const closed = await db.weeklyReportCollectRun.updateMany({
+        where: { id: run.id, status: COLLECT_RUN_STATUS.collecting },
+        data: { status: COLLECT_RUN_STATUS.cancelled, completedAt: new Date() },
+      });
+      waveExhausted = closed.count === 1;
+    }
     refreshed = await db.weeklyReportCollectRun.findFirstOrThrow({
       where: { id: run.id },
       include: { slots: { orderBy: { computerId: "asc" } } },
@@ -340,12 +368,19 @@ export async function acceptCollectSlotReport(
     run: toRunView(refreshed),
     newlyAccepted: true,
     synthesisStarted,
+    waveExhausted,
   };
 }
 
-export async function getCollectRun(
+/**
+ * ADR 0032 safety ceiling: overdue `running` slots become `stalled`, then an
+ * empty wave leaves `collecting`. Called from the User-facing load path so the
+ * side-chat card can settle without a separate cron.
+ */
+export async function settleStaleCollectRun(
   db: PrismaClient,
   input: { workspaceId: string; userId: string; runId: string },
+  nowMs: number = Date.now(),
 ): Promise<CollectRunView> {
   const run = await db.weeklyReportCollectRun.findFirst({
     where: {
@@ -356,7 +391,102 @@ export async function getCollectRun(
     include: { slots: { orderBy: { computerId: "asc" } } },
   });
   if (!run) throw new AppError("NOT_FOUND");
-  return toRunView(run);
+  if (run.status !== COLLECT_RUN_STATUS.collecting || !run.startedAt) return toRunView(run);
+  if (nowMs - run.startedAt.getTime() < COLLECT_SLOT_STALL_MS) return toRunView(run);
+
+  const stalled = await db.weeklyReportCollectSlot.updateMany({
+    where: { runId: run.id, status: COLLECT_SLOT_STATUS.running },
+    data: {
+      status: COLLECT_SLOT_STATUS.stalled,
+      failureReason: COLLECT_SLOT_STALL_REASON,
+    },
+  });
+  if (stalled.count === 0) {
+    // Slots may already be terminal; still close an empty wave left on collecting.
+  }
+
+  let refreshed = await db.weeklyReportCollectRun.findFirstOrThrow({
+    where: { id: run.id },
+    include: { slots: { orderBy: { computerId: "asc" } } },
+  });
+
+  if (refreshed.status === COLLECT_RUN_STATUS.collecting) {
+    if (canSynthesizeFromSlots(refreshed.slots)) {
+      await db.weeklyReportCollectRun.updateMany({
+        where: { id: run.id, status: COLLECT_RUN_STATUS.collecting },
+        data: { status: COLLECT_RUN_STATUS.synthesizing },
+      });
+    } else if (collectWaveExhausted(refreshed.slots)) {
+      await db.weeklyReportCollectRun.updateMany({
+        where: { id: run.id, status: COLLECT_RUN_STATUS.collecting },
+        data: { status: COLLECT_RUN_STATUS.cancelled, completedAt: new Date(nowMs) },
+      });
+    }
+    refreshed = await db.weeklyReportCollectRun.findFirstOrThrow({
+      where: { id: run.id },
+      include: { slots: { orderBy: { computerId: "asc" } } },
+    });
+  }
+
+  return toRunView(refreshed);
+}
+
+/**
+ * Platform path when a collector turn fails before HTTPS submit (e.g. model 405).
+ * Marks every still-running slot for this Agent failed, then settles each run.
+ */
+export async function failRunningCollectSlotsForAgent(
+  db: PrismaClient,
+  input: {
+    workspaceId: string;
+    agentId: string;
+    computerId: string;
+    requestId: string;
+    failureReason: string;
+  },
+): Promise<{ accepted: AcceptCollectSlotReportResult[]; slotCount: number }> {
+  const slots = await db.weeklyReportCollectSlot.findMany({
+    where: {
+      collectorAgentId: input.agentId,
+      status: COLLECT_SLOT_STATUS.running,
+      run: {
+        workspaceId: input.workspaceId,
+        status: COLLECT_RUN_STATUS.collecting,
+      },
+    },
+    select: { id: true, runId: true },
+    orderBy: { createdAt: "asc" },
+  });
+  if (slots.length === 0) return { accepted: [], slotCount: 0 };
+
+  const reason = input.failureReason.slice(0, 2000) || "collector runtime failed";
+  const accepted: AcceptCollectSlotReportResult[] = [];
+  for (const slot of slots) {
+    accepted.push(
+      await acceptCollectSlotReport(db, {
+        workspaceId: input.workspaceId,
+        agentId: input.agentId,
+        requestId: collectFailRequestId(input.requestId, slot.id),
+        runId: slot.runId,
+        outcome: "failed",
+        failureReason: reason,
+      }),
+    );
+  }
+  return { accepted, slotCount: slots.length };
+}
+
+/** Stable UUID per (turn request, slot) so Daemon retries remain idempotent. */
+export function collectFailRequestId(turnRequestId: string, slotId: string): string {
+  const hex = createHash("sha256").update(`${turnRequestId}:${slotId}`).digest("hex");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(13, 16)}-a${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
+}
+
+export async function getCollectRun(
+  db: PrismaClient,
+  input: { workspaceId: string; userId: string; runId: string },
+): Promise<CollectRunView> {
+  return settleStaleCollectRun(db, input);
 }
 
 export type CollectRunSlotDetail = CollectRunSlotView & {
@@ -373,6 +503,7 @@ export async function getCollectRunWithPacks(
   db: PrismaClient,
   input: { workspaceId: string; userId: string; runId: string },
 ): Promise<CollectRunDetailView> {
+  await settleStaleCollectRun(db, input);
   const run = await db.weeklyReportCollectRun.findFirst({
     where: {
       id: input.runId,

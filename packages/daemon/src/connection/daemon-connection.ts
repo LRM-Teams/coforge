@@ -410,7 +410,10 @@ export interface AgentWeeklyReportHttpClient {
 }
 export interface AgentWeeklyReportCollectHttpClient {
   execute(
-    input: AgentHttpInput<import("./weekly-report-collect").WeeklyReportCollectCommand>,
+    input: AgentHttpInput<
+      | import("./weekly-report-collect").WeeklyReportCollectCommand
+      | import("./weekly-report-collect").WeeklyReportCollectFailRunningCommand
+    >,
   ): Promise<import("./weekly-report-collect").WeeklyReportCollectResult>;
 }
 export interface AgentWeeklyReportKeyPointsHttpClient {
@@ -516,7 +519,9 @@ export interface DaemonConnectionClient {
     agentApiKey: string,
   ): Promise<WeeklyReportResponse>;
   agentWeeklyReportCollect?(
-    request: import("./weekly-report-collect").WeeklyReportCollectCommand,
+    request:
+      | import("./weekly-report-collect").WeeklyReportCollectCommand
+      | import("./weekly-report-collect").WeeklyReportCollectFailRunningCommand,
     agentApiKey: string,
   ): Promise<import("./weekly-report-collect").WeeklyReportCollectResult>;
   agentWeeklyReportKeyPoints?(
@@ -2108,7 +2113,9 @@ export class DaemonConnection implements DaemonConnectionClient {
   }
 
   async agentWeeklyReportCollect(
-    request: import("./weekly-report-collect").WeeklyReportCollectCommand,
+    request:
+      | import("./weekly-report-collect").WeeklyReportCollectCommand
+      | import("./weekly-report-collect").WeeklyReportCollectFailRunningCommand,
     agentApiKey: string,
   ): Promise<import("./weekly-report-collect").WeeklyReportCollectResult> {
     if (!this.#connected) throw new Error("daemon connection is not connected");

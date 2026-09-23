@@ -14,6 +14,7 @@ import {
   acceptCollectSlotReport,
   canSynthesizeFromSlots,
   COLLECT_RUN_STATUS,
+  failRunningCollectSlotsForAgent,
   getCollectRunWithPacks,
   startCollectRun,
   type AcceptCollectSlotReportResult,
@@ -298,13 +299,13 @@ export async function reportCollectSlotOutcome(
       reportId: runMeta.reportId,
       runId: input.runId,
     });
-  } else if (accepted.run.allTerminal && !accepted.run.canSynthesize) {
+  } else if (accepted.waveExhausted || (accepted.run.allTerminal && !accepted.run.canSynthesize)) {
     await catalog.postAssistantCollectComment({
       workspaceId: input.workspaceId,
       userId: runMeta.userId,
       subjectType: "report",
       subjectId: runMeta.reportId,
-      body: "采集结束，但没有可用的采集包，无法生成周报草稿。请调整配置后重新提交采集计划。",
+      body: "采集结束，但没有可用的采集包，无法生成周报草稿。请检查采集 Agent 的模型配置后重新提交采集计划。",
     });
   } else if (input.outcome === "ready") {
     await catalog.postAssistantCollectComment({
@@ -333,6 +334,75 @@ export async function reportCollectSlotOutcome(
   }
 
   return accepted;
+}
+
+/**
+ * When a collector turn fails before HTTPS submit (model 405, crash, …), mark
+ * every still-running slot for that Agent failed and post the same side-chat
+ * progress lines as an explicit submit-failure.
+ */
+export async function reportCollectorRuntimeFailure(
+  db: PrismaClient,
+  input: {
+    workspaceId: string;
+    agentId: string;
+    computerId: string;
+    requestId: string;
+    failureReason: string;
+  },
+): Promise<{ accepted: AcceptCollectSlotReportResult[]; slotCount: number }> {
+  const failed = await failRunningCollectSlotsForAgent(db, input);
+  if (failed.slotCount === 0) return failed;
+
+  const catalog = new RecordCatalog(db);
+  const computer = await db.computer.findFirst({
+    where: { id: input.computerId },
+    select: { displayName: true, name: true },
+  });
+  const label = computer?.displayName || computer?.name || input.computerId;
+  const reason = input.failureReason.trim() || "collector runtime failed";
+
+  for (const accepted of failed.accepted) {
+    if (!accepted.newlyAccepted) continue;
+    const runMeta = await db.weeklyReportCollectRun.findFirst({
+      where: { id: accepted.run.id, workspaceId: input.workspaceId },
+      select: { reportId: true, userId: true },
+    });
+    if (!runMeta) continue;
+    if (accepted.synthesisStarted) {
+      await catalog.postAssistantCollectComment({
+        workspaceId: input.workspaceId,
+        userId: runMeta.userId,
+        subjectType: "report",
+        subjectId: runMeta.reportId,
+        body: "采集已完成，正在整理周报草稿，请稍候确认。",
+      });
+      await wakeCollectSynthesizer(db, {
+        workspaceId: input.workspaceId,
+        userId: runMeta.userId,
+        reportId: runMeta.reportId,
+        runId: accepted.run.id,
+      });
+    } else if (accepted.waveExhausted) {
+      await catalog.postAssistantCollectComment({
+        workspaceId: input.workspaceId,
+        userId: runMeta.userId,
+        subjectType: "report",
+        subjectId: runMeta.reportId,
+        body: "采集结束，但没有可用的采集包，无法生成周报草稿。请检查采集 Agent 的模型配置后重新提交采集计划。",
+      });
+    } else {
+      await catalog.postAssistantCollectComment({
+        workspaceId: input.workspaceId,
+        userId: runMeta.userId,
+        subjectType: "report",
+        subjectId: runMeta.reportId,
+        body: `采集 · ${label} 失败：${reason}`,
+      });
+    }
+  }
+
+  return failed;
 }
 
 async function wakeCollectSynthesizer(
