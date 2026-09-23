@@ -254,11 +254,19 @@
   "files_load_failed": "文件加载失败",
   "conversation_save": "收藏消息",
   "conversation_save_failed": "收藏消息失败",
-  "conversation_unsave": "取消收藏",
+  "conversation_unsave": "从收藏中移除",
   "conversation_saved_nav": "已保存",
-  "conversation_saved_title": "已保存的消息",
-  "conversation_saved_empty_title": "还没有已保存的消息",
-  "conversation_saved_empty_description": "收藏的消息会出现在这里，点击即可跳回原对话。",
-  "conversation_saved_drop_hint": "把消息的头像拖到这里即可收藏",
-  "conversation_saved_dm": "私聊"
+  "conversation_saved_count": [
+    {
+      "declarations": ["input count", "local countPlural = count: plural"],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=other": "{count} 项"
+      }
+    }
+  ],
+  "conversation_saved_empty_title": "暂无收藏的消息",
+  "conversation_saved_empty_description": "选择消息上的书签图标即可保存。",
+  "conversation_saved_copy_link": "复制链接",
+  "conversation_saved_link_copied": "链接已复制"
 }
