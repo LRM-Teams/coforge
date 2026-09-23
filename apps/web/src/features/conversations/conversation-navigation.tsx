@@ -24,6 +24,7 @@ import {
   useLiveAgents,
 } from "#src/features/agents/workspace-agents-realtime";
 import { CreateChannelDialog } from "./create-channel-dialog";
+import { rememberConversation } from "./last-conversation";
 import { useChannelUnread } from "./conversation-unread";
 import {
   DEFAULT_CONVERSATION_OPEN_MODE,
@@ -136,6 +137,11 @@ export function ConversationNavigation({ children }: { children: ReactNode }) {
       setBrowsing(false);
     });
   }, [router]);
+
+  // The conversation this is becomes the one Chat reopens in this Workspace.
+  useEffect(() => {
+    if (workspaceId) rememberConversation(workspaceId, pathname);
+  }, [workspaceId, pathname]);
 
   const visibleChannels = useMemo(() => channels.filter((listed) => !listed.archived), [channels]);
   const hiddenAgentIds = useMemo(() => new Set(directPreferences.hidden), [directPreferences]);
