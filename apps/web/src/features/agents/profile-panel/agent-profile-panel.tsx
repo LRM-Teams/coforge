@@ -37,6 +37,7 @@ import {
   type AgentEnvironmentState,
 } from "#src/features/agents/agent-runtime-config-dialog";
 import { useAgentRuntimeOptionsLoader } from "#src/features/agents/agent-runtime-options";
+import { listComputers } from "#src/features/computers/computers.functions";
 import {
   agentUpdateErrorMessage,
   parseAgentEnvironmentFromForm,
@@ -118,6 +119,20 @@ export function AgentProfilePanel({
   const knownName = profile?.displayName ?? liveAgent?.displayName ?? "";
   const canManage = profile ? profile.canManageAgentRole || profile.ownedByCurrentUser : false;
   const canSeeWorkspace = profile ? profile.ownedByCurrentUser : false;
+  const loadComputers = useServerFn(listComputers);
+  const computersQuery = useQuery({
+    queryKey: ["agent-runtime-computers", profile?.id, profile?.computerId ?? "none"],
+    queryFn: () => loadComputers(),
+    enabled: Boolean(profile && canManage && !profile.computer),
+  });
+  const setupComputers =
+    profile && !profile.computer && computersQuery.isSuccess
+      ? (computersQuery.data ?? []).map((computer) => ({
+          id: computer.id,
+          displayName: computer.displayName || computer.name || m.agent_computer_unnamed(),
+          online: Boolean(computer.online),
+        }))
+      : undefined;
   const tabOrder = useAgentProfileTabOrder(canManage, canSeeWorkspace);
   const tab = resolveAgentProfileTab(requestedTab, tabOrder.tabs);
   // Opened without `agentTab`, the panel lands on the first tab of the viewer's order once their
@@ -222,14 +237,14 @@ export function AgentProfilePanel({
   // fire with only one of the two actually different from what loaded.
   function onSaveRuntime(form: FormData, changed: { runtime: boolean; environment: boolean }) {
     void guardRuntimeForm(async () => {
-      if (!profile || !profile.computer) return;
+      if (!profile) return;
       setRuntimeFormError("");
       try {
         if (changed.runtime)
           await update({
             data: updateAgentInputFromForm(form, {
               agentId: profile.id,
-              computerId: profile.computer.id,
+              computerId: profile.computer?.id,
               displayName: profile.displayName,
               description: profile.description ?? "",
             }),
@@ -242,6 +257,9 @@ export function AgentProfilePanel({
         await Promise.all([
           invalidate(),
           queryClient.invalidateQueries({ queryKey: agentEnvironmentKey(profile.id) }),
+          queryClient.invalidateQueries({
+            queryKey: ["agent-runtime-computers", profile.id, profile.computerId ?? "none"],
+          }),
         ]);
       } catch (cause) {
         setRuntimeFormError(agentUpdateErrorMessage(cause));
@@ -482,11 +500,12 @@ export function AgentProfilePanel({
           />
         )}
       </div>
-      {profile && profile.computer && (
+      {profile && (
         <AgentRuntimeConfigDialog
           open={runtimeEditing}
           onClose={onCancelRuntimeEdit}
-          computerId={profile.computer.id}
+          computerId={profile.computer?.id ?? ""}
+          computers={setupComputers}
           credentialConfigured={Boolean(profile.runtimeCredential)}
           initial={{
             provider: profile.runtimeConfig.runtime,

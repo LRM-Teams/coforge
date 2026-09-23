@@ -5,6 +5,8 @@ import { Disclosure, DisclosurePanel } from "react-aria-components";
 import { Button } from "#src/components/base/buttons/button";
 import { ButtonUtility } from "#src/components/base/buttons/button-utility";
 import { Input } from "#src/components/base/input/input";
+import { Select } from "#src/components/base/select/select";
+import { StatusDot } from "#src/components/ui/status-dot";
 import { Dialog, Modal, ModalOverlay } from "#src/components/application/modals/modal";
 import { DialogHeader } from "#src/components/application/modals/dialog-header";
 import { m } from "#src/paraglide/messages";
@@ -25,6 +27,12 @@ const MAX_ENV_ROWS = 64;
  * loading line and keeps Save disabled instead of seeding rows from an empty map. */
 export type AgentEnvironmentState = { loaded: boolean; values: Record<string, string> };
 
+export type AgentRuntimeComputerOption = {
+  id: string;
+  displayName: string;
+  online?: boolean;
+};
+
 type EnvironmentRow = { key: string; value: string };
 
 /**
@@ -35,9 +43,15 @@ type EnvironmentRow = { key: string; value: string };
  * `agent-runtime-config-dialog.test.tsx` renders this piece directly instead of the dialog shell.
  * Save stays disabled until `AgentRuntimeFields` reports an actual change via `onDirtyChange`, or
  * until the Advanced env rows differ from their loaded starting point.
+ *
+ * When `computers` is provided (Agent has no Computer yet, or the caller wants reassignment),
+ * a Computer picker appears first so the unbound weekly-report assistant can bind and configure
+ * in one save.
  */
 export function AgentRuntimeConfigForm({
   computerId,
+  computers,
+  computerLocked = false,
   credentialConfigured = false,
   initial,
   onLoad,
@@ -48,6 +62,8 @@ export function AgentRuntimeConfigForm({
   onSave,
 }: {
   computerId: string;
+  computers?: ReadonlyArray<AgentRuntimeComputerOption>;
+  computerLocked?: boolean;
   credentialConfigured?: boolean;
   initial: RuntimeSelection;
   onLoad: (computerId: string) => Promise<RuntimeOptions>;
@@ -58,6 +74,12 @@ export function AgentRuntimeConfigForm({
   onClose?: () => void;
   onSave: (form: FormData, changed: { runtime: boolean; environment: boolean }) => void;
 }) {
+  const [selectedComputerId, setSelectedComputerId] = useState(
+    computerId || computers?.[0]?.id || "",
+  );
+  useEffect(() => {
+    if (computerId) setSelectedComputerId(computerId);
+  }, [computerId]);
   const [runtimeDirty, setRuntimeDirty] = useState(false);
   const [envRows, setEnvRows] = useState<EnvironmentRow[]>([]);
   const seeded = useRef(false);
@@ -68,28 +90,78 @@ export function AgentRuntimeConfigForm({
   }, [environment]);
 
   const envDirty = agentEnvironmentRowsChanged(envRows, environment?.values ?? {});
-  const dirty = runtimeDirty || envDirty;
+  const computerDirty = Boolean(computers) && selectedComputerId !== (computerId || "");
+  const dirty = runtimeDirty || envDirty || computerDirty;
   const envPending = environment !== undefined && !environment.loaded;
+  const showComputerPicker = Boolean(computers && computers.length > 0);
 
   return (
     <form
       onSubmit={(event: FormEvent<HTMLFormElement>) => {
         event.preventDefault();
-        onSave(new FormData(event.currentTarget), { runtime: runtimeDirty, environment: envDirty });
+        onSave(new FormData(event.currentTarget), {
+          runtime: runtimeDirty || computerDirty,
+          environment: envDirty,
+        });
       }}
     >
-      <DialogHeader title={m.agent_profile_edit_runtime_config()} onClose={onClose} />
+      <DialogHeader
+        title={computerId ? m.agent_profile_edit_runtime_config() : m.agent_profile_setup_runtime()}
+        onClose={onClose}
+      />
       {/* One column, like Raft's dialog: the runtime fields stack (provider, then the model it
           belongs to, then reasoning) instead of splitting into two columns on a wide screen. */}
       <div className="grid gap-4 px-6 py-6">
-        <AgentRuntimeFields
-          open
-          computerId={computerId}
-          credentialConfigured={credentialConfigured}
-          initial={initial}
-          onLoad={onLoad}
-          onDirtyChange={setRuntimeDirty}
-        />
+        {showComputerPicker ? (
+          <Select
+            name="computerId"
+            isRequired
+            isDisabled={computerLocked || saving}
+            size="md"
+            label={m.agent_form_computer()}
+            className="min-w-0"
+            selectedKey={selectedComputerId || null}
+            onSelectionChange={(key) => {
+              if (key !== null) {
+                setSelectedComputerId(String(key));
+                setRuntimeDirty(true);
+              }
+            }}
+          >
+            {computers!.map((computer) => (
+              <Select.Item
+                key={computer.id}
+                id={computer.id}
+                label={computer.displayName}
+                aria-label={`${computer.displayName}, ${computer.online ? m.computer_status_online() : m.computer_status_offline()}`}
+                icon={
+                  <StatusDot
+                    tone={computer.online ? "online" : "offline"}
+                    label={
+                      computer.online ? m.computer_status_online() : m.computer_status_offline()
+                    }
+                    className="size-2"
+                  />
+                }
+              />
+            ))}
+          </Select>
+        ) : computerId ? (
+          <input type="hidden" name="computerId" value={computerId} />
+        ) : null}
+        {selectedComputerId ? (
+          <AgentRuntimeFields
+            key={selectedComputerId}
+            open
+            computerId={selectedComputerId}
+            credentialConfigured={credentialConfigured}
+            initial={initial}
+            onLoad={onLoad}
+            onDirtyChange={setRuntimeDirty}
+          />
+        ) : (
+          <p className="text-sm text-tertiary">{m.agent_form_computer_required()}</p>
+        )}
         {environment !== undefined && (
           // Raft's dialog shows this as a plain "More" disclosure — a small-caps trigger with a
           // chevron, not a bordered pill — whose panel is a titled section: the section's own
@@ -179,7 +251,7 @@ export function AgentRuntimeConfigForm({
       {/* Raft's footer is the save action alone; the dialog is dismissed by its header X, Esc or the
           overlay (all already wired, and already blocked while saving). */}
       <div className="flex justify-end gap-3 border-t border-secondary px-6 py-4">
-        <Button type="submit" isDisabled={saving || !dirty || envPending}>
+        <Button type="submit" isDisabled={saving || !dirty || envPending || !selectedComputerId}>
           {saving ? m.agent_profile_saving() : m.agent_profile_save_runtime_config()}
         </Button>
       </div>
@@ -198,6 +270,8 @@ export function AgentRuntimeConfigDialog({
   open,
   onClose,
   computerId,
+  computers,
+  computerLocked,
   credentialConfigured,
   initial,
   onLoad,
@@ -209,6 +283,8 @@ export function AgentRuntimeConfigDialog({
   open: boolean;
   onClose: () => void;
   computerId: string;
+  computers?: ReadonlyArray<AgentRuntimeComputerOption>;
+  computerLocked?: boolean;
   credentialConfigured?: boolean;
   initial: RuntimeSelection;
   onLoad: (computerId: string) => Promise<RuntimeOptions>;
@@ -230,6 +306,8 @@ export function AgentRuntimeConfigDialog({
           {({ close }) => (
             <AgentRuntimeConfigForm
               computerId={computerId}
+              computers={computers}
+              computerLocked={computerLocked}
               credentialConfigured={credentialConfigured}
               initial={initial}
               onLoad={onLoad}

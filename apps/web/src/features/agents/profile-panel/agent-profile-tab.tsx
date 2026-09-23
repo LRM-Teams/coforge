@@ -208,7 +208,8 @@ export function AgentProfileTab({
   envVars?: Record<string, string>;
 }) {
   const { runtime, model, reasoning } = profile.runtimeConfig;
-  const canEditRuntime = canManage && Boolean(profile.computer) && Boolean(onStartRuntimeEdit);
+  const canEditRuntime = canManage && Boolean(onStartRuntimeEdit);
+  const needsComputerSetup = canManage && !profile.computer;
   const runtimeLabel = runtimeProviderLabel(runtime);
   const runtimeIcon = <RuntimeProviderMark provider={runtime} className="size-3.5" />;
   const creatorName = profile.owner.displayName?.trim() || profile.owner.username;
@@ -336,7 +337,7 @@ export function AgentProfileTab({
               <ComputerIcon className="size-4 shrink-0 text-tertiary" aria-hidden="true" />
             )}
             <span className="truncate font-mono">
-              {profile.computer?.label || m.agent_computer_unnamed()}
+              {profile.computer?.label || m.agent_profile_computer_unassigned()}
             </span>
           </p>
           {profile.computer && (
@@ -383,7 +384,7 @@ export function AgentProfileTab({
       <section className="border-b border-secondary px-6 py-5">
         <div className="flex items-center gap-1.5">
           <p className={SECTION_CAPTION_CLASS}>{m.agent_profile_section_runtime()}</p>
-          {canEditRuntime && (
+          {canEditRuntime && !needsComputerSetup && (
             <ButtonUtility
               aria-label={m.agent_profile_edit_runtime_config()}
               tooltip={m.agent_profile_edit_runtime_config()}
@@ -395,7 +396,14 @@ export function AgentProfileTab({
           )}
           {canManage && runtimeCredentialDialog}
         </div>
-        <div className="mt-3 flex flex-wrap gap-x-8 gap-y-4">
+        {needsComputerSetup && onStartRuntimeEdit && (
+          <div className="mt-3">
+            <Button color="secondary" size="sm" onPress={onStartRuntimeEdit}>
+              {m.agent_profile_setup_runtime()}
+            </Button>
+          </div>
+        )}
+        <div className={`flex flex-wrap gap-x-8 gap-y-4 ${needsComputerSetup ? "mt-4" : "mt-3"}`}>
           <div>
             <p className={SUBFIELD_LABEL_CLASS}>{m.agent_runtime_field()}</p>
             <p className="mt-1 flex flex-wrap items-center gap-2">

@@ -137,6 +137,8 @@ describe("ManageAgents", () => {
       ownerId: "user-1",
       name: "weekly-report-assistant-user-1",
       displayName: "周报助手",
+      // Unbound Agents have no Computer assignment (repository maps SQL NULL → undefined).
+      computerId: undefined,
       runtimeConfig: {
         runtime: RUNTIME_PROVIDER.COFORGE,
         provider: { kind: "default" },
@@ -165,6 +167,10 @@ describe("ManageAgents", () => {
     });
     expect(result.restart).toBe("published");
     expect(starts).toHaveLength(1);
+    expect(starts[0]).toMatchObject({
+      intent: { computerId: "computer-1", agentId: "assistant-agent" },
+      userId: "user-1",
+    });
   });
 
   test("profile runtime edits preserve encrypted environment while list and starts omit it", async () => {

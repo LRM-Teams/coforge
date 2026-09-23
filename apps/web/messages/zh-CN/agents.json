@@ -291,6 +291,8 @@
   "agent_profile_action_stop": "停止智能体",
   "agent_profile_action_start": "启动智能体",
   "agent_profile_edit_runtime_config": "编辑运行时配置",
+  "agent_profile_setup_runtime": "配置电脑与运行时",
+  "agent_profile_computer_unassigned": "未分配",
   "agent_profile_save_runtime_config": "保存运行时配置",
   "agent_control_restart_reset_tooltip": "重启 / 重置",
   "agent_profile_loading": "正在加载资料…",

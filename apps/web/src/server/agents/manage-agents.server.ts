@@ -245,10 +245,7 @@ export class ManageAgents {
         return { agent: publicAgent(agent), restart: "not-required" as const };
       if (stopped) return { agent: publicAgent(agent), restart: "deferred" as const };
       try {
-        await this.runtimeControl.start(
-          agentStartIntent(agent, current.computerId),
-          principal.userId,
-        );
+        await this.runtimeControl.start(agentStartIntent(agent, computerId), principal.userId);
         return { agent: publicAgent(agent), restart: "published" as const };
       } catch {
         return { agent: publicAgent(agent), restart: "deferred" as const };
