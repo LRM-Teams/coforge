@@ -75,6 +75,11 @@ async function setup() {
   return { db, workspace, owner, bob, helper, scout, team, teamName, ops };
 }
 
+function restoreEnv(name: string, value: string | undefined) {
+  if (value === undefined) delete process.env[name];
+  else process.env[name] = value;
+}
+
 async function teardown(db: PrismaClient, workspaceId: string, userIds: string[]) {
   await db.workspace.delete({ where: { id: workspaceId } }).catch(() => {});
   await db.user.deleteMany({ where: { id: { in: userIds } } }).catch(() => {});
@@ -147,8 +152,8 @@ test.skipIf(!connectionString)(
         },
       ]);
     } finally {
-      process.env.COFORGE_CENTRIFUGO_API_URL = env.url;
-      process.env.COFORGE_CENTRIFUGO_API_KEY = env.key;
+      restoreEnv("COFORGE_CENTRIFUGO_API_URL", env.url);
+      restoreEnv("COFORGE_CENTRIFUGO_API_KEY", env.key);
       await centrifugo.stop(true);
       await teardown(db, workspace.id, [owner.id, bob.id]);
     }

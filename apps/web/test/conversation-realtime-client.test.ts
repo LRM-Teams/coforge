@@ -99,7 +99,7 @@ describe("subscribeToConversationRealtime", () => {
     expect(reconciled).toBe(0);
   });
 
-  test("a resubscribe that lost publications refreshes the member list as well as messages", () => {
+  test("a subscribe that could not replay publications refreshes the member list as well as messages", () => {
     const { client, subscribed } = fakeClient();
     let memberChanges = 0;
     subscribeToConversationRealtime(client, {
@@ -111,13 +111,13 @@ describe("subscribeToConversationRealtime", () => {
       },
     });
 
-    // The first subscribe follows the page's own directory load, and a recovered resubscribe
-    // replays every missed publication, so neither needs a refetch.
-    subscribed({ wasRecovering: false, recovered: false });
+    // A recovered resubscribe replays every missed publication, so it needs no refetch.
     subscribed({ wasRecovering: true, recovered: true });
     expect(memberChanges).toBe(0);
 
+    // The first subscribe cannot replay a change made while the page was loading its list.
+    subscribed({ wasRecovering: false, recovered: false });
     subscribed({ wasRecovering: true, recovered: false });
-    expect(memberChanges).toBe(1);
+    expect(memberChanges).toBe(2);
   });
 });
