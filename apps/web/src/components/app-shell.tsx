@@ -1,4 +1,4 @@
-import { useCallback, type FC } from "react";
+import { useCallback, useEffect, type FC } from "react";
 import { useRouter, useRouterState } from "@tanstack/react-router";
 import {
   ChevronSelectorVertical,
@@ -20,6 +20,11 @@ import { SidebarRail } from "#src/components/layout/sidebar/sidebar-rail";
 import { MobileDrawerProvider } from "#src/components/layout/sidebar/mobile-header";
 import { SidebarMobileDrawer } from "#src/components/layout/sidebar/sidebar-channels";
 import {
+  DEFAULT_RECORDS_NAV_HREF,
+  rememberRecordsLastPath,
+  recordsNavHref,
+} from "#src/features/records/records-last-path";
+import {
   WorkspaceSwitcher,
   type WorkspaceOption,
 } from "#src/features/workspaces/workspace-switcher";
@@ -35,10 +40,12 @@ export type AppUser = {
 
 function useNavItems(
   recordsPreview = false,
+  workspaceId?: string,
 ): (NavItemType & { icon: FC<{ className?: string }>; bareHref: string })[] {
   const recordsDot = recordsPreview ? (
     <span className="ml-auto size-1.5 shrink-0 rounded-full bg-brand-solid" />
   ) : undefined;
+  const recordsHref = workspaceId ? recordsNavHref(workspaceId) : DEFAULT_RECORDS_NAV_HREF;
   return [
     {
       label: m.navigation_chat(),
@@ -62,7 +69,7 @@ function useNavItems(
     {
       label: m.navigation_records(),
       bareHref: "/records",
-      href: localizeHref("/records?tab=weekly"),
+      href: localizeHref(recordsHref),
       icon: FileText,
       badge: recordsDot,
     },
@@ -119,7 +126,14 @@ export function AppShell({
   // pathname is de-localized (src/router.tsx); item.href is localized, so we
   // match on bareHref (with sub-route prefix matching) instead.
   const pathname = useRouterState({ select: (state) => state.location.pathname });
-  const navItems = useNavItems(recordsPreview);
+  const searchStr = useRouterState({ select: (state) => state.location.searchStr });
+  const workspaceId = currentWorkspace?.id;
+  useEffect(() => {
+    if (!workspaceId || !pathname.startsWith("/records")) return;
+    const search = !searchStr ? "" : searchStr.startsWith("?") ? searchStr : `?${searchStr}`;
+    rememberRecordsLastPath(workspaceId, `${pathname}${search}`);
+  }, [workspaceId, pathname, searchStr]);
+  const navItems = useNavItems(recordsPreview, workspaceId);
   const activeUrl = navItems.find(
     (item) => pathname === item.bareHref || pathname.startsWith(`${item.bareHref}/`),
   )?.href;
