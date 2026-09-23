@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { AlertCircle, Stars01 as Stars, XClose as X } from "@untitledui/icons";
+import { AlertCircle, XClose as X } from "@untitledui/icons";
 import { Link } from "@tanstack/react-router";
 import { Heading, Text } from "react-aria-components";
 
@@ -75,11 +75,11 @@ export function TeamKeyPointSection({
             {m.records_key_points_edit_prompt()}
           </Link>
           {canStart ? (
+            // Match template「发送」/ assignment「重新发送」: solid primary sm, no leading icon.
             <Button
               type="button"
               size="sm"
               color="primary"
-              iconLeading={Stars}
               isDisabled={busy}
               onPress={onPressStart}
             >
