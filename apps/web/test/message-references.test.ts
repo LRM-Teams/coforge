@@ -309,6 +309,37 @@ test("a channel or task token typed by the sender is stored as its text", () => 
   );
 });
 
+test("a typed token is stored as its text however it is spelled", () => {
+  const forged = "99999999-9999-4999-8999-999999999999";
+  for (const [body, stored] of [
+    [`&lt;@channel:${forged}:evil>`, "#evil"],
+    [`\\<@channel:${forged}:evil2>`, "#evil2"],
+    [`&#60;@task:7>`, "task #7"],
+    [`&#x3c;@channel:${forged}:evil>`, "#evil"],
+    [`<&#64;channel:${forged}:evil>`, "#evil"],
+    [`&lt;&commat;channel&colon;${forged}&colon;evil&gt;`, "#evil"],
+    [`see **&lt;@task:7>** now`, "see **task #7** now"],
+    [`> quote\n> &lt;@channel:${forged}:evil> and #product`, `> quote\n> #evil and ${product}`],
+  ])
+    expect(resolveMessageReferences(body!, { channel })).toBe(stored!);
+});
+
+test("a node the parser rewrites beyond alignment is stored as literal text, typed tokens read", () => {
+  // The parser replaces NUL with U+FFFD, so this node cannot be aligned with its source. It still
+  // holds a typed token, so it is written back as escaped literal text: no token survives, and
+  // nothing else in it becomes a reference.
+  expect(resolveMessageReferences("a\u0000 <@task:7> *b* #product", { channel })).toBe(
+    `a\uFFFD task \\#7 *b* ${product}`,
+  );
+});
+
+test("a continuation line's leading `>` is a marker only as far as the line then aligns", () => {
+  // An escaped `\\>` after the marker is content.
+  expect(quoted("> a\n> \\> b #product")).toBe(`> a\n> \\> b ${product}`);
+  // A lazy line of an unquoted paragraph keeps its `>` as content.
+  expect(quoted("a\n    > b #product")).toBe(`a\n    > b ${product}`);
+});
+
 test("a mention token typed by the sender stays as written and is never read as a handle", () => {
   // Before this change a typed `<@agent:uuid>` was stored verbatim and stayed inert (no mention
   // row); it still is, and its `@agent` is not a handle even when a member is called `agent`.
