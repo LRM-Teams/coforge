@@ -853,87 +853,93 @@ function TemplateReportDetail({
           aria-hidden
           className="pointer-events-none absolute inset-x-0 top-0 h-40 bg-gradient-to-b from-brand-primary via-brand-primary/40 to-transparent"
         />
-        <header className="relative flex h-12 shrink-0 items-center gap-3 px-4 sm:px-6">
-          <span className="flex shrink-0 items-center gap-2">
-            {returnTo ? <RecordsKeyPointReturnBack returnTo={returnTo} /> : <BackToRecords />}
-            <WeekBadge week={report.cycle.week} />
-          </span>
-          <h1 className="min-w-0 truncate text-base font-semibold text-primary sm:text-lg">
-            {report.title}
-          </h1>
-          <div className="ml-auto flex shrink-0 items-center gap-1">
-            {isOverview ? null : (
-              <>
-                {hasUnsavedEdits ? (
-                  <Button
-                    size="sm"
-                    color="secondary"
-                    isDisabled={saving || sending}
-                    onPress={() => void saveFormatEdits()}
-                  >
-                    {m.records_report_save()}
-                  </Button>
-                ) : null}
-                <Button
-                  size="sm"
-                  color="primary"
-                  className="bg-primary-solid ring-transparent hover:bg-primary-solid data-loading:bg-primary-solid"
-                  isDisabled={saving || sending || !canSendAssignments || hasUnsavedEdits}
-                  onPress={() => setConfirmOpen(true)}
-                >
-                  {m.records_report_send()}
-                </Button>
-              </>
-            )}
-            <ButtonUtility
-              size="sm"
-              color="tertiary"
-              icon={Message}
-              aria-label={m.records_side_chat()}
-              aria-pressed={sideOpen}
-              onClick={() => setSideOpen((open) => !open)}
-            />
-            {isOverview ? (
-              isOverviewLeader ? (
-                <Dropdown.Root>
-                  <ButtonUtility
-                    size="sm"
-                    color="tertiary"
-                    icon={DotsHorizontal}
-                    aria-label={m.records_report_actions()}
-                    isDisabled={saving || sending}
-                  />
-                  <Dropdown.Popover placement="bottom end" className="w-44">
-                    <Dropdown.Menu onAction={() => void removeOverviewNode()}>
-                      <Dropdown.Item id="delete" icon={Trash} label={m.records_week_delete()} />
-                    </Dropdown.Menu>
-                  </Dropdown.Popover>
-                </Dropdown.Root>
-              ) : null
-            ) : (
-              <Dropdown.Root>
+        <header className="relative shrink-0">
+          <RecordsReadingColumn className="min-h-0 py-0">
+            <div className="flex h-12 items-center gap-3">
+              <span className="flex shrink-0 items-center gap-2">
+                {returnTo ? <RecordsKeyPointReturnBack returnTo={returnTo} /> : <BackToRecords />}
+                <WeekBadge week={report.cycle.week} />
+              </span>
+              <h1 className="min-w-0 truncate text-base font-semibold text-primary sm:text-lg">
+                {report.title}
+              </h1>
+              <div className="ml-auto flex shrink-0 items-center gap-1">
+                {isOverview ? null : (
+                  <>
+                    {hasUnsavedEdits ? (
+                      <Button
+                        size="sm"
+                        color="secondary"
+                        isDisabled={saving || sending}
+                        onPress={() => void saveFormatEdits()}
+                      >
+                        {m.records_report_save()}
+                      </Button>
+                    ) : null}
+                    <Button
+                      size="sm"
+                      color="primary"
+                      className="bg-primary-solid ring-transparent hover:bg-primary-solid data-loading:bg-primary-solid"
+                      isDisabled={saving || sending || !canSendAssignments || hasUnsavedEdits}
+                      onPress={() => setConfirmOpen(true)}
+                    >
+                      {m.records_report_send()}
+                    </Button>
+                  </>
+                )}
                 <ButtonUtility
                   size="sm"
                   color="tertiary"
-                  icon={DotsHorizontal}
-                  aria-label={m.records_report_actions()}
-                  isDisabled={saving || sending}
+                  icon={Message}
+                  aria-label={m.records_side_chat()}
+                  aria-pressed={sideOpen}
+                  onClick={() => setSideOpen((open) => !open)}
                 />
-                <Dropdown.Popover placement="bottom end" className="w-44">
-                  <Dropdown.Menu
-                    onAction={() => void persist(clearReportContent(contentRef.current), "draft")}
-                  >
-                    <Dropdown.Item id="clear" icon={Trash} label={m.records_report_clear()} />
-                  </Dropdown.Menu>
-                </Dropdown.Popover>
-              </Dropdown.Root>
-            )}
-          </div>
+                {isOverview ? (
+                  isOverviewLeader ? (
+                    <Dropdown.Root>
+                      <ButtonUtility
+                        size="sm"
+                        color="tertiary"
+                        icon={DotsHorizontal}
+                        aria-label={m.records_report_actions()}
+                        isDisabled={saving || sending}
+                      />
+                      <Dropdown.Popover placement="bottom end" className="w-44">
+                        <Dropdown.Menu onAction={() => void removeOverviewNode()}>
+                          <Dropdown.Item id="delete" icon={Trash} label={m.records_week_delete()} />
+                        </Dropdown.Menu>
+                      </Dropdown.Popover>
+                    </Dropdown.Root>
+                  ) : null
+                ) : (
+                  <Dropdown.Root>
+                    <ButtonUtility
+                      size="sm"
+                      color="tertiary"
+                      icon={DotsHorizontal}
+                      aria-label={m.records_report_actions()}
+                      isDisabled={saving || sending}
+                    />
+                    <Dropdown.Popover placement="bottom end" className="w-44">
+                      <Dropdown.Menu
+                        onAction={() =>
+                          void persist(clearReportContent(contentRef.current), "draft")
+                        }
+                      >
+                        <Dropdown.Item id="clear" icon={Trash} label={m.records_report_clear()} />
+                      </Dropdown.Menu>
+                    </Dropdown.Popover>
+                  </Dropdown.Root>
+                )}
+              </div>
+            </div>
+          </RecordsReadingColumn>
         </header>
         {isOverview || !sendError ? null : (
-          <p className="border-b border-secondary px-4 py-2 text-sm text-error-primary sm:px-8">
-            {sendError}
-          </p>
+          <RecordsReadingColumn className="border-b border-secondary py-2">
+            <p className="text-sm text-error-primary">{sendError}</p>
+          </RecordsReadingColumn>
         )}
 
         {isOverview ? (
