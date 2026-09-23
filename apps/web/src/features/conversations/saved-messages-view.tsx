@@ -26,16 +26,11 @@ import { savedJumpTarget } from "./saved-messages-model";
 import { messagePlainText } from "./selection-copy";
 
 /**
- * The Saved view (#127), reached from the single Saved entry at the top of the Chat sidebar: a
- * header with the bookmark count, then one card per bookmarked message — where it was said
- * (`#channel`, or `@sender` in a direct message), a Thread tag for a reply, the sender's avatar
- * and name, the time, and a clamped body excerpt. The whole card jumps back to the message's
- * position in its conversation — a thread reply lands on its root's row and the pane never
- * auto-opens the thread (position-only `?message=` search param, not the notification deep link's
- * `#message-<id>` hash; see `saved-messages-model`). The trailing bookmark unsaves in one click
- * (instantly reversible, so no confirm — the card disappearing is the confirmation,
- * docs/design/toast-vs-inline.md §13); a right click on the card offers copy link, copy as
- * Markdown and remove.
+ * The Saved view (#127). A card jumps back to the message's position in its conversation — a
+ * thread reply lands on its root's row and the thread stays closed (position-only `?message=`,
+ * not the notification deep link's `#message-<id>` hash; see `saved-messages-model`). The trailing
+ * bookmark unsaves in one click, without a confirm: it is instantly reversible and the card
+ * disappearing is the confirmation (docs/design/toast-vs-inline.md §13).
  */
 export function SavedMessagesView() {
   const saved = useSavedMessages();
@@ -87,14 +82,8 @@ function SavedMessageCard({
   const unsave = useServerFn(unsaveMessage);
   const { conversation, message } = entry;
   const jump = savedJumpTarget(conversation, message);
-  const jumpProps =
-    jump.to === "/messages/channels/$channelId"
-      ? { to: jump.to, params: jump.params, search: jump.search }
-      : jump.to === "/messages/$agentId"
-        ? { to: jump.to, params: jump.params, search: jump.search }
-        : { to: jump.to };
   // The localized URL (`publicHref`), the one the card links to and the address bar shows.
-  const href = router.buildLocation(jumpProps).publicHref;
+  const href = router.buildLocation(jump).publicHref;
   const place = conversation.channelName
     ? `#${conversation.channelName}`
     : `@${message.senderName}`;
@@ -138,7 +127,7 @@ function SavedMessageCard({
         <AriaLink
           href={href}
           render={(props) =>
-            "href" in props ? <Link {...props} {...jumpProps} /> : <span {...props} />
+            "href" in props ? <Link {...props} {...jump} /> : <span {...props} />
           }
           className="min-w-0 flex-1 rounded-lg outline-focus-ring focus-visible:z-10 focus-visible:outline-2 focus-visible:outline-offset-2"
         >
