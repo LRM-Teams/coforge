@@ -77,6 +77,7 @@ import { resolveVisibleConversationSlot } from "@/features/agents/profile-panel/
 import { useConversationPositionJump, useOpenConversationThread } from "./open-conversation-thread";
 import {
   messageIdFromHash,
+  positionJumpDecision,
   resolveConversationThreadRoot,
   threadRootFromMessageAnchor,
 } from "./conversation-thread-search";
@@ -1378,18 +1379,25 @@ export function ConversationPane({
   // machinery (its pending-ref pass scrolls after the window swap, so an old reply lands
   // correctly) — and strips the param one-shot, like a hash, so a later sidebar navigation
   // can't inherit a foreign message id. A notification's hash wins outright: two landing
-  // mechanisms never run together.
+  // mechanisms never run together — the rules themselves are the pure `positionJumpDecision`
+  // table (conversation-thread-search.ts), pinned by unit tests for a pane this suite only
+  // renders server-side.
   const attemptedJumpRef = useRef<string | undefined>(undefined);
   const showMessageRef = useRef(showMessage);
   showMessageRef.current = showMessage;
   useEffect(() => {
-    if (!jumpMessage) {
+    const decision = positionJumpDecision(
+      jumpMessage,
+      window.location.hash,
+      attemptedJumpRef.current,
+    );
+    if (decision.action === "idle") {
       attemptedJumpRef.current = undefined;
       return;
     }
-    if (attemptedJumpRef.current === jumpMessage) return;
-    attemptedJumpRef.current = jumpMessage;
-    if (!window.location.hash) void showMessageRef.current(jumpMessage);
+    if (decision.action === "ignore") return;
+    attemptedJumpRef.current = decision.id;
+    if (decision.action === "show") void showMessageRef.current(decision.id);
     onJumpMessageConsumed?.();
   }, [jumpMessage, onJumpMessageConsumed]);
 
