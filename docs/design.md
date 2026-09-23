@@ -344,7 +344,11 @@ UI 变更必须查看实际渲染，不以源码检查代替视觉检查。按�
 ### 颜色
 
 - 语义 token 用官方名：`bg-primary / bg-secondary / bg-tertiary`，`text-primary / text-secondary / text-tertiary / text-quaternary`，`border-primary / border-secondary`，`bg-brand-solid`，`text-brand-secondary`，`text-error-primary`。映射表见 `docs/design-tokens.md`。
-- 品牌紫只出现在：侧栏选中项、主按钮、链接、Public 徽章、自己发出的消息气泡、焦点环。其他地方一律灰阶。
+- 品牌紫只出现在：侧栏选中项、主按钮、链接、Public 徽章、自己发出的消息气泡、焦点环，以及两类交互状态（2026-09-23 确定）：
+  - 未读提示：未读数字角标、未读小圆点、未读会话行的底色、消息流里的未读分割线；
+  - 当前焦点与交互：选中的卡片/列表行/设置导航项（边框或文字）、@提及高亮、拖拽落点与选择指示、可拖拽分隔线的 hover/拖动态。
+
+  其他地方一律灰阶：角色徽章（owner/admin/成员）、状态点与进度、装饰性图标和渐变都不用品牌紫。
 - "主按钮"指一个界面里唯一的主动作：弹窗的确认键、onboarding 空状态的引导键，以及页头里该页面唯一的创建类主操作（如成员页的「新建智能体」「邀请」，2026-09-23 按设计稿确定）用 `color="primary"`。一个页头最多一个 primary；页头的其他操作和工具栏按钮一律 `color="secondary"`。其他页面的页头主操作改到时再按本条调整。
 - **按钮尺寸**：按钮高度只用 `size` 控制，不用 `h-*` / `py-*` 覆盖；产品界面统一默认 `sm`（36px），弹窗页脚、空状态、页头都是；`lg` 只用于登录和设备授权页；空状态引导键只有 onboarding（如 Add computer）用 primary，其余 secondary。
 - 语义色（success / error / warning）和品牌色分开，状态不用紫。
