@@ -58,7 +58,7 @@ import { AgentVisibilityConfirmDialog } from "@/features/agents/agent-visibility
 import type { AgentVisibility } from "@/features/agents/agent-visibility";
 import { useAppToast } from "@/components/ui/toast";
 import { AgentProfileHeader } from "./agent-profile-header";
-import { AgentProfileTabs } from "./agent-profile-tabs";
+import { AgentProfileTabs, useAgentProfileTabOrder } from "./agent-profile-tabs";
 import { AgentProfileTab } from "./agent-profile-tab";
 import { AgentWorkspaceTab } from "./agent-workspace-tab";
 import {
@@ -116,7 +116,14 @@ export function AgentProfilePanel({
   const knownName = profile?.displayName ?? liveAgent?.displayName ?? "";
   const canManage = profile ? profile.canManageAgentRole || profile.ownedByCurrentUser : false;
   const canSeeWorkspace = profile ? profile.ownedByCurrentUser : false;
-  const tab = resolveAgentProfileTab(requestedTab, canManage, canSeeWorkspace);
+  const tabOrder = useAgentProfileTabOrder(canManage, canSeeWorkspace);
+  const tab = resolveAgentProfileTab(requestedTab, tabOrder.tabs);
+  // Opened without `agentTab`, the panel lands on the first tab of the viewer's order once their
+  // permissions are known, and writes it into the URL so a later reorder does not move it.
+  const loaded = Boolean(profile);
+  useEffect(() => {
+    if (loaded && !requestedTab) onTabChange(tab);
+  }, [loaded, requestedTab, tab, onTabChange]);
 
   const loadReminders = useServerFn(listAgentReminders);
   const onLoadReminders = useCallback(
@@ -299,9 +306,9 @@ export function AgentProfilePanel({
       <div className="scrollbar-hide flex h-11 shrink-0 items-center overflow-x-auto border-b border-secondary px-5">
         <AgentProfileTabs
           active={tab}
-          showManagerTabs={canManage}
-          showWorkspaceTab={canSeeWorkspace}
+          tabs={tabOrder.tabs}
           onSelect={onTabChange}
+          onReorder={tabOrder.reorder}
         />
       </div>
       {/* Workspace is a split tree/file viewer: each pane scrolls on its own. A shared

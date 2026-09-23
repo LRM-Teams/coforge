@@ -19,18 +19,22 @@ import { getBrowserNotificationSettings } from "@/features/notifications/notific
 import { listAgents } from "@/features/agents/agents.functions";
 import { WorkspaceAgentsProvider } from "@/features/agents/workspace-agents-realtime";
 import { getUserPreferences } from "@/features/settings/settings.functions";
+import { getPanelTabOrders } from "@/features/panel-tabs/panel-tabs.functions";
+import { PanelTabOrderProvider } from "@/features/panel-tabs/panel-tab-order-context";
 
 export const Route = createFileRoute("/_app")({
   staleTime: Infinity,
   loader: async () => {
-    const [user, switcher, notifications, agents, preferences, recordsNav] = await Promise.all([
-      getUserProfile(),
-      loadWorkspaceSwitcher(),
-      getBrowserNotificationSettings(),
-      listAgents(),
-      getUserPreferences(),
-      loadRecordsNavAttention().catch(() => ({ preview: false })),
-    ]);
+    const [user, switcher, notifications, agents, preferences, tabOrders, recordsNav] =
+      await Promise.all([
+        getUserProfile(),
+        loadWorkspaceSwitcher(),
+        getBrowserNotificationSettings(),
+        listAgents(),
+        getUserPreferences(),
+        getPanelTabOrders(),
+        loadRecordsNavAttention().catch(() => ({ preview: false })),
+      ]);
     return {
       user,
       workspaces: switcher.workspaces,
@@ -40,6 +44,7 @@ export const Route = createFileRoute("/_app")({
       timeZone: preferences.timeZone,
       timeFormat: preferences.timeFormat,
       conversationOpenMode: preferences.conversationOpenMode,
+      tabOrders,
       recordsPreview: recordsNav.preview,
     };
   },
@@ -47,8 +52,16 @@ export const Route = createFileRoute("/_app")({
 });
 
 function AppLayout() {
-  const { user, workspaces, currentWorkspace, agents, recordsPreview, notifications, timeFormat } =
-    Route.useLoaderData();
+  const {
+    user,
+    workspaces,
+    currentWorkspace,
+    agents,
+    recordsPreview,
+    notifications,
+    timeFormat,
+    tabOrders,
+  } = Route.useLoaderData();
   const getRealtimeToken = useServerFn(getBrowserRealtimeConnectionToken);
   const getConnectionToken = useCallback(() => getRealtimeToken(), [getRealtimeToken]);
   const router = useRouter();
@@ -61,35 +74,37 @@ function AppLayout() {
         getConnectionToken={getConnectionToken}
       >
         <WorkspaceAgentsProvider workspaceId={currentWorkspace?.id} agents={agents}>
-          {/* ADR: the server prunes dead web-push subscriptions (404/410), and nothing else ever
+          <PanelTabOrderProvider workspaceId={currentWorkspace?.id} orders={tabOrders}>
+            {/* ADR: the server prunes dead web-push subscriptions (404/410), and nothing else ever
             re-registers them — without this the phone stays silent until a manual toggle. */}
-          <BrowserPushLifecycle
-            enabled={notifications.enabled}
-            publicKey={notifications.publicKey}
-          />
-          {/* ADR 0065: while a tab is open, show the OS notification here instead of relying on
-              Web Push, which mainland-China staging/clients cannot reach for Chrome. */}
-          <InPageNotifications
-            enabled={notifications.enabled}
-            viewerId={user.id}
-            workspaceId={currentWorkspace?.id}
-          />
-          <AppShell
-            user={{ name: user.name, email: user.email, avatarUrl: user.avatarUrl }}
-            workspaces={workspaces}
-            currentWorkspace={currentWorkspace}
-            recordsPreview={recordsPreview}
-            onSelectWorkspace={async (slug) => {
-              await select({ data: { slug } });
-              await router.invalidate({ sync: true });
-            }}
-            onCreateWorkspace={async (input) => {
-              await create({ data: input });
-              await router.invalidate({ sync: true });
-            }}
-          >
-            <Outlet />
-          </AppShell>
+            <BrowserPushLifecycle
+              enabled={notifications.enabled}
+              publicKey={notifications.publicKey}
+            />
+            {/* ADR 0065: while a tab is open, show the OS notification here instead of relying on
+                Web Push, which mainland-China staging/clients cannot reach for Chrome. */}
+            <InPageNotifications
+              enabled={notifications.enabled}
+              viewerId={user.id}
+              workspaceId={currentWorkspace?.id}
+            />
+            <AppShell
+              user={{ name: user.name, email: user.email, avatarUrl: user.avatarUrl }}
+              workspaces={workspaces}
+              currentWorkspace={currentWorkspace}
+              recordsPreview={recordsPreview}
+              onSelectWorkspace={async (slug) => {
+                await select({ data: { slug } });
+                await router.invalidate({ sync: true });
+              }}
+              onCreateWorkspace={async (input) => {
+                await create({ data: input });
+                await router.invalidate({ sync: true });
+              }}
+            >
+              <Outlet />
+            </AppShell>
+          </PanelTabOrderProvider>
         </WorkspaceAgentsProvider>
       </BrowserRealtimeProvider>
     </TimeFormatProvider>

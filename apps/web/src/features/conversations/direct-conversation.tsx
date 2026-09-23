@@ -1,4 +1,5 @@
 import { Group, Panel, Separator, useDefaultLayout } from "react-resizable-panels";
+import type { ConversationTab } from "@/features/conversations/conversation-tabs";
 import { useStateWithRef } from "@/hooks/use-state-with-ref";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ClientOnly, getRouteApi } from "@tanstack/react-router";
@@ -205,7 +206,7 @@ export function DirectConversationHeader({
   onOpenAgentProfile,
 }: {
   conversation: DirectConversationView;
-  active: "chat" | "tasks" | "files";
+  active: ConversationTab;
   onShowChat?: () => void;
   onShowTasks?: () => void;
   onShowFiles?: () => void;

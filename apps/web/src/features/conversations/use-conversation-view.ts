@@ -1,14 +1,39 @@
+import { useEffect } from "react";
 import { useRouter } from "@tanstack/react-router";
 
+import { usePanelTabOrder } from "@/features/panel-tabs/panel-tab-order-context";
 import { conversationSearchWithoutThread } from "./conversation-thread-search";
+import { CONVERSATION_TABS, type ConversationTab } from "./conversation-tabs";
 
-type ConversationView = "chat" | "tasks" | "files";
 type TaskLayout = "board" | "list";
 type ConversationSearch = {
-  view?: ConversationView;
+  view?: ConversationTab;
   layout?: TaskLayout;
   threadRootId?: string;
 };
+
+/**
+ * The tab a conversation page shows: the `view` its URL names — links to a message name Chat —
+ * otherwise the member's first tab. A tab chosen without `view` is written into the URL, so
+ * reordering the tabs later does not move the page to another tab.
+ */
+export function useShownConversationTab(view: ConversationTab | undefined): ConversationTab {
+  const router = useRouter();
+  const { tabs } = usePanelTabOrder("conversation", CONVERSATION_TABS);
+  const shown = view ?? tabs[0] ?? "chat";
+  const pinned = view !== undefined;
+  useEffect(() => {
+    if (pinned) return;
+    void router.navigate({
+      to: ".",
+      replace: true,
+      resetScroll: false,
+      hash: true,
+      search: (previous: ConversationSearch) => ({ ...previous, view: shown }),
+    });
+  }, [pinned, router, shown]);
+  return shown;
+}
 
 /**
  * The chat/tasks view switch shared by conversation pages. Both routes keep

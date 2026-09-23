@@ -16,7 +16,11 @@ import {
   directConversationUpdates,
   useConversationQuery,
 } from "@/features/conversations/conversation-queries";
-import { useConversationView } from "@/features/conversations/use-conversation-view";
+import {
+  useConversationView,
+  useShownConversationTab,
+} from "@/features/conversations/use-conversation-view";
+import { CONVERSATION_TABS } from "@/features/conversations/conversation-tabs";
 import { TaskBoard } from "@/features/tasks/task-board";
 import { ConversationFilesPanel } from "@/features/conversations/conversation-files";
 import { useTaskLayout } from "@/features/tasks/task-workflow";
@@ -46,7 +50,7 @@ import { useEffect } from "react";
 
 export const Route = createFileRoute("/_app/messages/$agentId")({
   validateSearch: z.object({
-    view: z.enum(["chat", "tasks", "files"]).optional().catch(undefined),
+    view: z.enum(CONVERSATION_TABS).optional().catch(undefined),
     layout: z.enum(["board", "list"]).optional().catch(undefined),
     message: z.uuid().optional().catch(undefined),
     threadRootId: z.uuid().optional().catch(undefined),
@@ -64,7 +68,8 @@ export const Route = createFileRoute("/_app/messages/$agentId")({
 function DirectConversationPage() {
   const { agentId } = Route.useParams();
   const agentStatus = useLiveAgent(agentId)?.status.value;
-  const { view, layout, profile, agentTab } = Route.useSearch();
+  const { view: requestedView, layout, profile, agentTab } = Route.useSearch();
+  const view = useShownConversationTab(requestedView);
   const taskLayout = useTaskLayout(layout);
   const { openAgentProfile, setAgentProfileTab, closeAgentProfile } = useOpenAgentProfile();
   const profileAgentId = agentIdFromProfileParam(profile);

@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import type { ConversationTab } from "@/features/conversations/conversation-tabs";
 import { useQuery } from "@tanstack/react-query";
 import {
   Bell01 as Bell,
@@ -48,7 +49,7 @@ export function ChannelConversationHeader({
   onOpenAgentProfile,
 }: {
   conversation: ChannelConversationView;
-  active: "chat" | "tasks" | "files";
+  active: ConversationTab;
   onShowChat?: () => void;
   onShowTasks?: () => void;
   onShowFiles?: () => void;

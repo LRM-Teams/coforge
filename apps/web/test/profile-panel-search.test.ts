@@ -7,6 +7,8 @@ import {
   agentProfileTabParamSchema,
   formatAgentProfileParam,
   resolveAgentProfileTab,
+  visibleAgentProfileTabs,
+  AGENT_PROFILE_TABS,
 } from "../src/features/agents/profile-panel/profile-panel-search";
 
 const AGENT_ID = "a1b2c3d4-e5f6-4789-a012-3456789abcde";
@@ -64,29 +66,28 @@ describe("agentProfileSearchWithoutThread", () => {
   });
 });
 
+describe("visibleAgentProfileTabs", () => {
+  test("shows reminders and activity to managers, workspace to the owner, profile to everyone", () => {
+    expect(visibleAgentProfileTabs(false, false)).toEqual(["profile"]);
+    expect(visibleAgentProfileTabs(true, false)).toEqual(["profile", "reminders", "activity"]);
+    expect(visibleAgentProfileTabs(false, true)).toEqual(["profile", "workspace"]);
+    expect(visibleAgentProfileTabs(true, true)).toEqual([...AGENT_PROFILE_TABS]);
+  });
+});
+
 describe("resolveAgentProfileTab", () => {
-  test("defaults to profile when nothing was requested", () => {
-    expect(resolveAgentProfileTab(undefined, true, true)).toBe("profile");
-    expect(resolveAgentProfileTab(undefined, false, false)).toBe("profile");
+  test("opens on the first tab of the viewer's order when nothing was requested", () => {
+    expect(resolveAgentProfileTab(undefined, ["profile", "activity"])).toBe("profile");
+    expect(resolveAgentProfileTab(undefined, ["activity", "profile"])).toBe("activity");
   });
 
-  test("honors an explicit profile request regardless of permission", () => {
-    expect(resolveAgentProfileTab("profile", false, false)).toBe("profile");
+  test("honors a requested tab the viewer can see", () => {
+    expect(resolveAgentProfileTab("profile", ["activity", "profile"])).toBe("profile");
+    expect(resolveAgentProfileTab("workspace", ["profile", "workspace"])).toBe("workspace");
   });
 
-  test("honors activity only when the viewer may see it", () => {
-    expect(resolveAgentProfileTab("activity", true, false)).toBe("activity");
-    expect(resolveAgentProfileTab("activity", false, true)).toBe("profile");
-  });
-
-  test("honors reminders only when the viewer may see it", () => {
-    expect(resolveAgentProfileTab("reminders", true, false)).toBe("reminders");
-    expect(resolveAgentProfileTab("reminders", false, true)).toBe("profile");
-  });
-
-  test("honors workspace only when the viewer owns the Agent, independent of manager tabs", () => {
-    expect(resolveAgentProfileTab("workspace", false, true)).toBe("workspace");
-    expect(resolveAgentProfileTab("workspace", true, false)).toBe("profile");
-    expect(resolveAgentProfileTab("workspace", false, false)).toBe("profile");
+  test("falls back to the first tab when the requested one is hidden from the viewer", () => {
+    expect(resolveAgentProfileTab("workspace", ["reminders", "profile"])).toBe("reminders");
+    expect(resolveAgentProfileTab("activity", ["profile"])).toBe("profile");
   });
 });

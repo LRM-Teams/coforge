@@ -350,6 +350,13 @@ channels.functions.ts` exposes `loadPublicChannelMembers`/`addPublicChannelMembe
   `server/notifications/in-page-notification-publisher.server.ts` is the
   Centrifugo `broadcast` adapter `WebPushNotifications` publishes through.
 
+- `features/panel-tabs/` owns each member's panel tab order (ADR 0066):
+  `panel-tab-order.ts` holds the panels' tab lists and the arrange/reorder rules,
+  `panel-tabs.functions.ts` the authenticated read/save, and
+  `panel-tab-order-context.tsx` the `_app`-level provider with optimistic, serialized saves.
+  `WorkspaceMemberPreferences` persists it per Workspace membership. The conversation routes
+  and `AgentProfilePanel` resolve their default tab from it; the strips render through
+  `components/ui/reorderable-tab-strip.tsx`.
 - `src/routes/__root.tsx` owns the document shell: HTML, global head, global
   providers, styles, `HeadContent`, and `Scripts`.
 - Use pathless layout routes for shared application chrome. The current app

@@ -272,6 +272,14 @@ notifications, conversation open mode), keyed by `userId` with `ON DELETE CASCAD
 column is nullable and NULL means the code default; closed sets are TEXT with a
 `CHECK` constraint. See [ADR 0064](adr/0064-user-preferences-table.md).
 
+### `workspace_member_preferences`
+
+One row per Workspace membership for a member's own settings inside that Workspace, keyed by
+`(workspaceId, userId)` with a foreign key to `workspace_memberships` and `ON DELETE CASCADE`.
+`conversationTabOrder` and `agentProfileTabOrder` are `TEXT[]` tab-id lists (empty = default
+order, first tab opens by default), each limited to its panel's ids by a `CHECK`. See
+[ADR 0066](adr/0066-workspace-member-tab-order.md).
+
 ## Identity boundaries
 
 This draft deliberately does not define foreign keys from `workspace_id`,
