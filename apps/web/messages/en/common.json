@@ -21,8 +21,6 @@
   "content_archived_agents": "Archived agents",
   "filters_mine": "Mine",
   "filters_all": "All",
-  "filters_computer": "Computer",
-  "filters_search": "Search members",
   "login_title": "Sign in to CoForge",
   "login_description": "Use your email verification code to open CoForge.",
   "login_action": "Continue",
