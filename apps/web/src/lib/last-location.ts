@@ -1,3 +1,5 @@
+import { z } from "zod";
+
 /**
  * Where opening the app root (`/`) returns a signed-in user: the last in-app page they had open,
  * for 24 hours after they opened it, and only in the Workspace it belongs to (app URLs do not name
@@ -48,28 +50,23 @@ export function lastLocationCookie(location: LastLocation, secure: boolean): str
   ].join("; ");
 }
 
+const storedLocation = z.object({ workspaceSlug: z.string(), path: z.string() });
+
 function readLastLocation(cookieHeader: string): LastLocation | undefined {
-  for (const part of cookieHeader.split(";")) {
-    const [key, ...rest] = part.trim().split("=");
-    if (key !== COOKIE_NAME) continue;
-    try {
-      const value: unknown = JSON.parse(decodeURIComponent(rest.join("=")));
-      if (
-        value &&
-        typeof value === "object" &&
-        "workspaceSlug" in value &&
-        "path" in value &&
-        typeof value.workspaceSlug === "string" &&
-        typeof value.path === "string"
-      ) {
-        return { workspaceSlug: value.workspaceSlug, path: value.path };
-      }
-    } catch {
-      // A malformed cookie is simply not a place to return to.
-    }
+  const pair = cookieHeader
+    .split(";")
+    .map((part) => part.trim())
+    .find((part) => part.startsWith(`${COOKIE_NAME}=`));
+  if (!pair) return undefined;
+  try {
+    const parsed = storedLocation.safeParse(
+      JSON.parse(decodeURIComponent(pair.slice(COOKIE_NAME.length + 1))),
+    );
+    return parsed.success ? parsed.data : undefined;
+  } catch {
+    // A malformed cookie is simply not a place to return to.
     return undefined;
   }
-  return undefined;
 }
 
 /**
@@ -81,8 +78,7 @@ export function restorableLastLocation(
   cookieHeader: string | undefined,
   preferredWorkspaceSlug: string | undefined,
 ): string | undefined {
-  if (!cookieHeader) return undefined;
-  const location = readLastLocation(cookieHeader);
+  const location = readLastLocation(cookieHeader ?? "");
   if (!location || !isAppPath(location.path)) return undefined;
   if (preferredWorkspaceSlug && preferredWorkspaceSlug !== location.workspaceSlug) return undefined;
   return location.path;

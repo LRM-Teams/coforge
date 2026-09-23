@@ -15,6 +15,7 @@ import {
   useSavedMessages,
 } from "./conversation-navigation";
 import { ConversationRowMenu } from "./conversation-row-menu";
+import { conversationRoute, type ConversationTarget } from "./last-conversation";
 import { directRowPreference } from "./conversation-row-menu-model";
 import {
   readCollapsedSections,
@@ -71,26 +72,21 @@ function ConversationRow({
   label,
   children,
 }: {
-  target: { channelId: string } | { agentId: string } | { view: "saved" };
+  target: ConversationTarget;
   current?: boolean;
   icon: ReactNode;
   muted?: boolean;
   unreadCount?: number;
   /** A plain total shown at the row's end (the Saved entry's bookmark count), not an unread
-   * signal: muted, and absent at zero. */
-  count?: number;
+   * signal: muted, and absent at zero. `label` is how the row's accessible name says it. */
+  count?: { value: number; label: string };
   /** The row's own name, so an unread row keeps its accessible name instead of replacing it. */
   label: string;
   children: ReactNode;
 }) {
   const closeList = useCloseConversationList();
   const router = useRouter();
-  const route =
-    "channelId" in target
-      ? ({ to: "/messages/channels/$channelId", params: target } as const)
-      : "agentId" in target
-        ? ({ to: "/messages/$agentId", params: target } as const)
-        : ({ to: "/messages/saved" } as const);
+  const route = conversationRoute(target);
   return (
     // The row is a React Aria link so the conversation menu's `MenuTrigger trigger="contextMenu"`
     // can use it as its trigger; `render` hands the element to TanStack's `Link`, which owns
@@ -100,7 +96,7 @@ function ConversationRow({
       // `href` is always set, so React Aria renders an `<a>`; the check narrows the props type.
       render={(props) => ("href" in props ? <Link {...props} {...route} /> : <span {...props} />)}
       aria-current={current ? "page" : undefined}
-      aria-label={rowLabel(unreadCount, label)}
+      aria-label={rowLabel(unreadCount, label) ?? (count ? `${label}, ${count.label}` : undefined)}
       // On mobile the list is a separate pane; choosing a row reveals the conversation even when
       // the URL is unchanged (re-opening the channel already in the address bar), which the
       // pathname-based reset in `ConversationNavigation` cannot see.
@@ -126,7 +122,7 @@ function ConversationRow({
       {unreadCount ? muted ? <UnreadDot /> : <UnreadBadge count={unreadCount} /> : null}
       {count ? (
         <span aria-hidden="true" className="shrink-0 text-xs text-quaternary tabular-nums">
-          {count}
+          {count.value}
         </span>
       ) : null}
     </AriaLink>
@@ -255,13 +251,12 @@ export function ConversationDirectory({
         <ConversationRow
           target={{ view: "saved" }}
           current={selectedSaved}
-          count={savedCount}
-          // The count is shown visually only; screen readers get it in the row's name.
-          label={
+          count={
             savedCount
-              ? `${m.conversation_saved_nav()}, ${m.conversation_saved_count({ count: savedCount })}`
-              : m.conversation_saved_nav()
+              ? { value: savedCount, label: m.conversation_saved_count({ count: savedCount }) }
+              : undefined
           }
+          label={m.conversation_saved_nav()}
           icon={
             <Bookmark
               aria-hidden="true"

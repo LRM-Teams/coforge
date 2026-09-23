@@ -1,27 +1,31 @@
 /**
- * The conversation Chat reopens: the channel, direct message, or Saved view the user opened last
- * in a Workspace. Kept per device in `localStorage` (read only after mount, like
- * `directory-sections.ts`, so SSR never depends on it) and checked against the current
- * conversation list, so a deleted channel or a removed Agent is never reopened.
+ * Which conversation Chat opens when the URL names none: the channel, direct message, or Saved
+ * view the user opened last in the Workspace (kept per device in `localStorage`, read only after
+ * mount so SSR never depends on it) while it is still in their lists, else the first channel they
+ * have joined.
  */
 
 const STORAGE_PREFIX = "coforge-last-conversation:";
 
-export type RememberedConversation =
-  | { channelId: string }
-  | { agentId: string }
-  | { view: "saved" };
+/** A conversation the Chat detail pane can show. */
+export type ConversationTarget = { channelId: string } | { agentId: string } | { view: "saved" };
 
-function storage(): Storage | null {
-  try {
-    return typeof localStorage === "undefined" ? null : localStorage;
-  } catch {
-    return null;
+/** The route a conversation target opens, spreadable into `Link` or `navigate`. */
+export function conversationRoute(target: ConversationTarget) {
+  if ("channelId" in target) {
+    return {
+      to: "/messages/channels/$channelId",
+      params: { channelId: target.channelId },
+    } as const;
   }
+  if ("agentId" in target) {
+    return { to: "/messages/$agentId", params: { agentId: target.agentId } } as const;
+  }
+  return { to: "/messages/saved" } as const;
 }
 
 /** The conversation a de-localized pathname opens, if it is one. */
-function conversationAt(pathname: string): RememberedConversation | undefined {
+export function conversationAt(pathname: string): ConversationTarget | undefined {
   if (pathname === "/messages/saved") return { view: "saved" };
   const channel = /^\/messages\/channels\/([^/]+)$/.exec(pathname);
   if (channel) return { channelId: channel[1]! };
@@ -31,44 +35,51 @@ function conversationAt(pathname: string): RememberedConversation | undefined {
 }
 
 /** Records `pathname` as the Workspace's last conversation when it is one; other pages leave the
- * memory as it was. */
+ * memory as it was. Without storage (private window, blocked) Chat opens its default instead. */
 export function rememberConversation(workspaceId: string, pathname: string): void {
-  const conversation = conversationAt(pathname);
-  if (!conversation) return;
+  if (!conversationAt(pathname)) return;
   try {
-    storage()?.setItem(STORAGE_PREFIX + workspaceId, JSON.stringify(conversation));
+    localStorage.setItem(STORAGE_PREFIX + workspaceId, pathname);
   } catch {
-    // Storage full or blocked: Chat then opens its default conversation.
+    // Nothing remembered.
   }
 }
 
-/** The Workspace's last conversation, if it is still in the viewer's lists. */
-export function rememberedConversation(
-  workspaceId: string,
-  available: { channelIds: readonly string[]; agentIds: readonly string[] },
-): RememberedConversation | undefined {
-  let raw: string | null | undefined;
+/** The Workspace's last conversation on this device, if any. */
+export function rememberedConversation(workspaceId: string): ConversationTarget | undefined {
   try {
-    raw = storage()?.getItem(STORAGE_PREFIX + workspaceId);
+    const pathname = localStorage.getItem(STORAGE_PREFIX + workspaceId);
+    return pathname ? conversationAt(pathname) : undefined;
   } catch {
     return undefined;
   }
-  if (!raw) return undefined;
-  let value: unknown;
-  try {
-    value = JSON.parse(raw);
-  } catch {
-    return undefined;
+}
+
+type ListedChannel = { id: string; joined: boolean; archived: boolean };
+
+/** The first channel the viewer has joined, in sidebar order: the top of the CHANNELS group. */
+export function firstJoinedChannel(channels: readonly ListedChannel[]): string | undefined {
+  return channels.find((channel) => channel.joined && !channel.archived)?.id;
+}
+
+/**
+ * Where Chat lands: the remembered conversation while it is still listed (an archived or deleted
+ * channel, or a removed or closed direct message, is not), else the first joined channel.
+ */
+export function landingConversation(
+  remembered: ConversationTarget | undefined,
+  lists: { channels: readonly ListedChannel[]; agentIds: readonly string[] },
+): ConversationTarget | undefined {
+  if (remembered && "view" in remembered) return remembered;
+  if (remembered && "channelId" in remembered) {
+    const listed = lists.channels.some(
+      (channel) => channel.id === remembered.channelId && !channel.archived,
+    );
+    if (listed) return remembered;
   }
-  if (!value || typeof value !== "object") return undefined;
-  if ("view" in value && value.view === "saved") return { view: "saved" };
-  if ("channelId" in value && typeof value.channelId === "string") {
-    return available.channelIds.includes(value.channelId)
-      ? { channelId: value.channelId }
-      : undefined;
+  if (remembered && "agentId" in remembered && lists.agentIds.includes(remembered.agentId)) {
+    return remembered;
   }
-  if ("agentId" in value && typeof value.agentId === "string") {
-    return available.agentIds.includes(value.agentId) ? { agentId: value.agentId } : undefined;
-  }
-  return undefined;
+  const channelId = firstJoinedChannel(lists.channels);
+  return channelId ? { channelId } : undefined;
 }

@@ -20,13 +20,12 @@ export function useLastLocationMemory(workspaceSlug: string | undefined) {
     const remember = () => {
       const path = router.state.location.pathname;
       if (path === recordedPath.current) return;
-      if (
-        // A URL no route matches resolves "successfully" with `_notFound` set, which is how the
-        // router itself tells a failed match apart.
-        router.state.matches.some((match) => match.status !== "success" || match._notFound)
-      ) {
-        return;
-      }
+      // A URL no route matches resolves "successfully" with `_notFound` set, which is how the
+      // router itself tells a failed match apart.
+      const failed = router.state.matches.some(
+        (match) => match.status !== "success" || match._notFound,
+      );
+      if (failed) return;
       recordedPath.current = path;
       const cookie = lastLocationCookie(
         { workspaceSlug, path },
