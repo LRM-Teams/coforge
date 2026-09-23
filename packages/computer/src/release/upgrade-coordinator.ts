@@ -369,24 +369,29 @@ export async function runUpgradeCoordinator(args: string[]): Promise<void> {
     committedResult = result;
   };
   let result: UpgradeResult;
+  let workspaceRecoveryFailed = false;
   try {
     result = await coordinateUpgrade(request, (stage) => console.log(`==> ${stage}`), commitResult);
   } catch (error) {
-    result =
-      error instanceof UpgradeCoordinatorError
-        ? error.result
-        : {
-            schema_version: 1,
-            request_id: request.requestId,
-            operation: request.operation,
-            status: "failed",
-            error: errorMessage(error),
-            ...(error instanceof UpdateError ? { errorCode: error.code } : {}),
-          };
+    if (error instanceof UpgradeCoordinatorError) {
+      result = error.result;
+      workspaceRecoveryFailed = /Workspace recovery failed/.test(error.message);
+    } else {
+      result = {
+        schema_version: 1,
+        request_id: request.requestId,
+        operation: request.operation,
+        status: "failed",
+        error: errorMessage(error),
+        ...(error instanceof UpdateError ? { errorCode: error.code } : {}),
+      };
+    }
   }
   await commitResult(result);
   // The caller reports the durable error; an uncaught throw would dump a second stack trace.
-  if (result.status === "failed") process.exitCode = 1;
+  // Succeeded bytes with incomplete Workspace recovery still exit non-zero so the CLI does not
+  // claim a clean install while launches remain held or children failed to start.
+  if (result.status === "failed" || workspaceRecoveryFailed) process.exitCode = 1;
 }
 
 export interface LaunchUpgradeCoordinatorPaths extends UpgradeCoordinatorPaths {
@@ -443,6 +448,11 @@ export async function launchUpgradeCoordinator(
   }
   const result = JSON.parse(await readFile(resultPath, "utf8")) as UpgradeResult;
   if (result.status === "failed") throw new UpgradeCoordinatorError(result.error!, result);
+  // A succeeded receipt can still pair with exit 1 when Workspace recovery failed after commit.
+  // Wait for the process so that incomplete recovery is not reported as a clean CLI success.
+  const exitCode = await child.exited;
+  if (exitCode !== 0)
+    throw new UpgradeCoordinatorError("candidate committed; Workspace recovery failed", result);
   return result;
 }
 

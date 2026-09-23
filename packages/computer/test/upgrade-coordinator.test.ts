@@ -461,6 +461,62 @@ test("a coordinator that exits without evidence does not strand the caller", asy
   );
 });
 
+test("post-commit Workspace recovery failure exits non-zero and is not reported as clean success", async () => {
+  // After the durable succeeded receipt is written, a stranded resume (or other Workspace
+  // recovery fault) must not look like a clean CLI success: the coordinator exits 1 and
+  // launchUpgradeCoordinator must surface that even though result.status is succeeded.
+  const installRoot = await mkdtemp(join(tmpdir(), "coforge-recovery-exit-"));
+  directories.push(installRoot);
+  const requestId = crypto.randomUUID();
+  const { resultPath } = upgradeReceiptPaths(installRoot, requestId);
+  const stub = join(installRoot, "fake-upgrade-coordinator");
+  await Bun.write(
+    stub,
+    `#!/usr/bin/env bun
+import { mkdir, writeFile, rename } from "node:fs/promises";
+import { dirname } from "node:path";
+const request = JSON.parse(await Bun.file(Bun.argv[Bun.argv.indexOf("--request") + 1]).text());
+const result = {
+  schema_version: 1,
+  request_id: request.requestId,
+  operation: request.operation,
+  status: "succeeded",
+  version: "2.0.0",
+};
+const temporary = request.resultPath + ".tmp";
+await mkdir(dirname(request.resultPath), { recursive: true });
+await writeFile(temporary, JSON.stringify(result) + "\\n");
+await rename(temporary, request.resultPath);
+process.exitCode = 1;
+`,
+  );
+  await Bun.spawn(["chmod", "+x", stub]).exited;
+
+  const operation: UpgradeOperation = {
+    requestId,
+    operation: "upgrade",
+    selection: "2.0.0",
+    origin: "cli",
+    quiet: false,
+  };
+  await expect(
+    launchUpgradeCoordinator(operation, {
+      installRoot,
+      binaryDirectory: join(installRoot, "bin"),
+      target: "linux-x86_64",
+      baseUrl: "https://example.invalid",
+      supervisorSocketPath: join(installRoot, "supervisor.sock"),
+      supervisorStatePath: join(installRoot, "state"),
+      executablePath: stub,
+    }),
+  ).rejects.toMatchObject({
+    name: "UpgradeCoordinatorError",
+    message: "candidate committed; Workspace recovery failed",
+    result: { status: "succeeded", version: "2.0.0" },
+  });
+  expect(await Bun.file(resultPath).exists()).toBe(true);
+});
+
 test("the durable request file carries the operation identity to the coordinator process", async () => {
   const { options, requestId } = await harness();
   const { operation, paths } = split(options);
