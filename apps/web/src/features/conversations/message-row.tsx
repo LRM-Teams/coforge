@@ -824,8 +824,8 @@ export function MessageRow({
         data-message={own ? "own" : "other"}
         onClick={openActions}
         className={cn(
-          "group/message relative flex scroll-m-6 gap-3 px-4 transition-[background-color,box-shadow] duration-500 hover:bg-secondary focus-within:bg-secondary target:bg-active target:ring-2 target:ring-brand/50 target:ring-offset-4 target:ring-offset-primary md:px-6",
-          highlighted && "bg-active ring-2 ring-brand/50 ring-offset-4 ring-offset-primary",
+          "group/message relative flex scroll-m-6 gap-3 px-4 transition-[background-color,box-shadow] duration-500 hover:bg-secondary focus-within:bg-secondary target:bg-tertiary target:ring-2 target:ring-brand/50 target:ring-offset-4 target:ring-offset-primary md:px-6",
+          highlighted && "bg-tertiary ring-2 ring-brand/50 ring-offset-4 ring-offset-primary",
           grouped ? "py-0.5" : "py-2",
         )}
       >

@@ -148,7 +148,7 @@ describe("ConversationHistory", () => {
     ).rejects.toThrow("ACCESS_DENIED");
   });
 
-  test("loads an around window only for an own message in the requested conversation", async () => {
+  test("loads an around window for any root message in the requested conversation", async () => {
     const messageQueries: object[] = [];
     const message = (id: string, sequence: number) => ({
       id,
@@ -215,9 +215,11 @@ describe("ConversationHistory", () => {
         id: "message-10",
         conversationId: "channel-conversation-1",
         threadRootId: null,
-        sender: { userId: "user-1" },
       },
     });
+    // No sender filter on the anchor: a saved jump (#127) lands on other members' and Agent
+    // messages too, so the where clause must not require the viewer to be the sender.
+    expect(JSON.stringify(messageQueries[0])).not.toContain("sender");
     expect(page).toMatchObject({
       conversationId: "channel-conversation-1",
       hasOlder: true,

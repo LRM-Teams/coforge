@@ -23,7 +23,7 @@ const CONVERSATION_PANE = join(REPO_ROOT, "src/features/conversations/direct-con
 
 test("the landed row wears exactly the classes the :target treatment uses", async () => {
   const source = await readFile(MESSAGE_ROW, "utf8");
-  const targetLine = source.split("\n").find((line) => line.includes("target:bg-active"));
+  const targetLine = source.split("\n").find((line) => line.includes("target:bg-tertiary"));
   expect(targetLine).toBeDefined();
   const deepLinkClasses = (targetLine as string)
     .match(/target:[^\s"]+/g)
