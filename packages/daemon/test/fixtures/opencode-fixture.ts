@@ -201,6 +201,30 @@ if (mode === "error-event") {
   process.exit(0);
 }
 
+// The provider quota envelope exactly as the live CLI emitted it on 2026-09-23 (OpenCode Zen pool
+// exhausted): a top-level error record whose cause rides `error.message` with `error.type` and
+// `error.status` classifying it. The adapter must surface all three, not fold into a bare label.
+if (mode === "provider-quota") {
+  write({
+    type: "error",
+    timestamp,
+    sessionID: sessionId,
+    error: {
+      type: "provider.quota",
+      message: "Rate limit exceeded. Please try again later.",
+      status: 429,
+    },
+  });
+  process.exit(0);
+}
+
+// An envelope shape the adapter has never seen (no type/status/message/name): the surfaced reason
+// must still be words, never an empty string.
+if (mode === "opaque-error") {
+  write({ type: "error", timestamp, sessionID: sessionId, error: { code: "WEIRD" } });
+  process.exit(0);
+}
+
 if (mode === "crash") {
   console.error("Error: model not found: opencode/nope");
   process.exit(1);
