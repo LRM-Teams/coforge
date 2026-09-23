@@ -3,6 +3,7 @@ import { createRouter as createTanStackRouter } from "@tanstack/react-router";
 import { setupRouterSsrQueryIntegration } from "@tanstack/react-router-ssr-query";
 import { GlobalError } from "./features/errors/page-load-error";
 import { deLocalizeUrl, localizeUrl } from "./paraglide/runtime";
+import { PENDING_DELAY_MS, PENDING_MIN_MS } from "./lib/pending-policy";
 import { routeTree } from "./routeTree.gen";
 
 export function getRouter() {
@@ -21,6 +22,9 @@ export function getRouter() {
     routeTree,
     context: { queryClient },
     scrollRestoration: true,
+    // The pending fallback policy, stated once for every route (see lib/pending-policy.ts).
+    defaultPendingMs: PENDING_DELAY_MS,
+    defaultPendingMinMs: PENDING_MIN_MS,
     defaultPreload: "intent",
     defaultPreloadStaleTime: 30_000,
     defaultErrorComponent: GlobalError,

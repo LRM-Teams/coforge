@@ -30,8 +30,6 @@ export const Route = createFileRoute("/_app/computers/$computerId")({
       latestComputerVersion: loaderData?.latestComputerVersion ?? null,
     };
   },
-  pendingMs: 300,
-  pendingMinMs: 0,
   pendingComponent: ComputerDetailPending,
   errorComponent: ComputerDetailLoadError,
   component: ComputerDetailPage,

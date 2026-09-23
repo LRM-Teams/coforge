@@ -7,7 +7,6 @@ import {
   DirectConversationHeader,
 } from "@/features/conversations/direct-conversation";
 import {
-  CONVERSATION_PENDING_MS,
   ConversationLoadError,
   ConversationPending,
 } from "@/features/conversations/conversation-pending";
@@ -57,8 +56,6 @@ export const Route = createFileRoute("/_app/messages/$agentId")({
   remountDeps: ({ params }) => params.agentId,
   loader: ({ context, params }) =>
     context.queryClient.infiniteQuery(directConversationQuery(params.agentId).query),
-  pendingMs: CONVERSATION_PENDING_MS,
-  pendingMinMs: CONVERSATION_PENDING_MS,
   pendingComponent: ConversationPending,
   errorComponent: ConversationLoadError,
   component: DirectConversationPage,

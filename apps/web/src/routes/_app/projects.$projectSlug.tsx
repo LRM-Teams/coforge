@@ -15,8 +15,6 @@ export const Route = createFileRoute("/_app/projects/$projectSlug")({
       })),
     };
   },
-  pendingMs: 300,
-  pendingMinMs: 0,
   pendingComponent: ProjectsPending,
   errorComponent: PageLoadError,
   component: ProjectPage,
