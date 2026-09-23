@@ -21,6 +21,7 @@ import { m } from "#src/paraglide/messages";
 import { CreateWeeklyTemplateDialog } from "./create-weekly-template-dialog";
 import { KeyPointPromptEditor } from "./key-point-prompt-editor";
 import { RecordsDeleteConfirmDialog } from "./records-delete-confirm-dialog";
+import { RECORDS_PRIMARY_BUTTON_CLASSNAME } from "./records-primary-button";
 import {
   emptyKeyPointPrompts,
   formatRecipientSummary,
@@ -284,11 +285,23 @@ export function WeeklyReportSettings({
           <Tab id="key_points">{m.records_settings_tab_key_points()}</Tab>
         </TabList>
         {topTab === "templates" ? (
-          <Button size="sm" color="primary" iconLeading={Plus} onPress={openCreate}>
+          <Button
+            size="sm"
+            color="primary"
+            className={RECORDS_PRIMARY_BUTTON_CLASSNAME}
+            iconLeading={Plus}
+            onPress={openCreate}
+          >
             {m.records_create_template()}
           </Button>
         ) : (
-          <Button size="sm" color="primary" isDisabled={busy} onPress={() => void onSavePrompt()}>
+          <Button
+            size="sm"
+            color="primary"
+            className={RECORDS_PRIMARY_BUTTON_CLASSNAME}
+            isDisabled={busy}
+            onPress={() => void onSavePrompt()}
+          >
             {m.records_key_points_prompt_save()}
           </Button>
         )}

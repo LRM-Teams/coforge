@@ -6,6 +6,7 @@ import { Button } from "#src/components/base/buttons/button";
 import { ButtonUtility } from "#src/components/base/buttons/button-utility";
 import { FeaturedIcon } from "#src/components/foundations/featured-icon/featured-icon";
 import { m } from "#src/paraglide/messages";
+import { RECORDS_PRIMARY_BUTTON_CLASSNAME } from "./records-primary-button";
 
 export const WEEKLY_SEND_TOAST_MS = 3000;
 
@@ -60,6 +61,7 @@ export function WeeklySendConfirmDialog({
                   type="button"
                   color="primary"
                   size="sm"
+                  className={RECORDS_PRIMARY_BUTTON_CLASSNAME}
                   isDisabled={busy}
                   onPress={() => void onConfirm()}
                 >

@@ -45,6 +45,7 @@ import { useConversationRealtime } from "#src/features/conversations/conversatio
 import type { WeeklyReportAssistantSuggestion } from "#src/server/records/weekly-report-assistant-suggestion.server";
 import type { KeyPointExtractionMeta, ReportContent } from "./records-content";
 import { formatWeeklyReportCompletedAt } from "./records-content";
+import { RECORDS_PRIMARY_BUTTON_CLASSNAME } from "./records-primary-button";
 import {
   addRecordComment,
   acceptMemberGenerateHelp,
@@ -1220,6 +1221,7 @@ export function RecordSidePanel({
                             <Button
                               size="sm"
                               color="primary"
+                              className={RECORDS_PRIMARY_BUTTON_CLASSNAME}
                               isDisabled={busy}
                               onPress={() => onRequestSend?.()}
                             >
@@ -1247,6 +1249,7 @@ export function RecordSidePanel({
                     <Button
                       size="sm"
                       color="primary"
+                      className={RECORDS_PRIMARY_BUTTON_CLASSNAME}
                       isDisabled={busy}
                       onPress={() => void onAcceptGenerateHelp()}
                     >
@@ -1258,6 +1261,7 @@ export function RecordSidePanel({
                       <Button
                         size="sm"
                         color="primary"
+                        className={RECORDS_PRIMARY_BUTTON_CLASSNAME}
                         isDisabled={busy}
                         onPress={() => void onConfirmIntent(payload.intent, payload.userGuidance)}
                       >
@@ -1378,6 +1382,7 @@ export function RecordSidePanel({
                         <Button
                           size="sm"
                           color="primary"
+                          className={RECORDS_PRIMARY_BUTTON_CLASSNAME}
                           isDisabled={busy}
                           onPress={() => void confirmSuggestion(message.id, suggestion)}
                         >
@@ -1471,7 +1476,7 @@ export function RecordSidePanel({
                 size="sm"
                 color="secondary"
                 icon={Send}
-                className="bg-brand-solid text-white hover:bg-brand-solid"
+                className={RECORDS_PRIMARY_BUTTON_CLASSNAME}
                 aria-label={m.records_side_chat_send()}
                 isDisabled={sendLocked || !draft.trim()}
               />
@@ -1514,6 +1519,7 @@ export function RecordSidePanel({
                 <Button
                   size="sm"
                   color="primary"
+                  className={RECORDS_PRIMARY_BUTTON_CLASSNAME}
                   isDisabled={!renameDraft.trim() || busy}
                   onPress={() => void submitRename()}
                 >
