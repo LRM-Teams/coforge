@@ -185,7 +185,12 @@ export class ReminderScheduler {
     try {
       receipts = await this.store.read(agentId);
     } catch (error) {
-      logger.error("Reminder receipt restore failed", { error, agent_id: agentId });
+      logger.error("Reminder receipt restore failed", {
+        error,
+        event: "reminder.receipt_restore_failed",
+        outcome: "failed",
+        agent_id: agentId,
+      });
       return;
     }
     for (const receipt of receipts) {
@@ -194,7 +199,11 @@ export class ReminderScheduler {
         receipt.computerId !== this.scope.computerId ||
         receipt.agentId !== agentId
       ) {
-        logger.error("Reminder receipt restore rejected for another daemon", { agent_id: agentId });
+        logger.error("Reminder receipt restore rejected for another daemon", {
+          event: "reminder.receipt_restore_rejected",
+          outcome: "rejected",
+          agent_id: agentId,
+        });
         continue;
       }
       const key = this.#receiptKey(agentId, receipt.reminderId, receipt.version);
@@ -241,7 +250,12 @@ export class ReminderScheduler {
           (r) => r.reminderId === job.reminderId && r.version === job.version,
         );
       } catch (error) {
-        logger.error("Reminder receipt read failed", { error, agent_id: job.ownerAgentId });
+        logger.error("Reminder receipt read failed", {
+          error,
+          event: "reminder.receipt_read_failed",
+          outcome: "failed",
+          agent_id: job.ownerAgentId,
+        });
       }
     }
     if (!receipt) {
@@ -282,7 +296,12 @@ export class ReminderScheduler {
     } catch (error) {
       const failures = (this.#persistenceFailures.get(key) ?? 0) + 1;
       this.#persistenceFailures.set(key, failures);
-      logger.error("Reminder receipt persistence failed", { error, agent_id: receipt.agentId });
+      logger.error("Reminder receipt persistence failed", {
+        error,
+        event: "reminder.receipt_persist_failed",
+        outcome: "failed",
+        agent_id: receipt.agentId,
+      });
       if (!this.#running || failures >= MAX_ATTEMPTS || this.clock.now() >= receipt.deadline)
         return false;
       receipt.nextAt = Math.min(receipt.deadline, this.clock.now() + this.#backoff(failures));
@@ -354,9 +373,13 @@ export class ReminderScheduler {
       // server answered every fire with RPC 104 "method not found" and the log named neither).
       logger.error("Reminder fire failed", {
         error,
+        event: "reminder.fire_failed",
+        outcome: "failed",
         agent_id: receipt.agentId,
         reminder_id: receipt.reminderId,
-        version: receipt.version,
+        // `reminder_version`, not `version`: the structured line already carries the build's
+        // `version` (docs/observability.md reserves it), and the two must stay tellable apart.
+        reminder_version: receipt.version,
         attempt: receipt.attempt,
         retry_deadline: new Date(receipt.deadline).toISOString(),
       });
