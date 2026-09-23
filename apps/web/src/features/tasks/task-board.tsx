@@ -17,6 +17,7 @@ import {
   type TaskLayout,
 } from "./task-workflow";
 import { useSubmitGuard } from "@/hooks/use-submit-guard";
+import type { Mentionable } from "@/features/conversations/mention-text";
 
 export type TaskBoardProps = {
   tasks: TaskView[];
@@ -30,6 +31,8 @@ export type TaskBoardProps = {
   ) => Promise<void>;
   onShowChat: () => void;
   conversationName?: string;
+  /** Who the task popup names as assignees and offers to assign. */
+  members?: readonly Mentionable[];
   onCreateTask?: (title: string, idempotencyKey: string) => Promise<TaskView | void>;
   layout?: TaskLayout;
   onLayoutChange?: (layout: TaskLayout) => void;
@@ -46,6 +49,7 @@ export function TaskBoard({
   onCommand,
   onShowChat,
   conversationName,
+  members,
   onCreateTask,
   layout = "board",
   onLayoutChange = () => {},
@@ -118,6 +122,9 @@ export function TaskBoard({
                 onCommand={onCommand}
                 controls={controls}
                 list={layout === "list"}
+                conversationLabel={conversationName ?? ""}
+                members={members}
+                currentMemberId={currentMemberId || null}
               />
             )}
           />
@@ -145,6 +152,9 @@ function TaskCard({
   onCommand,
   controls,
   list,
+  conversationLabel,
+  members,
+  currentMemberId,
 }: {
   task: TaskView;
   own: boolean;
@@ -153,6 +163,9 @@ function TaskCard({
   onCommand: TaskBoardProps["onCommand"];
   controls: TaskControls;
   list: boolean;
+  conversationLabel: string;
+  members?: readonly Mentionable[];
+  currentMemberId: string | null;
 }) {
   const [pending, guard] = useSubmitGuard();
   const available = task.status === "todo" && (!task.owner || own);
@@ -172,7 +185,13 @@ function TaskCard({
         {canMutate && (
           <div className="-mt-1 -mr-1.5 flex shrink-0 items-center">
             {controls.handle}
-            <TaskDetailMenu task={task} onCommand={onCommand} />
+            <TaskDetailMenu
+              task={task}
+              onCommand={onCommand}
+              conversationLabel={conversationLabel}
+              members={members}
+              currentMemberId={currentMemberId}
+            />
           </div>
         )}
       </div>

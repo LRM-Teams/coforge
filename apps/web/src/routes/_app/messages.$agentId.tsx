@@ -5,6 +5,7 @@ import { z } from "zod";
 import {
   DirectConversation,
   DirectConversationHeader,
+  directConversationTaskMembers,
 } from "@/features/conversations/direct-conversation";
 import {
   ConversationLoadError,
@@ -143,6 +144,7 @@ function DirectConversationPage() {
         onLayoutChange={changeLayout}
         tasks={taskView.tasks}
         conversationName={conversation.agent.displayName}
+        members={directConversationTaskMembers(conversation.agent)}
         currentMemberId={conversation.senderMemberId}
         canMutate
         loading={taskView.loading}
