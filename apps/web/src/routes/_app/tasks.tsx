@@ -49,7 +49,7 @@ function TasksPage() {
           await execute({
             data: {
               ...command,
-              requestId: crypto.randomUUID(),
+              idempotencyKey: crypto.randomUUID(),
               conversationId: task.conversationId,
             },
           });

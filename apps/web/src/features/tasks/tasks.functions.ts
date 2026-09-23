@@ -64,7 +64,7 @@ export const loadTaskOverview = createServerFn({ method: "GET" })
 
 export const executeTask = createServerFn({ method: "POST" })
   .middleware([workspaceUserMiddleware])
-  .validator((data: unknown): TaskCommand => taskCommand.parse(data))
+  .validator((data: TaskCommand): TaskCommand => taskCommand.parse(data))
   .handler(async ({ context, data }) => {
     const { user, db, workspaceId } = context;
     const centrifugo = createCentrifugoServerApi();
