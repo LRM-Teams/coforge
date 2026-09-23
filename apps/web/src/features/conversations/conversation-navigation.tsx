@@ -1,4 +1,12 @@
-import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { getRouteApi, useParams, useRouter, useRouterState } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { ArrowLeft } from "@untitledui/icons";
@@ -131,6 +139,7 @@ export function ConversationNavigation({ children }: { children: ReactNode }) {
 
   const visibleChannels = useMemo(() => channels.filter((listed) => !listed.archived), [channels]);
   const hiddenAgentIds = useMemo(() => new Set(directPreferences.hidden), [directPreferences]);
+  const closedChatRefresh = useRef<"idle" | "running" | "queued">("idle");
   const unread = useChannelUnread({
     workspaceId,
     userId: viewerId,
@@ -139,7 +148,22 @@ export function ConversationNavigation({ children }: { children: ReactNode }) {
     // The open DM's own events must not bump its badge: they are being read right now.
     openAgentId: agent?.agentId,
     hiddenAgentIds,
-    onClosedConversationActivity: () => void router.invalidate(),
+    onClosedConversationActivity: () => {
+      // One refresh at a time: a burst of messages needs a single re-read of the list. A message
+      // that lands mid-refresh may have missed that read, so it queues exactly one more.
+      if (closedChatRefresh.current !== "idle") {
+        closedChatRefresh.current = "queued";
+        return;
+      }
+      const refresh = () => {
+        closedChatRefresh.current = "running";
+        void router.invalidate().finally(() => {
+          if (closedChatRefresh.current === "queued") refresh();
+          else closedChatRefresh.current = "idle";
+        });
+      };
+      refresh();
+    },
   });
   // Every loader refresh carries the server's own persisted counts; local arithmetic
   // restarts from them (sequence boundaries survive, so no event double-counts). Direct

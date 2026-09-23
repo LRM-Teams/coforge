@@ -47,7 +47,7 @@ export type ConversationRowMenuTarget =
  * click, long-press on touch and the platform's keyboard/screen-reader shortcuts, and places it
  * at that point; a left click stays an ordinary navigation. Close Chat acts at once, without a
  * confirm: it only hides the chat from the viewer's own list, and a new message from someone else
- * or opening the chat brings it back.
+ * brings it back.
  */
 export function ConversationRowMenu({
   target,

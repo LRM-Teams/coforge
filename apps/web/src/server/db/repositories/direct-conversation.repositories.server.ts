@@ -1108,25 +1108,31 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
           },
         },
       }),
-      this.db.conversationMember.findMany({
-        where: { ...dmScope, hiddenAt: { not: null } },
-        select: {
-          hiddenAt: true,
-          conversation: {
-            select: {
-              members: { where: { agentId: { not: null } }, select: { agentId: true } },
-              // The Agent's newest top-level message: one posted after the close brings the DM
-              // back to the list (opening it reopens it for good).
-              messages: {
-                where: { threadRootId: null, sender: { agentId: { not: null } } },
-                orderBy: { sequence: "desc" },
-                take: 1,
-                select: { createdAt: true },
-              },
-            },
-          },
-        },
-      }),
+      // DMs the viewer closed that stay closed: a top-level message the Agent posted after the
+      // close brings one back. `NOT EXISTS` stops at the first such message on the
+      // `messages(conversationId, createdAt)` index instead of loading the DM's history.
+      this.db.$queryRaw<{ agentId: string }[]>`
+        SELECT am."agentId" AS "agentId"
+        FROM "conversation_members" cm
+        JOIN "conversations" c
+          ON c."id" = cm."conversationId"
+         AND c."workspaceId" = ${workspaceId}::uuid
+         AND c."directKey" IS NOT NULL
+        JOIN "conversation_members" am
+          ON am."conversationId" = cm."conversationId"
+         AND am."agentId" IS NOT NULL
+        WHERE cm."userId" = ${userId}::uuid
+          AND cm."workspaceId" = ${workspaceId}::uuid
+          AND cm."leftAt" IS NULL
+          AND cm."hiddenAt" IS NOT NULL
+          AND NOT EXISTS (
+            SELECT 1 FROM "messages" m
+            WHERE m."conversationId" = cm."conversationId"
+              AND m."threadRootId" IS NULL
+              AND m."senderMemberId" = am."id"
+              AND m."createdAt" > cm."hiddenAt"
+          )
+      `,
     ]);
     return {
       conversations: conversations.flatMap((row) =>
@@ -1137,12 +1143,7 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
           pin.conversation.members.map((m) => ({ agentId: m.agentId!, sortOrder: pin.sortOrder })),
         )
         .sort((left, right) => left.sortOrder - right.sortOrder),
-      hidden: hidden
-        .filter((row) => {
-          const latest = row.conversation.messages.at(0);
-          return !(latest && row.hiddenAt && latest.createdAt > row.hiddenAt);
-        })
-        .flatMap((row) => row.conversation.members.map((m) => m.agentId!)),
+      hidden: hidden.map((row) => row.agentId),
     };
   }
 
@@ -1169,7 +1170,6 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
             // The viewer's own conversation-level read cursor: the client positions the
             // initial view at the first unread message and draws the divider there.
             readThroughSequence: true,
-            hiddenAt: true,
             threadReads: {
               select: { rootMessageId: true, readThroughSequence: true },
             },
@@ -1243,8 +1243,6 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
       // The viewer's conversation-level read boundary: first unread = first top-level
       // message past this. Thread replies are positioned by their thread instead.
       readThroughSequence: sender.readThroughSequence,
-      // The viewer closed this DM: opening it is what brings it back to their list.
-      hidden: sender.hiddenAt != null,
       threadReadThrough: Object.fromEntries(
         sender.threadReads.map((r) => [r.rootMessageId, r.readThroughSequence]),
       ),
