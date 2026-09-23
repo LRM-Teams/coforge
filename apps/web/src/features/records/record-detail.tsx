@@ -424,7 +424,7 @@ function ReportDetail({
       >
         <div
           aria-hidden
-          className="pointer-events-none absolute inset-x-0 top-0 h-52 bg-gradient-to-b from-brand-primary via-brand-primary/50 to-transparent"
+          className="pointer-events-none absolute inset-x-0 top-0 h-52 bg-gradient-to-b from-secondary via-secondary/50 to-transparent"
         />
         <header className="relative shrink-0">
           <RecordsReadingColumn className="pb-6 pt-4">
@@ -851,7 +851,7 @@ function TemplateReportDetail({
       >
         <div
           aria-hidden
-          className="pointer-events-none absolute inset-x-0 top-0 h-40 bg-gradient-to-b from-brand-primary via-brand-primary/40 to-transparent"
+          className="pointer-events-none absolute inset-x-0 top-0 h-40 bg-gradient-to-b from-secondary via-secondary/40 to-transparent"
         />
         <header className="relative flex h-12 shrink-0 items-center gap-3 px-4 sm:px-6">
           <span className="flex shrink-0 items-center gap-2">

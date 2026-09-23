@@ -650,7 +650,9 @@ function AgentCard({
         <span className="flex shrink-0 items-center gap-1.5">
           <Calendar aria-hidden="true" className="size-4 text-fg-quaternary" />
           <span className="sr-only">{m.member_created_on()}</span>
-          <time dateTime={new Date(member.createdAt).toISOString()}>{createdOn}</time>
+          <time className="tabular-nums" dateTime={new Date(member.createdAt).toISOString()}>
+            {createdOn}
+          </time>
         </span>
       </div>
     </GridListItem>

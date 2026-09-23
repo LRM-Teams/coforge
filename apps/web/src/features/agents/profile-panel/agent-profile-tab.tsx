@@ -626,7 +626,7 @@ function RoleField({
             <Select.Item id="admin" label={m.agent_role_admin()} />
           </Select>
         ) : (
-          <Badge color="brand" size="sm">
+          <Badge color="gray" size="sm">
             {role === "admin" ? m.agent_role_admin() : m.agent_role_member()}
           </Badge>
         )}

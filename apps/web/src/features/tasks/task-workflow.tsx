@@ -10,12 +10,14 @@ import {
   useSensors,
   type DragEndEvent,
 } from "@dnd-kit/core";
+import { useHydrated } from "@tanstack/react-router";
 import { Columns03 as Columns3, DotsGrid as GripVertical, List } from "@untitledui/icons";
-import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
+import { useId, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { ButtonGroup, ButtonGroupItem } from "@/components/base/button-group/button-group";
 import { ButtonUtility } from "@/components/base/buttons/button-utility";
 import { Select } from "@/components/base/select/select";
+import { useBreakpoint } from "@/hooks/use-breakpoint";
 import { m } from "@/paraglide/messages";
 import { getTaskMoveCommand } from "./task-move";
 
@@ -24,16 +26,10 @@ export type TaskMoveCommand = NonNullable<ReturnType<typeof getTaskMoveCommand>>
 export type TaskControls = { handle: ReactNode; status: ReactNode };
 
 export function useTaskLayout(layout: TaskLayout | undefined): TaskLayout {
-  // Keep SSR and initial hydration identical; viewport defaults apply after mount.
-  const [defaultLayout, setDefaultLayout] = useState<TaskLayout>("board");
-  useEffect(() => {
-    const desktop = window.matchMedia("(min-width: 768px)");
-    const update = () => setDefaultLayout(desktop.matches ? "board" : "list");
-    update();
-    desktop.addEventListener("change", update);
-    return () => desktop.removeEventListener("change", update);
-  }, []);
-  return layout ?? defaultLayout;
+  // Keep SSR and initial hydration identical (board); the viewport default applies once hydrated.
+  const hydrated = useHydrated();
+  const desktop = useBreakpoint("md");
+  return layout ?? (!hydrated || desktop ? "board" : "list");
 }
 
 export function TaskLayoutToggle({
@@ -304,7 +300,7 @@ export function statusLabel(status: TaskStatus) {
 const statusAppearance = {
   todo: { background: "bg-fg-quaternary", badge: "bg-secondary text-secondary" },
   in_progress: { background: "bg-utility-blue-500", badge: "bg-secondary text-secondary" },
-  in_review: { background: "bg-brand-solid", badge: "bg-secondary text-secondary" },
+  in_review: { background: "bg-utility-amber-500", badge: "bg-secondary text-secondary" },
   done: { background: "bg-fg-success-primary", badge: "bg-secondary text-secondary" },
   closed: { background: "bg-offline", badge: "bg-secondary text-secondary" },
 } satisfies Record<TaskStatus, { background: string; badge: string }>;

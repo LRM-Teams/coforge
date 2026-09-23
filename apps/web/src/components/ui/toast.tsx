@@ -1,7 +1,8 @@
-import { useEffect, useState, type CSSProperties } from "react";
+import { type CSSProperties } from "react";
 import { AlertCircle, CheckCircle } from "@untitledui/icons";
 import { Toaster, toast } from "sonner";
 
+import { useBreakpoint } from "@/hooks/use-breakpoint";
 import { isAppError } from "@/lib/app-error";
 import { m } from "@/paraglide/messages";
 
@@ -19,20 +20,13 @@ const offset = {
 };
 
 export function AppToastProvider({ children }: { children: React.ReactNode }) {
-  const [mobile, setMobile] = useState(false);
-  useEffect(() => {
-    const query = window.matchMedia("(max-width: 767px)");
-    const update = () => setMobile(query.matches);
-    update();
-    query.addEventListener("change", update);
-    return () => query.removeEventListener("change", update);
-  }, []);
+  const desktop = useBreakpoint("md");
 
   return (
     <>
       {children}
       <Toaster
-        position={mobile ? "top-center" : "bottom-right"}
+        position={desktop ? "bottom-right" : "top-center"}
         visibleToasts={3}
         hotkey={["F6"]}
         customAriaLabel={m.navigation_notifications()}
