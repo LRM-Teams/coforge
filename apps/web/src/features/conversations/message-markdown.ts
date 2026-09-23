@@ -61,12 +61,11 @@ export const CHANNEL_CHIP_CLASS =
   "message-markdown-channel-reference rounded-sm px-0.5 font-medium bg-brand-primary text-brand-secondary";
 
 /**
- * A `#name` run in prose. The characters are a channel name's (`[a-z0-9][a-z0-9_-]*`, matched
- * case-insensitively); the run is taken whole, so `#product-launch` is never read as `#product`
- * followed by `-launch`. Anything else — CJK text, punctuation, a space — ends the run, so
- * `去#product频道` still names `#product`.
+ * A `#name` run in prose: letters in any script, digits, `_` and `-`, taken whole, so
+ * `#product-launch` is never read as `#product` followed by `-launch`, and `#product频道` is the
+ * name `product频道` (which names no channel). Punctuation or a space ends the name.
  */
-const CHANNEL_REFERENCE_PATTERN = /#([a-z0-9][a-z0-9_-]*)/gi;
+const CHANNEL_REFERENCE_PATTERN = /#([\p{L}\p{N}_-]+)/gu;
 
 /**
  * Escapes HTML-looking text outside code spans so Markdown renders it literally, matching the

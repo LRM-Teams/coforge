@@ -502,12 +502,17 @@ test("a #name that names no known channel stays text, including a longer name's 
   expect(tree.children[0]!.children).toEqual([text(source)]);
 });
 
-test("a channel reference needs no space around it", () => {
-  const tree = channelChipify([paragraph([text("去#product频道看")])]);
-  const children = tree.children[0]!.children as Array<Record<string, unknown>>;
+test("a channel name runs through letters in any script, so it needs a boundary after it", () => {
+  // `#product频道` is read as one name, `product频道`, which names no channel; with punctuation or a
+  // space after it the name ends and `#product` links.
+  expect(channelChipify([paragraph([text("去#product频道看")])]).children[0]!.children).toEqual([
+    text("去#product频道看"),
+  ]);
+  const children = channelChipify([paragraph([text("去#product，看")])]).children[0]!
+    .children as Array<Record<string, unknown>>;
   expect(children[0]).toEqual(text("去"));
   expect(children[1]).toMatchObject({ properties: { "data-channel-id": PRODUCT_ID } });
-  expect(children[2]).toEqual(text("频道看"));
+  expect(children[2]).toEqual(text("，看"));
 });
 
 test("a #name stays prose inside code, a link, or an existing chip", () => {
