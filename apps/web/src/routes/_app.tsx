@@ -21,6 +21,7 @@ import { WorkspaceAgentsProvider } from "#src/features/agents/workspace-agents-r
 import { getUserPreferences } from "#src/features/settings/settings.functions";
 import { getPanelTabOrders } from "#src/features/panel-tabs/panel-tabs.functions";
 import { PanelTabOrderProvider } from "#src/features/panel-tabs/panel-tab-order-context";
+import { useLastLocationMemory } from "#src/features/workspaces/use-last-location-memory";
 
 export const Route = createFileRoute("/_app")({
   staleTime: Infinity,
@@ -62,6 +63,7 @@ function AppLayout() {
     timeFormat,
     tabOrders,
   } = Route.useLoaderData();
+  useLastLocationMemory(currentWorkspace?.slug);
   const getRealtimeToken = useServerFn(getBrowserRealtimeConnectionToken);
   const getConnectionToken = useCallback(() => getRealtimeToken(), [getRealtimeToken]);
   const router = useRouter();
