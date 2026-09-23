@@ -83,7 +83,7 @@ PostgreSQL Message 始终是 canonical 数据，Redis 只做 24 小时短期防�
 只回答“当前 runtime 是否可接受直接注入”。Daemon idle 时优先低延迟直接注入；busy
 或 offline 时不丢弃消息，消息留在云端，待 runtime 空闲或重连后按
 `conversationSeq` 恢复。Activity 记录 turn、工具、错误等过程，不改变 presence 或 busy
-的定义；忙碌心跳（`is_heartbeat=true`，见 ADR 0016）只重发同一条 Activity 以维持展示端
+的定义；忙碌心跳（`is_heartbeat=true`）只重发同一条 Activity 以维持展示端
 的 working/thinking 租约，同样不改变 presence 或 busy 语义，也不是新的运行事实。
 
 `ConversationMember.lastReadSeq` 是通用成员读取边界。User 和 Agent 都可以有该边界，
@@ -127,15 +127,14 @@ protocol、SDK runner 或 ACP 的转换、错误和能力差异；这些细节�
 `message_id`/发送方幂等键抑制，不能要求 exactly-once Agent execution。Daemon 忙或离线
 期间，云端 Message 保留待恢复；恢复后按序交给 session。
 
-Computer 升级停止 Supervisor 前会先下发 runner hold（[ADR 0020](adr/0020-upgrade-runner-hold.md)）。
+Computer 升级停止 Supervisor 前会先下发 runner hold。
 被 hold 期间，新的 delivery 仍然进入既有的 per-Agent input queue，但不 drain、
 不 notify session，因此**不会发出 `agent:deliver:ack`**；服务端 `AgentMessageDelivery.receivedAt`
 保持为空，重启后的 ready handshake 会重新投递。这正是"accepted 不等于 Agent 执行完成"、
 "`AgentSession` 接受前不得 ACK"两条约束的自然结果，不需要额外的 ACK 抑制逻辑。
 hold 只存在于内存中，重启（含安装失败回滚后的恢复）后必然失效；`coforge-computer stop`
 是显式立即停止，不走 hold。`coforge-computer restart`（以及 Web 触发的同一个
-`daemon:restart`）同样会先 hold 目标 Workspace 并最多等待 30 秒
-（[ADR 0021](adr/0021-restart-runner-hold.md)）；等待超时或 hold 失败都照常重启。
+`daemon:restart`）同样会先 hold 目标 Workspace 并最多等待 30 秒；等待超时或 hold 失败都照常重启。
 
 当前不引入本地 durable spool、数据库 command mailbox、claim/lease 或完整 per-Agent
 delivery ledger。若未来故障证据证明需要 durable 接管记录，必须先单独确认字段、ACK
@@ -162,4 +161,4 @@ delivery ledger。若未来故障证据证明需要 durable 接管记录，必�
 
 ## 参考代码与基线
 
-相关现状见 [`docs/architecture.md`](architecture.md)、[`docs/database-schema.md`](database-schema.md)、`apps/web/prisma/schema.prisma`、`packages/coforge-sdk/proto/coforge/rpc/v1/workspace.proto`、Web 的 direct-message use case，以及 Daemon 的 `connection`、`daemon-runtime`、`agent-runtime`、`code-agent/contract.ts`。这些代码显示当前链路仍在实现中，不能反向扩大本文已确认范围。
+相关现状见 [`docs/database-schema.md`](database-schema.md)、`apps/web/prisma/schema.prisma`、`packages/coforge-sdk/proto/coforge/rpc/v1/workspace.proto`、Web 的 direct-message use case，以及 Daemon 的 `connection`、`daemon-runtime`、`agent-runtime`、`code-agent/contract.ts`。这些代码显示当前链路仍在实现中，不能反向扩大本文已确认范围。

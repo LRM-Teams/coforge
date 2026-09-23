@@ -154,7 +154,7 @@ missing or safely non-replayable session may start a new session with a new iden
 to restore availability. Authentication, network, ambiguous, permission, corruption,
 and other I/O failures do not become fresh sessions. Raft `controlAgentRuntime`
 capability: any current Workspace member (owner, admin, or member) may perform it,
-regardless of who owns the Agent (ADR 0034).
+regardless of who owns the Agent.
 
 **Session Invalidate**:
 The daemon-initiated notice behind a Restart Agent's "known missing or safely
@@ -169,18 +169,17 @@ association a subsequent Restart Agent then starts fresh from.
 Stop the Agent runtime, discard its current session association, and start a new
 Agent session in one user operation. Preserve the Agent workspace and old native
 session files. Raft `controlAgentRuntime` capability: any current Workspace member
-may perform it (ADR 0034).
+may perform it.
 
 **Full Reset**:
 Stop the Agent runtime, delete all contents of only its Agent workspace, discard
 its current session association, and start a new Agent session in one confirmed
 user operation. It does not delete cloud Messages, provider home directories,
 Global Skills, or another Agent's files. Raft `resetAgentWorkspace` capability:
-Workspace owner or admin only, even when the actor owns the Agent (ADR 0034). A
+Workspace owner or admin only, even when the actor owns the Agent. A
 workspace clear that cannot remove every file is non-fatal: the Daemon logs the
 failure and the operation still completes, starting a fresh session, instead of
-latching the Agent into a state only an explicit reset retry could leave (ADR 0036,
-matching Raft, which only logs the same failure). Stopping the Agent runtime first
+latching the Agent into a state only an explicit reset retry could leave (matching Raft, which only logs the same failure). Stopping the Agent runtime first
 remains a hard precondition (`confirmed_stop_required`) so a workspace is never
 deleted under a live process.
 
@@ -199,11 +198,11 @@ The User-owned Agent identity used for weekly-report AI within one Workspace.
 Each User has at most one WeeklyReportAssistant per Workspace; assistants are
 not shared between Users and are not independently managed from Members. Its
 Computer and Agent runtime remain the existing configurable Agent resources.
-In the collect→synthesize flow ([ADR 0032](docs/adr/0032-weekly-report-collectors-and-collect-run.md)),
+In the collect→synthesize flow,
 this Agent is the synthesizer and side-chat voice only — it does not harvest
 another Computer's OS. For this Agent only, each Records page subject
 (report or cycle) owns its own Agent session so week nodes do not share one
-long transcript ([ADR 0060](docs/adr/0060-weekly-assistant-per-subject-runtime-session.md)).
+long transcript.
 _Avoid_: Workspace-wide report Agent, shared report bot, Agent runtime,
 WeeklyReportCollector
 
@@ -219,7 +218,6 @@ harvesting in-window work evidence on that machine into a Collect pack. One
 collector slot per owned Computer; never another member's machine. Not the
 WeeklyReportAssistant. Not independently managed from Members (same product
 pattern as WeeklyReportAssistant). Persisted via `WeeklyReportCollectorBinding`.
-See ADR 0032.
 _Avoid_: WeeklyReportAssistant, generic Agent, Task, Job
 
 **WeeklyReportCollectorBinding**:
@@ -233,13 +231,12 @@ The platform ledger for one weekly-report harvest cycle: plan confirmation,
 parallel per-Computer collection, settle, and synthesis handoff into a
 confirmation-backed report suggestion. Narrow to weekly-report collect — not a
 Workspace workflow engine, durable command mailbox, or generic job system.
-See ADR 0032.
 _Avoid_: Task, Job, workflow, Agent Activity completion
 
 **Collect pack**:
 The structured Markdown evidence package one WeeklyReportCollector submits for
 a Collect Run slot. It is input to synthesis, not the finished member
-WeeklyReport body. See ADR 0032.
+WeeklyReport body.
 _Avoid_: WeeklyReport body, Message
 
 **Code Agent installation**:

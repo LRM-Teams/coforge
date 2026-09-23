@@ -85,26 +85,25 @@ Daemon、服务端存储和前端展示使用同一契约，每条 activity 固�
 | `launch_failed` / `stop_failed` | 启动或安全回收失败；使用脱敏后的可操作原因 |
 | `error` / `warning` | provider 运行错误或可恢复警告 |
 
-ADR 0021 在 `detailKind` 上新增了以下值，只在对应 provider 确有真实信号时才
+`detailKind` 上还有以下值，只在对应 provider 确有真实信号时才
 上报；`packages/coforge-sdk/src/internal/index.ts` 的 `AGENT_ACTIVITY_DETAIL_KIND` 是
 唯一权威定义：
 
 | detailKind | 上报条件 | 展示 |
 | --- | --- | --- |
-| `tool_end` | Claude 的 `tool_result`、Codex 的 `item/completed`（命令）、Kiro 的 `tool_call_update` 终态、Pi 的 `tool_execution_end`；detail 固定为 “Tool finished” | 可见，写入历史，Activity timeline 展示为一行状态行（主标题 Working，副标题“Tool finished”），不出现在头像 popover（ADR 0021 amendment） |
+| `tool_end` | Claude 的 `tool_result`、Codex 的 `item/completed`（命令）、Kiro 的 `tool_call_update` 终态、Pi 的 `tool_execution_end`；detail 固定为 “Tool finished” | 可见，写入历史，Activity timeline 展示为一行状态行（主标题 Working，副标题“Tool finished”），不出现在头像 popover |
 | `thinking_end` | 由 Daemon 从归一化事件流中统一推导（`ActivityTrajectory`）：一次 thinking 运行开始后，下一个 text-delta、tool-start、tool-end、compaction activity、turn 结束或 error 到来时上报一次；对每个 provider 都成立，不依赖各 provider 的专属信号；detail 固定为 “Thinking finished” | 同 `tool_end`，副标题“Thinking finished” |
 | `compacting_context` | Claude 的 `system/status=compacting`（原先误报为 `runtime_progress`）；Kiro 的 ACP `compaction_update`（`status=in_progress`）；Pi/CoForge 的 SDK `compaction_start` 事件；Codex 无对应信号。自 2026-09-18 起，provider 只上报归一化的 `compaction-started`/`compaction-finished`/`compaction-interrupted`/`progress` 信号（`packages/agent/src/contract.ts`），由 Daemon core（`packages/daemon/src/agent-runtime/compaction-tracker.ts`）统一去重（同一次压缩只报一次“开始”）并决定是否上报 Activity | 可见，写入历史，文案“Compacting context…” |
-| `compaction_finished` | 上述 provider 各自的结束信号（Claude 的 `compact_boundary`；Kiro 的 `compaction_update` 转为 `completed`；Pi/CoForge 的 `compaction_end`，未被中止时）。Daemon core 还会在压缩仍处于打开状态时，从恢复输出（文本/thinking）、新工具调用或 turn 结束推断出压缩已结束，并在这些信号自身的 Activity 之前上报 | 同 `tool_end`，副标题“Compaction finished”（ADR 0021 amendment；此前仅续租、不写入历史） |
+| `compaction_finished` | 上述 provider 各自的结束信号（Claude 的 `compact_boundary`；Kiro 的 `compaction_update` 转为 `completed`；Pi/CoForge 的 `compaction_end`，未被中止时）。Daemon core 还会在压缩仍处于打开状态时，从恢复输出（文本/thinking）、新工具调用或 turn 结束推断出压缩已结束，并在这些信号自身的 Activity 之前上报 | 同 `tool_end`，副标题“Compaction finished”（此前仅续租、不写入历史） |
 | `subagent_activity` | 任意携带 subagent 归属（Claude `parent_tool_use_id`）的 trajectory entry；只有 Claude 产生这类归属 | 可见，写入历史，文案“Subagent working…” |
 | `message_received` | 消息投递/唤醒后既有的“Message received”上报，改用这个 kind 而不是通用的 `model_request_started` | 可见，写入历史 |
 | `runtime_crashed` | 四个 provider 一致：进程在非主动停止下意外退出，且退出前最近一次 `error` 事实还没有被 `completed` 事件解决（`errorClass`/`errorReason`/`fingerprint` 由 Daemon 核心统一分类，见下文「错误与重连的单一转换点」）；否则报 `idle` | 可见，写入历史，视为错误 |
 | `runtime_interrupted` | 主动 stop/restart 打断了一个正在忙碌（working/thinking）的 turn | 可见，写入历史，视为在线 |
-| `runtime_unavailable` | ADR 0040：Daemon 检测到已存的 native Session 无法恢复——缺失（kiro/pi 的 `session_missing`，或 Claude/Codex 驱动内部静默替换）或被 provider 拒绝 replay（`provider_replay_rejected`）；上报一次 `agent:session:invalidate` 后，以同一 `launchId` 冷启动新 session | 可见，写入历史，视为 working |
+| `runtime_unavailable` | Daemon 检测到已存的 native Session 无法恢复——缺失（kiro/pi 的 `session_missing`，或 Claude/Codex 驱动内部静默替换）或被 provider 拒绝 replay（`provider_replay_rejected`）；上报一次 `agent:session:invalidate` 后，以同一 `launchId` 冷启动新 session | 可见，写入历史，视为 working |
 
 `starting`、`stopped`、`idle` 是 timeline 记录，不是新的 Agent 业务状态；当前状态仍只
 由 `agent:status` 的 `active` / `inactive` 表示。只有真正发生过程或观察结果时才记录
-对应 activity，不能用定时 heartbeat 不断重复制造相同 activity——但见下方的忙碌心跳例外
-（ADR 0016）：为了不让安静运行超过 60 秒的 turn（一条 shell 命令或一次安静的模型调用）
+对应 activity，不能用定时 heartbeat 不断重复制造相同 activity——但见下方的忙碌心跳例外：为了不让安静运行超过 60 秒的 turn（一条 shell 命令或一次安静的模型调用）
 在展示层被误判为 online，Daemon 在 Agent 处于 `working`/`thinking` 时，每 60 秒
 （`ACTIVITY_HEARTBEAT_MS`）重发最近一条忙碌 Activity，显式标记 `is_heartbeat=true`、
 `client_seq` 递增、`entries` 为空。服务端把这类心跳（以及下方的 `runtime_progress`）
@@ -120,8 +119,7 @@ runtime-progress.ts`）决定是否上报——不再是固定的“每 10 秒�
 只刷新存活时间戳，不重复产生 Activity，同样不产生新的 Agent 业务状态。
 
 心跳只覆盖续租，不覆盖租约已经到期之后的情形：租约一旦到期，服务端没有可信来源，只能在
-下一次读写时把 Agent 惰性投影为 `online`。为此服务端自己运行一个 liveness sweep（ADR
-0020），而不是等浏览器按需触发：`OBSERVE_ACTIVITY`/`OBSERVE_STATUS` 维护一个按
+下一次读写时把 Agent 惰性投影为 `online`。为此服务端自己运行一个 liveness sweep，而不是等浏览器按需触发：`OBSERVE_ACTIVITY`/`OBSERVE_STATUS` 维护一个按
 `expiresAt` 排序的 lease 索引（busy 时 `ZADD`，转为非 busy 或 `inactive` 时 `ZREM`）；
 `AgentActivitySweep` 每 5 秒（`ACTIVITY_SWEEP_INTERVAL_MS`）在一个 Redis 锁下 tick 一次
 （`NX PX 4500`，未抢到锁的实例整轮跳过，保证同一时刻整个集群只有一个实例在扫描），批量
@@ -299,7 +297,7 @@ subagent 归属、彼此相邻且中间没有其他条目（包括被隐藏渲�
 段落而不是逐帧的碎片行；已持久化的历史同样在读取时按这条规则合并，不需要改动
 Daemon 或存储。
 
-Activity timeline 是完整的按时间顺序工作记录（ADR 0021 amendment），不是只读最新状态的
+Activity timeline 是完整的按时间顺序工作记录，不是只读最新状态的
 展示层：除忙碌心跳（`is_heartbeat=true`）和 liveness probe 应答（带 `probe_id`）外，其余
 每条 Activity 都写入历史并出现在 timeline 里，`tool_end`/`thinking_end`/
 `compaction_finished` 也不例外，渲染为一行状态行（主标题沿用现有 activity-kind 分类，
@@ -365,5 +363,3 @@ Web/backend 为一次 `sendDirectConversationMessage` 创建 `message.send` 根 
 部署通过 `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT_FILE` 从 Compose secret 读取完整接入地址；完整
 地址只存在于 GitHub Environment Secret 和远端受限文件中，不进入 Git、镜像、`.env`、日志或发布
 记录。`OTEL_SERVICE_NAME` 和 `OTEL_DEPLOYMENT_ENVIRONMENT` 是非敏感运行配置。
-
-架构总览与进程职责见 [`docs/architecture.md`](architecture.md)。

@@ -11,12 +11,11 @@ URL-signed 下载仍是后续步骤，尚未实现。
 适用范围：三个 private content bucket、三个加速域名 `files.coforge.cn`、
 `releases.coforge.cn` 与 `images.coforge.cn`、最小权限 RAM、访问日志、验收与回滚
 
-profile image 域名（头像与项目图标，[ADR 0052](../adr/0052-public-profile-image-delivery.md)）
+profile image 域名（头像与项目图标）
 是第三个 trust zone，staging 与生产都尚未 provision；第 11 节是它的专用步骤，其余各节
 的通用要求同样适用。
 
-本文把 [`architecture.md`](../architecture.md) 和
-[`release.md`](../release.md) 已批准的边界转换为 operator 步骤，不改变应用授权或
+本文把 [`release.md`](../release.md) 与仓库 `AGENTS.md` 已批准的边界转换为 operator 步骤，不改变应用授权或
 发行协议。所有 `${...}` 均为执行时参数，不能原样提交到控制台。
 
 ## 1. 开始前的硬门禁
@@ -57,8 +56,7 @@ images.coforge.cn/<object_key>
   -- anonymous + immutable cache --> ${IMAGES_BUCKET}/<object_key>
 ```
 
-三个域名是三个 trust zone（见 [ADR 0006](../adr/0006-split-cdn-delivery-domains.md) 与
-[ADR 0052](../adr/0052-public-profile-image-delivery.md)）。每个域名只有一个 origin，
+三个域名是三个 trust zone。每个域名只有一个 origin，
 路径与 object key 一一对应，不做业务前缀 rewrite，也不使用 conditional origin；客户端
 看不到 OSS hostname。
 
@@ -166,7 +164,7 @@ EdgeScript：域名边界本身就是 fail-closed 的，一个域名请求另一
    shell history 或日志。
 2. `releases.coforge.cn` 与 `images.coforge.cn` 不启用 client URL signing。release 的
    公开性由 artifact signature/digest 验证承担；profile image 的访问控制是不可枚举的
-   object key 本身（ADR 0052）。两者 OSS origin 仍保持 private。
+   object key 本身。两者 OSS origin 仍保持 private。
    `images.coforge.cn` 因为没有签名可作速率约束，必须另外配置带宽封顶与流量告警
    （阿里云对匿名可读域名的推荐防护）。
 3. Cache > Cache Expiration 按下表设置。higher weight 优先，禁止 Ignore Origin
@@ -349,7 +347,7 @@ CDN real-time log delivery 与 OSS access logging 两项 staging 均**未启用*
 ## 11. Profile image 域名（尚未 provision）
 
 头像与项目图标是第三个内容类：匿名、不签名、永不过期的 URL，访问控制是不可枚举的
-object key 本身（[ADR 0052](../adr/0052-public-profile-image-delivery.md)）。这一节是它
+object key 本身。这一节是它
 在 staging 与生产的执行清单；前面各节的通用要求（private bucket、Block Public Access、
 单一 origin、Cookie 删除、HTTPS、日志）同样适用，不在此重复。
 

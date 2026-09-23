@@ -55,7 +55,7 @@ Computer owns writing it into staging, recording its identity and verifying
 it on rollback. There is no legacy installer compatibility path.
 It also owns installing and offline-verifying `photon_rs_bg.wasm` - Pi's
 image-resize library, published as one platform-independent manifest object
-per version (`docs/release.md`, `docs/adr/0062-photon-wasm-sidecar.md`) and
+per version (`docs/release.md`) and
 staged next to `coforge-computer` in `versions/<v>/` the same way the launchers
 are.
 `src/release/installation-source.ts` runs the embedded release installer scripts

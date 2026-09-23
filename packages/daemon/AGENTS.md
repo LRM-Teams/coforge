@@ -78,13 +78,13 @@ configuration and recovery; the entrypoint assembles these policies, not their r
   (`POST /api/agent/v1/weekly-report-collect`) and `coforge weekly-report-collect
 submit-pack|submit-empty|submit-failure`. Daemon injects the Agent API key and
   forwards the body; Web/backend accepts the pack against the collector Agent's
-  Collect Slot (ADR 0032).
+  Collect Slot.
 
 - `daemon-runtime/agent-message-attention-index.ts` owns full-target thread
   attention, model-visible positions, and the accepted-Message observation hook.
   After successful current-generation `notify`, ordinary live Message delivery
   and concrete wake/resume batches report `Message received` with
-  `message_received` (ADR 0021; previously the generic
+  `message_received` (previously the generic
   `model_request_started`), matching Raft Computer 1.0.32's
   `broadcastMessageReceivedActivity` (re-verified present in the 1.0.32 daemon bundle; see
   `docs/agents/reference-cli-research.md`). Summary-only recovery and deduplicated
@@ -146,7 +146,7 @@ submit-pack|submit-empty|submit-failure`. Daemon injects the Agent API key and
   replay, reconnect, and protocol transport mechanics. Every initial ready,
   reconnect ready, and ready retry obtains a fresh request and current running
   Agent ID snapshot from the runtime. Domain decisions remain above it.
-  `sendSessionInvalidate` (ADR 0040) is fire-and-forget over `client.rpc(...)`, never awaited
+  `sendSessionInvalidate` is fire-and-forget over `client.rpc(...)`, never awaited
   by its caller: sent immediately when connected, buffered latest-per-agent while disconnected,
   and flushed on reconnect _before_ pending Activity. A pending or new invalidate is dropped
   only when its `launchId` differs from the latest launch `#observeLaunchIdentity` has seen —
@@ -157,7 +157,7 @@ submit-pack|submit-empty|submit-failure`. Daemon injects the Agent API key and
   logged (`agent_session:invalidate_rejected`), never thrown or retried; an old server's
   "unknown RPC method" rejection logs at most once per connection lifetime, other rejections log
   every time.
-  `sendAgentContextUsage` (ADR 0050, Claude Code only) is a sibling fire-and-forget message with
+  `sendAgentContextUsage` (Claude Code only) is a sibling fire-and-forget message with
   the same buffer-while-disconnected/flush-on-reconnect and unknown-method log-once behavior;
   `daemon-runtime/runtime.ts` de-dupes an unchanged reading and forgets the last one sent on
   launch end/dispose, so this connection method never itself decides what has changed.
@@ -187,14 +187,14 @@ submit-pack|submit-empty|submit-failure`. Daemon injects the Agent API key and
   `AgentControl`, or forgotten by an explicit Stop) still mints, unchanged. `AgentControl.wake()`
   is the mirror image of `stopped()`: it makes the on-disk record truthful (`phase: "running"`)
   again after such a reused-identity launch, so a later server Start correctly rebinds instead of
-  finding a stale `"stopped"` record (ADR 0042).
+  finding a stale `"stopped"` record.
 - `agent-runtime/agent-control.ts` owns request/epoch-fenced stop/reset-workspace/start
   and control completion, not Session delivery. A managed Start launches under the
-  server-supplied `launchId` (ADR 0041), never a locally minted one; a Start that meets an
+  server-supplied `launchId`, never a locally minted one; a Start that meets an
   already-running process under an older, terminal operation rebinds it through the single
   injected `Runtime.rebind(intent, launchId)` hook instead of rejecting — no second process, no
   new launch config — and a running process without a matching `running` record answers with a
-  `failed` result (`agent_already_running`) so the server operation terminates. Its `start()` catch branch (ADR 0040) reports
+  `failed` result (`agent_already_running`) so the server operation terminates. Its `start()` catch branch reports
   a stored native Session it could not resume — `AgentSessionRecoveryError`'s `session_missing`/
   `provider_replay_rejected` codes only, never `session_in_use` (a retry signal, not evidence
   the session is gone) — via the injected `Runtime.invalidateSession` before the fresh retry
@@ -243,7 +243,7 @@ submit-pack|submit-empty|submit-failure`. Daemon injects the Agent API key and
   A metadata query never launches a provider, reloads a session, copies global
   skills, or changes the established runtime environment composition.
 - `code-agent/claude-code/context-report.ts` owns the one-shot Claude Code
-  `/context` composition read (ADR 0051): an undocumented-headless invocation
+  `/context` composition read: an undocumented-headless invocation
   run against the Agent's own live session inside its own workspace directory.
   `DaemonRuntime.scanAgentContext` resolves the launch and native session from
   daemon-tracked state — never from the request — answers `no_session`/
@@ -275,7 +275,7 @@ submit-pack|submit-empty|submit-failure`. Daemon injects the Agent API key and
   all canonical history. `agent-runtime/agent-memory-seed.ts` seeds a starter
   `MEMORY.md` into the Agent workspace right after `AgentProcessManager.start`'s
   workspace `mkdir`, matching the standing prompt's `Workspace & Memory`/
-  `Compaction safety` sections (ADR 0036). It only ever creates the file
+  `Compaction safety` sections. It only ever creates the file
   (`flag: "wx"`, `EEXIST` swallowed) and never overwrites one an Agent has
   already written to; a seed failure is logged and never fails the launch.
 - `agent-app-inbox/` owns typed App-item identity, validation, retention, and

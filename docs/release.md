@@ -201,8 +201,7 @@ dependency chain at publish time rather than a committed or separately pinned
 copy, so the shipped file can never drift from what Pi's own code loads at
 runtime. This updater has no compatibility fallback: a manifest published
 without a valid `photonWasm` entry is rejected (`UPDATE_FEED_INVALID`), the
-same fail-closed policy the platform/gzip fields already use. See
-[ADR 0062](adr/0062-photon-wasm-sidecar.md).
+same fail-closed policy the platform/gzip fields already use.
 
 `coforge-computer.sha256` is a sidecar, not a substitute for the manifest: it
 exists because `install.sh` and `install.ps1` are the bootstrap that fetches
@@ -242,8 +241,7 @@ discipline on top of that is a publishing-workflow policy, not a wire-format
 requirement, and is out of scope here.
 
 The feed is served beneath `https://releases.coforge.cn/` from a private
-release bucket. Attachments and releases use two separate accelerated domains
-(see [ADR 0006](adr/0006-split-cdn-delivery-domains.md)): `releases.coforge.cn`
+release bucket. Attachments and releases use two separate accelerated domains: `releases.coforge.cn`
 fronts only the release bucket and applies no client URL signing, because
 installers and updaters must fetch anonymously and integrity now comes from
 TLS plus the manifest's checksums, not from any signed object; `files.coforge.cn`
@@ -820,8 +818,7 @@ absolute paths and credential-shaped runs at both ends.
 
 Because the Daemon calls a server method that older deployments do not expose, a
 Computer release carrying this behaviour must ship together with the Web
-deployment that accepts it. See
-[ADR 0017](adr/0017-computer-upgrade-operation-receipt.md).
+deployment that accepts it.
 
 ### The runner hold
 
@@ -846,7 +843,7 @@ held.
 
 `upgrade` and `rollback` get the hold because both go through
 `UpgradeLifecycle`. `coforge-computer stop` deliberately does not: an explicit
-stop is immediate. See [ADR 0020](adr/0020-upgrade-runner-hold.md).
+stop is immediate.
 
 `coforge-computer restart` also waits up to 30 s for busy Agents, and a remote
 restart from the web is the same `daemon:restart` local RPC, so it waits too. It
@@ -855,8 +852,7 @@ it is about to stop, immediately before stopping it, and an unscoped restart
 holds each enabled Workspace in turn as it reaches it. As with the upgrade, the
 wait is bounded and every failure proceeds: a Workspace that cannot be held, does
 not answer, or stays busy past the deadline is restarted anyway, logging
-`restart:runner_hold_quiescent` or `restart:runner_hold_expired`. See
-[ADR 0021](adr/0021-restart-runner-hold.md).
+`restart:runner_hold_quiescent` or `restart:runner_hold_expired`.
 
 `coforge-computer restart --supervisor` is different again: it restarts the
 Coordinator process itself, not a Workspace runtime, through the platform's own
@@ -1021,7 +1017,7 @@ Platform coverage and remaining acceptance gaps are explicit:
 - **Windows lifecycle acceptance**: clean bootstrap, upgrade, Supervisor and
   Workspace readiness, retained identity, and offline rollback still require
   end-to-end evidence before production promotion. External Agent process-tree
-  supervision remains fail-closed as specified in `docs/architecture.md`.
+  supervision remains fail-closed.
 - **macOS lifecycle runtime verification**: launchd unit generation and adapter
   behavior have automated coverage, but the complete install, manager-owned
   Coordinator, upgrade, health-identity, and rollback flow has not yet run on a

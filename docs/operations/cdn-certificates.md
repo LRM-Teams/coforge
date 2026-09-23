@@ -6,7 +6,7 @@
 
 ## 1. 为什么 CDN 加速域名需要自己的证书
 
-[`architecture.md`](../architecture.md) 里 Caddy 拥有 public TLS 与 edge
+仓库 `AGENTS.md` 规定 Caddy 拥有 public TLS 与 edge
 proxying，但那只覆盖 Caddy 直接反代的 `staging.coforge.cn`（以及未来的生产
 `coforge.cn`）。三个 CDN 加速域名——`files-staging.coforge.cn`、
 `releases-staging.coforge.cn`、`images-staging.coforge.cn`（及其生产对应

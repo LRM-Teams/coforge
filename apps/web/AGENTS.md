@@ -101,7 +101,7 @@ instructions for the TanStack Start Web/backend modular monolith.
   reads: `repositoryOverview` (project detail, full installation verification) and the browse
   reads behind `/projects/$projectSlug/tree/$` — `repositoryTree`, `repositoryObject`,
   `repositoryDirectoryCommits`, `repositoryRaw` — which rely on GitHub's user-token scope and
-  check repository identity per request (ADR 0030). Project functions enforce Workspace scope
+  check repository identity per request. Project functions enforce Workspace scope
   before invoking it; `server/projects/project-files.server.ts` (`ProjectFiles`) does the same
   for the download route `/api/projects/$projectId/raw/$`, which stays a thin adapter.
   The file browser lives in `features/projects/`: `project-tree.tsx` is the page shell,
@@ -158,7 +158,7 @@ instructions for the TanStack Start Web/backend modular monolith.
   the Settings Members section.
 
   Creating a channel (`PublicChannels.create`) requires only the existing
-  Workspace membership check (ADR 0025: Slack's default — any member may
+  Workspace membership check (Slack's default — any member may
   create a channel); joining stays open to any member. `PublicChannels.members`
   returns current human/Agent members plus add-candidates and `canAddMembers`
   for any Workspace member to read (true when the actor has a
@@ -167,22 +167,20 @@ instructions for the TanStack Start Web/backend modular monolith.
   channel (Slack: you add people to channels you belong to); a non-member is
   rejected with `ACCESS_DENIED`. Both take a `ChannelActor = { userId } |
 { agentId }` so a human via the Web UI and an Agent via the CLI share this
-  same authorization and write path (ADR 0024's `channel add-member`/
+  same authorization and write path (the Agent CLI's `channel add-member`/
   `channel members`), and both filter through `ACTIVE_MEMBER_WHERE`/clear
-  `leftAt` on add rather than skipping a soft-left row. The Agent CLI (ADR
-  0024, `packages/coforge`) is a second, Agent-only entrypoint for the
-  operations ADR 0025 does not give humans at all: `channel join`/`leave`/
+  `leftAt` on add rather than skipping a soft-left row. The Agent CLI (`packages/coforge`) is a second, Agent-only entrypoint for the
+  operations the Web UI does not give humans at all: `channel join`/`leave`/
   `create` (open to any Agent in the Workspace, same as the human path),
-  `channel update`/`lifecycle archive|unarchive` (channel-aware admin basis,
-  ADR 0032: the Agent's own server role or its stored `channelRole` on that
-  specific channel), and `channel remove-member` — this implements ADR 0025's
-  planned-but-
+  `channel update`/`lifecycle archive|unarchive` (channel-aware admin basis:
+  the Agent's own server role or its stored `channelRole` on that
+  specific channel), and `channel remove-member` — this implements the
   deferred removal rule via a soft `ConversationMember.leftAt` marker since
   `Message.sender`'s `onDelete: Restrict` makes a hard delete impossible for
   anyone who has sent a message. There is still no human UI for `update`/
   `archive`.
 
-  **Channel-level roles and capabilities (ADR 0032)**:
+  **Channel-level roles and capabilities**:
   `ConversationMember.channelRole` (`admin | member`, default `member`) is a
   role stored on the membership itself; a channel's creator (human or Agent)
   gets `channelRole: "admin"` on their own row, and `#general`'s members
@@ -198,9 +196,9 @@ instructions for the TanStack Start Web/backend modular monolith.
   capabilities, never available on `#general`. This module — not
   `Agent.role`-only or Workspace-role-only checks — is now the single
   authority seam for both sides: `AgentChannelManagement`'s `update`/
-  `setArchived`/`removeMember` (superseding ADR 0024's channel-blind
+  `setArchived`/`removeMember` (superseding the channel-blind
   `agentHasAdminAuthority`) and `PublicChannels.removeMember`/`members()`'s
-  `canRemoveMembers`/`canLeave` (superseding ADR 0031's
+  `canRemoveMembers`/`canLeave` (superseding
   `assertCanRemoveChannelMembers`) all read it; both changes are additive
   (every previously authorized actor stays authorized).
 
@@ -208,12 +206,11 @@ instructions for the TanStack Start Web/backend modular monolith.
 userId, channelId)` (any active member leaves themselves, never
   `#general`) and `PublicChannels.removeMember(workspaceId, actorUserId,
 channelId, target: ChannelActor)` (any actor with the `remove_member`
-  capability — a channel admin via either basis — never `#general`) — ADR
-  0031, the human-side equivalent of ADR 0024's Agent `channel leave`/
+  capability — a channel admin via either basis — never `#general`) — the human-side equivalent of the Agent CLI's `channel leave`/
   `remove-member`, sharing the same `leftAt`/`ACTIVE_MEMBER_WHERE`
   representation through one private helper (`softLeaveMember`) rather than
   a second one. `PublicChannels.setChannelRole(workspaceId, actorUserId,
-channelId, member, role)` (ADR 0032) promotes/demotes a member's stored
+channelId, member, role)` promotes/demotes a member's stored
   `channelRole`, gated by `manage_roles`, and rejects `#general` outright.
   `features/conversations/
 channels.functions.ts` exposes `loadPublicChannelMembers`/`addPublicChannelMembers`/
@@ -230,7 +227,7 @@ channels.functions.ts` exposes `loadPublicChannelMembers`/`addPublicChannelMembe
   human-committed action card creates agents). Private channels are planned
   but not introduced here.
 
-- Agent-prepared action cards (ADR 0027) belong to
+- Agent-prepared action cards belong to
   `server/conversations/action-cards.server.ts`: `ActionCards.prepare`
   resolves every handle in a `channel:create`/`agent:create`/
   `channel:add_member` action to a UUID, reuses the Agent `message send`
@@ -258,8 +255,7 @@ channels.functions.ts` exposes `loadPublicChannelMembers`/`addPublicChannelMembe
   after by `ActionCards.completeAgentCreate` — every commit path executes
   the real operation first and marks the card `executed` after with a
   conditional `updateMany`, so a double click fails on the operation's own
-  uniqueness rule or a harmless `addMembers` no-op (see ADR 0027 "Commit and
-  cancel"). `ActionCards.cancel` allows the preparing Agent's owner or a
+  uniqueness rule or a harmless `addMembers` no-op. `ActionCards.cancel` allows the preparing Agent's owner or a
   Workspace owner/admin, `pending → cancelled`. Both publish the existing
   `ConversationRealtime.messageAvailable`; the browser refreshes just the
   pending cards it is showing via `loadActionCardStates` on that signal and
@@ -319,12 +315,11 @@ channels.functions.ts` exposes `loadPublicChannelMembers`/`addPublicChannelMembe
   authorType and comment `payload` are reserved for later AI side panels.
   The weekly-report assistant's on-demand reads reuse `RecordCatalog` through
   Agent HTTPS `POST /api/agent/v1/weekly-reports`, authorized as the assistant owner User.
-  Multi-Computer collect (ADR 0032) belongs to
+  Multi-Computer collect belongs to
   `server/records/weekly-report-collector.server.ts` (per-Computer Collector
   bindings) and `server/records/weekly-report-collect-run.server.ts` (narrow
   Collect Run ledger). Pack submit and side-panel cards are follow-up seams;
-  do not add WSS collect-result RPCs. Schema merge requires Frank approval
-  (see ADR 0009 / ADR 0032).
+  do not add WSS collect-result RPCs. Schema merge requires Frank approval.
 
 - Browser realtime connection ownership belongs to `features/realtime/`. The
   `_app` layout owns one Centrifuge connection for the selected Workspace;
@@ -338,9 +333,9 @@ channels.functions.ts` exposes `loadPublicChannelMembers`/`addPublicChannelMembe
   never subscribing. `useRealtimeSubscription` ref-counts one real `Subscription`
   per channel per client, so more than one feature may subscribe to the same
   channel (e.g. `chat:user:<user_id>`, shared by `useChannelUnread` and
-  `InPageNotifications` since ADR 0065) without a second `newSubscription` call,
+  `InPageNotifications`) without a second `newSubscription` call,
   which Centrifuge rejects.
-- In-page notifications (ADR 0065) belong to `features/notifications/`:
+- In-page notifications belong to `features/notifications/`:
   `in-page-notifications.ts` owns the `InPageNotifications` component (mounted in
   `_app.tsx` next to `BrowserPushLifecycle`), its `chat:user:` subscription, and
   the pure `isInPageNotificationEnabled`/`shouldShowInPageNotification` decisions.
@@ -350,7 +345,7 @@ channels.functions.ts` exposes `loadPublicChannelMembers`/`addPublicChannelMembe
   `server/notifications/in-page-notification-publisher.server.ts` is the
   Centrifugo `broadcast` adapter `WebPushNotifications` publishes through.
 
-- `features/panel-tabs/` owns each member's panel tab order (ADR 0066):
+- `features/panel-tabs/` owns each member's panel tab order:
   `panel-tab-order.ts` holds the panels' tab lists and the arrange/reorder rules,
   `panel-tabs.functions.ts` the authenticated read/save, and
   `panel-tab-order-context.tsx` the `_app`-level provider with optimistic, serialized saves.
@@ -513,7 +508,7 @@ channels.functions.ts` exposes `loadPublicChannelMembers`/`addPublicChannelMembe
   thinking) fragments of the same launch and subagent into a single row, so the
   UI renders one paragraph rather than one row per burst. Current state and expiry
   decisions belong to the cloud reducer, not these presentation functions.
-  The Activity log is a complete chronological work log (ADR 0021, amended):
+  The Activity log is a complete chronological work log:
   every Activity frame that is not a busy heartbeat and not a liveness-probe
   reply is persisted and shown live, including `tool_end`, `thinking_end` and
   `compaction_finished` — entry-less frames rendered as one status row (primary
@@ -581,7 +576,7 @@ channels.functions.ts` exposes `loadPublicChannelMembers`/`addPublicChannelMembe
   runtime selection, credential-aware restart decisions, and public response redaction.
   `AgentRuntimeCredentials` owns Agent/provider-bound encryption; repositories only persist
   the completed runtime config, and Server Function composition supplies encryption lazily.
-- `server/agents/agent-deletion.server.ts` owns Agent deletion (ADR 0044): Raft's
+- `server/agents/agent-deletion.server.ts` owns Agent deletion: Raft's
   `deleteAgents` capability (Workspace owner/admin only), the runtime lock, the durable
   `deletedAt` write, and the best-effort Stop. `PrismaAgentDeletionStore`
   (`server/db/repositories/agent-deletion.repositories.server.ts`) is the one transaction that
@@ -595,8 +590,7 @@ channels.functions.ts` exposes `loadPublicChannelMembers`/`addPublicChannelMembe
   so the message-history surfaces (message rows, the thread root, the thread reply preview, the DM
   header and the avatar popover) cannot drift apart. A Task owner is not covered: `TaskView.owner`
   on the shared Task contract carries no delete marker, and adding one is a wire-protocol change.
-- `features/agents/agent-visibility.ts` owns the `AgentVisibility` vocabulary (`public`/`private`,
-  ADR 0059) and its `isAgentVisibility` guard, kept Web-only and outside any `.server.ts` file so
+- `features/agents/agent-visibility.ts` owns the `AgentVisibility` vocabulary (`public`/`private`) and its `isAgentVisibility` guard, kept Web-only and outside any `.server.ts` file so
   browser-side validators (`agent.schemas.ts`-style `z.enum`) can import it too.
   `server/agents/agent-visibility.server.ts` is the one authorization seam every visibility-aware
   read/write composes with: `visibleAgentWhere` (a `Prisma.AgentWhereInput` fragment meant to sit
@@ -615,28 +609,27 @@ channels.functions.ts` exposes `loadPublicChannelMembers`/`addPublicChannelMembe
   command chains for Start, Stop, Restart, Reset Session and Full Reset,
   receipt-driven state transitions, and request/epoch fences. It mints one `launchId`
   per operation the moment the operation enters `starting` and supplies it in the
-  Start intent (ADR 0041); `authorizeLaunch` only verifies that id and never writes — including a
-  second, additive branch (ADR 0042) that accepts a daemon-initiated wake resending the exact
+  Start intent; `authorizeLaunch` only verifies that id and never writes — including a
+  second, additive branch that accepts a daemon-initiated wake resending the exact
   requestId/controlEpoch/launchId its last operation completed a start-ending chain under
-  (`phase === "completed"`), as long as the Agent is not user-stopped (ADR 0038's `stoppedAt`); a
+  (`phase === "completed"`), as long as the Agent is not user-stopped (`Agent.stoppedAt`); a
   superseded scope, a failed/stopped operation, or a stopped Agent are each refused separately.
   `execute()` — the
   user-initiated path behind `features/agents/agent-control.functions.ts` —
-  authorizes by the actor's current Workspace membership and Raft capability
-  (ADR 0034): `controlAgentRuntime` (Start, Stop, Restart, Reset Session) is
+  authorizes by the actor's current Workspace membership and Raft capability: `controlAgentRuntime` (Start, Stop, Restart, Reset Session) is
   held by any current member; `resetAgentWorkspace` (Full Reset) is owner/admin
   only, even for the Agent's own owner. The internal/system paths — `recover`,
   `publishStart`, `publishStop` (called with the Agent owner's id or the
   editing user's id, still checked against Agent ownership) and
   `authorizeLaunch` (Workspace/Computer scope only, no actor identity at all) —
-  are untouched by ADR 0034. It clears the Session binding at the local chain
+  are untouched by this capability check. It clears the Session binding at the local chain
   step; Session observations remain independently owned below. Transport
   receivers under `server/centrifugo/` authenticate claims before applying
   conditional Session/control updates. Current operation progress is not a new
   Agent status or a generic durable command mailbox. Profile buttons submit
   without waiting UI or control-state queries; runtime observations stay in
   Activity. Full Reset still requires destructive confirmation.
-  The latest command always wins (ADR 0039): `begin()` supersedes any non-terminal
+  The latest command always wins: `begin()` supersedes any non-terminal
   operation with a different `requestId` unconditionally — no "pending" rejection,
   no abandonment/age concept, matching Raft Computer 1.0.32's own lack of an
   operation-in-progress record. The superseded caller's `drive()` resolves a
@@ -646,7 +639,7 @@ channels.functions.ts` exposes `loadPublicChannelMembers`/`addPublicChannelMembe
   reconciliation) is the one path that still never supersedes — it only
   republishes the current operation, so a Daemon that lost a command can still
   answer the one it already has.
-- ADR 0038: `Agent.stoppedAt` (nullable) is the persisted "a user stopped this
+- `Agent.stoppedAt` (nullable) is the persisted "a user stopped this
   Agent" intent, independent of `controlState` (current control request and
   fencing only). `execute()`'s `stop` persists `stoppedAt` before running the
   stop chain, so the intent survives even when the Computer never answers;
@@ -670,7 +663,7 @@ channels.functions.ts` exposes `loadPublicChannelMembers`/`addPublicChannelMembe
   guard, but never advances control operations. Unified RPC callbacks route Session
   reports to this acceptance seam; sequenced snapshots validate the upstream launch
   fence before the independent snapshot receiver. Control-result dispatch remains separate.
-  `AgentSessionReceiver.invalidate` (ADR 0040) is the daemon-initiated counterpart: on an
+  `AgentSessionReceiver.invalidate` is the daemon-initiated counterpart: on an
   exact match (`launchId` + native `sessionId`) it clears the Session association with the
   same `clearSession` primitive Reset Session uses and leaves every other control-state field
   untouched — it never marks the state `recovered`; the user learns of the cold start only
@@ -683,8 +676,7 @@ channels.functions.ts` exposes `loadPublicChannelMembers`/`addPublicChannelMembe
   which logs it with the same allowlisted-reason convention #321 introduced for
   `agent_control:result_rejected`/`agent_session:snapshot_rejected`, while the wire response
   (always a 403 on any rejection, per the daemon's fire-and-forget contract) stays unchanged.
-  `createAgentContextUsageMethod` (`server/centrifugo/agent-context-usage-receiver.server.ts`,
-  ADR 0050) is a sibling fire-and-forget receiver, gated the same way on
+  `createAgentContextUsageMethod` (`server/centrifugo/agent-context-usage-receiver.server.ts`) is a sibling fire-and-forget receiver, gated the same way on
   `AgentControlState.launchId` matching the message's own — but it writes the reading into the
   display read model (`agent-display.server.ts`'s `PUT_CONTEXT_USAGE`), not the control record,
   a live, ephemeral, Claude-Code-only fact with no bearing on control state.
@@ -695,7 +687,7 @@ channels.functions.ts` exposes `loadPublicChannelMembers`/`addPublicChannelMembe
   The Profile displays Global/Workspace metadata, never skill bodies or a claim
   that a running session has loaded each entry.
 - `features/agents/agent-context-report.functions.ts` owns the authenticated
-  context-composition query/scan (ADR 0051). `server/agents/
+  context-composition query/scan. `server/agents/
 agent-context-report.server.ts` authorizes through the Agent owner's
   assignment (the Skills/Workspace Files ownership rule) and resolves the
   launch/session from the persisted session reference; `server/centrifugo/
