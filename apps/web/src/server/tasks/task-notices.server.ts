@@ -48,18 +48,24 @@ const BLOCK_MARKER = /^(?:#{1,6}\s+|>\s*|[-*+]\s+|\d+[.)]\s+)/;
 
 /**
  * A title can be a whole converted message: stored mention and task tokens, Markdown and many
- * lines. A notice is one short line, so it quotes the first line of prose with tokens read back
- * as `@handle` / `task #N`, block markers dropped, whitespace collapsed, and at most 80 characters.
+ * lines. A notice is one short line, so it quotes the first line of prose outside fenced code,
+ * with tokens read back as `@handle` / `task #N`, block markers dropped, whitespace collapsed, and
+ * at most 80 characters. A title with no such line quotes as empty and is named by number alone.
  */
 export function quotedTask(
   task: { number: number; title: string },
   mentions: readonly MessageMentionRef[],
 ): QuotedTask {
+  let inFence = false;
   const firstLine =
     agentReadableBody(task.title, mentions)
       .split("\n")
       .map((line) => line.trim())
-      .find((line) => line && !line.startsWith("```")) ?? "";
+      .find((line) => {
+        if (line.startsWith("```")) inFence = !inFence;
+        else if (!inFence && line) return true;
+        return false;
+      }) ?? "";
   const text = firstLine.replace(BLOCK_MARKER, "").replace(/\s+/g, " ");
   const characters = Array.from(text);
   const title =
@@ -80,7 +86,8 @@ const STATUS_WORDING: Record<TaskStatus, { emoji: string; label: string }> = {
   closed: { emoji: "🚫", label: "Closed" },
 };
 
-const reference = (task: QuotedTask) => `#${task.number} "${task.title}"`;
+const reference = (task: QuotedTask) =>
+  task.title ? `#${task.number} "${task.title}"` : `#${task.number}`;
 const references = (tasks: readonly QuotedTask[]) => tasks.map(reference).join(", ");
 const plural = (tasks: readonly QuotedTask[], noun: string) =>
   tasks.length === 1 ? noun : `${noun}s`;
@@ -96,6 +103,4 @@ export const noticeText = {
   moved: (actor: DisplayName, task: QuotedTask, status: TaskStatus) =>
     `${STATUS_WORDING[status].emoji} ${actor} moved ${reference(task)} to ${STATUS_WORDING[status].label}`,
   unassigned: (actor: DisplayName, task: QuotedTask) => `🔓 ${actor} unassigned ${reference(task)}`,
-  released: (actor: DisplayName, task: QuotedTask) => `${actor} released ${reference(task)}`,
-  deleted: (actor: DisplayName, task: QuotedTask) => `${actor} deleted ${reference(task)}`,
 };

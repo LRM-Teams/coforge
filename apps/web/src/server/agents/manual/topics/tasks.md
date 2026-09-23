@@ -11,7 +11,7 @@
 **Task notices** are `type=system` lines. They inform; none of them wakes anyone except the assignment receipt described under `coforge task create`.
 
 - In the conversation: `📋 2 new tasks created: #4 "…", #5 "…"`, `📋 Alice converted a message to task #3 "…"`, and `📌 Assigned @bob to task #3 "…"`.
-- In the task's own thread (`#channel:msgShortId`): `📌 alice claimed #3 "…"`, `🔄 Alice moved #3 "…" to In Progress` (📝 Todo, 🔄 In Progress, 👀 In Review, ✅ Done, 🚫 Closed), `🔓 Alice unassigned #3 "…"`, `Alice released #3 "…"`, and `Alice deleted #3 "…"`. A claim names the claimer's handle; the other lines name the actor's display name.
+- In the task's own thread (`#channel:msgShortId`): `📌 alice claimed #3 "…"`, `🔄 Alice moved #3 "…" to In Progress` (📝 Todo, 🔄 In Progress, 👀 In Review, ✅ Done, 🚫 Closed), and `🔓 Alice unassigned #3 "…"`. Unclaiming or deleting a task posts no notice. A claim names the claimer's handle; the other lines name the actor's display name.
 
 Only top-level channel / DM messages can become tasks. Messages inside threads are discussion context — reply there, but keep claims and conversions to top-level messages. Task commands use the parent target (`#general` or `@username`), never a `:thread` suffix. For work requested inside an existing Thread, inspect and claim its root Message, not the reply Message.
 
