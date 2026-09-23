@@ -3,7 +3,7 @@ import { mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { LocalDaemonLauncher } from "../../packages/daemon";
+import { LocalDaemonLauncher } from "@lrm/coforge-daemon";
 import { isReleaseTarget, resolveBunCompileTarget } from "./compile-targets";
 
 /** Where a test builds and runs the published executable. macOS needs a short, symlink-free

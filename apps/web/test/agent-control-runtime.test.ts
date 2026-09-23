@@ -12,9 +12,9 @@ import {
   AgentSessions,
   type RuntimeSessionReference,
 } from "#src/server/agents/agent-sessions.server";
-import { DaemonRuntime } from "../../../packages/daemon/src/daemon-runtime/runtime";
-import { InMemoryDaemonCredentialStore } from "../../../packages/daemon/src/credentials/credential-store";
-import { AgentSessionRecoveryError } from "../../../packages/daemon/src/code-agent/contract";
+import { DaemonRuntime } from "@lrm/coforge-daemon";
+import { InMemoryDaemonCredentialStore } from "@lrm/coforge-daemon";
+import { AgentSessionRecoveryError } from "@lrm/coforge-daemon/src/code-agent/contract";
 import {
   decodeAgentStartIntent,
   decodeAgentStopIntent,
@@ -22,7 +22,7 @@ import {
   type AgentSessionReport,
   type AgentStartIntent,
 } from "@lrm/coforge-sdk/internal";
-import type { AgentSessionOptions } from "../../../packages/agent/src/contract";
+import type { AgentSessionOptions } from "@coforge/agent";
 
 test("cloud and daemon preserve Restart identity, reset sessions, fence Full Reset replay and report recovery", async () => {
   // macOS resolves os.tmpdir() through the /var -> /private/var symlink, which the

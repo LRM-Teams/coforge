@@ -20,8 +20,8 @@ import {
   InMemoryDaemonCredentialStore,
   defaultCentrifugeWorkspaceClientFactory,
   startAgentProxy,
-} from "../../../packages/daemon";
-import { PiJsonlFixtureProvider } from "../../../packages/daemon/test/fixtures/pi-jsonl-fixture-provider";
+} from "@lrm/coforge-daemon";
+import { PiJsonlFixtureProvider } from "@lrm/coforge-daemon/test/fixtures/pi-jsonl-fixture-provider";
 
 const databaseUrl = requireEnvironment("DATABASE_URL");
 const workspaceRoot = join(import.meta.dir, `../../../.amp/e2e/channel-${crypto.randomUUID()}`);

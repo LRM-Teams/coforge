@@ -1,6 +1,6 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { isValidReleaseVersion as isApprovedReleaseVersion } from "../../packages/coforge-sdk/src/internal/release-version";
+import { isValidReleaseVersion as isApprovedReleaseVersion } from "@lrm/coforge-sdk/internal/release-version";
 
 // Mirrors packages/computer/src/updater.ts's (module-private) isValidVersion and install.sh's/
 // install.ps1's is_valid_version/Test-CoforgeVersion exactly: a version is both a URL segment on

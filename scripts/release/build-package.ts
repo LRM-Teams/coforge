@@ -1,9 +1,6 @@
 import { join, resolve } from "node:path";
 
-import {
-  resolveReleaseFeedUrl,
-  resolveServerUrl,
-} from "../../packages/computer/src/release-channel";
+import { resolveReleaseFeedUrl, resolveServerUrl } from "@coforge/computer/src/release-channel";
 import { zodResolvePlugin } from "../bun-resolve-zod-plugin";
 
 const REPO_ROOT = resolve(import.meta.dir, "../..");

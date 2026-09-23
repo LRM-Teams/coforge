@@ -11,8 +11,8 @@ import {
   DaemonConnection,
   DaemonRuntime,
   InMemoryDaemonCredentialStore,
-} from "../../../packages/daemon";
-import { PiJsonlFixtureProvider } from "../../../packages/daemon/test/fixtures/pi-jsonl-fixture-provider";
+} from "@lrm/coforge-daemon";
+import { PiJsonlFixtureProvider } from "@lrm/coforge-daemon/test/fixtures/pi-jsonl-fixture-provider";
 
 // Explicit opt-in: real local Web/PostgreSQL/Redis/Centrifugo and browser, but a
 // deterministic Pi-protocol child instead of paid model inference. No TRUNCATE/FLUSHDB.
