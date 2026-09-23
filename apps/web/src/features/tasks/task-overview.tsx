@@ -6,13 +6,13 @@ import {
 } from "@lrm/coforge-sdk/internal";
 
 import { Link } from "@tanstack/react-router";
+import type { ReactNode } from "react";
 import { FilterLines as ListFilter } from "@untitledui/icons";
 
 import { PageHeader } from "#src/components/layout/page-header";
 import { Select } from "#src/components/base/select/select";
 import { m } from "#src/paraglide/messages";
-import { TaskTag } from "./task-board";
-import { TaskOwner } from "./task-owner";
+import { TASK_TITLE_CLASS, TaskCard } from "./task-card";
 import {
   TaskLayoutToggle,
   TaskWorkflow,
@@ -86,7 +86,7 @@ export function TaskOverview({
             await onCommand?.(task, command);
           }}
           renderTask={(task, controls) => (
-            <TaskOverviewLink
+            <OverviewTaskCard
               task={task}
               controls={controls}
               list={layout === "list"}
@@ -99,7 +99,7 @@ export function TaskOverview({
   );
 }
 
-function TaskOverviewLink({
+function OverviewTaskCard({
   task,
   controls,
   list,
@@ -112,84 +112,46 @@ function TaskOverviewLink({
     command: Omit<TaskCommand, "idempotencyKey" | "conversationId"> & { number: number },
   ) => Promise<void>;
 }) {
-  const content = (
-    <>
-      <h3 className="text-sm leading-snug font-semibold text-primary [overflow-wrap:anywhere]">
-        {task.title}
-      </h3>
-      {task.description && (
-        <p className="mt-2 line-clamp-2 text-sm leading-relaxed text-tertiary [overflow-wrap:anywhere]">
-          {task.description}
-        </p>
-      )}
-    </>
-  );
-  const linkClass =
-    "block min-w-0 flex-1 rounded-md outline-none focus-visible:ring-3 focus-visible:ring-brand/50";
   const search = { view: "tasks" as const, layout: list ? ("list" as const) : undefined };
-  const link = task.source.agentId ? (
-    <Link
-      to="/messages/$agentId"
-      params={{ agentId: task.source.agentId }}
-      search={search}
-      className={linkClass}
-    >
-      {content}
-    </Link>
-  ) : (
-    <Link
-      to="/messages/channels/$channelId"
-      params={{ channelId: task.conversationId }}
-      search={search}
-      className={linkClass}
-    >
-      {content}
-    </Link>
-  );
-  const tags = (
-    <div className="flex min-w-0 flex-wrap gap-1.5">
-      <TaskTag>#{task.number}</TaskTag>
-      <TaskTag>{task.source.label}</TaskTag>
-    </div>
-  );
-  const actions = (
-    <div className="flex shrink-0 items-center">
-      {controls.handle}
-      {onCommand && (
-        <TaskDetailMenu
-          task={task}
-          onCommand={onCommand}
-          conversationName={task.source.label}
-          currentMemberId={task.currentMemberId ?? null}
-        />
-      )}
-    </div>
-  );
-  if (list) {
-    return (
-      <article className="flex flex-col gap-3 rounded-lg border border-secondary bg-primary p-3 shadow-xs transition-colors hover:bg-secondary sm:flex-row sm:items-center sm:gap-4 sm:px-4">
-        {link}
-        <div className="flex min-w-0 flex-wrap items-center gap-3 sm:shrink-0 sm:gap-4">
-          {tags}
-          <TaskOwner owner={task.owner} showName />
-          {controls.status}
-          {actions}
-        </div>
-      </article>
+  const renderTitle = (title: ReactNode) =>
+    task.source.agentId ? (
+      <Link
+        to="/messages/$agentId"
+        params={{ agentId: task.source.agentId }}
+        search={search}
+        className={TASK_TITLE_CLASS}
+      >
+        {title}
+      </Link>
+    ) : (
+      <Link
+        to="/messages/channels/$channelId"
+        params={{ channelId: task.conversationId }}
+        search={search}
+        className={TASK_TITLE_CLASS}
+      >
+        {title}
+      </Link>
     );
-  }
   return (
-    <article className="rounded-xl border border-secondary bg-primary p-4 shadow-xs transition-shadow hover:shadow-md">
-      <div className="flex items-start justify-between gap-2">
-        {link}
-        <div className="-mt-1 -mr-1.5">{actions}</div>
-      </div>
-      <div className="mt-3">{tags}</div>
-      <div className="mt-3 flex items-center justify-between gap-3 border-t border-secondary pt-3">
-        <TaskOwner owner={task.owner} showName={false} />
-        {controls.status}
-      </div>
-    </article>
+    <TaskCard
+      task={task}
+      list={list}
+      renderTitle={renderTitle}
+      source={task.source.label}
+      controls={controls}
+      menu={
+        onCommand && (
+          <TaskDetailMenu
+            task={task}
+            moves={controls.moves}
+            onCommand={onCommand}
+            conversationName={task.source.label}
+            currentMemberId={task.currentMemberId ?? null}
+          />
+        )
+      }
+    />
   );
 }
 

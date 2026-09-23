@@ -38,10 +38,11 @@ import { cn } from "#src/lib/utils";
 import { m } from "#src/paraglide/messages";
 import { getLocale } from "#src/paraglide/runtime";
 import { taskTimeline } from "./task-history-timeline";
+import { TaskPerson } from "./task-owner";
 import { getTaskMoveCommand, taskStatusOptions } from "./task-move";
 import { executeTask } from "./tasks.functions";
 import { conversationTasksQuery } from "./use-conversation-tasks";
-import { statusLabel, TASK_STATUS_COLOR } from "./task-workflow";
+import { statusLabel, TASK_STATUS_COLOR, type TaskControls } from "./task-workflow";
 
 type DetailCommand = Omit<TaskCommand, "idempotencyKey" | "conversationId"> & { number: number };
 
@@ -60,8 +61,12 @@ function StatusBadge({ status }: { status: TaskStatus }) {
 
 export function TaskDetailMenu({
   task,
+  moves = [],
   ...dialog
-}: Omit<TaskDetailDialogProps, "open" | "onOpenChange" | "thread">) {
+}: Omit<TaskDetailDialogProps, "open" | "onOpenChange" | "thread"> & {
+  /** Board and list moves, listed under "Move to". */
+  moves?: TaskControls["moves"];
+}) {
   const [open, setOpen] = useState(false);
   return (
     <>
@@ -72,9 +77,34 @@ export function TaskDetailMenu({
           size="xs"
           color="tertiary"
         />
-        <Dropdown.Popover placement="bottom end" className="w-44">
-          <Dropdown.Menu onAction={() => setOpen(true)}>
-            <Dropdown.Item id="details" label={m.tasks_view_details()} />
+        <Dropdown.Popover placement="bottom end" className="w-48">
+          <Dropdown.Menu
+            onAction={(key) => {
+              if (key === "details") return setOpen(true);
+              moves.find((move) => move.status === key)?.onMove();
+            }}
+          >
+            <Dropdown.Section>
+              <Dropdown.Item id="details" label={m.tasks_view_details()} />
+            </Dropdown.Section>
+            {moves.length > 0 && (
+              <Dropdown.Section className="border-t border-secondary pt-1">
+                <Dropdown.SectionHeader className="px-4 pt-1.5 pb-1 text-xs font-medium text-tertiary">
+                  {m.tasks_move_to()}
+                </Dropdown.SectionHeader>
+                {moves.map(({ status }) => (
+                  <Dropdown.Item key={status} id={status} textValue={statusLabel(status)}>
+                    <span className="flex items-center gap-2">
+                      <span
+                        aria-hidden="true"
+                        className={`size-2 shrink-0 rounded-full ${TASK_STATUS_COLOR[status].dot}`}
+                      />
+                      {statusLabel(status)}
+                    </span>
+                  </Dropdown.Item>
+                ))}
+              </Dropdown.Section>
+            )}
           </Dropdown.Menu>
         </Dropdown.Popover>
       </Dropdown.Root>
@@ -124,9 +154,17 @@ export function TaskDetailDialog({
   );
   return (
     <ModalOverlay isOpen={open} onOpenChange={onOpenChange} isDismissable>
-      <Modal className="flex h-[min(86vh,56rem)] w-[min(60rem,calc(100vw-2rem))] flex-col overflow-hidden">
+      <Modal
+        className={cn(
+          "flex flex-col overflow-hidden",
+          // With a thread the popup is a workspace; without one it only wraps the task.
+          thread
+            ? "h-[min(86vh,56rem)] w-[min(60rem,calc(100vw-2rem))]"
+            : "w-[min(40rem,calc(100vw-2rem))]",
+        )}
+      >
         <Dialog className="flex min-h-0 flex-1 flex-col overflow-hidden">
-          <div className="flex shrink-0 items-center gap-3 border-b border-secondary py-3 pr-4 pl-6">
+          <div className="flex shrink-0 items-center gap-3 border-b border-secondary py-3 pr-3 pl-6">
             <div className="min-w-0 flex-1">
               <div className="truncate text-xs font-medium text-tertiary">{conversationName}</div>
               <Heading
@@ -235,10 +273,50 @@ function TaskSection({
   };
 
   return (
-    <section className="flex flex-col gap-4 border-b border-secondary px-6 pt-5 pb-4">
+    <section className="flex flex-col gap-5 border-b border-secondary px-6 pt-5 pb-5">
       <h3 className="line-clamp-3 text-lg font-semibold break-words text-primary">{task.title}</h3>
 
-      <div className="border-b border-secondary pb-3">
+      <dl className="grid grid-cols-1 gap-x-8 gap-y-4 sm:grid-cols-3">
+        <TaskField label={m.tasks_overview_status()}>
+          <StatusMenu
+            task={task}
+            currentMemberId={currentMemberId}
+            disabled={pending}
+            onSelect={(status) => {
+              const command = getTaskMoveCommand(task, currentMemberId, status);
+              if (command) void run(command);
+            }}
+          />
+        </TaskField>
+        <TaskField label={m.tasks_overview_owner()}>
+          <AssigneeMenu
+            task={task}
+            members={members}
+            disabled={pending || !currentMemberId}
+            onSelect={(handle) =>
+              void run(
+                handle
+                  ? { operation: "assign", number: task.number, assignee: `@${handle}` }
+                  : { operation: "unassign", number: task.number },
+              )
+            }
+          />
+        </TaskField>
+        <TaskField label={m.tasks_created_by()}>
+          {creator ? (
+            <TaskPerson person={creator} />
+          ) : (
+            history.isError && <span className="text-sm text-tertiary">—</span>
+          )}
+        </TaskField>
+      </dl>
+      {error && (
+        <p role="alert" className="text-sm text-error-primary">
+          {m.tasks_update_failed()}
+        </p>
+      )}
+
+      <div className="border-t border-secondary pt-3">
         <Button
           color="link-gray"
           size="sm"
@@ -252,52 +330,21 @@ function TaskSection({
           <TaskHistory failed={history.isError} events={history.data?.events} names={names} />
         )}
       </div>
-
-      <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
-        <div className="flex items-center gap-2">
-          <span className="text-sm text-tertiary">{m.tasks_overview_status()}</span>
-          <StatusMenu
-            task={task}
-            currentMemberId={currentMemberId}
-            disabled={pending}
-            onSelect={(status) => {
-              const command = getTaskMoveCommand(task, currentMemberId, status);
-              if (command) void run(command);
-            }}
-          />
-        </div>
-        <div className="flex items-center gap-2">
-          <span className="text-sm text-tertiary">{m.tasks_overview_owner()}</span>
-          <AssigneeMenu
-            task={task}
-            members={members}
-            disabled={pending || !currentMemberId}
-            onSelect={(handle) =>
-              void run(
-                handle
-                  ? { operation: "assign", number: task.number, assignee: `@${handle}` }
-                  : { operation: "unassign", number: task.number },
-              )
-            }
-          />
-        </div>
-        {creator && (
-          <div className="flex items-center gap-2">
-            <span className="text-sm text-tertiary">{m.tasks_created_by()}</span>
-            <span className="text-sm text-primary">{creator.name}</span>
-          </div>
-        )}
-      </div>
-      {error && (
-        <p role="alert" className="text-sm text-error-primary">
-          {m.tasks_update_failed()}
-        </p>
-      )}
     </section>
   );
 }
 
-/** A value that opens its menu when pressed; the pencil marks it as editable. */
+/** One field of the popup: its label above, its value (or the control that edits it) below. */
+function TaskField({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="flex min-w-0 flex-col gap-1">
+      <dt className="text-sm text-tertiary">{label}</dt>
+      <dd className="flex min-h-8 min-w-0 items-center">{children}</dd>
+    </div>
+  );
+}
+
+/** A value that opens its menu when pressed; hover shows a light fill and a pencil. */
 function EditableTrigger({
   label,
   disabled,
@@ -311,10 +358,13 @@ function EditableTrigger({
     <AriaButton
       aria-label={label}
       isDisabled={disabled}
-      className="inline-flex cursor-pointer items-center gap-1.5 rounded-md text-sm font-medium text-primary outline-focus-ring focus-visible:outline-2 focus-visible:outline-offset-2 disabled:cursor-not-allowed"
+      className="group -mx-2 inline-flex min-w-0 cursor-pointer items-center gap-1.5 rounded-md px-2 py-1 text-sm font-medium text-primary outline-focus-ring transition-colors focus-visible:outline-2 enabled:hover:bg-primary_hover disabled:cursor-not-allowed"
     >
       {children}
-      <Edit05 aria-hidden="true" className="size-3.5 text-fg-quaternary" />
+      <Edit05
+        aria-hidden="true"
+        className="size-3.5 shrink-0 text-fg-quaternary opacity-0 transition-opacity group-focus-visible:opacity-100 group-enabled:group-hover:opacity-100"
+      />
     </AriaButton>
   );
 }
@@ -381,12 +431,17 @@ function AssigneeMenu({
   const { contains } = useFilter({ sensitivity: "base" });
   const [search, setSearch] = useState("");
   const name = task.owner?.name ?? m.tasks_unassigned();
-  if (!members) return <span className="text-sm font-medium text-primary">{name}</span>;
+  const value = task.owner ? (
+    <TaskPerson person={task.owner} />
+  ) : (
+    <span className="text-tertiary">{name}</span>
+  );
+  if (!members) return value;
   const ownerKey = task.owner ? memberKey(task.owner) : undefined;
   return (
     <Dropdown.Root onOpenChange={(isOpen) => isOpen && setSearch("")}>
       <EditableTrigger label={`${m.tasks_change_assignee()}: ${name}`} disabled={disabled}>
-        {name}
+        {value}
       </EditableTrigger>
       <Dropdown.Popover placement="bottom start" className="w-72">
         <AriaAutocomplete filter={contains} inputValue={search} onInputChange={setSearch}>
