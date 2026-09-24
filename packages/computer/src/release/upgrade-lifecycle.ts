@@ -267,10 +267,7 @@ export function createSupervisorUpgradeLifecycle(
       while (await Bun.file(ownerPath).exists()) {
         // Windows: schtasks /End can kill the Coordinator without removing owner. Clear only a
         // dead PID there; other platforms wait for a clean owner removal as before.
-        if (
-          process.platform === "win32" &&
-          !(await windowsSupervisorLockOwnerAlive(ownerPath))
-        ) {
+        if (process.platform === "win32" && !(await windowsSupervisorLockOwnerAlive(ownerPath))) {
           await rm(ownerPath, { force: true });
           break;
         }
