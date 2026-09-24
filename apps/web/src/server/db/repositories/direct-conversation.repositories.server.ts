@@ -26,7 +26,10 @@ import {
   type AgentReadableBody,
 } from "#src/server/conversations/agent-message-view.server";
 import { AgentSendRejectedError } from "#src/server/conversations/agent-send-rejected-error.server";
-import { storeMessageBody } from "#src/server/conversations/message-references.server";
+import {
+  channelMentionTargets,
+  storeMessageBody,
+} from "#src/server/conversations/message-references.server";
 import {
   MESSAGE_REACTIONS_SELECT,
   reactionSummaries,
@@ -2254,25 +2257,45 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
   ) {
     const conversation = await this.db.conversation.findUnique({
       where: { id: conversationId },
-      include: {
-        members: {
-          include: {
-            agent: MESSAGE_SENDER_SELECT.select.agent,
-            user: MESSAGE_SENDER_SELECT.select.user,
-          },
-        },
-      },
+      select: { workspaceId: true, channelName: true, archivedAt: true },
     });
     if (!conversation) throw new Error("conversation scope is not authorized");
     if (conversation.channelName && conversation.archivedAt) throw new AppError("CONFLICT");
-    let sender = conversation.members.find((m) => m.agentId === agentId && !m.leftAt);
-    const user = conversation.members.find((m) => m.userId && !m.leftAt);
+    // A DM's two members; in a channel, not the whole roster (#general holds the whole
+    // Workspace) but the sending Agent's own row and the members its `--mention` bindings name.
+    // The body's plain `@handle`s load their members in `storeMessageBody` below.
+    const members = await this.db.conversationMember.findMany({
+      where: {
+        conversationId,
+        ...(conversation.channelName && {
+          OR: [
+            {
+              agentId: {
+                in: [
+                  agentId,
+                  ...(mentions ?? []).flatMap((m) => (m.type === "agent" ? [m.id] : [])),
+                ],
+              },
+            },
+            {
+              userId: { in: (mentions ?? []).flatMap((m) => (m.type === "user" ? [m.id] : [])) },
+            },
+          ],
+        }),
+      },
+      include: {
+        agent: MESSAGE_SENDER_SELECT.select.agent,
+        user: MESSAGE_SENDER_SELECT.select.user,
+      },
+    });
+    let sender = members.find((m) => m.agentId === agentId && !m.leftAt);
+    const user = members.find((m) => m.userId && !m.leftAt);
     // A soft-left DM membership is not an intentional leave: visibility changes never touch
     // DMs, and a deleted Agent cannot call send (keys revoked). Clear `leftAt` on the same
     // row — the channel rejoin pattern — so a still-live Agent can deliver again instead of
     // surfacing a bare 500. Channel soft-leaves stay rejected; those are intentional removals.
     if (!sender && !conversation.channelName) {
-      const softLeft = conversation.members.find((m) => m.agentId === agentId && m.leftAt);
+      const softLeft = members.find((m) => m.agentId === agentId && m.leftAt);
       if (softLeft) {
         const self = await this.db.agent.findUnique({
           where: { id: agentId },
@@ -2343,7 +2366,7 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
       const mentionedMemberIds: string[] = [];
       if (mentions?.length) {
         for (const mention of mentions) {
-          const match = conversation.members.find((member) =>
+          const match = members.find((member) =>
             mention.type === "user"
               ? member.userId === mention.id && member.user?.username === mention.name
               : member.agentId === mention.id && member.agent?.name === mention.name,
@@ -2370,22 +2393,11 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
         body,
         {
           targets: conversation.channelName
-            ? conversation.members
-                .filter((member) => !member.leftAt)
-                .map((member) =>
-                  member.userId
-                    ? {
-                        key: member.id,
-                        type: "user" as const,
-                        id: member.userId,
-                        handle: member.user!.username,
-                      }
-                    : {
-                        key: member.id,
-                        type: "agent" as const,
-                        id: member.agentId!,
-                        handle: member.agent!.name,
-                      },
+            ? (handles) =>
+                channelMentionTargets(
+                  tx,
+                  { workspaceId: conversation.workspaceId, conversationId },
+                  handles,
                 )
             : [],
           bindings: mentions ?? [],

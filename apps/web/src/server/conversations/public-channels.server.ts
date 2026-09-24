@@ -35,7 +35,7 @@ import {
   type CentrifugoServerApi,
 } from "#src/server/centrifugo/server-api.server";
 import type { MessageNotifier } from "#src/server/notifications/web-push-composition.server";
-import { storeMessageBody } from "./message-references.server";
+import { channelMentionTargets, storeMessageBody } from "./message-references.server";
 import { unresolvedMentionHandles } from "./unresolved-mentions.server";
 import {
   claimMentionActions,
@@ -1902,41 +1902,8 @@ export class PublicChannels {
             { workspaceId, conversationId: channelId },
             body,
             {
-              // Only the members the body's `@handle`s name: #general holds the whole Workspace.
-              targets: async (handles) =>
-                (
-                  await tx.conversationMember.findMany({
-                    where: {
-                      conversationId: channelId,
-                      ...ACTIVE_MEMBER_WHERE,
-                      OR: [
-                        { user: { username: { in: [...handles] } } },
-                        { agent: { name: { in: [...handles] } } },
-                      ],
-                    },
-                    select: {
-                      id: true,
-                      userId: true,
-                      agentId: true,
-                      user: { select: { username: true } },
-                      agent: { select: { name: true } },
-                    },
-                  })
-                ).map((channelMember) =>
-                  channelMember.userId
-                    ? {
-                        key: channelMember.id,
-                        type: "user" as const,
-                        id: channelMember.userId,
-                        handle: channelMember.user!.username,
-                      }
-                    : {
-                        key: channelMember.id,
-                        type: "agent" as const,
-                        id: channelMember.agentId!,
-                        handle: channelMember.agent!.name,
-                      },
-                ),
+              targets: (handles) =>
+                channelMentionTargets(tx, { workspaceId, conversationId: channelId }, handles),
             },
           );
           if (root) {
