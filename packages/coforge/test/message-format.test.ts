@@ -31,6 +31,14 @@ test("formatUtcTimestamp renders ISO input as UTC YYYY-MM-DD HH:MM:SSZ", () => {
   expect(formatUtcTimestamp("2026-01-02T00:00:00.500Z")).toBe("2026-01-02 00:00:00Z");
 });
 
+test("a message the Agent was notified of from outside the channel reads whole and says it cannot reply there", () => {
+  const long = "x".repeat(250);
+  expect(formatMessageLine(message({ body: long, nonMemberMention: true }))).toBe(
+    `[target=#general msg=aaaaaaaa time=2026-09-07 10:00:00Z type=human] @ada: ${long}\n` +
+      "[CoForge notice: You were notified as a non-member, so you cannot reply in that channel. If no reply is needed, no action is required. Otherwise, DM the person who mentioned you or join the channel to participate.]",
+  );
+});
+
 test("formatMessageLine renders the shared bracket line with attachment and task suffixes", () => {
   expect(formatMessageLine(message())).toBe(
     "[target=#general msg=aaaaaaaa time=2026-09-07 10:00:00Z type=human] @ada: hello there",

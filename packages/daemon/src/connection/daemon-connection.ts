@@ -34,11 +34,16 @@ import type {
   AgentProfileUpdateRequest,
   AgentProfileUpdateResponse,
   AgentProfileErrorCode,
+  AgentMentionActionErrorCode,
+  AgentMentionExecuteRequest,
+  AgentMentionExecuteResponse,
+  AgentMentionPendingResponse,
 } from "@lrm/coforge-sdk/agent";
 import { AgentMessageRequestError } from "./agent-message-request-error";
 import { AgentManualRequestError } from "./agent-manual-request-error";
 import { AgentUserInfoRequestError } from "./agent-user-info-request-error";
 import { AgentProfileRequestError } from "./agent-profile-request-error";
+import { AgentMentionActionRequestError } from "./agent-mention-action-request-error";
 import { AgentTransportError } from "./agent-transport-error";
 import {
   decodeAgentWorkspaceResetRequest,
@@ -262,6 +267,12 @@ export interface AgentMessageHttpClient {
   requestProfileUpdate?(
     input: AgentHttpInput<AgentProfileUpdateRequest>,
   ): Promise<AgentProfileUpdateResponse>;
+  requestMentionPending?(
+    input: AgentHttpInput<Record<string, never>>,
+  ): Promise<AgentMentionPendingResponse>;
+  requestMentionExecute?(
+    input: AgentHttpInput<AgentMentionExecuteRequest>,
+  ): Promise<AgentMentionExecuteResponse>;
 }
 
 /**
@@ -301,6 +312,9 @@ export type AgentMessageTransportResponse = {
   hasMore?: boolean;
   /** `send` only: pending messages a bypassed hold chose not to review; empty otherwise. */
   recentUnread?: AgentMessage[];
+  /** `send` only: the mentions a sent message did not deliver, as the server reported them. */
+  pendingMentionActions?: AgentSendResponse["pendingMentionActions"];
+  unresolvedMentionHandles?: string[];
 };
 
 /** Adapts the read route's response into the shape `DaemonRuntime` consumes. */
@@ -360,6 +374,8 @@ function adaptAgentSendResponse(response: AgentSendResponse): AgentMessageTransp
     withheldMessageCount: response.withheldMessageCount,
     seenUpToSeq: response.seenUpToSeq,
     recentUnread: response.recentUnread,
+    pendingMentionActions: response.pendingMentionActions,
+    unresolvedMentionHandles: response.unresolvedMentionHandles,
   };
 }
 
@@ -454,6 +470,11 @@ export interface DaemonConnectionClient {
     request: AgentProfileUpdateRequest,
     agentApiKey: string,
   ): Promise<AgentProfileUpdateResponse>;
+  mentionPending?(agentApiKey: string): Promise<AgentMentionPendingResponse>;
+  mentionExecute?(
+    request: AgentMentionExecuteRequest,
+    agentApiKey: string,
+  ): Promise<AgentMentionExecuteResponse>;
   onAgentWorkspaceReset?(callback: (request: AgentWorkspaceResetRequest) => void): () => void;
   sendAgentControlResult?(result: AgentControlResult): Promise<void>;
   start(token: string, config: DaemonConnectionConfig): Promise<void>;
@@ -810,6 +831,14 @@ function agentWireBody(request: unknown): string {
   return JSON.stringify(requestId === undefined ? rest : { ...rest, idempotencyKey: requestId });
 }
 
+function mentionActionError(errorCode: string, message: string, status: number): Error {
+  return new AgentMentionActionRequestError(
+    errorCode as AgentMentionActionErrorCode,
+    message,
+    status,
+  );
+}
+
 /** Same envelope convention as `getAgentEnvelopeJson`, for a POST route (`profile update`). */
 async function postAgentEnvelopeJson<Result extends { ok: true }>(
   fetcher: HttpFetch,
@@ -1060,6 +1089,18 @@ export const createAgentMessageHttpClient = (
       { ...keys, what: "agent profile update", body: request },
       (errorCode, message, status) =>
         new AgentProfileRequestError(errorCode as AgentProfileErrorCode, message, status),
+    ),
+  requestMentionPending: ({ request: _request, ...keys }) =>
+    getAgentEnvelopeJson<AgentMentionPendingResponse>(
+      httpClient,
+      { ...keys, what: "agent mention pending", query: {} },
+      mentionActionError,
+    ),
+  requestMentionExecute: ({ request, ...keys }) =>
+    postAgentEnvelopeJson<AgentMentionExecuteResponse>(
+      httpClient,
+      { ...keys, what: "agent mention action", body: request },
+      mentionActionError,
     ),
   async requestGitHubCredential({ url, request, ...keys }) {
     const response = await httpClient(url, {
@@ -2045,6 +2086,39 @@ export class DaemonConnection implements DaemonConnectionClient {
       throw new Error("Agent profile HTTP client is unavailable");
     return this.agentMessageHttpClient.requestProfileUpdate({
       url: this.#serverEndpoint("Agent profile update", agentApiRoutes.cloud.profile.update.path),
+      ...this.#agentKeys(agentApiKey),
+      request,
+    });
+  }
+
+  async mentionPending(agentApiKey: string): Promise<AgentMentionPendingResponse> {
+    if (!this.#connected || !this.#serverHttpUrl)
+      throw new Error("Agent mention actions endpoint is not configured");
+    if (!this.agentMessageHttpClient.requestMentionPending)
+      throw new Error("Agent mention actions HTTP client is unavailable");
+    return this.agentMessageHttpClient.requestMentionPending({
+      url: this.#serverEndpoint(
+        "Agent mention pending",
+        agentApiRoutes.cloud.mentionActions.pending.path,
+      ),
+      ...this.#agentKeys(agentApiKey),
+      request: {},
+    });
+  }
+
+  async mentionExecute(
+    request: AgentMentionExecuteRequest,
+    agentApiKey: string,
+  ): Promise<AgentMentionExecuteResponse> {
+    if (!this.#connected || !this.#serverHttpUrl)
+      throw new Error("Agent mention actions endpoint is not configured");
+    if (!this.agentMessageHttpClient.requestMentionExecute)
+      throw new Error("Agent mention actions HTTP client is unavailable");
+    return this.agentMessageHttpClient.requestMentionExecute({
+      url: this.#serverEndpoint(
+        "Agent mention action",
+        agentApiRoutes.cloud.mentionActions.execute.path,
+      ),
       ...this.#agentKeys(agentApiKey),
       request,
     });

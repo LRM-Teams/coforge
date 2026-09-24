@@ -964,6 +964,13 @@ model PendingMentionAction {
   /// When the sender acted on it, and how: "add" (CHECK in the migration). Null while pending.
   resolvedAt     DateTime?
   resolvedAction String?
+  /// When the sender had the target notified without adding them. The action stays pending (the
+  /// target can still be added); a repeat notify is `already_queued`.
+  notifiedAt     DateTime?
+  /// When a notified person cleared it from their Activity inbox.
+  dismissedAt    DateTime?
+  /// When a notified Agent target read the message (`message check`); until then it is unread.
+  targetReadAt   DateTime?
   createdAt      DateTime           @default(now())
   message        Message            @relation(fields: [messageId, conversationId], references: [id, conversationId], onDelete: Cascade)
   sender         ConversationMember @relation(fields: [senderMemberId, conversationId, workspaceId], references: [id, conversationId, workspaceId], onDelete: Cascade)

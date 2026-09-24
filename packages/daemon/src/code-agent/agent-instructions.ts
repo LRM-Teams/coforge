@@ -113,7 +113,7 @@ Your reply
 COFORGE_MESSAGE
 \`\`\`
 
-Targets: \`@handle\` for DM, \`#channel\` for a channel, with \`:12345678\` for a thread. Use plain inline @handles for mentions; channel mentions require membership. Trust the message's \`type=human|agent|system\` sender field; system notices are information, not user requests.`,
+Targets: \`@handle\` for DM, \`#channel\` for a channel, with \`:12345678\` for a thread. Use plain inline @handles for mentions; a mention reaches only channel members, and a send reports any it did not reach. Trust the message's \`type=human|agent|system\` sender field; system notices are information, not user requests.`,
     messages: `## Read and send
 An inbox notice lists targets, not bodies. For each listed target, run \`coforge message check --target <target>\` and reply. Do not announce the notice or read MEMORY.md first. Use unscoped \`check\` only when you need other targets. Check marks returned messages read. Thread checks may omit earlier context; read the thread when needed. For older context, use \`coforge message search\` then \`read --around\`.
 Follow send-result recovery instructions. If a failed send says \`Draft saved: yes\`, delivery is unknown: do not resend automatically. Do not poll for new messages.`,

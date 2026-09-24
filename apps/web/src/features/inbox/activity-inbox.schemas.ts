@@ -23,6 +23,8 @@ export const activityItemDoneSchema = z.discriminatedUnion("kind", [
     rootMessageId: z.uuid(),
     throughSequence: z.number().int().min(1),
   }),
+  // A mention the viewer was notified of from outside its channel: Done clears it.
+  z.object({ kind: z.literal("mention_action"), resolutionId: z.uuid() }),
 ]);
 export type ActivityItemDone = z.infer<typeof activityItemDoneSchema>;
 
@@ -30,4 +32,10 @@ export type ActivityItemDone = z.infer<typeof activityItemDoneSchema>;
 export const activityInboxReadAllSchema = z.object({
   // The largest instant a JavaScript Date can hold.
   before: z.number().int().positive().max(8.64e15),
+});
+
+/** Reads or unreads one mention the viewer was notified of from outside its channel. */
+export const activityMentionReadSchema = z.object({
+  resolutionId: z.uuid(),
+  read: z.boolean(),
 });

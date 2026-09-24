@@ -2299,6 +2299,50 @@ describe("DaemonRuntime", () => {
     }
   });
 
+  test("a sent message's undelivered mentions are returned to the Agent unchanged", async () => {
+    const pendingMentionActions = [
+      {
+        resolutionId: "22222222-2222-4222-8222-222222222222",
+        messageId: "sent-1",
+        targetType: "user" as const,
+        targetHandle: "bob",
+        targetAvatarUrl: null,
+        reason: "not_member" as const,
+        availableActions: [],
+        expiresAt: "2026-10-01T00:00:00.000Z",
+      },
+    ];
+    const harness = await messageHarness(async (request) => ({
+      protocolMajor: 1,
+      requestId: request.requestId,
+      accepted: true,
+      attentionCount: 0,
+      messageId: "sent-1",
+      messages: [],
+      state: "sent",
+      decision: "forward",
+      pendingMentionActions,
+      unresolvedMentionHandles: ["ghost"],
+    }));
+    try {
+      const result = await harness.runtime.agentMessage(
+        harness.context,
+        {
+          requestId: "mention-send",
+          context: harness.context,
+          operation: "send",
+          target: "#triage",
+          content: "@bob @ghost look",
+        },
+        harness.apiKey,
+      );
+      expect(result.pendingMentionActions).toEqual(pendingMentionActions);
+      expect(result.unresolvedMentionHandles).toEqual(["ghost"]);
+    } finally {
+      await harness.runtime.stop();
+    }
+  });
+
   test("recentUnread from a bypassed hold is returned and advances modelSeen for future sends", async () => {
     const sends: AgentMessageRequest[] = [];
     const harness = await messageHarness(async (request) => {

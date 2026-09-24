@@ -608,5 +608,10 @@
   "search_preview_close": "Close preview",
   "search_preview_failed": "This conversation could not be loaded.",
   "search_preview_empty": "No messages yet",
-  "search_preview_read_only": "Open the conversation to reply."
+  "search_preview_read_only": "Open the conversation to reply.",
+  "conversation_pending_mention_notify": "Notify",
+  "conversation_pending_mention_notify_target": "Notify {target}",
+  "conversation_pending_mention_queued": "Notification queued for {target} · still not in {channel}",
+  "conversation_pending_mention_queued_label": "Queued",
+  "conversation_pending_mention_notify_failed": "Notifying failed. Please try again."
 }

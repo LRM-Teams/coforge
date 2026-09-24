@@ -811,9 +811,15 @@ describe("PrismaDirectConversationRepository", () => {
     );
 
     expect(queries).toHaveLength(1);
-    // One statement, bound only to the Workspace, the Agent, and the resume budget.
+    // One statement, bound only to the Workspace, the Agent, and the resume budget: the channel
+    // deliveries (membership first), the two direct-message branches, the notified-non-member
+    // branch (and its not-a-member check), the membership join, the delivery join, the budget.
     expect(queries[0]).toEqual([
+      "agent-1",
       ...Array.from({ length: 4 }, () => ["workspace-1", "agent-1"]).flat(),
+      "agent-1",
+      "workspace-1",
+      "agent-1",
       "agent-1",
       100,
     ]);
@@ -1048,6 +1054,7 @@ describe("PrismaDirectConversationRepository", () => {
                   user: { username: "alice", description: "" },
                 },
                 mentions: [],
+                pendingMentionActions: [],
               },
             },
           ];
@@ -1102,6 +1109,7 @@ describe("PrismaDirectConversationRepository", () => {
                 user: null,
               },
               mentions: [],
+              pendingMentionActions: [],
             },
           },
         ],

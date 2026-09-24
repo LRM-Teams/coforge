@@ -6,6 +6,7 @@ import {
   activityInboxPageSchema,
   activityInboxReadAllSchema,
   activityItemDoneSchema,
+  activityMentionReadSchema,
 } from "./activity-inbox.schemas";
 
 /** One page of the viewer's Activity inbox, newest activity first, with the view's totals. */
@@ -44,4 +45,13 @@ export const loadActivityNavAttention = createServerFn({ method: "GET" })
   .handler(async ({ context }) => {
     const { db, workspaceId, user } = context;
     return new ActivityInbox(db).navAttention(workspaceId, user.id);
+  });
+
+/** Reads or unreads a mention the viewer was notified of; it stays listed until Done. */
+export const setActivityMentionRead = createServerFn({ method: "POST" })
+  .middleware([workspaceUserMiddleware])
+  .validator(activityMentionReadSchema)
+  .handler(async ({ context, data }) => {
+    const { db, workspaceId, user } = context;
+    await new ActivityInbox(db).setMentionRead(workspaceId, user.id, data.resolutionId, data.read);
   });

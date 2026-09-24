@@ -37,12 +37,18 @@ import {
   type AgentProfileShowResponse,
   type AgentProfileUpdateRequest,
   type AgentProfileUpdateResponse,
+  AGENT_MENTION_ACTION_MAX_IDS,
+  isAgentMentionActionKind,
+  type AgentMentionExecuteRequest,
+  type AgentMentionExecuteResponse,
+  type AgentMentionPendingResponse,
 } from "@lrm/coforge-sdk/agent";
 import { isAgentApiKey } from "#src/credentials/agent-api-key";
 import { classifyAgentProxyFailure, AGENT_PROXY_CORRELATION_HEADER } from "./agent-proxy-failure";
 import { AgentManualRequestError } from "#src/connection/agent-manual-request-error";
 import { AgentUserInfoRequestError } from "#src/connection/agent-user-info-request-error";
 import { AgentProfileRequestError } from "#src/connection/agent-profile-request-error";
+import { AgentMentionActionRequestError } from "#src/connection/agent-mention-action-request-error";
 import {
   validateWeeklyReportCollectCommand,
   type WeeklyReportCollectCommand,
@@ -139,6 +145,16 @@ export type AgentProxyRuntime = {
     request: AgentProfileUpdateRequest,
     agentApiKey: string,
   ): Promise<AgentProfileUpdateResponse>;
+  mentionPending?(
+    context: string,
+    request: Record<string, never>,
+    agentApiKey: string,
+  ): Promise<AgentMentionPendingResponse>;
+  mentionExecute?(
+    context: string,
+    request: AgentMentionExecuteRequest,
+    agentApiKey: string,
+  ): Promise<AgentMentionExecuteResponse>;
   githubCredential?(
     context: string,
     request: GitHubCredentialRequest,
@@ -359,6 +375,28 @@ function profileDomainFailure(error: unknown): Response | undefined {
     { ok: false, errorCode: error.errorCode, error: error.message },
     { status: error.status },
   );
+}
+
+/** Same convention as `profileDomainFailure`, for the mention action routes. */
+function mentionActionDomainFailure(error: unknown): Response | undefined {
+  if (!(error instanceof AgentMentionActionRequestError)) return undefined;
+  return Response.json(
+    { ok: false, errorCode: error.errorCode, error: error.message },
+    { status: error.status },
+  );
+}
+
+function parseMentionExecuteFields(fields: JsonObject): AgentMentionExecuteRequest | Response {
+  const { action, resolutionIds: ids } = fields;
+  if (
+    !isAgentMentionActionKind(action) ||
+    !Array.isArray(ids) ||
+    ids.length < 1 ||
+    ids.length > AGENT_MENTION_ACTION_MAX_IDS ||
+    ids.some((id) => typeof id !== "string" || !UUID.test(id))
+  )
+    return badRequest();
+  return { action, resolutionIds: ids as string[] };
 }
 
 function parseProfileUpdateFields(fields: JsonObject): AgentProfileUpdateRequest | Response {
@@ -605,6 +643,24 @@ const ROUTE_TABLE: readonly ProxyRoute[] = [
     handler: "profileUpdate",
     parse: ({ fields }) => parseProfileUpdateFields(fields),
     domainFailure: profileDomainFailure,
+  }),
+  defineRoute({
+    family: "agent-api/mention-pending",
+    method: LOCAL_PROXY_ROUTES.mentionActions.pending.method,
+    match: exactPath(LOCAL_PROXY_ROUTES.mentionActions.pending.path),
+    body: "none",
+    handler: "mentionPending",
+    parse: () => ({}),
+    domainFailure: mentionActionDomainFailure,
+  }),
+  defineRoute({
+    family: "agent-api/mention-execute",
+    method: LOCAL_PROXY_ROUTES.mentionActions.execute.method,
+    match: exactPath(LOCAL_PROXY_ROUTES.mentionActions.execute.path),
+    body: "json-object",
+    handler: "mentionExecute",
+    parse: ({ fields }) => parseMentionExecuteFields(fields),
+    domainFailure: mentionActionDomainFailure,
   }),
   defineRoute({
     family: "agent-api/attachment",

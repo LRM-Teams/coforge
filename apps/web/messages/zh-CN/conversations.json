@@ -587,5 +587,10 @@
   "search_preview_close": "关闭预览",
   "search_preview_failed": "无法加载这个会话。",
   "search_preview_empty": "还没有消息",
-  "search_preview_read_only": "打开会话后才能回复。"
+  "search_preview_read_only": "打开会话后才能回复。",
+  "conversation_pending_mention_notify": "通知",
+  "conversation_pending_mention_notify_target": "通知 {target}",
+  "conversation_pending_mention_queued": "已为 {target} 排队通知 · 仍不在 {channel}",
+  "conversation_pending_mention_queued_label": "已排队",
+  "conversation_pending_mention_notify_failed": "通知失败，请稍后重试。"
 }

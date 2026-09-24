@@ -37,6 +37,7 @@ import { DAEMON_RUNTIME_READY_METHOD } from "@lrm/coforge-sdk/internal";
 import { agentApiRoutes } from "@lrm/coforge-sdk/agent";
 import { AgentMessageRequestError } from "#src/connection/agent-message-request-error";
 import { AgentTransportError } from "#src/connection/agent-transport-error";
+import { AgentMentionActionRequestError } from "#src/connection/agent-mention-action-request-error";
 
 /** Runs `run()` with a logtape capture sink installed for `coforge.daemon.*`, then restores the
  * previous (unconfigured) logging state. Mirrors the pattern in daemon-runtime.test.ts. */
@@ -862,6 +863,74 @@ test("a reminder refusal keeps the server's code for the daemon log, not the cal
   expect(error).toBeInstanceOf(AgentUpstreamRefusalError);
   expect((error as AgentUpstreamRefusalError).message).toBe("Agent reminder request failed (400)");
   expect((error as AgentUpstreamRefusalError).upstreamCode).toBe("TEMPORARILY_UNAVAILABLE");
+});
+
+test("mention pending HTTP transport GETs the Agent's pending mentions", async () => {
+  const calls: Array<{ url: string; method?: string; headers: Headers }> = [];
+  const body = { ok: true as const, pendingMentionActions: [] };
+  const client = createAgentMessageHttpClient(async (input, init) => {
+    calls.push({ url: String(input), method: init?.method, headers: new Headers(init?.headers) });
+    return Response.json(body);
+  });
+  const result = await client.requestMentionPending!({
+    url: "https://server.example/api/agent/v1/mention-actions/pending",
+    agentApiKey: `sk_agent_${"a".repeat(43)}`,
+    daemonApiKey: "daemon-token",
+    request: {},
+  });
+  expect(result).toEqual(body);
+  expect(calls).toHaveLength(1);
+  expect(calls[0]?.url).toBe("https://server.example/api/agent/v1/mention-actions/pending");
+  expect(calls[0]?.method).toBe("GET");
+  expect(calls[0]?.headers.get("x-coforge-agent-api-key")).toBe(
+    `Bearer sk_agent_${"a".repeat(43)}`,
+  );
+});
+
+test("mention action HTTP transport POSTs the action and its resolution ids", async () => {
+  const calls: Array<{ url: string; method?: string; body: unknown }> = [];
+  const body = {
+    ok: true,
+    action: "add",
+    results: [{ resolutionId: "22222222-2222-4222-8222-222222222222", status: "no_permission" }],
+  };
+  const client = createAgentMessageHttpClient(async (input, init) => {
+    calls.push({ url: String(input), method: init?.method, body: JSON.parse(String(init?.body)) });
+    return Response.json(body);
+  });
+  const result = await client.requestMentionExecute!({
+    url: "https://server.example/api/agent/v1/mention-actions/execute",
+    agentApiKey: `sk_agent_${"a".repeat(43)}`,
+    daemonApiKey: "daemon-token",
+    request: { action: "add", resolutionIds: ["22222222-2222-4222-8222-222222222222"] },
+  });
+  expect(result).toEqual(body as typeof result);
+  expect(calls).toEqual([
+    {
+      url: "https://server.example/api/agent/v1/mention-actions/execute",
+      method: "POST",
+      body: { action: "add", resolutionIds: ["22222222-2222-4222-8222-222222222222"] },
+    },
+  ]);
+});
+
+test("mention action HTTP transport turns an error envelope into a typed error", async () => {
+  const client = createAgentMessageHttpClient(async () =>
+    Response.json(
+      { ok: false, errorCode: "invalid_request", error: 'action must be "add".' },
+      { status: 400 },
+    ),
+  );
+  const error = await client.requestMentionExecute!({
+    url: "https://server.example/api/agent/v1/mention-actions/execute",
+    agentApiKey: `sk_agent_${"a".repeat(43)}`,
+    daemonApiKey: "daemon-token",
+    request: { action: "add", resolutionIds: ["22222222-2222-4222-8222-222222222222"] },
+  }).catch((thrown: unknown) => thrown);
+  expect(error).toBeInstanceOf(AgentMentionActionRequestError);
+  expect((error as AgentMentionActionRequestError).errorCode).toBe("invalid_request");
+  expect((error as AgentMentionActionRequestError).status).toBe(400);
+  expect((error as Error).message).toBe('action must be "add".');
 });
 
 test("GitHub credential HTTP transport authenticates the Agent request", async () => {
@@ -2456,6 +2525,45 @@ const sendAdapterCases: Array<{
       ],
     },
     expected: { accepted: true, decision: "bypass", reason: "continue_anyway" },
+  },
+  {
+    label: "a sent message carries the mentions it did not reach",
+    response: {
+      protocolMajor: 1,
+      idempotencyKey: "request-send",
+      state: "sent",
+      decision: "forward",
+      messageId: "message-1",
+      pendingMentionActions: [
+        {
+          resolutionId: "22222222-2222-4222-8222-222222222222",
+          messageId: "message-1",
+          targetType: "user",
+          targetHandle: "bob",
+          targetAvatarUrl: null,
+          reason: "not_member",
+          availableActions: [],
+          expiresAt: "2026-10-01T00:00:00.000Z",
+        },
+      ],
+      unresolvedMentionHandles: ["ghost"],
+    },
+    expected: {
+      accepted: true,
+      pendingMentionActions: [
+        {
+          resolutionId: "22222222-2222-4222-8222-222222222222",
+          messageId: "message-1",
+          targetType: "user",
+          targetHandle: "bob",
+          targetAvatarUrl: null,
+          reason: "not_member",
+          availableActions: [],
+          expiresAt: "2026-10-01T00:00:00.000Z",
+        },
+      ],
+      unresolvedMentionHandles: ["ghost"],
+    },
   },
   {
     label: "a held send carries the window as messages/attentionCount plus Raft's counts",

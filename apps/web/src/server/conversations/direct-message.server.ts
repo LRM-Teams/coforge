@@ -140,7 +140,13 @@ export class SendDirectMessage {
     );
     await this.notifications?.notifyMessage(message.id);
     await this.publishAgentMentionDeliveries(input.requestId, conversation.id, message);
-    return message;
+    // What the message did not reach, read from the stored message so a replay reports the same.
+    const report = (await this.conversations.agentMentionReport?.(
+      input.workspaceId,
+      input.agentId,
+      { id: message.id, conversationId: conversation.id, body: message.body },
+    )) ?? { pendingMentionActions: [], unresolvedMentionHandles: [] };
+    return { ...message, ...report };
   }
 
   /**

@@ -27,7 +27,8 @@ import { storedTaskStatus } from "#src/server/tasks/task-board.server";
  * A person's Activity inbox: every joined channel and direct message, every channel thread they
  * follow, and every thread in their direct messages, as long as it has activity past the point
  * where they marked it Done. Reading an item never removes it; Done does, until a newer message
- * arrives.
+ * arrives. It also lists each message whose sender had them notified of a mention from outside
+ * that channel, until they mark it Done.
  *
  * Unread is the Chat sidebar's rule (`HUMAN_UNREAD_MESSAGE_SQL`), so the two surfaces agree. A
  * conversation item covers top-level messages only; a thread item covers its replies and keeps its
@@ -51,6 +52,8 @@ type ActivityCandidate = {
   mentioned: boolean;
   unreadMention: boolean;
   replyCount: number;
+  /** A mention the viewer was notified of from outside the channel, until they mark it Done. */
+  mentionAction?: { resolutionId: string; threadRootId: string | null };
 };
 
 const DEFAULT_PAGE_SIZE = 30;
@@ -105,6 +108,13 @@ export class ActivityInbox {
    */
   async markDone(workspaceId: string, userId: string, item: ActivityItemDone) {
     await this.authorize(workspaceId, userId);
+    if (item.kind === "mention_action") {
+      await this.db.pendingMentionAction.updateMany({
+        where: { id: item.resolutionId, workspaceId, targetUserId: userId, dismissedAt: null },
+        data: { dismissedAt: new Date() },
+      });
+      return;
+    }
     const member = await this.db.conversationMember.findFirst({
       where: { conversationId: item.conversationId, workspaceId, userId, ...ACTIVE_MEMBER_WHERE },
       select: { id: true },
@@ -156,8 +166,25 @@ export class ActivityInbox {
          AND m."threadRootId" = threads."rootMessageId"
          AND ${unreadReplySql}
         WHERE ${THREAD_ITEM_LISTED_SQL}
+      ) + (
+        -- Each notified mention is one unread item until the viewer reads it.
+        SELECT COUNT(*) FROM "pending_mention_actions" pma
+        JOIN "conversations" pc ON pc."id" = pma."conversationId"
+         AND pc."archivedAt" IS NULL AND pc."hiddenFromWorkspaceAt" IS NULL
+        WHERE pma."workspaceId" = ${workspaceId}::uuid AND pma."targetUserId" = ${userId}::uuid
+          AND pma."notifiedAt" IS NOT NULL AND pma."dismissedAt" IS NULL
+          AND pma."targetReadAt" IS NULL
       ))::int AS "unread"`;
     return { unread };
+  }
+
+  /** Reads or unreads a mention the viewer was notified of; it stays listed until Done. */
+  async setMentionRead(workspaceId: string, userId: string, resolutionId: string, read: boolean) {
+    await this.authorize(workspaceId, userId);
+    await this.db.pendingMentionAction.updateMany({
+      where: { id: resolutionId, workspaceId, targetUserId: userId, notifiedAt: { not: null } },
+      data: { targetReadAt: read ? new Date() : null },
+    });
   }
 
   /**
@@ -170,6 +197,15 @@ export class ActivityInbox {
     const { before } = options;
     await this.db.$transaction([
       this.db.$executeRaw(markConversationsReadSql(workspaceId, userId, before)),
+      this.db.pendingMentionAction.updateMany({
+        where: {
+          workspaceId,
+          targetUserId: userId,
+          notifiedAt: { not: null, lte: before },
+          targetReadAt: null,
+        },
+        data: { targetReadAt: new Date() },
+      }),
       this.db.$executeRaw(
         markThreadsReadSql(workspaceId, followedChannelThreadsSql(workspaceId, userId), before),
       ),
@@ -271,7 +307,55 @@ export class ActivityInbox {
         ) mention
         WHERE ${THREAD_ITEM_LISTED_SQL}`,
     ]);
-    return [...conversations, ...threads];
+    return [...conversations, ...threads, ...(await this.mentionCandidates(workspaceId, userId))];
+  }
+
+  /**
+   * Each message whose sender had the viewer notified of a mention from outside its channel, until
+   * the viewer marks it Done: one mention item per notification, listed from when it was sent,
+   * unread until the viewer reads it. Not in a hidden or archived channel.
+   */
+  private async mentionCandidates(workspaceId: string, userId: string) {
+    const rows = await this.db.pendingMentionAction.findMany({
+      where: {
+        workspaceId,
+        targetUserId: userId,
+        notifiedAt: { not: null },
+        dismissedAt: null,
+        message: { conversation: { archivedAt: null, hiddenFromWorkspaceAt: null } },
+      },
+      select: {
+        id: true,
+        conversationId: true,
+        messageId: true,
+        notifiedAt: true,
+        targetReadAt: true,
+        message: {
+          select: {
+            sequence: true,
+            threadRootId: true,
+            conversation: { select: { channelName: true } },
+          },
+        },
+      },
+    });
+    return rows.map((row): ActivityCandidate => ({
+      kind: "channel",
+      memberId: "",
+      conversationId: row.conversationId,
+      rootMessageId: null,
+      channelName: row.message.conversation.channelName,
+      agentId: null,
+      latestMessageId: row.messageId,
+      latestSequence: row.message.sequence,
+      latestAt: row.notifiedAt!,
+      unreadCount: row.targetReadAt ? 0 : 1,
+      firstUnreadMessageId: row.targetReadAt ? null : row.messageId,
+      mentioned: true,
+      unreadMention: !row.targetReadAt,
+      replyCount: 0,
+      mentionAction: { resolutionId: row.id, threadRootId: row.message.threadRootId },
+    }));
   }
 
   /** Loads the messages, Agents and tasks one page of items renders, in one query each. */
@@ -354,9 +438,11 @@ export class ActivityInbox {
       if (!latest || !place || root === undefined) return [];
       return [
         {
-          key: candidate.rootMessageId
-            ? `thread:${candidate.rootMessageId}`
-            : `conversation:${candidate.conversationId}`,
+          key: candidate.mentionAction
+            ? `mention:${candidate.mentionAction.resolutionId}`
+            : candidate.rootMessageId
+              ? `thread:${candidate.rootMessageId}`
+              : `conversation:${candidate.conversationId}`,
           place,
           // A channel thread is listed because the viewer follows it; a direct-message thread
           // has no follow switch.
@@ -369,6 +455,7 @@ export class ActivityInbox {
           firstUnreadMessageId: candidate.firstUnreadMessageId,
           mentioned: candidate.mentioned,
           unreadMention: candidate.unreadMention,
+          mentionAction: candidate.mentionAction ?? null,
         },
       ];
     });

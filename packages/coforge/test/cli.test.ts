@@ -2775,6 +2775,113 @@ test("message send --json reports a sent message as one JSON object", async () =
   });
 });
 
+const UNDELIVERED_SEND = {
+  accepted: true,
+  messageId: "message-1",
+  pendingMentionActions: [
+    {
+      resolutionId: "22222222-2222-4222-8222-222222222222",
+      messageId: "message-1",
+      targetType: "user",
+      targetHandle: "bob",
+      targetAvatarUrl: null,
+      reason: "not_member",
+      availableActions: [],
+      expiresAt: "2026-10-01T00:00:00.000Z",
+    },
+  ],
+  unresolvedMentionHandles: ["ghost"],
+};
+
+test("message send prints the undelivered mentions and the queued line, then fails without a retry", async () => {
+  const error = await run(["message", "send", "--target", "#triage", "--send-draft"], {
+    check: async () => ({ messages: [] }),
+    read: async () => undefined,
+    send: async () => UNDELIVERED_SEND,
+    view: async () => ({ bytes: new Uint8Array() }),
+  }).catch((caught: unknown) => caught);
+  expect(error).toBeInstanceOf(CliError);
+  const failure = error as CliError;
+  expect(failure.code).toBe("MENTION_DELIVERY_FAILED");
+  expect(failure.message).toBe(
+    "Partial result for message message-1: message status=queued; 2 @mentions status=not_queued.",
+  );
+  expect([failure.retryable, failure.effect, failure.draftSaved]).toEqual([
+    false,
+    "message_queued",
+    false,
+  ]);
+  expect(failure.stdoutText).toBe(
+    [
+      "Undelivered mentions — partial result",
+      "Message effect: status=queued. Queue acceptance is the only message proof.",
+      "Do not rerun `coforge message send`; the message is already queued and a retry could duplicate it.",
+      "Each row below is bound to the literal @token from your message.",
+      "For a literal name rather than a recipient, wrap the @handle in inline or fenced code.",
+      "",
+      "- @bob — status=not_queued",
+      "  reason: not_in_conversation",
+      "  consequence: This @mention did not notify anyone.",
+      "  pending action: 22222222-2222-4222-8222-222222222222",
+      "  message: message-1",
+      "  expires: 2026-10-01T00:00:00.000Z",
+      "  recovery: coforge mention notify 22222222-2222-4222-8222-222222222222",
+      "  note: the handle resolved, but the target was not in this conversation at send time. This does not prove the person left the Workspace.",
+      "  note: notify exits nonzero unless the target queue accepts the delivery.",
+      "- @ghost — status=not_queued",
+      "  reason: unknown_or_not_visible",
+      "  consequence: This @mention did not notify anyone.",
+      "  pending action: none; no visible target resolved for this token",
+      "  expires: n/a",
+      "  recovery: if this was a literal name or prose, wrap it in inline/fenced code; otherwise verify the exact handle and send only a corrected follow-up mention; do not resend this message.",
+      "",
+      'Message queued to #triage. Message ID: message-1 (to reply in this message\'s thread, use target "#triage:message-")',
+    ].join("\n"),
+  );
+  expect(failure.suggestedNextAction).toBe(
+    "The message is already queued. Run only the per-token mention recovery: `coforge mention notify 22222222-2222-4222-8222-222222222222`. If an unresolved token was literal prose, wrap it in code; otherwise verify the exact handle and send only a corrected follow-up mention. Do not resend the queued message.",
+  );
+});
+
+test("message send --json puts the partial result in the error details and nothing on stdout", async () => {
+  const error = (await run(["message", "send", "--target", "#triage", "--send-draft", "--json"], {
+    check: async () => ({ messages: [] }),
+    read: async () => undefined,
+    send: async () => UNDELIVERED_SEND,
+    view: async () => ({ bytes: new Uint8Array() }),
+  }).catch((caught: unknown) => caught)) as CliError;
+  expect(error.code).toBe("MENTION_DELIVERY_FAILED");
+  expect(error.stdoutText).toBeUndefined();
+  expect(error.details).toMatchObject({
+    result: {
+      state: "partial",
+      message: { status: "queued", id: "message-1" },
+      pendingMentionActions: [
+        {
+          resolutionId: "22222222-2222-4222-8222-222222222222",
+          messageId: "message-1",
+          targetHandle: "@bob",
+          status: "not_queued",
+          reason: "not_in_conversation",
+          consequence: "This @mention did not notify anyone.",
+          expiresAt: "2026-10-01T00:00:00.000Z",
+          recoveryCommand: "coforge mention notify 22222222-2222-4222-8222-222222222222",
+        },
+      ],
+      unresolvedMentionWarnings: [
+        {
+          targetHandle: "@ghost",
+          status: "not_queued",
+          reason: "unknown_or_not_visible",
+          consequence: "This @mention did not notify anyone.",
+          expiresAt: null,
+          recoveryCommand: null,
+        },
+      ],
+    },
+  });
+});
+
 test("message send --json appends recentUnread from a bypass send", async () => {
   const output = await run(["message", "send", "--target", "@ada", "--send-draft", "--json"], {
     check: async () => ({ messages: [] }),
@@ -3562,4 +3669,249 @@ test("Manual help needs only a topic or search query", () => {
     intent: "",
     reason: "",
   });
+});
+
+const PENDING_ROW = {
+  resolutionId: "22222222-2222-4222-8222-222222222222",
+  messageId: "11111111-1111-4111-8111-111111111111",
+  targetType: "user" as const,
+  targetHandle: "bob",
+  targetAvatarUrl: null,
+  reason: "not_member" as const,
+  availableActions: [] as string[],
+  expiresAt: "2026-10-01T00:00:00.000Z",
+  channelName: "triage",
+};
+
+test("mention pending and mention add parse their arguments", () => {
+  expect(parseArgs(["mention", "pending"])).toEqual({ command: "mention-pending" });
+  expect(parseArgs(["mention", "pending", "--json"])).toEqual({
+    command: "mention-pending",
+    json: true,
+  });
+  expect(
+    parseArgs([
+      "mention",
+      "add",
+      "22222222-2222-4222-8222-222222222222",
+      "44444444-4444-4444-8444-444444444444",
+      "--json",
+    ]),
+  ).toEqual({
+    command: "mention-action",
+    action: "add",
+    resolutionIds: ["22222222-2222-4222-8222-222222222222", "44444444-4444-4444-8444-444444444444"],
+    json: true,
+  });
+  expect(() => parseArgs(["mention", "pending", "extra"])).toThrow("Usage:");
+  expect(parseArgs(["mention", "notify", "22222222-2222-4222-8222-222222222222"])).toEqual({
+    command: "mention-action",
+    action: "notify",
+    resolutionIds: ["22222222-2222-4222-8222-222222222222"],
+  });
+  expect(() => parseArgs(["mention", "remove", "22222222-2222-4222-8222-222222222222"])).toThrow(
+    "Usage:",
+  );
+});
+
+test("mention add without a resolution id is an INVALID_ARG usage error", () => {
+  let error: unknown;
+  try {
+    parseArgs(["mention", "add"]);
+  } catch (caught) {
+    error = caught;
+  }
+  expect(error).toBeInstanceOf(CliError);
+  expect((error as CliError).code).toBe("INVALID_ARG");
+  expect((error as CliError).message).toBe("At least one resolution id is required.");
+});
+
+test("mention pending lists each pending mention the Agent can no longer act on", async () => {
+  const output = await run(["mention", "pending"], {
+    ...MINIMAL_TRANSPORT,
+    mentionPending: async () => ({ ok: true, pendingMentionActions: [PENDING_ROW] }),
+  });
+  expect(output).toBe(
+    [
+      "Pending mention actions",
+      "",
+      "- 22222222-2222-4222-8222-222222222222 — @bob (user)",
+      "  message: 11111111-1111-4111-8111-111111111111",
+      "  reason: not in the conversation at send time, so the @mention was not delivered",
+      "  expires: 2026-10-01T00:00:00.000Z",
+    ].join("\n"),
+  );
+});
+
+test("mention pending lists the recovery commands a pending mention still allows", async () => {
+  const output = await run(["mention", "pending"], {
+    ...MINIMAL_TRANSPORT,
+    mentionPending: async () => ({
+      ok: true,
+      pendingMentionActions: [
+        { ...PENDING_ROW, targetType: "agent", availableActions: ["notify", "add"] },
+      ],
+    }),
+  });
+  expect(output).toBe(
+    [
+      "Pending mention actions",
+      "",
+      "- 22222222-2222-4222-8222-222222222222 — @bob (agent)",
+      "  message: 11111111-1111-4111-8111-111111111111",
+      "  reason: not in the conversation at send time, so the @mention was not delivered",
+      "  expires: 2026-10-01T00:00:00.000Z",
+      "  recovery commands:",
+      "  notify: coforge mention notify 22222222-2222-4222-8222-222222222222",
+      "  add: coforge mention add 22222222-2222-4222-8222-222222222222",
+      "  note: notify exits nonzero unless the target queue accepts the delivery.",
+    ].join("\n"),
+  );
+});
+
+test("mention pending says so when nothing is pending, and --json returns the list", async () => {
+  const transport = {
+    ...MINIMAL_TRANSPORT,
+    mentionPending: async () => ({ ok: true as const, pendingMentionActions: [] }),
+  };
+  expect(await run(["mention", "pending"], transport)).toBe(
+    "Pending mention actions\n\nNo pending mention actions.",
+  );
+  expect(await run(["mention", "pending", "--json"], transport)).toEqual({
+    ok: true,
+    pendingMentionActions: [],
+  });
+});
+
+test("mention add prints each target's result when every one was added", async () => {
+  const calls: unknown[] = [];
+  const transport = {
+    ...MINIMAL_TRANSPORT,
+    mentionExecute: async (request: { action: "notify" | "add"; resolutionIds: string[] }) => {
+      calls.push(request);
+      return {
+        ok: true as const,
+        action: "add" as const,
+        results: [{ resolutionId: PENDING_ROW.resolutionId, status: "delivered" }],
+      };
+    },
+  };
+  expect(await run(["mention", "add", PENDING_ROW.resolutionId], transport)).toBe(
+    ["Mention add results", "", `- ${PENDING_ROW.resolutionId}: delivered`].join("\n"),
+  );
+  expect(await run(["mention", "add", PENDING_ROW.resolutionId, "--json"], transport)).toEqual({
+    ok: true,
+    action: "add",
+    results: [{ resolutionId: PENDING_ROW.resolutionId, status: "delivered" }],
+  });
+  expect(calls).toEqual([
+    { action: "add", resolutionIds: [PENDING_ROW.resolutionId] },
+    { action: "add", resolutionIds: [PENDING_ROW.resolutionId] },
+  ]);
+});
+
+test("mention add fails with every target that was not added, including ids with no result", async () => {
+  const missing = "44444444-4444-4444-8444-444444444444";
+  const transport = {
+    ...MINIMAL_TRANSPORT,
+    mentionExecute: async () => ({
+      ok: true as const,
+      action: "add" as const,
+      results: [
+        {
+          resolutionId: PENDING_ROW.resolutionId,
+          status: "no_permission",
+          reason: "add_requires_human_member_authority",
+          targetType: "user" as const,
+          targetId: "33333333-3333-4333-8333-333333333333",
+        },
+      ],
+    }),
+  };
+  const error = (await run(
+    ["mention", "add", PENDING_ROW.resolutionId, missing, "--json"],
+    transport,
+  ).catch((caught: unknown) => caught)) as CliError;
+  expect(error).toBeInstanceOf(CliError);
+  expect(error.code).toBe("MENTION_ACTION_FAILED");
+  expect(error.message).toBe(
+    `Mention add did not complete for every requested target: ${PENDING_ROW.resolutionId}: no_permission (add_requires_human_member_authority), ${missing}: missing_result`,
+  );
+  expect(error.retryable).toBe(false);
+  expect(error.outputMode).toBe("json");
+  const textError = (await run(
+    ["mention", "add", PENDING_ROW.resolutionId, missing],
+    transport,
+  ).catch((caught: unknown) => caught)) as CliError;
+  expect(textError.code).toBe("MENTION_ACTION_FAILED");
+  expect(textError.message).toBe(error.message);
+  expect(textError.outputMode).toBe("text");
+  expect(textError.stdoutText).toBeUndefined();
+});
+
+test("mention notify prints each result and the recipient guidance when every target was queued", async () => {
+  const calls: unknown[] = [];
+  const transport = {
+    ...MINIMAL_TRANSPORT,
+    mentionExecute: async (request: { action: "notify" | "add"; resolutionIds: string[] }) => {
+      calls.push(request);
+      return {
+        ok: true as const,
+        action: "notify" as const,
+        results: [{ resolutionId: PENDING_ROW.resolutionId, status: "queued" }],
+      };
+    },
+  };
+  expect(await run(["mention", "notify", PENDING_ROW.resolutionId], transport)).toBe(
+    [
+      "Mention notify results",
+      "",
+      `- ${PENDING_ROW.resolutionId}: queued`,
+      "",
+      "Recipient guidance: [CoForge notice: You were notified as a non-member, so you cannot reply in that channel. If no reply is needed, no action is required. Otherwise, DM the person who mentioned you or join the channel to participate.]",
+    ].join("\n"),
+  );
+  expect(await run(["mention", "notify", PENDING_ROW.resolutionId, "--json"], transport)).toEqual({
+    ok: true,
+    action: "notify",
+    results: [{ resolutionId: PENDING_ROW.resolutionId, status: "queued" }],
+  });
+  expect(calls).toEqual([
+    { action: "notify", resolutionIds: [PENDING_ROW.resolutionId] },
+    { action: "notify", resolutionIds: [PENDING_ROW.resolutionId] },
+  ]);
+});
+
+test("mention notify of a target that was already queued prints no recipient guidance", async () => {
+  const output = await run(["mention", "notify", PENDING_ROW.resolutionId], {
+    ...MINIMAL_TRANSPORT,
+    mentionExecute: async () => ({
+      ok: true as const,
+      action: "notify" as const,
+      results: [
+        { resolutionId: PENDING_ROW.resolutionId, status: "queued", reason: "already_queued" },
+      ],
+    }),
+  });
+  expect(output).toBe(
+    ["Mention notify results", "", `- ${PENDING_ROW.resolutionId}: queued — already_queued`].join(
+      "\n",
+    ),
+  );
+});
+
+test("mention notify fails unless every requested target was queued", async () => {
+  const error = (await run(["mention", "notify", PENDING_ROW.resolutionId], {
+    ...MINIMAL_TRANSPORT,
+    mentionExecute: async () => ({
+      ok: true as const,
+      action: "notify" as const,
+      results: [{ resolutionId: PENDING_ROW.resolutionId, status: "expired" }],
+    }),
+  }).catch((caught: unknown) => caught)) as CliError;
+  expect(error).toBeInstanceOf(CliError);
+  expect(error.code).toBe("MENTION_ACTION_FAILED");
+  expect(error.message).toBe(
+    `Mention notify did not complete for every requested target: ${PENDING_ROW.resolutionId}: expired`,
+  );
 });

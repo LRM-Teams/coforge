@@ -5,12 +5,20 @@ import { AGENT_VISIBILITY } from "#src/features/agents/agent-visibility";
 import { workspaceUserAvatarUrl } from "#src/server/db/repositories/user-profile.repositories.server";
 import { ACTIVE_MEMBER_WHERE } from "./active-member.server";
 import { leftoverMentionHandles } from "./unresolved-mentions.server";
+import { channelTarget, encodeAgentDelivery } from "./agent-delivery.server";
+import { MESSAGE_MENTIONS_SELECT } from "./mentions.server";
+import { agentMessageSender } from "./sender-display.server";
+import {
+  createCentrifugoServerApi,
+  daemonControlChannel,
+  type CentrifugoServerApi,
+} from "#src/server/centrifugo/server-api.server";
 
 /** How long the sender can act on a mention that did not reach its target. */
 export const PENDING_MENTION_ACTION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
 /** What the sender can still do about one pending mention. */
-export type MentionActionKind = "add";
+export type MentionActionKind = "notify" | "add";
 
 /** One mention of a sent message that did not reach its target, as its sender sees it. */
 export type PendingMentionActionView = {
@@ -89,7 +97,7 @@ export async function recordPendingMentionActions(
 /**
  * The sender's still-pending mention actions of one message, in the order the body names them:
  * not yet acted on and not expired. What each still allows is read now: Add while the channel is
- * open and the target can join it and is not already a member.
+ * open and the target can join it and is not already a member, and Notify until it was notified.
  */
 export async function pendingMentionActionsForMessage(
   db: Pick<PrismaClient, "pendingMentionAction" | "conversationMember">,
@@ -140,6 +148,7 @@ const PENDING_MENTION_ACTION_SELECT = {
   targetAgentId: true,
   targetHandle: true,
   expiresAt: true,
+  notifiedAt: true,
   workspaceId: true,
   targetUser: {
     select: {
@@ -199,22 +208,32 @@ function pendingMentionActionView(
       ? agentAvatarUrl(workspaceId, targetId, agent.avatarObjectKey)
       : workspaceUserAvatarUrl(workspaceId, targetId, row.targetUser?.avatarObjectKey ?? null),
     channelName: channel.name,
-    availableActions: !channel.archived && canJoin && !memberIds.has(targetId) ? ["add"] : [],
+    // Notify once, add any time: a notified target can still be added. Whether the sender may add
+    // is decided when they try.
+    availableActions:
+      !channel.archived && canJoin && !memberIds.has(targetId)
+        ? row.notifiedAt
+          ? ["add"]
+          : ["notify", "add"]
+        : [],
     expiresAt: row.expiresAt,
   };
 }
 
-/** The outcome of one requested mention action: `delivered` when the target was added. */
+/** The outcome of one requested mention action: `delivered` when the target was added, `queued`
+ * when it was notified. */
 export type MentionActionResult = {
   resolutionId: string;
-  status: "delivered" | "stale" | "expired" | "no_permission" | "not_found";
+  status: "delivered" | "queued" | "stale" | "expired" | "no_permission" | "not_found";
   reason?:
     | "no_longer_pending"
     | "target_already_member"
     | "target_unavailable"
     | "sender_lacks_channel_access"
     | "channel_archived"
-    | "could_not_apply";
+    | "could_not_apply"
+    | "add_requires_human_member_authority"
+    | "already_queued";
   targetType?: "user" | "agent";
   targetId?: string;
 };
@@ -227,33 +246,32 @@ export type ClaimedMentionAction = {
   targetId: string;
 };
 
-/**
- * Checks each requested resolution id against its row and claims the ones the sender (`userId`)
- * can take `action` on now, so a concurrent or repeated request never acts on the same mention twice. A row
- * that is not this sender's is `not_found`, exactly like one that does not exist. The refusals come
- * back as results; the claimed rows are for the caller to carry out, and to `releaseMentionActions`
- * if it cannot.
- */
-export async function claimMentionActions(
+type MentionActor = { userId: string } | { agentId: string };
+
+/** Each requested row the sender owns, with what deciding and carrying out an action needs. */
+async function loadActionRows(
   db: Pick<PrismaClient, "pendingMentionAction" | "conversationMember">,
   workspaceId: string,
-  userId: string,
-  action: MentionActionKind,
-  resolutionIds: readonly string[],
-  now: Date = new Date(),
-): Promise<{ refused: MentionActionResult[]; claimed: ClaimedMentionAction[] }> {
-  const ids = [...new Set(resolutionIds)];
+  sender: MentionActor,
+  ids: readonly string[],
+) {
   const rows = await db.pendingMentionAction.findMany({
-    where: { id: { in: ids }, workspaceId, sender: { userId } },
+    where: {
+      id: { in: [...ids] },
+      workspaceId,
+      sender: "userId" in sender ? { userId: sender.userId } : { agentId: sender.agentId },
+    },
     select: {
       id: true,
+      messageId: true,
       conversationId: true,
       targetUserId: true,
       targetAgentId: true,
       expiresAt: true,
       resolvedAt: true,
+      notifiedAt: true,
       sender: { select: { leftAt: true } },
-      message: { select: { conversation: { select: { archivedAt: true } } } },
+      message: { select: { sequence: true, conversation: { select: { archivedAt: true } } } },
       targetAgent: { select: { visibility: true, deletedAt: true } },
       targetUser: { select: { memberships: { where: { workspaceId }, select: { userId: true } } } },
     },
@@ -272,7 +290,51 @@ export async function claimMentionActions(
   const memberKeys = new Set(
     members.map((member) => `${member.conversationId}:${member.userId ?? member.agentId}`),
   );
-  const byId = new Map(rows.map((row) => [row.id, row]));
+  return { byId: new Map(rows.map((row) => [row.id, row])), memberKeys };
+}
+
+type ActionRow = NonNullable<ReturnType<Awaited<ReturnType<typeof loadActionRows>>["byId"]["get"]>>;
+
+function actionTarget(row: ActionRow) {
+  return {
+    targetType: row.targetAgentId ? ("agent" as const) : ("user" as const),
+    targetId: (row.targetAgentId ?? row.targetUserId)!,
+  };
+}
+
+/** Why an action on this row cannot be taken now, or `undefined` when it can. The same rules for
+ * Notify and Add. */
+function actionRefusal(
+  row: ActionRow,
+  memberKeys: ReadonlySet<string>,
+  now: Date,
+): Pick<MentionActionResult, "status" | "reason"> | undefined {
+  if (row.resolvedAt) return { status: "stale", reason: "no_longer_pending" };
+  if (row.expiresAt <= now) return { status: "expired" };
+  if (row.sender.leftAt) return { status: "no_permission", reason: "sender_lacks_channel_access" };
+  if (row.message.conversation.archivedAt)
+    return { status: "no_permission", reason: "channel_archived" };
+  if (!canJoinChannel(row)) return { status: "stale", reason: "target_unavailable" };
+  if (memberKeys.has(`${row.conversationId}:${actionTarget(row).targetId}`))
+    return { status: "stale", reason: "target_already_member" };
+  return undefined;
+}
+
+/**
+ * Checks each requested resolution id against its row and claims the ones the sender can add now,
+ * so a concurrent or repeated request never adds the same target twice. A row that is not this
+ * sender's is `not_found`, exactly like one that does not exist. The refusals come back as results;
+ * the claimed rows are for the caller to carry out, and to `releaseMentionActions` if it cannot.
+ */
+export async function claimMentionActions(
+  db: Pick<PrismaClient, "pendingMentionAction" | "conversationMember">,
+  workspaceId: string,
+  sender: MentionActor,
+  resolutionIds: readonly string[],
+  now: Date = new Date(),
+): Promise<{ refused: MentionActionResult[]; claimed: ClaimedMentionAction[] }> {
+  const ids = [...new Set(resolutionIds)];
+  const { byId, memberKeys } = await loadActionRows(db, workspaceId, sender, ids);
   const refused: MentionActionResult[] = [];
   const claimed: ClaimedMentionAction[] = [];
   for (const id of ids) {
@@ -281,32 +343,91 @@ export async function claimMentionActions(
       refused.push({ resolutionId: id, status: "not_found" });
       continue;
     }
-    const target = {
-      targetType: row.targetAgentId ? ("agent" as const) : ("user" as const),
-      targetId: (row.targetAgentId ?? row.targetUserId)!,
-    };
-    const refuse = (
-      status: MentionActionResult["status"],
-      reason?: MentionActionResult["reason"],
-    ) => refused.push({ resolutionId: id, status, reason, ...target });
-    if (row.resolvedAt) refuse("stale", "no_longer_pending");
-    else if (row.expiresAt <= now) refuse("expired");
-    else if (row.sender.leftAt) refuse("no_permission", "sender_lacks_channel_access");
-    else if (row.message.conversation.archivedAt) refuse("no_permission", "channel_archived");
-    else if (!canJoinChannel(row)) refuse("stale", "target_unavailable");
-    else if (memberKeys.has(`${row.conversationId}:${target.targetId}`))
-      refuse("stale", "target_already_member");
-    else {
-      // Claimed only while still pending: a concurrent request that got here first wins.
-      const { count } = await db.pendingMentionAction.updateMany({
-        where: { id, resolvedAt: null },
-        data: { resolvedAt: now, resolvedAction: action },
-      });
-      if (count) claimed.push({ resolutionId: id, conversationId: row.conversationId, ...target });
-      else refuse("stale", "no_longer_pending");
+    const target = actionTarget(row);
+    const refusal = actionRefusal(row, memberKeys, now);
+    if (refusal) {
+      refused.push({ resolutionId: id, ...refusal, ...target });
+      continue;
     }
+    // Claimed only while still pending: a concurrent request that got here first wins.
+    const { count } = await db.pendingMentionAction.updateMany({
+      where: { id, resolvedAt: null },
+      data: { resolvedAt: now, resolvedAction: "add" },
+    });
+    if (count) claimed.push({ resolutionId: id, conversationId: row.conversationId, ...target });
+    else
+      refused.push({ resolutionId: id, status: "stale", reason: "no_longer_pending", ...target });
   }
   return { refused, claimed };
+}
+
+/** A notification that must still reach an Agent's daemon, once its delivery row exists. */
+export type NonMemberDelivery = { deliveryId: string; agentId: string; messageId: string };
+
+/**
+ * Has each requested mention's target notified without adding them: the target's reading of that
+ * one message, not of the channel. An Agent target gets the message as a delivery marked as
+ * reaching it from outside the channel; a person finds it in their Activity inbox. The mention
+ * stays pending, so the target can still be added; a repeat is `queued` with `already_queued`.
+ * Returns the results in request order, and the new deliveries for the caller to publish.
+ */
+export async function notifyMentionTargets(
+  db: Pick<PrismaClient, "pendingMentionAction" | "conversationMember" | "agentMessageDelivery">,
+  workspaceId: string,
+  sender: MentionActor,
+  resolutionIds: readonly string[],
+  now: Date = new Date(),
+): Promise<{ results: MentionActionResult[]; deliveries: NonMemberDelivery[] }> {
+  const ids = [...new Set(resolutionIds)];
+  const { byId, memberKeys } = await loadActionRows(db, workspaceId, sender, ids);
+  const results: MentionActionResult[] = [];
+  const deliveries: NonMemberDelivery[] = [];
+  for (const id of ids) {
+    const row = byId.get(id);
+    if (!row) {
+      results.push({ resolutionId: id, status: "not_found" });
+      continue;
+    }
+    const target = actionTarget(row);
+    const refusal = actionRefusal(row, memberKeys, now);
+    if (refusal) {
+      results.push({ resolutionId: id, ...refusal, ...target });
+      continue;
+    }
+    // The Agent's delivery exists before the mention reads as notified, so a failure in between
+    // leaves it pending and a retry delivers; the delivery itself is written once per message.
+    const delivery = row.targetAgentId
+      ? await db.agentMessageDelivery.upsert({
+          where: { messageId_agentId: { messageId: row.messageId, agentId: row.targetAgentId } },
+          create: {
+            messageId: row.messageId,
+            agentId: row.targetAgentId,
+            workspaceId,
+            conversationId: row.conversationId,
+            sequence: row.message.sequence,
+          },
+          update: {},
+          select: { deliveryId: true },
+        })
+      : undefined;
+    // Notified only once: a concurrent or repeated request finds it already queued.
+    const { count } = await db.pendingMentionAction.updateMany({
+      where: { id, resolvedAt: null, notifiedAt: null },
+      data: { notifiedAt: now },
+    });
+    if (!count) {
+      results.push({ resolutionId: id, status: "queued", reason: "already_queued", ...target });
+      continue;
+    }
+    if (delivery && row.targetAgentId)
+      deliveries.push({
+        deliveryId: delivery.deliveryId,
+        agentId: row.targetAgentId,
+        messageId: row.messageId,
+      });
+    results.push({ resolutionId: id, status: "queued", ...target });
+  }
+  return { results, deliveries };
 }
 
 /** Puts claimed mention actions back to pending, for a caller that could not carry them out. */
@@ -318,4 +439,192 @@ export async function releaseMentionActions(
     where: { id: { in: claimed.map((action) => action.resolutionId) } },
     data: { resolvedAt: null, resolvedAction: null },
   });
+}
+
+/**
+ * An Agent's still-pending mention actions across every channel it sent in: not acted on and not
+ * expired, oldest message first and, within a message, in the order its body names them, each with
+ * what it still allows.
+ */
+export async function pendingMentionActionsForAgent(
+  db: Pick<PrismaClient, "pendingMentionAction" | "conversationMember">,
+  workspaceId: string,
+  agentId: string,
+  now: Date = new Date(),
+): Promise<PendingMentionActionView[]> {
+  const rows = await db.pendingMentionAction.findMany({
+    where: { workspaceId, sender: { agentId }, resolvedAt: null, expiresAt: { gt: now } },
+    select: {
+      ...PENDING_MENTION_ACTION_SELECT,
+      conversationId: true,
+      createdAt: true,
+      message: {
+        select: { body: true, conversation: { select: { channelName: true, archivedAt: true } } },
+      },
+    },
+    orderBy: { createdAt: "asc" },
+  });
+  const members = rows.length
+    ? await db.conversationMember.findMany({
+        where: {
+          conversationId: { in: [...new Set(rows.map((row) => row.conversationId))] },
+          ...ACTIVE_MEMBER_WHERE,
+          OR: [
+            { userId: { in: rows.flatMap((row) => (row.targetUserId ? [row.targetUserId] : [])) } },
+            {
+              agentId: {
+                in: rows.flatMap((row) => (row.targetAgentId ? [row.targetAgentId] : [])),
+              },
+            },
+          ],
+        },
+        select: { conversationId: true, userId: true, agentId: true },
+      })
+    : [];
+  const memberKeys = new Set(
+    members.map((member) => `${member.conversationId}:${member.userId ?? member.agentId}`),
+  );
+  const orderInBody = (row: (typeof rows)[number]) =>
+    leftoverMentionHandles(row.message.body).indexOf(row.targetHandle);
+  return rows
+    .sort(
+      (left, right) =>
+        left.createdAt.getTime() - right.createdAt.getTime() ||
+        (left.messageId === right.messageId ? orderInBody(left) - orderInBody(right) : 0),
+    )
+    .map((row) =>
+      pendingMentionActionView(
+        row,
+        workspaceId,
+        {
+          archived: row.message.conversation.archivedAt !== null,
+          name: row.message.conversation.channelName ?? "",
+        },
+        new Set(
+          [row.targetUserId ?? row.targetAgentId].filter((targetId) =>
+            memberKeys.has(`${row.conversationId}:${targetId}`),
+          ),
+        ),
+      ),
+    );
+}
+
+/**
+ * An Agent's request to add the targets of its pending mentions. Adding a member is a human's
+ * decision, so every one of the Agent's own mentions is refused with that reason; an id that is not the Agent's is
+ * `not_found`, exactly like one that does not exist. Results in request order, one per distinct id.
+ */
+export async function refuseAgentMentionAdds(
+  db: Pick<PrismaClient, "pendingMentionAction">,
+  workspaceId: string,
+  agentId: string,
+  resolutionIds: readonly string[],
+): Promise<MentionActionResult[]> {
+  const ids = [...new Set(resolutionIds)];
+  const rows = await db.pendingMentionAction.findMany({
+    where: { id: { in: ids }, workspaceId, sender: { agentId } },
+    select: { id: true, targetUserId: true, targetAgentId: true },
+  });
+  const byId = new Map(rows.map((row) => [row.id, row]));
+  return ids.map((id): MentionActionResult => {
+    const row = byId.get(id);
+    if (!row) return { resolutionId: id, status: "not_found" };
+    return {
+      resolutionId: id,
+      status: "no_permission",
+      reason: "add_requires_human_member_authority",
+      targetType: row.targetAgentId ? "agent" : "user",
+      targetId: (row.targetAgentId ?? row.targetUserId)!,
+    };
+  });
+}
+
+/**
+ * Hands each new non-member delivery to its Agent's daemon, as the send path does for a member:
+ * the message as the Agent reads it, marked as a personal notification that reached it from
+ * outside the channel. Best effort: the delivery row is what counts, and the daemon's recovery
+ * replays one it missed.
+ */
+export async function publishNonMemberDeliveries(
+  db: Pick<PrismaClient, "agentMessageDelivery">,
+  publisher: Pick<CentrifugoServerApi, "publish">,
+  workspaceId: string,
+  deliveries: readonly NonMemberDelivery[],
+): Promise<void> {
+  if (!deliveries.length) return;
+  const rows = await db.agentMessageDelivery.findMany({
+    where: { deliveryId: { in: deliveries.map((delivery) => delivery.deliveryId) }, workspaceId },
+    select: {
+      deliveryId: true,
+      agentId: true,
+      sequence: true,
+      agent: { select: { computerId: true } },
+      message: {
+        select: {
+          id: true,
+          conversationId: true,
+          threadRootId: true,
+          body: true,
+          mentions: MESSAGE_MENTIONS_SELECT,
+          conversation: { select: { channelName: true } },
+          sender: {
+            select: {
+              agentId: true,
+              agent: { select: { name: true, description: true } },
+              user: { select: { username: true, description: true } },
+            },
+          },
+        },
+      },
+    },
+  });
+  await Promise.all(
+    rows
+      .filter((row) => row.agent.computerId)
+      .map(async (row) => {
+        const sender = agentMessageSender(row.message.sender);
+        try {
+          await publisher.publish(
+            daemonControlChannel(workspaceId, row.agent.computerId!),
+            encodeAgentDelivery({
+              requestId: row.deliveryId,
+              workspaceId,
+              conversationId: row.message.conversationId,
+              agentId: row.agentId,
+              messageId: row.message.id,
+              deliveryId: row.deliveryId,
+              sequence: row.sequence,
+              body: row.message.body,
+              mentions: row.message.mentions,
+              target: `${channelTarget(row.message.conversation.channelName ?? "")}${row.message.threadRootId ? `:${row.message.threadRootId}` : ""}`,
+              latestSenderKind: sender.kind,
+              latestSenderHandle: sender.handle,
+              latestSenderDescription: sender.description,
+              mentionsAgent: true,
+              nonMemberMention: true,
+            }),
+          );
+        } catch {
+          // The delivery row stays unreceived, so the daemon's recovery replays it.
+        }
+      }),
+  );
+}
+
+/** An Agent notifies the targets of its own pending mentions: see `notifyMentionTargets`. */
+export async function notifyAgentMentionTargets(
+  db: Pick<PrismaClient, "pendingMentionAction" | "conversationMember" | "agentMessageDelivery">,
+  workspaceId: string,
+  agentId: string,
+  resolutionIds: readonly string[],
+  publisher: Pick<CentrifugoServerApi, "publish"> = createCentrifugoServerApi(),
+): Promise<MentionActionResult[]> {
+  const { results, deliveries } = await notifyMentionTargets(
+    db,
+    workspaceId,
+    { agentId },
+    resolutionIds,
+  );
+  await publishNonMemberDeliveries(db, publisher, workspaceId, deliveries);
+  return results;
 }

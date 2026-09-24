@@ -8,6 +8,7 @@ import { AgentPreflightError } from "#src/daemon-runtime/agent-preflight-error";
 import { AgentTransportError } from "#src/connection/agent-transport-error";
 import { AgentManualRequestError } from "#src/connection/agent-manual-request-error";
 import { AgentUserInfoRequestError } from "#src/connection/agent-user-info-request-error";
+import { AgentMentionActionRequestError } from "#src/connection/agent-mention-action-request-error";
 import type { AgentProxyFailureBody } from "#src/agent-proxy-failure";
 
 const proxies: Array<{ close(): void }> = [];
@@ -706,6 +707,158 @@ test("proxy rejects a profile update whose displayName is not a string", async (
     body: JSON.stringify({ displayName: 42 }),
   });
   expect(response.status).toBe(400);
+});
+
+const RESOLUTION_ID = "22222222-2222-4222-8222-222222222222";
+
+test("proxy forwards mention pending as a GET for the calling Agent", async () => {
+  const calls: unknown[] = [];
+  const pending = {
+    ok: true as const,
+    pendingMentionActions: [
+      {
+        resolutionId: RESOLUTION_ID,
+        messageId: "11111111-1111-4111-8111-111111111111",
+        targetType: "user" as const,
+        targetHandle: "bob",
+        targetAvatarUrl: null,
+        reason: "not_member" as const,
+        availableActions: [],
+        expiresAt: "2026-10-01T00:00:00.000Z",
+        channelName: "triage",
+      },
+    ],
+  };
+  const proxy = startAgentProxy({
+    runtime: {
+      agentMessage: async () => ({}),
+      issueAgentContext: (agentId: string) => agentId,
+      mentionPending: async (context, request) => {
+        calls.push({ context, request });
+        return pending;
+      },
+    },
+  });
+  proxies.push(proxy);
+  const token = proxy.issue("agent-a", `sk_agent_${"a".repeat(43)}`);
+  const response = await fetch(
+    proxy.url.replace(
+      agentApiRoutes.proxy.messages.path,
+      agentApiRoutes.proxy.mentionActions.pending.path,
+    ),
+    { headers: { authorization: `Bearer ${token}` } },
+  );
+  expect(response.status).toBe(200);
+  expect(await response.json()).toEqual(pending);
+  expect(calls).toEqual([{ context: "agent-a", request: {} }]);
+});
+
+test("proxy forwards a mention action as a validated JSON POST", async () => {
+  const calls: unknown[] = [];
+  const proxy = startAgentProxy({
+    runtime: {
+      agentMessage: async () => ({}),
+      issueAgentContext: (agentId: string) => agentId,
+      mentionExecute: async (context, request) => {
+        calls.push({ context, request });
+        return {
+          ok: true,
+          action: "add",
+          results: [{ resolutionId: RESOLUTION_ID, status: "no_permission" }],
+        };
+      },
+    },
+  });
+  proxies.push(proxy);
+  const token = proxy.issue("agent-a", `sk_agent_${"a".repeat(43)}`);
+  const response = await fetch(
+    proxy.url.replace(
+      agentApiRoutes.proxy.messages.path,
+      agentApiRoutes.proxy.mentionActions.execute.path,
+    ),
+    {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({ action: "add", resolutionIds: [RESOLUTION_ID] }),
+    },
+  );
+  expect(response.status).toBe(200);
+  const notify = await fetch(
+    proxy.url.replace(
+      agentApiRoutes.proxy.messages.path,
+      agentApiRoutes.proxy.mentionActions.execute.path,
+    ),
+    {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({ action: "notify", resolutionIds: [RESOLUTION_ID] }),
+    },
+  );
+  expect(notify.status).toBe(200);
+  expect(calls).toEqual([
+    { context: "agent-a", request: { action: "add", resolutionIds: [RESOLUTION_ID] } },
+    { context: "agent-a", request: { action: "notify", resolutionIds: [RESOLUTION_ID] } },
+  ]);
+});
+
+test("proxy rejects a mention action that is neither notify nor add, or names no valid resolution ids", async () => {
+  const proxy = startAgentProxy({
+    runtime: {
+      agentMessage: async () => ({}),
+      mentionExecute: async () => {
+        throw new Error("should not be called");
+      },
+    },
+  });
+  proxies.push(proxy);
+  const token = proxy.issue("agent-a", `sk_agent_${"a".repeat(43)}`);
+  const endpoint = proxy.url.replace(
+    agentApiRoutes.proxy.messages.path,
+    agentApiRoutes.proxy.mentionActions.execute.path,
+  );
+  for (const body of [
+    { action: "remove", resolutionIds: [RESOLUTION_ID] },
+    { action: "add", resolutionIds: [] },
+    { action: "add", resolutionIds: ["not-a-uuid"] },
+    { action: "add", resolutionIds: Array.from({ length: 21 }, () => RESOLUTION_ID) },
+  ]) {
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    expect(response.status).toBe(400);
+  }
+});
+
+test("proxy forwards a mention action error envelope unchanged, with its status", async () => {
+  const proxy = startAgentProxy({
+    runtime: {
+      agentMessage: async () => ({}),
+      mentionExecute: async () => {
+        throw new AgentMentionActionRequestError("invalid_request", 'action must be "add".', 400);
+      },
+    },
+  });
+  proxies.push(proxy);
+  const token = proxy.issue("agent-a", `sk_agent_${"a".repeat(43)}`);
+  const response = await fetch(
+    proxy.url.replace(
+      agentApiRoutes.proxy.messages.path,
+      agentApiRoutes.proxy.mentionActions.execute.path,
+    ),
+    {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({ action: "add", resolutionIds: [RESOLUTION_ID] }),
+    },
+  );
+  expect(response.status).toBe(400);
+  expect(await response.json()).toEqual({
+    ok: false,
+    errorCode: "invalid_request",
+    error: 'action must be "add".',
+  });
 });
 
 test("proxy rejects unexpected GitHub credential fields before forwarding", async () => {

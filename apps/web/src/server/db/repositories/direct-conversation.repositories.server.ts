@@ -31,6 +31,12 @@ import {
   storeMessageBody,
 } from "#src/server/conversations/message-references.server";
 import {
+  pendingMentionActionsForMessage,
+  recordPendingMentionActions,
+  type PendingMentionActionView,
+} from "#src/server/conversations/pending-mention-actions.server";
+import { unresolvedMentionHandles } from "#src/server/conversations/unresolved-mentions.server";
+import {
   MESSAGE_REACTIONS_SELECT,
   reactionSummaries,
 } from "#src/server/conversations/message-reactions.server";
@@ -130,7 +136,16 @@ export type AgentRecoveryContext = {
 
 export type PendingAgentDelivery = AgentRecoveryContext["resumeMessages"][number] & {
   mentionsAgent?: boolean;
+  /** The Agent was notified of this channel message without being a member of the channel. */
+  nonMemberMention?: boolean;
 };
+
+/** A mention whose target is this Agent, which the sender had it notified of. */
+const NOTIFIED_AGENT_WHERE = (agentId: string) =>
+  ({
+    targetAgentId: agentId,
+    notifiedAt: { not: null },
+  }) satisfies Prisma.PendingMentionActionWhereInput;
 
 /** An Agent-facing record as this repository builds it: its `body` comes from `agentMessageView`.
  * The port types keep a plain `body: string`, which this is assignable to. */
@@ -334,7 +349,8 @@ function unreadAgentMessagesFragment(
   return Prisma.sql`
     SELECT m."id", m."sequence", m."body", m."conversationId", m."threadRootId",
       m."senderMemberId", COALESCE(r."sequence", 0) AS "rootSequence",
-      d."deliveryId", sa."name" AS "senderAgentName", sa."description" AS "senderAgentDescription",
+      d."deliveryId", (am."id" IS NULL) AS "nonMemberMention",
+      sa."name" AS "senderAgentName", sa."description" AS "senderAgentDescription",
       su."username" AS "senderUsername", su."description" AS "senderUserDescription",
       c."channelName",
       (SELECT COALESCE(ou."username", oa."name")
@@ -350,6 +366,8 @@ function unreadAgentMessagesFragment(
       JOIN "messages" cm ON cm."id" = cd."messageId"
       JOIN "conversations" cc ON cc."id" = cm."conversationId" AND cc."channelName" IS NOT NULL
         AND cc."hiddenFromWorkspaceAt" IS NULL
+      JOIN "conversation_members" cam ON cam."conversationId" = cm."conversationId"
+        AND cam."agentId" = ${agentId}::uuid AND cam."leftAt" IS NULL
       WHERE cd."workspaceId" = ${workspaceId}::uuid AND cd."agentId" = ${agentId}::uuid
       UNION ALL
       SELECT dm."id", dm."sequence", dm."body", dm."conversationId", dm."threadRootId",
@@ -371,8 +389,23 @@ function unreadAgentMessagesFragment(
         ON dtr."memberId" = dam."id" AND dtr."rootMessageId" = dm."threadRootId"
       WHERE dam."workspaceId" = ${workspaceId}::uuid AND dam."agentId" = ${agentId}::uuid
         AND dam."leftAt" IS NULL AND dm."sequence" > COALESCE(dtr."readThroughSequence", 0)
+      UNION ALL
+      -- A channel message the Agent was notified of without being a member: unread until it is
+      -- read once. A member reads it through its channel branch above instead.
+      SELECT nm."id", nm."sequence", nm."body", nm."conversationId", nm."threadRootId",
+        nm."senderMemberId"
+      FROM "pending_mention_actions" pma
+      JOIN "messages" nm ON nm."id" = pma."messageId"
+      JOIN "conversations" nc ON nc."id" = nm."conversationId" AND nc."hiddenFromWorkspaceAt" IS NULL
+      WHERE pma."workspaceId" = ${workspaceId}::uuid AND pma."targetAgentId" = ${agentId}::uuid
+        AND pma."notifiedAt" IS NOT NULL AND pma."targetReadAt" IS NULL
+        AND NOT EXISTS (
+          SELECT 1 FROM "conversation_members" nam
+          WHERE nam."conversationId" = nm."conversationId" AND nam."agentId" = ${agentId}::uuid
+            AND nam."leftAt" IS NULL
+        )
     ) m
-    JOIN "conversation_members" am ON am."conversationId" = m."conversationId"
+    LEFT JOIN "conversation_members" am ON am."conversationId" = m."conversationId"
       AND am."workspaceId" = ${workspaceId}::uuid AND am."agentId" = ${agentId}::uuid
       AND am."leftAt" IS NULL
     JOIN "conversations" c ON c."id" = m."conversationId"
@@ -382,8 +415,8 @@ function unreadAgentMessagesFragment(
     LEFT JOIN "users" su ON su."id" = sm."userId"
     LEFT JOIN "agents" sa ON sa."id" = sm."agentId"
     LEFT JOIN "agent_message_deliveries" d ON d."messageId" = m."id" AND d."agentId" = ${agentId}::uuid
-    WHERE m."sequence" > CASE WHEN m."threadRootId" IS NULL
-        THEN am."agentReadThroughSequence" ELSE COALESCE(tr."readThroughSequence", 0) END
+    WHERE (am."id" IS NULL OR m."sequence" > CASE WHEN m."threadRootId" IS NULL
+        THEN am."agentReadThroughSequence" ELSE COALESCE(tr."readThroughSequence", 0) END)
       AND (sm."userId" IS NOT NULL OR d."deliveryId" IS NOT NULL)
       AND (c."channelName" IS NULL OR d."deliveryId" IS NOT NULL)
       ${targetFilter}`;
@@ -421,6 +454,8 @@ type AgentRecoveryRow = {
   otherUsername: string | null;
   unreadCount: number;
   globalRank: number;
+  /** The Agent is not in the channel: it was notified of this one message by the sender. */
+  nonMemberMention: boolean;
 };
 
 function taskStatus(value: string): TaskStatus {
@@ -465,6 +500,12 @@ function messageTask(
       : {}),
   };
 }
+
+/** What an Agent's message did not reach: see `agentMentionReport`. */
+export type AgentMentionReport = {
+  pendingMentionActions: PendingMentionActionView[];
+  unresolvedMentionHandles: string[];
+};
 
 export type DirectConversationRepository = {
   userIdForUsername?(target: string): Promise<string>;
@@ -635,6 +676,11 @@ export type DirectConversationRepository = {
     agentId: string,
     throughSequence: number,
   ): Promise<void>;
+  agentMentionReport?(
+    workspaceId: string,
+    agentId: string,
+    message: { id: string; conversationId: string; body: string },
+  ): Promise<AgentMentionReport>;
   sendAgentMessage?(
     conversationId: string,
     agentId: string,
@@ -1669,22 +1715,18 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
     const deliveries = await this.db.agentMessageDelivery.findMany({
       // Deliveries into a channel hidden from the Workspace wait there until it is restored. A
       // channel the Agent has left (or was removed from, or left by going private) no longer
-      // replays: its daemon was told to drop those messages. Direct messages always replay.
+      // replays: its daemon was told to drop those messages. Direct messages always replay, and
+      // so does one channel message the Agent was notified of from outside the channel.
       where: {
         workspaceId,
         agentId,
         receivedAt: null,
-        conversation: {
-          AND: [
-            VISIBLE_CONVERSATION_WHERE,
-            {
-              OR: [
-                { channelName: null },
-                { members: { some: { agentId, ...ACTIVE_MEMBER_WHERE } } },
-              ],
-            },
-          ],
-        },
+        conversation: VISIBLE_CONVERSATION_WHERE,
+        OR: [
+          { conversation: { channelName: null } },
+          { conversation: { members: { some: { agentId, ...ACTIVE_MEMBER_WHERE } } } },
+          { message: { pendingMentionActions: { some: NOTIFIED_AGENT_WHERE(agentId) } } },
+        ],
       },
       orderBy: [{ createdAt: "asc" }, { deliveryId: "asc" }],
       select: {
@@ -1708,6 +1750,7 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
             threadRootId: true,
             sender: MESSAGE_SENDER_SELECT,
             mentions: MESSAGE_MENTIONS_SELECT,
+            pendingMentionActions: { where: NOTIFIED_AGENT_WHERE(agentId), select: { id: true } },
           },
         },
       },
@@ -1733,6 +1776,7 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
         latestSenderHandle: sender.handle,
         latestSenderDescription: sender.description,
         ...agentMessageView(delivery.message, agentId),
+        ...(delivery.message.pendingMentionActions.length ? { nonMemberMention: true } : {}),
       };
     });
   }
@@ -1972,17 +2016,25 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
     agentId: string,
     limit = 20,
     target?: string,
-  ): Promise<{ messages: ReturnType<typeof toAgentMessage>[]; hasMore: boolean }> {
+  ): Promise<{
+    messages: (ReturnType<typeof toAgentMessage> & { nonMemberMention?: boolean })[];
+    hasMore: boolean;
+  }> {
     const bounded = Math.min(Math.max(limit, 1), 100);
     const scope = target ? await this.resolveAgentTarget(workspaceId, agentId, target) : undefined;
     return this.db.$transaction(async (tx) => {
       const rows = await tx.$queryRaw<
-        Array<Pick<AgentRecoveryRow, "id" | "conversationId" | "threadRootId" | "sequence">>
+        Array<
+          Pick<
+            AgentRecoveryRow,
+            "id" | "conversationId" | "threadRootId" | "sequence" | "nonMemberMention"
+          >
+        >
       >`
         WITH unread AS (
           ${unreadAgentMessagesFragment(workspaceId, agentId, scope)}
         )
-        SELECT "id", "conversationId", "threadRootId", "sequence"
+        SELECT "id", "conversationId", "threadRootId", "sequence", "nonMemberMention"
         FROM unread
         ORDER BY "conversationId", "rootSequence", "sequence"
         LIMIT ${bounded + 1}`;
@@ -2008,17 +2060,34 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
       const messages = page.map((row) => {
         const message = rowById.get(row.id);
         if (!message) throw new Error(`drained Agent message is missing: ${row.id}`);
-        return toAgentMessage(
-          message,
-          deliveryTarget(conversationTarget(message.conversation), message.threadRootId),
-          agentId,
-        );
+        return {
+          ...toAgentMessage(
+            message,
+            deliveryTarget(conversationTarget(message.conversation), message.threadRootId),
+            agentId,
+          ),
+          // Reached the Agent outside the channel: readable, but it cannot reply there.
+          ...(row.nonMemberMention ? { nonMemberMention: true } : {}),
+        };
       });
+      // A notified non-member has no read boundary in the channel: the message is read once.
+      const nonMemberIds = page.filter((row) => row.nonMemberMention).map((row) => row.id);
+      if (nonMemberIds.length)
+        await tx.pendingMentionAction.updateMany({
+          where: {
+            workspaceId,
+            targetAgentId: agentId,
+            messageId: { in: nonMemberIds },
+            notifiedAt: { not: null },
+            targetReadAt: null,
+          },
+          data: { targetReadAt: new Date() },
+        });
       const targetGroups = new Map<
         string,
         { conversationId: string; threadRootId: string | null; maxSequence: number }
       >();
-      for (const row of page) {
+      for (const row of page.filter((pageRow) => !pageRow.nonMemberMention)) {
         const key = `${row.conversationId}:${row.threadRootId ?? ""}`;
         const existing = targetGroups.get(key);
         if (!existing || row.sequence > existing.maxSequence)
@@ -2245,6 +2314,38 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
       afterSequence,
     );
     return this.db.message.count({ where });
+  }
+
+  /**
+   * What an Agent's channel message did not reach: its pending mention actions (people and public
+   * Agents outside the channel) and the `@handle`s that name nobody the Agent can see. Read from
+   * the stored message, so an idempotent replay reports what the first send did. Empty for a DM.
+   */
+  async agentMentionReport(
+    workspaceId: string,
+    agentId: string,
+    message: { id: string; conversationId: string; body: string },
+  ): Promise<AgentMentionReport> {
+    const conversation = await this.db.conversation.findFirst({
+      where: { id: message.conversationId, workspaceId, channelName: { not: null } },
+      select: {
+        channelName: true,
+        archivedAt: true,
+        members: { where: { agentId }, select: { id: true } },
+      },
+    });
+    const senderMemberId = conversation?.members[0]?.id;
+    if (!conversation || !senderMemberId)
+      return { pendingMentionActions: [], unresolvedMentionHandles: [] };
+    const [pendingMentionActions, unresolved] = await Promise.all([
+      pendingMentionActionsForMessage(
+        this.db,
+        { ...message, workspaceId, senderMemberId },
+        { archived: conversation.archivedAt !== null, name: conversation.channelName! },
+      ),
+      unresolvedMentionHandles(this.db, workspaceId, { agentId }, message.body),
+    ]);
+    return { pendingMentionActions, unresolvedMentionHandles: unresolved };
   }
 
   async sendAgentMessage(
@@ -2481,6 +2582,17 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
           },
         },
       });
+      // A channel mention of someone outside the channel reached nobody; the sending Agent may
+      // still act on it. A DM stores every `@handle` as text, so it records nothing.
+      if (conversation.channelName)
+        await recordPendingMentionActions(tx, {
+          id: created.id,
+          workspaceId: conversation.workspaceId,
+          conversationId,
+          senderMemberId: sender.id,
+          body: stored.body,
+          createdAt: created.createdAt,
+        });
       await Promise.all(
         attachments.map((attachment, position) =>
           tx.attachment.update({

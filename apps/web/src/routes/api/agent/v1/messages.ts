@@ -103,6 +103,22 @@ function mapSendResult(idempotencyKey: string, result: AgentSendMessageResult) {
     freshnessContextMode: result.freshnessContextMode,
     withheldMessageCount: result.withheldMessageCount,
     recentUnread: (result.recentUnread ?? []).map(toAgentMessage),
+    // Sent only: what the message did not reach, in Raft's field names.
+    pendingMentionActions:
+      result.state === "sent"
+        ? (result.pendingMentionActions ?? []).map((action) => ({
+            resolutionId: action.resolutionId,
+            messageId: action.messageId,
+            targetType: action.targetType,
+            targetHandle: action.targetHandle,
+            targetAvatarUrl: action.targetAvatarUrl,
+            reason: "not_member" as const,
+            availableActions: [...action.availableActions],
+            expiresAt: action.expiresAt.toISOString(),
+          }))
+        : undefined,
+    unresolvedMentionHandles:
+      result.state === "sent" ? [...(result.unresolvedMentionHandles ?? [])] : undefined,
   };
   return response;
 }

@@ -165,6 +165,9 @@ import type {
   AgentProfileShowResponse,
   AgentProfileUpdateRequest,
   AgentProfileUpdateResponse,
+  AgentMentionExecuteRequest,
+  AgentMentionExecuteResponse,
+  AgentMentionPendingResponse,
 } from "@lrm/coforge-sdk/agent";
 
 const logger = getLogger(["coforge", "daemon", "runtime"]);
@@ -3694,6 +3697,9 @@ export class DaemonRuntime {
         ? (result.withheldMessageCount ?? result.attentionCount)
         : undefined,
       recentUnread,
+      // What a sent message did not deliver, for the Agent's `coforge mention` recovery.
+      pendingMentionActions: result.pendingMentionActions,
+      unresolvedMentionHandles: result.unresolvedMentionHandles,
     };
   }
 
@@ -3878,6 +3884,28 @@ export class DaemonRuntime {
     this.#authorizedAgent(context, agentApiKey);
     if (!this.#transport.profileUpdate) throw new Error("Agent profile endpoint is not configured");
     return this.#transport.profileUpdate(request, agentApiKey);
+  }
+
+  async mentionPending(
+    context: string,
+    _request: Record<string, never>,
+    agentApiKey: string,
+  ): Promise<AgentMentionPendingResponse> {
+    this.#authorizedAgent(context, agentApiKey);
+    if (!this.#transport.mentionPending)
+      throw new Error("Agent mention actions endpoint is not configured");
+    return this.#transport.mentionPending(agentApiKey);
+  }
+
+  async mentionExecute(
+    context: string,
+    request: AgentMentionExecuteRequest,
+    agentApiKey: string,
+  ): Promise<AgentMentionExecuteResponse> {
+    this.#authorizedAgent(context, agentApiKey);
+    if (!this.#transport.mentionExecute)
+      throw new Error("Agent mention actions endpoint is not configured");
+    return this.#transport.mentionExecute(request, agentApiKey);
   }
 
   /** Dispatches one task command to the cloud task route over its HTTPS path. The body is the

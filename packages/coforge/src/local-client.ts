@@ -34,7 +34,13 @@ import {
   decodeAgentUserInfoResponse,
   decodeGitHubCredentialResponse,
   decodeGitHubCommitTrailersResponse,
+  decodeAgentMentionActionErrorResponse,
+  decodeAgentMentionExecuteResponse,
+  decodeAgentMentionPendingResponse,
   type ActionCardAction,
+  type AgentMentionExecuteRequest,
+  type AgentMentionExecuteResponse,
+  type AgentMentionPendingResponse,
   type AgentManualGetResponse,
   type AgentManualSearchResponse,
   type AgentVersionResponse,
@@ -400,6 +406,62 @@ async function callProfileUpdate(
   return decodeAgentProfileUpdateResponse(rawBody);
 }
 
+/**
+ * One mention action route through the local Proxy. A 5xx is `SERVER_5XX`; any other refusal is
+ * `<OPERATION>_FAILED` carrying the server's own error text (the `{ ok: false, errorCode, error }`
+ * envelope, the Proxy's JSON error, or its bare text).
+ */
+async function mentionActionRequest<T>(
+  proxyEndpoint: (path: string) => URL,
+  context: string,
+  proxyUrl: string,
+  operation: "mention-pending" | "mention-action",
+  route: { method: string; path: string },
+  body: AgentMentionExecuteRequest | undefined,
+  decode: (value: unknown) => T,
+): Promise<T> {
+  if (!context) throw preIssuanceError(operation, "coforge agent context is not configured");
+  if (!/^sfp_[A-Za-z0-9_-]{43}$/.test(context))
+    throw preIssuanceError(operation, "coforge agent context is invalid");
+  if (!proxyUrl) throw preIssuanceError(operation, "coforge agent proxy is not configured");
+  let response: Response;
+  try {
+    response = await fetch(proxyEndpoint(route.path), {
+      method: route.method,
+      headers: {
+        authorization: `Bearer ${context}`,
+        ...(body ? { "content-type": "application/json" } : {}),
+      },
+      ...(body ? { body: JSON.stringify(body) } : {}),
+      signal: AbortSignal.timeout(10_000),
+    });
+  } catch {
+    throw new CliError({
+      code: operationFailedCode(operation),
+      message: "agent proxy request failed (network or timeout)",
+      retryable: false,
+    });
+  }
+  if (!response.ok) {
+    const text = await response.text().catch(() => "");
+    let message = text;
+    try {
+      const parsed: unknown = JSON.parse(text);
+      const envelope = decodeAgentMentionActionErrorResponse(parsed);
+      const proxyError = (parsed as { error?: unknown } | null)?.error;
+      message = envelope?.error ?? (typeof proxyError === "string" ? proxyError : text);
+    } catch {
+      // A bare-text Proxy error (e.g. "bad request"): its text is the message.
+    }
+    throw new CliError({
+      code: response.status >= 500 ? "SERVER_5XX" : operationFailedCode(operation),
+      message: message || `HTTP ${response.status}`,
+      retryable: false,
+    });
+  }
+  return decode(await response.json().catch(() => undefined));
+}
+
 export function connectLocal(
   _socketPath: string,
   context: string,
@@ -633,6 +695,26 @@ export function connectLocal(
       ),
     profileUpdate: (input: AgentProfileUpdateRequest): Promise<AgentProfileUpdateResponse> =>
       callProfileUpdate(proxyEndpoint, context, proxyUrl, input),
+    mentionPending: (): Promise<AgentMentionPendingResponse> =>
+      mentionActionRequest(
+        proxyEndpoint,
+        context,
+        proxyUrl,
+        "mention-pending",
+        agentApiRoutes.local.mentionActions.pending,
+        undefined,
+        decodeAgentMentionPendingResponse,
+      ),
+    mentionExecute: (request: AgentMentionExecuteRequest): Promise<AgentMentionExecuteResponse> =>
+      mentionActionRequest(
+        proxyEndpoint,
+        context,
+        proxyUrl,
+        "mention-action",
+        agentApiRoutes.local.mentionActions.execute,
+        request,
+        decodeAgentMentionExecuteResponse,
+      ),
     view: async (attachmentId: string) => {
       if (!context) throw new Error("coforge agent context is not configured");
       if (!/^sfp_[A-Za-z0-9_-]{43}$/.test(context))

@@ -1,4 +1,6 @@
-import type { MessageTaskMetadata } from "#src/internal/local-daemon";
+import type { AgentPendingMentionAction, MessageTaskMetadata } from "#src/internal/local-daemon";
+
+export type { AgentPendingMentionAction };
 import type { MessageSenderKind } from "#src/internal/message-sender";
 
 export type AgentMessageOperation = "read" | "search" | "send";
@@ -115,6 +117,11 @@ export type AgentSendResponse = {
   withheldMessageCount?: number;
   /** Sent only: pending messages a bypassed hold chose not to review; empty otherwise. */
   recentUnread?: AgentMessage[];
+  /** Sent only: mentions of people outside the channel, which notified no one; the Agent acts on
+   * them with `coforge mention`. */
+  pendingMentionActions?: AgentPendingMentionAction[];
+  /** Sent only: `@handle`s that name nobody the Agent can see. */
+  unresolvedMentionHandles?: string[];
 };
 
 /** Response for the resolve route (GET /api/agent/v1/messages/:id/resolve). */

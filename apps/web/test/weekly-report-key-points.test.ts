@@ -658,6 +658,8 @@ test("applyTeamKeyPointExtraction parks side-chat-confirm delivery as awaiting_c
       threadRootId: null,
       attachments: [],
       workspaceId: "ws-1",
+      pendingMentionActions: [],
+      unresolvedMentionHandles: [],
     };
   }) as typeof originalFromAgent;
 
