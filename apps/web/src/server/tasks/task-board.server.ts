@@ -702,7 +702,15 @@ export class TaskBoard {
     });
   }
 
-  /** Only Workspace owners and admins may act on Tasks they do not hold themselves. */
+  /**
+   * Any human member of the conversation may hand a Task to someone else or take it off its
+   * holder, as a Linear member reassigns an issue; an Agent changes only its own assignment.
+   */
+  private requireHuman(member: Member) {
+    if (!member.userId) throw new AppError("ACCESS_DENIED");
+  }
+
+  /** Only Workspace owners and admins may delete or record receipts on Tasks they do not hold. */
   private async requireManager(tx: Transaction, workspaceId: string, member: Member) {
     const membership = member.userId
       ? await tx.workspaceMembership.findUnique({
@@ -926,8 +934,7 @@ export class TaskBoard {
         ? await this.memberByHandle(tx, scope.conversationId, scope.workspaceId, command.assignee)
         : null;
       if (command.assignee && !assignee) throw new AppError("NOT_FOUND");
-      if (assignee && assignee.id !== member.id)
-        await this.requireManager(tx, scope.workspaceId, member);
+      if (assignee && assignee.id !== member.id) this.requireHuman(member);
       const started = assignee?.id === member.id;
       const tasks: SelectedTask[] = [];
       const sequences: number[] = [];
@@ -1513,7 +1520,7 @@ export class TaskBoard {
         (owner && owner.id !== member.id) ||
         (current.ownerMemberId && current.ownerMemberId !== member.id)
       )
-        await this.requireManager(tx, workspaceId, member);
+        this.requireHuman(member);
       if (command.expectedRevision !== undefined && current.revision !== command.expectedRevision)
         throw new AppError("CONFLICT");
       if (current.ownerMemberId === (owner?.id ?? null))
@@ -1568,7 +1575,7 @@ export class TaskBoard {
     member: Member,
     command: TaskCommand,
   ): Promise<TaskResult> {
-    const { conversationId, workspaceId } = conversation;
+    const { conversationId } = conversation;
     const result = await this.withNotices(conversation, async (tx, notices) => {
       const current = await tx.task.findUnique({
         where: { conversationId_number: { conversationId, number: command.number! } },
@@ -1576,7 +1583,7 @@ export class TaskBoard {
       });
       if (!current) throw new AppError("NOT_FOUND");
       if (!current.ownerMemberId) return { task: current, changed: false };
-      if (current.ownerMemberId !== member.id) await this.requireManager(tx, workspaceId, member);
+      if (current.ownerMemberId !== member.id) this.requireHuman(member);
       if (command.expectedRevision !== undefined && current.revision !== command.expectedRevision)
         throw new AppError("CONFLICT");
       const { task } = await this.commitTaskChange(
