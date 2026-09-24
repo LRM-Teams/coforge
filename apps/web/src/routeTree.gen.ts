@@ -18,6 +18,7 @@ import { Route as AppActivityRouteImport } from './routes/_app/activity'
 import { Route as AppComputersRouteImport } from './routes/_app/computers'
 import { Route as AppMessagesRouteImport } from './routes/_app/messages'
 import { Route as AppRecordsRouteImport } from './routes/_app/records'
+import { Route as AppSearchRouteImport } from './routes/_app/search'
 import { Route as AppSettingsRouteImport } from './routes/_app/settings'
 import { Route as AppTasksRouteImport } from './routes/_app/tasks'
 import { Route as ApiAgentApiKeysRouteImport } from './routes/api/agent-api-keys'
@@ -145,6 +146,11 @@ const AppMessagesRoute = AppMessagesRouteImport.update({
 const AppRecordsRoute = AppRecordsRouteImport.update({
   id: '/records',
   path: '/records',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppSearchRoute = AppSearchRouteImport.update({
+  id: '/search',
+  path: '/search',
   getParentRoute: () => AppRoute,
 } as any)
 const AppSettingsRoute = AppSettingsRouteImport.update({
@@ -609,6 +615,7 @@ export interface FileRoutesByFullPath {
   '/computers': typeof AppComputersRouteWithChildren
   '/messages': typeof AppMessagesRouteWithChildren
   '/records': typeof AppRecordsRouteWithChildren
+  '/search': typeof AppSearchRoute
   '/settings': typeof AppSettingsRoute
   '/tasks': typeof AppTasksRoute
   '/api/agent-api-keys': typeof ApiAgentApiKeysRoute
@@ -699,6 +706,7 @@ export interface FileRoutesByTo {
   '/login': typeof LoginRoute
   '/.well-known/oauth-authorization-server': typeof DotwellKnownOauthAuthorizationServerRoute
   '/activity': typeof AppActivityRoute
+  '/search': typeof AppSearchRoute
   '/settings': typeof AppSettingsRoute
   '/tasks': typeof AppTasksRoute
   '/api/agent-api-keys': typeof ApiAgentApiKeysRoute
@@ -794,6 +802,7 @@ export interface FileRoutesById {
   '/_app/computers': typeof AppComputersRouteWithChildren
   '/_app/messages': typeof AppMessagesRouteWithChildren
   '/_app/records': typeof AppRecordsRouteWithChildren
+  '/_app/search': typeof AppSearchRoute
   '/_app/settings': typeof AppSettingsRoute
   '/_app/tasks': typeof AppTasksRoute
   '/api/agent-api-keys': typeof ApiAgentApiKeysRoute
@@ -889,6 +898,7 @@ export interface FileRouteTypes {
     | '/computers'
     | '/messages'
     | '/records'
+    | '/search'
     | '/settings'
     | '/tasks'
     | '/api/agent-api-keys'
@@ -979,6 +989,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/.well-known/oauth-authorization-server'
     | '/activity'
+    | '/search'
     | '/settings'
     | '/tasks'
     | '/api/agent-api-keys'
@@ -1073,6 +1084,7 @@ export interface FileRouteTypes {
     | '/_app/computers'
     | '/_app/messages'
     | '/_app/records'
+    | '/_app/search'
     | '/_app/settings'
     | '/_app/tasks'
     | '/api/agent-api-keys'
@@ -1283,6 +1295,13 @@ declare module '@tanstack/react-router' {
       path: '/records'
       fullPath: '/records'
       preLoaderRoute: typeof AppRecordsRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/search': {
+      id: '/_app/search'
+      path: '/search'
+      fullPath: '/search'
+      preLoaderRoute: typeof AppSearchRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/settings': {
@@ -1926,6 +1945,7 @@ interface AppRouteChildren {
   AppComputersRoute: typeof AppComputersRouteWithChildren
   AppMessagesRoute: typeof AppMessagesRouteWithChildren
   AppRecordsRoute: typeof AppRecordsRouteWithChildren
+  AppSearchRoute: typeof AppSearchRoute
   AppSettingsRoute: typeof AppSettingsRoute
   AppTasksRoute: typeof AppTasksRoute
   AppAgentsAgentIdRoute: typeof AppAgentsAgentIdRoute
@@ -1941,6 +1961,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppComputersRoute: AppComputersRouteWithChildren,
   AppMessagesRoute: AppMessagesRouteWithChildren,
   AppRecordsRoute: AppRecordsRouteWithChildren,
+  AppSearchRoute: AppSearchRoute,
   AppSettingsRoute: AppSettingsRoute,
   AppTasksRoute: AppTasksRoute,
   AppAgentsAgentIdRoute: AppAgentsAgentIdRoute,

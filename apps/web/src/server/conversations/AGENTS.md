@@ -16,6 +16,12 @@ These rules apply to `src/server/conversations/`.
   around-window reads. They are scoped by `conversationId` for both direct
   conversations and public channels; this module owns Conversation-type
   visibility checks and bounded history mapping.
+- `message-search.server.ts` owns human message search: a Workspace member
+  searches every channel (joined or not, archived too) and only their own direct
+  conversations, the same rule as `ConversationHistory.authorize`. Its SQL lives in
+  `server/db/repositories/message-search.repositories.server.ts`; body matching is
+  `ILIKE` served by the `pg_trgm` GIN index on `messages.body`. Agent search keeps
+  its own Agent-membership rule in the direct-conversation repository.
 - A thread uses its root Message identity, never a separate conversation or
   Agent runtime.
 - A member's pins share one order across all their channels and DMs in the
