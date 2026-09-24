@@ -1,11 +1,15 @@
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getRouteApi, Link, useRouter } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
-import { useInfiniteQuery, useQueryClient, type InfiniteData } from "@tanstack/react-query";
+import {
+  keepPreviousData,
+  useInfiniteQuery,
+  useQueryClient,
+  type InfiniteData,
+} from "@tanstack/react-query";
 import {
   Activity,
   AtSign,
-  Bell01,
   BellOff01,
   Check,
   CheckDone01,
@@ -32,13 +36,10 @@ import {
 } from "#src/components/ui/empty";
 import { RelativeTime } from "#src/components/ui/relative-time";
 import { Skeleton } from "#src/components/ui/skeleton";
-import { useAppToast } from "#src/components/ui/toast";
-import { useCurrentWorkspaceId } from "#src/features/agents/workspace-agents-realtime";
 import {
   markPublicChannelRead,
   markPublicChannelThreadRead,
   setPublicChannelThreadFollowed,
-  setPublicConversationUnread,
 } from "#src/features/conversations/channels.functions";
 import {
   decodeMessageAvailableEvent,
@@ -48,34 +49,30 @@ import {
 import {
   markDirectConversationRead,
   markDirectThreadRead,
-  setDirectConversationUnread,
 } from "#src/features/conversations/conversations.functions";
-import { messagePlainText } from "#src/features/conversations/selection-copy";
+import { MessagePreview } from "#src/features/conversations/message-preview";
+import {
+  useRefreshSidebarLists,
+  useSidebarActions,
+} from "#src/features/conversations/sidebar-lists";
 import { useRealtimeSubscription } from "#src/features/realtime/browser-realtime";
 import {
   getUserConversationSubscriptionToken,
   getWorkspaceConversationSubscriptionToken,
 } from "#src/features/realtime/realtime.functions";
 import { TASK_STATUS_COLOR } from "#src/features/tasks/task-workflow";
-import type { TaskStatus } from "@lrm/coforge-sdk/internal";
+import { cn } from "#src/lib/utils";
 import { m } from "#src/paraglide/messages";
 import type { ActivityInboxItem } from "#src/server/inbox/activity-inbox.server";
-import { cn } from "#src/lib/utils";
+import { markActivityInboxRead, markActivityItemDone } from "./activity-inbox.functions";
 import {
-  loadActivityInbox,
-  markActivityInboxRead,
-  markActivityItemDone,
-} from "./activity-inbox.functions";
+  ACTIVITY_INBOX_QUERY_PREFIX,
+  activityInboxQuery,
+  type ActivityInboxPage,
+} from "./activity-inbox-queries";
 import type { ActivityInboxFilter } from "./activity-inbox.schemas";
 
 const appRoute = getRouteApi("/_app");
-
-type ActivityInboxPage = Awaited<ReturnType<typeof loadActivityInbox>>;
-
-/** Every cached page of every view shares this prefix, so one invalidation refreshes them all. */
-const ACTIVITY_INBOX_QUERY_PREFIX = ["activity-inbox"] as const;
-const activityInboxQueryKey = (workspaceId: string | undefined, filter: ActivityInboxFilter) =>
-  [...ACTIVITY_INBOX_QUERY_PREFIX, workspaceId, filter] as const;
 
 /** A burst of messages (an Agent posting several in a row) refreshes the list once. */
 const REFRESH_DELAY_MS = 300;
@@ -92,19 +89,15 @@ export function ActivityInboxView({
   filter: ActivityInboxFilter;
   onFilterChange: (filter: ActivityInboxFilter) => void;
 }) {
-  const workspaceId = useCurrentWorkspaceId();
-  const { user } = appRoute.useLoaderData();
+  const { user, currentWorkspace } = appRoute.useLoaderData();
+  const workspaceId = currentWorkspace?.id ?? "";
   const queryClient = useQueryClient();
-  const toast = useAppToast();
-  const load = useServerFn(loadActivityInbox);
   const markAllRead = useServerFn(markActivityInboxRead);
 
+  // Switching views keeps the current cards on screen until the next view has loaded.
   const query = useInfiniteQuery({
-    queryKey: activityInboxQueryKey(workspaceId, filter),
-    initialPageParam: 0,
-    queryFn: ({ pageParam }) => load({ data: { filter, offset: pageParam } }),
-    getNextPageParam: (last: ActivityInboxPage, pages: ActivityInboxPage[]) =>
-      last.hasMore ? pages.reduce((count, page) => count + page.items.length, 0) : undefined,
+    ...activityInboxQuery(workspaceId, filter),
+    placeholderData: keepPreviousData,
   });
 
   // Pages are offsets into a list that can move between fetches; an item that slid onto the next
@@ -117,32 +110,34 @@ export function ActivityInboxView({
   }, [query.data]);
   const totals = query.data?.pages[0];
 
-  const refresh = useCallback(
+  const refreshList = useCallback(
     () => queryClient.invalidateQueries({ queryKey: ACTIVITY_INBOX_QUERY_PREFIX }),
     [queryClient],
   );
-  useActivityInboxRealtime({ workspaceId, userId: user.id, onActivity: refresh });
+  // A read here also changes the Chat sidebar's badges.
+  const refreshSidebar = useRefreshSidebarLists();
+  const refresh = useCallback(
+    () => Promise.all([refreshList(), refreshSidebar()]).then(() => undefined),
+    [refreshList, refreshSidebar],
+  );
+  useActivityInboxRealtime({ workspaceId, userId: user.id, onActivity: refreshList });
 
-  const actions = useActivityItemActions({ onChanged: refresh });
+  // A failed change is shown in the toolbar with its retry until it succeeds or is dismissed.
+  const [failure, setFailure] = useState<{ retry: () => void } | null>(null);
+  const actions = useActivityItemActions({ onChanged: refresh, onFailure: setFailure });
 
-  function readAll() {
-    void markAllRead()
-      .catch(() => toast.error(m.activity_inbox_action_error()))
-      .finally(refresh);
-  }
-
-  const loadMoreRef = useRef<HTMLDivElement>(null);
-  const { hasNextPage, isFetchingNextPage, fetchNextPage } = query;
-  useEffect(() => {
-    const sentinel = loadMoreRef.current;
-    if (!sentinel || !hasNextPage) return;
-    const observer = new IntersectionObserver((entries) => {
-      if (entries.some((entry) => entry.isIntersecting) && !isFetchingNextPage)
-        void fetchNextPage();
-    });
-    observer.observe(sentinel);
-    return () => observer.disconnect();
-  }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
+  // Reads only what the list showed: the server's own clock at the time it read the list.
+  const loadedAt = totals?.loadedAt;
+  const readAll = useCallback(() => {
+    if (loadedAt === undefined) return;
+    const run = () => {
+      setFailure(null);
+      void markAllRead({ data: { before: loadedAt } })
+        .catch(() => setFailure({ retry: run }))
+        .finally(refresh);
+    };
+    run();
+  }, [markAllRead, loadedAt, refresh]);
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -158,7 +153,7 @@ export function ActivityInboxView({
           ) : undefined
         }
       />
-      <div className="flex shrink-0 items-center justify-between gap-3 border-b border-secondary px-4 py-3 sm:px-6">
+      <div className="flex h-11 shrink-0 items-center justify-between gap-3 border-b border-secondary px-4 sm:px-6">
         <ButtonGroup
           aria-label={m.activity_inbox_filter_label()}
           size="sm"
@@ -180,13 +175,25 @@ export function ActivityInboxView({
           </Button>
         )}
       </div>
+      {failure && (
+        <div
+          role="alert"
+          className="flex shrink-0 items-center gap-3 border-b border-secondary px-4 py-2 text-sm text-error-primary sm:px-6"
+        >
+          <span className="min-w-0 flex-1">{m.activity_inbox_action_error()}</span>
+          <Button size="sm" color="link-gray" onClick={failure.retry}>
+            {m.activity_inbox_retry()}
+          </Button>
+          <Button size="sm" color="link-gray" onClick={() => setFailure(null)}>
+            {m.activity_inbox_dismiss()}
+          </Button>
+        </div>
+      )}
       <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:px-6">
-        {query.isPending ? (
-          <ActivityInboxPending />
-        ) : query.isError && items.length === 0 ? (
+        {query.isError && items.length === 0 ? (
           <ActivityInboxLoadError onRetry={() => void query.refetch()} />
         ) : items.length === 0 ? (
-          <ActivityInboxEmpty filter={filter} />
+          <ActivityInboxEmpty filter={filter} onShowAll={() => onFilterChange("all")} />
         ) : (
           <ol className="flex flex-col gap-2">
             {items.map((item) => (
@@ -194,12 +201,56 @@ export function ActivityInboxView({
             ))}
           </ol>
         )}
-        {hasNextPage && (
-          <div ref={loadMoreRef} className="py-3 text-center text-xs text-tertiary">
-            {isFetchingNextPage ? m.activity_inbox_loading_more() : null}
-          </div>
-        )}
+        <ActivityInboxLoadMore
+          hasNextPage={query.hasNextPage}
+          isFetchingNextPage={query.isFetchingNextPage}
+          failed={query.isFetchNextPageError}
+          fetchNextPage={query.fetchNextPage}
+        />
       </div>
+    </div>
+  );
+}
+
+/**
+ * Asks for the next page as the end of the list scrolls into view. A failed page stops asking and
+ * offers a retry instead, so a broken request is never repeated in a loop.
+ */
+function ActivityInboxLoadMore({
+  hasNextPage,
+  isFetchingNextPage,
+  failed,
+  fetchNextPage,
+}: {
+  hasNextPage: boolean;
+  isFetchingNextPage: boolean;
+  failed: boolean;
+  fetchNextPage: () => Promise<unknown>;
+}) {
+  const sentinel = useRef<HTMLDivElement>(null);
+  const waiting = hasNextPage && !isFetchingNextPage && !failed;
+  useEffect(() => {
+    const element = sentinel.current;
+    if (!element || !waiting) return;
+    const observer = new IntersectionObserver((entries) => {
+      if (entries.some((entry) => entry.isIntersecting)) void fetchNextPage();
+    });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [waiting, fetchNextPage]);
+  if (!hasNextPage) return null;
+  return (
+    <div ref={sentinel} className="flex items-center justify-center gap-2 py-3 text-xs">
+      {failed ? (
+        <>
+          <span className="text-error-primary">{m.activity_inbox_load_more_error()}</span>
+          <Button size="sm" color="link-gray" onClick={() => void fetchNextPage()}>
+            {m.activity_inbox_retry()}
+          </Button>
+        </>
+      ) : isFetchingNextPage ? (
+        <span className="text-tertiary">{m.activity_inbox_loading_more()}</span>
+      ) : null}
     </div>
   );
 }
@@ -214,14 +265,16 @@ function useActivityInboxRealtime({
   userId,
   onActivity,
 }: {
-  workspaceId: string | undefined;
+  workspaceId: string;
   userId: string;
   onActivity: () => void;
 }) {
   const getWorkspaceToken = useServerFn(getWorkspaceConversationSubscriptionToken);
   const getUserToken = useServerFn(getUserConversationSubscriptionToken);
   const onActivityRef = useRef(onActivity);
-  onActivityRef.current = onActivity;
+  useEffect(() => {
+    onActivityRef.current = onActivity;
+  }, [onActivity]);
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   useEffect(() => () => clearTimeout(timer.current), []);
 
@@ -229,7 +282,7 @@ function useActivityInboxRealtime({
     try {
       decodeMessageAvailableEvent(publication.data);
     } catch {
-      // Not a message signal (the user channel also carries notifications).
+      // Not a message signal (the channels also carry other events).
       return;
     }
     clearTimeout(timer.current);
@@ -253,84 +306,106 @@ type ActivityItemActions = ReturnType<typeof useActivityItemActions>;
 /**
  * What a card can do. Reading, marking unread and following reuse the conversation's own
  * functions, so the Chat sidebar and the inbox move the same cursors. Done hides the card at once
- * and puts it back if the server refuses.
+ * and the refetch puts it back if the server refused. The returned object is stable, so cards
+ * re-render only when their own item changes.
  */
-function useActivityItemActions({ onChanged }: { onChanged: () => Promise<void> }) {
+function useActivityItemActions({
+  onChanged,
+  onFailure,
+}: {
+  onChanged: () => Promise<void>;
+  onFailure: (failure: { retry: () => void } | null) => void;
+}) {
   const queryClient = useQueryClient();
-  const toast = useAppToast();
   const markChannelRead = useServerFn(markPublicChannelRead);
   const markChannelThreadRead = useServerFn(markPublicChannelThreadRead);
   const markDirectRead = useServerFn(markDirectConversationRead);
   const markDirectThread = useServerFn(markDirectThreadRead);
-  const setChannelUnread = useServerFn(setPublicConversationUnread);
-  const setDirectUnread = useServerFn(setDirectConversationUnread);
+  const sidebar = useSidebarActions();
   const setThreadFollowed = useServerFn(setPublicChannelThreadFollowed);
   const markDone = useServerFn(markActivityItemDone);
 
-  const run = useCallback(
-    (action: () => Promise<unknown>) => {
+  return useMemo(() => {
+    function run(action: () => Promise<unknown>) {
+      onFailure(null);
       void action()
-        .catch(() => toast.error(m.activity_inbox_action_error()))
+        .catch(() => onFailure({ retry: () => run(action) }))
         .finally(onChanged);
-    },
-    [onChanged, toast],
-  );
+    }
 
-  const read = useCallback(
-    (item: ActivityInboxItem) => {
-      const throughSequence = item.latestSequence;
-      if (item.kind === "thread") {
-        const threadRootId = item.rootMessageId!;
-        return item.channelName
+    function read({ place, thread, latestSequence: throughSequence }: ActivityInboxItem) {
+      if (thread) {
+        const threadRootId = thread.root.id;
+        return place.kind === "channel"
           ? markChannelThreadRead({
-              data: { channelId: item.conversationId, threadRootId, throughSequence },
+              data: { channelId: place.conversationId, threadRootId, throughSequence },
             })
-          : markDirectThread({ data: { agentId: item.agent!.id, threadRootId, throughSequence } });
+          : markDirectThread({ data: { agentId: place.agent.id, threadRootId, throughSequence } });
       }
-      return item.kind === "channel"
-        ? markChannelRead({ data: { channelId: item.conversationId, throughSequence } })
-        : markDirectRead({ data: { agentId: item.agent!.id, throughSequence } });
-    },
-    [markChannelRead, markChannelThreadRead, markDirectRead, markDirectThread],
-  );
+      return place.kind === "channel"
+        ? markChannelRead({ data: { channelId: place.conversationId, throughSequence } })
+        : markDirectRead({ data: { agentId: place.agent.id, throughSequence } });
+    }
 
-  return {
-    read: (item: ActivityInboxItem) => run(() => read(item)),
-    unread: (item: ActivityInboxItem) =>
-      run(() =>
-        item.kind === "channel"
-          ? setChannelUnread({ data: { channelId: item.conversationId, unread: true } })
-          : setDirectUnread({ data: { agentId: item.agent!.id, unread: true } }),
-      ),
-    follow: (item: ActivityInboxItem, followed: boolean) =>
-      run(() =>
-        setThreadFollowed({
-          data: { channelId: item.conversationId, threadRootId: item.rootMessageId!, followed },
-        }),
-      ),
-    done: (item: ActivityInboxItem) => {
-      queryClient.setQueriesData<InfiniteData<ActivityInboxPage>>(
-        { queryKey: ACTIVITY_INBOX_QUERY_PREFIX },
-        (data) => data && withoutItem(data, item),
-      );
-      run(() =>
-        markDone({
-          data: item.rootMessageId
-            ? {
-                kind: "thread",
-                conversationId: item.conversationId,
-                rootMessageId: item.rootMessageId,
-                throughSequence: item.latestSequence,
-              }
-            : {
-                kind: "conversation",
-                conversationId: item.conversationId,
-                throughSequence: item.latestSequence,
-              },
-        }),
-      );
-    },
-  };
+    return {
+      read: (item: ActivityInboxItem) => run(() => read(item)),
+      // The sidebar's own action: its badge moves at once, then the list refreshes.
+      unread: ({ place }: ActivityInboxItem) =>
+        run(
+          () =>
+            sidebar?.markUnread(
+              place.kind === "channel"
+                ? { kind: "channel", id: place.conversationId }
+                : { kind: "direct", agentId: place.agent.id },
+            ).isPersisted.promise ?? Promise.resolve(),
+        ),
+      unfollow: ({ place, thread }: ActivityInboxItem) => {
+        if (!thread) return;
+        run(() =>
+          setThreadFollowed({
+            data: {
+              channelId: place.conversationId,
+              threadRootId: thread.root.id,
+              followed: false,
+            },
+          }),
+        );
+      },
+      done: (item: ActivityInboxItem) => {
+        queryClient.setQueriesData<InfiniteData<ActivityInboxPage>>(
+          { queryKey: ACTIVITY_INBOX_QUERY_PREFIX },
+          (data) => data && withoutItem(data, item),
+        );
+        run(() =>
+          markDone({
+            data: item.thread
+              ? {
+                  kind: "thread",
+                  conversationId: item.place.conversationId,
+                  rootMessageId: item.thread.root.id,
+                  throughSequence: item.latestSequence,
+                }
+              : {
+                  kind: "conversation",
+                  conversationId: item.place.conversationId,
+                  throughSequence: item.latestSequence,
+                },
+          }),
+        );
+      },
+    };
+  }, [
+    queryClient,
+    onChanged,
+    onFailure,
+    markChannelRead,
+    markChannelThreadRead,
+    markDirectRead,
+    markDirectThread,
+    sidebar,
+    setThreadFollowed,
+    markDone,
+  ]);
 }
 
 /** A cached view with one item removed and its totals adjusted, until the refetch lands. */
@@ -350,39 +425,40 @@ function withoutItem(
   };
 }
 
-/** Where a card goes: a thread opens beside its root; a conversation opens at its first unread
- * message, or its newest one when everything is read. */
-function openTarget(item: ActivityInboxItem) {
-  if (item.kind === "thread") {
-    const search = { threadRootId: item.rootMessageId!, message: item.rootMessageId! };
-    return item.channelName
-      ? {
-          to: "/messages/channels/$channelId" as const,
-          params: { channelId: item.conversationId },
-          search,
-        }
-      : { to: "/messages/$agentId" as const, params: { agentId: item.agent!.id }, search };
-  }
-  const message = (item.unreadCount > 0 && item.firstUnreadMessageId) || item.latest.id;
-  return item.kind === "channel"
+/**
+ * Where a card goes. A thread opens in its pane beside its root, scrolled to the first unread
+ * reply; a conversation opens at its first unread message, or its newest one when everything is
+ * read.
+ */
+function openTarget({
+  place,
+  thread,
+  unreadCount,
+  firstUnreadMessageId,
+  latest,
+}: ActivityInboxItem) {
+  const unreadAnchor = unreadCount > 0 ? firstUnreadMessageId : null;
+  const search = thread
+    ? { threadRootId: thread.root.id, message: thread.root.id }
+    : { message: unreadAnchor ?? latest.id };
+  const hash = thread && unreadAnchor ? `message-${unreadAnchor}` : undefined;
+  return place.kind === "channel"
     ? {
         to: "/messages/channels/$channelId" as const,
-        params: { channelId: item.conversationId },
-        search: { message },
+        params: { channelId: place.conversationId },
+        search,
+        hash,
       }
-    : {
-        to: "/messages/$agentId" as const,
-        params: { agentId: item.agent!.id },
-        search: { message },
-      };
+    : { to: "/messages/$agentId" as const, params: { agentId: place.agent.id }, search, hash };
 }
 
-function messagePreview(message: ActivityInboxItem["latest"]) {
-  if (message.body) return messagePlainText({ body: message.body, mentions: message.mentions });
-  return message.attachments[0]?.fileName ?? "";
+/** A message's text rendered as inline Markdown, or its first attachment's name. */
+function Preview({ message }: { message: ActivityInboxItem["latest"] }) {
+  if (message.body) return <MessagePreview body={message.body} mentions={message.mentions} />;
+  return <>{message.attachments[0]?.fileName ?? ""}</>;
 }
 
-function ActivityInboxCard({
+const ActivityInboxCard = memo(function ActivityInboxCard({
   item,
   filter,
   actions,
@@ -395,7 +471,9 @@ function ActivityInboxCard({
   const target = openTarget(item);
   const href = router.buildLocation(target).publicHref;
   const unread = item.unreadCount > 0;
-  const place = item.channelName ? `#${item.channelName}` : `@${item.agent?.displayName ?? ""}`;
+  const { place, thread } = item;
+  const placeName =
+    place.kind === "channel" ? `#${place.channelName}` : `@${place.agent.displayName}`;
   const sender =
     item.latest.senderKind === "system" ? m.activity_inbox_system_sender() : item.latest.senderName;
 
@@ -403,8 +481,7 @@ function ActivityInboxCard({
     if (key === "read") actions.read(item);
     else if (key === "unread") actions.unread(item);
     else if (key === "done") actions.done(item);
-    else if (key === "follow") actions.follow(item, true);
-    else if (key === "unfollow") actions.follow(item, false);
+    else if (key === "unfollow") actions.unfollow(item);
   }
 
   return (
@@ -423,8 +500,8 @@ function ActivityInboxCard({
           }
           className="min-w-0 flex-1 rounded-lg outline-focus-ring focus-visible:outline-2 focus-visible:outline-offset-2"
         >
-          {item.kind === "thread" && (
-            <p className="mb-0.5 truncate text-xs font-medium text-tertiary">{place}</p>
+          {thread && (
+            <p className="mb-0.5 truncate text-xs font-medium text-tertiary">{placeName}</p>
           )}
           <div className="flex min-w-0 items-start gap-2">
             <ActivityItemIcon item={item} />
@@ -434,7 +511,7 @@ function ActivityInboxCard({
                 unread ? "font-semibold text-primary" : "font-medium text-secondary",
               )}
             >
-              {item.kind === "thread" && item.root ? messagePreview(item.root) : place}
+              {thread ? <Preview message={thread.root} /> : placeName}
             </p>
             <RelativeTime
               value={item.latest.createdAt}
@@ -449,7 +526,7 @@ function ActivityInboxCard({
             )}
           >
             <span className="font-medium">{sender}: </span>
-            {messagePreview(item.latest)}
+            <Preview message={item.latest} />
           </p>
           <ActivityItemBadges item={item} filter={filter} />
         </AriaLink>
@@ -462,7 +539,7 @@ function ActivityInboxCard({
                 label={m.activity_inbox_mark_read()}
                 selectionIndicator="none"
               />
-            ) : item.kind === "thread" ? null : (
+            ) : thread ? null : (
               <Dropdown.Item
                 id="unread"
                 icon={Mail01}
@@ -476,13 +553,11 @@ function ActivityInboxCard({
               label={m.activity_inbox_menu_done()}
               selectionIndicator="none"
             />
-            {item.kind === "thread" && item.followed !== null && (
+            {thread && place.kind === "channel" && (
               <Dropdown.Item
-                id={item.followed ? "unfollow" : "follow"}
-                icon={item.followed ? BellOff01 : Bell01}
-                label={
-                  item.followed ? m.conversation_thread_unfollow() : m.conversation_thread_follow()
-                }
+                id="unfollow"
+                icon={BellOff01}
+                label={m.conversation_thread_unfollow()}
                 selectionIndicator="none"
               />
             )}
@@ -500,19 +575,19 @@ function ActivityInboxCard({
       />
     </li>
   );
-}
+});
 
 function ActivityItemIcon({ item }: { item: ActivityInboxItem }) {
-  if (item.kind === "direct")
+  if (!item.thread && item.place.kind === "direct")
     return (
       <Avatar
         size="xs"
-        src={item.agent?.avatarUrl ?? null}
+        src={item.place.agent.avatarUrl}
         alt=""
         className="mt-0.5 size-4 shrink-0"
       />
     );
-  const Icon = item.kind === "thread" ? MessageTextSquare01 : Hash02;
+  const Icon = item.thread ? MessageTextSquare01 : Hash02;
   return <Icon aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-fg-quaternary" />;
 }
 
@@ -523,20 +598,20 @@ function ActivityItemBadges({
   item: ActivityInboxItem;
   filter: ActivityInboxFilter;
 }) {
-  const task = item.task;
+  const { thread } = item;
   const showMention = filter !== "mentions" && item.unreadMention;
-  if (!task && item.kind !== "thread" && !showMention && item.unreadCount === 0) return null;
+  if (!thread && !showMention && item.unreadCount === 0) return null;
   return (
     <div className="mt-2 flex flex-wrap items-center gap-1.5">
-      {task && (
-        <Badge type="color" size="sm" color={TASK_STATUS_COLOR[task.status as TaskStatus].badge}>
-          #{task.number}
-          {task.ownerName ? ` @${task.ownerName}` : ""}
+      {thread?.task && (
+        <Badge type="color" size="sm" color={TASK_STATUS_COLOR[thread.task.status].badge}>
+          #{thread.task.number}
+          {thread.task.ownerName ? ` @${thread.task.ownerName}` : ""}
         </Badge>
       )}
-      {item.kind === "thread" && (
+      {thread && (
         <Badge type="modern" size="sm" color="gray">
-          {m.activity_inbox_replies({ count: item.replyCount })}
+          {m.activity_inbox_replies({ count: thread.replyCount })}
         </Badge>
       )}
       {showMention && (
@@ -553,7 +628,13 @@ function ActivityItemBadges({
   );
 }
 
-function ActivityInboxEmpty({ filter }: { filter: ActivityInboxFilter }) {
+function ActivityInboxEmpty({
+  filter,
+  onShowAll,
+}: {
+  filter: ActivityInboxFilter;
+  onShowAll: () => void;
+}) {
   const title =
     filter === "mentions"
       ? m.activity_inbox_empty_mentions_title()
@@ -578,6 +659,13 @@ function ActivityInboxEmpty({ filter }: { filter: ActivityInboxFilter }) {
           <EmptyTitle>{title}</EmptyTitle>
           <EmptyDescription>{description}</EmptyDescription>
         </EmptyHeader>
+        {filter !== "all" && (
+          <EmptyContent>
+            <Button size="sm" color="secondary" onClick={onShowAll}>
+              {m.activity_inbox_show_all()}
+            </Button>
+          </EmptyContent>
+        )}
       </Empty>
     </div>
   );
@@ -600,15 +688,24 @@ function ActivityInboxLoadError({ onRetry }: { onRetry: () => void }) {
   );
 }
 
-function ActivityInboxPending() {
+/** The Activity page while its first page loads (the route's pending fallback). */
+export function ActivityInboxPending() {
   return (
-    <ol role="status" aria-label={m.activity_inbox_loading_more()} className="flex flex-col gap-2">
-      {[0, 1, 2, 3].map((row) => (
-        <li key={row} className="rounded-xl border border-secondary p-3">
-          <Skeleton className="h-4 w-1/3" />
-          <Skeleton className="mt-2 h-4 w-3/4" />
-        </li>
-      ))}
-    </ol>
+    <div
+      role="status"
+      aria-busy="true"
+      aria-label={m.activity_inbox_loading()}
+      className="flex h-full min-h-0 flex-col"
+    >
+      <PageHeader heading={m.navigation_activity()} />
+      <ol className="flex flex-col gap-2 p-4 sm:px-6">
+        {[0, 1, 2, 3].map((row) => (
+          <li key={row} className="rounded-xl border border-secondary p-3">
+            <Skeleton className="h-4 w-1/3" />
+            <Skeleton className="mt-2 h-4 w-3/4" />
+          </li>
+        ))}
+      </ol>
+    </div>
   );
 }

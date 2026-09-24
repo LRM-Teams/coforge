@@ -449,5 +449,9 @@
         "countPlural=other": "{count}+ results"
       }
     }
-  ]
+  ],
+  "activity_inbox_loading": "Loading Activity…",
+  "activity_inbox_show_all": "Show all",
+  "activity_inbox_load_more_error": "More items could not be loaded.",
+  "activity_inbox_dismiss": "Dismiss"
 }

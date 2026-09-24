@@ -1,5 +1,4 @@
-import type { PrismaClient } from "#src/generated/prisma/client";
-import { Prisma } from "#src/generated/prisma/client";
+import { Prisma, type PrismaClient } from "#src/generated/prisma/client";
 import { AppError } from "#src/lib/app-error";
 import type {
   ActivityInboxFilter,
@@ -11,7 +10,18 @@ import {
   browserMessageFields,
   mapBrowserMessage,
 } from "#src/server/conversations/conversation-history.server";
+import {
+  HUMAN_UNREAD_MESSAGE_SQL,
+  advanceConversationCursorsSql,
+  advanceThreadCursorsSql,
+  directThreadsSql,
+  followedChannelThreadsSql,
+  humanUnreadReplySql,
+  markConversationsReadSql,
+  markThreadsReadSql,
+} from "#src/server/conversations/human-unread.server";
 import { browserSenderName } from "#src/server/conversations/sender-display.server";
+import { storedTaskStatus } from "#src/server/tasks/task-board.server";
 
 /**
  * A person's Activity inbox: every joined channel and direct message, every channel thread they
@@ -19,27 +29,25 @@ import { browserSenderName } from "#src/server/conversations/sender-display.serv
  * where they marked it Done. Reading an item never removes it; Done does, until a newer message
  * arrives.
  *
- * Unread follows the Chat sidebar's rule (other people's messages past the read cursor or the
- * mark-as-unread marker; the viewer's own messages and system notices never count), so the two
- * surfaces always agree. A conversation item covers top-level messages only; a thread item
- * covers its replies and keeps its read and Done boundaries in `thread_reads`.
+ * Unread is the Chat sidebar's rule (`HUMAN_UNREAD_MESSAGE_SQL`), so the two surfaces agree. A
+ * conversation item covers top-level messages only; a thread item covers its replies and keeps its
+ * read and Done boundaries in `thread_reads`. Every cursor write is the conversation module's
+ * shared SQL (`human-unread.server.ts`).
  */
 
-/** One conversation or thread in the inbox, keyed `conversation:<id>` or `thread:<rootId>`. */
+/** One conversation or thread with activity, as the candidate query returns it. */
 type ActivityCandidate = {
-  kind: "channel" | "direct" | "thread";
+  kind: "channel" | "direct";
   memberId: string;
   conversationId: string;
   rootMessageId: string | null;
   channelName: string | null;
   agentId: string | null;
-  followed: boolean | null;
   latestMessageId: string;
   latestSequence: number;
   latestAt: Date;
   unreadCount: number;
   firstUnreadMessageId: string | null;
-  firstMentionMessageId: string | null;
   mentioned: boolean;
   unreadMention: boolean;
   replyCount: number;
@@ -59,6 +67,7 @@ export class ActivityInbox {
     options: { filter: ActivityInboxFilter; offset?: number; limit?: number },
   ) {
     await this.authorize(workspaceId, userId);
+    const loadedAt = new Date();
     const candidates = (await this.candidates(workspaceId, userId)).filter((candidate) =>
       options.filter === "unread"
         ? candidate.unreadCount > 0
@@ -73,105 +82,71 @@ export class ActivityInbox {
     );
     const offset = Math.max(0, options.offset ?? 0);
     const limit = Math.min(MAX_PAGE_SIZE, Math.max(1, options.limit ?? DEFAULT_PAGE_SIZE));
-    const page = candidates.slice(offset, offset + limit);
-    const items = await this.hydrate(workspaceId, page);
+    const end = offset + limit;
     return {
-      items,
+      items: await this.hydrate(workspaceId, candidates.slice(offset, end)),
       totalCount: candidates.length,
       totalUnreadCount: candidates.reduce((sum, candidate) => sum + candidate.unreadCount, 0),
-      hasMore: offset + limit < candidates.length,
+      /** Where the next page starts in the list, or null on the last page. */
+      nextOffset: end < candidates.length ? end : null,
+      /** When this list was read: Mark all read reads through it, and no further. */
+      loadedAt: loadedAt.getTime(),
     };
   }
 
   /**
-   * Marks one item Done through the newest message the viewer saw (`throughSequence`), which also
-   * reads it: a message that arrived after the viewer's render keeps the item listed. Both
-   * boundaries only move forward and are clamped to the item's own newest message.
+   * Marks one item Done through the newest message the viewer saw (`throughSequence`), and reads
+   * it through the same message: a message that arrived after the viewer's render keeps the item
+   * listed and unread. The boundary only moves forward and is clamped to the item's newest
+   * message.
    */
   async markDone(workspaceId: string, userId: string, item: ActivityItemDone) {
     await this.authorize(workspaceId, userId);
     const member = await this.db.conversationMember.findFirst({
-      where: {
-        conversationId: item.conversationId,
-        workspaceId,
-        userId,
-        ...ACTIVE_MEMBER_WHERE,
-      },
+      where: { conversationId: item.conversationId, workspaceId, userId, ...ACTIVE_MEMBER_WHERE },
       select: { id: true },
     });
     if (!member) throw new AppError("ACCESS_DENIED");
-    if (item.kind === "conversation") {
-      const latest = await this.db.message.findFirst({
-        where: { conversationId: item.conversationId, threadRootId: null },
-        orderBy: { sequence: "desc" },
-        select: { sequence: true },
-      });
-      const boundary = Math.min(item.throughSequence, latest?.sequence ?? 0);
-      if (boundary < 1) return;
-      await this.db.$executeRaw`
-        UPDATE "conversation_members"
-        SET "doneThroughSequence" = GREATEST(COALESCE("doneThroughSequence", 0), ${boundary}),
-            "readThroughSequence" = GREATEST("readThroughSequence", ${boundary}),
-            "unreadFromSequence" = CASE
-              WHEN "unreadFromSequence" <= ${boundary} THEN NULL ELSE "unreadFromSequence" END
-        WHERE "id" = ${member.id}::uuid`;
-      return;
-    }
+    const rootMessageId = item.kind === "thread" ? item.rootMessageId : null;
     const latest = await this.db.message.findFirst({
-      where: { conversationId: item.conversationId, threadRootId: item.rootMessageId },
+      where: { conversationId: item.conversationId, threadRootId: rootMessageId },
       orderBy: { sequence: "desc" },
       select: { sequence: true },
     });
     const boundary = Math.min(item.throughSequence, latest?.sequence ?? 0);
     if (boundary < 1) return;
-    await this.db.$executeRaw`
-      INSERT INTO "thread_reads"
-        ("memberId", "conversationId", "workspaceId", "rootMessageId", "readThroughSequence",
-         "doneThroughSequence")
-      VALUES (${member.id}::uuid, ${item.conversationId}::uuid, ${workspaceId}::uuid,
-        ${item.rootMessageId}::uuid, ${boundary}, ${boundary})
-      ON CONFLICT ("memberId", "rootMessageId") DO UPDATE SET
-        "readThroughSequence" = GREATEST("thread_reads"."readThroughSequence", ${boundary}),
-        "doneThroughSequence" =
-          GREATEST(COALESCE("thread_reads"."doneThroughSequence", 0), ${boundary})`;
+    await this.db.$executeRaw(
+      rootMessageId
+        ? advanceThreadCursorsSql(
+            {
+              memberId: member.id,
+              conversationId: item.conversationId,
+              workspaceId,
+              rootMessageId,
+            },
+            boundary,
+            { done: true },
+          )
+        : advanceConversationCursorsSql(member.id, boundary, { done: true }),
+    );
   }
 
   /**
-   * Reads everything the inbox can show: every joined conversation through its newest top-level
-   * message (clearing any mark-as-unread marker) and every listed thread through its newest
-   * reply. Items stay listed; only Done removes them.
+   * Reads every joined conversation and every thread the inbox lists, through the newest message
+   * posted at or before `before` (the list's `loadedAt`), in one transaction. Items stay listed;
+   * only Done removes them.
    */
-  async markAllRead(workspaceId: string, userId: string) {
+  async markAllRead(workspaceId: string, userId: string, options: { before: Date }) {
     await this.authorize(workspaceId, userId);
+    const { before } = options;
     await this.db.$transaction([
-      this.db.$executeRaw`
-        UPDATE "conversation_members" cm
-        SET "readThroughSequence" = GREATEST(cm."readThroughSequence", latest."sequence"),
-            "unreadFromSequence" = NULL
-        FROM "conversation_members" viewer
-        CROSS JOIN LATERAL (
-          SELECT m."sequence" FROM "messages" m
-          WHERE m."conversationId" = viewer."conversationId" AND m."threadRootId" IS NULL
-          ORDER BY m."sequence" DESC LIMIT 1
-        ) latest
-        WHERE cm."id" = viewer."id"
-          AND viewer."userId" = ${userId}::uuid
-          AND viewer."workspaceId" = ${workspaceId}::uuid
-          AND viewer."leftAt" IS NULL`,
-      this.db.$executeRaw`
-        INSERT INTO "thread_reads"
-          ("memberId", "conversationId", "workspaceId", "rootMessageId", "readThroughSequence")
-        SELECT threads."memberId", threads."conversationId", ${workspaceId}::uuid,
-          threads."rootMessageId", latest."sequence"
-        FROM (${threadRootsSql(workspaceId, userId)}) threads
-        CROSS JOIN LATERAL (
-          SELECT m."sequence" FROM "messages" m
-          WHERE m."conversationId" = threads."conversationId"
-            AND m."threadRootId" = threads."rootMessageId"
-          ORDER BY m."sequence" DESC LIMIT 1
-        ) latest
-        ON CONFLICT ("memberId", "rootMessageId") DO UPDATE SET "readThroughSequence" =
-          GREATEST("thread_reads"."readThroughSequence", EXCLUDED."readThroughSequence")`,
+      this.db.$executeRaw(markConversationsReadSql(workspaceId, userId, before)),
+      this.db.$executeRaw(
+        markThreadsReadSql(workspaceId, followedChannelThreadsSql(workspaceId, userId), before),
+      ),
+      this.db.$executeRaw(
+        markThreadsReadSql(workspaceId, directThreadsSql(workspaceId, userId), before),
+      ),
     ]);
   }
 
@@ -198,15 +173,13 @@ export class ActivityInbox {
           NULL::uuid AS "rootMessageId",
           c."channelName" AS "channelName",
           peer."agentId" AS "agentId",
-          NULL::boolean AS "followed",
           latest."id" AS "latestMessageId",
           latest."sequence" AS "latestSequence",
           latest."createdAt" AS "latestAt",
           unread."count" AS "unreadCount",
           unread."firstId" AS "firstUnreadMessageId",
-          mention."firstId" AS "firstMentionMessageId",
-          mention."firstId" IS NOT NULL AS "mentioned",
-          COALESCE(mention."unread", FALSE) AS "unreadMention",
+          mention."any" AS "mentioned",
+          mention."unread" AS "unreadMention",
           0 AS "replyCount"
         FROM "conversation_members" cm
         JOIN "conversations" c
@@ -230,25 +203,17 @@ export class ActivityInbox {
           FROM "messages" m
           WHERE m."conversationId" = cm."conversationId"
             AND m."threadRootId" IS NULL
-            AND m."senderMemberId" IS NOT NULL
-            AND m."senderMemberId" <> cm."id"
-            AND (
-              m."sequence" > cm."readThroughSequence"
-              OR cm."unreadFromSequence" IS NOT NULL AND m."sequence" >= cm."unreadFromSequence"
-            )
+            AND ${HUMAN_UNREAD_MESSAGE_SQL}
         ) unread
-        LEFT JOIN LATERAL (
-          SELECT (ARRAY_AGG(m."id" ORDER BY m."sequence"))[1] AS "firstId",
-            BOOL_OR(
-              m."sequence" > cm."readThroughSequence"
-              OR cm."unreadFromSequence" IS NOT NULL AND m."sequence" >= cm."unreadFromSequence"
-            ) AS "unread"
+        CROSS JOIN LATERAL (
+          SELECT COUNT(*) > 0 AS "any",
+            COALESCE(BOOL_OR(${HUMAN_UNREAD_MESSAGE_SQL}), FALSE) AS "unread"
           FROM "message_mentions" mm
           JOIN "messages" m ON m."id" = mm."messageId" AND m."conversationId" = mm."conversationId"
           WHERE mm."memberId" = cm."id"
             AND m."threadRootId" IS NULL
             AND m."sequence" > COALESCE(cm."doneThroughSequence", 0)
-        ) mention ON TRUE
+        ) mention
         WHERE cm."userId" = ${userId}::uuid
           AND cm."workspaceId" = ${workspaceId}::uuid
           AND cm."leftAt" IS NULL
@@ -256,23 +221,34 @@ export class ActivityInbox {
           AND latest."sequence" > COALESCE(cm."doneThroughSequence", 0)`,
       this.db.$queryRaw<ActivityCandidate[]>`
         SELECT
-          'thread' AS "kind",
+          threads."kind" AS "kind",
           threads."memberId" AS "memberId",
           threads."conversationId" AS "conversationId",
           threads."rootMessageId" AS "rootMessageId",
-          threads."channelName" AS "channelName",
-          threads."agentId" AS "agentId",
-          threads."followed" AS "followed",
+          c."channelName" AS "channelName",
+          peer."agentId" AS "agentId",
           latest."id" AS "latestMessageId",
           latest."sequence" AS "latestSequence",
           latest."createdAt" AS "latestAt",
           replies."unread" AS "unreadCount",
           replies."firstUnreadId" AS "firstUnreadMessageId",
-          mention."firstId" AS "firstMentionMessageId",
-          mention."firstId" IS NOT NULL AS "mentioned",
-          COALESCE(mention."unread", FALSE) AS "unreadMention",
+          mention."any" AS "mentioned",
+          mention."unread" AS "unreadMention",
           replies."count" AS "replyCount"
-        FROM (${threadRootsSql(workspaceId, userId)}) threads
+        FROM (
+          SELECT 'channel' AS "kind", followed.* FROM (${followedChannelThreadsSql(workspaceId, userId)}) followed
+          UNION ALL
+          SELECT 'direct' AS "kind", direct.* FROM (${directThreadsSql(workspaceId, userId)}) direct
+        ) threads
+        JOIN "conversations" c ON c."id" = threads."conversationId"
+        LEFT JOIN LATERAL (
+          SELECT am."agentId" FROM "conversation_members" am
+          JOIN "agents" a ON a."id" = am."agentId" AND a."deletedAt" IS NULL
+          WHERE threads."kind" = 'direct'
+            AND am."conversationId" = threads."conversationId"
+            AND am."agentId" IS NOT NULL
+          LIMIT 1
+        ) peer ON TRUE
         LEFT JOIN "thread_reads" tr
           ON tr."memberId" = threads."memberId" AND tr."rootMessageId" = threads."rootMessageId"
         CROSS JOIN LATERAL (
@@ -291,16 +267,16 @@ export class ActivityInbox {
           WHERE m."conversationId" = threads."conversationId"
             AND m."threadRootId" = threads."rootMessageId"
         ) replies
-        LEFT JOIN LATERAL (
-          SELECT (ARRAY_AGG(m."id" ORDER BY m."sequence"))[1] AS "firstId",
-            BOOL_OR(m."sequence" > COALESCE(tr."readThroughSequence", 0)) AS "unread"
+        CROSS JOIN LATERAL (
+          SELECT COUNT(*) > 0 AS "any", COALESCE(BOOL_OR(${unreadReplySql}), FALSE) AS "unread"
           FROM "message_mentions" mm
           JOIN "messages" m ON m."id" = mm."messageId" AND m."conversationId" = mm."conversationId"
           WHERE mm."memberId" = threads."memberId"
             AND m."threadRootId" = threads."rootMessageId"
             AND m."sequence" > COALESCE(tr."doneThroughSequence", 0)
-        ) mention ON TRUE
-        WHERE latest."sequence" > COALESCE(tr."doneThroughSequence", 0)`,
+        ) mention
+        WHERE latest."sequence" > COALESCE(tr."doneThroughSequence", 0)
+          AND (threads."kind" = 'channel' OR peer."agentId" IS NOT NULL)`,
     ]);
     return [...conversations, ...threads];
   }
@@ -360,34 +336,42 @@ export class ActivityInbox {
         task.messageId,
         {
           number: task.number,
-          status: task.status,
+          status: storedTaskStatus(task.status),
           ownerName: task.owner ? browserSenderName(task.owner) : null,
         },
       ]),
     );
     return page.flatMap((candidate) => {
       const latest = messageById.get(candidate.latestMessageId);
-      if (!latest) return [];
-      const root = candidate.rootMessageId ? messageById.get(candidate.rootMessageId) : undefined;
+      const agent = candidate.agentId ? agentById.get(candidate.agentId) : undefined;
+      const place =
+        candidate.kind === "channel"
+          ? {
+              kind: "channel" as const,
+              conversationId: candidate.conversationId,
+              channelName: candidate.channelName ?? "",
+            }
+          : agent
+            ? { kind: "direct" as const, conversationId: candidate.conversationId, agent }
+            : null;
+      const root = candidate.rootMessageId ? messageById.get(candidate.rootMessageId) : null;
+      // A row deleted between the two reads leaves the page rather than rendering half an item.
+      if (!latest || !place || root === undefined) return [];
       return [
         {
           key: candidate.rootMessageId
             ? `thread:${candidate.rootMessageId}`
             : `conversation:${candidate.conversationId}`,
-          kind: candidate.kind,
-          conversationId: candidate.conversationId,
-          rootMessageId: candidate.rootMessageId,
-          channelName: candidate.channelName,
-          agent: candidate.agentId ? (agentById.get(candidate.agentId) ?? null) : null,
-          followed: candidate.followed,
+          place,
+          // A channel thread is listed because the viewer follows it; a direct-message thread
+          // has no follow switch.
+          thread: root
+            ? { root, replyCount: candidate.replyCount, task: taskByRoot.get(root.id) ?? null }
+            : null,
           latest,
           latestSequence: candidate.latestSequence,
-          root: root ?? null,
-          task: candidate.rootMessageId ? (taskByRoot.get(candidate.rootMessageId) ?? null) : null,
-          replyCount: candidate.replyCount,
           unreadCount: candidate.unreadCount,
           firstUnreadMessageId: candidate.firstUnreadMessageId,
-          firstMentionMessageId: candidate.firstMentionMessageId,
           mentioned: candidate.mentioned,
           unreadMention: candidate.unreadMention,
         },
@@ -396,37 +380,8 @@ export class ActivityInbox {
   }
 }
 
-/** A reply that is unread for the thread's viewer: someone else's, past their thread cursor. */
-const unreadReplySql = Prisma.sql`m."senderMemberId" IS NOT NULL
-  AND m."senderMemberId" <> threads."memberId"
-  AND m."sequence" > COALESCE(tr."readThroughSequence", 0)`;
-
-/**
- * The threads the inbox follows for one viewer: channel threads they follow, and every thread in
- * their direct messages with a live Agent (a direct message has no follow switch; it is theirs).
- * Archived channels and conversations they left are out.
- */
-function threadRootsSql(workspaceId: string, userId: string) {
-  return Prisma.sql`
-    SELECT tf."rootMessageId", cm."id" AS "memberId", cm."conversationId",
-      c."channelName", NULL::uuid AS "agentId", TRUE AS "followed"
-    FROM "thread_follows" tf
-    JOIN "conversation_members" cm ON cm."id" = tf."memberId"
-    JOIN "conversations" c
-      ON c."id" = cm."conversationId" AND c."archivedAt" IS NULL AND c."channelName" IS NOT NULL
-    WHERE cm."userId" = ${userId}::uuid
-      AND cm."workspaceId" = ${workspaceId}::uuid
-      AND cm."leftAt" IS NULL
-    UNION ALL
-    SELECT DISTINCT r."threadRootId" AS "rootMessageId", cm."id" AS "memberId",
-      cm."conversationId", NULL AS "channelName", am."agentId", NULL::boolean AS "followed"
-    FROM "conversation_members" cm
-    JOIN "conversations" c ON c."id" = cm."conversationId" AND c."directKey" IS NOT NULL
-    JOIN "conversation_members" am
-      ON am."conversationId" = cm."conversationId" AND am."agentId" IS NOT NULL
-    JOIN "agents" a ON a."id" = am."agentId" AND a."deletedAt" IS NULL
-    JOIN "messages" r ON r."conversationId" = cm."conversationId" AND r."threadRootId" IS NOT NULL
-    WHERE cm."userId" = ${userId}::uuid
-      AND cm."workspaceId" = ${workspaceId}::uuid
-      AND cm."leftAt" IS NULL`;
-}
+/** A reply unread for the thread's viewer (the candidate query's `threads` and `tr` rows). */
+const unreadReplySql = humanUnreadReplySql(
+  Prisma.sql`threads."memberId"`,
+  Prisma.sql`tr."readThroughSequence"`,
+);

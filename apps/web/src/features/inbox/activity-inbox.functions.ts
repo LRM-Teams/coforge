@@ -2,7 +2,11 @@ import { createServerFn } from "@tanstack/react-start";
 
 import { workspaceUserMiddleware } from "#src/features/auth/function-auth";
 import { ActivityInbox } from "#src/server/inbox/activity-inbox.server";
-import { activityInboxPageSchema, activityItemDoneSchema } from "./activity-inbox.schemas";
+import {
+  activityInboxPageSchema,
+  activityInboxReadAllSchema,
+  activityItemDoneSchema,
+} from "./activity-inbox.schemas";
 
 /** One page of the viewer's Activity inbox, newest activity first, with the view's totals. */
 export const loadActivityInbox = createServerFn({ method: "GET" })
@@ -22,10 +26,14 @@ export const markActivityItemDone = createServerFn({ method: "POST" })
     await new ActivityInbox(db).markDone(workspaceId, user.id, data);
   });
 
-/** Reads every conversation and thread the inbox can show; items stay listed. */
+/** Reads every joined conversation and listed thread up to when the viewer's list was loaded;
+ * items stay listed. */
 export const markActivityInboxRead = createServerFn({ method: "POST" })
   .middleware([workspaceUserMiddleware])
-  .handler(async ({ context }) => {
+  .validator(activityInboxReadAllSchema)
+  .handler(async ({ context, data }) => {
     const { db, workspaceId, user } = context;
-    await new ActivityInbox(db).markAllRead(workspaceId, user.id);
+    await new ActivityInbox(db).markAllRead(workspaceId, user.id, {
+      before: new Date(data.before),
+    });
   });

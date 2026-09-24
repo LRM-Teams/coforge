@@ -155,7 +155,8 @@ export type TaskOverview = {
   >;
 };
 
-function status(value: string): TaskStatus {
+/** A task status as stored; a value outside the known set is corrupt data, not user input. */
+export function storedTaskStatus(value: string): TaskStatus {
   switch (value) {
     case "todo":
     case "in_progress":
@@ -210,7 +211,7 @@ function view(task: SelectedTask): TaskView {
     // commands read.
     title: agentReadableBody(task.title, task.message.mentions),
     description: task.description,
-    status: status(task.status),
+    status: storedTaskStatus(task.status),
     revision: task.revision,
     claimedAt: task.claimedAt?.toISOString() ?? null,
     requiresResourceReceipt: task.createsResource,
@@ -256,7 +257,10 @@ function assigneeChange(task: SelectedTask): TaskHistoryChange {
 /** A new Task's history: its creation, then its assignee when it was created assigned. */
 function creationChanges(task: SelectedTask): TaskHistoryChange[] {
   const changes: TaskHistoryChange[] = [
-    { eventType: "created", payload: { taskNumber: task.number, status: status(task.status) } },
+    {
+      eventType: "created",
+      payload: { taskNumber: task.number, status: storedTaskStatus(task.status) },
+    },
   ];
   if (task.owner) changes.push(assigneeChange(task));
   return changes;
@@ -269,7 +273,7 @@ function taskChanges(before: SelectedTask, after: SelectedTask): TaskHistoryChan
   if (before.status !== after.status)
     changes.push({
       eventType: "status_changed",
-      payload: { from: status(before.status), to: status(after.status) },
+      payload: { from: storedTaskStatus(before.status), to: storedTaskStatus(after.status) },
     });
   const amended: Extract<TaskHistoryChange, { eventType: "amended" }>["payload"]["changes"] = {};
   // Titles are compared and recorded as `view` shows them, so a title's stored tokens are never
@@ -1477,7 +1481,11 @@ export class TaskBoard {
       );
       if (updated.status !== task.status)
         await notices.inThread(updated, (quoted) =>
-          noticeText.moved(noticeActor(member).displayName, quoted, status(updated.status)),
+          noticeText.moved(
+            noticeActor(member).displayName,
+            quoted,
+            storedTaskStatus(updated.status),
+          ),
         );
       return updated;
     });

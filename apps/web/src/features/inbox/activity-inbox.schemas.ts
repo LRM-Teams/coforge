@@ -25,3 +25,6 @@ export const activityItemDoneSchema = z.discriminatedUnion("kind", [
   }),
 ]);
 export type ActivityItemDone = z.infer<typeof activityItemDoneSchema>;
+
+/** Reads everything posted up to when the viewer's list was loaded (epoch milliseconds). */
+export const activityInboxReadAllSchema = z.object({ before: z.number().int().positive() });

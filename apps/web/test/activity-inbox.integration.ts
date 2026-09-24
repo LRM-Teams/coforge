@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "#src/generated/prisma/client";
 import { PrismaDirectConversationRepository } from "#src/server/db/repositories/direct-conversation.repositories.server";
-import { ActivityInbox } from "#src/server/inbox/activity-inbox.server";
+import { ActivityInbox, type ActivityInboxItem } from "#src/server/inbox/activity-inbox.server";
 
 /**
  * The Activity inbox against PostgreSQL: which conversations and threads a person sees, their
@@ -14,6 +14,11 @@ function database() {
   if (!connectionString)
     throw new Error("CHANNEL_TEST_DATABASE_URL must point to local PostgreSQL");
   return new PrismaClient({ adapter: new PrismaPg({ connectionString }) });
+}
+
+/** An item's kind as the page shows it: a thread card, or its conversation's own kind. */
+function kindOf(item: ActivityInboxItem) {
+  return item.thread ? "thread" : item.place.kind;
 }
 
 async function seed(db: PrismaClient, suffix: string) {
@@ -46,7 +51,7 @@ async function seed(db: PrismaClient, suffix: string) {
     );
     return { conversation, aliceMember: aliceMember!, bobMember: bobMember! };
   }
-  let clock = Date.UTC(2026, 8, 24, 8, 0, 0);
+  let clock = Date.UTC(2026, 0, 1, 8, 0, 0);
   async function post(
     conversationId: string,
     senderMemberId: string | null,
@@ -133,7 +138,13 @@ test("lists joined conversations and followed threads with activity, newest firs
     const inbox = new ActivityInbox(db);
     const page = await inbox.list(workspace.id, alice.id, { filter: "all" });
 
-    expect(page.items.map((item) => [item.kind, item.conversationId, item.rootMessageId])).toEqual([
+    expect(
+      page.items.map((item) => [
+        kindOf(item),
+        item.place.conversationId,
+        item.thread?.root.id ?? null,
+      ]),
+    ).toEqual([
       ["channel", quiet.conversation.id, null],
       ["thread", general.conversation.id, root.id],
       ["channel", general.conversation.id, null],
@@ -145,15 +156,14 @@ test("lists joined conversations and followed threads with activity, newest firs
     expect(channelItem!.latest.senderKind).toBe("system");
     expect(thread!.unreadCount).toBe(1);
     expect(thread!.firstUnreadMessageId).toBe(reply.id);
-    expect(thread!.replyCount).toBe(2);
-    expect(thread!.root?.body).toBe("a question");
+    expect(thread!.thread?.replyCount).toBe(2);
+    expect(thread!.thread?.root.body).toBe("a question");
     expect(thread!.latest.body).toBe("thanks");
     expect(thread!.mentioned).toBe(true);
     expect(thread!.unreadMention).toBe(true);
-    expect(thread!.followed).toBe(true);
     expect(page.totalCount).toBe(3);
     expect(page.totalUnreadCount).toBe(3);
-    expect(page.hasMore).toBe(false);
+    expect(page.nextOffset).toBe(null);
 
     const unread = await inbox.list(workspace.id, alice.id, { filter: "unread" });
     expect(unread.items.map((item) => item.key)).toEqual(page.items.map((item) => item.key));
@@ -162,7 +172,7 @@ test("lists joined conversations and followed threads with activity, newest firs
 
     const firstPage = await inbox.list(workspace.id, alice.id, { filter: "all", limit: 2 });
     expect(firstPage.items).toHaveLength(2);
-    expect(firstPage.hasMore).toBe(true);
+    expect(firstPage.nextOffset).toBe(2);
     const secondPage = await inbox.list(workspace.id, alice.id, {
       filter: "all",
       limit: 2,
@@ -200,7 +210,7 @@ test("Done removes an item until newer activity arrives, and reads it", async ()
     // A Done that saw an older message leaves the newer one listed.
     await inbox.markDone(workspace.id, alice.id, { ...channelRef, throughSequence: 1 });
     let page = await inbox.list(workspace.id, alice.id, { filter: "all" });
-    expect(page.items.map((item) => item.kind)).toEqual(["thread", "channel"]);
+    expect(page.items.map(kindOf)).toEqual(["thread", "channel"]);
 
     await inbox.markDone(workspace.id, alice.id, {
       ...channelRef,
@@ -222,7 +232,7 @@ test("Done removes an item until newer activity arrives, and reads it", async ()
 
     const next = await post(general.conversation.id, general.bobMember.id, "three");
     page = await inbox.list(workspace.id, alice.id, { filter: "all" });
-    expect(page.items.map((item) => [item.kind, item.latest.id, item.unreadCount])).toEqual([
+    expect(page.items.map((item) => [kindOf(item), item.latest.id, item.unreadCount])).toEqual([
       ["channel", next.id, 1],
     ]);
 
@@ -230,7 +240,7 @@ test("Done removes an item until newer activity arrives, and reads it", async ()
       threadRootId: root.id,
     });
     page = await inbox.list(workspace.id, alice.id, { filter: "all" });
-    expect(page.items.map((item) => [item.kind, item.latest.id, item.unreadCount])).toEqual([
+    expect(page.items.map((item) => [kindOf(item), item.latest.id, item.unreadCount])).toEqual([
       ["thread", late.id, 1],
       ["channel", next.id, 1],
     ]);
@@ -263,14 +273,27 @@ test("Mark all read clears unread and keeps every item listed", async () => {
 
     const inbox = new ActivityInbox(db);
     expect((await inbox.list(workspace.id, alice.id, { filter: "all" })).totalUnreadCount).toBe(2);
-    await inbox.markAllRead(workspace.id, alice.id);
+    const shown = new Date();
+    // Sent after the page the viewer looked at: Mark all read must not read it.
+    const late = await post(general.conversation.id, general.bobMember.id, "late", {
+      threadRootId: root.id,
+    });
+    await db.message.update({
+      where: { id: late.id },
+      data: { createdAt: new Date(shown.getTime() + 1_000) },
+    });
+    await inbox.markAllRead(workspace.id, alice.id, { before: shown });
     const page = await inbox.list(workspace.id, alice.id, { filter: "all" });
-    expect(page.items.map((item) => [item.kind, item.unreadCount])).toEqual([
+    expect(page.items.map((item) => [kindOf(item), item.unreadCount])).toEqual([
+      ["thread", 1],
       ["channel", 0],
-      ["thread", 0],
     ]);
-    expect(page.totalUnreadCount).toBe(0);
-    expect((await inbox.list(workspace.id, alice.id, { filter: "unread" })).items).toEqual([]);
+    expect(page.totalUnreadCount).toBe(1);
+    expect(page.items[0]!.firstUnreadMessageId).toBe(late.id);
+    const member = await db.conversationMember.findUniqueOrThrow({
+      where: { id: general.aliceMember.id },
+    });
+    expect(member.unreadFromSequence).toBe(null);
   } finally {
     await cleanup(db, suffix);
   }
@@ -309,16 +332,64 @@ test("direct messages and their threads are listed with the Agent they belong to
 
     const inbox = new ActivityInbox(db);
     let page = await inbox.list(workspace.id, alice.id, { filter: "all" });
-    expect(page.items.map((item) => [item.kind, item.agent?.id, item.followed])).toEqual([
-      ["thread", agent.id, null],
-      ["direct", agent.id, null],
+    expect(
+      page.items.map((item) => [
+        kindOf(item),
+        item.place.kind === "direct" ? item.place.agent.id : null,
+      ]),
+    ).toEqual([
+      ["thread", agent.id],
+      ["direct", agent.id],
     ]);
-    expect(page.items[1]!.agent?.displayName).toBe("Helper");
+    const direct = page.items[1]!.place;
+    expect(direct.kind === "direct" && direct.agent.displayName).toBe("Helper");
 
     // A deleted Agent's conversation stays readable in Chat but leaves the inbox.
     await db.agent.update({ where: { id: agent.id }, data: { deletedAt: new Date() } });
     page = await inbox.list(workspace.id, alice.id, { filter: "all" });
     expect(page.items).toEqual([]);
+  } finally {
+    await cleanup(db, suffix);
+  }
+});
+
+test("a person can only read and change their own inbox in their own Workspace", async () => {
+  const db = database();
+  const suffix = crypto.randomUUID();
+  try {
+    const { alice, bob, workspace, channel, post } = await seed(db, suffix);
+    const general = await channel("general");
+    const message = await post(general.conversation.id, general.bobMember.id, "hello");
+    const outsider = await db.user.create({
+      data: { username: `inbox-outsider-${suffix}`, displayName: "outsider" },
+    });
+    const inbox = new ActivityInbox(db);
+    await expect(inbox.list(workspace.id, outsider.id, { filter: "all" })).rejects.toMatchObject({
+      code: "ACCESS_DENIED",
+    });
+
+    // Bob is a Workspace member but not in this channel any more.
+    await db.conversationMember.update({
+      where: { id: general.bobMember.id },
+      data: { leftAt: new Date() },
+    });
+    const done = {
+      kind: "conversation" as const,
+      conversationId: general.conversation.id,
+      throughSequence: message.sequence,
+    };
+    await expect(inbox.markDone(workspace.id, bob.id, done)).rejects.toMatchObject({
+      code: "ACCESS_DENIED",
+    });
+    // The conversation belongs to another Workspace than the one named.
+    const other = await db.workspace.create({
+      data: { slug: `inbox-other-${suffix}`, name: "Other" },
+    });
+    await db.workspaceMembership.create({ data: { workspaceId: other.id, userId: alice.id } });
+    await expect(inbox.markDone(other.id, alice.id, done)).rejects.toMatchObject({
+      code: "ACCESS_DENIED",
+    });
+    await db.workspace.delete({ where: { id: other.id } });
   } finally {
     await cleanup(db, suffix);
   }

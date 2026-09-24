@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { PrismaClient } from "#src/generated/prisma/client";
+import { Prisma, type PrismaClient } from "#src/generated/prisma/client";
 import { buildUserAgentConversationCreateInput } from "#src/server/db/repositories/direct-conversation.repositories.server";
 import {
   PrismaDirectConversationRepository,
@@ -1719,7 +1719,9 @@ describe("PrismaDirectConversationRepository", () => {
     const queries: { sql: string; values: unknown[] }[] = [];
     const db = {
       $queryRaw: async (strings: TemplateStringsArray, ...values: unknown[]) => {
-        queries.push({ sql: strings.join(""), values: flattenSqlValues(values) });
+        // Composed the way Prisma does, so the shared unread rule fragment is part of the text.
+        const statement = Prisma.sql(strings, ...values);
+        queries.push({ sql: statement.sql, values: statement.values });
         return [
           { agentId: "agent-1", unread: 3 },
           { agentId: "agent-2", unread: 0 },
