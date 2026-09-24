@@ -63,7 +63,12 @@ export async function conversationSignalScopes(
     where: { id: conversationId },
     select: {
       channelName: true,
-      members: { select: { userId: true, agentId: true } },
+      // Only a direct message's members name where it goes; a channel's roster (all of
+      // `#general`) is never read.
+      members: {
+        where: { conversation: { channelName: null } },
+        select: { userId: true, agentId: true },
+      },
     },
   });
   if (!conversation) return { message: { workspaceId } };
