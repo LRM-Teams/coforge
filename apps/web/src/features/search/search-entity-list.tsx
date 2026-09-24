@@ -5,6 +5,7 @@ import type { AgentDisplaySnapshot } from "@lrm/coforge-sdk/internal";
 
 import { Badge } from "#src/components/base/badges/badges";
 import { AgentDisplayAvatar } from "#src/features/agents/agent-activity-avatar";
+import { agentDisplay } from "#src/features/agents/agent-activity-presentation";
 import { formatAgentProfileParam } from "#src/features/agents/profile-panel/profile-panel-search";
 import { useLiveAgents } from "#src/features/agents/workspace-agents-realtime";
 import { computerIcon } from "#src/features/computers/computer-identity";
@@ -116,11 +117,20 @@ function EntityMark({
   display: AgentDisplaySnapshot | undefined;
 }) {
   if (entity.kind === "agent") {
-    // The row's own text names the Agent; the avatar only adds its status dot.
+    // The row's own text names the Agent, so the avatar is hidden from screen readers; its live
+    // status, which the dot shows, is read out on its own.
     return (
-      <span aria-hidden="true" className="shrink-0">
-        <AgentDisplayAvatar name={entity.name} src={entity.avatarUrl} display={display} size="xs" />
-      </span>
+      <>
+        <span aria-hidden="true" className="shrink-0">
+          <AgentDisplayAvatar
+            name={entity.name}
+            src={entity.avatarUrl}
+            display={display}
+            size="xs"
+          />
+        </span>
+        <span className="sr-only">{agentDisplay(display).label}</span>
+      </>
     );
   }
   const Icon =
