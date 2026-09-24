@@ -225,8 +225,8 @@ export function ConversationPane({
   const previousConversationIdRef = useRef<string | undefined>(undefined);
   const previousLastSequenceRef = useRef<number | undefined>(undefined);
   /** The reading position to restore after a load changes the list's height at either end:
-   * the row at the top of the viewport and its offset, before the change. See the layout effect
-   * below for why a raw height delta is not enough once eviction is in play. */
+   * the row at the top of the viewport and its content's offset, before the change. See the
+   * layout effect below for why a raw height delta is not enough once eviction is in play. */
   const historyScrollAnchorRef = useRef<
     { rowId?: string; offset: number; height: number; top: number } | undefined
   >(undefined);
@@ -530,8 +530,12 @@ export function ConversationPane({
   // and evicts the oldest. A raw `scrollHeight` delta would then move the reader by the evicted
   // page's height too, which is not where they were reading. So the anchor is the row at the top of
   // the viewport and its offset; restoring that row to the same offset keeps the reading position
-  // whatever moved at either end. The height delta stays as the fallback for the one case the row
-  // cannot cover: the anchor row itself was evicted.
+  // whatever moved at either end. The offset is measured on the row's content (`scrollAnchorOf`),
+  // not its edges: a load changes what surrounds the text — the window's first row carries the day
+  // divider until an older page takes it, a same-sender message before a row drops its header and
+  // padding — while an image or reaction settling below the text changes the bottom. The height
+  // delta stays as the fallback for the one case the row cannot cover: the anchor row itself was
+  // evicted.
   useLayoutEffect(() => {
     const anchor = historyScrollAnchorRef.current;
     const history = historyRef.current;
@@ -549,7 +553,8 @@ export function ConversationPane({
         ) ?? history.querySelector<HTMLElement>(`li[data-system-group-members~="${id}"]`);
       if (row) {
         const containerTop = history.getBoundingClientRect().top;
-        const delta = row.getBoundingClientRect().top - (containerTop + anchor.offset);
+        const delta =
+          scrollAnchorOf(row).getBoundingClientRect().top - (containerTop + anchor.offset);
         if (delta) history.scrollTop += delta;
         return;
       }
@@ -689,7 +694,7 @@ export function ConversationPane({
   loadNewerRef.current = () => loadNewer();
 
   /** Snapshot the reading position before a load changes the list: the row at the top of the
-   * viewport and its offset, plus the raw height/scrollTop as a fallback. */
+   * viewport and its content's offset, plus the raw height/scrollTop as a fallback. */
   function captureScrollAnchor(history: HTMLDivElement) {
     const containerTop = history.getBoundingClientRect().top;
     let rowId: string | undefined;
@@ -704,7 +709,7 @@ export function ConversationPane({
       if (row.dataset.systemGroup !== undefined && row.querySelector("li[data-message-id]"))
         continue;
       rowId = row.dataset.messageId;
-      offset = rect.top - containerTop;
+      offset = scrollAnchorOf(row).getBoundingClientRect().top - containerTop;
       break;
     }
     return { rowId, offset, height: history.scrollHeight, top: history.scrollTop };
@@ -1162,4 +1167,10 @@ export function ConversationPane({
       </div>
     </div>
   );
+}
+
+/** The part of a row the reading position holds still: its text (`data-scroll-anchor`), or the
+ * row itself for a row that marks none. A folded group's summary comes before any of its rows. */
+function scrollAnchorOf(row: HTMLElement): HTMLElement {
+  return row.querySelector<HTMLElement>("[data-scroll-anchor]") ?? row;
 }
