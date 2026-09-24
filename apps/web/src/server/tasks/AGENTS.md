@@ -52,3 +52,8 @@ contract is `packages/coforge-sdk/src/internal/tasks.ts`.
   the conversations it is a member of, unfinished by default and without a page
   limit. Its `coverage` and `pagination` describe that query and come from
   `agentOwnTaskScope` beside it; change the two together.
+- An assignee is bound by id wherever it was picked (the browser sends
+  `user:<id>` or `agent:<id>`); a bare `@handle` (the Agent CLI) resolves
+  within the conversation, and when a person and an Agent share the name the
+  person is meant, as an unbound mention resolves. Never send a handle for a
+  pick: usernames are global and Agent names per Workspace, so they can clash.

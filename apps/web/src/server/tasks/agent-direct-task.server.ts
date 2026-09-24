@@ -26,7 +26,7 @@ export async function createAgentDirectTask(
 ): Promise<TaskResult> {
   const agent = await db.agent.findFirst({
     where: { id: input.agentId, workspaceId: input.workspaceId, deletedAt: null },
-    select: { name: true, visibility: true, ownerId: true },
+    select: { id: true, name: true, visibility: true, ownerId: true },
   });
   if (!agent) throw new AppError("NOT_FOUND");
   // Checked here as well: an existing conversation is returned without the check, and an Agent
@@ -45,7 +45,8 @@ export async function createAgentDirectTask(
       conversationId: conversation.id,
       title: input.title,
       ...(input.description ? { description: input.description } : {}),
-      assignee: `@${agent.name}`,
+      // Bound by id: a person sharing the Agent's name is never the one assigned.
+      assignee: `agent:${input.agentId}`,
     },
   );
 }

@@ -502,6 +502,9 @@ function historyRows(
 }
 
 const handleName = (handle: string) => handle.replace(/^@/, "");
+/** An assignee picked by id: `user:<uuid>` or `agent:<uuid>`. */
+const BOUND_ASSIGNEE =
+  /^(user|agent):([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i;
 
 async function indexedRequestId(requestId: string, index: number) {
   if (index === 0) return requestId;
@@ -985,31 +988,52 @@ export class TaskBoard {
     };
   }
 
-  /** The conversation member a `@handle` names, whether it is a user or an Agent. */
-  private memberByHandle(
+  /**
+   * The conversation member an assignee names. A browser pick is bound by id (`user:<id>` or
+   * `agent:<id>`), so it is always the one picked. A bare `@handle` (the Agent CLI) may match a
+   * person and an Agent at once, since usernames are global and Agent names per Workspace; the
+   * person is then the one meant, as a mention without a binding resolves.
+   */
+  private async memberByHandle(
     tx: Transaction,
     conversationId: string,
     workspaceId: string,
     handle: string,
   ) {
+    const scope = {
+      conversationId,
+      workspaceId,
+      // A deleted Agent (or anyone who left) is not an assignable member. Without
+      // this, a deleted Agent stayed a valid Task assignee and still received delivery rows.
+      ...ACTIVE_MEMBER_WHERE,
+    };
+    const select = {
+      id: true,
+      userId: true,
+      agentId: true,
+      user: { select: { username: true } },
+      agent: { select: { name: true } },
+    } as const;
+    const bound = BOUND_ASSIGNEE.exec(handle);
+    if (bound)
+      return tx.conversationMember.findFirst({
+        where: {
+          ...scope,
+          ...(bound[1] === "user"
+            ? { userId: bound[2] }
+            : { agentId: bound[2], agent: ACTIVE_AGENT_WHERE }),
+        },
+        select,
+      });
     const name = handleName(handle);
-    return tx.conversationMember.findFirst({
+    const matches = await tx.conversationMember.findMany({
       where: {
-        conversationId,
-        workspaceId,
-        // A deleted Agent (or anyone who left) is not an assignable member. Without
-        // this, a deleted Agent stayed a valid Task assignee and still received delivery rows.
-        ...ACTIVE_MEMBER_WHERE,
+        ...scope,
         OR: [{ user: { username: name } }, { agent: { name, ...ACTIVE_AGENT_WHERE } }],
       },
-      select: {
-        id: true,
-        userId: true,
-        agentId: true,
-        user: { select: { username: true } },
-        agent: { select: { name: true } },
-      },
+      select,
     });
+    return matches.find((member) => member.userId) ?? matches[0] ?? null;
   }
 
   /**
