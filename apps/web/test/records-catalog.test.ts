@@ -1771,7 +1771,7 @@ test("setReportFavorite rejects reports the viewer cannot open", async () => {
   ).rejects.toMatchObject({ code: "NOT_FOUND" });
 });
 
-test("saveReportContent with askToSend posts an offer-send assistant card when eligible", async () => {
+test("saveReportContent with askToSend cancels auto-send and leaves offer-send to the open session", async () => {
   const comments: Array<Record<string, unknown>> = [];
   const contentUpdates: Array<Record<string, unknown>> = [];
   const formatRow = {
@@ -1856,18 +1856,10 @@ test("saveReportContent with askToSend posts an offer-send assistant card when e
 
   expect(result.assistantPosted).toBe(true);
   expect(result.autoSendJustCancelled).toBe(true);
+  expect(comments).toHaveLength(1);
   expect(comments[0]).toMatchObject({
     authorType: "assistant",
     body: "已取消本周自动发送。保存后请手动发送周报模板。",
-  });
-  expect(comments[1]).toMatchObject({
-    authorType: "assistant",
-    body: "hi，Mark，2026 W38的工作周报模板已生成，请确认是否发送。",
-    payload: {
-      kind: "offer-send",
-      year: 2026,
-      week: 38,
-    },
   });
   expect(
     (contentUpdates[0]?.content as { schedule?: { cancelledWeek?: number } })?.schedule

@@ -1981,22 +1981,9 @@ export class RecordCatalog {
         assistantPosted = true;
       }
       if (input.askToSend) {
-        const offer = await this.buildFormatOfferSend({
-          workspaceId: input.workspaceId,
-          userId: input.userId,
-          reportId: report.id,
-          now,
-        });
-        if (offer) {
-          await this.writeAssistantComment({
-            workspaceId: input.workspaceId,
-            subjectType: "report",
-            subjectId: report.id,
-            body: offer.body,
-            payload: offer.payload,
-          });
-          assistantPosted = true;
-        }
+        // Do not post a null-session offer-send here — that would gate every
+        // thread. The open side-panel session gets the card via ensureIntro.
+        assistantPosted = true;
       }
     }
 
@@ -2725,8 +2712,9 @@ export class RecordCatalog {
 
   /**
    * When the live format enters a sendable window, post the T2 offer-send card
-   * once per session. Outside the window, keep a short ready/cancelled tip if
-   * the thread is still empty.
+   * once per report for the current ISO week (the open session that loads first).
+   * Other sessions must not grow their own send/cancel buttons. Outside the
+   * window, keep a short ready/cancelled tip if the thread is still empty.
    */
   private async ensureFormatSendOfferIntro(input: {
     workspaceId: string;
@@ -2741,6 +2729,34 @@ export class RecordCatalog {
       (row) => parseRecordAssistantPayload(row.payload)?.kind === "offer-send",
     );
     if (hasOfferSend) return input.existing;
+
+    if (
+      await this.hasCurrentWeekOfferSend({
+        workspaceId: input.workspaceId,
+        reportId: input.subjectId,
+        now: input.now,
+      })
+    ) {
+      if (input.existing.length > 0) return input.existing;
+      const body =
+        input.formatCopy === "cancelled"
+          ? "已取消本周自动发送。保存后请手动发送周报模板。"
+          : "需要把周报模板发给成员时，保存后点击发送即可。";
+      await this.writeAssistantComment({
+        workspaceId: input.workspaceId,
+        subjectType: "report",
+        subjectId: input.subjectId,
+        assistantSessionId: input.assistantSessionId,
+        body,
+      });
+      return this.listComments({
+        workspaceId: input.workspaceId,
+        userId: input.userId,
+        subjectType: "report",
+        subjectId: input.subjectId,
+        assistantSessionId: input.assistantSessionId,
+      });
+    }
 
     const offer = await this.buildFormatOfferSend({
       workspaceId: input.workspaceId,
@@ -2785,6 +2801,30 @@ export class RecordCatalog {
       subjectType: "report",
       subjectId: input.subjectId,
       assistantSessionId: input.assistantSessionId,
+    });
+  }
+
+  /** True when any session (or null-session) already has this week's offer-send card. */
+  private async hasCurrentWeekOfferSend(input: {
+    workspaceId: string;
+    reportId: string;
+    now?: Date;
+  }): Promise<boolean> {
+    const { year, week } = currentIsoWeek(zonedCalendarDate(input.now ?? new Date()));
+    const rows = await this.db.recordComment.findMany({
+      where: {
+        workspaceId: input.workspaceId,
+        subjectType: "report",
+        reportId: input.reportId,
+        authorType: "assistant",
+      },
+      select: { payload: true },
+      orderBy: { createdAt: "desc" },
+      take: 100,
+    });
+    return rows.some((row) => {
+      const payload = parseRecordAssistantPayload(row.payload);
+      return payload?.kind === "offer-send" && payload.year === year && payload.week === week;
     });
   }
 
