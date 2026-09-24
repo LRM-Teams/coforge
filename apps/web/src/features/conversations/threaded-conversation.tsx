@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { ClientOnly, getRouteApi } from "@tanstack/react-router";
 import { Group, Panel, Separator, useDefaultLayout } from "react-resizable-panels";
 import { ChevronRight, MessageSquare01 as MessageSquare } from "@untitledui/icons";
@@ -197,19 +197,6 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
     searchThreadRootId,
     messages: conversation.messages,
   });
-  // Records each open thread's root and replies while they are loaded (see `threadSnapshots`).
-  useEffect(() => {
-    const snapshots = threadSnapshots.current;
-    for (const rootId of snapshots.keys()) if (!visited.includes(rootId)) snapshots.delete(rootId);
-    for (const rootId of visited) {
-      const root = mainMessages.find((message) => message.id === rootId);
-      if (root) snapshots.set(rootId, { root, replies: repliesByRoot.get(rootId) ?? [] });
-    }
-  }, [visited, mainMessages, repliesByRoot]);
-  /** A thread's root: as loaded, else as last seen while it was open (its replies: `repliesOf`). */
-  const threadRootOf = (rootId: string) =>
-    mainMessages.find((message) => message.id === rootId) ??
-    threadSnapshots.current.get(rootId)?.root;
 
   // The conversation's shared right-hand slot: Thread (`threadRootId` search) and the Agent
   // profile panel (`profile` search) are mutually exclusive. Their open hooks clear the other
@@ -284,6 +271,19 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
     },
     [repliesByRoot, threadCursor, openThread],
   );
+  // Records each open thread's root and replies while they are loaded (see `threadSnapshots`).
+  useEffect(() => {
+    const snapshots = threadSnapshots.current;
+    for (const rootId of snapshots.keys()) if (!visited.includes(rootId)) snapshots.delete(rootId);
+    for (const rootId of visited) {
+      const root = mainMessages.find((message) => message.id === rootId);
+      if (root) snapshots.set(rootId, { root, replies: repliesByRoot.get(rootId) ?? [] });
+    }
+  }, [visited, mainMessages, repliesByRoot]);
+  /** A thread's root: as loaded, else as last seen while it was open (its replies: `repliesOf`). */
+  const threadRootOf = (rootId: string) =>
+    mainMessages.find((message) => message.id === rootId) ??
+    threadSnapshots.current.get(rootId)?.root;
   const threadPreview = useCallback(
     (message: DirectConversationView["messages"][number]) => {
       // System notices are stream bookkeeping, not a person replying: they belong to the full

@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useLatestCallback } from "#src/hooks/use-latest-callback";
-import { useServerFn } from "@tanstack/react-start";
 import { ProgressBar } from "react-aria-components";
 import { ArrowDown, Loading02 } from "@untitledui/icons";
 
@@ -21,7 +20,6 @@ import { useLiveAgents } from "#src/features/agents/workspace-agents-realtime";
 
 import { useConversationOpenMode, useSavedMessages } from "./conversation-navigation";
 import { conversationOpenPosition, unreadBoundary } from "./conversation-open-position";
-import { saveMessage, unsaveMessage } from "./saved-messages.functions";
 import { latestTopLevelSequence } from "./conversation-unread";
 import { streamState, type StreamRead } from "./stream-state";
 import { MessageComposer } from "./message-composer";
@@ -36,6 +34,7 @@ import {
   groupsWithPrevious,
   type MessageThreadEntry,
 } from "./message-row";
+import { optimisticSavedEntry } from "./saved-messages-collection";
 import { composerDraftKey } from "./composer-draft";
 import { OutboxMessageRow } from "./outbox-message-row";
 import { SystemMessageGroup } from "./system-message-group";
@@ -193,21 +192,15 @@ export function ConversationPane({
   // reads. Membership-gated exactly like the channel gates its row actions; outside the Chat
   // page there is no context, so the rows simply offer no save.
   const savedMessages = useSavedMessages();
-  const saveMessageFn = useServerFn(saveMessage);
-  const unsaveMessageFn = useServerFn(unsaveMessage);
   const onToggleSave = useLatestCallback(
     savedMessages && conversation.senderMemberId
       ? async (messageId: string, saved: boolean) => {
-          if (saved) {
-            await saveMessageFn({
-              data: { conversationId: conversation.conversationId, messageId },
-            });
-          } else {
-            await unsaveMessageFn({
-              data: { conversationId: conversation.conversationId, messageId },
-            });
-          }
-          await savedMessages.refresh();
+          if (!saved) return savedMessages.unsave(messageId);
+          const message =
+            conversation.messages.find((candidate) => candidate.id === messageId) ??
+            (root?.id === messageId ? root : undefined);
+          if (!message) return;
+          await savedMessages.save(optimisticSavedEntry(message, conversation.conversationId));
         }
       : undefined,
   );
