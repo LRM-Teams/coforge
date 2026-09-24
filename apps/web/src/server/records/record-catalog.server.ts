@@ -2713,15 +2713,14 @@ export class RecordCatalog {
   /**
    * When the live format enters a sendable window, post the T2 offer-send card
    * once per report for the current ISO week (the open session that loads first).
-   * Other sessions must not grow their own send/cancel buttons. Outside the
-   * window, keep a short ready/cancelled tip if the thread is still empty.
+   * Other sessions must not grow their own send/cancel buttons — leave those
+   * threads empty rather than stuffing a ready/cancelled tip.
    */
   private async ensureFormatSendOfferIntro(input: {
     workspaceId: string;
     userId: string;
     subjectId: string;
     assistantSessionId: string;
-    formatCopy?: "preview" | "cancelled" | "ready";
     existing: Awaited<ReturnType<RecordCatalog["listComments"]>>;
     now?: Date;
   }) {
@@ -2737,25 +2736,7 @@ export class RecordCatalog {
         now: input.now,
       })
     ) {
-      if (input.existing.length > 0) return input.existing;
-      const body =
-        input.formatCopy === "cancelled"
-          ? "已取消本周自动发送。保存后请手动发送周报模板。"
-          : "需要把周报模板发给成员时，保存后点击发送即可。";
-      await this.writeAssistantComment({
-        workspaceId: input.workspaceId,
-        subjectType: "report",
-        subjectId: input.subjectId,
-        assistantSessionId: input.assistantSessionId,
-        body,
-      });
-      return this.listComments({
-        workspaceId: input.workspaceId,
-        userId: input.userId,
-        subjectType: "report",
-        subjectId: input.subjectId,
-        assistantSessionId: input.assistantSessionId,
-      });
+      return input.existing;
     }
 
     const offer = await this.buildFormatOfferSend({
@@ -2764,36 +2745,15 @@ export class RecordCatalog {
       reportId: input.subjectId,
       now: input.now,
     });
-    if (offer) {
-      await this.writeAssistantComment({
-        workspaceId: input.workspaceId,
-        subjectType: "report",
-        subjectId: input.subjectId,
-        assistantSessionId: input.assistantSessionId,
-        body: offer.body,
-        payload: offer.payload,
-      });
-      return this.listComments({
-        workspaceId: input.workspaceId,
-        userId: input.userId,
-        subjectType: "report",
-        subjectId: input.subjectId,
-        assistantSessionId: input.assistantSessionId,
-      });
-    }
+    if (!offer) return input.existing;
 
-    if (input.existing.length > 0) return input.existing;
-
-    const body =
-      input.formatCopy === "cancelled"
-        ? "已取消本周自动发送。保存后请手动发送周报模板。"
-        : "需要把周报模板发给成员时，保存后点击发送即可。";
     await this.writeAssistantComment({
       workspaceId: input.workspaceId,
       subjectType: "report",
       subjectId: input.subjectId,
       assistantSessionId: input.assistantSessionId,
-      body,
+      body: offer.body,
+      payload: offer.payload,
     });
     return this.listComments({
       workspaceId: input.workspaceId,

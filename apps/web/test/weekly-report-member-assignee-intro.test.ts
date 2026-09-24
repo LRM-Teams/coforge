@@ -493,7 +493,79 @@ test("ensureAssistantIntro does not fan out offer-send when another session alre
   expect(
     created.some((row) => (row.payload as { kind?: string } | null)?.kind === "offer-send"),
   ).toBe(false);
-  expect(rows.every((row) => parseRecordAssistantPayload(row.payload)?.kind !== "offer-send")).toBe(
-    true,
-  );
+  expect(created).toHaveLength(0);
+  expect(rows).toHaveLength(0);
+});
+
+test("ensureAssistantIntro leaves a new session empty after this week's send was cancelled", async () => {
+  const created: Array<{ body: string }> = [];
+  const formatRow = {
+    id: "11111111-1111-1111-1111-111111111111",
+    authorId: "leader",
+    kind: "template",
+    settingsId: "settings-1",
+    content: {
+      tabs: { Summary: { markdown: "outline" } },
+      schedule: { cancelledYear: 2026, cancelledWeek: 36, dismissSend: true },
+    },
+    cycle: { year: 2026, week: 36 },
+    updatedAt: new Date("2026-09-05T07:00:00.000Z"),
+    author: { displayName: "Mark", username: "mark" },
+  };
+  const db = {
+    workspaceMembership: {
+      findUnique: async () => ({ role: "member" }),
+      findMany: async () => [],
+    },
+    weeklyReport: {
+      findFirst: async (query: {
+        where?: { submissions?: { some?: unknown; none?: unknown } };
+      }) => {
+        if (query.where?.submissions?.some) return null;
+        if (query.where?.submissions?.none) {
+          return { id: formatRow.id, content: formatRow.content };
+        }
+        return formatRow;
+      },
+    },
+    weeklyReportTemplate: {
+      findFirst: async () => ({
+        id: "settings-1",
+        sendWeekday: 5,
+        sendTime: "15:00",
+        scheduleEnabled: true,
+        applied: true,
+        allMembers: false,
+        recipients: [],
+      }),
+    },
+    recordComment: {
+      findMany: async () => [],
+      create: async ({ data }: { data: { body: string } }) => {
+        created.push({ body: data.body });
+        return {
+          id: `c-${created.length}`,
+          authorType: "assistant",
+          body: data.body,
+          payload: null,
+          createdAt: new Date("2026-09-05T07:00:00.000Z"),
+          authorUser: null,
+        };
+      },
+    },
+  } as unknown as PrismaClient;
+
+  const rows = await new RecordCatalog(db).ensureAssistantIntro({
+    workspaceId: "ws-1",
+    userId: "leader",
+    subjectType: "report",
+    subjectId: formatRow.id,
+    assistantSessionId: "session-new",
+    surface: "format",
+    formatCopy: "cancelled",
+    now: new Date("2026-09-04T06:30:00.000Z"),
+  });
+
+  expect(created).toHaveLength(0);
+  expect(rows).toHaveLength(0);
 });
