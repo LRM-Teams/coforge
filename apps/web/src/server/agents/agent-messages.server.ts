@@ -9,34 +9,13 @@ import { AgentMessageValidationError } from "#src/server/conversations/agent-mes
 import type { PendingMentionActionView } from "#src/server/conversations/pending-mention-actions.server";
 
 export type AgentMessageRepository = {
-  readPendingAgentContext?(
+  /** One Agent-facing target resolved once, so a send's freshness reads and read-through advance
+   * share that resolution instead of each resolving the target string again. */
+  agentTargetFreshness?(
     workspaceId: string,
     agentId: string,
     target: string,
-    through?: number,
-  ): Promise<readonly AgentMessageRecord[]>;
-  /** Same pending-context scope as `readPendingAgentContext`, but a count rather than a 3-row window. */
-  countPendingAgentContext?(
-    workspaceId: string,
-    agentId: string,
-    target: string,
-    through?: number,
-  ): Promise<number>;
-  /** The target's most recent messages, ignoring the Agent's own read boundary: the source of
-   * Raft's first-touch `syncing_hold` (`target_first_touch_recent_context`). Own messages are not
-   * context to review, so they are excluded. */
-  readRecentAgentContext?(
-    workspaceId: string,
-    agentId: string,
-    target: string,
-    limit: number,
-  ): Promise<readonly AgentMessageRecord[]>;
-  advanceAgentReadThrough?(
-    workspaceId: string,
-    agentId: string,
-    target: string,
-    sequence: number,
-  ): Promise<number>;
+  ): Promise<AgentTargetFreshness>;
   setAgentChannelMuted(
     workspaceId: string,
     agentId: string,
@@ -78,6 +57,18 @@ export type AgentMessageRepository = {
     limit?: number,
     target?: string,
   ): Promise<{ messages: readonly AgentMessageRecord[]; hasMore: boolean }>;
+};
+
+/** The freshness reads and read-through advance of one already-resolved Agent-facing target. */
+export type AgentTargetFreshness = {
+  readPending?(afterSequence?: number): Promise<readonly AgentMessageRecord[]>;
+  /** Same pending-context scope as `readPending`, but a count rather than a 3-row window. */
+  countPending?(afterSequence?: number): Promise<number>;
+  /** The target's most recent messages, ignoring the Agent's own read boundary: the source of
+   * Raft's first-touch `syncing_hold` (`target_first_touch_recent_context`). Own messages are not
+   * context to review, so they are excluded. */
+  readRecent?(limit: number): Promise<readonly AgentMessageRecord[]>;
+  advanceReadThrough?(sequence: number): Promise<number>;
 };
 
 export type AgentMessagesPage = {
@@ -189,60 +180,30 @@ export async function executeAgentSendMessage(
 
 export async function executeAgentSendMessageWithPolicy(
   dependencies: {
-    repository: {
-      readPendingAgentContext?(
-        workspaceId: string,
-        agentId: string,
-        target: string,
-        afterSequence?: number,
-      ): Promise<readonly AgentMessageRecord[]>;
-      countPendingAgentContext?(
-        workspaceId: string,
-        agentId: string,
-        target: string,
-        afterSequence?: number,
-      ): Promise<number>;
-      readRecentAgentContext?(
-        workspaceId: string,
-        agentId: string,
-        target: string,
-        limit: number,
-      ): Promise<readonly AgentMessageRecord[]>;
-      advanceAgentReadThrough?(
-        workspaceId: string,
-        agentId: string,
-        target: string,
-        sequence: number,
-      ): Promise<number>;
-    };
+    repository: Pick<AgentMessageRepository, "agentTargetFreshness">;
     sender: Parameters<typeof executeAgentSendMessage>[0];
   },
   input: AgentSendMessageInput,
 ): Promise<AgentSendMessageResult> {
   const mode = input.freshnessContextMode ?? "inline";
   const withheld = mode === "withheld";
+  const freshness = await dependencies.repository.agentTargetFreshness?.(
+    input.workspaceId,
+    input.agentId,
+    input.target,
+  );
   // Raft: the Agent reports the boundary it has already reviewed; the server advances its own
   // read-through to it (monotone) and uses the advanced value as the freshness boundary.
   let seen = 0;
   if (input.seenUpToSeq !== undefined) {
-    if (!dependencies.repository.advanceAgentReadThrough)
+    if (!freshness?.advanceReadThrough)
       throw new Error("Agent read-through advancement is unavailable");
-    seen = await dependencies.repository.advanceAgentReadThrough(
-      input.workspaceId,
-      input.agentId,
-      input.target,
-      input.seenUpToSeq,
-    );
+    seen = await freshness.advanceReadThrough(input.seenUpToSeq);
   }
   // Withheld mode never presented context to the Agent, so a hold must cover everything still
   // pending above the boundary, not only "since the last presentation".
   const pendingBoundary = withheld ? undefined : seen || undefined;
-  const pending = await dependencies.repository.readPendingAgentContext?.(
-    input.workspaceId,
-    input.agentId,
-    input.target,
-    pendingBoundary,
-  );
+  const pending = await freshness?.readPending?.(pendingBoundary);
   const unconsumed = pending ?? [];
   // Raft (`planAgentInboxSideEffect`): `continueAnyway` is the Agent's explicit decision to send
   // anyway (`--send-draft --anyway`). It short-circuits every hold and is never refused — there is
@@ -274,13 +235,7 @@ export async function executeAgentSendMessageWithPolicy(
     // The inline window is bounded for display, so the true newer count comes from the repository's
     // unbounded count in *both* modes; without that seam the window's length is all we know and
     // `omittedMessageCount` stays 0.
-    const newMessageCount =
-      (await dependencies.repository.countPendingAgentContext?.(
-        input.workspaceId,
-        input.agentId,
-        input.target,
-        pendingBoundary,
-      )) ?? unconsumed.length;
+    const newMessageCount = (await freshness?.countPending?.(pendingBoundary)) ?? unconsumed.length;
     const seenUpToSeq = Math.max(seen, ...unconsumed.map((message) => message.sequence));
     return {
       state: "held",
@@ -314,13 +269,8 @@ export async function executeAgentSendMessageWithPolicy(
   // Raft's second hold kind, `syncing_hold` (`target_first_touch_recent_context`): the Agent has no
   // boundary for this target at all, and the target already carries context it has never reviewed,
   // so the send is held until the Agent syncs that context.
-  if (seen === 0 && dependencies.repository.readRecentAgentContext) {
-    const recent = await dependencies.repository.readRecentAgentContext(
-      input.workspaceId,
-      input.agentId,
-      input.target,
-      HELD_CONTEXT_LIMIT,
-    );
+  if (seen === 0 && freshness?.readRecent) {
+    const recent = await freshness.readRecent(HELD_CONTEXT_LIMIT);
     if (recent.length > 0) {
       const seenUpToSeq = Math.max(...recent.map((message) => message.sequence));
       return {

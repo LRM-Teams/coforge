@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { handleAgentMessagesPost } from "#src/routes/api/agent/v1/messages";
 import { AppError } from "#src/lib/app-error";
+import type { AgentMessageRecord } from "#src/server/agents/agent-messages.server";
 import { AgentSendRejectedError } from "#src/server/conversations/agent-send-rejected-error.server";
 
 const request = (body: unknown) =>
@@ -8,6 +9,11 @@ const request = (body: unknown) =>
     method: "POST",
     body: JSON.stringify(body),
   });
+
+/** A repository whose send target has these pending, unreviewed rows. */
+const pendingRepository = (rows: readonly AgentMessageRecord[]) => ({
+  agentTargetFreshness: async () => ({ readPending: async () => rows }),
+});
 
 test("takes Raft's idempotencyKey as the request's key, with structured mentions forwarded", async () => {
   const mentions = [
@@ -98,21 +104,19 @@ test("tolerates Raft's declared `continue` field without inventing semantics for
     request({ target: "@ada", content: "hello", idempotencyKey: "idem-2", continue: true }),
     { workspaceId: "workspace-1", agentId: "agent-1" },
     {
-      repository: {
-        readPendingAgentContext: async () => [
-          {
-            id: "message-1",
-            sequence: 1,
-            senderKind: "human" as const,
-            senderHandle: "bea",
-            senderDescription: "",
-            target: "@ada",
-            body: "unreviewed",
-            createdAt: new Date("2026-09-10T00:00:00Z"),
-            attachments: [],
-          },
-        ],
-      },
+      repository: pendingRepository([
+        {
+          id: "message-1",
+          sequence: 1,
+          senderKind: "human" as const,
+          senderHandle: "bea",
+          senderDescription: "",
+          target: "@ada",
+          body: "unreviewed",
+          createdAt: new Date("2026-09-10T00:00:00Z"),
+          attachments: [],
+        },
+      ]),
       sender: { executeFromAgent: async () => ({ id: "unreachable" }) },
     },
   );
@@ -178,9 +182,7 @@ test("withheld hold response carries state and a count, never message bodies", a
     request({ target: "@ada", content: "reviewer send", freshnessContextMode: "withheld" }),
     { workspaceId: "workspace-1", agentId: "agent-1" },
     {
-      repository: {
-        readPendingAgentContext: async () => pendingRows,
-      },
+      repository: pendingRepository(pendingRows),
       sender: { executeFromAgent: async () => ({ id: "unreachable" }) },
     },
   );
@@ -216,9 +218,7 @@ test("inline hold response still carries the presented message bodies", async ()
     request({ target: "@ada", content: "reviewer send" }),
     { workspaceId: "workspace-1", agentId: "agent-1" },
     {
-      repository: {
-        readPendingAgentContext: async () => pendingRows,
-      },
+      repository: pendingRepository(pendingRows),
       sender: { executeFromAgent: async () => ({ id: "unreachable" }) },
     },
   );
@@ -393,21 +393,19 @@ test("a malformed-channel INVALID_INPUT AppError is not reported as a mention er
 
 test("a bypassed hold's sent response carries recentUnread; every other response carries none", async () => {
   const dependencies = {
-    repository: {
-      readPendingAgentContext: async () => [
-        {
-          id: "message-1",
-          sequence: 1,
-          senderKind: "human" as const,
-          senderHandle: "bea",
-          senderDescription: "",
-          target: "@ada",
-          body: "missed while held",
-          createdAt: new Date("2026-09-10T00:00:00Z"),
-          attachments: [],
-        },
-      ],
-    },
+    repository: pendingRepository([
+      {
+        id: "message-1",
+        sequence: 1,
+        senderKind: "human" as const,
+        senderHandle: "bea",
+        senderDescription: "",
+        target: "@ada",
+        body: "missed while held",
+        createdAt: new Date("2026-09-10T00:00:00Z"),
+        attachments: [],
+      },
+    ]),
     sender: { executeFromAgent: async () => ({ id: "sent-1" }) },
   };
   const firstHeld = await handleAgentMessagesPost(
