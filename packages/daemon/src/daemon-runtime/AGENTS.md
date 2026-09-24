@@ -39,8 +39,10 @@ Rules for one Workspace child's runtime in `src/daemon-runtime/`. They extend
   launch's input queue, or arriving while a batched launch is in flight) stay
   unacknowledged in `AgentDeliveryQueue`. The next launch presents them in one
   notice, or a server recovery notice covers them, and they are ACKed only
-  after that notice is accepted. `flush` records their attention as `receive`
-  would.
+  after that notice is accepted. `flush` gives them `receive`'s treatment
+  (consumed, silent, malformed). An explicit Stop, or a launch abandoned
+  because its recovery notice was rejected, discards them unacknowledged, so
+  the server delivers them again.
 - Thread follow state is cloud-persisted. The Daemon only forwards the Agent's
   explicit unfollow operation.
 

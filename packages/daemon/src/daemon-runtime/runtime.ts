@@ -481,6 +481,8 @@ export class DaemonRuntime {
   /** Launch failures of message-triggered wakes, per Agent: while one owes a cooldown, a delivery
    * does not launch the Agent again. No attempt cap; the cooldown stops growing at its ceiling. */
   readonly #wakeLaunchFailures = new LaunchFailureBackoff();
+  /** Agents whose in-flight launch is a message wake, which presents what waits as one notice. */
+  readonly #wakeLaunches = new Set<string>();
   /** Per-Agent retryable-runtime-error bookkeeping: consecutive-failure delivery
    * backoff and the same-fingerprint repeat fence — see agent-runtime/runtime-error-recovery.ts. */
   readonly #runtimeErrorDeliveryBackoff = new RuntimeErrorDeliveryBackoff();
@@ -1833,7 +1835,14 @@ export class DaemonRuntime {
     queue.items = queue.items.filter((item) => {
       if (item.kind !== "delivery") return true;
       this.#deliveryQueue.enqueue(agentId, item.message);
-      item.completion.reject(error);
+      // Kept, not failed: the delivery is not lost, so it is not reported as a failed delivery.
+      item.completion.resolve();
+      logger.info("Agent delivery kept for the next launch after a failed launch", {
+        event: "agent.message.delivery_kept",
+        agent_id: agentId,
+        delivery_id: item.message.deliveryId,
+        error_code: error instanceof Error ? error.name : "UnknownError",
+      });
       return false;
     });
   }
@@ -2704,12 +2713,13 @@ export class DaemonRuntime {
       await this.#wakeAgent(message.agentId, wakeable);
       return;
     }
-    // A launch that will present waiting deliveries is still in flight: join them as well, rather
-    // than arriving as a second notice right after theirs.
+    // A wake launch that will present waiting deliveries is still in flight: join them as well,
+    // rather than arriving as a second notice right after theirs. Only a wake: a recovery launch
+    // ACKs what waits once its own notice is accepted, and that notice does not cover this one.
     if (
       this.#runnerHold === undefined &&
       !this.#agentProcessManager.session(message.agentId) &&
-      this.#agentLaunches.has(message.agentId) &&
+      this.#wakeLaunches.has(message.agentId) &&
       this.#deliveryQueue.hasQueued(message.agentId)
     ) {
       this.#deliveryQueue.enqueue(message.agentId, message);
@@ -2753,7 +2763,10 @@ export class DaemonRuntime {
     const launch = this.#startAgent(agentId, restart.config, undefined, {
       sessionId: restart.sessionId,
     });
-    void launch.catch(() => this.#wakeLaunchFailures.recordFailure(agentId));
+    this.#wakeLaunches.add(agentId);
+    void launch
+      .catch(() => this.#wakeLaunchFailures.recordFailure(agentId))
+      .finally(() => this.#wakeLaunches.delete(agentId));
     return launch;
   }
 
