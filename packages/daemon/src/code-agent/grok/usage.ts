@@ -22,11 +22,15 @@ export async function readGrokUsage(
     agentEnvironment(options.environment),
   );
   const timeoutMs = options.timeoutMs ?? 10_000;
+  let unsubscribe: (() => void) | undefined;
   const readable = new ReadableStream<AnyMessage>({
     start(controller) {
-      process.onRecord((record) => controller.enqueue(record as AnyMessage));
+      unsubscribe = process.onRecord((record) => controller.enqueue(record as AnyMessage));
     },
-    cancel() {},
+    cancel() {
+      unsubscribe?.();
+      unsubscribe = undefined;
+    },
   });
   const connection = client({ name: "coforge-daemon-usage" }).connect({
     readable,
@@ -94,8 +98,8 @@ function projectBilling(value: unknown, accountLabel?: string): UsageSnapshot {
   const config = asRecord(root?.config);
   if (!config) throw new UsageUnsupportedError();
   const explicit = number(config.creditUsagePercent);
-  const used = cents(config.used);
-  const limit = cents(config.monthlyLimit);
+  const used = finiteNumber(config.used);
+  const limit = finiteNumber(config.monthlyLimit);
   const percent =
     explicit ??
     (used !== undefined && limit !== undefined && limit > 0 ? (used / limit) * 100 : undefined);
@@ -104,9 +108,9 @@ function projectBilling(value: unknown, accountLabel?: string): UsageSnapshot {
   const period = asRecord(config.currentPeriod);
   const reset = instant(period?.end ?? config.billingPeriodEnd);
   const primary = window(periodLabel(period?.type), percent, reset, 43200);
-  const cap = cents(config.onDemandCap);
+  const cap = finiteNumber(config.onDemandCap);
   const over =
-    cents(config.onDemandUsed) ??
+    finiteNumber(config.onDemandUsed) ??
     (used !== undefined && limit !== undefined ? Math.max(0, used - limit) : 0);
   const secondary =
     cap !== undefined && cap > 0
@@ -144,7 +148,7 @@ function periodLabel(value: unknown): string {
 function number(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
-function cents(value: unknown): number | undefined {
+function finiteNumber(value: unknown): number | undefined {
   const n = number(value);
   return n === undefined ? undefined : n;
 }
