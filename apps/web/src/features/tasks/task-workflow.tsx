@@ -351,9 +351,9 @@ function TaskGroup({
               <Button
                 size="sm"
                 color="link-gray"
-                onClick={() => setShown((current) => current + RENDER_PAGE)}
+                onPress={() => setShown((current) => current + RENDER_PAGE)}
               >
-                {m.tasks_group_show_more({ count: String(hidden) })}
+                {m.tasks_group_show_more({ count: String(Math.min(hidden, RENDER_PAGE)) })}
               </Button>
             </div>
           )}
