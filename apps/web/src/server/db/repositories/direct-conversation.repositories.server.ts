@@ -1325,19 +1325,21 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
   }
 
   async unreadCountsForUser(workspaceId: string, userId: string) {
-    // One grouped scan over the user's own DM memberships: other-authored top-level messages
-    // past the member's cursor. Direct conversations only (`directKey` is not null). The badge
-    // key is the *agent* member of the conversation, not the viewer's own row: a DM's two
-    // member rows are separate (one `userId`, one `agentId`), so `cm."agentId"` on the viewer's
-    // row is always null. Driven from the viewer's memberships so the sequence range is an
-    // index condition against `messages(conversationId, threadRootId, sequence)`.
+    // One count per the user's own DM memberships: other-authored top-level messages past the
+    // member's cursor, or from their mark-as-unread marker when that is lower. Direct
+    // conversations only (`directKey` is not null). The badge key is the *agent* member of the
+    // conversation, not the viewer's own row: a DM's two member rows are separate (one
+    // `userId`, one `agentId`), so `cm."agentId"` on the viewer's row is always null. The count
+    // is a LATERAL per membership with a single lower bound, so it is an index range on
+    // `messages(conversationId, sequence)` covering only the unread tail; a plain join (or an
+    // OR of the two bounds) lets the planner hash-join every message of every DM instead.
     const rows = await this.db.$queryRaw<
       {
         agentId: string;
         unread: number;
       }[]
     >`
-      SELECT am."agentId" AS "agentId", COUNT(m."id")::int AS "unread"
+      SELECT am."agentId" AS "agentId", SUM(unread."count")::int AS "unread"
       FROM "conversation_members" cm
       JOIN "conversations" c
         ON c."id" = cm."conversationId" AND c."directKey" IS NOT NULL
@@ -1345,15 +1347,16 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
         ON am."conversationId" = cm."conversationId"
        AND am."agentId" IS NOT NULL
        AND am."leftAt" IS NULL
-      LEFT JOIN "messages" m
-        ON m."conversationId" = cm."conversationId"
-       AND m."threadRootId" IS NULL
-       AND m."senderMemberId" IS NOT NULL
-       AND m."senderMemberId" IS DISTINCT FROM cm."id"
-       AND (
-         m."sequence" > cm."readThroughSequence"
-         OR cm."unreadFromSequence" IS NOT NULL AND m."sequence" >= cm."unreadFromSequence"
-       )
+      CROSS JOIN LATERAL (
+        SELECT COUNT(*) AS "count"
+        FROM "messages" m
+        WHERE m."conversationId" = cm."conversationId"
+          -- LEAST ignores a NULL marker, leaving the read cursor as the bound.
+          AND m."sequence" > LEAST(cm."readThroughSequence", cm."unreadFromSequence" - 1)
+          AND m."threadRootId" IS NULL
+          AND m."senderMemberId" IS NOT NULL
+          AND m."senderMemberId" <> cm."id"
+      ) unread
       WHERE cm."userId" = ${userId}::uuid
         AND cm."leftAt" IS NULL
         AND cm."workspaceId" = ${workspaceId}::uuid

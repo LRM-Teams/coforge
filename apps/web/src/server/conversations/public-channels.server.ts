@@ -628,33 +628,36 @@ export class PublicChannels {
         },
       }),
       // One query for every channel's unread: other-authored top-level messages past the
-      // member's own read cursor. System messages (no sender member) and the viewer's own
-      // messages are already-read by definition; a soft-left membership has no badge. Driven
-      // from the viewer's own channel memberships so the sequence range is an index condition
-      // against `messages(conversationId, threadRootId, sequence)`, never a workspace-wide scan.
+      // member's own read cursor, or from their mark-as-unread marker when that is lower.
+      // System messages (no sender member) and the viewer's own messages are already-read by
+      // definition; a soft-left membership has no badge. The count is a LATERAL per membership
+      // with a single lower bound, so it is an index range on `messages(conversationId,
+      // sequence)` covering only the unread tail; a plain join (or an OR of the two bounds)
+      // lets the planner hash-join every message in the Workspace's channels instead.
       // `arrivedSinceClosed` counts the unread ones posted after the member closed the chat:
       // any of them brings a closed chat back to the list.
       this.db.$queryRaw<{ conversationId: string; unread: number; arrivedSinceClosed: number }[]>`
-        SELECT cm."conversationId" AS "conversationId", COUNT(m."id")::int AS "unread",
-          COUNT(m."id") FILTER (WHERE m."createdAt" > cm."hiddenAt")::int AS "arrivedSinceClosed"
+        SELECT cm."conversationId" AS "conversationId", unread."count" AS "unread",
+          unread."arrivedSinceClosed" AS "arrivedSinceClosed"
         FROM "conversation_members" cm
         JOIN "conversations" c
           ON c."id" = cm."conversationId"
          AND c."workspaceId" = ${workspaceId}::uuid
          AND c."channelName" IS NOT NULL
-        LEFT JOIN "messages" m
-          ON m."conversationId" = cm."conversationId"
-         AND m."threadRootId" IS NULL
-         AND m."senderMemberId" IS NOT NULL
-         AND m."senderMemberId" IS DISTINCT FROM cm."id"
-         AND (
-           m."sequence" > cm."readThroughSequence"
-           OR cm."unreadFromSequence" IS NOT NULL AND m."sequence" >= cm."unreadFromSequence"
-         )
+        CROSS JOIN LATERAL (
+          SELECT COUNT(*)::int AS "count",
+            COUNT(*) FILTER (WHERE m."createdAt" > cm."hiddenAt")::int AS "arrivedSinceClosed"
+          FROM "messages" m
+          WHERE m."conversationId" = cm."conversationId"
+            -- LEAST ignores a NULL marker, leaving the read cursor as the bound.
+            AND m."sequence" > LEAST(cm."readThroughSequence", cm."unreadFromSequence" - 1)
+            AND m."threadRootId" IS NULL
+            AND m."senderMemberId" IS NOT NULL
+            AND m."senderMemberId" <> cm."id"
+        ) unread
         WHERE cm."userId" = ${userId}::uuid
           AND cm."leftAt" IS NULL
           AND cm."workspaceId" = ${workspaceId}::uuid
-        GROUP BY cm."conversationId"
       `,
     ]);
     const unreadByConversation = new Map(unread.map((row) => [row.conversationId, row.unread]));

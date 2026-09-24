@@ -2872,6 +2872,71 @@ test("channel unread: list counts other-authored top-level messages past the cur
   }
 });
 
+test("channel unread: a mark-as-unread marker below the read cursor counts from the marker, and a read past it clears it", async () => {
+  const connectionString = Bun.env.CHANNEL_TEST_DATABASE_URL;
+  if (!connectionString)
+    throw new Error("CHANNEL_TEST_DATABASE_URL must point to local PostgreSQL");
+  const db = new PrismaClient({ adapter: new PrismaPg({ connectionString }) });
+  const suffix = crypto.randomUUID();
+  const alice = await db.user.create({ data: { username: `alice-${suffix}` } });
+  const bob = await db.user.create({ data: { username: `bob-${suffix}` } });
+  const workspace = await db.workspace.create({
+    data: {
+      slug: suffix,
+      name: "Unread marker",
+      members: { create: [{ userId: alice.id }, { userId: bob.id }] },
+    },
+  });
+  try {
+    await enrollGeneral(db, workspace.id);
+    const redis = new RedisClient(Bun.env.CHANNEL_TEST_REDIS_URL!);
+    const channels = new PublicChannels(db, new RedisMessageRequestIdempotency(redis), {
+      publish: async () => {},
+      publishJson: async () => {},
+      broadcast: async () => {},
+    });
+    const channel = await channels.create(workspace.id, alice.id, "unread-marker");
+    await channels.join(workspace.id, alice.id, channel.id);
+    await channels.join(workspace.id, bob.id, channel.id);
+    const send = (userId: string, body: string) =>
+      channels.send({
+        workspaceId: workspace.id,
+        userId,
+        channelId: channel.id,
+        body,
+        requestId: crypto.randomUUID(),
+      });
+    const unreadFor = async (userId: string) =>
+      (await channels.list(workspace.id, userId)).find((c) => c.id === channel.id)?.unreadCount;
+
+    await send(alice.id, "one");
+    await send(alice.id, "two");
+    await channels.markRead(workspace.id, bob.id, channel.id, 10_000);
+    expect(await unreadFor(bob.id)).toBe(0);
+
+    // Marked unread: the newest message counts again although the cursor is past it.
+    await channels.setUserUnread(workspace.id, bob.id, channel.id, true);
+    expect(await unreadFor(bob.id)).toBe(1);
+    // Newer messages add to it; the viewer's own message still never counts.
+    await send(alice.id, "three");
+    await send(bob.id, "bob's own");
+    expect(await unreadFor(bob.id)).toBe(2);
+
+    // Reading through the end clears the marker.
+    await channels.markRead(workspace.id, bob.id, channel.id, 10_000);
+    expect(await unreadFor(bob.id)).toBe(0);
+
+    // Clearing the marker by hand leaves only what is past the cursor.
+    await channels.setUserUnread(workspace.id, bob.id, channel.id, true);
+    await channels.setUserUnread(workspace.id, bob.id, channel.id, false);
+    expect(await unreadFor(bob.id)).toBe(0);
+  } finally {
+    await db.workspace.deleteMany({ where: { id: workspace.id } });
+    await db.user.deleteMany({ where: { id: { in: [alice.id, bob.id] } } });
+    await db.$disconnect();
+  }
+});
+
 test("a thread's root author starts following that thread, so later replies reach them", async () => {
   const connectionString = Bun.env.CHANNEL_TEST_DATABASE_URL;
   if (!connectionString) throw new Error("CHANNEL_TEST_DATABASE_URL is required");
