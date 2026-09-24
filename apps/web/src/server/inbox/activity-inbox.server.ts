@@ -228,7 +228,10 @@ export class ActivityInbox {
    * `messages(conversationId, threadRootId, sequence)` rather than a Workspace-wide scan.
    */
   private async candidates(workspaceId: string, userId: string): Promise<ActivityCandidate[]> {
-    const [conversations, threads] = await Promise.all([
+    // Three independent reads: a list is built from top-level items, thread items and mention
+    // items, and none of them depends on the others. Starting them together means the page waits
+    // for the slowest instead of for two waves.
+    const [conversations, threads, mentions] = await Promise.all([
       this.db.$queryRaw<ActivityCandidate[]>`
         SELECT
           CASE WHEN c."channelName" IS NOT NULL THEN 'channel' ELSE 'direct' END AS "kind",
@@ -303,8 +306,9 @@ export class ActivityInbox {
             AND m."sequence" > COALESCE(tr."doneThroughSequence", 0)
         ) mention
         WHERE ${THREAD_ITEM_LISTED_SQL}`,
+      this.mentionCandidates(workspaceId, userId),
     ]);
-    return [...conversations, ...threads, ...(await this.mentionCandidates(workspaceId, userId))];
+    return [...conversations, ...threads, ...mentions];
   }
 
   /**
