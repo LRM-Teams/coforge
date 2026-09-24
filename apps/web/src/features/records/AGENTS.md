@@ -21,3 +21,7 @@ These rules also cover `src/server/records/`.
   only that section (not every list that contains the selected report). Cold
   start without an entry prefers mine → members → favorites. Do not default
   every CollapsibleSection to open.
+- Do not nest `ModalOverlay` under React Aria `Tabs`. Tabs' CollectionBuilder
+  remounts children in a Hidden tree; ModalOverlay is not hideable, so an open
+  dialog mounts twice and `ariaHideOutside` makes the visible one inert.
+  Render settings dialogs as siblings outside `Tabs` (see `weekly-report-settings.tsx`).
