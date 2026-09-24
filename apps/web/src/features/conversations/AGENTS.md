@@ -56,7 +56,9 @@ These rules apply to `src/features/conversations/`.
   react, join, read and follow threads) come from `useChannelConversation` /
   `useDirectConversation` (`use-conversation-data.ts`), shared by the
   conversation routes and the Tasks page popup. Change a send or read path
-  there, not in a route.
+  there, not in a route. The search page's read-only preview is the one
+  exception: it takes no actions, so it reads only the messages through
+  `useConversationQuery` with the same query factories.
 - `mentionOutsiders` (the channel's people and public Agents outside it) is for
   @-completion only. Never merge it into `mentionables`, which also resolves
   plain `@handle` labels and stored mention tokens.

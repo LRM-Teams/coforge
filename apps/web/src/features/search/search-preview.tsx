@@ -5,6 +5,7 @@ import { MessageSquare02, XClose } from "@untitledui/icons";
 
 import { Button } from "#src/components/base/buttons/button";
 import { ButtonUtility } from "#src/components/base/buttons/button-utility";
+import { Skeleton } from "#src/components/ui/skeleton";
 import { useCurrentWorkspaceId } from "#src/features/agents/workspace-agents-realtime";
 import { ConversationPane } from "#src/features/conversations/conversation-pane";
 import {
@@ -74,11 +75,11 @@ export function SearchPreview({
             errorComponent={() => null}
             onCatch={() => setFailed(true)}
           >
-            <Suspense fallback={null}>
+            <Suspense fallback={<PreviewSkeleton />}>
               {target.kind === "channel" ? (
-                <ChannelPreview channelId={target.id} messageId={target.messageId} />
+                <ChannelPreview channelId={target.id} messageId={target.messageId} title={title} />
               ) : (
-                <DirectPreview agentId={target.id} messageId={target.messageId} />
+                <DirectPreview agentId={target.id} messageId={target.messageId} title={title} />
               )}
             </Suspense>
           </CatchBoundary>
@@ -89,26 +90,43 @@ export function SearchPreview({
 }
 
 /** Only the conversation's messages, kept live: none of a page's Tasks or actions. */
-function ChannelPreview({ channelId, messageId }: { channelId: string; messageId?: string }) {
+function ChannelPreview({
+  channelId,
+  messageId,
+  title,
+}: {
+  channelId: string;
+  messageId?: string;
+  title: string;
+}) {
   const page = useConversationQuery({
     ...publicChannelQuery(channelId),
     loadUpdates: publicChannelUpdates(channelId),
   });
-  return <PreviewPane page={page} messageId={messageId} />;
+  return <PreviewPane page={page} messageId={messageId} title={title} />;
 }
 
-function DirectPreview({ agentId, messageId }: { agentId: string; messageId?: string }) {
+function DirectPreview({
+  agentId,
+  messageId,
+  title,
+}: {
+  agentId: string;
+  messageId?: string;
+  title: string;
+}) {
   const page = useConversationQuery({
     ...directConversationQuery(agentId),
     loadUpdates: directConversationUpdates(agentId),
   });
-  return <PreviewPane page={page} messageId={messageId} />;
+  return <PreviewPane page={page} messageId={messageId} title={title} />;
 }
 
 /** The loaded conversation's top-level stream, with its paging, jumped to `messageId`. */
 function PreviewPane({
   page,
   messageId,
+  title,
 }: {
   page: {
     conversation: ComponentProps<typeof ConversationPane>["conversation"];
@@ -118,6 +136,8 @@ function PreviewPane({
     showLatest: ComponentProps<typeof ConversationPane>["onShowLatest"];
   };
   messageId?: string;
+  /** Names the place in the empty state. */
+  title: string;
 }) {
   const { conversation } = page;
   const workspaceId = useCurrentWorkspaceId() ?? "";
@@ -138,8 +158,8 @@ function PreviewPane({
     <ConversationPane
       conversation={roots}
       emptyState={{
-        title: m.search_preview_empty(),
-        description: "",
+        title,
+        description: m.search_preview_empty(),
         media: <MessageSquare02 aria-hidden="true" className="size-6 text-tertiary" />,
       }}
       readOnlyNotice={
@@ -160,5 +180,22 @@ function PreviewPane({
       channels={channels}
       jumpMessage={messageId}
     />
+  );
+}
+
+/** Message-shaped placeholders while the conversation loads. */
+function PreviewSkeleton() {
+  return (
+    <div role="status" aria-label={m.search_searching()} className="flex flex-col gap-4 p-4">
+      {Array.from({ length: 6 }, (_, index) => (
+        <div key={index} className="flex gap-3">
+          <Skeleton className="size-8 shrink-0 rounded-full" />
+          <div className="flex flex-1 flex-col gap-2">
+            <Skeleton className="h-3 w-32" />
+            <Skeleton className="h-3 w-full" />
+          </div>
+        </div>
+      ))}
+    </div>
   );
 }

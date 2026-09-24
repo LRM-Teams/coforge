@@ -40,7 +40,11 @@ import {
 } from "./search-preview-context";
 import { SearchHome } from "./search-home";
 import { searchEntityKey, type SearchEntityKey } from "./search-memory";
-import { SEARCH_FOCUS_EVENT, useSearchShortcutLabel } from "./search-shortcut";
+import {
+  lastPageBeforeSearch,
+  SEARCH_FOCUS_EVENT,
+  useSearchShortcutLabel,
+} from "./search-shortcut";
 import { useSearchMemory } from "./use-search-memory";
 import { SearchFilterBar } from "./search-filter-bar";
 import { clearedFilters, hasActiveFilter, type SearchFilters } from "./search-filters";
@@ -148,18 +152,19 @@ export function SearchPage({
   // Esc closes the preview, then leaves search for wherever it was opened from. A menu or dialog
   // takes its own Esc, and a filled box clears itself first.
   const onEscape = useEffectEvent((event: KeyboardEvent) => {
-    if (event.key !== "Escape" || event.defaultPrevented) return;
+    if (event.key !== "Escape" || event.defaultPrevented || event.isComposing) return;
     const target = event.target instanceof Element ? event.target : null;
     if (target?.closest('[role="menu"], [role="listbox"], [role="dialog"]')) return;
-    if (preview) {
+    if (showPreview) {
       // Only the preview closes: a search box's own Esc would also clear the query.
       event.preventDefault();
       onPreviewChange(undefined);
       return;
     }
     if (target instanceof HTMLInputElement && target.value) return;
-    if (router.history.canGoBack()) router.history.back();
-    else void router.navigate({ to: "/messages" });
+    const origin = lastPageBeforeSearch();
+    if (origin) void router.navigate({ href: origin, replace: true });
+    else void router.navigate({ to: "/messages", replace: true });
   });
   useEffect(() => {
     window.addEventListener("keydown", onEscape);
