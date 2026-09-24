@@ -27,7 +27,7 @@ export const Route = createFileRoute("/_app/search")({
 
 function SearchRoute() {
   const { q, senderId, scope, channelId, range, sort } = Route.useSearch();
-  const { currentWorkspace, timeZone } = appRoute.useLoaderData();
+  const { currentWorkspace, timeZone, user } = appRoute.useLoaderData();
   const navigate = useNavigate({ from: Route.fullPath });
   const filters = useMemo<SearchFilters>(
     () => ({ senderId, scope: parseScope(scope), channelId, range, sort }),
@@ -61,6 +61,7 @@ function SearchRoute() {
   return (
     <SearchPage
       workspaceId={currentWorkspace.id}
+      viewerId={user.id}
       timeZone={timeZone}
       query={q ?? ""}
       filters={filters}

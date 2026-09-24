@@ -427,9 +427,9 @@
   "activity_inbox_retry": "Try again",
   "activity_inbox_loading_more": "Loading more…",
   "search_title": "Search",
-  "search_placeholder": "Search messages…",
-  "search_empty_title": "Search messages",
-  "search_empty_description": "Find messages in every channel and your direct messages.",
+  "search_placeholder": "Search channels, Agents, Computers and messages…",
+  "search_empty_title": "Search everything",
+  "search_empty_description": "Search channels, Agents, Computers and the messages in every channel and your direct messages.",
   "search_searching": "Searching…",
   "search_messages_heading": "Messages",
   "search_no_results_title": "No results for “{query}”",
@@ -514,5 +514,10 @@
   "search_entity_agent": "Agent",
   "search_no_messages_match": "No messages match.",
   "conversation_pending_mention_add_target": "Add {target}",
-  "conversation_pending_mention_ignore_target": "Ignore {target}"
+  "conversation_pending_mention_ignore_target": "Ignore {target}",
+  "search_history_heading": "Search history",
+  "search_history_clear": "Clear",
+  "search_history_remove": "Remove “{query}” from search history",
+  "search_frequent_heading": "Frequently used",
+  "search_frequent_empty": "Channels and Agents you open from search appear here."
 }

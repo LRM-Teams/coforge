@@ -101,7 +101,7 @@ test("the search page finds a message and opens it in its channel", async () => 
     // The rail's Search entry opens the empty search page with the box focused.
     await browser("click", 'aside a[href="/en/search"]');
     await waitFor(`location.pathname === "/en/search"`);
-    await waitFor(`document.body.textContent.includes("Find messages in every channel")`);
+    await waitFor(`document.body.textContent.includes("Search everything")`);
     await waitFor(`document.activeElement?.type === "search"`);
     await browser("screenshot", join(artifacts, "empty.png"));
 
