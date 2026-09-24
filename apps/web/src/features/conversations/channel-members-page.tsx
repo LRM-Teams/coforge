@@ -17,10 +17,16 @@ import { Badge, BadgeWithButton } from "#src/components/base/badges/badges";
 import { Button } from "#src/components/base/buttons/button";
 import { Checkbox } from "#src/components/base/checkbox/checkbox";
 import { Input } from "#src/components/base/input/input";
+import { AgentCreateDialog } from "#src/features/agents/agent-create-dialog";
+import { createAgent } from "#src/features/agents/agents.functions";
 import { AgentDisplayAvatar } from "#src/features/agents/agent-activity-avatar";
 import { agentDisplay } from "#src/features/agents/agent-activity-presentation";
 import { useAgentDisplays } from "#src/features/agents/workspace-agents-realtime";
 import type { AgentDisplaySnapshot } from "@lrm/coforge-sdk/internal";
+import {
+  getComputerRuntimeCatalog,
+  listComputers,
+} from "#src/features/computers/computers.functions";
 import { avatarInitial, avatarToneClassName } from "#src/lib/avatar-tone";
 import { isAppError } from "#src/lib/app-error";
 import { cn } from "#src/lib/utils";
@@ -72,13 +78,14 @@ function roleLabel(member: { serverRole?: string | null; channelRole: string }) 
 /**
  * A channel's members as a page of its settings panel: the roster grouped by humans and Agents
  * with a search, each row's role and, for those allowed, its role and remove actions; and the
- * add view, where a member picks Workspace Agents and people to add. It reads and updates the
- * same query as the panel's Members strip.
+ * add view, where a member picks Workspace Agents and people to add, or creates an Agent that then
+ * joins. It reads and updates the same query as the panel's Members strip.
  */
 export function ChannelMembersPage({
   channelId,
   channelName,
   viewerHandle,
+  canCreateAgents,
   view,
   onViewChange,
   onOpenAgentProfile,
@@ -87,11 +94,14 @@ export function ChannelMembersPage({
   channelName: string;
   /** The viewer's own username: their row offers no role change. */
   viewerHandle?: string;
+  /** Whether the add view may create an Agent (a Workspace owner or admin). */
+  canCreateAgents: boolean;
   view: ChannelMembersView;
   onViewChange: (view: ChannelMembersView) => void;
   onOpenAgentProfile?: (agentId: string) => void;
 }) {
   const members = useChannelMembers(channelId);
+  const createdAgentJoin = useCreatedAgentJoin(channelId);
   if (members.isPending)
     return <p className="px-4 py-6 text-sm text-tertiary md:px-6">{m.channel_members_loading()}</p>;
   if (members.isError)
@@ -103,6 +113,9 @@ export function ChannelMembersPage({
   return view === "add" ? (
     <AddMembersView
       channelId={channelId}
+      channelName={channelName}
+      canCreateAgents={canCreateAgents}
+      createdAgentJoin={createdAgentJoin}
       data={members.data}
       onDone={() => onViewChange("members")}
     />
@@ -541,10 +554,16 @@ type Candidate = {
 
 function AddMembersView({
   channelId,
+  channelName,
+  canCreateAgents,
+  createdAgentJoin,
   data,
   onDone,
 }: {
   channelId: string;
+  channelName: string;
+  canCreateAgents: boolean;
+  createdAgentJoin: CreatedAgentJoin;
   data: ChannelMembers;
   onDone: () => void;
 }) {
@@ -577,13 +596,30 @@ function AddMembersView({
     [data.candidates],
   );
   const byKey = useMemo(() => new Map(candidates.map((entry) => [entry.key, entry])), [candidates]);
-  const query = search.trim().replace(/^@/, "").toLowerCase();
+  // A leading @ is how people write a handle; it is not part of the name.
+  const term = search.trim().replace(/^@/, "");
+  const query = term.toLowerCase();
   const shown = useMemo(
     () => candidates.filter((entry) => matches(query, entry.displayName, entry.handle)),
     [candidates, query],
   );
   const shownAgents = shown.filter((entry) => entry.kind === "agent");
   const shownHumans = shown.filter((entry) => entry.kind === "user");
+  const { joining, failure, notStarted } = createdAgentJoin;
+  // Joined some other way meanwhile (a refetch, another member): nothing left to retry.
+  const unjoined =
+    failure && !data.agents.some((agent) => agent.id === failure.agent.id) ? failure : null;
+  const createName = term && shown.length === 0 ? term : "";
+
+  async function joinCreated(agent: CreatedAgent, startPublished: boolean) {
+    if (await createdAgentJoin.join(agent, startPublished)) {
+      // The search named the new Agent; clear it so the list stops offering to create it again.
+      setSearch("");
+    } else {
+      // Like any pick, the new Agent is selected, so Add selected retries it too.
+      setSelected((previous) => new Set(previous).add(`agent:${agent.id}`));
+    }
+  }
 
   function toggle(key: string, on: boolean) {
     setSelected((previous) => {
@@ -650,6 +686,38 @@ function AddMembersView({
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex shrink-0 flex-col gap-3 border-b border-secondary px-4 py-3 md:px-6">
+        {unjoined && (
+          <div
+            role="alert"
+            className="flex flex-col gap-2 rounded-lg bg-warning-primary px-3 py-2.5"
+          >
+            <p className="text-sm font-medium text-warning-primary">
+              {m.channel_members_create_agent_join_failed({
+                name: unjoined.agent.name,
+                channel: channelName,
+              })}
+            </p>
+            <p className="text-sm text-secondary">{unjoined.reason}</p>
+            {unjoined.retryable && (
+              <Button
+                size="sm"
+                color="secondary"
+                className="self-start"
+                isDisabled={busy || joining}
+                isLoading={joining}
+                showTextWhileLoading
+                onPress={() => void joinCreated(unjoined.agent, !notStarted)}
+              >
+                {m.channel_members_retry_join()}
+              </Button>
+            )}
+          </div>
+        )}
+        {notStarted && (
+          <p role="status" className="text-sm text-secondary">
+            {m.agent_deferred_start_notice()}
+          </p>
+        )}
         {selected.size > 0 && (
           <div className="flex flex-wrap gap-1.5">
             {[...selected].map((key) => {
@@ -703,10 +771,19 @@ function AddMembersView({
         )}
         {candidates.length > 0 && shown.length === 0 && (
           <p className="px-4 py-4 text-center text-sm text-tertiary md:px-6">
-            {m.channel_members_no_matches({ query: search.trim() })}
+            {m.channel_members_no_matches({ query: term })}
           </p>
         )}
       </div>
+      <CreateAgentEntry
+        channelName={channelName}
+        canCreate={canCreateAgents}
+        name={createName}
+        nameNote={createName ? prefillNote(search.trim(), createName) : undefined}
+        // A created Agent that has not joined yet is retried above, never created again.
+        disabled={busy || joining || unjoined !== null}
+        onCreated={(agent, startPublished) => void joinCreated(agent, startPublished)}
+      />
       <div className="flex shrink-0 flex-col gap-2 border-t border-secondary px-4 py-3 md:px-6">
         {error && (
           <p role="alert" className="text-sm text-error-primary">
@@ -716,7 +793,7 @@ function AddMembersView({
         <Button
           iconLeading={Plus}
           className="w-full"
-          isDisabled={busy || selected.size === 0}
+          isDisabled={busy || joining || selected.size === 0}
           isLoading={busy}
           showTextWhileLoading
           onPress={() => void submit()}
@@ -726,6 +803,175 @@ function AddMembersView({
             : m.channel_members_add_selected({ count: selected.size })}
         </Button>
       </div>
+    </div>
+  );
+}
+
+type CreatedAgent = { id: string; name: string };
+type CreatedAgentJoin = ReturnType<typeof useCreatedAgentJoin>;
+
+/** Why a created Agent did not join, and whether trying again can help. */
+function joinFailure(cause: unknown) {
+  if (isAppError(cause) && cause.code === "ACCESS_DENIED")
+    return { reason: m.channel_members_access_denied(), retryable: false };
+  if (isAppError(cause) && cause.code === "CONFLICT")
+    return { reason: m.channel_archived_notice(), retryable: false };
+  return { reason: m.channel_members_create_agent_join_failed_hint(), retryable: true };
+}
+
+/** What the name field says about a name taken from the search: a stripped leading @, and spaces
+ * the username cannot hold, which are left for the person to resolve. */
+function prefillNote(search: string, name: string) {
+  const notes = [
+    ...(search.startsWith("@") ? [m.channel_members_prefill_at_stripped()] : []),
+    ...(/\s/.test(name)
+      ? [
+          m.channel_members_prefill_spaces_kept({
+            dashed: name.replace(/\s+/g, "-"),
+            joined: name.replace(/\s+/g, ""),
+          }),
+        ]
+      : []),
+  ];
+  return notes.join(" ") || undefined;
+}
+
+/**
+ * Adds an Agent just created from the add view to the channel. Held by the members page rather
+ * than the add view, so a join still running when the add view closes keeps its outcome.
+ */
+function useCreatedAgentJoin(channelId: string) {
+  const queryClient = useQueryClient();
+  const add = useServerFn(addPublicChannelMembers);
+  const [joining, setJoining] = useState(false);
+  const [failure, setFailure] = useState<
+    ({ agent: CreatedAgent } & ReturnType<typeof joinFailure>) | null
+  >(null);
+  const [notStarted, setNotStarted] = useState(false);
+
+  /** Resolves `true` once the Agent is in the channel. */
+  async function join(agent: CreatedAgent, startPublished: boolean) {
+    setJoining(true);
+    setNotStarted(!startPublished);
+    try {
+      const fresh = await add({ data: { channelId, userIds: [], agentIds: [agent.id] } });
+      queryClient.setQueryData(channelMembersQueryKey(channelId), fresh);
+      setFailure(null);
+      return true;
+    } catch (cause) {
+      setFailure({ agent, ...joinFailure(cause) });
+      // The new Agent is a candidate now; list it.
+      void queryClient.invalidateQueries({ queryKey: channelMembersQueryKey(channelId) });
+      return false;
+    } finally {
+      setJoining(false);
+    }
+  }
+
+  return { joining, failure, notStarted, join };
+}
+
+/** The add view's last row: create an Agent (named after a search that matched nobody) that joins
+ * the channel once created. A viewer who may not create Agents sees why instead. */
+function CreateAgentEntry({
+  channelName,
+  canCreate,
+  name,
+  nameNote,
+  disabled,
+  onCreated,
+}: {
+  channelName: string;
+  canCreate: boolean;
+  /** The search that matched nobody, or empty. */
+  name: string;
+  nameNote?: string;
+  disabled: boolean;
+  onCreated: (agent: CreatedAgent, startPublished: boolean) => void;
+}) {
+  const loadComputers = useServerFn(listComputers);
+  const loadRuntimeCatalog = useServerFn(getComputerRuntimeCatalog);
+  const create = useServerFn(createAgent);
+  const [computers, setComputers] = useState<Awaited<ReturnType<typeof listComputers>>>();
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState("");
+
+  async function open() {
+    setLoading(true);
+    setLoadError("");
+    try {
+      // Read on every open: a Computer may have come online or gone since the last one.
+      setComputers(await loadComputers());
+      setDialogOpen(true);
+    } catch {
+      setLoadError(m.channel_members_computers_error());
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  if (!canCreate)
+    return (
+      <div className="shrink-0 border-t border-secondary px-4 py-3 md:px-6">
+        <p className="flex items-center gap-2 text-sm font-medium text-quaternary">
+          <Plus aria-hidden="true" className="size-4 shrink-0" />
+          {m.channel_members_create_agent()}
+        </p>
+        <p className="mt-1 text-sm text-tertiary">{m.channel_members_create_agent_denied()}</p>
+      </div>
+    );
+
+  return (
+    <div className="shrink-0 border-t border-secondary">
+      {loadError && (
+        <p role="alert" className="px-4 pt-3 text-sm text-error-primary md:px-6">
+          {loadError}
+        </p>
+      )}
+      <AriaButton
+        isDisabled={disabled || loading}
+        onPress={() => void open()}
+        className={cn(
+          "flex w-full cursor-pointer items-center gap-3 px-4 py-3 text-left outline-focus-ring hover:bg-primary_hover focus-visible:outline-2 focus-visible:-outline-offset-2 disabled:cursor-not-allowed disabled:opacity-60 md:px-6",
+          name && "bg-secondary",
+        )}
+      >
+        <span className="flex size-6 shrink-0 items-center justify-center rounded-full border border-dashed border-primary text-fg-quaternary">
+          <Plus aria-hidden="true" className="size-3.5" />
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-sm font-medium text-primary">
+            {name
+              ? m.channel_members_create_agent_named({ name })
+              : m.channel_members_create_agent()}
+          </span>
+          <span className="block truncate text-sm text-tertiary">
+            {m.channel_members_create_agent_joins({ channel: channelName })}
+          </span>
+        </span>
+      </AriaButton>
+      {dialogOpen && computers && (
+        <AgentCreateDialog
+          open
+          onOpenChange={setDialogOpen}
+          computers={computers}
+          onLoadRuntimeCatalog={(computerId) => loadRuntimeCatalog({ data: { computerId } })}
+          // Read once when the form mounts, so typing afterwards does not rename the draft.
+          defaults={{ name }}
+          nameNote={nameNote}
+          joinsChannelName={channelName}
+          visibilityLocked
+          onCreate={async (input) => {
+            const created = await create({ data: input });
+            onCreated(
+              { id: created.agent.id, name: created.agent.displayName || created.agent.name },
+              created.startPublished,
+            );
+            return created;
+          }}
+        />
+      )}
     </div>
   );
 }

@@ -52,6 +52,7 @@
   "agent_status_offline": "Offline",
   "agent_form_title": "Create agent",
   "agent_form_description": "Describe this Agent and choose its runtime.",
+  "agent_form_joins_channel": "Joins #{channel} automatically after it is created.",
   "agent_form_description_placeholder": "What should this Agent help with?",
   "agent_form_display_name": "Display name",
   "agent_form_username": "Username",

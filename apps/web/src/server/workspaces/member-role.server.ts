@@ -30,8 +30,12 @@ export function assertCanManageMembers(actorRole: WorkspaceMemberRole): void {
 }
 
 /** Creating an Agent requires Workspace owner/admin authority, kept as its own named seam. */
+export function canCreateAgents(actorRole: string | undefined): boolean {
+  return isElevatedServerRole(actorRole);
+}
+
 export function assertCanCreateAgents(actorRole: WorkspaceMemberRole): void {
-  if (!isAdminLike(actorRole)) throw new AppError("ACCESS_DENIED");
+  if (!canCreateAgents(actorRole)) throw new AppError("ACCESS_DENIED");
 }
 
 /**

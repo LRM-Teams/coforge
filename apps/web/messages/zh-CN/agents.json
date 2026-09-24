@@ -52,6 +52,7 @@
   "agent_status_offline": "离线",
   "agent_form_title": "创建智能体",
   "agent_form_description": "描述智能体并选择其运行时。",
+  "agent_form_joins_channel": "创建完成后将自动加入 #{channel}。",
   "agent_form_description_placeholder": "这个智能体可以帮你做什么？",
   "agent_form_display_name": "显示名称",
   "agent_form_username": "用户名",
