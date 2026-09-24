@@ -1,5 +1,6 @@
 import { createFileRoute, notFound, useRouter } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
+import { useQuery } from "@tanstack/react-query";
 
 import { ComputerDetail } from "#src/features/computers/computer-detail";
 import { ComputerNotFound } from "#src/features/computers/computer-not-found";
@@ -15,6 +16,7 @@ import {
   updateComputerDisplayName,
   upgradeComputer,
 } from "#src/features/computers/computers.functions";
+import { latestComputerVersionQuery } from "#src/features/computers/latest-version.query";
 
 export const Route = createFileRoute("/_app/computers/$computerId")({
   // The list the parent already loaded is the whole truth about which
@@ -27,7 +29,6 @@ export const Route = createFileRoute("/_app/computers/$computerId")({
     return {
       computer,
       timeZone: loaderData?.timeZone ?? null,
-      latestComputerVersion: loaderData?.latestComputerVersion ?? null,
     };
   },
   pendingComponent: ComputerDetailPending,
@@ -38,7 +39,10 @@ export const Route = createFileRoute("/_app/computers/$computerId")({
 
 function ComputerDetailPage() {
   const { computerId } = Route.useParams();
-  const { computer, timeZone, latestComputerVersion } = Route.useLoaderData();
+  const { computer, timeZone } = Route.useLoaderData();
+  // The release-version check is a third-party request, so it is asked for after the render rather
+  // than carried in the loader (see `latest-version.query.ts`).
+  const { data: latestComputerVersion } = useQuery(latestComputerVersionQuery());
   const router = useRouter();
   const setVisibility = useServerFn(setRuntimeVisibility);
   const updateDisplayName = useServerFn(updateComputerDisplayName);
