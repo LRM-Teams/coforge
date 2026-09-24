@@ -1,20 +1,28 @@
+import { AppError } from "#src/lib/app-error";
+
+/** What an anchor may be: six to eight hex characters, or a whole UUID, in any case. */
+const MESSAGE_ANCHOR =
+  /^(?:[0-9a-f]{6,8}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i;
+
 /**
  * How a Message is addressed by a short anchor. `Message.id` is a native `uuid` column, so a
  * prefix cannot be matched with the usual string operators — `startsWith` (which compiles to a
  * `LIKE`/`ILIKE` pattern) does not apply to a `uuid`. The only form that works is the id **range**
  * a hex prefix names, so every lookup by anchor shares this one.
  *
- * A full UUID is the id itself; anything else that reaches here is a prefix of six to eight hex
- * characters, lower-case, that the caller meant (callers validate the shape before this point).
+ * An anchor is a whole UUID, which is the id itself, or a prefix of six to eight hex characters.
  * Agent targets and reminder ids take eight; a thread reference written in a message takes six to
- * eight.
+ * eight. Anything else is refused here (`INVALID_INPUT`) rather than widened into a range, so a
+ * caller that forgets to check its own grammar can never resolve a message by a shorter prefix.
  */
 export function messageAnchorWhere(anchor: string): string | { gte: string; lte: string } {
-  if (anchor.length > 8) return anchor;
-  const pad = 8 - anchor.length;
+  if (!MESSAGE_ANCHOR.test(anchor)) throw new AppError("INVALID_INPUT");
+  const hex = anchor.toLowerCase();
+  if (hex.length > 8) return hex;
+  const pad = 8 - hex.length;
   return {
-    gte: `${anchor}${"0".repeat(pad)}-0000-0000-0000-000000000000`,
-    lte: `${anchor}${"f".repeat(pad)}-ffff-ffff-ffff-ffffffffffff`,
+    gte: `${hex}${"0".repeat(pad)}-0000-0000-0000-000000000000`,
+    lte: `${hex}${"f".repeat(pad)}-ffff-ffff-ffff-ffffffffffff`,
   };
 }
 

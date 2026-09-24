@@ -397,6 +397,41 @@ test("prepare posts into a thread when the target names a root message", async (
   }
 });
 
+test("prepare rejects a thread target whose anchor is not eight hex characters or a full id", async () => {
+  const ctx = await setup();
+  try {
+    const root = await ctx.db.message.create({
+      data: {
+        conversationId: ctx.hub.id,
+        workspaceId: ctx.workspace.id,
+        senderMemberId: ctx.hub.members.find((member) => member.userId === ctx.alice.id)!.id,
+        sequence: 1,
+        body: "Let's plan this",
+      },
+    });
+    // Each prefix names only this root, and is still not a thread target: the target grammar is
+    // `#name:<8 hex>` or `#name:<uuid>`, as for `message send`.
+    for (const anchor of [root.id.slice(0, 3), root.id.slice(0, 7), "abc", "not-hex"]) {
+      let caught: unknown;
+      try {
+        await ctx.actionCards.prepare(ctx.principal, {
+          target: `#${ctx.hub.channelName}:${anchor}`,
+          action: { type: "channel:create", name: `short-${ctx.suffix}` },
+        });
+      } catch (error) {
+        caught = error;
+      }
+      expect(isAppError(caught)).toBe(true);
+      expect((caught as AppError).code).toBe("INVALID_INPUT");
+    }
+    expect(
+      await ctx.db.actionCard.count({ where: { message: { conversationId: ctx.hub.id } } }),
+    ).toBe(0);
+  } finally {
+    await ctx.cleanup();
+  }
+});
+
 /**
  * Commit/cancel: a human executes the real operation under their
  * own identity, then the card is marked `executed`/`cancelled`. Reuses `setup()`'s fixture: alice
