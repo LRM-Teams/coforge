@@ -17,6 +17,8 @@ export type PendingMention = {
   targetAvatarUrl: string | null;
   channelName: string;
   availableActions: readonly "add"[];
+  /** What the reader's Add did: kept by the composer, so it survives leaving the chat. */
+  outcome?: "added" | "refused";
 };
 
 type MentionActionResult = Awaited<ReturnType<typeof executeMentionActions>>[number];
@@ -33,31 +35,49 @@ const ADDED_REMOVE_MS = 750;
  */
 export function PendingMentionStrip({
   mentions,
+  onSettle,
   onRemove,
 }: {
   mentions: readonly PendingMention[];
+  onSettle: (resolutionIds: readonly string[], outcome: "added" | "refused") => void;
   onRemove: (resolutionId: string) => void;
 }) {
   const execute = useServerFn(executeMentionActions);
-  const [added, setAdded] = useState<ReadonlySet<string>>(new Set());
   const [leaving, setLeaving] = useState<ReadonlySet<string>>(new Set());
   const [adding, setAdding] = useState<ReadonlySet<string>>(new Set());
   const [error, setError] = useState("");
-  const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
-  useEffect(() => () => timers.current.forEach(clearTimeout), []);
+  // An added row shows that it was added, then fades out and goes. Scheduled from what the
+  // composer kept, so a row added just before the reader left the chat still goes on return.
+  const scheduled = useRef(new Set<string>());
+  const onRemoveRef = useRef(onRemove);
+  onRemoveRef.current = onRemove;
+  const addedIds = mentions
+    .filter((mention) => mention.outcome === "added")
+    .map((mention) => mention.resolutionId);
+  const addedKey = addedIds.join(",");
+  useEffect(() => {
+    const ids = addedKey ? addedKey.split(",") : [];
+    const fresh = ids.filter((id) => !scheduled.current.has(id));
+    if (!fresh.length) return;
+    for (const id of fresh) scheduled.current.add(id);
+    const fade = setTimeout(
+      () => setLeaving((current) => new Set([...current, ...fresh])),
+      ADDED_VISIBLE_MS,
+    );
+    const remove = setTimeout(
+      () => fresh.forEach((id) => onRemoveRef.current(id)),
+      ADDED_REMOVE_MS,
+    );
+    return () => {
+      clearTimeout(fade);
+      clearTimeout(remove);
+      for (const id of fresh) scheduled.current.delete(id);
+    };
+  }, [addedKey]);
 
   const addable = mentions
-    .filter((mention) => mention.availableActions.includes("add"))
-    .map((mention) => mention.resolutionId)
-    .filter((id) => !added.has(id) && !leaving.has(id));
-
-  function showAdded(ids: readonly string[]) {
-    setAdded((current) => new Set([...current, ...ids]));
-    timers.current.push(
-      setTimeout(() => setLeaving((current) => new Set([...current, ...ids])), ADDED_VISIBLE_MS),
-      setTimeout(() => ids.forEach(onRemove), ADDED_REMOVE_MS),
-    );
-  }
+    .filter((mention) => mention.availableActions.includes("add") && !mention.outcome)
+    .map((mention) => mention.resolutionId);
 
   async function add(ids: readonly string[]) {
     setAdding((current) => new Set([...current, ...ids]));
@@ -65,8 +85,18 @@ export function PendingMentionStrip({
     try {
       const results = await execute({ data: { action: "add", resolutionIds: [...ids] } });
       const delivered = results.filter((result) => result.status === "delivered");
-      const refused = results.find((result) => result.status !== "delivered");
-      if (delivered.length) showAdded(delivered.map((result) => result.resolutionId));
+      const refusals = results.filter((result) => result.status !== "delivered");
+      const refused = refusals[0];
+      if (delivered.length)
+        onSettle(
+          delivered.map((result) => result.resolutionId),
+          "added",
+        );
+      if (refusals.length)
+        onSettle(
+          refusals.map((result) => result.resolutionId),
+          "refused",
+        );
       if (refused)
         setError(
           ids.length > 1 && delivered.length
@@ -88,8 +118,8 @@ export function PendingMentionStrip({
     <div className="flex flex-col gap-2 rounded-lg bg-secondary px-2 py-2">
       <ul className="flex flex-col gap-2">
         {mentions.map((mention) => {
-          const wasAdded = added.has(mention.resolutionId);
-          const canAdd = mention.availableActions.includes("add") && !wasAdded;
+          const wasAdded = mention.outcome === "added";
+          const canAdd = mention.availableActions.includes("add") && !mention.outcome;
           const target = `@${mention.targetHandle}`;
           const channel = `#${mention.channelName}`;
           return (
@@ -107,7 +137,7 @@ export function PendingMentionStrip({
                 initials={avatarInitial(mention.targetLabel)}
                 contentClassName={avatarToneClassName(mention.targetLabel)}
               />
-              <p className="min-w-0 flex-1 text-sm text-secondary">
+              <p role="status" className="min-w-0 flex-1 text-sm text-secondary">
                 {wasAdded
                   ? m.conversation_pending_mention_added({ target, channel })
                   : m.conversation_pending_mention_not_notified({ target, channel })}
@@ -126,6 +156,7 @@ export function PendingMentionStrip({
                         color="secondary"
                         iconLeading={Plus}
                         isLoading={adding.has(mention.resolutionId)}
+                        aria-label={m.conversation_pending_mention_add_target({ target })}
                         onClick={() => void add([mention.resolutionId])}
                       >
                         {m.conversation_pending_mention_add()}
@@ -134,6 +165,7 @@ export function PendingMentionStrip({
                     <Button
                       size="xs"
                       color="link-gray"
+                      aria-label={m.conversation_pending_mention_ignore_target({ target })}
                       onClick={() => onRemove(mention.resolutionId)}
                     >
                       {m.conversation_pending_mention_ignore()}

@@ -1068,6 +1068,59 @@ test("the sender adds a mentioned outsider to the channel once; another member's
       }),
     ).toBe(2);
     expect(announced).toEqual([[triage.id]]);
+    // Someone who left the Workspace after the send cannot be added, and does not sink the others
+    // added in the same request; nor can a target already in the channel, nor another Workspace.
+    const dave = await db.user.create({ data: { username: `xe${suffix}` } });
+    const frank = await db.user.create({ data: { username: `xf${suffix}` } });
+    const elsewhere = await db.workspace.create({
+      data: {
+        slug: crypto.randomUUID(),
+        name: "Elsewhere",
+        members: { create: { userId: alice.id } },
+      },
+    });
+    try {
+      await db.workspaceMembership.createMany({
+        data: [dave.id, frank.id].map((userId) => ({ workspaceId: workspace.id, userId })),
+      });
+      const mixed = await channels.send({
+        workspaceId: workspace.id,
+        userId: alice.id,
+        channelId: triage.id,
+        requestId: crypto.randomUUID(),
+        body: `@xe${suffix} and @xf${suffix}`,
+      });
+      const [forDave, forFrank] = mixed.pendingMentionActions.map((action) => action.resolutionId);
+      await db.workspaceMembership.deleteMany({
+        where: { workspaceId: workspace.id, userId: dave.id },
+      });
+      expect(
+        (
+          await channels.send({
+            ...{ workspaceId: workspace.id, userId: alice.id, channelId: triage.id },
+            requestId: crypto.randomUUID(),
+            body: `@xe${suffix} again`,
+          })
+        ).pendingMentionActions,
+      ).toEqual([]);
+      expect(
+        (
+          await channels.executeMentionActions(workspace.id, alice.id, "add", [forDave!, forFrank!])
+        ).map((result) => [result.status, result.reason]),
+      ).toEqual([
+        ["stale", "target_unavailable"],
+        ["delivered", undefined],
+      ]);
+      expect(
+        (await channels.executeMentionActions(elsewhere.id, alice.id, "add", [forDave!])).map(
+          (result) => result.status,
+        ),
+      ).toEqual(["not_found"]);
+    } finally {
+      await db.workspace.delete({ where: { id: elsewhere.id } });
+      await db.workspaceMembership.deleteMany({ where: { userId: { in: [dave.id, frank.id] } } });
+      await db.conversationMember.deleteMany({ where: { userId: { in: [dave.id, frank.id] } } });
+    }
     // Acted on once; the send's own list no longer offers it.
     expect(
       (await channels.executeMentionActions(workspace.id, alice.id, "add", [forBob!])).map(
@@ -1096,6 +1149,27 @@ test("the sender adds a mentioned outsider to the channel once; another member's
         body: `@xd${suffix} ping`,
       });
       const forOutsider = old.pendingMentionActions[0]!.resolutionId;
+      // Someone who joined in the meantime needs nothing done.
+      const joinedSince = await channels.send({
+        workspaceId: workspace.id,
+        userId: alice.id,
+        channelId: triage.id,
+        requestId: crypto.randomUUID(),
+        body: `@xd${suffix} once more`,
+      });
+      await db.conversationMember.create({
+        data: { workspaceId: workspace.id, conversationId: triage.id, userId: outsider.id },
+      });
+      expect(
+        (
+          await channels.executeMentionActions(workspace.id, alice.id, "add", [
+            joinedSince.pendingMentionActions[0]!.resolutionId,
+          ])
+        ).map((result) => [result.status, result.reason]),
+      ).toEqual([["stale", "target_already_member"]]);
+      await db.conversationMember.deleteMany({
+        where: { conversationId: triage.id, userId: outsider.id },
+      });
       await db.pendingMentionAction.update({
         where: { id: forOutsider },
         data: { expiresAt: new Date(Date.now() - 1000) },
@@ -1105,6 +1179,22 @@ test("the sender adds a mentioned outsider to the channel once; another member's
           (result) => result.status,
         ),
       ).toEqual(["expired"]);
+      // Nobody joins an archived channel, including from a mention.
+      const beforeArchive = await channels.send({
+        workspaceId: workspace.id,
+        userId: alice.id,
+        channelId: triage.id,
+        requestId: crypto.randomUUID(),
+        body: `@xd${suffix} last call`,
+      });
+      await db.conversation.update({ where: { id: triage.id }, data: { archivedAt: new Date() } });
+      expect(
+        (
+          await channels.executeMentionActions(workspace.id, alice.id, "add", [
+            beforeArchive.pendingMentionActions[0]!.resolutionId,
+          ])
+        ).map((result) => [result.status, result.reason]),
+      ).toEqual([["no_permission", "channel_archived"]]);
     } finally {
       await db.workspaceMembership.deleteMany({ where: { userId: outsider.id } });
       await db.user.delete({ where: { id: outsider.id } }).catch(() => {});

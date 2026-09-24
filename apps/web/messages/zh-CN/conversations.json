@@ -489,5 +489,7 @@
   "search_entity_channel": "频道",
   "search_entity_computer": "电脑",
   "search_entity_agent": "Agent",
-  "search_no_messages_match": "没有匹配的消息。"
+  "search_no_messages_match": "没有匹配的消息。",
+  "conversation_pending_mention_add_target": "添加 {target}",
+  "conversation_pending_mention_ignore_target": "忽略 {target}"
 }

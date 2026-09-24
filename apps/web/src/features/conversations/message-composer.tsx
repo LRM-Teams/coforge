@@ -575,7 +575,21 @@ export function MessageComposer({
       )}
       {pendingMentions.length > 0 && (
         <PendingMentionStrip
+          key={current?.sequence}
           mentions={pendingMentions}
+          onSettle={(resolutionIds, outcome) =>
+            setUnresolved(
+              (report) =>
+                report && {
+                  ...report,
+                  pendingMentions: report.pendingMentions.map((mention) =>
+                    resolutionIds.includes(mention.resolutionId)
+                      ? { ...mention, outcome }
+                      : mention,
+                  ),
+                },
+            )
+          }
           onRemove={(resolutionId) =>
             setUnresolved(
               (report) =>
