@@ -9,18 +9,14 @@ import {
   type TaskClaimResult,
   type TaskCommand,
   type TaskConversationKind,
-  type TaskHistoryChange,
-  type TaskHistoryEvent,
   type TaskListCoverage,
   type TaskMember,
   type TaskPrincipal,
   type TaskResult,
-  type TaskStatus,
   type TaskView,
 } from "@lrm/coforge-sdk/internal";
 import { encodeAgentDelivery } from "#src/server/conversations/agent-delivery.server";
 import { ACTIVE_AGENT_WHERE } from "#src/server/agents/active-agent.server";
-import { workspaceUserAvatarUrl } from "#src/server/db/repositories/user-profile.repositories.server";
 import { channelThreadRootWhere } from "#src/server/db/message-anchor.server";
 import type { Prisma, PrismaClient } from "#src/generated/prisma/client";
 import { AppError } from "#src/lib/app-error";
@@ -42,7 +38,6 @@ import {
 } from "#src/server/conversations/active-member.server";
 import {
   agentMessageSender,
-  browserSenderHandle,
   MESSAGE_SENDER_SELECT,
   type AgentMessageSender,
 } from "#src/server/conversations/sender-display.server";
@@ -59,6 +54,15 @@ import {
   quotedTask,
   type QuotedTask,
 } from "./task-notices.server";
+import { creationChanges, historyEventView, historyRows, taskChanges } from "./task-history.server";
+import {
+  storedTaskStatus,
+  TASK_MEMBER_SELECT,
+  taskMember,
+  taskSelection,
+  taskView,
+  type SelectedTask,
+} from "./task-view.server";
 
 type Dependencies = {
   realtime?: ConversationRealtime;
@@ -66,41 +70,6 @@ type Dependencies = {
   publisher?: Pick<CentrifugoServerApi, "publish">;
 };
 
-const TASK_MEMBER_SELECT = {
-  id: true,
-  userId: true,
-  agentId: true,
-  leftAt: true,
-  user: { select: { username: true, displayName: true, avatarObjectKey: true } },
-  agent: { select: { name: true, displayName: true, deletedAt: true } },
-} satisfies Prisma.ConversationMemberSelect;
-
-const taskSelection = {
-  messageId: true,
-  conversationId: true,
-  workspaceId: true,
-  number: true,
-  title: true,
-  description: true,
-  createsResource: true,
-  resourceReceipt: true,
-  resourceReceiptRecordedAt: true,
-  status: true,
-  revision: true,
-  claimedAt: true,
-  createdAt: true,
-  updatedAt: true,
-  ownerMemberId: true,
-  owner: { select: TASK_MEMBER_SELECT },
-  creator: { select: TASK_MEMBER_SELECT },
-  // The backing message's sequence, so realtime signals need no second read, and its mention rows,
-  // which a title converted from that message needs to read its mention tokens back.
-  message: {
-    select: { sequence: true, mentions: MESSAGE_MENTIONS_SELECT },
-  },
-} satisfies Prisma.TaskSelect;
-
-type SelectedTask = Prisma.TaskGetPayload<{ select: typeof taskSelection }>;
 type Transaction = Parameters<Parameters<PrismaClient["$transaction"]>[0]>[0];
 /** The acting conversation member; its user/Agent handle names it in Task history and notices. */
 type Member = {
@@ -155,8 +124,6 @@ type NoticeWriter = {
    */
   receipt(input: { id: string; body: string; assignee: Member }): Promise<PostedNotice>;
 };
-
-type HistoryEvent = Prisma.TaskHistoryEventGetPayload<{ select: undefined }>;
 
 export type TaskOverview = {
   tasks: Array<
@@ -347,7 +314,7 @@ function overviewRow(
     task.conversation.members.find((member) => member.userId === userId)?.id ?? null;
   if (channelName === null && agent === null) throw new AppError("INTERNAL_ERROR");
   return {
-    ...view(task),
+    ...taskView(task),
     currentMemberId,
     source: channelName
       ? { channelName, agentId: null, label: `#${channelName}` }
@@ -357,162 +324,6 @@ function overviewRow(
 }
 
 /** A task status as stored; a value outside the known set is corrupt data, not user input. */
-export function storedTaskStatus(value: string): TaskStatus {
-  switch (value) {
-    case "todo":
-    case "in_progress":
-    case "in_review":
-    case "done":
-    case "closed":
-      return value;
-    default:
-      throw new AppError("INTERNAL_ERROR");
-  }
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-/** A Task's owner or creator; a conversation member is exactly one of a User or an Agent. */
-function taskMember(
-  workspaceId: string,
-  member: Prisma.ConversationMemberGetPayload<{ select: typeof TASK_MEMBER_SELECT }>,
-): TaskMember {
-  if (member.agent)
-    return {
-      memberId: member.id,
-      kind: "agent",
-      id: member.agentId!,
-      name: member.agent.displayName || member.agent.name,
-      handle: member.agent.name,
-      // A deleted Agent keeps the Tasks it holds so history stays readable; the marker says so
-      // rather than letting the card read as if the holder were still live.
-      deleted: member.agent.deletedAt !== null,
-      ...(member.leftAt !== null && { left: true }),
-    };
-  const user = member.user!;
-  return {
-    memberId: member.id,
-    kind: "user",
-    id: member.userId!,
-    name: user.displayName || `@${user.username}`,
-    handle: user.username,
-    ...(member.leftAt !== null && { left: true }),
-    avatarUrl: workspaceUserAvatarUrl(workspaceId, member.userId!, user.avatarObjectKey),
-  };
-}
-
-function view(task: SelectedTask): TaskView {
-  const resourceReceipt = task.resourceReceipt;
-  return {
-    messageId: task.messageId,
-    conversationId: task.conversationId,
-    number: task.number,
-    // A title converted from a message keeps that message's stored tokens; they read back as text
-    // (`@handle`, `task #N`, `#name`) here, the view both the task board and an Agent's `task`
-    // commands read.
-    title: agentReadableBody(task.title, task.message.mentions),
-    description: task.description,
-    status: storedTaskStatus(task.status),
-    revision: task.revision,
-    claimedAt: task.claimedAt?.toISOString() ?? null,
-    requiresResourceReceipt: task.createsResource,
-    resourceReceiptRecordedAt: task.resourceReceiptRecordedAt?.toISOString() ?? null,
-    ...(isRecord(resourceReceipt) && {
-      resourceReceipt: {
-        object: String(resourceReceipt.object ?? ""),
-        purpose: String(resourceReceipt.purpose ?? ""),
-        teardownOwner: String(resourceReceipt.teardownOwner ?? ""),
-        securityPrivacy: String(resourceReceipt.securityPrivacy ?? ""),
-        expiry: String(resourceReceipt.expiry ?? ""),
-        runbook: String(resourceReceipt.runbook ?? ""),
-        tracking: String(resourceReceipt.tracking ?? ""),
-      },
-    }),
-    owner: task.owner && taskMember(task.workspaceId, task.owner),
-    creator: taskMember(task.workspaceId, task.creator),
-    createdAt: task.createdAt.toISOString(),
-    updatedAt: task.updatedAt.toISOString(),
-  };
-}
-
-function historyEventView(event: HistoryEvent): TaskHistoryEvent {
-  // Rows are written only through historyRows, which types each payload by its event type.
-  return {
-    id: event.id,
-    seq: event.seq,
-    actorType: event.actorType,
-    actorName: event.actorName,
-    createdAt: event.createdAt.toISOString(),
-    eventType: event.eventType,
-    payload: event.payload,
-  } as TaskHistoryEvent;
-}
-
-function assigneeChange(task: SelectedTask): TaskHistoryChange {
-  return {
-    eventType: "assignee_changed",
-    payload: {
-      assigneeId: task.owner?.agentId ?? task.owner?.userId ?? null,
-      assigneeType: task.owner ? (task.owner.agentId ? "agent" : "user") : null,
-    },
-  };
-}
-
-/** A new Task's history: its creation, then its assignee when it was created assigned. */
-function creationChanges(task: SelectedTask): TaskHistoryChange[] {
-  const changes: TaskHistoryChange[] = [
-    {
-      eventType: "created",
-      payload: { taskNumber: task.number, status: storedTaskStatus(task.status) },
-    },
-  ];
-  if (task.owner) changes.push(assigneeChange(task));
-  return changes;
-}
-
-/** What one write changed on a Task, in the order history lists it. */
-function taskChanges(before: SelectedTask, after: SelectedTask): TaskHistoryChange[] {
-  const changes: TaskHistoryChange[] = [];
-  if (before.ownerMemberId !== after.ownerMemberId) changes.push(assigneeChange(after));
-  if (before.status !== after.status)
-    changes.push({
-      eventType: "status_changed",
-      payload: { from: storedTaskStatus(before.status), to: storedTaskStatus(after.status) },
-    });
-  const amended: Extract<TaskHistoryChange, { eventType: "amended" }>["payload"]["changes"] = {};
-  // Titles are compared and recorded as `view` shows them, so a title's stored tokens are never
-  // written into the record, and a title that reads the same is no change.
-  const titles = {
-    from: agentReadableBody(before.title, before.message.mentions),
-    to: agentReadableBody(after.title, after.message.mentions),
-  };
-  if (titles.from !== titles.to) amended.title = titles;
-  if (before.description !== after.description)
-    amended.description = { from: before.description, to: after.description };
-  if (amended.title || amended.description)
-    changes.push({ eventType: "amended", payload: { changes: amended, revision: after.revision } });
-  return changes;
-}
-
-/** History rows for one Task, numbered after `latestSeq`. */
-function historyRows(
-  taskMessageId: string,
-  actor: Member,
-  changes: TaskHistoryChange[],
-  latestSeq: number,
-): Prisma.TaskHistoryEventCreateManyInput[] {
-  return changes.map((change, index) => ({
-    taskMessageId,
-    seq: latestSeq + index + 1,
-    eventType: change.eventType,
-    actorType: actor.agentId ? "agent" : "user",
-    actorName: browserSenderHandle(actor) ?? null,
-    payload: change.payload,
-  }));
-}
-
 const handleName = (handle: string) => handle.replace(/^@/, "");
 /** An assignee picked by id: `user:<uuid>` or `agent:<uuid>`. */
 const BOUND_ASSIGNEE =
@@ -800,7 +611,7 @@ export class TaskBoard {
       });
       return {
         tasks: tasks.map((task) => ({
-          ...view(task),
+          ...taskView(task),
           channelRef: task.conversation.channelName
             ? `#${task.conversation.channelName}`
             : `@${task.conversation.members[0]!.user!.username}`,
@@ -823,7 +634,7 @@ export class TaskBoard {
         orderBy: { number: "asc" },
         select: taskSelection,
       });
-      return { tasks: tasks.map(view) };
+      return { tasks: tasks.map(taskView) };
     }
     const member = scope.member!;
     if (command.operation === "create") return this.create(scope, member, principal, command);
@@ -1459,7 +1270,7 @@ export class TaskBoard {
       const signalScope = scopes.message;
       const effects: Promise<unknown>[] = [
         this.announceTasks(scope, async () => scopes.task, {
-          tasks: result.tasks.map(view),
+          tasks: result.tasks.map(taskView),
           publicationId: `${result.tasks[0]!.messageId}:task-created`,
         }),
       ];
@@ -1505,7 +1316,7 @@ export class TaskBoard {
     }
     const { receipt } = result;
     return {
-      tasks: result.tasks.map(view),
+      tasks: result.tasks.map(taskView),
       ...(receipt && {
         assignmentReceipt: {
           messageId: receipt.id,
@@ -1787,7 +1598,7 @@ export class TaskBoard {
       return claimed;
     });
     await this.signalTaskChange(task);
-    return { tasks: [view(task)] };
+    return { tasks: [taskView(task)] };
   }
 
   private async claim(
@@ -1868,7 +1679,7 @@ export class TaskBoard {
       ),
     );
     await this.signalTaskChange(updated);
-    return { tasks: [view(updated)] };
+    return { tasks: [taskView(updated)] };
   }
 
   private async update(conversation: ConversationRef, member: Member, command: TaskCommand) {
@@ -1915,7 +1726,7 @@ export class TaskBoard {
       return updated;
     });
     await this.signalTaskChange(updated);
-    return { tasks: [view(updated)] };
+    return { tasks: [taskView(updated)] };
   }
 
   private async assign(
@@ -1993,7 +1804,7 @@ export class TaskBoard {
     if (receipt && result.changed)
       await this.publishAssignmentReceipt(receipt.id, command.idempotencyKey);
     return {
-      tasks: task ? [view(task)] : [],
+      tasks: task ? [taskView(task)] : [],
       ...(receipt && {
         assignmentReceipt: {
           messageId: receipt.id,
@@ -2039,7 +1850,7 @@ export class TaskBoard {
       return { task, changed: true };
     });
     if (result.changed) await this.signalTaskChange(result.task);
-    return { tasks: [view(result.task)] };
+    return { tasks: [taskView(result.task)] };
   }
 
   private async amend(
@@ -2076,7 +1887,7 @@ export class TaskBoard {
       );
     });
     await this.signalTaskChange(result.task);
-    return { tasks: [view(result.task)], history: result.events.map(historyEventView) };
+    return { tasks: [taskView(result.task)], history: result.events.map(historyEventView) };
   }
 
   private async history(conversationId: string, command: TaskCommand): Promise<TaskResult> {
@@ -2091,7 +1902,7 @@ export class TaskBoard {
     });
     if (!task) throw new AppError("NOT_FOUND");
     return {
-      tasks: [view(task)],
+      tasks: [taskView(task)],
       history: task.history.map(historyEventView),
     };
   }
@@ -2171,7 +1982,7 @@ export class TaskBoard {
       });
       if (!workspaceComputer) throw new AppError("ACCESS_DENIED");
       if (task.resourceExpiryFollowupId) {
-        const recorded = view(task).resourceReceipt;
+        const recorded = taskView(task).resourceReceipt;
         if (
           !recorded ||
           Object.entries(receipt).some(([key, value]) => Reflect.get(recorded, key) !== value)
@@ -2269,7 +2080,7 @@ export class TaskBoard {
         // Reminder snapshot reconciliation repairs a missed upsert.
       }
     return {
-      tasks: [view(result.task)],
+      tasks: [taskView(result.task)],
       resourceFollowup: {
         id: result.reminder.id,
         ownerAgentId: result.owner.id,
@@ -2298,7 +2109,7 @@ export class TaskBoard {
           }),
         ),
         this.announceTasks(task, async () => scopes.task, {
-          tasks: [view(task)],
+          tasks: [taskView(task)],
           publicationId: `${task.messageId}:task-changed:${task.revision}`,
         }),
       ]);

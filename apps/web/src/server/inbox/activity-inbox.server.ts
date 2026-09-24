@@ -21,7 +21,7 @@ import {
   markThreadsReadSql,
 } from "#src/server/conversations/human-unread.server";
 import { browserSenderName } from "#src/server/conversations/sender-display.server";
-import { storedTaskStatus } from "#src/server/tasks/task-board.server";
+import { storedTaskStatus } from "#src/server/tasks/task-view.server";
 
 /**
  * A person's Activity inbox: every joined channel and direct message, every channel thread they

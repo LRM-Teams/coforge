@@ -8,6 +8,11 @@ contract is `packages/coforge-sdk/src/internal/tasks.ts`.
   assignment, card amendments and history, resource receipts, and status
   writes. Agent Task RPC adapters under `server/agents/` call the same
   TaskBoard and never duplicate its business rules.
+- `task-view.server.ts` owns how a stored Task reads: its selection, its
+  `TaskView`, and its stored status. `task-history.server.ts` owns which
+  history events a Task write records and how they read back. TaskBoard and
+  the Activity inbox read Tasks through them; do not map a Task row or parse
+  its status anywhere else.
 - `claim` answers every selector with a result row and never throws for a
   refused one: `reason` says why (not found, done, closed, held), and a Task
   another member holds adds `conflict` (holder, `claimedAt`, `observedAt`),
