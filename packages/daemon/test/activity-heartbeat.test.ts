@@ -384,6 +384,46 @@ test("compaction-finished ends an open compaction, and without one is a no-op", 
   }
 });
 
+test("a compaction still open after 5 minutes broadcasts compaction_stale once", async () => {
+  const { runtime, activities, emitEvent } = await harness();
+  jest.useFakeTimers();
+  try {
+    emitEvent({ type: "compaction-started" });
+    activities.length = 0;
+    jest.advanceTimersByTime(5 * 60_000);
+    // Heartbeats re-send the last busy activity; the stale notice itself is not a heartbeat.
+    const staleNotices = activities.filter(
+      (a) => a.detailKind === "compaction_stale" && !a.isHeartbeat,
+    );
+    expect(staleNotices).toHaveLength(1);
+    expect(staleNotices[0]).toMatchObject({
+      level: "info",
+      detail: "Compaction is still running; no finish signal was observed.",
+    });
+    // One-shot: the same episode never re-arms the notice; only a fresh start would.
+    jest.advanceTimersByTime(5 * 60_000);
+    expect(
+      activities.filter((a) => a.detailKind === "compaction_stale" && !a.isHeartbeat),
+    ).toHaveLength(1);
+  } finally {
+    await runtime.stop();
+  }
+});
+
+test("a finished compaction never broadcasts compaction_stale", async () => {
+  const { runtime, activities, emitEvent } = await harness();
+  jest.useFakeTimers();
+  try {
+    emitEvent({ type: "compaction-started" });
+    emitEvent({ type: "compaction-finished" });
+    activities.length = 0;
+    jest.advanceTimersByTime(10 * 60_000);
+    expect(activities.filter((a) => a.detailKind === "compaction_stale")).toHaveLength(0);
+  } finally {
+    await runtime.stop();
+  }
+});
+
 test("resumed text after an open compaction infers it finished, reported before the resumed text", async () => {
   const { runtime, activities, emitEvent } = await harness();
   jest.useFakeTimers();
