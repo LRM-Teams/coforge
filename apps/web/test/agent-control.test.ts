@@ -2422,6 +2422,149 @@ test.each(["restart", "reset-session"] as const)(
   },
 );
 
+test("a configuration restart's Start carries unread messages; a recovery Start is not read twice", async () => {
+  const config = {
+    runtime: "pi" as const,
+    provider: { kind: "default" as const },
+    model: "",
+    modelProvider: "",
+    reasoning: "",
+  };
+  let agent: AgentControlAgent = {
+    id: "agent-a",
+    workspaceId: "workspace-a",
+    computerId: "computer-a",
+    ownerId: "owner-a",
+    visibility: "public",
+    runtimeConfig: config,
+    // The configuration change already stopped the Agent, dropping what its daemon held.
+    state: {
+      version: 1,
+      protocolMajor: 1,
+      requestId: "stop-request",
+      workspaceId: "workspace-a",
+      computerId: "computer-a",
+      agentId: "agent-a",
+      provider: "pi",
+      epoch: 1,
+      action: "stop",
+      phase: "completed",
+      configRevision: new Bun.CryptoHasher("sha256").update(JSON.stringify(config)).digest("hex"),
+      controlSequence: 1,
+      sessionSequence: 0,
+    },
+  };
+  const store: AgentControlStore = {
+    memberRole: async () => "owner",
+    async get() {
+      return structuredClone(agent);
+    },
+    async replace(before, state) {
+      if (JSON.stringify(before.state) !== JSON.stringify(agent.state)) return false;
+      agent = { ...agent, state };
+      return true;
+    },
+  };
+  const published: ReturnType<typeof decodeAgentStartIntent>[] = [];
+  let reads = 0;
+  const control = new AgentControl(
+    store,
+    { publish: async (_channel, bytes) => void published.push(decodeAgentStartIntent(bytes)) },
+    { run: async (_id, work) => work() },
+    { timeoutMs: 0, fallbackMs: 0 },
+    undefined,
+    undefined,
+    {
+      readAgentRecoveryContext: async () => {
+        reads++;
+        return { resumeMessages: [], unreadSummary: { "@alice": 2 } };
+      },
+    },
+  );
+  const scope = {
+    protocolMajor: 1,
+    workspaceId: "workspace-a",
+    computerId: "computer-a",
+    agentId: "agent-a",
+    provider: "pi" as const,
+    model: "",
+    reasoning: "",
+  };
+
+  await control.publishStart({ ...scope, requestId: "config-restart" }, "owner-a");
+  expect(reads).toBe(1);
+  expect(published.at(-1)).toMatchObject({ unreadSummary: { "@alice": 2 } });
+
+  // A Daemon-ready recovery Start brings its own context; it is not read again.
+  agent = { ...agent, state: { ...agent.state!, action: "stop", phase: "completed" } };
+  await control.publishStart(
+    { ...scope, requestId: "ready-recovery", unreadSummary: { "@bob": 1 } },
+    "owner-a",
+  );
+  expect(reads).toBe(1);
+  expect(published.at(-1)).toMatchObject({ unreadSummary: { "@bob": 1 } });
+});
+
+test("a Start still goes out when its unread messages cannot be read", async () => {
+  const config = {
+    runtime: "pi" as const,
+    provider: { kind: "default" as const },
+    model: "",
+    modelProvider: "",
+    reasoning: "",
+  };
+  let agent: AgentControlAgent = {
+    id: "agent-a",
+    workspaceId: "workspace-a",
+    computerId: "computer-a",
+    ownerId: "owner-a",
+    visibility: "public",
+    runtimeConfig: config,
+    state: null,
+  };
+  const store: AgentControlStore = {
+    memberRole: async () => "owner",
+    async get() {
+      return structuredClone(agent);
+    },
+    async replace(before, state) {
+      if (JSON.stringify(before.state) !== JSON.stringify(agent.state)) return false;
+      agent = { ...agent, state };
+      return true;
+    },
+  };
+  const published: ReturnType<typeof decodeAgentStartIntent>[] = [];
+  const control = new AgentControl(
+    store,
+    { publish: async (_channel, bytes) => void published.push(decodeAgentStartIntent(bytes)) },
+    { run: async (_id, work) => work() },
+    { timeoutMs: 0, fallbackMs: 0 },
+    undefined,
+    undefined,
+    {
+      readAgentRecoveryContext: async () => {
+        throw new Error("Agent conversation has no other member to target");
+      },
+    },
+  );
+
+  await control.publishStart(
+    {
+      protocolMajor: 1,
+      requestId: "config-restart",
+      workspaceId: "workspace-a",
+      computerId: "computer-a",
+      agentId: "agent-a",
+      provider: "pi",
+      model: "",
+      reasoning: "",
+    },
+    "owner-a",
+  );
+  expect(published).toHaveLength(1);
+  expect(published[0]!.resumeMessages ?? []).toEqual([]);
+});
+
 test("a pending operation is superseded by a user-initiated Stop", async () => {
   const { store, current } = pendingOpStore({
     id: "a",

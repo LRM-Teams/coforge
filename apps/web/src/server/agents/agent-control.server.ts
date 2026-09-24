@@ -40,6 +40,14 @@ export type AgentControlRecoveryReader = {
 /** Application button intent; never sent as a daemon command. */
 export type AgentControlAction = "start" | "stop" | "restart" | "reset-session" | "full-reset";
 type AgentControlStep = "stop" | "reset-workspace" | "clear-session" | "start";
+/** Whether a Start intent already brings unread-message recovery of its own. */
+function carriesRecovery(intent: AgentRecoveryFields): boolean {
+  return Boolean(
+    intent.wakeMessage ||
+    intent.resumeMessages?.length ||
+    Object.keys(intent.unreadSummary ?? {}).length,
+  );
+}
 const chains: Record<AgentControlAction, readonly AgentControlStep[]> = {
   start: ["start"],
   stop: ["stop"],
@@ -325,8 +333,8 @@ export class AgentControl {
     // Daemon-ready recovery start carries.
     const stoppedAt = input.action === "stop" ? new Date(this.clock()) : null;
     const recovery =
-      input.action === "start" && this.conversations
-        ? await this.conversations.readAgentRecoveryContext(input.workspaceId, input.agentId)
+      input.action === "start"
+        ? await this.readRecovery(input.workspaceId, input.agentId)
         : undefined;
     let drivenRequestId = input.requestId;
     await this.runtimeLock.run(input.agentId, async () => {
@@ -485,17 +493,51 @@ export class AgentControl {
     // hold; `execute()` refuses it earlier, with a user-facing message.
     assertAgentLive(agent);
     let state = agent.state;
+    let began = false;
     if (state && !terminal(state)) {
       // A Start already in flight for the same purpose (recovery, another config-triggered
       // publishStart) continues rather than restarting the launch from scratch; anything else —
       // a Stop, Restart, Reset session or Full reset still in flight — is an explicit command
       // superseding another explicit command, so it always supersedes; `begin`
       // no longer throws "pending" for this.
-      if (state.action !== "start") state = await this.begin(agent, "start", intent.requestId);
+      if (state.action !== "start") {
+        state = await this.begin(agent, "start", intent.requestId);
+        began = true;
+      }
     } else if (!state || state.phase === "failed" || state.action === "stop") {
       state = await this.begin(agent, "start", intent.requestId);
+      began = true;
     }
-    await this.publishCurrent(agent.id, state.requestId, intent);
+    // A configuration restart stopped the Agent first, dropping what its daemon held (already
+    // acknowledged), so a fresh Start that brings no recovery of its own reads the unread
+    // messages, as a plain Start does. A Daemon-ready recovery Start already carries them.
+    const recovery =
+      began && !carriesRecovery(intent)
+        ? { ...intent, ...(await this.readRecovery(intent.workspaceId, intent.agentId)) }
+        : intent;
+    await this.publishCurrent(agent.id, state.requestId, recovery);
+  }
+
+  /** The unread messages a Start surfaces. A failed read never blocks the Start: the Agent still
+   * reaches those messages through `check`. */
+  private async readRecovery(
+    workspaceId: string,
+    agentId: string,
+  ): Promise<AgentRecoveryFields | undefined> {
+    if (!this.conversations) return undefined;
+    try {
+      return await this.conversations.readAgentRecoveryContext(workspaceId, agentId);
+    } catch (error) {
+      console.warn(
+        JSON.stringify({
+          event: "agent_control:recovery_read_failed",
+          workspace_id: workspaceId,
+          agent_id: agentId,
+          error_type: error instanceof Error ? error.name : typeof error,
+        }),
+      );
+      return undefined;
+    }
   }
   /** Config/credential changes must confirm stop before mutating configuration. */
   async publishStop(
@@ -584,8 +626,8 @@ export class AgentControl {
       // A Restart or Reset ends with a Start after its stop step, which dropped what the daemon
       // held (already acknowledged). That Start carries the unread messages from the read
       // boundary, the same recovery a plain Start reads in `execute`.
-      if (!recovery && state.phase === "starting" && state.action !== "start" && this.conversations)
-        recovery = await this.conversations.readAgentRecoveryContext(state.workspaceId, agentId);
+      if (!recovery && state.phase === "starting" && state.action !== "start")
+        recovery = await this.readRecovery(state.workspaceId, agentId);
       const identity = state.identity;
       const reset =
         state.phase !== "completed" &&
@@ -640,8 +682,8 @@ export class AgentControl {
     agentId: string,
     requestId: string,
     /** Only ever set by `execute()`'s `"start"` action; threaded into the single `publishCurrent`
-     * call this method itself makes. Chain transitions still go through `advance()`,
-     * unchanged, exactly as an owner-initiated Restart/Reset/Full reset already did. */
+     * call this method itself makes. Chain transitions still go through `advance()`; the Start
+     * that ends a Restart/Reset/Full reset reads its own recovery in `publishCurrent`. */
     recovery?: AgentRecoveryFields,
   ): Promise<AgentControlView> {
     const deadline = Date.now() + this.timing.timeoutMs;
