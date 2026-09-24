@@ -75,6 +75,7 @@ export type AgentMessageRepository = {
     workspaceId: string,
     agentId: string,
     limit?: number,
+    target?: string,
   ): Promise<{ messages: readonly AgentMessageRecord[]; hasMore: boolean }>;
 };
 
@@ -385,9 +386,10 @@ export async function drainAgentEvents(
   repository: AgentMessageRepository,
   scope: { workspaceId: string; agentId: string },
   limit?: number,
+  target?: string,
 ) {
   if (!repository.drainAgentEvents) throw new Error("Agent event drain is unavailable");
-  const result = await repository.drainAgentEvents(scope.workspaceId, scope.agentId, limit);
+  const result = await repository.drainAgentEvents(scope.workspaceId, scope.agentId, limit, target);
   return {
     ...result,
     messages: result.messages.map((message) => ({

@@ -514,7 +514,7 @@ export function connectLocal(
       if (followed) throw new Error("Explicit thread follow is unavailable");
       return call("thread-unfollow", target);
     },
-    check: () => call("check"),
+    check: (target?: string) => call("check", target),
     read: (
       target: string,
       options?: { before?: string; after?: string; around?: string; limit?: number },

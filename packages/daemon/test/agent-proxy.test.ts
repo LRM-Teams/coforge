@@ -771,11 +771,14 @@ test("Agent API key remains usable after an idle day without refresh", async () 
   expect((await request()).status).toBe(401);
 });
 
-test("rejects a message check operation that carries a target", async () => {
+test("forwards a message check operation that carries a target", async () => {
+  const calls: Array<Record<string, unknown>> = [];
   const proxy = startAgentProxy({
     runtime: {
-      agentMessage: async () => {
-        throw new Error("check must not reach the runtime with a target");
+      issueAgentContext: () => "trusted-context",
+      agentMessage: async (_context, request) => {
+        calls.push(request);
+        return { messages: [], hasMore: false };
       },
     },
   });
@@ -786,7 +789,10 @@ test("rejects a message check operation that carries a target", async () => {
     headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
     body: JSON.stringify({ requestId: "request-1", operation: "check", target: "@ada" }),
   });
-  expect(response.status).toBe(400);
+  expect(response.status).toBe(200);
+  expect(calls).toHaveLength(1);
+  expect(calls[0]?.operation).toBe("check");
+  expect(calls[0]?.target).toBe("@ada");
 });
 
 test("proxy forwards validated range options with token-bound identity", async () => {

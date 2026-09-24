@@ -317,7 +317,16 @@ function unreadForAgentWhere(agentId: string, isChannel: boolean) {
  * above the Agent's boundary. Only direct-message thread replies, whose boundary is per thread,
  * are scanned in full. The outer `WHERE` still states the whole rule.
  */
-function unreadAgentMessagesFragment(workspaceId: string, agentId: string) {
+function unreadAgentMessagesFragment(
+  workspaceId: string,
+  agentId: string,
+  scope?: { conversationId: string; threadRootId: string | null },
+) {
+  const targetFilter = !scope
+    ? Prisma.empty
+    : scope.threadRootId
+      ? Prisma.sql` AND m."conversationId" = ${scope.conversationId}::uuid AND m."threadRootId" = ${scope.threadRootId}::uuid`
+      : Prisma.sql` AND m."conversationId" = ${scope.conversationId}::uuid AND m."threadRootId" IS NULL`;
   return Prisma.sql`
     SELECT m."id", m."sequence", m."body", m."conversationId", m."threadRootId",
       m."senderMemberId", COALESCE(r."sequence", 0) AS "rootSequence",
@@ -372,7 +381,8 @@ function unreadAgentMessagesFragment(workspaceId: string, agentId: string) {
     WHERE m."sequence" > CASE WHEN m."threadRootId" IS NULL
         THEN am."agentReadThroughSequence" ELSE COALESCE(tr."readThroughSequence", 0) END
       AND (sm."userId" IS NOT NULL OR d."deliveryId" IS NOT NULL)
-      AND (c."channelName" IS NULL OR d."deliveryId" IS NOT NULL)`;
+      AND (c."channelName" IS NULL OR d."deliveryId" IS NOT NULL)
+      ${targetFilter}`;
 }
 
 /**
@@ -578,6 +588,7 @@ export type DirectConversationRepository = {
     workspaceId: string,
     agentId: string,
     limit?: number,
+    target?: string,
   ): Promise<{
     messages: ({
       id: string;
@@ -1956,14 +1967,16 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
     workspaceId: string,
     agentId: string,
     limit = 20,
+    target?: string,
   ): Promise<{ messages: ReturnType<typeof toAgentMessage>[]; hasMore: boolean }> {
     const bounded = Math.min(Math.max(limit, 1), 100);
+    const scope = target ? await this.resolveAgentTarget(workspaceId, agentId, target) : undefined;
     return this.db.$transaction(async (tx) => {
       const rows = await tx.$queryRaw<
         Array<Pick<AgentRecoveryRow, "id" | "conversationId" | "threadRootId" | "sequence">>
       >`
         WITH unread AS (
-          ${unreadAgentMessagesFragment(workspaceId, agentId)}
+          ${unreadAgentMessagesFragment(workspaceId, agentId, scope)}
         )
         SELECT "id", "conversationId", "threadRootId", "sequence"
         FROM unread

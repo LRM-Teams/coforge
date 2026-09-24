@@ -20,7 +20,8 @@ export async function handleAgentEventsGet(
   try {
     const limit = query.has("limit") ? Number(query.get("limit")) : undefined;
     if (limit !== undefined && !Number.isInteger(limit)) throw new Error("invalid events limit");
-    const result = await drainAgentEvents(repository, scope, limit);
+    const target = query.get("target") || undefined;
+    const result = await drainAgentEvents(repository, scope, limit, target);
     const response: AgentEventsResponse = {
       protocolMajor: 1,
       idempotencyKey,

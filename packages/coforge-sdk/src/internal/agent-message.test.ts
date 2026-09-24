@@ -25,6 +25,18 @@ test("accepts the targetless events-drain check operation", () => {
   expect(validateAgentMessageRequest(request)).toBe(request);
 });
 
+test("accepts a targeted events-drain check operation", () => {
+  const request = {
+    protocolMajor: 1,
+    requestId: "request-check-target",
+    workspaceId: "workspace-a",
+    agentId: "agent-a",
+    operation: "check" as const,
+    target: "@ada",
+  };
+  expect(validateAgentMessageRequest(request)).toBe(request);
+});
+
 test.each(["mute", "unmute"] as const)("accepts Agent channel %s", (operation) => {
   const request = {
     protocolMajor: 1,

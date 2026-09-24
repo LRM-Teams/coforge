@@ -2631,6 +2631,53 @@ describe("DaemonRuntime", () => {
     await runtime.stop();
   });
 
+  test("message check forwards --target on every events drain round", async () => {
+    const credentials = new InMemoryDaemonCredentialStore();
+    await credentials.save(connection.workspaceId, connection.computerId, "token-a");
+    const targets: string[] = [];
+    const runtime = new DaemonRuntime(
+      connection,
+      () => ({
+        provider: "pi",
+        createAgentSession: async () => ({ ...sessionSpy(), async notify() {} }),
+      }),
+      credentials,
+      {
+        create: () => ({
+          async start() {},
+          async ready() {},
+          async stop() {},
+          async requestAgentLaunchConfig() {
+            return agentLaunchConfig(`sk_agent_${"a".repeat(43)}`);
+          },
+          async revokeAgentApiKey() {},
+          async sendAgentDeliveryAck() {},
+          async agentMessage(request) {
+            targets.push(request.target);
+            return {
+              protocolMajor: 1,
+              requestId: request.requestId,
+              accepted: true,
+              attentionCount: 0,
+              hasMore: false,
+              messages: [],
+            };
+          },
+        }),
+      },
+    );
+    await runtime.start(connection);
+    await runtime.startAgent("agent-a", config);
+    const context = runtime.issueAgentContext("agent-a");
+    await runtime.agentMessage(
+      context,
+      { requestId: "check-target", context, operation: "check", target: "@ada" },
+      `sk_agent_${"a".repeat(43)}`,
+    );
+    expect(targets).toEqual(["@ada"]);
+    await runtime.stop();
+  });
+
   test("a server-held send stores Raft's draft fields and the resend carries its seenUpToSeq", async () => {
     const stateDirectory = join(tempRoot, `coforge-message-drafts-${crypto.randomUUID()}`);
     const credentials = new InMemoryDaemonCredentialStore();

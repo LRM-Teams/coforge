@@ -67,9 +67,25 @@ test("drain maps Date values and forwards the limit and hasMore flag", async () 
     { workspaceId: "workspace-1", agentId: "agent-1" },
     10,
   );
-  expect(calls).toEqual([["workspace-1", "agent-1", 10]]);
+  expect(calls).toEqual([["workspace-1", "agent-1", 10, undefined]]);
   expect(result.hasMore).toBe(true);
   expect(result.messages[0]?.createdAt).toBe("2026-09-15T00:00:00.000Z");
+});
+
+test("drain forwards an optional target to the repository", async () => {
+  const calls: unknown[] = [];
+  await drainAgentEvents(
+    repository({
+      drainAgentEvents: async (...args) => {
+        calls.push(args);
+        return { messages: [], hasMore: false };
+      },
+    }),
+    { workspaceId: "workspace-1", agentId: "agent-1" },
+    undefined,
+    "@ada",
+  );
+  expect(calls).toEqual([["workspace-1", "agent-1", undefined, "@ada"]]);
 });
 
 test("drain rejects when the repository does not support the events seam", async () => {
