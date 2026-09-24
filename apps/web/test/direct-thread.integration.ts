@@ -368,3 +368,32 @@ test("thread send and unread ranges stay separate from the main conversation", a
     await db.$disconnect();
   }
 });
+
+test("thread follower and read-marker rows are found by their root through an index", async () => {
+  const connectionString = Bun.env.THREAD_TEST_DATABASE_URL;
+  if (!connectionString) throw new Error("THREAD_TEST_DATABASE_URL is required (local PostgreSQL)");
+  const db = new PrismaClient({ adapter: new PrismaPg({ connectionString }) });
+  // Every thread reply asks "does this root have a follower yet?" under the conversation lock,
+  // and deleting a Message cascades into both tables by (rootMessageId, conversationId). The
+  // (memberId, rootMessageId) primary key cannot seek either lookup, so each table needs an
+  // index that leads with the root; without it both walk the whole table.
+  try {
+    const leading = await db.$queryRaw<{ table: string; columns: string[] }[]>`
+      SELECT t.relname AS "table",
+             ARRAY(SELECT a.attname::text
+                     FROM unnest(i.indkey[0:1]) WITH ORDINALITY AS k(attnum, position)
+                     JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = k.attnum
+                    ORDER BY k.position) AS columns
+        FROM pg_index i
+        JOIN pg_class t ON t.oid = i.indrelid
+       WHERE t.relname IN ('thread_follows', 'thread_reads')`;
+    for (const table of ["thread_follows", "thread_reads"]) {
+      expect(
+        leading.filter((index) => index.table === table).map((index) => index.columns),
+        table,
+      ).toContainEqual(["rootMessageId", "conversationId"]);
+    }
+  } finally {
+    await db.$disconnect();
+  }
+});

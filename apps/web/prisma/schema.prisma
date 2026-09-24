@@ -867,6 +867,7 @@ model ThreadRead {
   root                Message            @relation(fields: [rootMessageId, conversationId], references: [id, conversationId], onDelete: Cascade)
 
   @@id([memberId, rootMessageId])
+  @@index([rootMessageId, conversationId])
   @@map("thread_reads")
 }
 
@@ -880,6 +881,7 @@ model ThreadFollow {
   root           Message            @relation(fields: [rootMessageId, conversationId], references: [id, conversationId], onDelete: Cascade)
 
   @@id([memberId, rootMessageId])
+  @@index([rootMessageId, conversationId])
   @@map("thread_follows")
 }
 
