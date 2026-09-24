@@ -46,6 +46,7 @@ import type { Mentionable } from "./mention-text";
 import type { ChannelSuggestion } from "./reference-completion";
 import { useReferenceCompletion } from "./use-reference-completion";
 import { ReferenceSuggestionList } from "./reference-suggestions";
+import { PendingMentionStrip, type PendingMention } from "./pending-mention-strip";
 import { fileIconType } from "./message-row";
 import { cx } from "#src/utils/cx";
 import { m } from "#src/paraglide/messages";
@@ -59,6 +60,8 @@ export type SentMessage = {
   attachmentFileName?: string;
   /** The `@handle`s this send left as text because they name nobody the sender can see. */
   unresolvedMentionHandles?: readonly string[];
+  /** Mentions of people outside the channel this send did not notify, for the sender to act on. */
+  pendingMentionActions?: readonly PendingMention[];
 };
 
 /** At most 10 attachments per send, mirroring the server-side `attachmentIds` bound
@@ -295,13 +298,21 @@ export function MessageComposer({
       if (retryRef.current && next.trim() !== retryRef.current.body) retryRef.current = undefined;
     },
   });
-  // The `@handle`s that reached nobody in this chat's newest accepted send. Kept with the chat and
-  // the message's position: a reply that lands after the reader moved to another chat, or after a
-  // newer send's reply, never replaces what the notice shows.
+  // What this chat's newest accepted send did not reach: `@handle`s that name nobody, and mentions
+  // of people outside the channel. Kept with the chat and the message's position: a reply that
+  // lands after the reader moved to another chat, or after a newer send's reply, never replaces it.
   const [unresolved, setUnresolved] = useState<
-    { draftKey: string; sequence: number; handles: readonly string[] } | undefined
+    | {
+        draftKey: string;
+        sequence: number;
+        handles: readonly string[];
+        pendingMentions: readonly PendingMention[];
+      }
+    | undefined
   >(undefined);
-  const unresolvedHandles = unresolved?.draftKey === draftKey ? unresolved.handles : [];
+  const current = unresolved?.draftKey === draftKey ? unresolved : undefined;
+  const unresolvedHandles = current?.handles ?? [];
+  const pendingMentions = current?.pendingMentions ?? [];
   const unresolvedNotice = unresolvedHandles.length
     ? m.conversation_unresolved_mentions({
         handles: new Intl.ListFormat(getLocale(), { type: "conjunction" }).format(
@@ -325,6 +336,7 @@ export function MessageComposer({
               draftKey,
               sequence: message.sequence,
               handles: message.unresolvedMentionHandles ?? [],
+              pendingMentions: message.pendingMentionActions ?? [],
             },
       );
     },
@@ -561,6 +573,22 @@ export function MessageComposer({
           {m.conversation_drop_to_upload()}
         </div>
       )}
+      {pendingMentions.length > 0 && (
+        <PendingMentionStrip
+          mentions={pendingMentions}
+          onRemove={(resolutionId) =>
+            setUnresolved(
+              (report) =>
+                report && {
+                  ...report,
+                  pendingMentions: report.pendingMentions.filter(
+                    (mention) => mention.resolutionId !== resolutionId,
+                  ),
+                },
+            )
+          }
+        />
+      )}
       {/* Always mounted, so a screen reader announces the notice when its text arrives. */}
       <p role="status" className="sr-only">
         {unresolvedNotice}
@@ -579,7 +607,7 @@ export function MessageComposer({
             size="xs"
             color="tertiary"
             tooltip={m.conversation_unresolved_mentions_dismiss()}
-            onClick={() => setUnresolved(undefined)}
+            onClick={() => setUnresolved((report) => report && { ...report, handles: [] })}
           />
         </div>
       )}

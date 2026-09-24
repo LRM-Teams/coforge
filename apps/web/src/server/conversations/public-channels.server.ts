@@ -1,7 +1,7 @@
 import { lockConversation } from "./conversation-lock.server";
 import { lockMemberPins, setConversationPin } from "./conversation-pins.server";
 import type { Prisma, PrismaClient } from "#src/generated/prisma/client";
-import { AppError } from "#src/lib/app-error";
+import { AppError, isAppError } from "#src/lib/app-error";
 import { CHANNEL_NAME_PATTERN } from "#src/features/conversations/conversation.schemas";
 import { windowPageFlags } from "#src/lib/conversation-window";
 import { ACTIVE_MEMBER_WHERE, VISIBLE_CONVERSATION_WHERE } from "./active-member.server";
@@ -34,6 +34,13 @@ import {
 import type { MessageNotifier } from "#src/server/notifications/web-push-composition.server";
 import { storeMessageBody } from "./message-references.server";
 import { unresolvedMentionHandles } from "./unresolved-mentions.server";
+import {
+  claimMentionActions,
+  pendingMentionActionsForMessage,
+  recordPendingMentionActions,
+  releaseMentionActions,
+  type MentionActionResult,
+} from "./pending-mention-actions.server";
 import {
   BROWSER_MESSAGE_MENTIONS_SELECT,
   browserMessageMention,
@@ -1381,6 +1388,58 @@ export class PublicChannels {
     return { ...result, alreadyMemberUserIds, alreadyMemberAgentIds };
   }
 
+  /**
+   * The sender acts on mentions of their messages that did not reach their target: `add` makes
+   * each target a member of the channel it was mentioned in, under the sender's own authority to
+   * add members. Results come back in request order, one per distinct resolution id.
+   */
+  async executeMentionActions(
+    workspaceId: string,
+    userId: string,
+    action: "add",
+    resolutionIds: readonly string[],
+  ): Promise<MentionActionResult[]> {
+    await this.authorize(workspaceId, userId);
+    const { refused, claimed } = await claimMentionActions(
+      this.db,
+      workspaceId,
+      userId,
+      action,
+      resolutionIds,
+    );
+    const results = new Map(refused.map((result) => [result.resolutionId, result]));
+    const byChannel = Map.groupBy(claimed, (claim) => claim.conversationId);
+    for (const [channelId, claims] of byChannel) {
+      try {
+        await this.addMembers(workspaceId, { userId }, channelId, {
+          userIds: claims.flatMap((claim) => (claim.targetType === "user" ? [claim.targetId] : [])),
+          agentIds: claims.flatMap((claim) =>
+            claim.targetType === "agent" ? [claim.targetId] : [],
+          ),
+        });
+        for (const claim of claims)
+          results.set(claim.resolutionId, {
+            resolutionId: claim.resolutionId,
+            status: "delivered",
+            targetType: claim.targetType,
+            targetId: claim.targetId,
+          });
+      } catch (error) {
+        await releaseMentionActions(this.db, claims);
+        if (!isAppError(error)) throw error;
+        for (const claim of claims)
+          results.set(claim.resolutionId, {
+            resolutionId: claim.resolutionId,
+            status: "no_permission",
+            reason: "could_not_apply",
+            targetType: claim.targetType,
+            targetId: claim.targetId,
+          });
+      }
+    }
+    return [...new Set(resolutionIds)].map((id) => results.get(id)!);
+  }
+
   async open(
     workspaceId: string,
     userId: string,
@@ -1780,6 +1839,15 @@ export class PublicChannels {
               },
             },
           });
+          // A mention of someone outside the channel reached nobody; the sender may still act on it.
+          await recordPendingMentionActions(tx, {
+            id: message.id,
+            workspaceId,
+            conversationId: channelId,
+            senderMemberId: member.id,
+            body: stored.body,
+            createdAt: message.createdAt,
+          });
           await Promise.all(
             attachmentRowIds.map((id, position) =>
               tx.attachment.update({
@@ -1890,7 +1958,18 @@ export class PublicChannels {
       { userId },
       message.body,
     );
-    return { ...message, unresolvedMentionHandles: unresolved };
+    const pendingMentionActions = await pendingMentionActionsForMessage(
+      this.db,
+      {
+        id: message.id,
+        workspaceId,
+        conversationId: channelId,
+        senderMemberId: member.id,
+        body: message.body,
+      },
+      { archived: channel.archivedAt !== null, name: channel.channelName! },
+    );
+    return { ...message, unresolvedMentionHandles: unresolved, pendingMentionActions };
   }
 
   /**

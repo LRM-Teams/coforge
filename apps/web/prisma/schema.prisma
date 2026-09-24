@@ -88,6 +88,7 @@ model User {
   gitHubAuthorization         GitHubAuthorization?
   gitHubUserInstallations     GitHubUserInstallation[]
   memberships                 WorkspaceMembership[]
+  pendingMentionActions       PendingMentionAction[]
   sentInvitations             WorkspaceInvitation[]           @relation("WorkspaceInvitationInviter")
   receivedInvitations         WorkspaceInvitation[]           @relation("WorkspaceInvitationInvitee")
   agents                      Agent[]
@@ -246,6 +247,7 @@ model Agent {
   owner                     User                       @relation(fields: [ownerId], references: [id])
   computer                  Computer?                  @relation(fields: [computerId], references: [id], onDelete: SetNull)
   conversations             ConversationMember[]
+  pendingMentionActions     PendingMentionAction[]
   deliveries                AgentMessageDelivery[]
   apiKeys                   AgentApiKey[]
   activity                  AgentActivity[]
@@ -739,6 +741,7 @@ model ConversationMember {
   threadFollows            ThreadFollow[]
   reactions                MessageReaction[]
   mentions                 MessageMention[]
+  sentPendingMentionActions PendingMentionAction[]
   savedMessages            SavedMessage[]
   pins                     ConversationPin[]
   ownedTasks               Task[]            @relation("TaskOwner")
@@ -771,6 +774,7 @@ model Message {
   threadFollows  ThreadFollow[]
   reactions      MessageReaction[]
   mentions       MessageMention[]
+  pendingMentionActions PendingMentionAction[]
   savedBy        SavedMessage[]
   task           Task?
   actionCard     ActionCard?
@@ -932,6 +936,39 @@ model MessageMention {
   /// Serves one member's mentions (the Activity inbox's Mentions filter and mention badge).
   @@index([memberId])
   @@map("message_mentions")
+}
+
+/// One `@handle` of a sent message that named someone outside its conversation: a Workspace human
+/// or a public Agent who is not an active member, and so was not notified. The sender can act on it
+/// until `expiresAt` (7 days after the send): add the target to the channel, or let it go (the
+/// client-side Ignore writes nothing). Resolving it records the action taken; the row is kept so
+/// a repeated action reads as no longer pending. `id` is the resolution id the sender acts with.
+model PendingMentionAction {
+  id             String             @id @default(uuid()) @db.Uuid
+  messageId      String             @db.Uuid
+  conversationId String             @db.Uuid
+  workspaceId    String             @db.Uuid
+  senderMemberId String             @db.Uuid
+  /// Exactly one target is set (CHECK in the migration).
+  targetUserId   String?            @db.Uuid
+  targetAgentId  String?            @db.Uuid
+  /// The `@handle` as the sender wrote it (`user.username` or `agent.name`, both immutable).
+  targetHandle   String
+  expiresAt      DateTime
+  /// When the sender acted on it, and how: "add" (CHECK in the migration). Null while pending.
+  resolvedAt     DateTime?
+  resolvedAction String?
+  createdAt      DateTime           @default(now())
+  message        Message            @relation(fields: [messageId, conversationId], references: [id, conversationId], onDelete: Cascade)
+  sender         ConversationMember @relation(fields: [senderMemberId, conversationId, workspaceId], references: [id, conversationId, workspaceId], onDelete: Cascade)
+  targetUser     User?              @relation(fields: [targetUserId], references: [id], onDelete: Cascade)
+  targetAgent    Agent?             @relation(fields: [targetAgentId, workspaceId], references: [id, workspaceId], onDelete: Cascade)
+
+  @@unique([messageId, targetUserId])
+  @@unique([messageId, targetAgentId])
+  /// Serves a sender's pending list: their unresolved, unexpired actions.
+  @@index([senderMemberId, resolvedAt, expiresAt])
+  @@map("pending_mention_actions")
 }
 
 model MessageReaction {

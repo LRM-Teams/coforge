@@ -465,5 +465,20 @@
   "search_no_matching_messages": "没有匹配的消息",
   "search_try_different_filters": "试试其他筛选组合。",
   "conversation_unresolved_mentions": "没有找到 {handles}，对应的提及没有通知到任何人。要通知某人，请从 @ 列表中选择后再提及一次。",
-  "conversation_unresolved_mentions_dismiss": "关闭"
+  "conversation_unresolved_mentions_dismiss": "关闭",
+  "conversation_pending_mention_not_notified": "{target} 未收到通知，因为他们不在 {channel}",
+  "conversation_pending_mention_added": "{target} 已加入 {channel}",
+  "conversation_pending_mention_add": "添加",
+  "conversation_pending_mention_add_all": "全部添加",
+  "conversation_pending_mention_added_label": "已添加",
+  "conversation_pending_mention_ignore": "忽略",
+  "conversation_pending_mention_added_partial": "已添加 {succeeded}/{total}。{reason}",
+  "conversation_pending_mention_add_failed": "添加失败，请稍后重试。",
+  "conversation_pending_mention_already_member": "对方已在频道中，无需操作。",
+  "conversation_pending_mention_target_unavailable": "对方已无法加入这个频道。",
+  "conversation_pending_mention_sender_lacks_access": "你已不在这个频道，没有添加对方。",
+  "conversation_pending_mention_channel_archived": "频道已归档，无法添加成员。",
+  "conversation_pending_mention_no_longer_pending": "这个提及已经处理过了。",
+  "conversation_pending_mention_expired": "这个提及已超过 7 天，无法再处理。",
+  "conversation_pending_mention_unavailable": "这个提及已无法处理。"
 }
