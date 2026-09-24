@@ -177,7 +177,7 @@ responsibility.
 - Rules for `prisma/` → [`prisma/AGENTS.md`](prisma/AGENTS.md)
 - Rules for `src/routes/` → [`src/routes/AGENTS.md`](src/routes/AGENTS.md)
 - Rules for `src/components/` → [`src/components/AGENTS.md`](src/components/AGENTS.md)
-- Rules for `src/lib/` (dates and times) → [`src/lib/AGENTS.md`](src/lib/AGENTS.md)
+- Date and time rules for all of `apps/web` (Temporal, `Intl`, `useHydrated`) → [`src/lib/AGENTS.md`](src/lib/AGENTS.md)
 - Rules for `src/features/agents/` → [`src/features/agents/AGENTS.md`](src/features/agents/AGENTS.md)
 - Rules for `src/features/computers/` → [`src/features/computers/AGENTS.md`](src/features/computers/AGENTS.md)
 - Rules for `src/features/conversations/` → [`src/features/conversations/AGENTS.md`](src/features/conversations/AGENTS.md)
