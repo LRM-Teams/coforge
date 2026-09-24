@@ -240,9 +240,9 @@ export const setPublicChannelArchived = createServerFn({ method: "POST" })
     return channels.setArchived(workspaceId, { userId }, data.channelId, data.archived);
   });
 
-/** Whether `#general` is hidden from the whole Workspace, for Settings → System channels; `null`
- * for anyone but a Workspace owner or admin (or a Workspace without #general), who get no such
- * section. */
+/** Whether `#general` is hidden from the whole Workspace, for the System channels section of
+ * Settings → Members; `null` for anyone but a Workspace owner or admin (or a Workspace without
+ * #general), who get no such section. */
 export const loadGeneralChannelHidden = createServerFn({ method: "GET" })
   .middleware([workspaceUserMiddleware])
   .handler(async ({ context }): Promise<{ hidden: boolean } | null> => {

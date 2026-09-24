@@ -95,7 +95,7 @@
   "channel_settings_leave_confirm": "You will stop receiving messages from #{name} and cannot send messages there until you rejoin.",
   "channel_settings_leave_error": "Could not leave the channel. Try again.",
   "channel_settings_hide_general": "Hide #general",
-  "channel_settings_hide_general_confirm": "#general will disappear from channel lists, and Workspace members and Agents will no longer be able to read or post there — including you. Existing history is preserved. To bring it back, go to Settings → System channels and turn off \"Hide #general channel\".",
+  "channel_settings_hide_general_confirm": "#general will disappear from channel lists, and Workspace members and Agents will no longer be able to read or post there — including you. Existing history is preserved. To bring it back, go to Settings → Members → System channels and turn off \"Hide #general channel\".",
   "channel_settings_hiding_general": "Hiding…",
   "channel_settings_hide_general_error": "Could not hide #general. Try again.",
   "channel_settings_unsaved_title": "Unsaved changes",
