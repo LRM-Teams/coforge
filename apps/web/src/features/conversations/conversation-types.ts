@@ -6,6 +6,7 @@ import type { ThreadFollow } from "./thread-pane-header";
 import type { Mentionable } from "./mention-text";
 import type { ChipMention } from "./message-markdown";
 import type { OwnMessageIndexEntry } from "./own-messages-menu";
+import type { ChannelSuggestion } from "./reference-completion";
 
 /** The browser's projection of a direct conversation or a public channel. */
 export type DirectConversationView = {
@@ -135,4 +136,18 @@ export type ThreadedConversationProps = Omit<ConversationProps, "conversation" |
   conversationName: string;
   /** Where this conversation's threads live, named in each thread's header. */
   threadContext: string;
+  /** Every channel of the Workspace, for a body's channel links and the composer's `#` list.
+   * Under Chat it is read from the messages layout; a page outside Chat supplies it. */
+  channels?: readonly ChannelSuggestion[];
+  /** Shows only the Task popup (the Task and its thread), for a page other than the
+   * conversation's own — the Tasks page — which opens and closes it through these controls
+   * instead of the conversation's `task` search param. */
+  taskPopup?: TaskPopupControls;
+};
+
+/** Which Task's popup is open, and how to open another or close it. */
+export type TaskPopupControls = {
+  openTaskNumber: number | undefined;
+  openTask: (number: number) => void;
+  closeTask: () => void;
 };

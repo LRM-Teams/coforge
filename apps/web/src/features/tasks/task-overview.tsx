@@ -21,6 +21,12 @@ import {
   type TaskLayout,
 } from "./task-workflow";
 import { TaskDetailMenu } from "./task-detail-dialog";
+import { overviewTaskParam } from "./task-overview-search";
+
+/** A Task command as the overview issues it: the conversation comes from the Task. */
+export type OverviewTaskCommand = Omit<TaskCommand, "idempotencyKey" | "conversationId"> & {
+  number: number;
+};
 
 export type TaskOverviewItem = TaskView & {
   currentMemberId?: string | null;
@@ -33,6 +39,7 @@ export function TaskOverview({
   layout,
   onStatusChange,
   onLayoutChange,
+  onOpenTask,
   onCommand,
 }: {
   tasks: TaskOverviewItem[];
@@ -40,10 +47,9 @@ export function TaskOverview({
   layout?: TaskLayout;
   onStatusChange: (status?: TaskStatus) => void;
   onLayoutChange?: (layout: TaskLayout) => void;
-  onCommand?: (
-    task: TaskOverviewItem,
-    command: Omit<TaskCommand, "idempotencyKey" | "conversationId"> & { number: number },
-  ) => Promise<void>;
+  /** Opens a Task's popup over the overview (the card menu's "View details"). */
+  onOpenTask: (task: TaskOverviewItem) => void;
+  onCommand?: (task: TaskOverviewItem, command: OverviewTaskCommand) => Promise<void>;
 }) {
   layout ??= "board";
   onLayoutChange ??= () => {};
@@ -90,6 +96,7 @@ export function TaskOverview({
               task={task}
               controls={controls}
               list={layout === "list"}
+              onOpenDetails={() => onOpenTask(task)}
               onCommand={onCommand ? (command) => onCommand(task, command) : undefined}
             />
           )}
@@ -103,41 +110,28 @@ function OverviewTaskCard({
   task,
   controls,
   list,
+  onOpenDetails,
   onCommand,
 }: {
   task: TaskOverviewItem;
   controls: TaskControls;
   list: boolean;
-  onCommand?: (
-    command: Omit<TaskCommand, "idempotencyKey" | "conversationId"> & { number: number },
-  ) => Promise<void>;
+  onOpenDetails: () => void;
+  onCommand?: (command: OverviewTaskCommand) => Promise<void>;
 }) {
-  // Lands on the conversation's Tasks tab with this Task's popup open.
-  const search = {
-    view: "tasks" as const,
-    layout: list ? ("list" as const) : undefined,
-    task: task.number,
-  };
-  const renderTitle = (title: ReactNode) =>
-    task.source.agentId ? (
-      <Link
-        to="/messages/$agentId"
-        params={{ agentId: task.source.agentId }}
-        search={search}
-        className={TASK_TITLE_CLASS}
-      >
-        {title}
-      </Link>
-    ) : (
-      <Link
-        to="/messages/channels/$channelId"
-        params={{ channelId: task.conversationId }}
-        search={search}
-        className={TASK_TITLE_CLASS}
-      >
-        {title}
-      </Link>
-    );
+  // Opens this Task's popup over the overview; a link, so the popup's URL can also open in a
+  // new tab.
+  const renderTitle = (title: ReactNode) => (
+    <Link
+      from="/tasks"
+      to="."
+      search={(previous) => ({ ...previous, task: overviewTaskParam(task) })}
+      resetScroll={false}
+      className={TASK_TITLE_CLASS}
+    >
+      {title}
+    </Link>
+  );
   return (
     <TaskCard
       task={task}
@@ -150,6 +144,7 @@ function OverviewTaskCard({
           <TaskDetailMenu
             task={task}
             moves={controls.moves}
+            onOpenDetails={onOpenDetails}
             onCommand={onCommand}
             conversationName={task.source.label}
             currentMemberId={task.currentMemberId ?? null}

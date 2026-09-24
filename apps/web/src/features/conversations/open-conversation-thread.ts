@@ -102,6 +102,10 @@ export function useOpenConversationThread() {
   return { searchThreadRootId, openThread, openThreadFromHash, closeThread, showThreadRoot };
 }
 
+/** The `task` param as the loose `to: "."` navigation sees it: every route's search, where the
+ * Tasks page's `task` is a `<conversationId>:<number>` string rather than a number. */
+type ConversationTaskSearch = { task?: unknown };
+
 /**
  * The one way the conversation UI opens or closes a Task's popup — from a Task card on the Tasks
  * tab or a `task #N` chip in the stream. `task=<number>` is the source of truth, so a reload or a
@@ -118,7 +122,7 @@ export function useOpenConversationTask() {
       void router.navigate({
         to: ".",
         resetScroll: false,
-        search: (previous: { task?: number }) => conversationSearchWithTask(previous, task),
+        search: (previous: ConversationTaskSearch) => conversationSearchWithTask(previous, task),
       });
     },
     [router, openTaskNumber],
@@ -129,7 +133,7 @@ export function useOpenConversationTask() {
         to: ".",
         replace: true,
         resetScroll: false,
-        search: (previous: { task?: number }) => conversationSearchWithoutTask(previous),
+        search: (previous: ConversationTaskSearch) => conversationSearchWithoutTask(previous),
       }),
     [router],
   );

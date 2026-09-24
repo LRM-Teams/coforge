@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef } from "react";
-import { ClientOnly, getRouteApi } from "@tanstack/react-router";
+import { ClientOnly, useMatch } from "@tanstack/react-router";
 import { Group, Panel, Separator, useDefaultLayout } from "react-resizable-panels";
 import { ChevronRight, MessageSquare01 as MessageSquare } from "@untitledui/icons";
 
@@ -32,14 +32,16 @@ import { conversationLayoutStorage } from "./layout-storage";
 import { ConversationPending } from "./conversation-pending";
 import { resolveConversationThreadRoot } from "./conversation-thread-search";
 import type { DirectConversationView, ThreadedConversationProps } from "./conversation-types";
+import type { ChannelSuggestion } from "./reference-completion";
 
-const messagesRoute = getRouteApi("/_app/messages");
+/** No channels to link or suggest: one array, so what is memoized on the list keeps. */
+const NO_CHANNELS: readonly ChannelSuggestion[] = [];
 
 export function ThreadedConversation(props: ThreadedConversationProps) {
   // Persisted panel sizes use localStorage; mount that UI only after hydration.
 
   return (
-    <ClientOnly fallback={<ConversationPending />}>
+    <ClientOnly fallback={props.taskPopup ? null : <ConversationPending />}>
       <ThreadedConversationContent {...props} />
     </ClientOnly>
   );
@@ -62,6 +64,8 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
     onReadLatest,
     conversationName,
     tasksPane,
+    channels,
+    taskPopup,
     ...conversationProps
   } = props;
   const detailVisible = useConversationDetailVisible();
@@ -113,7 +117,12 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
   };
   // A stored channel reference links to its channel, under its current name, only when the
   // Workspace has that channel: every channel by id, closed ones included, from the messages layout.
-  const channelList = messagesRoute.useLoaderData({ select: (data) => data.channelNames });
+  const layoutChannels = useMatch({
+    from: "/_app/messages",
+    shouldThrow: false,
+    select: (match) => match.loaderData?.channelNames,
+  });
+  const channelList = channels ?? layoutChannels ?? NO_CHANNELS;
   const channelNames = useMemo(
     () => new Map(channelList.map((channel) => [channel.id, channel.name])),
     [channelList],
@@ -131,11 +140,12 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
     () => new Set((props.tasks ?? []).map((task) => task.number)),
     [props.tasks],
   );
+  const conversationTaskPopup = useOpenConversationTask();
   const {
     openTaskNumber,
     openTask: openTaskReference,
     closeTask: closeTaskReference,
-  } = useOpenConversationTask();
+  } = taskPopup ?? conversationTaskPopup;
   const openTask =
     openTaskNumber === undefined
       ? undefined
@@ -352,6 +362,8 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
     },
     [props.tasks],
   );
+  // Outside the conversation's page only its Task popup shows; the panes stay unmounted.
+  if (taskPopup) return taskDialog;
   const conversationMainPane = (
     <ConversationPane
       {...conversationProps}

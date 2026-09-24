@@ -67,7 +67,7 @@ export function conversationSearchWithTask<T extends object>(
   return { ...previous, task };
 }
 
-export function conversationSearchWithoutTask<T extends { task?: number }>(
+export function conversationSearchWithoutTask<T extends { task?: unknown }>(
   previous: T,
 ): Omit<T, "task"> {
   const { task: _task, ...rest } = previous;
