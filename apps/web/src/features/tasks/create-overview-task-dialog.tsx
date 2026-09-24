@@ -2,7 +2,7 @@ import type { TaskStatus } from "@lrm/coforge-sdk/internal";
 import { useQuery } from "@tanstack/react-query";
 import { getRouteApi } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
-import { useMemo, useRef, useState, type SubmitEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type SubmitEvent } from "react";
 
 import { Dialog, Modal, ModalOverlay } from "#src/components/application/modals/modal";
 import { DialogHeader } from "#src/components/application/modals/dialog-header";
@@ -99,11 +99,20 @@ function CreateForm({
   // any edit makes it another Task, with a new id.
   const attempt = useRef<string | undefined>(undefined);
   const edited =
-    <T,>(set: (value: T) => void) =>
+    <T,>(current: T, set: (value: T) => void) =>
     (value: T) => {
+      if (value === current) return;
       attempt.current = undefined;
       set(value);
     };
+  // A move answered after the dialog closed must not close the next one opened meanwhile.
+  const mounted = useRef(false);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
 
   const agent = agents.find((candidate) => candidate.id === holder);
   // An Agent's Task goes to the direct conversation unless a channel is picked.
@@ -148,7 +157,7 @@ function CreateForm({
           ? m.tasks_create_agent_restricted()
           : code === "NOT_FOUND" && destination === DIRECT
             ? m.tasks_create_agent_gone()
-            : code === "NOT_FOUND" && holder !== NOBODY
+            : code === "NOT_FOUND" && agent
               ? m.tasks_create_holder_not_in_channel()
               : m.tasks_create_error(),
       );
@@ -172,6 +181,7 @@ function CreateForm({
       });
     }
     onCreated();
+    if (!mounted.current) return;
     setSaving(false);
     if (kept) setKeptIn(kept);
     else onClose();
@@ -207,7 +217,7 @@ function CreateForm({
         <Input
           label={m.tasks_title()}
           value={title}
-          onChange={edited(setTitle)}
+          onChange={edited(title, setTitle)}
           isRequired
           maxLength={500}
           isDisabled={saving}
@@ -216,7 +226,7 @@ function CreateForm({
         <TextArea
           label={m.tasks_description()}
           value={description}
-          onChange={edited(setDescription)}
+          onChange={edited(description, setDescription)}
           rows={3}
           isDisabled={saving}
         />
@@ -224,11 +234,13 @@ function CreateForm({
           <Select
             label={m.tasks_overview_owner()}
             value={holder}
-            onChange={edited((key) => {
-              setHolder(String(key));
-              // A new holder reopens the choice of where it goes.
-              setPlace(undefined);
-            })}
+            onChange={(key) =>
+              edited(holder, (next: string) => {
+                setHolder(next);
+                // A new holder reopens the choice of where it goes.
+                setPlace(undefined);
+              })(String(key))
+            }
             isDisabled={saving}
           >
             <Select.Item id={NOBODY} label={m.tasks_unassigned()} />
@@ -246,7 +258,9 @@ function CreateForm({
             label={m.tasks_create_place()}
             placeholder={m.tasks_create_choose_channel()}
             value={destination ?? null}
-            onChange={edited((key) => setPlace(key === null ? undefined : String(key)))}
+            onChange={(key) =>
+              edited(destination, setPlace)(key === null ? undefined : String(key))
+            }
             isDisabled={saving}
           >
             {[
