@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 import { getRouteApi, useHydrated } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
@@ -25,6 +25,9 @@ import { decodeTaskChangedEvent, type TaskChangedEvent } from "./task-realtime";
 
 const appRoute = getRouteApi("/_app");
 
+const selectOrder = (overview: { tasks: readonly { messageId: string }[] }) =>
+  overview.tasks.map((task) => task.messageId);
+
 // React access to the Tasks page's rows (`task-overview-collection.ts`).
 
 const overviewsByClient = new WeakMap<QueryClient, Map<string, TaskOverviewCollection>>();
@@ -47,10 +50,13 @@ function overviewFor(queryClient: QueryClient, workspaceId: string) {
 export function useTaskOverview() {
   const queryClient = useQueryClient();
   const workspaceId = useCurrentWorkspaceId() ?? "";
-  // Only a new read re-renders from this: after hydration the rows come from the collection.
-  const cache = useSuspenseQuery({
+  // The server's list of Tasks, which and in what order. Structurally shared, so it re-renders
+  // only when a read changes that list, not when a change rewrites a row in the cache: after
+  // hydration the rows themselves come from the collection.
+  const order = useSuspenseQuery({
     ...taskOverviewQuery(workspaceId),
-    notifyOnChangeProps: ["dataUpdatedAt"],
+    select: selectOrder,
+    notifyOnChangeProps: ["data"],
   }).data;
   const hydrated = useHydrated();
   const overview = useMemo(
@@ -61,13 +67,9 @@ export function useTaskOverview() {
     queryKey: ["task-overview", workspaceId, Boolean(overview)],
     query: (q) => (overview ? q.from({ task: overview.tasks }) : undefined),
   });
-  // The rows in the order the server sent them (the cache's), which a live query does not keep.
-  const position = useMemo(
-    () => new Map(cache.tasks.map((task, index) => [task.messageId, index])),
-    [cache.tasks],
-  );
+  // The rows in the order the server sent them, which a live query does not keep.
+  const position = useMemo(() => new Map(order.map((id, index) => [id, index])), [order]);
   const liveRows = live.isReady ? live.data : undefined;
-  // Until the live query is ready (the first tick after hydration) the cache holds the same rows.
   const tasks: readonly OverviewTaskRow[] = useMemo(
     () =>
       liveRows
@@ -76,8 +78,10 @@ export function useTaskOverview() {
               (position.get(left.messageId) ?? Infinity) -
               (position.get(right.messageId) ?? Infinity),
           )
-        : cache.tasks,
-    [liveRows, position, cache.tasks],
+        : // Until the live query is ready (the server render, the first tick after hydration) the
+          // cache holds the same rows, already in order.
+          (queryClient.getQueryData(taskOverviewQuery(workspaceId).queryKey)?.tasks ?? []),
+    [liveRows, position, queryClient, workspaceId],
   );
   useTaskOverviewRealtime(overview, workspaceId);
   return useMemo(
@@ -110,24 +114,48 @@ function useTaskOverviewRealtime(
   const userId = appRoute.useLoaderData({ select: (data) => data.user.id });
   const getWorkspaceToken = useServerFn(getWorkspaceConversationSubscriptionToken);
   const getUserToken = useServerFn(getUserConversationSubscriptionToken);
-  const pending = useRef<TaskChangedEvent[]>([]);
-  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  useEffect(() => () => clearTimeout(timer.current), []);
+  // One buffer per overview: a Workspace switch drops what the old one had not applied yet.
+  const burst = useMemo(
+    () => ({
+      pending: [] as TaskChangedEvent[],
+      timer: undefined as ReturnType<typeof setTimeout> | undefined,
+      // Set while a read this hook asked for is in flight: its snapshot may predate them, so the
+      // changes applied meanwhile are applied again once it lands.
+      sinceRead: undefined as TaskChangedEvent[] | undefined,
+    }),
+    [overview],
+  );
+  useEffect(() => () => clearTimeout(burst.timer), [burst]);
 
   const onPublication = useCallback(
     (publication: { data: unknown }) => {
       const event = decodeTaskChangedEvent(publication.data);
       if (!event || !overview || event.workspaceId !== workspaceId) return;
-      pending.current.push(event);
-      if (timer.current !== undefined) return;
-      timer.current = setTimeout(() => {
-        timer.current = undefined;
-        const events = pending.current.splice(0);
-        if (overview.apply(events))
-          void queryClient.invalidateQueries({ queryKey: taskOverviewQuery(workspaceId).queryKey });
+      burst.pending.push(event);
+      if (burst.timer !== undefined) return;
+      burst.timer = setTimeout(() => {
+        burst.timer = undefined;
+        const events = burst.pending.splice(0);
+        burst.sinceRead?.push(...events);
+        let needsRead: boolean;
+        try {
+          needsRead = overview.apply(events);
+        } catch {
+          // A change that cannot be applied is shown by a read of the list instead.
+          needsRead = true;
+        }
+        if (!needsRead || burst.sinceRead) return;
+        burst.sinceRead = [];
+        void queryClient
+          .invalidateQueries({ queryKey: taskOverviewQuery(workspaceId).queryKey })
+          .finally(() => {
+            const again = burst.sinceRead ?? [];
+            burst.sinceRead = undefined;
+            if (again.length > 0) overview.apply(again);
+          });
       }, APPLY_DELAY_MS);
     },
-    [overview, workspaceId, queryClient],
+    [overview, workspaceId, queryClient, burst],
   );
 
   useRealtimeSubscription({

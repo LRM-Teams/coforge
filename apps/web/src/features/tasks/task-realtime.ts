@@ -26,7 +26,9 @@ const member = z.object({
   avatarUrl: z.string().nullable().optional(),
 });
 
-const taskView = z.object({
+// Loose: fields this schema does not name (a resource receipt, a channel reference) pass through
+// to the row instead of being dropped.
+const taskView = z.looseObject({
   messageId: z.string().min(1),
   conversationId: z.string().min(1),
   number: z.number().int(),
@@ -51,11 +53,17 @@ const taskChangedEvent = z.object({
 
 /** The event, or undefined for any other publication on the channel (most are messages). */
 export function decodeTaskChangedEvent(value: unknown): TaskChangedEvent | undefined {
-  const data =
-    value instanceof Uint8Array ? (JSON.parse(new TextDecoder().decode(value)) as unknown) : value;
+  let data = value;
+  if (value instanceof Uint8Array) {
+    try {
+      data = JSON.parse(new TextDecoder().decode(value)) as unknown;
+    } catch {
+      return undefined;
+    }
+  }
   // The channels carry every message signal: anything else leaves before the full parse.
   if (!data || typeof data !== "object" || Reflect.get(data, "type") !== "task.changed.v1")
     return undefined;
   const parsed = taskChangedEvent.safeParse(data);
-  return parsed.success ? parsed.data : undefined;
+  return parsed.success ? (parsed.data as TaskChangedEvent) : undefined;
 }
