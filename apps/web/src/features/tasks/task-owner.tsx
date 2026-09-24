@@ -1,6 +1,7 @@
 import type { TaskView } from "@lrm/coforge-sdk/internal";
 
 import { Avatar } from "#src/components/base/avatar/avatar";
+import { DeletedAgentBadge } from "#src/features/agents/deleted-agent";
 import { cn } from "#src/lib/utils";
 import { m } from "#src/paraglide/messages";
 
@@ -9,7 +10,7 @@ export function TaskPerson({
   person,
   className,
 }: {
-  person: { name: string; avatarUrl?: string | null };
+  person: { name: string; avatarUrl?: string | null; deleted?: boolean };
   className?: string;
 }) {
   return (
@@ -23,6 +24,9 @@ export function TaskPerson({
         src={person.avatarUrl ?? undefined}
       />
       <span className="truncate">{person.name}</span>
+      {/* A Task's holder can be a deleted Agent: its Tasks stay readable, so the card says the
+          identity is gone rather than reading as a live owner (Raft calls this `unresolved`). */}
+      {person.deleted && <DeletedAgentBadge />}
     </span>
   );
 }
