@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useEffectEvent, useRef, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { Check, Plus } from "@untitledui/icons";
 import { Avatar } from "#src/components/base/avatar/avatar";
@@ -46,34 +46,31 @@ export function PendingMentionStrip({
   const [leaving, setLeaving] = useState<ReadonlySet<string>>(new Set());
   const [adding, setAdding] = useState<ReadonlySet<string>>(new Set());
   const [error, setError] = useState("");
-  // An added row shows that it was added, then fades out and goes. Scheduled from what the
-  // composer kept, so a row added just before the reader left the chat still goes on return.
-  const scheduled = useRef(new Set<string>());
-  const onRemoveRef = useRef(onRemove);
-  onRemoveRef.current = onRemove;
-  const addedIds = mentions
+  // An added row shows that it was added, then fades out and goes, each on its own timers.
+  // Scheduled from what the composer kept, so a row added just before the reader left the chat
+  // still goes on return.
+  const timers = useRef(new Map<string, ReturnType<typeof setTimeout>[]>());
+  const remove = useEffectEvent((resolutionId: string) => onRemove(resolutionId));
+  const addedKey = mentions
     .filter((mention) => mention.outcome === "added")
-    .map((mention) => mention.resolutionId);
-  const addedKey = addedIds.join(",");
+    .map((mention) => mention.resolutionId)
+    .join(",");
   useEffect(() => {
-    const ids = addedKey ? addedKey.split(",") : [];
-    const fresh = ids.filter((id) => !scheduled.current.has(id));
-    if (!fresh.length) return;
-    for (const id of fresh) scheduled.current.add(id);
-    const fade = setTimeout(
-      () => setLeaving((current) => new Set([...current, ...fresh])),
-      ADDED_VISIBLE_MS,
-    );
-    const remove = setTimeout(
-      () => fresh.forEach((id) => onRemoveRef.current(id)),
-      ADDED_REMOVE_MS,
-    );
-    return () => {
-      clearTimeout(fade);
-      clearTimeout(remove);
-      for (const id of fresh) scheduled.current.delete(id);
-    };
+    for (const id of addedKey ? addedKey.split(",") : []) {
+      if (timers.current.has(id)) continue;
+      timers.current.set(id, [
+        setTimeout(() => setLeaving((current) => new Set([...current, id])), ADDED_VISIBLE_MS),
+        setTimeout(() => remove(id), ADDED_REMOVE_MS),
+      ]);
+    }
   }, [addedKey]);
+  useEffect(() => {
+    const scheduled = timers.current;
+    return () => {
+      for (const ids of scheduled.values()) ids.forEach(clearTimeout);
+      scheduled.clear();
+    };
+  }, []);
 
   const addable = mentions
     .filter((mention) => mention.availableActions.includes("add") && !mention.outcome)
