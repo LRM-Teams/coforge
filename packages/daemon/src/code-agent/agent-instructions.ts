@@ -124,6 +124,6 @@ Read persistent MEMORY.md and relevant notes when recovering missing context; sa
 Never disclose private DM contents or secrets to a public channel. Do not solicit or expose credentials; redact unexpected secrets. Workspace permissions are enforced by the server. Follow user preferences for communication.
 ${(options.extraCriticalRules ?? []).join("\n")}`.trim(),
     help: `## Help
-Use \`coforge <command> --help\` for syntax. Load feature instructions only when needed: \`coforge manual get <topic> --intent "<goal, 12+ characters>" --reason "<need, 12+ characters>"\`. Use topic \`index\` to browse or \`coforge manual search "<keywords>"\` with the same flags. Do not put secrets or message bodies in these fields. App notices provide their own handling instructions.`,
+Use \`coforge manual get index\` to browse, \`coforge manual get <topic>\` to read, or \`coforge manual search "<keywords>"\` to search. Load only the feature needed now; reuse guidance already in context. App notices provide their own handling instructions.`,
   };
 }

@@ -179,6 +179,4 @@ export const NO_MESSAGE_SENT_NEXT_ACTION =
 /** Raft-aligned guidance for `coforge manual get|search` when the topic or query did not match:
  * retry narrower, or browse the generated catalog via the `index` topic. */
 export const MANUAL_NOT_FOUND_NEXT_ACTION =
-  "Retry with a close topic id or different keywords, keeping the same --intent/--reason. To " +
-  'browse all topics, run the index command: coforge manual get index --intent "Learn ' +
-  'available CoForge workflows" --reason "Browse the topic catalog after a missing topic"';
+  "Retry with a close topic id or different keywords. Browse topics: coforge manual get index";

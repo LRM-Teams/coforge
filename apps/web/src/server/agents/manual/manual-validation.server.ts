@@ -18,16 +18,17 @@ export function isValidManualTopicSlug(topic: string): boolean {
 }
 
 function isValidIntentOrReasonValue(value: unknown): value is string {
+  if (value === undefined || value === null || value === "") return true;
   if (typeof value !== "string") return false;
   const trimmed = value.trim();
   return (
-    trimmed.length >= MANUAL_INTENT_REASON_MIN_LENGTH &&
+    (trimmed.length === 0 || trimmed.length >= MANUAL_INTENT_REASON_MIN_LENGTH) &&
     trimmed.length <= MANUAL_INTENT_REASON_MAX_LENGTH
   );
 }
 
 /**
- * Both `--intent` and `--reason` are required on every `manual` call (Raft-aligned): trimmed,
+ * Both `--intent` and `--reason` are optional; supplied non-empty values are trimmed,
  * 12-500 characters. When both are invalid, a single error names both rather than only the first
  * one checked, so a caller does not have to fix them one at a time.
  */
@@ -45,7 +46,7 @@ export function validateManualIntentReason(
     return {
       errorCode: "knowledge_intent_invalid",
       error:
-        `--intent and --reason are both required and must be ${range} characters after ` +
+        `--intent and --reason, when provided, must be ${range} characters after ` +
         `trimming. --intent is what you ultimately want to accomplish; --reason is why the ` +
         `Manual is needed at this point. ${safetyNote}`,
     };
@@ -53,13 +54,13 @@ export function validateManualIntentReason(
     return {
       errorCode: "knowledge_intent_invalid",
       error:
-        `--intent is required and must be ${range} characters after trimming: state what you ` +
+        `--intent, when provided, must be ${range} characters after trimming: state what you ` +
         `ultimately want to accomplish. ${safetyNote}`,
     };
   return {
     errorCode: "knowledge_reason_invalid",
     error:
-      `--reason is required and must be ${range} characters after trimming: state why the ` +
+      `--reason, when provided, must be ${range} characters after trimming: state why the ` +
       `Manual is needed at this point. ${safetyNote}`,
   };
 }

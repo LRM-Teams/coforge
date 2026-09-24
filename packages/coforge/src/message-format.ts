@@ -48,6 +48,13 @@ function taskSuffix(message: AgentMessageRecord): string {
   return ` [task #${message.task.number} status=${message.task.status}${owner}]`;
 }
 
+/** One Tasks-manual pointer for a check/read/resolve window that contains tracked work. */
+export const TASK_WORKFLOW_HINT = "Tracked Tasks: coforge manual get tasks";
+
+export function formatTaskWorkflowHint(messages: readonly AgentMessageRecord[]): string {
+  return messages.some((message) => message.task) ? TASK_WORKFLOW_HINT : "";
+}
+
 /** Channel check/resolve lines longer than this are cut; the agent can `read --around` for the rest. */
 const CHANNEL_SUMMARY_CHARS = 200;
 
@@ -96,6 +103,8 @@ export function formatReadWindow(
 
   const lines = [`Read window: ${messages.length} returned, oldest to newest. ${older} ${newer}`];
   if (options.around) lines.push(`Around: ${options.around}.`);
+  const taskHint = formatTaskWorkflowHint(messages);
+  if (taskHint) lines.push(taskHint);
   lines.push("");
 
   const includeReplyTarget = !isThreadTarget(target);
@@ -259,12 +268,15 @@ export function formatSendSuccess(
         return `Message sent to ${target}. Message ID: ${response.messageId}${hint}`;
       })();
   if (!recentUnread?.length) return base;
-  return [
+  const lines = [
     base,
     "",
     "--- New messages you may have missed ---",
     ...recentUnread.map(formatMessageLine),
-  ].join("\n");
+  ];
+  const taskHint = formatTaskWorkflowHint(recentUnread);
+  if (taskHint) lines.push(taskHint);
+  return lines.join("\n");
 }
 
 type AttachmentUploadResponse = {
