@@ -8,6 +8,9 @@ export type ComputerStatusScope = { workspaceId: string; computerId: string };
 export interface ComputerStatusCache {
   put(scope: ComputerStatusScope, online: boolean): Promise<void>;
   get(scope: ComputerStatusScope): Promise<boolean>;
+  /** One round trip for many Computers (the list page's shape); missing keys read as
+   * offline, exactly like `get`. Returns statuses in the scopes' order. */
+  getMany(scopes: readonly ComputerStatusScope[]): Promise<boolean[]>;
 }
 
 export class RedisComputerStatusCache implements ComputerStatusCache {
@@ -15,6 +18,7 @@ export class RedisComputerStatusCache implements ComputerStatusCache {
     private readonly redis: {
       set(key: string, value: string, ex: "EX", seconds: string): Promise<unknown>;
       get(key: string): Promise<string | null>;
+      mget(...keys: string[]): Promise<Array<string | null>>;
     },
     private readonly ttlSeconds = COMPUTER_STATUS_TTL_SECONDS,
   ) {}
@@ -25,6 +29,12 @@ export class RedisComputerStatusCache implements ComputerStatusCache {
 
   async get(scope: ComputerStatusScope) {
     return (await this.redis.get(this.key(scope))) === "online";
+  }
+
+  async getMany(scopes: readonly ComputerStatusScope[]) {
+    if (scopes.length === 0) return [];
+    const values = await this.redis.mget(...scopes.map((scope) => this.key(scope)));
+    return values.map((value) => value === "online");
   }
 
   private key(scope: ComputerStatusScope) {

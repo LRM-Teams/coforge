@@ -147,7 +147,7 @@ describe("Daemon connection status method", () => {
   test("a periodic online status persists a legacy leased identity without an expiry", async () => {
     const touched: unknown[] = [];
     const method = createDaemonConnectionStatusMethod(
-      { put: async () => {}, get: async () => true },
+      { put: async () => {}, get: async () => true, getMany: async () => [] },
       undefined,
       {
         touchIdentity: async (scope) => {
@@ -168,7 +168,7 @@ describe("Daemon connection status method", () => {
   test("an offline status never renews an identity for a Computer that just disconnected", async () => {
     const touched: unknown[] = [];
     const method = createDaemonConnectionStatusMethod(
-      { put: async () => {}, get: async () => false },
+      { put: async () => {}, get: async () => false, getMany: async () => [] },
       undefined,
       {
         touchIdentity: async (scope) => {
@@ -188,7 +188,7 @@ describe("Daemon connection status method", () => {
   test("an unauthorized status is refused before it can renew anything", async () => {
     const touched: unknown[] = [];
     const method = createDaemonConnectionStatusMethod(
-      { put: async () => {}, get: async () => true },
+      { put: async () => {}, get: async () => true, getMany: async () => [] },
       undefined,
       {
         touchIdentity: async (scope) => {
