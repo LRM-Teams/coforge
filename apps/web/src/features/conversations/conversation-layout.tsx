@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { getRouteApi, useNavigate, useRouterState } from "@tanstack/react-router";
+import { useNavigate, useRouterState } from "@tanstack/react-router";
 import { MessageSquare01 as MessagesSquare } from "@untitledui/icons";
 
 import {
@@ -9,6 +9,7 @@ import {
 import { useBreakpoint } from "#src/hooks/use-breakpoint";
 import { m } from "#src/paraglide/messages";
 import { ConversationPending } from "./conversation-pending";
+import { useSidebarLists } from "./sidebar-lists";
 import {
   conversationAt,
   conversationRoute,
@@ -17,8 +18,6 @@ import {
   rememberedConversation,
 } from "./last-conversation";
 
-const messagesRoute = getRouteApi("/_app/messages");
-
 /**
  * The Chat detail pane with no conversation in the URL. On a desktop-wide viewport, where list and
  * detail sit side by side, Chat opens a conversation instead of asking for a choice
@@ -26,7 +25,7 @@ const messagesRoute = getRouteApi("/_app/messages");
  * (docs/design/task-first-layout.md §2.1). With nothing to open, the pane asks for a choice.
  */
 export function EmptyConversation() {
-  const { channels, directPreferences } = messagesRoute.useLoaderData();
+  const { channels, directPreferences } = useSidebarLists();
   const agents = useLiveAgents();
   const workspaceId = useCurrentWorkspaceId();
   const desktop = useBreakpoint("lg");

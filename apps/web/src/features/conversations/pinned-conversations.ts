@@ -103,7 +103,8 @@ export function moveInDirectory(
   return sameLayout(layout, without) ? layout : without;
 }
 
-function sameLayout(left: DirectoryLayout, right: DirectoryLayout) {
+/** Whether two layouts put every row in the same place. */
+export function sameLayout(left: DirectoryLayout, right: DirectoryLayout) {
   return (Object.keys(left) as DirectorySectionId[]).every(
     (section) =>
       left[section].length === right[section].length &&
