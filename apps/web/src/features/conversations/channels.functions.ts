@@ -87,6 +87,16 @@ export const loadPublicChannel = createServerFn({ method: "GET" })
     };
   });
 
+/** The composer's @-completion group of the Workspace's people and public Agents outside a
+ * channel. */
+export const loadPublicChannelMentionOutsiders = createServerFn({ method: "GET" })
+  .middleware([workspaceUserMiddleware])
+  .validator(channelInput)
+  .handler(async ({ data, context }) => {
+    const { channels, workspaceId, userId } = channelScope(context);
+    return channels.mentionOutsiders(workspaceId, userId, data.channelId);
+  });
+
 export const loadPublicChannelMentionables = createServerFn({ method: "GET" })
   .middleware([workspaceUserMiddleware])
   .validator(channelInput)

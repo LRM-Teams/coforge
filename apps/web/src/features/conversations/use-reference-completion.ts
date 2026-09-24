@@ -13,6 +13,29 @@ export type ReferenceSuggestion =
   | { kind: "mention"; mention: Mentionable }
   | { kind: "channel"; channel: ChannelSuggestion };
 
+/**
+ * The `@` list: members first, then the people and Agents outside the channel, each ranked on its
+ * own. While the two lists refetch after a membership change, someone can briefly be in both;
+ * they are offered once, as a member.
+ */
+function mentionCandidates(
+  mentionables: readonly Mentionable[] | undefined,
+  outsiders: readonly Mentionable[] | undefined,
+  query: string,
+  recentHandles: readonly string[] | undefined,
+): Mentionable[] {
+  const members = filterMentionables(mentionables ?? [], query, { recentHandles });
+  const memberKeys = new Set((mentionables ?? []).map((item) => `${item.kind}:${item.id}`));
+  return [
+    ...members,
+    ...filterMentionables(
+      (outsiders ?? []).filter((item) => !memberKeys.has(`${item.kind}:${item.id}`)),
+      query,
+      { recentHandles },
+    ),
+  ];
+}
+
 /** The text a chosen suggestion puts in the draft (before its trailing space). */
 function referenceText(item: ReferenceSuggestion): string {
   return item.kind === "mention" ? `@${item.mention.handle}` : `#${item.channel.name}`;
@@ -28,6 +51,7 @@ function referenceText(item: ReferenceSuggestion): string {
  */
 export function useReferenceCompletion({
   mentionables,
+  mentionOutsiders,
   recentHandles,
   channels,
   currentChannelId,
@@ -36,6 +60,8 @@ export function useReferenceCompletion({
 }: {
   /** The conversation's @-completion candidates; empty/undefined keeps the `@` popup closed. */
   mentionables: readonly Mentionable[] | undefined;
+  /** Candidates outside the channel, ranked on their own and listed after the members. */
+  mentionOutsiders?: readonly Mentionable[];
   /** Handles that recently sent a message in this conversation, most-recent first; ranks
    * completion candidates ahead of alphabetical order within a match tier. */
   recentHandles?: readonly string[];
@@ -75,10 +101,12 @@ export function useReferenceCompletion({
   const items: ReferenceSuggestion[] = !query
     ? []
     : query.trigger === "@"
-      ? filterMentionables(mentionables ?? [], query.query, { recentHandles }).map((mention) => ({
-          kind: "mention",
-          mention,
-        }))
+      ? mentionCandidates(mentionables, mentionOutsiders, query.query, recentHandles).map(
+          (mention) => ({
+            kind: "mention",
+            mention,
+          }),
+        )
       : filterChannelSuggestions(channels ?? [], query.query, { currentChannelId }).map(
           (channel) => ({ kind: "channel", channel }),
         );

@@ -1156,6 +1156,7 @@ export function ConversationPane({
             threadRootId={root?.id}
             inThread={Boolean(root)}
             mentionables={mentionCandidates}
+            mentionOutsiders={conversation.mentionOutsiders}
             recentHandles={recentHandles}
             channels={channels}
             onSend={onSend}

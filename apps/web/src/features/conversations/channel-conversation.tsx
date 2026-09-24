@@ -11,7 +11,11 @@ import { ConversationHeader } from "./conversation-header";
 import { ConversationListButton } from "./conversation-navigation";
 import { ThreadFollowingAgents } from "./thread-following-agents";
 import { ConversationTaskTabs } from "#src/features/tasks/conversation-task-tabs";
-import { loadPublicChannelMentionables } from "./channels.functions";
+import type { Mentionable } from "./mention-text";
+import {
+  loadPublicChannelMentionables,
+  loadPublicChannelMentionOutsiders,
+} from "./channels.functions";
 import {
   ThreadedConversation,
   type DirectConversationView,
@@ -208,18 +212,29 @@ export function ChannelConversation({
   // — and when the tab regains focus.
   const freshMentionables = useQuery({
     queryKey: ["conversation", "mentionables", conversation.conversationId],
-    queryFn: () =>
+    queryFn: (): Promise<Mentionable[]> =>
       loadPublicChannelMentionables({ data: { channelId: conversation.conversationId } }),
     initialData: conversation.mentionables,
     staleTime: 15_000,
     refetchOnWindowFocus: true,
   });
+  // Who else the viewer may mention on purpose; kept current by the same invalidation (the key
+  // shares the directory's prefix). Loaded only for a member of an open channel, who has a composer.
+  const mentionOutsiders = useQuery({
+    queryKey: ["conversation", "mentionables", conversation.conversationId, "outsiders"],
+    queryFn: (): Promise<Mentionable[]> =>
+      loadPublicChannelMentionOutsiders({ data: { channelId: conversation.conversationId } }),
+    enabled: Boolean(conversation.senderMemberId) && !conversation.archived,
+    staleTime: 15_000,
+    refetchOnWindowFocus: true,
+  });
   const conversationWithFreshDirectory = useMemo(
-    () =>
-      freshMentionables.data
-        ? { ...conversation, mentionables: freshMentionables.data }
-        : conversation,
-    [conversation, freshMentionables.data],
+    () => ({
+      ...conversation,
+      mentionables: freshMentionables.data ?? conversation.mentionables,
+      mentionOutsiders: mentionOutsiders.data,
+    }),
+    [conversation, freshMentionables.data, mentionOutsiders.data],
   );
   async function join() {
     setJoining(true);

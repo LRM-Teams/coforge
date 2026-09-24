@@ -37,6 +37,9 @@ export type DirectConversationView = {
   /** The composer's @-completion source *and* the resolver for a body's `<@kind:uuid>` tokens:
    * every active member, the viewer included. Absent for a non-member. */
   mentionables?: Mentionable[];
+  /** The composer's second @-completion group: people and public Agents outside the channel.
+   * Completion only — never used to read a body. Absent for a DM or a non-member. */
+  mentionOutsiders?: Mentionable[];
   messages: Array<{
     id: string;
     sequence: number;
