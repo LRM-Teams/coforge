@@ -1815,8 +1815,13 @@ export class PublicChannels {
           ),
         ),
     );
-    // Read from the stored body, so an idempotent replay reports what the first send did.
-    const unresolved = await unresolvedMentionHandles(this.db, workspaceId, { userId }, message);
+    // Read from the stored body, so an idempotent replay reads the same `@handle`s.
+    const unresolved = await unresolvedMentionHandles(
+      this.db,
+      workspaceId,
+      { userId },
+      message.body,
+    );
     return { ...message, unresolvedMentionHandles: unresolved };
   }
 

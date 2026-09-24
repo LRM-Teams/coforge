@@ -873,12 +873,13 @@ test("a channel send reports the @handles that name nobody the sender can see, a
       userId: alice.id,
       channelId: triage.id,
       requestId: crypto.randomUUID(),
-      body: `@ua${suffix} @helper @ub${suffix} @ghost @secret \`@quoted\` @ghost`,
+      body: `@ua${suffix} @helper @ub${suffix} @ghost @secret \`@quoted\` @ghost in #triage-${suffix} <@human:00000000-0000-4000-8000-000000000000>`,
     };
 
     const sent = await channels.send(send);
     // The sender resolves as a member; helper and bob are Workspace members outside the channel;
-    // ghost names nobody and secret is invisible to the sender; code is never a mention.
+    // ghost names nobody and secret is invisible to the sender; code is never a mention, and a
+    // stored token (the channel reference, a typed mention token) is never read as a handle.
     expect(sent.unresolvedMentionHandles).toEqual(["ghost", "secret"]);
     expect((await channels.send(send)).unresolvedMentionHandles).toEqual(["ghost", "secret"]);
   } finally {
