@@ -31,6 +31,7 @@ export function TaskOverview({
   onLayoutChange,
   onOpenTask,
   onCommand,
+  older,
 }: {
   tasks: readonly OverviewTaskRow[];
   status?: TaskStatus;
@@ -42,6 +43,8 @@ export function TaskOverview({
   /** Opens a Task's popup over the overview (the card menu's "View details"). */
   onOpenTask: (task: OverviewTaskRow) => void;
   onCommand?: (task: OverviewTaskRow, command: OverviewTaskCommand) => Promise<void>;
+  /** Per status, how to read older Tasks than those listed, when older ones exist. */
+  older?: Partial<Record<TaskStatus, () => Promise<void>>>;
 }) {
   layout ??= "board";
   onLayoutChange ??= () => {};
@@ -85,6 +88,7 @@ export function TaskOverview({
           statuses={visible.length === 0 ? [] : status ? [status] : TASK_STATUSES}
           disabled={!onCommand}
           currentMemberId={(task) => task.currentMemberId ?? null}
+          older={older}
           onMove={async (task, command) => {
             await onCommand?.(task, command);
           }}

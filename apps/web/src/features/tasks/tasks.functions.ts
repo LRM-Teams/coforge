@@ -7,6 +7,7 @@ import { createCentrifugoServerApi } from "#src/server/centrifugo/server-api.ser
 import { bestEffortMessageNotifier } from "#src/server/notifications/web-push-composition.server";
 import { workspaceUserMiddleware } from "#src/features/auth/function-auth";
 import { TaskBoard } from "#src/server/tasks/task-board.server";
+import { FINISHED_TASKS_MAX } from "./task-overview-limits";
 
 const taskCommand = z
   .object({
@@ -55,11 +56,17 @@ const taskCommand = z
   })
   .strict();
 
+const overviewInput = z
+  .object({ finished: z.number().int().min(1).max(FINISHED_TASKS_MAX).optional() })
+  .strict()
+  .optional();
+
 export const loadTaskOverview = createServerFn({ method: "GET" })
   .middleware([workspaceUserMiddleware])
-  .handler(async ({ context }) => {
+  .validator((data?: { finished?: number }) => overviewInput.parse(data))
+  .handler(async ({ context, data }) => {
     const { user, db, workspaceId } = context;
-    return new TaskBoard(db).overview(workspaceId, user.id);
+    return new TaskBoard(db).overview(workspaceId, user.id, { finished: data?.finished });
   });
 
 export const executeTask = createServerFn({ method: "POST" })

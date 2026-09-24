@@ -25,8 +25,10 @@ import { decodeTaskChangedEvent, type TaskChangedEvent } from "./task-realtime";
 
 const appRoute = getRouteApi("/_app");
 
-const selectOrder = (overview: { tasks: readonly { messageId: string }[] }) =>
-  overview.tasks.map((task) => task.messageId);
+const selectListing = (overview: {
+  tasks: readonly { messageId: string }[];
+  more: { done: boolean; closed: boolean };
+}) => ({ order: overview.tasks.map((task) => task.messageId), more: overview.more });
 
 // React access to the Tasks page's rows (`task-overview-collection.ts`).
 
@@ -53,9 +55,9 @@ export function useTaskOverview() {
   // The server's list of Tasks, which and in what order. Structurally shared, so it re-renders
   // only when a read changes that list, not when a change rewrites a row in the cache: after
   // hydration the rows themselves come from the collection.
-  const order = useSuspenseQuery({
+  const { order, more } = useSuspenseQuery({
     ...taskOverviewQuery(workspaceId),
-    select: selectOrder,
+    select: selectListing,
     notifyOnChangeProps: ["data"],
   }).data;
   const hydrated = useHydrated();
@@ -89,10 +91,14 @@ export function useTaskOverview() {
       tasks,
       /** Undefined until hydrated: the server render offers no commands. */
       run: overview?.run,
+      /** Whether older Done or Closed Tasks exist than those listed. */
+      more,
+      /** Lists older Done and Closed Tasks; undefined until hydrated. */
+      showOlder: overview?.showOlder,
       refetch: () =>
         queryClient.invalidateQueries({ queryKey: taskOverviewQuery(workspaceId).queryKey }),
     }),
-    [tasks, overview, queryClient, workspaceId],
+    [tasks, overview, more, queryClient, workspaceId],
   );
 }
 

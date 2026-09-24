@@ -21,6 +21,7 @@ import { useId, useMemo, useRef, useState, type ReactNode } from "react";
 import { Button as AriaButton, Disclosure, DisclosurePanel, Heading } from "react-aria-components";
 
 import { ButtonGroup, ButtonGroupItem } from "#src/components/base/button-group/button-group";
+import { Button } from "#src/components/base/buttons/button";
 import { ButtonUtility } from "#src/components/base/buttons/button-utility";
 import { useBreakpoint } from "#src/hooks/use-breakpoint";
 import { cn } from "#src/lib/utils";
@@ -39,6 +40,10 @@ export type TaskControls = {
 /** Finished statuses start collapsed when the board shows several statuses: they only grow, and
  * the work in flight is what the board is for. The choice lasts while the board is mounted. */
 const COLLAPSED_BY_DEFAULT: ReadonlySet<TaskStatus> = new Set(["done", "closed"]);
+
+/** How many cards a group shows at first, and how many more "Show more" adds: a group of
+ * hundreds would otherwise build every card, handle and menu at once. */
+const RENDER_PAGE = 50;
 
 export function useTaskLayout(layout: TaskLayout | undefined): TaskLayout {
   // Keep SSR and initial hydration identical (board); the viewport default applies once hydrated.
@@ -83,14 +88,17 @@ export function TaskWorkflow<T extends TaskView>({
   disabled,
   onMove,
   renderTask,
+  older,
 }: {
-  tasks: T[];
+  tasks: readonly T[];
   layout: TaskLayout;
   statuses?: readonly TaskStatus[];
   currentMemberId: (task: T) => string | null;
   disabled?: boolean;
   onMove: (task: T, command: TaskMoveCommand) => Promise<void>;
   renderTask: (task: T, controls: TaskControls) => ReactNode;
+  /** Per status, how to read older Tasks than those given, when older ones exist. */
+  older?: Partial<Record<TaskStatus, () => Promise<void>>>;
 }) {
   const id = useId();
   const [active, setActive] = useState<T>();
@@ -161,6 +169,7 @@ export function TaskWorkflow<T extends TaskView>({
             key={groups.length === 1 ? `only-${group.status}` : group.status}
             status={group.status}
             count={group.tasks.length}
+            onOlder={older?.[group.status]}
             board={layout === "board"}
             defaultExpanded={groups.length === 1 || !COLLAPSED_BY_DEFAULT.has(group.status)}
             enabled={Boolean(
@@ -170,11 +179,15 @@ export function TaskWorkflow<T extends TaskView>({
               getTaskMoveCommand(active, currentMemberId(active), group.status),
             )}
           >
-            {group.tasks.map((task) => (
-              <div key={task.messageId} aria-busy={pending?.messageId === task.messageId}>
-                {renderTask(task, controls(task))}
-              </div>
-            ))}
+            {(shown) => (
+              <>
+                {group.tasks.slice(0, shown).map((task) => (
+                  <div key={task.messageId} aria-busy={pending?.messageId === task.messageId}>
+                    {renderTask(task, controls(task))}
+                  </div>
+                ))}
+              </>
+            )}
           </TaskGroup>
         ))}
       </div>
@@ -236,6 +249,7 @@ function DragHandle({ task, disabled }: { task: TaskView; disabled: boolean }) {
 function TaskGroup({
   status,
   count,
+  onOlder,
   board,
   defaultExpanded,
   enabled,
@@ -243,15 +257,24 @@ function TaskGroup({
 }: {
   status: TaskStatus;
   count: number;
+  /** Reads older Tasks of this status; given only while older ones exist. */
+  onOlder?: () => Promise<void>;
   board: boolean;
   defaultExpanded: boolean;
   enabled: boolean;
-  children: ReactNode;
+  /** The group's first `shown` cards. */
+  children: (shown: number) => ReactNode;
 }) {
   // A collapsed group stays a drop target, so a card can still be moved into it.
   const drop = useDroppable({ id: status, disabled: !enabled });
   const label = statusLabel(status);
   const [expanded, setExpanded] = useState(defaultExpanded);
+  const [shown, setShown] = useState(RENDER_PAGE);
+  const [readingOlder, setReadingOlder] = useState(false);
+  const hidden = count - shown;
+  // More older Tasks exist than those read: the count is a floor.
+  const countLabel = onOlder ? `${count}+` : String(count);
+  const footerClass = board ? "justify-center" : "justify-start px-4 py-2";
   return (
     <section
       ref={drop.setNodeRef}
@@ -277,7 +300,7 @@ function TaskGroup({
         <Heading level={2}>
           <AriaButton
             slot="trigger"
-            aria-label={`${label} ${count}`}
+            aria-label={`${label} ${countLabel}`}
             className={cn(
               "flex h-10 w-full cursor-pointer items-center gap-2 text-sm font-semibold text-primary outline-focus-ring focus-visible:outline-2 focus-visible:-outline-offset-2",
               board
@@ -290,7 +313,7 @@ function TaskGroup({
               className={`size-2 shrink-0 rounded-full ${TASK_STATUS_COLOR[status].dot}`}
             />
             <span className="truncate">{label}</span>
-            <span className="font-medium text-quaternary tabular-nums">{count}</span>
+            <span className="font-medium text-quaternary tabular-nums">{countLabel}</span>
             <ChevronDown
               aria-hidden="true"
               className={cn(
@@ -310,7 +333,35 @@ function TaskGroup({
           )}
         >
           {/* The panel keeps its children mounted while hidden; a collapsed group renders none. */}
-          {expanded && children}
+          {expanded && children(shown)}
+          {expanded && hidden > 0 && (
+            <div className={cn("flex", footerClass)}>
+              <Button
+                size="sm"
+                color="link-gray"
+                onClick={() => setShown((current) => current + RENDER_PAGE)}
+              >
+                {m.tasks_group_show_more({ count: String(hidden) })}
+              </Button>
+            </div>
+          )}
+          {expanded && hidden <= 0 && onOlder && (
+            <div className={cn("flex", footerClass)}>
+              <Button
+                size="sm"
+                color="link-gray"
+                isDisabled={readingOlder}
+                onClick={() => {
+                  setReadingOlder(true);
+                  void onOlder()
+                    .then(() => setShown((current) => current + RENDER_PAGE))
+                    .finally(() => setReadingOlder(false));
+                }}
+              >
+                {m.tasks_group_show_older()}
+              </Button>
+            </div>
+          )}
           {expanded && !board && count === 0 && (
             <p className="px-4 py-3 text-sm text-tertiary">{m.tasks_group_empty()}</p>
           )}
