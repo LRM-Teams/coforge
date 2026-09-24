@@ -1,8 +1,29 @@
 import type { TaskView } from "@lrm/coforge-sdk/internal";
 import type { ReactNode } from "react";
 
+import { cn } from "#src/lib/utils";
 import { TaskOwner } from "./task-owner";
 import type { TaskControls } from "./task-workflow";
+
+/**
+ * Parts the viewer hid on the Tasks page (Display → Show): the stored choice is a class on
+ * <html> (`features/settings/task-display-fields.ts`), and only a card inside the overview
+ * (`data-task-overview`) follows it, so other surfaces always show every part. CSS alone, so a
+ * change never re-renders the cards. A separator hides with whatever it would separate from.
+ */
+const HIDDEN_ON_OVERVIEW = {
+  number: "[.task-hide-number_[data-task-overview]_&]:hidden",
+  source: "[.task-hide-source_[data-task-overview]_&]:hidden",
+  project: "[.task-hide-project_[data-task-overview]_&]:hidden",
+  owner: "[.task-hide-owner_[data-task-overview]_&]:hidden",
+  sourceDot: "[.task-hide-number_[data-task-overview]_&]:hidden",
+  projectDot: "[.task-hide-number.task-hide-source_[data-task-overview]_&]:hidden",
+  // The meta line goes once all it would show is hidden; the title then clears the corner tools.
+  meta: "[.task-hide-number.task-hide-source.task-hide-project_[data-task-overview]_&]:hidden",
+  metaWithoutProject: "[.task-hide-number.task-hide-source_[data-task-overview]_&]:hidden",
+  titleClear: "[.task-hide-number.task-hide-source.task-hide-project_[data-task-overview]_&]:pr-14",
+  titleClearWithoutProject: "[.task-hide-number.task-hide-source_[data-task-overview]_&]:pr-14",
+};
 
 /** Classes for the link or button a caller wraps around the title. */
 export const TASK_TITLE_CLASS =
@@ -25,6 +46,7 @@ export function TaskCard({
   task: TaskView;
   /** Wraps the title text in the surface's link or button. */
   renderTitle: (title: ReactNode) => ReactNode;
+
   /** The conversation the task belongs to, on surfaces that mix conversations. */
   source?: string;
   /** The Project the task's conversation belongs to, on surfaces that mix Projects; empty when it
@@ -50,23 +72,38 @@ export function TaskCard({
     return (
       <article className="relative flex flex-col gap-2 px-4 py-3 transition-colors hover:bg-primary_hover sm:flex-row sm:items-center sm:gap-4 sm:py-2.5">
         <div className="flex min-w-0 flex-1 items-baseline gap-3">
-          <span className="min-w-8 shrink-0 text-xs font-medium text-tertiary tabular-nums">
+          <span
+            className={cn(
+              "min-w-8 shrink-0 text-xs font-medium text-tertiary tabular-nums",
+              HIDDEN_ON_OVERVIEW.number,
+            )}
+          >
             #{task.number}
           </span>
           <div className="min-w-0 flex-1">{title}</div>
         </div>
         <div className="flex min-w-0 items-center gap-3 sm:shrink-0 sm:gap-4">
           {source && (
-            <span className="max-w-24 truncate text-xs text-tertiary sm:w-28 sm:max-w-none">
+            <span
+              className={cn(
+                "max-w-24 truncate text-xs text-tertiary sm:w-28 sm:max-w-none",
+                HIDDEN_ON_OVERVIEW.source,
+              )}
+            >
               {source}
             </span>
           )}
           {project !== undefined && (
-            <span className="max-w-24 truncate text-xs text-tertiary sm:w-28 sm:max-w-none">
+            <span
+              className={cn(
+                "max-w-24 truncate text-xs text-tertiary sm:w-28 sm:max-w-none",
+                HIDDEN_ON_OVERVIEW.project,
+              )}
+            >
               {project}
             </span>
           )}
-          <div className="min-w-0 flex-1 sm:w-36 sm:flex-none">
+          <div className={cn("min-w-0 flex-1 sm:w-36 sm:flex-none", HIDDEN_ON_OVERVIEW.owner)}>
             <TaskOwner owner={task.owner} />
           </div>
           {actions && <div className="flex sm:w-24 sm:justify-end">{actions}</div>}
@@ -77,21 +114,50 @@ export function TaskCard({
   }
   return (
     <article className="group relative rounded-lg border border-secondary bg-primary p-3 shadow-xs transition-colors hover:border-primary">
-      <div className="flex h-6 items-center pr-14 text-xs font-medium text-tertiary tabular-nums">
+      <div
+        className={cn(
+          "flex h-6 items-center pr-14 text-xs font-medium text-tertiary tabular-nums",
+          project ? HIDDEN_ON_OVERVIEW.meta : HIDDEN_ON_OVERVIEW.metaWithoutProject,
+        )}
+      >
         <span className="truncate">
-          #{task.number}
-          {source && <span className="font-normal"> · {source}</span>}
-          {project && <span className="font-normal"> · {project}</span>}
+          <span className={HIDDEN_ON_OVERVIEW.number}>#{task.number}</span>
+          {source && (
+            <span className={cn("font-normal", HIDDEN_ON_OVERVIEW.source)}>
+              <span className={HIDDEN_ON_OVERVIEW.sourceDot}> · </span>
+              {source}
+            </span>
+          )}
+          {project && (
+            <span className={cn("font-normal", HIDDEN_ON_OVERVIEW.project)}>
+              <span className={HIDDEN_ON_OVERVIEW.projectDot}> · </span>
+              {project}
+            </span>
+          )}
         </span>
       </div>
-      <div className="mt-1">{title}</div>
+      <div
+        className={cn(
+          "mt-1",
+          project ? HIDDEN_ON_OVERVIEW.titleClear : HIDDEN_ON_OVERVIEW.titleClearWithoutProject,
+        )}
+      >
+        {title}
+      </div>
       {task.description && (
         <p className="mt-1 line-clamp-2 text-sm text-tertiary [overflow-wrap:anywhere]">
           {task.description}
         </p>
       )}
-      <div className="mt-3 flex min-h-6 items-center justify-between gap-2">
-        <TaskOwner owner={task.owner} />
+      <div
+        className={cn(
+          "mt-3 flex min-h-6 items-center justify-between gap-2",
+          !actions && HIDDEN_ON_OVERVIEW.owner,
+        )}
+      >
+        <span className={cn("min-w-0", HIDDEN_ON_OVERVIEW.owner)}>
+          <TaskOwner owner={task.owner} />
+        </span>
         {actions}
       </div>
       {tools && (
