@@ -40,6 +40,8 @@ const NO_TASKS: TaskView[] = [];
  * interval: a poll re-reads a list that changes only when a Task changes, and the announcement
  * says exactly which Tasks those were.
  */
+const TASKS_QUERY_STALE_TIME_MS = 5_000;
+
 export const conversationTasksQuery = (conversationId: string) =>
   queryOptions({
     queryKey: ["conversation", "tasks", conversationId],
@@ -49,7 +51,9 @@ export const conversationTasksQuery = (conversationId: string) =>
           data: { operation: "list", idempotencyKey: crypto.randomUUID(), conversationId },
         })
       ).tasks,
-    staleTime: 0,
+    // A remount or focus within a few seconds of a read does not read again; realtime writes and
+    // the focus safety net are unaffected.
+    staleTime: TASKS_QUERY_STALE_TIME_MS,
     refetchOnWindowFocus: true,
   });
 
