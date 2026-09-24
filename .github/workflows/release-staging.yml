@@ -26,6 +26,9 @@ jobs:
   gates:
     name: Validate
     if: github.ref == 'refs/heads/main'
+    permissions:
+      contents: read
+      actions: read
     uses: ./.github/workflows/ci.yml
     with:
       track: local

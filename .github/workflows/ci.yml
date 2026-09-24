@@ -25,6 +25,9 @@ jobs:
     name: Plan checks
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
     outputs:
       checks: ${{ steps.select.outputs.checks }}
       libraries: ${{ steps.select.outputs.libraries }}
@@ -49,12 +52,26 @@ jobs:
         run: bun run test:ci
       - name: Lint workflows and CI scripts
         run: bun run check:ci
+      - name: Find the last successful run
+        id: base
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+          BRANCH: ${{ github.ref_name }}
+        run: |
+          # A newer push replaces a pending one, so diff from the last run that succeeded rather
+          # than from the previous push: superseded, cancelled, and failed pushes stay in scope.
+          workflow="$(gh api "repos/$REPOSITORY/actions/runs/$RUN_ID" --jq .workflow_id)"
+          sha="$(gh api "repos/$REPOSITORY/actions/workflows/$workflow/runs?branch=$BRANCH&event=push&status=success&per_page=1" --jq '.workflow_runs[0].head_sha // ""')"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
       - name: Select checks for changed files
         id: select
         env:
           TRACK: ${{ inputs.track || 'changes' }}
           EVENT: ${{ github.event_name }}
-          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          BASE: ${{ github.event.pull_request.base.sha || steps.base.outputs.sha }}
           HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
           files="$RUNNER_TEMP/ci-changed-files"
@@ -67,7 +84,7 @@ jobs:
             git diff --check "$BASE" "$HEAD"
             git diff --name-only --no-renames -z "$BASE" "$HEAD" > "$files"
           else
-            # Missing push base (e.g. a new branch): full coverage, never a silent skip.
+            # No successful run to diff from: full coverage, never a silent skip.
             printf 'mise.toml\0' > "$files"
           fi
           bun scripts/ci/selection.ts "$TRACK" < "$files" | tee -a "$GITHUB_OUTPUT"

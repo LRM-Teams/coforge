@@ -2,6 +2,7 @@
 
 - [GitHub workflow syntax, reusable inputs, and job dependencies](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax)
 - [GitHub concurrency and queued deployments](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/control-workflow-concurrency)
+- [GitHub REST API: workflow runs (base of a push diff)](https://docs.github.com/en/rest/actions/workflow-runs)
 - [GitHub deployments and environments](https://docs.github.com/en/actions/reference/workflows-and-actions/deployments-and-environments)
 - [Deploying with GitHub Actions](https://docs.github.com/en/actions/how-tos/deploy/configure-and-manage-deployments/control-deployments)
 - [Publishing Docker images](https://docs.github.com/en/actions/tutorials/publish-packages/publish-docker-images)

@@ -4,7 +4,8 @@
 
 The automated cloud path is:
 
-1. Run the Web-track test, check, and build gates for the affected `main` commit.
+1. Run the Web-track test, check, and build gates for the latest `main` commit,
+   covering every change since the last successful run.
 2. Build and push the service image once, tagged with the full commit SHA.
 3. Capture the pushed image digest as a workflow output and deployment record.
 4. Enter the `staging` GitHub Environment and its environment-specific
