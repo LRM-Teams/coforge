@@ -101,9 +101,16 @@ export function createTaskOverview(
    * empty transaction, which TanStack DB never saves: it goes straight to the server. */
   const run = (row: OverviewTaskRow, command: OverviewTaskCommand) => {
     const transaction = move({ row, command });
-    return transaction.mutations.length > 0
-      ? transaction.isPersisted.promise.then(() => {})
-      : save(row, command);
+    const saved =
+      transaction.mutations.length > 0
+        ? transaction.isPersisted.promise.then(() => {})
+        : save(row, command);
+    // A refusal may come from a change made elsewhere (a stale revision): the list is read again,
+    // so the next try starts from the Task as it is.
+    return saved.catch(async (error: unknown) => {
+      await tasks.utils.refetch().catch(() => {});
+      throw error;
+    });
   };
 
   return { tasks, run };

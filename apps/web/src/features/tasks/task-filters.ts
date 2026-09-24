@@ -37,7 +37,6 @@ export type OwnerOption = {
   id: string;
   kind: "me" | "none" | "user" | "agent";
   name: string;
-  avatarUrl?: string;
   count: number;
 };
 
@@ -47,15 +46,18 @@ export function ownerOptions(tasks: readonly FilterableTask[]): OwnerOption[] {
   const byId = new Map<string, OwnerOption>();
   for (const task of tasks) {
     const id = ownerKey(task);
+    const owner = task.owner;
+    // The viewer's membership is per conversation, and absent where they are not a member: any
+    // one of their Tasks in a conversation they are in makes them "me".
+    const isViewer = owner !== null && owner.memberId === task.currentMemberId;
     const known = byId.get(id);
     if (known) {
       known.count += 1;
+      if (isViewer) known.kind = "me";
       continue;
     }
-    const owner = task.owner;
-    const kind = !owner ? "none" : owner.memberId === task.currentMemberId ? "me" : owner.kind;
-    const avatarUrl = owner?.avatarUrl ?? undefined;
-    byId.set(id, { id, kind, name: owner?.name ?? "", ...(avatarUrl && { avatarUrl }), count: 1 });
+    const kind = !owner ? "none" : isViewer ? "me" : owner.kind;
+    byId.set(id, { id, kind, name: owner?.name ?? "", count: 1 });
   }
   const rank = { me: 0, none: 1, user: 2, agent: 3 } as const;
   return [...byId.values()].sort(

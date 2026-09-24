@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { ChevronDown } from "@untitledui/icons";
 
 import { Button } from "#src/components/base/buttons/button";
@@ -24,17 +25,24 @@ export function TaskFilterMenus({
   filter: TaskFilter;
   onChange: (filter: TaskFilter) => void;
 }) {
-  const owners = ownerOptions(tasks).map((option) => ({
-    id: option.id,
-    label: ownerLabel(option),
-    avatarUrl: option.avatarUrl,
-    count: option.count,
-  }));
-  const projects = projectOptions(tasks).map((option) => ({
-    id: option.id,
-    label: option.name || m.tasks_overview_no_project(),
-    count: option.count,
-  }));
+  const owners = useMemo(
+    () =>
+      ownerOptions(tasks).map((option) => ({
+        id: option.id,
+        label: ownerLabel(option),
+        count: option.count,
+      })),
+    [tasks],
+  );
+  const projects = useMemo(
+    () =>
+      projectOptions(tasks).map((option) => ({
+        id: option.id,
+        label: option.name || m.tasks_overview_no_project(),
+        count: option.count,
+      })),
+    [tasks],
+  );
   return (
     <>
       <FilterMenu
@@ -64,7 +72,7 @@ function ownerLabel(option: OwnerOption) {
   return option.name;
 }
 
-type Choice = { id: string; label: string; avatarUrl?: string; count: number };
+type Choice = { id: string; label: string; count: number };
 
 /** A menu of several picks behind a chip that names them: the filter's name, the one pick, or
  * the filter's name and how many are picked. */
@@ -111,7 +119,6 @@ function FilterMenu({
               key={option.id}
               id={option.id}
               label={option.label}
-              avatarUrl={option.avatarUrl}
               addon={String(option.count)}
               selectionIndicator="checkbox"
             />
