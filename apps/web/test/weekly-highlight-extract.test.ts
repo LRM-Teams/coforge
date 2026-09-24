@@ -1,9 +1,6 @@
 import { expect, test } from "bun:test";
 
-import {
-  looksLikeSideChatGreeting,
-  parseRecordAssistantPayload,
-} from "#src/features/records/weekly-highlight-extract";
+import { parseRecordAssistantPayload } from "#src/features/records/weekly-highlight-extract";
 
 test("parseRecordAssistantPayload accepts offer-send", () => {
   expect(parseRecordAssistantPayload({ kind: "offer-send" })).toEqual({ kind: "offer-send" });
@@ -53,17 +50,4 @@ test("parseRecordAssistantPayload rejects removed highlight payload kinds", () =
   expect(parseRecordAssistantPayload({ kind: "pick-members", members: [] })).toBeNull();
   expect(parseRecordAssistantPayload({ kind: "generating", highlightId: "hl-1" })).toBeNull();
   expect(parseRecordAssistantPayload({ kind: "generated", highlightId: "hl-1" })).toBeNull();
-});
-
-test("looksLikeSideChatGreeting matches short greetings including repeats", () => {
-  expect(looksLikeSideChatGreeting("hi")).toBe(true);
-  expect(looksLikeSideChatGreeting("Hi!")).toBe(true);
-  expect(looksLikeSideChatGreeting("hello")).toBe(true);
-  expect(looksLikeSideChatGreeting("你好")).toBe(true);
-  expect(looksLikeSideChatGreeting("你好！")).toBe(true);
-  expect(looksLikeSideChatGreeting("嗨")).toBe(true);
-  expect(looksLikeSideChatGreeting("hey")).toBe(true);
-  expect(looksLikeSideChatGreeting("重新整理")).toBe(false);
-  expect(looksLikeSideChatGreeting("帮我改一下要点")).toBe(false);
-  expect(looksLikeSideChatGreeting("hi，帮我整理要点")).toBe(false);
 });

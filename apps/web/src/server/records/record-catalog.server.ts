@@ -23,7 +23,6 @@ import {
   looksLikeCollectAgainRequest,
   looksLikeMemberGenerateOfferAccept,
   looksLikeMemberReportRuleIntent,
-  looksLikeSideChatGreeting,
   looksLikeSynthesizeWeeklyReportRequest,
   parseRecordAssistantPayload,
   type RecordAssistantPayload,
@@ -2974,15 +2973,7 @@ export class RecordCatalog {
     assistantSessionId: string;
   }) {
     await this.addUserComment(input);
-    if (looksLikeSideChatGreeting(input.body)) {
-      await this.writeAssistantComment({
-        workspaceId: input.workspaceId,
-        subjectType: input.subjectType,
-        subjectId: input.subjectId,
-        assistantSessionId: input.assistantSessionId,
-        body: "你好！我是周报助手。需要我整理要点、改文案，还是别的周报相关帮助？",
-      });
-    } else if (input.subjectType === "report" && looksLikeMemberGenerateOfferAccept(input.body)) {
+    if (input.subjectType === "report" && looksLikeMemberGenerateOfferAccept(input.body)) {
       const assignment = await this.db.weeklyReport.findFirst({
         where: {
           id: input.subjectId,

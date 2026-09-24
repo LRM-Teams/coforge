@@ -566,3 +566,56 @@ test("ensureAssistantIntro leaves a new session empty after this week's send was
   expect(created).toHaveLength(0);
   expect(rows).toHaveLength(0);
 });
+
+test("postSideChat does not auto-reply to a greeting — Agent path owns the turn", async () => {
+  const created: Array<{ authorType: string; body: string }> = [];
+  const db = {
+    workspaceMembership: {
+      findUnique: async () => ({ role: "member" }),
+    },
+    recordComment: {
+      findMany: async () =>
+        created.map((row, index) => ({
+          id: `c-${index + 1}`,
+          authorType: row.authorType,
+          body: row.body,
+          payload: null,
+          createdAt: new Date("2026-09-05T07:00:00.000Z"),
+          authorUser:
+            row.authorType === "user"
+              ? {
+                  id: "leader",
+                  username: "mark",
+                  displayName: "Mark",
+                  avatarObjectKey: null,
+                }
+              : null,
+        })),
+      create: async ({
+        data,
+      }: {
+        data: { authorType: string; body: string; authorUserId?: string | null };
+      }) => {
+        created.push({ authorType: data.authorType, body: data.body });
+        return {
+          id: `c-${created.length}`,
+          createdAt: new Date("2026-09-05T07:00:00.000Z"),
+        };
+      },
+    },
+  } as unknown as PrismaClient;
+
+  const rows = await new RecordCatalog(db).postSideChat({
+    workspaceId: "ws-1",
+    userId: "leader",
+    subjectType: "report",
+    subjectId: "11111111-1111-1111-1111-111111111111",
+    assistantSessionId: "22222222-2222-2222-2222-222222222222",
+    body: "你好",
+  });
+
+  expect(created).toEqual([{ authorType: "user", body: "你好" }]);
+  expect(rows).toHaveLength(1);
+  expect(rows[0]?.authorType).toBe("user");
+  expect(rows.some((row) => row.body.includes("周报助手"))).toBe(false);
+});

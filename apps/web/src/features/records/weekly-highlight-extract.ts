@@ -164,18 +164,6 @@ export function looksLikeTeamKeyPointReorganizeRequest(body: string): boolean {
   );
 }
 
-/**
- * Short greeting-only turns in Records side chat. Platform replies immediately so
- * the panel does not wait on the Agent LLM (which may skip repeated greetings).
- */
-export function looksLikeSideChatGreeting(body: string): boolean {
-  const text = body.trim();
-  if (!text || text.length > 24) return false;
-  return /^(hi|hello|hey|yo|hola|你好|您好|嗨|哈喽|哈啰|早|早上好|下午好|晚上好|在吗|在不在)[!！。.?？~\s]*$/i.test(
-    text,
-  );
-}
-
 /** Platform rule path for member report side chat (skip Agent LLM). */
 export function looksLikeMemberReportRuleIntent(body: string): boolean {
   return (
