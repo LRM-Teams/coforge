@@ -792,6 +792,9 @@ model Message {
   /// Serves a member's own top-level messages newest first (the own-messages jump index read on
   /// every conversation open) and the `sender` foreign-key check when a member row is deleted.
   @@index([senderMemberId, threadRootId, sequence])
+  /// Serves a member's messages newest first across threads: the viewer's recent @-mentions that
+  /// score a channel's @-completion stop after their newest 50 mentioning messages.
+  @@index([senderMemberId, sequence])
   /// Serves Workspace-wide message reads newest first: human and Agent message search sorted by
   /// recency, and a search with filters but no text, walk this index and stop after one page
   /// instead of sorting every message in the Workspace.

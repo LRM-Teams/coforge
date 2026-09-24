@@ -871,10 +871,13 @@ export class PublicChannels {
 
   /**
    * The viewer's own recent @-mentions in one channel, newest first, for `mentionAffinityScores`.
-   * Keyed by their member row (one per user per channel, kept after leaving) rather than a join
-   * through `sender.userId`: that join could only walk every mention in the channel newest first
-   * until it found the viewer's, while the member row reads their own messages from
-   * `messages(senderMemberId, …)`. A reader with no member row has mentioned no one here.
+   * Keyed by their member row (one per user per channel, kept after leaving), and read from the
+   * viewer's own messages newest first (`messages(senderMemberId, sequence)`) until 50 of them
+   * carry a mention. Reading `message_mentions` filtered by sender instead let PostgreSQL walk every
+   * mention in the channel newest first, so a viewer who writes often but seldom mentions anyone
+   * paid for every mention the channel's Agents ever wrote. A mention row is written with its
+   * message, so message order is mention order. A reader with no member row has mentioned no one
+   * here.
    */
   private async viewerRecentMentions(channelId: string, userId: string) {
     const member = await this.db.conversationMember.findUnique({
@@ -882,12 +885,13 @@ export class PublicChannels {
       select: { id: true },
     });
     if (!member) return [];
-    return this.db.messageMention.findMany({
-      where: { conversationId: channelId, message: { senderMemberId: member.id } },
-      orderBy: { createdAt: "desc" },
+    const messages = await this.db.message.findMany({
+      where: { senderMemberId: member.id, mentions: { some: {} } },
+      orderBy: { sequence: "desc" },
       take: 50,
-      select: { kind: true, actorId: true, createdAt: true },
+      select: { mentions: { select: { kind: true, actorId: true, createdAt: true } } },
     });
+    return messages.flatMap((message) => message.mentions).slice(0, 50);
   }
 
   /**
