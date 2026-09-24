@@ -7,6 +7,7 @@ import {
   type MessageAvailableEvent,
   type MemberChangedEvent,
 } from "#src/features/conversations/conversation-realtime";
+import type { TaskChangedEvent } from "#src/features/tasks/task-realtime";
 import {
   createCentrifugoServerApi,
   type CentrifugoServerApi,
@@ -57,6 +58,12 @@ export async function messageSignalScope(
   return userId && agentId ? { userId, agentId } : { workspaceId };
 }
 
+/** A Task write's announcement (`TaskChangedEvent`) with where it goes: a direct message's to
+ * its human viewer (`userId` and `agentId`, from `messageSignalScope`), a channel's to the
+ * Workspace. `publicationId` makes a retried write's announcement a duplicate. */
+export type TaskChangedSignal = Omit<TaskChangedEvent, "type"> &
+  Pick<MessageSignalScope, "userId" | "agentId"> & { publicationId: string };
+
 export type ConversationRealtime = {
   messageAvailable(input: ConversationRealtimeMessage & { publicationId?: string }): Promise<void>;
   /** A push telling each named channel's open pages that its member list is stale. */
@@ -64,6 +71,9 @@ export type ConversationRealtime = {
   /** A push telling the Workspace's sidebars and the channel's open pages that its name,
    * description or archived state changed. Optional: a port without it announces nothing. */
   channelUpdated?(input: { workspaceId: string; conversationId: string }): Promise<void>;
+  /** A push telling open Tasks pages the new copies of the Tasks a write changed. Optional: a
+   * port without it announces nothing. */
+  taskChanged?(input: TaskChangedSignal): Promise<void>;
 };
 
 export class CentrifugoConversationRealtime implements ConversationRealtime {
@@ -102,6 +112,17 @@ export class CentrifugoConversationRealtime implements ConversationRealtime {
         idempotencyKey,
       ),
     ]);
+  }
+
+  async taskChanged({ publicationId, userId, agentId, ...announced }: TaskChangedSignal) {
+    const event: TaskChangedEvent = { type: "task.changed.v1", ...announced };
+    await this.centrifugo.publishJson(
+      userId && agentId
+        ? userConversationChannel(userId)
+        : workspaceConversationChannel(announced.workspaceId),
+      event,
+      publicationId,
+    );
   }
 
   async messageAvailable(input: ConversationRealtimeMessage & { publicationId?: string }) {

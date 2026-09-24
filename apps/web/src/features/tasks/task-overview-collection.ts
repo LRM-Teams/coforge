@@ -5,8 +5,9 @@ import {
   queryCollectionOptions,
   UpdateOperationItemNotFoundError,
 } from "@tanstack/query-db-collection";
-import type { TaskCommand, TaskResult, TaskStatus } from "@lrm/coforge-sdk/internal";
+import type { TaskCommand, TaskResult, TaskStatus, TaskView } from "@lrm/coforge-sdk/internal";
 
+import type { TaskChangedEvent } from "./task-realtime";
 import { executeTask, loadTaskOverview } from "./tasks.functions";
 
 // The Tasks page's rows as a TanStack DB collection over the Query key its loader fills, and the
@@ -113,7 +114,40 @@ export function createTaskOverview(
     });
   };
 
-  return { tasks, run };
+  /**
+   * Applies announced Task changes (`task.changed.v1`) to the rows on screen, in one write: each
+   * newer copy replaces its row's Task fields (the page's own fields stay), each deleted Task
+   * leaves. Returns true when a copy names a Task this page does not list yet (a new one), which
+   * only a read of the list can add, since the page's own fields are not announced.
+   */
+  const apply = (events: readonly TaskChangedEvent[]) => {
+    const newest = new Map<string, TaskView>();
+    const deleted = new Set<string>();
+    let needsRead = false;
+    for (const event of events) {
+      for (const view of event.tasks) {
+        const known = newest.get(view.messageId);
+        if (!known || view.revision > known.revision) newest.set(view.messageId, view);
+      }
+      for (const messageId of event.deleted) deleted.add(messageId);
+    }
+    const updates: TaskView[] = [];
+    for (const view of newest.values()) {
+      if (deleted.has(view.messageId)) continue;
+      const row = tasks.get(view.messageId);
+      if (!row) needsRead = true;
+      else if (view.revision > row.revision) updates.push(view);
+    }
+    const removed = [...deleted].filter((messageId) => tasks.has(messageId));
+    if (updates.length > 0 || removed.length > 0)
+      tasks.utils.writeBatch(() => {
+        for (const view of updates) tasks.utils.writeUpdate({ ...view });
+        if (removed.length > 0) tasks.utils.writeDelete(removed);
+      });
+    return needsRead;
+  };
+
+  return { tasks, run, apply };
 }
 
 export type TaskOverviewCollection = ReturnType<typeof createTaskOverview>;

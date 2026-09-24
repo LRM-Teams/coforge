@@ -6,7 +6,8 @@ export const conversationRealtimeChannel = (conversationId: string) => `chat:${c
  * one subscription per open Workspace keeps the sidebar unread counts live
  * without holding a per-conversation subscription for every channel in the
  * list. It also carries `channel.updated.v1`, so the sidebar re-reads a renamed
- * or archived channel. Authorization mirrors the status/activity workspace channels: the
+ * or archived channel, and `task.changed.v1` (`features/tasks/task-realtime.ts`), so an open
+ * Tasks page updates the rows a Task write changed. Authorization mirrors the status/activity workspace channels: the
  * subscription token is issued only to Workspace members.
  */
 export const workspaceConversationChannel = (workspaceId: string) =>

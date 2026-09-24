@@ -4,6 +4,8 @@ import { TASK_STATUSES, type TaskPrincipal, type TaskResult } from "@lrm/coforge
 import { z } from "zod";
 import { AppError } from "#src/lib/app-error";
 import { agentAuthMiddleware } from "#src/server/agents/agent-http-middleware.server";
+import { createCentrifugoServerApi } from "#src/server/centrifugo/server-api.server";
+import { CentrifugoConversationRealtime } from "#src/server/conversations/conversation-realtime.server";
 import { TaskBoard } from "#src/server/tasks/task-board.server";
 
 const taskOperations = [
@@ -122,8 +124,16 @@ export const Route = createFileRoute("/api/agent/v1/tasks")({
   server: {
     middleware: [agentAuthMiddleware],
     handlers: {
+      // An Agent's Task writes reach open pages like a person's: their notices and Task changes
+      // are signalled (never delivered or pushed from here).
       POST: ({ request, context: { principal, db } }) =>
-        handleAgentTaskPost(request, principal, new TaskBoard(db)),
+        handleAgentTaskPost(
+          request,
+          principal,
+          new TaskBoard(db, {
+            realtime: new CentrifugoConversationRealtime(createCentrifugoServerApi()),
+          }),
+        ),
     },
   },
 });
