@@ -215,7 +215,8 @@ export function ConversationNavigation({ children }: { children: ReactNode }) {
   // Every server read of the lists carries the persisted counts; local arithmetic restarts from
   // them (sequence boundaries survive, so no event double-counts). Direct messages are already
   // keyed by Agent id, the same key their realtime signal carries. A re-seed follows each server
-  // read (`readAt`) and each change of a count shown (a mark-unread), not a pin or a drag.
+  // read (`readAt`) and each change of a count shown (a mark-unread), not a pin, a drag, or a
+  // closed row with nothing unread.
   const { counts } = unread;
   const refresh = unread.replace;
   const seed = useMemo(() => {
@@ -226,7 +227,9 @@ export function ConversationNavigation({ children }: { children: ReactNode }) {
         unreadCount,
       })),
     ];
-    const counts = entries.map((entry) => `${entry.id}:${entry.unreadCount}`).join(",");
+    const counts = entries
+      .flatMap((entry) => (entry.unreadCount > 0 ? [`${entry.id}:${entry.unreadCount}`] : []))
+      .join(",");
     return { entries, key: `${readAt}|${counts}` };
   }, [visibleChannels, directs, readAt]);
   useEffect(() => {

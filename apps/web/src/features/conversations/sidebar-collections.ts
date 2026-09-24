@@ -1,8 +1,11 @@
 import { queryOptions } from "@tanstack/react-query";
-import type { QueryClient } from "@tanstack/react-query";
+import type { QueryClient, QueryKey } from "@tanstack/react-query";
 import { createCollection, createOptimisticAction } from "@tanstack/react-db";
 import type { PendingMutation, Transaction } from "@tanstack/react-db";
-import { queryCollectionOptions } from "@tanstack/query-db-collection";
+import {
+  queryCollectionOptions,
+  UpdateOperationItemNotFoundError,
+} from "@tanstack/query-db-collection";
 
 import { nextPinOrder, pinOrdersAfterArrange } from "#src/lib/pin-order";
 import {
@@ -162,8 +165,6 @@ export function createSidebar(
     }),
   );
 
-  const rowOf = (target: PinRef): SidebarFields | undefined =>
-    target.kind === "channel" ? channels.get(target.channelId) : directs.get(target.agentId);
   /** Changes one row on screen; a row that has left the list meanwhile is left alone. */
   const edit = (target: PinRef, change: (row: SidebarFields) => void) => {
     if (target.kind === "channel") {
@@ -182,8 +183,9 @@ export function createSidebar(
     for (const mutation of transaction.mutations) {
       try {
         write(mutation);
-      } catch {
+      } catch (error) {
         // The row is no longer in the synced list: the next read shows the list as it is.
+        if (!(error instanceof UpdateOperationItemNotFoundError)) throw error;
       }
     }
   };
@@ -257,23 +259,42 @@ export function createSidebar(
         });
     },
     mutationFn: async (arrangement, { transaction }) => {
-      const save = arranging.then(() => api.arrange(arrangement));
-      arranging = save.catch(() => undefined);
-      await save;
+      await saveArrangement(arrangement);
       confirm(transaction);
     },
   });
+  function saveArrangement(arrangement: Arrangement) {
+    const save = arranging.then(() => api.arrange(arrangement));
+    arranging = save.catch(() => undefined);
+    return save;
+  }
 
-  const persisted = (transaction: Transaction) => transaction.isPersisted.promise.then(() => {});
+  /** Settles when the change is saved. A change with nothing to show first (the lists have not
+   * loaded on this page, the row has left them, or it already shows the change) makes an empty
+   * transaction, which TanStack DB never saves: that one goes straight to the server, and the
+   * lists it touches are marked stale, so the next page to show them reads them again. */
+  const saved = (
+    transaction: Transaction,
+    save: () => Promise<unknown>,
+    stale: readonly QueryKey[],
+  ) =>
+    (transaction.mutations.length > 0
+      ? transaction.isPersisted.promise
+      : save().then(() => {
+          for (const queryKey of stale) void queryClient.invalidateQueries({ queryKey });
+        })
+    ).then(() => {});
+  const channelsKey = sidebarChannelsQueryKey(workspaceId);
+  const directsKey = sidebarDirectsQueryKey(workspaceId);
+  const listOf = (target: PinRef) => [target.kind === "channel" ? channelsKey : directsKey];
   const actions = {
-    setPinned: (target: PinRef, pinned: boolean) => persisted(pin({ target, pinned })),
-    // A row already showing unread has nothing to change on screen, but the mark is still saved.
+    setPinned: (target: PinRef, pinned: boolean) =>
+      saved(pin({ target, pinned }), () => api.pin(target, pinned), listOf(target)),
     markUnread: (target: PinRef) =>
-      (rowOf(target)?.unreadCount ?? 0) > 0
-        ? api.markUnread(target).then(() => reread(target))
-        : persisted(markUnreadAtOnce(target)),
-    close: (target: PinRef) => persisted(close(target)),
-    arrange: (arrangement: Arrangement) => persisted(arrange(arrangement)),
+      saved(markUnreadAtOnce(target), () => api.markUnread(target), listOf(target)),
+    close: (target: PinRef) => saved(close(target), () => api.close(target), listOf(target)),
+    arrange: (arrangement: Arrangement) =>
+      saved(arrange(arrangement), () => saveArrangement(arrangement), [channelsKey, directsKey]),
   };
   return { channels, directs, actions };
 }

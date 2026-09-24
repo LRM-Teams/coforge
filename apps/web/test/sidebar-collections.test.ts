@@ -27,7 +27,7 @@ const channel = (id: string, fields: Partial<Channel> = {}): Channel => ({
   ...fields,
 });
 
-async function sidebarWith(overrides: Partial<SidebarApi> = {}) {
+async function sidebarWith(overrides: Partial<SidebarApi> = {}, { synced = true } = {}) {
   const saves: string[] = [];
   const server = {
     channels: [channel("general"), channel("random", { unreadCount: 2 })],
@@ -59,7 +59,7 @@ async function sidebarWith(overrides: Partial<SidebarApi> = {}) {
   await queryClient.query(sidebarChannelsQuery("w", api));
   await queryClient.query(sidebarDirectsQuery("w", { api }));
   const sidebar = createSidebar(queryClient, "w", api);
-  await Promise.all([sidebar.channels.preload(), sidebar.directs.preload()]);
+  if (synced) await Promise.all([sidebar.channels.preload(), sidebar.directs.preload()]);
   return { sidebar, saves, server, queryClient };
 }
 
@@ -67,6 +67,40 @@ test("marking unread saves even when the row already shows a count", async () =>
   const { sidebar, saves } = await sidebarWith();
   await sidebar.actions.markUnread({ kind: "channel", channelId: "random" });
   expect(saves).toEqual([`unread {"kind":"channel","channelId":"random"}`]);
+});
+
+test("marking unread a row with no count shows one at once and saves it", async () => {
+  const { sidebar, saves } = await sidebarWith();
+  const saved = sidebar.actions.markUnread({ kind: "channel", channelId: "general" });
+  expect(sidebar.channels.get("general")?.unreadCount).toBe(1);
+  await saved;
+  expect(saves).toEqual([`unread {"kind":"channel","channelId":"general"}`]);
+});
+
+test("marking unread a row already showing a count changes nothing on screen but is saved", async () => {
+  const { sidebar, saves } = await sidebarWith();
+  await sidebar.actions.markUnread({ kind: "channel", channelId: "random" });
+  expect(sidebar.channels.get("random")?.unreadCount).toBe(2);
+  expect(saves).toEqual([`unread {"kind":"channel","channelId":"random"}`]);
+});
+
+test("a change made before the lists have synced (another page) is saved and marks them stale", async () => {
+  const { sidebar, saves, queryClient } = await sidebarWith({}, { synced: false });
+  const stale = () =>
+    [sidebarChannelsQuery("w"), sidebarDirectsQuery("w")].map(
+      (query) => queryClient.getQueryState(query.queryKey)?.isInvalidated,
+    );
+  expect(stale()).toEqual([false, false]);
+  await sidebar.actions.markUnread({ kind: "direct", agentId: "helper" });
+  await sidebar.actions.setPinned({ kind: "channel", channelId: "random" }, true);
+  await sidebar.actions.close({ kind: "channel", channelId: "random" });
+  expect(saves).toEqual([
+    `unread {"kind":"direct","agentId":"helper"}`,
+    `pin {"kind":"channel","channelId":"random"} true`,
+    `close {"kind":"channel","channelId":"random"}`,
+  ]);
+  // The next page to show the lists reads them again instead of the copy from before.
+  expect(stale()).toEqual([true, true]);
 });
 
 test("a pin shows at once, is saved, and stays when a later re-read fails", async () => {
@@ -83,10 +117,13 @@ test("a pin shows at once, is saved, and stays when a later re-read fails", asyn
 
 test("a saved change is not a server read: the lists' read time stays", async () => {
   const { sidebar, queryClient } = await sidebarWith();
-  const readAt = () => queryClient.getQueryData(sidebarChannelsQuery("w").queryKey)?.fetchedAt;
-  const before = readAt();
+  const key = sidebarChannelsQuery("w").queryKey;
+  const before = queryClient.getQueryState(key)!;
   await sidebar.actions.setPinned({ kind: "channel", channelId: "general" }, true);
-  expect(readAt()).toBe(before);
+  const after = queryClient.getQueryState(key)!;
+  // The save wrote the cache (its data is new) but the read time it carries is the old one.
+  expect(after.data).not.toBe(before.data);
+  expect(after.data?.fetchedAt).toBe(before.data?.fetchedAt);
 });
 
 test("a failed save puts the row back and rejects", async () => {
@@ -107,24 +144,25 @@ test("a failed DM re-read keeps the rows it has", async () => {
   expect(sidebar.directs.get("helper")).toMatchObject({ pinned: true, conversation: true });
 });
 
-test("a change to a row that has left the list does nothing", async () => {
-  const { sidebar } = await sidebarWith();
-  await expect(sidebar.actions.close({ kind: "channel", channelId: "gone" })).resolves.toBe(
-    undefined,
-  );
+test("a change to a row that has left the list is still saved", async () => {
+  const { sidebar, saves } = await sidebarWith();
+  await sidebar.actions.close({ kind: "channel", channelId: "gone" });
+  expect(saves).toEqual([`close {"kind":"channel","channelId":"gone"}`]);
 });
 
 test("drags are saved one after another, in the order they were made", async () => {
   const started: string[] = [];
   let releaseFirst = () => {};
+  let firstStarted = () => {};
+  const firstCalled = new Promise<void>((resolve) => (firstStarted = resolve));
   const { sidebar } = await sidebarWith({
     arrange: (arrangement: Arrangement) => {
       const first = arrangement.pins[0];
       const name = first?.kind === "channel" ? first.channelId : "helper";
       started.push(name);
-      return name === "general"
-        ? new Promise<void>((resolve) => (releaseFirst = resolve))
-        : Promise.resolve();
+      if (name !== "general") return Promise.resolve();
+      firstStarted();
+      return new Promise<void>((resolve) => (releaseFirst = resolve));
     },
   });
   const first = sidebar.actions.arrange({
@@ -135,9 +173,13 @@ test("drags are saved one after another, in the order they were made", async () 
     pins: [{ kind: "channel", channelId: "random" }],
     unpinned: [],
   });
-  await Promise.resolve();
-  expect(started).toEqual(["general"]);
-  releaseFirst();
+  try {
+    await firstCalled;
+    // The second drag waits for the first save: nothing else has reached the server.
+    expect(started).toEqual(["general"]);
+  } finally {
+    releaseFirst();
+  }
   await Promise.all([first, second]);
   expect(started).toEqual(["general", "random"]);
 });
