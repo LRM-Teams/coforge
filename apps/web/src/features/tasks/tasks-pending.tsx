@@ -6,7 +6,8 @@ import { PageHeader } from "#src/components/layout/page-header";
 import { Skeleton } from "#src/components/ui/skeleton";
 import { m } from "#src/paraglide/messages";
 import { TaskStatusIcon } from "./task-status-icon";
-import { statusLabel, type TaskLayout } from "./task-workflow";
+import { HIDDEN_COLUMN_CLASS, statusLabel, type TaskLayout } from "./task-workflow";
+import { cn } from "#src/lib/utils";
 
 /** A card's shape while its Task loads: the number line, a title of two lines, the owner. */
 export function TaskCardSkeleton({ list }: { list: boolean }) {
@@ -45,8 +46,7 @@ const PLACEHOLDERS: Record<TaskStatus, number> = {
  * The Tasks page while it loads: its header, toolbar and every status group in place, with
  * placeholder cards, so the page keeps its shape when the Tasks arrive.
  */
-export function TasksPending({ layout = "board" }: { layout?: TaskLayout }) {
-  const board = layout === "board";
+export function TasksPending({ layout }: { layout?: TaskLayout }) {
   return (
     <main className="flex h-svh max-h-svh min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-primary">
       <PageHeader heading={m.tasks_tab()} />
@@ -61,50 +61,67 @@ export function TasksPending({ layout = "board" }: { layout?: TaskLayout }) {
       <p role="status" className="sr-only">
         {m.tasks_loading()}
       </p>
-      <div aria-busy="true" className="min-h-0 flex-1 overflow-hidden p-4 md:p-6">
-        <div
-          className={
-            board
-              ? "flex flex-col gap-3 md:h-full md:flex-row md:items-stretch md:justify-center-safe"
-              : "flex flex-col gap-4"
-          }
-        >
-          {TASK_STATUSES.map((status) => (
-            <section
-              key={status}
-              aria-label={statusLabel(status)}
+      {layout ? (
+        <PendingGroups board={layout === "board"} />
+      ) : (
+        // No layout asked for: the page picks the board on a wide screen and the list on a narrow
+        // one, so the placeholder does too.
+        <>
+          <PendingGroups board className="hidden md:block" />
+          <PendingGroups board={false} className="md:hidden" />
+        </>
+      )}
+    </main>
+  );
+}
+
+function PendingGroups({ board, className }: { board: boolean; className?: string }) {
+  return (
+    <div aria-busy="true" className={cn("min-h-0 flex-1 overflow-hidden p-4 md:p-6", className)}>
+      <div
+        className={
+          board
+            ? "flex flex-col gap-3 md:h-full md:flex-row md:items-stretch md:justify-center-safe"
+            : "flex flex-col gap-4"
+        }
+      >
+        {TASK_STATUSES.map((status) => (
+          <section
+            key={status}
+            aria-label={statusLabel(status)}
+            className={
+              board
+                ? // The columns the viewer hid stay hidden while loading too.
+                  cn(
+                    "flex min-w-0 flex-col rounded-xl bg-secondary md:max-w-80 md:min-w-60 md:flex-1",
+                    HIDDEN_COLUMN_CLASS[status],
+                  )
+                : "min-w-0 overflow-hidden rounded-xl border border-secondary bg-primary"
+            }
+          >
+            <div
               className={
                 board
-                  ? "flex min-w-0 flex-col rounded-xl bg-secondary md:max-w-80 md:min-w-60 md:flex-1"
-                  : "min-w-0 overflow-hidden rounded-xl border border-secondary bg-primary"
+                  ? "flex h-10 items-center gap-2 px-3 text-sm font-semibold text-primary"
+                  : "flex h-10 items-center gap-2 border-b border-secondary bg-secondary px-4 text-sm font-semibold text-primary"
               }
             >
-              <div
-                className={
-                  board
-                    ? "flex h-10 items-center gap-2 px-3 text-sm font-semibold text-primary"
-                    : "flex h-10 items-center gap-2 border-b border-secondary bg-secondary px-4 text-sm font-semibold text-primary"
-                }
-              >
-                <TaskStatusIcon status={status} />
-                {statusLabel(status)}
-                <Skeleton className="h-3.5 w-4 bg-tertiary" />
-              </div>
-              <div
-                className={
-                  board
-                    ? "flex flex-col gap-2 px-2 pb-2"
-                    : "flex flex-col divide-y divide-secondary"
-                }
-              >
-                {Array.from({ length: PLACEHOLDERS[status] }, (_, index) => (
-                  <TaskCardSkeleton key={index} list={!board} />
-                ))}
-              </div>
-            </section>
-          ))}
-        </div>
+              <TaskStatusIcon status={status} />
+              {statusLabel(status)}
+              <Skeleton className="h-3.5 w-4 bg-tertiary" />
+            </div>
+            <div
+              className={
+                board ? "flex flex-col gap-2 px-2 pb-2" : "flex flex-col divide-y divide-secondary"
+              }
+            >
+              {Array.from({ length: PLACEHOLDERS[status] }, (_, index) => (
+                <TaskCardSkeleton key={index} list={!board} />
+              ))}
+            </div>
+          </section>
+        ))}
       </div>
-    </main>
+    </div>
   );
 }

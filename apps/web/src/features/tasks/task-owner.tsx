@@ -33,28 +33,30 @@ export function TaskPerson({
 }
 
 /** The owner as an avatar alone (its name for assistive tech), as list rows and board cards
- * show it; no owner is a dashed ring. No tooltip: its trigger would add a tab stop per card. */
+ * show it; no owner is a dashed ring. A deleted Agent keeps its greyed avatar and its DELETED
+ * marker, as everywhere a Task names its holder. No tooltip: its trigger would add a tab stop to
+ * every card. */
 export function TaskOwnerAvatar({ owner }: { owner: TaskView["owner"] }) {
   const name = owner?.name ?? m.tasks_unassigned();
   return (
-    <span className="flex shrink-0 items-center">
+    <span className="flex shrink-0 items-center gap-1.5">
       <span className="sr-only">
         {m.tasks_overview_owner()}: {name}
       </span>
-      {owner ? (
-        <Avatar
-          size="xs"
-          initials={owner.name.trim().charAt(0).toUpperCase()}
-          alt=""
-          src={owner.avatarUrl ?? undefined}
-          contentClassName={owner.deleted ? DELETED_AGENT_AVATAR_CLASS : undefined}
-        />
-      ) : (
-        <span
-          aria-hidden="true"
-          className="size-6 shrink-0 rounded-full border border-dashed border-primary"
-        />
-      )}
+      <span aria-hidden="true" className="flex">
+        {owner ? (
+          <Avatar
+            size="xs"
+            initials={owner.name.trim().charAt(0).toUpperCase()}
+            alt=""
+            src={owner.avatarUrl ?? undefined}
+            contentClassName={owner.deleted ? DELETED_AGENT_AVATAR_CLASS : undefined}
+          />
+        ) : (
+          <span className="size-6 shrink-0 rounded-full border border-dashed border-primary" />
+        )}
+      </span>
+      {owner?.deleted && <DeletedAgentBadge />}
     </span>
   );
 }

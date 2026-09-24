@@ -243,7 +243,7 @@ function OverviewTaskCard({
       renderTitle={renderTitle}
       // A direct message's Task names its Agent as a mention does, so it never reads as a Project.
       source={task.source.channelName ? task.source.label : `@${task.source.label}`}
-      // Empty for a Task outside any Project, so the list keeps its column.
+      // Empty for a Task outside any Project: no pill.
       project={task.project?.name ?? ""}
       controls={controls}
       menu={

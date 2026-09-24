@@ -160,6 +160,8 @@ function ConversationTaskCard({
 }) {
   const [pending, guard] = useSubmitGuard();
   const available = task.status === "todo" && (!task.owner || own);
+  const unclaimable = own && task.status !== "done";
+  const locked = !available && !own && Boolean(task.owner);
   return (
     <TaskCard
       task={task}
@@ -183,8 +185,10 @@ function ConversationTaskCard({
           />
         )
       }
+      // Only when there is something to show: an empty slot would leave a blank row on the card.
       actions={
-        canMutate && (
+        canMutate &&
+        (available || unclaimable || locked) && (
           <div className="flex shrink-0 items-center gap-1">
             {available && (
               <TaskAction
@@ -193,7 +197,7 @@ function ConversationTaskCard({
                 onClick={() => runCommand({ operation: "claim", number: task.number })}
               />
             )}
-            {own && task.status !== "done" && (
+            {unclaimable && (
               <TaskAction
                 label={m.tasks_unclaim()}
                 disabled={pending}
@@ -206,7 +210,7 @@ function ConversationTaskCard({
                 }
               />
             )}
-            {!available && !own && task.owner && (
+            {locked && (
               <Lock aria-label={m.tasks_owned_by_other()} className="size-3.5 text-fg-quaternary" />
             )}
           </div>

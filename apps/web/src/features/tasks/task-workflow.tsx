@@ -31,6 +31,7 @@ import { cn } from "#src/lib/utils";
 import { m } from "#src/paraglide/messages";
 import { getTaskMoveCommand } from "./task-move";
 import { TaskStatusIcon } from "./task-status-icon";
+import { isTaskColumnHidden } from "#src/features/settings/task-hidden-columns";
 
 export type TaskLayout = "board" | "list";
 export type TaskMoveCommand = NonNullable<ReturnType<typeof getTaskMoveCommand>>;
@@ -200,6 +201,7 @@ export function TaskWorkflow<T extends TaskView>({
             paged={paged?.[group.status]}
             board={layout === "board"}
             enabled={dropEnabled(group.status)}
+            hidable={hides}
             onHide={hides && onHiddenChange ? () => onHiddenChange(group.status, true) : undefined}
           >
             {(shown) => (
@@ -295,10 +297,14 @@ function TaskGroup({
   board,
   enabled,
   paged,
+  hidable,
   onHide,
   children,
 }: {
   status: TaskStatus;
+  /** A board column the viewer can hide: before hydration it follows the stored choice by CSS,
+   * and a hidden paged column never reads its pages. */
+  hidable?: boolean;
   /** Hides this board column; given, the column header has a menu offering it. */
   onHide?: () => void;
   /** Every Task in the group; for a paged group, more than those read. */
@@ -319,10 +325,12 @@ function TaskGroup({
   const onExpandedChange = paged?.onExpandedChange;
   // A paged group reads its Tasks only while open, including when it starts open.
   useEffect(() => {
+    // Mounted while hydrating although the viewer hid it (the render cannot know yet): no read.
+    if (hidable && isTaskColumnHidden(status)) return;
     onExpandedChange?.(expanded);
     // A group that leaves the board (another status picked) stops reading too.
     return () => onExpandedChange?.(false);
-  }, [onExpandedChange, expanded]);
+  }, [onExpandedChange, expanded, hidable, status]);
   // A group renders its cards in pages. A paged group is already read in pages no longer than
   // one render page, so it renders every card it has read and keeps to its own footer.
   const [shown, setShown] = useState(RENDER_PAGE);
@@ -335,6 +343,7 @@ function TaskGroup({
         board
           ? cn(
               "flex min-w-0 flex-col rounded-xl bg-secondary transition-shadow md:max-w-80 md:min-w-60 md:flex-1",
+              hidable && HIDDEN_COLUMN_CLASS[status],
               !expanded && "md:self-start",
               drop.isOver && "ring-2 ring-brand ring-inset",
             )
@@ -471,15 +480,17 @@ export function statusLabel(status: TaskStatus) {
   }[status]();
 }
 
-/** One colour per status, shared by the board columns and the task popup: the badge colour, the
- * solid dot, and the lighter line the popup's history timeline draws between nodes. */
-export const TASK_STATUS_COLOR = {
-  todo: { badge: "orange", dot: "bg-utility-orange-500", line: "bg-utility-orange-300" },
-  in_progress: { badge: "blue", dot: "bg-utility-blue-500", line: "bg-utility-blue-300" },
-  in_review: { badge: "indigo", dot: "bg-utility-indigo-500", line: "bg-utility-indigo-300" },
-  done: { badge: "success", dot: "bg-utility-green-500", line: "bg-utility-green-300" },
-  closed: { badge: "gray", dot: "bg-utility-neutral-400", line: "bg-utility-neutral-300" },
-} as const satisfies Record<TaskStatus, { badge: string; dot: string; line: string }>;
+// The status colours live with the icon; the popup and timeline read them from here too.
+export { TASK_STATUS_COLOR } from "./task-status-icon";
+
+/** A hidden board column before hydration: the boot script's class on <html> hides it. */
+export const HIDDEN_COLUMN_CLASS: Record<TaskStatus, string> = {
+  todo: "[.task-column-hidden-todo_&]:hidden",
+  in_progress: "[.task-column-hidden-in_progress_&]:hidden",
+  in_review: "[.task-column-hidden-in_review_&]:hidden",
+  done: "[.task-column-hidden-done_&]:hidden",
+  closed: "[.task-column-hidden-closed_&]:hidden",
+};
 
 function parseTaskStatus(value: string | null): TaskStatus | undefined {
   return TASK_STATUSES.find((status) => status === value);

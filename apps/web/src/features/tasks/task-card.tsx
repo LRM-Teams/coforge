@@ -20,10 +20,8 @@ const HIDDEN_ON_OVERVIEW = {
   project: "[.task-hide-project_[data-task-overview]_&]:hidden",
   owner: "[.task-hide-owner_[data-task-overview]_&]:hidden",
   sourceDot: "[.task-hide-number_[data-task-overview]_&]:hidden",
-  // A card's top line (number, source, owner) goes once all of it is hidden; the title then
-  // clears the corner tools.
+  // A card's top line (number, source, owner) goes once all of it is hidden.
   meta: "[.task-hide-number.task-hide-source.task-hide-owner_[data-task-overview]_&]:hidden",
-  titleClear: "[.task-hide-number.task-hide-source.task-hide-owner_[data-task-overview]_&]:pr-14",
 };
 
 /** Classes for the link or button a caller wraps around the title. */
@@ -143,12 +141,7 @@ export function TaskCard({
           <TaskOwnerAvatar owner={task.owner} />
         </span>
       </div>
-      <h3
-        className={cn(
-          "mt-1 text-sm leading-snug font-medium text-primary [overflow-wrap:anywhere]",
-          HIDDEN_ON_OVERVIEW.titleClear,
-        )}
-      >
+      <h3 className="mt-1 text-sm leading-snug font-medium text-primary [overflow-wrap:anywhere]">
         {renderTitle(<span className="line-clamp-3">{task.title}</span>)}
       </h3>
       {task.description && (
@@ -156,11 +149,13 @@ export function TaskCard({
           {task.description}
         </p>
       )}
-      {(project || actions) && (
+      {(project || actions || tools) && (
         <div
           className={cn(
-            "mt-3 flex min-h-6 items-center justify-between gap-2",
-            !actions && HIDDEN_ON_OVERVIEW.project,
+            "mt-3 min-h-7 items-center justify-between gap-2",
+            // With a touch pointer the tools sit at this row's end, so it keeps room for them.
+            tools && "any-pointer-coarse:pr-16",
+            project || actions ? "flex" : "hidden any-pointer-coarse:flex",
           )}
         >
           {project ? (
@@ -168,13 +163,14 @@ export function TaskCard({
           ) : (
             <span />
           )}
-          {actions}
+          {actions && <div className="flex shrink-0 items-center gap-1">{actions}</div>}
         </div>
       )}
       {tools && (
-        // After the title in the DOM so assistive tech names the task first. Shown over the
-        // owner on hover or focus, and always wherever a touch pointer exists.
-        <div className="absolute top-2 right-1.5 rounded-md bg-primary opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100 has-[[aria-expanded=true]]:opacity-100 any-pointer-coarse:opacity-100">
+        // After the title in the DOM so assistive tech names the task first. With a mouse, over
+        // the top corner (the owner) while hovered or focused; with a touch pointer, always shown
+        // at the bottom row's end, so the owner is never covered for good.
+        <div className="absolute top-2 right-1.5 rounded-md bg-primary opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100 has-[[aria-expanded=true]]:opacity-100 any-pointer-coarse:top-auto any-pointer-coarse:bottom-2.5 any-pointer-coarse:opacity-100">
           {tools}
         </div>
       )}
