@@ -207,7 +207,14 @@ export function createTaskOverview(
       ...current,
       [status]: Math.min(current[status] + FINISHED_TASKS_PAGE, FINISHED_TASKS_MAX),
     });
-    await tasks.utils.refetch();
+    try {
+      // Rejects when the read fails (Query swallows it otherwise), so the caller can say so.
+      await tasks.utils.refetch({ throwOnError: true });
+    } catch (error) {
+      // Not read, so not deeper: a retry asks for the same page again.
+      depths.set(workspaceId, current);
+      throw error;
+    }
   };
 
   return { tasks, run, apply, more, showOlder };

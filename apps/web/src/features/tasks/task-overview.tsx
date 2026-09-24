@@ -90,7 +90,7 @@ export function TaskOverview({
           // Nothing listed matches, but older finished Tasks might: their groups stay, so "Show
           // older" can still be reached.
           statuses={
-            visible.length === 0 && !more?.done && !more?.closed
+            visible.length === 0 && !(status ? more?.[status] : more?.done || more?.closed)
               ? []
               : status
                 ? [status]

@@ -34,11 +34,13 @@ const viewer = {
 async function overviewWith(execute: TaskOverviewApi["execute"]) {
   const commands: TaskCommand[] = [];
   let reads = 0;
+  let failing = false;
   const finishedReads: Array<{ done?: number; closed?: number } | undefined> = [];
   const api: TaskOverviewApi = {
     load: async (options) => {
       reads += 1;
       finishedReads.push(options);
+      if (failing) throw new Error("offline");
       return {
         more: { done: true, closed: false },
         tasks: [task(1), task(2, { status: "in_progress", owner: viewer })].map((view) => ({
@@ -59,7 +61,14 @@ async function overviewWith(execute: TaskOverviewApi["execute"]) {
   await queryClient.query(taskOverviewQuery("w", api));
   const overview = createTaskOverview(queryClient, "w", api);
   await overview.tasks.preload();
-  return { overview, commands, queryClient, reads: () => reads, finishedReads };
+  return {
+    overview,
+    commands,
+    queryClient,
+    reads: () => reads,
+    finishedReads,
+    failReads: (value: boolean) => void (failing = value),
+  };
 }
 
 test("a move shows at once, then takes the server's copy of the Task", async () => {
@@ -195,4 +204,15 @@ test("a Task converted again from a deleted Task's message comes back", async ()
   expect(overview.apply([announced([task(2, { revision: 7 })])])).toBe(true);
   await refetchNow(overview);
   expect(overview.tasks.get("message-2")).toMatchObject({ revision: 7 });
+});
+
+test("a failed read of older finished Tasks rejects and leaves the depth as it was", async () => {
+  const { overview, queryClient, finishedReads, failReads } = await overviewWith(async () => ({
+    tasks: [],
+  }));
+  failReads(true);
+  await expect(overview.showOlder("done")).rejects.toThrow("offline");
+  failReads(false);
+  await queryClient.invalidateQueries({ queryKey: taskOverviewQuery("w").queryKey });
+  expect(finishedReads.at(-1)).toEqual({ done: 50, closed: 50 });
 });
