@@ -989,6 +989,18 @@ export class TaskBoard {
   }
 
   /**
+   * Whom an assignment receipt named, from its one mention row: a retried command answers as the
+   * first one did, whatever the conversation's membership or the Task's owner became since.
+   */
+  private async receiptAssignee(tx: Transaction, receiptId: string) {
+    const mention = await tx.messageMention.findFirst({
+      where: { messageId: receiptId },
+      select: { memberId: true, handle: true },
+    });
+    return mention && { memberId: mention.memberId, handle: `@${mention.handle}` };
+  }
+
+  /**
    * The conversation member an assignee names. A browser pick is bound by id (`user:<id>` or
    * `agent:<id>`), so it is always the one picked. A bare `@handle` (the Agent CLI) may match a
    * person and an Agent at once, since usernames are global and Agent names per Workspace; the
@@ -1176,22 +1188,14 @@ export class TaskBoard {
       if (retried.length) {
         if (retried.length !== titles.length) throw new AppError("CONFLICT");
         const receipt = await tx.message.findUnique({ where: { id: receiptId } });
-        const assignee =
-          receipt && command.assignee
-            ? await this.assigneeMember(
-                tx,
-                scope.conversationId,
-                scope.workspaceId,
-                command.assignee,
-              )
-            : null;
+        const assigned = receipt ? await this.receiptAssignee(tx, receipt.id) : null;
         return {
           tasks: retried,
           created: false,
           sequences: [] as number[],
           receipt,
-          assignee,
-          started: assignee?.id === member.id,
+          assigneeHandle: assigned?.handle ?? null,
+          started: assigned?.memberId === member.id,
         };
       }
       if (command.attachmentId) {
@@ -1356,7 +1360,14 @@ export class TaskBoard {
             assignee,
           })
         : null;
-      return { tasks, created: true, sequences, receipt, assignee, started };
+      return {
+        tasks,
+        created: true,
+        sequences,
+        receipt,
+        assigneeHandle: assignee ? assigneeMention(assignee) : null,
+        started,
+      };
     });
     if (result.created) {
       // PostgreSQL is canonical: a missed notification, realtime event or daemon push is
@@ -1426,7 +1437,7 @@ export class TaskBoard {
         assignmentReceipt: {
           messageId: receipt.id,
           content: receipt.body,
-          assignee: result.assignee ? assigneeMention(result.assignee) : command.assignee!,
+          assignee: result.assigneeHandle ?? command.assignee!,
           state: result.started ? ("started" as const) : ("assigned" as const),
         },
       }),
@@ -1855,10 +1866,8 @@ export class TaskBoard {
           where: { conversationId_number: { conversationId, number: command.number! } },
           select: taskSelection,
         });
-        const owner = command.assignee
-          ? await this.assigneeMember(tx, conversationId, workspaceId, command.assignee)
-          : null;
-        return { task, receipt, owner, changed: false };
+        const assigned = await this.receiptAssignee(tx, receipt.id);
+        return { task, receipt, assigneeHandle: assigned?.handle ?? null, changed: false };
       }
       const owner = command.assignee
         ? await this.assigneeMember(tx, conversationId, workspaceId, command.assignee)
@@ -1879,7 +1888,7 @@ export class TaskBoard {
       if (command.expectedRevision !== undefined && current.revision !== command.expectedRevision)
         throw new AppError("CONFLICT");
       if (current.ownerMemberId === (owner?.id ?? null))
-        return { task: current, receipt: null, owner, changed: false };
+        return { task: current, receipt: null, assigneeHandle: null, changed: false };
       const { task } = await this.commitTaskChange(
         tx,
         member,
@@ -1891,12 +1900,12 @@ export class TaskBoard {
         await notices.inThread(task, (quoted) =>
           noticeText.unassigned(noticeActor(member).displayName, quoted),
         );
-        return { task, changed: true, receipt: null, owner };
+        return { task, changed: true, receipt: null, assigneeHandle: null };
       }
       return {
         task,
         changed: true,
-        owner,
+        assigneeHandle: assigneeMention(owner),
         receipt: await notices.receipt({
           id: receiptId,
           body: noticeText.assigned(assigneeMention(owner), await notices.quote([task])),
@@ -1914,7 +1923,7 @@ export class TaskBoard {
         assignmentReceipt: {
           messageId: receipt.id,
           content: receipt.body,
-          assignee: result.owner ? assigneeMention(result.owner) : command.assignee!,
+          assignee: result.assigneeHandle ?? command.assignee!,
           state: "assigned" as const,
         },
       }),
