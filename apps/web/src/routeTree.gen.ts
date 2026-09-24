@@ -14,6 +14,7 @@ import { Route as AppRouteImport } from './routes/_app'
 import { Route as HealthRouteImport } from './routes/health'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as DotwellKnownOauthAuthorizationServerRouteImport } from './routes/[.]well-known.oauth-authorization-server'
+import { Route as AppActivityRouteImport } from './routes/_app/activity'
 import { Route as AppComputersRouteImport } from './routes/_app/computers'
 import { Route as AppMessagesRouteImport } from './routes/_app/messages'
 import { Route as AppRecordsRouteImport } from './routes/_app/records'
@@ -126,6 +127,11 @@ const DotwellKnownOauthAuthorizationServerRoute =
     path: '/.well-known/oauth-authorization-server',
     getParentRoute: () => rootRouteImport,
   } as any)
+const AppActivityRoute = AppActivityRouteImport.update({
+  id: '/activity',
+  path: '/activity',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppComputersRoute = AppComputersRouteImport.update({
   id: '/computers',
   path: '/computers',
@@ -599,6 +605,7 @@ export interface FileRoutesByFullPath {
   '/health': typeof HealthRoute
   '/login': typeof LoginRoute
   '/.well-known/oauth-authorization-server': typeof DotwellKnownOauthAuthorizationServerRoute
+  '/activity': typeof AppActivityRoute
   '/computers': typeof AppComputersRouteWithChildren
   '/messages': typeof AppMessagesRouteWithChildren
   '/records': typeof AppRecordsRouteWithChildren
@@ -691,6 +698,7 @@ export interface FileRoutesByTo {
   '/health': typeof HealthRoute
   '/login': typeof LoginRoute
   '/.well-known/oauth-authorization-server': typeof DotwellKnownOauthAuthorizationServerRoute
+  '/activity': typeof AppActivityRoute
   '/settings': typeof AppSettingsRoute
   '/tasks': typeof AppTasksRoute
   '/api/agent-api-keys': typeof ApiAgentApiKeysRoute
@@ -782,6 +790,7 @@ export interface FileRoutesById {
   '/health': typeof HealthRoute
   '/login': typeof LoginRoute
   '/.well-known/oauth-authorization-server': typeof DotwellKnownOauthAuthorizationServerRoute
+  '/_app/activity': typeof AppActivityRoute
   '/_app/computers': typeof AppComputersRouteWithChildren
   '/_app/messages': typeof AppMessagesRouteWithChildren
   '/_app/records': typeof AppRecordsRouteWithChildren
@@ -876,6 +885,7 @@ export interface FileRouteTypes {
     | '/health'
     | '/login'
     | '/.well-known/oauth-authorization-server'
+    | '/activity'
     | '/computers'
     | '/messages'
     | '/records'
@@ -968,6 +978,7 @@ export interface FileRouteTypes {
     | '/health'
     | '/login'
     | '/.well-known/oauth-authorization-server'
+    | '/activity'
     | '/settings'
     | '/tasks'
     | '/api/agent-api-keys'
@@ -1058,6 +1069,7 @@ export interface FileRouteTypes {
     | '/health'
     | '/login'
     | '/.well-known/oauth-authorization-server'
+    | '/_app/activity'
     | '/_app/computers'
     | '/_app/messages'
     | '/_app/records'
@@ -1244,6 +1256,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/.well-known/oauth-authorization-server'
       preLoaderRoute: typeof DotwellKnownOauthAuthorizationServerRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/_app/activity': {
+      id: '/_app/activity'
+      path: '/activity'
+      fullPath: '/activity'
+      preLoaderRoute: typeof AppActivityRouteImport
+      parentRoute: typeof AppRoute
     }
     '/_app/computers': {
       id: '/_app/computers'
@@ -1903,6 +1922,7 @@ const AppRecordsRouteWithChildren = AppRecordsRoute._addFileChildren(
 )
 
 interface AppRouteChildren {
+  AppActivityRoute: typeof AppActivityRoute
   AppComputersRoute: typeof AppComputersRouteWithChildren
   AppMessagesRoute: typeof AppMessagesRouteWithChildren
   AppRecordsRoute: typeof AppRecordsRouteWithChildren
@@ -1917,6 +1937,7 @@ interface AppRouteChildren {
 }
 
 const AppRouteChildren: AppRouteChildren = {
+  AppActivityRoute: AppActivityRoute,
   AppComputersRoute: AppComputersRouteWithChildren,
   AppMessagesRoute: AppMessagesRouteWithChildren,
   AppRecordsRoute: AppRecordsRouteWithChildren,

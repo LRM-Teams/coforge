@@ -339,5 +339,61 @@
   "conversation_saved_empty_title": "暂无收藏的消息",
   "conversation_saved_empty_description": "选择消息上的书签图标即可保存。",
   "conversation_saved_copy_link": "复制链接",
-  "conversation_saved_link_copied": "链接已复制"
+  "conversation_saved_link_copied": "链接已复制",
+  "activity_inbox_active": [
+    {
+      "declarations": ["input count", "local countPlural = count: plural"],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=other": "{count} 条进行中"
+      }
+    }
+  ],
+  "activity_inbox_unread": [
+    {
+      "declarations": ["input count", "local countPlural = count: plural"],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=other": "{count} 条未读"
+      }
+    }
+  ],
+  "activity_inbox_filter_label": "筛选动态",
+  "activity_inbox_filter_all": "全部",
+  "activity_inbox_filter_unread": "未读",
+  "activity_inbox_filter_mentions": "提及",
+  "activity_inbox_mark_all_read": "全部已读",
+  "activity_inbox_mark_read": "标为已读",
+  "activity_inbox_done": "标记为完成",
+  "activity_inbox_menu_done": "完成",
+  "activity_inbox_menu_label": "动态条目操作",
+  "activity_inbox_action_error": "操作没有保存，请重试。",
+  "activity_inbox_replies": [
+    {
+      "declarations": ["input count", "local countPlural = count: plural"],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=other": "{count} 条回复"
+      }
+    }
+  ],
+  "activity_inbox_new": [
+    {
+      "declarations": ["input count", "local countPlural = count: plural"],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=other": "{count} 条新消息"
+      }
+    }
+  ],
+  "activity_inbox_mention_badge": "你",
+  "activity_inbox_system_sender": "系统",
+  "activity_inbox_empty_title": "动态为空",
+  "activity_inbox_empty_description": "频道、私信和已关注的讨论会一直保留在这里，直到处理完成。",
+  "activity_inbox_empty_unread_title": "没有未读会话",
+  "activity_inbox_empty_mentions_title": "暂无提及",
+  "activity_inbox_empty_mentions_description": "有人在频道、私信或讨论中 @提到你时，会显示在这里。",
+  "activity_inbox_load_error": "动态加载失败。",
+  "activity_inbox_retry": "重试",
+  "activity_inbox_loading_more": "加载更多…"
 }

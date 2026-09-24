@@ -45,5 +45,6 @@
   "app_load_error_description": "服务可能暂时不可用，请稍后重试。",
   "error_reference": "错误编号：{errorId}",
   "navigation_open_menu": "打开菜单",
-  "navigation_close_menu": "关闭菜单"
+  "navigation_close_menu": "关闭菜单",
+  "navigation_activity": "动态"
 }

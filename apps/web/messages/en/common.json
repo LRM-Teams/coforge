@@ -45,5 +45,6 @@
   "app_load_error_description": "The service may be temporarily unavailable. Try again in a moment.",
   "error_reference": "Error reference: {errorId}",
   "navigation_open_menu": "Open menu",
-  "navigation_close_menu": "Close menu"
+  "navigation_close_menu": "Close menu",
+  "navigation_activity": "Activity"
 }

@@ -131,6 +131,7 @@ responsibility.
   message rendering, action cards, saved messages, and the sidebar lists.
 - `features/device-auth/` — device-code verification page.
 - `features/errors/` — page-level load-error view.
+- `features/inbox/` — the Activity page: conversations and threads not yet marked Done.
 - `features/install/` — Computer install command text.
 - `features/integrations/` — Settings → Integrations GitHub view and functions.
 - `features/landing/` — the public homepage.
@@ -160,6 +161,7 @@ responsibility.
 - `server/files/` — file storage, delivery, and uploaded-image validation.
 - `server/http/`, `server/install/`, `server/observability/` — public origin,
   install scripts, and tracing.
+- `server/inbox/` — the Activity inbox read model and its Done and read-all writes.
 - `server/integrations/` — GitHub connection, configuration, and webhooks.
 - `server/notifications/` — Web Push and in-page notification delivery.
 - `server/profiles/` — user avatars.
