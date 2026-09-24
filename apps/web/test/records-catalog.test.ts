@@ -1867,7 +1867,7 @@ test("saveReportContent with askToSend cancels auto-send and leaves offer-send t
   ).toBe(38);
 });
 
-test("saveReportContent askToSend uses the current ISO week when the live format cycle is stale", async () => {
+test("ensureAssistantIntro posts the offer-send for the current ISO week when the live format cycle is stale", async () => {
   const comments: Array<Record<string, unknown>> = [];
   const reportUpdates: Array<Record<string, unknown>> = [];
   const formatRow = {
@@ -1876,7 +1876,7 @@ test("saveReportContent askToSend uses the current ISO week when the live format
     kind: "template",
     settingsId: "settings-1",
     content: { tabs: { Summary: { markdown: "old" } } },
-    // Created last week; Leader saves again in W39.
+    // Created last week; the calendar has advanced to W39 by now.
     cycle: { id: "cycle-38", year: 2026, week: 38 },
     submissions: [],
     updatedAt: new Date("2026-09-18T06:00:00.000Z"),
@@ -1922,7 +1922,6 @@ test("saveReportContent askToSend uses the current ISO week when the live format
         }
         return {
           id: "format-1",
-          status: "draft",
           updatedAt: new Date("2026-09-24T06:40:00.000Z"),
         };
       },
@@ -1946,9 +1945,9 @@ test("saveReportContent askToSend uses the current ISO week when the live format
           },
         ],
       }),
-      update: async () => ({}),
     },
     recordComment: {
+      findMany: async () => [],
       create: async (query: { data: Record<string, unknown> }) => {
         comments.push(query.data);
         return { id: `c-${comments.length}` };
@@ -1956,17 +1955,17 @@ test("saveReportContent askToSend uses the current ISO week when the live format
     },
   } as unknown as PrismaClient;
 
-  const result = await new RecordCatalog(db).saveReportContent({
+  await new RecordCatalog(db).ensureAssistantIntro({
     workspaceId: "workspace-1",
     userId: "leader",
-    reportId: "format-1",
-    content: { tabs: { Summary: { markdown: "new body" } } },
-    askToSend: true,
+    subjectType: "report",
+    subjectId: "format-1",
+    assistantSessionId: "session-1",
+    surface: "format",
     // Thursday 14:40 Shanghai = inside the 14:00–15:00 preview hour for Thursday 15:00
     now: new Date("2026-09-24T06:40:00.000Z"),
   });
 
-  expect(result.assistantPosted).toBe(true);
   expect(comments.at(-1)).toMatchObject({
     authorType: "assistant",
     body: "hi，李健，2026 W39的工作周报模板已生成，请确认是否发送。",
@@ -1977,11 +1976,8 @@ test("saveReportContent askToSend uses the current ISO week when the live format
       weekTitle: "2026 W39 (09.21-09.25)",
     },
   });
+  // The stale live format was rebound onto the current week's cycle.
   expect(reportUpdates.some((row) => row.cycleId === "cycle-39")).toBe(true);
-  expect(
-    (reportUpdates.find((row) => row.content)?.content as { schedule?: { cancelledWeek?: number } })
-      ?.schedule?.cancelledWeek,
-  ).toBe(39);
 });
 
 test("saveReportContent autosave does not ask to send", async () => {
