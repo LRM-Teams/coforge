@@ -231,7 +231,6 @@ export class AgentMessageAttentionIndex {
       return;
     }
     this.#remember(generation, message.deliveryId);
-    const target = message.target;
     if (this.#consumed(message)) {
       await this.sendAck({
         ...message,
