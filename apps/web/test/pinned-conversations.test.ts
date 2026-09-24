@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 
 import {
+  canDropInto,
   moveInDirectory,
   pinsAfterDrag,
   splitPinnedConversations,
@@ -76,21 +77,31 @@ test("a row dragged into Pinned lands where it is dropped and leaves its own sec
   const moved = moveInDirectory(layout, natural, "channel:eng", "pinned", 1);
   expect(moved.pinned).toEqual(["channel:ops", "channel:eng", "direct:helper"]);
   expect(moved.channels).toEqual(["channel:general"]);
-  expect(pinsAfterDrag(layout, moved)).toEqual([
-    { kind: "channel", channelId: "ops" },
-    { kind: "channel", channelId: "eng" },
-    { kind: "direct", agentId: "helper" },
-  ]);
+  expect(pinsAfterDrag(layout, moved)).toEqual({
+    pins: [
+      { kind: "channel", channelId: "ops" },
+      { kind: "channel", channelId: "eng" },
+      { kind: "direct", agentId: "helper" },
+    ],
+    unpinned: [],
+  });
 });
 
 test("a pinned row dragged back to its own section is unpinned and returns to its natural place", () => {
   const moved = moveInDirectory(layout, natural, "channel:ops", "channels", 0);
   expect(moved.pinned).toEqual(["direct:helper"]);
   expect(moved.channels).toEqual(["channel:general", "channel:ops", "channel:eng"]);
-  expect(pinsAfterDrag(layout, moved)).toEqual([{ kind: "direct", agentId: "helper" }]);
+  expect(pinsAfterDrag(layout, moved)).toEqual({
+    pins: [{ kind: "direct", agentId: "helper" }],
+    unpinned: [{ kind: "channel", channelId: "ops" }],
+  });
 });
 
 test("a row cannot be dropped into the other kind's section", () => {
+  expect(canDropInto("channel:ops", "pinned")).toBe(true);
+  expect(canDropInto("channel:ops", "channels")).toBe(true);
+  expect(canDropInto("channel:ops", "agents")).toBe(false);
+  expect(canDropInto("direct:scout", "channels")).toBe(false);
   expect(moveInDirectory(layout, natural, "channel:ops", "agents", 0)).toBe(layout);
   expect(moveInDirectory(layout, natural, "direct:scout", "channels", 0)).toBe(layout);
 });
@@ -98,10 +109,13 @@ test("a row cannot be dropped into the other kind's section", () => {
 test("pinned rows reorder among themselves; a section's own rows keep their order", () => {
   const reordered = moveInDirectory(layout, natural, "direct:helper", "pinned", 0);
   expect(reordered.pinned).toEqual(["direct:helper", "channel:ops"]);
-  expect(pinsAfterDrag(layout, reordered)).toEqual([
-    { kind: "direct", agentId: "helper" },
-    { kind: "channel", channelId: "ops" },
-  ]);
+  expect(pinsAfterDrag(layout, reordered)).toEqual({
+    pins: [
+      { kind: "direct", agentId: "helper" },
+      { kind: "channel", channelId: "ops" },
+    ],
+    unpinned: [],
+  });
 
   const unchanged = moveInDirectory(layout, natural, "channel:eng", "channels", 0);
   expect(unchanged.channels).toEqual(["channel:general", "channel:eng"]);

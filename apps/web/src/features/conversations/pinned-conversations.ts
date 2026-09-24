@@ -46,6 +46,9 @@ export function splitPinnedConversations<
 /** Row keys per section, in display order: `channel:<channelId>` or `direct:<agentId>`. */
 export type DirectoryLayout = Record<DirectorySectionId, string[]>;
 
+/** The section a row lives in when it is not pinned. */
+export type HomeSection = Exclude<DirectorySectionId, "pinned">;
+
 export function channelRowKey(channelId: string) {
   return `channel:${channelId}`;
 }
@@ -53,9 +56,20 @@ export function directRowKey(agentId: string) {
   return `direct:${agentId}`;
 }
 
-/** The section a row lives in when it is not pinned. */
-function homeSection(key: string): "channels" | "agents" {
-  return key.startsWith("channel:") ? "channels" : "agents";
+/** The pin a row key stands for, the shape the server's pin list takes. */
+function pinOfRowKey(key: string) {
+  return key.startsWith("channel:")
+    ? { kind: "channel" as const, channelId: key.slice("channel:".length) }
+    : { kind: "direct" as const, agentId: key.slice("direct:".length) };
+}
+
+function homeSection(key: string): HomeSection {
+  return pinOfRowKey(key).kind === "channel" ? "channels" : "agents";
+}
+
+/** Pinned takes any row; Channels and Direct messages take back only their own kind. */
+export function canDropInto(key: string, section: DirectorySectionId) {
+  return section === "pinned" || section === homeSection(key);
 }
 
 /**
@@ -65,13 +79,13 @@ function homeSection(key: string): "channels" | "agents" {
  */
 export function moveInDirectory(
   layout: DirectoryLayout,
-  natural: Record<"channels" | "agents", readonly string[]>,
+  natural: Record<HomeSection, readonly string[]>,
   key: string,
   to: DirectorySectionId,
   index: number,
 ): DirectoryLayout {
+  if (!canDropInto(key, to)) return layout;
   const home = homeSection(key);
-  if (to !== "pinned" && to !== home) return layout;
   const without: DirectoryLayout = {
     pinned: layout.pinned.filter((entry) => entry !== key),
     channels: layout.channels.filter((entry) => entry !== key),
@@ -87,15 +101,15 @@ export function moveInDirectory(
   return without;
 }
 
-/** The member's new pin list after a drag, or `null` when the drag left the pins as they were. */
+/** What a drag changed about the member's pins: the Pinned rows in their new order and the rows
+ * dragged out of Pinned. `null` when the drag left the pins as they were. */
 export function pinsAfterDrag(before: DirectoryLayout, after: DirectoryLayout) {
   const same =
     before.pinned.length === after.pinned.length &&
     before.pinned.every((key, index) => after.pinned[index] === key);
   if (same) return null;
-  return after.pinned.map((key) =>
-    key.startsWith("channel:")
-      ? { kind: "channel" as const, channelId: key.slice("channel:".length) }
-      : { kind: "direct" as const, agentId: key.slice("direct:".length) },
-  );
+  return {
+    pins: after.pinned.map(pinOfRowKey),
+    unpinned: before.pinned.filter((key) => !after.pinned.includes(key)).map(pinOfRowKey),
+  };
 }

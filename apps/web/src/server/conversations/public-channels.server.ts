@@ -1,5 +1,5 @@
 import { lockConversation } from "./conversation-lock.server";
-import { setConversationPin } from "./conversation-pins.server";
+import { lockMemberPins, setConversationPin } from "./conversation-pins.server";
 import type { Prisma, PrismaClient } from "#src/generated/prisma/client";
 import { AppError } from "#src/lib/app-error";
 import { windowPageFlags } from "#src/lib/conversation-window";
@@ -348,6 +348,7 @@ export class PublicChannels {
   ) {
     const channel = await this.channel(workspaceId, userId, channelId);
     await this.db.$transaction(async (tx) => {
+      await lockMemberPins(tx, workspaceId, userId);
       await lockConversation(tx, channel.id);
       const member = await tx.conversationMember.findFirst({
         where: { conversationId: channel.id, userId, ...ACTIVE_MEMBER_WHERE },
