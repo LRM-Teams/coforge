@@ -6,13 +6,17 @@ import { messageSearchParams, type SearchFilters } from "./search-filters";
 import { searchWorkspaceMessages } from "./search.functions";
 import { SEARCH_PAGE_SIZE } from "./search.schemas";
 
-/** Where the next page starts, and the moment the first page was searched at. */
-type SearchPageParam = { offset: number; searchedAt?: string };
+/**
+ * Where the next page starts, and the moments the first page fixed: the server's `searchedAt`
+ * (the later pages' `before` bound) and the browser's `rangeFrom` (where a time range starts).
+ */
+type SearchPageParam = { offset: number; searchedAt?: Date; rangeFrom?: string };
 
 /**
  * One search's pages, keyed by the query and filters as the URL holds them (the sort only counts
  * with a query, the time zone only for "Today"). The first page fixes the moment the search runs
- * at; every later page reuses it, so its `before` bound and time range never move while paging.
+ * at (the server's clock) and where a time range starts; every later page reuses both, so they
+ * never move while paging.
  * Scoped by Workspace so a switch never shows another's results.
  */
 export const messageSearchQuery = (
@@ -30,16 +34,17 @@ export const messageSearchQuery = (
       filters.range === "today" ? (timeZone ?? null) : null,
     ],
     queryFn: async ({ pageParam, signal }) => {
-      const searchedAt = pageParam.searchedAt ?? new Date().toISOString();
+      const rangeFrom = pageParam.rangeFrom ?? new Date().toISOString();
       const page = await searchWorkspaceMessages({
         data: {
-          ...messageSearchParams(query, filters, new Date(searchedAt), timeZone),
+          ...messageSearchParams(query, filters, new Date(rangeFrom), timeZone),
+          before: pageParam.searchedAt?.toISOString(),
           offset: pageParam.offset,
           limit: SEARCH_PAGE_SIZE,
         },
         signal,
       });
-      return { ...page, searchedAt };
+      return { ...page, rangeFrom };
     },
     initialPageParam: { offset: 0 } as SearchPageParam,
     getNextPageParam: (page, pages): SearchPageParam | undefined =>
@@ -47,6 +52,7 @@ export const messageSearchQuery = (
         ? {
             offset: pages.reduce((count, loaded) => count + loaded.results.length, 0),
             searchedAt: pages[0]!.searchedAt,
+            rangeFrom: pages[0]!.rangeFrom,
           }
         : undefined,
     // Results are a snapshot of the moment the search ran; revisiting the same search within a

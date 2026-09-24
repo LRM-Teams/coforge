@@ -155,7 +155,9 @@ test("search filters narrow results, survive a reload, and clear together", asyn
         conversationId: channelA,
         workspaceId,
         senderMemberId: human.id,
-        body: `${phrase} from a human`,
+        // The newest and the longest body, so Relevant (which favours short, focused matches)
+        // ranks it last while Recent ranks it first.
+        body: `${phrase} from a human, in a message long enough that its match is a small part of it`,
         sequence: 2,
         createdAt: daysAgo(0),
       },
@@ -196,8 +198,9 @@ test("search filters narrow results, survive a reload, and clear together", asyn
     await browser("set", "viewport", "1440", "900");
     await browser("open", `${origin}/en/search?q=${encodeURIComponent(phrase)}`);
     await waitForResults(3);
-    // Sorting applies to a query; the chip starts on Relevant.
+    // Sorting applies to a query; the chip starts on Relevant, which ranks the long newest last.
     expect(await evaluate<boolean>(`${chip("Sort")}.disabled`)).toBe(false);
+    expect((await resultIds()).at(-1)).toBe(humanToday.id);
 
     // From: only the chosen sender, named on the chip, and kept by a reload.
     await pick("From", "Search Bot");

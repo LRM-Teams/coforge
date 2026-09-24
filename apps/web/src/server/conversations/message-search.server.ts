@@ -57,7 +57,13 @@ export type MessageSearchHit = {
   message: ReturnType<typeof mapBrowserMessage>;
 };
 
-export type MessageSearchPage = { results: MessageSearchHit[]; hasMore: boolean };
+export type MessageSearchPage = {
+  results: MessageSearchHit[];
+  hasMore: boolean;
+  /** The moment this page searched up to: the `before` given, else the server's clock. A later
+   * page passes it back as `before`, so messages posted while paging never shift the offsets. */
+  searchedAt: Date;
+};
 
 /**
  * One page of the messages a Workspace member may read that match a search, rendered with the
@@ -75,6 +81,7 @@ export async function searchMessages(
   if (!membership) throw new AppError("ACCESS_DENIED");
 
   const query = input.query?.trim() ?? "";
+  const searchedAt = input.before ?? new Date();
   const ids = await findMessageSearchIds(db, {
     workspaceId: input.workspaceId,
     viewerUserId: input.userId,
@@ -85,7 +92,7 @@ export async function searchMessages(
     mentionsViewer: input.mentionsViewer,
     conversationId: input.conversationId,
     after: input.after,
-    before: input.before,
+    before: searchedAt,
     sort: input.sort,
     limit: input.limit,
     offset: input.offset,
@@ -114,5 +121,5 @@ export async function searchMessages(
       },
     ];
   });
-  return { results, hasMore: ids.length > input.limit };
+  return { results, hasMore: ids.length > input.limit, searchedAt };
 }

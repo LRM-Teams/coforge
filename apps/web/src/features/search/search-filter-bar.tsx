@@ -64,16 +64,19 @@ type Sender = {
  */
 function senderAvatar(sender: Sender): FC<{ className?: string }> {
   return function SenderAvatar() {
+    // The row's own label names the sender; the initial is decoration, so screen readers skip
+    // it (the official Avatar does not forward `aria-hidden`). Sized like the menu's own avatars.
     return (
-      <Avatar
-        aria-hidden="true"
-        size="xs"
-        alt=""
-        src={sender.avatarUrl ?? undefined}
-        initials={avatarInitial(sender.name)}
-        contentClassName={avatarToneClassName(sender.name)}
-        className="mr-2 size-5 shrink-0"
-      />
+      <span aria-hidden="true" className="mr-2 shrink-0">
+        <Avatar
+          size="xs"
+          alt=""
+          src={sender.avatarUrl ?? undefined}
+          initials={avatarInitial(sender.name)}
+          contentClassName={avatarToneClassName(sender.name)}
+          className="size-5"
+        />
+      </span>
     );
   };
 }

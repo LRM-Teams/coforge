@@ -28,10 +28,6 @@ export function clearedFilters(filters: SearchFilters): SearchFilters {
   return { sort: filters.sort };
 }
 
-export function isSearchScope(value: unknown): value is SearchScope {
-  return (SEARCH_SCOPES as readonly unknown[]).includes(value);
-}
-
 export function isSearchRange(value: unknown): value is SearchRange {
   return (SEARCH_RANGES as readonly unknown[]).includes(value);
 }
@@ -93,10 +89,10 @@ export function withScope(
 const DAY_MS = 86_400_000;
 
 /**
- * The server request for a query and filters, as of `now`. `now` is fixed for all of one search's
- * pages (see `messageSearchQuery`): it is the `before` bound, so messages posted while paging never
- * shift the offsets, and the start of a time range. "Today" starts at midnight in the viewer's time
- * zone; the 7- and 30-day ranges are rolling.
+ * The server request for a query and filters, with a time range starting from `now` (fixed for
+ * all of one search's pages, see `messageSearchQuery`). "Today" starts at midnight in the
+ * viewer's time zone; the 7- and 30-day ranges are rolling. The `before` bound comes from the
+ * server (`searchedAt`), never the browser's clock.
  */
 export function messageSearchParams(
   query: string,
@@ -119,7 +115,6 @@ export function messageSearchParams(
     mentionsViewer: filters.scope?.includes("mentioned") || undefined,
     conversationId: filters.channelId,
     after: after?.toISOString(),
-    before: now.toISOString(),
     sort: query && filters.sort === "recent" ? "recent" : "relevance",
   };
 }
