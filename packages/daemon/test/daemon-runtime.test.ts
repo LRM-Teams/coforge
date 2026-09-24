@@ -6966,6 +6966,138 @@ describe("DaemonRuntime", () => {
     }
   });
 
+  test.each(["deleted", "damaged"] as const)(
+    "a delivered reminder can still be acknowledged after its local receipt file is %s",
+    async (damage) => {
+      const stateDirectory = join(tempRoot, `coforge-reminder-lost-receipt-${crypto.randomUUID()}`);
+      const credentials = new InMemoryDaemonCredentialStore();
+      await credentials.save(connection.workspaceId, connection.computerId, "token-a");
+      const reminderId = "123e4567-e89b-42d3-a456-426614174000";
+      const agentKey = `sk_agent_${"a".repeat(43)}`;
+      const createRuntime = (onNotify: () => void) => {
+        let receiveReminder!: (sync: import("@lrm/coforge-sdk/internal").ReminderSync) => void;
+        const runtime = new DaemonRuntime(
+          connection,
+          () => ({
+            provider: "pi",
+            async createAgentSession() {
+              return { ...sessionSpy(), notify: async () => onNotify() };
+            },
+          }),
+          credentials,
+          {
+            create: () => ({
+              async start() {},
+              async ready() {},
+              async stop() {},
+              onReminderSync(callback) {
+                receiveReminder = callback;
+                return () => undefined;
+              },
+              async fireReminder(request) {
+                return { ...request, result: "accepted", fired: true, catchup: false } as const;
+              },
+              async requestAgentLaunchConfig() {
+                return agentLaunchConfig(agentKey);
+              },
+              async revokeAgentApiKey() {},
+            }),
+          },
+          undefined,
+          emptyCodeAgentDiscovery,
+          stateDirectory,
+        );
+        return {
+          runtime,
+          receive: (sync: import("@lrm/coforge-sdk/internal").ReminderSync) =>
+            receiveReminder(sync),
+        };
+      };
+
+      const notified = Promise.withResolvers<void>();
+      const first = createRuntime(() => notified.resolve());
+      try {
+        await first.runtime.start(connection);
+        await first.runtime.startAgent("agent-a", config);
+        first.receive({
+          protocolMajor: 1,
+          requestId: "reminder-snapshot",
+          workspaceId: connection.workspaceId,
+          computerId: connection.computerId,
+          agentId: "agent-a",
+          operation: "snapshot",
+          messageType: "coforge.rpc.v1.ReminderSync",
+          jobs: [
+            {
+              reminderId,
+              ownerAgentId: "agent-a",
+              version: 1,
+              title: "Check the build",
+              target: "@frank",
+              messageId: "123e4567-e89b-42d3-a456-426614174001",
+              fireAt: new Date(Date.now() - 1_000).toISOString(),
+            },
+          ],
+        });
+        await notified.promise;
+      } finally {
+        await first.runtime.stop();
+      }
+      // The receipt file is gone or unreadable, while the inbox item survives.
+      const receiptFile = join(
+        stateDirectory,
+        "reminder-receipts",
+        connection.workspaceId,
+        "agent-a",
+        "receipts.json",
+      );
+      if (damage === "deleted") await rm(receiptFile, { force: true });
+      else await Bun.write(receiptFile, "{ not json");
+
+      const second = createRuntime(() => {});
+      try {
+        await second.runtime.start(connection);
+        await second.runtime.startAgent("agent-a", config);
+        const context = second.runtime.issueAgentContext("agent-a");
+        const before = await second.runtime.inbox(context, {
+          requestId: "before-ack",
+          context,
+          operation: "check",
+        });
+        expect(before.entries).toHaveLength(1);
+
+        // A revision the Agent was never shown is still refused.
+        expect(
+          await second.runtime.reminder(
+            context,
+            { requestId: "ack-unknown", context, operation: "ack", reminderId, revision: 2 },
+            agentKey,
+          ),
+        ).toMatchObject({ accepted: false });
+
+        expect(
+          await second.runtime.reminder(
+            context,
+            { requestId: "ack-lost", context, operation: "ack", reminderId, revision: 1 },
+            agentKey,
+          ),
+        ).toMatchObject({ accepted: true, reminderId, revision: 1 });
+        expect(
+          (
+            await second.runtime.inbox(context, {
+              requestId: "after-ack",
+              context,
+              operation: "check",
+            })
+          ).entries,
+        ).toEqual([]);
+      } finally {
+        await second.runtime.stop();
+        await rm(stateDirectory, { recursive: true, force: true });
+      }
+    },
+  );
+
   test("projects a long multiline reminder title into the App Inbox without changing its occurrence", async () => {
     const stateDirectory = join(tempRoot, `coforge-reminder-preview-${crypto.randomUUID()}`);
     const credentials = new InMemoryDaemonCredentialStore();
