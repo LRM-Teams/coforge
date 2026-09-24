@@ -7,6 +7,7 @@ import {
 } from "@tanstack/query-db-collection";
 import type { TaskCommand, TaskResult, TaskStatus, TaskView } from "@lrm/coforge-sdk/internal";
 
+import { FINISHED_TASKS_MAX, FINISHED_TASKS_PAGE } from "./task-overview-limits";
 import type { TaskChangedEvent } from "./task-realtime";
 import { executeTask, loadTaskOverview } from "./tasks.functions";
 
@@ -23,16 +24,22 @@ export type OverviewTaskCommand = Omit<TaskCommand, "idempotencyKey" | "conversa
 
 /** The server calls the page makes; tests pass their own. */
 export type TaskOverviewApi = {
-  load: () => Promise<Overview>;
+  load: (options?: { finished?: number }) => Promise<Overview>;
   execute: (command: TaskCommand) => Promise<TaskResult>;
 };
 
 export const serverTaskOverviewApi: TaskOverviewApi = {
-  load: () => loadTaskOverview(),
+  load: (options) => loadTaskOverview({ data: options }),
   execute: (command) => executeTask({ data: command }),
 };
 
 const taskOverviewQueryKey = (workspaceId: string) => ["task", "overview", workspaceId] as const;
+
+/** How many finished Tasks of each status the page lists, per client and Workspace: "Show older"
+ * deepens it, and every later read of the list (whoever asks for it) keeps that depth. */
+const finishedDepths = new WeakMap<QueryClient, Map<string, number>>();
+const finishedDepth = (client: QueryClient, workspaceId: string) =>
+  finishedDepths.get(client)?.get(workspaceId) ?? FINISHED_TASKS_PAGE;
 
 export const taskOverviewQuery = (
   workspaceId: string,
@@ -40,7 +47,7 @@ export const taskOverviewQuery = (
 ) =>
   queryOptions({
     queryKey: taskOverviewQueryKey(workspaceId),
-    queryFn: () => api.load(),
+    queryFn: ({ client }) => api.load({ finished: finishedDepth(client, workspaceId) }),
   });
 
 /** The status a command moves its Task to, when it moves it: shown before the server answers. */
@@ -75,7 +82,8 @@ export function createTaskOverview(
     queryCollectionOptions({
       id: `task-overview:${workspaceId}`,
       queryKey: taskOverviewQueryKey(workspaceId),
-      queryFn: () => api.load(),
+      // The same read as `taskOverviewQuery`, at the same depth.
+      queryFn: () => api.load({ finished: finishedDepth(queryClient, workspaceId) }),
       queryClient,
       getKey: (row: OverviewTaskRow) => row.messageId,
       select: (overview) => withAnnounced(overview.tasks),
@@ -169,7 +177,25 @@ export function createTaskOverview(
     return needsRead;
   };
 
-  return { tasks, run, apply };
+  /** Whether older Done or Closed Tasks exist than those listed. */
+  const more = () =>
+    queryClient.getQueryData<Overview>(taskOverviewQueryKey(workspaceId))?.more ?? {
+      done: false,
+      closed: false,
+    };
+
+  /** Lists the next page of older Done and Closed Tasks; settles once they are read. */
+  const showOlder = async () => {
+    let depths = finishedDepths.get(queryClient);
+    if (!depths) finishedDepths.set(queryClient, (depths = new Map()));
+    depths.set(
+      workspaceId,
+      Math.min(finishedDepth(queryClient, workspaceId) + FINISHED_TASKS_PAGE, FINISHED_TASKS_MAX),
+    );
+    await tasks.utils.refetch();
+  };
+
+  return { tasks, run, apply, more, showOlder };
 }
 
 export type TaskOverviewCollection = ReturnType<typeof createTaskOverview>;

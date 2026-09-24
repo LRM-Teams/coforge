@@ -34,10 +34,13 @@ const viewer = {
 async function overviewWith(execute: TaskOverviewApi["execute"]) {
   const commands: TaskCommand[] = [];
   let reads = 0;
+  const finishedReads: Array<number | undefined> = [];
   const api: TaskOverviewApi = {
-    load: async () => {
+    load: async (options) => {
       reads += 1;
+      finishedReads.push(options?.finished);
       return {
+        more: { done: true, closed: false },
         tasks: [task(1), task(2, { status: "in_progress", owner: viewer })].map((view) => ({
           ...view,
           currentMemberId: "member-me",
@@ -56,7 +59,7 @@ async function overviewWith(execute: TaskOverviewApi["execute"]) {
   await queryClient.query(taskOverviewQuery("w", api));
   const overview = createTaskOverview(queryClient, "w", api);
   await overview.tasks.preload();
-  return { overview, commands, reads: () => reads };
+  return { overview, commands, queryClient, reads: () => reads, finishedReads };
 }
 
 test("a move shows at once, then takes the server's copy of the Task", async () => {
@@ -160,4 +163,13 @@ test("a read whose snapshot predates an announced change does not undo it", asyn
   await new Promise((resolve) => setTimeout(resolve, 20));
   expect(overview.tasks.get("message-1")).toMatchObject({ status: "done", revision: 3 });
   expect(overview.tasks.has("message-2")).toBe(false);
+});
+
+test("showing older finished Tasks reads more of them, and every later read keeps that depth", async () => {
+  const { overview, queryClient, finishedReads } = await overviewWith(async () => ({ tasks: [] }));
+  expect(overview.more()).toEqual({ done: true, closed: false });
+  await overview.showOlder();
+  // A later read, as a new Task or a refresh asks for, still lists the older ones.
+  await queryClient.invalidateQueries({ queryKey: taskOverviewQuery("w").queryKey });
+  expect(finishedReads).toEqual([50, 100, 100]);
 });

@@ -40,3 +40,8 @@ workspaceId]` Query its loader fills (`task-overview-collection.ts`,
 - `/tasks` filters are search params, comma-separated: `owners` holds User
   or Agent ids and `projects` holds Project ids, with `none` meaning no owner
   or no Project (`task-filters.ts`).
+- `/tasks` lists every open Task but only the latest `FINISHED_TASKS_PAGE`
+  Done and Closed ones (`task-overview-limits.ts`); "Show older" deepens that
+  per client and Workspace, and every later read of the overview keeps the
+  depth. Every group renders its first 50 cards and adds 50 per "Show more";
+  never render a whole status at once.

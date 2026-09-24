@@ -53,6 +53,7 @@ import {
   quotedTask,
   type QuotedTask,
 } from "./task-notices.server";
+import { FINISHED_TASKS_PAGE } from "#src/features/tasks/task-overview-limits";
 
 type Dependencies = {
   realtime?: ConversationRealtime;
@@ -161,6 +162,8 @@ export type TaskOverview = {
       project: { id: string; name: string; slug: string } | null;
     }
   >;
+  /** Whether older Done or Closed Tasks exist than the latest ones listed. */
+  more: { done: boolean; closed: boolean };
 };
 
 /** A task status as stored; a value outside the known set is corrupt data, not user input. */
@@ -337,48 +340,71 @@ export class TaskBoard {
     private readonly dependencies: Dependencies = {},
   ) {}
 
-  async overview(workspaceId: string, userId: string): Promise<TaskOverview> {
+  /**
+   * Every open Task of the Workspace the user can see, then the latest `finished` Done and the
+   * latest Closed ones (most recently changed first), and whether older finished ones exist.
+   */
+  async overview(
+    workspaceId: string,
+    userId: string,
+    { finished = FINISHED_TASKS_PAGE }: { finished?: number } = {},
+  ): Promise<TaskOverview> {
     const membership = await this.db.workspaceMembership.findUnique({
       where: { workspaceId_userId: { workspaceId, userId } },
       select: { userId: true },
     });
     if (!membership) throw new AppError("ACCESS_DENIED");
 
-    const tasks = await this.db.task.findMany({
-      where: {
-        workspaceId,
-        conversation: {
-          // Tasks in a channel hidden from the Workspace leave the overview until it is restored.
-          ...VISIBLE_CONVERSATION_WHERE,
-          OR: [
-            { channelName: { not: null } },
-            {
-              directKey: { not: null },
-              members: { some: { userId, ...ACTIVE_MEMBER_WHERE } },
-              AND: { members: { some: { agentId: { not: null }, ...ACTIVE_MEMBER_WHERE } } },
-            },
-          ],
-        },
+    const visible = {
+      workspaceId,
+      conversation: {
+        // Tasks in a channel hidden from the Workspace leave the overview until it is restored.
+        ...VISIBLE_CONVERSATION_WHERE,
+        OR: [
+          { channelName: { not: null } },
+          {
+            directKey: { not: null },
+            members: { some: { userId, ...ACTIVE_MEMBER_WHERE } },
+            AND: { members: { some: { agentId: { not: null }, ...ACTIVE_MEMBER_WHERE } } },
+          },
+        ],
       },
-      orderBy: { createdAt: "asc" },
-      select: {
-        ...taskSelection,
-        conversation: {
-          select: {
-            channelName: true,
-            project: { select: { id: true, name: true, slug: true } },
-            members: {
-              where: { OR: [{ userId }, { agentId: { not: null } }] },
-              select: {
-                id: true,
-                userId: true,
-                agent: { select: { id: true, name: true, displayName: true } },
-              },
+    } satisfies Prisma.TaskWhereInput;
+    const select = {
+      ...taskSelection,
+      conversation: {
+        select: {
+          channelName: true,
+          project: { select: { id: true, name: true, slug: true } },
+          members: {
+            where: { OR: [{ userId }, { agentId: { not: null } }] },
+            select: {
+              id: true,
+              userId: true,
+              agent: { select: { id: true, name: true, displayName: true } },
             },
           },
         },
       },
-    });
+    } satisfies Prisma.TaskSelect;
+    // One more than listed says whether older ones exist.
+    const latest = (status: "done" | "closed") =>
+      this.db.task.findMany({
+        where: { ...visible, status },
+        orderBy: [{ updatedAt: "desc" }, { messageId: "asc" }],
+        take: finished + 1,
+        select,
+      });
+    const [open, done, closed] = await Promise.all([
+      this.db.task.findMany({
+        where: { ...visible, status: { notIn: ["done", "closed"] } },
+        orderBy: { createdAt: "asc" },
+        select,
+      }),
+      latest("done"),
+      latest("closed"),
+    ]);
+    const tasks = [...open, ...done.slice(0, finished), ...closed.slice(0, finished)];
 
     return {
       tasks: tasks.map((task) => {
@@ -401,6 +427,7 @@ export class TaskBoard {
           project: task.conversation.project,
         };
       }),
+      more: { done: done.length > finished, closed: closed.length > finished },
     };
   }
 
