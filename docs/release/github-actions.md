@@ -40,8 +40,10 @@ paths select full PR coverage. Only known documentation locations are exempt;
 Markdown assets inside source directories remain code inputs. Documentation-only
 PRs run CI-policy tests, workflow/static lint, and changed-line whitespace checks,
 not application builds. No documentation link checker is currently configured.
-PR diffs use the merge base; push diffs use the before/after commits. Renames
-include both old and new paths, and a missing push base expands coverage.
+PR diffs use the merge base; a push diffs from the head of the last successful
+run of the same workflow on that branch, so commits whose runs were superseded,
+cancelled, or failed stay in scope. Renames include both old and new paths, and
+a push with no earlier successful run gets full coverage.
 
 Every run ends with `CI passed`, which requires selection/static validation and
 every selected job to succeed. An unexpectedly skipped, failed, cancelled, or
@@ -49,11 +51,11 @@ missing selected job cannot pass. Configure branch protection to require this
 aggregate rather than individual conditional/matrix job names; changing that
 GitHub setting requires separate authorization. PR updates cancel stale PR
 checks; release-track checks do not cancel an active publication or deployment.
-The cloud workflow uses GitHub's `queue: max` (up to 100 pending runs), so a
-later documentation-only push cannot replace a waiting Web-changing push.
-Pinned actionlint 1.7.12 does not yet recognize this documented property;
-`.github/actionlint.yaml` excludes only that exact diagnostic for this workflow,
-and the workflow contract test requires the valid queue/cancellation combination.
+The cloud workflow keeps GitHub's default single pending run: a newer push to
+`main` replaces a waiting one, and the running deployment is never cancelled, so
+staging converges on the latest commit. Because the replacement diffs from the
+last successful run, a later documentation-only push still deploys a Web change
+it superseded.
 
 Module-owned test/check/build commands remain unchanged. Local full validation
 still uses `mise run test`, `mise run check`, and `mise run build`; CI-policy
