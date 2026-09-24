@@ -16,7 +16,6 @@ import type { FinishedStatus, FinishedWindow } from "./finished-tasks";
 import type { FinishedColumn, FinishedTasks } from "./use-finished-tasks";
 import { Button } from "#src/components/base/buttons/button";
 import { TaskToolbar } from "./task-toolbar";
-import { useTaskDisplayFields, type TaskDisplayFields } from "./task-display-fields";
 
 const FINISHED: readonly FinishedStatus[] = ["done", "closed"];
 const isFinished = (status: TaskStatus): status is FinishedStatus =>
@@ -54,7 +53,6 @@ export function TaskOverview({
 }) {
   layout ??= "board";
   onLayoutChange ??= () => {};
-  const [fields] = useTaskDisplayFields();
   const filtered = status !== undefined || filter.owners.length > 0 || filter.projects.length > 0;
   const { done, closed } = finished.columns;
   const unfinished = useMemo(() => tasks.filter((task) => !isFinished(task.status)), [tasks]);
@@ -87,7 +85,11 @@ export function TaskOverview({
     return { done: group(done), closed: group(closed) };
   }, [done, closed, completedWindow, onWindowChange]);
   return (
-    <main className="flex h-svh max-h-svh min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-primary">
+    <main
+      // Cards inside follow the viewer's shown fields (Display → Show).
+      data-task-overview=""
+      className="flex h-svh max-h-svh min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-primary"
+    >
       <PageHeader heading={m.tasks_tab()} />
       <TaskToolbar
         // The owner and Project choices count the finished Tasks too, by their counted groups.
@@ -134,7 +136,6 @@ export function TaskOverview({
           renderTask={(task, controls) => (
             <OverviewTaskCard
               task={task}
-              fields={fields}
               controls={controls}
               list={layout === "list"}
               onOpenDetails={() => onOpenTask(task)}
@@ -213,14 +214,12 @@ function FinishedFooter({
 
 function OverviewTaskCard({
   task,
-  fields,
   controls,
   list,
   onOpenDetails,
   onCommand,
 }: {
   task: OverviewTaskRow;
-  fields: TaskDisplayFields;
   controls: TaskControls;
   list: boolean;
   onOpenDetails: () => void;
@@ -244,11 +243,9 @@ function OverviewTaskCard({
       task={task}
       list={list}
       renderTitle={renderTitle}
-      showNumber={fields.number}
-      showOwner={fields.owner}
-      source={fields.source ? task.source.label : undefined}
+      source={task.source.label}
       // Empty for a Task outside any Project, so the list keeps its column.
-      project={fields.project ? (task.project?.name ?? "") : undefined}
+      project={task.project?.name ?? ""}
       controls={controls}
       menu={
         onCommand && (

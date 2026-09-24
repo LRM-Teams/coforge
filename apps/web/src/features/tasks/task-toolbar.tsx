@@ -1,24 +1,28 @@
 import { TASK_STATUSES, type TaskStatus } from "@lrm/coforge-sdk/internal";
 import { useMemo } from "react";
-import { FilterLines, Sliders04, XClose } from "@untitledui/icons";
+import { FilterLines, Sliders04 } from "@untitledui/icons";
 import {
   Dialog as AriaDialog,
   DialogTrigger,
   SubmenuTrigger,
-  ToggleButton,
+  Tag,
+  TagGroup,
+  TagList,
 } from "react-aria-components";
 
 import { Button } from "#src/components/base/buttons/button";
-import { ButtonUtility } from "#src/components/base/buttons/button-utility";
+import { ButtonGroup, ButtonGroupItem } from "#src/components/base/button-group/button-group";
+import { TagCloseX } from "#src/components/base/tags/base-components/tag-close-x";
 import { Dropdown } from "#src/components/base/dropdown/dropdown";
-import { cn } from "#src/lib/utils";
 import { m } from "#src/paraglide/messages";
 import {
   TASK_DISPLAY_FIELDS,
   useTaskDisplayFields,
   type TaskDisplayField,
-} from "./task-display-fields";
+} from "#src/features/settings/task-display-fields";
 import {
+  NO_OWNER,
+  NO_PROJECT,
   ownerOptions,
   projectOptions,
   type FilterableTask,
@@ -70,8 +74,34 @@ export function TaskToolbar({
       })),
     [tasks],
   );
-  const labelsOf = (options: readonly Choice[], picked: readonly string[]) =>
-    picked.map((id) => options.find((option) => option.id === id)?.label ?? id);
+  // A pick no listed Task has (a saved link, an older finished Task's owner) has no name here.
+  const labelsOf = (options: readonly Choice[], picked: readonly string[], none: string) =>
+    picked.map(
+      (id) =>
+        options.find((option) => option.id === id)?.label ??
+        (id === NO_OWNER || id === NO_PROJECT ? none : m.tasks_filter_other()),
+    );
+  const chips = [
+    filter.owners.length > 0 && {
+      id: "owners",
+      label: m.tasks_filter_owner_is({
+        names: namesLabel(labelsOf(owners, filter.owners, m.tasks_unassigned())),
+      }),
+      remove: () => onFilterChange({ ...filter, owners: [] }),
+    },
+    filter.projects.length > 0 && {
+      id: "projects",
+      label: m.tasks_filter_project_is({
+        names: namesLabel(labelsOf(projects, filter.projects, m.tasks_overview_no_project())),
+      }),
+      remove: () => onFilterChange({ ...filter, projects: [] }),
+    },
+    status && {
+      id: "status",
+      label: m.tasks_filter_status_is({ name: statusLabel(status) }),
+      remove: () => onStatusChange(undefined),
+    },
+  ].filter((chip) => chip !== false && chip !== undefined);
 
   return (
     <div className="flex min-h-11 shrink-0 items-center justify-between gap-3 border-b border-secondary px-4 py-1.5 md:px-6">
@@ -113,25 +143,28 @@ export function TaskToolbar({
             </Dropdown.Menu>
           </Dropdown.Popover>
         </Dropdown.Root>
-        {filter.owners.length > 0 && (
-          <FilterChip
-            label={m.tasks_filter_owner_is({ names: namesLabel(labelsOf(owners, filter.owners)) })}
-            onRemove={() => onFilterChange({ ...filter, owners: [] })}
-          />
-        )}
-        {filter.projects.length > 0 && (
-          <FilterChip
-            label={m.tasks_filter_project_is({
-              names: namesLabel(labelsOf(projects, filter.projects)),
-            })}
-            onRemove={() => onFilterChange({ ...filter, projects: [] })}
-          />
-        )}
-        {status && (
-          <FilterChip
-            label={m.tasks_filter_status_is({ name: statusLabel(status) })}
-            onRemove={() => onStatusChange(undefined)}
-          />
+        {chips.length > 0 && (
+          // Removing one moves focus to its neighbour (React Aria TagGroup).
+          <TagGroup
+            aria-label={m.tasks_filters_in_use()}
+            onRemove={(keys) => {
+              for (const chip of chips) if (keys.has(chip.id)) chip.remove();
+            }}
+          >
+            <TagList className="flex flex-wrap items-center gap-2">
+              {chips.map((chip) => (
+                <Tag
+                  key={chip.id}
+                  id={chip.id}
+                  textValue={chip.label}
+                  className="inline-flex h-7 max-w-[20rem] cursor-default items-center gap-1 rounded-md border border-secondary pr-1.5 pl-2.5 text-xs text-secondary outline-focus-ring focus-visible:outline-2"
+                >
+                  <span className="truncate">{chip.label}</span>
+                  <TagCloseX size="md" aria-label={m.tasks_filter_remove({ filter: chip.label })} />
+                </Tag>
+              ))}
+            </TagList>
+          </TagGroup>
         )}
       </div>
       <DisplayMenu layout={layout} onLayoutChange={onLayoutChange} />
@@ -194,21 +227,6 @@ function FilterSubmenu({
   );
 }
 
-function FilterChip({ label, onRemove }: { label: string; onRemove: () => void }) {
-  return (
-    <span className="inline-flex h-7 max-w-[20rem] items-center gap-1 rounded-md border border-secondary pr-0.5 pl-2.5 text-xs text-secondary">
-      <span className="truncate">{label}</span>
-      <ButtonUtility
-        size="xs"
-        color="tertiary"
-        icon={XClose}
-        aria-label={m.tasks_filter_remove({ filter: label })}
-        onClick={onRemove}
-      />
-    </span>
-  );
-}
-
 const FIELD_LABEL: Record<TaskDisplayField, () => string> = {
   number: () => m.tasks_field_number(),
   source: () => m.tasks_field_source(),
@@ -223,7 +241,7 @@ function DisplayMenu({
   layout: TaskLayout;
   onLayoutChange: (layout: TaskLayout) => void;
 }) {
-  const [fields, setField] = useTaskDisplayFields();
+  const [fields, setFields] = useTaskDisplayFields();
   return (
     <DialogTrigger>
       <Button size="sm" color="secondary" iconLeading={Sliders04}>
@@ -237,26 +255,26 @@ function DisplayMenu({
           <TaskLayoutToggle layout={layout} onChange={onLayoutChange} />
           <div className="flex flex-col gap-2 border-t border-secondary pt-3">
             <p className="text-xs font-medium text-tertiary">{m.tasks_display_fields()}</p>
-            <div className="flex flex-wrap gap-1.5">
+            <ButtonGroup
+              aria-label={m.tasks_display_fields()}
+              size="sm"
+              selectionMode="multiple"
+              selectedKeys={TASK_DISPLAY_FIELDS.filter((field) => fields[field])}
+              onSelectionChange={(keys) =>
+                setFields({
+                  number: keys.has("number"),
+                  source: keys.has("source"),
+                  project: keys.has("project"),
+                  owner: keys.has("owner"),
+                })
+              }
+            >
               {TASK_DISPLAY_FIELDS.map((field) => (
-                <ToggleButton
-                  key={field}
-                  isSelected={fields[field]}
-                  onChange={(shown) => setField(field, shown)}
-                  className={({ isSelected, isFocusVisible }) =>
-                    cn(
-                      "h-7 cursor-pointer rounded-md border px-2.5 text-xs font-medium outline-focus-ring",
-                      isFocusVisible && "outline-2",
-                      isSelected
-                        ? "border-primary bg-secondary text-secondary"
-                        : "border-secondary bg-primary text-quaternary",
-                    )
-                  }
-                >
+                <ButtonGroupItem key={field} id={field}>
                   {FIELD_LABEL[field]()}
-                </ToggleButton>
+                </ButtonGroupItem>
               ))}
-            </div>
+            </ButtonGroup>
           </div>
         </AriaDialog>
       </Dropdown.Popover>

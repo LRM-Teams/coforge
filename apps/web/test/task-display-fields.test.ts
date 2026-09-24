@@ -4,7 +4,7 @@ import {
   ALL_TASK_DISPLAY_FIELDS,
   parseTaskDisplayFields,
   serializeTaskDisplayFields,
-} from "#src/features/tasks/task-display-fields";
+} from "#src/features/settings/task-display-fields";
 
 /**
  * Which of a Task's number, source, Project and owner the Tasks page shows is a per-device

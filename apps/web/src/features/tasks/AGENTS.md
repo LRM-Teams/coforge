@@ -50,8 +50,10 @@ workspaceId]` Query its loader fills (`task-overview-collection.ts`,
 - The `/tasks` toolbar (`task-toolbar.tsx`) follows Linear: one "Filter"
   menu (owner, Project, status submenus) with a removable chip per filter in
   use, and one "Display" popover (board or list, and which Task fields show).
-  The shown fields are a per-device preference (`task-display-fields.ts`,
-  stored as the hidden fields); the server render shows every field.
+  The shown fields are a per-device preference
+  (`features/settings/task-display-fields.ts`, stored as the hidden fields)
+  applied as classes on `<html>` by the boot script, so cards inside
+  `[data-task-overview]` follow by CSS alone and never flash or re-render.
 - `/tasks` filters are search params, comma-separated: `owners` holds User
   or Agent ids and `projects` holds Project ids, with `none` meaning no owner
   or no Project (`task-filters.ts`).
