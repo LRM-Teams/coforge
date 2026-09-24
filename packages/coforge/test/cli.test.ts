@@ -1044,37 +1044,95 @@ test("Task update reads one revision then submits once and formats Thread-useful
   expect(output).toContain("#2 status=in_review owner=builder message=message-2");
 });
 
-test("Task list marks an owner whose Agent was deleted", async () => {
-  const output = await run(["task", "list", "--target", "#general"], {
+test("Task list prints a conversation's board and an Agent's own list", async () => {
+  const calls: any[] = [];
+  const transport = {
     check: async () => ({ messages: [] }),
     read: async () => ({}),
     send: async () => ({}),
     view: async () => ({ bytes: new Uint8Array() }),
-    task: async () => ({
-      tasks: [
-        {
-          messageId: "message-46",
-          conversationId: "conversation",
-          number: 46,
-          title: "Half-done work",
-          status: "in_progress",
-          revision: 3,
-          ...taskStamps,
-          owner: {
-            memberId: "member",
-            kind: "agent",
-            id: "agent",
-            name: "Kiro",
-            handle: "kiro",
-            deleted: true,
+    task: async (command: any) => {
+      calls.push(command);
+      return {
+        tasks: [
+          {
+            messageId: "46abcdef-0000-0000-0000-000000000000",
+            conversationId: "conversation",
+            number: 46,
+            title: "Half-done work",
+            status: "in_progress" as const,
+            revision: 3,
+            ...taskStamps,
+            channelRef: command.mine ? "#general" : undefined,
+            owner: {
+              memberId: "member",
+              kind: "agent" as const,
+              id: "agent",
+              name: "Kiro",
+              handle: "kiro",
+              deleted: true,
+            },
           },
-        },
-      ],
-    }),
-  });
-  expect(output).toBe(
-    "#46 status=in_progress owner=Kiro [deleted] message=message-46 revision=3 Half-done work",
+        ],
+        ...(command.mine && {
+          coverage: {
+            status: "incomplete" as const,
+            visibleConversationKinds: ["channel" as const, "dm" as const],
+            includesArchived: true,
+            inaccessibleScope: "not_asserted" as const,
+            reason: "Reads the channels and DMs this Agent is a member of now.",
+          },
+          pagination: { mode: "complete" as const, truncated: false as const },
+        }),
+      };
+    },
+  };
+  expect(await run(["task", "list", "--target", "#general"], transport)).toBe(
+    "## Task Board for #general (1 tasks)\n\n" +
+      "#46 [in_progress] Half-done work → @kiro [deleted] (by @ada) msg=46abcdef rev=3 created=2026-09-23 05:00:00Z updated=2026-09-23 06:00:00Z",
   );
+  expect(await run(["task", "list", "--mine", "--status", "all"], transport)).toBe(
+    [
+      "## My assigned tasks in this Workspace (status=all)",
+      "",
+      "Coverage: incomplete · visible kinds=channel|dm · archived=included · inaccessible scope=not_asserted",
+      "Output: showing 1 of 1 visible matches · mode=complete · truncated=false",
+      "",
+      "### in_progress (1)",
+      "- #general task #46 [in_progress] by=@ada msg=46abcdef created=2026-09-23 05:00:00Z updated=2026-09-23 06:00:00Z Half-done work",
+    ].join("\n"),
+  );
+  expect(calls[1]).toMatchObject({ operation: "list", mine: true, status: "all" });
+  expect(calls[1].target).toBeUndefined();
+});
+
+test("Task list takes exactly one of --target or --mine and names the valid statuses", () => {
+  expect(parseArgs(["task", "list", "--mine"])).toEqual({
+    command: "task",
+    task: expect.objectContaining({ operation: "list", mine: true, target: undefined }),
+  });
+  const invalid = (args: string[]) => {
+    try {
+      parseArgs(args);
+    } catch (error) {
+      return error instanceof CliError ? { code: error.code, message: error.message } : error;
+    }
+    throw new Error("expected the arguments to be refused");
+  };
+  expect(invalid(["task", "list", "--mine", "--target", "#general"])).toEqual({
+    code: "INVALID_ARG",
+    message: "--mine cannot be combined with --target",
+  });
+  expect(invalid(["task", "list"])).toEqual({
+    code: "INVALID_ARG",
+    message: "--target is required (or pass --mine)",
+  });
+  expect(invalid(["task", "list", "--mine", "--status", "open"])).toEqual({
+    code: "INVALID_ARG",
+    message: "--status must be one of all|todo|in_progress|in_review|done|closed; got open",
+  });
+  expect(() => parseArgs(["task", "list", "--mine", "--mine"])).toThrow("Usage:");
+  expect(() => parseArgs(["task", "claim", "--mine", "--number", "1"])).toThrow("Usage:");
 });
 
 test("Task unclaim reads one revision unless explicitly supplied and submits once", async () => {

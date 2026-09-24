@@ -15,6 +15,7 @@ import {
   type TaskHistoryEvent,
   type TaskResult,
   type TaskStatus,
+  TASK_STATUSES,
   type WorkspaceInfoResponse,
   type WeeklyReportCommand,
   type WeeklyReportResponse,
@@ -67,6 +68,7 @@ import {
   withOutputMode,
 } from "#src/cli-error";
 import { attachmentMimeType, validateAttachmentUploadArgs } from "#src/attachment-upload";
+import { formatMyTaskList, formatTaskBoard } from "#src/task-format";
 
 export { createAgentApiClient } from "@lrm/coforge-sdk/agent";
 
@@ -596,7 +598,7 @@ export function parseArgs(
     }
   }
   throw new Error(
-    "Usage: coforge channel mute|unmute --target '#channel' | coforge channel info <target> | coforge channel members <target> | coforge channel join --target '#channel' | coforge channel leave --target '#channel' | coforge channel create --name <name> [--description <text>] [--json] | coforge channel update --target '#channel' [--name <name>] [--description <text>] [--json] | coforge channel lifecycle archive|unarchive --target '#channel' [--json] | coforge channel add-member --target '#channel' (--user @handle | --agent @handle) [--json] | coforge channel remove-member --target '#channel' (--user @handle | --agent @handle) [--json] | coforge thread unfollow --target '#channel:message-id' | coforge inbox check | coforge message check [--target @user|#channel] | coforge message search --query <text> [--target <target>] [--sender <handle>] [--sort relevance|recent] [--before <iso>] [--after <iso>] [--limit <n>] [--offset <n>] | coforge message read --target @user | coforge message send --target @user [--send-draft] [--anyway] [--reviewer-isolation] [--json] [--attachment-id <uuid>]... [--mention human:<uuid>:<handle>|agent:<uuid>:<handle>]... [--target-confirmed] | coforge message resolve <message-id> | coforge message react --message-id <id> --emoji <emoji> [--remove] | coforge task list|create|convert|claim|unclaim|assign|unassign|update|amend|history|delete|receipt ... | coforge attachment view [--id] <id> --output <path> [--json] | coforge attachment upload --path <file> (--target <target>|--channel <target>) [--mime-type <type>] [--json] | coforge weekly-report context --subject-type report|cycle --subject-id <uuid> | coforge weekly-report list [--cycle-id <uuid>] [--cursor <uuid>] [--limit <n>] | coforge weekly-report read --report-id <uuid> --section <name> [--max-characters <n>] | coforge weekly-report-collect submit-pack|submit-empty|submit-failure --run-id <uuid> --request-id <uuid> [--markdown <path>] [--reason <text>] | coforge action prepare --target <target> | coforge manual get <topic> [--intent <text>] [--reason <text>] | coforge manual search \"<keywords>\" [--intent <text>] [--reason <text>] | coforge whoami [--json] | coforge version [--json] | coforge user info <name> [--json] | coforge profile show [<target>] [--json] | coforge profile update [--display-name <text>] [--description <text>] [--json]",
+    "Usage: coforge channel mute|unmute --target '#channel' | coforge channel info <target> | coforge channel members <target> | coforge channel join --target '#channel' | coforge channel leave --target '#channel' | coforge channel create --name <name> [--description <text>] [--json] | coforge channel update --target '#channel' [--name <name>] [--description <text>] [--json] | coforge channel lifecycle archive|unarchive --target '#channel' [--json] | coforge channel add-member --target '#channel' (--user @handle | --agent @handle) [--json] | coforge channel remove-member --target '#channel' (--user @handle | --agent @handle) [--json] | coforge thread unfollow --target '#channel:message-id' | coforge inbox check | coforge message check [--target @user|#channel] | coforge message search --query <text> [--target <target>] [--sender <handle>] [--sort relevance|recent] [--before <iso>] [--after <iso>] [--limit <n>] [--offset <n>] | coforge message read --target @user | coforge message send --target @user [--send-draft] [--anyway] [--reviewer-isolation] [--json] [--attachment-id <uuid>]... [--mention human:<uuid>:<handle>|agent:<uuid>:<handle>]... [--target-confirmed] | coforge message resolve <message-id> | coforge message react --message-id <id> --emoji <emoji> [--remove] | coforge task list (--target <target> | --mine) [--status all|todo|in_progress|in_review|done|closed] | coforge task create|convert|claim|unclaim|assign|unassign|update|amend|history|delete|receipt ... | coforge attachment view [--id] <id> --output <path> [--json] | coforge attachment upload --path <file> (--target <target>|--channel <target>) [--mime-type <type>] [--json] | coforge weekly-report context --subject-type report|cycle --subject-id <uuid> | coforge weekly-report list [--cycle-id <uuid>] [--cursor <uuid>] [--limit <n>] | coforge weekly-report read --report-id <uuid> --section <name> [--max-characters <n>] | coforge weekly-report-collect submit-pack|submit-empty|submit-failure --run-id <uuid> --request-id <uuid> [--markdown <path>] [--reason <text>] | coforge action prepare --target <target> | coforge manual get <topic> [--intent <text>] [--reason <text>] | coforge manual search \"<keywords>\" [--intent <text>] [--reason <text>] | coforge whoami [--json] | coforge version [--json] | coforge user info <name> [--json] | coforge profile show [<target>] [--json] | coforge profile update [--display-name <text>] [--description <text>] [--json]",
   );
 }
 
@@ -1105,6 +1107,10 @@ export async function run(args: readonly string[], transport: MessageTransport):
       const result = await transport.task(command);
       const reviewerIsolation = command.freshnessContextMode === "withheld";
       if (command.operation === "history") return formatTaskHistory(result);
+      if (command.operation === "list")
+        return command.mine
+          ? formatMyTaskList(result, command.status)
+          : formatTaskBoard(command.target!, result, command.status);
       if (command.operation === "receipt" && result.resourceFollowup)
         return `${formatTasks(result, reviewerIsolation)}\nFollow-up reminder=${result.resourceFollowup.id} owner=${result.resourceFollowup.owner} fireAt=${result.resourceFollowup.fireAt}`;
       return formatTasks(result, reviewerIsolation);
@@ -2123,7 +2129,7 @@ function parseTaskArgs(args: readonly string[]): TaskInvocation {
   const values = new Map<string, string>();
   for (let index = 1; index < args.length; index += 2) {
     const name = args[index];
-    if (name === "--clear-description" || name === "--reviewer-isolation") {
+    if (name === "--clear-description" || name === "--reviewer-isolation" || name === "--mine") {
       if (values.has(name)) throw new Error("Usage:");
       values.set(name, "true");
       index -= 1;
@@ -2134,7 +2140,7 @@ function parseTaskArgs(args: readonly string[]): TaskInvocation {
     values.set(name, value);
   }
   const allowed: Record<string, string[]> = {
-    list: ["--target", "--status"],
+    list: ["--target", "--mine", "--status"],
     create: ["--target", "--title", "--assignee"],
     convert: ["--target", "--message-id"],
     claim: ["--target", "--number", "--message-id", "--reviewer-isolation"],
@@ -2170,13 +2176,18 @@ function parseTaskArgs(args: readonly string[]): TaskInvocation {
     throw new Error("Usage:");
   if (values.has("--description") && values.has("--clear-description"))
     throw new Error("Use either --description or --clear-description, not both");
+  const mine = values.has("--mine");
   const target = values.get("--target");
-  if (!target || !/^(?:#[a-z0-9][a-z0-9_-]{0,31}|@[a-z0-9][a-z0-9_-]{0,31})$/.test(target))
+  if (operation === "list") validateTaskListScope(target, mine, values.get("--status"));
+  if (
+    !mine &&
+    (!target || !/^(?:#[a-z0-9][a-z0-9_-]{0,31}|@[a-z0-9][a-z0-9_-]{0,31})$/.test(target))
+  )
     throw new Error("Usage:");
   const number = integerOption(values.get("--number"), 1);
   const expectedRevision = integerOption(values.get("--expected-revision"), 0);
-  const status = values.get("--status") as TaskStatus | undefined;
-  if (status && !["todo", "in_progress", "in_review", "done", "closed"].includes(status))
+  const status = values.get("--status") as TaskStatus | "all" | undefined;
+  if (status && !(TASK_STATUSES as readonly string[]).includes(status) && operation !== "list")
     throw new Error("Usage:");
   let receipt: TaskCommand["receipt"];
   if (operation === "receipt") {
@@ -2207,6 +2218,7 @@ function parseTaskArgs(args: readonly string[]): TaskInvocation {
   const task = {
     operation,
     target,
+    ...(mine ? { mine: true } : {}),
     number,
     messageId: values.get("--message-id"),
     title: values.get("--title"),
@@ -2235,6 +2247,18 @@ function parseTaskArgs(args: readonly string[]): TaskInvocation {
     (["history", "delete", "receipt"].includes(operation) && number !== undefined);
   if (!valid) throw new Error("Usage:");
   return { command: "task", task };
+}
+
+const TASK_LIST_STATUSES = ["all", ...TASK_STATUSES] as const;
+
+/** `task list` reads one conversation (`--target`) or this Agent's own Tasks (`--mine`). */
+function validateTaskListScope(target: string | undefined, mine: boolean, status?: string) {
+  const invalid = (message: string) =>
+    new CliError({ code: "INVALID_ARG", message, retryable: false });
+  if (status !== undefined && !(TASK_LIST_STATUSES as readonly string[]).includes(status))
+    throw invalid(`--status must be one of ${TASK_LIST_STATUSES.join("|")}; got ${status}`);
+  if (mine && target) throw invalid("--mine cannot be combined with --target");
+  if (!mine && !target) throw invalid("--target is required (or pass --mine)");
 }
 
 function integerOption(value: string | undefined, minimum: number): number | undefined {
