@@ -632,7 +632,7 @@ describe("PrismaDirectConversationRepository", () => {
     expect((await repository.readMessages("workspace-1", "agent-1", "@frank"))[0]?.task).toEqual({
       number: 31,
       status: "in_review",
-      owner: { displayName: "Ada Lovelace", handle: "@ada" },
+      owner: { displayName: "Ada Lovelace", handle: "ada" },
     });
     expect(
       (await repository.readMessages("workspace-1", "agent-1", "@frank:12345678"))[0]?.task,

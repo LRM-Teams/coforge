@@ -271,13 +271,14 @@ export type AgentMessageRecord = {
 export type MessageTaskMetadata = {
   number: number;
   status: import("./tasks").TaskStatus;
-  owner?: { displayName: string; handle: string };
+  /** `handle` has no leading "@"; `deleted` marks an Agent deleted while still holding the Task. */
+  owner?: { displayName: string; handle: string; deleted?: boolean };
 };
 
 export function decodeMessageTask(value: {
   number: number;
   status: string;
-  owner?: { displayName: string; handle: string };
+  owner?: { displayName: string; handle: string; deleted?: boolean };
 }): MessageTaskMetadata {
   let status: MessageTaskMetadata["status"];
   switch (value.status) {
@@ -296,7 +297,11 @@ export function decodeMessageTask(value: {
     status,
     ...(value.owner
       ? {
-          owner: { displayName: value.owner.displayName, handle: value.owner.handle },
+          owner: {
+            displayName: value.owner.displayName,
+            handle: value.owner.handle,
+            ...(value.owner.deleted ? { deleted: true } : {}),
+          },
         }
       : {}),
   };

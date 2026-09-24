@@ -449,3 +449,62 @@ test.skipIf(!connectionString)(
     }
   },
 );
+
+test.skipIf(!connectionString)(
+  "another Agent reading the channel sees a deleted Agent's Task marked deleted",
+  async () => {
+    const { db, workspace, owner, agent } = await setup();
+    try {
+      const general = await db.conversation.findUniqueOrThrow({
+        where: { workspaceId_channelName: { workspaceId: workspace.id, channelName: "general" } },
+      });
+      const reader = await db.agent.create({
+        data: {
+          workspaceId: workspace.id,
+          name: `reader-${agent.name}`,
+          displayName: "Reader",
+          ownerId: owner.id,
+          runtimeConfig: {},
+        },
+      });
+      await db.conversationMember.create({
+        data: { workspaceId: workspace.id, conversationId: general.id, agentId: reader.id },
+      });
+      const created = await new TaskBoard(db).execute(
+        { workspaceId: workspace.id, userId: owner.id },
+        {
+          operation: "create",
+          idempotencyKey: crypto.randomUUID(),
+          conversationId: general.id,
+          title: "Half-done work",
+          assignee: `@${agent.name}`,
+        },
+      );
+      const conversations = new PrismaDirectConversationRepository(db);
+      // Read around the Task's message, so each read sees it whatever the reader's cursor.
+      const taskLine = async () =>
+        (
+          await conversations.readMessages(workspace.id, reader.id, "#general", {
+            around: created.tasks[0]!.messageId,
+          })
+        ).find((message) => message.task)!.task;
+      // The handle carries no "@", like every other handle an Agent reads.
+      expect(await taskLine()).toMatchObject({
+        owner: { displayName: "Doomed", handle: agent.name },
+      });
+      expect((await taskLine())!.owner!.deleted).toBeUndefined();
+
+      await deletionFor(db, []).delete(
+        { userId: owner.id, workspaceId: workspace.id, role: "owner" },
+        agent.id,
+      );
+
+      expect(await taskLine()).toMatchObject({
+        status: "todo",
+        owner: { displayName: "Doomed", handle: agent.name, deleted: true },
+      });
+    } finally {
+      await teardown(db, workspace.id, [owner.id]);
+    }
+  },
+);

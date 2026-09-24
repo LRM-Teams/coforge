@@ -52,7 +52,7 @@ test("models the read route's own response shape, including multiple attachments
         task: {
           number: 42,
           status: "in_progress",
-          owner: { displayName: "Ada", handle: "@ada" },
+          owner: { displayName: "Ada", handle: "ada" },
         },
       },
     ],
