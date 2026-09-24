@@ -95,3 +95,43 @@ test("the person's own private Agent can be given one; someone else's private Ag
   expect(own.tasks[0]!.owner).toMatchObject({ id: agents.alicePrivate.id });
   await expect(create(agents.bobPrivate.id, "Not allowed")).rejects.toThrow("AGENT_DM_RESTRICTED");
 });
+
+test("an Agent made private since the conversation began can no longer be given one from here", async () => {
+  // Bob's public Agent: Alice's conversation with it exists from the first test.
+  await create(agents.bobPublic.id, "Before it went private");
+  await db.agent.update({ where: { id: agents.bobPublic.id }, data: { visibility: "private" } });
+  try {
+    await expect(create(agents.bobPublic.id, "After it went private")).rejects.toThrow(
+      "AGENT_DM_RESTRICTED",
+    );
+  } finally {
+    await db.agent.update({ where: { id: agents.bobPublic.id }, data: { visibility: "public" } });
+  }
+});
+
+test("a deleted Agent cannot be given one, and a retried request makes one Task", async () => {
+  const deleted = await db.agent.create({
+    data: {
+      workspaceId,
+      name: `gone-${short}`,
+      displayName: "Gone",
+      ownerId: alice.id,
+      runtimeConfig: {},
+      deletedAt: new Date(),
+    },
+    select: { id: true },
+  });
+  await expect(create(deleted.id, "Too late")).rejects.toThrow("NOT_FOUND");
+
+  const idempotencyKey = crypto.randomUUID();
+  const once = () =>
+    createAgentDirectTask(db, new TaskBoard(db), {
+      workspaceId,
+      userId: alice.id,
+      agentId: agents.alicePrivate.id,
+      title: "Only once",
+      idempotencyKey,
+    });
+  const [first, retry] = [await once(), await once()];
+  expect(retry.tasks[0]!.messageId).toBe(first.tasks[0]!.messageId);
+});
