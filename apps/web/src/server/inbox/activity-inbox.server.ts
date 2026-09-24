@@ -312,7 +312,7 @@ export class ActivityInbox {
           owner: {
             select: {
               user: { select: { username: true, displayName: true } },
-              agent: { select: { name: true, displayName: true } },
+              agent: { select: { name: true, displayName: true, deletedAt: true } },
             },
           },
         },
@@ -338,6 +338,8 @@ export class ActivityInbox {
           number: task.number,
           status: storedTaskStatus(task.status),
           ownerName: task.owner ? browserSenderName(task.owner) : null,
+          // A deleted Agent keeps its Tasks; the card says so instead of reading as a live owner.
+          ownerDeleted: Boolean(task.owner?.agent?.deletedAt),
         },
       ]),
     );
