@@ -25,11 +25,9 @@ export class CompactionTracker {
 
   /**
    * @param onStale Called at most once per compaction episode, `COMPACTION_STALE_MS` after it
-   * started, if it is still active by then. Today this is a single, clearly-marked no-op call
-   * site (see runtime.ts) with a TODO: the SDK's `AgentActivityDetailKind` does not yet carry a
-   * `compaction_stale` value (landing in a separate change), so there is nothing safe to
-   * broadcast yet. Once that kind exists, wiring the visible notice is a one-line change at that
-   * call site - this tracker's timer/state plumbing does not need to change.
+   * started, if it is still active by then. The daemon runtime broadcasts a `compaction_stale`
+   * Activity for it (see runtime.ts); without a live launch the notice is dropped - a torn-down
+   * Agent never grows a visible Activity.
    */
   constructor(private readonly onStale: (agentId: string) => void) {}
 

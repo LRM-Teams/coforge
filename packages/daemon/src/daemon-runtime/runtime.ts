@@ -543,13 +543,18 @@ export class DaemonRuntime {
    * agent-runtime/compaction-tracker.ts. Providers only report the raw start/finish/interrupted
    * signal; this decides what, if anything, that becomes on the wire. */
   readonly #compactionTracker = new CompactionTracker((agentId) => {
-    // TODO(compaction_stale): the SDK's AgentActivityDetailKind does not yet carry a
-    // `compaction_stale` value (landing in a separate change). Once it does, broadcast it here:
-    //   const launch = this.#currentActivityLaunches.get(agentId);
-    //   if (launch) this.#emitAgentActivity(agentId, launch, this.#activity(agentId,
-    //     AGENT_ACTIVITY_DETAIL_KIND.COMPACTION_STALE, "info",
-    //     "Compaction is still running; no finish signal was observed."));
-    void agentId;
+    const launch = this.#currentActivityLaunches.get(agentId);
+    if (launch)
+      this.#emitAgentActivity(
+        agentId,
+        launch,
+        this.#activity(
+          agentId,
+          AGENT_ACTIVITY_DETAIL_KIND.COMPACTION_STALE,
+          "info",
+          "Compaction is still running; no finish signal was observed.",
+        ),
+      );
   });
   /** Liveness bookkeeping for the content-free "progress" signal - see
    * agent-runtime/runtime-progress.ts. */
