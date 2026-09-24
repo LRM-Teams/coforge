@@ -3,6 +3,7 @@ import {
   conversationRealtimeChannel,
   userConversationChannel,
   workspaceConversationChannel,
+  type ActivityChangedEvent,
   type ChannelUpdatedEvent,
   type MessageAvailableEvent,
   type MemberChangedEvent,
@@ -90,6 +91,9 @@ export type ConversationRealtime = {
   /** A push telling open Tasks pages the new copies of the Tasks a write changed. Optional: a
    * port without it announces nothing. */
   taskChanged?(input: TaskChangedSignal): Promise<void>;
+  /** A push telling one person's Activity inbox that it changed outside their conversations.
+   * Optional: a port without it announces nothing. */
+  activityChanged?(input: { workspaceId: string; userId: string }): Promise<void>;
 };
 
 export class CentrifugoConversationRealtime implements ConversationRealtime {
@@ -128,6 +132,14 @@ export class CentrifugoConversationRealtime implements ConversationRealtime {
         idempotencyKey,
       ),
     ]);
+  }
+
+  async activityChanged(input: { workspaceId: string; userId: string }) {
+    const event: ActivityChangedEvent = {
+      type: "activity.changed.v1",
+      workspaceId: input.workspaceId,
+    };
+    await this.centrifugo.publishJson(userConversationChannel(input.userId), event);
   }
 
   async taskChanged({ publicationId, userId, agentId, ...announced }: TaskChangedSignal) {

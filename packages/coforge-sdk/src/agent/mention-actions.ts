@@ -1,5 +1,6 @@
 /**
- * Wire contract for `coforge mention pending` and `coforge mention add`: the sender's mentions
+ * Wire contract for `coforge mention pending`, `coforge mention notify` and `coforge mention add`:
+ * the sender's mentions
  * that reached no one because the target was outside the conversation at send time, and what the
  * sender asked to do about them. Uses the same `{ ok: false, errorCode, error }` error envelope as
  * the `profile` and `user info` routes.
@@ -42,6 +43,8 @@ export type AgentMentionActionResult = {
   channelId?: string;
   targetType?: "user" | "agent";
   targetId?: string;
+  /** The `@handle` the sender wrote, without the `@`. */
+  targetHandle?: string;
 };
 
 /** Response for `POST /api/agent/v1/mention-actions/execute`. */

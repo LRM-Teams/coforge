@@ -4065,7 +4065,7 @@ test("mention pending lists each pending mention the Agent can no longer act on"
     [
       "Pending mention actions",
       "",
-      "- 22222222-2222-4222-8222-222222222222 — @bob (user)",
+      "- 22222222-2222-4222-8222-222222222222 — bob (user)",
       "  message: 11111111-1111-4111-8111-111111111111",
       "  reason: not in the conversation at send time, so the @mention was not delivered",
       "  expires: 2026-10-01T00:00:00.000Z",
@@ -4087,7 +4087,7 @@ test("mention pending lists the recovery commands a pending mention still allows
     [
       "Pending mention actions",
       "",
-      "- 22222222-2222-4222-8222-222222222222 — @bob (agent)",
+      "- 22222222-2222-4222-8222-222222222222 — bob (agent)",
       "  message: 11111111-1111-4111-8111-111111111111",
       "  reason: not in the conversation at send time, so the @mention was not delivered",
       "  expires: 2026-10-01T00:00:00.000Z",
@@ -4122,17 +4122,19 @@ test("mention add prints each target's result when every one was added", async (
       return {
         ok: true as const,
         action: "add" as const,
-        results: [{ resolutionId: PENDING_ROW.resolutionId, status: "delivered" }],
+        results: [
+          { resolutionId: PENDING_ROW.resolutionId, status: "delivered", targetHandle: "bob" },
+        ],
       };
     },
   };
   expect(await run(["mention", "add", PENDING_ROW.resolutionId], transport)).toBe(
-    ["Mention add results", "", `- ${PENDING_ROW.resolutionId}: delivered`].join("\n"),
+    ["Mention add results", "", `- ${PENDING_ROW.resolutionId} bob: delivered`].join("\n"),
   );
   expect(await run(["mention", "add", PENDING_ROW.resolutionId, "--json"], transport)).toEqual({
     ok: true,
     action: "add",
-    results: [{ resolutionId: PENDING_ROW.resolutionId, status: "delivered" }],
+    results: [{ resolutionId: PENDING_ROW.resolutionId, status: "delivered", targetHandle: "bob" }],
   });
   expect(calls).toEqual([
     { action: "add", resolutionIds: [PENDING_ROW.resolutionId] },

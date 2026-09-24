@@ -107,6 +107,7 @@ describe("PrismaDirectConversationRepository", () => {
   test("scopes a delivery ACK to the Agent's current Computer assignment", async () => {
     const updates: object[] = [];
     const db = {
+      conversationMember: { findMany: async () => [] },
       agentMessageDelivery: {
         updateMany: async (input: object) => {
           updates.push(input);
@@ -812,11 +813,16 @@ describe("PrismaDirectConversationRepository", () => {
 
     expect(queries).toHaveLength(1);
     // One statement, bound only to the Workspace, the Agent, and the resume budget: the channel
-    // deliveries (membership first), the two direct-message branches, the notified-non-member
+    // deliveries (membership first, then deliveries not already read as a non-member), the two
+    // direct-message branches, the notified-non-member
     // branch (and its not-a-member check), the membership join, the delivery join, the budget.
     expect(queries[0]).toEqual([
       "agent-1",
-      ...Array.from({ length: 4 }, () => ["workspace-1", "agent-1"]).flat(),
+      "workspace-1",
+      "agent-1",
+      // Not already read while the Agent was notified from outside the channel.
+      "agent-1",
+      ...Array.from({ length: 3 }, () => ["workspace-1", "agent-1"]).flat(),
       "agent-1",
       "workspace-1",
       "agent-1",
@@ -1036,6 +1042,7 @@ describe("PrismaDirectConversationRepository", () => {
   test("reads all scoped unacknowledged deliveries oldest-first", async () => {
     const queries: object[] = [];
     const db = {
+      conversationMember: { findMany: async () => [] },
       agentMessageDelivery: {
         findMany: async (input: object) => {
           queries.push(input);
@@ -1093,6 +1100,7 @@ describe("PrismaDirectConversationRepository", () => {
 
   test("reads Agent-authored pending deliveries with the Agent handle", async () => {
     const db = {
+      conversationMember: { findMany: async () => [] },
       agentMessageDelivery: {
         findMany: async () => [
           {
@@ -1853,6 +1861,7 @@ describe("PrismaDirectConversationRepository", () => {
 
   test("rejects a pending delivery without a valid public username target", async () => {
     const db = {
+      conversationMember: { findMany: async () => [] },
       agentMessageDelivery: {
         findMany: async () => [
           {

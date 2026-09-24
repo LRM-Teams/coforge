@@ -190,6 +190,8 @@ message AgentRecoveryMessage {
   // The sender's role text; empty when there is none.
   string latest_sender_description = 8;
   string body = 9;
+  // True when the Agent is not in the channel and was notified of this one message.
+  optional bool non_member_mention = 10;
 }
 
 message AgentUnreadSummaryEntry {

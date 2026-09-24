@@ -9,6 +9,10 @@ import { channelTarget, encodeAgentDelivery } from "./agent-delivery.server";
 import { MESSAGE_MENTIONS_SELECT } from "./mentions.server";
 import { agentMessageSender } from "./sender-display.server";
 import {
+  CentrifugoConversationRealtime,
+  type ConversationRealtime,
+} from "./conversation-realtime.server";
+import {
   createCentrifugoServerApi,
   daemonControlChannel,
   type CentrifugoServerApi,
@@ -236,6 +240,8 @@ export type MentionActionResult = {
     | "already_queued";
   targetType?: "user" | "agent";
   targetId?: string;
+  /** The `@handle` the sender wrote, without the `@`. */
+  targetHandle?: string;
 };
 
 /** One pending mention the sender may act on now, claimed for that action. */
@@ -244,6 +250,7 @@ export type ClaimedMentionAction = {
   conversationId: string;
   targetType: "user" | "agent";
   targetId: string;
+  targetHandle: string;
 };
 
 type MentionActor = { userId: string } | { agentId: string };
@@ -267,6 +274,7 @@ async function loadActionRows(
       conversationId: true,
       targetUserId: true,
       targetAgentId: true,
+      targetHandle: true,
       expiresAt: true,
       resolvedAt: true,
       notifiedAt: true,
@@ -299,6 +307,7 @@ function actionTarget(row: ActionRow) {
   return {
     targetType: row.targetAgentId ? ("agent" as const) : ("user" as const),
     targetId: (row.targetAgentId ?? row.targetUserId)!,
+    targetHandle: row.targetHandle,
   };
 }
 
@@ -377,11 +386,17 @@ export async function notifyMentionTargets(
   sender: MentionActor,
   resolutionIds: readonly string[],
   now: Date = new Date(),
-): Promise<{ results: MentionActionResult[]; deliveries: NonMemberDelivery[] }> {
+): Promise<{
+  results: MentionActionResult[];
+  deliveries: NonMemberDelivery[];
+  /** People newly notified, whose Activity inbox changed. */
+  notifiedUserIds: string[];
+}> {
   const ids = [...new Set(resolutionIds)];
   const { byId, memberKeys } = await loadActionRows(db, workspaceId, sender, ids);
   const results: MentionActionResult[] = [];
   const deliveries: NonMemberDelivery[] = [];
+  const notifiedUserIds = new Set<string>();
   for (const id of ids) {
     const row = byId.get(id);
     if (!row) {
@@ -425,9 +440,10 @@ export async function notifyMentionTargets(
         agentId: row.targetAgentId,
         messageId: row.messageId,
       });
+    if (row.targetUserId) notifiedUserIds.add(row.targetUserId);
     results.push({ resolutionId: id, status: "queued", ...target });
   }
-  return { results, deliveries };
+  return { results, deliveries, notifiedUserIds: [...notifiedUserIds] };
 }
 
 /** Puts claimed mention actions back to pending, for a caller that could not carry them out. */
@@ -523,7 +539,7 @@ export async function refuseAgentMentionAdds(
   const ids = [...new Set(resolutionIds)];
   const rows = await db.pendingMentionAction.findMany({
     where: { id: { in: ids }, workspaceId, sender: { agentId } },
-    select: { id: true, targetUserId: true, targetAgentId: true },
+    select: { id: true, targetUserId: true, targetAgentId: true, targetHandle: true },
   });
   const byId = new Map(rows.map((row) => [row.id, row]));
   return ids.map((id): MentionActionResult => {
@@ -535,6 +551,7 @@ export async function refuseAgentMentionAdds(
       reason: "add_requires_human_member_authority",
       targetType: row.targetAgentId ? "agent" : "user",
       targetId: (row.targetAgentId ?? row.targetUserId)!,
+      targetHandle: row.targetHandle,
     };
   });
 }
@@ -611,20 +628,39 @@ export async function publishNonMemberDeliveries(
   );
 }
 
+/** Tells each newly notified person's open Activity page and nav dot to re-read. Best effort: the
+ * next read shows the item anyway. */
+export async function announceNotifiedPeople(
+  realtime: Pick<ConversationRealtime, "activityChanged"> | undefined,
+  workspaceId: string,
+  userIds: readonly string[],
+): Promise<void> {
+  await Promise.all(
+    userIds.map((userId) =>
+      (realtime?.activityChanged?.({ workspaceId, userId }) ?? Promise.resolve()).catch(() => {}),
+    ),
+  );
+}
+
 /** An Agent notifies the targets of its own pending mentions: see `notifyMentionTargets`. */
 export async function notifyAgentMentionTargets(
   db: Pick<PrismaClient, "pendingMentionAction" | "conversationMember" | "agentMessageDelivery">,
   workspaceId: string,
   agentId: string,
   resolutionIds: readonly string[],
-  publisher: Pick<CentrifugoServerApi, "publish"> = createCentrifugoServerApi(),
+  publisher: CentrifugoServerApi = createCentrifugoServerApi(),
 ): Promise<MentionActionResult[]> {
-  const { results, deliveries } = await notifyMentionTargets(
+  const { results, deliveries, notifiedUserIds } = await notifyMentionTargets(
     db,
     workspaceId,
     { agentId },
     resolutionIds,
   );
   await publishNonMemberDeliveries(db, publisher, workspaceId, deliveries);
+  await announceNotifiedPeople(
+    new CentrifugoConversationRealtime(publisher),
+    workspaceId,
+    notifiedUserIds,
+  );
   return results;
 }
