@@ -77,6 +77,10 @@ function sniffImageContentType(bytes: Uint8Array): string | null {
 // storage (packages/agent/src/paths.ts). Resolved through the package's exported helpers rather
 // than duplicated literals, so a rename there cannot silently reopen this boundary.
 const BUILTIN_DIR_NAMES = [getCoforgeAgentDir(""), getCoforgeSessionDir("")];
+// A workspace listing may contain hundreds of entries. Keep metadata probes concurrent enough
+// to avoid making the UI wait for one filesystem round-trip per entry, but bounded so a large
+// directory cannot flood the host with stat requests.
+const LIST_STAT_CONCURRENCY = 32;
 
 const emptyListEntries: AgentWorkspaceFileEntry[] = [];
 
@@ -150,29 +154,39 @@ export async function listAgentWorkspaceFiles(params: {
         entries: emptyListEntries,
       };
     }
+    const visibleNames = names.filter(
+      (name) =>
+        !BUILTIN_DIR_NAMES.includes(name) && (params.includeHidden || !name.startsWith(".")),
+    );
     const entries: AgentWorkspaceFileEntry[] = [];
-    for (const name of names) {
-      if (BUILTIN_DIR_NAMES.includes(name)) continue;
-      if (!params.includeHidden && name.startsWith(".")) continue;
-      try {
-        const info = await lstat(join(resolved.absolutePath, name));
-        const type: AgentWorkspaceFileEntry["type"] = info.isSymbolicLink()
-          ? "symlink"
-          : info.isDirectory()
-            ? "dir"
-            : info.isFile()
-              ? "file"
-              : "other";
-        entries.push({
-          name,
-          type,
-          sizeBytes: info.size,
-          modifiedAtMs: Math.round(info.mtimeMs),
-        });
-      } catch {
-        // An entry that vanished or cannot be stat'd between readdir and lstat is skipped
-        // rather than failing the whole listing.
-      }
+    for (let offset = 0; offset < visibleNames.length; offset += LIST_STAT_CONCURRENCY) {
+      const batch = await Promise.all(
+        visibleNames.slice(offset, offset + LIST_STAT_CONCURRENCY).map(async (name) => {
+          try {
+            const info = await lstat(join(resolved.absolutePath, name));
+            const type: AgentWorkspaceFileEntry["type"] = info.isSymbolicLink()
+              ? "symlink"
+              : info.isDirectory()
+                ? "dir"
+                : info.isFile()
+                  ? "file"
+                  : "other";
+            return {
+              name,
+              type,
+              sizeBytes: info.size,
+              modifiedAtMs: Math.round(info.mtimeMs),
+            } satisfies AgentWorkspaceFileEntry;
+          } catch {
+            // An entry that vanished or cannot be stat'd between readdir and lstat is skipped
+            // rather than failing the whole listing.
+            return undefined;
+          }
+        }),
+      );
+      entries.push(
+        ...batch.filter((entry): entry is AgentWorkspaceFileEntry => entry !== undefined),
+      );
     }
     entries.sort((a, b) => {
       if (a.type === "dir" && b.type !== "dir") return -1;
