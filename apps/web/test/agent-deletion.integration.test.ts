@@ -18,7 +18,7 @@ import { TaskBoard } from "#src/server/tasks/task-board.server";
  * End-to-end Agent deletion against local PostgreSQL. Drives the real `AgentDeletion`
  * and `PrismaAgentDeletionStore`, then asserts through the *other* live-view seams — the Members
  * directory, the DM read path, the by-name profile lookup, the message projection, the repository
- * listings and the unique Agent name constraint — so the test proves the delete actually makes the
+ * listings and the freed Agent name slot — so the test proves the delete actually makes the
  * Agent inert rather than only that one row changed.
  *
  * Skipped unless `CHANNEL_TEST_DATABASE_URL` points at local PostgreSQL, matching
@@ -200,26 +200,31 @@ test.skipIf(!connectionString)(
       expect(sent!.senderName).toBe("Doomed");
       expect(sent!.senderAgentId).toBe(agent.id);
 
-      // The name stays reserved, so a new Agent cannot silently inherit this history.
-      await expect(
-        Promise.resolve(
-          db.agent.create({
-            data: {
-              workspaceId: workspace.id,
-              name: agent.name,
-              displayName: "Replacement",
-              ownerId: owner.id,
-              runtimeConfig: {
-                runtime: "pi",
-                provider: { kind: "default" },
-                model: "",
-                modelProvider: "",
-                reasoning: "",
-              },
-            },
-          }),
-        ),
-      ).rejects.toThrow();
+      // The name slot is freed on the next create: a new Agent may reuse the deleted one's
+      // name. It is a distinct row with its own id, so it inherits none of this history
+      // (messages keep the old agent id); the deleted row itself keeps its name until then,
+      // so history projections still read the original handle. Through the repository: this
+      // is where the deleted-row rename happens.
+      const replacement = await new PrismaAgentRepository(db).create({
+        workspaceId: workspace.id,
+        name: agent.name,
+        displayName: "Replacement",
+        ownerId: owner.id,
+        runtimeConfig: {
+          runtime: "pi",
+          provider: { kind: "default" },
+          model: "",
+          modelProvider: "",
+          reasoning: "",
+        },
+      });
+      expect(replacement.id).not.toBe(agent.id);
+      const deletedRow = await db.agent.findUnique({
+        where: { id: agent.id },
+        select: { name: true, deletedAt: true },
+      });
+      expect(deletedRow!.name).toBe(`${agent.name}-deleted-${agent.id}`);
+      expect(deletedRow!.deletedAt).not.toBeNull();
 
       // A plain member may not delete, even though they are a Workspace member.
       await expect(
