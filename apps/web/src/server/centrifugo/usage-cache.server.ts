@@ -65,6 +65,18 @@ export const USAGE_STALE_AFTER_MS = 30 * 60 * 1000;
 const RESULT_TTL_SECONDS = "86400";
 const SCAN_TTL_SECONDS = "60";
 
+/**
+ * Write the result and clear the in-flight scan in one round trip. They are one fact — the scan is
+ * over because the result exists — so a reader should never be able to observe the two halves of
+ * this write separately, and the writer should not pay two round trips on the report path. ARGV:
+ * the encoded result, then its TTL; KEYS: the result key, then the scan key.
+ */
+const PUT_RESULT = `
+redis.call("SET", KEYS[1], ARGV[1], "EX", ARGV[2])
+redis.call("DEL", KEYS[2])
+return 1
+`;
+
 export interface UsageCache {
   putScan(record: UsageScanRecord): Promise<void>;
   putResult(record: UsageResultRecord): Promise<void>;
@@ -77,6 +89,11 @@ export class RedisUsageCache implements UsageCache {
       set(key: string, value: string, ex: "EX", seconds: string): Promise<unknown>;
       get(key: string): Promise<string | null>;
       del(...keys: string[]): Promise<number>;
+      eval(
+        script: string,
+        numberOfKeys: number,
+        ...keysAndArgs: Array<string | number>
+      ): Promise<unknown>;
     },
     private readonly resultTtlSeconds = RESULT_TTL_SECONDS,
     private readonly scanTtlSeconds = SCAN_TTL_SECONDS,
@@ -88,15 +105,16 @@ export class RedisUsageCache implements UsageCache {
   }
 
   async putResult(record: UsageResultRecord) {
-    await this.redis.set(
+    // This scan is no longer in flight; clear it in the same transaction, so its own 60s TTL never
+    // has to expire first before a later read stops reporting it as pending.
+    await this.redis.eval(
+      PUT_RESULT,
+      2,
       this.resultKey(record),
+      this.scanKey(record),
       JSON.stringify(record),
-      "EX",
       this.resultTtlSeconds,
     );
-    // This scan is no longer in flight; clear it so its own 60s TTL never has to expire first
-    // before a later read stops reporting it as pending.
-    await this.redis.del(this.scanKey(record));
   }
 
   async read(key: UsageCacheKey): Promise<UsageReadResult> {
