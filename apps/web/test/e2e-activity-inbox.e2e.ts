@@ -8,9 +8,10 @@ import { DEV_BROWSER_USER } from "#src/server/auth/dev-skip-auth.server";
 
 /**
  * The Activity page in a real browser: a followed thread with an unread reply that mentions the
- * viewer and a channel with an unread message appear as cards with their badges; the Mentions view
+ * viewer and a channel with an unread message appear as cards with their badges and Markdown
+ * previews; the Mentions view
  * keeps only the thread; the card menu offers read, Done and unfollow; Done removes a card for
- * good; opening the thread card lands in its thread pane.
+ * good; opening the thread card lands in its thread pane at the first unread reply.
  *
  * Opt-in like the other browser E2Es: real local Web + `agent-browser`. The channel, its peer and
  * its messages are seeded deterministically and reset on every run. Screenshots of the wide and
@@ -101,7 +102,7 @@ test("the Activity page lists, filters, marks Done and opens inbox items", async
       { id: rootId, body: "E2E activity root", senderMemberId: viewer!.id, threadRootId: null },
       {
         id: replyId,
-        body: `<@human:${DEV_BROWSER_USER.id}> E2E activity reply`,
+        body: `<@human:${DEV_BROWSER_USER.id}> E2E activity **reply** with \`code\``,
         senderMemberId: other!.id,
         threadRootId: rootId,
       },
@@ -145,6 +146,16 @@ test("the Activity page lists, filters, marks Done and opens inbox items", async
     expect(cards[1]).toContain("1 reply");
     expect(cards[1]).toContain("@you");
     expect(cards[1]).toContain("1 new");
+    // The preview renders Markdown inline: the mention as a chip, emphasis and code as markup.
+    const preview = await evaluate<{ strong: string | null; code: string | null }>(`(() => {
+      const card = [...document.querySelectorAll("ol > li")].find((item) =>
+        item.textContent.includes("E2E activity root"));
+      return {
+        strong: card.querySelector("strong")?.textContent ?? null,
+        code: card.querySelector("code")?.textContent ?? null,
+      };
+    })()`);
+    expect(preview).toEqual({ strong: "reply", code: "code" });
     await browser("screenshot", join(artifacts, "wide.png"));
 
     await browser("find", "role", "radio", "click", "--name", "Mentions");
@@ -186,6 +197,8 @@ test("the Activity page lists, filters, marks Done and opens inbox items", async
 
     await browser("find", "text", "E2E activity root", "click");
     await browser("wait", "--fn", `location.search.includes("threadRootId=${rootId}")`);
+    // The pane scrolls to the first unread reply.
+    await browser("wait", "--fn", `document.getElementById("message-${replyId}") !== null`);
     expect(await evaluate<string>("location.pathname")).toBe(`/en/messages/channels/${channelId}`);
 
     await browser("set", "viewport", "390", "844");

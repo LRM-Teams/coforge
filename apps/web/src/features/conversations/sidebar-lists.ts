@@ -188,6 +188,23 @@ export function useRefreshSidebarChannels() {
   );
 }
 
+/**
+ * Re-reads both sidebar lists after a change made on another page moved their unread badges (the
+ * Activity page reading or marking Done).
+ */
+export function useRefreshSidebarLists() {
+  const queryClient = useQueryClient();
+  const workspaceId = useCurrentWorkspaceId() ?? "";
+  return useMemo(
+    () => () =>
+      Promise.all([
+        queryClient.invalidateQueries({ queryKey: sidebarChannelsQuery(workspaceId).queryKey }),
+        queryClient.invalidateQueries({ queryKey: sidebarDirectsQuery(workspaceId).queryKey }),
+      ]).then(() => undefined),
+    [queryClient, workspaceId],
+  );
+}
+
 /** A sidebar row a change is about: a channel by id, a DM by its Agent. */
 export type SidebarTarget = { kind: "channel"; id: string } | { kind: "direct"; agentId: string };
 

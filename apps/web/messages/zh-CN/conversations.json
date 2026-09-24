@@ -428,5 +428,9 @@
         "countPlural=other": "{count}+ 条结果"
       }
     }
-  ]
+  ],
+  "activity_inbox_loading": "正在加载动态…",
+  "activity_inbox_show_all": "显示全部",
+  "activity_inbox_load_more_error": "无法加载更多动态。",
+  "activity_inbox_dismiss": "关闭"
 }

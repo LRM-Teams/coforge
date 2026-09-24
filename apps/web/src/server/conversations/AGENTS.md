@@ -12,6 +12,9 @@ These rules apply to `src/server/conversations/`.
   thread root validation, target-scoped ranges, Agent read positions, Agent
   target-scoped reads, and eligible-notification recovery. The Agent HTTPS
   functions enforce the authenticated Agent identity before calling it.
+- `human-unread.server.ts` owns a person's unread rule and their read and Done
+  cursor SQL. The sidebar badges and the Activity inbox (`server/inbox/`) both
+  use it; do not write another unread predicate or cursor update.
 - `conversation-history.server.ts` owns browser message index and
   around-window reads. They are scoped by `conversationId` for both direct
   conversations and public channels; this module owns Conversation-type
