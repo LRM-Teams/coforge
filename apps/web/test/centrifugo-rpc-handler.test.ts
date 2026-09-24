@@ -396,7 +396,12 @@ describe("CentrifugoRpcHandler", () => {
           visibility: "private",
         }),
       },
-      { put: async () => true, get: async () => "inactive", snapshot: async () => undefined, snapshotMany: async () => [] },
+      {
+        put: async () => true,
+        get: async () => "inactive",
+        snapshot: async () => undefined,
+        snapshotMany: async () => [],
+      },
       { publish: async (channel) => void publications.push({ channel }) },
       () => 1_000,
       {
