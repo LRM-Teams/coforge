@@ -53,7 +53,15 @@ test("the channel settings panel edits info, preferences, archive and membership
   async function evaluate<T>(expression: string): Promise<T> {
     return JSON.parse(JSON.parse(await browser("eval", `JSON.stringify(${expression})`))) as T;
   }
-  const waitFor = (condition: string) => browser("wait", "--fn", condition);
+  /** Waits for `condition`, failing with its text rather than at the test timeout; a first page
+   * load compiles on the dev server, so it gets longer. */
+  const waitFor = (condition: string, ms = 20_000) =>
+    Promise.race([
+      browser("wait", "--fn", condition),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error(`timed out waiting for ${condition}`)), ms),
+      ),
+    ]);
   const channelHeader = `[...document.querySelectorAll("header")].find((header) => header.querySelector("h1")?.textContent.startsWith("#"))`;
   const panelOpen = `document.querySelector('[role="dialog"][aria-label="Channel details and settings"]') !== null`;
   const byText = (selector: string, text: string) =>
@@ -61,8 +69,16 @@ test("the channel settings panel edits info, preferences, archive and membership
   const clickText = (selector: string, text: string) =>
     browser("eval", `${byText(selector, text)}.click()`);
   async function openPanel() {
-    await browser("click", '[aria-label="Channel details and settings"]');
-    await waitFor(panelOpen);
+    // A click that lands before the page hydrates opens nothing; try again until the panel opens.
+    for (let attempt = 0; ; attempt += 1) {
+      await browser("click", '[aria-label="Channel details and settings"]');
+      const opened = await waitFor(panelOpen, 5_000).then(
+        () => true,
+        () => false,
+      );
+      if (opened) return;
+      if (attempt === 5) throw new Error("the channel settings panel never opened");
+    }
   }
 
   const channelId = seededUuid("e2e-channel-settings:channel");
@@ -106,7 +122,10 @@ test("the channel settings panel edits info, preferences, archive and membership
 
     await browser("set", "viewport", "1440", "900");
     await browser("open", `${origin}/en/messages/channels/${channelId}`);
-    await waitFor(`document.querySelector('[aria-label="Channel details and settings"]') !== null`);
+    await waitFor(
+      `document.querySelector('[aria-label="Channel details and settings"]') !== null`,
+      60_000,
+    );
 
     // The header shows only the gear; the old Members and Bell buttons are gone.
     const headerButtons = await evaluate<string[]>(
@@ -210,13 +229,18 @@ test("the channel settings panel edits info, preferences, archive and membership
     await waitFor(`${byText("button", "Join channel")} !== undefined`);
     expect((await viewerRow()).leftAt).not.toBeNull();
     await clickText("button", "Join channel");
-    await waitFor(`${byText("button", "Join channel")} === undefined`);
+    // The button reads "Joining…" while the join is in flight; the composer returns only once the
+    // page has reloaded the viewer as a member.
+    await waitFor(`document.querySelector("main textarea") !== null`);
     expect((await viewerRow()).leftAt).toBeNull();
 
     // Phone: the panel covers the screen and still scrolls to its actions.
     await browser("set", "viewport", "390", "844");
     await browser("open", `${origin}/en/messages/channels/${channelId}`);
-    await waitFor(`document.querySelector('[aria-label="Channel details and settings"]') !== null`);
+    await waitFor(
+      `document.querySelector('[aria-label="Channel details and settings"]') !== null`,
+      60_000,
+    );
     await openPanel();
     const phone = await evaluate<{ panelWidth: number; viewport: number }>(`(() => {
       const panel = document.querySelector('[role="dialog"][aria-label="Channel details and settings"]');
