@@ -200,8 +200,7 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
   // Records each open thread's root and replies while they are loaded (see `threadSnapshots`).
   useEffect(() => {
     const snapshots = threadSnapshots.current;
-    for (const rootId of snapshots.keys())
-      if (!visited.includes(rootId)) snapshots.delete(rootId);
+    for (const rootId of snapshots.keys()) if (!visited.includes(rootId)) snapshots.delete(rootId);
     for (const rootId of visited) {
       const root = mainMessages.find((message) => message.id === rootId);
       if (root) snapshots.set(rootId, { root, replies: repliesByRoot.get(rootId) ?? [] });
@@ -238,8 +237,7 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
   const threadInView = openTaskRoot?.id ?? (detailVisible ? selected : undefined);
   const threadInViewSequence = threadInView ? (repliesOf(threadInView).at(-1)?.sequence ?? 0) : 0;
   const { visited, windowRead, threadCursor, threadRootFailure, loadThreadRoot } =
-    useConversationSync(
-    {
+    useConversationSync({
       conversation,
       searchThreadRootId,
       openTaskMessageId,
@@ -250,8 +248,7 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
       onReadThread,
       openThreadFromHash,
       closeThread,
-    },
-  );
+    });
   const selectedThreadKnown = selected !== undefined && threadRootOf(selected) !== undefined;
   const attemptedRootLoad = useRef<string | undefined>(undefined);
   useEffect(() => {
@@ -294,14 +291,11 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
       // preview row that reads as a reply but has no content is worse than none). Filtering
       // before the count too, so a thread with only notices shows no preview button at all;
       // the thread pane still lists every reply when opened.
-      const threadReplies = repliesOf(message.id).filter(
-        (reply) => reply.senderKind !== "system",
-      );
+      const threadReplies = repliesOf(message.id).filter((reply) => reply.senderKind !== "system");
       if (!threadReplies.length) return null;
       const label = replyCountLabel(threadReplies.length);
       const unread = threadReplies.filter(
-        (reply) =>
-          reply.senderKind === "agent" && reply.sequence > (threadCursor(message.id) ?? 0),
+        (reply) => reply.senderKind === "agent" && reply.sequence > (threadCursor(message.id) ?? 0),
       ).length;
       // The newest few only; the side pane holds the full thread.
       const visible = threadReplies.slice(-3);
