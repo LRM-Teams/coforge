@@ -19,7 +19,7 @@ import {
 } from "./conversation-navigation";
 import { ConversationRowMenu } from "./conversation-row-menu";
 import { conversationRowMenuEnabled, directRowPreference } from "./conversation-row-menu-model";
-import { replacePinnedConversations } from "./conversation-pins.functions";
+import { arrangePinnedConversations } from "./conversation-pins.functions";
 import { DirectoryDragRow, DirectoryDropList, useDirectoryDrag } from "./directory-drag";
 import {
   channelRowKey,
@@ -260,13 +260,13 @@ export function ConversationDirectory({
   };
   const router = useRouter();
   const toast = useAppToast();
-  const replacePins = useServerFn(replacePinnedConversations);
+  const arrangePins = useServerFn(arrangePinnedConversations);
   const drag = useDirectoryDrag({
     layout: base,
     natural,
-    commit: async (pins) => {
+    commit: async (change) => {
       try {
-        await replacePins({ data: { pins } });
+        await arrangePins({ data: change });
         await router.invalidate({ sync: true });
       } catch (cause) {
         console.error("pinned conversations could not be saved", cause);
@@ -390,7 +390,7 @@ export function ConversationDirectory({
       {/* Pinned channels and DMs, together and in the order they were pinned. Empty, it shows
           where to drop a row; a device without a mouse cannot drag, so it leaves it out there
           (its rows pin from their long-press menu). */}
-      <div className={cx("mt-2", pinnedEmpty && "hidden pointer-fine:block")}>
+      <div className={cx("mt-2", pinnedEmpty && "hidden any-pointer-fine:block")}>
         <DirectorySection
           label={m.conversation_pinned_section()}
           expanded={!collapsed.includes("pinned")}

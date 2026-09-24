@@ -28,7 +28,7 @@ import type { MessageWebPushNotification } from "#src/server/notifications/web-p
 import { ConversationHistory } from "#src/server/conversations/conversation-history.server";
 import { AgentChannelManagement } from "#src/server/conversations/agent-channel-management.server";
 import { TaskBoard } from "#src/server/tasks/task-board.server";
-import { replaceConversationPins } from "#src/server/conversations/conversation-pins.server";
+import { arrangeConversationPins } from "#src/server/conversations/conversation-pins.server";
 import { isAppError } from "#src/lib/app-error";
 
 /** Flattens every recipient's browser subscriptions, matching the earlier assertions this
@@ -3111,7 +3111,7 @@ test("pins keep one order across the member's channels and DMs: a new pin goes l
   }
 });
 
-test("replacing a member's pins sets their order in one step, pins what is new, unpins what is left out, and refuses conversations the member is not in", async () => {
+test("arranging a member's pins sets their order in one step, pins what is new, unpins only what it names, and refuses conversations the member is not in", async () => {
   const connectionString = Bun.env.CHANNEL_TEST_DATABASE_URL;
   if (!connectionString) throw new Error("CHANNEL_TEST_DATABASE_URL is required");
   const db = new PrismaClient({ adapter: new PrismaPg({ connectionString }) });
@@ -3163,29 +3163,62 @@ test("replacing a member's pins sets their order in one step, pins what is new, 
 
     await channels.setUserPinned(workspace.id, alice.id, ops.id, true);
     // A new pin dropped at the top, ahead of the existing one.
-    await replaceConversationPins(db, workspace.id, alice.id, [
-      { kind: "direct", agentId: helper.id },
-      { kind: "channel", channelId: ops.id },
-    ]);
+    await arrangeConversationPins(db, workspace.id, alice.id, {
+      pins: [
+        { kind: "direct", agentId: helper.id },
+        { kind: "channel", channelId: ops.id },
+      ],
+      unpinned: [],
+    });
     expect(await pinned()).toEqual(["@helper", "ops"]);
 
-    // Reordered, with one more pinned in between and one left out (unpinned).
-    await replaceConversationPins(db, workspace.id, alice.id, [
-      { kind: "channel", channelId: eng.id },
-      { kind: "direct", agentId: helper.id },
-    ]);
+    // Reordered, with one more pinned in between and one dragged out (unpinned).
+    await arrangeConversationPins(db, workspace.id, alice.id, {
+      pins: [
+        { kind: "channel", channelId: eng.id },
+        { kind: "direct", agentId: helper.id },
+      ],
+      unpinned: [{ kind: "channel", channelId: ops.id }],
+    });
     expect(await pinned()).toEqual(["eng", "@helper"]);
+
+    // A pin the arranged list does not know about (made in another tab) is kept, after the rest.
+    await channels.setUserPinned(workspace.id, alice.id, ops.id, true);
+    await arrangeConversationPins(db, workspace.id, alice.id, {
+      pins: [
+        { kind: "direct", agentId: helper.id },
+        { kind: "channel", channelId: eng.id },
+      ],
+      unpinned: [],
+    });
+    expect(await pinned()).toEqual(["@helper", "eng", "ops"]);
 
     // A channel Alice never joined cannot be pinned, and the refusal changes nothing.
-    const error = await replaceConversationPins(db, workspace.id, alice.id, [
-      { kind: "channel", channelId: bobsOwn.id },
-    ]).catch((cause: unknown) => cause);
+    const error = await arrangeConversationPins(db, workspace.id, alice.id, {
+      pins: [{ kind: "channel", channelId: bobsOwn.id }],
+      unpinned: [],
+    }).catch((cause: unknown) => cause);
     expect(isAppError(error) && error.code).toBe("ACCESS_DENIED");
-    expect(await pinned()).toEqual(["eng", "@helper"]);
+    expect(await pinned()).toEqual(["@helper", "eng", "ops"]);
 
     // Another member's pins are their own.
-    await replaceConversationPins(db, workspace.id, bob.id, []);
-    expect(await pinned()).toEqual(["eng", "@helper"]);
+    await arrangeConversationPins(db, workspace.id, bob.id, { pins: [], unpinned: [] });
+    expect(await pinned()).toEqual(["@helper", "eng", "ops"]);
+
+    // A menu pin and a drag by the same member at the same moment both complete: they wait for
+    // each other instead of deadlocking.
+    for (let round = 0; round < 15; round += 1) {
+      await Promise.all([
+        channels.setUserPinned(workspace.id, alice.id, ops.id, round % 2 === 0),
+        arrangeConversationPins(db, workspace.id, alice.id, {
+          pins: [
+            { kind: "channel", channelId: ops.id },
+            { kind: "channel", channelId: eng.id },
+          ],
+          unpinned: [],
+        }),
+      ]);
+    }
   } finally {
     await db.workspace.delete({ where: { id: workspace.id } });
     await db.computer.deleteMany({ where: { ownerId: alice.id } });

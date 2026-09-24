@@ -1,5 +1,8 @@
 import { lockConversation } from "#src/server/conversations/conversation-lock.server";
-import { setConversationPin } from "#src/server/conversations/conversation-pins.server";
+import {
+  lockMemberPins,
+  setConversationPin,
+} from "#src/server/conversations/conversation-pins.server";
 import type { MessageSenderKind, MessageTaskMetadata, TaskStatus } from "@lrm/coforge-sdk/internal";
 import { Prisma, type PrismaClient } from "#src/generated/prisma/client";
 import { AppError } from "#src/lib/app-error";
@@ -1014,6 +1017,7 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
       agentId,
     );
     await this.db.$transaction(async (tx) => {
+      await lockMemberPins(tx, workspaceId, userId);
       await lockConversation(tx, conversationId);
       await setConversationPin(
         tx,
