@@ -4,7 +4,7 @@ import {
   workspaceUserMiddleware,
   type WorkspaceUserContext,
 } from "#src/features/auth/function-auth";
-import { AppError } from "#src/lib/app-error";
+import { AppError, isAppError } from "#src/lib/app-error";
 import { PublicChannels } from "#src/server/conversations/public-channels.server";
 import { attachActionCardViews } from "#src/server/conversations/action-cards.server";
 import { attachmentView } from "#src/server/attachments/attachment-view.server";
@@ -238,6 +238,31 @@ export const setPublicChannelArchived = createServerFn({ method: "POST" })
   .handler(async ({ data, context }) => {
     const { channels, workspaceId, userId } = channelScope(context);
     return channels.setArchived(workspaceId, { userId }, data.channelId, data.archived);
+  });
+
+/** Whether `#general` is hidden from the whole Workspace, for Settings → System channels; `null`
+ * for anyone but a Workspace owner or admin (or a Workspace without #general), who get no such
+ * section. */
+export const loadGeneralChannelHidden = createServerFn({ method: "GET" })
+  .middleware([workspaceUserMiddleware])
+  .handler(async ({ context }): Promise<{ hidden: boolean } | null> => {
+    const { channels, workspaceId, userId } = channelScope(context);
+    try {
+      return { hidden: await channels.generalHidden(workspaceId, userId) };
+    } catch (error) {
+      if (isAppError(error) && (error.code === "ACCESS_DENIED" || error.code === "NOT_FOUND"))
+        return null;
+      throw error;
+    }
+  });
+
+/** Hides `#general` from the whole Workspace, or restores it (owner/admin only). */
+export const setGeneralChannelHidden = createServerFn({ method: "POST" })
+  .middleware([workspaceUserMiddleware])
+  .validator(z.object({ hidden: z.boolean() }))
+  .handler(async ({ data, context }) => {
+    const { channels, workspaceId, userId } = channelScope(context);
+    return channels.setGeneralHidden(workspaceId, userId, data.hidden);
   });
 
 export const setPublicChannelMuted = createServerFn({ method: "POST" })

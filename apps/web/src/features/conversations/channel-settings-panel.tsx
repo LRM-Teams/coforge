@@ -6,6 +6,7 @@ import {
   Archive,
   Check,
   ChevronRight,
+  EyeOff,
   LogOut01 as LogOut,
   RefreshCcw01 as Unarchive,
   Share04 as Share,
@@ -36,6 +37,7 @@ import { ChannelMembersDialog } from "./channel-members-dialog";
 import {
   leavePublicChannel,
   loadPublicChannelMembers,
+  setGeneralChannelHidden,
   setPublicChannelArchived,
   setPublicChannelMuted,
   setPublicConversationPinned,
@@ -48,12 +50,13 @@ const MEMBER_STRIP_LIMIT = 14;
 const SAVED_NOTICE_MS = 1500;
 
 /** The channel actions that ask for confirmation first. */
-type ConfirmedAction = "archive" | "leave";
+type ConfirmedAction = "archive" | "leave" | "hide-general";
 
 /**
  * The channel header's details-and-settings slideout: identity, the Members strip, the Info form
  * (name and description, for channel admins), the viewer's own preferences (pin, mute), and the
- * channel actions (archive, leave). Closing with unsaved Info edits asks first.
+ * channel actions (archive, leave; hiding #general for an owner or admin). Closing with unsaved
+ * Info edits asks first.
  */
 export function ChannelSettingsPanel({
   conversation,
@@ -137,7 +140,10 @@ export function ChannelSettingsPanel({
                 </PanelSection>
               )}
               {isMember && <PreferencesSection conversation={conversation} onChanged={onChanged} />}
-              {(capabilities.archive || capabilities.unarchive || capabilities.leave) && (
+              {(capabilities.archive ||
+                capabilities.unarchive ||
+                capabilities.leave ||
+                conversation.canHideGeneral) && (
                 <ActionsSection
                   conversation={conversation}
                   onConfirm={setConfirming}
@@ -190,6 +196,7 @@ export function ChannelSettingsPanel({
         onDone={async () => {
           setConfirming(null);
           onOpenChange(false);
+          // After hiding #general the page's refetch answers NOT_FOUND, which leaves for Chat.
           await onChanged();
         }}
       />
@@ -610,6 +617,18 @@ function ActionsSection({
                 {m.channel_settings_archive()}
               </Button>
             )}
+        {/* A Workspace owner or admin may hide #general from the whole Workspace (restored from
+            Settings → System channels). */}
+        {conversation.canHideGeneral && (
+          <Button
+            color="secondary-destructive"
+            iconLeading={EyeOff}
+            className="w-full"
+            onPress={() => onConfirm("hide-general")}
+          >
+            {m.channel_settings_hide_general()}
+          </Button>
+        )}
         {capabilities.leave && !conversation.archived && (
           <Button
             color="secondary-destructive"
@@ -654,9 +673,17 @@ const CONFIRM_COPY: Record<
     pending: m.channel_settings_leaving,
     error: m.channel_settings_leave_error,
   },
+  "hide-general": {
+    title: m.channel_settings_hide_general,
+    body: () => m.channel_settings_hide_general_confirm(),
+    confirm: m.channel_settings_hide_general,
+    pending: m.channel_settings_hiding_general,
+    error: m.channel_settings_hide_general_error,
+  },
 };
 
-/** Confirms archiving or leaving the channel; the write runs here so its error stays inline. */
+/** Confirms archiving or leaving the channel, or hiding #general; the write runs here so its
+ * error stays inline. */
 function ChannelActionConfirmDialog({
   kind,
   channelId,
@@ -672,20 +699,24 @@ function ChannelActionConfirmDialog({
 }) {
   const setArchived = useServerFn(setPublicChannelArchived);
   const leave = useServerFn(leavePublicChannel);
+  const setGeneralHidden = useServerFn(setGeneralChannelHidden);
+  const writes: Record<ConfirmedAction, () => Promise<unknown>> = {
+    archive: () => setArchived({ data: { channelId, archived: true } }),
+    leave: () => leave({ data: { channelId } }),
+    "hide-general": () => setGeneralHidden({ data: { hidden: true } }),
+  };
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   // Keeps the last action's copy while the dialog animates closed.
   const lastKind = useRef<ConfirmedAction>("archive");
   if (kind) lastKind.current = kind;
-  const archive = lastKind.current === "archive";
   const copy = CONFIRM_COPY[lastKind.current];
 
   async function confirm() {
     setBusy(true);
     setError("");
     try {
-      if (archive) await setArchived({ data: { channelId, archived: true } });
-      else await leave({ data: { channelId } });
+      await writes[lastKind.current]();
       await onDone();
     } catch {
       setError(copy.error());
