@@ -68,6 +68,9 @@ const PREVIEW_COMPONENTS: Components = {
   ol: Inline,
   li: InlineWithSpace,
   table: Inline,
+  // GFM footnotes: the reference mark and the notes section read as text.
+  section: Inline,
+  sup: Inline,
   thead: Inline,
   tbody: Inline,
   tr: InlineWithSpace,

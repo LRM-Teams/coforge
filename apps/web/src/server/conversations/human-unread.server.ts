@@ -9,14 +9,15 @@ import { Prisma } from "#src/generated/prisma/client";
  * notices (no sender member) never count. Every cursor write only moves forward.
  */
 
-/** A top-level message `m` unread for the member row `cm`: past the read cursor, or at or past
- * the mark-as-unread marker. */
-export const HUMAN_UNREAD_MESSAGE_SQL = Prisma.sql`m."senderMemberId" IS NOT NULL
-  AND m."senderMemberId" IS DISTINCT FROM cm."id"
-  AND (
-    m."sequence" > cm."readThroughSequence"
-    OR cm."unreadFromSequence" IS NOT NULL AND m."sequence" >= cm."unreadFromSequence"
-  )`;
+/**
+ * A top-level message `m` unread for the member row `cm`: someone else's message past the read
+ * cursor, or at or past the mark-as-unread marker. Written as one lower bound (`LEAST` ignores a
+ * NULL marker, leaving the read cursor) so a per-conversation count is an index range on
+ * `messages(conversationId, sequence)` over the unread tail, not a scan of every message.
+ */
+export const HUMAN_UNREAD_MESSAGE_SQL = Prisma.sql`m."sequence" > LEAST(cm."readThroughSequence", cm."unreadFromSequence" - 1)
+  AND m."senderMemberId" IS NOT NULL
+  AND m."senderMemberId" <> cm."id"`;
 
 /** A thread reply `m` unread for `memberId`, whose thread cursor is `readThrough` (null when
  * the thread was never read). */
@@ -27,44 +28,34 @@ export function humanUnreadReplySql(memberId: Prisma.Sql, readThrough: Prisma.Sq
 }
 
 /**
- * Reads one member row's conversation through `boundary`, consuming a mark-as-unread marker at
- * or below it, and with `done` also marks it Done through the same message.
+ * Marks one member row's conversation Done through `boundary` and reads it through the same
+ * message, consuming a mark-as-unread marker at or below it.
  */
-export function advanceConversationCursorsSql(
-  memberId: string,
-  boundary: number,
-  options: { done: boolean },
-) {
-  const done = options.done
-    ? Prisma.sql`, "doneThroughSequence" = GREATEST(COALESCE("doneThroughSequence", 0), ${boundary})`
-    : Prisma.empty;
+export function markConversationDoneSql(memberId: string, boundary: number) {
   return Prisma.sql`
     UPDATE "conversation_members"
     SET "readThroughSequence" = GREATEST("readThroughSequence", ${boundary}),
         "unreadFromSequence" = CASE
-          WHEN "unreadFromSequence" <= ${boundary} THEN NULL ELSE "unreadFromSequence" END
-        ${done}
+          WHEN "unreadFromSequence" <= ${boundary} THEN NULL ELSE "unreadFromSequence" END,
+        "doneThroughSequence" = GREATEST(COALESCE("doneThroughSequence", 0), ${boundary})
     WHERE "id" = ${memberId}::uuid`;
 }
 
-/** Reads one member's thread through `boundary`, and with `done` also marks it Done. */
-export function advanceThreadCursorsSql(
+/** Marks one member's thread Done through `boundary` and reads it through the same reply. */
+export function markThreadDoneSql(
   thread: { memberId: string; conversationId: string; workspaceId: string; rootMessageId: string },
   boundary: number,
-  options: { done: boolean },
 ) {
-  const doneValue = options.done ? boundary : null;
   return Prisma.sql`
     INSERT INTO "thread_reads"
       ("memberId", "conversationId", "workspaceId", "rootMessageId", "readThroughSequence",
        "doneThroughSequence")
     VALUES (${thread.memberId}::uuid, ${thread.conversationId}::uuid,
-      ${thread.workspaceId}::uuid, ${thread.rootMessageId}::uuid, ${boundary}, ${doneValue}::int)
+      ${thread.workspaceId}::uuid, ${thread.rootMessageId}::uuid, ${boundary}, ${boundary})
     ON CONFLICT ("memberId", "rootMessageId") DO UPDATE SET
       "readThroughSequence" = GREATEST("thread_reads"."readThroughSequence", ${boundary}),
-      "doneThroughSequence" = CASE WHEN ${options.done}
-        THEN GREATEST(COALESCE("thread_reads"."doneThroughSequence", 0), ${boundary})
-        ELSE "thread_reads"."doneThroughSequence" END`;
+      "doneThroughSequence" =
+        GREATEST(COALESCE("thread_reads"."doneThroughSequence", 0), ${boundary})`;
 }
 
 /**

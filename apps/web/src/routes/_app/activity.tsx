@@ -12,14 +12,18 @@ export const Route = createFileRoute("/_app/activity")({
   }),
   loaderDeps: ({ search }) => ({ filter: search.filter ?? "all" }),
   // The list lives in the Query cache (live refreshes and paging); the loader only makes the
-  // first page of this view ready.
-  loader: async ({ context, deps, parentMatchPromise }) => {
+  // first page of this view ready. Switching views on the page does not wait for it: the cards
+  // on screen stay until the next view has loaded.
+  loader: async ({ context, deps, parentMatchPromise, cause }) => {
     const parent = await parentMatchPromise;
     const workspaceId = parent.loaderData?.currentWorkspace?.id;
-    if (workspaceId)
-      await context.queryClient.ensureInfiniteQueryData(
-        activityInboxQuery(workspaceId, deps.filter),
-      );
+    if (!workspaceId) return;
+    const ready = context.queryClient.ensureInfiniteQueryData(
+      activityInboxQuery(workspaceId, deps.filter),
+    );
+    // A failed load shows inline in the view, which reads the same query.
+    if (cause === "stay") void ready.catch(() => undefined);
+    else await ready;
   },
   pendingComponent: ActivityInboxPending,
   errorComponent: PageLoadError,

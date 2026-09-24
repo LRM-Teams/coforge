@@ -27,4 +27,7 @@ export const activityItemDoneSchema = z.discriminatedUnion("kind", [
 export type ActivityItemDone = z.infer<typeof activityItemDoneSchema>;
 
 /** Reads everything posted up to when the viewer's list was loaded (epoch milliseconds). */
-export const activityInboxReadAllSchema = z.object({ before: z.number().int().positive() });
+export const activityInboxReadAllSchema = z.object({
+  // The largest instant a JavaScript Date can hold.
+  before: z.number().int().positive().max(8.64e15),
+});

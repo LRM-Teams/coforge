@@ -184,6 +184,34 @@ test("the Activity page lists, filters, marks Done and opens inbox items", async
     await browser("screenshot", join(artifacts, "card-menu.png"));
     await browser("press", "Escape");
 
+    // Read and unread from the card menu move the badge both ways.
+    const channelMenu = (label: string) =>
+      evaluate(`(() => {
+        const card = [...document.querySelectorAll("ol > li")].find((item) =>
+          item.textContent.includes("E2E activity unread"));
+        const link = card.querySelector("a");
+        const box = link.getBoundingClientRect();
+        link.dispatchEvent(new MouseEvent("contextmenu", {
+          bubbles: true, cancelable: true, clientX: box.x + 20, clientY: box.y + 10,
+        }));
+        return true;
+      })()`)
+        .then(() =>
+          browser("wait", "--fn", `document.querySelectorAll('[role="menuitem"]').length > 0`),
+        )
+        .then(() =>
+          evaluate(`[...document.querySelectorAll('[role="menuitem"]')]
+            .find((item) => item.textContent.trim() === ${JSON.stringify(label)})
+            .click() ?? true`),
+        );
+    // One line: a wait expression is passed to the browser CLI as a single argument.
+    const channelCard = `[...document.querySelectorAll("ol > li")].find((item) => item.textContent.includes("E2E activity unread")).textContent`;
+    await channelMenu("Mark as Read");
+    await browser("wait", "--fn", `!${channelCard}.includes("1 new")`);
+    await channelMenu("Mark as Unread");
+    await browser("wait", "--fn", `${channelCard}.includes("1 new")`);
+    expect(await evaluate<boolean>(`!document.querySelector('[role="alert"]')`)).toBe(true);
+
     await evaluate(`(() => {
       const card = [...document.querySelectorAll("ol > li")].find((item) =>
         item.textContent.includes("E2E activity unread"));

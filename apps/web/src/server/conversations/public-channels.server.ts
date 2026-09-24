@@ -5,6 +5,7 @@ import { AppError } from "#src/lib/app-error";
 import { CHANNEL_NAME_PATTERN } from "#src/features/conversations/conversation.schemas";
 import { windowPageFlags } from "#src/lib/conversation-window";
 import { ACTIVE_MEMBER_WHERE } from "./active-member.server";
+import { HUMAN_UNREAD_MESSAGE_SQL } from "./human-unread.server";
 import {
   channelActorMemberWhere,
   deriveChannelAdminBasis,
@@ -705,11 +706,8 @@ export class PublicChannels {
             COUNT(*) FILTER (WHERE m."createdAt" > cm."hiddenAt")::int AS "arrivedSinceClosed"
           FROM "messages" m
           WHERE m."conversationId" = cm."conversationId"
-            -- LEAST ignores a NULL marker, leaving the read cursor as the bound.
-            AND m."sequence" > LEAST(cm."readThroughSequence", cm."unreadFromSequence" - 1)
             AND m."threadRootId" IS NULL
-            AND m."senderMemberId" IS NOT NULL
-            AND m."senderMemberId" <> cm."id"
+            AND ${HUMAN_UNREAD_MESSAGE_SQL}
         ) unread
         WHERE cm."userId" = ${userId}::uuid
           AND cm."leftAt" IS NULL
