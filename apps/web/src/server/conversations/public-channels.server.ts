@@ -1884,7 +1884,7 @@ export class PublicChannels {
             if (!availableAttachmentIds.has(attachmentId)) throw new AppError("ACCESS_DENIED");
             return attachmentId;
           });
-          // Resolve @mentions against the channel's active members once. The stored body keeps
+          // Resolve @mentions against the channel's active members they name. The stored body keeps
           // each resolved mention as an embedded-UUID token (`<@human:…>`/`<@agent:…>`,
           // Slack-style) and every resolved mention becomes a MessageMention row in the same
           // transaction, so renders and delivery never re-parse prose. Task references
@@ -1892,36 +1892,46 @@ export class PublicChannels {
           // `<@channel:uuid:product>`) and thread references (`#product:abcdef12` →
           // `<@thread:uuid:uuid:product>`) are resolved in the same pass: the server decides what
           // names a real task, channel or thread, and anything else stays ordinary text.
-          const activeMembers = await tx.conversationMember.findMany({
-            where: { conversationId: channelId, ...ACTIVE_MEMBER_WHERE },
-            select: {
-              id: true,
-              userId: true,
-              agentId: true,
-              user: { select: { username: true } },
-              agent: { select: { name: true } },
-            },
-          });
           const stored = await storeMessageBody(
             tx,
             { workspaceId, conversationId: channelId },
             body,
             {
-              targets: activeMembers.map((channelMember) =>
-                channelMember.userId
-                  ? {
-                      key: channelMember.id,
-                      type: "user" as const,
-                      id: channelMember.userId,
-                      handle: channelMember.user!.username,
-                    }
-                  : {
-                      key: channelMember.id,
-                      type: "agent" as const,
-                      id: channelMember.agentId!,
-                      handle: channelMember.agent!.name,
+              // Only the members the body's `@handle`s name: #general holds the whole Workspace.
+              targets: async (handles) =>
+                (
+                  await tx.conversationMember.findMany({
+                    where: {
+                      conversationId: channelId,
+                      ...ACTIVE_MEMBER_WHERE,
+                      OR: [
+                        { user: { username: { in: [...handles] } } },
+                        { agent: { name: { in: [...handles] } } },
+                      ],
                     },
-              ),
+                    select: {
+                      id: true,
+                      userId: true,
+                      agentId: true,
+                      user: { select: { username: true } },
+                      agent: { select: { name: true } },
+                    },
+                  })
+                ).map((channelMember) =>
+                  channelMember.userId
+                    ? {
+                        key: channelMember.id,
+                        type: "user" as const,
+                        id: channelMember.userId,
+                        handle: channelMember.user!.username,
+                      }
+                    : {
+                        key: channelMember.id,
+                        type: "agent" as const,
+                        id: channelMember.agentId!,
+                        handle: channelMember.agent!.name,
+                      },
+                ),
             },
           );
           if (root) {
