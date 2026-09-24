@@ -1,6 +1,7 @@
 import { useCallback, useEffect, type FC } from "react";
 import { useRouter, useRouterState } from "@tanstack/react-router";
 import {
+  Activity,
   ChevronSelectorVertical,
   CheckSquare as ListTodo,
   File02 as FileText,
@@ -52,6 +53,12 @@ function useNavItems(
       bareHref: "/messages",
       href: localizeHref("/messages"),
       icon: MessageChatSquare,
+    },
+    {
+      label: m.navigation_activity(),
+      bareHref: "/activity",
+      href: localizeHref("/activity"),
+      icon: Activity,
     },
     {
       label: m.projects_title(),

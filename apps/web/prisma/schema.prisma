@@ -717,6 +717,11 @@ model ConversationMember {
   /// Forced unread marker (mark-as-unread): top-level messages with sequence >= this read as
   /// unread regardless of readThroughSequence. Null = none. Cleared when the member reads past it.
   unreadFromSequence     Int?
+  /// Activity inbox Done boundary over top-level messages: the conversation leaves this
+  /// member's Activity list once they mark it Done, and returns when a top-level message with a
+  /// higher sequence arrives. Null = never marked Done. Thread replies never advance it; a
+  /// thread keeps its own boundary in `ThreadRead.doneThroughSequence`.
+  doneThroughSequence    Int?
   /// Per-member hide/close: the conversation disappears from this member's list only.
   /// Distinct from archivedAt (whole conversation) and leftAt (membership ended).
   hiddenAt               DateTime?
@@ -866,6 +871,9 @@ model ThreadRead {
   conversationId      String             @db.Uuid
   workspaceId         String             @db.Uuid
   readThroughSequence Int                @default(0)
+  /// Activity inbox Done boundary over this thread's replies, the thread counterpart of
+  /// `ConversationMember.doneThroughSequence`. Null = never marked Done.
+  doneThroughSequence Int?
   member              ConversationMember @relation(fields: [memberId, conversationId, workspaceId], references: [id, conversationId, workspaceId], onDelete: Cascade)
   root                Message            @relation(fields: [rootMessageId, conversationId], references: [id, conversationId], onDelete: Cascade)
 
@@ -912,6 +920,8 @@ model MessageMention {
 
   @@id([messageId, memberId])
   @@index([conversationId, createdAt])
+  /// Serves one member's mentions (the Activity inbox's Mentions filter and mention badge).
+  @@index([memberId])
   @@map("message_mentions")
 }
 
