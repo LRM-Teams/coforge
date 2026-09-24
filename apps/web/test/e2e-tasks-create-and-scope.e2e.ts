@@ -44,13 +44,19 @@ test("the Tasks page shows channel Tasks only, and a channel's Tasks tab creates
   }
   /** Waits for `condition`, failing with its text rather than at the test timeout; a first page
    * load compiles on the dev server, so it gets longer. */
-  const waitFor = (condition: string, ms = 20_000) =>
-    Promise.race([
-      browser("wait", "--fn", condition),
-      new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error(`timed out waiting for ${condition}`)), ms),
-      ),
-    ]);
+  const waitFor = async (condition: string, ms = 20_000) => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      return await Promise.race([
+        browser("wait", "--fn", condition),
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(() => reject(new Error(`timed out waiting for ${condition}`)), ms);
+        }),
+      ]);
+    } finally {
+      clearTimeout(timer);
+    }
+  };
   const byText = (selector: string, text: string) =>
     `[...document.querySelectorAll(${JSON.stringify(selector)})].filter((element) => element.textContent.trim() === ${JSON.stringify(text)}).at(-1)`;
   const bodyHas = (text: string) => `document.body.textContent.includes(${JSON.stringify(text)})`;

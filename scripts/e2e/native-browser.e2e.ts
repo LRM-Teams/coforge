@@ -207,7 +207,7 @@ test("installed Computer creates an Agent through Web and persists its real repl
     const taskTitle = `TASK_${crypto.randomUUID()}: After this task is assigned to you, create a text file named task-result.txt containing task received, then submit this task for review. Do not start before assignment.`;
     await browser("click", 'nav[aria-label="Chat / Tasks"] button:last-child');
     await click("button", "Create task");
-    await browser("find", "role", "textbox", "fill", "--name", "Title", "--exact", taskTitle);
+    await browser("find", "role", "textbox", "fill", "--name", "Task 1", "--exact", taskTitle);
     await browser("click", '[role="dialog"] button[type="submit"]');
     await browser("wait", "--fn", "!document.querySelector('[role=dialog]')");
     await browser("click", 'nav[aria-label="Chat / Tasks"] button:last-child');
@@ -353,7 +353,7 @@ test("installed Computer creates an Agent through Web and persists its real repl
     await browser("open", `${origin}/en/messages/${agentId}?view=tasks`);
     await click("button", "Create task");
     const offlineTitle = `OFFLINE_${crypto.randomUUID()}: Create offline-result.txt containing recovered task, then submit this task for review.`;
-    await browser("find", "role", "textbox", "fill", "--name", "Title", "--exact", offlineTitle);
+    await browser("find", "role", "textbox", "fill", "--name", "Task 1", "--exact", offlineTitle);
     await browser("click", '[role="dialog"] button[type="submit"]');
     await browser("wait", "--fn", "!document.querySelector('[role=dialog]')");
     await browser("click", 'nav[aria-label="Chat / Tasks"] button:last-child');

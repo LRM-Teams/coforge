@@ -95,8 +95,8 @@ const APPLY_DELAY_MS = 100;
 /**
  * Keeps the rows live: listens for `task.changed.v1` on the Workspace channel, where channel
  * Tasks are announced (a direct message's go to its viewer's own channel, which this page does
- * not list), the subscription the nav rail already holds, and applies each burst in one write. Every other publication (every chat message) is
- * dropped before any parsing beyond its type. Only a Task the page does not list yet reads the
+ * not list), the subscription the nav rail already holds, and applies each burst in one write.
+ * Every other publication (every chat message) is dropped before any parsing beyond its type. Only a Task the page does not list yet reads the
  * list again, once per burst.
  */
 function useTaskOverviewRealtime(
