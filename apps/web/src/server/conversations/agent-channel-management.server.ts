@@ -23,6 +23,7 @@ import { resolveAgentChannelStatus } from "#src/server/agents/agent-channel-stat
 import { getAgentDisplay, type AgentDisplay } from "#src/server/agents/agent-display.server";
 import { PrismaDirectConversationRepository } from "#src/server/db/repositories/direct-conversation.repositories.server";
 import { AgentInboxPurgePublisher } from "#src/server/agents/agent-inbox-purge.server";
+import { isUniqueViolation } from "#src/server/db/unique-violation.server";
 
 const CHANNEL_NAME = /^[a-z0-9][a-z0-9_-]{0,31}$/;
 const CHANNEL_TARGET = /^#[a-z0-9][a-z0-9_-]{0,31}$/;
@@ -229,7 +230,7 @@ export class AgentChannelManagement {
         },
       };
     } catch (error) {
-      if (error instanceof Error && "code" in error && error.code === "P2002")
+      if (isUniqueViolation(error))
         throw new AgentChannelManagementError(409, "channel name is already in use");
       throw error;
     }

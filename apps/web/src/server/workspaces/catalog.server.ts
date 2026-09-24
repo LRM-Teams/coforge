@@ -5,6 +5,7 @@ import {
   isReservedWorkspaceSlug,
   isValidWorkspaceSlug,
 } from "#src/features/workspaces/workspace-slug";
+import { isUniqueViolation } from "#src/server/db/unique-violation.server";
 
 export type WorkspaceRecord = { id: string; slug: string; name: string };
 
@@ -48,7 +49,7 @@ export class WorkspaceCatalog {
     try {
       return await this.store.createForUser({ slug, name, userId });
     } catch (error) {
-      if (isUniqueConflict(error)) throw new AppError("CONFLICT");
+      if (isUniqueViolation(error)) throw new AppError("CONFLICT");
       throw new Error("workspace creation failed");
     }
   }
@@ -76,13 +77,4 @@ export class PrismaWorkspaceCatalogStore implements WorkspaceCatalogStore {
       select: { id: true, slug: true, name: true },
     });
   }
-}
-
-function isUniqueConflict(error: unknown): boolean {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    "code" in error &&
-    (error as { code: unknown }).code === "P2002"
-  );
 }

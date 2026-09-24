@@ -44,6 +44,7 @@ import { attachmentView } from "#src/server/attachments/attachment-view.server";
 import type { ActionCardView } from "#src/server/conversations/action-cards.server";
 import { windowPageFlags } from "#src/lib/conversation-window";
 import { channelTarget } from "#src/server/conversations/agent-delivery.server";
+import { isUniqueViolation } from "#src/server/db/unique-violation.server";
 
 /** The three Agent-visible sender facts, spread onto every Agent-facing message shape
  * in this file so they cannot drift into three different field sets. */
@@ -1024,7 +1025,7 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
       });
     } catch (error) {
       // A concurrent first open won the insert; reuse its conversation.
-      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002")
+      if (isUniqueViolation(error))
         return this.db.conversation.findUniqueOrThrow({ where, select: { id: true } });
       throw error;
     }

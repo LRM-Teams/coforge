@@ -78,6 +78,7 @@ import {
   canSeeAgent,
   visibleAgentWhere,
 } from "#src/server/agents/agent-visibility.server";
+import { isUniqueViolation } from "#src/server/db/unique-violation.server";
 
 /** A channel actor is either a human (by Workspace `userId`) or an Agent (by `agentId`); the
  * human/Web UI and the Agent CLI share `PublicChannels.members`/`addMembers` through this. */
@@ -104,10 +105,6 @@ export async function softLeaveMember(
 
 /** Enroll Workspace humans and Agents. Membership alone never creates attention. */
 /** Just the columns channelMessageView renders; the Agent row carries runtime JSON we never send. */
-/** Prisma's unique-constraint failure: here, a channel name already taken in the Workspace. */
-function isUniqueViolation(error: unknown) {
-  return error instanceof Error && "code" in error && error.code === "P2002";
-}
 
 const CHANNEL_MESSAGE_SELECT = {
   id: true,

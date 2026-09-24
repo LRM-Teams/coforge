@@ -2,6 +2,7 @@ import type { PrismaClient } from "#src/generated/prisma/client";
 import { AppError } from "#src/lib/app-error";
 import { generalChannelForCreator } from "#src/server/conversations/public-channels.server";
 import { WorkspaceCatalog, PrismaWorkspaceCatalogStore } from "./catalog.server";
+import { isUniqueViolation } from "#src/server/db/unique-violation.server";
 
 export type EnrollmentUser = {
   id: string;
@@ -42,7 +43,7 @@ export class WorkspaceEnrollment {
     try {
       return await this.store.createForUser({ slug: username, name, userId });
     } catch (error) {
-      if (!isUniqueConflict(error)) throw error;
+      if (!isUniqueViolation(error)) throw error;
     }
     const suffix = userId.replaceAll("-", "").slice(0, 8);
     return this.store.createForUser({
@@ -136,13 +137,4 @@ function preferredLanguageTag(acceptLanguage: string): string {
     }
   }
   return bestTag;
-}
-
-function isUniqueConflict(error: unknown): boolean {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    "code" in error &&
-    (error as { code: unknown }).code === "P2002"
-  );
 }

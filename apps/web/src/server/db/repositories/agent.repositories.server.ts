@@ -8,6 +8,7 @@ import {
 } from "#src/server/agents/agent-runtime-config.server";
 import { AGENT_VISIBILITY, type AgentVisibility } from "#src/features/agents/agent-visibility";
 import { AGENT_NAME_MAX_LENGTH } from "#src/features/agents/agent.schemas";
+import { isUniqueViolation } from "#src/server/db/unique-violation.server";
 
 export type { AgentRuntimeConfig } from "#src/server/agents/agent-runtime-config.server";
 
@@ -191,10 +192,6 @@ export class PrismaAgentRepository implements AgentRepository {
   ) {
     return mapAgent(await this.db.agent.update({ where: { id }, data: input }));
   }
-}
-
-function isUniqueViolation(error: unknown) {
-  return error instanceof Error && "code" in error && error.code === "P2002";
 }
 
 /**

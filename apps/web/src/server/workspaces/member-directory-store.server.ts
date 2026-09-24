@@ -14,6 +14,7 @@ import {
 } from "./member-role.server";
 import { workspaceUserAvatarUrl } from "#src/server/db/repositories/user-profile.repositories.server";
 import { ACTIVE_CHANNEL_MEMBER_WHERE } from "#src/server/conversations/active-member.server";
+import { isUniqueViolation } from "#src/server/db/unique-violation.server";
 
 function asRole(value: string): WorkspaceMemberRole {
   if (!isWorkspaceMemberRole(value)) throw new AppError("INTERNAL_ERROR");
@@ -127,7 +128,7 @@ export class PrismaWorkspaceMemberDirectoryStore implements WorkspaceMemberDirec
       });
       return mapInvitation(row);
     } catch (error) {
-      if (isUniqueConflict(error)) throw new AppError("CONFLICT");
+      if (isUniqueViolation(error)) throw new AppError("CONFLICT");
       throw error;
     }
   }
@@ -235,13 +236,4 @@ export class PrismaWorkspaceMemberDirectoryStore implements WorkspaceMemberDirec
 
 export function workspaceMemberDirectory(db: PrismaClient) {
   return new WorkspaceMemberDirectory(new PrismaWorkspaceMemberDirectoryStore(db));
-}
-
-function isUniqueConflict(error: unknown): boolean {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    "code" in error &&
-    (error as { code: unknown }).code === "P2002"
-  );
 }
