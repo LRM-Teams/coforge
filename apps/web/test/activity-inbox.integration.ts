@@ -425,6 +425,82 @@ test("a thread counts only mentions in its own replies past its Done boundary", 
   }
 });
 
+test("a thread counts every reply but only the unread past its read cursor, on any page", async () => {
+  const db = database();
+  const suffix = crypto.randomUUID();
+  try {
+    const { alice, workspace, channel, post } = await seed(db, suffix);
+    const general = await channel("general");
+    const follow = (rootMessageId: string) =>
+      db.threadFollow.create({
+        data: {
+          memberId: general.aliceMember.id,
+          rootMessageId,
+          conversationId: general.conversation.id,
+          workspaceId: workspace.id,
+        },
+      });
+    const older = await post(general.conversation.id, general.aliceMember.id, "older");
+    const newer = await post(general.conversation.id, general.aliceMember.id, "newer");
+    await follow(older.id);
+    await follow(newer.id);
+    await db.conversationMember.update({
+      where: { id: general.aliceMember.id },
+      data: { readThroughSequence: newer.sequence },
+    });
+    // Read replies, the viewer's own and a system notice: two of them count, none is unread.
+    await post(general.conversation.id, general.bobMember.id, "read one", {
+      threadRootId: older.id,
+    });
+    const seen = await post(general.conversation.id, general.aliceMember.id, "my own", {
+      threadRootId: older.id,
+    });
+    await post(general.conversation.id, null, "1 new task created: #1", {
+      threadRootId: older.id,
+    });
+    await db.threadRead.create({
+      data: {
+        memberId: general.aliceMember.id,
+        rootMessageId: older.id,
+        conversationId: general.conversation.id,
+        workspaceId: workspace.id,
+        readThroughSequence: seen.sequence + 1,
+      },
+    });
+    const firstUnread = await post(general.conversation.id, general.bobMember.id, "unread one", {
+      threadRootId: older.id,
+    });
+    await post(general.conversation.id, general.aliceMember.id, "my own again", {
+      threadRootId: older.id,
+    });
+    await post(general.conversation.id, general.bobMember.id, "unread two", {
+      threadRootId: older.id,
+    });
+    await post(general.conversation.id, general.bobMember.id, "only reply", {
+      threadRootId: newer.id,
+    });
+
+    const inbox = new ActivityInbox(db);
+    const firstPage = await inbox.list(workspace.id, alice.id, { filter: "all", limit: 1 });
+    expect(firstPage.items.map((item) => item.thread?.root.body)).toEqual(["newer"]);
+    expect(firstPage.items[0]!.thread?.replyCount).toBe(1);
+    const secondPage = await inbox.list(workspace.id, alice.id, {
+      filter: "all",
+      offset: firstPage.nextOffset!,
+      limit: 1,
+    });
+    expect(secondPage.items).toHaveLength(1);
+    const [thread] = secondPage.items;
+    expect(thread!.thread?.root.body).toBe("older");
+    expect(thread!.thread?.replyCount).toBe(5);
+    expect(thread!.unreadCount).toBe(2);
+    expect(thread!.firstUnreadMessageId).toBe(firstUnread.id);
+    expect(secondPage.totalUnreadCount).toBe(3);
+  } finally {
+    await cleanup(db, suffix);
+  }
+});
+
 test("direct messages and their threads are listed with the Agent they belong to", async () => {
   const db = database();
   const suffix = crypto.randomUUID();
