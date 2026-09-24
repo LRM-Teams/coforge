@@ -105,7 +105,15 @@ function attachmentFileNameSummary(attachments: { fileName: string }[]): string 
 export class ConversationHistory {
   constructor(private readonly db: PrismaClient) {}
 
-  async authorize(workspaceId: string, userId: string, conversationId: string) {
+  /**
+   * Resolves to the viewer's own member row in the conversation, if they have one (a Workspace
+   * member may read a public channel without joining it).
+   */
+  async authorize(
+    workspaceId: string,
+    userId: string,
+    conversationId: string,
+  ): Promise<{ viewerMemberId: string | undefined }> {
     const [membership, conversation] = await Promise.all([
       this.db.workspaceMembership.findUnique({
         where: { workspaceId_userId: { workspaceId, userId } },
@@ -122,8 +130,9 @@ export class ConversationHistory {
     ]);
     if (!membership) throw new AppError("ACCESS_DENIED");
     if (!conversation) throw new AppError("NOT_FOUND");
-    if (conversation.channelName !== null) return;
-    if (conversation.directKey !== null && conversation.members.length > 0) return;
+    const viewer = { viewerMemberId: conversation.members[0]?.id };
+    if (conversation.channelName !== null) return viewer;
+    if (conversation.directKey !== null && viewer.viewerMemberId) return viewer;
     throw new AppError("ACCESS_DENIED");
   }
 
@@ -133,14 +142,19 @@ export class ConversationHistory {
     conversationId: string,
     page: { beforeSequence?: number; limit?: number } = {},
   ) {
-    await this.authorize(workspaceId, userId, conversationId);
+    const { viewerMemberId } = await this.authorize(workspaceId, userId, conversationId);
+    // A viewer who never joined has sent nothing here.
+    if (!viewerMemberId) return { hasOlder: false, messages: [] };
     const limit = Math.min(Math.max(page.limit ?? 20, 1), 50);
     const rows = await this.db.message.findMany({
       where: {
         conversationId,
         threadRootId: null,
         sequence: page.beforeSequence ? { lt: page.beforeSequence } : undefined,
-        sender: { userId },
+        // By the member row (one per user per conversation, kept after leaving), not a join
+        // through `sender.userId`: that walked the conversation's whole history backwards to find
+        // the viewer's rows; this is a range on `messages(senderMemberId, threadRootId, sequence)`.
+        senderMemberId: viewerMemberId,
       },
       orderBy: { sequence: "desc" },
       take: limit + 1,
