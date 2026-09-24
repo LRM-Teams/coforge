@@ -214,6 +214,26 @@ test("a result previews beside the list and opens on a double click", async () =
     await browser("press", "Escape");
     await waitFor(`location.pathname === "/en/messages/channels/${channelB}"`);
 
+    // Opening a result and coming Back keeps where search was opened from: Esc closes the
+    // preview, then returns to that page, not to the conversation just visited.
+    await browser("click", 'aside a[href="/en/search"]');
+    await waitFor(`location.pathname === "/en/search"`);
+    await browser("fill", 'input[type="search"]', phrase);
+    await waitFor(`document.querySelector('${row(inA.id)}') !== null`);
+    await browser("click", row(inA.id));
+    await waitFor(`document.querySelector('${PREVIEW}') !== null`);
+    await browser("click", `${PREVIEW} [aria-label="Open conversation"]`);
+    await waitFor(`location.pathname === "/en/messages/channels/${channelA}"`);
+    await browser("back");
+    await waitFor(
+      `location.pathname === "/en/search" && document.querySelector('${PREVIEW}') !== null`,
+    );
+    await browser("eval", `document.activeElement?.blur()`);
+    await browser("press", "Escape");
+    await waitFor(`document.querySelector('${PREVIEW}') === null`);
+    await browser("press", "Escape");
+    await waitFor(`location.pathname === "/en/messages/channels/${channelB}"`);
+
     // On a phone there is no room beside the list: a click opens the conversation.
     await browser("set", "viewport", "390", "844");
     await browser("open", `${origin}/en/search?q=${encodeURIComponent(phrase)}`);
@@ -227,4 +247,4 @@ test("a result previews beside the list and opens on a double click", async () =
       .catch(() => {});
     await db.$disconnect();
   }
-}, 240_000);
+}, 480_000);

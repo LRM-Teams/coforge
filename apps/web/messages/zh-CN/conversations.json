@@ -612,5 +612,6 @@
   "conversation_pending_mention_notify_target": "通知 {target}",
   "conversation_pending_mention_queued": "已为 {target} 排队通知 · 仍不在 {channel}",
   "conversation_pending_mention_queued_label": "已排队",
-  "conversation_pending_mention_notify_failed": "通知失败，请稍后重试。"
+  "conversation_pending_mention_notify_failed": "通知失败，请稍后重试。",
+  "search_preview_loading": "正在加载会话…"
 }

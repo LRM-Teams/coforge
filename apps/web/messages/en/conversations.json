@@ -633,5 +633,6 @@
   "conversation_pending_mention_notify_target": "Notify {target}",
   "conversation_pending_mention_queued": "Notification queued for {target} · still not in {channel}",
   "conversation_pending_mention_queued_label": "Queued",
-  "conversation_pending_mention_notify_failed": "Notifying failed. Please try again."
+  "conversation_pending_mention_notify_failed": "Notifying failed. Please try again.",
+  "search_preview_loading": "Loading the conversation…"
 }
