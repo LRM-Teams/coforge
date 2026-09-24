@@ -10,36 +10,33 @@ import { useTimeFormat } from "#src/lib/time-format-context";
 
 /**
  * One minute clock shared by every `RelativeTime` on the page: a single interval runs while at
- * least one is mounted, instead of one per instance (a timeline renders hundreds).
+ * least one is mounted, instead of one per instance (a timeline renders hundreds). Its snapshot is
+ * the current minute, read fresh on every call, so a component mounting after the clock was idle
+ * never renders with an old time; the interval only tells subscribers to read it again.
  */
-const minuteClock = (() => {
-  let now = Date.now();
-  let timer: ReturnType<typeof setInterval> | undefined;
-  const listeners = new Set<() => void>();
-  return {
-    subscribe(listener: () => void) {
-      listeners.add(listener);
-      if (listeners.size === 1) {
-        now = Date.now();
-        timer = setInterval(() => {
-          now = Date.now();
-          for (const notify of listeners) notify();
-        }, 60_000);
-      }
-      return () => {
-        listeners.delete(listener);
-        if (listeners.size === 0) clearInterval(timer);
-      };
-    },
-    snapshot: () => now,
-  };
-})();
+const minuteClock = {
+  listeners: new Set<() => void>(),
+  timer: undefined as ReturnType<typeof setInterval> | undefined,
+  subscribe(listener: () => void) {
+    minuteClock.listeners.add(listener);
+    minuteClock.timer ??= setInterval(() => {
+      for (const notify of minuteClock.listeners) notify();
+    }, 60_000);
+    return () => {
+      minuteClock.listeners.delete(listener);
+      if (minuteClock.listeners.size > 0) return;
+      clearInterval(minuteClock.timer);
+      minuteClock.timer = undefined;
+    };
+  },
+  minute: () => Math.floor(Date.now() / 60_000),
+};
 
-/** The shared minute clock's current time. The server and the hydrating client cannot agree on
+/** Re-renders the caller once a minute. The server and the hydrating client cannot agree on
  * `now`, locale or time zone, so callers render time text only once `useHydrated()` is true; the
  * markup before that carries just the ISO instant via `dateTime`. */
-function useMinuteClock() {
-  return useSyncExternalStore(minuteClock.subscribe, minuteClock.snapshot, minuteClock.snapshot);
+function useMinuteTick() {
+  return useSyncExternalStore(minuteClock.subscribe, minuteClock.minute, minuteClock.minute);
 }
 
 export function RelativeTime({
@@ -67,14 +64,14 @@ export function RelativeTime({
   plain?: boolean;
 }) {
   const hydrated = useHydrated();
-  const now = useMinuteClock();
+  useMinuteTick();
   const instant = new Date(value);
   const locale = getLocale();
   const timeFormat = useTimeFormat();
   // Before hydration the server and client cannot agree on locale or time zone, so render
   // nothing visible yet; the dateTime attribute still carries the instant.
   const exactTime = hydrated ? formatDateForDisplay(instant, timeZone, locale, timeFormat) : "";
-  const relative = hydrated ? formatRelativeTime(instant, new Date(now), locale) : "";
+  const relative = hydrated ? formatRelativeTime(instant, new Date(), locale) : "";
   const timeElement = (
     <time
       dateTime={instant.toISOString()}
