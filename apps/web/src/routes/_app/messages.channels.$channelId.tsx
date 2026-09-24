@@ -30,7 +30,6 @@ import {
   markPublicChannelRead,
   markPublicChannelThreadRead,
   setPublicChannelThreadFollowed,
-  setPublicChannelMuted,
   sendPublicChannelMessage,
   toggleChannelMessageReaction,
 } from "#src/features/conversations/channels.functions";
@@ -83,7 +82,6 @@ function ChannelPage() {
   const join = useServerFn(joinPublicChannel);
   const markRead = useServerFn(markPublicChannelThreadRead);
   const setThreadFollowed = useServerFn(setPublicChannelThreadFollowed);
-  const setMuted = useServerFn(setPublicChannelMuted);
   const loadOwnMessages = useServerFn(loadOwnConversationMessages);
   const page = useConversationQuery({
     ...publicChannelQuery(channelId),
@@ -135,16 +133,10 @@ function ChannelPage() {
     );
   };
 
-  // Membership changes reach the sidebar through the layout loader and this page
-  // through its query; both are refreshed.
-  const changeMuted = async (muted: boolean) => {
-    await setMuted({ data: { channelId, muted } });
-    await Promise.all([page.invalidate(), router.invalidate({ sync: true })]);
-  };
-  // The Members dialog calls `leavePublicChannel` itself; this only refreshes the page (so
-  // `senderMemberId` empties and the read-only Join view appears) and the sidebar channel list
-  // (so it reflects `joined: false`).
-  const afterLeft = async () => {
+  // The settings panel writes the channel (name, description, archive), the viewer's own
+  // membership (leave) or preferences (pin, mute) itself; this refreshes the page and the
+  // sidebar, which reads them through the layout loader.
+  const refreshChannel = async () => {
     await Promise.all([page.invalidate(), router.invalidate({ sync: true })]);
   };
   const followThread = (threadRootId: string) =>
@@ -162,8 +154,7 @@ function ChannelPage() {
           active="files"
           onShowChat={showChat}
           onShowTasks={showTasks}
-          onMutedChange={changeMuted}
-          onLeft={afterLeft}
+          onChanged={refreshChannel}
           onOpenAgentProfile={openAgentProfile}
         />
         <ConversationFilesPanel
@@ -183,8 +174,7 @@ function ChannelPage() {
             active="tasks"
             onShowChat={showChat}
             onShowFiles={showFiles}
-            onMutedChange={changeMuted}
-            onLeft={afterLeft}
+            onChanged={refreshChannel}
             onOpenAgentProfile={openAgentProfile}
           />
         }
@@ -252,8 +242,7 @@ function ChannelPage() {
         await join({ data: { channelId } });
         await Promise.all([page.invalidate(), router.invalidate({ sync: true })]);
       }}
-      onMutedChange={changeMuted}
-      onLeft={afterLeft}
+      onChanged={refreshChannel}
       onReadThread={(threadRootId, throughSequence) =>
         markRead({ data: { channelId, threadRootId, throughSequence } })
       }

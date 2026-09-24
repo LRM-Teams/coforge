@@ -26,6 +26,7 @@ import {
 } from "./conversations.functions";
 import { loadPublicChannel, loadPublicChannelUpdates } from "./channels.functions";
 import { loadActionCardStates } from "./action-cards.functions";
+import { channelMembersQueryKey } from "./conversation-query-keys";
 import type { ActionCardView } from "./action-card";
 import { createReactionToggler, type ReactionSummary } from "./message-reactions";
 
@@ -256,11 +257,15 @@ export function useConversationQuery<M extends PageMessage, T extends Conversati
       ]);
     },
     // A membership change stale-dates the composer's @-directory (and plain-@handle
-    // resolution); the next render picks the refetched directory up. Inert for DMs.
+    // resolution) and the settings panel's Members strip; the next render picks the refetched
+    // lists up. Inert for DMs.
     () =>
-      void queryClient
-        .invalidateQueries({ queryKey: ["conversation", "mentionables", conversationId] })
-        .catch(() => {}),
+      void Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: ["conversation", "mentionables", conversationId],
+        }),
+        queryClient.invalidateQueries({ queryKey: channelMembersQueryKey(conversationId) }),
+      ]).catch(() => {}),
   );
 
   /** Replace the loaded history with a window around one message. */

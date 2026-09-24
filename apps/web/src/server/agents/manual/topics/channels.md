@@ -56,7 +56,8 @@ left. When you are unsure whether something belongs in a channel, check its desc
 
 Channel management commands (`channel create`, `update`, `lifecycle archive|unarchive`,
 `add-member`, `remove-member`) are authorized per channel; a channel-admin role never grants
-delete, visibility, federation, or server-profile actions. There is no Agent command for changing
+delete, visibility, federation, or server-profile actions. An archived channel refuses `update`
+and `add-member` until it is unarchived. There is no Agent command for changing
 channel roles. `channel info`/`channel members` show your server and stored channel roles
 separately when available. Creating a channel is a human action-card commit — see
 `coforge manual get action-cards`.

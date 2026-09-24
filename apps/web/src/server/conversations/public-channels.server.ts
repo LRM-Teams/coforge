@@ -2,6 +2,7 @@ import { lockConversation } from "./conversation-lock.server";
 import { lockMemberPins, setConversationPin } from "./conversation-pins.server";
 import type { Prisma, PrismaClient } from "#src/generated/prisma/client";
 import { AppError } from "#src/lib/app-error";
+import { CHANNEL_NAME_PATTERN } from "#src/features/conversations/conversation.schemas";
 import { windowPageFlags } from "#src/lib/conversation-window";
 import { ACTIVE_MEMBER_WHERE } from "./active-member.server";
 import {
@@ -80,6 +81,11 @@ export async function softLeaveMember(
 
 /** Enroll Workspace humans and Agents. Membership alone never creates attention. */
 /** Just the columns channelMessageView renders; the Agent row carries runtime JSON we never send. */
+/** Prisma's unique-constraint failure: here, a channel name already taken in the Workspace. */
+function isUniqueViolation(error: unknown) {
+  return error instanceof Error && "code" in error && error.code === "P2002";
+}
+
 const CHANNEL_MESSAGE_SELECT = {
   id: true,
   sequence: true,
@@ -693,7 +699,7 @@ export class PublicChannels {
     description?: string,
   ) {
     await this.authorize(workspaceId, userId);
-    if (!/^[a-z0-9][a-z0-9_-]{0,31}$/.test(name)) throw new AppError("INVALID_INPUT");
+    if (!CHANNEL_NAME_PATTERN.test(name)) throw new AppError("INVALID_INPUT");
     // The built-in #general channel was removed; keep the old reserved name from coming back.
     if (name === "general") throw new AppError("CONFLICT");
     if (projectId) {
@@ -716,8 +722,7 @@ export class PublicChannels {
         select: { id: true },
       });
     } catch (error) {
-      if (error instanceof Error && "code" in error && error.code === "P2002")
-        throw new AppError("CONFLICT");
+      if (isUniqueViolation(error)) throw new AppError("CONFLICT");
       throw error;
     }
   }
@@ -779,6 +784,76 @@ export class PublicChannels {
     });
   }
 
+  /**
+   * Renames a channel or changes its description, for a human from the channel settings panel
+   * and for an Agent's `channel update`. Needs the `update` capability (Workspace owner/admin or
+   * this channel's admin). The name follows the creation rule and stays unique; `#general` keeps
+   * its name but its description can change. An archived channel's info is frozen.
+   */
+  async updateInfo(
+    workspaceId: string,
+    actor: ChannelActor,
+    channelId: string,
+    patch: { name?: string; description?: string },
+  ) {
+    const channel = await this.findChannelById(workspaceId, channelId);
+    const authority = await resolveChannelAuthority(this.db, workspaceId, actor, channel);
+    if (!authority.capabilities.update) throw new AppError("ACCESS_DENIED");
+    if (channel.archivedAt) throw new AppError("CONFLICT");
+    const rename = patch.name !== undefined && patch.name !== channel.channelName;
+    if (rename) {
+      if (channel.channelName === "general") throw new AppError("CONFLICT");
+      if (!CHANNEL_NAME_PATTERN.test(patch.name!)) throw new AppError("INVALID_INPUT");
+      if (patch.name === "general") throw new AppError("CONFLICT");
+    }
+    try {
+      const updated = await this.db.conversation.update({
+        where: { id: channel.id },
+        data: {
+          ...(rename ? { channelName: patch.name } : {}),
+          ...(patch.description !== undefined ? { description: patch.description } : {}),
+        },
+        select: { id: true, channelName: true, description: true },
+      });
+      return { id: updated.id, name: updated.channelName!, description: updated.description };
+    } catch (error) {
+      if (isUniqueViolation(error)) throw new AppError("CONFLICT");
+      throw error;
+    }
+  }
+
+  /**
+   * Archives or unarchives a channel. Needs the `archive`/`unarchive` capability, which
+   * `#general` never grants. Members keep reading an archived channel, but nobody posts in it or
+   * joins it until it is unarchived.
+   */
+  async setArchived(
+    workspaceId: string,
+    actor: ChannelActor,
+    channelId: string,
+    archived: boolean,
+  ) {
+    const channel = await this.findChannelById(workspaceId, channelId);
+    if (channel.channelName === "general") throw new AppError("CONFLICT");
+    const authority = await resolveChannelAuthority(this.db, workspaceId, actor, channel);
+    if (!authority.capabilities[archived ? "archive" : "unarchive"])
+      throw new AppError("ACCESS_DENIED");
+    await this.db.conversation.update({
+      where: { id: channel.id },
+      data: { archivedAt: archived ? (channel.archivedAt ?? new Date()) : null },
+    });
+    return { id: channel.id, archived };
+  }
+
+  private async findChannelById(workspaceId: string, channelId: string) {
+    const channel = await this.db.conversation.findFirst({
+      where: { id: channelId, workspaceId, channelName: { not: null } },
+      select: { id: true, channelName: true, archivedAt: true },
+    });
+    if (!channel) throw new AppError("NOT_FOUND");
+    return channel;
+  }
+
   private async channel(workspaceId: string, userId: string, channelId: string) {
     await this.authorize(workspaceId, userId);
     const channel = await this.db.conversation.findFirst({
@@ -794,7 +869,9 @@ export class PublicChannels {
   }
 
   async join(workspaceId: string, userId: string, channelId: string) {
-    await this.channel(workspaceId, userId, channelId);
+    const channel = await this.channel(workspaceId, userId, channelId);
+    // Nobody joins an archived channel; its members keep reading it.
+    if (channel.archivedAt) throw new AppError("CONFLICT");
     // Upsert (not createMany/skipDuplicates): a human previously removed from this channel by
     // an admin Agent has a row with `leftAt` set, which re-joining must clear rather than skip.
     // (Re-)joining starts already-read at the channel's current top-level end: the badge
@@ -924,7 +1001,7 @@ export class PublicChannels {
     await this.authorizeActor(workspaceId, actor);
     const channel = await this.db.conversation.findFirst({
       where: { id: channelId, workspaceId, channelName: { not: null } },
-      select: { id: true, channelName: true },
+      select: { id: true, channelName: true, archivedAt: true },
     });
     if (!channel) throw new AppError("NOT_FOUND");
     const isGeneral = channel.channelName === "general";
@@ -997,18 +1074,16 @@ export class PublicChannels {
     });
 
     return {
-      canAddMembers: isActiveMember,
+      // Nobody adds members to an archived channel.
+      canAddMembers: isActiveMember && channel.archivedAt === null,
       // The actor's own channel role/admin basis/capabilities on this channel.
       channelRole: actorRow?.channelRole,
       channelAdminBasis: actorAdminBasis,
       channelCapabilities: capabilities,
-      // Aliases of the capability matrix above, kept for the existing human UI
-      // (`ChannelMembersDialog`'s Remove/Leave actions): `remove_member`/`leave` are now the
-      // single source of truth, a strict superset of the original owner/admin-only rule
-      // — a channel admin via `channelRole` (not just a Workspace owner/admin) may also remove
+      // Alias of the capability matrix above for `ChannelMembersDialog`'s Remove action: a
+      // channel admin via `channelRole` (not just a Workspace owner/admin) may also remove
       // members from a channel it administers.
       canRemoveMembers: capabilities.remove_member,
-      canLeave: capabilities.leave,
       humans: memberRows
         .filter((row) => row.user)
         .map((row) => {
@@ -1073,9 +1148,11 @@ export class PublicChannels {
     await this.authorizeActor(workspaceId, actor);
     const channel = await this.db.conversation.findFirst({
       where: { id: channelId, workspaceId, channelName: { not: null } },
-      select: { id: true },
+      select: { id: true, archivedAt: true },
     });
     if (!channel) throw new AppError("NOT_FOUND");
+    // Nobody joins an archived channel, including by being added.
+    if (channel.archivedAt) throw new AppError("CONFLICT");
 
     const actorMembership = await this.db.conversationMember.findFirst({
       where: {
@@ -1179,7 +1256,7 @@ export class PublicChannels {
     // holds; a backward fetch reads history upwards. Neither is the initial (uncursored) load,
     // which lands on the newest page (see `lib/conversation-window.ts`).
     const forward = page.afterSequence !== undefined;
-    const [member, messages, mentionRows, viewerRecentMentions] = await Promise.all([
+    const [member, messages, mentionRows, viewerRecentMentions, authority] = await Promise.all([
       // Filtered through ACTIVE_MEMBER_WHERE (not findUnique on the raw row): a human who left or
       // was removed must see the read-only preview (`senderMemberId` empty) like anyone who never
       // joined, not their old member state. The row itself survives untouched for a later rejoin.
@@ -1189,6 +1266,7 @@ export class PublicChannels {
           threadReads: true,
           threadFollows: true,
           user: { select: { username: true } },
+          pins: { select: { sortOrder: true } },
         },
       }),
       this.db.message.findMany({
@@ -1236,6 +1314,8 @@ export class PublicChannels {
       }),
       // Scores each completion candidate by the viewer's own recent mentions here.
       this.viewerRecentMentions(channelId, userId),
+      // What the settings panel offers this viewer: edit, archive, leave.
+      resolveChannelAuthority(this.db, workspaceId, { userId }, channel),
     ]);
     const mentionScores = mentionAffinityScores(viewerRecentMentions);
     const overflow = messages.length > limit;
@@ -1253,10 +1333,14 @@ export class PublicChannels {
     return {
       conversationId: channel.id,
       name: channel.channelName!,
+      description: channel.description,
+      archived: channel.archivedAt !== null,
       project: channel.project ?? undefined,
       senderMemberId: member?.id ?? "",
       viewerHandle: member?.user?.username,
       muted: member?.channelMuted ?? false,
+      pinned: Boolean(member?.pins.length),
+      channelCapabilities: authority.capabilities,
       // The viewer's conversation-level read cursor over top-level messages:
       // the client positions the initial view at the first unread message and draws the
       // divider there. Undefined for a non-member (nothing is "unread for them").

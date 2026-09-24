@@ -1,17 +1,12 @@
 import { useMemo, useState, type ReactNode } from "react";
 import type { ConversationTab } from "#src/features/conversations/conversation-tabs";
 import { useQuery } from "@tanstack/react-query";
-import {
-  Bell01 as Bell,
-  BellOff01 as BellOff,
-  Hash01 as Hash,
-  Share04 as Share,
-  Users01 as Users,
-} from "@untitledui/icons";
+import { Hash01 as Hash, Settings01 as Settings } from "@untitledui/icons";
 import type { TaskView } from "@lrm/coforge-sdk/internal";
 import { Button } from "#src/components/base/buttons/button";
 import { ButtonUtility } from "#src/components/base/buttons/button-utility";
-import { ChannelMembersDialog } from "./channel-members-dialog";
+import { ChannelSettingsPanel } from "./channel-settings-panel";
+import type { ChannelCapabilities } from "#src/server/conversations/channel-authority.server";
 import { ConversationListButton } from "./conversation-navigation";
 import { ThreadFollowingAgents } from "./thread-following-agents";
 import { ConversationTaskTabs } from "#src/features/tasks/conversation-task-tabs";
@@ -26,6 +21,8 @@ import type { AgentProfileTab } from "#src/features/agents/profile-panel/profile
 
 export type ChannelConversationView = Omit<DirectConversationView, "agent" | "messages"> & {
   name: string;
+  description: string;
+  archived: boolean;
   project?: {
     id: string;
     name: string;
@@ -34,6 +31,9 @@ export type ChannelConversationView = Omit<DirectConversationView, "agent" | "me
     githubHtmlUrl: string | null;
   };
   muted: boolean;
+  pinned: boolean;
+  /** What this viewer may change from the settings panel. */
+  channelCapabilities: ChannelCapabilities;
   followedThreadRootIds?: string[];
   messages: DirectConversationView["messages"];
 };
@@ -44,76 +44,49 @@ export function ChannelConversationHeader({
   onShowChat,
   onShowTasks,
   onShowFiles,
-  onMutedChange,
-  onLeft,
+  onChanged,
   onOpenAgentProfile,
+  settingsOpen: controlledSettingsOpen,
+  onSettingsOpenChange,
 }: {
   conversation: ChannelConversationView;
   active: ConversationTab;
   onShowChat?: () => void;
   onShowTasks?: () => void;
   onShowFiles?: () => void;
-  onMutedChange: (muted: boolean) => Promise<void>;
-  /** Called after the current user successfully leaves the channel via the Members dialog. */
-  onLeft?: () => Promise<void>;
-  /** Opens the Agent profile panel from an Agent row in the Members dialog (closes the dialog). */
+  /** Refreshes the page and the sidebar after the settings panel changed the channel. */
+  onChanged: () => Promise<void>;
+  /** Opens the Agent profile panel from an Agent row in the Members dialog. */
   onOpenAgentProfile?: (agentId: string) => void;
+  /** Set when something outside the header (the archived notice) also opens the panel. */
+  settingsOpen?: boolean;
+  onSettingsOpenChange?: (open: boolean) => void;
 }) {
-  const [savingMute, setSavingMute] = useState(false);
-  const [membersOpen, setMembersOpen] = useState(false);
+  const [ownSettingsOpen, setOwnSettingsOpen] = useState(false);
+  const settingsOpen = controlledSettingsOpen ?? ownSettingsOpen;
+  const setSettingsOpen = onSettingsOpenChange ?? setOwnSettingsOpen;
   return (
     <header className="shrink-0 border-b border-secondary px-4 md:px-6">
       <div className="-mx-4 flex h-12 items-center gap-3 border-b border-secondary px-4 md:-mx-6 md:px-6">
         <ConversationListButton />
-        <h1 className="truncate text-base font-semibold">#{conversation.name}</h1>
-        {conversation.project && (
-          <div className="hidden min-w-0 items-center gap-2 text-xs text-tertiary sm:flex">
-            <span className="shrink-0">Project</span>
-            <span className="truncate font-medium text-primary">{conversation.project.name}</span>
-            {conversation.project.githubHtmlUrl && conversation.project.githubFullName && (
-              <a
-                href={conversation.project.githubHtmlUrl}
-                target="_blank"
-                rel="noreferrer"
-                aria-label={`View ${conversation.project.githubFullName} on GitHub`}
-                className="inline-flex shrink-0 items-center gap-1 text-brand-secondary hover:underline"
-              >
-                {conversation.project.githubFullName}
-                <Share aria-hidden="true" className="size-3.5" />
-              </a>
-            )}
-          </div>
-        )}
-        <span className="ml-auto hidden rounded-md border border-secondary px-2 py-0.5 text-xs font-medium text-tertiary sm:block">
-          {m.channel_public()}
-        </span>
+        <div className="flex min-w-0 flex-1 items-baseline gap-3">
+          <h1 className="shrink-0 truncate text-base font-semibold">#{conversation.name}</h1>
+          {conversation.description && (
+            <p className="hidden min-w-0 truncate text-sm text-tertiary sm:block">
+              {conversation.description}
+            </p>
+          )}
+        </div>
         {/* Borderless utility strip: the -mr-1.5 cancels the last button's p-1.5 so its glyph
             lands on the pane gutter (docs/design/page-skeleton-and-density.md §8 optical alignment). */}
         <div className="-mr-1.5 flex shrink-0 items-center gap-3">
           <ButtonUtility
-            icon={Users}
+            icon={Settings}
             size="sm"
             color="tertiary"
-            tooltip={m.channel_members_button()}
-            onClick={() => setMembersOpen(true)}
+            tooltip={m.channel_settings_open()}
+            onClick={() => setSettingsOpen(true)}
           />
-          {conversation.senderMemberId && (
-            <ButtonUtility
-              icon={conversation.muted ? BellOff : Bell}
-              size="sm"
-              color="tertiary"
-              isDisabled={savingMute}
-              tooltip={conversation.muted ? m.channel_unmute() : m.channel_mute()}
-              onClick={async () => {
-                setSavingMute(true);
-                try {
-                  await onMutedChange(!conversation.muted);
-                } finally {
-                  setSavingMute(false);
-                }
-              }}
-            />
-          )}
         </div>
       </div>
       {(onShowChat || onShowTasks || onShowFiles) && (
@@ -126,21 +99,13 @@ export function ChannelConversationHeader({
           />
         </div>
       )}
-      {membersOpen && (
-        <ChannelMembersDialog
-          channelId={conversation.conversationId}
-          channelName={conversation.name}
-          open={membersOpen}
-          onOpenChange={setMembersOpen}
-          onLeft={onLeft}
-          onOpenAgentProfile={
-            onOpenAgentProfile
-              ? (agentId: string) => {
-                  setMembersOpen(false);
-                  onOpenAgentProfile(agentId);
-                }
-              : undefined
-          }
+      {settingsOpen && (
+        <ChannelSettingsPanel
+          conversation={conversation}
+          open={settingsOpen}
+          onOpenChange={setSettingsOpen}
+          onChanged={onChanged}
+          onOpenAgentProfile={onOpenAgentProfile}
         />
       )}
     </header>
@@ -151,8 +116,7 @@ export function ChannelConversation({
   conversation,
   onSend,
   onJoin,
-  onMutedChange,
-  onLeft,
+  onChanged,
   onLoadOlder,
   onLoadNewer,
   onLoadOwnMessages,
@@ -180,9 +144,8 @@ export function ChannelConversation({
     threadRootId?: string,
   ) => Promise<OwnMessageIndexEntry | void>;
   onJoin: () => Promise<void>;
-  onMutedChange: (muted: boolean) => Promise<void>;
-  /** Called after the current user successfully leaves the channel via the Members dialog. */
-  onLeft?: () => Promise<void>;
+  /** Refreshes the page and the sidebar after the settings panel changed the channel. */
+  onChanged: () => Promise<void>;
   onLoadOlder?: () => Promise<void>;
   /** Fetch the next page towards the live end once the bounded window pushed the tail out. */
   onLoadNewer?: () => Promise<void>;
@@ -218,6 +181,7 @@ export function ChannelConversation({
 }) {
   const [joining, setJoining] = useState(false);
   const [error, setError] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   // The @-completion directory stays current while the conversation is open. It starts from the
   // page payload's copy (no second load on mount) and is refetched when a membership write pushes
   // `member.changed.v1`, when the subscription could not replay what it missed — including the
@@ -316,13 +280,19 @@ export function ChannelConversation({
           active="chat"
           onShowTasks={onShowTasks}
           onShowFiles={onShowFiles}
-          onMutedChange={onMutedChange}
-          onLeft={onLeft}
+          onChanged={onChanged}
           onOpenAgentProfile={onOpenAgentProfile}
+          settingsOpen={settingsOpen}
+          onSettingsOpenChange={setSettingsOpen}
         />
       }
       readOnlyNotice={
-        !conversation.senderMemberId ? (
+        conversation.archived ? (
+          <ArchivedChannelNotice
+            canUnarchive={conversation.channelCapabilities.unarchive}
+            onOpenSettings={() => setSettingsOpen(true)}
+          />
+        ) : !conversation.senderMemberId ? (
           <div className="mx-4 mb-4 flex flex-col items-start gap-3 rounded-lg border border-secondary bg-secondary p-4 md:mx-6 md:mb-6">
             <p className="text-sm text-tertiary">{m.channel_public_description()}</p>
             {error && (
@@ -337,5 +307,26 @@ export function ChannelConversation({
         ) : undefined
       }
     />
+  );
+}
+
+/** Replaces the composer of an archived channel: nobody posts or joins until it is unarchived.
+ * A channel admin's Unarchive opens the settings panel, where the action lives. */
+function ArchivedChannelNotice({
+  canUnarchive,
+  onOpenSettings,
+}: {
+  canUnarchive: boolean;
+  onOpenSettings: () => void;
+}) {
+  return (
+    <div className="mx-4 mb-4 flex flex-wrap items-center justify-center gap-x-2 gap-y-1 rounded-lg border border-secondary bg-secondary p-4 text-sm md:mx-6 md:mb-6">
+      <span className="font-medium text-primary">{m.channel_archived_notice()}</span>
+      {canUnarchive && (
+        <Button color="link-color" size="sm" onPress={onOpenSettings}>
+          {m.channel_archived_unarchive()}
+        </Button>
+      )}
+    </div>
   );
 }

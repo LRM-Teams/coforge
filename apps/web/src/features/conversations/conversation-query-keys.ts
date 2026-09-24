@@ -7,3 +7,8 @@ export function threadFollowingAgentsQueryKey(channelId: string, threadRootId: s
 export function threadFollowingAgentsQueryPrefix(channelId: string) {
   return ["conversation", "thread-following-agents", channelId] as const;
 }
+
+/** One public channel's member roster, as the settings panel's Members strip reads it. */
+export function channelMembersQueryKey(channelId: string) {
+  return ["conversation", "channel-members", channelId] as const;
+}
