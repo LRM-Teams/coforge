@@ -18,7 +18,6 @@ import {
   dropTarget,
   moveInDirectory,
   pinsAfterDrag,
-  sameLayout,
   type DirectoryLayout,
   type HomeSection,
 } from "./pinned-conversations";
@@ -46,18 +45,14 @@ export function useDirectoryDrag({
 }: {
   layout: DirectoryLayout;
   natural: Record<HomeSection, readonly string[]>;
-  /** Applies the change to the lists at once and saves it, reporting its own failure; the returned
-   * promise settles when the save does (a failed save has put the lists back by then). */
-  commit: (change: PinChange) => Promise<unknown>;
+  /** Applies the change to the lists (`layout`) at once and saves it, reporting its own failure. */
+  commit: (change: PinChange) => void;
 }) {
   const [dragging, setDragging] = useState<DirectoryLayout | null>(null);
-  const [dropped, setDropped] = useState<DirectoryLayout | null>(null);
   const start = useRef<DirectoryLayout | null>(null);
   const sensors = useSensors(useSensor(MouseSensor, { activationConstraint: { distance: 6 } }));
-  // The lists show a drop by the next render (`commit` changes them at once); until they do, the
-  // dropped layout stays on screen so no row jumps back for a frame.
-  if (dropped && sameLayout(dropped, base)) setDropped(null);
-  const layout = dragging ?? dropped ?? base;
+  // `commit` changes the lists in the same event as the drop, so they already show it.
+  const layout = dragging ?? base;
 
   const moved = (current: DirectoryLayout, { active, over }: DragMoveEvent) => {
     const data = over?.data.current as DragData | undefined;
@@ -91,21 +86,16 @@ export function useDirectoryDrag({
     start.current = null;
     setDragging(null);
     const change = pinsAfterDrag(before, released);
-    if (!change) return;
-    setDropped(released);
-    void commit(change).finally(() =>
-      setDropped((current) => (current === released ? null : current)),
-    );
+    if (change) commit(change);
   };
 
   const context = {
     sensors,
     collisionDetection: rowsFirst,
     accessibility: { announcements: SILENT_ANNOUNCEMENTS },
-    // A drag that starts before the previous drop shows in the lists starts from that drop.
     onDragStart: () => {
-      start.current = dropped ?? base;
-      setDragging(dropped ?? base);
+      start.current = base;
+      setDragging(base);
     },
     onDragOver: relayout,
     onDragMove: relayout,

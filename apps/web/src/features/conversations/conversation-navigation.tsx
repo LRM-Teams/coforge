@@ -144,7 +144,7 @@ export function useConversationReadRequiresScroll(): boolean {
 /** Keep both panels mounted so returning to the list preserves scroll and drafts. */
 export function ConversationNavigation({ children }: { children: ReactNode }) {
   const { projects, saved } = messagesRoute.useLoaderData();
-  const { channels, directUnread, directPreferences, viewerId } = useSidebarLists();
+  const { channels, directs, viewerId, readAt } = useSidebarLists();
   const { conversationOpenMode: savedOpenMode } = appRoute.useLoaderData();
   const openMode = conversationOpenMode(savedOpenMode);
   const agents = useLiveAgents();
@@ -182,7 +182,7 @@ export function ConversationNavigation({ children }: { children: ReactNode }) {
   }, [workspaceId, pathname]);
 
   const visibleChannels = useMemo(() => channels.filter((listed) => !listed.archived), [channels]);
-  const hiddenAgentIds = useMemo(() => new Set(directPreferences.hidden), [directPreferences]);
+  const hiddenAgentIds = useMemo(() => new Set(directs.hiddenAgentIds), [directs]);
   const closedChatRefresh = useRef<"idle" | "running" | "queued">("idle");
   const refreshChannels = useRefreshSidebarChannels();
   const unread = useChannelUnread({
@@ -212,26 +212,26 @@ export function ConversationNavigation({ children }: { children: ReactNode }) {
     // A channel was renamed, described, archived or unarchived: only the channel list is stale.
     onChannelUpdated: () => void refreshChannels(),
   });
-  // Every list read carries the server's own persisted counts; local arithmetic restarts from
+  // Every server read of the lists carries the persisted counts; local arithmetic restarts from
   // them (sequence boundaries survive, so no event double-counts). Direct messages are already
-  // keyed by Agent id, the same key their realtime signal carries. Only a change in the counts
-  // themselves re-seeds: a pin or a drag changes the rows but not their counts.
+  // keyed by Agent id, the same key their realtime signal carries. A re-seed follows each server
+  // read (`readAt`) and each change of a count shown (a mark-unread), not a pin or a drag.
   const { counts } = unread;
   const refresh = unread.replace;
-  const seed = useMemo(
-    () => [
+  const seed = useMemo(() => {
+    const entries = [
       ...visibleChannels.map((listed) => ({ id: listed.id, unreadCount: listed.unreadCount })),
-      ...Object.entries(directUnread).map(([agentId, unreadCount]) => ({
+      ...Object.entries(directs.unread).map(([agentId, unreadCount]) => ({
         id: agentId,
         unreadCount,
       })),
-    ],
-    [visibleChannels, directUnread],
-  );
-  const seedKey = seed.map((entry) => `${entry.id}:${entry.unreadCount}`).join(",");
+    ];
+    const counts = entries.map((entry) => `${entry.id}:${entry.unreadCount}`).join(",");
+    return { entries, key: `${readAt}|${counts}` };
+  }, [visibleChannels, directs, readAt]);
   useEffect(() => {
-    refresh(seed);
-  }, [refresh, seedKey]);
+    refresh(seed.entries);
+  }, [refresh, seed.key]);
   const controls = useMemo<UnreadControls>(
     () => ({ counts, clear: unread.clear }),
     [counts, unread.clear],
@@ -281,7 +281,7 @@ export function ConversationNavigation({ children }: { children: ReactNode }) {
                   <ConversationDirectory
                     channels={visibleChannels}
                     agents={agents}
-                    directPreferences={directPreferences}
+                    directRows={directs.byAgent}
                     selectedChannelId={channel?.channelId}
                     selectedAgentId={agent?.agentId}
                     selectedSaved={pathname === "/messages/saved"}

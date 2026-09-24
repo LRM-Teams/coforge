@@ -56,8 +56,16 @@ export function directRowKey(agentId: string) {
   return `direct:${agentId}`;
 }
 
+/** A sidebar row as the member's pins name it: a channel by id, a DM by its Agent. */
+export type PinRef = ReturnType<typeof pinOfRowKey>;
+
+/** The row key for a pin, the reverse of `pinOfRowKey`. */
+export function rowKeyOf(ref: PinRef) {
+  return ref.kind === "channel" ? channelRowKey(ref.channelId) : directRowKey(ref.agentId);
+}
+
 /** The pin a row key stands for, the shape the server's pin list takes. */
-function pinOfRowKey(key: string) {
+export function pinOfRowKey(key: string) {
   return key.startsWith("channel:")
     ? { kind: "channel" as const, channelId: key.slice("channel:".length) }
     : { kind: "direct" as const, agentId: key.slice("direct:".length) };
@@ -103,20 +111,21 @@ export function moveInDirectory(
   return sameLayout(layout, without) ? layout : without;
 }
 
+function sameKeys(left: readonly string[], right: readonly string[]) {
+  return left.length === right.length && left.every((key, index) => right[index] === key);
+}
+
 /** Whether two layouts put every row in the same place. */
-export function sameLayout(left: DirectoryLayout, right: DirectoryLayout) {
-  return (Object.keys(left) as DirectorySectionId[]).every(
-    (section) =>
-      left[section].length === right[section].length &&
-      left[section].every((key, index) => right[section][index] === key),
+function sameLayout(left: DirectoryLayout, right: DirectoryLayout) {
+  return (Object.keys(left) as DirectorySectionId[]).every((section) =>
+    sameKeys(left[section], right[section]),
   );
 }
 
 /** What a drag changed about the member's pins: the Pinned rows in their new order and the rows
  * dragged out of Pinned. `null` when the drag left the pins as they were. */
 export function pinsAfterDrag(before: DirectoryLayout, after: DirectoryLayout) {
-  if (sameLayout({ ...before, channels: [], agents: [] }, { ...after, channels: [], agents: [] }))
-    return null;
+  if (sameKeys(before.pinned, after.pinned)) return null;
   return {
     pins: after.pinned.map(pinOfRowKey),
     unpinned: before.pinned.filter((key) => !after.pinned.includes(key)).map(pinOfRowKey),

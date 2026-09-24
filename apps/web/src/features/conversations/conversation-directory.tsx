@@ -19,6 +19,7 @@ import {
 import { ConversationRowMenu } from "./conversation-row-menu";
 import { conversationRowMenuEnabled, directRowPreference } from "./conversation-row-menu-model";
 import { useSidebarActions } from "./sidebar-lists";
+import type { DirectRow } from "./sidebar-rows";
 import { DirectoryDragRow, DirectoryDropList, useDirectoryDrag } from "./directory-drag";
 import {
   channelRowKey,
@@ -208,7 +209,7 @@ function DirectorySection({
 export function ConversationDirectory({
   channels,
   agents,
-  directPreferences,
+  directRows: directRowsByAgent,
   selectedChannelId,
   selectedAgentId,
   selectedSaved,
@@ -216,14 +217,10 @@ export function ConversationDirectory({
 }: {
   channels: DirectoryChannel[];
   agents: LiveAgent[];
-  /** The viewer's own DM preferences (P2b, #708): which Agent rows are conversations, which are
+  /** The viewer's own DM rows by Agent (P2b, #708): which Agent rows are conversations, which are
    * pinned (and in what order), and which are closed. DM rows come from the Agent list, so this is
    * the only thing that can tell them apart. */
-  directPreferences: {
-    conversations: readonly string[];
-    pinned: readonly { agentId: string; sortOrder: number }[];
-    hidden: readonly string[];
-  };
+  directRows: ReadonlyMap<string, DirectRow>;
   selectedChannelId?: string;
   selectedAgentId?: string;
   /** The Saved view is open — its sidebar entry renders as the current row. */
@@ -243,7 +240,7 @@ export function ConversationDirectory({
      * split. */
     const directRows = agents.map((agent) => ({
       agent,
-      preference: directRowPreference(directPreferences, agent.id),
+      preference: directRowPreference(directRowsByAgent.get(agent.id)),
     }));
     const sections = splitPinnedConversations(sortedChannels, directRows);
     const base: DirectoryLayout = {
@@ -262,15 +259,15 @@ export function ConversationDirectory({
         .map(({ agent }) => directRowKey(agent.id)),
     };
     return { sortedChannels, directRows, base, natural };
-  }, [channels, agents, directPreferences]);
+  }, [channels, agents, directRowsByAgent]);
   const toast = useAppToast();
   const actions = useSidebarActions();
   const drag = useDirectoryDrag({
     layout: base,
     natural,
     commit: (change) => {
-      const saved = actions?.arrange(change).isPersisted.promise ?? Promise.resolve();
-      return saved.catch((cause: unknown) => {
+      // Nothing in the sidebar can be dragged before hydration, when `actions` arrives.
+      actions?.arrange(change).catch((cause: unknown) => {
         console.error("pinned conversations could not be saved", cause);
         toast.error(m.conversation_menu_action_error());
       });

@@ -12,3 +12,13 @@ export function threadFollowingAgentsQueryPrefix(channelId: string) {
 export function channelMembersQueryKey(channelId: string) {
   return ["conversation", "channel-members", channelId] as const;
 }
+
+/** The Chat sidebar's channel list for one Workspace (`sidebar-lists.ts`). */
+export function sidebarChannelsQueryKey(workspaceId: string) {
+  return ["conversation", "sidebar", workspaceId, "channels"] as const;
+}
+
+/** The Chat sidebar's DM rows and the viewer's id for one Workspace (`sidebar-lists.ts`). */
+export function sidebarDirectsQueryKey(workspaceId: string) {
+  return ["conversation", "sidebar", workspaceId, "directs"] as const;
+}

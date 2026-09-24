@@ -355,9 +355,9 @@ function useActivityItemActions({
           () =>
             sidebar?.markUnread(
               place.kind === "channel"
-                ? { kind: "channel", id: place.conversationId }
+                ? { kind: "channel", channelId: place.conversationId }
                 : { kind: "direct", agentId: place.agent.id },
-            ).isPersisted.promise ?? Promise.resolve(),
+            ) ?? Promise.resolve(),
         ),
       unfollow: ({ place, thread }: ActivityInboxItem) => {
         if (!thread) return;

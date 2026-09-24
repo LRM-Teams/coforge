@@ -19,12 +19,14 @@ These rules apply to `src/features/conversations/`.
   back to its own section only. A drag saves the new pin order plus the rows
   it unpinned, never a whole list, so pins it cannot see survive.
   Channels and Direct messages are not reordered by hand.
-- The sidebar's channel and DM lists live in `sidebar-lists.ts`: the
-  `/messages` loader fetches them into the TanStack Query cache (the server
-  render reads it), and after hydration the same Query keys back TanStack DB
-  collections. Read them with `useSidebarLists` and change them only through
-  `useSidebarActions` (optimistic: the row changes at once, a failed save
-  rolls it back); never `router.invalidate` for a sidebar change. A change made
+- The sidebar's channel and DM lists live in `sidebar-collections.ts`
+  (collections and changes, tested without React) and `sidebar-lists.ts`
+  (hooks): the `/messages` loader fetches them into the TanStack Query cache
+  (the server render reads it), and after hydration the same Query keys back
+  TanStack DB collections. Read them with `useSidebarLists` and change them
+  only through `useSidebarActions` (optimistic: the row changes at once, a
+  saved change is written into the synced list, a failed save rolls it back);
+  never `router.invalidate` for a sidebar change. A change made
   outside the sidebar (a channel's rename or archive, here or signalled by
   `channel.updated.v1`, or the viewer leaving, muting or pinning it from the
   settings panel) re-reads only the

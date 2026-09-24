@@ -30,7 +30,8 @@ These rules apply to `src/server/conversations/`.
 - A member's pins share one order across all their channels and DMs in the
   Workspace. Change pins only through `conversation-pins.server.ts`; find a
   user's pins with `member: { userId }`, never by `memberId` (a
-  per-conversation membership).
+  per-conversation membership). The order rules live in `src/lib/pin-order.ts`,
+  which the Chat sidebar applies before the server answers.
 - A transaction that writes pins takes `lockMemberPins` before any
   conversation lock, and several conversation locks in id order. The other
   order deadlocks a menu pin against a drag.

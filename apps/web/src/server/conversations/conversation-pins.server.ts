@@ -1,5 +1,6 @@
 import type { Prisma, PrismaClient } from "#src/generated/prisma/client";
 import { AppError } from "#src/lib/app-error";
+import { pinOrdersAfterArrange } from "#src/lib/pin-order";
 import { lockConversation } from "./conversation-lock.server";
 
 /**
@@ -97,10 +98,12 @@ export async function arrangeConversationPins(
         member ? [member.conversationId] : [],
       ),
     );
-    const arranged = new Set(members.map((member) => member.conversationId));
-    const removed = current.filter(
-      (pin) => unpinned.has(pin.conversationId) && !arranged.has(pin.conversationId),
+    // Every pin's new order (`null` = unpinned), by the rule the sidebar also applies on screen.
+    const place = pinOrdersAfterArrange(
+      current.map((pin) => ({ key: pin.conversationId, order: pin.sortOrder })),
+      { pins: members.map((member) => member.conversationId), unpinned: [...unpinned] },
     );
+    const removed = current.filter((pin) => place.get(pin.conversationId) === null);
     if (removed.length > 0)
       await tx.conversationPin.deleteMany({
         where: {
@@ -115,27 +118,23 @@ export async function arrangeConversationPins(
           conversationId: member.conversationId,
           memberId: member.id,
           workspaceId,
-          sortOrder: members.indexOf(member),
+          sortOrder: place.get(member.conversationId) ?? 0,
         })),
       });
-    // The arranged pins take the first places; the member's other pins follow in their old order.
     // Only rows whose order changes are written, in one statement.
-    const kept = current.filter(
-      (pin) => arranged.has(pin.conversationId) || !unpinned.has(pin.conversationId),
-    );
-    const others = kept.filter((pin) => !arranged.has(pin.conversationId));
-    const place = new Map([
-      ...members.map((member, index) => [member.conversationId, index] as const),
-      ...others.map((pin, rank) => [pin.conversationId, members.length + rank] as const),
-    ]);
-    const moved = kept.filter((pin) => place.get(pin.conversationId) !== pin.sortOrder);
+    const moved = current.flatMap((pin) => {
+      const order = place.get(pin.conversationId);
+      return order === undefined || order === null || order === pin.sortOrder
+        ? []
+        : [{ ...pin, order }];
+    });
     if (moved.length > 0)
       await tx.$executeRaw`
         UPDATE "conversation_pins" AS p SET "sortOrder" = v."sortOrder"
         FROM unnest(
           ${moved.map((pin) => pin.conversationId)}::uuid[],
           ${moved.map((pin) => pin.memberId)}::uuid[],
-          ${moved.map((pin) => place.get(pin.conversationId)!)}::int[]
+          ${moved.map((pin) => pin.order)}::int[]
         ) AS v("conversationId", "memberId", "sortOrder")
         WHERE p."conversationId" = v."conversationId" AND p."memberId" = v."memberId"`;
   });
