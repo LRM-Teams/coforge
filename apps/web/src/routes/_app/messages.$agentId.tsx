@@ -14,6 +14,7 @@ import { useLiveAgent } from "#src/features/agents/workspace-agents-realtime";
 import {
   directConversationQuery,
   directConversationUpdates,
+  ensureConversationWindow,
   useConversationQuery,
 } from "#src/features/conversations/conversation-queries";
 import {
@@ -59,9 +60,18 @@ export const Route = createFileRoute("/_app/messages/$agentId")({
     profile: agentProfileParamSchema,
     agentTab: agentProfileTabParamSchema,
   }),
+  loaderDeps: ({ search }) =>
+    ({
+      message: search.message,
+      threadRootId: search.threadRootId,
+    }) as const,
   remountDeps: ({ params }) => params.agentId,
-  loader: ({ context, params }) =>
-    context.queryClient.infiniteQuery(directConversationQuery(params.agentId).query),
+  loader: ({ context, params, deps }) =>
+    ensureConversationWindow(
+      context.queryClient,
+      directConversationQuery(params.agentId).query,
+      deps.threadRootId ?? deps.message,
+    ),
   pendingComponent: ConversationPending,
   errorComponent: ConversationLoadError,
   component: DirectConversationPage,

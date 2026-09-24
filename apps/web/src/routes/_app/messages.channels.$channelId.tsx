@@ -12,6 +12,7 @@ import {
 import {
   publicChannelQuery,
   publicChannelUpdates,
+  ensureConversationWindow,
   useConversationQuery,
 } from "#src/features/conversations/conversation-queries";
 import {
@@ -62,9 +63,18 @@ export const Route = createFileRoute("/_app/messages/channels/$channelId")({
     profile: agentProfileParamSchema,
     agentTab: agentProfileTabParamSchema,
   }),
+  loaderDeps: ({ search }) =>
+    ({
+      message: search.message,
+      threadRootId: search.threadRootId,
+    }) as const,
   remountDeps: ({ params }) => params.channelId,
-  loader: ({ context, params }) =>
-    context.queryClient.infiniteQuery(publicChannelQuery(params.channelId).query),
+  loader: ({ context, params, deps }) =>
+    ensureConversationWindow(
+      context.queryClient,
+      publicChannelQuery(params.channelId).query,
+      deps.threadRootId ?? deps.message,
+    ),
   pendingComponent: ConversationPending,
   errorComponent: ConversationLoadError,
   component: ChannelPage,
