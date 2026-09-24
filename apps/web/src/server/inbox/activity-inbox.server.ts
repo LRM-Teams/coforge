@@ -267,11 +267,16 @@ export class ActivityInbox {
           WHERE m."conversationId" = threads."conversationId"
             AND m."threadRootId" = threads."rootMessageId"
         ) replies
+        -- Driven from the thread's own replies past Done, each probing its mention by primary
+        -- key: starting from the member's mentions would read all of them once per thread.
         CROSS JOIN LATERAL (
           SELECT COUNT(*) > 0 AS "any", COALESCE(BOOL_OR(${unreadReplySql}), FALSE) AS "unread"
-          FROM "message_mentions" mm
-          JOIN "messages" m ON m."id" = mm."messageId" AND m."conversationId" = mm."conversationId"
-          WHERE mm."memberId" = threads."memberId"
+          FROM "messages" m
+          JOIN "message_mentions" mm
+            ON mm."messageId" = m."id"
+           AND mm."memberId" = threads."memberId"
+           AND mm."conversationId" = m."conversationId"
+          WHERE m."conversationId" = threads."conversationId"
             AND m."threadRootId" = threads."rootMessageId"
             AND m."sequence" > COALESCE(tr."doneThroughSequence", 0)
         ) mention

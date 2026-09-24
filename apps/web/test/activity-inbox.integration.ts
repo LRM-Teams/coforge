@@ -299,6 +299,71 @@ test("Mark all read clears unread and keeps every item listed", async () => {
   }
 });
 
+test("a thread counts only mentions in its own replies past its Done boundary", async () => {
+  const db = database();
+  const suffix = crypto.randomUUID();
+  try {
+    const { alice, workspace, channel, post } = await seed(db, suffix);
+    const general = await channel("general");
+    const follow = (rootMessageId: string) =>
+      db.threadFollow.create({
+        data: {
+          memberId: general.aliceMember.id,
+          rootMessageId,
+          conversationId: general.conversation.id,
+          workspaceId: workspace.id,
+        },
+      });
+    const mentioned = await post(general.conversation.id, general.aliceMember.id, "mentioned");
+    const quiet = await post(general.conversation.id, general.aliceMember.id, "quiet");
+    await follow(mentioned.id);
+    await follow(quiet.id);
+    // Mentions of the same member elsewhere in the channel belong to neither thread.
+    await post(general.conversation.id, general.bobMember.id, "top-level ping", {
+      mentionMemberIds: [general.aliceMember.id],
+    });
+    await post(general.conversation.id, general.bobMember.id, "ping in the thread", {
+      threadRootId: mentioned.id,
+      mentionMemberIds: [general.aliceMember.id],
+    });
+    await post(general.conversation.id, general.bobMember.id, "plain reply", {
+      threadRootId: quiet.id,
+    });
+
+    const inbox = new ActivityInbox(db);
+    const mentionState = async () =>
+      Object.fromEntries(
+        (await inbox.list(workspace.id, alice.id, { filter: "all" })).items.map((item) => [
+          item.thread?.root.body ?? kindOf(item),
+          [item.mentioned, item.unreadMention],
+        ]),
+      );
+    expect(await mentionState()).toEqual({
+      mentioned: [true, true],
+      quiet: [false, false],
+      channel: [true, true],
+    });
+
+    // Done past the mention leaves it behind, though newer replies list the thread again.
+    const done = await db.message.findFirstOrThrow({
+      where: { threadRootId: mentioned.id },
+      orderBy: { sequence: "desc" },
+    });
+    await inbox.markDone(workspace.id, alice.id, {
+      kind: "thread",
+      conversationId: general.conversation.id,
+      rootMessageId: mentioned.id,
+      throughSequence: done.sequence,
+    });
+    await post(general.conversation.id, general.bobMember.id, "after Done", {
+      threadRootId: mentioned.id,
+    });
+    expect((await mentionState()).mentioned).toEqual([false, false]);
+  } finally {
+    await cleanup(db, suffix);
+  }
+});
+
 test("direct messages and their threads are listed with the Agent they belong to", async () => {
   const db = database();
   const suffix = crypto.randomUUID();
