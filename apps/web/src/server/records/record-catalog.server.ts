@@ -995,26 +995,32 @@ export class RecordCatalog {
     });
     const byId = new Map(recipients.map((user) => [user.id, user]));
 
-    let assignmentCount = 0;
-    for (const memberId of recipientIds) {
+    const assignmentRows = recipientIds.flatMap((memberId) => {
       const member = byId.get(memberId);
-      if (!member) continue;
+      if (!member) return [];
       const displayName = member.displayName ?? member.username;
-      await this.db.weeklyReport.create({
-        data: {
+      return [
+        {
           workspaceId: input.workspaceId,
           cycleId: cycle.id,
           authorId: memberId,
-          kind: "member",
+          kind: "member" as const,
           sourceTemplateId: parent.id,
           title: memberReportTitle(displayName, cycle.year, cycle.week),
-          status: "draft",
+          status: "draft" as const,
           content: withAssignmentUnread(content, true) as unknown as Prisma.InputJsonValue,
         },
-        select: { id: true },
-      });
-      assignmentCount += 1;
-    }
+      ];
+    });
+    await Promise.all(
+      assignmentRows.map((data) =>
+        this.db.weeklyReport.create({
+          data,
+          select: { id: true },
+        }),
+      ),
+    );
+    const assignmentCount = assignmentRows.length;
 
     if (assignmentCount === 0) {
       throw new AppError("INVALID_INPUT", { errorId: "weekly-send-no-recipients" });
