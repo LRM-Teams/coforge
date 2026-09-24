@@ -43,7 +43,8 @@ export async function readGrokUsage(
       timeoutMs,
     );
     const method = initialized.authMethods?.[0]?.id;
-    if (method) await bounded(connection.agent.request("authenticate", { methodId: method }), timeoutMs);
+    if (method)
+      await bounded(connection.agent.request("authenticate", { methodId: method }), timeoutMs);
     const billing = await bounded(connection.agent.request("_x.ai/billing", {}), timeoutMs);
     let email: string | undefined;
     try {
@@ -77,23 +78,72 @@ function projectBilling(value: unknown, accountLabel?: string): UsageSnapshot {
   const explicit = number(config.creditUsagePercent);
   const used = cents(config.used);
   const limit = cents(config.monthlyLimit);
-  const percent = explicit ?? (used !== undefined && limit !== undefined && limit > 0 ? (used / limit) * 100 : undefined);
-  if (percent === undefined || percent < 0) throw new Error("Grok returned no usable account usage percentage");
+  const percent =
+    explicit ??
+    (used !== undefined && limit !== undefined && limit > 0 ? (used / limit) * 100 : undefined);
+  if (percent === undefined || percent < 0)
+    throw new Error("Grok returned no usable account usage percentage");
   const period = asRecord(config.currentPeriod);
   const reset = instant(period?.end ?? config.billingPeriodEnd);
   const primary = window(periodLabel(period?.type), percent, reset, 43200);
   const cap = cents(config.onDemandCap);
-  const over = cents(config.onDemandUsed) ?? (used !== undefined && limit !== undefined ? Math.max(0, used - limit) : 0);
-  const secondary = cap !== undefined && cap > 0 ? window("Pay-as-you-go", (over / cap) * 100, reset, 43200) : undefined;
-  const rateLimited = percent >= 100 && (secondary === undefined || (secondary.usedPercent ?? 0) >= 100);
-  return { provider: RUNTIME_PROVIDER.GROK, primary, ...(secondary ? { secondary } : {}), ...(typeof root?.subscription_tier === "string" ? { planType: root.subscription_tier } : {}), ...(accountLabel ? { accountLabel } : {}), health: rateLimited ? "rate_limited" : "ok" };
+  const over =
+    cents(config.onDemandUsed) ??
+    (used !== undefined && limit !== undefined ? Math.max(0, used - limit) : 0);
+  const secondary =
+    cap !== undefined && cap > 0
+      ? window("Pay-as-you-go", (over / cap) * 100, reset, 43200)
+      : undefined;
+  const rateLimited =
+    percent >= 100 && (secondary === undefined || (secondary.usedPercent ?? 0) >= 100);
+  return {
+    provider: RUNTIME_PROVIDER.GROK,
+    primary,
+    ...(secondary ? { secondary } : {}),
+    ...(typeof root?.subscription_tier === "string" ? { planType: root.subscription_tier } : {}),
+    ...(accountLabel ? { accountLabel } : {}),
+    health: rateLimited ? "rate_limited" : "ok",
+  };
 }
 
-function window(label: string, percent: number, resetsAt: string | undefined, minutes: number): UsageWindow {
-  return { id: `grok-${label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`, usedPercent: Math.min(100, percent), status: percent >= 100 ? "limit_reached" : "ok", windowDurationMinutes: minutes, ...(resetsAt ? { resetsAt } : {}) };
+function window(
+  label: string,
+  percent: number,
+  resetsAt: string | undefined,
+  minutes: number,
+): UsageWindow {
+  return {
+    id: `grok-${label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`,
+    usedPercent: Math.min(100, percent),
+    status: percent >= 100 ? "limit_reached" : "ok",
+    windowDurationMinutes: minutes,
+    ...(resetsAt ? { resetsAt } : {}),
+  };
 }
-function periodLabel(value: unknown): string { return typeof value === "string" && value.trim() ? value.trim() : "Monthly"; }
-function number(value: unknown): number | undefined { return typeof value === "number" && Number.isFinite(value) ? value : undefined; }
-function cents(value: unknown): number | undefined { const n = number(value); return n === undefined ? undefined : n; }
-function instant(value: unknown): string | undefined { const date = new Date(typeof value === "number" ? value * 1000 : String(value ?? "")); return Number.isNaN(date.getTime()) ? undefined : date.toISOString(); }
-async function bounded<T>(promise: Promise<T>, timeoutMs: number): Promise<T> { let timer: ReturnType<typeof setTimeout> | undefined; try { return await Promise.race([promise, new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error("Grok usage request timed out")), timeoutMs); })]); } finally { clearTimeout(timer); } }
+function periodLabel(value: unknown): string {
+  return typeof value === "string" && value.trim() ? value.trim() : "Monthly";
+}
+function number(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+function cents(value: unknown): number | undefined {
+  const n = number(value);
+  return n === undefined ? undefined : n;
+}
+function instant(value: unknown): string | undefined {
+  const date = new Date(typeof value === "number" ? value * 1000 : String(value ?? ""));
+  return Number.isNaN(date.getTime()) ? undefined : date.toISOString();
+}
+async function bounded<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error("Grok usage request timed out")), timeoutMs);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}

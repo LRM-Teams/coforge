@@ -47,7 +47,10 @@ export class GrokProvider implements CodeAgentProvider {
     )[0];
   }
 
-  async readUsage(options: { workingDirectory: string; timeoutMs?: number }): Promise<UsageSnapshot | null> {
+  async readUsage(options: {
+    workingDirectory: string;
+    timeoutMs?: number;
+  }): Promise<UsageSnapshot | null> {
     return readGrokUsage(options.workingDirectory, {
       command: this.#command,
       timeoutMs: options.timeoutMs,
