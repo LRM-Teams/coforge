@@ -10,7 +10,7 @@ import { DEV_BROWSER_USER } from "#src/server/auth/dev-skip-auth.server";
  * Channels, Agents and Computers matching the query, closest match first, listed above the
  * messages. A leading `#`
  * keeps only channels and a leading `@` only Agents. A channel opens itself, the viewer's own
- * Agent opens its direct messages, and a Computer opens its page.
+ * Agent opens its direct messages, another member's Agent its profile, and a Computer its page.
  *
  * Opt-in like the other browser E2Es: real local Web + `agent-browser`. Seeds are deterministic
  * and reset on every run; the Computer is seed-dev's "Mac Studio". Screenshots are written under
@@ -79,6 +79,7 @@ test("the search page lists matching channels, Agents and Computers and opens th
 
   const channelId = seededUuid("e2e-search-entities:channel");
   const agentId = seededUuid("e2e-search-entities:agent");
+  const othersAgentId = seededUuid("e2e-search-entities:others-agent");
   try {
     const membership = await db.workspaceMembership.findFirstOrThrow({
       where: { userId: DEV_BROWSER_USER.id },
@@ -107,6 +108,28 @@ test("the search page lists matching channels, Agents and Computers and opens th
         },
       },
     });
+    // Another member's public Agent: visible to the viewer, but its DM is its owner's.
+    const colleague = await db.user.findFirstOrThrow({
+      where: { username: "jordan-lee", memberships: { some: { workspaceId } } },
+    });
+    await db.agent.upsert({
+      where: { id: othersAgentId },
+      update: { deletedAt: null, visibility: "public" },
+      create: {
+        id: othersAgentId,
+        workspaceId,
+        ownerId: colleague.id,
+        name: "e2e-lighthouse-keeper",
+        displayName: "Lighthouse Keeper",
+        runtimeConfig: {
+          runtime: "claude-code",
+          provider: { kind: "default" },
+          model: "claude-opus-4-6",
+          modelProvider: "",
+          reasoning: "high",
+        },
+      },
+    });
     const computer = await db.computer.findFirstOrThrow({
       where: { name: "mac-studio-01", workspaces: { some: { workspaceId } } },
     });
@@ -115,32 +138,53 @@ test("the search page lists matching channels, Agents and Computers and opens th
 
     // Closer matches first: "Lighthouse Bot" starts with the query, "#e2e-lighthouse" only
     // contains it. Each row names its kind.
-    await searchFor("lighthouse", [`agent:${agentId}`, `channel:${channelId}`]);
+    await searchFor("lighthouse", [
+      `agent:${agentId}`,
+      `agent:${othersAgentId}`,
+      `channel:${channelId}`,
+    ]);
+    // No message matches, so the Messages section says so under the matches.
+    expect(await evaluate<string>(`document.querySelector("main").innerText`)).toContain(
+      "No messages match.",
+    );
     const rows = await evaluate<string[]>(
       `[...document.querySelectorAll("[data-search-entity]")].map((row) => row.textContent)`,
     );
     expect(rows[0]).toContain("Lighthouse Bot");
     expect(rows[0]).toContain("Agent");
-    expect(rows[1]).toContain("#e2e-lighthouse");
-    expect(rows[1]).toContain("Channel");
+    expect(rows[2]).toContain("#e2e-lighthouse");
+    expect(rows[2]).toContain("Channel");
     await browser("screenshot", join(artifacts, "entities.png"));
 
     // `#` keeps channels only, `@` keeps Agents only.
     await searchFor("#lighthouse", [`channel:${channelId}`]);
-    await searchFor("@lighthouse", [`agent:${agentId}`]);
+    await searchFor("@lighthouse", [`agent:${agentId}`, `agent:${othersAgentId}`]);
 
     // A Computer matches by its name.
     await searchFor("mac studio", [`computer:${computer.id}`]);
 
     // Opening: a channel opens itself, the viewer's own Agent its direct messages, a Computer
     // its page.
-    await searchFor("lighthouse", [`agent:${agentId}`, `channel:${channelId}`]);
+    await searchFor("lighthouse", [
+      `agent:${agentId}`,
+      `agent:${othersAgentId}`,
+      `channel:${channelId}`,
+    ]);
     await browser("click", `[data-search-entity="channel:${channelId}"]`);
     await waitFor(`location.pathname === "/en/messages/channels/${channelId}"`);
     await browser("back");
     await waitFor(`document.querySelector('[data-search-entity="agent:${agentId}"]') !== null`);
     await browser("click", `[data-search-entity="agent:${agentId}"]`);
     await waitFor(`location.pathname === "/en/messages/${agentId}"`);
+    // Another member's Agent opens its profile instead.
+    await browser("back");
+    await waitFor(
+      `document.querySelector('[data-search-entity="agent:${othersAgentId}"]') !== null`,
+    );
+    await browser("click", `[data-search-entity="agent:${othersAgentId}"]`);
+    await waitFor(
+      `location.pathname === "/en/agents" && new URLSearchParams(location.search).get("profile") === "agent:${othersAgentId}"`,
+    );
     await searchFor("mac studio", [`computer:${computer.id}`]);
     await browser("click", `[data-search-entity="computer:${computer.id}"]`);
     await waitFor(`location.pathname === "/en/computers/${computer.id}"`);
@@ -148,7 +192,10 @@ test("the search page lists matching channels, Agents and Computers and opens th
     await browser("close").catch(() => undefined);
     await db.conversation.deleteMany({ where: { id: channelId } }).catch(() => {});
     await db.agent
-      .update({ where: { id: agentId }, data: { deletedAt: new Date() } })
+      .updateMany({
+        where: { id: { in: [agentId, othersAgentId] } },
+        data: { deletedAt: new Date() },
+      })
       .catch(() => {});
     await db.$disconnect();
   }
