@@ -115,7 +115,7 @@ export function ActivityInboxView({
   const [failure, setFailure] = useState<{ retry: () => void } | null>(null);
   const actions = useActivityItemActions({ onChanged: refresh, onFailure: setFailure });
 
-  // Reads only what the list showed: the server's own clock at the time it read the list.
+  // Reads only what the list showed: the list's loadedAt, on the clock message times use.
   const loadedAt = totals?.loadedAt;
   const readAll = useCallback(() => {
     if (loadedAt === undefined) return;
