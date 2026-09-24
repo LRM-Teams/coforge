@@ -2296,8 +2296,9 @@ test("Channel roles: creator is channel admin, a plain member cannot archive, pr
       general.id,
     );
     expect(generalServerAdminView.channelAdminBasis).toBe("server_role");
+    // A server admin edits #general's description (never its name) and nothing else.
     expect(generalServerAdminView.channelCapabilities).toMatchObject({
-      update: false,
+      update: true,
       archive: false,
       unarchive: false,
       remove_member: false,

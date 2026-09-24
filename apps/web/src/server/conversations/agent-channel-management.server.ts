@@ -231,32 +231,32 @@ export class AgentChannelManagement {
       throw new AgentChannelManagementError(400, "update requires --name or --description");
     const channelName = this.parseChannelTarget(target);
     const channel = await this.findChannel(workspaceId, channelName);
-    // Channel-aware authority: the acting Agent's own server role (owner/admin) or
-    // its `channelRole` on THIS channel (admin) — replaces the earlier channel-blind
-    // `agentHasAdminAuthority`.
-    if (!(await hasChannelAdminAuthority(this.db, workspaceId, { agentId }, channel)))
-      throw channelAuthorityDeniedError("update");
-    let nextName = channel.channelName!;
+    let nextName: string | undefined;
     if (patch.name !== undefined) {
       if (channelName === "general")
         throw new AgentChannelManagementError(400, "cannot rename #general");
       nextName = this.normalizeChannelName(patch.name);
       if (nextName === "general") throw new AgentChannelManagementError(409, "general is reserved");
     }
+    // Shared with the human settings panel: `PublicChannels.updateInfo` checks the acting Agent's
+    // channel-aware authority (its own server role, or its `channelRole` on this channel).
     try {
-      const updated = await this.db.conversation.update({
-        where: { id: channel.id },
-        data: {
-          ...(patch.name !== undefined ? { channelName: nextName } : {}),
-          ...(patch.description !== undefined ? { description: patch.description } : {}),
-        },
+      await this.channels.updateInfo(workspaceId, { agentId }, channel.id, {
+        name: nextName,
+        description: patch.description,
       });
-      return this.channelInfo(workspaceId, updated, agentId);
     } catch (error) {
-      if (error instanceof Error && "code" in error && error.code === "P2002")
+      if (isAppError(error) && error.code === "ACCESS_DENIED")
+        throw channelAuthorityDeniedError("update");
+      if (isAppError(error) && error.code === "CONFLICT")
         throw new AgentChannelManagementError(409, "channel name is already in use");
       throw error;
     }
+    return this.channelInfo(
+      workspaceId,
+      await this.findChannel(workspaceId, nextName ?? channelName),
+      agentId,
+    );
   }
 
   async setArchived(workspaceId: string, agentId: string, target: string, archived: boolean) {
@@ -265,12 +265,13 @@ export class AgentChannelManagement {
     if (channelName === "general")
       throw new AgentChannelManagementError(400, `cannot ${operation} #general`);
     const channel = await this.findChannel(workspaceId, channelName);
-    if (!(await hasChannelAdminAuthority(this.db, workspaceId, { agentId }, channel)))
-      throw channelAuthorityDeniedError(operation);
-    await this.db.conversation.update({
-      where: { id: channel.id },
-      data: { archivedAt: archived ? new Date() : null },
-    });
+    try {
+      await this.channels.setArchived(workspaceId, { agentId }, channel.id, archived);
+    } catch (error) {
+      if (isAppError(error) && error.code === "ACCESS_DENIED")
+        throw channelAuthorityDeniedError(operation);
+      throw error;
+    }
     return { target: `#${channel.channelName}`, archived };
   }
 

@@ -29,6 +29,10 @@ These rules apply to `src/features/conversations/`.
   or error; newest cloud revision). Idle and offline stay in the directory.
 - Destructive actions in the channel members dialog use an inline confirm
   step: no toast, no browser `confirm()`.
+- The header gear opens `channel-settings-panel.tsx`, the one place for a
+  channel's info (name, description), the viewer's preferences (pin, mute)
+  and its actions (archive, leave); each action confirms in a dialog. The
+  members dialog only manages members.
 - Leaving a channel reuses the never-joined read-only conversation state and
   `joined: false` in the channel list. Do not add a separate "left" state.
 - A human commits an action card through the existing `CreateChannelDialog`,

@@ -8,7 +8,11 @@ import { AppError } from "#src/lib/app-error";
 import { PublicChannels } from "#src/server/conversations/public-channels.server";
 import { attachActionCardViews } from "#src/server/conversations/action-cards.server";
 import { attachmentView } from "#src/server/attachments/attachment-view.server";
-import { attachmentIdsSchema, conversationPageInputSchema } from "./conversation.schemas";
+import {
+  CHANNEL_NAME_PATTERN,
+  attachmentIdsSchema,
+  conversationPageInputSchema,
+} from "./conversation.schemas";
 import { CentrifugoConversationRealtime } from "#src/server/conversations/conversation-realtime.server";
 import { createCentrifugoServerApi } from "#src/server/centrifugo/server-api.server";
 import { bestEffortMessageNotifier } from "#src/server/notifications/web-push-composition.server";
@@ -58,10 +62,7 @@ export const createPublicChannel = createServerFn({ method: "POST" })
   .middleware([workspaceUserMiddleware])
   .validator(
     z.object({
-      name: z
-        .string()
-        .trim()
-        .regex(/^[a-z0-9][a-z0-9_-]{0,31}$/),
+      name: z.string().trim().regex(CHANNEL_NAME_PATTERN),
       projectId: z.uuid().optional(),
     }),
   )
@@ -197,6 +198,31 @@ export const removePublicChannelMember = createServerFn({ method: "POST" })
       data.channelId,
       data.userId ? { userId: data.userId } : { agentId: data.agentId! },
     );
+  });
+
+/** The settings panel's Info form: renames the channel and/or changes its description. */
+export const updatePublicChannelInfo = createServerFn({ method: "POST" })
+  .middleware([workspaceUserMiddleware])
+  .validator(
+    channelInput.extend({
+      name: z.string().trim().optional(),
+      description: z.string().trim().optional(),
+    }),
+  )
+  .handler(async ({ data, context }) => {
+    const { channels, workspaceId, userId } = channelScope(context);
+    return channels.updateInfo(workspaceId, { userId }, data.channelId, {
+      name: data.name,
+      description: data.description,
+    });
+  });
+
+export const setPublicChannelArchived = createServerFn({ method: "POST" })
+  .middleware([workspaceUserMiddleware])
+  .validator(channelInput.extend({ archived: z.boolean() }))
+  .handler(async ({ data, context }) => {
+    const { channels, workspaceId, userId } = channelScope(context);
+    return channels.setArchived(workspaceId, { userId }, data.channelId, data.archived);
   });
 
 export const setPublicChannelMuted = createServerFn({ method: "POST" })
