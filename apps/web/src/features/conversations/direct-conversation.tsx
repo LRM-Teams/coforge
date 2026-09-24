@@ -5,6 +5,7 @@ import type { ConversationTab } from "#src/features/conversations/conversation-t
 
 import { Avatar } from "#src/components/base/avatar/avatar";
 import { Button } from "#src/components/base/buttons/button";
+import { StatusDot } from "#src/components/ui/status-dot";
 import { AgentActivityAvatar } from "#src/features/agents/agent-activity-avatar";
 import { agentDisplay } from "#src/features/agents/agent-activity-presentation";
 import { DeletedAgentBadge } from "#src/features/agents/deleted-agent";
@@ -46,7 +47,7 @@ export function DirectConversationHeader({
   const activity = useAgentRecentActivity(conversation.agent.id);
   const display = useLiveAgent(conversation.agent.id)?.display;
   const timeZone = appRoute.useLoaderData().timeZone;
-  const displayLabel = agentDisplay(display).label;
+  const status = agentDisplay(display);
   // A deleted Agent's DM stays readable, but offers no profile and no new messages.
   const deleted = Boolean(conversation.agent.deletedAt);
   const openProfile =
@@ -63,39 +64,40 @@ export function DirectConversationHeader({
             display={display}
             deleted={deleted}
             timeZone={timeZone}
+            cornerDot={false}
             onPress={openProfile}
             {...activity}
           />
-          <div className="min-w-0">
-            <div className="flex min-w-0 items-center gap-2">
-              {openProfile ? (
-                <Button
-                  color="tertiary"
-                  noTextPadding
-                  onPress={openProfile}
-                  aria-label={m.agent_open_profile({ name: conversation.agent.displayName })}
-                  className="h-auto min-w-0 max-w-full rounded p-0 text-base font-semibold text-primary hover:bg-transparent hover:text-primary hover:underline"
-                >
-                  <h1 className="truncate">{conversation.agent.displayName}</h1>
-                </Button>
-              ) : (
-                <h1 className="truncate text-base font-semibold">
-                  {conversation.agent.displayName}
-                </h1>
-              )}
-              {deleted && <DeletedAgentBadge />}
-            </div>
+          {/* One line: name, then the live status as a dot and a label. */}
+          <div className="flex min-w-0 flex-1 items-center gap-2">
+            {openProfile ? (
+              <Button
+                color="tertiary"
+                noTextPadding
+                onPress={openProfile}
+                aria-label={m.agent_open_profile({ name: conversation.agent.displayName })}
+                className="h-auto min-w-0 rounded p-0 text-base font-semibold text-primary hover:bg-transparent hover:text-primary hover:underline"
+              >
+                <h1 className="truncate">{conversation.agent.displayName}</h1>
+              </Button>
+            ) : (
+              <h1 className="min-w-0 truncate text-base font-semibold">
+                {conversation.agent.displayName}
+              </h1>
+            )}
             {/* A deleted Agent has no live status to report, so the header states the delete instead
-                  of the generic "Status unknown" an absent display would otherwise produce. */}
-            {!deleted && (
-              <p role="status" className="truncate text-xs text-tertiary">
-                {displayLabel}
-              </p>
+                of the generic "Status unknown" an absent display would otherwise produce. */}
+            {deleted ? (
+              <DeletedAgentBadge />
+            ) : (
+              <>
+                <StatusDot tone={status.tone} pulse={status.pulse} className="size-2" />
+                <p role="status" className="min-w-0 flex-1 truncate text-sm text-tertiary">
+                  {status.label}
+                </p>
+              </>
             )}
           </div>
-          <span className="hidden min-w-0 truncate text-sm text-tertiary sm:block">
-            @{conversation.agent.name}
-          </span>
         </>
       }
       tabs={

@@ -35,6 +35,7 @@ export function AgentDisplayAvatar({
   stopped,
   deleted,
   size = "sm",
+  cornerDot = true,
 }: {
   name: string;
   /** The Agent's uploaded avatar, when it has one; initials stand in otherwise. */
@@ -46,6 +47,9 @@ export function AgentDisplayAvatar({
    * identity is recognisable outside message rows too (DM header, mention chips, member cards). */
   deleted?: boolean;
   size?: AvatarSize;
+  /** Draw the status dot on the avatar's corner. Off where the status already reads inline
+   * beside the name (the DM header), so it is not shown twice. */
+  cornerDot?: boolean;
 }) {
   const view = agentDisplay(display, { stopped });
   return (
@@ -61,7 +65,7 @@ export function AgentDisplayAvatar({
         initials={avatarInitial(name)}
         contentClassName={deleted ? DELETED_AGENT_AVATAR_CLASS : avatarToneClassName(name)}
       />
-      {display && !deleted && (
+      {cornerDot && display && !deleted && (
         <StatusDot
           tone={view.tone}
           pulse={view.pulse}
@@ -82,6 +86,7 @@ export function AgentActivityAvatar({
   error = false,
   deleted = false,
   size = "sm",
+  cornerDot = true,
   timeZone,
   onOpen,
   onPress,
@@ -95,6 +100,8 @@ export function AgentActivityAvatar({
   /** Render the deleted treatment instead of a live status. */
   deleted?: boolean;
   size?: AvatarSize;
+  /** See `AgentDisplayAvatar`. */
+  cornerDot?: boolean;
   timeZone?: string | null;
   onOpen?: () => void;
   /** A press/Enter on the avatar, independent of the hover peek popover. */
@@ -136,6 +143,7 @@ export function AgentActivityAvatar({
           display={display}
           deleted={deleted}
           size={size}
+          cornerDot={cornerDot}
         />
       }
     >
