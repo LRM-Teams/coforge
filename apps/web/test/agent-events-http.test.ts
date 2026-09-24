@@ -142,3 +142,20 @@ test("hides an unexpected repository failure behind a generic message", async ()
   const body = await result.json();
   expect(body.error).toBe("invalid events query");
 });
+
+test("forwards an exact target including its thread to the drain", async () => {
+  let received: unknown;
+  const result = await handleAgentEventsGet(
+    request("?limit=5&target=" + encodeURIComponent("#team:thread-id")),
+    { workspaceId: "workspace-1", agentId: "agent-1" },
+    {
+      ...baseRepository,
+      drainAgentEvents: async (...args) => {
+        received = args;
+        return { messages: [], hasMore: false };
+      },
+    },
+  );
+  expect(result.status).toBe(200);
+  expect(received).toEqual(["workspace-1", "agent-1", 5, "#team:thread-id"]);
+});

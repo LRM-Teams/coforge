@@ -138,6 +138,12 @@ if (Bun.env.COFORGE_OPENCODE_REQUIRE_STDIN_EOF === "1") {
 
 const sessionId = resumeId ?? Bun.env.COFORGE_OPENCODE_SESSION_ID ?? crypto.randomUUID();
 const mode = Bun.env.COFORGE_OPENCODE_MODE ?? "text";
+const failureMarker = Bun.env.COFORGE_OPENCODE_FAIL_ONCE_FILE;
+if (failureMarker && !(await Bun.file(failureMarker).exists())) {
+  await Bun.write(failureMarker, "failed");
+  process.exit(1);
+}
+
 const timestamp = Date.now();
 
 write({ type: "step_start", timestamp, sessionID: sessionId, part: { type: "step-start" } });

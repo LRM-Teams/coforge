@@ -32,7 +32,11 @@ test("events drain returns unread rows in canonical order, advances read boundar
       },
     });
     const repo = new PrismaDirectConversationRepository(db);
-    const channels = new PublicChannels(db, { execute: async (_scope, persist) => persist() });
+    const channels = new PublicChannels(
+      db,
+      { execute: async (_scope, persist) => persist() },
+      { publish: async () => {}, publishJson: async () => {} },
+    );
     const dmTarget = `@${username}`;
 
     // DM root + thread reply, both sent by the user (unread to the Agent without a delivery row).
@@ -55,6 +59,10 @@ test("events drain returns unread rows in canonical order, advances read boundar
 
     // A #general channel message the Agent has a delivery for.
     const general = await enrollGeneralChannel(db, workspace.id);
+    await db.conversationMember.update({
+      where: { conversationId_agentId: { conversationId: general.id, agentId: agent.id } },
+      data: { agentChannelSubscribed: true },
+    });
     const channelMessage = await channels.send({
       workspaceId: workspace.id,
       userId: user.id,
@@ -156,6 +164,44 @@ test("events drain returns unread rows in canonical order, advances read boundar
 
     const finalDrain = await repo.drainAgentEvents(workspace.id, agent.id, 50);
     expect(finalDrain).toEqual({ messages: [], hasMore: false });
+    // Scoped checks acknowledge only the exact parent or thread requested.
+    const scopedRoot = await repo.sendMessage(
+      opened.conversationId,
+      opened.senderMemberId,
+      user.id,
+      "scoped root",
+    );
+    const scopedReply = await repo.sendMessage(
+      opened.conversationId,
+      opened.senderMemberId,
+      user.id,
+      "scoped reply",
+      undefined,
+      scopedRoot.id,
+    );
+    const scopedChannel = await channels.send({
+      workspaceId: workspace.id,
+      userId: user.id,
+      channelId: general.id,
+      requestId: crypto.randomUUID(),
+      body: "scoped channel",
+    });
+    const scoped = await repo.drainAgentEvents(workspace.id, agent.id, 1, dmTarget);
+    expect(scoped.messages.map((message) => message.id)).toEqual([scopedRoot.id]);
+    expect(scoped.hasMore).toBe(false);
+    expect((await repo.readAgentRecoveryContext(workspace.id, agent.id)).unreadSummary).toEqual({
+      [`${dmTarget}:${scopedRoot.id}`]: 1,
+      [channelTarget]: 1,
+    });
+    const threadOnly = await repo.drainAgentEvents(
+      workspace.id,
+      agent.id,
+      10,
+      `${dmTarget}:${scopedRoot.id}`,
+    );
+    expect(threadOnly.messages.map((message) => message.id)).toEqual([scopedReply.id]);
+    const channelOnly = await repo.drainAgentEvents(workspace.id, agent.id, 10, channelTarget);
+    expect(channelOnly.messages.map((message) => message.id)).toEqual([scopedChannel.id]);
     void dmReply2;
     void channelMessage2;
   } finally {

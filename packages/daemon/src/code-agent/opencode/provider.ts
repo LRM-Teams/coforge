@@ -20,7 +20,7 @@ import { assertOpenCodeVersionSupported } from "./version";
  *
  * The standing Agent instructions are sent as the whole prompt of a fresh session's first turn:
  * OpenCode v2 reads a project's `AGENTS.md` itself and has no system-prompt flag, so there is no
- * other channel for them. A resumed session never resends them.
+ * other channel for them. A resumed launch refreshes them once, with its first real input.
  */
 export class OpenCodeProvider implements CodeAgentProvider {
   readonly provider = RUNTIME_PROVIDER.OPENCODE;
@@ -79,6 +79,7 @@ class OpenCodeAgentSession implements AgentSession {
   #closed = false;
   #currentTurn: OpenCodeTurnProcess | undefined;
   #sessionId: string | undefined;
+  #instructionsPending: boolean;
   #resumeId: string | undefined;
   #identity: AgentSessionIdentity | undefined;
   #everCompletedTurn: boolean;
@@ -93,6 +94,7 @@ class OpenCodeAgentSession implements AgentSession {
     this.#options = options;
     this.#command = command;
     this.#resumeId = options.sessionId;
+    this.#instructionsPending = Boolean(options.sessionId);
     this.#sessionId = options.sessionId;
     this.#everCompletedTurn = Boolean(options.sessionId);
     this.#identity = options.sessionId
@@ -207,7 +209,9 @@ class OpenCodeAgentSession implements AgentSession {
     this.#state = "running";
     this.#pendingOutcome = undefined;
     if (this.#sessionId) this.#setIdentity("unknown");
-    const argv = this.#buildArgv(prompt);
+    const argv = this.#buildArgv(
+      this.#instructionsPending ? `${this.#options.instructions}\n\n${prompt}` : prompt,
+    );
     const environment = {
       ...agentEnvironment(this.#options.environment, Bun.env, undefined, {
         envVars: this.#options.runtime?.envVars,
@@ -344,6 +348,7 @@ class OpenCodeAgentSession implements AgentSession {
       status = "failed";
     } else if (result.exitCode === 0) {
       status = "completed";
+      this.#instructionsPending = false;
       this.#everCompletedTurn = true;
       this.#setIdentity("resumable");
       this.#reportIdentity();

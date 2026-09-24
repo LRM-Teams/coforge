@@ -28,7 +28,7 @@ export const createRuntime: CreateAgentSessionRuntimeFactory = async ({
   const services = await createAgentSessionServices({
     cwd,
     agentDir,
-    resourceLoaderOptions: { systemPromptOverride: () => instructions },
+    resourceLoaderOptions: { appendSystemPromptOverride: (base) => [...base, instructions] },
   });
   const skillDiagnostics = services.resourceLoader.getSkills().diagnostics;
   if (skillDiagnostics.length > 0) {
@@ -113,7 +113,9 @@ export async function createSession(options: {
     cwd,
     agentDir,
     modelRuntime,
-    resourceLoaderOptions: { systemPromptOverride: () => options.instructions },
+    resourceLoaderOptions: {
+      appendSystemPromptOverride: (base) => [...base, options.instructions],
+    },
   });
   if (sessionKind === "coforge") {
     const skillDiagnostics = services.resourceLoader.getSkills().diagnostics;

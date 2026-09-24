@@ -1178,7 +1178,7 @@ reload 或写文件，不复制或改写 Global Skills。仅当前 Agent workspa
 
 首批 provider 使用常驻 CoForge Agent、Codex 与 Claude Code 子进程。`@coforge/agent` 是可独立打包并随 Daemon 交付的内置 Agent runtime，当前使用官方 Pi SDK 创建 session，并复用 Pi SDK 的 JSONL run mode 作为 daemon provider 的内部 control。Codex 和 Claude Code 不随 CoForge 打包；provider 从用户环境的 `PATH` 启动用户已安装、登录和配置的 `codex` / `claude` CLI，分别使用官方 app-server JSONL stdio 与 print-mode 双向 stream-json。CoForge 分配给 Agent 的 Skills 必须在启动前写入该 Agent workspace 下 provider 原生的 project scope：Pi 为 `.pi/skills/<skill>/SKILL.md`，Codex 为 `.agents/skills/<skill>/SKILL.md`，Claude Code 为 `.claude/skills/<skill>/SKILL.md`。CoForge 不复制、改写或接管用户 HOME 下的 provider 全局 Skills；各 CLI 按自身规则继续发现它们。三侧都必须在报告启动成功前完成 skills discovery：CoForge Agent 先完成 Pi `ResourceLoader` reload，Codex provider 先执行 `skills/list(forceReload: true)` 再创建 thread，Claude Code provider 完成 stream control `initialize` 并确认返回已加载的 commands/skills。control protocol 不固定为长期架构。选择、版本、license、失败边界和回滚见 [ADR 0002](adr/0002-provider-native-code-agent-subprocesses.md)。Agent provider 的特殊 command、envelope、活动与错误逻辑必须留在各自 package/provider 内，不能泄漏到 Centrifugo、Web/backend 或共享领域模型。
 
-2026-09-18 新增 Cursor CLI（`cursor-agent`）作为一个新的 code-agent provider，是唯一以「每轮一个子进程」方式接入的 provider：`createAgentSession` 对全新 session 立即启动一个子进程，把 standing instructions 单独作为该首轮的整段 prompt（没有原生 system-prompt 机制，只能这样注入身份）；已有 `session_id` 的 resumed session 则不启动任何进程，等到真正输入到达才起第一轮。此后每一轮都是独立子进程：prompt 以 argv 最后一项传入，没有 stdin 通道，子进程退出即该轮结束，会话本身在两轮之间保持存活（idle），`onExit` 只在 `dispose()` 时触发。Provider 只解析 `system/init`（session 身份）、`system` 的 `status:compacting`/`compact_boundary`（压缩起止）、`assistant` 消息内容块中的 `thinking`/`text`/`tool_use`（分别对应 thinking-delta/text-delta/tool-start），以及 `result`（判定该轮成功/失败）；已实测存在但不解析的顶层 `thinking`、`tool_call`、`connection`、`retry` 帧与 `user` 回显帧不产生任何 Activity。子进程干净退出即该轮完成（有无 `result` 帧都一样）；非零退出判定该轮失败，错误文本带上退出码与最近的 stderr 原文，由 daemon core 统一脱敏截断，让失败讲清楚真实原因；`--resume <id>` 对未知 id 不报错而是静默开新对话，因此没有「session 缺失」恢复路径。模型目录解析自 `cursor-agent models` 的纯文本输出；`default`/空值不作为 `--model` 传递，reasoning 由模型 ID 自带、没有独立档位，也没有 usage reader 或 Agent 专属 API Key 字段。设计取舍、实测帧样例与已知观察缺口见 [ADR 0046](adr/0046-cursor-cli-provider.md)。
+2026-09-18 新增 Cursor CLI（`cursor-agent`）作为一个新的 code-agent provider，是唯一以「每轮一个子进程」方式接入的 provider：`createAgentSession` 对全新 session 立即启动一个子进程，把 standing instructions 单独作为该首轮的整段 prompt（没有原生 system-prompt 机制，只能这样注入身份）；已有 `session_id` 的 resumed session 则不启动任何进程，等到真正输入到达才起第一轮，并在该输入前补一次最新 standing instructions。此后每一轮都是独立子进程：prompt 以 argv 最后一项传入，没有 stdin 通道，子进程退出即该轮结束，会话本身在两轮之间保持存活（idle），`onExit` 只在 `dispose()` 时触发。Provider 只解析 `system/init`（session 身份）、`system` 的 `status:compacting`/`compact_boundary`（压缩起止）、`assistant` 消息内容块中的 `thinking`/`text`/`tool_use`（分别对应 thinking-delta/text-delta/tool-start），以及 `result`（判定该轮成功/失败）；已实测存在但不解析的顶层 `thinking`、`tool_call`、`connection`、`retry` 帧与 `user` 回显帧不产生任何 Activity。子进程干净退出即该轮完成（有无 `result` 帧都一样）；非零退出判定该轮失败，错误文本带上退出码与最近的 stderr 原文，由 daemon core 统一脱敏截断，让失败讲清楚真实原因；`--resume <id>` 对未知 id 不报错而是静默开新对话，因此没有「session 缺失」恢复路径。模型目录解析自 `cursor-agent models` 的纯文本输出；`default`/空值不作为 `--model` 传递，reasoning 由模型 ID 自带、没有独立档位，也没有 usage reader 或 Agent 专属 API Key 字段。设计取舍、实测帧样例与已知观察缺口见 [ADR 0046](adr/0046-cursor-cli-provider.md)。
 
 2026-09-21 新增 OpenCode（`opencode`）作为 code-agent provider，接入方式与 Cursor 同构（每轮一个 `opencode run --format json` 子进程，子进程退出即该轮结束，会话在两轮之间保持存活）：新 session 的首轮把 standing instructions 作为整段 prompt（OpenCode v2 自身会读取工作区的 `AGENTS.md`，没有原生 system-prompt flag），resumed session 用 `--session` 续接、由 OpenCode 事件里的 `sessionID` 提供身份。启动参数为 `run --format json --auto [--model <provider/model[#variant]>] [--session <id>] <prompt>`（v2 已去掉 `--dir` 与独立的 `--variant`：工作目录改用进程 cwd/`PWD`，推理档位折进模型串，权限自动放行是 `--auto`），并把进程 cwd 与 `PWD` 都钉在该工作区上（OpenCode 以工作目录/`PWD` 解析 AGENTS.md 与 `.opencode/skills/` 的发现根）；`runtime.reasoning` 折进模型串 `provider/model#variant` 传入 —— **OpenCode 是少数把 reasoning 档位做成一等入口的 runtime**（档位来自模型 `variants`；v2 把它编码进模型串，而不是像 Cursor 那样当作独立字段）。事件映射：`text`→`text-delta`，`tool_use`→`tool-start`（`part.state` 为完成/失败时补 `tool-output`/`tool-end`），`error`→provider 原文并判定该轮失败，`step_start`→`progress`；干净退出即该轮完成，非零退出带退出码与 stderr 尾部（由 daemon core 统一脱敏截断）。模型目录解析 `opencode models --verbose`（15s，与 Raft 相同预算），保留 `provider/model` 原样作为 ID、首个 `provider` 段作为 model provider、启用的 `variants` 作为 reasoning 档位（按 OpenCode 自己的档位顺序排序）；verbose 无输出或该 CLI 不认 `--verbose`（已发布的 v2.0.12 就是这种情况，flag 只在 OpenCode `dev` 分支上）时回退到 `opencode models`，此时只有 ID、没有 reasoning 档位；任何失败都只表示"无目录"。**版本门限**：低于 **2.0.0** 的 OpenCode 在 runtime 发现与启动前都会被判为不可用 —— v1 收到不认识的 flag 会静默打印 usage 并以 0 退出，不设门限就会出现"看起来健康、实际从不产出任何一轮"的假 runtime。技能走工作区原生 `.opencode/skills/`。已知缺口（刻意不静默）：无 usage/context reader（`step_finish` 的 token 数不映射到 CoForge 的 plan-window 语义）、不注入 MCP（CoForge 的启动契约还没有 MCP 配置概念，也因此不碰工作区 `opencode.json`）、无 Agent 专属 API Key 通道。设计取舍与 Raft 对照见 [ADR 0058](adr/0058-opencode-provider.md)。
 
@@ -1213,7 +1213,7 @@ Daemon 仅为被 Web/backend 暂缓的 Agent response 保存短期 continuation 
 ### 6.1 云端到 Agent
 
 1. backend 先持久化 canonical Message，再通过 Centrifugo 向目标 daemon 发布 attention；Centrifugo 不读取 PostgreSQL 或自行决定目标；
-2. daemon 按 Workspace、conversation 与 Agent scope 定位 `AgentSession`，调用 provider-neutral `notify`；能在 turn 进行中安全接受输入的 provider（CoForge、Pi、Codex、Claude Code、Cursor、OpenCode，`steer` 模式）立即调用；没有安全 busy 路径的 provider（目前只有 Kiro，`queue_until_idle` 模式；其原生 `session/prompt` 会取消进行中的 turn）由 daemon 自己的 per-Agent delivery queue（`daemon-runtime/agent-delivery-queue.ts`，ADR 0048）暂存，等到该 turn 结束才作为一次合并通知调用 `notify`；这只改变何时调用 `notify`，不改变第 3 点的 ACK 时序；
+2. daemon 按 Workspace、conversation 与 Agent scope 定位 `AgentSession`。同一 exact target 的新输入走 provider-neutral `notify` 与原生 steer；不同 target 由 `AgentDeliveryQueue` 暂存，turn 结束后每次放出一个 target。Cursor/OpenCode 由 daemon 排队（它们只支持下一进程输入），其余 provider 使用 steer；ACK 时序见第 3 点。
 3. 只有 `AgentSession`/`notify` 成功接受 attention 后，daemon 才返回 ACK；拒绝或失败不得 ACK。Claude Code 对齐 [Raft Computer 1.0.32](agents/reference-cli-research.md)（该 stdin-write-as-success 语义在 1.0.17 中已观察到，未在 1.0.32 中重新核实）：空闲时或允许的原生运行边界成功写入 stdin 即视为 `notify` 成功，不等待 user-message 回显；ACK 不证明 provider 已理解或处理通知。Pi/Codex 仍以各自 SDK/RPC 的原生接受响应确认；
 4. ACK 只表示 attention 已被当前 Agent session 接受，不表示 Agent 执行开始、完成或产生 response；Web 仅接受已认证 Computer 为该 Agent 当前 assignment 的 ACK，并继续校验完整 delivery tuple；
 5. attention 是易失提示，断线、进程退出或 ACK 丢失都可能造成丢失或重复。每个 Agent ConversationMember 持久化单调递增的 `agentReadThroughSequence`；无锚点的普通 read 从当前 canonical boundary 的下一条消息开始，成功返回的连续查询范围可包含并跨越该 Agent 自己已发送的已知消息，但绝不能跳过查询未返回的 User 消息。`before`、`after`、`around` 等显式历史跳转与 delivery ACK 都不推进阅读位置；conversation sequence 是总顺序，不声称仅由 User 消息组成或具有额外的无缺口保证；
@@ -1862,3 +1862,23 @@ Manual 的 intent/reason 改为可选；先部署兼容服务端，再升级 Com
 遵守该订阅，指派与提及不受影响。旧数据不重放。线程不会因一次回复结束自动取消关注。
 先部署新增默认 false 列，再部署 Web；Daemon 协议不变。回滚 Web 会恢复原来的普通频道广播，
 所以回滚前应明确告知用户；无需删除新列或改写旧 mute 值。
+
+
+### Agent prompt and focused delivery (2026-09-23)
+
+CoForge 的常驻指令只负责通信、身份、保密边界及按需手册入口，不能替换运行器原生编程指令。
+Pi 与内置 CoForge 通过 SDK `appendSystemPromptOverride` 追加指令，保留原生 prompt、用户 SYSTEM/APPEND_SYSTEM 及项目资源。
+Codex 继续使用 `developerInstructions`，Claude Code 继续使用 append-system-prompt-file。
+Cursor/OpenCode 没有本适配器可用的 system 指令入口：新会话沿用 bootstrap，恢复会话在本次 launch 的第一条真实输入前补一次最新指令；成功完成首轮后不重复；失败或中断保留刷新义务供重试。
+模型与 reasoning 仍由现有 runtime 配置传递，不强制改模型、不把不同 provider 的默认值解释为相同能力。
+参考：[Codex app-server](https://developers.openai.com/codex/app-server/)、[Cursor 参数](https://cursor.com/docs/cli/reference/parameters)、[Pi SDK](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/sdk.md)、[OpenCode CLI](https://opencode.ai/docs/cli/)。精确 SDK 行为以锁定依赖的 resource-loader/system-prompt 实现及离线 session 测试为准。
+
+`AgentDeliveryQueue` 拥有当前 exact target（含 thread id），attention index 在调用 notify 前同步登记。
+同 target 对支持实时输入的 provider 继续原生 steer；Cursor/OpenCode 的同 target 也由 daemon 排队并在下一轮优先续接，避免 provider 将不同会话合成一条 prompt。不同 target 与 App Inbox 通知等到当前 turn 结束。
+每次 idle 优先放出当前 target 的后续输入，否则 idle/release 放出最早到达 target 的全部 held delivery，其他 target 保持排队；ACK 仍发生在 notify 接受之后。
+`message check` 通过 SDK/HTTP events 的可选 `target` 参数，在数据库筛选之后才分页及推进 read cursor，避免排队消息被提前消费。
+通知和 attention summaries 只展示本轮 target。显式 history read 不受限制。
+恢复批次保留 unscoped check，直到恢复轮结束前暂存所有新 live target；异常退出保留排队项、清除 focus，Stop 清除全部易失状态。
+这是一轮级别的排队，不承诺跨多轮 Task 的独占，也不持久化第二份消息队列。
+
+发布顺序：先 Web（支持 scoped events），后 Computer/Daemon。旧 daemon 不传 target，保持原有全局 drain；新 daemon 对旧 Web 的 scoped 请求可能被旧服务忽略，因此混合版本不能保证隔离，仍须处理服务端返回的所有正文。回滚先 daemon、后 Web，无 schema 变化。只有适配器/数据库/状态机回归证据，尚无付费模型的同题 A/B 效果结论。

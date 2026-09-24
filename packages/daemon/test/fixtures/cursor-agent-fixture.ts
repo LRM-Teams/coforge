@@ -70,6 +70,11 @@ function write(record: Record<string, unknown>): void {
 
 const sessionId = resumeId ?? Bun.env.COFORGE_CURSOR_SESSION_ID ?? crypto.randomUUID();
 const mode = Bun.env.COFORGE_CURSOR_MODE ?? "text";
+const failureMarker = Bun.env.COFORGE_CURSOR_FAIL_ONCE_FILE;
+if (failureMarker && !(await Bun.file(failureMarker).exists())) {
+  await Bun.write(failureMarker, "failed");
+  process.exit(1);
+}
 
 if (mode === "replay") {
   // Replays a trimmed real capture verbatim - used to prove the frame types this build

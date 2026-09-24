@@ -40,6 +40,7 @@ export type AgentMessagesResolveRequest = {
 };
 
 export type AgentEventsGetRequest = {
+  target?: string;
   limit?: number;
 };
 

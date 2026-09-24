@@ -2461,11 +2461,28 @@ describe("DaemonRuntime", () => {
     const credentials = new InMemoryDaemonCredentialStore();
     await credentials.save(connection.workspaceId, connection.computerId, "token-a");
     const limits: Array<number | undefined> = [];
+    const targets: string[] = [];
+    const notices: string[] = [];
+    let nextNotice!: () => void;
+    const nextNotified = new Promise<void>((resolve) => {
+      nextNotice = resolve;
+    });
+    const listeners = new Set<(event: AgentRuntimeEvent) => void>();
     const runtime = new DaemonRuntime(
       connection,
       () => ({
         provider: "pi",
-        createAgentSession: async () => ({ ...sessionSpy(), async notify() {} }),
+        createAgentSession: async () => ({
+          ...sessionSpy(),
+          async notify(text) {
+            notices.push(text);
+            if (notices.length === 2) nextNotice();
+          },
+          subscribe(listener) {
+            listeners.add(listener);
+            return () => listeners.delete(listener);
+          },
+        }),
       }),
       credentials,
       {
@@ -2480,6 +2497,7 @@ describe("DaemonRuntime", () => {
           async sendAgentDeliveryAck() {},
           async agentMessage(request) {
             limits.push(request.limit);
+            targets.push(request.target);
             const round = limits.length;
             if (round === 1)
               return {
@@ -2541,14 +2559,27 @@ describe("DaemonRuntime", () => {
     expect(result.messages.map(({ id }) => id)).toEqual(["message-1", "message-2"]);
     expect(result.hasMore).toBe(false);
 
-    // @ada's attention (sequence 1) is fully drained; @carl's attention was never returned and
-    // stays intact; @bea had no prior attention entry, so recording it seen is a harmless no-op.
+    // A legacy server can return other targets: keep all returned bodies, since they were
+    // already acknowledged. Locally held @carl must remain queued until turn completion.
     const second = await runtime.agentMessage(
       context,
       { requestId: "check-after", context, operation: "check" },
       `sk_agent_${"a".repeat(43)}`,
     );
-    expect(second.summaries.map((s) => s.target)).toEqual(["@carl"]);
+    expect(targets).toEqual(["@ada", "@ada", "@ada"]);
+    expect(second.summaries).toEqual([]);
+    expect(notices).toHaveLength(1);
+    for (const listener of listeners) listener({ type: "completed", status: "completed" });
+    await nextNotified;
+    expect(notices).toHaveLength(2);
+    expect(notices[1]).toContain("@carl");
+    const next = await runtime.agentMessage(
+      context,
+      { requestId: "check-next", context, operation: "check" },
+      `sk_agent_${"a".repeat(43)}`,
+    );
+    expect(targets.at(-1)).toBe("@carl");
+    expect(next.summaries.map((item) => item.target)).toEqual(["@carl"]);
     await runtime.stop();
   });
 
@@ -4659,8 +4690,21 @@ describe("DaemonRuntime", () => {
   test("active recovery rebind keeps its runtime and precedes live delivery", async () => {
     let releaseRecovery!: () => void;
     const recoveryGate = new Promise<void>((resolve) => (releaseRecovery = resolve));
+    let emit!: (event: AgentRuntimeEvent) => void;
+    const acknowledged = ackGate(1);
+    const recoveryEntered = Promise.withResolvers<void>();
     const harness = await queueHarness({
-      notify: (notice) => (notice.includes("wake only") ? recoveryGate : undefined),
+      subscribe: (listener) => {
+        emit = listener;
+      },
+      lifecycle: (event) => {
+        if (event === "ack:delivery-4") acknowledged.record("delivery-4");
+      },
+      notify: (notice) => {
+        if (!notice.includes("restart recovery")) return;
+        recoveryEntered.resolve();
+        return recoveryGate;
+      },
     });
     const active = await harness.runtime.startAgent("agent-a", config);
     const rebound = harness.runtime.startAgent("agent-a", config, undefined, "recovery", {
@@ -4690,20 +4734,23 @@ describe("DaemonRuntime", () => {
       ],
       unreadSummary: { "@grace": 9 },
     });
+    await recoveryEntered.promise;
     const live = harness.delivery(4);
-    await Bun.sleep(0);
 
-    expect(harness.notices).toHaveLength(2);
+    expect(harness.notices).toHaveLength(1);
     expect(harness.notices[0]).toContain("[CoForge inbox notice (restart recovery):");
     expect(harness.notices[0]).toContain("@ada  new: 1 message");
     expect(harness.notices[0]).not.toContain("wake only");
     expect(harness.notices[0]).not.toContain("must be ignored");
     expect(harness.notices[0]).not.toContain("@grace");
-    expect(harness.notices[1]).toContain("CoForge inbox notice");
-    expect(harness.acknowledgements).toEqual(["delivery-4"]);
+    expect(harness.acknowledgements).toEqual([]);
     releaseRecovery();
     expect(await rebound).toBe(active);
     await live;
+    expect(harness.notices).toHaveLength(1);
+    emit({ type: "completed", status: "completed" });
+    await acknowledged.done;
+    expect(harness.notices[1]).toContain("CoForge inbox notice");
     expect(harness.acknowledgements).toEqual(["delivery-4"]);
     expect(harness.sessions()).toBe(1);
     expect(harness.mints()).toBe(1);

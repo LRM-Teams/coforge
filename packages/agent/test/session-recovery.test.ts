@@ -71,3 +71,20 @@ test("CoForge reopens the same Agent transcript and isolates explicit and other 
     await rm(cwd, { recursive: true, force: true });
   }
 });
+
+test("CoForge instructions extend the native coding prompt", async () => {
+  const cwd = await mkdtemp(join(tmpdir(), "coforge-prompt-"));
+  const created = await createSession({
+    cwd,
+    apiKey: "test-only-not-a-provider-key",
+    instructions: "CoForge transport instruction marker",
+  });
+  try {
+    expect(created.session.systemPrompt).toContain("Available tools:");
+    expect(created.session.systemPrompt).toContain("Be concise in your responses");
+    expect(created.session.systemPrompt).toContain("CoForge transport instruction marker");
+  } finally {
+    await created.dispose();
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
