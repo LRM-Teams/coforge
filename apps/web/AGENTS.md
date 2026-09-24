@@ -126,11 +126,9 @@ responsibility.
   icons, `spell/` and `magicui/` landing-page motion.
 - `lib/` shared pure helpers; `hooks/` shared React hooks; `utils/` Untitled
   UI class helpers.
-- `features/agents/` — Members page, Agent creation, profile panel, control
-  buttons, and Agent status and Activity display.
+- `features/agents/` — Members page, Agent creation, profile panel, control buttons, and Agent status and Activity display.
 - `features/computers/` — Computer list/detail, setup, and Runtime Usage.
-- `features/conversations/` — channels, direct messages, threads, composer,
-  message rendering, action cards, saved messages, and the sidebar lists.
+- `features/conversations/` — channels, direct messages, threads, composer, message rendering, action cards, saved messages, and the sidebar lists.
 - `features/device-auth/` — device-code verification page.
 - `features/errors/` — page-level load-error view.
 - `features/inbox/` — the Activity page: conversations and threads not yet marked Done.
@@ -145,9 +143,9 @@ responsibility.
 - `features/realtime/` — the one browser Centrifuge connection.
 - `features/records/` — Workspace Records (see the last section).
 - `features/settings/` — preference pages and device-local preferences.
+- `features/search/` — the Workspace search page (`/search`) and its result list.
 - `features/tasks/` — Task board, list, overview, and message task actions.
-- `features/workspaces/` — Workspace switcher and creation, member directory
-  reads, invitations, human roles, and the last page `/` returns to.
+- `features/workspaces/` — Workspace switcher and creation, member directory reads, invitations, human roles, and the last page `/` returns to.
 - `server/agents/` — Agent lifecycle, control, sessions, display reduction,
   visibility, deletion, and the Agent HTTPS API.
 - `server/attachments/` — attachment upload sessions and delivery.
@@ -156,8 +154,7 @@ responsibility.
   result caches.
 - `server/computers/` — Computer registration, metadata, restart and upgrade
   operations, and runtime visibility.
-- `server/conversations/` — public channels, channel authority, direct
-  messages, history, action cards, reactions, and conversation realtime.
+- `server/conversations/` — public channels, channel authority, direct messages, history, message search, action cards, reactions, and conversation realtime.
 - `server/db/` — the Prisma client and repositories.
 - `server/errors/` — public error mapping and request error handling.
 - `server/files/` — file storage, delivery, and uploaded-image validation.

@@ -9,6 +9,7 @@ import {
   LogOut01 as LogOut,
   MessageChatSquare,
   Monitor01 as Monitor,
+  SearchLg,
   Settings01,
   Users01 as Users,
 } from "@untitledui/icons";
@@ -48,6 +49,12 @@ function useNavItems(
   ) : undefined;
   const recordsHref = workspaceId ? recordsNavHref(workspaceId) : DEFAULT_RECORDS_NAV_HREF;
   return [
+    {
+      label: m.search_title(),
+      bareHref: "/search",
+      href: localizeHref("/search"),
+      icon: SearchLg,
+    },
     {
       label: m.navigation_chat(),
       bareHref: "/messages",
