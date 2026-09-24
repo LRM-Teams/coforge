@@ -86,6 +86,8 @@ export const AGENT_MESSAGE_VALIDATION_MESSAGES = [
   "reaction emoji must be one to sixteen characters without whitespace",
   "mute requires a channel target",
   "unfollow requires a channel thread target",
+  "search `before` must be an ISO time, such as 2026-09-01T00:00:00Z",
+  "search `after` must be an ISO time, such as 2026-09-01T00:00:00Z",
 ] as const;
 export type AgentMessageValidationMessage = (typeof AGENT_MESSAGE_VALIDATION_MESSAGES)[number];
 export const AGENT_STATUS_METHOD = RPC_METHODS.agentStatus;
