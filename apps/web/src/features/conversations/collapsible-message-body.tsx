@@ -39,10 +39,14 @@ export function CollapsibleMessageBody({
   body,
   mentions,
   expanded,
+  collapsible = true,
   onToggleExpanded,
   ...bodyProps
 }: ComponentProps<typeof MessageBody> & {
   expanded: boolean;
+  /** Off (the viewer turned "Collapse long messages" off here): the body always shows in full,
+   * and nothing is measured. */
+  collapsible?: boolean;
   onToggleExpanded: () => void;
 }) {
   const contentRef = useRef<HTMLDivElement>(null);
@@ -50,7 +54,7 @@ export function CollapsibleMessageBody({
 
   useEffect(() => {
     const content = contentRef.current;
-    if (!content) return;
+    if (!content || !collapsible) return;
     // Compare the body's full height with the collapsed height, never with its own client height:
     // `overflow-hidden` is applied only once we know it overflows, so measuring the clamp would
     // never see an overflow in the first place. `scrollHeight` is the full content height in both
@@ -70,9 +74,11 @@ export function CollapsibleMessageBody({
     const observer = new ResizeObserver(measure);
     observer.observe(content);
     return () => observer.disconnect();
-  }, [body]);
+  }, [body, collapsible]);
 
-  const collapsed = overflowing && !expanded;
+  // Off, nothing folds and no control shows, whatever the last measurement said.
+  const foldable = collapsible && overflowing;
+  const collapsed = foldable && !expanded;
   const { channelNames } = bodyProps;
   const plainText = useMemo(
     () => (collapsed ? messagePlainText({ body, mentions }, channelNames) : ""),
@@ -96,7 +102,7 @@ export function CollapsibleMessageBody({
       >
         <MessageBody body={body} mentions={mentions} {...bodyProps} />
       </div>
-      {overflowing && (
+      {foldable && (
         <Button
           color="link-gray"
           size="sm"

@@ -307,6 +307,19 @@ export const deletePublicChannel = createServerFn({ method: "POST" })
     return channels.deleteChannel(workspaceId, userId, data.channelId);
   });
 
+export const setPublicChannelCollapseLongMessages = createServerFn({ method: "POST" })
+  .middleware([workspaceUserMiddleware])
+  .validator(channelInput.extend({ collapseLongMessages: z.boolean() }))
+  .handler(async ({ data, context }) => {
+    const { channels, workspaceId, userId } = channelScope(context);
+    return channels.setCollapseLongMessages(
+      workspaceId,
+      userId,
+      data.channelId,
+      data.collapseLongMessages,
+    );
+  });
+
 export const setPublicChannelMuted = createServerFn({ method: "POST" })
   .middleware([workspaceUserMiddleware])
   .validator(channelInput.extend({ muted: z.boolean() }))

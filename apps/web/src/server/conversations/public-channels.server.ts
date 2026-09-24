@@ -426,6 +426,23 @@ export class PublicChannels {
     return { muted };
   }
 
+  /** Whether long messages fold behind "Show more" in this channel, for this member only. A
+   * display preference: nothing else reads it, so it takes no conversation lock. */
+  async setCollapseLongMessages(
+    workspaceId: string,
+    userId: string,
+    channelId: string,
+    collapseLongMessages: boolean,
+  ) {
+    const channel = await this.channel(workspaceId, userId, channelId);
+    const updated = await this.db.conversationMember.updateMany({
+      where: { conversationId: channel.id, userId, ...ACTIVE_MEMBER_WHERE },
+      data: { collapseLongMessages },
+    });
+    if (updated.count !== 1) throw new AppError("ACCESS_DENIED");
+    return { collapseLongMessages };
+  }
+
   /** Pins this conversation for this member only (see `setConversationPin` for the order).
    * Unpinning removes the row rather than zeroing it, so membership and pin state stay
    * independent of archive/leave (see `ConversationPin`). */
@@ -1656,6 +1673,7 @@ export class PublicChannels {
       senderMemberId: member?.id ?? "",
       viewerHandle: member?.user?.username,
       muted: member?.channelMuted ?? false,
+      collapseLongMessages: member?.collapseLongMessages ?? true,
       pinned: Boolean(member?.pins.length),
       channelCapabilities: authority.capabilities,
       // Only a Workspace owner or admin hides #general (`setGeneralHidden`), whatever their role in it.

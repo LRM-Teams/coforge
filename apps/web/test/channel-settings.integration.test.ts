@@ -318,3 +318,33 @@ test.skipIf(!connectionString)(
     }
   },
 );
+
+test.skipIf(!connectionString)(
+  "long messages collapse by default; each member turns it off for themselves in one channel",
+  async () => {
+    const { db, channels, workspace, owner, creator, bob, team, general } = await setup();
+    try {
+      expect((await channels.open(workspace.id, bob.id, team.id)).collapseLongMessages).toBe(true);
+
+      expect(await channels.setCollapseLongMessages(workspace.id, bob.id, team.id, false)).toEqual({
+        collapseLongMessages: false,
+      });
+      expect((await channels.open(workspace.id, bob.id, team.id)).collapseLongMessages).toBe(false);
+      // Only bob's own view of this channel changes.
+      expect((await channels.open(workspace.id, creator.id, team.id)).collapseLongMessages).toBe(
+        true,
+      );
+      expect((await channels.open(workspace.id, bob.id, general.id)).collapseLongMessages).toBe(
+        true,
+      );
+
+      // It is a member's own preference: someone who left the channel has none to change.
+      await channels.leave(workspace.id, bob.id, team.id);
+      expect(
+        await appErrorCode(channels.setCollapseLongMessages(workspace.id, bob.id, team.id, true)),
+      ).toBe("ACCESS_DENIED");
+    } finally {
+      await teardown(db, workspace.id, [owner.id, creator.id, bob.id]);
+    }
+  },
+);

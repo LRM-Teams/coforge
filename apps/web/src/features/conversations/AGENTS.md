@@ -77,7 +77,9 @@ These rules apply to `src/features/conversations/`.
   the server's `canCreateAgents`) and then adds it. A join that fails offers
   a retry and disables the entry, so the Agent is not created twice.
 - The header gear opens `channel-settings-panel.tsx`, the one place for a
-  channel's info (name, description), the viewer's preferences (pin, mute)
+  channel's info (name, description), the viewer's preferences (pin, mute,
+  collapse long messages: `ConversationMember.collapseLongMessages`, on by
+  default, read by every pane of the conversation, thread panes included)
   and its actions (archive, leave, stopping every Agent in it and resuming
   them with new guidance for any member of a live channel; hiding `#general`
   or deleting the channel for a Workspace owner or admin); each action
