@@ -2,6 +2,7 @@ import type { Prisma, PrismaClient } from "#src/generated/prisma/client";
 import { AGENT_VISIBILITY } from "#src/features/agents/agent-visibility";
 import { ACTIVE_AGENT_WHERE } from "#src/server/agents/active-agent.server";
 import { ACTIVE_CHANNEL_MEMBER_WHERE } from "#src/server/conversations/active-member.server";
+import { joinGeneralChannel } from "#src/server/conversations/public-channels.server";
 import type {
   AgentVisibilityChangePreview,
   ChangeAgentVisibilityStore,
@@ -12,14 +13,14 @@ import type {
  * still-live Agent (`ACTIVE_AGENT_WHERE`): a repeated call with the same visibility is a no-op
  * (`changed: false`) so a double submit never soft-leaves or re-joins twice.
  *
- * public → private soft-leaves every active channel membership in one `updateMany` — the same
- * `leftAt` representation `softLeaveMember`/`AgentDeletion` use, just
+ * public → private soft-leaves every active channel membership, `#general` included, in one
+ * `updateMany` — the same `leftAt` representation `softLeaveMember`/`AgentDeletion` use, just
  * applied to every channel row at once rather than one conversation at a time. Direct
  * conversations are never touched here: they become read-only through the DM send/open guards in
  * `direct-conversation.repositories.server.ts`, not by leaving anything.
  *
- * private → public does not restore any channel membership. The Agent can be added to channels
- * explicitly later; DMs are unaffected by the channel visibility transition.
+ * private → public re-joins `#general` only, the Workspace-wide channel every public Agent is in;
+ * any other channel it left stays left until someone adds it again (`joinGeneralChannel`).
  */
 export class PrismaChangeAgentVisibilityStore implements ChangeAgentVisibilityStore {
   constructor(private readonly db: PrismaClient) {}
@@ -28,7 +29,7 @@ export class PrismaChangeAgentVisibilityStore implements ChangeAgentVisibilitySt
     agentId: string;
     workspaceId: string;
     visibility: string;
-  }): Promise<{ changed: boolean; leftChannelIds: string[] }> {
+  }): Promise<{ changed: boolean; leftChannelIds: string[]; joinedChannelIds: string[] }> {
     return this.db.$transaction(async (tx) => {
       const updated = await tx.agent.updateMany({
         where: {
@@ -39,9 +40,11 @@ export class PrismaChangeAgentVisibilityStore implements ChangeAgentVisibilitySt
         },
         data: { visibility: input.visibility },
       });
-      if (updated.count === 0) return { changed: false, leftChannelIds: [] };
-      if (input.visibility !== AGENT_VISIBILITY.PRIVATE)
-        return { changed: true, leftChannelIds: [] };
+      if (updated.count === 0) return { changed: false, leftChannelIds: [], joinedChannelIds: [] };
+      if (input.visibility !== AGENT_VISIBILITY.PRIVATE) {
+        const generalId = await joinGeneralChannel(tx, input.workspaceId, input.agentId);
+        return { changed: true, leftChannelIds: [], joinedChannelIds: [generalId] };
+      }
       const left = await tx.conversationMember.updateManyAndReturn({
         where: {
           workspaceId: input.workspaceId,
@@ -51,7 +54,11 @@ export class PrismaChangeAgentVisibilityStore implements ChangeAgentVisibilitySt
         data: { leftAt: new Date() },
         select: { conversationId: true },
       });
-      return { changed: true, leftChannelIds: left.map((row) => row.conversationId) };
+      return {
+        changed: true,
+        leftChannelIds: left.map((row) => row.conversationId),
+        joinedChannelIds: [],
+      };
     });
   }
 

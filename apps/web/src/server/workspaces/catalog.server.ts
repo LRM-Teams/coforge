@@ -1,5 +1,6 @@
 import type { PrismaClient } from "#src/generated/prisma/client";
 import { AppError } from "#src/lib/app-error";
+import { generalChannelForCreator } from "#src/server/conversations/public-channels.server";
 import {
   isReservedWorkspaceSlug,
   isValidWorkspaceSlug,
@@ -70,6 +71,7 @@ export class PrismaWorkspaceCatalogStore implements WorkspaceCatalogStore {
         slug: input.slug,
         name: input.name,
         members: { create: { userId: input.userId, role: "owner" } },
+        conversations: generalChannelForCreator(input.userId),
       },
       select: { id: true, slug: true, name: true },
     });

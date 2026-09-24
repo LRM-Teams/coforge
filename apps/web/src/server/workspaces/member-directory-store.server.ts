@@ -1,5 +1,6 @@
 import type { PrismaClient } from "#src/generated/prisma/client";
 import { AppError } from "#src/lib/app-error";
+import { enrollGeneralChannel } from "#src/server/conversations/public-channels.server";
 import {
   WorkspaceMemberDirectory,
   type WorkspaceInvitationRecord,
@@ -160,6 +161,7 @@ export class PrismaWorkspaceMemberDirectoryStore implements WorkspaceMemberDirec
           role: invitation.role,
         },
       });
+      await enrollGeneralChannel(tx, invitation.workspaceId);
       return {
         workspaceId: invitation.workspaceId,
         userId: input.userId,
