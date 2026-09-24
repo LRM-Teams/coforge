@@ -254,189 +254,192 @@ export function WeeklyReportSettings({
   const activePrompt = prompts[keyPointSlot];
 
   return (
-    <Tabs
-      selectedKey={topTab}
-      onSelectionChange={(key) => {
-        if (key === "templates" || key === "key_points") setTopTab(key);
-      }}
-      className="min-h-0 flex-1"
-    >
-      <div className="flex h-12 shrink-0 items-center gap-3 border-b border-secondary px-4 sm:px-6">
-        {returnTo ? (
-          <Button
-            size="sm"
-            color="link-color"
-            iconLeading={ChevronLeft}
-            onPress={() => {
-              void router.navigate({ href: returnTo });
-            }}
-          >
-            {m.records_key_points_back_to_report()}
-          </Button>
-        ) : (
-          <BackToRecords />
-        )}
-        <TabList
-          aria-label={m.records_settings()}
-          type="underline"
-          className="-mb-px min-w-0 flex-1 gap-4 self-end overflow-x-auto before:hidden"
-        >
-          <Tab id="templates">{m.records_settings_tab_templates()}</Tab>
-          <Tab id="key_points">{m.records_settings_tab_key_points()}</Tab>
-        </TabList>
-        {topTab === "templates" ? (
-          <Button
-            size="sm"
-            color="primary"
-            className={RECORDS_PRIMARY_BUTTON_CLASSNAME}
-            iconLeading={Plus}
-            onPress={openCreate}
-          >
-            {m.records_create_template()}
-          </Button>
-        ) : (
-          <Button
-            size="sm"
-            color="primary"
-            className={RECORDS_PRIMARY_BUTTON_CLASSNAME}
-            isDisabled={busy}
-            onPress={() => void onSavePrompt()}
-          >
-            {m.records_key_points_prompt_save()}
-          </Button>
-        )}
-      </div>
-
-      <TabPanel id="templates" className="min-h-0 flex-1 overflow-auto bg-primary p-4 sm:p-6">
-        {templates.length === 0 ? (
-          <Empty className="py-10">
-            <EmptyHeader>
-              <EmptyTitle>{m.records_templates_empty()}</EmptyTitle>
-            </EmptyHeader>
-          </Empty>
-        ) : (
-          <div className="overflow-x-auto rounded-xl border border-secondary">
-            <table className="w-full min-w-[52rem] border-collapse text-left text-sm text-primary">
-              <thead>
-                <tr className="bg-secondary_subtle text-tertiary">
-                  <th className="px-4 py-3 font-medium">{m.records_template_name()}</th>
-                  <th className="px-4 py-3 font-medium">{m.records_template_recipients()}</th>
-                  <th className="px-4 py-3 font-medium">{m.records_template_frequency()}</th>
-                  <th className="px-4 py-3 font-medium">{m.records_template_send_time()}</th>
-                  <th className="px-4 py-3 font-medium">{m.records_template_enabled()}</th>
-                  <th className="px-4 py-3 font-medium">{m.records_template_actions()}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {templates.map((template) => (
-                  <tr
-                    key={template.id}
-                    className="cursor-pointer border-t border-secondary hover:bg-primary_hover"
-                    onClick={() => setDetail(template)}
-                  >
-                    <td className="px-4 py-3">
-                      {/* The row stays clickable for pointers; this button is the same action
-                            for keyboard and assistive technology. */}
-                      <Button
-                        size="sm"
-                        color="link-gray"
-                        aria-label={`${m.records_template_open_detail()}: ${template.name}`}
-                        onPress={() => setDetail(template)}
-                        className="font-medium text-primary"
-                      >
-                        {template.name}
-                      </Button>
-                    </td>
-                    <td className="px-4 py-3 text-secondary">{recipientsCell(template)}</td>
-                    <td className="px-4 py-3 text-secondary">
-                      {m.records_template_frequency_weekly()}
-                    </td>
-                    <td className="px-4 py-3 text-secondary">
-                      {m.records_template_send_on({
-                        weekday: weekdayLabel(template.sendWeekday),
-                        time: template.sendTime,
-                      })}
-                    </td>
-                    <td className="px-4 py-3" onClick={(event) => event.stopPropagation()}>
-                      <Button
-                        size="sm"
-                        color="link-gray"
-                        isDisabled={busy}
-                        onPress={() => void toggleApplied(template)}
-                      >
-                        {template.active
-                          ? m.records_template_enabled_yes()
-                          : m.records_template_enabled_no()}
-                      </Button>
-                    </td>
-                    <td className="px-4 py-3" onClick={(event) => event.stopPropagation()}>
-                      <div className="flex items-center gap-3">
-                        <Button
-                          size="sm"
-                          color="link-color"
-                          iconLeading={Edit}
-                          isDisabled={busy}
-                          onPress={() => openEdit(template)}
-                        >
-                          {m.records_template_edit()}
-                        </Button>
-                        <Button
-                          size="sm"
-                          color="tertiary-destructive"
-                          iconLeading={Trash}
-                          isDisabled={busy}
-                          onPress={() => askDeleteTemplate(template)}
-                        >
-                          {m.records_template_delete()}
-                        </Button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </TabPanel>
-      <TabPanel id="key_points" className="flex min-h-0 flex-1 flex-col bg-primary">
-        <Tabs
-          selectedKey={keyPointSlot}
-          onSelectionChange={(key) => {
-            if (key === "team" || key === "personal") selectKeyPointSlot(key);
-          }}
-          className="min-h-0 flex-1"
-        >
+    <>
+      <Tabs
+        selectedKey={topTab}
+        onSelectionChange={(key) => {
+          if (key === "templates" || key === "key_points") setTopTab(key);
+        }}
+        className="min-h-0 flex-1"
+      >
+        <div className="flex h-12 shrink-0 items-center gap-3 border-b border-secondary px-4 sm:px-6">
+          {returnTo ? (
+            <Button
+              size="sm"
+              color="link-color"
+              iconLeading={ChevronLeft}
+              onPress={() => {
+                void router.navigate({ href: returnTo });
+              }}
+            >
+              {m.records_key_points_back_to_report()}
+            </Button>
+          ) : (
+            <BackToRecords />
+          )}
           <TabList
-            aria-label={m.records_settings_tab_key_points()}
+            aria-label={m.records_settings()}
             type="underline"
-            className="shrink-0 gap-4 px-4 pt-3 sm:px-8"
+            className="-mb-px min-w-0 flex-1 gap-4 self-end overflow-x-auto before:hidden"
           >
-            <Tab id="team">{m.records_key_points_slot_team()}</Tab>
-            <Tab id="personal">{m.records_key_points_slot_personal()}</Tab>
+            <Tab id="templates">{m.records_settings_tab_templates()}</Tab>
+            <Tab id="key_points">{m.records_settings_tab_key_points()}</Tab>
           </TabList>
-          <TabPanel id={keyPointSlot} className="flex min-h-0 flex-1 flex-col">
-            <KeyPointPromptEditor
-              prompt={activePrompt}
-              text={draftText}
-              busy={busy}
-              textareaRef={textareaRef}
-              onChange={(text) => {
-                editingRef.current = true;
-                setDraftText(text);
-              }}
-              onFocus={() => {
-                editingRef.current = true;
-              }}
-              onBlur={() => {
-                editingRef.current = false;
-                setDraftText(readEditorText());
-              }}
-              onDeleteHistory={askDeleteHistory}
-            />
-          </TabPanel>
-        </Tabs>
-      </TabPanel>
+          {topTab === "templates" ? (
+            <Button
+              size="sm"
+              color="primary"
+              className={RECORDS_PRIMARY_BUTTON_CLASSNAME}
+              iconLeading={Plus}
+              onPress={openCreate}
+            >
+              {m.records_create_template()}
+            </Button>
+          ) : (
+            <Button
+              size="sm"
+              color="primary"
+              className={RECORDS_PRIMARY_BUTTON_CLASSNAME}
+              isDisabled={busy}
+              onPress={() => void onSavePrompt()}
+            >
+              {m.records_key_points_prompt_save()}
+            </Button>
+          )}
+        </div>
 
+        <TabPanel id="templates" className="min-h-0 flex-1 overflow-auto bg-primary p-4 sm:p-6">
+          {templates.length === 0 ? (
+            <Empty className="py-10">
+              <EmptyHeader>
+                <EmptyTitle>{m.records_templates_empty()}</EmptyTitle>
+              </EmptyHeader>
+            </Empty>
+          ) : (
+            <div className="overflow-x-auto rounded-xl border border-secondary">
+              <table className="w-full min-w-[52rem] border-collapse text-left text-sm text-primary">
+                <thead>
+                  <tr className="bg-secondary_subtle text-tertiary">
+                    <th className="px-4 py-3 font-medium">{m.records_template_name()}</th>
+                    <th className="px-4 py-3 font-medium">{m.records_template_recipients()}</th>
+                    <th className="px-4 py-3 font-medium">{m.records_template_frequency()}</th>
+                    <th className="px-4 py-3 font-medium">{m.records_template_send_time()}</th>
+                    <th className="px-4 py-3 font-medium">{m.records_template_enabled()}</th>
+                    <th className="px-4 py-3 font-medium">{m.records_template_actions()}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {templates.map((template) => (
+                    <tr
+                      key={template.id}
+                      className="cursor-pointer border-t border-secondary hover:bg-primary_hover"
+                      onClick={() => setDetail(template)}
+                    >
+                      <td className="px-4 py-3">
+                        {/* The row stays clickable for pointers; this button is the same action
+                            for keyboard and assistive technology. */}
+                        <Button
+                          size="sm"
+                          color="link-gray"
+                          aria-label={`${m.records_template_open_detail()}: ${template.name}`}
+                          onPress={() => setDetail(template)}
+                          className="font-medium text-primary"
+                        >
+                          {template.name}
+                        </Button>
+                      </td>
+                      <td className="px-4 py-3 text-secondary">{recipientsCell(template)}</td>
+                      <td className="px-4 py-3 text-secondary">
+                        {m.records_template_frequency_weekly()}
+                      </td>
+                      <td className="px-4 py-3 text-secondary">
+                        {m.records_template_send_on({
+                          weekday: weekdayLabel(template.sendWeekday),
+                          time: template.sendTime,
+                        })}
+                      </td>
+                      <td className="px-4 py-3" onClick={(event) => event.stopPropagation()}>
+                        <Button
+                          size="sm"
+                          color="link-gray"
+                          isDisabled={busy}
+                          onPress={() => void toggleApplied(template)}
+                        >
+                          {template.active
+                            ? m.records_template_enabled_yes()
+                            : m.records_template_enabled_no()}
+                        </Button>
+                      </td>
+                      <td className="px-4 py-3" onClick={(event) => event.stopPropagation()}>
+                        <div className="flex items-center gap-3">
+                          <Button
+                            size="sm"
+                            color="link-color"
+                            iconLeading={Edit}
+                            isDisabled={busy}
+                            onPress={() => openEdit(template)}
+                          >
+                            {m.records_template_edit()}
+                          </Button>
+                          <Button
+                            size="sm"
+                            color="tertiary-destructive"
+                            iconLeading={Trash}
+                            isDisabled={busy}
+                            onPress={() => askDeleteTemplate(template)}
+                          >
+                            {m.records_template_delete()}
+                          </Button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </TabPanel>
+        <TabPanel id="key_points" className="flex min-h-0 flex-1 flex-col bg-primary">
+          <Tabs
+            selectedKey={keyPointSlot}
+            onSelectionChange={(key) => {
+              if (key === "team" || key === "personal") selectKeyPointSlot(key);
+            }}
+            className="min-h-0 flex-1"
+          >
+            <TabList
+              aria-label={m.records_settings_tab_key_points()}
+              type="underline"
+              className="shrink-0 gap-4 px-4 pt-3 sm:px-8"
+            >
+              <Tab id="team">{m.records_key_points_slot_team()}</Tab>
+              <Tab id="personal">{m.records_key_points_slot_personal()}</Tab>
+            </TabList>
+            <TabPanel id={keyPointSlot} className="flex min-h-0 flex-1 flex-col">
+              <KeyPointPromptEditor
+                prompt={activePrompt}
+                text={draftText}
+                busy={busy}
+                textareaRef={textareaRef}
+                onChange={(text) => {
+                  editingRef.current = true;
+                  setDraftText(text);
+                }}
+                onFocus={() => {
+                  editingRef.current = true;
+                }}
+                onBlur={() => {
+                  editingRef.current = false;
+                  setDraftText(readEditorText());
+                }}
+                onDeleteHistory={askDeleteHistory}
+              />
+            </TabPanel>
+          </Tabs>
+        </TabPanel>
+      </Tabs>
+
+      {/* ModalOverlay must stay outside Tabs — CollectionBuilder's Hidden tree would remount it. */}
       <RecordsDeleteConfirmDialog
         open={templateDeleteOpen}
         title={m.records_template_delete_confirm_title({
@@ -493,7 +496,7 @@ export function WeeklyReportSettings({
           }
         }}
       />
-    </Tabs>
+    </>
   );
 }
 
@@ -516,8 +519,8 @@ function WeeklyTemplateDetailDialog({
 
   return (
     <ModalOverlay isOpen onOpenChange={(open) => (!open ? onClose() : undefined)}>
-      <Modal className="flex max-h-[min(90vh,40rem)] w-[calc(100vw-2rem)] max-w-lg flex-col">
-        <Dialog className="flex min-h-0 flex-1 flex-col">
+      <Modal className="w-[calc(100vw-2rem)] max-w-lg">
+        <Dialog className="overflow-hidden">
           {({ close }) => (
             <>
               <div className="flex items-start justify-between gap-6 px-6 pt-6">
@@ -532,7 +535,7 @@ function WeeklyTemplateDetailDialog({
                   onClick={close}
                 />
               </div>
-              <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-6 py-5 text-sm">
+              <div className="max-h-[min(70vh,36rem)] space-y-4 overflow-y-auto px-6 py-5 text-sm">
                 <DetailRow label={m.records_template_name()} value={template.name} />
                 {template.sections.map((section, index) => (
                   <div key={`${section.title}-${index}`} className="space-y-2">

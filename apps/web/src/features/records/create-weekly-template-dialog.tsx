@@ -246,8 +246,8 @@ export function CreateWeeklyTemplateDialog({
         onOpenChange(value);
       }}
     >
-      <Modal className="flex max-h-[min(90vh,44rem)] w-[calc(100vw-2rem)] max-w-xl flex-col">
-        <Dialog className="flex min-h-0 flex-1 flex-col">
+      <Modal className="w-[calc(100vw-2rem)] max-w-xl">
+        <Dialog className="overflow-hidden">
           {({ close }) => (
             <>
               <div className="flex items-start justify-between gap-6 px-6 pt-6">
@@ -259,15 +259,13 @@ export function CreateWeeklyTemplateDialog({
                   icon={X}
                   size="sm"
                   color="tertiary"
+                  isDisabled={saving}
                   onClick={close}
                 />
               </div>
 
-              <form
-                onSubmit={(event) => void submit(event)}
-                className="flex min-h-0 flex-1 flex-col"
-              >
-                <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-6 py-5">
+              <form onSubmit={(event) => void submit(event)}>
+                <div className="max-h-[min(70vh,36rem)] space-y-5 overflow-y-auto px-6 py-5">
                   <p className="text-sm font-semibold text-primary">
                     {m.records_template_details()}
                   </p>
