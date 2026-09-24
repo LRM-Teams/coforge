@@ -175,7 +175,7 @@ export type TaskResult = {
   newMessageCount?: number;
 };
 
-/** What a claim refused a Task another member holds may and may not stop. */
+/** What another member's hold on a Task stops: the only action a refused claim blocks. */
 export const TASK_CLAIM_BLOCKED_ACTIONS = ["start_conflicting_execution"] as const;
 
 /**

@@ -553,6 +553,8 @@ class ClaimRefused extends Error {
   constructor(
     readonly reason: string,
     readonly conflict?: TaskClaimConflict,
+    /** The refused Task's number, when the selector named its message rather than the number. */
+    readonly number?: number,
   ) {
     super(reason);
   }
@@ -1764,9 +1766,9 @@ export class TaskBoard {
       )
         return existing;
       if (existing.status === "done" || existing.status === "closed")
-        throw new ClaimRefused(`task is ${existing.status}`);
+        throw new ClaimRefused(`task is ${existing.status}`, undefined, existing.number);
       if (existing.ownerMemberId && existing.ownerMemberId !== member.id)
-        throw new ClaimRefused(CLAIM_REFUSAL.held, claimConflict(existing));
+        throw new ClaimRefused(CLAIM_REFUSAL.held, claimConflict(existing), existing.number);
       const { task: claimed } = await this.commitTaskChange(
         tx,
         member,
@@ -1828,6 +1830,7 @@ export class TaskBoard {
         if (error instanceof ClaimRefused)
           claims.push({
             ...selector,
+            ...(error.number !== undefined && { number: error.number }),
             success: false,
             reason: error.reason,
             ...(error.conflict && { conflict: error.conflict }),

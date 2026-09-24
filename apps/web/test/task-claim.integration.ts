@@ -133,6 +133,13 @@ test("A claim answers every selector, naming why a refused one failed and who ho
     );
     expect(result.tasks.map((task) => task.number)).toEqual([open]);
 
+    // A refused Task named by its message still answers with its number.
+    const doneMessage = created.tasks[3]!.messageId.slice(0, 8);
+    const byMessage = await byAgent({ operation: "claim", messageId: doneMessage });
+    expect(byMessage.claims).toEqual([
+      { messageId: doneMessage, number: done, success: false, reason: "task is done" },
+    ]);
+
     // One refused selector is still an answer, not an error; the browser's seam turns it into one.
     await db.agent.update({ where: { id: holder.id }, data: { deletedAt: new Date() } });
     const single = await byAgent({ operation: "claim", number: held });

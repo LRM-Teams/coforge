@@ -2362,7 +2362,8 @@ function invalidTaskArg(message: string): CliError {
 
 function taskNumber(raw: string | undefined): number {
   const value = Number(raw);
-  if (raw === undefined || raw.trim() === "" || !Number.isSafeInteger(value) || value <= 0)
+  if (raw === undefined) throw invalidTaskArg("--number is required");
+  if (raw.trim() === "" || !Number.isSafeInteger(value) || value <= 0)
     throw invalidTaskArg(`--number must be a positive integer; got ${raw}`);
   return value;
 }

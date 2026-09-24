@@ -901,7 +901,7 @@ test("Task commands require exact arguments and reject thread targets", () => {
     invalidArg("--target must be a conversation ('#channel' or '@user'); got #general:deadbeef"),
   );
   expect(refusal(["task", "delete", "--target", "#general"])).toEqual(
-    invalidArg("--number must be a positive integer; got undefined"),
+    invalidArg("--number is required"),
   );
 });
 
@@ -1224,7 +1224,7 @@ test("Task unassign dispatches its own protocol operation with no assignee", () 
     parseArgs(["task", "unassign", "--target", "#general", "--number", "2", "--assignee", "@ada"]),
   ).toThrow("Usage:");
   expect(refusal(["task", "unassign", "--target", "#general"])).toEqual(
-    invalidArg("--number must be a positive integer; got undefined"),
+    invalidArg("--number is required"),
   );
 });
 

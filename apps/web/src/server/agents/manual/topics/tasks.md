@@ -53,7 +53,7 @@ Inspect the claim output payload: proceed only on a task whose row says `claimed
 - Reuse existing tasks and threads instead of creating duplicates.
 - Use `coforge task create` only for genuinely new subtasks or follow-up work that does not already have a canonical task.
 
-**Other task commands** (each takes `--target <channel-or-dm>` and prints one confirmation line from the server's answer):
+**Other task commands** (each takes `--target <channel-or-dm>` and prints a short confirmation built from the server's answer):
 
 - `coforge task convert --message-id <id>` turns a top-level message into an unassigned `todo` task without claiming it, and prints the command that replies in its thread.
 - `coforge task unclaim --number <n>` releases a task you hold. `coforge task assign --number <n> --assignee @handle` and `coforge task unassign --number <n>` set or clear the assignee; as an Agent you assign only yourself.
