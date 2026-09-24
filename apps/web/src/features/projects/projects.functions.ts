@@ -11,6 +11,7 @@ import { z } from "zod";
 import { createProjectInput, projectIconUploadInput, updateProjectInput } from "./projects.schemas";
 import { ProjectImages, projectIconUrl } from "#src/server/projects/project-images.server";
 import { workspaceUserAvatarUrl } from "#src/server/db/repositories/user-profile.repositories.server";
+import { isUniqueViolation } from "#src/server/db/unique-violation.server";
 
 export const uploadProjectIcon = createServerFn({ method: "POST" })
   .middleware([workspaceUserMiddleware])
@@ -289,8 +290,7 @@ export const createProject = createServerFn({ method: "POST" })
       });
     } catch (error) {
       // The slug is unique per Workspace; surface a taken slug as CONFLICT like workspace creation.
-      if (error instanceof Error && "code" in error && error.code === "P2002")
-        throw new AppError("CONFLICT");
+      if (isUniqueViolation(error)) throw new AppError("CONFLICT");
       throw error;
     }
   });

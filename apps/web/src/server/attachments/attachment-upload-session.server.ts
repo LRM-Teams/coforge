@@ -1,6 +1,7 @@
 import type { PrismaClient, Prisma } from "#src/generated/prisma/client";
 import { ATTACHMENT_MAX_BYTES, ATTACHMENT_SESSION_SECONDS } from "./attachment.server";
 import type { FileStorage } from "#src/server/files/file-storage.server";
+import { isUniqueViolation } from "#src/server/db/unique-violation.server";
 
 /**
  * Presigned direct-upload sessions: the Agent PUTs bytes straight to storage with a
@@ -137,15 +138,6 @@ function toSessionView(
   };
 }
 
-function isUniqueConstraintViolation(error: unknown): boolean {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    "code" in error &&
-    (error as { code: unknown }).code === "P2002"
-  );
-}
-
 /**
  * Creates (or, for a repeated `clientRequestId`, replays) a direct-upload session. The caller has
  * already authorized `conversationId` (target resolution happens one layer up, in the route —
@@ -208,7 +200,7 @@ export async function createAttachmentUploadSession(
       },
     });
   } catch (error) {
-    if (!isUniqueConstraintViolation(error)) throw error;
+    if (!isUniqueViolation(error)) throw error;
     // Lost a create race on the same `clientRequestId`: treat it the same as finding it above.
     const raced = await db.attachmentUploadSession.findUnique({
       where: {
