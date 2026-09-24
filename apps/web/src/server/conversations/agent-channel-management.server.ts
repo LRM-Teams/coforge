@@ -19,7 +19,7 @@ import {
   type ChannelAdminBasis,
   type ChannelCapabilities,
 } from "./channel-authority.server";
-import { resolveAgentChannelStatus } from "#src/server/agents/agent-channel-status.server";
+import { resolveAgentChannelStatuses } from "#src/server/agents/agent-channel-status.server";
 import { getAgentDisplay, type AgentDisplay } from "#src/server/agents/agent-display.server";
 import { PrismaDirectConversationRepository } from "#src/server/db/repositories/direct-conversation.repositories.server";
 import { AgentInboxPurgePublisher } from "#src/server/agents/agent-inbox-purge.server";
@@ -111,7 +111,7 @@ export class AgentChannelManagement {
 
   constructor(
     private readonly db: PrismaClient,
-    private readonly display?: Pick<AgentDisplay, "snapshot">,
+    private readonly display?: Pick<AgentDisplay, "snapshot" | "snapshotMany">,
     channels?: PublicChannels,
     // The whole port, not just `memberChanged`: it is also the default `PublicChannels`'.
     private readonly realtime?: ConversationRealtime,
@@ -586,7 +586,7 @@ export class AgentChannelManagement {
   /**
    * Reshapes `PublicChannels.members`' (or the DM roster's) raw membership facts into the
    * Agent-facing response: role/self tags plus each Agent's live status
-   * (`resolveAgentChannelStatus`). The only Agent-specific glue here is `self` and `status`/
+   * (`resolveAgentChannelStatuses`). The only Agent-specific glue here is `self` and `status`/
    * `activity`/`activityDetail` — membership, roles, and authority all come from the shared data.
    */
   private async shapeAgentRoster(
@@ -613,23 +613,20 @@ export class AgentChannelManagement {
       }>;
     },
   ): Promise<AgentChannelRoster> {
-    const display = this.resolvedDisplay();
-    const agents = await Promise.all(
-      raw.agents.map(async (agent) => ({
-        name: agent.name,
-        displayName: agent.displayName,
-        description: agent.description,
-        serverRole: agent.serverRole,
-        channelRole: agent.channelRole,
-        channelAdminBasis: agent.channelAdminBasis,
-        self: agent.id === callingAgentId,
-        ...(await resolveAgentChannelStatus(display, {
-          workspaceId,
-          computerId: agent.computerId,
-          agentId: agent.id,
-        })),
-      })),
+    const statuses = await resolveAgentChannelStatuses(
+      this.resolvedDisplay(),
+      raw.agents.map((agent) => ({ workspaceId, computerId: agent.computerId, agentId: agent.id })),
     );
+    const agents = raw.agents.map((agent, index) => ({
+      name: agent.name,
+      displayName: agent.displayName,
+      description: agent.description,
+      serverRole: agent.serverRole,
+      channelRole: agent.channelRole,
+      channelAdminBasis: agent.channelAdminBasis,
+      self: agent.id === callingAgentId,
+      ...statuses[index],
+    }));
     return {
       target,
       agents: agents.sort((left, right) => left.name.localeCompare(right.name)),
@@ -645,10 +642,15 @@ export class AgentChannelManagement {
   }
 
   /** Deferred: constructing the real `AgentDisplay` throws when `REDIS_URL` is unset, and that
-   * failure must be caught per-Agent (as "unknown") by `resolveAgentChannelStatus`, not thrown
+   * failure must be caught per-Agent (as "unknown") by `resolveAgentChannelStatuses`, not thrown
    * out of the whole roster read. */
-  private resolvedDisplay(): Pick<AgentDisplay, "snapshot"> {
-    return this.display ?? { snapshot: (scope) => getAgentDisplay().snapshot(scope) };
+  private resolvedDisplay(): Pick<AgentDisplay, "snapshot" | "snapshotMany"> {
+    return (
+      this.display ?? {
+        snapshot: (scope) => getAgentDisplay().snapshot(scope),
+        snapshotMany: (scopes) => getAgentDisplay().snapshotMany(scopes),
+      }
+    );
   }
 
   private parseChannelTarget(target: string): string {
