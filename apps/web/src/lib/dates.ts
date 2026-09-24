@@ -101,49 +101,20 @@ export function formatClockTime(
 /** A sortable `YYYY-MM-DD` key for the calendar day `value` falls on in `timeZone`, used to
  * detect a day change between two instants (not for display). */
 export function calendarDayKey(value: Date | string, timeZone: string | null | undefined) {
-  return dateTimeFormat("en-CA", {
-    timeZone: resolveTimeZone(timeZone, browserTimeZone()),
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(new Date(value));
-}
-
-/** How far `timeZone`'s wall clock is ahead of UTC at `instant`, in milliseconds. */
-function zoneOffsetMs(instant: number, timeZone: string) {
-  const parts = Object.fromEntries(
-    dateTimeFormat("en-US", {
-      timeZone,
-      hourCycle: "h23",
-      year: "numeric",
-      month: "numeric",
-      day: "numeric",
-      hour: "numeric",
-      minute: "numeric",
-      second: "numeric",
-    })
-      .formatToParts(new Date(instant))
-      .map((part) => [part.type, Number(part.value)]),
-  );
-  const wall = Date.UTC(
-    parts.year,
-    parts.month - 1,
-    parts.day,
-    parts.hour,
-    parts.minute,
-    parts.second,
-  );
-  return wall - Math.floor(instant / 1000) * 1000;
+  return zonedDateTime(value, timeZone).toPlainDate().toString();
 }
 
 /** The instant the calendar day containing `now` began in `timeZone` (viewer preference, then
  * the browser's zone). Correct across a daylight-saving change earlier that day. */
 export function startOfDay(now: Date, timeZone: string | null | undefined): Date {
-  const zone = resolveTimeZone(timeZone, browserTimeZone());
-  const [year, month, day] = calendarDayKey(now, zone).split("-").map(Number);
-  const wallMidnight = Date.UTC(year!, month! - 1, day!);
-  const guess = wallMidnight - zoneOffsetMs(now.getTime(), zone);
-  return new Date(wallMidnight - zoneOffsetMs(guess, zone));
+  return new Date(zonedDateTime(now, timeZone).startOfDay().epochMilliseconds);
+}
+
+/** `value` as a moment on the wall clock of `timeZone` (viewer preference, then the browser's). */
+function zonedDateTime(value: Date | string, timeZone: string | null | undefined) {
+  return Temporal.Instant.fromEpochMilliseconds(new Date(value).getTime()).toZonedDateTimeISO(
+    resolveTimeZone(timeZone, browserTimeZone()),
+  );
 }
 
 /** The display label for a date-separator row: the calendar day only, no time. */
