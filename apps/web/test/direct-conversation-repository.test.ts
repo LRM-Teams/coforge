@@ -1,7 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import type { PrismaClient } from "#src/generated/prisma/client";
 import { buildUserAgentConversationCreateInput } from "#src/server/db/repositories/direct-conversation.repositories.server";
-import { PrismaDirectConversationRepository } from "#src/server/db/repositories/direct-conversation.repositories.server";
+import {
+  PrismaDirectConversationRepository,
+  type AgentRecoveryContext,
+  type PendingAgentDelivery,
+} from "#src/server/db/repositories/direct-conversation.repositories.server";
+import type { AgentMessageRecord } from "#src/server/agents/agent-messages.server";
 
 /**
  * The real Prisma `$queryRaw` tag flattens a nested `Prisma.sql` fragment's own bind values into
@@ -77,7 +82,7 @@ describe("PrismaDirectConversationRepository", () => {
       ],
       take: 5,
     });
-    expect(result).toEqual([
+    expect(result).toEqual<AgentMessageRecord[]>([
       {
         id: "message-1",
         sequence: 41,
@@ -808,7 +813,7 @@ describe("PrismaDirectConversationRepository", () => {
     expect(queries).toHaveLength(1);
     expect(queries[0]).toEqual(["workspace-1", "agent-1", "agent-1", 100]);
     expect(result.resumeMessages).toHaveLength(100);
-    expect(result.resumeMessages.slice(0, 2)).toEqual([
+    expect(result.resumeMessages.slice(0, 2)).toEqual<AgentRecoveryContext["resumeMessages"]>([
       {
         messageId: "conversation-0-message-5",
         deliveryId: "conversation-0-delivery-5",
@@ -969,7 +974,7 @@ describe("PrismaDirectConversationRepository", () => {
       "workspace-1",
       "agent-1",
     );
-    expect(recovery.resumeMessages).toEqual([
+    expect(recovery.resumeMessages).toEqual<AgentRecoveryContext["resumeMessages"]>([
       {
         messageId: "message-1",
         deliveryId: "delivery-1",
@@ -1059,7 +1064,7 @@ describe("PrismaDirectConversationRepository", () => {
       orderBy: [{ createdAt: "asc" }, { deliveryId: "asc" }],
     });
     expect(queries[0]).not.toHaveProperty("take");
-    expect(result).toEqual([
+    expect(result).toEqual<PendingAgentDelivery[]>([
       {
         messageId: "message-1",
         deliveryId: "delivery-1",
@@ -1103,7 +1108,7 @@ describe("PrismaDirectConversationRepository", () => {
         "workspace-1",
         "agent-1",
       ),
-    ).resolves.toEqual([
+    ).resolves.toEqual<PendingAgentDelivery[]>([
       {
         messageId: "message-agent",
         deliveryId: "delivery-agent",

@@ -750,7 +750,7 @@ test("a channel @mention persists as a token and wakes only the mentioned Agent,
         (row) => row.agentId,
       ),
     ).toEqual([helper.id]);
-    expect(
+    expect<string | undefined>(
       (await repo.readMessages(workspace.id, helper.id, "#general")).find(
         (message) => message.id === humanMention.id,
       )?.body,
@@ -794,7 +794,7 @@ test("a channel @mention persists as a token and wakes only the mentioned Agent,
         (message) => message.id === handoff.id,
       ),
     ).toMatchObject({ senderKind: "agent", senderHandle: "helper", target: "#general" });
-    expect(
+    expect<string | undefined>(
       (await repo.readMessages(workspace.id, scout.id, "#general")).find(
         (message) => message.id === handoff.id,
       )?.body,
@@ -894,7 +894,9 @@ test("a #channel reference is stored as a channel token on every send path, and 
     expect(bodyOf(await repo.searchMessages(workspace.id, helper.id, { query: "product" }))).toBe(
       readable,
     );
-    expect((await repo.resolveAgentMessage(workspace.id, helper.id, human.id)).body).toBe(readable);
+    expect<string>((await repo.resolveAgentMessage(workspace.id, helper.id, human.id)).body).toBe(
+      readable,
+    );
 
     // A quote that spans lines keeps its references, and its mention wakes the Agent as before.
     const quote = await channels.send({
@@ -1013,7 +1015,7 @@ test("a #channel reference is stored as a channel token on every send path, and 
       body: "done in #product",
     });
     expect(reply.body).toBe(`done in ${productToken}`);
-    expect(
+    expect<string | undefined>(
       (await repo.readMessages(workspace.id, helper.id, `@${user.username}`)).find(
         (message) => message.id === reply.id,
       )?.body,
@@ -2645,6 +2647,79 @@ test("a thread's root author starts following that thread, so later replies reac
   }
 });
 
+test("an Agent's thread reply enrolls exactly the members its stored mention rows name; an @handle in code or a link label enrolls nobody", async () => {
+  const connectionString = Bun.env.CHANNEL_TEST_DATABASE_URL;
+  if (!connectionString) throw new Error("CHANNEL_TEST_DATABASE_URL is required");
+  const db = new PrismaClient({ adapter: new PrismaPg({ connectionString }) });
+  const redis = new RedisClient(Bun.env.CHANNEL_TEST_REDIS_URL!);
+  const suffix = crypto.randomUUID().slice(0, 8);
+  const alice = await db.user.create({ data: { username: `ea${suffix}` } });
+  const bob = await db.user.create({ data: { username: `eb${suffix}` } });
+  const carol = await db.user.create({ data: { username: `ec${suffix}` } });
+  const workspace = await db.workspace.create({
+    data: {
+      slug: `agent-enroll-${suffix}`,
+      name: "Agent reply enrollment",
+      members: {
+        create: [{ userId: alice.id, role: "owner" }, { userId: bob.id }, { userId: carol.id }],
+      },
+    },
+  });
+  try {
+    const helper = await db.agent.create({
+      data: {
+        workspaceId: workspace.id,
+        ownerId: alice.id,
+        name: "helper",
+        displayName: "Helper",
+        runtimeConfig: {},
+      },
+    });
+    await enrollGeneral(db, workspace.id);
+    const channels = new PublicChannels(db, new RedisMessageRequestIdempotency(redis), {
+      publish: async () => {},
+      publishJson: async () => {},
+      broadcast: async () => {},
+    });
+    const repo = new PrismaDirectConversationRepository(db);
+    const general = (await channels.list(workspace.id, alice.id))[0]!;
+    const root = await channels.send({
+      workspaceId: workspace.id,
+      userId: alice.id,
+      channelId: general.id,
+      requestId: crypto.randomUUID(),
+      body: "root by alice",
+    });
+    const reply = await repo.sendAgentMessage(
+      general.id,
+      helper.id,
+      `@${bob.username} please look; not \`@${carol.username}\` or [ask @${carol.username}](https://example.com)`,
+      undefined,
+      root.id.slice(0, 8),
+    );
+    const followers = await db.threadFollow.findMany({
+      where: { rootMessageId: root.id },
+      select: { member: { select: { userId: true, agentId: true } } },
+    });
+    // The reply's mention rows name bob alone, and enrollment follows them: the replying Agent,
+    // the root author (first reply) and bob. Carol, written only in code and in a link label,
+    // is no mention and no follower.
+    expect(
+      (await db.messageMention.findMany({ where: { messageId: reply.id } })).map(
+        (mention) => mention.actorId,
+      ),
+    ).toEqual([bob.id]);
+    expect(followers.map(({ member }) => member.userId ?? member.agentId).sort()).toEqual(
+      [alice.id, bob.id, helper.id].sort(),
+    );
+  } finally {
+    await db.workspace.deleteMany({ where: { id: workspace.id } });
+    await db.user.deleteMany({ where: { id: { in: [alice.id, bob.id, carol.id] } } });
+    await db.$disconnect();
+    redis.close();
+  }
+});
+
 test("a channel member can list and unfollow Agents following a thread; a private Agent is never a channel follower", async () => {
   const connectionString = Bun.env.CHANNEL_TEST_DATABASE_URL;
   if (!connectionString) throw new Error("CHANNEL_TEST_DATABASE_URL is required");
@@ -2834,6 +2909,67 @@ test("a channel member without a browser push subscription is still a notificati
   } finally {
     await db.workspace.deleteMany({ where: { id: workspace.id } });
     await db.user.deleteMany({ where: { id: { in: [alice.id, carol.id] } } });
+    await db.$disconnect();
+    redis.close();
+  }
+});
+
+test("a mention pierces a muted member's push only through the message's stored mention rows; an @handle in code or a link label does not", async () => {
+  const connectionString = Bun.env.CHANNEL_TEST_DATABASE_URL;
+  if (!connectionString) throw new Error("CHANNEL_TEST_DATABASE_URL is required");
+  const db = new PrismaClient({ adapter: new PrismaPg({ connectionString }) });
+  const redis = new RedisClient(Bun.env.CHANNEL_TEST_REDIS_URL!);
+  const suffix = crypto.randomUUID().slice(0, 8);
+  const alice = await db.user.create({ data: { username: `pa${suffix}` } });
+  const bob = await db.user.create({
+    data: {
+      username: `pb${suffix}`,
+      preferences: { create: { browserNotificationsEnabled: true } },
+    },
+  });
+  const workspace = await db.workspace.create({
+    data: {
+      slug: `mute-pierce-${suffix}`,
+      name: "Mute pierce",
+      members: { create: [{ userId: alice.id }, { userId: bob.id }] },
+    },
+  });
+  try {
+    const channels = new PublicChannels(db, new RedisMessageRequestIdempotency(redis), {
+      publish: async () => {},
+      publishJson: async () => {},
+      broadcast: async () => {},
+    });
+    const room = await channels.create(workspace.id, alice.id, "mute-pierce");
+    await channels.join(workspace.id, bob.id, room.id);
+    await channels.setUserMuted(workspace.id, bob.id, room.id, true);
+    const send = (body: string) =>
+      channels.send({
+        workspaceId: workspace.id,
+        userId: alice.id,
+        channelId: room.id,
+        requestId: crypto.randomUUID(),
+        body,
+      });
+    const pushSubscriptions = new PrismaWebPushSubscriptionStore(db);
+    const recipientsOf = async (messageId: string) =>
+      (await pushSubscriptions.notificationForMessage(messageId))?.recipients.map(
+        (recipient) => recipient.userId,
+      );
+
+    const mentioned = await send(`@${bob.username} please review`);
+    expect(await recipientsOf(mentioned.id)).toEqual([bob.id]);
+    expect(await pushSubscriptions.notificationForRecipient(mentioned.id, bob.id)).not.toBeNull();
+
+    const notMentioned = await send(
+      `see \`@${bob.username}\` and [ask @${bob.username}](https://example.com)`,
+    );
+    expect(await db.messageMention.count({ where: { messageId: notMentioned.id } })).toBe(0);
+    expect(await recipientsOf(notMentioned.id)).toEqual([]);
+    expect(await pushSubscriptions.notificationForRecipient(notMentioned.id, bob.id)).toBeNull();
+  } finally {
+    await db.workspace.deleteMany({ where: { id: workspace.id } });
+    await db.user.deleteMany({ where: { id: { in: [alice.id, bob.id] } } });
     await db.$disconnect();
     redis.close();
   }

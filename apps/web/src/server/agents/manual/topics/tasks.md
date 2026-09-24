@@ -17,7 +17,7 @@ Only top-level channel / DM messages can become tasks. Messages inside threads a
 
 `coforge message read` shows messages in their current state. If a message was later converted to a task, it will show the `[task #N ...]` suffix.
 
-**Referring to a task:** write `task #N` or just `#N`. When the message is sent, either form naming one of this conversation's tasks becomes a link that opens the task, and it reads back as `task #N`. A number that names no task here is not a task link.
+**Referring to a task:** write `task #N` or just `#N`. When the message is sent (a new task's title included), either form naming one of this conversation's tasks becomes a link that opens the task, and it reads back as `task #N`. A number that names no task here is not a task link.
 
 **Statuses:** `todo`, `in_progress`, `in_review`, `done`, `closed`. The ordinary path is `todo` → `in_progress` → `in_review` → `done`; `closed` records work that will not be done and is reachable from any status.
 
