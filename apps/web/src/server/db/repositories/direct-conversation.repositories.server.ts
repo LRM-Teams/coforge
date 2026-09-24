@@ -16,9 +16,7 @@ import {
 } from "#src/server/conversations/active-member.server";
 import { HUMAN_UNREAD_MESSAGE_SQL } from "#src/server/conversations/human-unread.server";
 import {
-  BROWSER_MESSAGE_MENTIONS_SELECT,
   MESSAGE_MENTIONS_SELECT,
-  browserMessageMention,
   type MessageMentionRef,
 } from "#src/server/conversations/mentions.server";
 import {
@@ -36,21 +34,19 @@ import {
   type PendingMentionActionView,
 } from "#src/server/conversations/pending-mention-actions.server";
 import { unresolvedMentionHandles } from "#src/server/conversations/unresolved-mentions.server";
-import {
-  MESSAGE_REACTIONS_SELECT,
-  reactionSummaries,
-} from "#src/server/conversations/message-reactions.server";
 import { toggleUserMessageReaction } from "#src/server/conversations/user-message-reactions.server";
 import {
   agentMessageSender,
-  browserSenderHandle,
-  browserSenderName,
   MESSAGE_SENDER_SELECT,
 } from "#src/server/conversations/sender-display.server";
 import { agentAvatarUrl } from "#src/server/agents/agent-avatar.server";
 import { workspaceUserAvatarUrl } from "./user-profile.repositories.server";
 import { attachmentView } from "#src/server/attachments/attachment-view.server";
-import type { ActionCardView } from "#src/server/conversations/action-cards.server";
+import {
+  browserMessageFields,
+  mapBrowserMessage,
+  type BrowserMessageRow,
+} from "#src/server/conversations/conversation-history.server";
 import { windowPageFlags } from "#src/lib/conversation-window";
 import { channelTarget } from "#src/server/conversations/agent-delivery.server";
 import { isUniqueViolation } from "#src/server/db/unique-violation.server";
@@ -157,32 +153,6 @@ const PUBLIC_USERNAME_TARGET = /^@[a-z0-9](?:[a-z0-9_-]{1,30}[a-z0-9])?$/;
 const MESSAGE_ANCHOR =
   /^(?:[0-9a-f]{8}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/;
 
-/** Per-message attachment projection, ordered by stable send/upload position. */
-const ATTACHMENT_SELECT = {
-  select: { id: true, fileName: true, contentType: true, sizeBytes: true, objectKey: true },
-  orderBy: { position: "asc" },
-} satisfies Prisma.MessageSelect["attachments"];
-
-/** Message projection sent to the browser client. */
-const BROWSER_MESSAGE_SELECT = {
-  id: true,
-  sequence: true,
-  threadRootId: true,
-  body: true,
-  createdAt: true,
-  attachments: ATTACHMENT_SELECT,
-  sender: {
-    select: {
-      userId: true,
-      agentId: true,
-      user: { select: { username: true, displayName: true, avatarObjectKey: true } },
-      agent: { select: { name: true, displayName: true, deletedAt: true, avatarObjectKey: true } },
-    },
-  },
-  mentions: BROWSER_MESSAGE_MENTIONS_SELECT,
-  reactions: MESSAGE_REACTIONS_SELECT,
-} satisfies Prisma.MessageSelect;
-
 const TASK_METADATA_SELECT = {
   select: {
     number: true,
@@ -213,8 +183,6 @@ const AGENT_MESSAGE_INCLUDE = {
 type DirectConversationMessageRow = Prisma.MessageGetPayload<{
   include: typeof AGENT_MESSAGE_INCLUDE;
 }>;
-
-type BrowserMessageRow = Prisma.MessageGetPayload<{ select: typeof BROWSER_MESSAGE_SELECT }>;
 
 /** A delivery target is the conversation target, suffixed with the thread root when replying. */
 function deliveryTarget(parent: string, rootId?: string | null) {
@@ -262,46 +230,12 @@ function toAgentMessage(
   };
 }
 
+/** A direct-conversation message for the browser: the shared message-stream projection
+ * (`mapBrowserMessage`) without `senderMemberId`, which this stream does not send; the pane then
+ * tells the viewer's own messages by `senderKind`. */
 function toBrowserMessage(message: BrowserMessageRow, workspaceId: string) {
-  return {
-    id: message.id,
-    sequence: message.sequence,
-    threadRootId: message.threadRootId ?? undefined,
-    senderKind: !message.sender
-      ? ("system" as const)
-      : message.sender.userId
-        ? ("user" as const)
-        : ("agent" as const),
-    senderName: browserSenderName(message.sender),
-    senderHandle: browserSenderHandle(message.sender),
-    /** The sender's Agent id, present only for an Agent-sent message; opens the Agent profile
-     * panel from a message row (`features/agents/profile-panel/`). */
-    senderAgentId: message.sender?.agentId ?? undefined,
-    /** True when the sending Agent has since been deleted: the row renders its sender
-     * greyed with a `DELETED` marker, and no longer opens that Agent's profile. */
-    senderDeleted: Boolean(message.sender?.agent?.deletedAt),
-    senderAvatarUrl: message.sender?.userId
-      ? workspaceUserAvatarUrl(
-          workspaceId,
-          message.sender.userId,
-          message.sender.user?.avatarObjectKey ?? null,
-        )
-      : message.sender?.agentId
-        ? agentAvatarUrl(
-            workspaceId,
-            message.sender.agentId,
-            message.sender.agent?.avatarObjectKey ?? null,
-          )
-        : null,
-    body: message.body,
-    createdAt: message.createdAt,
-    mentions: message.mentions.map(browserMessageMention),
-    attachments: message.attachments.map((attachment) => attachmentView(attachment)),
-    reactions: reactionSummaries(message.reactions),
-    // Attached by the caller (`conversations.functions.ts`, `ActionCards.viewsFor`) in one
-    // batched lookup per page; this function never queries `ActionCard` rows itself.
-    actionCard: undefined as ActionCardView | undefined,
-  };
+  const { senderMemberId: _senderMemberId, ...view } = mapBrowserMessage(message, workspaceId);
+  return view;
 }
 
 /**
@@ -1445,8 +1379,8 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
           orderBy: { sequence: forward ? ("asc" as const) : ("desc" as const) },
           take: limit + 1,
           select: {
-            ...BROWSER_MESSAGE_SELECT,
-            replies: { orderBy: { sequence: "asc" }, select: BROWSER_MESSAGE_SELECT },
+            ...browserMessageFields,
+            replies: { orderBy: { sequence: "asc" }, select: browserMessageFields },
           },
         },
       },
@@ -1558,7 +1492,7 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
       },
       orderBy: { sequence: "asc" },
       take: 100,
-      select: BROWSER_MESSAGE_SELECT,
+      select: browserMessageFields,
     });
     return messages.map((message) => toBrowserMessage(message, workspaceId));
   }
@@ -2836,7 +2770,7 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
         ? deliveryTarget(`#${conversation.channelName}`, root?.id)
         : "",
       // Agent-facing shape: metadata only; the object key never leaves the backend (never
-      // selected above, unlike the browser-facing ATTACHMENT_SELECT).
+      // selected above, unlike the browser-facing `browserMessageFields`).
       attachments: result.attachments,
     };
   }
