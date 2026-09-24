@@ -65,15 +65,19 @@ These rules apply to `src/features/conversations/`.
   conversations and channels.
 - The live Agent activity strip shows one notable display (working, thinking,
   or error; newest cloud revision). Idle and offline stay in the directory.
-- Destructive actions in the channel members dialog use an inline confirm
-  step: no toast, no browser `confirm()`.
+- A channel's members are a page of its settings panel
+  (`channel-members-page.tsx`): the Members summary opens the roster and its
+  "+" the add view, both in place of the settings, with Back. The page and the
+  panel's Members strip read one `channelMembersQueryKey` query; a write
+  updates or invalidates it rather than keeping its own copy. Removing a
+  member confirms in a dialog: no toast, no browser `confirm()`.
 - The header gear opens `channel-settings-panel.tsx`, the one place for a
   channel's info (name, description), the viewer's preferences (pin, mute)
   and its actions (archive, leave, stopping every Agent in it and resuming
   them with new guidance for any member of a live channel; hiding `#general`
   or deleting the channel for a Workspace owner or admin); each action
   confirms in a dialog, whose confirm button is red only for a permanent
-  action (delete). The members dialog only manages members. Hiding `#general` and the way back (the System channels
+  action (delete). Hiding `#general` and the way back (the System channels
   section of Settings → Members) are for a Workspace owner or admin only; the
   server decides who that is, the client never re-derives it from a role.
 - A conversation that answers `NOT_FOUND` (such as a channel just hidden from
@@ -82,7 +86,7 @@ These rules apply to `src/features/conversations/`.
 - Leaving a channel reuses the never-joined read-only conversation state and
   `joined: false` in the channel list. Do not add a separate "left" state.
 - A human commits an action card through the existing `CreateChannelDialog`,
-  `AgentCreateDialog`, or `ChannelMembersDialog` with their preselect/commit
-  props. Do not build card-specific creation forms.
+  `AgentCreateDialog`, or `ChannelMembersDialog` (used only for this) with
+  their preselect/commit props. Do not build card-specific creation forms.
 - The browser refreshes only the pending action cards it shows, through
   `loadActionCardStates` on the `messageAvailable` signal and on window focus.

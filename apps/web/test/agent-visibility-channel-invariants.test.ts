@@ -11,6 +11,8 @@ function publicChannelsFixture(target: {
   id: string;
   name?: string;
   displayName?: string;
+  description?: string;
+  avatarObjectKey?: string | null;
   visibility: string;
 }) {
   const db = {
@@ -61,6 +63,8 @@ test("PublicChannels.members never offers a private Agent as an add-candidate (m
     id: "agent-public",
     name: "scout",
     displayName: "Scout",
+    description: "Reads the web",
+    avatarObjectKey: null,
     visibility: "public",
   });
 
@@ -71,7 +75,13 @@ test("PublicChannels.members never offers a private Agent as an add-candidate (m
   // would never be a row here, so it can never reach a channel's `mentionables` (sourced from
   // `conversationMember` rows) either.
   expect(roster.candidates.agents).toEqual([
-    { id: "agent-public", name: "scout", displayName: "Scout" },
+    {
+      id: "agent-public",
+      name: "scout",
+      displayName: "Scout",
+      description: "Reads the web",
+      avatarUrl: null,
+    },
   ]);
 });
 

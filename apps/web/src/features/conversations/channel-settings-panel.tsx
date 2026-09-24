@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { useQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { Heading, Text } from "react-aria-components";
 import {
+  ArrowLeft,
   Archive,
   Check,
   ChevronRight,
@@ -26,6 +26,7 @@ import { Avatar } from "#src/components/base/avatar/avatar";
 import { AvatarAddButton } from "#src/components/base/avatar/base-components/avatar-add-button";
 import { Badge } from "#src/components/base/badges/badges";
 import { Button } from "#src/components/base/buttons/button";
+import { ButtonUtility } from "#src/components/base/buttons/button-utility";
 import { Input } from "#src/components/base/input/input";
 import { TextArea } from "#src/components/base/textarea/textarea";
 import { Toggle } from "#src/components/base/toggle/toggle";
@@ -35,18 +36,20 @@ import { avatarInitial, avatarToneClassName } from "#src/lib/avatar-tone";
 import { isAppError } from "#src/lib/app-error";
 import { m } from "#src/paraglide/messages";
 import type { ChannelConversationView } from "./channel-conversation";
-import { ChannelMembersDialog } from "./channel-members-dialog";
+import {
+  ChannelMembersPage,
+  useChannelMembers,
+  type ChannelMembersView,
+} from "./channel-members-page";
 import {
   deletePublicChannel,
   leavePublicChannel,
-  loadPublicChannelMembers,
   setGeneralChannelHidden,
   setPublicChannelArchived,
   setPublicChannelMuted,
   setPublicConversationPinned,
   updatePublicChannelInfo,
 } from "./channels.functions";
-import { channelMembersQueryKey } from "./conversation-query-keys";
 import { StopChannelAgentsDialog } from "./stop-channel-agents-dialog";
 
 /** How many member avatars the strip shows before the "+N" tile. */
@@ -80,13 +83,19 @@ export function ChannelSettingsPanel({
   const channelId = conversation.conversationId;
   const capabilities = conversation.channelCapabilities;
   const isMember = Boolean(conversation.senderMemberId);
-  const [membersDialogOpen, setMembersDialogOpen] = useState(false);
+  // The members page (or its add view) shown in place of the settings; null shows the settings.
+  const [membersView, setMembersView] = useState<ChannelMembersView | null>(null);
   const [unsavedPromptOpen, setUnsavedPromptOpen] = useState(false);
   const [confirming, setConfirming] = useState<ConfirmedAction | null>(null);
   const [stoppingAgents, setStoppingAgents] = useState(false);
   const info = useInfoForm(conversation, onChanged);
   // What to do once the panel has closed, held while unsaved edits are being confirmed.
   const afterClose = useRef<(() => void) | undefined>(undefined);
+
+  // Each opening starts on the settings; reset on open, so closing never flashes them.
+  useEffect(() => {
+    if (open) setMembersView(null);
+  }, [open]);
 
   function close() {
     onOpenChange(false);
@@ -114,69 +123,86 @@ export function ChannelSettingsPanel({
               onClose={() => requestClose()}
               className="border-b border-secondary pb-4"
             >
-              <div className="flex min-w-0 items-center gap-2 pr-8">
-                <Heading slot="title" className="truncate text-lg font-semibold text-primary">
-                  #{conversation.name}
-                </Heading>
-                <Badge size="sm" color="gray" className="shrink-0">
-                  {m.channel_settings_public()}
-                </Badge>
-              </div>
-              {conversation.description && (
-                <p className="mt-1 truncate text-sm text-tertiary">{conversation.description}</p>
+              {membersView ? (
+                <MembersPageHeading
+                  key={membersView}
+                  channelId={channelId}
+                  view={membersView}
+                  onBack={() => setMembersView(membersView === "add" ? "members" : null)}
+                />
+              ) : (
+                <>
+                  <div className="flex min-w-0 items-center gap-2 pr-8">
+                    <Heading slot="title" className="truncate text-lg font-semibold text-primary">
+                      #{conversation.name}
+                    </Heading>
+                    <Badge size="sm" color="gray" className="shrink-0">
+                      {m.channel_settings_public()}
+                    </Badge>
+                  </div>
+                  {conversation.description && (
+                    <p className="mt-1 truncate text-sm text-tertiary">
+                      {conversation.description}
+                    </p>
+                  )}
+                </>
               )}
             </SlideoutMenu.Header>
-            <SlideoutMenu.Content className="gap-0 pb-6">
-              <MembersStrip
-                channelId={channelId}
-                canAdd={isMember && !conversation.archived}
-                onOpenMembers={() => setMembersDialogOpen(true)}
-              />
-              {(capabilities.update || conversation.project) && (
-                <PanelSection title={m.channel_settings_info()}>
-                  {capabilities.update && (
-                    <InfoForm
-                      form={info}
-                      channelName={conversation.name}
-                      archived={conversation.archived}
-                    />
-                  )}
-                  {conversation.project && <ProjectField project={conversation.project} />}
-                </PanelSection>
-              )}
-              {isMember && <PreferencesSection conversation={conversation} onChanged={onChanged} />}
-              {(capabilities.archive ||
-                capabilities.unarchive ||
-                capabilities.leave ||
-                conversation.canHideGeneral ||
-                conversation.canStopAgents ||
-                conversation.canDelete) && (
-                <ActionsSection
-                  conversation={conversation}
-                  onConfirm={setConfirming}
-                  onStopAgents={() => setStoppingAgents(true)}
-                  onChanged={onChanged}
+            {membersView ? (
+              <div className="flex min-h-0 w-full flex-1 flex-col">
+                <ChannelMembersPage
+                  channelId={channelId}
+                  channelName={conversation.name}
+                  viewerHandle={conversation.viewerHandle}
+                  view={membersView}
+                  onViewChange={setMembersView}
+                  onOpenAgentProfile={
+                    onOpenAgentProfile &&
+                    ((agentId: string) => requestClose(() => onOpenAgentProfile(agentId)))
+                  }
                 />
-              )}
-            </SlideoutMenu.Content>
+              </div>
+            ) : (
+              <SlideoutMenu.Content className="gap-0 pb-6">
+                <MembersStrip
+                  channelId={channelId}
+                  canAdd={isMember && !conversation.archived}
+                  onOpenMembers={() => setMembersView("members")}
+                  onAddMembers={() => setMembersView("add")}
+                />
+                {(capabilities.update || conversation.project) && (
+                  <PanelSection title={m.channel_settings_info()}>
+                    {capabilities.update && (
+                      <InfoForm
+                        form={info}
+                        channelName={conversation.name}
+                        archived={conversation.archived}
+                      />
+                    )}
+                    {conversation.project && <ProjectField project={conversation.project} />}
+                  </PanelSection>
+                )}
+                {isMember && (
+                  <PreferencesSection conversation={conversation} onChanged={onChanged} />
+                )}
+                {(capabilities.archive ||
+                  capabilities.unarchive ||
+                  capabilities.leave ||
+                  conversation.canHideGeneral ||
+                  conversation.canStopAgents ||
+                  conversation.canDelete) && (
+                  <ActionsSection
+                    conversation={conversation}
+                    onConfirm={setConfirming}
+                    onStopAgents={() => setStoppingAgents(true)}
+                    onChanged={onChanged}
+                  />
+                )}
+              </SlideoutMenu.Content>
+            )}
           </SlideoutDialog>
         </SlideoutModal>
       </SlideoutOverlay>
-      {membersDialogOpen && (
-        <ChannelMembersDialog
-          channelId={channelId}
-          open={membersDialogOpen}
-          onOpenChange={setMembersDialogOpen}
-          onOpenAgentProfile={
-            onOpenAgentProfile
-              ? (agentId: string) => {
-                  setMembersDialogOpen(false);
-                  requestClose(() => onOpenAgentProfile(agentId));
-                }
-              : undefined
-          }
-        />
-      )}
       <UnsavedChangesDialog
         open={unsavedPromptOpen}
         saving={info.saving}
@@ -229,21 +255,55 @@ function PanelSection({ title, children }: { title: string; children: ReactNode 
   );
 }
 
+/** The members page's header: Back (to the roster from the add view, else to the settings), its
+ * title and, on the roster, the member count. */
+function MembersPageHeading({
+  channelId,
+  view,
+  onBack,
+}: {
+  channelId: string;
+  view: ChannelMembersView;
+  onBack: () => void;
+}) {
+  const members = useChannelMembers(channelId);
+  const count = members.data ? members.data.humans.length + members.data.agents.length : null;
+  return (
+    <div className="flex min-w-0 items-center gap-2 pr-8">
+      <ButtonUtility
+        icon={ArrowLeft}
+        size="sm"
+        color="tertiary"
+        // Focus follows the view switch (the add view's search takes it instead).
+        autoFocus={view === "members"}
+        tooltip={view === "add" ? m.channel_members_back_to_members() : m.channel_members_back()}
+        aria-label={view === "add" ? m.channel_members_back_to_members() : m.channel_members_back()}
+        onClick={onBack}
+      />
+      <Heading slot="title" className="truncate text-lg font-semibold text-primary">
+        {view === "add" ? m.channel_members_add_member() : m.channel_members_page_title()}
+      </Heading>
+      {view === "members" && count !== null && (
+        <Badge size="sm" color="gray" className="shrink-0">
+          {count}
+        </Badge>
+      )}
+    </div>
+  );
+}
+
 function MembersStrip({
   channelId,
   canAdd,
   onOpenMembers,
+  onAddMembers,
 }: {
   channelId: string;
   canAdd: boolean;
   onOpenMembers: () => void;
+  onAddMembers: () => void;
 }) {
-  const load = useServerFn(loadPublicChannelMembers);
-  const members = useQuery({
-    queryKey: channelMembersQueryKey(channelId),
-    queryFn: () => load({ data: { channelId } }),
-    refetchOnWindowFocus: true,
-  });
+  const members = useChannelMembers(channelId);
   const humans = members.data?.humans ?? [];
   const agents = members.data?.agents ?? [];
   const entries = [
@@ -304,7 +364,7 @@ function MembersStrip({
           <AvatarAddButton
             size="sm"
             title={m.channel_settings_add_members()}
-            onPress={onOpenMembers}
+            onPress={onAddMembers}
           />
         )}
       </div>

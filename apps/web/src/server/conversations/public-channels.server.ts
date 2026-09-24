@@ -1268,7 +1268,13 @@ export class PublicChannels {
           visibility: AGENT_VISIBILITY.PUBLIC,
           ...ACTIVE_AGENT_WHERE,
         },
-        select: { id: true, name: true, displayName: true },
+        select: {
+          id: true,
+          name: true,
+          displayName: true,
+          description: true,
+          avatarObjectKey: true,
+        },
         orderBy: [{ name: "asc" }, { id: "asc" }],
       }),
       // The actor's own server role (Workspace role for a human, Agent.role for an Agent),
@@ -1306,9 +1312,9 @@ export class PublicChannels {
       channelRole: actorRow?.channelRole,
       channelAdminBasis: actorAdminBasis,
       channelCapabilities: capabilities,
-      // Alias of the capability matrix above for `ChannelMembersDialog`'s Remove action: a
-      // channel admin via `channelRole` (not just a Workspace owner/admin) may also remove
-      // members from a channel it administers.
+      // Alias of the capability matrix above for the members page's Remove action: a channel
+      // admin via `channelRole` (not just a Workspace owner/admin) may also remove members from a
+      // channel it administers.
       canRemoveMembers: capabilities.remove_member,
       humans: memberRows
         .filter((row) => row.user)
@@ -1352,6 +1358,8 @@ export class PublicChannels {
             id: agent.id,
             name: agent.name,
             displayName: agent.displayName?.trim() || agent.name,
+            description: agent.description,
+            avatarUrl: agentAvatarUrl(workspaceId, agent.id, agent.avatarObjectKey),
           })),
       },
     };
