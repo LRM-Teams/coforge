@@ -606,12 +606,24 @@ export class RecordCatalog {
       }
       const current = await this.db.weeklyReport.findFirst({
         where: { id: linked.id },
-        select: { title: true },
+        select: {
+          title: true,
+          cycle: { select: { id: true, year: true, week: true } },
+        },
       });
       if (current && current.title !== input.settingsName) {
         await this.db.weeklyReport.update({
           where: { id: linked.id },
           data: { title: input.settingsName },
+        });
+      }
+      if (current?.cycle) {
+        await this.rebaseLiveFormatToCurrentWeek({
+          workspaceId: input.workspaceId,
+          userId: input.userId,
+          reportId: linked.id,
+          cycle: current.cycle,
+          now: input.now ?? new Date(),
         });
       }
       return linked;
@@ -626,7 +638,10 @@ export class RecordCatalog {
         submissions: { none: { kind: "member" } },
       },
       orderBy: { updatedAt: "desc" },
-      select: { id: true },
+      select: {
+        id: true,
+        cycle: { select: { id: true, year: true, week: true } },
+      },
     });
     if (orphan) {
       await this.db.weeklyReport.update({
@@ -641,6 +656,13 @@ export class RecordCatalog {
           sections: input.sections,
         });
       }
+      await this.rebaseLiveFormatToCurrentWeek({
+        workspaceId: input.workspaceId,
+        userId: input.userId,
+        reportId: orphan.id,
+        cycle: orphan.cycle,
+        now: input.now ?? new Date(),
+      });
       return orphan;
     }
 
@@ -1914,7 +1936,8 @@ export class RecordCatalog {
       content = { ...content, keyPointExtraction: stored.keyPointExtraction };
     }
     const now = input.now ?? new Date();
-    const week = report.cycle ?? currentIsoWeek(zonedCalendarDate(now));
+    // Live format may still be bound to the week it was created; cancel/send keys follow the calendar week.
+    const week = currentIsoWeek(zonedCalendarDate(now));
     const wasCancelled = isAutoSendCancelled(stored, week.year, week.week);
     let autoSendJustCancelled = false;
     if (
@@ -2809,11 +2832,24 @@ export class RecordCatalog {
         id: true,
         settingsId: true,
         updatedAt: true,
-        cycle: { select: { year: true, week: true } },
+        cycle: { select: { id: true, year: true, week: true } },
         author: { select: { displayName: true, username: true } },
+        submissions: { where: { kind: "member" }, select: { id: true }, take: 1 },
       },
     });
     if (!report?.settingsId) return null;
+    // Sent overviews keep their week; the live format advances with the calendar.
+    const now = input.now ?? new Date();
+    const { year, week } =
+      (report.submissions?.length ?? 0) > 0
+        ? { year: report.cycle.year, week: report.cycle.week }
+        : await this.rebaseLiveFormatToCurrentWeek({
+            workspaceId: input.workspaceId,
+            userId: input.userId,
+            reportId: report.id,
+            cycle: report.cycle,
+            now,
+          });
 
     const settings = await this.db.weeklyReportTemplate.findFirst({
       where: {
@@ -2861,8 +2897,6 @@ export class RecordCatalog {
         displayName: user.displayName ?? user.username,
         avatarUrl: workspaceUserAvatarUrl(input.workspaceId, user.id, user.avatarObjectKey),
       }));
-    const year = report.cycle.year;
-    const week = report.cycle.week;
     const displayName = report.author.displayName ?? report.author.username;
     return {
       body: `hi，${displayName}，${year} W${week}的工作周报模板已生成，请确认是否发送。`,
@@ -2876,6 +2910,33 @@ export class RecordCatalog {
         recipientTotal: recipients.length,
       },
     };
+  }
+
+  /** Move an unsent live format onto this week's cycle when the calendar advanced. */
+  private async rebaseLiveFormatToCurrentWeek(input: {
+    workspaceId: string;
+    userId: string;
+    reportId: string;
+    cycle: { id: string; year: number; week: number };
+    now: Date;
+  }): Promise<{ year: number; week: number }> {
+    const current = currentIsoWeek(zonedCalendarDate(input.now));
+    if (input.cycle.year === current.year && input.cycle.week === current.week) {
+      return current;
+    }
+    const cycle = await this.ensureCycleAt({
+      workspaceId: input.workspaceId,
+      userId: input.userId,
+      year: current.year,
+      week: current.week,
+    });
+    if (input.cycle.id !== cycle.id) {
+      await this.db.weeklyReport.update({
+        where: { id: input.reportId },
+        data: { cycleId: cycle.id },
+      });
+    }
+    return { year: cycle.year, week: cycle.week };
   }
 
   /** Leader cancels this week's template send entirely（取消本周周报）. */

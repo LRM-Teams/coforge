@@ -58,13 +58,7 @@ export function SystemMessageGroup({
   const first = messages[0]!;
   const listId = `${id}:messages`;
   return (
-    <li
-      data-message-id={first.id}
-      data-system-group={id}
-      // Every notice the group folds, for the scroll anchor that restores the reading position.
-      data-system-group-members={messages.map((message) => message.id).join(" ")}
-      className="flex flex-col"
-    >
+    <li data-message-id={first.id} data-system-group={id} className="flex flex-col">
       {unreadStartsHere && <UnreadDivider />}
       {dayChanged && <DayDivider value={first.createdAt} locale={dateLocale} />}
       {/* The summary is what the reader sees of a folded group: the scroll anchor holds it. */}

@@ -1867,6 +1867,119 @@ test("saveReportContent with askToSend cancels auto-send and leaves offer-send t
   ).toBe(38);
 });
 
+test("ensureAssistantIntro posts the offer-send for the current ISO week when the live format cycle is stale", async () => {
+  const comments: Array<Record<string, unknown>> = [];
+  const reportUpdates: Array<Record<string, unknown>> = [];
+  const formatRow = {
+    id: "format-1",
+    authorId: "leader",
+    kind: "template",
+    settingsId: "settings-1",
+    content: { tabs: { Summary: { markdown: "old" } } },
+    // Created last week; the calendar has advanced to W39 by now.
+    cycle: { id: "cycle-38", year: 2026, week: 38 },
+    submissions: [],
+    updatedAt: new Date("2026-09-18T06:00:00.000Z"),
+    author: { displayName: "李健", username: "lijian" },
+  };
+  const db = {
+    workspaceMembership: {
+      findUnique: async () => ({ role: "member" }),
+      findMany: async () => [],
+    },
+    weeklyReportCycle: {
+      findUnique: async () => ({
+        id: "cycle-39",
+        year: 2026,
+        week: 39,
+        title: "2026 W39",
+      }),
+      create: async () => {
+        throw new Error("current week cycle must already exist");
+      },
+    },
+    weeklyReport: {
+      findFirst: async (query: {
+        where?: {
+          id?: string;
+          settingsId?: string;
+          submissions?: { some?: unknown; none?: unknown };
+          cycle?: { year?: number; week?: number };
+        };
+        select?: Record<string, unknown>;
+      }) => {
+        if (query.where?.submissions?.some) return null;
+        if (query.where?.submissions?.none) return { id: "format-1" };
+        if (query.where?.id === "format-1" || query.where?.settingsId) {
+          return formatRow;
+        }
+        return null;
+      },
+      update: async (query: { data: Record<string, unknown> }) => {
+        reportUpdates.push(query.data);
+        if (typeof query.data.cycleId === "string") {
+          formatRow.cycle = { id: query.data.cycleId, year: 2026, week: 39 };
+        }
+        return {
+          id: "format-1",
+          updatedAt: new Date("2026-09-24T06:40:00.000Z"),
+        };
+      },
+    },
+    weeklyReportTemplate: {
+      findFirst: async () => ({
+        id: "settings-1",
+        sendWeekday: 4,
+        sendTime: "15:00",
+        scheduleEnabled: true,
+        applied: true,
+        allMembers: false,
+        recipients: [
+          {
+            user: {
+              id: "m1",
+              displayName: "Ada",
+              username: "ada",
+              avatarObjectKey: null,
+            },
+          },
+        ],
+      }),
+    },
+    recordComment: {
+      findMany: async () => [],
+      create: async (query: { data: Record<string, unknown> }) => {
+        comments.push(query.data);
+        return { id: `c-${comments.length}` };
+      },
+    },
+  } as unknown as PrismaClient;
+
+  await new RecordCatalog(db).ensureAssistantIntro({
+    workspaceId: "workspace-1",
+    userId: "leader",
+    subjectType: "report",
+    subjectId: "format-1",
+    assistantSessionId: "session-1",
+    surface: "format",
+    // Thursday 14:40 Shanghai = inside the 14:00–15:00 preview hour for Thursday 15:00
+    now: new Date("2026-09-24T06:40:00.000Z"),
+  });
+
+  expect(comments.at(-1)).toMatchObject({
+    authorType: "assistant",
+    body: "hi，李健，2026 W39的工作周报模板已生成，请确认是否发送。",
+    payload: {
+      kind: "offer-send",
+      year: 2026,
+      week: 39,
+      weekTitle: "2026 W39 (09.21-09.25)",
+    },
+  });
+  // The stale live format was rebound onto the current week's cycle.
+  expect(reportUpdates.some((row) => row.cycleId === "cycle-39")).toBe(true);
+});
+
 test("saveReportContent autosave does not ask to send", async () => {
   const comments: Array<Record<string, unknown>> = [];
   const db = {
