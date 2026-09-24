@@ -611,7 +611,7 @@ export type AgentActivityProbe = {
   probeId: string;
 };
 /** Versioned server-to-daemon notice that an Agent can no longer read these channels (and their
- * threads); the daemon drops its local, unacknowledged state for them. One-way. */
+ * threads); the daemon drops, and acknowledges, its local state for them. One-way. */
 export type AgentInboxPurge = {
   protocolMajor: number;
   requestId: string;

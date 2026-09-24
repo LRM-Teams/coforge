@@ -1760,7 +1760,8 @@ export class DaemonRuntime {
     // this launch's recovery pass has run. `recover()` above already told the Agent about the
     // same canonical unread state (the server's own unread ledger, not this in-memory queue, is
     // what a crashed-and-relaunched Agent's `resumeMessages`/`unreadSummary` are built from) —
-    // drop and ACK the surviving held deliveries instead of a second, redundant notice for them.
+    // drop the surviving held deliveries (acknowledged when they were held) instead of a second,
+    // redundant notice for them.
     // When there was no recovery content, nothing else has told the Agent, so flush them now,
     // treating the freshly launched session as idle.
     if (hasRecoveryContent) this.#dropSurvivingDeliveryQueue(agentId);
@@ -1783,14 +1784,7 @@ export class DaemonRuntime {
    * recovers unread messages from the cloud read boundary, not from ACK state.
    */
   #acknowledgeCustody(message: AgentMessageDelivery): void {
-    void this.#messageAttention.acknowledge(message).catch((error: unknown) => {
-      logger.warn("Agent delivery could not be acknowledged on taking it", {
-        event: "agent.message.custody_ack_failed",
-        agent_id: message.agentId,
-        delivery_id: message.deliveryId,
-        error_code: error instanceof Error ? error.name : "UnknownError",
-      });
-    });
+    this.#messageAttention.acknowledgeCustody(message);
   }
 
   /** Drops whatever `AgentDeliveryQueue` held for `agentId` across an unexpected exit — used when
@@ -1807,10 +1801,13 @@ export class DaemonRuntime {
     const held = this.#deliveryQueue.idle(agentId);
     if (!held.length) return;
     void this.#messageAttention.flush(agentId, held).catch((error: unknown) => {
+      // Already acknowledged when held: they come back as unread on the next Start or daemon
+      // restart, not from a `ready` replay.
       logger.warn("Held Agent deliveries were not accepted at launch", {
         event: "agent.delivery_queue.flush_rejected",
         agent_id: agentId,
         held_count: held.length,
+        already_acknowledged: true,
         error_code: error instanceof Error ? error.name : "UnknownError",
       });
     });
@@ -1853,7 +1850,7 @@ export class DaemonRuntime {
   }
 
   /** A failed launch hands the deliveries still waiting in its input queue to `AgentDeliveryQueue`,
-   * unacknowledged, so the next launch presents them instead of the next daemon reconnect. */
+   * acknowledging each as the daemon keeps it, so the next launch presents them. */
   #keepDeliveriesForNextLaunch(agentId: string, error: unknown): void {
     const queue = this.#agentInputQueues.get(agentId);
     if (!queue) return;
@@ -2720,7 +2717,8 @@ export class DaemonRuntime {
     if (exited && this.#messageAttention.isSilent(message))
       return this.#messageAttention.acknowledge(message);
     // A wake launch failed moments ago, so launching again now would most likely fail the same
-    // way. The delivery waits, unacknowledged, for the first launch after the cooldown.
+    // way. The delivery waits, acknowledged as the daemon keeps it, for the first launch after the
+    // cooldown.
     const wakeable = exited ? this.#agentProcessManager.restartConfig(message.agentId) : undefined;
     if (wakeable && this.#wakeLaunchFailures.isBlocked(message.agentId)) {
       this.#deliveryQueue.enqueue(message.agentId, message);
@@ -2743,7 +2741,7 @@ export class DaemonRuntime {
     }
     // A wake launch that will present waiting deliveries is still in flight: join them as well,
     // rather than arriving as a second notice right after theirs. Only a wake: a recovery launch
-    // ACKs what waits once its own notice is accepted, and that notice does not cover this one.
+    // drops what waits once its own notice is accepted, and that notice does not cover this one.
     if (
       this.#runnerHold === undefined &&
       !this.#agentProcessManager.session(message.agentId) &&
@@ -2799,9 +2797,9 @@ export class DaemonRuntime {
     return launch;
   }
 
-  /** Drops an Agent's local, unacknowledged state for channels it can no longer read: waiting
-   * deliveries (not ACKed, so not presented; the server no longer replays them) and the pending
-   * attention of those channels and their threads. */
+  /** Drops an Agent's local state for channels it can no longer read: waiting deliveries (each
+   * acknowledged, so a rejoin does not bring them back on `ready`) and the pending attention of
+   * those channels and their threads. */
   handleAgentInboxPurge(purge: AgentInboxPurge): void {
     this.#assertRunning();
     if (purge.workspaceId !== this.#connection.workspaceId)
@@ -3102,6 +3100,7 @@ export class DaemonRuntime {
         event: "agent.delivery_queue.flush_rejected",
         agent_id: agentId,
         held_count: held.length,
+        already_acknowledged: true,
         error_code: error instanceof Error ? error.name : "UnknownError",
       });
     });
