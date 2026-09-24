@@ -1625,6 +1625,7 @@ export class DaemonRuntime {
           return runtime;
         },
         (error: unknown) => {
+          this.#keepDeliveriesForNextLaunch(agentId, error);
           this.#closeAgentInputQueue(agentId, error);
           throw error;
         },
@@ -1822,6 +1823,19 @@ export class DaemonRuntime {
     } catch (cleanupError) {
       return cleanupError;
     }
+  }
+
+  /** A failed launch hands the deliveries still waiting in its input queue to `AgentDeliveryQueue`,
+   * unacknowledged, so the next launch presents them instead of the next daemon reconnect. */
+  #keepDeliveriesForNextLaunch(agentId: string, error: unknown): void {
+    const queue = this.#agentInputQueues.get(agentId);
+    if (!queue) return;
+    queue.items = queue.items.filter((item) => {
+      if (item.kind !== "delivery") return true;
+      this.#deliveryQueue.enqueue(agentId, item.message);
+      item.completion.reject(error);
+      return false;
+    });
   }
 
   #closeAgentInputQueue(agentId: string, error: unknown): void {
@@ -2690,6 +2704,17 @@ export class DaemonRuntime {
       await this.#wakeAgent(message.agentId, wakeable);
       return;
     }
+    // A launch that will present waiting deliveries is still in flight: join them as well, rather
+    // than arriving as a second notice right after theirs.
+    if (
+      this.#runnerHold === undefined &&
+      !this.#agentProcessManager.session(message.agentId) &&
+      this.#agentLaunches.has(message.agentId) &&
+      this.#deliveryQueue.hasQueued(message.agentId)
+    ) {
+      this.#deliveryQueue.enqueue(message.agentId, message);
+      return;
+    }
     const delivery = this.#enqueueAgentInput(message.agentId, (completion) => ({
       kind: "delivery",
       message,
@@ -2719,10 +2744,7 @@ export class DaemonRuntime {
       this.#closeAgentInputQueue(message.agentId, new Error("Agent is inactive"));
       return delivery;
     }
-    const launch = this.#wakeAgent(message.agentId, restart);
-    // A failed launch keeps this delivery, unacknowledged, for the launch after the cooldown.
-    void launch.catch(() => this.#deliveryQueue.enqueue(message.agentId, message));
-    await Promise.all([launch, delivery]);
+    await Promise.all([this.#wakeAgent(message.agentId, restart), delivery]);
   }
 
   /** Relaunches an exited Agent for a message; a failure starts or extends the wake cooldown. A

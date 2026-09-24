@@ -701,6 +701,26 @@ test("a held delivery updates attention but does not notify or ACK until flush",
   expect(notices[0]).toContain("Inbox update: 2 messages delivered or held for you");
   expect(notices[0]).toContain("@agent  new: 2 messages");
   expect(acks).toEqual(["delivery-one", "delivery-two"]);
+  // Already recorded while held: flushing them does not count them again.
+  expect(index.check("agent-1")[0]).toMatchObject({ pendingCount: 2 });
+});
+
+test("flushing deliveries that waited for a launch records them as a received delivery would", async () => {
+  const acks: string[] = [];
+  const index = new AgentMessageAttentionIndex("workspace-1", runtime, async (ack) => {
+    acks.push(ack.deliveryId);
+  });
+
+  // Queued by the runtime before the Agent's process existed, so never passed through `receive`.
+  await index.flush("agent-1", [delivery("one"), { ...delivery("two"), sequence: 2 }]);
+
+  expect(acks).toEqual(["delivery-one", "delivery-two"]);
+  expect(index.check("agent-1")).toEqual([
+    expect.objectContaining({ target: "@agent", pendingCount: 2, latestSequence: 2 }),
+  ]);
+  expect(index.pendingMessageCount("agent-1", "@agent")).toBe(2);
+  expect(index.latestSequence("agent-1", "@agent")).toBe(2);
+  expect(index.pendingWindow("agent-1", "@agent", 10)).toHaveLength(2);
 });
 
 test("flush is a no-op when nothing was held", async () => {

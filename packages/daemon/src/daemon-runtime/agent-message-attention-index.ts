@@ -234,29 +234,7 @@ export class AgentMessageAttentionIndex {
       });
       return;
     }
-    const latestSender = printableSender(message.latestSenderKind, message.latestSenderHandle);
-    const byTarget = this.#attention.get(message.agentId) ?? new Map<string, MessageAttention>();
-    const previous = byTarget.get(target);
-    const pendingByTarget =
-      this.#pendingSequences.get(message.agentId) ?? new Map<string, Set<number>>();
-    const pending = pendingByTarget.get(target) ?? new Set<number>();
-    pending.add(message.sequence);
-    pendingByTarget.set(target, pending);
-    this.#pendingSequences.set(message.agentId, pendingByTarget);
-    const current = {
-      target,
-      pendingCount: (previous?.pendingCount ?? 0) + 1,
-      firstPendingSequence: previous?.firstPendingSequence ?? message.sequence,
-      latestSequence: Math.max(previous?.latestSequence ?? 0, message.sequence),
-      ...(latestSender
-        ? { latestSenderKind: latestSender.kind, latestSenderHandle: latestSender.handle }
-        : {}),
-      flags: [isChannelMessageTarget(target) ? "channel" : target.includes(":") ? "thread" : "dm"],
-    };
-    byTarget.set(target, current);
-    this.#attention.set(message.agentId, byTarget);
-    this.#recordLatest(message.agentId, target, message.sequence);
-    this.#recordPendingWindow(message.agentId, target, message);
+    const current = this.#recordAttention(message);
     if (!shouldWakeForDelivery(message)) {
       generation.notified.add(message.deliveryId);
       await this.sendAck({
@@ -279,19 +257,55 @@ export class AgentMessageAttentionIndex {
     });
   }
 
+  /** Records one delivery the Agent has not been shown yet: its target's attention, pending
+   * sequences, newest known sequence, and the window a local hold presents. */
+  #recordAttention(message: AgentMessageDelivery & { target: string }): MessageAttention {
+    const target = message.target;
+    const latestSender = printableSender(message.latestSenderKind, message.latestSenderHandle);
+    const byTarget = this.#attention.get(message.agentId) ?? new Map<string, MessageAttention>();
+
+    const previous = byTarget.get(target);
+    const pendingByTarget =
+      this.#pendingSequences.get(message.agentId) ?? new Map<string, Set<number>>();
+    const pending = pendingByTarget.get(target) ?? new Set<number>();
+    pending.add(message.sequence);
+    pendingByTarget.set(target, pending);
+    this.#pendingSequences.set(message.agentId, pendingByTarget);
+    const current: MessageAttention = {
+      target,
+      pendingCount: (previous?.pendingCount ?? 0) + 1,
+      firstPendingSequence: previous?.firstPendingSequence ?? message.sequence,
+      latestSequence: Math.max(previous?.latestSequence ?? 0, message.sequence),
+      ...(latestSender
+        ? { latestSenderKind: latestSender.kind, latestSenderHandle: latestSender.handle }
+        : {}),
+      flags: [isChannelMessageTarget(target) ? "channel" : target.includes(":") ? "thread" : "dm"],
+    };
+    byTarget.set(target, current);
+    this.#attention.set(message.agentId, byTarget);
+    this.#recordLatest(message.agentId, target, message.sequence);
+    this.#recordPendingWindow(message.agentId, target, message);
+    return current;
+  }
+
   /**
    * Delivers every notice `AgentDeliveryQueue` held for `agentId`, oldest first, as
    * one call to `AgentSession.notify` once the Agent is idle — the daemon core is the only
-   * caller, right after `AgentDeliveryQueue.idle`/`release` hands back what it drained. `receive`
-   * already recorded each held delivery's attention while it was held, so `#notify`'s existing
-   * coalesced-notice wording (built from that live attention) reads exactly as it would have for
-   * the most recent one, had it not been held. ACKs every held delivery only once that single
-   * notice is accepted — never on failure, so an un-acked delivery stays safe to hold or
-   * redeliver.
+   * caller, right after `AgentDeliveryQueue.idle`/`release` hands back what it drained. A delivery
+   * held by `receive` already has its attention recorded; one the runtime queued before the
+   * Agent's process existed (a wake cooldown, a batched wake) is recorded here first, exactly as
+   * `receive` would have. ACKs every held delivery only once that single notice is accepted —
+   * never on failure, so an un-acked delivery stays safe to hold or redeliver.
    */
   async flush(agentId: string, held: readonly AgentMessageDelivery[]): Promise<void> {
     if (!held.length) return;
     const generation = this.#generation(agentId);
+    for (const message of held) {
+      if (generation.seenDeliveryIds.has(message.deliveryId) || !hasDeliveryScope(message))
+        continue;
+      this.#remember(generation, message.deliveryId);
+      this.#recordAttention(message);
+    }
     // One notice for the whole coalesced batch, carrying the batch itself: the queue is per Agent,
     // so a batch legitimately spans channels, DMs and threads, and each target needs its own line.
     await this.#notify(held[held.length - 1]!, undefined, held);
