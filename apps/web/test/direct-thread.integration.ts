@@ -54,7 +54,7 @@ test("thread send and unread ranges stay separate from the main conversation", a
     ]);
     expect(
       (await repo.readMessages(workspace.id, agent.id, `@${username}`)).map((m) => m.body),
-    ).toEqual(["root", "main unread"]);
+    ).toEqual<string[]>(["root", "main unread"]);
     expect(await repo.readMessages(workspace.id, agent.id, target)).toEqual([]);
     expect(
       (
@@ -131,7 +131,7 @@ test("thread send and unread ranges stay separate from the main conversation", a
           after: reply.id.slice(0, 8),
         })
       ).map((m) => m.body),
-    ).toEqual(["new thread message", "thread response"]);
+    ).toEqual<string[]>(["new thread message", "thread response"]);
     expect(
       (await repo.readPendingAgentDeliveries(workspace.id, agent.id)).find(
         (m) => m.messageId === reply.id,

@@ -750,7 +750,7 @@ test("a channel @mention persists as a token and wakes only the mentioned Agent,
         (row) => row.agentId,
       ),
     ).toEqual([helper.id]);
-    expect(
+    expect<string | undefined>(
       (await repo.readMessages(workspace.id, helper.id, "#general")).find(
         (message) => message.id === humanMention.id,
       )?.body,
@@ -794,7 +794,7 @@ test("a channel @mention persists as a token and wakes only the mentioned Agent,
         (message) => message.id === handoff.id,
       ),
     ).toMatchObject({ senderKind: "agent", senderHandle: "helper", target: "#general" });
-    expect(
+    expect<string | undefined>(
       (await repo.readMessages(workspace.id, scout.id, "#general")).find(
         (message) => message.id === handoff.id,
       )?.body,
@@ -894,7 +894,9 @@ test("a #channel reference is stored as a channel token on every send path, and 
     expect(bodyOf(await repo.searchMessages(workspace.id, helper.id, { query: "product" }))).toBe(
       readable,
     );
-    expect((await repo.resolveAgentMessage(workspace.id, helper.id, human.id)).body).toBe(readable);
+    expect<string>((await repo.resolveAgentMessage(workspace.id, helper.id, human.id)).body).toBe(
+      readable,
+    );
 
     // A quote that spans lines keeps its references, and its mention wakes the Agent as before.
     const quote = await channels.send({
@@ -1013,7 +1015,7 @@ test("a #channel reference is stored as a channel token on every send path, and 
       body: "done in #product",
     });
     expect(reply.body).toBe(`done in ${productToken}`);
-    expect(
+    expect<string | undefined>(
       (await repo.readMessages(workspace.id, helper.id, `@${user.username}`)).find(
         (message) => message.id === reply.id,
       )?.body,

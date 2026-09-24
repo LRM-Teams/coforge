@@ -110,7 +110,14 @@ type PostedNotice = ConversationRef & {
   threadRootId: string | null;
   body: string;
 };
-type NoticeInput = { id?: string; threadRootId?: string; body: string; deliverTo?: string | null };
+type NoticeInput = {
+  id?: string;
+  threadRootId?: string;
+  body: string;
+  deliverTo?: string | null;
+  /** The member the notice personally mentions: its one mention row. */
+  mentions?: Member;
+};
 /** The Task fields a notice quotes; `messageId` is also the root of the Task's thread. */
 type NoticeSubject = { messageId: string; number: number; title: string };
 /**
@@ -125,8 +132,12 @@ type NoticeWriter = {
   inConversation(body: string): Promise<PostedNotice>;
   /** A reply in the Task's own thread. */
   inThread(task: NoticeSubject, body: (task: QuotedTask) => string): Promise<PostedNotice>;
-  /** The assignee's receipt: its fixed id and its one delivery to an Agent assignee. */
-  receipt(input: { id: string; body: string; deliverTo: string | null }): Promise<PostedNotice>;
+  /**
+   * The assignee's receipt: its fixed id, its one mention row naming the assignee (so it reaches a
+   * human assignee who muted the channel, and an Agent assignee reads it as its mention), and its
+   * one delivery to an Agent assignee. The body stays the server-built `@handle` text.
+   */
+  receipt(input: { id: string; body: string; assignee: Member }): Promise<PostedNotice>;
 };
 
 type HistoryEvent = Prisma.TaskHistoryEventGetPayload<{ select: undefined }>;
@@ -258,13 +269,13 @@ function taskChanges(before: SelectedTask, after: SelectedTask): TaskHistoryChan
       payload: { from: status(before.status), to: status(after.status) },
     });
   const amended: Extract<TaskHistoryChange, { eventType: "amended" }>["payload"]["changes"] = {};
-  // History records the titles as `view` shows them, so a converted title's tokens are never
-  // written into the record.
-  if (before.title !== after.title)
-    amended.title = {
-      from: agentReadableBody(before.title, before.message.mentions),
-      to: agentReadableBody(after.title, after.message.mentions),
-    };
+  // Titles are compared and recorded as `view` shows them, so a title's stored tokens are never
+  // written into the record, and a title that reads the same is no change.
+  const titles = {
+    from: agentReadableBody(before.title, before.message.mentions),
+    to: agentReadableBody(after.title, after.message.mentions),
+  };
+  if (titles.from !== titles.to) amended.title = titles;
   if (before.description !== after.description)
     amended.description = { from: before.description, to: after.description };
   if (amended.title || amended.description)
@@ -997,7 +1008,7 @@ export class TaskBoard {
         ? await notices.receipt({
             id: receiptId,
             body: noticeText.assigned(assigneeMention(assignee), quoted),
-            deliverTo: assignee.agentId,
+            assignee,
           })
         : null;
       return { tasks, created: true, sequences, receipt, started };
@@ -1106,14 +1117,16 @@ export class TaskBoard {
           const [quoted] = await quote([task]);
           return postAndSignal({ body: body(quoted!), threadRootId: task.messageId });
         },
-        receipt: post,
+        receipt: ({ assignee, ...input }) =>
+          post({ ...input, deliverTo: assignee.agentId, mentions: assignee }),
       });
     });
     await this.signalNotices(posted);
     return result;
   }
 
-  /** Post one server notice (a null sender); only a receipt names the Agent it is delivered to. */
+  /** Post one server notice (a null sender); only a receipt mentions a member and names the Agent
+   * it is delivered to. */
   private async writeNotice(
     tx: Transaction,
     conversation: ConversationRef,
@@ -1135,6 +1148,17 @@ export class TaskBoard {
         threadRootId: input.threadRootId,
         body: input.body,
         sequence,
+        mentions: input.mentions
+          ? {
+              create: {
+                memberId: input.mentions.id,
+                workspaceId,
+                kind: input.mentions.agentId ? "agent" : "user",
+                actorId: input.mentions.agentId ?? input.mentions.userId!,
+                handle: input.mentions.agent?.name ?? input.mentions.user!.username,
+              },
+            }
+          : undefined,
         deliveries: input.deliverTo
           ? { create: { conversationId, workspaceId, agentId: input.deliverTo, sequence } }
           : undefined,
@@ -1510,7 +1534,7 @@ export class TaskBoard {
         receipt: await notices.receipt({
           id: receiptId,
           body: noticeText.assigned(assigneeMention(owner), await notices.quote([task])),
-          deliverTo: owner.agentId,
+          assignee: owner,
         }),
       };
     });
@@ -1585,13 +1609,18 @@ export class TaskBoard {
       if (!task) throw new AppError("NOT_FOUND");
       if (command.expectedRevision !== undefined && task.revision !== command.expectedRevision)
         throw new AppError("CONFLICT");
+      // An amended title is typed text. One that reads the same as the current title (whose stored
+      // tokens read back as `@handle`, `task #N`, `#name`) is left as stored, tokens included.
+      const title = command.title?.trim();
+      const retitled =
+        title !== undefined && title !== agentReadableBody(task.title, task.message.mentions);
       return this.commitTaskChange(
         tx,
         member,
         task,
         {},
         {
-          ...(command.title !== undefined && { title: command.title.trim() }),
+          ...(retitled && { title }),
           ...(command.description !== undefined && { description: command.description }),
         },
       );

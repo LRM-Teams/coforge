@@ -16,7 +16,7 @@ import {
 } from "#src/server/conversations/mentions.server";
 import {
   agentMessageView,
-  type AgentMessageViewMark,
+  type AgentReadableBody,
 } from "#src/server/conversations/agent-message-view.server";
 import { AgentSendRejectedError } from "#src/server/conversations/agent-send-rejected-error.server";
 import { storeMessageBody } from "#src/server/conversations/message-references.server";
@@ -119,6 +119,10 @@ export type AgentRecoveryContext = {
 export type PendingAgentDelivery = AgentRecoveryContext["resumeMessages"][number] & {
   mentionsAgent?: boolean;
 };
+
+/** An Agent-facing record as this repository builds it: its `body` comes from `agentMessageView`.
+ * The port types keep a plain `body: string`, which this is assignable to. */
+type AgentFacing<T extends { body: string }> = Omit<T, "body"> & { body: AgentReadableBody };
 
 const AGENT_RECOVERY_MESSAGE_LIMIT = 100;
 const PUBLIC_USERNAME_TARGET = /^@[a-z0-9](?:[a-z0-9_-]{1,30}[a-z0-9])?$/;
@@ -1591,7 +1595,7 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
   async readPendingAgentDeliveries(
     workspaceId: string,
     agentId: string,
-  ): Promise<(PendingAgentDelivery & AgentMessageViewMark)[]> {
+  ): Promise<AgentFacing<PendingAgentDelivery>[]> {
     const deliveries = await this.db.agentMessageDelivery.findMany({
       where: { workspaceId, agentId, receivedAt: null },
       orderBy: [{ createdAt: "asc" }, { deliveryId: "asc" }],
@@ -1783,8 +1787,8 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
     workspaceId: string,
     agentId: string,
   ): Promise<
-    AgentRecoveryContext & {
-      resumeMessages: (AgentRecoveryContext["resumeMessages"][number] & AgentMessageViewMark)[];
+    Omit<AgentRecoveryContext, "resumeMessages"> & {
+      resumeMessages: AgentFacing<AgentRecoveryContext["resumeMessages"][number]>[];
     }
   > {
     // One statement over every unread message the Agent owes attention to, ranked globally by
@@ -1806,8 +1810,7 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
       FROM ranked
       WHERE "globalRank" <= ${AGENT_RECOVERY_MESSAGE_LIMIT} OR "targetRank" = 1
       ORDER BY "globalRank"`;
-    const resumeMessages: (AgentRecoveryContext["resumeMessages"][number] &
-      AgentMessageViewMark)[] = [];
+    const resumeMessages: AgentFacing<AgentRecoveryContext["resumeMessages"][number]>[] = [];
     const unreadSummary: Record<string, number> = {};
     // The raw statement cannot join the mention rows, so translate embedded tokens in a second
     // pass; Agents only ever read plain `@handle` text.

@@ -82,7 +82,7 @@ test("events drain returns unread rows in canonical order, advances read boundar
     const first = await repo.drainAgentEvents(workspace.id, agent.id, 50);
     expect(first.hasMore).toBe(false);
     expect(first.messages).toHaveLength(3);
-    const bodies = first.messages.map((m) => m.body);
+    const bodies: string[] = first.messages.map((m) => m.body);
     expect(bodies.indexOf("dm root")).toBeLessThan(bodies.indexOf("dm thread reply"));
     expect(first.messages.map((m) => [m.body, m.target])).toEqual(
       expect.arrayContaining([

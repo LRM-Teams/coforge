@@ -1156,6 +1156,32 @@ test("a created Task's title stores its references as tokens, and its own mentio
         .filter((payload) => payload.messageId === created.assignmentReceipt!.messageId)
         .map((payload) => [payload.agentId, payload.target]),
     ).toEqual([[helper.id, `#${channel.channelName}`]]);
+
+    // Amending compares titles as they read: re-sending the same readable title changes nothing
+    // (no history, tokens kept), and a real change is recorded in readable form.
+    const amend = (title: string) =>
+      board.execute(principal, {
+        operation: "amend",
+        idempotencyKey: crypto.randomUUID(),
+        conversationId: channel.id,
+        number: referencing!.number,
+        title,
+      });
+    const unchanged = await amend(readable);
+    expect(unchanged.history ?? []).toEqual([]);
+    expect(unchanged.tasks[0]!.title).toBe(readable);
+    expect(
+      (await db.task.findUniqueOrThrow({ where: { messageId: referencing!.messageId } })).title,
+    ).toBe(tokenized);
+    const renamed = await amend("A new title");
+    expect(renamed.history).toEqual([
+      expect.objectContaining({
+        eventType: "amended",
+        payload: expect.objectContaining({
+          changes: { title: { from: readable, to: "A new title" } },
+        }),
+      }),
+    ]);
   } finally {
     await db.workspace.delete({ where: { id: workspace.id } });
     await db.computer.delete({ where: { id: computer.id } });

@@ -4,14 +4,22 @@ import {
   type MessageMentionRef,
 } from "./mentions.server";
 
-declare const projected: unique symbol;
+declare const readable: unique symbol;
 
 /**
- * Marks, in the type only, a record built by spreading `agentMessageView`. It carries no runtime
- * field. `test/agent-delivery-choke-point.test.ts` requires it on every Agent-facing read of the
- * conversation repository, so a serializer that fills `body` itself fails to type-check.
+ * A message body as an Agent reads it: every stored token read back as text. Only
+ * `agentMessageView` makes one (its single cast), and `test/agent-delivery-choke-point.test.ts`
+ * requires this type on the `body` of every Agent-facing read of the conversation repository.
+ *
+ * So a repository serializer fails to type-check when it ships a stored body (`body: row.body`),
+ * overrides the projected body after spreading the view, or edits the projected body (any string
+ * operation returns a plain `string`).
+ *
+ * What it cannot catch: another `as AgentReadableBody` cast (the choke-point scan allows it only
+ * here), an Agent-facing reader outside `PrismaDirectConversationRepository` that the check does
+ * not list, and port-typed values such as test fakes, whose `body` is a plain `string`.
  */
-export type AgentMessageViewMark = { readonly [projected]?: true };
+export type AgentReadableBody = string & { readonly [readable]: true };
 
 /** A stored message as the Agent projection needs it: its body and the mention rows that resolve
  * the body's mention tokens, plus an action card's state when the reader shows one. */
@@ -37,9 +45,11 @@ type StoredAgentMessage = {
 export function agentMessageView(
   message: StoredAgentMessage,
   readerAgentId?: string,
-): { body: string; mentionsAgent?: true } & AgentMessageViewMark {
+): { body: AgentReadableBody; mentionsAgent?: true } {
   const text = agentReadableBody(message.body, message.mentions);
-  const body = message.actionCard ? `${text} [action card: ${message.actionCard.state}]` : text;
+  const body = (
+    message.actionCard ? `${text} [action card: ${message.actionCard.state}]` : text
+  ) as AgentReadableBody;
   return readerAgentId && deliveryMentionsAgent(message.mentions, readerAgentId)
     ? { body, mentionsAgent: true }
     : { body };

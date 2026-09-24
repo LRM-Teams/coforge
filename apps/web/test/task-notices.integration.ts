@@ -3,6 +3,8 @@ import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "#src/generated/prisma/client";
 import type { ConversationRealtimeMessage } from "#src/server/conversations/conversation-realtime.server";
 import { TaskBoard } from "#src/server/tasks/task-board.server";
+import { PrismaWebPushSubscriptionStore } from "#src/server/notifications/prisma-web-push-subscriptions.server";
+import { PrismaDirectConversationRepository } from "#src/server/db/repositories/direct-conversation.repositories.server";
 
 const connectionString = Bun.env.TASK_TEST_DATABASE_URL ?? Bun.env.DATABASE_URL;
 if (!connectionString)
@@ -367,4 +369,65 @@ test("only the assignment receipt is delivered, pushed and fanned out to unread 
     if (receiptIds.includes(notice.id)) expect(events[0]!.workspaceId).toBe(workspaceId);
     else expect(events[0]).not.toHaveProperty("workspaceId");
   }
+});
+
+test("an assignment receipt mentions its assignee: a muted human assignee is still pushed, and an Agent assignee reads it as its mention", async () => {
+  const { channel, run, memberId, asAlice } = await channelFixture("muted-assignee");
+  await db.conversationMember.update({
+    where: { id: memberId({ userId: bob.id }) },
+    data: { channelMuted: true },
+  });
+  await db.userPreference.upsert({
+    where: { userId: bob.id },
+    create: { userId: bob.id, browserNotificationsEnabled: true },
+    update: { browserNotificationsEnabled: true },
+  });
+  const push = new PrismaWebPushSubscriptionStore(db);
+
+  const created = await run(asAlice, {
+    operation: "create",
+    title: "Review the plan",
+    assignee: `@${bob.username}`,
+  });
+  const assigned = await run(asAlice, {
+    operation: "assign",
+    number: (await run(asAlice, { operation: "create", title: "Second" })).tasks[0]!.number,
+    assignee: `@${bob.username}`,
+  });
+  for (const receipt of [created.assignmentReceipt!, assigned.assignmentReceipt!]) {
+    // The body is the same server-built text; the mention row is what reaches the muted assignee.
+    expect(receipt.content).toStartWith(`📌 Assigned @${bob.username} to task #`);
+    const stored = await db.message.findUniqueOrThrow({
+      where: { id: receipt.messageId },
+      select: {
+        body: true,
+        threadRootId: true,
+        mentions: { select: { kind: true, actorId: true, handle: true } },
+        _count: { select: { deliveries: true } },
+      },
+    });
+    expect(stored).toEqual({
+      body: receipt.content,
+      threadRootId: null,
+      mentions: [{ kind: "user", actorId: bob.id, handle: bob.username }],
+      _count: { deliveries: 0 },
+    });
+    expect(await push.notificationForRecipient(receipt.messageId, bob.id)).not.toBeNull();
+  }
+
+  // An Agent assignee's receipt keeps its one delivery and now reads as a personal mention.
+  const agentReceipt = (
+    await run(asAlice, { operation: "create", title: "For the Agent", assignee: `@${agent.name}` })
+  ).assignmentReceipt!;
+  const pending = await new PrismaDirectConversationRepository(db).readPendingAgentDeliveries(
+    workspaceId,
+    agent.id,
+  );
+  expect(pending.filter((delivery) => delivery.messageId === agentReceipt.messageId)).toEqual([
+    expect.objectContaining({
+      body: agentReceipt.content,
+      target: `#${channel.channelName}`,
+      mentionsAgent: true,
+    }),
+  ]);
 });
