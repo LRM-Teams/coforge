@@ -147,7 +147,6 @@ function DirectConversationPage() {
         error={taskView.error}
         onOpenTask={openTask}
         onOpenMessage={openTaskThread}
-        onShowChat={showChat}
         onCreateTask={async (title, idempotencyKey) => {
           const [task] = await taskView.command({ operation: "create", title, idempotencyKey });
           await page.invalidate();

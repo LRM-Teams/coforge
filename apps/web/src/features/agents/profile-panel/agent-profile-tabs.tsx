@@ -25,10 +25,7 @@ export function useAgentProfileTabOrder(canSeeManagerTabs: boolean, canSeeWorksp
   );
 }
 
-/**
- * The panel's second band (56px, same as the conversation's Chat/Tasks band): the same
- * reorderable icon + label tab strip `ConversationTaskTabs` uses.
- */
+/** The panel's second band (56px): the reorderable icon + label tab strip. */
 export function AgentProfileTabs({
   active,
   tabs,
