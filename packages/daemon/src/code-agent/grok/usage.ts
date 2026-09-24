@@ -67,7 +67,7 @@ export async function readGrokUsage(
 
 /** Maps a failed billing call to its contract error class, or `undefined` when the failure is
  * not one of the recognized ACP refusals and must propagate as-is. Exported for tests. */
-export function classifyUsageFailure(error: unknown): Error | undefined {
+function classifyUsageFailure(error: unknown): Error | undefined {
   if (!(error instanceof JsonlRequestError)) return undefined;
   const rpc = asRecord(error.responseError);
   const code = typeof rpc?.code === "number" ? rpc.code : undefined;
@@ -79,7 +79,7 @@ export function classifyUsageFailure(error: unknown): Error | undefined {
 }
 
 /** Projects Grok's raw billing record onto the shared snapshot shape. Exported for tests. */
-export function projectBilling(value: unknown, accountLabel?: string): UsageSnapshot {
+function projectBilling(value: unknown, accountLabel?: string): UsageSnapshot {
   const root = asRecord(value);
   const config = asRecord(root?.config);
   if (!config) throw new UsageUnsupportedError();
