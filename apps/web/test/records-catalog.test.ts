@@ -4,6 +4,7 @@ import { RecordCatalog } from "#src/server/records/record-catalog.server";
 
 test("sendWeeklyAssignments creates a new parent and unread assignments for recipients", async () => {
   const created: Array<Record<string, unknown>> = [];
+  let createManyCalls = 0;
   const db = {
     workspaceMembership: {
       findUnique: async () => ({ role: "owner" }),
@@ -22,6 +23,11 @@ test("sendWeeklyAssignments creates a new parent and unread assignments for reci
           id: `created-${created.length}`,
           title: query.data.title,
         };
+      },
+      createMany: async (query: { data: Array<Record<string, unknown>> }) => {
+        createManyCalls += 1;
+        created.push(...query.data);
+        return { count: query.data.length };
       },
     },
     weeklyReportCycle: {
@@ -67,6 +73,7 @@ test("sendWeeklyAssignments creates a new parent and unread assignments for reci
     assignmentCount: 2,
   });
   expect(created).toHaveLength(3);
+  expect(createManyCalls).toBe(1);
   expect(created[0]).toMatchObject({
     kind: "template",
     authorId: "leader",
@@ -108,6 +115,9 @@ test("sendWeeklyAssignments does not post a #general notice", async () => {
       create: async (query: { data: Record<string, unknown> }) => ({
         id: query.data.kind === "template" ? "parent-1" : "child-1",
         title: query.data.title,
+      }),
+      createMany: async (query: { data: Array<Record<string, unknown>> }) => ({
+        count: query.data.length,
       }),
     },
     weeklyReportCycle: {
@@ -597,6 +607,11 @@ test("runDueScheduledWeeklyAssignments sends when due and not yet sent", async (
           id: query.data.kind === "template" ? "parent-1" : `child-${created.length}`,
           title: query.data.title,
         };
+      },
+      createMany: async (query: { data: Array<Record<string, unknown>> }) => {
+        sendCalls += 1;
+        created.push(...query.data);
+        return { count: query.data.length };
       },
     },
     weeklyReportCycle: {
