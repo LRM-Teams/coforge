@@ -26,6 +26,7 @@ import {
 import { CreateChannelDialog } from "./create-channel-dialog";
 import { rememberConversation } from "./last-conversation";
 import { useChannelUnread } from "./conversation-unread";
+import { useSidebarLists } from "./sidebar-lists";
 import {
   DEFAULT_CONVERSATION_OPEN_MODE,
   conversationOpenMode,
@@ -110,8 +111,8 @@ export function useConversationReadRequiresScroll(): boolean {
 
 /** Keep both panels mounted so returning to the list preserves scroll and drafts. */
 export function ConversationNavigation({ children }: { children: ReactNode }) {
-  const { channels, projects, directUnread, directPreferences, viewerId, saved } =
-    messagesRoute.useLoaderData();
+  const { projects, saved } = messagesRoute.useLoaderData();
+  const { channels, directUnread, directPreferences, viewerId } = useSidebarLists();
   const { conversationOpenMode: savedOpenMode } = appRoute.useLoaderData();
   const openMode = conversationOpenMode(savedOpenMode);
   const agents = useLiveAgents();
@@ -176,20 +177,26 @@ export function ConversationNavigation({ children }: { children: ReactNode }) {
       refresh();
     },
   });
-  // Every loader refresh carries the server's own persisted counts; local arithmetic
-  // restarts from them (sequence boundaries survive, so no event double-counts). Direct
-  // messages are already keyed by Agent id, the same key their realtime signal carries.
+  // Every list read carries the server's own persisted counts; local arithmetic restarts from
+  // them (sequence boundaries survive, so no event double-counts). Direct messages are already
+  // keyed by Agent id, the same key their realtime signal carries. Only a change in the counts
+  // themselves re-seeds: a pin or a drag changes the rows but not their counts.
   const { counts } = unread;
   const refresh = unread.replace;
-  useEffect(() => {
-    refresh([
-      ...visibleChannels,
+  const seed = useMemo(
+    () => [
+      ...visibleChannels.map((listed) => ({ id: listed.id, unreadCount: listed.unreadCount })),
       ...Object.entries(directUnread).map(([agentId, unreadCount]) => ({
         id: agentId,
         unreadCount,
       })),
-    ]);
-  }, [refresh, visibleChannels, directUnread]);
+    ],
+    [visibleChannels, directUnread],
+  );
+  const seedKey = seed.map((entry) => `${entry.id}:${entry.unreadCount}`).join(",");
+  useEffect(() => {
+    refresh(seed);
+  }, [refresh, seedKey]);
   const controls = useMemo<UnreadControls>(
     () => ({ counts, clear: unread.clear }),
     [counts, unread.clear],

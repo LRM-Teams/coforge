@@ -87,9 +87,9 @@ live in nested `AGENTS.md` files listed at the end.
 - Put shareable filters, pagination, sorting, and tabs in validated route
   search params. Keep ephemeral UI state such as an open Dialog in React
   state unless the dialog must be deep-linkable or browser-history addressable.
-- When a mutation changes loader data, await the mutation and invalidate the
-  relevant router data with `router.invalidate({ sync: true })` when the next
-  UI step requires fresh data.
+- When a mutation changes loader data, await it, then call
+  `router.invalidate({ sync: true })` if the next UI step needs fresh data.
+  Chat sidebar changes are TanStack DB optimistic actions instead.
 - Preserve TanStack Router inference. Do not add casts or unnecessary type
   annotations to route params, search, loader data, or navigation options.
 - Keep feature modules out of the shared layout unless they are genuinely
@@ -128,7 +128,7 @@ responsibility.
   buttons, and Agent status and Activity display.
 - `features/computers/` — Computer list/detail, setup, and Runtime Usage.
 - `features/conversations/` — channels, direct messages, threads, composer,
-  message rendering, action cards, and saved messages.
+  message rendering, action cards, saved messages, and the sidebar lists.
 - `features/device-auth/` — device-code verification page.
 - `features/errors/` — page-level load-error view.
 - `features/install/` — Computer install command text.

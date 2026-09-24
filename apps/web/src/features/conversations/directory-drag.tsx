@@ -18,6 +18,7 @@ import {
   dropTarget,
   moveInDirectory,
   pinsAfterDrag,
+  sameLayout,
   type DirectoryLayout,
   type HomeSection,
 } from "./pinned-conversations";
@@ -45,16 +46,18 @@ export function useDirectoryDrag({
 }: {
   layout: DirectoryLayout;
   natural: Record<HomeSection, readonly string[]>;
-  /** Saves the new pin list and reports its own failure; never rejects. Until it settles the
-   * dropped layout stays on screen, then the server's list (`layout`) takes over again. */
-  commit: (change: PinChange) => Promise<void>;
+  /** Applies the change to the lists at once and saves it, reporting its own failure; the returned
+   * promise settles when the save does (a failed save has put the lists back by then). */
+  commit: (change: PinChange) => Promise<unknown>;
 }) {
   const [dragging, setDragging] = useState<DirectoryLayout | null>(null);
-  const [saving, setSaving] = useState<DirectoryLayout | null>(null);
+  const [dropped, setDropped] = useState<DirectoryLayout | null>(null);
   const start = useRef<DirectoryLayout | null>(null);
-  const saves = useRef(0);
   const sensors = useSensors(useSensor(MouseSensor, { activationConstraint: { distance: 6 } }));
-  const layout = dragging ?? saving ?? base;
+  // The lists show a drop by the next render (`commit` changes them at once); until they do, the
+  // dropped layout stays on screen so no row jumps back for a frame.
+  if (dropped && sameLayout(dropped, base)) setDropped(null);
+  const layout = dragging ?? dropped ?? base;
 
   const moved = (current: DirectoryLayout, { active, over }: DragMoveEvent) => {
     const data = over?.data.current as DragData | undefined;
@@ -84,27 +87,25 @@ export function useDirectoryDrag({
   const onDragEnd = (event: DragEndEvent) => {
     const before = start.current ?? base;
     // Released over nothing that takes the row, the drag changes nothing.
-    const dropped = event.over ? moved(dragging ?? base, event) : before;
+    const released = event.over ? moved(dragging ?? base, event) : before;
     start.current = null;
     setDragging(null);
-    const change = pinsAfterDrag(before, dropped);
+    const change = pinsAfterDrag(before, released);
     if (!change) return;
-    // A later drop may be saving by the time this one settles; only the latest clears the view.
-    const save = ++saves.current;
-    setSaving(dropped);
-    void commit(change).finally(() => {
-      if (saves.current === save) setSaving(null);
-    });
+    setDropped(released);
+    void commit(change).finally(() =>
+      setDropped((current) => (current === released ? null : current)),
+    );
   };
 
   const context = {
     sensors,
     collisionDetection: rowsFirst,
     accessibility: { announcements: SILENT_ANNOUNCEMENTS },
-    // A drag that starts while the previous drop is still saving starts from that drop.
+    // A drag that starts before the previous drop shows in the lists starts from that drop.
     onDragStart: () => {
-      start.current = saving ?? base;
-      setDragging(saving ?? base);
+      start.current = dropped ?? base;
+      setDragging(dropped ?? base);
     },
     onDragOver: relayout,
     onDragMove: relayout,

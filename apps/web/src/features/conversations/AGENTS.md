@@ -19,6 +19,15 @@ These rules apply to `src/features/conversations/`.
   back to its own section only. A drag saves the new pin order plus the rows
   it unpinned, never a whole list, so pins it cannot see survive.
   Channels and Direct messages are not reordered by hand.
+- The sidebar's channel and DM lists live in `sidebar-lists.ts`: the
+  `/messages` loader fetches them into the TanStack Query cache (the server
+  render reads it), and after hydration the same Query keys back TanStack DB
+  collections. Read them with `useSidebarLists` and change them only through
+  `useSidebarActions` (optimistic: the row changes at once, a failed save
+  rolls it back); never `router.invalidate` for a sidebar change.
+- TanStack DB collections are client-only: create them through the
+  per-`QueryClient` factory after hydration, never at module scope, and keep
+  `/messages` server-rendered.
 - Direct and channel views share the empty-state layout and compact thread
   prompt in `direct-conversation.tsx`. Each supplies its own identity, media,
   and copy, and keeps its composer or join action.

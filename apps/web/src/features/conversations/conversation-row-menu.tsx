@@ -1,21 +1,10 @@
 import { Fragment, useState, type ReactNode } from "react";
-import { useRouter } from "@tanstack/react-router";
-import { useServerFn } from "@tanstack/react-start";
 import { MessageChatSquare, Pin01, XClose } from "@untitledui/icons";
 
 import { Dropdown } from "#src/components/base/dropdown/dropdown";
 import { useAppToast } from "#src/components/ui/toast";
 import { m } from "#src/paraglide/messages";
-import {
-  setDirectConversationHidden,
-  setDirectConversationPinned,
-  setDirectConversationUnread,
-} from "./conversations.functions";
-import {
-  setPublicConversationHidden,
-  setPublicConversationPinned,
-  setPublicConversationUnread,
-} from "./channels.functions";
+import { useSidebarActions, type SidebarTarget } from "./sidebar-lists";
 import {
   conversationRowMenuEnabled,
   conversationRowMenuItems,
@@ -60,58 +49,30 @@ export function ConversationRowMenu({
 }) {
   const enabled = target.kind === "channel" ? conversationRowMenuEnabled(target) : target.enabled;
   const [open, setOpen] = useState(false);
-  const [pending, setPending] = useState(false);
-  const router = useRouter();
   const toast = useAppToast();
-  const setChannelPinned = useServerFn(setPublicConversationPinned);
-  const setChannelUnread = useServerFn(setPublicConversationUnread);
-  const setChannelHidden = useServerFn(setPublicConversationHidden);
-  const setDirectPinned = useServerFn(setDirectConversationPinned);
-  const setDirectUnread = useServerFn(setDirectConversationUnread);
-  const setDirectHidden = useServerFn(setDirectConversationHidden);
-  // One set of calls per row kind; the two interfaces differ only in how they name the target.
-  const calls =
-    target.kind === "channel"
-      ? {
-          unread: () => setChannelUnread({ data: { channelId: target.id, unread: true } }),
-          pin: () => setChannelPinned({ data: { channelId: target.id, pinned: !target.pinned } }),
-          hide: () => setChannelHidden({ data: { channelId: target.id, hidden: true } }),
-        }
-      : {
-          unread: () => setDirectUnread({ data: { agentId: target.agentId, unread: true } }),
-          pin: () => setDirectPinned({ data: { agentId: target.agentId, pinned: !target.pinned } }),
-          hide: () => setDirectHidden({ data: { agentId: target.agentId, hidden: true } }),
-        };
-
+  const actions = useSidebarActions();
   const items = conversationRowMenuItems(target);
+  const row: SidebarTarget =
+    target.kind === "channel"
+      ? { kind: "channel", id: target.id }
+      : { kind: "direct", agentId: target.agentId };
 
-  /** Runs one menu mutation, then refetches the loader so the row's section, badge and presence
-   * all reflect it (the server's list owns pin order, forced unread and the hidden filter). */
-  async function run(action: () => Promise<unknown>) {
-    setPending(true);
-    try {
-      await action();
-      setOpen(false);
-      await router.invalidate({ sync: true });
-    } catch (cause) {
-      // The menu stays open with its items disabled-then-re-enabled, so the failed action is
-      // retried in place; the toast only confirms that it failed (§13).
+  /** Applies the change to the row at once (the menu closes as it would for any choice) and saves
+   * it; a failed save puts the row back, and the toast says it failed (§13). */
+  function handleAction(key: unknown) {
+    if (!actions) return;
+    const transaction =
+      key === "mark-unread"
+        ? actions.markUnread(row)
+        : key === "pin"
+          ? actions.setPinned({ target: row, pinned: !target.pinned })
+          : key === "close-chat"
+            ? actions.close(row)
+            : undefined;
+    transaction?.isPersisted.promise.catch((cause: unknown) => {
       console.error("conversation row menu action failed", cause);
       toast.error(m.conversation_menu_action_error());
-    } finally {
-      setPending(false);
-    }
-  }
-
-  function handleAction(key: unknown) {
-    if (pending) return;
-    if (key === "mark-unread") {
-      void run(calls.unread);
-    } else if (key === "pin") {
-      void run(calls.pin);
-    } else if (key === "close-chat") {
-      void run(calls.hide);
-    }
+    });
   }
 
   // The list item around the row belongs to the list (`DirectoryDragRow`).
@@ -121,13 +82,7 @@ export function ConversationRowMenu({
     <Dropdown.Root trigger="contextMenu" isOpen={open} onOpenChange={setOpen}>
       {children}
       <Dropdown.Popover placement="bottom start">
-        {/* Selecting an item must not close the menu: each mutation keeps it open until it
-            succeeds (`run` closes it), so a failure can be retried in place. */}
-        <Dropdown.Menu
-          aria-label={m.conversation_menu_label()}
-          onAction={handleAction}
-          shouldCloseOnSelect={false}
-        >
+        <Dropdown.Menu aria-label={m.conversation_menu_label()} onAction={handleAction}>
           {items.map((item) => (
             <Fragment key={item.id}>
               {item.id === "close-chat" && <Dropdown.Separator />}
@@ -136,7 +91,6 @@ export function ConversationRowMenu({
                 icon={itemIcon(item.id)}
                 label={itemLabel(item)}
                 selectionIndicator="none"
-                isDisabled={pending}
               />
             </Fragment>
           ))}
