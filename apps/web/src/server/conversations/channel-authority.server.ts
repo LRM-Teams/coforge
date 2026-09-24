@@ -55,9 +55,10 @@ export function deriveChannelAdminBasis(
  * Pure: the capability matrix for one actor in one channel.
  * - Active membership alone grants `post`, `leave` (never on `#general`), `add_member`,
  *   independent of admin basis.
- * - Either admin basis additionally grants `update`, `archive`, `unarchive`, `remove_member`
- *   (never on `#general`, and independent of active membership: a server admin who is not a
- *   channel member can still archive it).
+ * - Either admin basis additionally grants `update`, `archive`, `unarchive`, `remove_member`,
+ *   independent of active membership: a server admin who is not a channel member can still
+ *   archive it. On `#general` only `update` remains, and the write keeps its name fixed: its
+ *   description is still editable, like any other channel's.
  * - `manage_roles` is human-only (Agents never change channel roles; there is no Agent command
  *   for it) and requires an admin basis, never on `#general` (nobody can be channel admin there,
  *   so there is nothing to manage).
@@ -73,7 +74,7 @@ export function deriveChannelCapabilities(input: {
     post: input.isActiveMember,
     leave: input.isActiveMember && !input.isGeneral,
     add_member: input.isActiveMember,
-    update: isAdmin && !input.isGeneral,
+    update: isAdmin,
     archive: isAdmin && !input.isGeneral,
     unarchive: isAdmin && !input.isGeneral,
     remove_member: isAdmin && !input.isGeneral,

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useLatestCallback } from "#src/hooks/use-latest-callback";
 import { useServerFn } from "@tanstack/react-start";
 import { ProgressBar } from "react-aria-components";
 import { ArrowDown, Loading02 } from "@untitledui/icons";
@@ -174,15 +175,19 @@ export function ConversationPane({
     quoteSequenceRef.current += 1;
     setQuotedDraft({ id: quoteSequenceRef.current, text });
   }, []);
-  const toggleReaction = useCallback(
-    (messageId: string, emoji: string, active: boolean) => {
-      if (!onToggleReaction) return;
-      void onToggleReaction(messageId, emoji, active).catch(() => {
-        toast.error(m.conversation_reaction_error());
-      });
-    },
-    [onToggleReaction, toast],
+  // Row event handlers keep one identity across renders (`useLatestCallback`), so the memoized
+  // rows skip a pane render that did not change them.
+  const toggleReaction = useLatestCallback(
+    onToggleReaction
+      ? (messageId: string, emoji: string, active: boolean) => {
+          void onToggleReaction(messageId, emoji, active).catch(() => {
+            toast.error(m.conversation_reaction_error());
+          });
+        }
+      : undefined,
   );
+  const openAgentProfile = useLatestCallback(onOpenAgentProfile);
+  const openTaskReference = useLatestCallback(onOpenTask);
   // Saving (#127) is viewer-global state with a conversation-scoped write: the pane owns the
   // conversation id, the Chat page's Saved context owns the list every star (and the Saved view)
   // reads. Membership-gated exactly like the channel gates its row actions; outside the Chat
@@ -190,7 +195,7 @@ export function ConversationPane({
   const savedMessages = useSavedMessages();
   const saveMessageFn = useServerFn(saveMessage);
   const unsaveMessageFn = useServerFn(unsaveMessage);
-  const onToggleSave =
+  const onToggleSave = useLatestCallback(
     savedMessages && conversation.senderMemberId
       ? async (messageId: string, saved: boolean) => {
           if (saved) {
@@ -204,7 +209,8 @@ export function ConversationPane({
           }
           await savedMessages.refresh();
         }
-      : undefined;
+      : undefined,
+  );
   const [followingLatest, followingLatestRef, setFollowingLatest] = useStateWithRef(true);
   const [loadingOlder, loadingOlderRef, setLoadingOlder] = useStateWithRef(false);
   const [, loadingNewerRef, setLoadingNewer] = useStateWithRef(false);
@@ -868,17 +874,17 @@ export function ConversationPane({
                   grouped={false}
                   unreadStartsHere={false}
                   expanded={expandedMessages.has(root.id)}
-                  onToggleExpanded={() => toggleExpandedMessage(root.id)}
+                  onToggleExpanded={toggleExpandedMessage}
                   agentDisplay={agentDisplayFor}
                   dateLocale={dateLocale}
                   messageFooter={messageFooter}
-                  onToggleReaction={onToggleReaction ? toggleReaction : undefined}
+                  onToggleReaction={toggleReaction}
                   onToggleSave={onToggleSave}
-                  onOpenAgentProfile={onOpenAgentProfile}
+                  onOpenAgentProfile={openAgentProfile}
                   viewerHandle={conversation.viewerHandle}
                   plainMentions={plainMentions}
                   taskReferences={taskReferences}
-                  onOpenTask={onOpenTask}
+                  onOpenTask={openTaskReference}
                   channelNames={channelNames}
                   onQuoteSelection={quoteSelection}
                 />
@@ -994,7 +1000,7 @@ export function ConversationPane({
                             grouped={false}
                             highlighted={message.id === jumpHighlightId}
                             expanded={false}
-                            onToggleExpanded={() => toggleExpandedMessage(message.id)}
+                            onToggleExpanded={toggleExpandedMessage}
                             dateLocale={dateLocale}
                           />
                         ))}
@@ -1020,19 +1026,19 @@ export function ConversationPane({
                     unreadStartsHere={unreadStartsHere}
                     highlighted={message.id === jumpHighlightId}
                     expanded={expandedMessages.has(message.id)}
-                    onToggleExpanded={() => toggleExpandedMessage(message.id)}
+                    onToggleExpanded={toggleExpandedMessage}
                     agentDisplay={agentDisplayFor}
                     dateLocale={dateLocale}
                     threadEntry={threadEntry}
                     threadPreview={threadPreview}
                     messageFooter={messageFooter}
-                    onToggleReaction={onToggleReaction ? toggleReaction : undefined}
+                    onToggleReaction={toggleReaction}
                     onToggleSave={onToggleSave}
-                    onOpenAgentProfile={onOpenAgentProfile}
+                    onOpenAgentProfile={openAgentProfile}
                     viewerHandle={conversation.viewerHandle}
                     plainMentions={plainMentions}
                     taskReferences={taskReferences}
-                    onOpenTask={onOpenTask}
+                    onOpenTask={openTaskReference}
                     channelNames={channelNames}
                     onQuoteSelection={quoteSelection}
                   />
@@ -1047,7 +1053,7 @@ export function ConversationPane({
                   plainMentions={plainMentions}
                   viewerHandle={conversation.viewerHandle}
                   taskReferences={taskReferences}
-                  onOpenTask={onOpenTask}
+                  onOpenTask={openTaskReference}
                   onRetry={() => outbox.retry(entry)}
                   onEdit={() => outbox.edit(entry)}
                   onDiscard={() => outbox.remove(entry)}

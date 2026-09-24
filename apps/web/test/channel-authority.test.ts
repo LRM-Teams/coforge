@@ -85,7 +85,7 @@ test("deriveChannelCapabilities: server admin (server_role basis) gets the admin
   });
 });
 
-test("deriveChannelCapabilities: #general never reports an admin capability, for either basis, human or Agent", () => {
+test("deriveChannelCapabilities: on #general an admin only edits the channel info (never its name, enforced by the write), for either basis, human or Agent", () => {
   for (const adminBasis of ["server_role", "channel_role"] as const) {
     for (const isHuman of [true, false]) {
       const capabilities = deriveChannelCapabilities({
@@ -100,6 +100,7 @@ test("deriveChannelCapabilities: #general never reports an admin capability, for
         add_member: true,
         manage_roles: false,
         ...NO_ADMIN_CAPS,
+        update: true,
       });
     }
   }

@@ -2,7 +2,7 @@ import { AGENT_ACTIVITY_DETAIL_KIND } from "@lrm/coforge-sdk/internal";
 import { decodeAgentActivity, encodeAgentActivity } from "@lrm/coforge-sdk/internal";
 
 import { getDatabaseClient } from "#src/server/db/client.server";
-import { PrismaAgentRepository } from "#src/server/db/repositories/agent.repositories.server";
+import type { PrismaClient } from "#src/generated/prisma/client";
 import {
   AgentActivityRepository,
   type TrustedAgentActivity,
@@ -188,11 +188,82 @@ export async function handleAgentActivityPublication(
   }
 }
 
+type PublicationAgentLookups = Pick<
+  AgentActivityPublicationDependencies,
+  "agentBelongsToWorkspace" | "agentBelongsToComputer" | "agentVisibility" | "currentRuntimeFence"
+>;
+
+/**
+ * The Agent-side checks of one publication, all answered by a single narrow read of the Agent
+ * row. Every daemon Activity frame, heartbeats and text fragments included, passes these checks,
+ * so each must not re-read the row. Build one per publication: the read is shared only within
+ * that request, so visibility and the launch fence are still read fresh for every frame. The row
+ * is deliberately not filtered by `ACTIVE_AGENT_WHERE`, matching the repository's `getById`.
+ */
+export function publicationAgentLookups(db: PrismaClient): PublicationAgentLookups {
+  const reads = new Map<
+    string,
+    Promise<{
+      workspaceId: string;
+      computerId: string | null;
+      visibility: string;
+      runtimeSession: unknown;
+    } | null>
+  >();
+  const read = (agentId: string) => {
+    let agent = reads.get(agentId);
+    if (!agent) {
+      agent = db.agent.findUnique({
+        where: { id: agentId },
+        select: { workspaceId: true, computerId: true, visibility: true, runtimeSession: true },
+      });
+      reads.set(agentId, agent);
+    }
+    return agent;
+  };
+  return {
+    agentBelongsToWorkspace: async (workspaceId, agentId) =>
+      (await read(agentId))?.workspaceId === workspaceId,
+    agentBelongsToComputer: async (workspaceId, agentId, computerId) => {
+      const agent = await read(agentId);
+      return agent?.workspaceId === workspaceId && agent.computerId === computerId;
+    },
+    // An unrecognized persisted value fails closed to private, as `canSeeAgent` and
+    // `visibleAgentWhere` treat it.
+    agentVisibility: async (workspaceId, agentId) => {
+      const agent = await read(agentId);
+      if (agent?.workspaceId !== workspaceId) return undefined;
+      return agent.visibility === AGENT_VISIBILITY.PUBLIC
+        ? AGENT_VISIBILITY.PUBLIC
+        : AGENT_VISIBILITY.PRIVATE;
+    },
+    currentRuntimeFence: async (workspaceId, computerId, agentId) => {
+      const agent = await read(agentId);
+      if (agent?.workspaceId === workspaceId && agent.computerId === computerId) {
+        const session = agent.runtimeSession;
+        if (session && typeof session === "object" && !Array.isArray(session)) {
+          const daemonInstanceId = Reflect.get(session, "daemonInstanceId");
+          const launchId = Reflect.get(session, "launchId");
+          const sessionComputerId = Reflect.get(session, "computerId");
+          if (
+            sessionComputerId === computerId &&
+            typeof daemonInstanceId === "string" &&
+            typeof launchId === "string" &&
+            daemonInstanceId &&
+            launchId
+          )
+            return { daemonInstanceId, launchId };
+        }
+      }
+      return undefined;
+    },
+  };
+}
+
 export function createAgentActivityPublicationHandler() {
   return async (request: Request) => {
     const db = getDatabaseClient();
     if (!db) return unauthorized();
-    const agents = new PrismaAgentRepository(db);
     const activity = new AgentActivityRepository(db);
     let display: AgentDisplay | undefined;
     let centrifugo: ReturnType<typeof createCentrifugoServerApi> | undefined;
@@ -206,11 +277,7 @@ export function createAgentActivityPublicationHandler() {
     }
     return handleAgentActivityPublication(request, {
       proxySecret: process.env.COFORGE_CENTRIFUGO_PROXY_SECRET,
-      agentBelongsToWorkspace: async (workspaceId, agentId) =>
-        (await agents.getById(agentId))?.workspaceId === workspaceId,
-      agentBelongsToComputer: async (workspaceId, agentId, computerId) =>
-        (await agents.getById(agentId))?.workspaceId === workspaceId &&
-        (await agents.getById(agentId))?.computerId === computerId,
+      ...publicationAgentLookups(db),
       computerBelongsToWorkspace: async (workspaceId, computerId) =>
         Boolean(
           await db.workspaceComputer.findUnique({
@@ -219,36 +286,7 @@ export function createAgentActivityPublicationHandler() {
           }),
         ),
       observe: (observation) => activity.record(observation),
-      // The same `agents.getById` lookup `agentBelongsToWorkspace`/
-      // `agentBelongsToComputer` already run above — no dedicated query, never cached.
-      agentVisibility: async (workspaceId, agentId) => {
-        const agent = await agents.getById(agentId);
-        return agent?.workspaceId === workspaceId ? agent.visibility : undefined;
-      },
       publish: centrifugo ? (channel, data) => centrifugo.publish(channel, data) : undefined,
-      currentRuntimeFence: async (workspaceId, computerId, agentId) => {
-        const agent = await db.agent.findUnique({
-          where: { id: agentId },
-          select: { workspaceId: true, computerId: true, runtimeSession: true },
-        });
-        if (agent?.workspaceId === workspaceId && agent.computerId === computerId) {
-          const session = agent.runtimeSession;
-          if (session && typeof session === "object" && !Array.isArray(session)) {
-            const daemonInstanceId = Reflect.get(session, "daemonInstanceId");
-            const launchId = Reflect.get(session, "launchId");
-            const sessionComputerId = Reflect.get(session, "computerId");
-            if (
-              sessionComputerId === computerId &&
-              typeof daemonInstanceId === "string" &&
-              typeof launchId === "string" &&
-              daemonInstanceId &&
-              launchId
-            )
-              return { daemonInstanceId, launchId };
-          }
-        }
-        return undefined;
-      },
       display,
       publishJson: centrifugo
         ? (channel, data) => centrifugo.publishJson(channel, data)

@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useCallback, useMemo, useRef } from "react";
 import { ClientOnly, getRouteApi } from "@tanstack/react-router";
 import { Group, Panel, Separator, useDefaultLayout } from "react-resizable-panels";
 import { ChevronRight, MessageSquare01 as MessageSquare } from "@untitledui/icons";
@@ -26,6 +26,7 @@ import {
 } from "./open-conversation-thread";
 import { makeReferenceBodyFormatter } from "./mention-text";
 import { replyCountLabel } from "./conversation-labels";
+import { groupRepliesByRoot } from "./conversation-messages";
 import { ThreadRootState, type ThreadRootLoad } from "./thread-root-state";
 import { conversationLayoutStorage } from "./layout-storage";
 import { ConversationPending } from "./conversation-pending";
@@ -36,6 +37,7 @@ const messagesRoute = getRouteApi("/_app/messages");
 
 export function ThreadedConversation(props: ThreadedConversationProps) {
   // Persisted panel sizes use localStorage; mount that UI only after hydration.
+
   return (
     <ClientOnly fallback={<ConversationPending />}>
       <ThreadedConversationContent {...props} />
@@ -72,17 +74,18 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
     () => conversation.messages.filter((message) => !message.threadRootId),
     [conversation.messages],
   );
-  // Replies grouped once per message list, instead of a filter per rendered root.
-  const repliesByRoot = useMemo(() => {
-    const byRoot = new Map<string, DirectConversationView["messages"]>();
-    for (const message of conversation.messages) {
-      if (!message.threadRootId) continue;
-      const replies = byRoot.get(message.threadRootId);
-      if (replies) replies.push(message);
-      else byRoot.set(message.threadRootId, [message]);
-    }
-    return byRoot;
-  }, [conversation.messages]);
+  // Replies grouped once per message list, instead of a filter per rendered root; the grouping
+  // keeps its identity while the replies are unchanged, so the thread entry and preview below
+  // (and every memoized row that takes them) survive a new top-level message.
+  const previousRepliesByRoot =
+    useRef<ReturnType<typeof groupRepliesByRoot<DirectConversationView["messages"][number]>>>(
+      undefined,
+    );
+  const repliesByRoot = useMemo(
+    () => groupRepliesByRoot(conversation.messages, previousRepliesByRoot.current),
+    [conversation.messages],
+  );
+  previousRepliesByRoot.current = repliesByRoot;
   const repliesOf = (rootId: string) => repliesByRoot.get(rootId) ?? [];
   // A stored channel reference links to its channel, under its current name, only when the
   // Workspace has that channel: every channel by id, closed ones included, from the messages layout.
@@ -220,6 +223,91 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
           ? { status: "missing" }
           : threadRootLoad.load
       : undefined;
+  // Row render props, memoized on the data they read so a memoized row re-renders when its own
+  // thread or task changes and not on every pane render.
+  const threadEntry = useCallback(
+    (message: DirectConversationView["messages"][number]) => {
+      const boundary = threadCursor(message.id) ?? 0;
+      return {
+        unread: repliesOf(message.id).filter(
+          (reply) => reply.senderKind === "agent" && reply.sequence > boundary,
+        ).length,
+        open: () => openThread(message.id),
+      };
+    },
+    [repliesByRoot, threadCursor, openThread],
+  );
+  const threadPreview = useCallback(
+    (message: DirectConversationView["messages"][number]) => {
+      // System notices are stream bookkeeping, not a person replying: they belong to the full
+      // thread pane, never to the preview card under the root (the boss on the phone — a
+      // preview row that reads as a reply but has no content is worse than none). Filtering
+      // before the count too, so a thread with only notices shows no preview button at all;
+      // the thread pane still lists every reply when opened.
+      const threadReplies = repliesOf(message.id).filter(
+        (reply) => reply.senderKind !== "system",
+      );
+      if (!threadReplies.length) return null;
+      const label = replyCountLabel(threadReplies.length);
+      const unread = threadReplies.filter(
+        (reply) =>
+          reply.senderKind === "agent" && reply.sequence > (threadCursor(message.id) ?? 0),
+      ).length;
+      // The newest few only; the side pane holds the full thread.
+      const visible = threadReplies.slice(-3);
+      return (
+        <Button
+          color="tertiary"
+          size="sm"
+          noTextPadding
+          onPress={() => openThread(message.id)}
+          className="mt-1.5 block h-auto w-full rounded-lg bg-secondary p-2 text-left font-normal hover:bg-secondary_hover"
+        >
+          <span className="flex items-center gap-0.5 text-sm font-medium text-brand-secondary">
+            {unread > 0 ? `${label} · ${m.conversation_thread_unread({ count: unread })}` : label}
+            <ChevronRight aria-hidden="true" className="size-4" />
+          </span>
+          <span className="mt-1 flex flex-col gap-1.5">
+            {visible.map((reply) => (
+              <span key={reply.id} className="flex min-w-0 items-center gap-2">
+                <Avatar
+                  size="xs"
+                  alt={reply.senderName}
+                  src={reply.senderAvatarUrl}
+                  initials={avatarInitial(reply.senderName)}
+                  contentClassName={
+                    reply.senderDeleted
+                      ? DELETED_AGENT_AVATAR_CLASS
+                      : avatarToneClassName(reply.senderName)
+                  }
+                  className="shrink-0"
+                />
+                <span className="shrink-0 text-sm font-medium text-primary">
+                  {reply.senderName}
+                </span>
+                <span className="min-w-0 flex-1 truncate text-sm text-secondary">
+                  {formatPreviewBody(reply.body)}
+                </span>
+                <RelativeTime
+                  value={reply.createdAt}
+                  plain
+                  className="shrink-0 text-xs whitespace-nowrap text-tertiary"
+                />
+              </span>
+            ))}
+          </span>
+        </Button>
+      );
+    },
+    [repliesByRoot, threadCursor, openThread, formatPreviewBody],
+  );
+  const messageFooter = useCallback(
+    (message: DirectConversationView["messages"][number]) => {
+      const task = props.tasks?.find((candidate) => candidate.messageId === message.id);
+      return task ? <TaskBadge task={task} /> : null;
+    },
+    [props.tasks],
+  );
   const conversationMainPane = (
     <ConversationPane
       {...conversationProps}
@@ -234,80 +322,9 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
       onReadLatest={onReadLatest}
       header={header}
       conversation={{ ...conversation, messages: mainMessages }}
-      threadEntry={(message) => {
-        const boundary = threadCursor(message.id) ?? 0;
-        return {
-          unread: repliesOf(message.id).filter(
-            (reply) => reply.senderKind === "agent" && reply.sequence > boundary,
-          ).length,
-          open: () => openThread(message.id),
-        };
-      }}
-      threadPreview={(message) => {
-        // System notices are stream bookkeeping, not a person replying: they belong to the full
-        // thread pane, never to the preview card under the root (the boss on the phone — a
-        // preview row that reads as a reply but has no content is worse than none). Filtering
-        // before the count too, so a thread with only notices shows no preview button at all;
-        // the thread pane still lists every reply when opened.
-        const threadReplies = repliesOf(message.id).filter(
-          (reply) => reply.senderKind !== "system",
-        );
-        if (!threadReplies.length) return null;
-        const label = replyCountLabel(threadReplies.length);
-        const unread = threadReplies.filter(
-          (reply) =>
-            reply.senderKind === "agent" && reply.sequence > (threadCursor(message.id) ?? 0),
-        ).length;
-        // The newest few only; the side pane holds the full thread.
-        const visible = threadReplies.slice(-3);
-        return (
-          <Button
-            color="tertiary"
-            size="sm"
-            noTextPadding
-            onPress={() => openThread(message.id)}
-            className="mt-1.5 block h-auto w-full rounded-lg bg-secondary p-2 text-left font-normal hover:bg-secondary_hover"
-          >
-            <span className="flex items-center gap-0.5 text-sm font-medium text-brand-secondary">
-              {unread > 0 ? `${label} · ${m.conversation_thread_unread({ count: unread })}` : label}
-              <ChevronRight aria-hidden="true" className="size-4" />
-            </span>
-            <span className="mt-1 flex flex-col gap-1.5">
-              {visible.map((reply) => (
-                <span key={reply.id} className="flex min-w-0 items-center gap-2">
-                  <Avatar
-                    size="xs"
-                    alt={reply.senderName}
-                    src={reply.senderAvatarUrl}
-                    initials={avatarInitial(reply.senderName)}
-                    contentClassName={
-                      reply.senderDeleted
-                        ? DELETED_AGENT_AVATAR_CLASS
-                        : avatarToneClassName(reply.senderName)
-                    }
-                    className="shrink-0"
-                  />
-                  <span className="shrink-0 text-sm font-medium text-primary">
-                    {reply.senderName}
-                  </span>
-                  <span className="min-w-0 flex-1 truncate text-sm text-secondary">
-                    {formatPreviewBody(reply.body)}
-                  </span>
-                  <RelativeTime
-                    value={reply.createdAt}
-                    plain
-                    className="shrink-0 text-xs whitespace-nowrap text-tertiary"
-                  />
-                </span>
-              ))}
-            </span>
-          </Button>
-        );
-      }}
-      messageFooter={(message) => {
-        const task = props.tasks?.find((candidate) => candidate.messageId === message.id);
-        return task ? <TaskBadge task={task} /> : null;
-      }}
+      threadEntry={threadEntry}
+      threadPreview={threadPreview}
+      messageFooter={messageFooter}
     />
   );
   const conversationSidePane = visibleSlot && (

@@ -15,7 +15,6 @@ import { isAppError } from "#src/lib/app-error";
 import { m } from "#src/paraglide/messages";
 import {
   addPublicChannelMembers,
-  leavePublicChannel,
   loadPublicChannelMembers,
   removePublicChannelMember,
   setPublicChannelMemberRole,
@@ -79,30 +78,24 @@ type PendingRemoval = { kind: "user" | "agent"; id: string; name: string };
 
 export function ChannelMembersDialog({
   channelId,
-  channelName,
   open,
   onOpenChange,
   preselected,
   commit,
-  onLeft,
   onOpenAgentProfile,
 }: {
   channelId: string;
-  /** Bare channel name (no leading `#`), used only for the leave-confirmation copy. */
-  channelName: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   /** An action card's proposed humans/Agents: preselected, individually deselectable. */
   preselected?: { userIds: string[]; agentIds: string[] };
   /** When set, submitting commits the action card (marking it `executed`) instead of calling the
-   * ordinary `addPublicChannelMembers` Server Function. Remove/leave are hidden in this mode. */
+   * ordinary `addPublicChannelMembers` Server Function. Remove is hidden in this mode. */
   commit?: {
     messageId: string;
     submit: (input: { userIds: string[]; agentIds: string[] }) => Promise<unknown>;
     onCommitted: () => void;
   };
-  /** Called after the current user successfully leaves the channel, before the dialog closes. */
-  onLeft?: () => Promise<void>;
   /** Opens the Agent profile panel for an Agent row; absent where the caller does not own that
    * slot. The caller is responsible for closing this dialog (see `channel-conversation.tsx`). */
   onOpenAgentProfile?: (agentId: string) => void;
@@ -111,7 +104,6 @@ export function ChannelMembersDialog({
   const addMembers = useServerFn(addPublicChannelMembers);
   const setRole = useServerFn(setPublicChannelMemberRole);
   const removeMember = useServerFn(removePublicChannelMember);
-  const leaveChannel = useServerFn(leavePublicChannel);
   const [state, setState] = useState<LoadState>({ status: "loading" });
   const [roleTargetId, setRoleTargetId] = useState<string | null>(null);
   const [selectedUserIds, setSelectedUserIds] = useState<Set<string>>(
@@ -125,9 +117,6 @@ export function ChannelMembersDialog({
   const [pendingRemoval, setPendingRemoval] = useState<PendingRemoval | null>(null);
   const [removing, setRemoving] = useState(false);
   const [removeError, setRemoveError] = useState("");
-  const [leaveConfirmOpen, setLeaveConfirmOpen] = useState(false);
-  const [leaving, setLeaving] = useState(false);
-  const [leaveError, setLeaveError] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -136,8 +125,6 @@ export function ChannelMembersDialog({
     setSelectedAgentIds(new Set(preselected?.agentIds));
     setPendingRemoval(null);
     setRemoveError("");
-    setLeaveConfirmOpen(false);
-    setLeaveError("");
     load({ data: { channelId } })
       .then((data) => {
         if (!cancelled) setState({ status: "ready", data });
@@ -158,8 +145,6 @@ export function ChannelMembersDialog({
     setError("");
     setPendingRemoval(null);
     setRemoveError("");
-    setLeaveConfirmOpen(false);
-    setLeaveError("");
     onOpenChange(false);
   }
 
@@ -193,19 +178,6 @@ export function ChannelMembersDialog({
       setRemoveError(m.channel_members_remove_error({ name: pendingRemoval.name }));
     } finally {
       setRemoving(false);
-    }
-  }
-
-  async function confirmLeave() {
-    setLeaving(true);
-    setLeaveError("");
-    try {
-      await leaveChannel({ data: { channelId } });
-      await onLeft?.();
-      close();
-    } catch {
-      setLeaveError(m.channel_members_leave_error());
-      setLeaving(false);
     }
   }
 
@@ -484,58 +456,6 @@ export function ChannelMembersDialog({
               </div>
             )}
           </div>
-          {!commit && state.status === "ready" && state.data.canLeave && (
-            <div className="border-t border-secondary px-6 py-4">
-              {!leaveConfirmOpen ? (
-                <Button
-                  size="sm"
-                  color="secondary-destructive"
-                  onPress={() => {
-                    setLeaveConfirmOpen(true);
-                    setLeaveError("");
-                  }}
-                >
-                  {m.channel_members_leave_action()}
-                </Button>
-              ) : (
-                <div className="flex flex-col gap-2">
-                  <p className="text-sm text-primary">
-                    {m.channel_members_leave_confirm({ channel: channelName })}
-                  </p>
-                  {leaveError && (
-                    <p role="alert" className="text-sm text-error-primary">
-                      {leaveError}
-                    </p>
-                  )}
-                  <div className="flex gap-2">
-                    <Button
-                      size="sm"
-                      color="primary-destructive"
-                      isDisabled={leaving}
-                      isLoading={leaving}
-                      showTextWhileLoading
-                      onPress={() => void confirmLeave()}
-                    >
-                      {leaving
-                        ? m.channel_members_leaving()
-                        : m.channel_members_leave_confirm_action()}
-                    </Button>
-                    <Button
-                      size="sm"
-                      color="tertiary"
-                      isDisabled={leaving}
-                      onPress={() => {
-                        setLeaveConfirmOpen(false);
-                        setLeaveError("");
-                      }}
-                    >
-                      {m.channel_members_cancel()}
-                    </Button>
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
         </Dialog>
       </Modal>
     </ModalOverlay>

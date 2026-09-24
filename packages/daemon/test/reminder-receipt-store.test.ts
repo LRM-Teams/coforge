@@ -88,3 +88,51 @@ test("receipt persistence rejects malformed, duplicate, and inconsistent accepte
     "corrupt",
   );
 });
+
+test("a receipt whose retries ran out round-trips its exhausted record, and older receipts still load", async () => {
+  const directory = join(tmpdir(), `coforge-reminder-receipts-${crypto.randomUUID()}`);
+  directories.push(directory);
+  const store = new FileReminderReceiptStore(directory, "workspace-a", "computer-a");
+  const older = storedReceipt();
+  const exhausted: ReminderReceipt = {
+    ...storedReceipt(),
+    reminderId: "123e4567-e89b-42d3-a456-426614174002",
+    job: { ...storedReceipt().job, reminderId: "123e4567-e89b-42d3-a456-426614174002" },
+    attempt: 8,
+    terminal: true,
+    retryExhausted: {
+      code: "REMINDER_DELIVERY_RETRY_EXHAUSTED",
+      stage: "wake",
+      attempts: 8,
+      deadline: 1_788_869_701_000,
+      exhaustedAt: 1_788_868_924_000,
+    },
+  };
+  await store.write("agent-a", [older, exhausted]);
+  expect(await store.read("agent-a")).toEqual([older, exhausted]);
+  expect((await store.read("agent-a"))[0]).not.toHaveProperty("retryExhausted");
+});
+
+test("receipt persistence rejects a malformed or non-terminal exhausted record", async () => {
+  const directory = join(tmpdir(), `coforge-reminder-receipts-${crypto.randomUUID()}`);
+  directories.push(directory);
+  const store = new FileReminderReceiptStore(directory, "workspace-a", "computer-a");
+  const retryExhausted = {
+    code: "REMINDER_DELIVERY_RETRY_EXHAUSTED",
+    stage: "fire",
+    attempts: 8,
+    deadline: 1_788_869_701_000,
+    exhaustedAt: 1_788_868_924_000,
+  } as const;
+  const exhausted = { ...storedReceipt(), terminal: true, retryExhausted };
+  for (const corrupt of [
+    { ...exhausted, terminal: false },
+    { ...exhausted, retryExhausted: { ...retryExhausted, code: "SOMETHING_ELSE" } },
+    { ...exhausted, retryExhausted: { ...retryExhausted, stage: "persistence" } },
+    { ...exhausted, retryExhausted: { ...retryExhausted, attempts: -1 } },
+    { ...exhausted, retryExhausted: { ...retryExhausted, deadline: Number.NaN } },
+    { ...exhausted, retryExhausted: { ...retryExhausted, exhaustedAt: "later" } },
+    { ...exhausted, retryExhausted: { ...retryExhausted, reason: "extra" } },
+  ])
+    await expect(store.write("agent-a", [corrupt as ReminderReceipt])).rejects.toThrow("corrupt");
+});

@@ -176,7 +176,10 @@ export function WorkspaceAgentsProvider({
  * `useLiveAgent(id)` can serve live status/Activity for an Agent outside the viewer's own
  * roster. */
 export function useLiveAgents(): LiveAgent[] {
-  return useContext(LiveAgentsContext).filter((agent) => !agent.isExtra);
+  const agents = useContext(LiveAgentsContext);
+  // One list per context value, not per call: consumers memoize on it (the message rows' Agent
+  // status lookup), and a fresh array on every render would invalidate all of them.
+  return useMemo(() => agents.filter((agent) => !agent.isExtra), [agents]);
 }
 
 /** The current Workspace id from the app shell's providers, when one is selected. */

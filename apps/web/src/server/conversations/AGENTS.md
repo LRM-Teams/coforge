@@ -33,13 +33,18 @@ These rules apply to `src/server/conversations/`.
   `#general`.
 - Nobody can be a channel admin of `#general`; its members always keep
   `channelRole: "member"`. No one leaves or is removed from `#general`, no role
-  changes apply to it, and no admin-derived capability is ever available on it.
+  changes apply to it, and it is never archived. The only admin-derived
+  capability on it is `update`, for a Workspace owner or admin, and only its
+  description can change: its name is fixed.
 
 ## Channel membership
 
 - Any Workspace member may create or join a channel. Only a channel member may
   add Workspace humans or Agents to it; a non-member is rejected with
   `ACCESS_DENIED`.
+- An archived channel is read-only: posting, joining, adding members and
+  changing its name or description are refused with `CONFLICT` until it is
+  unarchived. Its members keep reading it.
 - Human (Web UI) and Agent (CLI) channel operations take a
   `ChannelActor = { userId } | { agentId }` and share one authorization and
   write path. Do not add a parallel Agent-only path.
