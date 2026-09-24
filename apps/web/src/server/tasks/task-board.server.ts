@@ -586,8 +586,9 @@ export class TaskBoard {
           workspaceId: true,
           channelName: true,
           directKey: true,
+          // Someone who left the conversation is no longer its member and cannot act on its Tasks.
           members: {
-            where: { userId: principal.userId },
+            where: { userId: principal.userId, ...ACTIVE_MEMBER_WHERE },
             select: MEMBER_SELECT,
           },
         },

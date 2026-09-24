@@ -795,6 +795,34 @@ test("TaskBoard lets any human member reassign or unassign a Task and enforces r
       },
     );
     expect(createdForCarol.tasks[0]!.owner?.handle).toBe(carol!.username);
+    // Deleting a Task someone else created still needs a Workspace owner or admin.
+    await expect(
+      board.execute(
+        { workspaceId: workspace.id, userId: bob!.id },
+        {
+          operation: "delete",
+          idempotencyKey: crypto.randomUUID(),
+          conversationId: channel.id,
+          number: taskBNumber,
+        },
+      ),
+    ).rejects.toThrow("ACCESS_DENIED");
+    // Someone who left the channel is no longer a member, so they cannot take a Task off anyone.
+    await db.conversationMember.updateMany({
+      where: { conversationId: channel.id, userId: carol!.id },
+      data: { leftAt: new Date() },
+    });
+    await expect(
+      board.execute(
+        { workspaceId: workspace.id, userId: carol!.id },
+        {
+          operation: "unassign",
+          idempotencyKey: crypto.randomUUID(),
+          conversationId: channel.id,
+          number: taskBNumber,
+        },
+      ),
+    ).rejects.toThrow("ACCESS_DENIED");
   } finally {
     await db.workspace.deleteMany({ where: { id: workspace.id } });
     await db.user.deleteMany({ where: { id: { in: [alice!.id, bob!.id, carol!.id] } } });
