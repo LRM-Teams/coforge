@@ -1,30 +1,15 @@
 import { useCallback, useEffect, useMemo } from "react";
 import { createFileRoute, getRouteApi, useNavigate } from "@tanstack/react-router";
-import { z } from "zod";
 
-import { parseScope, SEARCH_RANGES, type SearchFilters } from "#src/features/search/search-filters";
+import { parseScope, type SearchFilters } from "#src/features/search/search-filters";
 import { writeLastSearch } from "#src/features/search/search-memory";
 import { SearchPage } from "#src/features/search/search-page";
-import { SEARCH_QUERY_MAX_LENGTH } from "#src/features/search/search.schemas";
+import { searchPageSearchSchema } from "#src/features/search/search.schemas";
 
 const appRoute = getRouteApi("/_app");
 
 export const Route = createFileRoute("/_app/search")({
-  validateSearch: z.object({
-    q: z
-      .string()
-      .transform((value) => value.slice(0, SEARCH_QUERY_MAX_LENGTH))
-      .optional()
-      .catch(undefined),
-    senderId: z.uuid().optional().catch(undefined),
-    // Comma-separated (`scope=mentioned,humans`), so the address stays readable.
-    scope: z.string().optional().catch(undefined),
-    channelId: z.uuid().optional().catch(undefined),
-    range: z.enum(SEARCH_RANGES).optional().catch(undefined),
-    sort: z.literal("recent").optional().catch(undefined),
-    // Set by "Search this channel": the filters wait for a query before searching.
-    defer: z.literal("1").optional().catch(undefined),
-  }),
+  validateSearch: searchPageSearchSchema,
   component: SearchRoute,
 });
 

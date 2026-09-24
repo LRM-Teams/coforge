@@ -1,3 +1,5 @@
+import { lastSearchSchema, type LastSearch } from "./search.schemas";
+
 /**
  * What the search page remembers in this browser, per Workspace and viewer: the searches that led
  * somewhere (history) and the channels and Agents opened from search (usage, which ranks the
@@ -40,27 +42,18 @@ export function isSearchMemoryKey(key: string | null, workspaceId: string, userI
   );
 }
 
-/** The last search's URL fields, so a shortcut can reopen it. */
-export type LastSearch = {
-  q?: string;
-  senderId?: string;
-  scope?: string;
-  channelId?: string;
-  range?: "today" | "7d" | "30d";
-  sort?: "recent";
-};
-
 function lastSearchKey(workspaceId: string, userId: string) {
   return `coforge:search-last:${workspaceId}:${userId}`;
 }
 
-const isLastSearch = (value: unknown): value is LastSearch =>
-  typeof value === "object" &&
-  value !== null &&
-  Object.values(value).every((field) => field === undefined || typeof field === "string");
+const isObject = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null;
 
+/** The last search, parsed like the page's own URL: unknown fields and bad values are dropped. */
 export function readLastSearch(workspaceId: string, userId: string): LastSearch {
-  return read(lastSearchKey(workspaceId, userId), isLastSearch, {});
+  const stored = read(lastSearchKey(workspaceId, userId), isObject, {});
+  const parsed = lastSearchSchema.safeParse(stored);
+  return parsed.success ? parsed.data : {};
 }
 
 export function writeLastSearch(workspaceId: string, userId: string, search: LastSearch) {

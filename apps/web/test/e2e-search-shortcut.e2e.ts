@@ -136,6 +136,10 @@ test("the shortcut reopens the last search and a channel searches itself", async
     await waitFor(`location.pathname === "/en/search"`);
     await waitFor(`${param("q")} === ${JSON.stringify(phrase)} && ${param("range")} === "7d"`);
     await waitFor(`${box}.value === ${JSON.stringify(phrase)}`);
+    // The reopened text is selected, ready to be typed over.
+    await waitFor(
+      `document.activeElement === ${box} && ${box}.selectionStart === 0 && ${box}.selectionEnd === ${phrase.length}`,
+    );
 
     // On the search page it puts the caret back in the box with the text selected.
     await browser("eval", `${box}.blur()`);
@@ -143,6 +147,20 @@ test("the shortcut reopens the last search and a channel searches itself", async
     await waitFor(
       `document.activeElement === ${box} && ${box}.selectionStart === 0 && ${box}.selectionEnd === ${phrase.length}`,
     );
+
+    // A stored last search with a value the page does not know keeps only what it knows.
+    const workspaceKey = `coforge:search-last:${workspaceId}:${DEV_BROWSER_USER.id}`;
+    await browser(
+      "eval",
+      `localStorage.setItem(${JSON.stringify(workspaceKey)}, JSON.stringify({ q: "kept", range: "forever", extra: "x" }))`,
+    );
+    await browser("open", `${origin}/en/messages/channels/${channelA}`);
+    await waitFor(
+      `[...document.querySelectorAll("h1")].some((h) => h.textContent === "#e2e-shortcut-a")`,
+    );
+    await browser("press", "Meta+k");
+    await waitFor(`location.pathname === "/en/search" && ${param("q")} === "kept"`);
+    expect(await evaluate<string>("location.search")).toBe("?q=kept");
 
     // The rail's Search starts fresh.
     await browser("click", 'aside a[href="/en/search"]');

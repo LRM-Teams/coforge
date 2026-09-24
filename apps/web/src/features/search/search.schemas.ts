@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { SEARCH_RANGES } from "./search-filters";
+
 /** Longest query the search box sends; longer text is cut, never rejected. */
 export const SEARCH_QUERY_MAX_LENGTH = 200;
 
@@ -24,3 +26,27 @@ export const messageSearchInputSchema = z.object({
 });
 
 export type MessageSearchParams = z.input<typeof messageSearchInputSchema>;
+
+/**
+ * The search page's URL fields. Each one falls back to absent when malformed, so a stale or
+ * hand-edited address never breaks the page.
+ */
+export const searchPageSearchSchema = z.object({
+  q: z
+    .string()
+    .transform((value) => value.slice(0, SEARCH_QUERY_MAX_LENGTH))
+    .optional()
+    .catch(undefined),
+  senderId: z.uuid().optional().catch(undefined),
+  // Comma-separated (`scope=mentioned,humans`), so the address stays readable.
+  scope: z.string().optional().catch(undefined),
+  channelId: z.uuid().optional().catch(undefined),
+  range: z.enum(SEARCH_RANGES).optional().catch(undefined),
+  sort: z.literal("recent").optional().catch(undefined),
+  // Set by "Search this channel": the filters wait for a query before searching.
+  defer: z.literal("1").optional().catch(undefined),
+});
+
+/** The search Cmd/Ctrl+K reopens: the page's fields without the one-off `defer`. */
+export const lastSearchSchema = searchPageSearchSchema.omit({ defer: true });
+export type LastSearch = z.output<typeof lastSearchSchema>;
