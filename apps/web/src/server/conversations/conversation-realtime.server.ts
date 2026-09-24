@@ -45,6 +45,19 @@ export async function messageSignalScope(
   conversationId: string,
   workspaceId: string,
 ): Promise<MessageSignalScope> {
+  return (await conversationSignalScopes(db, conversationId, workspaceId)).message;
+}
+
+/**
+ * Where a conversation's signals go, read once: `message` as `messageSignalScope` says, and `task`
+ * for its Task announcements, which carry Task content and so never take the Workspace fallback:
+ * a direct conversation without exactly one human and one Agent announces its Tasks nowhere.
+ */
+export async function conversationSignalScopes(
+  db: PrismaClient,
+  conversationId: string,
+  workspaceId: string,
+): Promise<{ message: MessageSignalScope; task?: MessageSignalScope }> {
   const conversation = await db.conversation.findUnique({
     where: { id: conversationId },
     select: {
@@ -52,10 +65,13 @@ export async function messageSignalScope(
       members: { select: { userId: true, agentId: true } },
     },
   });
-  if (!conversation || conversation.channelName !== null) return { workspaceId };
+  if (!conversation) return { message: { workspaceId } };
+  if (conversation.channelName !== null) return { message: { workspaceId }, task: { workspaceId } };
   const userId = conversation.members.find((member) => member.userId)?.userId;
   const agentId = conversation.members.find((member) => member.agentId)?.agentId;
-  return userId && agentId ? { userId, agentId } : { workspaceId };
+  return userId && agentId
+    ? { message: { userId, agentId }, task: { workspaceId, userId, agentId } }
+    : { message: { workspaceId } };
 }
 
 /** A Task write's announcement (`TaskChangedEvent`) with where it goes: a direct message's to
