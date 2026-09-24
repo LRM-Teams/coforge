@@ -28,6 +28,9 @@ import type { MessageSearchHit } from "#src/server/conversations/message-search.
 import { matchSearchEntities, type SearchEntity } from "./search-entities";
 import { SearchEntityList } from "./search-entity-list";
 import { searchExcerpt } from "./search-excerpt";
+import { SearchHome } from "./search-home";
+import { searchEntityKey, type SearchEntityKey } from "./search-memory";
+import { useSearchMemory } from "./use-search-memory";
 import { SearchFilterBar } from "./search-filter-bar";
 import { clearedFilters, hasActiveFilter, type SearchFilters } from "./search-filters";
 import { messageSearchQuery, searchDirectoryQuery } from "./search-queries";
@@ -44,6 +47,7 @@ const COMMIT_DELAY_MS = 200;
  */
 export function SearchPage({
   workspaceId,
+  viewerId,
   timeZone,
   query,
   filters,
@@ -51,12 +55,14 @@ export function SearchPage({
   onFiltersChange,
 }: {
   workspaceId: string;
+  viewerId: string;
   timeZone: string | null;
   query: string;
   filters: SearchFilters;
   onQueryChange: (query: string) => void;
   onFiltersChange: (filters: SearchFilters) => void;
 }) {
+  const memory = useSearchMemory(workspaceId, viewerId);
   const [text, setText] = useState(query);
   // State, not a ref: ending a composition must re-run the commit effect even when the last
   // input event (which browsers fire before `compositionend`) already set the final text.
@@ -121,6 +127,7 @@ export function SearchPage({
           timeZone={timeZone}
           query={committed}
           filters={filters}
+          onOpen={(entity) => memory.recordOpen(committed, entity)}
           onClear={() => {
             if (committed) {
               lastCommitted.current = "";
@@ -134,17 +141,19 @@ export function SearchPage({
           }}
         />
       ) : (
-        <div className="flex min-h-0 flex-1 items-start justify-center px-6 pt-16">
-          <Empty>
-            <EmptyHeader>
-              <EmptyMedia variant="icon">
-                <SearchLg aria-hidden="true" />
-              </EmptyMedia>
-              <EmptyTitle>{m.search_empty_title()}</EmptyTitle>
-              <EmptyDescription>{m.search_empty_description()}</EmptyDescription>
-            </EmptyHeader>
-          </Empty>
-        </div>
+        <SearchHome
+          workspaceId={workspaceId}
+          history={memory.history}
+          usage={memory.usage}
+          onSearch={(next) => {
+            lastCommitted.current = next;
+            setText(next);
+            onQueryChange(next);
+          }}
+          onRemoveSearch={memory.removeSearch}
+          onClearHistory={memory.clearHistory}
+          onOpen={(entity) => memory.recordOpen("", searchEntityKey(entity))}
+        />
       )}
     </main>
   );
@@ -155,12 +164,15 @@ function SearchResults({
   timeZone,
   query,
   filters,
+  onOpen,
   onClear,
 }: {
   workspaceId: string;
   timeZone: string | null;
   query: string;
   filters: SearchFilters;
+  /** A result is opening: the place it opens, when it is a channel or an Agent. */
+  onOpen: (entity: SearchEntityKey | undefined) => void;
   /** Clears the query, or the filters when there is no query. */
   onClear: () => void;
 }) {
@@ -200,13 +212,19 @@ function SearchResults({
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto" aria-busy={refreshing}>
-      {entities.length > 0 && <SearchEntityList entities={entities} />}
+      {entities.length > 0 && (
+        <SearchEntityList
+          entities={entities}
+          onOpen={(entity) => onOpen(searchEntityKey(entity))}
+        />
+      )}
       <MessageResults
         search={search}
         hits={hits}
         terms={terms}
         clearLabel={query ? m.search_clear() : m.search_clear_filters()}
         onClear={onClear}
+        onOpen={onOpen}
       />
     </div>
   );
@@ -264,6 +282,7 @@ function MessageResults({
   terms,
   clearLabel,
   onClear,
+  onOpen,
 }: {
   search: ReturnType<typeof useMessageSearch>;
   hits: MessageSearchHit[];
@@ -271,6 +290,7 @@ function MessageResults({
   /** The way out when no message matches: clear the query, or the filters without one. */
   clearLabel: string;
   onClear: () => void;
+  onOpen: (entity: SearchEntityKey | undefined) => void;
 }) {
   if (search.isPending) {
     return (
@@ -323,7 +343,12 @@ function MessageResults({
       {hits.length > 0 && (
         <ol className="flex flex-col gap-2">
           {hits.map((hit) => (
-            <SearchResultRow key={hit.message.id} hit={hit} terms={terms} />
+            <SearchResultRow
+              key={hit.message.id}
+              hit={hit}
+              terms={terms}
+              onOpen={() => onOpen(conversationKey(hit.conversation))}
+            />
           ))}
         </ol>
       )}
@@ -347,7 +372,25 @@ function MessageResults({
   );
 }
 
-function SearchResultRow({ hit, terms }: { hit: MessageSearchHit; terms: string[] }) {
+/** The remembered place a message result opens: its channel, or its direct conversation's Agent. */
+function conversationKey(
+  conversation: MessageSearchHit["conversation"],
+): SearchEntityKey | undefined {
+  if (conversation.channelName) return searchEntityKey({ kind: "channel", id: conversation.id });
+  return conversation.directAgent
+    ? searchEntityKey({ kind: "agent", id: conversation.directAgent.id })
+    : undefined;
+}
+
+function SearchResultRow({
+  hit,
+  terms,
+  onOpen,
+}: {
+  hit: MessageSearchHit;
+  terms: string[];
+  onOpen: () => void;
+}) {
   const { conversation, message } = hit;
   const place = conversation.channelName
     ? `#${conversation.channelName}`
@@ -361,6 +404,7 @@ function SearchResultRow({ hit, terms }: { hit: MessageSearchHit; terms: string[
       <Link
         {...savedJumpTarget(conversation, message)}
         data-search-message-id={message.id}
+        onClick={onOpen}
         className="block rounded-xl border border-secondary bg-primary p-3 outline-focus-ring transition-colors hover:bg-secondary focus-visible:outline-2 focus-visible:outline-offset-2"
       >
         <div className="flex min-w-0 items-center gap-2 text-xs text-tertiary">

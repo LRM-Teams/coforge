@@ -1,4 +1,3 @@
-import { useMemo, type ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
 import { Hash01 as Hash } from "@untitledui/icons";
 import type { AgentDisplaySnapshot } from "@lrm/coforge-sdk/internal";
@@ -7,46 +6,81 @@ import { Badge } from "#src/components/base/badges/badges";
 import { AgentDisplayAvatar } from "#src/features/agents/agent-activity-avatar";
 import { agentDisplay } from "#src/features/agents/agent-activity-presentation";
 import { formatAgentProfileParam } from "#src/features/agents/profile-panel/profile-panel-search";
-import { useLiveAgents } from "#src/features/agents/workspace-agents-realtime";
+import { useAgentDisplays } from "#src/features/agents/workspace-agents-realtime";
 import { computerIcon } from "#src/features/computers/computer-identity";
 import { conversationRoute } from "#src/features/conversations/last-conversation";
 import { m } from "#src/paraglide/messages";
 import type { SearchEntity } from "./search-entities";
 
-const ROW_CLASS =
+/** A compact row in the matches list. */
+export const ENTITY_ROW_CLASS =
   "flex min-w-0 items-center gap-3 rounded-lg px-2 py-1.5 outline-focus-ring transition-colors hover:bg-secondary focus-visible:outline-2 focus-visible:outline-offset-2";
 
+/** A card on the empty page's Frequently used grid. */
+export const ENTITY_CARD_CLASS =
+  "flex min-w-0 items-center gap-3 rounded-xl border border-secondary bg-primary p-3 outline-focus-ring transition-colors hover:bg-secondary focus-visible:outline-2 focus-visible:outline-offset-2";
+
 /**
- * An entity's row as a link to where it opens: a channel itself; the viewer's own Agent its
- * direct messages (the Web opens an Agent's DM only for its owner), any other Agent its profile;
- * a Computer its page. Each branch is its own `Link`, so the router checks every destination.
+ * An entity as a link to where it opens: a channel itself; the viewer's own Agent its direct
+ * messages (the Web opens an Agent's DM only for its owner), any other Agent its profile; a
+ * Computer its page. Each branch is its own `Link`, so the router checks every destination.
+ * `onOpen` runs as it opens.
  */
-function EntityLink({ entity, children }: { entity: SearchEntity; children: ReactNode }) {
-  const shared = { "data-search-entity": `${entity.kind}:${entity.id}`, className: ROW_CLASS };
+export function SearchEntityRow({
+  entity,
+  display,
+  className,
+  onOpen,
+}: {
+  entity: SearchEntity;
+  display: AgentDisplaySnapshot | undefined;
+  className: string;
+  onOpen?: () => void;
+}) {
+  const props = {
+    className,
+    onClick: onOpen,
+    "data-search-entity": `${entity.kind}:${entity.id}`,
+    children: <EntityContent entity={entity} display={display} />,
+  };
   switch (entity.kind) {
     case "channel":
-      return (
-        <Link {...conversationRoute({ channelId: entity.id })} {...shared}>
-          {children}
-        </Link>
-      );
+      return <Link {...conversationRoute({ channelId: entity.id })} {...props} />;
     case "computer":
-      return (
-        <Link to="/computers/$computerId" params={{ computerId: entity.id }} {...shared}>
-          {children}
-        </Link>
-      );
+      return <Link to="/computers/$computerId" params={{ computerId: entity.id }} {...props} />;
     case "agent":
       return entity.ownedByCurrentUser ? (
-        <Link {...conversationRoute({ agentId: entity.id })} {...shared}>
-          {children}
-        </Link>
+        <Link {...conversationRoute({ agentId: entity.id })} {...props} />
       ) : (
-        <Link to="/agents" search={{ profile: formatAgentProfileParam(entity.id) }} {...shared}>
-          {children}
-        </Link>
+        <Link to="/agents" search={{ profile: formatAgentProfileParam(entity.id) }} {...props} />
       );
   }
+}
+
+function EntityContent({
+  entity,
+  display,
+}: {
+  entity: SearchEntity;
+  display: AgentDisplaySnapshot | undefined;
+}) {
+  return (
+    <>
+      <EntityMark entity={entity} display={display} />
+      <span className="min-w-0 truncate text-sm font-semibold text-primary">
+        {entity.kind === "channel" ? `#${entity.name}` : entity.name}
+      </span>
+      <Badge size="sm" color="gray" type="modern" className="shrink-0">
+        {KIND_LABEL[entity.kind]()}
+      </Badge>
+      {entity.kind === "channel" && entity.archived && (
+        <Badge size="sm" color="gray" type="modern" className="shrink-0">
+          {m.search_archived()}
+        </Badge>
+      )}
+      <span className="min-w-0 truncate text-xs text-tertiary">{entitySubtitle(entity)}</span>
+    </>
+  );
 }
 
 const KIND_LABEL: Record<SearchEntity["kind"], () => string> = {
@@ -56,12 +90,14 @@ const KIND_LABEL: Record<SearchEntity["kind"], () => string> = {
 };
 
 /** The channels, Computers and Agents a query names, listed above the messages. */
-export function SearchEntityList({ entities }: { entities: readonly SearchEntity[] }) {
-  const liveAgents = useLiveAgents();
-  const displays = useMemo(
-    () => new Map(liveAgents.map((agent) => [agent.id, agent.display])),
-    [liveAgents],
-  );
+export function SearchEntityList({
+  entities,
+  onOpen,
+}: {
+  entities: readonly SearchEntity[];
+  onOpen: (entity: SearchEntity) => void;
+}) {
+  const displays = useAgentDisplays();
   return (
     <section
       aria-labelledby="search-entities-heading"
@@ -73,23 +109,12 @@ export function SearchEntityList({ entities }: { entities: readonly SearchEntity
       <ul className="flex flex-col gap-1">
         {entities.map((entity) => (
           <li key={`${entity.kind}:${entity.id}`}>
-            <EntityLink entity={entity}>
-              <EntityMark entity={entity} display={displays.get(entity.id)} />
-              <span className="min-w-0 truncate text-sm font-semibold text-primary">
-                {entity.kind === "channel" ? `#${entity.name}` : entity.name}
-              </span>
-              <Badge size="sm" color="gray" type="modern" className="shrink-0">
-                {KIND_LABEL[entity.kind]()}
-              </Badge>
-              {entity.kind === "channel" && entity.archived && (
-                <Badge size="sm" color="gray" type="modern" className="shrink-0">
-                  {m.search_archived()}
-                </Badge>
-              )}
-              <span className="min-w-0 truncate text-xs text-tertiary">
-                {entitySubtitle(entity)}
-              </span>
-            </EntityLink>
+            <SearchEntityRow
+              entity={entity}
+              display={displays.get(entity.id)}
+              className={ENTITY_ROW_CLASS}
+              onOpen={() => onOpen(entity)}
+            />
           </li>
         ))}
       </ul>

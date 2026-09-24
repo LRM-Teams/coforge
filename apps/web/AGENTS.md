@@ -143,7 +143,7 @@ responsibility.
 - `features/realtime/` — the one browser Centrifuge connection.
 - `features/records/` — Workspace Records (see the last section).
 - `features/settings/` — preference pages and device-local preferences.
-- `features/search/` — the Workspace search page (`/search`): filters, matching channels, Agents and Computers, and message results.
+- `features/search/` — the Workspace search page (`/search`): filters, matching channels, Agents and Computers, message results, and the browser-local search history and frequently used places.
 - `features/tasks/` — Task board, list, overview, and message task actions.
 - `features/workspaces/` — Workspace switcher and creation, member directory reads, invitations, human roles, and the last page `/` returns to.
 - `server/agents/` — Agent lifecycle, control, sessions, display reduction,

@@ -182,6 +182,12 @@ export function useLiveAgents(): LiveAgent[] {
   return useMemo(() => agents.filter((agent) => !agent.isExtra), [agents]);
 }
 
+/** Each live Agent's latest display by id, for avatars' status dots. */
+export function useAgentDisplays(): Map<string, AgentDisplaySnapshot | undefined> {
+  const agents = useLiveAgents();
+  return useMemo(() => new Map(agents.map((agent) => [agent.id, agent.display])), [agents]);
+}
+
 /** The current Workspace id from the app shell's providers, when one is selected. */
 export function useCurrentWorkspaceId(): string | undefined {
   return useContext(WorkspaceIdContext);

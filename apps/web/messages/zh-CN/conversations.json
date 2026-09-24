@@ -406,9 +406,9 @@
   "activity_inbox_retry": "重试",
   "activity_inbox_loading_more": "加载更多…",
   "search_title": "搜索",
-  "search_placeholder": "搜索消息…",
-  "search_empty_title": "搜索消息",
-  "search_empty_description": "在所有频道和你的私信中查找消息。",
+  "search_placeholder": "搜索频道、Agent、电脑和消息…",
+  "search_empty_title": "搜索所有内容",
+  "search_empty_description": "搜索频道、Agent、电脑，以及所有频道和你的私信里的消息。",
   "search_searching": "搜索中…",
   "search_messages_heading": "消息",
   "search_no_results_title": "没有找到“{query}”的结果",
@@ -491,5 +491,10 @@
   "search_entity_agent": "Agent",
   "search_no_messages_match": "没有匹配的消息。",
   "conversation_pending_mention_add_target": "添加 {target}",
-  "conversation_pending_mention_ignore_target": "忽略 {target}"
+  "conversation_pending_mention_ignore_target": "忽略 {target}",
+  "search_history_heading": "搜索历史",
+  "search_history_clear": "清除",
+  "search_history_remove": "从搜索历史中移除“{query}”",
+  "search_frequent_heading": "常用",
+  "search_frequent_empty": "你从搜索中打开过的频道和 Agent 会显示在这里。"
 }
