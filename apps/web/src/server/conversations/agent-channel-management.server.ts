@@ -22,6 +22,7 @@ import {
 import { resolveAgentChannelStatus } from "#src/server/agents/agent-channel-status.server";
 import { getAgentDisplay, type AgentDisplay } from "#src/server/agents/agent-display.server";
 import { PrismaDirectConversationRepository } from "#src/server/db/repositories/direct-conversation.repositories.server";
+import { AgentInboxPurgePublisher } from "#src/server/agents/agent-inbox-purge.server";
 
 const CHANNEL_NAME = /^[a-z0-9][a-z0-9_-]{0,31}$/;
 const CHANNEL_TARGET = /^#[a-z0-9][a-z0-9_-]{0,31}$/;
@@ -105,6 +106,7 @@ export type AgentChannelManagementRepository = Pick<
  */
 export class AgentChannelManagement {
   private readonly channels: PublicChannels;
+  private readonly inboxPurge: Pick<AgentInboxPurgePublisher, "purge">;
 
   constructor(
     private readonly db: PrismaClient,
@@ -112,10 +114,14 @@ export class AgentChannelManagement {
     channels?: PublicChannels,
     // The whole port, not just `memberChanged`: it is also the default `PublicChannels`'.
     private readonly realtime?: ConversationRealtime,
+    inboxPurge?: Pick<AgentInboxPurgePublisher, "purge">,
   ) {
+    this.inboxPurge = inboxPurge ?? new AgentInboxPurgePublisher(db);
     // Reused (not reimplemented) so the human "Members" dialog and the Agent CLI's
     // `channel members`/`add-member` cannot drift.
-    this.channels = channels ?? new PublicChannels(db, undefined, undefined, undefined, realtime);
+    this.channels =
+      channels ??
+      new PublicChannels(db, undefined, undefined, undefined, realtime, this.inboxPurge);
   }
 
   async info(workspaceId: string, agentId: string, target: string): Promise<AgentChannelInfo> {
@@ -175,8 +181,15 @@ export class AgentChannelManagement {
       where: { conversationId: channel.id, agentId, ...ACTIVE_MEMBER_WHERE },
       data: { leftAt: new Date() },
     });
-    if (result.count > 0)
+    if (result.count > 0) {
       await announceMemberChanged(this.realtime, { workspaceId, conversationIds: [channel.id] });
+      await this.inboxPurge.purge({
+        workspaceId,
+        agentId,
+        conversationIds: [channel.id],
+        reason: "left",
+      });
+    }
     return { target: `#${channel.channelName}`, joined: false, wasMember: result.count > 0 };
   }
 
@@ -379,6 +392,7 @@ export class AgentChannelManagement {
     if (channelName === "general")
       throw new AgentChannelManagementError(400, "cannot remove a member from #general");
     let wasMember: boolean;
+    let removedAgentId: string | undefined;
     if (kind === "agent") {
       const agentRow = await this.db.agent.findFirst({
         where: { workspaceId, name: handle },
@@ -401,6 +415,7 @@ export class AgentChannelManagement {
         data: { leftAt: new Date() },
       });
       wasMember = result.count > 0;
+      if (wasMember) removedAgentId = agentRow.id;
     } else {
       if (
         !(await hasChannelAdminAuthority(
@@ -421,6 +436,13 @@ export class AgentChannelManagement {
     }
     if (wasMember)
       await announceMemberChanged(this.realtime, { workspaceId, conversationIds: [channel.id] });
+    if (removedAgentId)
+      await this.inboxPurge.purge({
+        workspaceId,
+        agentId: removedAgentId,
+        conversationIds: [channel.id],
+        reason: "member_removed",
+      });
     return { target: `#${channel.channelName}`, removed: true as const, wasMember };
   }
 

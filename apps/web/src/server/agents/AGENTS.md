@@ -41,6 +41,15 @@ these modules have their own rules in `src/server/centrifugo/AGENTS.md`.
   `resolveActorServerRole` lookup or an already-resolved Agent principal. Never
   issue a second query for it.
 
+## Inbox purge
+
+- `agent-inbox-purge.server.ts` (`AgentInboxPurgePublisher`) is the one
+  publisher of `AgentInboxPurge` on the daemon control channel. Callers pass
+  the Agent and channel ids after the membership write commits; it resolves
+  the Computer and `#channel` targets, skips an Agent on no Computer, and logs
+  instead of throwing. `ChangeAgentVisibility` sends one purge for every
+  channel a public→private change left.
+
 ## Control operations
 
 - `agent-control.server.ts` runs Start, Stop, Restart, Reset Session, and Full

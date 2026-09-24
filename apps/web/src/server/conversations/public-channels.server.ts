@@ -16,6 +16,7 @@ import {
 } from "./channel-authority.server";
 import { assertCanManageWorkspaceSettings } from "#src/server/workspaces/member-role.server";
 import { ACTIVE_AGENT_WHERE } from "#src/server/agents/active-agent.server";
+import { AgentInboxPurgePublisher } from "#src/server/agents/agent-inbox-purge.server";
 import { channelThreadRootWhere } from "#src/server/db/message-anchor.server";
 import { AGENT_VISIBILITY } from "#src/features/agents/agent-visibility";
 import {
@@ -348,13 +349,18 @@ export async function resolveChannelThreadRoot(
 
 /** Workspace-visible history with per-Agent notification preferences. */
 export class PublicChannels {
+  private readonly inboxPurge: Pick<AgentInboxPurgePublisher, "purge">;
+
   constructor(
     private readonly db: PrismaClient,
     private readonly idempotency?: MessageRequestIdempotency,
     private readonly publisher?: CentrifugoServerApi,
     private readonly notifications?: MessageNotifier,
     private readonly realtime?: ConversationRealtime,
-  ) {}
+    inboxPurge?: Pick<AgentInboxPurgePublisher, "purge">,
+  ) {
+    this.inboxPurge = inboxPurge ?? new AgentInboxPurgePublisher(db, publisher);
+  }
 
   async setAgentMuted(workspaceId: string, agentId: string, target: string, muted: boolean) {
     const channel = await getAgentChannel(this.db, workspaceId, agentId, target);
@@ -1112,6 +1118,13 @@ export class PublicChannels {
     const wasMember = await softLeaveMember(this.db, channel.id, target);
     if (wasMember)
       await announceMemberChanged(this.realtime, { workspaceId, conversationIds: [channel.id] });
+    if (wasMember && "agentId" in target)
+      await this.inboxPurge.purge({
+        workspaceId,
+        agentId: target.agentId,
+        conversationIds: [channel.id],
+        reason: "member_removed",
+      });
     return { removed: true, wasMember };
   }
 

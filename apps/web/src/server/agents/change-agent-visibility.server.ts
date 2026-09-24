@@ -1,6 +1,7 @@
 import { AppError } from "#src/lib/app-error";
 import type { AgentVisibility } from "#src/features/agents/agent-visibility";
 import { assertAgentLive } from "./active-agent.server";
+import type { AgentInboxPurgePublisher } from "./agent-inbox-purge.server";
 import type { AgentRepository } from "#src/server/db/repositories/agent.repositories.server";
 import { isAdminLike, type WorkspaceMemberRole } from "#src/server/workspaces/member-role.server";
 import {
@@ -43,13 +44,15 @@ type VisibilityPrincipal = { userId: string; workspaceId: string; role: Workspac
  * plain member acting on someone else's Agent. `onVisibilityChanged` tells connected browsers
  * (`publishAgentVisibilityChanged`); it runs once, after the transaction commits, and only when the
  * visibility actually changed. It is best-effort: the change is already committed, and a browser
- * that misses it catches up on its next focus or reconnect refresh.
+ * that misses it catches up on its next focus or reconnect refresh. Going private also tells the
+ * Agent's daemon, in one `inboxPurge`, to drop what it holds for every channel it left.
  */
 export class ChangeAgentVisibility {
   constructor(
     private readonly agents: AgentRepository,
     private readonly store: ChangeAgentVisibilityStore,
     private readonly onVisibilityChanged: (workspaceId: string, agentId: string) => Promise<void>,
+    private readonly inboxPurge: Pick<AgentInboxPurgePublisher, "purge">,
     private readonly realtime?: Pick<ConversationRealtime, "memberChanged">,
   ) {}
 
@@ -68,6 +71,13 @@ export class ChangeAgentVisibility {
       workspaceId: agent.workspaceId,
       conversationIds: [...leftChannelIds, ...joinedChannelIds],
     });
+    if (leftChannelIds.length > 0)
+      await this.inboxPurge.purge({
+        workspaceId: agent.workspaceId,
+        agentId: agent.id,
+        conversationIds: leftChannelIds,
+        reason: "visibility_private",
+      });
     return { visibility: input.visibility, changed };
   }
 
