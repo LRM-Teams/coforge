@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { z } from "zod";
 
 import { agentAuthMiddleware } from "#src/server/agents/agent-http-middleware.server";
+import { agentRouteDomainErrorResponse } from "#src/server/agents/agent-http-routes.server";
 import {
   reportCollectSlotOutcome,
   reportCollectorRuntimeFailure,
@@ -111,15 +112,7 @@ export const Route = createFileRoute("/api/agent/v1/weekly-report-collect")({
             }),
           );
         } catch (error) {
-          if (error && typeof error === "object" && "code" in error) {
-            const code = String((error as { code: string }).code);
-            if (code === "NOT_FOUND") return Response.json({ error: "not found" }, { status: 404 });
-            if (code === "ACCESS_DENIED")
-              return Response.json({ error: "forbidden" }, { status: 403 });
-            if (code === "INVALID_INPUT")
-              return Response.json({ error: "invalid input" }, { status: 400 });
-          }
-          return Response.json({ error: "invalid collect request" }, { status: 400 });
+          return agentRouteDomainErrorResponse(error, "invalid collect request");
         }
       },
     },

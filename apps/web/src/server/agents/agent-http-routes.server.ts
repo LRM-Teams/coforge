@@ -31,3 +31,15 @@ export function agentRouteErrorResponse(
     return new Response(error.message, { status: 400 });
   return new Response(fallbackMessage, { status: 400 });
 }
+
+/** Map standard domain refusals once for Agent HTTP adapters that expose JSON errors. */
+export function agentRouteDomainErrorResponse(error: unknown, fallbackMessage: string): Response {
+  const code =
+    error && typeof error === "object" && "code" in error
+      ? String((error as { code: unknown }).code)
+      : undefined;
+  if (code === "NOT_FOUND") return Response.json({ error: "not found" }, { status: 404 });
+  if (code === "ACCESS_DENIED") return Response.json({ error: "forbidden" }, { status: 403 });
+  if (code === "INVALID_INPUT") return Response.json({ error: "invalid input" }, { status: 400 });
+  return Response.json({ error: fallbackMessage }, { status: 400 });
+}
