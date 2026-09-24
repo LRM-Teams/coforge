@@ -39,23 +39,67 @@ export async function resolveAgentStatus(
   workspaceId: string,
   agent: { id: string; computerId: string | null; stoppedAt: Date | null },
 ): Promise<{ status: AgentUserStatus; availability?: string }> {
-  if (!agent.computerId) return { status: "unknown" };
-  let snapshot;
+  const [only] = await resolveAgentStatuses(workspaceId, [agent]);
+  return only;
+}
+
+/**
+ * The same answer per Agent, for a list, read in one round trip: agent lists (the profile's created
+ * Agents, the Agent API's workspace view) are the reason this exists, and a per-Agent display read
+ * is one Redis transaction each. A display failure loses every row's live status together rather
+ * than one at a time, and still reports "unknown" rather than guessing "offline".
+ */
+export async function resolveAgentStatuses(
+  workspaceId: string,
+  agents: ReadonlyArray<{ id: string; computerId: string | null; stoppedAt: Date | null }>,
+): Promise<Array<{ status: AgentUserStatus; availability?: string }>> {
+  const scoped = agents.filter((agent) => agent.computerId);
+  if (scoped.length === 0) return agents.map(() => ({ status: "unknown" as const }));
+  type Snapshot = Awaited<ReturnType<ReturnType<typeof getAgentDisplay>["snapshot"]>>;
+  const scopeOf = (agent: { computerId: string | null; id: string }) => ({
+    workspaceId,
+    computerId: agent.computerId as string,
+    agentId: agent.id,
+  });
+  let snapshotByAgentId = new Map<string, Snapshot | undefined>();
   try {
-    snapshot = await getAgentDisplay().snapshot({
-      workspaceId,
-      computerId: agent.computerId,
-      agentId: agent.id,
-    });
+    const snapshots = await getAgentDisplay().snapshotMany(scoped.map(scopeOf));
+    snapshotByAgentId = new Map(
+      scoped.map((agent, index) => [agent.id, snapshots[index]] as const),
+    );
   } catch {
-    // An unavailable display read model must not fail the lookup; it only loses the live status.
+    // The batched read failed as a whole, so fall back to one read per Agent: a single Agent's
+    // unreadable display must not blank out every other row's live status, which is the property
+    // the Agent API states and this change must not trade away. Only the failure path pays N reads.
+    snapshotByAgentId = new Map(
+      await Promise.all(
+        scoped.map(async (agent) => {
+          try {
+            return [agent.id, await getAgentDisplay().snapshot(scopeOf(agent))] as const;
+          } catch {
+            return [agent.id, undefined] as const;
+          }
+        }),
+      ),
+    );
   }
-  const display = agentDisplay(snapshot, { stopped: Boolean(agent.stoppedAt) });
+  return agents.map((agent) =>
+    statusFromDisplay(snapshotByAgentId.get(agent.id), Boolean(agent.stoppedAt)),
+  );
+}
+
+/** The single online/offline decision, from a display snapshot or its absence. */
+function statusFromDisplay(
+  snapshot: Awaited<ReturnType<ReturnType<typeof getAgentDisplay>["snapshot"]>> | undefined,
+  stopped: boolean,
+): { status: AgentUserStatus; availability?: string } {
+  const display = agentDisplay(snapshot, { stopped });
   const status: AgentUserStatus =
     display.kind === "unknown" ? "unknown" : display.isOnline ? "online" : "offline";
   return { status, ...(display.statusDetail ? { availability: display.statusDetail } : {}) };
 }
 
+/** The original single-Agent body, kept for the callers that read one Agent. */
 export type ResolvedWorkspaceUser =
   | {
       kind: "human";

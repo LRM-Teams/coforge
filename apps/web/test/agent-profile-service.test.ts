@@ -1,9 +1,15 @@
 import { afterAll, expect, mock, test } from "bun:test";
 
 const displaySnapshots = new Map<string, string>();
+// How many batched display reads the profile's Agent list needed; one per list, not per Agent.
+let displayBatchReads = 0;
 mock.module("#src/server/agents/agent-display.server", () => ({
-  getAgentDisplay: () => ({
-    snapshot: async (scope: { workspaceId: string; computerId: string; agentId: string }) => {
+  getAgentDisplay: () => {
+    const snapshotFor = async (scope: {
+      workspaceId: string;
+      computerId: string;
+      agentId: string;
+    }) => {
       const activityKind = displaySnapshots.get(scope.agentId);
       if (!activityKind) throw new Error("no snapshot");
       return {
@@ -18,8 +24,18 @@ mock.module("#src/server/agents/agent-display.server", () => ({
         entries: [],
         expiresAt: null,
       };
-    },
-  }),
+    };
+    return {
+      snapshot: snapshotFor,
+      // The batched reader the Agent lists use: one call, the same per-scope answer, in order.
+      snapshotMany: async (
+        scopes: Array<{ workspaceId: string; computerId: string; agentId: string }>,
+      ) => {
+        displayBatchReads += 1;
+        return Promise.all(scopes.map(snapshotFor));
+      },
+    };
+  },
 }));
 
 const { createdAgentsFor, resolveAgentProfileShow, resolveAgentProfileUpdate } =
@@ -125,8 +141,15 @@ test("profile show: defaults to the calling Agent's own profile when no target i
 
 test("profile show: a human target lists Agents they created", async () => {
   displaySnapshots.set("agent-scout", "offline");
+  displaySnapshots.set("agent-archivist", "online");
+  displayBatchReads = 0;
   const outcome = await resolveAgentProfileShow(
-    baseDb({ ownedAgents: [AGENT_SCOUT] }) as never,
+    baseDb({
+      ownedAgents: [
+        AGENT_SCOUT,
+        { ...AGENT_SCOUT, id: "agent-archivist", name: "archivist", displayName: "Archivist" },
+      ],
+    }) as never,
     { workspaceId: WORKSPACE_ID, agentId: CALLER_AGENT_ID },
     "alice",
   );
@@ -136,8 +159,12 @@ test("profile show: a human target lists Agents they created", async () => {
   if (outcome.body.profile.kind === "human")
     expect(outcome.body.profile.createdAgents).toEqual([
       { name: "scout", displayName: "Scout", status: "offline" },
+      { name: "archivist", displayName: "Archivist", status: "online" },
     ]);
+  // Two Agents' live statuses, one round trip — the reason the batched reader exists.
+  expect(displayBatchReads).toBe(1);
   displaySnapshots.delete("agent-scout");
+  displaySnapshots.delete("agent-archivist");
 });
 
 test("profile show: an unknown target 404s as user_not_found", async () => {

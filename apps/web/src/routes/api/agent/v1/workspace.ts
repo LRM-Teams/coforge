@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { resolveAgentStatus } from "#src/server/agents/agent-user-info.server";
+import { resolveAgentStatuses } from "#src/server/agents/agent-user-info.server";
 import { agentAuthMiddleware } from "#src/server/agents/agent-http-middleware.server";
 import { buildAgentRuntimeContext } from "#src/server/agents/agent-runtime-context.server";
 import { parseAgentRuntimeConfig } from "#src/server/agents/agent-runtime-config.server";
@@ -82,14 +82,13 @@ export const Route = createFileRoute("/api/agent/v1/workspace")({
             }),
           ]);
           if (!workspace) return Response.json({ error: "workspace not found" }, { status: 404 });
-          // Same online/offline source the Agents list and `coforge user info` read; one read per
-          // Agent, in parallel, and never a failure of the whole response.
-          const agentStatuses = await Promise.all(
-            agents.map(async (agent) => ({
-              agent,
-              ...(await resolveAgentStatus(principal.workspaceId, agent)),
-            })),
-          );
+          // Same online/offline source the Agents list and `coforge user info` read; one read for
+          // the whole list rather than one per Agent, and never a failure of the whole response.
+          const resolvedAgentStatuses = await resolveAgentStatuses(principal.workspaceId, agents);
+          const agentStatuses = agents.map((agent, index) => ({
+            agent,
+            ...resolvedAgentStatuses[index],
+          }));
           return Response.json({
             workspace,
             humans: humans.map((human) => ({
