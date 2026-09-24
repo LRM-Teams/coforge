@@ -152,6 +152,22 @@ export class PrismaAgentRepository implements AgentRepository {
 
   async create(input: Omit<AgentRecord, "id" | "createdAt"> & { id?: string }) {
     return this.db.$transaction(async (tx) => {
+      // Free the name slot first if a soft-deleted Agent holds it: `@@unique([workspaceId, name])`
+      // also spans deleted rows, so a new Agent with a deleted one's name could never be created.
+      // The rename is checked before the create (a failed statement would poison this
+      // transaction). The deleted row is hidden from every directory and its name can never come
+      // back, so the id-suffixed rename is invisible and keeps renamed rows distinct from each
+      // other; history keeps referencing the deleted row by id, so nothing is inherited. A live
+      // holder keeps its name — the plain duplicate-name create error still applies.
+      const deletedHolder = await tx.agent.findFirst({
+        where: { workspaceId: input.workspaceId, name: input.name, deletedAt: { not: null } },
+        select: { id: true },
+      });
+      if (deletedHolder)
+        await tx.agent.update({
+          where: { id: deletedHolder.id },
+          data: { name: `${input.name}-deleted-${deletedHolder.id}` },
+        });
       const agent = mapAgent(await tx.agent.create({ data: input }));
       // #general holds every public Agent from the start (a private one never): the enrollment
       // brings the whole Workspace's #general membership up to date, this Agent included.
