@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import {
   Button as AriaButton,
+  Checkbox as AriaCheckbox,
   Disclosure,
   DisclosurePanel,
   Heading,
@@ -15,7 +16,7 @@ import { DialogHeader } from "#src/components/application/modals/dialog-header";
 import { Avatar } from "#src/components/base/avatar/avatar";
 import { Badge, BadgeWithButton } from "#src/components/base/badges/badges";
 import { Button } from "#src/components/base/buttons/button";
-import { Checkbox } from "#src/components/base/checkbox/checkbox";
+import { CheckboxBase } from "#src/components/base/checkbox/checkbox";
 import { Input } from "#src/components/base/input/input";
 import { AgentCreateDialog } from "#src/features/agents/agent-create-dialog";
 import { createAgent } from "#src/features/agents/agents.functions";
@@ -659,14 +660,25 @@ function AddMembersView({
   }
 
   function candidateRow(entry: Candidate) {
+    const description = entry.description?.trim();
+    // React Aria's checkbox around the official box, so the row can hold an avatar: the official
+    // `Checkbox` puts its label in a `<p>`, which cannot contain the avatar's `<div>`.
     return (
-      <li key={entry.key} className="px-4 py-2 md:px-6">
-        <Checkbox
+      <li key={entry.key}>
+        <AriaCheckbox
           isSelected={selected.has(entry.key)}
           isDisabled={busy}
           onChange={(on) => toggle(entry.key, on)}
-          label={
-            <span className="flex min-w-0 items-center gap-2">
+          aria-label={entry.displayName}
+          className="flex w-full cursor-pointer items-center gap-2 px-4 py-2 hover:bg-primary_hover disabled:cursor-not-allowed md:px-6"
+        >
+          {({ isSelected, isDisabled, isFocusVisible }) => (
+            <>
+              <CheckboxBase
+                isSelected={isSelected}
+                isDisabled={isDisabled}
+                isFocusVisible={isFocusVisible}
+              />
               <Avatar
                 size="xs"
                 alt=""
@@ -674,11 +686,17 @@ function AddMembersView({
                 initials={avatarInitial(entry.displayName)}
                 contentClassName={avatarToneClassName(entry.displayName)}
               />
-              <span className="truncate">{entry.displayName}</span>
-            </span>
-          }
-          hint={entry.description?.trim() || undefined}
-        />
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-sm font-medium text-primary">
+                  {entry.displayName}
+                </span>
+                {description && (
+                  <span className="block truncate text-xs text-tertiary">{description}</span>
+                )}
+              </span>
+            </>
+          )}
+        </AriaCheckbox>
       </li>
     );
   }
