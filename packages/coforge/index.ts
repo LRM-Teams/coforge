@@ -2248,7 +2248,7 @@ function formatTasks(result: TaskResult, reviewerIsolation = false): string {
   return result.tasks
     .map(
       (task) =>
-        `#${task.number} status=${task.status} owner=${task.owner?.name ?? "unclaimed"} message=${task.messageId} revision=${task.revision} ${task.title}`,
+        `#${task.number} status=${task.status} owner=${task.owner?.name ?? "unclaimed"}${task.owner?.deleted ? " [deleted]" : ""} message=${task.messageId} revision=${task.revision} ${task.title}`,
     )
     .join("\n");
 }

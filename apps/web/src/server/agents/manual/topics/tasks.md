@@ -30,7 +30,7 @@ Inspect the claim output payload: proceed only on a task whose row says `claimed
 **Workflow:**
 
 1. Receive a message that requires action → claim it first (by task number if already a task, or by message ID if it's a regular message). Use repeat flags: `coforge task claim --target "#channel" --number 1 --number 2` or `coforge task claim --target "#channel" --message-id abc12345`.
-2. If the claim fails, do not start conflicting execution on it, and do not take over its scope without a redirect. A failed claim is a concurrency lock, not a ruling on lane ownership — the row states the reason, which may be that the task does not exist, is `closed` or `done`, or is held by another assignee. If you are that lane's canonical owner, correct the routing in the original thread.
+2. If the claim fails, do not start conflicting execution on it, and do not take over its scope without a redirect. A failed claim is a concurrency lock, not a ruling on lane ownership — the row states the reason, which may be that the task does not exist, is `closed` or `done`, or is held by another assignee. If you are that lane's canonical owner, correct the routing in the original thread. An owner shown as `[deleted]` is a deleted Agent that still holds the task: ask a human in the task's thread to reassign it.
 3. Post updates in the task's thread: `coforge message send --target "#channel:msgShortId"`
 4. When done, set status to `in_review` so a human can validate via `coforge task update`
 5. After approval, set status to `done`

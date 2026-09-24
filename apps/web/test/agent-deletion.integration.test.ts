@@ -360,6 +360,56 @@ test.skipIf(!connectionString)(
 );
 
 test.skipIf(!connectionString)(
+  "a deleted Agent keeps the Task it claimed, and the Task names it as deleted",
+  async () => {
+    const { db, workspace, owner, agent } = await setup();
+    try {
+      const general = await db.conversation.findUniqueOrThrow({
+        where: { workspaceId_channelName: { workspaceId: workspace.id, channelName: "general" } },
+      });
+      const board = new TaskBoard(db);
+      const principal = { workspaceId: workspace.id, userId: owner.id };
+      const created = await board.execute(principal, {
+        operation: "create",
+        idempotencyKey: crypto.randomUUID(),
+        conversationId: general.id,
+        title: "Half-done work",
+        assignee: `@${agent.name}`,
+      });
+      const number = created.tasks[0]!.number;
+      const listTask = async () =>
+        (
+          await board.execute(principal, {
+            operation: "list",
+            idempotencyKey: crypto.randomUUID(),
+            conversationId: general.id,
+          })
+        ).tasks.find((task) => task.number === number)!;
+      expect((await listTask()).owner).toMatchObject({ handle: agent.name, deleted: false });
+
+      await deletionFor(db, []).delete(
+        { userId: owner.id, workspaceId: workspace.id, role: "owner" },
+        agent.id,
+      );
+
+      // The claim and its status stay as they were; only the owner is now marked deleted, so a
+      // Workspace owner/admin can see the Task needs reassigning.
+      const after = await listTask();
+      expect(after.status).toBe(created.tasks[0]!.status);
+      expect(after.owner).toMatchObject({
+        kind: "agent",
+        id: agent.id,
+        handle: agent.name,
+        name: "Doomed",
+        deleted: true,
+      });
+    } finally {
+      await teardown(db, workspace.id, [owner.id]);
+    }
+  },
+);
+
+test.skipIf(!connectionString)(
   "the weekly-report assistant is refused and survives the attempt",
   async () => {
     const { db, workspace, owner } = await setup();
