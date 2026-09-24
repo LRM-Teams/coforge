@@ -57,8 +57,15 @@ test("the overview lists every open Task; finished ones are read latest first, a
   for (const title of ["Closed 1", "Closed 2"])
     await run({ operation: "update", number: numberOf(title), status: "closed" });
 
+  // One batch shares a creation instant: spread the open ones so their order is observable.
+  for (const [minute, title] of ["Open 1", "Open 2"].entries())
+    await db.task.update({
+      where: { conversationId_number: { conversationId: channel.id, number: numberOf(title) } },
+      data: { createdAt: new Date(Date.UTC(2026, 0, 1, 0, minute)) },
+    });
   const overview = await board.overview(workspace.id, user.id);
-  expect(overview.tasks.map((task) => task.title)).toEqual(["Open 1", "Open 2"]);
+  // Open Tasks newest first, so a new one is never behind "Show more".
+  expect(overview.tasks.map((task) => task.title)).toEqual(["Open 2", "Open 1"]);
 
   const page = (status: "done" | "closed", cursor?: string | null) =>
     board.finishedPage(as, { status, window: "week", cursor, limit: 2 });

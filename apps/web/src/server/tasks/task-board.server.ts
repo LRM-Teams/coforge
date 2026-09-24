@@ -481,7 +481,8 @@ export class TaskBoard {
         status: { notIn: [...FINISHED_TASK_STATUSES] },
         conversation: overviewConversationWhere(userId),
       },
-      orderBy: { createdAt: "asc" },
+      // Newest first: a group renders its first cards, and new work is what gets looked at.
+      orderBy: [{ createdAt: "desc" }, { messageId: "asc" }],
       select: overviewSelection(userId),
     });
     return { tasks: tasks.map((task) => overviewRow(task, userId)) };

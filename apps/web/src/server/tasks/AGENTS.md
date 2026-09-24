@@ -36,7 +36,8 @@ contract is `packages/coforge-sdk/src/internal/tasks.ts`.
   changing Agent-send wake rules.
 - Task message metadata belongs to the existing message read projections.
 - `TaskBoard.overview(workspaceId, userId)` is browser-only and applies the
-  existing conversation visibility rules. It returns unfinished Tasks only;
+  existing conversation visibility rules. It returns unfinished Tasks only,
+  newest first;
   Done and Closed are read through `finishedSummary` (counts by status, owner
   and Project) and `finishedPage` (50 per page, newest update first, cursor
   `(updatedAt, messageId)`), both limited to a `week | month | all` window
