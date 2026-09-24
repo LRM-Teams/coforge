@@ -1109,6 +1109,10 @@ model AgentMessageDelivery {
   @@unique([messageId, agentId])
   @@unique([deliveryId, workspaceId])
   @@index([workspaceId, agentId, receivedAt])
+  /// Serves an Agent's channel attention in one target, newest first: a channel message counts for
+  /// an Agent only with its delivery row, so the send path's freshness reads walk these rows
+  /// instead of the channel's whole history.
+  @@index([agentId, conversationId, sequence])
   @@map("agent_message_deliveries")
 }
 

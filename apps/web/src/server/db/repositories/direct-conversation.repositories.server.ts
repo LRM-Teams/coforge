@@ -318,6 +318,43 @@ function unreadForAgentWhere(agentId: string, isChannel: boolean) {
   } satisfies Prisma.MessageWhereInput;
 }
 
+/** One target an Agent owes attention in: above `afterSequence`, and never `excludeSenderMemberId`'s. */
+type AgentAttentionScope = {
+  agentId: string;
+  conversationId: string;
+  threadRootId: string | null;
+  isChannel: boolean;
+  afterSequence?: number;
+  excludeSenderMemberId?: string;
+};
+
+function agentAttentionMessageWhere(scope: AgentAttentionScope) {
+  return {
+    conversationId: scope.conversationId,
+    threadRootId: scope.threadRootId,
+    ...(scope.afterSequence !== undefined ? { sequence: { gt: scope.afterSequence } } : {}),
+    ...(scope.excludeSenderMemberId
+      ? { senderMemberId: { not: scope.excludeSenderMemberId } }
+      : {}),
+    ...unreadForAgentWhere(scope.agentId, scope.isChannel),
+  } satisfies Prisma.MessageWhereInput;
+}
+
+/** The same scope as `agentAttentionMessageWhere` for a channel, as the Agent's delivery rows. */
+function agentAttentionDeliveryWhere(scope: AgentAttentionScope) {
+  return {
+    agentId: scope.agentId,
+    conversationId: scope.conversationId,
+    ...(scope.afterSequence !== undefined ? { sequence: { gt: scope.afterSequence } } : {}),
+    message: {
+      threadRootId: scope.threadRootId,
+      ...(scope.excludeSenderMemberId
+        ? { senderMemberId: { not: scope.excludeSenderMemberId } }
+        : {}),
+    },
+  } satisfies Prisma.AgentMessageDeliveryWhereInput;
+}
+
 /**
  * Messages the Agent owes attention to: above its per-target read boundary, from a user, or
  * explicitly delivered to it; channels only count with a delivery row. Shared by
@@ -2266,7 +2303,7 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
   }
 
   /**
-   * The pending-agent-context scope of a resolved target (unread boundary and `where` clause)
+   * The pending-agent-context scope of a resolved target (conversation/thread and unread boundary)
    * shared by the pending read and its count, so a bounded read and its unbounded count cannot
    * drift apart.
    */
@@ -2291,15 +2328,15 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
             select: { sequence: true },
           })
         : undefined;
-    const boundary = afterSequence ?? latestAgentMessage?.sequence ?? 0;
     return {
       canonicalTarget,
-      where: {
+      scope: {
+        agentId,
         conversationId,
         threadRootId,
-        sequence: { gt: boundary },
-        ...unreadForAgentWhere(agentId, isChannel),
-      } satisfies Prisma.MessageWhereInput,
+        isChannel,
+        afterSequence: afterSequence ?? latestAgentMessage?.sequence ?? 0,
+      } satisfies AgentAttentionScope,
     };
   }
 
@@ -2321,21 +2358,12 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
     resolved: ResolvedAgentTarget,
     afterSequence?: number,
   ) {
-    const { canonicalTarget, where } = await this.pendingAgentContextScope(
+    const { canonicalTarget, scope } = await this.pendingAgentContextScope(
       agentId,
       resolved,
       afterSequence,
     );
-    const rows = await this.db.message.findMany({
-      where,
-      orderBy: { sequence: "desc" },
-      take: 3,
-      include: {
-        sender: MESSAGE_SENDER_SELECT,
-        attachments: { orderBy: { position: "asc" } },
-        mentions: MESSAGE_MENTIONS_SELECT,
-      },
-    });
+    const rows = await this.#newestAgentAttention(scope, 3);
     return rows.reverse().map((m) => this.#agentContextRecord(m, canonicalTarget));
   }
 
@@ -2366,22 +2394,45 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
       where: { conversationId_agentId: { conversationId, agentId } },
       select: { id: true },
     });
-    const rows = await this.db.message.findMany({
-      where: {
-        conversationId,
-        threadRootId,
-        ...(agentMember ? { senderMemberId: { not: agentMember.id } } : {}),
-        ...unreadForAgentWhere(agentId, isChannel),
-      },
-      orderBy: { sequence: "desc" },
-      take: limit,
-      include: {
-        sender: MESSAGE_SENDER_SELECT,
-        attachments: { orderBy: { position: "asc" } },
-        mentions: MESSAGE_MENTIONS_SELECT,
-      },
-    });
+    const rows = await this.#newestAgentAttention(
+      { agentId, conversationId, threadRootId, isChannel, excludeSenderMemberId: agentMember?.id },
+      limit,
+    );
     return rows.reverse().map((m) => this.#agentContextRecord(m, canonicalTarget));
+  }
+
+  /**
+   * The `take` newest messages of one target that the Agent owes attention to, newest first. A
+   * channel message counts only with the Agent's delivery row, so a channel reads the Agent's
+   * deliveries in that conversation (`agentId, conversationId, sequence` index) instead of walking
+   * the channel's history and probing every message for a delivery; a direct message keeps the
+   * message-side rule, whose range is the conversation itself.
+   */
+  async #newestAgentAttention(scope: AgentAttentionScope, take: number) {
+    const include = {
+      sender: MESSAGE_SENDER_SELECT,
+      attachments: { orderBy: { position: "asc" } },
+      mentions: MESSAGE_MENTIONS_SELECT,
+    } satisfies Prisma.MessageInclude;
+    if (!scope.isChannel)
+      return this.db.message.findMany({
+        where: agentAttentionMessageWhere(scope),
+        orderBy: { sequence: "desc" },
+        take,
+        include,
+      });
+    const delivered = await this.db.agentMessageDelivery.findMany({
+      where: agentAttentionDeliveryWhere(scope),
+      orderBy: { sequence: "desc" },
+      take,
+      select: { messageId: true },
+    });
+    if (!delivered.length) return [];
+    return this.db.message.findMany({
+      where: { id: { in: delivered.map((row) => row.messageId) } },
+      orderBy: { sequence: "desc" },
+      include,
+    });
   }
 
   /** One row of the Agent-facing context window, shared by the pending and recent readers so both
@@ -2430,8 +2481,10 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
     resolved: ResolvedAgentTarget,
     afterSequence?: number,
   ) {
-    const { where } = await this.pendingAgentContextScope(agentId, resolved, afterSequence);
-    return this.db.message.count({ where });
+    const { scope } = await this.pendingAgentContextScope(agentId, resolved, afterSequence);
+    return scope.isChannel
+      ? this.db.agentMessageDelivery.count({ where: agentAttentionDeliveryWhere(scope) })
+      : this.db.message.count({ where: agentAttentionMessageWhere(scope) });
   }
 
   /**
