@@ -2,6 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 
 import { AppError } from "#src/lib/app-error";
+import { VISIBLE_CONVERSATION_WHERE } from "#src/server/conversations/active-member.server";
 import { workspaceUserMiddleware } from "#src/features/auth/function-auth";
 import { attachmentView } from "#src/server/attachments/attachment-view.server";
 import { isInlineImage } from "#src/server/attachments/attachment-response.server";
@@ -33,9 +34,12 @@ export const loadConversationFiles = createServerFn({ method: "GET" })
     const { user, db, workspaceId } = context;
     // Files carry no per-attachment ACL of their own: the visibility boundary is the
     // conversation's membership, the same one that gates the messages the files ride on.
-    const member = await db.conversationMember.findUnique({
+    // A channel hidden from the Workspace shows its files to nobody until it is restored.
+    const member = await db.conversationMember.findFirst({
       where: {
-        conversationId_userId: { conversationId: data.conversationId, userId: user.id },
+        conversationId: data.conversationId,
+        userId: user.id,
+        conversation: VISIBLE_CONVERSATION_WHERE,
       },
       select: { id: true },
     });

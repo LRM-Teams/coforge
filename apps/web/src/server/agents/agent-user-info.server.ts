@@ -1,3 +1,4 @@
+import { VISIBLE_CONVERSATION_WHERE } from "#src/server/conversations/active-member.server";
 import type {
   AgentUserInfo,
   AgentUserInfoMembership,
@@ -168,6 +169,7 @@ async function sharedChannelMemberships(
       workspaceId,
       channelName: { not: null },
       archivedAt: null,
+      ...VISIBLE_CONVERSATION_WHERE,
       members: { some: { agentId: callerAgentId, leftAt: null } },
     },
     select: {

@@ -9,7 +9,10 @@ import {
   issueWorkspaceConversationSubscriptionToken,
 } from "#src/server/auth/browser-realtime-token.server";
 import { workspaceUserMiddleware } from "#src/features/auth/function-auth";
-import { ACTIVE_MEMBER_WHERE } from "#src/server/conversations/active-member.server";
+import {
+  ACTIVE_MEMBER_WHERE,
+  VISIBLE_CONVERSATION_WHERE,
+} from "#src/server/conversations/active-member.server";
 
 export const getBrowserRealtimeConnectionToken = createServerFn({
   method: "GET",
@@ -33,6 +36,8 @@ export const getConversationRealtimeToken = createServerFn({ method: "GET" })
           { channelName: null, members: { some: { userId: user.id, ...ACTIVE_MEMBER_WHERE } } },
           {
             channelName: { not: null },
+            // A channel hidden from the Workspace has no live signal for anyone.
+            ...VISIBLE_CONVERSATION_WHERE,
             workspace: { members: { some: { userId: user.id } } },
           },
         ],

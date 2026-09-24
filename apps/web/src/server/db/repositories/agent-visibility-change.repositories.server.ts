@@ -1,7 +1,10 @@
 import type { Prisma, PrismaClient } from "#src/generated/prisma/client";
 import { AGENT_VISIBILITY } from "#src/features/agents/agent-visibility";
 import { ACTIVE_AGENT_WHERE } from "#src/server/agents/active-agent.server";
-import { ACTIVE_CHANNEL_MEMBER_WHERE } from "#src/server/conversations/active-member.server";
+import {
+  ACTIVE_CHANNEL_MEMBER_WHERE,
+  VISIBLE_CONVERSATION_WHERE,
+} from "#src/server/conversations/active-member.server";
 import { joinGeneralChannel } from "#src/server/conversations/public-channels.server";
 import type {
   AgentVisibilityChangePreview,
@@ -88,6 +91,8 @@ export async function previewAgentVisibilityChange(
         workspaceId: input.workspaceId,
         agentId: input.agentId,
         ...ACTIVE_CHANNEL_MEMBER_WHERE,
+        // A channel hidden from the Workspace is not named, though it is left too.
+        conversation: { channelName: { not: null }, ...VISIBLE_CONVERSATION_WHERE },
       },
       select: { conversation: { select: { channelName: true } } },
     }),

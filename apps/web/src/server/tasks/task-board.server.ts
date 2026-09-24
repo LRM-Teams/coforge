@@ -27,7 +27,10 @@ import {
   type MessageMentionRef,
 } from "#src/server/conversations/mentions.server";
 import { storeMessageBody } from "#src/server/conversations/message-references.server";
-import { ACTIVE_MEMBER_WHERE } from "#src/server/conversations/active-member.server";
+import {
+  ACTIVE_MEMBER_WHERE,
+  VISIBLE_CONVERSATION_WHERE,
+} from "#src/server/conversations/active-member.server";
 import {
   agentMessageSender,
   browserSenderHandle,
@@ -340,6 +343,8 @@ export class TaskBoard {
       where: {
         workspaceId,
         conversation: {
+          // Tasks in a channel hidden from the Workspace leave the overview until it is restored.
+          ...VISIBLE_CONVERSATION_WHERE,
           OR: [
             { channelName: { not: null } },
             {
@@ -404,6 +409,7 @@ export class TaskBoard {
               ? undefined
               : (command.status ?? { notIn: ["done", "closed"] }),
           conversation: {
+            ...VISIBLE_CONVERSATION_WHERE,
             members: { some: { agentId: principal.agentId, ...ACTIVE_MEMBER_WHERE } },
           },
         },
@@ -584,6 +590,7 @@ export class TaskBoard {
         where: {
           id: command.conversationId,
           workspaceId: principal.workspaceId,
+          ...VISIBLE_CONVERSATION_WHERE,
         },
         select: {
           id: true,
@@ -635,6 +642,7 @@ export class TaskBoard {
           where: {
             workspaceId: principal.workspaceId,
             channelName: target.slice(1),
+            ...VISIBLE_CONVERSATION_WHERE,
             members: { some: { agentId: principal.agentId, ...ACTIVE_MEMBER_WHERE } },
           },
           select: {

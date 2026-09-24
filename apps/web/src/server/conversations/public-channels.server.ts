@@ -4,7 +4,7 @@ import type { Prisma, PrismaClient } from "#src/generated/prisma/client";
 import { AppError } from "#src/lib/app-error";
 import { CHANNEL_NAME_PATTERN } from "#src/features/conversations/conversation.schemas";
 import { windowPageFlags } from "#src/lib/conversation-window";
-import { ACTIVE_MEMBER_WHERE } from "./active-member.server";
+import { ACTIVE_MEMBER_WHERE, VISIBLE_CONVERSATION_WHERE } from "./active-member.server";
 import { HUMAN_UNREAD_MESSAGE_SQL } from "./human-unread.server";
 import {
   channelActorMemberWhere,
@@ -14,6 +14,7 @@ import {
   resolveActorServerRole,
   resolveChannelAuthority,
 } from "./channel-authority.server";
+import { assertCanManageWorkspaceSettings } from "#src/server/workspaces/member-role.server";
 import { ACTIVE_AGENT_WHERE } from "#src/server/agents/active-agent.server";
 import { channelThreadRootWhere } from "#src/server/db/message-anchor.server";
 import { AGENT_VISIBILITY } from "#src/features/agents/agent-visibility";
@@ -315,6 +316,7 @@ export async function getAgentChannel(
     where: {
       workspaceId,
       channelName: target.slice(1),
+      ...VISIBLE_CONVERSATION_WHERE,
       members: { some: { agentId, agent: { workspaceId }, ...ACTIVE_MEMBER_WHERE } },
     },
   });
@@ -647,7 +649,7 @@ export class PublicChannels {
   async names(workspaceId: string, userId: string) {
     await this.authorize(workspaceId, userId);
     const channels = await this.db.conversation.findMany({
-      where: { workspaceId, channelName: { not: null } },
+      where: { workspaceId, channelName: { not: null }, ...VISIBLE_CONVERSATION_WHERE },
       select: { id: true, channelName: true, description: true, archivedAt: true },
     });
     return channels.map((channel) => ({
@@ -662,7 +664,7 @@ export class PublicChannels {
     await this.authorize(workspaceId, userId);
     const [channels, unread] = await Promise.all([
       this.db.conversation.findMany({
-        where: { workspaceId, channelName: { not: null } },
+        where: { workspaceId, channelName: { not: null }, ...VISIBLE_CONVERSATION_WHERE },
         orderBy: { channelName: "asc" },
         select: {
           id: true,
@@ -702,6 +704,7 @@ export class PublicChannels {
           ON c."id" = cm."conversationId"
          AND c."workspaceId" = ${workspaceId}::uuid
          AND c."channelName" IS NOT NULL
+         AND c."hiddenFromWorkspaceAt" IS NULL
         CROSS JOIN LATERAL (
           SELECT COUNT(*)::int AS "count",
             COUNT(*) FILTER (WHERE m."createdAt" > cm."hiddenAt")::int AS "arrivedSinceClosed"
@@ -889,6 +892,46 @@ export class PublicChannels {
   }
 
   /**
+   * Whether `#general` is hidden from the whole Workspace, for the Workspace settings toggle.
+   * Owner/admin only, like the change itself.
+   */
+  async generalHidden(workspaceId: string, userId: string): Promise<boolean> {
+    const general = await this.generalForSettings(workspaceId, userId);
+    return general.hiddenFromWorkspaceAt !== null;
+  }
+
+  /**
+   * Hides `#general` from the whole Workspace, or restores it. A Workspace owner or admin does
+   * this; while it is hidden nobody, themselves included, sees, reads or posts in it, and its
+   * history is kept. Enrollment keeps running meanwhile, so a restore brings everyone back in.
+   * Every open sidebar and page hears of the change; a call that changes nothing announces
+   * nothing.
+   */
+  async setGeneralHidden(workspaceId: string, userId: string, hidden: boolean) {
+    const general = await this.generalForSettings(workspaceId, userId);
+    if ((general.hiddenFromWorkspaceAt !== null) === hidden) return { id: general.id, hidden };
+    await this.db.conversation.update({
+      where: { id: general.id },
+      data: { hiddenFromWorkspaceAt: hidden ? new Date() : null },
+    });
+    await announceChannelUpdated(this.realtime, { workspaceId, conversationId: general.id });
+    return { id: general.id, hidden };
+  }
+
+  /** `#general` as a Workspace setting sees it, hidden or not; only an owner or admin may. */
+  private async generalForSettings(workspaceId: string, userId: string) {
+    assertCanManageWorkspaceSettings(
+      await resolveActorServerRole(this.db, workspaceId, { userId }),
+    );
+    const general = await this.db.conversation.findUnique({
+      where: { workspaceId_channelName: { workspaceId, channelName: "general" } },
+      select: { id: true, hiddenFromWorkspaceAt: true },
+    });
+    if (!general) throw new AppError("NOT_FOUND");
+    return general;
+  }
+
+  /**
    * Archives or unarchives a channel. Needs the `archive`/`unarchive` capability, which
    * `#general` never grants. Members keep reading an archived channel, but nobody posts in it or
    * joins it until it is unarchived.
@@ -916,7 +959,12 @@ export class PublicChannels {
 
   private async findChannelById(workspaceId: string, channelId: string) {
     const channel = await this.db.conversation.findFirst({
-      where: { id: channelId, workspaceId, channelName: { not: null } },
+      where: {
+        id: channelId,
+        workspaceId,
+        channelName: { not: null },
+        ...VISIBLE_CONVERSATION_WHERE,
+      },
       select: { id: true, channelName: true, description: true, archivedAt: true },
     });
     if (!channel) throw new AppError("NOT_FOUND");
@@ -926,7 +974,12 @@ export class PublicChannels {
   private async channel(workspaceId: string, userId: string, channelId: string) {
     await this.authorize(workspaceId, userId);
     const channel = await this.db.conversation.findFirst({
-      where: { id: channelId, workspaceId, channelName: { not: null } },
+      where: {
+        id: channelId,
+        workspaceId,
+        channelName: { not: null },
+        ...VISIBLE_CONVERSATION_WHERE,
+      },
       include: {
         project: {
           select: { id: true, name: true, slug: true, githubFullName: true, githubHtmlUrl: true },
@@ -1039,7 +1092,12 @@ export class PublicChannels {
     target: ChannelActor,
   ) {
     const channel = await this.db.conversation.findFirst({
-      where: { id: channelId, workspaceId, channelName: { not: null } },
+      where: {
+        id: channelId,
+        workspaceId,
+        channelName: { not: null },
+        ...VISIBLE_CONVERSATION_WHERE,
+      },
       select: { id: true, channelName: true },
     });
     if (!channel) throw new AppError("NOT_FOUND");
@@ -1069,7 +1127,12 @@ export class PublicChannels {
   async members(workspaceId: string, actor: ChannelActor, channelId: string) {
     await this.authorizeActor(workspaceId, actor);
     const channel = await this.db.conversation.findFirst({
-      where: { id: channelId, workspaceId, channelName: { not: null } },
+      where: {
+        id: channelId,
+        workspaceId,
+        channelName: { not: null },
+        ...VISIBLE_CONVERSATION_WHERE,
+      },
       select: { id: true, channelName: true, archivedAt: true },
     });
     if (!channel) throw new AppError("NOT_FOUND");
@@ -1216,7 +1279,12 @@ export class PublicChannels {
   ) {
     await this.authorizeActor(workspaceId, actor);
     const channel = await this.db.conversation.findFirst({
-      where: { id: channelId, workspaceId, channelName: { not: null } },
+      where: {
+        id: channelId,
+        workspaceId,
+        channelName: { not: null },
+        ...VISIBLE_CONVERSATION_WHERE,
+      },
       select: { id: true, archivedAt: true },
     });
     if (!channel) throw new AppError("NOT_FOUND");

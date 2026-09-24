@@ -1,6 +1,6 @@
 import type { Prisma, PrismaClient } from "#src/generated/prisma/client";
 import { AppError } from "#src/lib/app-error";
-import { ACTIVE_MEMBER_WHERE } from "./active-member.server";
+import { ACTIVE_MEMBER_WHERE, VISIBLE_CONVERSATION_WHERE } from "./active-member.server";
 import { browserMessageFields, mapBrowserMessage } from "./conversation-history.server";
 
 /**
@@ -30,7 +30,7 @@ export async function saveUserMessage(
 ): Promise<void> {
   const { workspaceId, conversationId, userId, messageId } = input;
   const message = await db.message.findFirst({
-    where: { id: messageId, conversationId, workspaceId },
+    where: { id: messageId, conversationId, workspaceId, conversation: VISIBLE_CONVERSATION_WHERE },
     select: { id: true },
   });
   if (!message) throw new AppError("NOT_FOUND");
@@ -123,7 +123,12 @@ export async function listUserSavedMessages(
 ): Promise<SavedMessageView[]> {
   const { workspaceId, userId } = input;
   const rows = await db.savedMessage.findMany({
-    where: { workspaceId, member: { workspaceId, userId } },
+    // A message in a channel hidden from the Workspace leaves Saved until the channel is back.
+    where: {
+      workspaceId,
+      member: { workspaceId, userId },
+      conversation: VISIBLE_CONVERSATION_WHERE,
+    },
     select: savedMessageSelect,
     orderBy: { createdAt: "desc" },
   });

@@ -1,3 +1,4 @@
+import { VISIBLE_CONVERSATION_WHERE } from "./active-member.server";
 import type { Prisma, PrismaClient } from "#src/generated/prisma/client";
 import { AppError } from "#src/lib/app-error";
 import { attachmentView } from "#src/server/attachments/attachment-view.server";
@@ -120,7 +121,8 @@ export class ConversationHistory {
         select: { userId: true },
       }),
       this.db.conversation.findFirst({
-        where: { id: conversationId, workspaceId },
+        // A channel hidden from the Workspace is unreadable for everyone until it is restored.
+        where: { id: conversationId, workspaceId, ...VISIBLE_CONVERSATION_WHERE },
         select: {
           directKey: true,
           channelName: true,
