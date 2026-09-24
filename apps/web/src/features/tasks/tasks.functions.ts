@@ -7,7 +7,6 @@ import { createCentrifugoServerApi } from "#src/server/centrifugo/server-api.ser
 import { bestEffortMessageNotifier } from "#src/server/notifications/web-push-composition.server";
 import { workspaceUserMiddleware } from "#src/features/auth/function-auth";
 import { refuseUnclaimed, TaskBoard } from "#src/server/tasks/task-board.server";
-import { createAgentDirectTask } from "#src/server/tasks/agent-direct-task.server";
 
 const taskCommand = z
   .object({
@@ -128,27 +127,4 @@ export const executeTask = createServerFn({ method: "POST" })
     const result = await browserTaskBoard(db).execute({ workspaceId, userId: user.id }, data);
     if (data.operation === "claim") refuseUnclaimed(result);
     return result;
-  });
-
-/** A Task for an Agent from the Tasks page: in the person's direct conversation with it,
- * assigned to it (`createAgentDirectTask`). */
-export const createTaskForAgent = createServerFn({ method: "POST" })
-  .middleware([workspaceUserMiddleware])
-  .validator(
-    z
-      .object({
-        agentId: z.uuid(),
-        title: z.string().trim().min(1).max(8_000),
-        description: z.string().max(50_000).nullable().optional(),
-        idempotencyKey: z.uuid(),
-      })
-      .strict(),
-  )
-  .handler(async ({ context, data }) => {
-    const { user, db, workspaceId } = context;
-    return createAgentDirectTask(db, browserTaskBoard(db), {
-      workspaceId,
-      userId: user.id,
-      ...data,
-    });
   });

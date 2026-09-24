@@ -45,19 +45,16 @@ contract is `packages/coforge-sdk/src/internal/tasks.ts`.
   reads and browser projections expose the server identity as `system` without
   changing Agent-send wake rules.
 - Task message metadata belongs to the existing message read projections.
-- `TaskBoard.overview(workspaceId, userId)` is browser-only and applies the
-  existing conversation visibility rules. It returns unfinished Tasks only,
-  newest first;
+- `TaskBoard.overview(workspaceId, userId)` is browser-only. It reads visible
+  channels only; a direct message's Tasks stay on that conversation's Tasks tab,
+  and every Workspace-page read (`overviewTask`, `finishedSummary`,
+  `finishedPage` without a conversation) shares that scope. It returns
+  unfinished Tasks only, newest first;
   Done and Closed are read through `finishedSummary` (counts by status, owner
   and Project) and `finishedPage` (50 per page, newest update first, cursor
   `(updatedAt, messageId)`), both limited to a `week | month | all` window
   and scoped to the Workspace page or one conversation. The Agent `list`
   command keeps its own semantics.
-- A Task for an Agent from the Tasks page (`createAgentDirectTask`) needs no
-  channel: it is created in the person's direct conversation with the Agent
-  (`getOrCreateUserAgent`) and assigned to it through `TaskBoard.execute`,
-  never around it. It checks `canDirectMessageAgent` itself, since an existing
-  conversation is returned without that check.
 - An Agent's own list (`list` with `mine`) returns every Task assigned to it in
   the conversations it is a member of, unfinished by default and without a page
   limit. Its `coverage` and `pagination` describe that query and come from

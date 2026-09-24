@@ -204,7 +204,6 @@ function TasksPage() {
           void navigate({ search: (previous) => ({ ...previous, layout: nextLayout }) })
         }
         onOpenTask={openPopup}
-        onCreated={refreshOverview}
         onCommand={command}
       />
       {openTask && (

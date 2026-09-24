@@ -1,7 +1,6 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "#src/generated/prisma/client";
-import { createAgentDirectTask } from "#src/server/tasks/agent-direct-task.server";
 import { TaskBoard } from "#src/server/tasks/task-board.server";
 
 const connectionString = Bun.env.TASK_TEST_DATABASE_URL ?? Bun.env.DATABASE_URL;
@@ -79,17 +78,6 @@ test("an assignee bound by id is the one picked, even when a person shares the n
 
 test("a bare @name both could answer to is the person", async () => {
   expect((await create(`@${twin}`)).tasks[0]!.owner).toMatchObject({ kind: "user", id: person.id });
-});
-
-test("a Task for an Agent from the Tasks page goes to that Agent, whoever shares its name", async () => {
-  const created = await createAgentDirectTask(db, new TaskBoard(db), {
-    workspaceId,
-    userId: person.id,
-    agentId: agent.id,
-    title: "Only for the Agent",
-    idempotencyKey: crypto.randomUUID(),
-  });
-  expect(created.tasks[0]!.owner).toMatchObject({ kind: "agent", id: agent.id });
 });
 
 test("reassigning to a picked member binds by id too", async () => {

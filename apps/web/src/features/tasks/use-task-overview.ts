@@ -1,20 +1,14 @@
 import { useCallback, useEffect, useMemo } from "react";
-import { getRouteApi, useHydrated } from "@tanstack/react-router";
+import { useHydrated } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import type { QueryClient } from "@tanstack/react-query";
 import { useLiveQuery } from "@tanstack/react-db";
 
 import { useCurrentWorkspaceId } from "#src/features/agents/workspace-agents-realtime";
-import {
-  userConversationChannel,
-  workspaceConversationChannel,
-} from "#src/features/conversations/conversation-realtime";
+import { workspaceConversationChannel } from "#src/features/conversations/conversation-realtime";
 import { useRealtimeSubscription } from "#src/features/realtime/browser-realtime";
-import {
-  getUserConversationSubscriptionToken,
-  getWorkspaceConversationSubscriptionToken,
-} from "#src/features/realtime/realtime.functions";
+import { getWorkspaceConversationSubscriptionToken } from "#src/features/realtime/realtime.functions";
 import {
   createTaskOverview,
   taskOverviewQuery,
@@ -23,8 +17,6 @@ import {
 } from "./task-overview-collection";
 import { decodeTaskChangedEvent, type TaskChangedEvent } from "./task-realtime";
 import { finishedTasksKey } from "./use-finished-tasks";
-
-const appRoute = getRouteApi("/_app");
 
 const selectOrder = (overview: { tasks: readonly { messageId: string }[] }) =>
   overview.tasks.map((task) => task.messageId);
@@ -101,9 +93,9 @@ export function useTaskOverview() {
 const APPLY_DELAY_MS = 100;
 
 /**
- * Keeps the rows live: listens for `task.changed.v1` on the Workspace channel (channel Tasks)
- * and the viewer's own channel (direct-message Tasks), the subscriptions the nav rail already
- * holds, and applies each burst in one write. Every other publication (every chat message) is
+ * Keeps the rows live: listens for `task.changed.v1` on the Workspace channel, where channel
+ * Tasks are announced (a direct message's go to its viewer's own channel, which this page does
+ * not list), the subscription the nav rail already holds, and applies each burst in one write. Every other publication (every chat message) is
  * dropped before any parsing beyond its type. Only a Task the page does not list yet reads the
  * list again, once per burst.
  */
@@ -112,9 +104,7 @@ function useTaskOverviewRealtime(
   workspaceId: string,
 ) {
   const queryClient = useQueryClient();
-  const userId = appRoute.useLoaderData({ select: (data) => data.user.id });
   const getWorkspaceToken = useServerFn(getWorkspaceConversationSubscriptionToken);
-  const getUserToken = useServerFn(getUserConversationSubscriptionToken);
   // One buffer per overview: a Workspace switch drops what the old one had not applied yet.
   const burst = useMemo(
     () => ({
@@ -155,11 +145,6 @@ function useTaskOverviewRealtime(
   useRealtimeSubscription({
     channel: overview && workspaceId ? workspaceConversationChannel(workspaceId) : undefined,
     getToken: getWorkspaceToken,
-    onPublication,
-  });
-  useRealtimeSubscription({
-    channel: overview ? userConversationChannel(userId) : undefined,
-    getToken: getUserToken,
     onPublication,
   });
 }

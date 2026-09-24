@@ -6,14 +6,8 @@ import { Suspense, useEffect, useMemo, useState } from "react";
 import { useCurrentWorkspaceId } from "#src/features/agents/workspace-agents-realtime";
 import { ChannelConversation } from "#src/features/conversations/channel-conversation";
 import { channelNamesQuery } from "#src/features/conversations/conversation-queries";
-import {
-  DirectConversation,
-  type TaskPopupControls,
-} from "#src/features/conversations/direct-conversation";
-import {
-  useChannelConversation,
-  useDirectConversation,
-} from "#src/features/conversations/use-conversation-data";
+import type { TaskPopupControls } from "#src/features/conversations/direct-conversation";
+import { useChannelConversation } from "#src/features/conversations/use-conversation-data";
 import { TaskDetailDialog } from "./task-detail-dialog";
 import type { OverviewTaskCommand, OverviewTaskRow } from "./task-overview-collection";
 
@@ -33,10 +27,11 @@ type OverviewTaskPopupProps = {
 };
 
 /**
- * The Tasks page's Task popup: the same popup a conversation shows — the Task, its thread and
+ * The Tasks page's Task popup: the same popup a channel shows — the Task, its thread and
  * the reply composer — over the overview, read and kept live through the conversation's own
- * data (`use-conversation-data.ts`). It appears once the conversation has loaded; if it cannot
- * load, the popup shows the Task alone.
+ * data (`use-conversation-data.ts`). It appears once the channel has loaded; if it cannot load,
+ * the popup shows the Task alone. The page lists channel Tasks only, so it never opens a direct
+ * message's.
  */
 export function OverviewTaskPopup(props: OverviewTaskPopupProps) {
   return (
@@ -76,11 +71,7 @@ function TaskPopupBoundary(props: OverviewTaskPopupProps) {
       onCatch={() => setConversationFailed(true)}
     >
       <Suspense fallback={null}>
-        {task.source.agentId ? (
-          <DirectTaskPopup {...props} agentId={task.source.agentId} />
-        ) : (
-          <ChannelTaskPopup {...props} />
-        )}
+        <ChannelTaskPopup {...props} />
       </Suspense>
     </CatchBoundary>
   );
@@ -104,20 +95,7 @@ function ChannelTaskPopup(props: OverviewTaskPopupProps) {
   );
 }
 
-function DirectTaskPopup(props: OverviewTaskPopupProps & { agentId: string }) {
-  const { conversationProps, taskView } = useDirectConversation(props.agentId);
-  const { channels, tasks, taskPopup } = usePopupState(props, taskView.tasks);
-  return (
-    <DirectConversation
-      {...conversationProps}
-      tasks={tasks}
-      channels={channels}
-      taskPopup={taskPopup}
-    />
-  );
-}
-
-/** What both kinds of conversation hand their popup, and the overview kept in step with it. */
+/** What the channel hands its popup, and the overview kept in step with it. */
 function usePopupState(
   { task, conversationTasks, onOpenTask, onClose, onTaskChanged }: OverviewTaskPopupProps,
   liveTasks: TaskView[],

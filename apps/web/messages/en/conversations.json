@@ -333,20 +333,32 @@
   "tasks_drag": "Move task #{number}",
   "tasks_create": "Create task",
   "tasks_title": "Title",
-  "tasks_create_description": "Create a task and start its discussion thread.",
   "tasks_create_error": "The task could not be created. Try again.",
-  "tasks_new_in": "New task in {status}",
-  "tasks_create_place": "Post in",
-  "tasks_create_choose_channel": "Choose a channel",
-  "tasks_create_direct": "Direct message with {name}",
   "tasks_create_cancel": "Cancel",
-  "tasks_create_done": "Done",
-  "tasks_create_move_failed": "The task was created in {created} but could not be moved to {status}.",
-  "tasks_create_owner_moves": "Only its owner can move it to {status}, so it will be created in {todo}.",
-  "tasks_create_agent_restricted": "This Agent is private. Only its owner can give it tasks directly.",
-  "tasks_create_needs_owner": "A task needs an owner before it is {status}, so it will be created in {todo}.",
-  "tasks_create_agent_gone": "This Agent has been deleted. Pick another owner.",
-  "tasks_create_holder_not_in_channel": "That owner is not in this channel. Pick another channel or owner.",
+  "tasks_create_title_required": "Add at least one task title.",
+  "tasks_create_row_label": "Task {number}",
+  "tasks_create_remove_row": "Remove task {number}",
+  "tasks_create_add_another": "Add another",
+  "tasks_create_heading": [
+    {
+      "declarations": ["input count", "local p = count: plural"],
+      "selectors": ["p"],
+      "match": {
+        "p=one": "Create task",
+        "p=other": "Create tasks"
+      }
+    }
+  ],
+  "tasks_create_submit": [
+    {
+      "declarations": ["input count", "local p = count: plural"],
+      "selectors": ["p"],
+      "match": {
+        "p=one": "Create task",
+        "p=other": "Create {count} tasks"
+      }
+    }
+  ],
   "tasks_as_task": "As task",
   "tasks_loading": "Loading tasks…",
   "tasks_empty": "No tasks in this conversation",
@@ -394,7 +406,8 @@
   "tasks_overview_status": "Status",
   "tasks_overview_all": "All",
   "tasks_overview_owner": "Owner",
-  "tasks_overview_empty": "No tasks in visible conversations",
+  "tasks_overview_empty": "No tasks in channels yet",
+  "tasks_overview_direct_elsewhere": "Tasks in direct messages stay on that conversation's Tasks tab.",
   "tasks_overview_filter_empty": "No tasks match these filters",
   "tasks_overview_project": "Project",
   "tasks_overview_me": "Me",
