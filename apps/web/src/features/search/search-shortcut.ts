@@ -14,9 +14,17 @@ function isApplePlatform() {
   return /Mac|iPhone|iPad|iPod|macOS|iOS/i.test(platform);
 }
 
-/** Cmd+K on Apple platforms, Ctrl+K elsewhere; no other modifier. */
+/**
+ * Cmd+K on Apple platforms, Ctrl+K elsewhere; no other modifier. The key that types "k" counts;
+ * only on a layout whose keys type no Latin letters does the physical K key stand in, so Dvorak's
+ * Cmd+T or Colemak's Cmd+E are never taken. A held key, input-method composition, or a key
+ * another handler already took is left alone.
+ */
 function isSearchShortcut(event: KeyboardEvent) {
-  if (event.key.toLowerCase() !== "k" || event.altKey || event.shiftKey) return false;
+  if (event.repeat || event.isComposing || event.defaultPrevented) return false;
+  const typesLatin = /^[a-z]$/i.test(event.key);
+  if (typesLatin ? event.key.toLowerCase() !== "k" : event.code !== "KeyK") return false;
+  if (event.altKey || event.shiftKey) return false;
   return isApplePlatform() ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey;
 }
 

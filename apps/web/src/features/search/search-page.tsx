@@ -96,12 +96,14 @@ export function SearchPage({
     return () => clearTimeout(timer);
   }, [text, composing, onQueryChange]);
 
-  // Cmd/Ctrl+K on this page: back to the box, its text selected for replacing.
+  // The box opens focused with its text selected, ready to be typed over; Cmd/Ctrl+K on this
+  // page does the same again.
   useEffect(() => {
     const focus = () => {
       input.current?.focus();
       input.current?.select();
     };
+    focus();
     document.addEventListener(SEARCH_FOCUS_EVENT, focus);
     return () => document.removeEventListener(SEARCH_FOCUS_EVENT, focus);
   }, []);
