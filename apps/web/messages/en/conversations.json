@@ -506,5 +506,7 @@
   "search_entity_channel": "Channel",
   "search_entity_computer": "Computer",
   "search_entity_agent": "Agent",
-  "search_no_messages_match": "No messages match."
+  "search_no_messages_match": "No messages match.",
+  "conversation_pending_mention_add_target": "Add {target}",
+  "conversation_pending_mention_ignore_target": "Ignore {target}"
 }

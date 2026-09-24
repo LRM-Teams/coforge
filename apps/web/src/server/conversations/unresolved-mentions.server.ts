@@ -8,15 +8,6 @@ import {
 } from "#src/server/agents/agent-visibility.server";
 
 /**
- * The `@handle`s a stored body still carries as text that name nobody the sender can see: no
- * human of the Workspace and no Agent visible to the sender. The send turned every mention of a
- * conversation member into a token, so an `@handle` still written as text reached no one; one
- * that names a Workspace human or a visible Agent is someone outside the conversation, which is
- * not "unresolved" (see `pending-mention-actions.server.ts`). The stored body is what a replay reads too; the people and Agents it is
- * checked against are read at the time of the call. A body with no such `@handle` costs no query.
- * First-appearance order, each handle once.
- */
-/**
  * The `@handle`s a stored body still carries as text, in first-appearance order, each once. Every
  * mention token is dropped first (a resolved mention, or one the sender typed out) and the other
  * tokens read back as their text, so no token is ever mistaken for a handle.
@@ -28,6 +19,15 @@ export function leftoverMentionHandles(storedBody: string): string[] {
   return readMessageReferences(text).candidates.handles;
 }
 
+/**
+ * The `@handle`s a stored body still carries as text that name nobody the sender can see: no
+ * human of the Workspace and no Agent visible to the sender. The send turned every mention of a
+ * conversation member into a token, so an `@handle` still written as text reached no one; one
+ * that names a Workspace human or a visible Agent is someone outside the conversation, which is
+ * not "unresolved" (see `pending-mention-actions.server.ts`). The stored body is what a replay
+ * reads too; the people and Agents it is checked against are read at the time of the call. A body
+ * with no such `@handle` costs no query. First-appearance order, each handle once.
+ */
 export async function unresolvedMentionHandles(
   db: Pick<PrismaClient, "workspaceMembership" | "agent">,
   workspaceId: string,

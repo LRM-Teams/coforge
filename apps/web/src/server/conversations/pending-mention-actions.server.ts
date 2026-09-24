@@ -32,7 +32,7 @@ export type PendingMentionActionView = {
  * body that names someone outside the conversation: a Workspace human, or a public Agent, who is
  * not an active member. The send turned every member's mention into a token, so a handle still
  * written as text never names a member. A private Agent is never a channel member, so it gets no
- * row. When a human and an Agent share the handle, the Agent is the one named, as in mention
+ * row. When a human and a public Agent share the handle, the Agent is the one named, as in mention
  * resolution. A replay of the same message writes nothing new.
  */
 export async function recordPendingMentionActions(
@@ -103,6 +103,9 @@ export async function pendingMentionActionsForMessage(
   channel: { archived: boolean; name: string },
   now: Date = new Date(),
 ): Promise<PendingMentionActionView[]> {
+  // A body with no `@handle` still written as text has no row: no query.
+  const order = leftoverMentionHandles(message.body);
+  if (!order.length) return [];
   const rows = await db.pendingMentionAction.findMany({
     where: {
       messageId: message.id,
@@ -125,7 +128,6 @@ export async function pendingMentionActionsForMessage(
     select: { userId: true, agentId: true },
   });
   const memberIds = new Set(members.map((member) => member.userId ?? member.agentId));
-  const order = leftoverMentionHandles(message.body);
   return rows
     .sort((left, right) => order.indexOf(left.targetHandle) - order.indexOf(right.targetHandle))
     .map((row) => pendingMentionActionView(row, message.workspaceId, channel, memberIds));
@@ -138,11 +140,32 @@ const PENDING_MENTION_ACTION_SELECT = {
   targetAgentId: true,
   targetHandle: true,
   expiresAt: true,
-  targetUser: { select: { displayName: true, avatarObjectKey: true } },
+  workspaceId: true,
+  targetUser: {
+    select: {
+      displayName: true,
+      avatarObjectKey: true,
+      memberships: { select: { workspaceId: true } },
+    },
+  },
   targetAgent: {
     select: { displayName: true, avatarObjectKey: true, visibility: true, deletedAt: true },
   },
 } satisfies Prisma.PendingMentionActionSelect;
+
+/**
+ * Whether a pending mention's target can still become a channel member: a human still in the
+ * Workspace, or an Agent that is public and not deleted.
+ */
+function canJoinChannel(row: {
+  targetAgent: { visibility: string; deletedAt: Date | null } | null;
+  /** The target human's memberships of the mention's own Workspace. */
+  targetUser: { memberships: readonly unknown[] } | null;
+}): boolean {
+  if (row.targetAgent)
+    return row.targetAgent.visibility === AGENT_VISIBILITY.PUBLIC && !row.targetAgent.deletedAt;
+  return Boolean(row.targetUser?.memberships.length);
+}
 
 type PendingMentionActionRow = Prisma.PendingMentionActionGetPayload<{
   select: typeof PENDING_MENTION_ACTION_SELECT;
@@ -156,9 +179,14 @@ function pendingMentionActionView(
 ): PendingMentionActionView {
   const targetId = (row.targetAgentId ?? row.targetUserId)!;
   const agent = row.targetAgent;
-  const canJoin = agent
-    ? agent.visibility === AGENT_VISIBILITY.PUBLIC && agent.deletedAt === null
-    : true;
+  const canJoin = canJoinChannel({
+    targetAgent: agent,
+    targetUser: row.targetUser && {
+      memberships: row.targetUser.memberships.filter(
+        (membership) => membership.workspaceId === row.workspaceId,
+      ),
+    },
+  });
   return {
     resolutionId: row.id,
     messageId: row.messageId,
@@ -227,6 +255,7 @@ export async function claimMentionActions(
       sender: { select: { leftAt: true } },
       message: { select: { conversation: { select: { archivedAt: true } } } },
       targetAgent: { select: { visibility: true, deletedAt: true } },
+      targetUser: { select: { memberships: { where: { workspaceId }, select: { userId: true } } } },
     },
   });
   const members = await db.conversationMember.findMany({
@@ -264,11 +293,7 @@ export async function claimMentionActions(
     else if (row.expiresAt <= now) refuse("expired");
     else if (row.sender.leftAt) refuse("no_permission", "sender_lacks_channel_access");
     else if (row.message.conversation.archivedAt) refuse("no_permission", "channel_archived");
-    else if (
-      row.targetAgent &&
-      (row.targetAgent.visibility !== AGENT_VISIBILITY.PUBLIC || row.targetAgent.deletedAt)
-    )
-      refuse("stale", "target_unavailable");
+    else if (!canJoinChannel(row)) refuse("stale", "target_unavailable");
     else if (memberKeys.has(`${row.conversationId}:${target.targetId}`))
       refuse("stale", "target_already_member");
     else {

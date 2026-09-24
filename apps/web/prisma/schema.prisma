@@ -968,6 +968,9 @@ model PendingMentionAction {
   @@unique([messageId, targetAgentId])
   /// Serves a sender's pending list: their unresolved, unexpired actions.
   @@index([senderMemberId, resolvedAt, expiresAt])
+  /// Serve the cascades when a target human or Agent is deleted.
+  @@index([targetUserId])
+  @@index([targetAgentId, workspaceId])
   @@map("pending_mention_actions")
 }
 
