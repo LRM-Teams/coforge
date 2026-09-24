@@ -15,6 +15,7 @@ import {
   useLiveAgents,
 } from "#src/features/agents/workspace-agents-realtime";
 import { sidebarChannelsQuery } from "#src/features/conversations/sidebar-collections";
+import { isAppError } from "#src/lib/app-error";
 import { m } from "#src/paraglide/messages";
 import { statusLabel } from "./task-workflow";
 import { createTaskForAgent, executeTask } from "./tasks.functions";
@@ -25,10 +26,21 @@ const ME = "me";
 const DIRECT = "direct";
 
 /**
+ * Why a Task made from `status`'s group with this holder cannot be moved there, so it stays in
+ * To do: only its owner may start it or send it for review, and it needs an owner to be Done
+ * (`TaskBoard` update rules).
+ */
+function blockedMove(status: TaskStatus, holder: string): "owner" | "needs_owner" | undefined {
+  if ((status === "in_progress" || status === "in_review") && holder !== ME) return "owner";
+  if (status === "done" && holder === NOBODY) return "needs_owner";
+  return undefined;
+}
+
+/**
  * A new Task from the Tasks page, as Linear's "+" on a group: a title, an optional description,
  * who holds it and where it goes. Given to an Agent, it goes to the viewer's direct conversation
  * with that Agent by default, no channel needed; otherwise (or on request) to a channel the viewer
- * is in. Started from a group other than To do, it then moves there when the server allows.
+ * is in. It is then moved to the group it was started from, when the server allows.
  */
 export function CreateOverviewTaskDialog({
   status,
@@ -38,6 +50,7 @@ export function CreateOverviewTaskDialog({
   /** The group the "+" belongs to; undefined when closed. */
   status?: TaskStatus;
   onOpenChange: (open: boolean) => void;
+  /** A Task was created: the page reads its Tasks again. */
   onCreated: () => void;
 }) {
   const open = status !== undefined;
@@ -46,16 +59,7 @@ export function CreateOverviewTaskDialog({
       <Modal className="w-[calc(100vw-2rem)] max-w-lg">
         <Dialog className="p-6">
           {({ close }) =>
-            status && (
-              <CreateForm
-                status={status}
-                onClose={close}
-                onCreated={() => {
-                  onCreated();
-                  close();
-                }}
-              />
-            )
+            status && <CreateForm status={status} onClose={close} onCreated={onCreated} />
           }
         </Dialog>
       </Modal>
@@ -89,19 +93,23 @@ function CreateForm({
   const [place, setPlace] = useState<string>();
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
-  // Created, but the server kept it in To do: the dialog says so and only closes from here.
-  const [keptInTodo, setKeptInTodo] = useState(false);
-  // One request id per attempt at the same Task, so a retry after a failure never makes two.
+  // Created, but the server refused the move: the group it stayed in, which the dialog names.
+  const [keptIn, setKeptIn] = useState<TaskStatus>();
+  // One request id per attempt at the same Task, so retrying after a failure never makes two;
+  // any edit makes it another Task, with a new id.
   const attempt = useRef<string | undefined>(undefined);
+  const edited =
+    <T,>(set: (value: T) => void) =>
+    (value: T) => {
+      attempt.current = undefined;
+      set(value);
+    };
 
   const agent = agents.find((candidate) => candidate.id === holder);
   // An Agent's Task goes to the direct conversation unless a channel is picked.
   const destination = place ?? (agent ? DIRECT : undefined);
   const canSubmit = title.trim() !== "" && destination !== undefined && !saving;
-  // Only a Task's owner may start it or send it for review, so from those groups a Task the
-  // viewer does not hold stays in To do; the form says so before it is created.
-  const ownerMoves = status === "in_progress" || status === "in_review";
-  const moves = status !== "todo" && (!ownerMoves || holder === ME);
+  const blocked = blockedMove(status, holder);
 
   async function submit(event: SubmitEvent) {
     event.preventDefault();
@@ -109,6 +117,7 @@ function CreateForm({
     attempt.current ??= crypto.randomUUID();
     setSaving(true);
     setError("");
+    let created;
     try {
       const request = {
         title: title.trim(),
@@ -131,53 +140,59 @@ function CreateForm({
               },
             });
       attempt.current = undefined;
-      const created = result.tasks[0];
-      if (created && moves) {
-        // Moving it is a second step the server may still refuse: the Task is kept in To do
-        // then, and the dialog says so.
-        await execute({
-          data: {
-            operation: "update",
-            idempotencyKey: crypto.randomUUID(),
-            conversationId: created.conversationId,
-            number: created.number,
-            status,
-          },
-        }).catch(() => {
-          throw new CreatedButNotMoved();
-        });
-      }
-      onCreated();
+      created = result.tasks[0];
     } catch (cause) {
-      if (cause instanceof CreatedButNotMoved) {
-        setKeptInTodo(true);
-        return;
-      }
+      const code = isAppError(cause) ? cause.code : undefined;
       setError(
-        cause instanceof Error && cause.message.includes("AGENT_DM_RESTRICTED")
+        code === "AGENT_DM_RESTRICTED"
           ? m.tasks_create_agent_restricted()
-          : cause instanceof Error && cause.message.includes("NOT_FOUND")
-            ? m.tasks_create_holder_not_in_channel()
-            : m.tasks_create_error(),
+          : code === "NOT_FOUND" && destination === DIRECT
+            ? m.tasks_create_agent_gone()
+            : code === "NOT_FOUND" && holder !== NOBODY
+              ? m.tasks_create_holder_not_in_channel()
+              : m.tasks_create_error(),
       );
-    } finally {
       setSaving(false);
+      return;
     }
+    // A Task its creator holds starts In progress; any other starts in To do. Moving it to the
+    // group it was made from is a second step, skipped when the server would refuse it.
+    let kept: TaskStatus | undefined;
+    if (created && created.status !== status && !blocked) {
+      await execute({
+        data: {
+          operation: "update",
+          idempotencyKey: crypto.randomUUID(),
+          conversationId: created.conversationId,
+          number: created.number,
+          status,
+        },
+      }).catch(() => {
+        kept = created.status;
+      });
+    }
+    onCreated();
+    setSaving(false);
+    if (kept) setKeptIn(kept);
+    else onClose();
   }
 
-  if (keptInTodo)
+  if (keptIn)
     return (
       <>
         <DialogHeader
           title={m.tasks_new_in({ status: statusLabel(status) })}
-          onClose={onCreated}
+          onClose={onClose}
           className="px-0 pt-0"
         />
         <p className="mt-4 text-sm text-secondary">
-          {m.tasks_create_move_failed({ status: statusLabel(status) })}
+          {m.tasks_create_move_failed({
+            created: statusLabel(keptIn),
+            status: statusLabel(status),
+          })}
         </p>
         <div className="mt-6 flex justify-end">
-          <Button onPress={onCreated}>{m.tasks_create_done()}</Button>
+          <Button onPress={onClose}>{m.tasks_create_done()}</Button>
         </div>
       </>
     );
@@ -192,7 +207,7 @@ function CreateForm({
         <Input
           label={m.tasks_title()}
           value={title}
-          onChange={setTitle}
+          onChange={edited(setTitle)}
           isRequired
           maxLength={500}
           isDisabled={saving}
@@ -201,7 +216,7 @@ function CreateForm({
         <TextArea
           label={m.tasks_description()}
           value={description}
-          onChange={setDescription}
+          onChange={edited(setDescription)}
           rows={3}
           isDisabled={saving}
         />
@@ -209,11 +224,11 @@ function CreateForm({
           <Select
             label={m.tasks_overview_owner()}
             value={holder}
-            onChange={(key) => {
+            onChange={edited((key) => {
               setHolder(String(key));
               // A new holder reopens the choice of where it goes.
               setPlace(undefined);
-            }}
+            })}
             isDisabled={saving}
           >
             <Select.Item id={NOBODY} label={m.tasks_unassigned()} />
@@ -231,7 +246,7 @@ function CreateForm({
             label={m.tasks_create_place()}
             placeholder={m.tasks_create_choose_channel()}
             value={destination ?? null}
-            onChange={(key) => setPlace(key === null ? undefined : String(key))}
+            onChange={edited((key) => setPlace(key === null ? undefined : String(key)))}
             isDisabled={saving}
           >
             {[
@@ -250,9 +265,12 @@ function CreateForm({
             ]}
           </Select>
         </div>
-        {ownerMoves && holder !== ME && (
+        {blocked && (
           <p className="text-sm text-tertiary">
-            {m.tasks_create_owner_moves({ status: statusLabel(status) })}
+            {(blocked === "owner" ? m.tasks_create_owner_moves : m.tasks_create_needs_owner)({
+              status: statusLabel(status),
+              todo: statusLabel("todo"),
+            })}
           </p>
         )}
         {error && (
@@ -272,6 +290,3 @@ function CreateForm({
     </>
   );
 }
-
-/** The Task was created but could not be moved to its group: shown, not retried. */
-class CreatedButNotMoved extends Error {}

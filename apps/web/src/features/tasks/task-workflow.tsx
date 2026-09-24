@@ -393,7 +393,7 @@ function TaskGroup({
               />
             </AriaButton>
           </Heading>
-          {/* Beside the heading, not in it, so the heading names the column alone. */}
+          {/* "+" and "···" sit beside the heading, not in it, so the heading names the column alone. */}
           {onCreate && (
             <ButtonUtility
               size="xs"
