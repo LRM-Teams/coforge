@@ -276,11 +276,6 @@ export function AttachmentCard({ attachment }: { attachment: MessageView["attach
   );
   /** Inside a file row the control is part of the row, so it stays visible. */
   const download = downloadButton();
-  /** Over an image thumbnail it covers content, so it waits for the pointer — unless the pointer
-   * cannot hover, where there is nothing to wait for. */
-  const downloadOverlay = downloadButton(
-    "opacity-0 transition-opacity group-hover/attachment:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100",
-  );
   /** Separates the file from its actions. Both row variants carry it, so a previewable file and a
    * download-only one are the same shape. */
   const actionDivider = (
@@ -292,7 +287,7 @@ export function AttachmentCard({ attachment }: { attachment: MessageView["attach
     "group/attachment mt-1 flex w-full max-w-sm min-w-0 items-center rounded-xl bg-primary ring-1 ring-secondary ring-inset";
   if (attachment.contentType.startsWith("image/") && !imgBroken)
     return (
-      <div className="group/attachment relative mt-1 w-fit max-w-full">
+      <div className="relative mt-1 w-fit max-w-full">
         {/* Clicking the preview opens the image at full size in a lightbox. */}
         <DialogTrigger>
           <Button
@@ -300,8 +295,7 @@ export function AttachmentCard({ attachment }: { attachment: MessageView["attach
             noTextPadding
             aria-label={attachment.fileName}
             // The min footprint centers degenerate images (a 1×1 png, a still-loading one) inside
-            // a card-sized box: without it the card collapses around them and the absolutely
-            // positioned download overlay escapes over the next row's avatar.
+            // a card-sized box while the image loads.
             className="grid h-auto min-h-16 min-w-16 place-items-center overflow-hidden rounded-lg p-0 ring-1 ring-secondary ring-inset hover:bg-transparent"
           >
             <img
@@ -366,7 +360,6 @@ export function AttachmentCard({ attachment }: { attachment: MessageView["attach
             </Modal>
           </ModalOverlay>
         </DialogTrigger>
-        <div className="absolute top-2 right-2">{downloadOverlay}</div>
       </div>
     );
   const typeLabel = attachmentTypeLabel(attachment.fileName, attachment.contentType);
