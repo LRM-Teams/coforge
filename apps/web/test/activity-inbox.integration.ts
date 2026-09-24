@@ -478,6 +478,99 @@ test("direct messages and their threads are listed with the Agent they belong to
   }
 });
 
+test("the nav dot counts exactly the unread replies and messages the inbox lists", async () => {
+  const db = database();
+  const suffix = crypto.randomUUID();
+  try {
+    const { alice, workspace, channel, post } = await seed(db, suffix);
+    const general = await channel("general");
+    const follow = (rootMessageId: string) =>
+      db.threadFollow.create({
+        data: {
+          memberId: general.aliceMember.id,
+          rootMessageId,
+          conversationId: general.conversation.id,
+          workspaceId: workspace.id,
+        },
+      });
+    const readThread = (rootMessageId: string, readThroughSequence: number) =>
+      db.threadRead.create({
+        data: {
+          memberId: general.aliceMember.id,
+          rootMessageId,
+          conversationId: general.conversation.id,
+          workspaceId: workspace.id,
+          readThroughSequence,
+        },
+      });
+    // Two unread top-level messages.
+    await post(general.conversation.id, general.bobMember.id, "one");
+    await post(general.conversation.id, general.bobMember.id, "two");
+    // A thread read through its first reply: the two later replies are unread, the viewer's own
+    // reply is not.
+    const partly = await post(general.conversation.id, general.aliceMember.id, "partly read");
+    await follow(partly.id);
+    const seen = await post(general.conversation.id, general.bobMember.id, "seen", {
+      threadRootId: partly.id,
+    });
+    await readThread(partly.id, seen.sequence);
+    for (const body of ["new 1", "new 2"])
+      await post(general.conversation.id, general.bobMember.id, body, { threadRootId: partly.id });
+    await post(general.conversation.id, general.aliceMember.id, "mine", {
+      threadRootId: partly.id,
+    });
+    // A thread read to its end stays listed with nothing unread.
+    const read = await post(general.conversation.id, general.aliceMember.id, "read");
+    await follow(read.id);
+    const last = await post(general.conversation.id, general.bobMember.id, "all seen", {
+      threadRootId: read.id,
+    });
+    await readThread(read.id, last.sequence);
+    // A thread marked Done leaves the list and the dot.
+    const done = await post(general.conversation.id, general.aliceMember.id, "done");
+    await follow(done.id);
+    const doneReply = await post(general.conversation.id, general.bobMember.id, "handled", {
+      threadRootId: done.id,
+    });
+    // A direct message with an Agent: one unread message and a thread with two unread replies.
+    const agent = await db.agent.create({
+      data: {
+        workspaceId: workspace.id,
+        ownerId: alice.id,
+        name: `nav-${suffix.slice(0, 8)}`,
+        displayName: "Nav",
+        runtimeConfig: {},
+      },
+    });
+    const repo = new PrismaDirectConversationRepository(db);
+    const direct = await repo.openForUser(workspace.id, alice.id, agent.id);
+    const agentMember = await db.conversationMember.findFirstOrThrow({
+      where: { conversationId: direct.conversationId, agentId: agent.id },
+    });
+    const question = await post(direct.conversationId, direct.senderMemberId, "q");
+    await db.conversationMember.update({
+      where: { id: direct.senderMemberId },
+      data: { readThroughSequence: question.sequence },
+    });
+    await post(direct.conversationId, agentMember.id, "a");
+    for (const body of ["step 1", "step 2"])
+      await post(direct.conversationId, agentMember.id, body, { threadRootId: question.id });
+
+    const inbox = new ActivityInbox(db);
+    await inbox.markDone(workspace.id, alice.id, {
+      kind: "thread",
+      conversationId: general.conversation.id,
+      rootMessageId: done.id,
+      throughSequence: doneReply.sequence,
+    });
+    const page = await inbox.list(workspace.id, alice.id, { filter: "all" });
+    expect(page.totalUnreadCount).toBe(7);
+    expect(await inbox.navAttention(workspace.id, alice.id)).toEqual({ unread: 7 });
+  } finally {
+    await cleanup(db, suffix);
+  }
+});
+
 test("a person can only read and change their own inbox in their own Workspace", async () => {
   const db = database();
   const suffix = crypto.randomUUID();
