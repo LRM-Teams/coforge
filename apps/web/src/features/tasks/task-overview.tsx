@@ -146,10 +146,7 @@ export function TaskOverview({
       <CreateOverviewTaskDialog
         status={creating}
         onOpenChange={(open) => !open && setCreating(undefined)}
-        onCreated={() => {
-          setCreating(undefined);
-          onCreated?.();
-        }}
+        onCreated={() => onCreated?.()}
       />
     </main>
   );

@@ -68,3 +68,10 @@ workspaceId]` Query its loader fills (`task-overview-collection.ts`,
   (`features/settings/task-hidden-columns.ts`, on the shared
   `device-preference.ts` store) and a boot-script class, so a hidden column
   never flashes while hydrating and never reads its pages.
+- A group header's "+" opens `CreateOverviewTaskDialog`. A Task given to an
+  Agent goes to the viewer's direct conversation with it by default
+  (`createTaskForAgent`); otherwise the viewer picks a channel they joined, and
+  the owner is bound by id. Creating is not an optimistic `run` command: the
+  dialog awaits the create, moves the Task to its group only when `TaskBoard`
+  allows it (owner-only for In progress/In review, an owner for Done), says up
+  front when it will stay in To do, and then reads the page's Tasks again.
