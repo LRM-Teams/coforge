@@ -74,7 +74,8 @@ function ChannelPage() {
   const taskLayout = useTaskLayout(layout);
   const { openAgentProfile, setAgentProfileTab, closeAgentProfile } = useOpenAgentProfile();
   const profileAgentId = agentIdFromProfileParam(profile);
-  const { page, taskView, refreshChannel, conversationProps } = useChannelConversation(channelId);
+  const { page, taskView, refreshChannelAndSidebar, conversationProps } =
+    useChannelConversation(channelId);
   const { conversation } = page;
   const { showChat, showTasks, showFiles, changeLayout, openTask, openTaskThread, openMessage } =
     useConversationView(page.ensureLoaded);
@@ -113,7 +114,7 @@ function ChannelPage() {
           active="files"
           onShowChat={showChat}
           onShowTasks={showTasks}
-          onChanged={refreshChannel}
+          onChanged={refreshChannelAndSidebar}
           onOpenAgentProfile={openAgentProfile}
         />
         <ConversationFilesPanel
@@ -133,7 +134,7 @@ function ChannelPage() {
             active="tasks"
             onShowChat={showChat}
             onShowFiles={showFiles}
-            onChanged={refreshChannel}
+            onChanged={refreshChannelAndSidebar}
             onOpenAgentProfile={openAgentProfile}
           />
         }

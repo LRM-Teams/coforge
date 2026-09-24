@@ -1,7 +1,7 @@
 import { TASK_STATUSES } from "@lrm/coforge-sdk/internal";
 import { createFileRoute, useNavigate, useRouter } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
-import { useCallback, useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { z } from "zod";
 
 import { PageLoadError } from "#src/features/errors/page-load-error";
@@ -99,12 +99,29 @@ function TasksPage() {
     [navigate],
   );
   const refreshOverview = useCallback(() => void router.invalidate(), [router]);
-  // A `task` the overview does not list (deleted, or in a conversation this viewer cannot see)
-  // opens nothing, so it leaves the URL rather than lingering there.
-  const unresolvedTask = taskParam !== undefined && !openTask;
+  // A `task` the overview does not list may be newer than the overview (a `task #N` chip for a
+  // Task created since it loaded): the overview is re-read once for it. Still missing after that
+  // read (deleted, or in a conversation this viewer cannot see), it opens nothing, so it leaves
+  // the URL rather than lingering there.
+  const unresolvedTask = taskParam !== undefined && !openTask ? taskParam : undefined;
+  const recheckedTask = useRef<string | undefined>(undefined);
+  // A fresh object per finished read, so the same `task` read again still re-runs the effect.
+  const [recheckDone, setRecheckDone] = useState<{ task: string }>();
   useEffect(() => {
-    if (unresolvedTask) closePopup();
-  }, [unresolvedTask, closePopup]);
+    if (!unresolvedTask) {
+      recheckedTask.current = undefined;
+      return;
+    }
+    if (recheckedTask.current === unresolvedTask) {
+      if (recheckDone?.task === unresolvedTask) closePopup();
+      return;
+    }
+    recheckedTask.current = unresolvedTask;
+    void router
+      .invalidate({ sync: true })
+      .catch(() => {})
+      .finally(() => setRecheckDone({ task: unresolvedTask }));
+  }, [unresolvedTask, recheckDone, closePopup, router]);
 
   return (
     <>

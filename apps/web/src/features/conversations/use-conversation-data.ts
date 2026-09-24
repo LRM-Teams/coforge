@@ -18,6 +18,7 @@ import {
   useConversationQuery,
 } from "./conversation-queries";
 import { threadFollowingAgentsQueryPrefix } from "./conversation-query-keys";
+import { useRefreshSidebarChannels } from "./sidebar-lists";
 import {
   loadOwnConversationMessages,
   markDirectThreadRead,
@@ -61,16 +62,16 @@ export function useChannelConversation(channelId: string) {
         : [...current.followedThreadRootIds, threadRootId],
     }));
   // The settings panel writes the channel (name, description, archive), the viewer's own
-  // membership (leave) or preferences (pin, mute) itself; this refreshes the page and the
-  // sidebar, which reads them through the layout loader.
-  const refreshChannel = async () => {
-    await Promise.all([page.invalidate(), router.invalidate({ sync: true })]);
+  // membership (leave) or mute itself; this re-reads the page and the sidebar's channel list.
+  const refreshSidebarChannels = useRefreshSidebarChannels();
+  const refreshChannelAndSidebar = async () => {
+    await Promise.all([page.invalidate(), refreshSidebarChannels()]);
   };
 
   return {
     page,
     taskView,
-    refreshChannel,
+    refreshChannelAndSidebar,
     conversationProps: {
       conversation,
       tasks: taskView.tasks,
@@ -104,7 +105,7 @@ export function useChannelConversation(channelId: string) {
         await join({ data: { channelId } });
         await Promise.all([page.invalidate(), router.invalidate({ sync: true })]);
       },
-      onChanged: refreshChannel,
+      onChanged: refreshChannelAndSidebar,
       onReadThread: (threadRootId: string, throughSequence: number) =>
         markRead({ data: { channelId, threadRootId, throughSequence } }),
       onThreadFollowedChange: async (threadRootId: string, followed: boolean) => {

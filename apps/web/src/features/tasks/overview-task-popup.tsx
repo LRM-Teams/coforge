@@ -1,7 +1,7 @@
 import type { TaskView } from "@lrm/coforge-sdk/internal";
 import { usePrefetchQuery, useSuspenseQuery } from "@tanstack/react-query";
 import { CatchBoundary, ClientOnly } from "@tanstack/react-router";
-import { Suspense, useEffect, useMemo } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 
 import { useCurrentWorkspaceId } from "#src/features/agents/workspace-agents-realtime";
 import { ChannelConversation } from "#src/features/conversations/channel-conversation";
@@ -51,21 +51,29 @@ function TaskPopupBoundary(props: OverviewTaskPopupProps) {
   const workspaceId = useCurrentWorkspaceId() ?? "";
   // Read alongside the conversation rather than after it: both hold the popup back.
   usePrefetchQuery(channelNamesQuery(workspaceId));
+  // A conversation that cannot load leaves the popup with the Task alone. The boundary only
+  // records the failure; the fallback renders here, outside it, so it keeps one component type
+  // (and its pending and error state) across this component's renders.
+  const [conversationFailed, setConversationFailed] = useState(false);
+  if (conversationFailed)
+    return (
+      <TaskDetailDialog
+        key={task.messageId}
+        task={task}
+        open
+        onOpenChange={(open) => {
+          if (!open) onClose();
+        }}
+        onCommand={onCommand}
+        conversationName={task.source.label}
+        currentMemberId={task.currentMemberId ?? null}
+      />
+    );
   return (
     <CatchBoundary
       getResetKey={() => task.messageId}
-      errorComponent={() => (
-        <TaskDetailDialog
-          task={task}
-          open
-          onOpenChange={(open) => {
-            if (!open) onClose();
-          }}
-          onCommand={onCommand}
-          conversationName={task.source.label}
-          currentMemberId={task.currentMemberId ?? null}
-        />
-      )}
+      errorComponent={NoFallback}
+      onCatch={() => setConversationFailed(true)}
     >
       <Suspense fallback={null}>
         {task.source.agentId ? (
@@ -76,6 +84,11 @@ function TaskPopupBoundary(props: OverviewTaskPopupProps) {
       </Suspense>
     </CatchBoundary>
   );
+}
+
+/** The boundary's own fallback: nothing, for the moment until `onCatch` swaps in the popup. */
+function NoFallback() {
+  return null;
 }
 
 function ChannelTaskPopup(props: OverviewTaskPopupProps) {

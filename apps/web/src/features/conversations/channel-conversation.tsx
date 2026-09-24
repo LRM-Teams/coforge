@@ -299,7 +299,9 @@ export function ChannelConversation({
       readOnlyNotice={
         conversation.archived ? (
           <ArchivedChannelNotice
-            canUnarchive={conversation.channelCapabilities.unarchive}
+            // The Unarchive action opens the settings panel in the channel header, which the
+            // Task popup (`taskPopup`) does not show; there the notice stays, without the action.
+            canUnarchive={conversation.channelCapabilities.unarchive && !taskPopup}
             onOpenSettings={() => setSettingsOpen(true)}
           />
         ) : !conversation.senderMemberId ? (
