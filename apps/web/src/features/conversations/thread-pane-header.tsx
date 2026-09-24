@@ -31,13 +31,24 @@ export function ThreadPaneHeader({
 }: {
   /** Where the thread lives, named after "Thread": `#channel` or `@name`. */
   context?: string;
-  onScrollToTop: () => void;
+  /** Scrolls back to the root; absent while the thread has no messages to scroll through. */
+  onScrollToTop?: () => void;
   onClose?: () => void;
   onViewInConversation?: () => void;
   follow?: ThreadFollow;
   /** Shown before the actions menu (the Agents following the thread). */
   action?: React.ReactNode;
 }) {
+  const title = (
+    <>
+      {m.conversation_thread()}
+      {context && (
+        <span className="font-normal text-tertiary">
+          {m.conversation_thread_title_context({ name: context })}
+        </span>
+      )}
+    </>
+  );
   return (
     <header className="flex h-12 shrink-0 items-center gap-2 border-b border-secondary px-4 md:px-6">
       {/* The -ml-1.5 cancels the button's p-1.5 so the arrow glyph itself lands on the pane
@@ -51,19 +62,18 @@ export function ThreadPaneHeader({
         aria-label={m.conversation_thread_back()}
       />
       <h2 className="flex min-w-0 flex-1 text-base font-semibold">
-        <Tooltip title={m.conversation_thread_scroll_to_top()} placement="bottom start">
-          <AriaButton
-            onPress={onScrollToTop}
-            className="min-w-0 cursor-pointer truncate rounded-sm text-left outline-focus-ring focus-visible:outline-2 focus-visible:outline-offset-2"
-          >
-            {m.conversation_thread()}
-            {context && (
-              <span className="font-normal text-tertiary">
-                {m.conversation_thread_title_context({ name: context })}
-              </span>
-            )}
-          </AriaButton>
-        </Tooltip>
+        {onScrollToTop ? (
+          <Tooltip title={m.conversation_thread_scroll_to_top()} placement="bottom start">
+            <AriaButton
+              onPress={onScrollToTop}
+              className="min-w-0 cursor-pointer truncate rounded-sm text-left outline-focus-ring focus-visible:outline-2 focus-visible:outline-offset-2"
+            >
+              {title}
+            </AriaButton>
+          </Tooltip>
+        ) : (
+          <span className="min-w-0 truncate">{title}</span>
+        )}
       </h2>
       <div className="-mr-1.5 flex shrink-0 items-center gap-1">
         {action}

@@ -5,6 +5,7 @@ import {
   replaceTaskReferenceTokens,
   resolveMentionTargets,
   taskReferenceToken,
+  threadReferenceToken,
   type MentionTarget,
 } from "@lrm/coforge-sdk/internal";
 import { formatSelectionQuote } from "#src/features/conversations/message-quote";
@@ -143,6 +144,7 @@ test("HTML-looking lines are prose, the way the renderer shows them", () => {
     handles: ["ada"],
     taskNumbers: [],
     channelNames: ["product"],
+    threads: [],
   });
   const resolution = resolveMentionTargets(messageReferenceCandidates(body).handles, [ADA]);
   expect(resolveMessageReferences(body, { mention: resolution.target, channel })).toBe(
@@ -181,6 +183,99 @@ test("a thread reference `#name:shortid` stays text as a whole", () => {
   expect(resolveMessageReferences("#product:abc", { channel })).toBe(
     `${channelReferenceToken(PRODUCT.id, "product")}:abc`,
   );
+});
+
+// Thread references: `#name:` and a top-level message id of that channel.
+
+/** Two top-level messages of `#product`: one whose id alone starts `abcdef`, and two sharing the
+ * prefix `0123456` so that a six- or seven-character prefix names both. */
+const ROOT = "abcdef12-3456-4789-8abc-def012345678";
+const TWIN_A = "01234567-0000-4000-8000-000000000001";
+const TWIN_B = "0123456f-0000-4000-8000-000000000002";
+const PRODUCT_ROOTS = [ROOT, TWIN_A, TWIN_B];
+/** The server's answer, in the lookup's shape: the channel by name, then the one top-level message
+ * of that channel whose id the anchor names (a prefix, or the whole id); ambiguous names nothing. */
+const thread: MessageReferenceLookup["thread"] = (name, anchor) => {
+  const found = channel(name);
+  if (!found) return undefined;
+  const roots = (found.id === PRODUCT.id ? PRODUCT_ROOTS : []).filter((id) =>
+    id.startsWith(anchor),
+  );
+  return roots.length === 1
+    ? { channelId: found.id, rootId: roots[0]!, name: found.name }
+    : undefined;
+};
+const rootToken = threadReferenceToken(PRODUCT.id, ROOT, "product");
+
+test("a thread reference naming one top-level message of a channel becomes a thread token", () => {
+  for (const written of [
+    "#product:abcdef",
+    "#product:abcdef1",
+    "#product:abcdef12",
+    `#product:${ROOT}`,
+  ])
+    expect(resolveMessageReferences(`see ${written}.`, { channel, thread })).toBe(
+      `see ${rootToken}.`,
+    );
+});
+
+test("a thread reference matches the channel name and the id in any case", () => {
+  expect(resolveMessageReferences("#PRODUCT:ABCDEF12", { channel, thread })).toBe(rootToken);
+  expect(resolveMessageReferences(`#Product:${ROOT.toUpperCase()}`, { channel, thread })).toBe(
+    rootToken,
+  );
+});
+
+test("an unresolved thread reference stays text as a whole, and its #name is never a channel", () => {
+  for (const body of [
+    // No such message in the channel.
+    "#product:deadbeef",
+    // A prefix two messages share.
+    "#product:012345",
+    "#product:0123456",
+    // No such channel, and a name no channel could have.
+    "#nope:abcdef12",
+    "#产品:abcdef12",
+  ])
+    expect(resolveMessageReferences(body, { channel, thread })).toBe(body);
+  // A prefix only one of the two has resolves.
+  expect(resolveMessageReferences("#product:01234567", { channel, thread })).toBe(
+    threadReferenceToken(PRODUCT.id, TWIN_A, "product"),
+  );
+});
+
+test("a thread reference sits next to text in any script, with no boundary needed", () => {
+  expect(resolveMessageReferences("去#product:abcdef12看看", { channel, thread })).toBe(
+    `去${rootToken}看看`,
+  );
+  expect(resolveMessageReferences("见 #product:abcdef12。", { channel, thread })).toBe(
+    `见 ${rootToken}。`,
+  );
+});
+
+test("a thread reference is read before the channel it names, in code or a link never", () => {
+  expect(resolveMessageReferences("#product and #product:abcdef12", { channel, thread })).toBe(
+    `${channelReferenceToken(PRODUCT.id, "product")} and ${rootToken}`,
+  );
+  for (const body of [
+    "`#product:abcdef12`",
+    "```\n#product:abcdef12\n```",
+    "[see #product:abcdef12](https://example.com)",
+    "https://example.com/#product:abcdef12",
+    "\\#product:abcdef12",
+  ])
+    expect(resolveMessageReferences(body, { channel, thread })).toBe(body);
+});
+
+test("thread candidates list each channel name and id once, lower-cased, outside code", () => {
+  expect(
+    messageReferenceCandidates(
+      "#Product:ABCDEF12 #product:abcdef12 `#random:deadbeef` #产品:abcdef12 #random:012345",
+    ).threads,
+  ).toEqual([
+    { name: "product", anchor: "abcdef12" },
+    { name: "random", anchor: "012345" },
+  ]);
 });
 
 test("a `task #N` is read as the task before its `#N` could name a channel", () => {
@@ -222,6 +317,7 @@ test("a bare #N lists the number as a task candidate and as a channel name", () 
     handles: [],
     taskNumbers: [68],
     channelNames: ["68"],
+    threads: [],
   });
 });
 
@@ -252,6 +348,7 @@ test("a channel named by the whole #name run wins over a task that is only its n
     handles: [],
     taskNumbers: [132],
     channelNames: ["132-plan"],
+    threads: [],
   });
 });
 
@@ -268,6 +365,7 @@ test("an escape later in a bare #N's run keeps the task; only the channel readin
     handles: [],
     taskNumbers: [132],
     channelNames: [],
+    threads: [],
   });
   // With no such task the run stays byte-for-byte.
   expect(
@@ -317,6 +415,7 @@ test("messageReferenceCandidates lists what a sender could mean, outside code, U
     handles: ["ada"],
     taskNumbers: [68, 70],
     channelNames: ["product"],
+    threads: [{ name: "product", anchor: "deadbeef" }],
   });
 });
 
@@ -335,6 +434,7 @@ test("a body with no @ or # is returned as written", () => {
     handles: [],
     taskNumbers: [],
     channelNames: [],
+    threads: [],
   });
   expect(resolveMessageReferences(body, { channel })).toBe(body);
 });

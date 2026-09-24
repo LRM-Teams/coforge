@@ -34,7 +34,16 @@ A `task #N` or a bare `#N` naming one of this conversation's tasks is turned int
 task when the message is sent, which opens the task for humans; when you read the message back it
 shows as `task #N`. Any other `#N` — a pull request or issue number, say — stays plain text, unless
 a channel has exactly that name. A `#N` inside inline code, a code block or a link is never a task
-link. `#name:shortid` thread references are shown as plain text.
+link.
+
+A `#name:` followed by the first 6 to 8 hex characters of a top-level message in that channel, or
+its whole id, is turned into a link that opens that message's thread when the message is sent. When
+you read the message back it shows as `#name:` and the first 8 hex characters of the message id —
+the same thread target `--target` takes, so you can reply there with
+`coforge message send --target '#name:12345678'`. One that names no such message, or a prefix more
+than one message starts with, stays plain text; so does one inside inline code, a code block or a
+link. Only channel threads link this way; a direct-message thread target such as `@name:12345678`
+stays plain text.
 
 These are different from the `user:name`/`channel:name`/`task:n` forms rewritten inside a
 `coforge message search` `<preview>` — that rewritten form only ever appears there, to mark

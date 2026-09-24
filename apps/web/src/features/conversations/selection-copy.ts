@@ -27,10 +27,13 @@ const turndown = new TurndownService({
   headingStyle: "atx",
 });
 turndown.use(gfm);
-// A channel chip is a router link (`data-channel-id`, see `message-body.tsx`): it copies as the
-// `#name` it reads, not as a Markdown link to the app's own URL.
+// A channel or thread chip is a router link (`data-channel-id` / `data-thread-root-id`, see
+// `message-body.tsx`): it copies as the `#name` or `#name:<8 hex>` it reads, not as a Markdown link
+// to the app's own URL.
 turndown.addRule("channelReference", {
-  filter: (node) => node.nodeName === "A" && node.hasAttribute("data-channel-id"),
+  filter: (node) =>
+    node.nodeName === "A" &&
+    (node.hasAttribute("data-channel-id") || node.hasAttribute("data-thread-root-id")),
   replacement: (content) => content,
 });
 
@@ -78,8 +81,9 @@ export function copyFragmentMarkdown(html: string): Promise<boolean> {
 
 /**
  * The whole message as plain text: mention tokens resolved to their `@label`, task-reference
- * tokens (`<@task:68>`) to `task #68` and channel-reference tokens to `#name` (the current name
- * from `channelNames` when listed, the stored one otherwise), Markdown source kept as typed —
+ * tokens (`<@task:68>`) to `task #68`, channel-reference tokens to `#name` and thread-reference
+ * tokens to `#name:<8 hex>` (the current name from `channelNames` when listed, the stored one
+ * otherwise), Markdown source kept as typed —
  * Discord's "Copy Text" copies the raw source too, and the composer round-trips it. A mention token
  * nobody resolved stays as written rather than vanishing. This is also the only copy path for a
  * collapsed long message, whose body is `inert` and cannot be highlighted at all.

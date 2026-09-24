@@ -9,7 +9,7 @@
  *    HTML-looking `<` outside code is escaped (`escapeLiteralHtml`, `#src/lib/message-syntax`) so
  *    it renders as the characters the author typed. GFM autolinks (`<https://…>`) and reference
  *    tokens keep their `<`.
- * 2. A stored `<@kind:…>` token (a mention, a task or a channel) still renders as its chip, and
+ * 2. A stored `<@kind:…>` token (a mention, a task, a channel or a thread) still renders as its chip, and
  *    still never inside a code span or fence — the server never stores one there either (its
  *    recognizer reads the same Markdown syntax, `#src/lib/message-syntax`).
  *
@@ -23,6 +23,8 @@ import {
   MENTION_PATTERN,
   MENTION_TOKEN_PATTERN,
   TASK_REFERENCE_TOKEN_PATTERN,
+  THREAD_REFERENCE_TOKEN_PATTERN,
+  threadReferenceText,
 } from "@lrm/coforge-sdk/internal";
 import type { Element, Root, Text } from "hast";
 
@@ -59,6 +61,15 @@ export const CHANNEL_CHIP_CLASS =
   "message-markdown-channel-reference rounded-sm px-0.5 font-medium bg-brand-primary text-brand-secondary";
 /** The chip's `className` list, split once; nothing mutates it. */
 const CHANNEL_CHIP_CLASSES = CHANNEL_CHIP_CLASS.split(" ");
+
+/**
+ * Thread-reference chip classes. A `<@thread:uuid:uuid:name>` token renders with the same soft fill;
+ * the renderer turns the chip into a link that opens the thread in its channel (see
+ * `message-body.tsx`).
+ */
+export const THREAD_CHIP_CLASS =
+  "message-markdown-thread-reference rounded-sm px-0.5 font-medium bg-brand-primary text-brand-secondary";
+const THREAD_CHIP_CLASSES = THREAD_CHIP_CLASS.split(" ");
 
 /** A resolved mention as a chip needs both its stable handle (identity/self matching) and its
  * display label, plus the Agent id to open its profile panel when applicable. */
@@ -98,7 +109,8 @@ type ReferenceChipOptions = {
   plainMentions?: Map<string, ChipMention>;
   /** The conversation's own task numbers. */
   taskNumbers?: ReadonlySet<number>;
-  /** Every channel of the Workspace, id → current name, for a view that can navigate. */
+  /** Every channel of the Workspace, id → current name, for a view that can navigate: the authority
+   * for channel and thread tokens alike. */
   channelNames?: ReadonlyMap<string, string>;
 };
 
@@ -125,7 +137,12 @@ type ReferenceKind = {
  *   and archived ones included): a listed id is a chip under the channel's current name, carrying
  *   `data-channel-id` for the renderer to make a link; any other id — unknown, deleted or forged —
  *   reads as the plain `#name` it stored. Without `channelNames` (a view that is itself one link,
- *   such as a Saved card) every channel token reads as plain `#name`.
+ *   such as a Saved card) every channel token reads as plain `#name`;
+ * - a thread token (`<@thread:uuid:uuid:name>`) against the same channels: a listed channel id is a
+ *   chip `#name:<8 hex>` under the channel's current name, carrying `data-thread-channel-id` and
+ *   `data-thread-root-id` for the renderer to make a link that opens the thread; any other reads as
+ *   the plain `#name:<8 hex>` it stored. Whether the root message still exists is the thread
+ *   opener's to say: the chip claims only the channel.
  *
  * `plainMentions` additionally chips a *plain* `@handle` (a DM body, or a channel body whose author
  * never used the completion) that names a conversation member exactly, with that member's display
@@ -263,6 +280,19 @@ function referenceKinds(options: ReferenceChipOptions): ReferenceKind[] {
           : { type: "text", value: `#${current ?? stored!}` };
       },
     },
+    {
+      pattern: THREAD_REFERENCE_TOKEN_PATTERN,
+      build: ([rawChannelId, rawRootId, stored], place) => {
+        const channelId = rawChannelId!.toLowerCase();
+        const rootId = rawRootId!.toLowerCase();
+        const current = channelNames?.get(channelId);
+        // The channel token's rule: under the current name when the Workspace still has the
+        // channel, in a link and out of one.
+        return place === "prose" && current !== undefined
+          ? threadChip(channelId, rootId, current)
+          : { type: "text", value: threadReferenceText(current ?? stored!, rootId) };
+      },
+    },
   ];
   if (plainMentions && plainMentions.size > 0)
     kinds.push({
@@ -319,5 +349,19 @@ function channelChip(id: string, name: string): Element {
     tagName: "span",
     properties: { className: CHANNEL_CHIP_CLASSES, "data-channel-id": id },
     children: [{ type: "text", value: `#${name}` }],
+  };
+}
+
+/** A thread chip, `#name:<8 hex>` under the channel's current name. */
+function threadChip(channelId: string, rootId: string, name: string): Element {
+  return {
+    type: "element",
+    tagName: "span",
+    properties: {
+      className: THREAD_CHIP_CLASSES,
+      "data-thread-channel-id": channelId,
+      "data-thread-root-id": rootId,
+    },
+    children: [{ type: "text", value: threadReferenceText(name, rootId) }],
   };
 }

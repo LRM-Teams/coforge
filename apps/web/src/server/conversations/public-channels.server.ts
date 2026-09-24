@@ -13,7 +13,7 @@ import {
   resolveChannelAuthority,
 } from "./channel-authority.server";
 import { ACTIVE_AGENT_WHERE } from "#src/server/agents/active-agent.server";
-import { messageAnchorWhere } from "#src/server/db/message-anchor.server";
+import { channelThreadRootWhere } from "#src/server/db/message-anchor.server";
 import { AGENT_VISIBILITY } from "#src/features/agents/agent-visibility";
 import {
   agentMessageSender,
@@ -265,11 +265,7 @@ export async function resolveChannelThreadRoot(
   anchor: string,
 ) {
   const rows = await db.message.findMany({
-    where: {
-      conversationId,
-      threadRootId: null,
-      id: messageAnchorWhere(anchor),
-    },
+    where: channelThreadRootWhere(conversationId, anchor),
     take: 2,
     select: { id: true },
   });

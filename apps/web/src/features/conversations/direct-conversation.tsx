@@ -50,6 +50,8 @@ import { RelativeTime } from "#src/components/ui/relative-time";
 import { useAppToast } from "#src/components/ui/toast";
 import { MessageComposer } from "./message-composer";
 import { ThreadPaneHeader, type ThreadFollow } from "./thread-pane-header";
+import { ThreadRootState, type ThreadRootLoad } from "./thread-root-state";
+import { isAppError } from "#src/lib/app-error";
 import { makeReferenceBodyFormatter, type Mentionable } from "./mention-text";
 import type { ChannelSuggestion } from "./reference-completion";
 import type { ChipMention } from "./message-markdown";
@@ -650,6 +652,30 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
     attemptedHashLoad.current = hash;
     void loadWindowAround(messageId);
   }, [conversation.messages, searchThreadRootId, loadWindowAround]);
+  // A thread opened by link (a thread reference, a shared URL) whose first message is not in the
+  // loaded window: its window is read, and the thread slot says so while it is, and says why if
+  // the thread cannot be shown (`ThreadRootState`), instead of opening an empty pane.
+  const [threadRootLoad, setThreadRootLoad] = useState<
+    { rootId: string; load: ThreadRootLoad | { status: "loaded" } } | undefined
+  >();
+  const loadThreadRoot = useCallback(
+    async (rootId: string) => {
+      setThreadRootLoad({ rootId, load: { status: "loading" } });
+      try {
+        await loadWindowAround(rootId);
+        setThreadRootLoad({ rootId, load: { status: "loaded" } });
+      } catch (error) {
+        setThreadRootLoad({
+          rootId,
+          load:
+            isAppError(error) && error.code === "NOT_FOUND"
+              ? { status: "missing" }
+              : { status: "failed", errorId: isAppError(error) ? error.errorId : undefined },
+        });
+      }
+    },
+    [loadWindowAround],
+  );
   useEffect(() => {
     if (!searchThreadRootId) {
       attemptedSearchLoad.current = undefined;
@@ -658,8 +684,18 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
     if (conversation.messages.some((message) => message.id === searchThreadRootId)) return;
     if (attemptedSearchLoad.current === searchThreadRootId) return;
     attemptedSearchLoad.current = searchThreadRootId;
-    void loadWindowAround(searchThreadRootId);
-  }, [searchThreadRootId, conversation.messages, loadWindowAround]);
+    void loadThreadRoot(searchThreadRootId);
+  }, [searchThreadRootId, conversation.messages, loadThreadRoot]);
+  // The selected thread's first message is not loaded: until its read settles the slot shows it
+  // loading; once settled without it, the thread is not there.
+  const selectedRootLoad: ThreadRootLoad | undefined =
+    selected && !mainMessages.some((message) => message.id === selected)
+      ? threadRootLoad?.rootId !== selected
+        ? { status: "loading" }
+        : threadRootLoad.load.status === "loaded"
+          ? { status: "missing" }
+          : threadRootLoad.load
+      : undefined;
   const conversationMainPane = (
     <ConversationPane
       {...conversationProps}
@@ -790,6 +826,23 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
           </section>
         );
       })}
+      {selected && selectedRootLoad && (
+        <section
+          aria-label={m.conversation_thread()}
+          hidden={!threadPaneVisible(selected)}
+          className={cn(
+            "min-h-0 min-w-0 flex-1 flex-col",
+            threadPaneVisible(selected) ? "flex" : "hidden",
+          )}
+        >
+          <ThreadRootState
+            load={selectedRootLoad}
+            context={threadContext}
+            onClose={closeThread}
+            onRetry={() => void loadThreadRoot(selected)}
+          />
+        </section>
+      )}
     </>
   );
   if (!wideViewport) {
