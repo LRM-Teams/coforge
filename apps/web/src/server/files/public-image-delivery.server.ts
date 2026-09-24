@@ -1,3 +1,9 @@
+import {
+  assertDeliveryNotApplicationOrigin,
+  normalizeDeliveryBaseUrl,
+  type DeliveryUrlRule,
+} from "./delivery-base-url.server";
+
 /**
  * Public CDN delivery for profile images — user avatars and project icons.
  *
@@ -26,6 +32,7 @@
  * There is no key and no expiry here. A URL this module returns is world-readable for as long as
  * the object exists.
  */
+
 /**
  * The rendered sizes this product asks the CDN for. An avatar or icon is displayed at at most
  * ~96px (the profile panel) and ~128px (a project header), so shipping the stored original —
@@ -66,9 +73,9 @@ export class PublicImageDeliveryConfigError extends Error {
 export function readPublicImageDeliveryConfig(env: NodeJS.ProcessEnv): PublicImageDeliveryConfig {
   const rawUrl = env.COFORGE_IMAGE_DELIVERY_URL?.trim();
   if (!rawUrl) return null;
-  const baseUrl = normalizeBaseUrl(rawUrl);
+  const baseUrl = normalizeDeliveryBaseUrl(rawUrl, IMAGE_DELIVERY_URL_RULE);
   assertNotSignedAttachmentDomain(baseUrl, env);
-  assertNotApplicationOrigin(baseUrl, env);
+  assertDeliveryNotApplicationOrigin(baseUrl, env, IMAGE_DELIVERY_URL_RULE);
   return { baseUrl };
 }
 
@@ -94,43 +101,20 @@ function assertNotSignedAttachmentDomain(baseUrl: string, env: NodeJS.ProcessEnv
 
 /**
  * Profile images are served without any access check, so they must not answer on the origin that
- * holds this application's session cookies. The application origin is taken from the configured
- * OAuth redirect URI, the one setting that already has to name this deployment's public origin;
- * a deployment that does not set it reaches here with nothing to compare, and the check permits
- * the URL (see the same reasoning in `file-delivery.server.ts`).
+ * holds this application's session cookies: a deployment that pointed image delivery at its own host
+ * would publish every avatar under the session's origin. The application origin comes from the
+ * configured OAuth redirect URI, and a deployment without one reaches here with nothing to compare,
+ * so this check permits the URL — which is why it is not the only gate, together with
+ * `assertNotSignedAttachmentDomain` above.
+ *
+ * The rule itself — https, no path/query/hash, not this application's origin — lives once in
+ * `delivery-base-url.server.ts`, shared with attachment delivery; only the setting and the error
+ * class are this feature's.
  */
-function assertNotApplicationOrigin(baseUrl: string, env: NodeJS.ProcessEnv): void {
-  const redirectUri = env.AUTHING_REDIRECT_URI?.trim();
-  if (!redirectUri) return;
-  let applicationOrigin: string;
-  try {
-    applicationOrigin = new URL(redirectUri).origin;
-  } catch {
-    return;
-  }
-  if (new URL(baseUrl).origin !== applicationOrigin) return;
-  throw new PublicImageDeliveryConfigError(
-    "COFORGE_IMAGE_DELIVERY_URL must not be the application's own origin",
-  );
-}
-
-function normalizeBaseUrl(rawUrl: string): string {
-  let url: URL;
-  try {
-    url = new URL(rawUrl);
-  } catch {
-    throw new PublicImageDeliveryConfigError("COFORGE_IMAGE_DELIVERY_URL must be a valid URL");
-  }
-  if (url.protocol !== "https:") {
-    throw new PublicImageDeliveryConfigError("COFORGE_IMAGE_DELIVERY_URL must use https");
-  }
-  if (url.search || url.hash || (url.pathname !== "/" && url.pathname !== "")) {
-    throw new PublicImageDeliveryConfigError(
-      "COFORGE_IMAGE_DELIVERY_URL must not have a path, query, or hash",
-    );
-  }
-  return `${url.protocol}//${url.host}`;
-}
+const IMAGE_DELIVERY_URL_RULE: DeliveryUrlRule = {
+  envVar: "COFORGE_IMAGE_DELIVERY_URL",
+  fail: (message) => new PublicImageDeliveryConfigError(message),
+};
 
 export type PublicImageDeliveryStatus =
   | { state: "configured" }

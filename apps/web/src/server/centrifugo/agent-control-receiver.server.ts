@@ -1,6 +1,7 @@
 import { decodeAgentControlResult, type AgentControlResult } from "@lrm/coforge-sdk/internal";
 import type { AgentControl } from "#src/server/agents/agent-control.server";
 import type { CentrifugoRpcMethod } from "./rpc-handler.server";
+import { rejectionReason } from "./rejection-reason.server";
 
 /** Every fixed message `AgentControl.result` (and the `requireCurrentAgentScope` it shares with
  * Session acceptance) throws for a rejected result. Anything else logs as "unexpected" so a
@@ -14,12 +15,6 @@ const KNOWN_REJECTION_REASONS = new Set([
   "Native Session identity changed during launch",
   "Control result lost its fence",
 ]);
-
-function rejectionReason(error: unknown): string {
-  const message = error instanceof Error ? error.message : undefined;
-  if (message && KNOWN_REJECTION_REASONS.has(message)) return message;
-  return `unexpected: ${error instanceof Error ? error.name : typeof error}`;
-}
 
 export function createAgentControlResultMethod(
   control: Pick<AgentControl, "result">,
@@ -53,7 +48,7 @@ export function createAgentControlResultMethod(
           epoch: result.epoch,
           sequence: result.sequence,
           error_code: result.errorCode,
-          reason: rejectionReason(error),
+          reason: rejectionReason(error, KNOWN_REJECTION_REASONS),
         }),
       );
       return { code: 403, message: "Agent control result is not authorized" };
