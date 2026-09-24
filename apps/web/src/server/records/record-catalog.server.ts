@@ -2913,11 +2913,11 @@ export class RecordCatalog {
     });
     if (!sendState.canSend && !sendState.schedule) throw new AppError("INVALID_INPUT");
 
-    const content = withWeekSendDismissed(
-      asReportContent(report.content),
-      report.cycle.year,
-      report.cycle.week,
-    );
+    // Stamp the calendar week the schedule tick arbitrates on — not the live
+    // format's possibly stale creation cycle (otherwise auto-send still fires).
+    const now = input.now ?? new Date();
+    const { year, week } = currentIsoWeek(zonedCalendarDate(now));
+    const content = withWeekSendDismissed(asReportContent(report.content), year, week);
     await this.db.weeklyReport.update({
       where: { id: report.id },
       data: { content: content as unknown as Prisma.InputJsonValue },

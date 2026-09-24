@@ -25,3 +25,6 @@ These rules also cover `src/server/records/`.
   remounts children in a Hidden tree; ModalOverlay is not hideable, so an open
   dialog mounts twice and `ariaHideOutside` makes the visible one inert.
   Render settings dialogs as siblings outside `Tabs` (see `weekly-report-settings.tsx`).
+- 「取消本周周报」and schedule-tick skip keys use the current ISO week
+  (`currentIsoWeek(zonedCalendarDate(now))`), not the live format document's
+  possibly stale `cycle`. Stamp dismiss with that calendar week.
