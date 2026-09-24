@@ -298,10 +298,10 @@ function TaskSection({
             task={task}
             members={members}
             disabled={pending || !currentMemberId}
-            onSelect={(handle) =>
+            onSelect={(assignee) =>
               void run(
-                handle
-                  ? { operation: "assign", number: task.number, assignee: `@${handle}` }
+                assignee
+                  ? { operation: "assign", number: task.number, assignee }
                   : { operation: "unassign", number: task.number },
               )
             }
@@ -427,7 +427,8 @@ function AssigneeMenu({
   task: TaskView;
   members?: readonly Mentionable[];
   disabled: boolean;
-  onSelect: (handle: string | null) => void;
+  /** The picked member bound by id (`user:<id>` or `agent:<id>`), or null for no one. */
+  onSelect: (assignee: string | null) => void;
 }) {
   const { contains } = useFilter({ sensitivity: "base" });
   const [search, setSearch] = useState("");
@@ -476,7 +477,8 @@ function AssigneeMenu({
                 return;
               }
               const member = members.find((candidate) => memberKey(candidate) === key);
-              if (member && key !== ownerKey) onSelect(member.handle);
+              // By id, never by handle: a person and an Agent may share a name.
+              if (member && key !== ownerKey) onSelect(memberKey(member));
             }}
           >
             <Dropdown.Item id={UNASSIGNED} label={m.tasks_unassigned()} />

@@ -502,6 +502,9 @@ function historyRows(
 }
 
 const handleName = (handle: string) => handle.replace(/^@/, "");
+/** An assignee picked by id: `user:<uuid>` or `agent:<uuid>`. */
+const BOUND_ASSIGNEE =
+  /^(user|agent):([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/;
 
 async function indexedRequestId(requestId: string, index: number) {
   if (index === 0) return requestId;
@@ -985,31 +988,52 @@ export class TaskBoard {
     };
   }
 
-  /** The conversation member a `@handle` names, whether it is a user or an Agent. */
-  private memberByHandle(
+  /**
+   * The conversation member an assignee names. A browser pick is bound by id (`user:<id>` or
+   * `agent:<id>`), so it is always the one picked. A bare `@handle` (the Agent CLI) may match a
+   * person and an Agent at once, since usernames are global and Agent names per Workspace; the
+   * person is then the one meant, as a mention without a binding resolves.
+   */
+  private async assigneeMember(
     tx: Transaction,
     conversationId: string,
     workspaceId: string,
     handle: string,
   ) {
+    const scope = {
+      conversationId,
+      workspaceId,
+      // A deleted Agent (or anyone who left) is not an assignable member. Without
+      // this, a deleted Agent stayed a valid Task assignee and still received delivery rows.
+      ...ACTIVE_MEMBER_WHERE,
+    };
+    const select = {
+      id: true,
+      userId: true,
+      agentId: true,
+      user: { select: { username: true } },
+      agent: { select: { name: true } },
+    } as const;
+    const bound = BOUND_ASSIGNEE.exec(handle);
+    if (bound)
+      return tx.conversationMember.findFirst({
+        where: {
+          ...scope,
+          ...(bound[1] === "user"
+            ? { userId: bound[2] }
+            : { agentId: bound[2], agent: ACTIVE_AGENT_WHERE }),
+        },
+        select,
+      });
     const name = handleName(handle);
-    return tx.conversationMember.findFirst({
+    const matches = await tx.conversationMember.findMany({
       where: {
-        conversationId,
-        workspaceId,
-        // A deleted Agent (or anyone who left) is not an assignable member. Without
-        // this, a deleted Agent stayed a valid Task assignee and still received delivery rows.
-        ...ACTIVE_MEMBER_WHERE,
+        ...scope,
         OR: [{ user: { username: name } }, { agent: { name, ...ACTIVE_AGENT_WHERE } }],
       },
-      select: {
-        id: true,
-        userId: true,
-        agentId: true,
-        user: { select: { username: true } },
-        agent: { select: { name: true } },
-      },
+      select,
     });
+    return matches.find((member) => member.userId) ?? matches[0] ?? null;
   }
 
   /**
@@ -1154,7 +1178,7 @@ export class TaskBoard {
         const receipt = await tx.message.findUnique({ where: { id: receiptId } });
         const assignee =
           receipt && command.assignee
-            ? await this.memberByHandle(
+            ? await this.assigneeMember(
                 tx,
                 scope.conversationId,
                 scope.workspaceId,
@@ -1166,6 +1190,7 @@ export class TaskBoard {
           created: false,
           sequences: [] as number[],
           receipt,
+          assignee,
           started: assignee?.id === member.id,
         };
       }
@@ -1241,7 +1266,7 @@ export class TaskBoard {
           )
         : [];
       const assignee = command.assignee
-        ? await this.memberByHandle(tx, scope.conversationId, scope.workspaceId, command.assignee)
+        ? await this.assigneeMember(tx, scope.conversationId, scope.workspaceId, command.assignee)
         : null;
       if (command.assignee && !assignee) throw new AppError("NOT_FOUND");
       if (assignee && assignee.id !== member.id) this.requireHuman(member);
@@ -1331,7 +1356,7 @@ export class TaskBoard {
             assignee,
           })
         : null;
-      return { tasks, created: true, sequences, receipt, started };
+      return { tasks, created: true, sequences, receipt, assignee, started };
     });
     if (result.created) {
       // PostgreSQL is canonical: a missed notification, realtime event or daemon push is
@@ -1401,7 +1426,7 @@ export class TaskBoard {
         assignmentReceipt: {
           messageId: receipt.id,
           content: receipt.body,
-          assignee: command.assignee!,
+          assignee: result.assignee ? assigneeMention(result.assignee) : command.assignee!,
           state: result.started ? ("started" as const) : ("assigned" as const),
         },
       }),
@@ -1813,7 +1838,11 @@ export class TaskBoard {
     command: TaskCommand,
   ): Promise<TaskResult> {
     const { conversationId, workspaceId } = conversation;
-    if (command.assignee !== null && !command.assignee?.match(/^@[a-z0-9][a-z0-9_-]{0,63}$/))
+    if (
+      command.assignee !== null &&
+      !command.assignee?.match(/^@[a-z0-9][a-z0-9_-]{0,63}$/) &&
+      !BOUND_ASSIGNEE.test(command.assignee ?? "")
+    )
       throw new AppError("INVALID_INPUT");
     const receiptId = await indexedRequestId(
       `${member.id}:assign:${command.number}:${command.idempotencyKey}:assignment`,
@@ -1826,10 +1855,13 @@ export class TaskBoard {
           where: { conversationId_number: { conversationId, number: command.number! } },
           select: taskSelection,
         });
-        return { task, receipt, changed: false };
+        const owner = command.assignee
+          ? await this.assigneeMember(tx, conversationId, workspaceId, command.assignee)
+          : null;
+        return { task, receipt, owner, changed: false };
       }
       const owner = command.assignee
-        ? await this.memberByHandle(tx, conversationId, workspaceId, command.assignee)
+        ? await this.assigneeMember(tx, conversationId, workspaceId, command.assignee)
         : null;
       if (command.assignee && !owner) throw new AppError("NOT_FOUND");
       const current = await tx.task.findUnique({
@@ -1847,7 +1879,7 @@ export class TaskBoard {
       if (command.expectedRevision !== undefined && current.revision !== command.expectedRevision)
         throw new AppError("CONFLICT");
       if (current.ownerMemberId === (owner?.id ?? null))
-        return { task: current, receipt: null, changed: false };
+        return { task: current, receipt: null, owner, changed: false };
       const { task } = await this.commitTaskChange(
         tx,
         member,
@@ -1859,11 +1891,12 @@ export class TaskBoard {
         await notices.inThread(task, (quoted) =>
           noticeText.unassigned(noticeActor(member).displayName, quoted),
         );
-        return { task, changed: true, receipt: null };
+        return { task, changed: true, receipt: null, owner };
       }
       return {
         task,
         changed: true,
+        owner,
         receipt: await notices.receipt({
           id: receiptId,
           body: noticeText.assigned(assigneeMention(owner), await notices.quote([task])),
@@ -1881,7 +1914,7 @@ export class TaskBoard {
         assignmentReceipt: {
           messageId: receipt.id,
           content: receipt.body,
-          assignee: command.assignee!,
+          assignee: result.owner ? assigneeMention(result.owner) : command.assignee!,
           state: "assigned" as const,
         },
       }),
