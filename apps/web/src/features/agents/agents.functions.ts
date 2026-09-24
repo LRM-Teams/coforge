@@ -16,6 +16,7 @@ import {
 import { AGENT_VISIBILITY } from "./agent-visibility";
 import { publishAgentVisibilityChanged } from "#src/server/agents/agent-visibility-realtime.server";
 import { ChangeAgentVisibility } from "#src/server/agents/change-agent-visibility.server";
+import { AgentInboxPurgePublisher } from "#src/server/agents/agent-inbox-purge.server";
 import { PrismaChangeAgentVisibilityStore } from "#src/server/db/repositories/agent-visibility-change.repositories.server";
 import { setAgentRole } from "#src/server/agents/agent-role.server";
 import { AppError } from "#src/lib/app-error";
@@ -203,6 +204,7 @@ function changeAgentVisibilityUseCase(db: Database) {
     new PrismaAgentRepository(db),
     new PrismaChangeAgentVisibilityStore(db),
     publishAgentVisibilityChanged,
+    new AgentInboxPurgePublisher(db),
   );
 }
 

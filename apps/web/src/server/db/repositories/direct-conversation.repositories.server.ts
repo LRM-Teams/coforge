@@ -43,6 +43,7 @@ import { workspaceUserAvatarUrl } from "./user-profile.repositories.server";
 import { attachmentView } from "#src/server/attachments/attachment-view.server";
 import type { ActionCardView } from "#src/server/conversations/action-cards.server";
 import { windowPageFlags } from "#src/lib/conversation-window";
+import { channelTarget } from "#src/server/conversations/agent-delivery.server";
 
 /** The three Agent-visible sender facts, spread onto every Agent-facing message shape
  * in this file so they cannot drift into three different field sets. */
@@ -208,7 +209,7 @@ function conversationTarget(conversation: {
   members: { user: { username: string } | null }[];
 }) {
   return conversation.channelName
-    ? `#${conversation.channelName}`
+    ? channelTarget(conversation.channelName)
     : `@${conversation.members[0]?.user?.username}`;
 }
 
@@ -1651,8 +1652,25 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
     agentId: string,
   ): Promise<AgentFacing<PendingAgentDelivery>[]> {
     const deliveries = await this.db.agentMessageDelivery.findMany({
-      // Deliveries into a channel hidden from the Workspace wait there until it is restored.
-      where: { workspaceId, agentId, receivedAt: null, conversation: VISIBLE_CONVERSATION_WHERE },
+      // Deliveries into a channel hidden from the Workspace wait there until it is restored. A
+      // channel the Agent has left (or was removed from, or left by going private) no longer
+      // replays: its daemon was told to drop those messages. Direct messages always replay.
+      where: {
+        workspaceId,
+        agentId,
+        receivedAt: null,
+        conversation: {
+          AND: [
+            VISIBLE_CONVERSATION_WHERE,
+            {
+              OR: [
+                { channelName: null },
+                { members: { some: { agentId, ...ACTIVE_MEMBER_WHERE } } },
+              ],
+            },
+          ],
+        },
+      },
       orderBy: [{ createdAt: "asc" }, { deliveryId: "asc" }],
       select: {
         deliveryId: true,

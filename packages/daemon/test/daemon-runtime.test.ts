@@ -3537,6 +3537,184 @@ describe("DaemonRuntime", () => {
     }
   });
 
+  test("an inbox purge drops the pending attention of the channels an Agent can no longer read", async () => {
+    const credentials = new InMemoryDaemonCredentialStore();
+    await credentials.save(connection.workspaceId, connection.computerId, "token-a");
+    const runtime = new DaemonRuntime(
+      connection,
+      () => ({
+        provider: "pi",
+        createAgentSession: async () => ({ ...sessionSpy(), notify: async () => {} }),
+      }),
+      credentials,
+      {
+        create: () => ({
+          async start() {},
+          async ready() {},
+          sendAgentStatus() {},
+          async sendAgentDeliveryAck() {},
+          async requestAgentApiKey() {
+            return `sk_agent_${"a".repeat(43)}`;
+          },
+          async revokeAgentApiKey() {},
+          async stop() {},
+        }),
+      },
+    );
+    const channelDelivery = (sequence: number, target: string, conversationId: string) => ({
+      protocolMajor: 1 as const,
+      requestId: `message-request-${sequence}`,
+      messageId: `message-${sequence}`,
+      deliveryId: `delivery-${sequence}`,
+      sequence,
+      workspaceId: connection.workspaceId,
+      conversationId,
+      agentId: "agent-a",
+      body: `body ${sequence}`,
+      method: "agent:v1:message:deliver" as const,
+      target,
+      latestSenderKind: "human" as const,
+      latestSenderHandle: "ada",
+    });
+    try {
+      await runtime.start(connection);
+      await runtime.startAgent("agent-a", config);
+      const context = runtime.issueAgentContext("agent-a");
+      await runtime.handleAgentMessage(channelDelivery(1, "#team", "conversation-team"));
+      await runtime.handleAgentMessage(
+        channelDelivery(2, "#team:123e4567-e89b-42d3-a456-426614174000", "conversation-team"),
+      );
+      await runtime.handleAgentMessage(channelDelivery(3, "#ops", "conversation-ops"));
+      const targets = async () =>
+        (
+          await runtime.inbox(context, {
+            requestId: crypto.randomUUID(),
+            context,
+            operation: "check",
+          })
+        ).entries
+          .flatMap((entry) => (entry.kind === "message_target" ? [entry.messageTarget.target] : []))
+          .sort();
+      expect(await targets()).toEqual([
+        "#ops",
+        "#team",
+        "#team:123e4567-e89b-42d3-a456-426614174000",
+      ]);
+
+      runtime.handleAgentInboxPurge({
+        protocolMajor: 1,
+        requestId: "purge-1",
+        workspaceId: connection.workspaceId,
+        computerId: connection.computerId,
+        agentId: "agent-a",
+        conversationIds: ["conversation-team"],
+        targets: ["#team"],
+        reason: "member_removed",
+      });
+
+      // The channel and its thread are gone; another channel is untouched.
+      expect(await targets()).toEqual(["#ops"]);
+    } finally {
+      await runtime.stop();
+    }
+  });
+
+  test("an inbox purge drops waiting deliveries of a lost channel without acknowledging them", async () => {
+    const credentials = new InMemoryDaemonCredentialStore();
+    await credentials.save(connection.workspaceId, connection.computerId, "token-a");
+    const exits = new Set<() => void>();
+    const events: string[] = [];
+    let launchAttempts = 0;
+    const wakeLaunch = Promise.withResolvers<void>();
+    const wakeLaunching = Promise.withResolvers<void>();
+    const runtime = new DaemonRuntime(
+      connection,
+      () => ({
+        provider: "pi",
+        createAgentSession: async () => {
+          launchAttempts++;
+          // The wake launch stays in flight until the test releases it.
+          if (launchAttempts === 2) {
+            wakeLaunching.resolve();
+            await wakeLaunch.promise;
+          }
+          return {
+            ...sessionSpy(),
+            notify: async (notice) => {
+              events.push(`notice ${notice.match(/Inbox update: (\d+) message/)?.[1]}`);
+            },
+            onExit(listener) {
+              exits.add(listener);
+              return () => exits.delete(listener);
+            },
+          };
+        },
+      }),
+      credentials,
+      {
+        create: () => ({
+          async start() {},
+          async ready() {},
+          sendAgentStatus() {},
+          async sendAgentDeliveryAck(ack) {
+            events.push(`ack ${ack.deliveryId}`);
+          },
+          async requestAgentApiKey() {
+            return `sk_agent_${"a".repeat(43)}`;
+          },
+          async revokeAgentApiKey() {},
+          async stop() {},
+        }),
+      },
+    );
+    const delivery = (sequence: number, target: string, conversationId: string) => ({
+      protocolMajor: 1 as const,
+      requestId: `message-request-${sequence}`,
+      messageId: `message-${sequence}`,
+      deliveryId: `delivery-${sequence}`,
+      sequence,
+      workspaceId: connection.workspaceId,
+      conversationId,
+      agentId: "agent-a",
+      body: `body ${sequence}`,
+      method: "agent:v1:message:deliver" as const,
+      target,
+      latestSenderKind: "human" as const,
+      latestSenderHandle: "ada",
+    });
+    try {
+      await runtime.start(connection);
+      await runtime.startAgent("agent-a", config);
+      for (const exit of [...exits]) exit();
+
+      // A DM wakes the exited Agent; a #team message waits behind that launch.
+      const dm = runtime.handleAgentMessage(delivery(1, "@ada", "conversation-dm"));
+      await wakeLaunching.promise;
+      const team = runtime.handleAgentMessage(delivery(2, "#team", "conversation-team"));
+
+      runtime.handleAgentInboxPurge({
+        protocolMajor: 1,
+        requestId: "purge-1",
+        workspaceId: connection.workspaceId,
+        computerId: connection.computerId,
+        agentId: "agent-a",
+        conversationIds: ["conversation-team"],
+        targets: ["#team"],
+        reason: "left",
+      });
+      // Dropped on purpose, so its delivery settles rather than failing.
+      await expect(team).resolves.toBeUndefined();
+
+      wakeLaunch.resolve();
+      await dm;
+      // Only the DM is announced and acknowledged. The #team delivery stays unacknowledged: the
+      // server keeps it, and no longer replays it to an Agent that left the channel.
+      expect(events).toEqual(["notice 1", "ack delivery-1"]);
+    } finally {
+      await runtime.stop();
+    }
+  });
+
   test("reports active Agents inactive before a graceful daemon shutdown", async () => {
     const credentials = new InMemoryDaemonCredentialStore();
     await credentials.save(connection.workspaceId, connection.computerId, "token-a");

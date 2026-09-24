@@ -42,6 +42,7 @@ import {
   AgentStartIntentSchema,
   AgentStopIntentSchema,
   AgentActivityProbeSchema,
+  AgentInboxPurgeSchema,
   AgentMessageDeliverySchema,
   AgentActivitySchema,
   AgentStatusSchema,
@@ -54,6 +55,7 @@ import type {
   AgentStartIntent,
   AgentStopIntent,
   AgentActivityProbe,
+  AgentInboxPurge,
   AgentRuntimeProviderConfig,
   AgentRecoveryMessage,
   AgentMessageDelivery,
@@ -66,6 +68,8 @@ import {
   AGENT_START_MESSAGE_TYPE,
   AGENT_STOP_MESSAGE_TYPE,
   AGENT_ACTIVITY_PROBE_MESSAGE_TYPE,
+  AGENT_INBOX_PURGE_MESSAGE_TYPE,
+  AGENT_INBOX_PURGE_REASONS,
   USAGE_SCAN_MESSAGE_TYPE,
   USAGE_SCAN_RESPONSE_MESSAGE_TYPE,
   MODEL_REFRESH_MESSAGE_TYPE,
@@ -902,6 +906,43 @@ export function decodeAgentActivityProbe(bytes: Uint8Array): AgentActivityProbe 
     computerId: value.computerId,
     agentId: value.agentId,
     probeId: value.probeId,
+  };
+}
+
+export function encodeAgentInboxPurge(value: AgentInboxPurge): Uint8Array {
+  return toBinary(
+    AgentInboxPurgeSchema,
+    create(AgentInboxPurgeSchema, {
+      ...value,
+      messageType: AGENT_INBOX_PURGE_MESSAGE_TYPE,
+    }),
+  );
+}
+
+export function decodeAgentInboxPurge(bytes: Uint8Array): AgentInboxPurge {
+  const value = fromBinary(AgentInboxPurgeSchema, bytes);
+  const reason = AGENT_INBOX_PURGE_REASONS.find((candidate) => candidate === value.reason);
+  if (
+    value.messageType !== AGENT_INBOX_PURGE_MESSAGE_TYPE ||
+    !value.requestId ||
+    !value.workspaceId ||
+    !value.computerId ||
+    !value.agentId ||
+    !value.conversationIds.length ||
+    value.conversationIds.some((id) => !id) ||
+    value.targets.some((target) => !target.startsWith("#") || target.length < 2) ||
+    !reason
+  )
+    throw new Error("invalid agent inbox purge");
+  return {
+    protocolMajor: value.protocolMajor,
+    requestId: value.requestId,
+    workspaceId: value.workspaceId,
+    computerId: value.computerId,
+    agentId: value.agentId,
+    conversationIds: [...value.conversationIds],
+    targets: [...value.targets],
+    reason,
   };
 }
 

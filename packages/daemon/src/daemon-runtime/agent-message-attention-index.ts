@@ -862,6 +862,19 @@ already have been read. A notice you have not acted on does not establish that t
     this.#memoryReminders.delete(agentId);
   }
 
+  /** Forgets the pending attention of these channel targets and every thread under them: the Agent
+   * can no longer read them. */
+  clearTargets(agentId: string, targets: readonly string[]): void {
+    const lost = (target: string) =>
+      targets.some((channel) => target === channel || target.startsWith(`${channel}:`));
+    const keys = new Set([
+      ...(this.#attention.get(agentId)?.keys() ?? []),
+      ...(this.#pendingSequences.get(agentId)?.keys() ?? []),
+      ...(this.#pendingWindow.get(agentId)?.keys() ?? []),
+    ]);
+    for (const target of keys) if (lost(target)) this.clear(agentId, target);
+  }
+
   clear(agentId: string, target: string): void {
     this.#pendingSequences.get(agentId)?.delete(target);
     this.#pendingWindow.get(agentId)?.delete(target);

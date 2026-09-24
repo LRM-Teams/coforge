@@ -8,6 +8,11 @@ import { agentReadableBody, type MessageMentionRef } from "./mentions.server";
 
 type AgentMessageDelivery = Parameters<typeof encodeAgentMessageDelivery>[0];
 
+/** The target an Agent's daemon knows a channel by: `#` and the channel name. */
+export function channelTarget(channelName: string): string {
+  return `#${channelName}`;
+}
+
 /**
  * The one way a message is encoded for an Agent's daemon. Its body always goes through
  * `agentReadableBody` here, with the message's mention rows, so no stored token (`<@agent:…>`,

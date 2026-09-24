@@ -211,6 +211,24 @@ message AgentActivityProbe {
   string message_type = 7;
 }
 
+// Versioned server-to-daemon notice that an Agent can no longer read some
+// channels: the daemon drops its local, unacknowledged state for them. No reply.
+message AgentInboxPurge {
+  uint32 protocol_major = 1;
+  string request_id = 2;
+  string workspace_id = 3;
+  string computer_id = 4;
+  string agent_id = 5;
+  // The channel conversations; their threads are included.
+  repeated string conversation_ids = 6;
+  // The same channels as targets ("#name"), for state the daemon keys by target.
+  repeated string targets = 7;
+  // Why access ended: "member_removed", "left", or "visibility_private".
+  string reason = 8;
+  // Explicit envelope discriminator; never infer message type from payload fields.
+  string message_type = 9;
+}
+
 // Versioned server-to-daemon canonical direct message delivery.
 message AgentMessageDelivery {
   uint32 protocol_major = 1;
