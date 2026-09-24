@@ -836,6 +836,9 @@ model Task {
   @@index([workspaceId, conversationId, status])
   @@index([workspaceId, status, updatedAt(sort: Desc), messageId(sort: Desc)])
   @@index([conversationId, status, updatedAt(sort: Desc), messageId(sort: Desc)])
+  /// Serves an Agent's own Tasks (`task list --mine`) from its member rows, whatever else the
+  /// Workspace holds.
+  @@index([ownerMemberId, status])
   @@map("tasks")
 }
 
