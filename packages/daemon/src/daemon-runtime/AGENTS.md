@@ -64,8 +64,8 @@ Rules for one Workspace child's runtime in `src/daemon-runtime/`. They extend
   locally.
 - Agent Task operations use the Credential Proxy and the authenticated Agent
   HTTPS connection. Task parsing and wire contracts belong to the SDK and CLI;
-  the claim-before-work and acceptance workflow the Agent follows is stated
-  once, in `code-agent/agent-instructions.ts`.
+  claim/review applies to existing shared Tasks, not ordinary requests, and
+  that standing guidance lives once in `code-agent/agent-instructions.ts`.
 - Apply the attention/model-visible preflight to Task `claim` and status
   `update` only; `amend` gets no local preflight. After the preflight, forward
   without storing Task state or interpreting claims, status transitions, or

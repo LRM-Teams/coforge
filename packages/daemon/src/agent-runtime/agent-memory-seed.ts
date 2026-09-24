@@ -29,7 +29,7 @@ const GITIGNORE_SEED = `work/
 /**
  * Builds the content of a freshly seeded MEMORY.md for one Agent: a title, a Role section, a
  * Rules slot, a five-line Active Context, and an Index pointing at notes/work-log.md — the
- * directory-card shape the standing prompt's "Workspace & Memory" section tells the Agent to keep.
+ * directory-card shape the Agent Manual's memory topic tells the Agent to keep for on-demand recovery.
  *
  * User-written identity text is sanitised the same way the standing prompt sanitises it: the
  * name is collapsed to a single line so it cannot break the `# <name>` heading, and the

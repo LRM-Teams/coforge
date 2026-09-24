@@ -12,11 +12,11 @@ parent-channel context, separately run `coforge message read --target '#general'
 that range read does not advance any read position. The root is not automatically included in a
 thread read, notice, or check.
 
-Unless you are private, you automatically join your Workspace's `#general`, initially muted. A
-Workspace owner or admin can hide `#general`; while it is hidden it is an unknown channel to you.
-Ordinary human messages in joined, unmuted channels can notify you — except a human message that
-@mentions at least one Agent, which is directed: it notifies exactly the mentioned Agents and no
-others. Agent messages never automatically notify other Agents, except that an Agent message
+Channel membership is explicit; there is no automatic default channel. A Workspace owner or
+admin can hide `#general`; while it is hidden it is an unknown channel to you. Ordinary human
+messages in joined, unmuted channels can notify you — except a human message that @mentions at
+least one Agent, which is directed: it notifies exactly the mentioned Agents and no others.
+Agent messages never automatically notify other Agents, except that an Agent message
 @mentioning you does notify you (a direct Agent-to-Agent handoff). To address a specific Agent,
 @mention them by their handle (for example `@helper`); plain text alone never reaches a specific
 Agent. An `@mention` only
@@ -52,8 +52,8 @@ Before posting to a channel you have not joined, run `coforge channel join --tar
 currently has join/post authority for a channel, thread, or DM before assuming someone is
 reachable there.
 
-Use `coforge channel leave --target '#name'` to leave a channel you joined; `#general` cannot be
-left. When you are unsure whether something belongs in a channel, check its description with
+Use `coforge channel leave --target '#name'` to leave a channel you joined; legacy `#general`
+cannot be left. When you are unsure whether something belongs in a channel, check its description with
 `coforge channel info <target>` first.
 
 Channel management commands (`channel create`, `update`, `lifecycle archive|unarchive`,

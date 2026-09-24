@@ -32,6 +32,13 @@ Rules for the provider seam and adapters in `src/code-agent/`. They extend
 - Keep the standing CoForge Agent instructions in one provider-neutral source,
   `agent-instructions.ts`. `AgentProcessManager` builds them once per session
   and passes them through the required `AgentSessionOptions.instructions`.
+- Keep transport guidance minimal: identity, `Current Runtime Context`,
+  communication, on-demand context recovery, safety, and help. The fixed
+  prompt budget is 3KB excluding dynamic identity data. Ordinary requests
+  need no Task, plan-first report, or per-turn memory read/write. Claim and
+  review apply only to existing shared Tasks or explicitly tracked work.
+  Feature workflows come from event output and the Manual, not the standing
+  prompt.
 - Every Provider injects them through the provider's native system or developer
   instruction mechanism: Codex app-server `developerInstructions`, the Claude
   Code system-prompt-file option, and the CoForge Agent resource-loader

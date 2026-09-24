@@ -77,5 +77,5 @@ Rules for Agent lifecycle, control, Session state, and Activity in
   directory is created. It only creates the file (`flag: "wx"`, `EEXIST`
   ignored) and never overwrites one the Agent already wrote. A seed failure is
   logged and never fails the launch.
-- Keep the seeded file consistent with the standing instructions'
-  `Workspace & Memory` and `Compaction safety` sections.
+- Seed `MEMORY.md` for on-demand recovery. Do not require per-turn memory
+  maintenance in the standing instructions.
