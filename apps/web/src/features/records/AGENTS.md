@@ -16,3 +16,8 @@ These rules also cover `src/server/records/`.
   bindings) and `server/records/weekly-report-collect-run.server.ts` (narrow
   Collect Run ledger). Pack submit and side-panel cards are follow-up seams;
   do not add WSS collect-result RPCs. Schema merge requires Frank approval.
+- Sidebar expand state: `records-sidebar-expand.ts` owns sessionStorage recall
+  for the last entry section (`activeSection`) and week openness; remount opens
+  only that section (not every list that contains the selected report). Cold
+  start without an entry prefers mine → members → favorites. Do not default
+  every CollapsibleSection to open.
