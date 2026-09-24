@@ -47,6 +47,11 @@ workspaceId]` Query its loader fills (`task-overview-collection.ts`,
   saved. Announced Task changes (`task.changed.v1`, `task-realtime.ts`) are
   applied to the rows with `apply` in one write per burst; only an unfinished Task the
   page does not list yet reads the list again.
+- The `/tasks` toolbar (`task-toolbar.tsx`) follows Linear: one "Filter"
+  menu (owner, Project, status submenus) with a removable chip per filter in
+  use, and one "Display" popover (board or list, and which Task fields show).
+  The shown fields are a per-device preference (`task-display-fields.ts`,
+  stored as the hidden fields); the server render shows every field.
 - `/tasks` filters are search params, comma-separated: `owners` holds User
   or Agent ids and `projects` holds Project ids, with `none` meaning no owner
   or no Project (`task-filters.ts`).

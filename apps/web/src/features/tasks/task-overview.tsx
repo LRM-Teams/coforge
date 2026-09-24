@@ -2,27 +2,21 @@ import { TASK_STATUSES, type TaskStatus } from "@lrm/coforge-sdk/internal";
 
 import { Link } from "@tanstack/react-router";
 import { useMemo, type ReactNode } from "react";
-import { FilterLines as ListFilter } from "@untitledui/icons";
 
 import { PageHeader } from "#src/components/layout/page-header";
-import { Select } from "#src/components/base/select/select";
 import { m } from "#src/paraglide/messages";
 import { TASK_TITLE_CLASS, TaskCard } from "./task-card";
-import {
-  TaskLayoutToggle,
-  TaskWorkflow,
-  statusLabel,
-  type TaskControls,
-  type TaskLayout,
-} from "./task-workflow";
+import { TaskWorkflow, type TaskControls, type TaskLayout } from "./task-workflow";
 import { TaskDetailMenu } from "./task-detail-dialog";
 import { overviewTaskParam } from "./task-overview-search";
 import type { OverviewTaskCommand, OverviewTaskRow } from "./task-overview-collection";
 import { taskMatches, type TaskFilter } from "./task-filters";
-import { TaskFilterMenus } from "./task-filter-menus";
+import { Select } from "#src/components/base/select/select";
 import type { FinishedStatus, FinishedWindow } from "./finished-tasks";
 import type { FinishedColumn, FinishedTasks } from "./use-finished-tasks";
 import { Button } from "#src/components/base/buttons/button";
+import { TaskToolbar } from "./task-toolbar";
+import { useTaskDisplayFields, type TaskDisplayFields } from "./task-display-fields";
 
 const FINISHED: readonly FinishedStatus[] = ["done", "closed"];
 const isFinished = (status: TaskStatus): status is FinishedStatus =>
@@ -60,6 +54,7 @@ export function TaskOverview({
 }) {
   layout ??= "board";
   onLayoutChange ??= () => {};
+  const [fields] = useTaskDisplayFields();
   const filtered = status !== undefined || filter.owners.length > 0 || filter.projects.length > 0;
   const { done, closed } = finished.columns;
   const unfinished = useMemo(() => tasks.filter((task) => !isFinished(task.status)), [tasks]);
@@ -93,25 +88,20 @@ export function TaskOverview({
   }, [done, closed, completedWindow, onWindowChange]);
   return (
     <main className="flex h-svh max-h-svh min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-primary">
-      <PageHeader
-        heading={m.tasks_tab()}
-        actions={<TaskLayoutToggle layout={layout} onChange={onLayoutChange} />}
+      <PageHeader heading={m.tasks_tab()} />
+      <TaskToolbar
+        // The owner and Project choices count the finished Tasks too, by their counted groups.
+        tasks={choices}
+        filter={filter}
+        status={status}
+        layout={layout}
+        onFilterChange={onFilterChange}
+        onStatusChange={onStatusChange}
+        onLayoutChange={onLayoutChange}
       />
-      <div className="flex min-h-11 shrink-0 flex-wrap items-center gap-2 border-b border-secondary px-4 py-1.5 md:px-6">
-        <Select
-          aria-label={m.tasks_overview_status()}
-          size="sm"
-          icon={ListFilter}
-          selectedKey={status ?? "all"}
-          onSelectionChange={(key) =>
-            onStatusChange(parseStatus(key === null ? null : String(key)))
-          }
-        >
-          <Select.Item id="all" label={m.tasks_overview_all()} />
-          {TASK_STATUSES.map((value) => (
-            <Select.Item key={value} id={value} label={statusLabel(value)} />
-          ))}
-        </Select>
+      {/* The toolbar owns status, owner and Project; the completed window is this page's own
+          control, so it stays here. */}
+      <div className="flex min-h-11 shrink-0 items-center gap-2 border-b border-secondary px-4 py-1.5 md:px-6">
         <Select
           aria-label={m.tasks_finished_window()}
           size="sm"
@@ -124,7 +114,6 @@ export function TaskOverview({
           <Select.Item id="month" label={m.tasks_finished_month()} />
           <Select.Item id="all" label={m.tasks_finished_all()} />
         </Select>
-        <TaskFilterMenus tasks={choices} filter={filter} onChange={onFilterChange} />
       </div>
       <div className="min-h-0 flex-1 overflow-auto p-4 md:p-6">
         {empty && (
@@ -145,6 +134,7 @@ export function TaskOverview({
           renderTask={(task, controls) => (
             <OverviewTaskCard
               task={task}
+              fields={fields}
               controls={controls}
               list={layout === "list"}
               onOpenDetails={() => onOpenTask(task)}
@@ -223,12 +213,14 @@ function FinishedFooter({
 
 function OverviewTaskCard({
   task,
+  fields,
   controls,
   list,
   onOpenDetails,
   onCommand,
 }: {
   task: OverviewTaskRow;
+  fields: TaskDisplayFields;
   controls: TaskControls;
   list: boolean;
   onOpenDetails: () => void;
@@ -252,9 +244,11 @@ function OverviewTaskCard({
       task={task}
       list={list}
       renderTitle={renderTitle}
-      source={task.source.label}
+      showNumber={fields.number}
+      showOwner={fields.owner}
+      source={fields.source ? task.source.label : undefined}
       // Empty for a Task outside any Project, so the list keeps its column.
-      project={task.project?.name ?? ""}
+      project={fields.project ? (task.project?.name ?? "") : undefined}
       controls={controls}
       menu={
         onCommand && (
@@ -270,14 +264,4 @@ function OverviewTaskCard({
       }
     />
   );
-}
-
-function parseStatus(value: string | null): TaskStatus | undefined {
-  return value === "todo" ||
-    value === "in_progress" ||
-    value === "in_review" ||
-    value === "done" ||
-    value === "closed"
-    ? value
-    : undefined;
 }

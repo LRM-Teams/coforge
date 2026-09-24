@@ -15,6 +15,8 @@ export const TASK_TITLE_CLASS =
 export function TaskCard({
   task,
   renderTitle,
+  showNumber = true,
+  showOwner = true,
   source,
   project,
   controls,
@@ -25,6 +27,9 @@ export function TaskCard({
   task: TaskView;
   /** Wraps the title text in the surface's link or button. */
   renderTitle: (title: ReactNode) => ReactNode;
+  /** Whether the number and the owner show; a surface may let the viewer hide them. */
+  showNumber?: boolean;
+  showOwner?: boolean;
   /** The conversation the task belongs to, on surfaces that mix conversations. */
   source?: string;
   /** The Project the task's conversation belongs to, on surfaces that mix Projects; empty when it
@@ -50,9 +55,11 @@ export function TaskCard({
     return (
       <article className="relative flex flex-col gap-2 px-4 py-3 transition-colors hover:bg-primary_hover sm:flex-row sm:items-center sm:gap-4 sm:py-2.5">
         <div className="flex min-w-0 flex-1 items-baseline gap-3">
-          <span className="min-w-8 shrink-0 text-xs font-medium text-tertiary tabular-nums">
-            #{task.number}
-          </span>
+          {showNumber && (
+            <span className="min-w-8 shrink-0 text-xs font-medium text-tertiary tabular-nums">
+              #{task.number}
+            </span>
+          )}
           <div className="min-w-0 flex-1">{title}</div>
         </div>
         <div className="flex min-w-0 items-center gap-3 sm:shrink-0 sm:gap-4">
@@ -66,9 +73,11 @@ export function TaskCard({
               {project}
             </span>
           )}
-          <div className="min-w-0 flex-1 sm:w-36 sm:flex-none">
-            <TaskOwner owner={task.owner} />
-          </div>
+          {showOwner && (
+            <div className="min-w-0 flex-1 sm:w-36 sm:flex-none">
+              <TaskOwner owner={task.owner} />
+            </div>
+          )}
           {actions && <div className="flex sm:w-24 sm:justify-end">{actions}</div>}
           {tools}
         </div>
@@ -77,23 +86,25 @@ export function TaskCard({
   }
   return (
     <article className="group relative rounded-lg border border-secondary bg-primary p-3 shadow-xs transition-colors hover:border-primary">
-      <div className="flex h-6 items-center pr-14 text-xs font-medium text-tertiary tabular-nums">
-        <span className="truncate">
-          #{task.number}
-          {source && <span className="font-normal"> · {source}</span>}
-          {project && <span className="font-normal"> · {project}</span>}
-        </span>
-      </div>
-      <div className="mt-1">{title}</div>
+      {(showNumber || source || project) && (
+        <div className="mb-1 flex h-6 items-center pr-14 text-xs font-medium text-tertiary tabular-nums">
+          <span className="truncate">
+            {[showNumber && `#${task.number}`, source, project].filter(Boolean).join(" · ")}
+          </span>
+        </div>
+      )}
+      <div className={showNumber || source || project ? undefined : "pr-14"}>{title}</div>
       {task.description && (
         <p className="mt-1 line-clamp-2 text-sm text-tertiary [overflow-wrap:anywhere]">
           {task.description}
         </p>
       )}
-      <div className="mt-3 flex min-h-6 items-center justify-between gap-2">
-        <TaskOwner owner={task.owner} />
-        {actions}
-      </div>
+      {(showOwner || actions) && (
+        <div className="mt-3 flex min-h-6 items-center justify-between gap-2">
+          {showOwner ? <TaskOwner owner={task.owner} /> : <span />}
+          {actions}
+        </div>
+      )}
       {tools && (
         // After the title in the DOM so assistive tech names the task first. Shown on hover or
         // focus, and always wherever a touch pointer exists.
