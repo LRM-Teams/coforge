@@ -18,6 +18,7 @@ import {
   DotsHorizontal,
   EyeOff,
   List,
+  Plus,
 } from "@untitledui/icons";
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import { Button as AriaButton, Disclosure, DisclosurePanel, Heading } from "react-aria-components";
@@ -103,6 +104,7 @@ export function TaskWorkflow<T extends TaskView>({
   paged,
   hidden,
   onHiddenChange,
+  onCreate,
 }: {
   tasks: readonly T[];
   layout: TaskLayout;
@@ -112,6 +114,8 @@ export function TaskWorkflow<T extends TaskView>({
   hidden?: ReadonlySet<TaskStatus>;
   /** Hides or shows a board column; given, each column's menu offers "Hide column". */
   onHiddenChange?: (status: TaskStatus, hidden: boolean) => void;
+  /** Starts a new Task in a group; given, each group header has a "+". */
+  onCreate?: (status: TaskStatus) => void;
   currentMemberId: (task: T) => string | null;
   disabled?: boolean;
   onMove: (task: T, command: TaskMoveCommand) => Promise<void>;
@@ -202,6 +206,7 @@ export function TaskWorkflow<T extends TaskView>({
             board={layout === "board"}
             enabled={dropEnabled(group.status)}
             hidable={hides}
+            onCreate={onCreate ? () => onCreate(group.status) : undefined}
             onHide={hides && onHiddenChange ? () => onHiddenChange(group.status, true) : undefined}
           >
             {(shown) => (
@@ -299,9 +304,12 @@ function TaskGroup({
   paged,
   hidable,
   onHide,
+  onCreate,
   children,
 }: {
   status: TaskStatus;
+  /** Starts a new Task in this group; given, the header has a "+". */
+  onCreate?: () => void;
   /** A board column the viewer can hide: before hydration it follows the stored choice by CSS,
    * and a hidden paged column never reads its pages. */
   hidable?: boolean;
@@ -386,6 +394,16 @@ function TaskGroup({
             </AriaButton>
           </Heading>
           {/* Beside the heading, not in it, so the heading names the column alone. */}
+          {onCreate && (
+            <ButtonUtility
+              size="xs"
+              color="tertiary"
+              icon={Plus}
+              aria-label={m.tasks_new_in({ status: label })}
+              onClick={onCreate}
+              className={board ? undefined : "mr-2"}
+            />
+          )}
           {onHide && (
             <Dropdown.Root>
               <ButtonUtility
