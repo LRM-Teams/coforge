@@ -11,11 +11,13 @@ import { TaskDetailMenu } from "./task-detail-dialog";
 import { overviewTaskParam } from "./task-overview-search";
 import type { OverviewTaskCommand, OverviewTaskRow } from "./task-overview-collection";
 import { taskMatches, type TaskFilter } from "./task-filters";
-import { Select } from "#src/components/base/select/select";
 import type { FinishedStatus, FinishedWindow } from "./finished-tasks";
 import type { FinishedColumn, FinishedTasks } from "./use-finished-tasks";
 import { Button } from "#src/components/base/buttons/button";
 import { TaskToolbar } from "./task-toolbar";
+import { TaskCardSkeleton } from "./tasks-pending";
+import { cn } from "#src/lib/utils";
+import { useTaskHiddenColumns } from "#src/features/settings/task-hidden-columns";
 
 const FINISHED: readonly FinishedStatus[] = ["done", "closed"];
 const isFinished = (status: TaskStatus): status is FinishedStatus =>
@@ -53,6 +55,7 @@ export function TaskOverview({
 }) {
   layout ??= "board";
   onLayoutChange ??= () => {};
+  const [hiddenColumns, setColumnHidden] = useTaskHiddenColumns();
   const filtered = status !== undefined || filter.owners.length > 0 || filter.projects.length > 0;
   const { done, closed } = finished.columns;
   const unfinished = useMemo(() => tasks.filter((task) => !isFinished(task.status)), [tasks]);
@@ -77,13 +80,14 @@ export function TaskOverview({
       footer: (
         <FinishedFooter
           column={column}
+          list={layout === "list"}
           completedWindow={completedWindow}
           onWindowChange={onWindowChange}
         />
       ),
     });
     return { done: group(done), closed: group(closed) };
-  }, [done, closed, completedWindow, onWindowChange]);
+  }, [done, closed, layout, completedWindow, onWindowChange]);
   return (
     <main
       // Cards inside follow the viewer's shown fields (Display → Show).
@@ -100,23 +104,9 @@ export function TaskOverview({
         onFilterChange={onFilterChange}
         onStatusChange={onStatusChange}
         onLayoutChange={onLayoutChange}
+        completedWindow={completedWindow}
+        onWindowChange={onWindowChange}
       />
-      {/* The toolbar owns status, owner and Project; the completed window is this page's own
-          control, so it stays here. */}
-      <div className="flex min-h-11 shrink-0 items-center gap-2 border-b border-secondary px-4 py-1.5 md:px-6">
-        <Select
-          aria-label={m.tasks_finished_window()}
-          size="sm"
-          selectedKey={completedWindow}
-          onSelectionChange={(key) => {
-            if (key === "week" || key === "month" || key === "all") onWindowChange(key);
-          }}
-        >
-          <Select.Item id="week" label={m.tasks_finished_week()} />
-          <Select.Item id="month" label={m.tasks_finished_month()} />
-          <Select.Item id="all" label={m.tasks_finished_all()} />
-        </Select>
-      </div>
       <div className="min-h-0 flex-1 overflow-auto p-4 md:p-6">
         {empty && (
           <p className="py-16 text-center text-sm text-tertiary">
@@ -128,6 +118,8 @@ export function TaskOverview({
           layout={layout}
           statuses={empty ? [] : status ? [status] : TASK_STATUSES}
           paged={paged}
+          hidden={hiddenColumns}
+          onHiddenChange={setColumnHidden}
           disabled={!onCommand}
           currentMemberId={(task) => task.currentMemberId ?? null}
           onMove={async (task, command) => {
@@ -154,10 +146,12 @@ export function TaskOverview({
  */
 function FinishedFooter({
   column,
+  list,
   completedWindow,
   onWindowChange,
 }: {
   column: FinishedColumn;
+  list: boolean;
   completedWindow: FinishedWindow;
   onWindowChange: (completedWindow: FinishedWindow) => void;
 }) {
@@ -172,9 +166,13 @@ function FinishedFooter({
     );
   if (column.rows.length === 0)
     return column.loading ? (
-      <p role="status" className="px-2 py-3 text-sm text-tertiary">
-        {m.tasks_loading()}
-      </p>
+      <div className={cn("flex flex-col", list ? "divide-y divide-secondary" : "gap-2")}>
+        <p role="status" className="sr-only">
+          {m.tasks_loading()}
+        </p>
+        <TaskCardSkeleton list={list} />
+        <TaskCardSkeleton list={list} />
+      </div>
     ) : (
       <div className="flex flex-col items-start gap-2 px-2 py-3 text-sm text-tertiary">
         {completedWindow === "all"
@@ -243,7 +241,8 @@ function OverviewTaskCard({
       task={task}
       list={list}
       renderTitle={renderTitle}
-      source={task.source.label}
+      // A direct message's Task names its Agent as a mention does, so it never reads as a Project.
+      source={task.source.channelName ? task.source.label : `@${task.source.label}`}
       // Empty for a Task outside any Project, so the list keeps its column.
       project={task.project?.name ?? ""}
       controls={controls}

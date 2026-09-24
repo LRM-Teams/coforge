@@ -15,6 +15,8 @@ import {
   ChevronDown,
   Columns03 as Columns3,
   DotsGrid as GripVertical,
+  DotsHorizontal,
+  EyeOff,
   List,
 } from "@untitledui/icons";
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
@@ -23,10 +25,12 @@ import { Button as AriaButton, Disclosure, DisclosurePanel, Heading } from "reac
 import { ButtonGroup, ButtonGroupItem } from "#src/components/base/button-group/button-group";
 import { Button } from "#src/components/base/buttons/button";
 import { ButtonUtility } from "#src/components/base/buttons/button-utility";
+import { Dropdown } from "#src/components/base/dropdown/dropdown";
 import { useBreakpoint } from "#src/hooks/use-breakpoint";
 import { cn } from "#src/lib/utils";
 import { m } from "#src/paraglide/messages";
 import { getTaskMoveCommand } from "./task-move";
+import { TaskStatusIcon } from "./task-status-icon";
 
 export type TaskLayout = "board" | "list";
 export type TaskMoveCommand = NonNullable<ReturnType<typeof getTaskMoveCommand>>;
@@ -96,11 +100,17 @@ export function TaskWorkflow<T extends TaskView>({
   onMove,
   renderTask,
   paged,
+  hidden,
+  onHiddenChange,
 }: {
   tasks: readonly T[];
   layout: TaskLayout;
   statuses?: readonly TaskStatus[];
   paged?: Partial<Record<TaskStatus, PagedTaskGroup>>;
+  /** Board columns the viewer hid: listed last, still drop targets; the list shows them all. */
+  hidden?: ReadonlySet<TaskStatus>;
+  /** Hides or shows a board column; given, each column's menu offers "Hide column". */
+  onHiddenChange?: (status: TaskStatus, hidden: boolean) => void;
   currentMemberId: (task: T) => string | null;
   disabled?: boolean;
   onMove: (task: T, command: TaskMoveCommand) => Promise<void>;
@@ -131,6 +141,18 @@ export function TaskWorkflow<T extends TaskView>({
       tasks: displayedTasks.filter((task) => task.status === status),
     }));
   }, [tasks, pending, statuses]);
+
+  // Hiding applies to a board of several columns; a single-status view shows its column.
+  const hides = layout === "board" && groups.length > 1 && hidden !== undefined;
+  const shownGroups = hides ? groups.filter((group) => !hidden.has(group.status)) : groups;
+  const hiddenGroups = hides ? groups.filter((group) => hidden.has(group.status)) : [];
+  const dropEnabled = (status: TaskStatus) =>
+    Boolean(
+      !disabled &&
+      !pending &&
+      active &&
+      getTaskMoveCommand(active, currentMemberId(active), status),
+    );
 
   const controls = (task: T): TaskControls => {
     if (disabled) return { handle: null, moves: [] };
@@ -169,7 +191,7 @@ export function TaskWorkflow<T extends TaskView>({
               : "flex max-w-sm flex-col md:h-full"
         }
       >
-        {groups.map((group) => (
+        {shownGroups.map((group) => (
           <TaskGroup
             key={group.status}
             status={group.status}
@@ -177,12 +199,8 @@ export function TaskWorkflow<T extends TaskView>({
             loaded={group.tasks.length}
             paged={paged?.[group.status]}
             board={layout === "board"}
-            enabled={Boolean(
-              !disabled &&
-              !pending &&
-              active &&
-              getTaskMoveCommand(active, currentMemberId(active), group.status),
-            )}
+            enabled={dropEnabled(group.status)}
+            onHide={hides && onHiddenChange ? () => onHiddenChange(group.status, true) : undefined}
           >
             {(shown) => (
               <>
@@ -195,6 +213,25 @@ export function TaskWorkflow<T extends TaskView>({
             )}
           </TaskGroup>
         ))}
+        {hiddenGroups.length > 0 && (
+          <aside
+            aria-label={m.tasks_hidden_columns()}
+            className="flex shrink-0 flex-col gap-1 md:w-52"
+          >
+            <h2 className="flex h-10 items-center px-1 text-sm font-medium text-tertiary">
+              {m.tasks_hidden_columns()}
+            </h2>
+            {hiddenGroups.map((group) => (
+              <HiddenColumn
+                key={group.status}
+                status={group.status}
+                count={paged?.[group.status]?.count ?? group.tasks.length}
+                enabled={dropEnabled(group.status)}
+                onShow={() => onHiddenChange?.(group.status, false)}
+              />
+            ))}
+          </aside>
+        )}
       </div>
       <DragOverlay dropAnimation={null}>
         {active ? (
@@ -258,9 +295,12 @@ function TaskGroup({
   board,
   enabled,
   paged,
+  onHide,
   children,
 }: {
   status: TaskStatus;
+  /** Hides this board column; given, the column header has a menu offering it. */
+  onHide?: () => void;
   /** Every Task in the group; for a paged group, more than those read. */
   count: number;
   /** The cards the group holds now. */
@@ -309,32 +349,50 @@ function TaskGroup({
         onExpandedChange={setExpanded}
         className={board ? "flex min-h-0 flex-1 flex-col" : undefined}
       >
-        <Heading level={2}>
-          <AriaButton
-            slot="trigger"
-            aria-label={`${label} ${count}`}
-            className={cn(
-              "flex h-10 w-full cursor-pointer items-center gap-2 text-sm font-semibold text-primary outline-focus-ring focus-visible:outline-2 focus-visible:-outline-offset-2",
-              board
-                ? "shrink-0 rounded-xl px-3"
-                : cn("bg-secondary px-4", expanded && "border-b border-secondary"),
-            )}
-          >
-            <span
-              aria-hidden="true"
-              className={`size-2 shrink-0 rounded-full ${TASK_STATUS_COLOR[status].dot}`}
-            />
-            <span className="truncate">{label}</span>
-            <span className="font-medium text-quaternary tabular-nums">{count}</span>
-            <ChevronDown
-              aria-hidden="true"
+        <div
+          className={cn(
+            "flex items-center",
+            board ? "shrink-0 pr-1" : cn("bg-secondary", expanded && "border-b border-secondary"),
+          )}
+        >
+          <Heading level={2} className="min-w-0 flex-1">
+            <AriaButton
+              slot="trigger"
+              aria-label={`${label} ${count}`}
               className={cn(
-                "ml-auto size-4 shrink-0 text-fg-quaternary transition-transform",
-                !expanded && "-rotate-90",
+                "flex h-10 w-full min-w-0 cursor-pointer items-center gap-2 text-sm font-semibold text-primary outline-focus-ring focus-visible:outline-2 focus-visible:-outline-offset-2",
+                board ? "rounded-xl px-3" : "px-4",
               )}
-            />
-          </AriaButton>
-        </Heading>
+            >
+              <TaskStatusIcon status={status} />
+              <span className="truncate">{label}</span>
+              <span className="font-medium text-quaternary tabular-nums">{count}</span>
+              <ChevronDown
+                aria-hidden="true"
+                className={cn(
+                  "ml-auto size-4 shrink-0 text-fg-quaternary transition-transform",
+                  !expanded && "-rotate-90",
+                )}
+              />
+            </AriaButton>
+          </Heading>
+          {/* Beside the heading, not in it, so the heading names the column alone. */}
+          {onHide && (
+            <Dropdown.Root>
+              <ButtonUtility
+                size="xs"
+                color="tertiary"
+                icon={DotsHorizontal}
+                aria-label={m.tasks_column_menu({ status: label })}
+              />
+              <Dropdown.Popover placement="bottom end" className="w-44">
+                <Dropdown.Menu aria-label={m.tasks_column_menu({ status: label })}>
+                  <Dropdown.Item icon={EyeOff} label={m.tasks_hide_column()} onAction={onHide} />
+                </Dropdown.Menu>
+              </Dropdown.Popover>
+            </Dropdown.Root>
+          )}
+        </div>
         <DisclosurePanel
           // A collapsed panel is `hidden="until-found"`, which Tailwind's preflight leaves displayed: hide it outright.
           className={cn(
@@ -364,6 +422,42 @@ function TaskGroup({
         </DisclosurePanel>
       </Disclosure>
     </section>
+  );
+}
+
+/** A hidden board column: its name and count, a drop target still, and pressing it shows the
+ * column again. */
+function HiddenColumn({
+  status,
+  count,
+  enabled,
+  onShow,
+}: {
+  status: TaskStatus;
+  count: number;
+  enabled: boolean;
+  onShow: () => void;
+}) {
+  const drop = useDroppable({ id: status, disabled: !enabled });
+  const label = statusLabel(status);
+  return (
+    <AriaButton
+      ref={drop.setNodeRef}
+      aria-label={m.tasks_show_column({ status: label, count: String(count) })}
+      onPress={onShow}
+      className={({ isFocusVisible, isHovered }) =>
+        cn(
+          "flex h-10 w-full cursor-pointer items-center gap-2 rounded-lg border border-secondary bg-primary px-3 text-sm text-secondary outline-focus-ring transition-colors",
+          isHovered && "bg-primary_hover",
+          isFocusVisible && "outline-2 outline-offset-2",
+          drop.isOver && "ring-2 ring-brand",
+        )
+      }
+    >
+      <TaskStatusIcon status={status} />
+      <span className="min-w-0 flex-1 truncate text-left">{label}</span>
+      <span className="text-quaternary tabular-nums">{count}</span>
+    </AriaButton>
   );
 }
 

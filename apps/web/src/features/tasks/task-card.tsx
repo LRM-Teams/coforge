@@ -2,7 +2,10 @@ import type { TaskView } from "@lrm/coforge-sdk/internal";
 import type { ReactNode } from "react";
 
 import { cn } from "#src/lib/utils";
-import { TaskOwner } from "./task-owner";
+import { Box } from "@untitledui/icons";
+
+import { TaskOwnerAvatar } from "./task-owner";
+import { TaskStatusIcon } from "./task-status-icon";
 import type { TaskControls } from "./task-workflow";
 
 /**
@@ -17,21 +20,43 @@ const HIDDEN_ON_OVERVIEW = {
   project: "[.task-hide-project_[data-task-overview]_&]:hidden",
   owner: "[.task-hide-owner_[data-task-overview]_&]:hidden",
   sourceDot: "[.task-hide-number_[data-task-overview]_&]:hidden",
-  projectDot: "[.task-hide-number.task-hide-source_[data-task-overview]_&]:hidden",
-  // The meta line goes once all it would show is hidden; the title then clears the corner tools.
-  meta: "[.task-hide-number.task-hide-source.task-hide-project_[data-task-overview]_&]:hidden",
-  metaWithoutProject: "[.task-hide-number.task-hide-source_[data-task-overview]_&]:hidden",
-  titleClear: "[.task-hide-number.task-hide-source.task-hide-project_[data-task-overview]_&]:pr-14",
-  titleClearWithoutProject: "[.task-hide-number.task-hide-source_[data-task-overview]_&]:pr-14",
+  // A card's top line (number, source, owner) goes once all of it is hidden; the title then
+  // clears the corner tools.
+  meta: "[.task-hide-number.task-hide-source.task-hide-owner_[data-task-overview]_&]:hidden",
+  titleClear: "[.task-hide-number.task-hide-source.task-hide-owner_[data-task-overview]_&]:pr-14",
 };
 
 /** Classes for the link or button a caller wraps around the title. */
 export const TASK_TITLE_CLASS =
   "block w-full rounded-sm text-left outline-none hover:underline hover:decoration-fg-quaternary hover:underline-offset-2 focus-visible:ring-2 focus-visible:ring-focus-ring";
 
+/** A source or Project as a small outlined pill, as Linear shows an issue's labels. */
+function Pill({ children, className }: { children: ReactNode; className?: string }) {
+  return (
+    <span
+      className={cn(
+        "inline-flex h-6 max-w-40 min-w-0 shrink-0 items-center gap-1 rounded-full border border-secondary px-2 text-xs text-secondary",
+        className,
+      )}
+    >
+      {children}
+    </span>
+  );
+}
+
+function ProjectPill({ name, className }: { name: string; className?: string }) {
+  return (
+    <Pill className={className}>
+      <Box aria-hidden="true" className="size-3 shrink-0 text-fg-brand-secondary" />
+      <span className="truncate">{name}</span>
+    </Pill>
+  );
+}
+
 /**
- * One task on the board (a card) or in the list (a row). The caller supplies what differs per
- * surface: the clickable title, where the task lives, its menu and any claim actions.
+ * One task on the board (a card) or in the list (a row), laid out as Linear lays out issues. The
+ * caller supplies what differs per surface: the clickable title, where the task lives, its menu
+ * and any claim actions.
  */
 export function TaskCard({
   task,
@@ -46,22 +71,16 @@ export function TaskCard({
   task: TaskView;
   /** Wraps the title text in the surface's link or button. */
   renderTitle: (title: ReactNode) => ReactNode;
-
   /** The conversation the task belongs to, on surfaces that mix conversations. */
   source?: string;
   /** The Project the task's conversation belongs to, on surfaces that mix Projects; empty when it
-   * has none (the list keeps the column, the card shows nothing). */
+   * has none. */
   project?: string;
   controls: TaskControls;
   menu?: ReactNode;
   actions?: ReactNode;
   list: boolean;
 }) {
-  const title = (
-    <h3 className="text-sm leading-snug font-medium text-primary [overflow-wrap:anywhere]">
-      {renderTitle(<span className={list ? "line-clamp-2" : "line-clamp-3"}>{task.title}</span>)}
-    </h3>
-  );
   const tools = (controls.handle || menu) && (
     <div className="flex shrink-0 items-center">
       {controls.handle}
@@ -69,46 +88,37 @@ export function TaskCard({
     </div>
   );
   if (list) {
+    // One line: number, status, title, then the pills, the owner and the row's own controls.
     return (
-      <article className="relative flex flex-col gap-2 px-4 py-3 transition-colors hover:bg-primary_hover sm:flex-row sm:items-center sm:gap-4 sm:py-2.5">
-        <div className="flex min-w-0 flex-1 items-baseline gap-3">
-          <span
-            className={cn(
-              "min-w-8 shrink-0 text-xs font-medium text-tertiary tabular-nums",
-              HIDDEN_ON_OVERVIEW.number,
-            )}
-          >
-            #{task.number}
-          </span>
-          <div className="min-w-0 flex-1">{title}</div>
-        </div>
-        <div className="flex min-w-0 items-center gap-3 sm:shrink-0 sm:gap-4">
-          {source && (
-            <span
-              className={cn(
-                "max-w-24 truncate text-xs text-tertiary sm:w-28 sm:max-w-none",
-                HIDDEN_ON_OVERVIEW.source,
-              )}
-            >
-              {source}
-            </span>
+      <article className="relative flex min-h-10 items-center gap-3 px-4 py-1.5 transition-colors hover:bg-primary_hover">
+        <span
+          className={cn(
+            "w-9 shrink-0 text-xs text-tertiary tabular-nums",
+            HIDDEN_ON_OVERVIEW.number,
           )}
-          {project !== undefined && (
-            <span
-              className={cn(
-                "max-w-24 truncate text-xs text-tertiary sm:w-28 sm:max-w-none",
-                HIDDEN_ON_OVERVIEW.project,
-              )}
-            >
-              {project}
-            </span>
-          )}
-          <div className={cn("min-w-0 flex-1 sm:w-36 sm:flex-none", HIDDEN_ON_OVERVIEW.owner)}>
-            <TaskOwner owner={task.owner} />
-          </div>
-          {actions && <div className="flex sm:w-24 sm:justify-end">{actions}</div>}
-          {tools}
-        </div>
+        >
+          #{task.number}
+        </span>
+        <TaskStatusIcon status={task.status} />
+        <h3 className="min-w-0 flex-1 text-sm font-medium text-primary">
+          {renderTitle(<span className="line-clamp-1">{task.title}</span>)}
+        </h3>
+        {source && (
+          <Pill className={cn("hidden sm:inline-flex", HIDDEN_ON_OVERVIEW.source)}>
+            <span className="truncate">{source}</span>
+          </Pill>
+        )}
+        {project && (
+          <ProjectPill
+            name={project}
+            className={cn("hidden sm:inline-flex", HIDDEN_ON_OVERVIEW.project)}
+          />
+        )}
+        <span className={HIDDEN_ON_OVERVIEW.owner}>
+          <TaskOwnerAvatar owner={task.owner} />
+        </span>
+        {actions && <div className="flex shrink-0">{actions}</div>}
+        {tools}
       </article>
     );
   }
@@ -116,54 +126,55 @@ export function TaskCard({
     <article className="group relative rounded-lg border border-secondary bg-primary p-3 shadow-xs transition-colors hover:border-primary">
       <div
         className={cn(
-          "flex h-6 items-center pr-14 text-xs font-medium text-tertiary tabular-nums",
-          project ? HIDDEN_ON_OVERVIEW.meta : HIDDEN_ON_OVERVIEW.metaWithoutProject,
+          "flex h-6 items-center justify-between gap-2 text-xs text-tertiary tabular-nums",
+          HIDDEN_ON_OVERVIEW.meta,
         )}
       >
-        <span className="truncate">
+        <span className="min-w-0 truncate">
           <span className={HIDDEN_ON_OVERVIEW.number}>#{task.number}</span>
           {source && (
-            <span className={cn("font-normal", HIDDEN_ON_OVERVIEW.source)}>
+            <span className={HIDDEN_ON_OVERVIEW.source}>
               <span className={HIDDEN_ON_OVERVIEW.sourceDot}> · </span>
               {source}
             </span>
           )}
-          {project && (
-            <span className={cn("font-normal", HIDDEN_ON_OVERVIEW.project)}>
-              <span className={HIDDEN_ON_OVERVIEW.projectDot}> · </span>
-              {project}
-            </span>
-          )}
+        </span>
+        <span className={HIDDEN_ON_OVERVIEW.owner}>
+          <TaskOwnerAvatar owner={task.owner} />
         </span>
       </div>
-      <div
+      <h3
         className={cn(
-          "mt-1",
-          project ? HIDDEN_ON_OVERVIEW.titleClear : HIDDEN_ON_OVERVIEW.titleClearWithoutProject,
+          "mt-1 text-sm leading-snug font-medium text-primary [overflow-wrap:anywhere]",
+          HIDDEN_ON_OVERVIEW.titleClear,
         )}
       >
-        {title}
-      </div>
+        {renderTitle(<span className="line-clamp-3">{task.title}</span>)}
+      </h3>
       {task.description && (
         <p className="mt-1 line-clamp-2 text-sm text-tertiary [overflow-wrap:anywhere]">
           {task.description}
         </p>
       )}
-      <div
-        className={cn(
-          "mt-3 flex min-h-6 items-center justify-between gap-2",
-          !actions && HIDDEN_ON_OVERVIEW.owner,
-        )}
-      >
-        <span className={cn("min-w-0", HIDDEN_ON_OVERVIEW.owner)}>
-          <TaskOwner owner={task.owner} />
-        </span>
-        {actions}
-      </div>
+      {(project || actions) && (
+        <div
+          className={cn(
+            "mt-3 flex min-h-6 items-center justify-between gap-2",
+            !actions && HIDDEN_ON_OVERVIEW.project,
+          )}
+        >
+          {project ? (
+            <ProjectPill name={project} className={HIDDEN_ON_OVERVIEW.project} />
+          ) : (
+            <span />
+          )}
+          {actions}
+        </div>
+      )}
       {tools && (
-        // After the title in the DOM so assistive tech names the task first. Shown on hover or
-        // focus, and always wherever a touch pointer exists.
-        <div className="absolute top-2.5 right-1.5 opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100 has-[[aria-expanded=true]]:opacity-100 any-pointer-coarse:opacity-100">
+        // After the title in the DOM so assistive tech names the task first. Shown over the
+        // owner on hover or focus, and always wherever a touch pointer exists.
+        <div className="absolute top-2 right-1.5 rounded-md bg-primary opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100 has-[[aria-expanded=true]]:opacity-100 any-pointer-coarse:opacity-100">
           {tools}
         </div>
       )}
