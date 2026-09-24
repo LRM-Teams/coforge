@@ -811,7 +811,12 @@ describe("PrismaDirectConversationRepository", () => {
     );
 
     expect(queries).toHaveLength(1);
-    expect(queries[0]).toEqual(["workspace-1", "agent-1", "agent-1", 100]);
+    // One statement, bound only to the Workspace, the Agent, and the resume budget.
+    expect(queries[0]).toEqual([
+      ...Array.from({ length: 4 }, () => ["workspace-1", "agent-1"]).flat(),
+      "agent-1",
+      100,
+    ]);
     expect(result.resumeMessages).toHaveLength(100);
     expect(result.resumeMessages.slice(0, 2)).toEqual<AgentRecoveryContext["resumeMessages"]>([
       {
