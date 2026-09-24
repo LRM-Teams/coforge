@@ -112,6 +112,7 @@ export function followedChannelThreadsSql(workspaceId: string, userId: string) {
     JOIN "conversation_members" cm ON cm."id" = tf."memberId"
     JOIN "conversations" c
       ON c."id" = cm."conversationId" AND c."channelName" IS NOT NULL AND c."archivedAt" IS NULL
+     AND c."hiddenFromWorkspaceAt" IS NULL
     WHERE cm."userId" = ${userId}::uuid
       AND cm."workspaceId" = ${workspaceId}::uuid
       AND cm."leftAt" IS NULL`;

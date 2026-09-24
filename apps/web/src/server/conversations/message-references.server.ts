@@ -1,3 +1,4 @@
+import { VISIBLE_CONVERSATION_WHERE } from "./active-member.server";
 import {
   PG_INTEGER_MAX,
   resolveMentionTargets,
@@ -78,7 +79,12 @@ export async function storeMessageBody(
     channelNames.length
       ? (
           await tx.conversation.findMany({
-            where: { workspaceId: scope.workspaceId, channelName: { in: channelNames } },
+            // A channel hidden from the Workspace names nothing: `#general` stays plain text.
+            where: {
+              workspaceId: scope.workspaceId,
+              channelName: { in: channelNames },
+              ...VISIBLE_CONVERSATION_WHERE,
+            },
             select: { id: true, channelName: true },
           })
         ).map((channel) => [channel.channelName!, { id: channel.id, name: channel.channelName! }])

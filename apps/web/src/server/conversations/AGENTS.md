@@ -23,8 +23,8 @@ These rules apply to `src/server/conversations/`.
   conversations and public channels; this module owns Conversation-type
   visibility checks and bounded history mapping.
 - `message-search.server.ts` owns human message search: a Workspace member
-  searches every channel (joined or not, archived too) and only their own direct
-  conversations, the same rule as `ConversationHistory.authorize`. Its SQL lives in
+  searches every channel (joined or not, archived too, never one hidden from the
+  Workspace) and only their own direct conversations, the same rule as `ConversationHistory.authorize`. Its SQL lives in
   `server/db/repositories/message-search.repositories.server.ts`; body matching is
   `ILIKE` served by the `pg_trgm` GIN index on `messages.body`. Agent search keeps
   its own Agent-membership rule in the direct-conversation repository.
@@ -51,6 +51,12 @@ These rules apply to `src/server/conversations/`.
   changes apply to it, and it is never archived. The only admin-derived
   capability on it is `update`, for a Workspace owner or admin, and only its
   description can change: its name is fixed.
+
+- A Workspace owner or admin can hide `#general` from the whole Workspace
+  (`Conversation.hiddenFromWorkspaceAt`) and restore it. While hidden it is gone
+  for everyone, themselves included: every channel read filters through
+  `VISIBLE_CONVERSATION_WHERE` (raw SQL: `"hiddenFromWorkspaceAt" IS NULL`), so a
+  new channel read must too. Enrollment keeps running, so a restore is whole.
 
 ## Channel membership
 

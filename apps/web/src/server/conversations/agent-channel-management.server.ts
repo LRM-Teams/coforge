@@ -167,9 +167,10 @@ export class AgentChannelManagement {
 
   async leave(workspaceId: string, agentId: string, target: string) {
     const channelName = this.parseChannelTarget(target);
+    // Looked up first: a #general hidden from the Workspace is an unknown channel, not a refusal.
+    const channel = await this.findChannel(workspaceId, channelName);
     if (channelName === "general")
       throw new AgentChannelManagementError(400, "cannot leave #general");
-    const channel = await this.findChannel(workspaceId, channelName);
     const result = await this.db.conversationMember.updateMany({
       where: { conversationId: channel.id, agentId, ...ACTIVE_MEMBER_WHERE },
       data: { leftAt: new Date() },
@@ -265,9 +266,9 @@ export class AgentChannelManagement {
   async setArchived(workspaceId: string, agentId: string, target: string, archived: boolean) {
     const operation = archived ? "archive" : "unarchive";
     const channelName = this.parseChannelTarget(target);
+    const channel = await this.findChannel(workspaceId, channelName);
     if (channelName === "general")
       throw new AgentChannelManagementError(400, `cannot ${operation} #general`);
-    const channel = await this.findChannel(workspaceId, channelName);
     try {
       await this.channels.setArchived(workspaceId, { agentId }, channel.id, archived);
     } catch (error) {
@@ -374,9 +375,9 @@ export class AgentChannelManagement {
   ) {
     const channelName = this.parseChannelTarget(target);
     const { kind, handle } = this.parseMemberInput(input);
+    const channel = await this.findChannel(workspaceId, channelName);
     if (channelName === "general")
       throw new AgentChannelManagementError(400, "cannot remove a member from #general");
-    const channel = await this.findChannel(workspaceId, channelName);
     let wasMember: boolean;
     if (kind === "agent") {
       const agentRow = await this.db.agent.findFirst({
@@ -442,7 +443,9 @@ export class AgentChannelManagement {
     const channel = await this.db.conversation.findUnique({
       where: { workspaceId_channelName: { workspaceId, channelName } },
     });
-    if (!channel) throw new AgentChannelManagementError(404, "channel not found");
+    // A channel hidden from the Workspace is an unknown channel to an Agent.
+    if (!channel || channel.hiddenFromWorkspaceAt)
+      throw new AgentChannelManagementError(404, "channel not found");
     return channel;
   }
 

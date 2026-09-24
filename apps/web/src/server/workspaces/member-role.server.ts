@@ -20,6 +20,11 @@ export function isElevatedServerRole(role: string | undefined): boolean {
   return role !== undefined && isWorkspaceMemberRole(role) && isAdminLike(role);
 }
 
+/** Workspace-wide settings, such as hiding `#general`, are Workspace owner/admin only. */
+export function assertCanManageWorkspaceSettings(actorRole: string | undefined): void {
+  if (!isElevatedServerRole(actorRole)) throw new AppError("ACCESS_DENIED");
+}
+
 export function assertCanManageMembers(actorRole: WorkspaceMemberRole): void {
   if (!isAdminLike(actorRole)) throw new AppError("ACCESS_DENIED");
 }

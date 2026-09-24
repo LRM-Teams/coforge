@@ -1,3 +1,4 @@
+import { VISIBLE_CONVERSATION_WHERE } from "./active-member.server";
 import type { Prisma, PrismaClient } from "#src/generated/prisma/client";
 import { AppError } from "#src/lib/app-error";
 import { pinOrdersAfterArrange } from "#src/lib/pin-order";
@@ -157,7 +158,10 @@ async function activeMemberships(
       userId,
       leftAt: null,
       OR: [
-        { conversationId: { in: channelIds }, conversation: { channelName: { not: null } } },
+        {
+          conversationId: { in: channelIds },
+          conversation: { channelName: { not: null }, ...VISIBLE_CONVERSATION_WHERE },
+        },
         {
           conversation: {
             directKey: { not: null },

@@ -10,7 +10,10 @@ import { canDirectMessageAgent } from "#src/server/agents/agent-visibility.serve
 import { AgentMessageValidationError } from "#src/server/conversations/agent-message-validation-error.server";
 import { messageAnchorWhere } from "#src/server/db/message-anchor.server";
 import { getAgentChannel, PublicChannels } from "#src/server/conversations/public-channels.server";
-import { ACTIVE_MEMBER_WHERE } from "#src/server/conversations/active-member.server";
+import {
+  ACTIVE_MEMBER_WHERE,
+  VISIBLE_CONVERSATION_WHERE,
+} from "#src/server/conversations/active-member.server";
 import { HUMAN_UNREAD_MESSAGE_SQL } from "#src/server/conversations/human-unread.server";
 import {
   BROWSER_MESSAGE_MENTIONS_SELECT,
@@ -332,6 +335,7 @@ function unreadAgentMessagesFragment(workspaceId: string, agentId: string) {
       FROM "agent_message_deliveries" cd
       JOIN "messages" cm ON cm."id" = cd."messageId"
       JOIN "conversations" cc ON cc."id" = cm."conversationId" AND cc."channelName" IS NOT NULL
+        AND cc."hiddenFromWorkspaceAt" IS NULL
       WHERE cd."workspaceId" = ${workspaceId}::uuid AND cd."agentId" = ${agentId}::uuid
       UNION ALL
       SELECT dm."id", dm."sequence", dm."body", dm."conversationId", dm."threadRootId",
@@ -819,6 +823,7 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
       where: {
         workspaceId,
         conversation: {
+          ...VISIBLE_CONVERSATION_WHERE,
           members: { some: { agentId, ...ACTIVE_MEMBER_WHERE } },
           ...(scope ? { id: scope.conversationId } : {}),
         },
@@ -873,7 +878,10 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
     const rows = await this.db.message.findMany({
       where: {
         workspaceId,
-        conversation: { members: { some: { agentId, ...ACTIVE_MEMBER_WHERE } } },
+        conversation: {
+          ...VISIBLE_CONVERSATION_WHERE,
+          members: { some: { agentId, ...ACTIVE_MEMBER_WHERE } },
+        },
         id: messageAnchorWhere(anchor),
       },
       take: 2,
@@ -1643,7 +1651,8 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
     agentId: string,
   ): Promise<AgentFacing<PendingAgentDelivery>[]> {
     const deliveries = await this.db.agentMessageDelivery.findMany({
-      where: { workspaceId, agentId, receivedAt: null },
+      // Deliveries into a channel hidden from the Workspace wait there until it is restored.
+      where: { workspaceId, agentId, receivedAt: null, conversation: VISIBLE_CONVERSATION_WHERE },
       orderBy: [{ createdAt: "asc" }, { deliveryId: "asc" }],
       select: {
         deliveryId: true,

@@ -199,6 +199,7 @@ export class ActivityInbox {
           ON c."id" = cm."conversationId"
          AND c."workspaceId" = ${workspaceId}::uuid
          AND c."archivedAt" IS NULL
+         AND c."hiddenFromWorkspaceAt" IS NULL
         LEFT JOIN LATERAL (
           SELECT am."agentId" FROM "conversation_members" am
           JOIN "agents" a ON a."id" = am."agentId" AND a."deletedAt" IS NULL

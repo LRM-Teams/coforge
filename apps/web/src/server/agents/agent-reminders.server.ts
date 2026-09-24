@@ -113,6 +113,7 @@ export function prismaAgentReminderReadStore(db: PrismaClient): AgentReminderRea
             select: {
               id: true,
               channelName: true,
+              hiddenFromWorkspaceAt: true,
               members: { select: { userId: true, agentId: true } },
             },
           },
@@ -122,8 +123,9 @@ export function prismaAgentReminderReadStore(db: PrismaClient): AgentReminderRea
       return rows.map((row) => {
         const message = messagesById.get(row.messageId);
         const conversation = message?.conversation;
+        // A reminder anchored in a channel hidden from the Workspace links nowhere until restored.
         const anchor =
-          message && conversation?.channelName
+          message && conversation?.channelName && !conversation.hiddenFromWorkspaceAt
             ? {
                 kind: "channel" as const,
                 channelId: conversation.id,

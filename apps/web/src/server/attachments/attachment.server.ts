@@ -5,7 +5,10 @@ import {
   type FileStorage,
   type StoredFile,
 } from "#src/server/files/file-storage.server";
-import { ACTIVE_MEMBER_WHERE } from "#src/server/conversations/active-member.server";
+import {
+  ACTIVE_MEMBER_WHERE,
+  VISIBLE_CONVERSATION_WHERE,
+} from "#src/server/conversations/active-member.server";
 
 export const ATTACHMENT_MAX_BYTES = 10 * 1024 * 1024;
 export const ATTACHMENT_SESSION_SECONDS = 900;
@@ -58,6 +61,7 @@ export async function storeAttachment(
   const conversation = await db.conversation.findFirst({
     where: {
       id: input.conversationId,
+      ...VISIBLE_CONVERSATION_WHERE,
       members: { some: { userId: input.userId, ...ACTIVE_MEMBER_WHERE } },
       OR: [{ channelName: null }, { workspace: { members: { some: { userId: input.userId } } } }],
     },
@@ -161,6 +165,8 @@ export async function readAuthorizedAttachment(
         await db.conversation.findFirst({
           where: {
             id: attachment.conversationId,
+            // A channel hidden from the Workspace keeps its files from everyone until restored.
+            ...VISIBLE_CONVERSATION_WHERE,
             OR: [
               {
                 channelName: null,
@@ -182,6 +188,7 @@ export async function readAuthorizedAttachment(
             conversationId: attachment.conversationId,
             agentId: input.agentId,
             ...ACTIVE_MEMBER_WHERE,
+            conversation: VISIBLE_CONVERSATION_WHERE,
           },
         })),
       );

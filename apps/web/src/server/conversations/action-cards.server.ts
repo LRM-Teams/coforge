@@ -1,3 +1,4 @@
+import { VISIBLE_CONVERSATION_WHERE } from "./active-member.server";
 import {
   actionCardActionSchema,
   validateActionCardAction,
@@ -259,7 +260,8 @@ export class ActionCards {
           : Promise.resolve([]),
         channelIds.size
           ? this.db.conversation.findMany({
-              where: { id: { in: [...channelIds] } },
+              // A channel hidden from the Workspace is named on no card.
+              where: { id: { in: [...channelIds] }, ...VISIBLE_CONVERSATION_WHERE },
               select: { id: true, channelName: true },
             })
           : Promise.resolve([]),
@@ -730,11 +732,16 @@ export class ActionCards {
     const bare = bareHandle(value);
     const channel = UUID_PATTERN.test(bare)
       ? await this.db.conversation.findFirst({
-          where: { id: bare, workspaceId, channelName: { not: null } },
+          where: {
+            id: bare,
+            workspaceId,
+            channelName: { not: null },
+            ...VISIBLE_CONVERSATION_WHERE,
+          },
           select: { id: true },
         })
       : await this.db.conversation.findFirst({
-          where: { workspaceId, channelName: bare },
+          where: { workspaceId, channelName: bare, ...VISIBLE_CONVERSATION_WHERE },
           select: { id: true },
         });
     if (!channel)

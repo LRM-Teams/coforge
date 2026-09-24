@@ -668,6 +668,11 @@ model Conversation {
   channelName    String?
   description    String                 @default("")
   archivedAt     DateTime?
+  /// Set while a Workspace owner/admin has hidden this channel from the whole Workspace (only
+  /// `#general` can be): it leaves every channel list, search, post, member and Agent surface,
+  /// its history kept, until they restore it. Unrelated to a member closing a chat
+  /// (`ConversationMember.hiddenAt`).
+  hiddenFromWorkspaceAt DateTime?
   nextTaskNumber Int                    @default(1)
   createdAt      DateTime               @default(now())
   workspace      Workspace              @relation(fields: [workspaceId], references: [id], onDelete: Cascade)

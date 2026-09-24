@@ -47,6 +47,8 @@ export async function findMessageSearchIds(
 ): Promise<string[]> {
   const conditions: Prisma.Sql[] = [
     Prisma.sql`m."workspaceId" = ${criteria.workspaceId}::uuid`,
+    // A channel hidden from the Workspace is searched by nobody.
+    Prisma.sql`c."hiddenFromWorkspaceAt" IS NULL`,
     Prisma.sql`(c."channelName" IS NOT NULL OR c."directKey" IS NOT NULL AND EXISTS (
       SELECT 1 FROM "conversation_members" v
       WHERE v."conversationId" = c."id" AND v."userId" = ${criteria.viewerUserId}::uuid))`,
