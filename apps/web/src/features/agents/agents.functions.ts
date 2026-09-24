@@ -228,40 +228,43 @@ export const listAgents = createServerFn({ method: "GET" })
     const statusByAgentId = new Map(
       scoped.map((agent) => [agent.id, statusSnapshots[snapshotIndex++]] as const),
     );
-    return Promise.all(
-      agents.map(async (agent) => {
-        const status = statusByAgentId.get(agent.id);
-        let displaySnapshot;
-        if (agent.computerId) {
-          try {
-            displaySnapshot = await getAgentDisplay().snapshot({
-              workspaceId,
-              computerId: agent.computerId,
-              agentId: agent.id,
-            });
-          } catch {
-            // An unavailable display read model must not hide an Agent profile.
-          }
-        }
-        return {
-          ...agent,
-          avatarUrl: agentAvatarUrl(workspaceId, agent.id, agent.avatarObjectKey ?? null),
-          stopped: Boolean(agent.stoppedAt),
-          ...(displaySnapshot ? { display: displaySnapshot } : {}),
-          status: {
-            value: status?.status ?? ("inactive" as const),
-            expiresAt: status?.expiresAt ?? null,
-            ordering: status
-              ? {
-                  daemonInstanceId: status.daemonInstanceId,
-                  clientSeq: status.clientSeq,
-                  observedAtMs: status.observedAtMs,
-                }
-              : null,
-          },
-        };
-      }),
+    // The display read model is script-backed and reads or projects each Agent's own state, so it
+    // gets the same treatment: one round trip for the page. A display failure still never hides an
+    // Agent profile — it leaves the rows without their display block, all of them together rather
+    // than one at a time.
+    const displaySnapshots = await getAgentDisplay()
+      .snapshotMany(
+        scoped.map((agent) => ({
+          workspaceId,
+          computerId: agent.computerId as string,
+          agentId: agent.id,
+        })),
+      )
+      .catch(() => []);
+    const displayByAgentId = new Map(
+      scoped.map((agent, index) => [agent.id, displaySnapshots[index]] as const),
     );
+    return agents.map((agent) => {
+      const status = statusByAgentId.get(agent.id);
+      const displaySnapshot = displayByAgentId.get(agent.id);
+      return {
+        ...agent,
+        avatarUrl: agentAvatarUrl(workspaceId, agent.id, agent.avatarObjectKey ?? null),
+        stopped: Boolean(agent.stoppedAt),
+        ...(displaySnapshot ? { display: displaySnapshot } : {}),
+        status: {
+          value: status?.status ?? ("inactive" as const),
+          expiresAt: status?.expiresAt ?? null,
+          ordering: status
+            ? {
+                daemonInstanceId: status.daemonInstanceId,
+                clientSeq: status.clientSeq,
+                observedAtMs: status.observedAtMs,
+              }
+            : null,
+        },
+      };
+    });
   });
 
 /** Ensures the User's weekly-report assistant Agent exists for Members setup. */

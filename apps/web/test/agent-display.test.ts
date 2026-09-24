@@ -470,6 +470,40 @@ describe.skipIf(!redisServer)("RedisAgentDisplay", () => {
     );
     expect((await subject.snapshot(scope)).contextUsage).toBeNull();
   });
+
+  test("reads many Agents' displays in one round trip, in the scopes' order", async () => {
+    await redis.send("FLUSHDB", []);
+    now = 6_400_000;
+    let evals = 0;
+    const counted = new Proxy(redis, {
+      get(target, property) {
+        if (property === "eval")
+          return (script: string, keys: number, ...args: Array<string | number>) => {
+            evals += 1;
+            return target.eval(script, keys, ...args);
+          };
+        const value = Reflect.get(target, property);
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    }) as unknown as typeof redis;
+    const subject = new RedisAgentDisplay(counted, () => now);
+    const other = { workspaceId: "workspace-a", computerId: "computer-a", agentId: "agent-b" };
+    await subject.observeStatus(status(1));
+    await subject.observeStatus({ ...status(1), ...other, requestId: "status-other" });
+    evals = 0;
+
+    const snapshots = await subject.snapshotMany([scope, other]);
+    expect(snapshots.map((entry) => entry.agentId)).toEqual([scope.agentId, other.agentId]);
+    // The batch answer is the answer the single-scope reader gives, per scope — the batch reader is
+    // the same script body, so this is the contract that must not drift.
+    expect(snapshots[0]).toEqual(await subject.snapshot(scope));
+    expect(snapshots[1]).toEqual(await subject.snapshot(other));
+    // One round trip for the pair, then one each for the two single reads it is compared against.
+    expect(evals).toBe(3);
+    // Nothing to read is no round trip.
+    expect(await subject.snapshotMany([])).toEqual([]);
+    expect(evals).toBe(3);
+  });
 });
 
 test("activityKindForObservation is stateless and leaves unknown facts unclassified", () => {

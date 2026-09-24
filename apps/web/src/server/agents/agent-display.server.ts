@@ -92,7 +92,10 @@ local function decode_state(raw)
   return state
 end
 
-local function revision(state)
+local function revision(state, revision_key)
+  -- The single-scope scripts call this with the keys execute already put in place, so the default
+  -- keeps them exactly as they were; the batch reader passes each scope's own index instead.
+  revision_key = revision_key or KEYS[2]
   local redis_time = redis.call("TIME")
   local server_time_floor = tonumber(redis_time[1]) * 1000000 + tonumber(redis_time[2])
   local stored_revision = tonumber(redis.call("GET", KEYS[2])) or 0
@@ -103,16 +106,17 @@ local function revision(state)
   -- the fallback lower bound when eviction or a datastore reset removes both.
   -- Keep the revision as a string inside Redis because cjson encodes Lua numbers
   -- with only 14 significant digits, below the precision of this microsecond value.
-  redis.call("SET", KEYS[2], encoded_revision)
+  redis.call("SET", revision_key, encoded_revision)
   state.revision = encoded_revision
   return next_revision
 end
 
-local function save(state)
-  redis.call("SET", KEYS[1], cjson.encode(state), "EX", 86400)
+local function save(state, state_key)
+  state_key = state_key or KEYS[1]
+  redis.call("SET", state_key, cjson.encode(state), "EX", 86400)
 end
 
-local function project(state, now)
+local function project(state, now, revision_key)
   local changed = false
   if state.process and state.process.status == "active" and not state.processExpired and
       now >= state.process.leaseUntil then
@@ -126,7 +130,7 @@ local function project(state, now)
     state.activityVisible = false
     changed = true
   end
-  if changed then revision(state) end
+  if changed then revision(state, revision_key) end
   return changed
 end
 
@@ -169,6 +173,21 @@ local function snapshot(state, workspace_id, computer_id, agent_id, now)
     detailKind = detail_kind, detail = detail, entries = entries, expiresAt = expires_at,
     contextUsage = context_usage
   })
+end
+
+-- One scope's snapshot, read and projected exactly as the single-scope reader always did. The key
+-- indices are parameters so the batch reader below can answer many scopes in one round trip; the
+-- helpers fall back to the keys execute already put in place, which is what keeps the other
+-- scripts on this shared preamble unchanged.
+local function take_snapshot(state_index, revision_index, workspace_id, computer_id, agent_id, now)
+  local state_key = KEYS[state_index]
+  local revision_key = KEYS[revision_index]
+  local raw = redis.call("GET", state_key)
+  local state = decode_state(raw)
+  local changed = project(state, now, revision_key)
+  if not raw then revision(state, revision_key) changed = true end
+  if changed then save(state, state_key) end
+  return snapshot(state, workspace_id, computer_id, agent_id, now)
 end
 `;
 
@@ -315,14 +334,21 @@ save(state)
 return snapshot(state, ARGV[2], ARGV[3], ARGV[4], now)
 `;
 
-const SNAPSHOT = `${LUA_COMMON}
-local raw = redis.call("GET", KEYS[1])
-local state = decode_state(raw)
+// KEYS: [state, revision] per scope, in that order, as many as ARGV names scopes.
+// ARGV: [1] now, then one (workspaceId, computerId, agentId) triple per scope.
+//
+// A Workspace's Agent list asks for the same snapshot for every row at once; one script answers
+// them all in a single round trip while keeping each scope's own lazy projection and save, which is
+// what makes the answers as fresh as the single-scope reads they replace.
+const SNAPSHOT_MANY = `${LUA_COMMON}
 local now = tonumber(ARGV[1])
-local changed = project(state, now)
-if not raw then revision(state) changed = true end
-if changed then save(state) end
-return snapshot(state, ARGV[2], ARGV[3], ARGV[4], now)
+local out = {}
+for index = 0, #KEYS / 2 - 1 do
+  local base = index * 3 + 2
+  out[#out + 1] = take_snapshot(
+    index * 2 + 1, index * 2 + 2, ARGV[base], ARGV[base + 1], ARGV[base + 2], now)
+end
+return out
 `;
 
 // ARGV: [1] now, [2] workspaceId, [3] computerId, [4] agentId, [5] probeId, [6] probeTimeoutMs
@@ -403,6 +429,9 @@ export interface AgentDisplay {
    * daemonInstanceId/clientSeq ordering rule `observeStatus` uses. */
   putContextUsage(message: AgentContextUsage): Promise<AgentDisplaySnapshot | undefined>;
   snapshot(scope: Scope): Promise<AgentDisplaySnapshot>;
+  /** Many snapshots in one round trip (a Workspace's Agent list); same value per scope as
+   * `snapshot`, in the scopes' order. */
+  snapshotMany(scopes: readonly Scope[]): Promise<AgentDisplaySnapshot[]>;
   /** Up to `limit` scopes whose busy lease score is at or before `now`, oldest first. */
   staleLeases(now: number, limit: number): Promise<Scope[]>;
   /** Advances one Agent's pending liveness probe. */
@@ -463,9 +492,26 @@ export class RedisAgentDisplay implements AgentDisplay {
   }
 
   async snapshot(scope: Scope) {
-    const result = await this.execute(SNAPSHOT, scope, []);
-    if (!result) throw new Error("Agent display snapshot transaction returned no result");
-    return result;
+    const [first] = await this.snapshotMany([scope]);
+    if (!first) throw new Error("Agent display snapshot transaction returned no result");
+    return first;
+  }
+
+  async snapshotMany(scopes: readonly Scope[]): Promise<AgentDisplaySnapshot[]> {
+    if (scopes.length === 0) return [];
+    // Both keys per scope, in the same order the single-scope scripts declare them; the script reads
+    // this scope's own pair, so its lazy projection and save land on the right Agent.
+    const keys = scopes.flatMap((scope) => [this.stateKey(scope), this.revisionKey(scope)]);
+    const result = await this.redis.eval(
+      SNAPSHOT_MANY,
+      keys.length,
+      ...keys,
+      this.clock(),
+      ...scopes.flatMap((scope) => [scope.workspaceId, scope.computerId, scope.agentId]),
+    );
+    if (!Array.isArray(result) || result.length !== scopes.length)
+      throw new Error("Agent display snapshot transaction returned no result");
+    return result.map((entry) => this.parseSnapshot(entry));
   }
 
   async staleLeases(now: number, limit: number): Promise<Scope[]> {
@@ -505,6 +551,15 @@ export class RedisAgentDisplay implements AgentDisplay {
     snapshot.revision = Number(snapshot.revision);
     snapshot.entries = Array.isArray(snapshot.entries) ? snapshot.entries : [];
     return { outcome: "expired", snapshot: parseAgentDisplaySnapshot(snapshot) };
+  }
+
+  private parseSnapshot(entry: unknown): AgentDisplaySnapshot {
+    if (typeof entry !== "string")
+      throw new Error("Agent display snapshot transaction returned no result");
+    const snapshot = JSON.parse(entry) as Record<string, unknown>;
+    snapshot.revision = Number(snapshot.revision);
+    snapshot.entries = Array.isArray(snapshot.entries) ? snapshot.entries : [];
+    return parseAgentDisplaySnapshot(snapshot);
   }
 
   private async execute(script: string, scope: Scope, args: Array<string | number>) {
