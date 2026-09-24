@@ -353,6 +353,26 @@ test("prepare rejects agent:create for an already-taken Agent name", async () =>
   }
 });
 
+test("prepare accepts agent:create for a deleted Agent's name", async () => {
+  const ctx = await setup();
+  try {
+    await ctx.db.agent.update({
+      where: { id: ctx.existingAgent.id },
+      data: { deletedAt: new Date() },
+    });
+    const result = await ctx.actionCards.prepare(ctx.principal, {
+      target: `#${ctx.hub.channelName}`,
+      action: { type: "agent:create", name: ctx.existingAgent.name, description: "" },
+    });
+    const card = await ctx.db.actionCard.findUniqueOrThrow({
+      where: { messageId: result.messageId },
+    });
+    expect(card.payload).toMatchObject({ type: "agent:create", name: ctx.existingAgent.name });
+  } finally {
+    await ctx.cleanup();
+  }
+});
+
 test("prepare denies an Agent that is not a member of the target channel", async () => {
   const ctx = await setup();
   try {

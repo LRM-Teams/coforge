@@ -365,9 +365,31 @@ test.skipIf(!connectionString)(
             },
           }),
         ),
-      ).rejects.toMatchObject({ code: "INVALID_INPUT", errorId: "agent-name-taken" });
+      ).rejects.toMatchObject({ code: "CONFLICT", errorId: "agent-name-taken" });
       // The live holder keeps its name.
       expect((await db.agent.findUniqueOrThrow({ where: { id: agent.id } })).name).toBe(agent.name);
+
+      // Two creates racing for one free name: one wins, the other is refused the same way.
+      const racers = await Promise.allSettled(
+        ["First", "Second"].map((displayName) =>
+          new PrismaAgentRepository(db).create({
+            workspaceId: workspace.id,
+            name: `${agent.name}-race`,
+            displayName,
+            ownerId: owner.id,
+            runtimeConfig: {
+              runtime: "pi",
+              provider: { kind: "default" },
+              model: "",
+              modelProvider: "",
+              reasoning: "",
+            },
+          }),
+        ),
+      );
+      expect(racers.filter((racer) => racer.status === "fulfilled")).toHaveLength(1);
+      const refused = racers.find((racer) => racer.status === "rejected");
+      expect(refused?.reason).toMatchObject({ code: "CONFLICT", errorId: "agent-name-taken" });
     } finally {
       await teardown(db, workspace.id, [owner.id]);
     }

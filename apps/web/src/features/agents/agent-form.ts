@@ -34,24 +34,30 @@ export function updateAgentInputFromForm(
 }
 
 /**
- * The Agent-update failure copy shared by the full-page edit dialog and the Profile panel's
- * in-place runtime editor — the same `updateAgent` `errorId`s, mapped to the same sentences,
- * so the two surfaces never drift.
+ * The copy for each `errorId` an Agent create or update can fail with, shared by the create
+ * dialog, the full-page edit dialog and the Profile panel's in-place runtime editor so the
+ * surfaces never drift.
  */
-export function agentUpdateErrorMessage(cause: unknown): string {
-  if (isAppError(cause) && cause.errorId === "agent-api-key-required")
-    return m.agent_form_api_key_required();
-  if (isAppError(cause) && cause.errorId === "agent-runtime-unavailable")
-    return m.agent_form_runtime_unavailable();
-  if (isAppError(cause) && cause.errorId === "agent-computer-required")
-    return m.agent_form_computer_required();
-  return m.agent_update_error();
+const AGENT_FORM_ERROR_MESSAGES = new Map<string, () => string>([
+  ["agent-api-key-required", m.agent_form_api_key_required],
+  ["agent-runtime-unavailable", m.agent_form_runtime_unavailable],
+  ["agent-computer-required", m.agent_form_computer_required],
+  ["agent-name-taken", m.agent_form_name_taken],
+]);
+
+function agentFormErrorMessage(cause: unknown, fallback: () => string): string {
+  const message = isAppError(cause)
+    ? AGENT_FORM_ERROR_MESSAGES.get(cause.errorId ?? "")
+    : undefined;
+  return (message ?? fallback)();
 }
 
-/** The Agent-create failure copy: a taken username says so, anything else asks for a retry. */
+export function agentUpdateErrorMessage(cause: unknown): string {
+  return agentFormErrorMessage(cause, m.agent_update_error);
+}
+
 export function agentCreateErrorMessage(cause: unknown): string {
-  if (isAppError(cause) && cause.errorId === "agent-name-taken") return m.agent_form_name_taken();
-  return m.agent_form_server_error();
+  return agentFormErrorMessage(cause, m.agent_form_server_error);
 }
 
 /**
