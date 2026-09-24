@@ -145,6 +145,8 @@ test("the settings panel shows a channel's members as a page, adds and removes o
     // The candidate's label also holds its avatar initial and description.
     const candidate = `[...document.querySelectorAll('[role="dialog"] label')].find((label) => label.textContent.includes(${JSON.stringify(outside.displayName)}))`;
     await waitFor(`${candidate} !== undefined`);
+    // Each candidate row is valid markup: its avatar is not inside a paragraph.
+    expect(await browser("eval", `${panel}.querySelectorAll("p div").length`)).toContain("0");
     await browser("eval", `${candidate}.querySelector("input").click()`);
     await waitFor(panelHas("Add selected (1)"));
     await browser("screenshot", join(artifacts, "add.png"));
