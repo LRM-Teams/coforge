@@ -30,6 +30,7 @@ import { SearchEntityList } from "./search-entity-list";
 import { searchExcerpt } from "./search-excerpt";
 import { SearchHome } from "./search-home";
 import { searchEntityKey, type SearchEntityKey } from "./search-memory";
+import { SEARCH_FOCUS_EVENT, useSearchShortcutLabel } from "./search-shortcut";
 import { useSearchMemory } from "./use-search-memory";
 import { SearchFilterBar } from "./search-filter-bar";
 import { clearedFilters, hasActiveFilter, type SearchFilters } from "./search-filters";
@@ -48,6 +49,7 @@ const COMMIT_DELAY_MS = 200;
 export function SearchPage({
   workspaceId,
   viewerId,
+  deferred,
   timeZone,
   query,
   filters,
@@ -56,6 +58,8 @@ export function SearchPage({
 }: {
   workspaceId: string;
   viewerId: string;
+  /** Filters alone do not search yet ("Search this channel" waits for a query). */
+  deferred: boolean;
   timeZone: string | null;
   query: string;
   filters: SearchFilters;
@@ -63,6 +67,7 @@ export function SearchPage({
   onFiltersChange: (filters: SearchFilters) => void;
 }) {
   const memory = useSearchMemory(workspaceId, viewerId);
+  const shortcut = useSearchShortcutLabel();
   const [text, setText] = useState(query);
   // State, not a ref: ending a composition must re-run the commit effect even when the last
   // input event (which browsers fire before `compositionend`) already set the final text.
@@ -91,6 +96,16 @@ export function SearchPage({
     return () => clearTimeout(timer);
   }, [text, composing, onQueryChange]);
 
+  // Cmd/Ctrl+K on this page: back to the box, its text selected for replacing.
+  useEffect(() => {
+    const focus = () => {
+      input.current?.focus();
+      input.current?.select();
+    };
+    document.addEventListener(SEARCH_FOCUS_EVENT, focus);
+    return () => document.removeEventListener(SEARCH_FOCUS_EVENT, focus);
+  }, []);
+
   return (
     <main className="flex h-svh min-w-0 flex-col bg-primary">
       <PageHeader heading={m.search_title()} />
@@ -107,6 +122,7 @@ export function SearchPage({
           placeholder={m.search_placeholder()}
           maxLength={SEARCH_QUERY_MAX_LENGTH}
           ref={input}
+          shortcut={shortcut}
           autoFocus
           value={text}
           onChange={setText}
@@ -121,7 +137,7 @@ export function SearchPage({
           />
         </div>
       </div>
-      {committed || hasActiveFilter(filters) ? (
+      {committed || (hasActiveFilter(filters) && !deferred) ? (
         <SearchResults
           workspaceId={workspaceId}
           timeZone={timeZone}
