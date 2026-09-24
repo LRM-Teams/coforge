@@ -1,4 +1,5 @@
 import type { PrismaClient } from "#src/generated/prisma/client";
+import { AppError } from "#src/lib/app-error";
 import { ACTIVE_AGENT_WHERE } from "#src/server/agents/active-agent.server";
 import { enrollGeneralChannel } from "#src/server/conversations/public-channels.server";
 import {
@@ -6,6 +7,7 @@ import {
   type AgentRuntimeConfig,
 } from "#src/server/agents/agent-runtime-config.server";
 import { AGENT_VISIBILITY, type AgentVisibility } from "#src/features/agents/agent-visibility";
+import { AGENT_NAME_MAX_LENGTH } from "#src/features/agents/agent.schemas";
 
 export type { AgentRuntimeConfig } from "#src/server/agents/agent-runtime-config.server";
 
@@ -158,15 +160,17 @@ export class PrismaAgentRepository implements AgentRepository {
       // transaction). The deleted row is hidden from every directory and its name can never come
       // back, so the id-suffixed rename is invisible and keeps renamed rows distinct from each
       // other; history keeps referencing the deleted row by id, so nothing is inherited. A live
-      // holder keeps its name — the plain duplicate-name create error still applies.
-      const deletedHolder = await tx.agent.findFirst({
-        where: { workspaceId: input.workspaceId, name: input.name, deletedAt: { not: null } },
-        select: { id: true },
+      // holder keeps its name, and the create is refused as a taken name.
+      const holder = await tx.agent.findFirst({
+        where: { workspaceId: input.workspaceId, name: input.name },
+        select: { id: true, deletedAt: true },
       });
-      if (deletedHolder)
+      if (holder && !holder.deletedAt)
+        throw new AppError("INVALID_INPUT", { errorId: "agent-name-taken" });
+      if (holder)
         await tx.agent.update({
-          where: { id: deletedHolder.id },
-          data: { name: `${input.name}-deleted-${deletedHolder.id}` },
+          where: { id: holder.id },
+          data: { name: deletedAgentName(input.name, holder.id) },
         });
       const agent = mapAgent(await tx.agent.create({ data: input }));
       // #general holds every public Agent from the start (a private one never): the enrollment
@@ -183,6 +187,18 @@ export class PrismaAgentRepository implements AgentRepository {
   ) {
     return mapAgent(await this.db.agent.update({ where: { id }, data: input }));
   }
+}
+
+/**
+ * The name a deleted Agent gives up its username for. It stays a valid username — at most
+ * `AGENT_NAME_MAX_LENGTH`, lowercase segments joined by single hyphens — because the deleted
+ * Agent's messages still reach readers with it as their sender handle, and a handle outside that
+ * grammar fails the sender check on every history read. The 12 hex digits of the id keep renamed
+ * rows of the same name apart.
+ */
+function deletedAgentName(name: string, agentId: string): string {
+  const suffix = `-deleted-${agentId.replaceAll("-", "").slice(0, 12)}`;
+  return `${name.slice(0, AGENT_NAME_MAX_LENGTH - suffix.length).replace(/-+$/, "")}${suffix}`;
 }
 
 export class RepositoryAgentAuthorization {

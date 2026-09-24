@@ -48,6 +48,12 @@ export function agentUpdateErrorMessage(cause: unknown): string {
   return m.agent_update_error();
 }
 
+/** The Agent-create failure copy: a taken username says so, anything else asks for a retry. */
+export function agentCreateErrorMessage(cause: unknown): string {
+  if (isAppError(cause) && cause.errorId === "agent-name-taken") return m.agent_form_name_taken();
+  return m.agent_form_server_error();
+}
+
 /**
  * The Runtime config dialog's Advanced env rows are plain `[name="envKey"]`/`[name="envValue"]`
  * inputs (`agent-runtime-config-dialog.tsx`), read back here as parallel `FormData.getAll()`

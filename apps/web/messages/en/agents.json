@@ -75,6 +75,7 @@
   "agent_form_submitting": "Creating…",
   "agent_form_required_error": "Name and description are required.",
   "agent_form_server_error": "The Agent could not be created. Try again.",
+  "agent_form_name_taken": "Another Agent already uses this username. Choose a different one.",
   "agent_detail_tabs": "Agent details",
   "agent_profile_tab": "Profile",
   "agent_activity_tab": "Activity",
