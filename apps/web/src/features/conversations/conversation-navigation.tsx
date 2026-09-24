@@ -36,7 +36,7 @@ import {
 import { CreateChannelDialog } from "./create-channel-dialog";
 import { rememberConversation } from "./last-conversation";
 import { useChannelUnread } from "./conversation-unread";
-import { useSidebarLists } from "./sidebar-lists";
+import { useRefreshSidebarChannels, useSidebarLists } from "./sidebar-lists";
 import {
   DEFAULT_CONVERSATION_OPEN_MODE,
   conversationOpenMode,
@@ -184,6 +184,7 @@ export function ConversationNavigation({ children }: { children: ReactNode }) {
   const visibleChannels = useMemo(() => channels.filter((listed) => !listed.archived), [channels]);
   const hiddenAgentIds = useMemo(() => new Set(directPreferences.hidden), [directPreferences]);
   const closedChatRefresh = useRef<"idle" | "running" | "queued">("idle");
+  const refreshChannels = useRefreshSidebarChannels();
   const unread = useChannelUnread({
     workspaceId,
     userId: viewerId,
@@ -208,6 +209,8 @@ export function ConversationNavigation({ children }: { children: ReactNode }) {
       };
       refresh();
     },
+    // A channel was renamed, described, archived or unarchived: only the channel list is stale.
+    onChannelUpdated: () => void refreshChannels(),
   });
   // Every list read carries the server's own persisted counts; local arithmetic restarts from
   // them (sequence boundaries survive, so no event double-counts). Direct messages are already

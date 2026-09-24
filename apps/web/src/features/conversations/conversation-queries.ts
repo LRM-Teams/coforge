@@ -266,6 +266,9 @@ export function useConversationQuery<M extends PageMessage, T extends Conversati
         }),
         queryClient.invalidateQueries({ queryKey: channelMembersQueryKey(conversationId) }),
       ]).catch(() => {}),
+    // The channel was renamed, described, archived or unarchived elsewhere: refetch the page,
+    // which carries those facts. Inert for DMs.
+    () => void queryClient.invalidateQueries({ queryKey: query.queryKey }).catch(() => {}),
   );
 
   /** Replace the loaded history with a window around one message. */

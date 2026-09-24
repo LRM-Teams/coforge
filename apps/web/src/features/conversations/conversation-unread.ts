@@ -7,6 +7,7 @@ import {
   getWorkspaceConversationSubscriptionToken,
 } from "#src/features/realtime/realtime.functions";
 import {
+  decodeChannelUpdatedEvent,
   decodeMessageAvailableEvent,
   userConversationChannel,
   workspaceConversationChannel,
@@ -196,6 +197,7 @@ export function useChannelUnread({
   openAgentId,
   hiddenAgentIds,
   onClosedConversationActivity,
+  onChannelUpdated,
 }: {
   workspaceId?: string;
   /** The viewer, whose own direct-message signal channel carries their DM badges. */
@@ -210,6 +212,8 @@ export function useChannelUnread({
   hiddenAgentIds: ReadonlySet<string>;
   /** A new message arrived in a closed chat: the sidebar re-reads its list to bring it back. */
   onClosedConversationActivity: () => void;
+  /** A channel was renamed, described, archived or unarchived: the sidebar re-reads its list. */
+  onChannelUpdated: () => void;
 }): UnreadState {
   const [counts, setCounts] = useState<UnreadCounts>({});
   const getWorkspaceToken = useServerFn(getWorkspaceConversationSubscriptionToken);
@@ -220,6 +224,7 @@ export function useChannelUnread({
     openAgentId,
     hiddenAgentIds,
     onClosedConversationActivity,
+    onChannelUpdated,
   });
   refs.current = {
     channels,
@@ -227,9 +232,17 @@ export function useChannelUnread({
     openAgentId,
     hiddenAgentIds,
     onClosedConversationActivity,
+    onChannelUpdated,
   };
 
   const onPublication = useCallback((publication: { data: unknown }) => {
+    try {
+      decodeChannelUpdatedEvent(publication.data);
+      refs.current.onChannelUpdated();
+      return;
+    } catch {
+      // Not a channel update; the other payload is a message signal.
+    }
     try {
       const event = decodeMessageAvailableEvent(publication.data);
       const {

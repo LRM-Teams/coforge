@@ -2,11 +2,26 @@ import { describe, expect, test } from "bun:test";
 
 import { createConversationReconciler } from "#src/features/conversations/conversation-reconciliation";
 import {
+  decodeChannelUpdatedEvent,
   decodeMessageAvailableEvent,
   decodeNotificationAvailableEvent,
 } from "#src/features/conversations/conversation-realtime";
 
 describe("conversation realtime", () => {
+  test("decodes only the versioned channel-updated contract", () => {
+    const event = {
+      type: "channel.updated.v1" as const,
+      conversationId: "conversation-a",
+      workspaceId: "workspace-a",
+    };
+    expect(decodeChannelUpdatedEvent(event)).toEqual(event);
+    expect(decodeChannelUpdatedEvent(new TextEncoder().encode(JSON.stringify(event)))).toEqual(
+      event,
+    );
+    expect(() => decodeChannelUpdatedEvent({ ...event, type: "member.changed.v1" })).toThrow();
+    expect(() => decodeChannelUpdatedEvent({ ...event, workspaceId: "" })).toThrow();
+  });
+
   test("decodes only the versioned message-available contract", () => {
     const event = {
       type: "message.available.v1" as const,

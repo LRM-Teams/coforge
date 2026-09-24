@@ -18,10 +18,18 @@ import { AgentChannelManagement } from "#src/server/conversations/agent-channel-
  */
 const connectionString = Bun.env.CHANNEL_TEST_DATABASE_URL;
 
-const silentRealtime: ConversationRealtime = {
-  async messageAvailable() {},
-  async memberChanged() {},
-};
+/** Records which channels were announced as renamed, described, archived or unarchived. */
+function recordingRealtime() {
+  const updated: { workspaceId: string; conversationId: string }[] = [];
+  const realtime: ConversationRealtime = {
+    async messageAvailable() {},
+    async memberChanged() {},
+    async channelUpdated(input) {
+      updated.push(input);
+    },
+  };
+  return { realtime, updated };
+}
 
 async function setup() {
   const db = new PrismaClient({ adapter: new PrismaPg({ connectionString: connectionString! }) });
@@ -46,10 +54,11 @@ async function setup() {
   const general = await db.conversation.findUniqueOrThrow({
     where: { workspaceId_channelName: { workspaceId: workspace.id, channelName: "general" } },
   });
-  const channels = new PublicChannels(db, undefined, undefined, undefined, silentRealtime);
+  const { realtime, updated } = recordingRealtime();
+  const channels = new PublicChannels(db, undefined, undefined, undefined, realtime);
   const team = await channels.create(workspace.id, creator.id, `team-${suffix}`);
   await channels.join(workspace.id, bob.id, team.id);
-  return { db, channels, suffix, workspace, owner, creator, bob, general, team };
+  return { db, channels, updated, suffix, workspace, owner, creator, bob, general, team };
 }
 
 async function teardown(db: PrismaClient, workspaceId: string, userIds: string[]) {
@@ -269,6 +278,33 @@ test.skipIf(!connectionString)(
           (error: { status?: number }) => error.status,
         );
       expect(renameGeneral).toBe(403);
+    } finally {
+      await teardown(db, workspace.id, [owner.id, creator.id, bob.id]);
+    }
+  },
+);
+
+test.skipIf(!connectionString)(
+  "every open page of the Workspace hears when a channel is renamed, described, archived or unarchived; a refused write announces nothing",
+  async () => {
+    const { db, channels, updated, suffix, workspace, owner, creator, bob, team } = await setup();
+    try {
+      const announcement = { workspaceId: workspace.id, conversationId: team.id };
+      await channels.updateInfo(workspace.id, { userId: creator.id }, team.id, {
+        name: `renamed-${suffix}`,
+      });
+      await channels.updateInfo(workspace.id, { userId: creator.id }, team.id, {
+        description: "Now described",
+      });
+      await channels.setArchived(workspace.id, { userId: creator.id }, team.id, true);
+      await channels.setArchived(workspace.id, { userId: creator.id }, team.id, false);
+      expect(updated).toEqual([announcement, announcement, announcement, announcement]);
+
+      await appErrorCode(
+        channels.updateInfo(workspace.id, { userId: bob.id }, team.id, { description: "no" }),
+      );
+      await appErrorCode(channels.setArchived(workspace.id, { userId: bob.id }, team.id, true));
+      expect(updated).toHaveLength(4);
     } finally {
       await teardown(db, workspace.id, [owner.id, creator.id, bob.id]);
     }

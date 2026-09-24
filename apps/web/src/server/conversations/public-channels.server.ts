@@ -44,7 +44,11 @@ import {
   type MessageReactionRow,
 } from "./message-reactions.server";
 import { toggleUserMessageReaction } from "./user-message-reactions.server";
-import { announceMemberChanged, type ConversationRealtime } from "./conversation-realtime.server";
+import {
+  announceChannelUpdated,
+  announceMemberChanged,
+  type ConversationRealtime,
+} from "./conversation-realtime.server";
 import { AgentMessageValidationError } from "./agent-message-validation-error.server";
 import { agentAvatarUrl } from "#src/server/agents/agent-avatar.server";
 import { workspaceUserAvatarUrl } from "#src/server/db/repositories/user-profile.repositories.server";
@@ -815,6 +819,7 @@ export class PublicChannels {
         },
         select: { id: true, channelName: true, description: true },
       });
+      await announceChannelUpdated(this.realtime, { workspaceId, conversationId: channel.id });
       return { id: updated.id, name: updated.channelName!, description: updated.description };
     } catch (error) {
       if (isUniqueViolation(error)) throw new AppError("CONFLICT");
@@ -842,6 +847,7 @@ export class PublicChannels {
       where: { id: channel.id },
       data: { archivedAt: archived ? (channel.archivedAt ?? new Date()) : null },
     });
+    await announceChannelUpdated(this.realtime, { workspaceId, conversationId: channel.id });
     return { id: channel.id, archived };
   }
 
