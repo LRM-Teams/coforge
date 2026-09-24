@@ -3180,6 +3180,7 @@ describe("DaemonRuntime", () => {
             ...sessionSpy(),
             notify: async (notice) => {
               events.push(`notice ${notice.match(/@agent {2}new: (\d+) messages?/)?.[1]}`);
+              allAcknowledged();
             },
             onExit(listener) {
               exits.add(listener);
@@ -3196,7 +3197,6 @@ describe("DaemonRuntime", () => {
           sendAgentStatus() {},
           async sendAgentDeliveryAck(ack) {
             events.push(`ack ${ack.deliveryId}`);
-            if (events.filter((event) => event.startsWith("ack")).length === 4) allAcknowledged();
           },
           async requestAgentApiKey() {
             return `sk_agent_${"a".repeat(43)}`;
@@ -3235,7 +3235,8 @@ describe("DaemonRuntime", () => {
       await expect(first).rejects.toThrow("pi: command not found");
       // Kept for the next launch, not failed.
       await expect(second).resolves.toBeUndefined();
-      expect(events).toEqual([]);
+      // Both are kept for the next launch, and acknowledged as the daemon keeps them.
+      expect(events).toEqual(["ack delivery-1", "ack delivery-2"]);
 
       // The cooldown itself is under test, so it runs on the real clock.
       await Bun.sleep(1_100);
@@ -3247,12 +3248,13 @@ describe("DaemonRuntime", () => {
       await third;
       await acknowledged;
       expect(launchAttempts).toBe(3);
+      // M3 and M4 are acknowledged as they join the waiting batch; one notice presents all four.
       expect(events).toEqual([
-        "notice 4",
         "ack delivery-1",
         "ack delivery-2",
         "ack delivery-3",
         "ack delivery-4",
+        "notice 4",
       ]);
     } finally {
       await runtime.stop();
@@ -3516,11 +3518,11 @@ describe("DaemonRuntime", () => {
       );
       expect(launchAttempts).toBe(2);
 
-      // Within the first failure's one-second cooldown: no launch, and no ACK either, so the
-      // server still holds the message as undelivered.
+      // Within the first failure's one-second cooldown: no launch. The daemon keeps M2 for the
+      // next launch and acknowledges it on taking it, as it did M1 when that launch failed.
       await runtime.handleAgentMessage(delivery(2));
       expect(launchAttempts).toBe(2);
-      expect(acknowledgements).toEqual([]);
+      expect(acknowledgements).toEqual(["delivery-1", "delivery-2"]);
 
       // The cooldown itself is under test, so it runs on the real clock.
       await Bun.sleep(1_100);
@@ -3528,7 +3530,7 @@ describe("DaemonRuntime", () => {
       await runtime.handleAgentMessage(delivery(3));
       await threeAcknowledged;
       expect(launchAttempts).toBe(3);
-      // One notice for everything that waited, ACKed only after it was accepted.
+      // One notice for everything that waited; each delivery was acknowledged exactly once.
       expect(notices).toHaveLength(1);
       expect(notices[0]).toContain("@agent  new: 3 messages");
       expect(acknowledgements).toEqual(["delivery-1", "delivery-2", "delivery-3"]);
@@ -3621,7 +3623,7 @@ describe("DaemonRuntime", () => {
     }
   });
 
-  test("an inbox purge drops waiting deliveries of a lost channel without acknowledging them", async () => {
+  test("an inbox purge drops waiting deliveries of a lost channel instead of announcing them", async () => {
     const credentials = new InMemoryDaemonCredentialStore();
     await credentials.save(connection.workspaceId, connection.computerId, "token-a");
     const exits = new Set<() => void>();
@@ -3709,9 +3711,9 @@ describe("DaemonRuntime", () => {
 
       wakeLaunch.resolve();
       await dm;
-      // Only the DM is announced and acknowledged. The #team delivery stays unacknowledged: the
-      // server keeps it, and no longer replays it to an Agent that left the channel.
-      expect(events).toEqual(["notice 1", "ack delivery-1"]);
+      // The #team delivery is acknowledged when the purge drops it, so the server does not bring
+      // it back if the Agent rejoins; only the DM is announced.
+      expect(events).toEqual(["ack delivery-2", "notice 1", "ack delivery-1"]);
     } finally {
       await runtime.stop();
     }
@@ -3742,6 +3744,7 @@ describe("DaemonRuntime", () => {
             ...sessionSpy(),
             notify: async (notice) => {
               events.push(`notice ${notice.match(/Inbox update: (\d+) message/)?.[1]}`);
+              acknowledged.resolve();
             },
             onExit(listener) {
               exits.add(listener);
@@ -3758,7 +3761,6 @@ describe("DaemonRuntime", () => {
           sendAgentStatus() {},
           async sendAgentDeliveryAck(ack) {
             events.push(`ack ${ack.deliveryId}`);
-            acknowledged.resolve();
           },
           async requestAgentApiKey() {
             return `sk_agent_${"a".repeat(43)}`;
@@ -3809,10 +3811,11 @@ describe("DaemonRuntime", () => {
         reason: "member_removed",
       });
 
-      // The next launch presents what still waits: the DM, not the purged channel.
+      // Both were acknowledged when the failed launch kept them. The next launch presents what
+      // still waits: the DM, not the purged channel.
       await runtime.startAgent("agent-a", config);
       await acknowledged.promise;
-      expect(events).toEqual(["notice 1", "ack delivery-1"]);
+      expect(events).toEqual(["ack delivery-1", "ack delivery-2", "notice 1"]);
     } finally {
       await runtime.stop();
     }

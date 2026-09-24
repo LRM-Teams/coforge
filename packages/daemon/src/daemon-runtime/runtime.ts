@@ -1777,12 +1777,28 @@ export class DaemonRuntime {
     this.#releaseFallbackNotices(agentId);
   }
 
-  /** Drops whatever `AgentDeliveryQueue` held for `agentId` across an unexpected exit,
-   * ACKing each one — used when this launch's `recover()` pass already covered the same unread
-   * state, so notifying about them again would be redundant. */
+  /**
+   * The daemon has taken this delivery into its own keeping (for a later launch, a batch, or to
+   * drop it), so it acknowledges it now, as the server needs no further copy. A failed ACK only
+   * means the server replays it on the next `ready`; nothing is lost, since a daemon restart
+   * recovers unread messages from the cloud read boundary, not from ACK state.
+   */
+  #acknowledgeCustody(message: AgentMessageDelivery): void {
+    void this.#messageAttention.acknowledge(message).catch((error: unknown) => {
+      logger.warn("Agent delivery could not be acknowledged on taking it", {
+        event: "agent.message.custody_ack_failed",
+        agent_id: message.agentId,
+        delivery_id: message.deliveryId,
+        error_code: error instanceof Error ? error.name : "UnknownError",
+      });
+    });
+  }
+
+  /** Drops whatever `AgentDeliveryQueue` held for `agentId` across an unexpected exit — used when
+   * this launch's `recover()` pass already covered the same unread state, so notifying about them
+   * again would be redundant. Each was acknowledged when the daemon took it. */
   #dropSurvivingDeliveryQueue(agentId: string): void {
-    for (const message of this.#deliveryQueue.discardPending(agentId))
-      void this.#ackHeldDelivery(message).catch(() => {});
+    this.#deliveryQueue.discardPending(agentId);
   }
 
   /** Flushes whatever `AgentDeliveryQueue` held for `agentId` across an unexpected
@@ -1799,16 +1815,6 @@ export class DaemonRuntime {
         error_code: error instanceof Error ? error.name : "UnknownError",
       });
     });
-  }
-
-  #ackHeldDelivery(message: AgentMessageDelivery): Promise<void> {
-    return (
-      this.#transport.sendAgentDeliveryAck?.({
-        ...message,
-        method: AGENT_MESSAGE_ACK_METHOD,
-        requestId: message.requestId,
-      }) ?? Promise.resolve()
-    );
   }
 
   /** Opens a freshly created session's first turn with a fixed prompt so its standing "Startup
@@ -1855,6 +1861,7 @@ export class DaemonRuntime {
     queue.items = queue.items.filter((item) => {
       if (item.kind !== "delivery") return true;
       this.#deliveryQueue.enqueue(agentId, item.message);
+      this.#acknowledgeCustody(item.message);
       // Kept, not failed: the delivery is not lost, so it is not reported as a failed delivery.
       item.completion.resolve();
       logger.info("Agent delivery kept for the next launch after a failed launch", {
@@ -2718,6 +2725,7 @@ export class DaemonRuntime {
     const wakeable = exited ? this.#agentProcessManager.restartConfig(message.agentId) : undefined;
     if (wakeable && this.#wakeLaunchFailures.isBlocked(message.agentId)) {
       this.#deliveryQueue.enqueue(message.agentId, message);
+      this.#acknowledgeCustody(message);
       logger.info("Agent wake deferred by a launch-failure cooldown", {
         event: "agent.wake.cooldown_deferred",
         agent_id: message.agentId,
@@ -2730,6 +2738,7 @@ export class DaemonRuntime {
     // launch presents all of them in a single notice instead of this one alone.
     if (wakeable && this.#deliveryQueue.hasQueued(message.agentId)) {
       this.#deliveryQueue.enqueue(message.agentId, message);
+      this.#acknowledgeCustody(message);
       await this.#wakeAgent(message.agentId, wakeable);
       return;
     }
@@ -2743,6 +2752,7 @@ export class DaemonRuntime {
       this.#deliveryQueue.hasQueued(message.agentId)
     ) {
       this.#deliveryQueue.enqueue(message.agentId, message);
+      this.#acknowledgeCustody(message);
       return;
     }
     const delivery = this.#enqueueAgentInput(message.agentId, (completion) => ({
@@ -2804,6 +2814,8 @@ export class DaemonRuntime {
       queue.items = queue.items.filter((item) => {
         if (item.kind !== "delivery" || !conversations.has(item.message.conversationId))
           return true;
+        // Taken and dropped: acknowledged, so the server does not bring it back after a rejoin.
+        this.#acknowledgeCustody(item.message);
         item.completion.resolve();
         dropped++;
         return false;
