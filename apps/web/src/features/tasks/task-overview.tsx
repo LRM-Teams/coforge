@@ -31,7 +31,8 @@ export function TaskOverview({
   onLayoutChange,
   onOpenTask,
   onCommand,
-  older,
+  more,
+  onOlder,
 }: {
   tasks: readonly OverviewTaskRow[];
   status?: TaskStatus;
@@ -43,8 +44,9 @@ export function TaskOverview({
   /** Opens a Task's popup over the overview (the card menu's "View details"). */
   onOpenTask: (task: OverviewTaskRow) => void;
   onCommand?: (task: OverviewTaskRow, command: OverviewTaskCommand) => Promise<void>;
-  /** Per status, how to read older Tasks than those listed, when older ones exist. */
-  older?: Partial<Record<TaskStatus, () => Promise<void>>>;
+  /** Per status, whether older Tasks exist than those listed, and how to read them. */
+  more?: Partial<Record<TaskStatus, boolean>>;
+  onOlder?: Partial<Record<TaskStatus, () => Promise<void>>>;
 }) {
   layout ??= "board";
   onLayoutChange ??= () => {};
@@ -85,10 +87,19 @@ export function TaskOverview({
         <TaskWorkflow
           tasks={visible}
           layout={layout}
-          statuses={visible.length === 0 ? [] : status ? [status] : TASK_STATUSES}
+          // Nothing listed matches, but older finished Tasks might: their groups stay, so "Show
+          // older" can still be reached.
+          statuses={
+            visible.length === 0 && !(status ? more?.[status] : more?.done || more?.closed)
+              ? []
+              : status
+                ? [status]
+                : TASK_STATUSES
+          }
           disabled={!onCommand}
           currentMemberId={(task) => task.currentMemberId ?? null}
-          older={older}
+          more={more}
+          onOlder={onOlder}
           onMove={async (task, command) => {
             await onCommand?.(task, command);
           }}

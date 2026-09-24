@@ -35,7 +35,7 @@ contract is `packages/coforge-sdk/src/internal/tasks.ts`.
   reads and browser projections expose the server identity as `system` without
   changing Agent-send wake rules.
 - Task message metadata belongs to the existing message read projections.
-- `TaskBoard.overview(workspaceId, userId, { finished })` is browser-only and
-  applies the existing conversation visibility rules. It returns every open
-  Task and only the latest `finished` Done and Closed ones, with `more` saying
-  whether older ones exist.
+- `TaskBoard.overview(workspaceId, userId, { done, closed })` is browser-only
+  and applies the existing conversation visibility rules. It returns every
+  open Task (newest first) and only the latest `done` Done and `closed` Closed
+  ones, read in one snapshot, with `more` saying whether older ones exist.

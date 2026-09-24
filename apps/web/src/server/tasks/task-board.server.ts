@@ -341,13 +341,18 @@ export class TaskBoard {
   ) {}
 
   /**
-   * Every open Task of the Workspace the user can see, then the latest `finished` Done and the
-   * latest Closed ones (most recently changed first), and whether older finished ones exist.
+   * Every open Task of the Workspace the user can see (newest first), then the latest `done`
+   * Done and the latest `closed` Closed ones (most recently changed first), and whether older
+   * finished ones exist. The three reads share one snapshot, so a Task changing status meanwhile
+   * is listed exactly once.
    */
   async overview(
     workspaceId: string,
     userId: string,
-    { finished = FINISHED_TASKS_PAGE }: { finished?: number } = {},
+    {
+      done: doneLimit = FINISHED_TASKS_PAGE,
+      closed: closedLimit = FINISHED_TASKS_PAGE,
+    }: { done?: number; closed?: number } = {},
   ): Promise<TaskOverview> {
     const membership = await this.db.workspaceMembership.findUnique({
       where: { workspaceId_userId: { workspaceId, userId } },
@@ -388,23 +393,26 @@ export class TaskBoard {
       },
     } satisfies Prisma.TaskSelect;
     // One more than listed says whether older ones exist.
-    const latest = (status: "done" | "closed") =>
+    const latest = (status: "done" | "closed", limit: number) =>
       this.db.task.findMany({
         where: { ...visible, status },
         orderBy: [{ updatedAt: "desc" }, { messageId: "asc" }],
-        take: finished + 1,
+        take: limit + 1,
         select,
       });
-    const [open, done, closed] = await Promise.all([
-      this.db.task.findMany({
-        where: { ...visible, status: { notIn: ["done", "closed"] } },
-        orderBy: { createdAt: "asc" },
-        select,
-      }),
-      latest("done"),
-      latest("closed"),
-    ]);
-    const tasks = [...open, ...done.slice(0, finished), ...closed.slice(0, finished)];
+    const [open, done, closed] = await this.db.$transaction(
+      [
+        this.db.task.findMany({
+          where: { ...visible, status: { notIn: ["done", "closed"] } },
+          orderBy: [{ createdAt: "desc" }, { messageId: "asc" }],
+          select,
+        }),
+        latest("done", doneLimit),
+        latest("closed", closedLimit),
+      ],
+      { isolationLevel: "RepeatableRead" },
+    );
+    const tasks = [...open, ...done.slice(0, doneLimit), ...closed.slice(0, closedLimit)];
 
     return {
       tasks: tasks.map((task) => {
@@ -427,7 +435,7 @@ export class TaskBoard {
           project: task.conversation.project,
         };
       }),
-      more: { done: done.length > finished, closed: closed.length > finished },
+      more: { done: done.length > doneLimit, closed: closed.length > closedLimit },
     };
   }
 

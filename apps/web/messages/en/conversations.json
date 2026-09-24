@@ -281,6 +281,7 @@
   "tasks_group_empty": "No tasks",
   "tasks_group_show_more": "Show {count} more",
   "tasks_group_show_older": "Show older",
+  "tasks_group_show_older_error": "Loading failed. Try again.",
   "tasks_load_error": "Tasks could not be loaded. Try again.",
   "tasks_mutation_error": "The task could not be updated. The latest version has been loaded.",
   "tasks_unassigned": "Unassigned",
