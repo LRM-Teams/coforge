@@ -340,14 +340,25 @@ function agentAttentionMessageWhere(scope: AgentAttentionScope) {
   } satisfies Prisma.MessageWhereInput;
 }
 
-/** The same scope as `agentAttentionMessageWhere` for a channel, as the Agent's delivery rows. */
+/**
+ * Whether a target's attention is read from the Agent's delivery rows (a channel's top level)
+ * rather than from the target's own messages (a thread, or a direct message).
+ */
+function readsAgentDeliveries(scope: AgentAttentionScope) {
+  return scope.isChannel && scope.threadRootId === null;
+}
+
+/**
+ * The same scope as `agentAttentionMessageWhere` for a channel's top level, as the Agent's delivery
+ * rows (see `readsAgentDeliveries`).
+ */
 function agentAttentionDeliveryWhere(scope: AgentAttentionScope) {
   return {
     agentId: scope.agentId,
     conversationId: scope.conversationId,
     ...(scope.afterSequence !== undefined ? { sequence: { gt: scope.afterSequence } } : {}),
     message: {
-      threadRootId: scope.threadRootId,
+      threadRootId: null,
       ...(scope.excludeSenderMemberId
         ? { senderMemberId: { not: scope.excludeSenderMemberId } }
         : {}),
@@ -2429,10 +2440,12 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
 
   /**
    * The `take` newest messages of one target that the Agent owes attention to, newest first. A
-   * channel message counts only with the Agent's delivery row, so a channel reads the Agent's
-   * deliveries in that conversation (`agentId, conversationId, sequence` index) instead of walking
-   * the channel's history and probing every message for a delivery; a direct message keeps the
-   * message-side rule, whose range is the conversation itself.
+   * channel message counts only with the Agent's delivery row, so a channel's top level reads the
+   * Agent's deliveries in that conversation (`agentId, conversationId, sequence` index) instead of
+   * walking the channel's history and probing every message for a delivery. A thread (channel or
+   * direct) and a direct message keep the message-side rule, whose range is the thread or
+   * conversation itself: the delivery index cannot narrow to one thread, so a thread read there
+   * would walk every delivery the Agent has in the channel.
    */
   async #newestAgentAttention(scope: AgentAttentionScope, take: number) {
     const include = {
@@ -2440,7 +2453,7 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
       attachments: { orderBy: { position: "asc" } },
       mentions: MESSAGE_MENTIONS_SELECT,
     } satisfies Prisma.MessageInclude;
-    if (!scope.isChannel)
+    if (!readsAgentDeliveries(scope))
       return this.db.message.findMany({
         where: agentAttentionMessageWhere(scope),
         orderBy: { sequence: "desc" },
@@ -2508,7 +2521,7 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
     afterSequence?: number,
   ) {
     const { scope } = await this.pendingAgentContextScope(agentId, resolved, afterSequence);
-    return scope.isChannel
+    return readsAgentDeliveries(scope)
       ? this.db.agentMessageDelivery.count({ where: agentAttentionDeliveryWhere(scope) })
       : this.db.message.count({ where: agentAttentionMessageWhere(scope) });
   }
