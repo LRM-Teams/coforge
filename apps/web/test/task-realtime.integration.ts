@@ -1,7 +1,10 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "#src/generated/prisma/client";
-import type { TaskChangedSignal } from "#src/server/conversations/conversation-realtime.server";
+import {
+  CentrifugoConversationRealtime,
+  type TaskChangedSignal,
+} from "#src/server/conversations/conversation-realtime.server";
 import { TaskBoard } from "#src/server/tasks/task-board.server";
 
 const connectionString = Bun.env.TASK_TEST_DATABASE_URL ?? Bun.env.DATABASE_URL;
@@ -128,4 +131,66 @@ test("a direct message's Task writes are announced only to its human viewer", as
   await run({ operation: "create", title: "Private work" });
   expect(announced).toHaveLength(1);
   expect(announced[0]).toMatchObject({ workspaceId, userId: alice.id, agentId: agent.id });
+});
+
+test("a Task write's announcement and its message signal never share a publication key on a channel", async () => {
+  const conversation = await db.conversation.create({
+    data: {
+      workspaceId,
+      channelName: `realtime-keys-${handle}`,
+      members: { create: [{ userId: alice.id }, { agentId: agent.id }] },
+    },
+  });
+  // Centrifugo drops a second publication with the same key on the same channel.
+  const published: string[] = [];
+  const centrifugo = {
+    async publish() {},
+    async broadcast() {},
+    async publishJson(channel: string, _data: unknown, key?: string) {
+      published.push(`${channel} ${key}`);
+    },
+  };
+  const board = new TaskBoard(db, { realtime: new CentrifugoConversationRealtime(centrifugo) });
+  const run = (command: Record<string, unknown>) =>
+    board.execute({ workspaceId, userId: alice.id }, {
+      idempotencyKey: crypto.randomUUID(),
+      conversationId: conversation.id,
+      ...command,
+    } as Parameters<TaskBoard["execute"]>[1]);
+  const created = (await run({ operation: "create", title: "Keyed" })).tasks[0]!;
+  await run({ operation: "claim", number: created.number });
+  await run({ operation: "unclaim", number: created.number });
+  await run({ operation: "delete", number: created.number });
+  expect(published.filter((entry) => entry.startsWith("chat:workspace:")).length).toBeGreaterThan(
+    4,
+  );
+  expect(new Set(published).size).toBe(published.length);
+});
+
+test("a direct conversation without exactly one person and one Agent announces its Tasks nowhere", async () => {
+  // The member rows can go (a hard-deleted user); its Tasks must not fall back to the Workspace.
+  const lonely = await db.conversation.create({
+    data: {
+      workspaceId,
+      directKey: `${alice.id}:${crypto.randomUUID()}`,
+      members: { create: [{ userId: alice.id }] },
+    },
+  });
+  const announced: TaskChangedSignal[] = [];
+  const board = new TaskBoard(db, {
+    realtime: {
+      async memberChanged() {},
+      async messageAvailable() {},
+      async taskChanged(signal) {
+        announced.push(signal);
+      },
+    },
+  });
+  await board.execute({ workspaceId, userId: alice.id }, {
+    idempotencyKey: crypto.randomUUID(),
+    conversationId: lonely.id,
+    operation: "create",
+    title: "Nowhere",
+  } as Parameters<TaskBoard["execute"]>[1]);
+  expect(announced).toEqual([]);
 });

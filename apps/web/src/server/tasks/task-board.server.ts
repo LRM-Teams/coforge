@@ -18,6 +18,7 @@ import { workspaceUserAvatarUrl } from "#src/server/db/repositories/user-profile
 import type { Prisma, PrismaClient } from "#src/generated/prisma/client";
 import { AppError } from "#src/lib/app-error";
 import {
+  conversationSignalScopes,
   messageSignalScope,
   type ConversationRealtime,
   type MessageSignalScope,
@@ -1050,15 +1051,16 @@ export class TaskBoard {
         Promise.resolve()
           .then(effect)
           .catch(() => undefined);
-      const signalScope = await messageSignalScope(
+      const scopes = await conversationSignalScopes(
         this.db,
         scope.conversationId,
         scope.workspaceId,
       );
+      const signalScope = scopes.message;
       const effects: Promise<unknown>[] = [
-        this.announceTasks(scope, signalScope, {
+        this.announceTasks(scope, async () => scopes.task, {
           tasks: result.tasks.map(view),
-          publicationId: `${result.tasks[0]!.messageId}:task:created`,
+          publicationId: `${result.tasks[0]!.messageId}:task-created`,
         }),
       ];
       effects.push(
@@ -1702,12 +1704,11 @@ export class TaskBoard {
     if (!task) throw new AppError("NOT_FOUND");
     if (task.creatorMemberId !== member.id) await this.requireManager(this.db, workspaceId, member);
     await this.db.task.delete({ where: { messageId: task.messageId } });
-    if (this.dependencies.realtime?.taskChanged)
-      await this.announceTasks(
-        { conversationId, workspaceId },
-        await messageSignalScope(this.db, conversationId, workspaceId),
-        { deleted: [task.messageId], publicationId: `${task.messageId}:task:deleted` },
-      );
+    await this.announceTasks(
+      { conversationId, workspaceId },
+      async () => (await conversationSignalScopes(this.db, conversationId, workspaceId)).task,
+      { deleted: [task.messageId], publicationId: `${task.messageId}:task-deleted` },
+    );
     return { tasks: [] };
   }
 
@@ -1877,8 +1878,7 @@ export class TaskBoard {
     const realtime = this.dependencies.realtime;
     if (!realtime) return;
     try {
-      const scope = await messageSignalScope(this.db, task.conversationId, task.workspaceId);
-      const publicationId = `${task.messageId}:task:${task.revision}`;
+      const scopes = await conversationSignalScopes(this.db, task.conversationId, task.workspaceId);
       await Promise.allSettled([
         Promise.resolve().then(() =>
           realtime.messageAvailable({
@@ -1886,26 +1886,37 @@ export class TaskBoard {
             messageId: task.messageId,
             sequence: task.message.sequence,
             // Task metadata changes are always top-level messages, never thread replies.
-            ...scope,
-            publicationId,
+            ...scopes.message,
+            publicationId: `${task.messageId}:task:${task.revision}`,
           }),
         ),
-        this.announceTasks(task, scope, { tasks: [view(task)], publicationId }),
+        this.announceTasks(task, async () => scopes.task, {
+          tasks: [view(task)],
+          publicationId: `${task.messageId}:task-changed:${task.revision}`,
+        }),
       ]);
     } catch {
       // PostgreSQL is canonical; normal reconciliation repairs a missed metadata event.
     }
   }
 
-  /** Tells open Tasks pages the new copies of the Tasks a write changed, or the ids of those it
-   * deleted, where `scope` sends a message of their conversation. Never fails the write. */
+  /**
+   * Tells open Tasks pages the new copies of the Tasks a write changed, or the ids of those it
+   * deleted, where `route` says (nowhere when it names no scope). Its own publication key: the
+   * message signal on the same channel has another, since Centrifugo drops a repeated key.
+   * Never fails the write, the route's read included.
+   */
   private async announceTasks(
     conversation: { conversationId: string; workspaceId: string },
-    scope: MessageSignalScope,
+    route: () => Promise<MessageSignalScope | undefined>,
     change: { tasks?: TaskView[]; deleted?: string[]; publicationId: string },
   ) {
+    const taskChanged = this.dependencies.realtime?.taskChanged?.bind(this.dependencies.realtime);
+    if (!taskChanged) return;
     try {
-      await this.dependencies.realtime?.taskChanged?.({
+      const scope = await route();
+      if (!scope) return;
+      await taskChanged({
         workspaceId: conversation.workspaceId,
         conversationId: conversation.conversationId,
         tasks: change.tasks ?? [],

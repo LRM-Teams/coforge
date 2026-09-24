@@ -34,3 +34,9 @@ test("any other publication, or a malformed announcement, is not one", () => {
   expect(decodeTaskChangedEvent({ ...event, tasks: [{ messageId: "m" }] })).toBeUndefined();
   expect(decodeTaskChangedEvent(null)).toBeUndefined();
 });
+
+test("fields the announcement does not name pass through, and unreadable bytes are not one", () => {
+  const withReceipt = { ...event, tasks: [{ ...event.tasks[0], channelRef: "#general" }] };
+  expect(decodeTaskChangedEvent(withReceipt)?.tasks[0]).toMatchObject({ channelRef: "#general" });
+  expect(decodeTaskChangedEvent(new TextEncoder().encode("{not json"))).toBeUndefined();
+});
