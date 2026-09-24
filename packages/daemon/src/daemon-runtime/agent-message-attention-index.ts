@@ -42,6 +42,11 @@ const SEEN_MESSAGE_LIMIT = 1024;
  * anything older is consumed by the same frontier anyway. No invented slack. */
 const PENDING_WINDOW_LIMIT = HELD_CONTEXT_LIMIT;
 
+/** Footer shared by live and recovery inbox notices. Names the targeted drain; does not claim
+ * unread state, because a notice can race a check/read that already advanced the cursor. */
+const INBOX_DRAIN_HINT =
+  "Drain each listed target with `coforge message check --target <target>`, or inspect with `coforge message read --target <target>`. Either may return nothing, because a message can already have been read.";
+
 /**
  * Agent-authored parent-channel chatter should not wake other Agents unless it personally
  * @mentions them. Human ordinary channel messages still wake every delivered Agent so each can
@@ -415,7 +420,7 @@ export class AgentMessageAttentionIndex {
       `[CoForge inbox notice (restart recovery):
 Inbox update: ${totalCount} message${totalCount === 1 ? "" : "s"} delivered or held for you
 ${rows.join("\n")}
-Run \`coforge message check\` to drain pending messages, or \`coforge message read --target @x\` to inspect one target.]`,
+${INBOX_DRAIN_HINT}]`,
     );
     // Same synchronous-busy rule as `#notify` — this is also a `session.notify` call.
     this.hold.busy(agentId);
@@ -550,9 +555,7 @@ Run \`coforge message check\` to drain pending messages, or \`coforge message re
       `[CoForge inbox notice:
 Inbox update: ${totalCount} message${totalCount === 1 ? "" : "s"} delivered or held for you
 ${rows.join("\n")}
-What the server still has for you is answered only by \`coforge message check\`, or
-\`coforge message read --target <target>\`; either may return nothing, because a message can
-already have been read. A notice you have not acted on does not establish that there is no work.]`,
+${INBOX_DRAIN_HINT}]`,
     );
     const notification = Promise.resolve()
       .then(() => session.notify!(notice))

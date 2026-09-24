@@ -445,8 +445,8 @@ export class AgentControl {
               ? "provider_replay_rejected"
               : undefined;
         if (reason) this.runtime.invalidateSession?.(intent, launchId, replaced, reason);
-        // The retry creates a new native session, so it is an explicit create launch and gets
-        // the same startup turn as any other launch that creates a session.
+        // The retry creates a new native session; standing instructions are already on
+        // that session, so it waits for a real message instead of a synthetic first turn.
         identity = await this.runtime.launch(
           { ...fresh, sessionMode: "create" },
           launchId,

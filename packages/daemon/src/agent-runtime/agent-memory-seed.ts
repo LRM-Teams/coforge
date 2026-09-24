@@ -50,7 +50,7 @@ ${role}
 -
 
 ## Active Context (≤5 lines)
-- First startup.
+-
 
 ## Index
 - notes/work-log.md   按时间的完整历史

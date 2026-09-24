@@ -20,6 +20,9 @@ Rules for one Workspace child's runtime in `src/daemon-runtime/`. They extend
 
 - `agent-message-attention-index.ts` owns full-target thread attention,
   model-visible positions, and the accepted-Message observation hook.
+- A create or resume launch does not enqueue a synthetic first turn. Standing
+  instructions are already on the session; the Agent waits for a real message
+  or recovery notice.
 - After a successful current-generation `notify`, ordinary live Message
   delivery and concrete wake/resume batches report `Message received` Activity
   with detail kind `message_received`, matching Raft Computer 1.0.32's
@@ -64,8 +67,9 @@ Rules for one Workspace child's runtime in `src/daemon-runtime/`. They extend
   locally.
 - Agent Task operations use the Credential Proxy and the authenticated Agent
   HTTPS connection. Task parsing and wire contracts belong to the SDK and CLI;
-  claim/review applies to existing shared Tasks, not ordinary requests, and
-  that standing guidance lives once in `code-agent/agent-instructions.ts`.
+  claim/review applies to complex, coordinated, or already-shared Tasks, not
+  ordinary requests, and that standing guidance lives once in
+  `code-agent/agent-instructions.ts`.
 - Apply the attention/model-visible preflight to Task `claim` and status
   `update` only; `amend` gets no local preflight. After the preflight, forward
   without storing Task state or interpreting claims, status transitions, or
