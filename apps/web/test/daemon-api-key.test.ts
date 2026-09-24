@@ -20,7 +20,12 @@ class MemoryDaemonApiKeys implements DaemonApiKeyRepository {
   async findByHash(hash: string) {
     return this.records.get(hash);
   }
-  async markUsed() {}
+  markedUsed = 0;
+  async markUsed(id: string, at: Date) {
+    this.markedUsed++;
+    for (const [hash, value] of this.records)
+      if (value.id === id) this.records.set(hash, { ...value, lastUsedAt: at });
+  }
 }
 
 describe("Daemon API key", () => {
@@ -75,5 +80,24 @@ describe("Daemon API key", () => {
       computerId: "c",
     });
     expect(hashDaemonApiKey(second)).toBeTruthy();
+  });
+
+  test("records a key's last use at most once per minute, not on every request", async () => {
+    const repository = new MemoryDaemonApiKeys();
+    const token = await createDaemonApiKeyFactory(repository).create({
+      principal: { userId: "u" },
+      workspaceId: "w",
+      computerId: "c",
+    });
+    const start = new Date("2026-09-24T00:00:00Z");
+    await verifyDaemonApiKey(token, repository, start);
+    await verifyDaemonApiKey(token, repository, new Date(start.getTime() + 1_000));
+    await verifyDaemonApiKey(token, repository, new Date(start.getTime() + 59_000));
+    expect(repository.markedUsed).toBe(1);
+    await verifyDaemonApiKey(token, repository, new Date(start.getTime() + 60_000));
+    expect(repository.markedUsed).toBe(2);
+    expect([...repository.records.values()][0]?.lastUsedAt).toEqual(
+      new Date(start.getTime() + 60_000),
+    );
   });
 });

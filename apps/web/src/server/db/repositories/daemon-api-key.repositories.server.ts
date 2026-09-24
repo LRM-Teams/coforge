@@ -29,10 +29,10 @@ export class PrismaDaemonApiKeyRepository implements DaemonApiKeyRepository {
     );
   }
 
-  async markUsed(id: string): Promise<void> {
+  async markUsed(id: string, at: Date): Promise<void> {
     await this.db.daemonApiKey.update({
       where: { id },
-      data: { lastUsedAt: new Date() },
+      data: { lastUsedAt: at },
     });
   }
 }
