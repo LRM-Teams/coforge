@@ -11,7 +11,10 @@ These rules apply to `src/server/conversations/`.
 - `server/db/repositories/direct-conversation.repositories.server.ts` owns
   thread root validation, target-scoped ranges, Agent read positions, Agent
   target-scoped reads, and eligible-notification recovery. The Agent HTTPS
-  functions enforce the authenticated Agent identity before calling it.
+  functions enforce the authenticated Agent identity before calling it. Which
+  messages an Agent still owes attention to is stated once, in
+  `server/db/repositories/agent-attention.repositories.server.ts`; its reads
+  use that module and do not restate the rule.
 - `unresolved-mentions.server.ts` owns which `@handle`s of a sent message named
   nobody the sender can see (no Workspace human, no visible Agent). It reads the
   stored body, so a replay reads the same `@handle`s.
