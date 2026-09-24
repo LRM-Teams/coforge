@@ -564,5 +564,6 @@
   "search_frequent_empty": "Channels and Agents you open from search appear here.",
   "search_frequent_failed": "Could not load your frequently used places.",
   "conversation_mention_group_in_channel": "In this channel",
-  "conversation_mention_group_not_in_channel": "Not in this channel"
+  "conversation_mention_group_not_in_channel": "Not in this channel",
+  "search_this_channel": "Search this channel"
 }

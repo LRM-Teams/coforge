@@ -543,5 +543,6 @@
   "search_frequent_empty": "你从搜索中打开过的频道和 Agent 会显示在这里。",
   "search_frequent_failed": "无法加载常用列表。",
   "conversation_mention_group_in_channel": "在此频道中",
-  "conversation_mention_group_not_in_channel": "不在此频道中"
+  "conversation_mention_group_not_in_channel": "不在此频道中",
+  "search_this_channel": "搜索此频道"
 }

@@ -1,7 +1,8 @@
 import { useMemo, useState, type ReactNode } from "react";
+import { useNavigate } from "@tanstack/react-router";
 import type { ConversationTab } from "#src/features/conversations/conversation-tabs";
 import { useQuery } from "@tanstack/react-query";
-import { Hash01 as Hash, Settings01 as Settings } from "@untitledui/icons";
+import { Hash01 as Hash, SearchLg, Settings01 as Settings } from "@untitledui/icons";
 import type { TaskView } from "@lrm/coforge-sdk/internal";
 import { Button } from "#src/components/base/buttons/button";
 import { ButtonUtility } from "#src/components/base/buttons/button-utility";
@@ -76,6 +77,7 @@ export function ChannelConversationHeader({
   onSettingsOpenChange?: (open: boolean) => void;
 }) {
   const [ownSettingsOpen, setOwnSettingsOpen] = useState(false);
+  const navigate = useNavigate();
   const settingsOpen = controlledSettingsOpen ?? ownSettingsOpen;
   const setSettingsOpen = onSettingsOpenChange ?? setOwnSettingsOpen;
   return (
@@ -98,6 +100,18 @@ export function ChannelConversationHeader({
           // Borderless utility strip: the -mr-1.5 cancels the last button's p-1.5 so its glyph
           // lands on the pane gutter (docs/design/page-skeleton-and-density.md §8 optical alignment).
           <div className="-mr-1.5 flex shrink-0 items-center gap-3">
+            <ButtonUtility
+              icon={SearchLg}
+              size="sm"
+              color="tertiary"
+              tooltip={m.search_this_channel()}
+              onClick={() =>
+                void navigate({
+                  to: "/search",
+                  search: { channelId: conversation.conversationId, defer: "1" },
+                })
+              }
+            />
             <ButtonUtility
               icon={Settings}
               size="sm"

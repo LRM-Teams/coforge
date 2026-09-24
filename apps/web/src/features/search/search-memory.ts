@@ -40,6 +40,33 @@ export function isSearchMemoryKey(key: string | null, workspaceId: string, userI
   );
 }
 
+/** The last search's URL fields, so a shortcut can reopen it. */
+export type LastSearch = {
+  q?: string;
+  senderId?: string;
+  scope?: string;
+  channelId?: string;
+  range?: "today" | "7d" | "30d";
+  sort?: "recent";
+};
+
+function lastSearchKey(workspaceId: string, userId: string) {
+  return `coforge:search-last:${workspaceId}:${userId}`;
+}
+
+const isLastSearch = (value: unknown): value is LastSearch =>
+  typeof value === "object" &&
+  value !== null &&
+  Object.values(value).every((field) => field === undefined || typeof field === "string");
+
+export function readLastSearch(workspaceId: string, userId: string): LastSearch {
+  return read(lastSearchKey(workspaceId, userId), isLastSearch, {});
+}
+
+export function writeLastSearch(workspaceId: string, userId: string, search: LastSearch) {
+  write(lastSearchKey(workspaceId, userId), search);
+}
+
 function historyKey(workspaceId: string, userId: string) {
   return `coforge:search-history:${workspaceId}:${userId}`;
 }

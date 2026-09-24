@@ -22,6 +22,7 @@ import { getUserPreferences } from "#src/features/settings/settings.functions";
 import { getPanelTabOrders } from "#src/features/panel-tabs/panel-tabs.functions";
 import { PanelTabOrderProvider } from "#src/features/panel-tabs/panel-tab-order-context";
 import { useLastLocationMemory } from "#src/features/workspaces/use-last-location-memory";
+import { useSearchShortcut } from "#src/features/search/search-shortcut";
 
 export const Route = createFileRoute("/_app")({
   staleTime: Infinity,
@@ -64,6 +65,7 @@ function AppLayout() {
     tabOrders,
   } = Route.useLoaderData();
   useLastLocationMemory(currentWorkspace?.slug);
+  useSearchShortcut(currentWorkspace?.id, user.id);
   const getRealtimeToken = useServerFn(getBrowserRealtimeConnectionToken);
   const getConnectionToken = useCallback(() => getRealtimeToken(), [getRealtimeToken]);
   const router = useRouter();

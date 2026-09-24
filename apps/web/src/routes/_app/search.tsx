@@ -1,8 +1,9 @@
-import { useCallback, useMemo } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 import { createFileRoute, getRouteApi, useNavigate } from "@tanstack/react-router";
 import { z } from "zod";
 
 import { parseScope, SEARCH_RANGES, type SearchFilters } from "#src/features/search/search-filters";
+import { writeLastSearch } from "#src/features/search/search-memory";
 import { SearchPage } from "#src/features/search/search-page";
 import { SEARCH_QUERY_MAX_LENGTH } from "#src/features/search/search.schemas";
 
@@ -21,13 +22,21 @@ export const Route = createFileRoute("/_app/search")({
     channelId: z.uuid().optional().catch(undefined),
     range: z.enum(SEARCH_RANGES).optional().catch(undefined),
     sort: z.literal("recent").optional().catch(undefined),
+    // Set by "Search this channel": the filters wait for a query before searching.
+    defer: z.literal("1").optional().catch(undefined),
   }),
   component: SearchRoute,
 });
 
 function SearchRoute() {
-  const { q, senderId, scope, channelId, range, sort } = Route.useSearch();
+  const { q, senderId, scope, channelId, range, sort, defer } = Route.useSearch();
   const { currentWorkspace, timeZone, user } = appRoute.useLoaderData();
+  const workspaceId = currentWorkspace?.id;
+  // The search as the URL holds it becomes the last search, for Cmd/Ctrl+K to reopen.
+  useEffect(() => {
+    if (workspaceId)
+      writeLastSearch(workspaceId, user.id, { q, senderId, scope, channelId, range, sort });
+  }, [workspaceId, user.id, q, senderId, scope, channelId, range, sort]);
   const navigate = useNavigate({ from: Route.fullPath });
   const filters = useMemo<SearchFilters>(
     () => ({ senderId, scope: parseScope(scope), channelId, range, sort }),
@@ -62,6 +71,7 @@ function SearchRoute() {
     <SearchPage
       workspaceId={currentWorkspace.id}
       viewerId={user.id}
+      deferred={defer === "1"}
       timeZone={timeZone}
       query={q ?? ""}
       filters={filters}
