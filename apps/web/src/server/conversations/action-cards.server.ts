@@ -630,8 +630,9 @@ export class ActionCards {
       };
     }
     if (action.type === "agent:create") {
+      // A deleted Agent's name is free: creating the Agent renames the deleted holder.
       const existing = await this.db.agent.findFirst({
-        where: { workspaceId, name: action.name },
+        where: { workspaceId, name: action.name, ...ACTIVE_AGENT_WHERE },
         select: { id: true },
       });
       if (existing)

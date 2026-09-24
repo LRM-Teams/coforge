@@ -160,19 +160,23 @@ export class PrismaAgentRepository implements AgentRepository {
       // transaction). The deleted row is hidden from every directory and its name can never come
       // back, so the id-suffixed rename is invisible and keeps renamed rows distinct from each
       // other; history keeps referencing the deleted row by id, so nothing is inherited. A live
-      // holder keeps its name, and the create is refused as a taken name.
-      const holder = await tx.agent.findFirst({
-        where: { workspaceId: input.workspaceId, name: input.name },
-        select: { id: true, deletedAt: true },
+      // holder keeps its name, so the insert's unique violation refuses the create as a taken name.
+      const deletedHolder = await tx.agent.findFirst({
+        where: { workspaceId: input.workspaceId, name: input.name, deletedAt: { not: null } },
+        select: { id: true },
       });
-      if (holder && !holder.deletedAt)
-        throw new AppError("INVALID_INPUT", { errorId: "agent-name-taken" });
-      if (holder)
+      if (deletedHolder)
         await tx.agent.update({
-          where: { id: holder.id },
-          data: { name: deletedAgentName(input.name, holder.id) },
+          where: { id: deletedHolder.id },
+          data: { name: deletedAgentName(input.name, deletedHolder.id) },
         });
-      const agent = mapAgent(await tx.agent.create({ data: input }));
+      const agent = mapAgent(
+        await tx.agent.create({ data: input }).catch((error: unknown) => {
+          throw isUniqueViolation(error)
+            ? new AppError("CONFLICT", { errorId: "agent-name-taken" })
+            : error;
+        }),
+      );
       // #general holds every public Agent from the start (a private one never): the enrollment
       // brings the whole Workspace's #general membership up to date, this Agent included.
       await enrollGeneralChannel(tx, input.workspaceId);
@@ -187,6 +191,10 @@ export class PrismaAgentRepository implements AgentRepository {
   ) {
     return mapAgent(await this.db.agent.update({ where: { id }, data: input }));
   }
+}
+
+function isUniqueViolation(error: unknown) {
+  return error instanceof Error && "code" in error && error.code === "P2002";
 }
 
 /**
