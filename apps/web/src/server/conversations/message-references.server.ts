@@ -7,7 +7,18 @@ import {
 } from "@lrm/coforge-sdk/internal";
 import type { Prisma } from "#src/generated/prisma/client";
 import { readMessageReferences } from "#src/lib/message-references";
-import { channelThreadRootWhere } from "#src/server/db/message-anchor.server";
+import {
+  channelThreadRootsWhere,
+  messageIdMatchesAnchor,
+} from "#src/server/db/message-anchor.server";
+
+/**
+ * How many distinct thread references one body resolves, in reading order; any after them stay as
+ * written. Mentions, tasks and channels each resolve in one query however many a body holds;
+ * thread references read their channels' messages, so their number is bounded to keep that read
+ * small inside the send transaction.
+ */
+export const MAX_THREAD_REFERENCES = 20;
 
 /**
  * The body a send stores, and the mentions it resolved: every reference the server can resolve
@@ -21,8 +32,9 @@ import { channelThreadRootWhere } from "#src/server/db/message-anchor.server";
  *   number (see `readMessageReferences` for the full precedence). Every channel is public and readable by every
  *   Workspace member (archived ones included), so any channel here is one the sender can see;
  * - `#name:shortid` names a top-level message of that channel, by a 6–8 hex prefix only that
- *   message's id has, or by its whole id (`channelThreadRootWhere`, the rule an Agent's thread
- *   target is found by).
+ *   message's id has, or by its whole id (`channelThreadRootsWhere`, the rule an Agent's thread
+ *   target is found by). Only the first `MAX_THREAD_REFERENCES` distinct ones are looked up, in one
+ *   read per channel.
  *
  * Anything unresolved stays byte-for-byte as written, a token the sender typed included. A token is
  * a claim, never trusted as stored: every consumer checks it against authoritative data (a mention
@@ -40,7 +52,8 @@ export async function storeMessageBody(
   },
 ): Promise<{ body: string; mentions: ResolvedMention[] }> {
   const references = readMessageReferences(body);
-  const { handles, threads } = references.candidates;
+  const { handles } = references.candidates;
+  const threads = references.candidates.threads.slice(0, MAX_THREAD_REFERENCES);
   // A thread reference's channel is looked up with the channels, in the same query.
   const channelNames = [
     ...new Set([...references.candidates.channelNames, ...threads.map((thread) => thread.name)]),
@@ -71,18 +84,23 @@ export async function storeMessageBody(
         ).map((channel) => [channel.channelName!, { id: channel.id, name: channel.channelName! }])
       : [],
   );
-  // Each thread reference is its own range read over the channel's top-level messages; two rows
-  // mean the prefix is ambiguous, and it names nothing.
-  const threadRoots = new Map<string, string>();
+  // One read per channel over its top-level messages, for every anchor into it; an anchor two rows
+  // answer is ambiguous, and names nothing.
+  const anchorsByChannel = new Map<string, string[]>();
   for (const { name, anchor } of threads) {
-    const channel = channelsByName.get(name);
-    if (!channel) continue;
-    const roots = await tx.message.findMany({
-      where: channelThreadRootWhere(channel.id, anchor),
-      take: 2,
+    if (!channelsByName.has(name)) continue;
+    anchorsByChannel.set(name, [...(anchorsByChannel.get(name) ?? []), anchor]);
+  }
+  const threadRoots = new Map<string, string>();
+  for (const [name, anchors] of anchorsByChannel) {
+    const rows = await tx.message.findMany({
+      where: channelThreadRootsWhere(channelsByName.get(name)!.id, anchors),
       select: { id: true },
     });
-    if (roots.length === 1) threadRoots.set(`${name}:${anchor}`, roots[0]!.id);
+    for (const anchor of anchors) {
+      const matches = rows.filter((row) => messageIdMatchesAnchor(row.id, anchor));
+      if (matches.length === 1) threadRoots.set(`${name}:${anchor}`, matches[0]!.id);
+    }
   }
   return {
     body: references.resolve({

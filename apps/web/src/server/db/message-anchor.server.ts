@@ -34,3 +34,23 @@ export function messageAnchorWhere(anchor: string): string | { gte: string; lte:
 export function channelThreadRootWhere(conversationId: string, anchor: string) {
   return { conversationId, threadRootId: null, id: messageAnchorWhere(anchor) };
 }
+
+/**
+ * The top-level messages of one conversation that any of several anchors name, in one read — the
+ * `channelThreadRootWhere` rule for a batch. Which anchor a row answers is `messageIdMatchesAnchor`;
+ * more than one row for an anchor means it is ambiguous. There is no row limit: an anchor names at
+ * least a one-in-16.7-million slice of the id space (six hex characters), so a batch reads a
+ * handful of rows, and a limit could hide the second row that makes an anchor ambiguous.
+ */
+export function channelThreadRootsWhere(conversationId: string, anchors: readonly string[]) {
+  return {
+    conversationId,
+    threadRootId: null,
+    OR: anchors.map((anchor) => ({ id: messageAnchorWhere(anchor) })),
+  };
+}
+
+/** Whether a message id (as stored, lower-case) is one an anchor names. */
+export function messageIdMatchesAnchor(id: string, anchor: string): boolean {
+  return id.toLowerCase().startsWith(anchor.toLowerCase());
+}
