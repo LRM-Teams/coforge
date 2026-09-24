@@ -761,6 +761,27 @@ export class PublicChannels {
     return { channelId, channelRole: role };
   }
 
+  /**
+   * The viewer's own recent @-mentions in one channel, newest first, for `mentionAffinityScores`.
+   * Keyed by their member row (one per user per channel, kept after leaving) rather than a join
+   * through `sender.userId`: that join could only walk every mention in the channel newest first
+   * until it found the viewer's, while the member row reads their own messages from
+   * `messages(senderMemberId, …)`. A reader with no member row has mentioned no one here.
+   */
+  private async viewerRecentMentions(channelId: string, userId: string) {
+    const member = await this.db.conversationMember.findUnique({
+      where: { conversationId_userId: { conversationId: channelId, userId } },
+      select: { id: true },
+    });
+    if (!member) return [];
+    return this.db.messageMention.findMany({
+      where: { conversationId: channelId, message: { senderMemberId: member.id } },
+      orderBy: { createdAt: "desc" },
+      take: 50,
+      select: { kind: true, actorId: true, createdAt: true },
+    });
+  }
+
   private async channel(workspaceId: string, userId: string, channelId: string) {
     await this.authorize(workspaceId, userId);
     const channel = await this.db.conversation.findFirst({
@@ -1216,18 +1237,8 @@ export class PublicChannels {
           },
         },
       }),
-      // The viewer's own recent @-mentions in this channel, newest first: scores each
-      // completion candidate by how recently and how often the viewer has mentioned them (see
-      // `mentionAffinityScores`). Filtered through the message's sender relation rather than
-      // the already-loading `member` above, so this stays part of the same parallel fetch; a
-      // viewer with no messages here (never joined, or joined but never mentioned anyone)
-      // naturally gets an empty list and every candidate scores 0.
-      this.db.messageMention.findMany({
-        where: { conversationId: channelId, message: { sender: { userId } } },
-        orderBy: { createdAt: "desc" },
-        take: 50,
-        select: { kind: true, actorId: true, createdAt: true },
-      }),
+      // Scores each completion candidate by the viewer's own recent mentions here.
+      this.viewerRecentMentions(channelId, userId),
     ]);
     const mentionScores = mentionAffinityScores(viewerRecentMentions);
     const overflow = messages.length > limit;
@@ -1327,12 +1338,7 @@ export class PublicChannels {
           },
         },
       }),
-      this.db.messageMention.findMany({
-        where: { conversationId: channelId, message: { sender: { userId } } },
-        orderBy: { createdAt: "desc" },
-        take: 50,
-        select: { kind: true, actorId: true, createdAt: true },
-      }),
+      this.viewerRecentMentions(channelId, userId),
     ]);
     const mentionScores = mentionAffinityScores(viewerRecentMentions);
     return mentionRows

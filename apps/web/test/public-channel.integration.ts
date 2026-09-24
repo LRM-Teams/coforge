@@ -3194,3 +3194,73 @@ test("replacing a member's pins sets their order in one step, pins what is new, 
     redis.close();
   }
 });
+
+test("@-completion scores count only the viewer's own mentions in the channel, thread replies included", async () => {
+  const connectionString = Bun.env.CHANNEL_TEST_DATABASE_URL;
+  if (!connectionString) throw new Error("CHANNEL_TEST_DATABASE_URL is required");
+  const db = new PrismaClient({ adapter: new PrismaPg({ connectionString }) });
+  const redis = new RedisClient(Bun.env.CHANNEL_TEST_REDIS_URL!);
+  const suffix = crypto.randomUUID().slice(0, 8);
+  const [alice, bob, carol, dana] = await Promise.all(
+    ["ma", "mb", "mc", "md"].map((prefix) =>
+      db.user.create({ data: { username: `${prefix}${suffix}` } }),
+    ),
+  );
+  const workspace = await db.workspace.create({
+    data: {
+      slug: `mentions-${suffix}`,
+      name: "Mentions",
+      members: { create: [alice!, bob!, carol!].map((user) => ({ userId: user.id })) },
+    },
+  });
+  try {
+    await enrollGeneral(db, workspace.id);
+    // Dana joins the Workspace after enrollment: she can read #general without a member row.
+    await db.workspaceMembership.create({ data: { workspaceId: workspace.id, userId: dana!.id } });
+    const channels = new PublicChannels(db, new RedisMessageRequestIdempotency(redis), {
+      publish: async () => {},
+      publishJson: async () => {},
+      broadcast: async () => {},
+    });
+    const general = (await channels.list(workspace.id, alice!.id))[0]!;
+    const send = (userId: string, body: string, threadRootId?: string) =>
+      channels.send({
+        workspaceId: workspace.id,
+        userId,
+        channelId: general.id,
+        requestId: crypto.randomUUID(),
+        body,
+        threadRootId,
+      });
+    const root = await send(alice!.id, `@${bob!.username} can you look?`);
+    await send(alice!.id, `@${bob!.username} following up`, root.id);
+    // Carol mentions both Alice and Bob: someone else's mention never scores for Alice.
+    await send(carol!.id, `@${alice!.username} @${bob!.username} on it`);
+
+    const scores = (mentionables: { handle: string; mentionScore: number }[]) =>
+      Object.fromEntries(mentionables.map((entry) => [entry.handle, entry.mentionScore]));
+    const bobInTwo = { [alice!.username]: 0, [bob!.username]: 200, [carol!.username]: 0 };
+    expect(scores((await channels.open(workspace.id, alice!.id, general.id)).mentionables)).toEqual(
+      bobInTwo,
+    );
+    expect(scores(await channels.mentionDirectory(workspace.id, alice!.id, general.id))).toEqual(
+      bobInTwo,
+    );
+    expect(scores(await channels.mentionDirectory(workspace.id, carol!.id, general.id))).toEqual({
+      [alice!.username]: 100,
+      [bob!.username]: 100,
+      [carol!.username]: 0,
+    });
+    // A reader with no member row has mentioned no one here.
+    expect(
+      Object.values(scores((await channels.open(workspace.id, dana!.id, general.id)).mentionables)),
+    ).toEqual([0, 0, 0]);
+  } finally {
+    await db.workspace.delete({ where: { id: workspace.id } });
+    await db.user.deleteMany({
+      where: { id: { in: [alice!, bob!, carol!, dana!].map((user) => user.id) } },
+    });
+    await db.$disconnect();
+    redis.close();
+  }
+});
