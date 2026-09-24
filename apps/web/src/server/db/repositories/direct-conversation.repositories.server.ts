@@ -305,6 +305,12 @@ function unreadForAgentWhere(agentId: string, isChannel: boolean) {
  * statement cannot call the shared `agentMessageSender` projection directly. `otherUsername` is
  * the *recipient* — the conversation's other active member, which a DM target needs and a
  * message's sender cannot supply.
+ *
+ * The `m` subquery narrows the scan before the rule is applied, one disjoint branch per
+ * conversation kind: a channel message only counts with a delivery row, so channels are read through the
+ * Agent's deliveries instead of their history, and a direct message's top level is an index range
+ * above the Agent's boundary. Only direct-message thread replies, whose boundary is per thread,
+ * are scanned in full. The outer `WHERE` still states the whole rule.
  */
 function unreadAgentMessagesFragment(workspaceId: string, agentId: string) {
   return Prisma.sql`
@@ -319,7 +325,34 @@ function unreadAgentMessagesFragment(workspaceId: string, agentId: string) {
         LEFT JOIN "agents" oa ON oa."id" = om."agentId"
         WHERE om."conversationId" = c."id" AND om."id" <> am."id" AND om."leftAt" IS NULL
         ORDER BY ou."username" NULLS LAST LIMIT 1) AS "otherUsername"
-    FROM "messages" m
+    FROM (
+      SELECT cm."id", cm."sequence", cm."body", cm."conversationId", cm."threadRootId",
+        cm."senderMemberId"
+      FROM "agent_message_deliveries" cd
+      JOIN "messages" cm ON cm."id" = cd."messageId"
+      JOIN "conversations" cc ON cc."id" = cm."conversationId" AND cc."channelName" IS NOT NULL
+      WHERE cd."workspaceId" = ${workspaceId}::uuid AND cd."agentId" = ${agentId}::uuid
+      UNION ALL
+      SELECT dm."id", dm."sequence", dm."body", dm."conversationId", dm."threadRootId",
+        dm."senderMemberId"
+      FROM "conversation_members" dam
+      JOIN "conversations" dc ON dc."id" = dam."conversationId" AND dc."channelName" IS NULL
+      JOIN "messages" dm ON dm."conversationId" = dam."conversationId"
+        AND dm."threadRootId" IS NULL AND dm."sequence" > dam."agentReadThroughSequence"
+      WHERE dam."workspaceId" = ${workspaceId}::uuid AND dam."agentId" = ${agentId}::uuid
+        AND dam."leftAt" IS NULL
+      UNION ALL
+      SELECT dm."id", dm."sequence", dm."body", dm."conversationId", dm."threadRootId",
+        dm."senderMemberId"
+      FROM "conversation_members" dam
+      JOIN "conversations" dc ON dc."id" = dam."conversationId" AND dc."channelName" IS NULL
+      JOIN "messages" dm ON dm."conversationId" = dam."conversationId"
+        AND dm."threadRootId" IS NOT NULL
+      LEFT JOIN "thread_reads" dtr
+        ON dtr."memberId" = dam."id" AND dtr."rootMessageId" = dm."threadRootId"
+      WHERE dam."workspaceId" = ${workspaceId}::uuid AND dam."agentId" = ${agentId}::uuid
+        AND dam."leftAt" IS NULL AND dm."sequence" > COALESCE(dtr."readThroughSequence", 0)
+    ) m
     JOIN "conversation_members" am ON am."conversationId" = m."conversationId"
       AND am."workspaceId" = ${workspaceId}::uuid AND am."agentId" = ${agentId}::uuid
       AND am."leftAt" IS NULL
