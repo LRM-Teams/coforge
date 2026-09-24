@@ -592,6 +592,10 @@ export type AgentStartIntent = {
   wakeMessage?: AgentRecoveryMessage;
   resumeMessages?: AgentRecoveryMessage[];
   unreadSummary?: Readonly<Record<string, number>>;
+  /** Text the Agent's first turn opens with, in place of message recovery: the guidance a user
+   * gives when resuming Agents they stopped. Never carried together with `wakeMessage`,
+   * `resumeMessages` or `unreadSummary`. */
+  resumePrompt?: string;
 };
 export type AgentStopIntent = {
   protocolMajor: number;
@@ -879,6 +883,7 @@ export {
   decodeAgentSessionInvalidate,
   encodeAgentContextUsage,
   decodeAgentContextUsage,
+  AGENT_RESUME_PROMPT_MAX_LENGTH,
   encodeAgentStartIntent,
   decodeAgentStartIntent,
   encodeAgentStopIntent,

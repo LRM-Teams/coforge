@@ -158,6 +158,10 @@ message AgentStartIntent {
   // control_epoch is set (every managed start); absent only for an unmanaged
   // start, which this wire message no longer expects from a current server.
   optional string launch_id = 19;
+  // Text the Agent's first turn opens with, in place of message recovery: the
+  // guidance a user gives when resuming Agents they stopped.
+  // Never carried together with wake_message, resume_messages or unread_summary.
+  optional string resume_prompt = 20;
 }
 
 // Versioned server-to-daemon stop intent. A replacement is expressed as a

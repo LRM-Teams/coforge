@@ -315,7 +315,8 @@ export class AgentControl {
           this.runtime.running(intent.agentId) &&
           intent.wakeMessage
         )
-          await this.runtime.wake?.(intent);
+          // A replay of the same Start: its resume prompt was already delivered.
+          await this.runtime.wake?.({ ...intent, resumePrompt: undefined });
         await this.runtime.result(record.startResult).catch(() => {});
         return;
       }
@@ -647,8 +648,8 @@ export class AgentControl {
     this.sessions.capture(record, record.identity);
     await this.store.write(scope.agentId, record);
     // Reuses the same hook the equal-epoch replay branch already uses to deliver a Start's wake
-    // message to a running process — never spawns anything.
-    if (intent.wakeMessage) await this.runtime.wake?.(intent);
+    // message (and resume prompt) to a running process — never spawns anything.
+    if (intent.wakeMessage || intent.resumePrompt !== undefined) await this.runtime.wake?.(intent);
     await this.runtime.result(record.lastResult).catch(() => {});
     logger.info("Agent Start rebound to an already-running process", {
       event: "agent_control:start_rebound",

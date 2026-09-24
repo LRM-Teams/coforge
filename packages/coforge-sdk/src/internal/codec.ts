@@ -679,7 +679,30 @@ function validateAgentContextUsage(value: {
     throw new Error("invalid context usage clientSeq");
 }
 
+/** The longest resume prompt a start intent carries, in UTF-16 code units. */
+export const AGENT_RESUME_PROMPT_MAX_LENGTH = 8192;
+
+function assertResumePrompt(
+  prompt: string | undefined,
+  hasRecovery: boolean,
+  error: (reason: string) => Error,
+) {
+  if (prompt === undefined) return;
+  if (!prompt.trim()) throw error("blank resume prompt");
+  if (prompt.length > AGENT_RESUME_PROMPT_MAX_LENGTH) throw error("resume prompt is too long");
+  if (hasRecovery) throw error("resume prompt cannot carry message recovery");
+}
+
 export function encodeAgentStartIntent(value: AgentStartIntent): Uint8Array {
+  assertResumePrompt(
+    value.resumePrompt,
+    Boolean(
+      value.wakeMessage ||
+      value.resumeMessages?.length ||
+      Object.keys(value.unreadSummary ?? {}).length,
+    ),
+    (reason) => new Error(`invalid Agent start ${reason}`),
+  );
   if (value.controlEpoch !== undefined)
     assertPositiveControlCounter(value.controlEpoch, "Agent control epoch");
   // The server mints and supplies launchId for every managed (controlEpoch-carrying)
@@ -794,6 +817,11 @@ export function decodeAgentStartIntent(bytes: Uint8Array): AgentStartIntent {
     throw new Error("invalid Agent session mode");
   if (v.sessionMode === "resume" && !v.sessionId)
     throw new Error("Agent resume requires a session ID");
+  assertResumePrompt(
+    v.resumePrompt,
+    recoveryMessages.length > 0 || v.unreadSummary.length > 0,
+    (reason) => new Error(`invalid agent start intent: ${reason}`),
+  );
   const recoveryMessage = (message: (typeof recoveryMessages)[number]) => ({
     messageId: message.messageId,
     deliveryId: message.deliveryId,
@@ -826,6 +854,7 @@ export function decodeAgentStartIntent(bytes: Uint8Array): AgentStartIntent {
     ...(v.sessionMode ? { sessionMode: v.sessionMode } : {}),
     ...(v.controlEpoch !== undefined ? { controlEpoch: v.controlEpoch } : {}),
     ...(v.launchId ? { launchId: v.launchId } : {}),
+    ...(v.resumePrompt !== undefined ? { resumePrompt: v.resumePrompt } : {}),
     ...(v.wakeMessage ? { wakeMessage: recoveryMessage(v.wakeMessage) } : {}),
     ...(v.resumeMessages.length ? { resumeMessages: v.resumeMessages.map(recoveryMessage) } : {}),
     ...(v.unreadSummary.length
