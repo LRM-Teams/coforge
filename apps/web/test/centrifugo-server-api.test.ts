@@ -34,6 +34,29 @@ test("publishes binary protocol payloads through the Centrifugo v6 HTTP API", as
   });
 });
 
+test("publishes payloads larger than one base64 chunk byte-exactly", async () => {
+  let request: Request | undefined;
+  globalThis.fetch = Object.assign(
+    (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+      request = new Request(input, init);
+      return Promise.resolve(Response.json({ result: {} }));
+    },
+    { preconnect: originalFetch.preconnect },
+  );
+
+  // One byte past two full chunks: the boundary bytes must survive the split.
+  const payload = new Uint8Array(2 * 0x8000 + 1);
+  for (let index = 0; index < payload.length; index += 1) payload[index] = (index * 37 + 200) % 256;
+
+  await createCentrifugoServerApi({
+    COFORGE_CENTRIFUGO_API_URL: "http://centrifugo.test/api",
+    COFORGE_CENTRIFUGO_API_KEY: "test-api-key",
+  }).publish("workspace:workspace-1", payload);
+
+  const body = (await request?.json()) as { params: { b64data: string } };
+  expect(body.params.b64data).toBe(Buffer.from(payload).toString("base64"));
+});
+
 test("publishes an idempotent JSON chat event through the Centrifugo v6 HTTP API", async () => {
   let request: Request | undefined;
   globalThis.fetch = Object.assign(
