@@ -891,6 +891,233 @@ test("a channel send reports the @handles that name nobody the sender can see, a
   }
 });
 
+test("a channel @mention of someone outside the channel becomes the sender's pending mention action for 7 days, and a replay returns the same one", async () => {
+  const connectionString = Bun.env.CHANNEL_TEST_DATABASE_URL;
+  if (!connectionString) throw new Error("CHANNEL_TEST_DATABASE_URL is required");
+  const db = new PrismaClient({ adapter: new PrismaPg({ connectionString }) });
+  const redis = new RedisClient(Bun.env.CHANNEL_TEST_REDIS_URL!);
+  const suffix = crypto.randomUUID().slice(0, 8);
+  const alice = await db.user.create({ data: { username: `pa${suffix}` } });
+  const bob = await db.user.create({ data: { username: `pb${suffix}` } });
+  const carol = await db.user.create({ data: { username: `pc${suffix}` } });
+  const workspace = await db.workspace.create({
+    data: {
+      slug: crypto.randomUUID(),
+      name: "Pending mentions",
+      members: { create: [{ userId: alice.id }, { userId: bob.id }, { userId: carol.id }] },
+    },
+  });
+  try {
+    const computer = await db.computer.create({
+      data: { ownerId: bob.id, machineId: crypto.randomUUID() },
+    });
+    const helper = await db.agent.create({
+      data: {
+        workspaceId: workspace.id,
+        ownerId: bob.id,
+        computerId: computer.id,
+        name: "helper",
+        displayName: "Helper",
+        runtimeConfig: {},
+      },
+    });
+    // A private Agent the sender can see (its owner) still cannot join a channel.
+    await db.agent.create({
+      data: {
+        workspaceId: workspace.id,
+        ownerId: alice.id,
+        computerId: computer.id,
+        name: "mine",
+        displayName: "Mine",
+        visibility: "private",
+        runtimeConfig: {},
+      },
+    });
+    const channels = new PublicChannels(db, new RedisMessageRequestIdempotency(redis), {
+      publish: async () => {},
+      publishJson: async () => {},
+      broadcast: async () => {},
+    });
+    const triage = await channels.create(workspace.id, alice.id, `pending-${suffix}`);
+    await channels.addMembers(workspace.id, { userId: alice.id }, triage.id, {
+      userIds: [carol.id],
+      agentIds: [],
+    });
+    const send = {
+      workspaceId: workspace.id,
+      userId: alice.id,
+      channelId: triage.id,
+      requestId: crypto.randomUUID(),
+      body: `@pc${suffix} @pb${suffix} @helper @mine \`@pb${suffix}\` @ghost @pb${suffix}`,
+    };
+
+    const sent = await channels.send(send);
+    // Carol is a member and was mentioned; bob and helper are outside the channel; a private
+    // Agent is never offered; ghost is unresolved; code is never a mention.
+    expect(
+      sent.pendingMentionActions.map((action) => [
+        action.targetType,
+        action.targetId,
+        action.targetHandle,
+        action.availableActions,
+      ]),
+    ).toEqual([
+      ["user", bob.id, `pb${suffix}`, ["add"]],
+      ["agent", helper.id, "helper", ["add"]],
+    ]);
+    expect(sent.unresolvedMentionHandles).toEqual(["ghost"]);
+    for (const action of sent.pendingMentionActions) {
+      expect(action.messageId).toBe(sent.id);
+      expect(new Date(action.expiresAt).getTime() - sent.createdAt.getTime()).toBe(
+        7 * 24 * 60 * 60 * 1000,
+      );
+    }
+    const replay = await channels.send(send);
+    expect(replay.pendingMentionActions.map((action) => action.resolutionId)).toEqual(
+      sent.pendingMentionActions.map((action) => action.resolutionId),
+    );
+  } finally {
+    await db.workspace.delete({ where: { id: workspace.id } });
+    await db.computer.deleteMany({ where: { ownerId: bob.id } });
+    await db.user.deleteMany({ where: { id: { in: [alice.id, bob.id, carol.id] } } });
+    await db.$disconnect();
+    redis.close();
+  }
+});
+
+test("the sender adds a mentioned outsider to the channel once; another member's id, an expired one and a repeat are refused", async () => {
+  const connectionString = Bun.env.CHANNEL_TEST_DATABASE_URL;
+  if (!connectionString) throw new Error("CHANNEL_TEST_DATABASE_URL is required");
+  const db = new PrismaClient({ adapter: new PrismaPg({ connectionString }) });
+  const redis = new RedisClient(Bun.env.CHANNEL_TEST_REDIS_URL!);
+  const suffix = crypto.randomUUID().slice(0, 8);
+  const alice = await db.user.create({ data: { username: `xa${suffix}` } });
+  const bob = await db.user.create({ data: { username: `xb${suffix}` } });
+  const carol = await db.user.create({ data: { username: `xc${suffix}` } });
+  const workspace = await db.workspace.create({
+    data: {
+      slug: crypto.randomUUID(),
+      name: "Mention actions",
+      members: { create: [{ userId: alice.id }, { userId: bob.id }, { userId: carol.id }] },
+    },
+  });
+  try {
+    const computer = await db.computer.create({
+      data: { ownerId: bob.id, machineId: crypto.randomUUID() },
+    });
+    const helper = await db.agent.create({
+      data: {
+        workspaceId: workspace.id,
+        ownerId: bob.id,
+        computerId: computer.id,
+        name: "helper",
+        displayName: "Helper",
+        runtimeConfig: {},
+      },
+    });
+    const announced: string[][] = [];
+    const channels = new PublicChannels(
+      db,
+      new RedisMessageRequestIdempotency(redis),
+      { publish: async () => {}, publishJson: async () => {}, broadcast: async () => {} },
+      undefined,
+      {
+        messageAvailable: async () => {},
+        memberChanged: async (event: { conversationIds: string[] }) => {
+          announced.push(event.conversationIds);
+        },
+      } as unknown as ConstructorParameters<typeof PublicChannels>[4],
+    );
+    const triage = await channels.create(workspace.id, alice.id, `actions-${suffix}`);
+    await channels.addMembers(workspace.id, { userId: alice.id }, triage.id, {
+      userIds: [carol.id],
+      agentIds: [],
+    });
+    announced.length = 0;
+    const sent = await channels.send({
+      workspaceId: workspace.id,
+      userId: alice.id,
+      channelId: triage.id,
+      requestId: crypto.randomUUID(),
+      body: `@xb${suffix} and @helper, please look`,
+    });
+    const [forBob, forHelper] = sent.pendingMentionActions.map((action) => action.resolutionId);
+
+    // Only the sender can act on their pending mentions.
+    expect(
+      (await channels.executeMentionActions(workspace.id, carol.id, "add", [forBob!])).map(
+        (result) => [result.resolutionId, result.status],
+      ),
+    ).toEqual([[forBob, "not_found"]]);
+
+    const added = await channels.executeMentionActions(workspace.id, alice.id, "add", [
+      forBob!,
+      forHelper!,
+    ]);
+    expect(added.map((result) => [result.targetType, result.targetId, result.status])).toEqual([
+      ["user", bob.id, "delivered"],
+      ["agent", helper.id, "delivered"],
+    ]);
+    expect(
+      await db.conversationMember.count({
+        where: {
+          conversationId: triage.id,
+          leftAt: null,
+          OR: [{ userId: bob.id }, { agentId: helper.id }],
+        },
+      }),
+    ).toBe(2);
+    expect(announced).toEqual([[triage.id]]);
+    // Acted on once; the send's own list no longer offers it.
+    expect(
+      (await channels.executeMentionActions(workspace.id, alice.id, "add", [forBob!])).map(
+        (result) => [result.status, result.reason],
+      ),
+    ).toEqual([["stale", "no_longer_pending"]]);
+
+    const later = await channels.send({
+      workspaceId: workspace.id,
+      userId: carol.id,
+      channelId: triage.id,
+      requestId: crypto.randomUUID(),
+      body: `@xa${suffix} is here already; @helper too`,
+    });
+    expect(later.pendingMentionActions).toEqual([]);
+    const outsider = await db.user.create({ data: { username: `xd${suffix}` } });
+    try {
+      await db.workspaceMembership.create({
+        data: { workspaceId: workspace.id, userId: outsider.id },
+      });
+      const old = await channels.send({
+        workspaceId: workspace.id,
+        userId: alice.id,
+        channelId: triage.id,
+        requestId: crypto.randomUUID(),
+        body: `@xd${suffix} ping`,
+      });
+      const forOutsider = old.pendingMentionActions[0]!.resolutionId;
+      await db.pendingMentionAction.update({
+        where: { id: forOutsider },
+        data: { expiresAt: new Date(Date.now() - 1000) },
+      });
+      expect(
+        (await channels.executeMentionActions(workspace.id, alice.id, "add", [forOutsider])).map(
+          (result) => result.status,
+        ),
+      ).toEqual(["expired"]);
+    } finally {
+      await db.workspaceMembership.deleteMany({ where: { userId: outsider.id } });
+      await db.user.delete({ where: { id: outsider.id } }).catch(() => {});
+    }
+  } finally {
+    await db.workspace.delete({ where: { id: workspace.id } });
+    await db.computer.deleteMany({ where: { ownerId: bob.id } });
+    await db.user.deleteMany({ where: { id: { in: [alice.id, bob.id, carol.id] } } });
+    await db.$disconnect();
+    redis.close();
+  }
+});
+
 test("a #channel reference is stored as a channel token on every send path, and every Agent-facing body reads it as #name", async () => {
   const connectionString = Bun.env.CHANNEL_TEST_DATABASE_URL;
   if (!connectionString) throw new Error("CHANNEL_TEST_DATABASE_URL is required");

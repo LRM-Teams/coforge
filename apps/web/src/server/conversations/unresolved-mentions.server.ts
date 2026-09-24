@@ -12,22 +12,29 @@ import {
  * human of the Workspace and no Agent visible to the sender. The send turned every mention of a
  * conversation member into a token, so an `@handle` still written as text reached no one; one
  * that names a Workspace human or a visible Agent is someone outside the conversation, which is
- * not "unresolved". Every mention token is dropped before the body is read (a resolved mention,
- * or one the sender typed out), and the other tokens read back as their text, so no token is ever
- * mistaken for a handle. The stored body is what a replay reads too; the people and Agents it is
+ * not "unresolved" (see `pending-mention-actions.server.ts`). The stored body is what a replay reads too; the people and Agents it is
  * checked against are read at the time of the call. A body with no such `@handle` costs no query.
  * First-appearance order, each handle once.
  */
+/**
+ * The `@handle`s a stored body still carries as text, in first-appearance order, each once. Every
+ * mention token is dropped first (a resolved mention, or one the sender typed out) and the other
+ * tokens read back as their text, so no token is ever mistaken for a handle.
+ */
+export function leftoverMentionHandles(storedBody: string): string[] {
+  const text = readableBody(storedBody.replace(MENTION_TOKEN_PATTERN, ""), {
+    mention: () => undefined,
+  });
+  return readMessageReferences(text).candidates.handles;
+}
+
 export async function unresolvedMentionHandles(
   db: Pick<PrismaClient, "workspaceMembership" | "agent">,
   workspaceId: string,
   sender: { userId: string } | { agentId: string },
   storedBody: string,
 ): Promise<string[]> {
-  const text = readableBody(storedBody.replace(MENTION_TOKEN_PATTERN, ""), {
-    mention: () => undefined,
-  });
-  const { handles } = readMessageReferences(text).candidates;
+  const handles = leftoverMentionHandles(storedBody);
   if (!handles.length) return [];
   const humans = await db.workspaceMembership.findMany({
     where: { workspaceId, user: { username: { in: handles } } },

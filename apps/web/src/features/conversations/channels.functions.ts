@@ -133,6 +133,21 @@ export const addPublicChannelMembers = createServerFn({ method: "POST" })
     });
   });
 
+/** The sender acts on mentions of their own messages that did not reach someone outside the
+ * channel: `add` makes each target a channel member. */
+export const executeMentionActions = createServerFn({ method: "POST" })
+  .middleware([workspaceUserMiddleware])
+  .validator(
+    z.object({
+      action: z.literal("add"),
+      resolutionIds: z.array(z.uuid()).min(1).max(20),
+    }),
+  )
+  .handler(async ({ data, context }) => {
+    const { channels, workspaceId, userId } = channelScope(context);
+    return channels.executeMentionActions(workspaceId, userId, data.action, data.resolutionIds);
+  });
+
 /** Promote/demote a channel member's stored `channelRole`. Human-only: there is no
  * Agent CLI/API route for this. `PublicChannels.setChannelRole` enforces `manage_roles`
  * (Workspace owner/admin, or channel admin of this channel) and rejects `#general`. */
@@ -360,6 +375,7 @@ export const sendPublicChannelMessage = createServerFn({ method: "POST" })
       // A human-sent message never carries an action card (those are Agent-authored only).
       actionCard: undefined,
       unresolvedMentionHandles: message.unresolvedMentionHandles,
+      pendingMentionActions: message.pendingMentionActions,
     };
   });
 

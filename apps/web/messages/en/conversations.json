@@ -486,5 +486,20 @@
   "search_no_matching_messages": "No matching messages",
   "search_try_different_filters": "Try a different filter set.",
   "conversation_unresolved_mentions": "No one matches {handles}, so that part of your message notified nobody. To notify someone, pick them from the @ list and mention them again.",
-  "conversation_unresolved_mentions_dismiss": "Dismiss"
+  "conversation_unresolved_mentions_dismiss": "Dismiss",
+  "conversation_pending_mention_not_notified": "{target} was not notified because they are not in {channel}",
+  "conversation_pending_mention_added": "{target} was added to {channel}",
+  "conversation_pending_mention_add": "Add",
+  "conversation_pending_mention_add_all": "Add all",
+  "conversation_pending_mention_added_label": "Added",
+  "conversation_pending_mention_ignore": "Ignore",
+  "conversation_pending_mention_added_partial": "Added {succeeded} of {total}. {reason}",
+  "conversation_pending_mention_add_failed": "Adding failed. Please try again.",
+  "conversation_pending_mention_already_member": "They are already in the channel, so nothing needs to be done.",
+  "conversation_pending_mention_target_unavailable": "They can no longer be added to this channel.",
+  "conversation_pending_mention_sender_lacks_access": "You are no longer in that channel, so they were not added.",
+  "conversation_pending_mention_channel_archived": "The channel is archived, so no one can be added.",
+  "conversation_pending_mention_no_longer_pending": "This mention was already taken care of.",
+  "conversation_pending_mention_expired": "This mention is more than 7 days old and can no longer be acted on.",
+  "conversation_pending_mention_unavailable": "This mention can no longer be acted on."
 }
