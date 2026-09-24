@@ -15,6 +15,7 @@ import {
 import { encodeAgentDelivery } from "#src/server/conversations/agent-delivery.server";
 import { ACTIVE_AGENT_WHERE } from "#src/server/agents/active-agent.server";
 import { workspaceUserAvatarUrl } from "#src/server/db/repositories/user-profile.repositories.server";
+import { channelThreadRootWhere } from "#src/server/db/message-anchor.server";
 import type { Prisma, PrismaClient } from "#src/generated/prisma/client";
 import { AppError } from "#src/lib/app-error";
 import {
@@ -1269,16 +1270,16 @@ export class TaskBoard {
   }
 
   private async findMessage(tx: Transaction, conversationId: string, messageId: string) {
-    const messages =
-      messageId.length === 8 && /^[0-9a-f]{8}$/i.test(messageId)
-        ? await tx.$queryRaw<
-            Array<{ id: string; body: string }>
-          >`SELECT "id"::text, "body" FROM "messages" WHERE "conversationId" = ${conversationId}::uuid AND "threadRootId" IS NULL AND left("id"::text, 8) = lower(${messageId}) LIMIT 2`
-        : await tx.message.findMany({
-            where: { conversationId, threadRootId: null, id: messageId },
-            take: 2,
-            select: { id: true, body: true },
-          });
+    // An eight-character id is the uuid range it names, so the lookup stays an index range on the
+    // message id instead of reading every top-level message in the conversation.
+    const messages = await tx.message.findMany({
+      where:
+        messageId.length === 8 && /^[0-9a-f]{8}$/i.test(messageId)
+          ? channelThreadRootWhere(conversationId, messageId)
+          : { conversationId, threadRootId: null, id: messageId },
+      take: 2,
+      select: { id: true, body: true },
+    });
     if (messages.length !== 1) throw new AppError(messages.length ? "CONFLICT" : "NOT_FOUND");
     return messages[0]!;
   }
