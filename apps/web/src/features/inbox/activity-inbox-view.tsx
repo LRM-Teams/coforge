@@ -62,6 +62,7 @@ import {
 } from "#src/features/realtime/realtime.functions";
 import { TASK_STATUS_COLOR } from "#src/features/tasks/task-workflow";
 import { cn } from "#src/lib/utils";
+import { DeletedAgentBadge } from "#src/features/agents/deleted-agent";
 import { m } from "#src/paraglide/messages";
 import type { ActivityInboxItem } from "#src/server/inbox/activity-inbox.server";
 import { markActivityInboxRead, markActivityItemDone } from "./activity-inbox.functions";
@@ -609,6 +610,7 @@ function ActivityItemBadges({
           {thread.task.ownerName ? ` @${thread.task.ownerName}` : ""}
         </Badge>
       )}
+      {thread?.task?.ownerDeleted && <DeletedAgentBadge />}
       {thread && (
         <Badge type="modern" size="sm" color="gray">
           {m.activity_inbox_replies({ count: thread.replyCount })}

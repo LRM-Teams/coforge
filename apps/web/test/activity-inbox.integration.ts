@@ -184,6 +184,66 @@ test("lists joined conversations and followed threads with activity, newest firs
   }
 });
 
+test("a followed task thread whose owner Agent was deleted marks the owner deleted", async () => {
+  const db = database();
+  const suffix = crypto.randomUUID();
+  try {
+    const { alice, workspace, channel, post } = await seed(db, suffix);
+    const general = await channel("general");
+    const agent = await db.agent.create({
+      data: {
+        workspaceId: workspace.id,
+        name: `inbox-kiro-${suffix.slice(0, 8)}`,
+        displayName: "Kiro",
+        ownerId: alice.id,
+        runtimeConfig: {},
+      },
+    });
+    const agentMember = await db.conversationMember.create({
+      data: {
+        conversationId: general.conversation.id,
+        workspaceId: workspace.id,
+        agentId: agent.id,
+      },
+    });
+    const root = await post(general.conversation.id, general.aliceMember.id, "Ship the login page");
+    await db.task.create({
+      data: {
+        messageId: root.id,
+        conversationId: general.conversation.id,
+        workspaceId: workspace.id,
+        number: 1,
+        title: "Ship the login page",
+        status: "in_progress",
+        ownerMemberId: agentMember.id,
+        creatorMemberId: general.aliceMember.id,
+      },
+    });
+    await db.threadFollow.create({
+      data: {
+        memberId: general.aliceMember.id,
+        rootMessageId: root.id,
+        conversationId: general.conversation.id,
+        workspaceId: workspace.id,
+      },
+    });
+    await post(general.conversation.id, general.bobMember.id, "any update?", {
+      threadRootId: root.id,
+    });
+    const inbox = new ActivityInbox(db);
+    const taskOf = async () =>
+      (await inbox.list(workspace.id, alice.id, { filter: "all" })).items.find(
+        (item) => item.thread?.root.id === root.id,
+      )!.thread!.task;
+
+    expect(await taskOf()).toMatchObject({ ownerName: "Kiro", ownerDeleted: false });
+    await db.agent.update({ where: { id: agent.id }, data: { deletedAt: new Date() } });
+    expect(await taskOf()).toMatchObject({ ownerName: "Kiro", ownerDeleted: true });
+  } finally {
+    await cleanup(db, suffix);
+  }
+});
+
 test("Done removes an item until newer activity arrives, and reads it", async () => {
   const db = database();
   const suffix = crypto.randomUUID();
