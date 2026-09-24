@@ -25,7 +25,7 @@ import {
  * (docs/design/task-first-layout.md §2.1). With nothing to open, the pane asks for a choice.
  */
 export function EmptyConversation() {
-  const { channels, directPreferences } = useSidebarLists();
+  const { channels, directs } = useSidebarLists();
   const agents = useLiveAgents();
   const workspaceId = useCurrentWorkspaceId();
   const desktop = useBreakpoint("lg");
@@ -40,11 +40,11 @@ export function EmptyConversation() {
       {
         channels,
         agentIds: agents.map((agent) => agent.id),
-        hiddenAgentIds: directPreferences.hidden,
+        hiddenAgentIds: directs.hiddenAgentIds,
       },
     );
     if (target) void navigate({ ...conversationRoute(target), replace: true });
-  }, [desktop, navigating, workspaceId, channels, agents, directPreferences, navigate]);
+  }, [desktop, navigating, workspaceId, channels, agents, directs, navigate]);
 
   // While a channel or direct message is opening, this pane would still ask for the choice just
   // made until the router's pending fallback is due: show the conversation skeleton instead. The

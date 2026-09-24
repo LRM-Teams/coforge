@@ -5,6 +5,7 @@ import {
   conversationRowMenuItems,
   directRowPreference,
 } from "#src/features/conversations/conversation-row-menu-model";
+import { directRowsOf } from "#src/features/conversations/sidebar-rows";
 
 /**
  * P3a (#126) of the saved/pinned plan: the conversation row's right-click menu. The mockup
@@ -34,14 +35,19 @@ test("the pin item carries the row's pinned state so the label can read Pin or U
 });
 
 test("a DM row is enabled, pinned and hidden only by its own preferences", () => {
-  const preferences = {
-    conversations: ["agent-dm"],
-    pinned: [{ agentId: "agent-dm", sortOrder: 3 }],
-    hidden: ["agent-closed"],
-  };
+  const rows = new Map(
+    directRowsOf(
+      {
+        conversations: ["agent-dm", "agent-closed"],
+        pinned: [{ agentId: "agent-dm", sortOrder: 3 }],
+        hidden: ["agent-closed"],
+      },
+      {},
+    ).map((row) => [row.agentId, row]),
+  );
 
   // A conversation: the menu is offered, and its pin carries the order the sidebar sorts by.
-  expect(directRowPreference(preferences, "agent-dm")).toEqual({
+  expect(directRowPreference(rows.get("agent-dm"))).toEqual({
     enabled: true,
     pinned: true,
     hidden: false,
@@ -50,7 +56,7 @@ test("a DM row is enabled, pinned and hidden only by its own preferences", () =>
 
   // An Agent the viewer has never written to: a row, but not a conversation — no menu, because a
   // preference could only answer NOT_FOUND.
-  expect(directRowPreference(preferences, "agent-new")).toEqual({
+  expect(directRowPreference(rows.get("agent-new"))).toEqual({
     enabled: false,
     pinned: false,
     hidden: false,
@@ -59,5 +65,5 @@ test("a DM row is enabled, pinned and hidden only by its own preferences", () =>
 
   // A closed conversation is filtered out of the list; only a conversation can be closed, so an
   // Agent row is never hidden by this rule.
-  expect(directRowPreference(preferences, "agent-closed").hidden).toBe(true);
+  expect(directRowPreference(rows.get("agent-closed")).hidden).toBe(true);
 });

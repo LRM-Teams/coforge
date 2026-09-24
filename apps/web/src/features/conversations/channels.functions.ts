@@ -233,15 +233,13 @@ export const setPublicChannelMuted = createServerFn({ method: "POST" })
     return channels.setUserMuted(workspaceId, userId, data.channelId, data.muted);
   });
 
-/** Pins the conversation to the top of this member's list (pin/unpin, #121). */
+/** Pins the conversation after this member's other pins, or unpins it (#121). */
 export const setPublicConversationPinned = createServerFn({ method: "POST" })
   .middleware([workspaceUserMiddleware])
-  .validator(
-    channelInput.extend({ pinned: z.boolean(), sortOrder: z.number().int().min(0).optional() }),
-  )
+  .validator(channelInput.extend({ pinned: z.boolean() }))
   .handler(async ({ data, context }) => {
     const { channels, workspaceId, userId } = channelScope(context);
-    return channels.setUserPinned(workspaceId, userId, data.channelId, data.pinned, data.sortOrder);
+    return channels.setUserPinned(workspaceId, userId, data.channelId, data.pinned);
   });
 
 /** Marks the conversation unread for this member, or clears the marker (#122). */

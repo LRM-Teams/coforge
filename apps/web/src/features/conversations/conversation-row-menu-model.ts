@@ -1,3 +1,5 @@
+import type { DirectRow } from "./sidebar-rows";
+
 export type ConversationRowMenuItemId = "mark-unread" | "pin" | "close-chat";
 
 export type ConversationRowMenuItem = {
@@ -30,25 +32,22 @@ export function conversationRowMenuItems(channel: {
   ];
 }
 
-/** What one DM row needs, resolved from the sidebar's preferences (P2b, #708): whether the Agent
+/** What one DM row needs, read from its row in the sidebar's DM list (P2b, #708): whether the Agent
  * row is a conversation at all (`enabled`), whether it is pinned, and whether it is closed. An
  * Agent the viewer has never written to has no conversation: the menu is not offered, because a
  * preference would only answer NOT_FOUND. */
-export function directRowPreference(
-  preferences: {
-    conversations: readonly string[];
-    pinned: readonly { agentId: string; sortOrder: number }[];
-    hidden: readonly string[];
-  },
-  agentId: string,
-): { enabled: boolean; pinned: boolean; hidden: boolean; sortOrder: number | null } {
-  const pin = preferences.pinned.find((entry) => entry.agentId === agentId);
+export function directRowPreference(row: DirectRow | undefined): {
+  enabled: boolean;
+  pinned: boolean;
+  hidden: boolean;
+  sortOrder: number | null;
+} {
   return {
-    enabled: preferences.conversations.includes(agentId),
-    pinned: pin !== undefined,
+    enabled: row?.conversation ?? false,
+    pinned: row?.pinned ?? false,
     // Only a conversation can be closed: an Agent row with no DM has nothing to hide and stays
     // in the list as a way to start one.
-    hidden: preferences.hidden.includes(agentId),
-    sortOrder: pin?.sortOrder ?? null,
+    hidden: row?.hidden ?? false,
+    sortOrder: row?.pinned ? row.pinSortOrder : null,
   };
 }

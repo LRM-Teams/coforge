@@ -4,7 +4,8 @@ import { MessageChatSquare, Pin01, XClose } from "@untitledui/icons";
 import { Dropdown } from "#src/components/base/dropdown/dropdown";
 import { useAppToast } from "#src/components/ui/toast";
 import { m } from "#src/paraglide/messages";
-import { useSidebarActions, type SidebarTarget } from "./sidebar-lists";
+import type { PinRef } from "./pinned-conversations";
+import { useSidebarActions } from "./sidebar-lists";
 import {
   conversationRowMenuEnabled,
   conversationRowMenuItems,
@@ -52,24 +53,21 @@ export function ConversationRowMenu({
   const toast = useAppToast();
   const actions = useSidebarActions();
   const items = conversationRowMenuItems(target);
-  const row: SidebarTarget =
+  const row: PinRef =
     target.kind === "channel"
-      ? { kind: "channel", id: target.id }
+      ? { kind: "channel", channelId: target.id }
       : { kind: "direct", agentId: target.agentId };
 
   /** Applies the change to the row at once (the menu closes as it would for any choice) and saves
    * it; a failed save puts the row back, and the toast says it failed (§13). */
   function handleAction(key: unknown) {
     if (!actions) return;
-    const transaction =
-      key === "mark-unread"
-        ? actions.markUnread(row)
-        : key === "pin"
-          ? actions.setPinned({ target: row, pinned: !target.pinned })
-          : key === "close-chat"
-            ? actions.close(row)
-            : undefined;
-    transaction?.isPersisted.promise.catch((cause: unknown) => {
+    const run = {
+      "mark-unread": () => actions.markUnread(row),
+      pin: () => actions.setPinned(row, !target.pinned),
+      "close-chat": () => actions.close(row),
+    }[String(key)];
+    run?.().catch((cause: unknown) => {
       console.error("conversation row menu action failed", cause);
       toast.error(m.conversation_menu_action_error());
     });

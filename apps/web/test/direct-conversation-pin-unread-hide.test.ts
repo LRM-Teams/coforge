@@ -172,17 +172,9 @@ test("preferences report existing DMs, pins in order, and closed DMs", async () 
   await repository.setPinnedForUser(WORKSPACE_ID, USER_ID, AGENT_ID, true, 3);
   await repository.setHiddenForUser(WORKSPACE_ID, USER_ID, AGENT_ID, true);
 
-  // Closed while pinned: the DM stays listed (in Pinned), so it is not reported closed.
   expect(await repository.preferencesForUser(WORKSPACE_ID, USER_ID)).toEqual({
     conversations: [AGENT_ID],
     pinned: [{ agentId: AGENT_ID, sortOrder: 3 }],
-    hidden: [],
-  });
-
-  await repository.setPinnedForUser(WORKSPACE_ID, USER_ID, AGENT_ID, false);
-  expect(await repository.preferencesForUser(WORKSPACE_ID, USER_ID)).toEqual({
-    conversations: [AGENT_ID],
-    pinned: [],
     hidden: [AGENT_ID],
   });
 

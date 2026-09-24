@@ -160,25 +160,14 @@ export const markDirectConversationRead = createServerFn({ method: "POST" })
     await conversations.markReadForUser?.(workspaceId, user.id, data.agentId, data.throughSequence);
   });
 
-/** Pins the viewer's DM with this Agent above the rest of their list, or unpins it (#121). */
+/** Pins the viewer's DM with this Agent after their other pins, or unpins it (#121). */
 export const setDirectConversationPinned = createServerFn({ method: "POST" })
   .middleware([workspaceUserMiddleware])
-  .validator(
-    agentConversationInputSchema.extend({
-      pinned: z.boolean(),
-      sortOrder: z.number().int().min(0).optional(),
-    }),
-  )
+  .validator(agentConversationInputSchema.extend({ pinned: z.boolean() }))
   .handler(async ({ context, data }) => {
     const { user, workspaceId } = context;
     const conversations = await ownedConversations(context, data.agentId);
-    return conversations.setPinnedForUser(
-      workspaceId,
-      user.id,
-      data.agentId,
-      data.pinned,
-      data.sortOrder,
-    );
+    return conversations.setPinnedForUser(workspaceId, user.id, data.agentId, data.pinned);
   });
 
 /** Marks the viewer's DM with this Agent unread, or clears the marker (#122). */
