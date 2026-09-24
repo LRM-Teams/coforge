@@ -1,11 +1,25 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { TaskCommand, TaskView } from "@lrm/coforge-sdk/internal";
 import { queryOptions, useQuery, useQueryClient } from "@tanstack/react-query";
+import { getRouteApi } from "@tanstack/react-router";
 
 import { useServerFn } from "@tanstack/react-start";
 
+import { useCurrentWorkspaceId } from "#src/features/agents/workspace-agents-realtime";
+import {
+  userConversationChannel,
+  workspaceConversationChannel,
+} from "#src/features/conversations/conversation-realtime";
+import { useRealtimeSubscription } from "#src/features/realtime/browser-realtime";
+import {
+  getUserConversationSubscriptionToken,
+  getWorkspaceConversationSubscriptionToken,
+} from "#src/features/realtime/realtime.functions";
+import { decodeTaskChangedEvent } from "./task-realtime";
 import { executeTask } from "./tasks.functions";
 import { m } from "#src/paraglide/messages";
+
+const appRoute = getRouteApi("/_app");
 
 export function mergeTaskChanges(current: TaskView[], changes: TaskView[]) {
   const changed = new Map(changes.map((task) => [task.messageId, task]));
@@ -20,7 +34,12 @@ export function mergeTaskChanges(current: TaskView[], changes: TaskView[]) {
 /** The empty list while the Tasks load: one array, so what is memoized on `tasks` keeps. */
 const NO_TASKS: TaskView[] = [];
 
-/** The Tasks of one conversation, re-read every 30 seconds while visible and on focus. */
+/**
+ * The Tasks of one conversation: read once, then kept live by the Task write's own announcement
+ * (`useConversationTasks`), with a window focus as the only safety net. There is deliberately no
+ * interval: a poll re-reads a list that changes only when a Task changes, and the announcement
+ * says exactly which Tasks those were.
+ */
 export const conversationTasksQuery = (conversationId: string) =>
   queryOptions({
     queryKey: ["conversation", "tasks", conversationId],
@@ -31,8 +50,6 @@ export const conversationTasksQuery = (conversationId: string) =>
         })
       ).tasks,
     staleTime: 0,
-    refetchInterval: 30_000,
-    refetchIntervalInBackground: false,
     refetchOnWindowFocus: true,
   });
 
@@ -41,6 +58,40 @@ export function useConversationTasks(conversationId: string) {
   const execute = useServerFn(executeTask);
   const query = useQuery(conversationTasksQuery(conversationId));
   const queryKey = conversationTasksQuery(conversationId).queryKey;
+  // Kept live by `task.changed.v1` (see `task-realtime.ts`): the event carries this conversation's
+  // new Task copies and the ids it deleted, so a Task change writes the cached list instead of
+  // making its readers read it again. Everything else a conversation publishes — every message —
+  // is dropped before any parsing beyond its type. The subscriptions are the ones the nav rail
+  // already holds (the Workspace channel for channel Tasks, the viewer's own for direct messages),
+  // so an open panel adds no connection of its own.
+  const userId = appRoute.useLoaderData({ select: (data) => data.user.id });
+  const workspaceId = useCurrentWorkspaceId() ?? "";
+  const getWorkspaceToken = useServerFn(getWorkspaceConversationSubscriptionToken);
+  const getUserToken = useServerFn(getUserConversationSubscriptionToken);
+  const onTaskChanged = useCallback(
+    (publication: { data: unknown }) => {
+      const event = decodeTaskChangedEvent(publication.data);
+      // Another conversation's Task, or a publication that is not a Task change at all.
+      if (!event || event.conversationId !== conversationId) return;
+      queryClient.setQueryData<TaskView[]>(["conversation", "tasks", conversationId], (current) =>
+        mergeTaskChanges(
+          (current ?? NO_TASKS).filter((task) => !event.deleted.includes(task.messageId)),
+          event.tasks,
+        ),
+      );
+    },
+    [conversationId, queryClient],
+  );
+  useRealtimeSubscription({
+    channel: workspaceId ? workspaceConversationChannel(workspaceId) : undefined,
+    getToken: getWorkspaceToken,
+    onPublication: onTaskChanged,
+  });
+  useRealtimeSubscription({
+    channel: userConversationChannel(userId),
+    getToken: getUserToken,
+    onPublication: onTaskChanged,
+  });
   const [mutationError, setMutationError] = useState("");
   // A failed command keeps its error on screen through the refetch it triggers; the next
   // successful read after that clears it, as any later read would.
@@ -54,10 +105,6 @@ export function useConversationTasks(conversationId: string) {
     setMutationError("");
     holdErrorRef.current = false;
   }, [conversationId]);
-
-  const refresh = async () => {
-    await queryClient.invalidateQueries({ queryKey });
-  };
 
   const command = async (
     input: Omit<TaskCommand, "idempotencyKey" | "conversationId"> & { idempotencyKey?: string },
@@ -91,7 +138,6 @@ export function useConversationTasks(conversationId: string) {
     tasks: query.data ?? NO_TASKS,
     loading: query.isPending,
     error: mutationError || (query.isError ? m.tasks_load_error() : ""),
-    refresh,
     command,
   };
 }
