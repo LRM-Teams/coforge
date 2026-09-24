@@ -34,15 +34,10 @@ const viewer = {
 async function overviewWith(execute: TaskOverviewApi["execute"]) {
   const commands: TaskCommand[] = [];
   let reads = 0;
-  let failing = false;
-  const finishedReads: Array<{ done?: number; closed?: number } | undefined> = [];
   const api: TaskOverviewApi = {
-    load: async (options) => {
+    load: async () => {
       reads += 1;
-      finishedReads.push(options);
-      if (failing) throw new Error("offline");
       return {
-        more: { done: true, closed: false },
         tasks: [task(1), task(2, { status: "in_progress", owner: viewer })].map((view) => ({
           ...view,
           currentMemberId: "member-me",
@@ -61,14 +56,7 @@ async function overviewWith(execute: TaskOverviewApi["execute"]) {
   await queryClient.query(taskOverviewQuery("w", api));
   const overview = createTaskOverview(queryClient, "w", api);
   await overview.tasks.preload();
-  return {
-    overview,
-    commands,
-    queryClient,
-    reads: () => reads,
-    finishedReads,
-    failReads: (value: boolean) => void (failing = value),
-  };
+  return { overview, commands, queryClient, reads: () => reads };
 }
 
 test("a move shows at once, then takes the server's copy of the Task", async () => {
@@ -183,19 +171,6 @@ test("a read whose snapshot predates an announced change does not undo it", asyn
   expect(overview.tasks.has("message-2")).toBe(false);
 });
 
-test("showing older finished Tasks of one status reads more of those, and every later read keeps that depth", async () => {
-  const { overview, queryClient, finishedReads } = await overviewWith(async () => ({ tasks: [] }));
-  expect(overview.more()).toEqual({ done: true, closed: false });
-  await overview.showOlder("done");
-  // A later read, as a new Task or a refresh asks for, still lists the older ones.
-  await queryClient.invalidateQueries({ queryKey: taskOverviewQuery("w").queryKey });
-  expect(finishedReads).toEqual([
-    { done: 50, closed: 50 },
-    { done: 100, closed: 50 },
-    { done: 100, closed: 50 },
-  ]);
-});
-
 test("a Task converted again from a deleted Task's message comes back", async () => {
   const { overview } = await overviewWith(async () => ({ tasks: [] }));
   overview.apply([announced([], ["message-2"])]);
@@ -206,13 +181,37 @@ test("a Task converted again from a deleted Task's message comes back", async ()
   expect(overview.tasks.get("message-2")).toMatchObject({ revision: 7 });
 });
 
-test("a failed read of older finished Tasks rejects and leaves the depth as it was", async () => {
-  const { overview, queryClient, finishedReads, failReads } = await overviewWith(async () => ({
-    tasks: [],
-  }));
-  failReads(true);
-  await expect(overview.showOlder("done")).rejects.toThrow("offline");
-  failReads(false);
-  await queryClient.invalidateQueries({ queryKey: taskOverviewQuery("w").queryKey });
-  expect(finishedReads.at(-1)).toEqual({ done: 50, closed: 50 });
+test("a finished Task moved back to unfinished joins the rows with its page fields", async () => {
+  const reopened = task(9, { status: "todo", revision: 4 });
+  const { overview } = await overviewWith(async () => ({ tasks: [reopened] }));
+  // A Done card read from a finished page: the collection does not hold it.
+  const paged = {
+    ...task(9, { status: "done", revision: 3 }),
+    currentMemberId: "member-me",
+    source: { channelName: "product", agentId: null, label: "#product" },
+    project: { id: "project-1", name: "Launch", slug: "launch" },
+  };
+  await overview.run(paged, {
+    operation: "update",
+    number: 9,
+    status: "todo",
+    expectedRevision: 3,
+  });
+  expect(overview.tasks.get("message-9")).toMatchObject({
+    status: "todo",
+    revision: 4,
+    source: { label: "#product" },
+    project: { id: "project-1" },
+    currentMemberId: "member-me",
+  });
+});
+
+test("an announced finished Task the page does not list needs no read of the list", async () => {
+  const { overview } = await overviewWith(async () => ({ tasks: [] }));
+  expect(overview.apply([announced([task(8, { status: "done" })])])).toBe(false);
+  expect(overview.apply([announced([task(8, { status: "closed" })])])).toBe(false);
+  expect(overview.tasks.has("message-8")).toBe(false);
+  // A listed Task moving to Done still leaves the unfinished rows.
+  overview.apply([announced([task(1, { status: "done", revision: 2 })])]);
+  expect(overview.tasks.get("message-1")?.status).toBe("done");
 });

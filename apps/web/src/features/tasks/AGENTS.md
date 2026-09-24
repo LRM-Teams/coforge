@@ -10,9 +10,19 @@ These rules apply to `src/features/tasks/`.
 - Board and List views share the status-grouped layout and drag interactions
   in this directory. The `/tasks` and conversation routes own the validated
   view search state.
-- Done and Closed start collapsed whenever several statuses show; a
-  single-status view starts expanded. A collapsed group renders no cards but
-  stays a drop target. The choice is not persisted.
+- Every status group starts expanded, and any group can be collapsed from
+  its header. A collapsed group renders no cards but stays a drop target.
+  The choice is not persisted.
+- Every group renders its first 50 cards and adds 50 per "Show more"; never
+  render a whole status at once. A paged group (Done and Closed on `/tasks`)
+  renders every card it has read, since each read is at most 50, and keeps
+  its own footer instead.
+- `/tasks` holds only unfinished Tasks in its collection. Done and Closed come
+  from `useFinishedTasks`: exact server counts for the `completed` window
+  (`week` when absent, `month`, `all`) under the owner and Project picks, and
+  50-per-page reads with "Load more", read again after every Task command and
+  `task.changed.v1` burst. A `task` the page has not read is fetched alone
+  (`loadOverviewTask`).
 - Cards and list rows carry no status select: the column or group is the
   status. Moves go through drag or the card menu's "Move to" section, which
   both offer every move `getTaskMoveCommand` allows.
@@ -35,13 +45,8 @@ workspaceId]` Query its loader fills (`task-overview-collection.ts`,
   invalidate that Query, never the router. A command with nothing to show
   first still reaches the server: an empty optimistic transaction is never
   saved. Announced Task changes (`task.changed.v1`, `task-realtime.ts`) are
-  applied to the rows with `apply` in one write per burst; only a Task the page
-  does not list yet reads the list again.
+  applied to the rows with `apply` in one write per burst; only an unfinished Task the
+  page does not list yet reads the list again.
 - `/tasks` filters are search params, comma-separated: `owners` holds User
   or Agent ids and `projects` holds Project ids, with `none` meaning no owner
   or no Project (`task-filters.ts`).
-- `/tasks` lists every open Task but only the latest `FINISHED_TASKS_PAGE`
-  Done and Closed ones (`task-overview-limits.ts`); "Show older" deepens its
-  status per client and Workspace, and every later read of the overview keeps
-  the depths. Every group renders its first 50 cards and adds 50 per "Show more";
-  never render a whole status at once.

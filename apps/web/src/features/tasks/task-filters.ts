@@ -14,6 +14,8 @@ export type FilterableTask = {
   project: { id: string; name: string } | null;
   /** The viewer's membership in the Task's conversation: an owner with it is the viewer. */
   currentMemberId?: string | null;
+  /** How many Tasks this entry stands for: a counted group of finished Tasks; one when absent. */
+  count?: number;
 };
 
 export type TaskFilter = { owners: readonly string[]; projects: readonly string[] };
@@ -52,12 +54,12 @@ export function ownerOptions(tasks: readonly FilterableTask[]): OwnerOption[] {
     const isViewer = owner !== null && owner.memberId === task.currentMemberId;
     const known = byId.get(id);
     if (known) {
-      known.count += 1;
+      known.count += task.count ?? 1;
       if (isViewer) known.kind = "me";
       continue;
     }
     const kind = !owner ? "none" : isViewer ? "me" : owner.kind;
-    byId.set(id, { id, kind, name: owner?.name ?? "", count: 1 });
+    byId.set(id, { id, kind, name: owner?.name ?? "", count: task.count ?? 1 });
   }
   const rank = { me: 0, none: 1, user: 2, agent: 3 } as const;
   return [...byId.values()].sort(
@@ -73,8 +75,8 @@ export function projectOptions(tasks: readonly FilterableTask[]): ProjectOption[
   for (const task of tasks) {
     const id = projectKey(task);
     const known = byId.get(id);
-    if (known) known.count += 1;
-    else byId.set(id, { id, name: task.project?.name ?? "", count: 1 });
+    if (known) known.count += task.count ?? 1;
+    else byId.set(id, { id, name: task.project?.name ?? "", count: task.count ?? 1 });
   }
   return [...byId.values()].sort((left, right) =>
     left.id === NO_PROJECT ? 1 : right.id === NO_PROJECT ? -1 : left.name.localeCompare(right.name),

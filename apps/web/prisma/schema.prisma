@@ -831,6 +831,8 @@ model Task {
   @@unique([messageId, conversationId])
   @@unique([conversationId, creatorMemberId, requestId])
   @@index([workspaceId, conversationId, status])
+  @@index([workspaceId, status, updatedAt(sort: Desc), messageId(sort: Desc)])
+  @@index([conversationId, status, updatedAt(sort: Desc), messageId(sort: Desc)])
   @@map("tasks")
 }
 

@@ -7,7 +7,6 @@ import {
 } from "@tanstack/query-db-collection";
 import type { TaskCommand, TaskResult, TaskStatus, TaskView } from "@lrm/coforge-sdk/internal";
 
-import { FINISHED_TASKS_MAX, FINISHED_TASKS_PAGE } from "./task-overview-limits";
 import type { TaskChangedEvent } from "./task-realtime";
 import { executeTask, loadTaskOverview } from "./tasks.functions";
 
@@ -24,29 +23,16 @@ export type OverviewTaskCommand = Omit<TaskCommand, "idempotencyKey" | "conversa
 
 /** The server calls the page makes; tests pass their own. */
 export type TaskOverviewApi = {
-  load: (options?: FinishedDepths) => Promise<Overview>;
+  load: () => Promise<Overview>;
   execute: (command: TaskCommand) => Promise<TaskResult>;
 };
 
 export const serverTaskOverviewApi: TaskOverviewApi = {
-  load: (options) => loadTaskOverview({ data: options }),
+  load: () => loadTaskOverview(),
   execute: (command) => executeTask({ data: command }),
 };
 
 const taskOverviewQueryKey = (workspaceId: string) => ["task", "overview", workspaceId] as const;
-
-/** How many finished Tasks of each status the page lists. */
-type FinishedDepths = { done: number; closed: number };
-type FinishedStatus = keyof FinishedDepths;
-
-/** The depths per client and Workspace: "Show older" deepens one status, and every later read of
- * the list (whoever asks for it) keeps those depths. */
-const finishedDepths = new WeakMap<QueryClient, Map<string, FinishedDepths>>();
-const finishedDepth = (client: QueryClient, workspaceId: string): FinishedDepths =>
-  finishedDepths.get(client)?.get(workspaceId) ?? {
-    done: FINISHED_TASKS_PAGE,
-    closed: FINISHED_TASKS_PAGE,
-  };
 
 export const taskOverviewQuery = (
   workspaceId: string,
@@ -54,8 +40,10 @@ export const taskOverviewQuery = (
 ) =>
   queryOptions({
     queryKey: taskOverviewQueryKey(workspaceId),
-    queryFn: ({ client }) => api.load(finishedDepth(client, workspaceId)),
+    queryFn: () => api.load(),
   });
+
+const isFinished = (status: TaskStatus) => status === "done" || status === "closed";
 
 /** The status a command moves its Task to, when it moves it: shown before the server answers. */
 function statusAfter(command: OverviewTaskCommand): TaskStatus | undefined {
@@ -89,8 +77,7 @@ export function createTaskOverview(
     queryCollectionOptions({
       id: `task-overview:${workspaceId}`,
       queryKey: taskOverviewQueryKey(workspaceId),
-      // The same read as `taskOverviewQuery`, at the same depth.
-      queryFn: () => api.load(finishedDepth(queryClient, workspaceId)),
+      queryFn: () => api.load(),
       queryClient,
       getKey: (row: OverviewTaskRow) => row.messageId,
       select: (overview) => withAnnounced(overview.tasks),
@@ -104,16 +91,22 @@ export function createTaskOverview(
       conversationId: row.conversationId,
     });
     // The server's copy of each Task it changed replaces the shown one; the page's own fields
-    // (source, Project, the viewer's membership) stay as they are.
-    for (const view of result.tasks)
-      if (tasks.has(view.messageId)) {
-        try {
-          tasks.utils.writeUpdate({ ...view, messageId: view.messageId });
-        } catch (error) {
-          // The Task left the page meanwhile: the next read shows the list as it is.
-          if (!(error instanceof UpdateOperationItemNotFoundError)) throw error;
-        }
+    // (source, Project, the viewer's membership) stay as they are. A finished Task read from a
+    // page, which the rows do not hold, joins them once it is unfinished again, with the row's
+    // page fields.
+    for (const view of result.tasks) {
+      if (!tasks.has(view.messageId)) {
+        if (view.messageId === row.messageId && !isFinished(view.status))
+          tasks.utils.writeInsert({ ...row, ...view });
+        continue;
       }
+      try {
+        tasks.utils.writeUpdate({ ...view, messageId: view.messageId });
+      } catch (error) {
+        // The Task left the page meanwhile: the next read shows the list as it is.
+        if (!(error instanceof UpdateOperationItemNotFoundError)) throw error;
+      }
+    }
   };
 
   const move = createOptimisticAction<{ row: OverviewTaskRow; command: OverviewTaskCommand }>({
@@ -166,7 +159,8 @@ export function createTaskOverview(
     for (const view of newest.values()) {
       if (deleted.has(view.messageId)) continue;
       const row = tasks.get(view.messageId);
-      if (!row) needsRead = true;
+      // A finished Task the rows do not hold stays out: Done and Closed are read on their own.
+      if (!row) needsRead ||= !isFinished(view.status);
       else if (view.revision > row.revision) updates.push(view);
     }
     for (const view of newest.values())
@@ -188,36 +182,7 @@ export function createTaskOverview(
     return needsRead;
   };
 
-  /** Whether older Done or Closed Tasks exist than those listed, and can still be listed. */
-  const more = (): Record<FinishedStatus, boolean> => {
-    const listed = queryClient.getQueryData<Overview>(taskOverviewQueryKey(workspaceId))?.more;
-    const depth = finishedDepth(queryClient, workspaceId);
-    return {
-      done: Boolean(listed?.done) && depth.done < FINISHED_TASKS_MAX,
-      closed: Boolean(listed?.closed) && depth.closed < FINISHED_TASKS_MAX,
-    };
-  };
-
-  /** Lists the next page of older Tasks of one finished status; settles once they are read. */
-  const showOlder = async (status: FinishedStatus) => {
-    let depths = finishedDepths.get(queryClient);
-    if (!depths) finishedDepths.set(queryClient, (depths = new Map()));
-    const current = finishedDepth(queryClient, workspaceId);
-    depths.set(workspaceId, {
-      ...current,
-      [status]: Math.min(current[status] + FINISHED_TASKS_PAGE, FINISHED_TASKS_MAX),
-    });
-    try {
-      // Rejects when the read fails (Query swallows it otherwise), so the caller can say so.
-      await tasks.utils.refetch({ throwOnError: true });
-    } catch (error) {
-      // Not read, so not deeper: a retry asks for the same page again.
-      depths.set(workspaceId, current);
-      throw error;
-    }
-  };
-
-  return { tasks, run, apply, more, showOlder };
+  return { tasks, run, apply };
 }
 
 export type TaskOverviewCollection = ReturnType<typeof createTaskOverview>;
