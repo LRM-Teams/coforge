@@ -34,7 +34,10 @@ Rules for one Workspace child's runtime in `src/daemon-runtime/`. They extend
 - A delivery counts as consumed when its sequence is at or below its target's
   frontier, or when a `read` already showed that message (kept in memory per
   launch; an anchored read never moves the frontier). A `search` never counts:
-  it shows a truncated preview without the Agent's mention.
+  it shows a truncated preview without whether the message mentions the Agent.
+- An inbox purge (`agent:v1:inbox:purge`) drops the waiting deliveries and
+  pending attention of channels the Agent can no longer read, threads
+  included, without ACKing them; the server stops replaying them.
 - Never launch an exited Agent for a delivery it has already consumed or that
   would not wake a running Agent; ACK it instead.
 - A failed message-triggered launch starts the per-Agent wake cooldown

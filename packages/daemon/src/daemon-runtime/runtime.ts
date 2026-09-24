@@ -73,6 +73,7 @@ import {
   type AgentStopIntent,
   type SessionIdentity,
   type AgentActivityProbe,
+  type AgentInboxPurge,
   type AgentWorkspaceResetRequest,
   type AgentMessageDelivery,
   type InboxResponse,
@@ -1047,6 +1048,21 @@ export class DaemonRuntime {
               this.#logAgentActivityProbeFailure(probe, error),
             ),
           ),
+        ),
+      );
+      this.#subscribe(
+        this.#transport.onAgentInboxPurge?.(
+          receive(pendingControl, async (purge: AgentInboxPurge) => {
+            try {
+              this.handleAgentInboxPurge(purge);
+            } catch (error) {
+              logger.warn("Agent inbox purge was not applied", {
+                event: "agent.inbox.purge_rejected",
+                agent_id: purge.agentId,
+                error_code: error instanceof Error ? error.name : "UnknownError",
+              });
+            }
+          }),
         ),
       );
       this.#subscribe(
@@ -2772,6 +2788,35 @@ export class DaemonRuntime {
       .catch(() => this.#wakeLaunchFailures.recordFailure(agentId))
       .finally(() => this.#wakeLaunches.delete(agentId));
     return launch;
+  }
+
+  /** Drops an Agent's local, unacknowledged state for channels it can no longer read: waiting
+   * deliveries (not ACKed, so not presented; the server no longer replays them) and the pending
+   * attention of those channels and their threads. */
+  handleAgentInboxPurge(purge: AgentInboxPurge): void {
+    this.#assertRunning();
+    if (purge.workspaceId !== this.#connection.workspaceId)
+      throw new Error("agent inbox purge targets another Workspace");
+    const conversations = new Set(purge.conversationIds);
+    let dropped = 0;
+    const queue = this.#agentInputQueues.get(purge.agentId);
+    if (queue)
+      queue.items = queue.items.filter((item) => {
+        if (item.kind !== "delivery" || !conversations.has(item.message.conversationId))
+          return true;
+        item.completion.resolve();
+        dropped++;
+        return false;
+      });
+    dropped += this.#deliveryQueue.discardConversations(purge.agentId, conversations).length;
+    this.#messageAttention.clearTargets(purge.agentId, purge.targets);
+    logger.info("Agent inbox purged for channels it can no longer read", {
+      event: "agent.inbox.purged",
+      agent_id: purge.agentId,
+      reason: purge.reason,
+      conversation_count: conversations.size,
+      dropped_delivery_count: dropped,
+    });
   }
 
   stopAgent(agentId: string): Promise<void> {

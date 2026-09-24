@@ -58,6 +58,7 @@ import {
   decodeAgentStartIntent,
   decodeAgentStopIntent,
   decodeAgentActivityProbe,
+  decodeAgentInboxPurge,
   decodeAgentSkillsListRequest,
   encodeAgentSkillsListResult,
   AGENT_SKILLS_LIST_RESULT_METHOD,
@@ -111,6 +112,7 @@ import {
   type AgentStartIntent,
   type AgentStopIntent,
   type AgentActivityProbe,
+  type AgentInboxPurge,
   type AgentMessageDelivery,
   type AgentMessageDeliveryAck,
   type AgentMessageRequest,
@@ -483,6 +485,7 @@ export interface DaemonConnectionClient {
   onAgentStart?(callback: (intent: AgentStartIntent) => void): () => void;
   onAgentStop?(callback: (intent: AgentStopIntent) => void): () => void;
   onAgentActivityProbe?(callback: (probe: AgentActivityProbe) => void): () => void;
+  onAgentInboxPurge?(callback: (purge: AgentInboxPurge) => void): () => void;
   onAgentMessage?(callback: (message: AgentMessageDelivery) => void): () => void;
   onReminderSync?(callback: (sync: ReminderSync) => void): () => void;
   requestSnapshot?(request: ReminderSnapshotRequest): Promise<ReminderSync>;
@@ -1303,6 +1306,7 @@ export class DaemonConnection implements DaemonConnectionClient {
   readonly #agentStart = new ListenerSlot<(intent: AgentStartIntent) => void>();
   readonly #agentStop = new ListenerSlot<(intent: AgentStopIntent) => void>();
   readonly #agentActivityProbe = new ListenerSlot<(probe: AgentActivityProbe) => void>();
+  readonly #agentInboxPurge = new ListenerSlot<(purge: AgentInboxPurge) => void>();
   readonly #agentWorkspaceReset = new ListenerSlot<(request: AgentWorkspaceResetRequest) => void>();
   readonly #agentMessage = new ListenerSlot<(message: AgentMessageDelivery) => void>();
   readonly #reminderSync = new ListenerSlot<(sync: ReminderSync) => void>();
@@ -1466,6 +1470,10 @@ export class DaemonConnection implements DaemonConnectionClient {
 
   onAgentActivityProbe(callback: (probe: AgentActivityProbe) => void): () => void {
     return this.#agentActivityProbe.set(callback);
+  }
+
+  onAgentInboxPurge(callback: (purge: AgentInboxPurge) => void): () => void {
+    return this.#agentInboxPurge.set(callback);
   }
 
   onAgentMessage(callback: (message: AgentMessageDelivery) => void): () => void {
@@ -2423,6 +2431,11 @@ export class DaemonConnection implements DaemonConnectionClient {
         if (probe.protocolMajor !== 1 || !ownsDaemon(probe)) return false;
         this.#deliver(this.#agentActivityProbe, probe);
         return true;
+      }) ||
+      this.#route(data, decodeAgentInboxPurge, (purge) => {
+        if (purge.protocolMajor !== 1 || !ownsDaemon(purge)) return false;
+        this.#deliver(this.#agentInboxPurge, purge);
+        return true;
       });
     if (handled) return;
     // Agent publications are the common case and must decode as exactly one intent kind.
@@ -2750,6 +2763,7 @@ export class DaemonConnection implements DaemonConnectionClient {
       this.#agentStart,
       this.#agentStop,
       this.#agentActivityProbe,
+      this.#agentInboxPurge,
       this.#agentWorkspaceReset,
       this.#agentMessage,
       this.#reminderSync,

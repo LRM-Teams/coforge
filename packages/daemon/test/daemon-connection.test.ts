@@ -27,6 +27,7 @@ import {
   encodeAgentStartIntent,
   encodeAgentStopIntent,
   encodeAgentActivityProbe,
+  encodeAgentInboxPurge,
   encodeComputerRestartIntent,
   decodeComputerUpgradeResult,
   COMPUTER_UPGRADE_RESULT_METHOD,
@@ -1285,6 +1286,54 @@ test("rejects an agent:activity_probe publication for a foreign Workspace", asyn
   );
 
   expect(probed).toEqual([]);
+});
+
+test("routes an agent:inbox_purge publication for this daemon to its slot", async () => {
+  const fake = fakeClient();
+  const transport = new DaemonConnection("wss://cloud.example", () => fake.client);
+  const purged: string[][] = [];
+  transport.onAgentInboxPurge((purge) => purged.push(purge.conversationIds));
+  await transport.start("secret", config);
+
+  fake.publish(
+    `daemon:${config.workspaceId}:${config.computerId}`,
+    encodeAgentInboxPurge({
+      protocolMajor: 1,
+      requestId: "purge-request-1",
+      workspaceId: config.workspaceId,
+      computerId: config.computerId,
+      agentId: "agent-1",
+      conversationIds: ["conversation-team"],
+      targets: ["#team"],
+      reason: "member_removed",
+    }),
+  );
+
+  expect(purged).toEqual([["conversation-team"]]);
+});
+
+test("rejects an agent:inbox_purge publication for another Computer", async () => {
+  const fake = fakeClient();
+  const transport = new DaemonConnection("wss://cloud.example", () => fake.client);
+  const purged: string[][] = [];
+  transport.onAgentInboxPurge((purge) => purged.push(purge.conversationIds));
+  await transport.start("secret", config);
+
+  fake.publish(
+    `daemon:${config.workspaceId}:${config.computerId}`,
+    encodeAgentInboxPurge({
+      protocolMajor: 1,
+      requestId: "purge-request-2",
+      workspaceId: config.workspaceId,
+      computerId: "other-computer",
+      agentId: "agent-1",
+      conversationIds: ["conversation-team"],
+      targets: ["#team"],
+      reason: "left",
+    }),
+  );
+
+  expect(purged).toEqual([]);
 });
 
 test("routes an agent:context_scan publication to its slot and answers through the result RPC", async () => {
