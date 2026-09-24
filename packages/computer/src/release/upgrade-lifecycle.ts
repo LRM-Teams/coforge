@@ -14,6 +14,20 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+/** True when the supervisor.lock owner file names a still-living process. Missing, unreadable,
+ * or non-positive PIDs are treated as not alive so a forced OS stop cannot wedge upgrades. */
+async function supervisorLockOwnerAlive(ownerPath: string): Promise<boolean> {
+  try {
+    const text = (await Bun.file(ownerPath).text()).trim();
+    const pid = Number(text);
+    if (!Number.isInteger(pid) || pid <= 0) return false;
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * What a person is told when the Computer supervisor could not be stopped for an upgrade.
  * `foregroundSupervised` is true only where CoForge has actually established that no user
@@ -247,10 +261,16 @@ export function createSupervisorUpgradeLifecycle(
         });
         throw coordinatorStopFailure(error, false);
       });
+      const ownerPath = join(options.supervisorStatePath, "supervisor.lock", "owner");
       const deadline = Date.now() + 35_000;
-      while (
-        await Bun.file(join(options.supervisorStatePath, "supervisor.lock", "owner")).exists()
-      ) {
+      while (await Bun.file(ownerPath).exists()) {
+        // schtasks /End (and similar forced stops) can kill the Coordinator without letting it
+        // remove its owner file. A dead owner PID means the tree is gone; clear the stale marker
+        // so the upgrade can activate the new bytes.
+        if (!(await supervisorLockOwnerAlive(ownerPath))) {
+          await rm(ownerPath, { force: true });
+          break;
+        }
         if (Date.now() > deadline) {
           logger.error("Old Computer coordinator did not confirm shutdown", {
             event: "upgrade:coordinator_stop_failed",
