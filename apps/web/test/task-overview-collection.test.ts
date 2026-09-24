@@ -33,15 +33,19 @@ const viewer = {
 
 async function overviewWith(execute: TaskOverviewApi["execute"]) {
   const commands: TaskCommand[] = [];
+  let reads = 0;
   const api: TaskOverviewApi = {
-    load: async () => ({
-      tasks: [task(1), task(2, { status: "in_progress", owner: viewer })].map((view) => ({
-        ...view,
-        currentMemberId: "member-me",
-        source: { channelName: "product", agentId: null, label: "#product" },
-        project: { id: "project-1", name: "Launch", slug: "launch" },
-      })),
-    }),
+    load: async () => {
+      reads += 1;
+      return {
+        tasks: [task(1), task(2, { status: "in_progress", owner: viewer })].map((view) => ({
+          ...view,
+          currentMemberId: "member-me",
+          source: { channelName: "product", agentId: null, label: "#product" },
+          project: { id: "project-1", name: "Launch", slug: "launch" },
+        })),
+      };
+    },
     execute: async (command) => {
       commands.push(command);
       return execute(command);
@@ -52,7 +56,7 @@ async function overviewWith(execute: TaskOverviewApi["execute"]) {
   await queryClient.query(taskOverviewQuery("w", api));
   const overview = createTaskOverview(queryClient, "w", api);
   await overview.tasks.preload();
-  return { overview, commands };
+  return { overview, commands, reads: () => reads };
 }
 
 test("a move shows at once, then takes the server's copy of the Task", async () => {
@@ -81,11 +85,11 @@ test("a change with nothing to show first is still saved and takes the server's 
   }));
   await overview.run(overview.tasks.get("message-2")!, { operation: "unassign", number: 2 });
   expect(commands.map((command) => command.operation)).toEqual(["unassign"]);
-  expect(overview.tasks.get("message-2")?.owner).toBeNull();
+  expect(overview.tasks.get("message-2")).toMatchObject({ owner: null, revision: 2 });
 });
 
-test("a refused move puts the row back and rejects", async () => {
-  const { overview } = await overviewWith(async () => {
+test("a refused move puts the row back, rejects, and reads the list again", async () => {
+  const { overview, reads } = await overviewWith(async () => {
     throw new Error("TASK_CONFLICT");
   });
   const saved = overview.run(overview.tasks.get("message-2")!, {
@@ -96,6 +100,8 @@ test("a refused move puts the row back and rejects", async () => {
   });
   await expect(saved).rejects.toThrow("TASK_CONFLICT");
   expect(overview.tasks.get("message-2")?.status).toBe("in_progress");
+  // The refusal may come from a change made elsewhere: the next try needs the current revision.
+  expect(reads()).toBe(2);
 });
 
 test("a move of a Task the page no longer lists is still saved", async () => {

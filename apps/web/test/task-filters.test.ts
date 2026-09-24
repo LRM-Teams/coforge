@@ -82,3 +82,13 @@ test("the picks travel in the address as one comma-separated value each", () => 
   expect(parseFilterParam(`${VIEWER},none,`)).toEqual([VIEWER, NO_OWNER]);
   expect(parseFilterParam(undefined)).toEqual([]);
 });
+
+test("the viewer is Me even when their first listed Task is in a conversation they are not in", () => {
+  const outside = { ...task(person(VIEWER, "Dev User"), infra), currentMemberId: null };
+  expect(ownerOptions([outside, tasks[0]!])[0]).toEqual({
+    id: VIEWER,
+    kind: "me",
+    name: "Dev User",
+    count: 2,
+  });
+});
