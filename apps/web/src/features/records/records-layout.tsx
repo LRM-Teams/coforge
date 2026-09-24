@@ -1,4 +1,12 @@
-import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+} from "react";
 import { Link, useNavigate, useRouter } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import {
@@ -20,10 +28,19 @@ import { Button } from "#src/components/base/buttons/button";
 import { ButtonUtility } from "#src/components/base/buttons/button-utility";
 import { Dropdown } from "#src/components/base/dropdown/dropdown";
 import { Input } from "#src/components/base/input/input";
+import { useCurrentWorkspaceId } from "#src/features/agents/workspace-agents-realtime";
 import { avatarInitial, avatarToneClassName } from "#src/lib/avatar-tone";
 import { cn } from "#src/lib/utils";
 import { m } from "#src/paraglide/messages";
 import { createRecordNote, type loadRecordsCatalog } from "./records.functions";
+import {
+  defaultMemberWeekExpanded,
+  defaultRecordsSectionOpen,
+  recallRecordsSidebarExpand,
+  rememberRecordsSidebarExpand,
+  type RecordsSidebarExpandSnapshot,
+  type RecordsSidebarSectionId,
+} from "./records-sidebar-expand";
 import { sidebarPreview } from "./records-sidebar";
 import {
   formatSendWindowCountdown,
@@ -75,18 +92,50 @@ export function RecordsLayout({
 }) {
   const navigate = useNavigate();
   const router = useRouter();
+  const workspaceId = useCurrentWorkspaceId();
   const createNote = useServerFn(createRecordNote);
   const recordOpen = detailOpen ?? Boolean(selectedRecordId || selectedPanel || selectedWeekKey);
   const [showMobileList, setShowMobileList] = useState(!recordOpen);
   const [query, setQuery] = useState("");
-  const [favoritesOpen, setFavoritesOpen] = useState(true);
+  const sectionDefaults = useMemo(() => {
+    const context = {
+      tab,
+      selectedRecordId,
+      selectedWeekKey,
+      favoriteIds: catalog.favorites.map((item) => item.id),
+      myReportIds: catalog.myReports.map((item) => item.id),
+      memberWeeks: catalog.memberWeeks.map((week) => ({
+        key: `${week.year}-${week.week}`,
+        overviewReportId: week.overviewReportId,
+        submissions: week.submissions.map((item) => ({ id: item.id })),
+      })),
+    };
+    return {
+      favorites: defaultRecordsSectionOpen("favorites", context),
+      myReports: defaultRecordsSectionOpen("myReports", context),
+      members: defaultRecordsSectionOpen("members", context),
+      notes: defaultRecordsSectionOpen("notes", context),
+    };
+  }, [
+    tab,
+    selectedRecordId,
+    selectedWeekKey,
+    catalog.favorites,
+    catalog.myReports,
+    catalog.memberWeeks,
+  ]);
+  /** One entry section at a time; session storage restores the last operated section. */
+  const [activeSection, setActiveSection] = useState<RecordsSidebarSectionId | undefined>(
+    undefined,
+  );
+  const [favoritesOpen, setFavoritesOpen] = useState(sectionDefaults.favorites);
   const [favoritesExpanded, setFavoritesExpanded] = useState(false);
   const [membersExpanded, setMembersExpanded] = useState(false);
   const [formatEditing, setFormatEditing] = useState(false);
   const [settingsHintDismissed, setSettingsHintDismissed] = useState(false);
-  const [myReportsOpen, setMyReportsOpen] = useState(true);
-  const [membersOpen, setMembersOpen] = useState(true);
-  const [notesOpen, setNotesOpen] = useState(true);
+  const [myReportsOpen, setMyReportsOpen] = useState(sectionDefaults.myReports);
+  const [membersOpen, setMembersOpen] = useState(sectionDefaults.members);
+  const [notesOpen, setNotesOpen] = useState(sectionDefaults.notes);
   const [expandedWeeks, setExpandedWeeks] = useState<Record<string, boolean>>({});
   const [busy, setBusy] = useState(false);
   const listHidden = recordOpen && !showMobileList;
@@ -94,6 +143,45 @@ export function RecordsLayout({
   useEffect(() => {
     if (!formatEditing) setSettingsHintDismissed(false);
   }, [formatEditing]);
+
+  const applyActiveSection = useCallback((section: RecordsSidebarSectionId) => {
+    setActiveSection(section);
+    setFavoritesOpen(section === "favorites");
+    setMyReportsOpen(section === "myReports");
+    setMembersOpen(section === "members");
+    setNotesOpen(section === "notes");
+  }, []);
+
+  useEffect(() => {
+    if (!workspaceId) return;
+    const stored = recallRecordsSidebarExpand(workspaceId);
+    if (!stored) return;
+    if (stored.activeSection) applyActiveSection(stored.activeSection);
+    if (Object.keys(stored.weeks).length > 0) setExpandedWeeks(stored.weeks);
+  }, [workspaceId, applyActiveSection]);
+
+  const persistExpand = useCallback(
+    (next: {
+      activeSection?: RecordsSidebarSectionId | undefined;
+      weeks?: Record<string, boolean>;
+    }) => {
+      if (!workspaceId) return;
+      const snapshot: RecordsSidebarExpandSnapshot = {
+        activeSection: next.activeSection !== undefined ? next.activeSection : activeSection,
+        weeks: next.weeks ?? expandedWeeks,
+      };
+      rememberRecordsSidebarExpand(workspaceId, snapshot);
+    },
+    [workspaceId, activeSection, expandedWeeks],
+  );
+
+  const enterSection = useCallback(
+    (section: RecordsSidebarSectionId) => {
+      applyActiveSection(section);
+      persistExpand({ activeSection: section });
+    },
+    [applyActiveSection, persistExpand],
+  );
 
   const filteredFavorites = useMemo(
     () => catalog.favorites.filter((item) => matchesQuery(item.title, query)),
@@ -220,7 +308,10 @@ export function RecordsLayout({
                   <CollapsibleSection
                     title={m.records_section_favorites()}
                     open={favoritesOpen}
-                    onOpenChange={setFavoritesOpen}
+                    onOpenChange={(open) => {
+                      if (open) enterSection("favorites");
+                      else setFavoritesOpen(false);
+                    }}
                   >
                     {filteredFavorites.length === 0 ? null : (
                       <ul className="space-y-0.5">
@@ -229,7 +320,10 @@ export function RecordsLayout({
                             <RecordLink
                               recordId={item.id}
                               selected={item.id === selectedRecordId}
-                              onSelect={() => setShowMobileList(false)}
+                              onSelect={() => {
+                                enterSection("favorites");
+                                setShowMobileList(false);
+                              }}
                             >
                               <Avatar
                                 size="sm"
@@ -253,7 +347,10 @@ export function RecordsLayout({
                   <CollapsibleSection
                     title={m.records_section_mine()}
                     open={myReportsOpen}
-                    onOpenChange={setMyReportsOpen}
+                    onOpenChange={(open) => {
+                      if (open) enterSection("myReports");
+                      else setMyReportsOpen(false);
+                    }}
                   >
                     {filteredMyReports.length === 0 ? null : (
                       <ul className="space-y-0.5">
@@ -265,7 +362,10 @@ export function RecordsLayout({
                               <RecordLink
                                 recordId={item.id}
                                 selected={item.id === selectedRecordId}
-                                onSelect={() => setShowMobileList(false)}
+                                onSelect={() => {
+                                  enterSection("myReports");
+                                  setShowMobileList(false);
+                                }}
                                 className={cn(unread && "bg-brand-primary_alt font-semibold")}
                               >
                                 <WeekBadge week={item.week} />
@@ -291,7 +391,10 @@ export function RecordsLayout({
                   <CollapsibleSection
                     title={m.records_section_members()}
                     open={membersOpen}
-                    onOpenChange={setMembersOpen}
+                    onOpenChange={(open) => {
+                      if (open) enterSection("members");
+                      else setMembersOpen(false);
+                    }}
                   >
                     {filteredMemberWeeks.length === 0 ? null : (
                       <ul className="space-y-1">
@@ -303,7 +406,13 @@ export function RecordsLayout({
                             week.submissions.some((item) => item.id === selectedRecordId);
                           const expanded =
                             expandedWeeks[week.key] ??
-                            ((Boolean(query) && hasSubmissions) || weekSelected);
+                            defaultMemberWeekExpanded({
+                              year: week.year,
+                              week: week.week,
+                              weekSelected,
+                              hasSubmissions,
+                              queryActive: Boolean(query),
+                            });
                           return (
                             <li key={week.key} className="space-y-0.5">
                               <div className="flex min-w-0 items-center gap-1 rounded-lg">
@@ -328,12 +437,12 @@ export function RecordsLayout({
                                         ? m.records_collapse_week({ week: week.title })
                                         : m.records_expand_week({ week: week.title })
                                     }
-                                    onClick={() =>
-                                      setExpandedWeeks((current) => ({
-                                        ...current,
-                                        [week.key]: !expanded,
-                                      }))
-                                    }
+                                    onClick={() => {
+                                      const nextOpen = !expanded;
+                                      const weeks = { ...expandedWeeks, [week.key]: nextOpen };
+                                      setExpandedWeeks(weeks);
+                                      persistExpand({ weeks });
+                                    }}
                                   />
                                 ) : (
                                   <span className="size-7 shrink-0" aria-hidden="true" />
@@ -341,7 +450,10 @@ export function RecordsLayout({
                                 <RecordLink
                                   recordId={week.overviewReportId}
                                   selected={weekSelected}
-                                  onSelect={() => setShowMobileList(false)}
+                                  onSelect={() => {
+                                    enterSection("members");
+                                    setShowMobileList(false);
+                                  }}
                                   className="min-w-0 flex-1 font-medium"
                                 >
                                   <WeekBadge week={week.week} />
@@ -355,7 +467,10 @@ export function RecordsLayout({
                                       <RecordLink
                                         recordId={submission.id}
                                         selected={submission.id === selectedRecordId}
-                                        onSelect={() => setShowMobileList(false)}
+                                        onSelect={() => {
+                                          enterSection("members");
+                                          setShowMobileList(false);
+                                        }}
                                       >
                                         <Avatar
                                           size="sm"
@@ -387,7 +502,10 @@ export function RecordsLayout({
                 <CollapsibleSection
                   title={m.records_notes_mine()}
                   open={notesOpen}
-                  onOpenChange={setNotesOpen}
+                  onOpenChange={(open) => {
+                    if (open) enterSection("notes");
+                    else setNotesOpen(false);
+                  }}
                   actions={
                     <ButtonUtility
                       size="sm"
@@ -408,7 +526,10 @@ export function RecordsLayout({
                           <RecordLink
                             recordId={note.id}
                             selected={note.id === selectedRecordId}
-                            onSelect={() => setShowMobileList(false)}
+                            onSelect={() => {
+                              enterSection("notes");
+                              setShowMobileList(false);
+                            }}
                           >
                             <Avatar
                               size="sm"
