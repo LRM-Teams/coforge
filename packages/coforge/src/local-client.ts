@@ -104,6 +104,9 @@ function operationFailedCode(operation: string): string {
   return `${operation.toUpperCase().replace(/-/g, "_")}_FAILED`;
 }
 
+/** The agent-context token grammar the proxy checks before issuing any request. */
+const PROXY_CONTEXT_PATTERN = /^sfp_[A-Za-z0-9_-]{43}$/;
+
 /** A local condition that meant no request was ever issued: nothing to wait on or undo. */
 function preIssuanceError(operation: string, message: string): CliError {
   const isSend = operation === "send";
@@ -113,6 +116,15 @@ function preIssuanceError(operation: string, message: string): CliError {
     retryable: false,
     ...(isSend ? { draftSaved: false, suggestedNextAction: NO_MESSAGE_SENT_NEXT_ACTION } : {}),
   });
+}
+/** The preflight every proxied request runs before it issues: the context must exist and match
+ * the token grammar, and a proxy must be configured. Raises the operation's own pre-issuance
+ * error, so no request is ever sent — and no `send` can even start retrying — on a missing setup. */
+function requireProxySetup(operation: string, context: string, proxyUrl: string): void {
+  if (!context) throw preIssuanceError(operation, "coforge agent context is not configured");
+  if (!PROXY_CONTEXT_PATTERN.test(context))
+    throw preIssuanceError(operation, "coforge agent context is invalid");
+  if (!proxyUrl) throw preIssuanceError(operation, "coforge agent proxy is not configured");
 }
 
 /**
@@ -247,10 +259,7 @@ async function manualRequest<T>(
   query: Record<string, string>,
   decode: (value: unknown) => T,
 ): Promise<T> {
-  if (!context) throw preIssuanceError("manual", "coforge agent context is not configured");
-  if (!/^sfp_[A-Za-z0-9_-]{43}$/.test(context))
-    throw preIssuanceError("manual", "coforge agent context is invalid");
-  if (!proxyUrl) throw preIssuanceError("manual", "coforge agent proxy is not configured");
+  requireProxySetup("manual", context, proxyUrl);
   const endpoint = proxyEndpoint(path);
   for (const [key, value] of Object.entries(query)) endpoint.searchParams.set(key, value);
   let response: Response;
@@ -293,10 +302,7 @@ async function versionRequest(
   context: string,
   proxyUrl: string,
 ): Promise<AgentVersionResponse> {
-  if (!context) throw preIssuanceError("version", "coforge agent context is not configured");
-  if (!/^sfp_[A-Za-z0-9_-]{43}$/.test(context))
-    throw preIssuanceError("version", "coforge agent context is invalid");
-  if (!proxyUrl) throw preIssuanceError("version", "coforge agent proxy is not configured");
+  requireProxySetup("version", context, proxyUrl);
   let response: Response;
   try {
     response = await fetch(proxyEndpoint(agentApiRoutes.proxy.version.path), {
@@ -334,10 +340,7 @@ async function envelopeGetRequest<T>(
   decodeError: (value: unknown) => { errorCode: string; error: string } | undefined,
   operation: string,
 ): Promise<T> {
-  if (!context) throw preIssuanceError(operation, "coforge agent context is not configured");
-  if (!/^sfp_[A-Za-z0-9_-]{43}$/.test(context))
-    throw preIssuanceError(operation, "coforge agent context is invalid");
-  if (!proxyUrl) throw preIssuanceError(operation, "coforge agent proxy is not configured");
+  requireProxySetup(operation, context, proxyUrl);
   const endpoint = proxyEndpoint(path);
   for (const [key, value] of Object.entries(query)) endpoint.searchParams.set(key, value);
   let response: Response;
@@ -375,10 +378,7 @@ async function callProfileUpdate(
   proxyUrl: string,
   input: AgentProfileUpdateRequest,
 ): Promise<AgentProfileUpdateResponse> {
-  if (!context) throw preIssuanceError("profile-update", "coforge agent context is not configured");
-  if (!/^sfp_[A-Za-z0-9_-]{43}$/.test(context))
-    throw preIssuanceError("profile-update", "coforge agent context is invalid");
-  if (!proxyUrl) throw preIssuanceError("profile-update", "coforge agent proxy is not configured");
+  requireProxySetup("profile-update", context, proxyUrl);
   let response: Response;
   try {
     response = await fetch(proxyEndpoint(agentApiRoutes.local.profile.update.path), {
@@ -420,10 +420,7 @@ async function mentionActionRequest<T>(
   body: AgentMentionExecuteRequest | undefined,
   decode: (value: unknown) => T,
 ): Promise<T> {
-  if (!context) throw preIssuanceError(operation, "coforge agent context is not configured");
-  if (!/^sfp_[A-Za-z0-9_-]{43}$/.test(context))
-    throw preIssuanceError(operation, "coforge agent context is invalid");
-  if (!proxyUrl) throw preIssuanceError(operation, "coforge agent proxy is not configured");
+  requireProxySetup(operation, context, proxyUrl);
   let response: Response;
   try {
     response = await fetch(proxyEndpoint(route.path), {
