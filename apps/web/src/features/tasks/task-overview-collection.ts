@@ -163,7 +163,11 @@ export function createTaskOverview(
       else if (view.revision > row.revision) updates.push(view);
     }
     for (const view of newest.values())
-      if (!deleted.has(view.messageId)) announced.set(view.messageId, view);
+      if (!deleted.has(view.messageId)) {
+        announced.set(view.messageId, view);
+        // A Task converted again from the message of a deleted one is back.
+        deletedTasks.delete(view.messageId);
+      }
     for (const messageId of deleted) {
       announced.delete(messageId);
       deletedTasks.add(messageId);
