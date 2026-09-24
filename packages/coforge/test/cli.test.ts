@@ -890,12 +890,184 @@ test("Task commands require exact arguments and reject thread targets", () => {
       "@ada",
     ]),
   ).toMatchObject({ task: { operation: "create", title: "Ship it", assignee: "@ada" } });
-  expect(() => parseArgs(["task", "claim", "--target", "#general"])).toThrow("Usage:");
-  expect(() => parseArgs(["task", "list", "--target", "#general:deadbeef"])).toThrow("Usage:");
-  expect(() => parseArgs(["task", "delete", "--target", "#general"])).toThrow("Usage:");
+  expect(refusal(["task", "claim", "--target", "#general"])).toEqual(
+    invalidArg("Provide at least one --number or --message-id"),
+  );
+  expect(refusal(["task", "list", "--target", "#general:deadbeef"])).toEqual(
+    invalidArg("--target must be a conversation ('#channel' or '@user'); got #general:deadbeef"),
+  );
+  expect(refusal(["task", "delete", "--target", "#general"])).toEqual(
+    invalidArg("--number must be a positive integer; got undefined"),
+  );
 });
 
-test("Task command parsing covers Raft lifecycle actions and explicit description clearing", () => {
+/** The typed refusal `parseArgs` throws for the given arguments. */
+function refusal(args: string[]) {
+  try {
+    parseArgs(args);
+  } catch (error) {
+    return error instanceof CliError ? { code: error.code, message: error.message } : error;
+  }
+  throw new Error("expected the arguments to be refused");
+}
+
+const invalidArg = (message: string) => ({ code: "INVALID_ARG", message });
+
+test("Task create takes repeated titles, an @handle assignee and a resource receipt gate", () => {
+  expect(
+    parseArgs([
+      "task",
+      "create",
+      "--target",
+      "#general",
+      "--title",
+      "Draft",
+      "--title",
+      "Review",
+      "--assignee",
+      " @ada ",
+      "--creates-resource",
+    ]),
+  ).toMatchObject({
+    task: {
+      operation: "create",
+      titles: ["Draft", "Review"],
+      assignee: "@ada",
+      createsResource: true,
+    },
+  });
+  const single = parseArgs(["task", "create", "--target", "#general", "--title", "One"]) as {
+    task: Record<string, unknown>;
+  };
+  expect(single.task).toMatchObject({ title: "One" });
+  expect(single.task).not.toHaveProperty("titles");
+  expect(single.task).not.toHaveProperty("createsResource");
+  expect(refusal(["task", "create", "--target", "#general"])).toEqual(
+    invalidArg("--title is required (at least one)"),
+  );
+  expect(refusal(["task", "create", "--target", "#general", "--title", "  "])).toEqual(
+    invalidArg("--title must be nonblank"),
+  );
+  expect(
+    refusal(["task", "create", "--target", "#general", "--title", "One", "--assignee", "ada"]),
+  ).toEqual(invalidArg("--assignee must be an @handle"));
+  expect(
+    refusal(["task", "create", "--target", "#general", "--title", "One", "--assignee", "@Ada"]),
+  ).toEqual(invalidArg("--assignee must be an @handle"));
+  expect(refusal(["task", "create", "--title", "One"])).toEqual(invalidArg("--target is required"));
+});
+
+test("Task claim takes repeated numbers and message ids together", () => {
+  expect(
+    parseArgs([
+      "task",
+      "claim",
+      "--target",
+      "#general",
+      "--number",
+      "1",
+      "--number",
+      "2",
+      "--message-id",
+      "abcd1234",
+    ]),
+  ).toMatchObject({
+    task: { operation: "claim", numbers: [1, 2], messageId: "abcd1234" },
+  });
+  expect(
+    parseArgs([
+      "task",
+      "claim",
+      "--target",
+      "#general",
+      "--message-id",
+      "abcd1234",
+      "--message-id",
+      "ef567890",
+    ]),
+  ).toMatchObject({ task: { messageIds: ["abcd1234", "ef567890"] } });
+  expect(refusal(["task", "claim", "--target", "#general", "--number", "0"])).toEqual(
+    invalidArg("--number must be a positive integer; got 0"),
+  );
+  expect(refusal(["task", "claim", "--target", "#general", "--number", "1.5"])).toEqual(
+    invalidArg("--number must be a positive integer; got 1.5"),
+  );
+});
+
+test("Task update, assign, convert, amend and receipt name what is wrong with their arguments", () => {
+  const update = ["task", "update", "--target", "#general"];
+  expect(refusal([...update, "--status", "done"])).toEqual(
+    invalidArg("Provide exactly one --number"),
+  );
+  expect(refusal([...update, "--number", "1", "--number", "2", "--status", "done"])).toEqual(
+    invalidArg(
+      "task update accepts exactly one --number; received 2. Run task update once per task.",
+    ),
+  );
+  expect(refusal([...update, "--number", "1", "--status", "open"])).toEqual(
+    invalidArg("--status must be one of: todo, in_progress, in_review, done, closed; got open"),
+  );
+  expect(refusal([...update, "--number", "1"])).toEqual(
+    invalidArg(
+      "--status must be one of: todo, in_progress, in_review, done, closed; got undefined",
+    ),
+  );
+  expect(
+    refusal([...update, "--number", "1", "--status", "done", "--expected-revision", "-1"]),
+  ).toEqual(invalidArg("--expected-revision must be a non-negative integer; got -1"));
+
+  const assign = ["task", "assign", "--target", "#general", "--number", "2"];
+  expect(parseArgs([...assign, "--assignee", "ada"])).toMatchObject({
+    task: { operation: "assign", assignee: "@ada" },
+  });
+  expect(refusal([...assign, "--assignee", "@Ada Lovelace"])).toEqual(
+    invalidArg("--assignee must be an @handle"),
+  );
+  expect(refusal(assign)).toEqual(
+    invalidArg("--assignee <@who> is required; to clear the assignee use `coforge task unassign`"),
+  );
+
+  expect(refusal(["task", "convert", "--target", "#general"])).toEqual(
+    invalidArg("--message-id is required"),
+  );
+  expect(refusal(["task", "amend", "--target", "#general", "--number", "2"])).toEqual(
+    invalidArg(
+      "At least one amendment is required: --title, --description, or --clear-description",
+    ),
+  );
+  expect(
+    refusal([
+      "task",
+      "amend",
+      "--target",
+      "#general",
+      "--number",
+      "2",
+      "--description",
+      "x",
+      "--clear-description",
+    ]),
+  ).toEqual(invalidArg("Use either --description or --clear-description, not both"));
+  expect(refusal(["task", "history", "--target", "#general", "--number", "x"])).toEqual(
+    invalidArg("--number must be a positive integer; got x"),
+  );
+  // Delete and receipt take no revision: the server would refuse it.
+  for (const operation of ["delete", "receipt"])
+    expect(() =>
+      parseArgs([
+        "task",
+        operation,
+        "--target",
+        "#general",
+        "--number",
+        "2",
+        "--expected-revision",
+        "1",
+      ]),
+    ).toThrow("Usage:");
+});
+
+test("Task command parsing covers lifecycle actions and explicit description clearing", () => {
   expect(
     parseArgs(["task", "assign", "--target", "#general", "--number", "2", "--assignee", "@ada"]),
   ).toMatchObject({ task: { operation: "assign", number: 2, assignee: "@ada" } });
@@ -909,9 +1081,11 @@ test("Task command parsing covers Raft lifecycle actions and explicit descriptio
 });
 
 test("Task unassign dispatches its own protocol operation with no assignee", () => {
-  expect(parseArgs(["task", "unassign", "--target", "#general", "--number", "2"])).toMatchObject({
-    task: { operation: "unassign", number: 2, assignee: undefined },
-  });
+  const unassign = parseArgs(["task", "unassign", "--target", "#general", "--number", "2"]) as {
+    task: Record<string, unknown>;
+  };
+  expect(unassign.task).toMatchObject({ operation: "unassign", number: 2 });
+  expect(unassign.task).not.toHaveProperty("assignee");
   expect(
     parseArgs([
       "task",
@@ -929,7 +1103,9 @@ test("Task unassign dispatches its own protocol operation with no assignee", () 
   expect(() =>
     parseArgs(["task", "unassign", "--target", "#general", "--number", "2", "--assignee", "@ada"]),
   ).toThrow("Usage:");
-  expect(() => parseArgs(["task", "unassign", "--target", "#general"])).toThrow("Usage:");
+  expect(refusal(["task", "unassign", "--target", "#general"])).toEqual(
+    invalidArg("--number must be a positive integer; got undefined"),
+  );
 });
 
 test("Task receipt forwards all seven fields through the backend contract", async () => {
@@ -1201,7 +1377,8 @@ test("Task unassign submits its own protocol operation with no assignee", async 
     },
   });
   expect(calls).toHaveLength(1);
-  expect(calls[0]).toMatchObject({ operation: "unassign", number: 2, assignee: undefined });
+  expect(calls[0]).toMatchObject({ operation: "unassign", number: 2 });
+  expect(calls[0]).not.toHaveProperty("assignee");
   expect(output).toContain("#2 status=in_progress owner=unclaimed message=message-2");
 });
 
