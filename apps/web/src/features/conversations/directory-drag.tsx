@@ -1,6 +1,5 @@
 import { useRef, useState, type ReactNode } from "react";
 import {
-  MeasuringStrategy,
   MouseSensor,
   pointerWithin,
   useDroppable,
@@ -8,7 +7,7 @@ import {
   useSensors,
   type CollisionDetection,
   type DragEndEvent,
-  type DragOverEvent,
+  type DragMoveEvent,
 } from "@dnd-kit/core";
 import { SortableContext, useSortable } from "@dnd-kit/sortable";
 
@@ -16,6 +15,7 @@ import { cx } from "#src/utils/cx";
 import type { DirectorySectionId } from "./directory-sections";
 import {
   canDropInto,
+  dropTarget,
   moveInDirectory,
   pinsAfterDrag,
   type DirectoryLayout,
@@ -52,34 +52,30 @@ export function useDirectoryDrag({
   const [dragging, setDragging] = useState<DirectoryLayout | null>(null);
   const [saving, setSaving] = useState<DirectoryLayout | null>(null);
   const start = useRef<DirectoryLayout | null>(null);
+  const saves = useRef(0);
   const sensors = useSensors(useSensor(MouseSensor, { activationConstraint: { distance: 6 } }));
   const layout = dragging ?? saving ?? base;
 
-  /** Where the dragged row goes for what it is over, or `null` to leave the layout as it is. */
-  const target = (current: DirectoryLayout, { active, over }: DragOverEvent) => {
+  const moved = (current: DirectoryLayout, { active, over }: DragMoveEvent) => {
     const data = over?.data.current as DragData | undefined;
-    if (!over || !data || over.id === active.id) return null;
-    const inSection = current[data.section].includes(String(active.id));
-    // Over a list's own space (between rows, or an empty list), it joins at the end.
-    if (data.type === "section")
-      return inSection ? null : { section: data.section, index: current[data.section].length };
-    const siblings = current[data.section].filter((key) => key !== active.id);
-    const overIndex = siblings.indexOf(String(over.id));
+    if (!over || !data) return current;
     const dragged = active.rect.current.translated;
-    const below = dragged
-      ? dragged.top + dragged.height / 2 > over.rect.top + over.rect.height / 2
-      : false;
-    return { section: data.section, index: overIndex + (below ? 1 : 0) };
-  };
-
-  const moved = (current: DirectoryLayout, event: DragOverEvent) => {
-    const to = target(current, event);
+    const to = dropTarget(
+      current,
+      String(active.id),
+      { key: String(over.id), ...data },
+      dragged
+        ? { dragged: dragged.top + dragged.height / 2, over: over.rect.top + over.rect.height / 2 }
+        : null,
+    );
     return to
-      ? moveInDirectory(current, natural, String(event.active.id), to.section, to.index)
+      ? moveInDirectory(current, natural, String(active.id), to.section, to.index)
       : current;
   };
 
-  const onDragOver = (event: DragOverEvent) => {
+  // `onDragOver` fires when the row under the pointer changes and `onDragMove` on every move, so
+  // crossing the middle of the same row re-lays the list out too.
+  const relayout = (event: DragMoveEvent) => {
     const current = dragging ?? base;
     const next = moved(current, event);
     if (next !== current) setDragging(next);
@@ -93,14 +89,16 @@ export function useDirectoryDrag({
     setDragging(null);
     const change = pinsAfterDrag(before, dropped);
     if (!change) return;
+    // A later drop may be saving by the time this one settles; only the latest clears the view.
+    const save = ++saves.current;
     setSaving(dropped);
-    void commit(change).finally(() => setSaving(null));
+    void commit(change).finally(() => {
+      if (saves.current === save) setSaving(null);
+    });
   };
 
   const context = {
     sensors,
-    // Rows move between sections mid-drag, so the drop targets are measured throughout.
-    measuring: { droppable: { strategy: MeasuringStrategy.Always } },
     collisionDetection: rowsFirst,
     accessibility: { announcements: SILENT_ANNOUNCEMENTS },
     // A drag that starts while the previous drop is still saving starts from that drop.
@@ -108,7 +106,8 @@ export function useDirectoryDrag({
       start.current = saving ?? base;
       setDragging(saving ?? base);
     },
-    onDragOver,
+    onDragOver: relayout,
+    onDragMove: relayout,
     onDragEnd,
     onDragCancel: () => {
       start.current = null;
@@ -121,13 +120,13 @@ export function useDirectoryDrag({
 /** The drop target under the pointer that takes the dragged row, a row before its section.
  * Released anywhere else, the drag drops nothing. */
 const rowsFirst: CollisionDetection = (args) => {
+  const dataOf = (hit: ReturnType<CollisionDetection>[number]) =>
+    hit.data?.droppableContainer.data.current as DragData | undefined;
   const within = pointerWithin(args).filter((hit) => {
-    const data = hit.data?.droppableContainer.data.current as DragData | undefined;
+    const data = dataOf(hit);
     return data !== undefined && canDropInto(String(args.active.id), data.section);
   });
-  const rows = within.filter(
-    (hit) => (hit.data?.droppableContainer.data.current as DragData | undefined)?.type === "row",
-  );
+  const rows = within.filter((hit) => dataOf(hit)?.type === "row");
   return rows.length > 0 ? rows : within;
 };
 

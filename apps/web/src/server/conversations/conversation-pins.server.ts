@@ -66,44 +66,78 @@ export async function arrangeConversationPins(
 ) {
   await db.$transaction(async (tx) => {
     await lockMemberPins(tx, workspaceId, userId);
-    const pinned = await activeMemberships(tx, workspaceId, userId, arrangement.pins);
-    if (pinned.some((member) => member === undefined)) throw new AppError("ACCESS_DENIED");
-    const members = pinned.map((member) => member!);
-    // Conversation locks after the member lock, in id order, like every other pin write. A leave
-    // takes the same lock, so the memberships are checked again once it is held.
-    for (const conversationId of members.map((member) => member.conversationId).sort())
-      await lockConversation(tx, conversationId);
-    const stillIn = await tx.conversationMember.count({
-      where: { id: { in: members.map((member) => member.id) }, leftAt: null },
-    });
-    if (stillIn !== new Set(members.map((member) => member.id)).size)
-      throw new AppError("ACCESS_DENIED");
-
-    const unpinned = (await activeMemberships(tx, workspaceId, userId, arrangement.unpinned))
-      .filter((member) => member !== undefined)
-      .map((member) => member.conversationId);
-    await tx.conversationPin.deleteMany({
-      where: { workspaceId, member: { userId }, conversationId: { in: unpinned } },
-    });
-    const arranged = new Set(members.map((member) => member.conversationId));
-    const others = await tx.conversationPin.findMany({
-      where: { workspaceId, member: { userId }, conversationId: { notIn: [...arranged] } },
+    const resolved = await activeMemberships(tx, workspaceId, userId, arrangement.pins);
+    if (resolved.some((member) => member === undefined)) throw new AppError("ACCESS_DENIED");
+    // One place per conversation, the first the list gives it.
+    const members = [...new Map(resolved.map((m) => [m!.conversationId, m!])).values()];
+    // Every pin the member has now, read once: what is new, what moved, and what else to keep.
+    const current = await tx.conversationPin.findMany({
+      where: { workspaceId, member: { userId } },
       orderBy: { sortOrder: "asc" },
-      select: { conversationId: true, memberId: true },
+      select: { conversationId: true, memberId: true, sortOrder: true },
     });
-    for (const [sortOrder, member] of members.entries()) {
-      const key = { conversationId: member.conversationId, memberId: member.id };
-      await tx.conversationPin.upsert({
-        where: { conversationId_memberId: key },
-        create: { ...key, workspaceId, sortOrder },
-        update: { sortOrder },
+    const pinnedNow = new Set(current.map((pin) => pin.conversationId));
+
+    // A conversation being newly pinned is locked after the member lock (in id order, like every
+    // other pin write): its new pin row needs the membership to still be there, and a leave takes
+    // the same lock, so the memberships are checked again once it is held. Re-ordering existing
+    // pins changes only their order and takes no conversation lock.
+    const added = members.filter((member) => !pinnedNow.has(member.conversationId));
+    for (const conversationId of added.map((member) => member.conversationId).sort())
+      await lockConversation(tx, conversationId);
+    if (added.length > 0) {
+      const stillIn = await tx.conversationMember.count({
+        where: { id: { in: added.map((member) => member.id) }, leftAt: null },
       });
+      if (stillIn !== added.length) throw new AppError("ACCESS_DENIED");
     }
-    for (const [rank, pin] of others.entries())
-      await tx.conversationPin.update({
-        where: { conversationId_memberId: pin },
-        data: { sortOrder: members.length + rank },
+
+    const unpinned = new Set(
+      (await activeMemberships(tx, workspaceId, userId, arrangement.unpinned)).flatMap((member) =>
+        member ? [member.conversationId] : [],
+      ),
+    );
+    const arranged = new Set(members.map((member) => member.conversationId));
+    const removed = current.filter(
+      (pin) => unpinned.has(pin.conversationId) && !arranged.has(pin.conversationId),
+    );
+    if (removed.length > 0)
+      await tx.conversationPin.deleteMany({
+        where: {
+          workspaceId,
+          member: { userId },
+          conversationId: { in: removed.map((pin) => pin.conversationId) },
+        },
       });
+    if (added.length > 0)
+      await tx.conversationPin.createMany({
+        data: added.map((member) => ({
+          conversationId: member.conversationId,
+          memberId: member.id,
+          workspaceId,
+          sortOrder: members.indexOf(member),
+        })),
+      });
+    // The arranged pins take the first places; the member's other pins follow in their old order.
+    // Only rows whose order changes are written, in one statement.
+    const kept = current.filter(
+      (pin) => arranged.has(pin.conversationId) || !unpinned.has(pin.conversationId),
+    );
+    const others = kept.filter((pin) => !arranged.has(pin.conversationId));
+    const place = new Map([
+      ...members.map((member, index) => [member.conversationId, index] as const),
+      ...others.map((pin, rank) => [pin.conversationId, members.length + rank] as const),
+    ]);
+    const moved = kept.filter((pin) => place.get(pin.conversationId) !== pin.sortOrder);
+    if (moved.length > 0)
+      await tx.$executeRaw`
+        UPDATE "conversation_pins" AS p SET "sortOrder" = v."sortOrder"
+        FROM unnest(
+          ${moved.map((pin) => pin.conversationId)}::uuid[],
+          ${moved.map((pin) => pin.memberId)}::uuid[],
+          ${moved.map((pin) => place.get(pin.conversationId)!)}::int[]
+        ) AS v("conversationId", "memberId", "sortOrder")
+        WHERE p."conversationId" = v."conversationId" AND p."memberId" = v."memberId"`;
   });
 }
 
