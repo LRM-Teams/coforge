@@ -23,7 +23,7 @@
   "agent_empty_description": "创建一个智能体来组建你的团队。",
   "agent_empty_computer_description": "智能体需要在电脑上工作。连接电脑后，即可创建第一个智能体。",
   "agent_connect_computer": "连接电脑",
-  "member_person": "Human",
+  "member_person": "人类成员",
   "member_agent": "Agent",
   "member_type_filter": "成员类型",
   "member_tab_agents": "智能体",

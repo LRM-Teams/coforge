@@ -54,8 +54,8 @@ export type Mentionable = {
   handle: string;
   /** Human-facing label shown next to the handle in the completion list. */
   label: string;
-  /** A short profile description shown as the completion row's second line, trimmed. Empty
-   * when the profile has none; the row renders no second line in that case. */
+  /** A short profile description shown after the name on the completion row, trimmed. Empty
+   * when the profile has none; the row then shows no description. */
   description: string;
   /** The person's uploaded avatar image, when they have one. Agents never carry an avatar
    * image, so this is always absent for `kind: "agent"`. */

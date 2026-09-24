@@ -15,9 +15,10 @@ import type { ReferenceSuggestion } from "./use-reference-completion";
 /**
  * The reference-completion popup above the composer textarea: a listbox of the conversation's
  * mentionable members (`@`) or the Workspace's channels (`#`), filtered to the in-progress query.
- * A member row shows the avatar, display name, handle and (for people who have one) profile
- * description, plus an "Agent" badge for Agents. A channel row shows a `#` icon, the name, the
- * description, and an "Archived" badge on an archived channel.
+ * Every row is one line so more candidates fit above the composer. A member row reads avatar,
+ * display name, a Human/Agent badge and the profile description, with the `@handle` pinned to the
+ * right edge. A channel row reads a `#` icon, the name and the description, with an "Archived"
+ * badge on the right; an archived channel's row is dimmed.
  * An Agent's avatar carries the same online/working/thinking/error/offline dot the sidebar and
  * conversation header use, so you can see whether an Agent is around before mentioning it; the
  * snapshot comes from the app shell's one subscription through `useLiveAgents`. People have no
@@ -72,7 +73,7 @@ export function ReferenceSuggestionList({
       }
       onPointerDown={(event) => event.stopPropagation()}
       onClick={(event) => event.stopPropagation()}
-      className="absolute bottom-full left-3 z-20 mb-1 w-80 max-w-[calc(100%-1.5rem)] origin-bottom overflow-hidden rounded-xl bg-primary shadow-lg ring-1 ring-secondary_alt animate-in fade-in slide-in-from-bottom-1 duration-150 ease-out motion-reduce:animate-none"
+      className="absolute inset-x-3 bottom-full z-20 mb-1 origin-bottom overflow-hidden rounded-xl bg-primary shadow-lg ring-1 ring-secondary_alt animate-in fade-in slide-in-from-bottom-1 duration-150 ease-out motion-reduce:animate-none"
     >
       <ul
         role="presentation"
@@ -108,7 +109,7 @@ export function ReferenceSuggestionList({
               }}
               onMouseEnter={() => onHighlight(index)}
               className={cx(
-                "flex min-h-11 cursor-pointer select-none items-center gap-2 px-3 py-2",
+                "flex min-h-9 cursor-pointer select-none items-center gap-2 px-3 py-1.5 pointer-coarse:min-h-11",
                 active && "bg-secondary",
               )}
             >
@@ -128,7 +129,7 @@ export function ReferenceSuggestionList({
   );
 }
 
-/** A member row: avatar (an Agent's with its live status dot), name, handle, description. */
+/** A member row: avatar (an Agent's with its live status dot), name, kind, description, handle. */
 function MentionRow({
   mention,
   display,
@@ -143,33 +144,29 @@ function MentionRow({
           name={mention.label}
           src={mention.avatarUrl}
           display={display}
-          size="sm"
+          size="xs"
         />
       ) : (
         <Avatar
-          size="sm"
+          size="xs"
           alt=""
           src={mention.avatarUrl}
           initials={avatarInitial(mention.label)}
           contentClassName={avatarToneClassName(mention.label)}
         />
       )}
-      <div className="min-w-0 flex-1">
-        <p className="flex items-baseline gap-1.5 text-sm">
-          <span className="min-w-0 truncate font-medium text-primary">{mention.label}</span>
-          {mention.label !== mention.handle && (
-            <span className="shrink-0 text-tertiary">@{mention.handle}</span>
-          )}
-        </p>
-        {mention.description && (
-          <p className="truncate text-xs text-tertiary">{mention.description}</p>
-        )}
-      </div>
-      {mention.kind === "agent" && (
-        <Badge size="sm" color="gray" type="modern" className="ml-auto shrink-0">
-          {m.member_agent()}
+      <span className="grid min-w-0 flex-1 grid-cols-[minmax(0,auto)_auto_minmax(0,1fr)] items-center gap-1.5">
+        <span className="truncate text-sm font-medium text-primary">{mention.label}</span>
+        <Badge size="sm" color="gray" type="modern">
+          {mention.kind === "agent" ? m.member_agent() : m.member_person()}
         </Badge>
-      )}
+        {mention.description && (
+          <span className="truncate text-xs text-tertiary">{mention.description}</span>
+        )}
+      </span>
+      <span className="ml-auto max-w-[40%] min-w-0 truncate text-xs text-quaternary">
+        @{mention.handle}
+      </span>
     </>
   );
 }
@@ -178,15 +175,29 @@ function MentionRow({
 function ChannelRow({ channel }: { channel: ChannelSuggestion }) {
   return (
     <>
-      <span aria-hidden="true" className="flex size-8 shrink-0 items-center justify-center">
-        <Hash className="size-4 text-tertiary" />
+      <span aria-hidden="true" className="flex size-6 shrink-0 items-center justify-center">
+        <Hash className={cx("size-4", channel.archived ? "text-quaternary" : "text-tertiary")} />
       </span>
-      <div className="min-w-0 flex-1">
-        <p className="truncate text-sm font-medium text-primary">{channel.name}</p>
+      <span className="grid min-w-0 flex-1 grid-cols-[minmax(0,auto)_minmax(0,1fr)] items-center gap-2">
+        <span
+          className={cx(
+            "truncate text-sm font-medium",
+            channel.archived ? "text-tertiary" : "text-primary",
+          )}
+        >
+          {channel.name}
+        </span>
         {channel.description && (
-          <p className="truncate text-xs text-tertiary">{channel.description}</p>
+          <span
+            className={cx(
+              "truncate text-xs",
+              channel.archived ? "text-quaternary" : "text-tertiary",
+            )}
+          >
+            {channel.description}
+          </span>
         )}
-      </div>
+      </span>
       {channel.archived && (
         <Badge size="sm" color="gray" type="modern" className="ml-auto shrink-0">
           {m.conversation_channel_archived()}
