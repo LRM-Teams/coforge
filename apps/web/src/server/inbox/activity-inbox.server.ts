@@ -67,11 +67,10 @@ export class ActivityInbox {
     options: { filter: ActivityInboxFilter; offset?: number; limit?: number },
   ) {
     await this.authorize(workspaceId, userId);
-    // The database's clock, the one message `createdAt` values come from.
-    const [[{ now: loadedAt }], all] = await Promise.all([
-      this.db.$queryRaw<[{ now: Date }]>`SELECT now() AS "now"`,
-      this.candidates(workspaceId, userId),
-    ]);
+    // Read before the list, on the clock message `createdAt` values come from: Prisma fills them in
+    // this process (`@default(now())` is generated client-side).
+    const loadedAt = new Date();
+    const all = await this.candidates(workspaceId, userId);
     const candidates = all.filter((candidate) =>
       options.filter === "unread"
         ? candidate.unreadCount > 0
