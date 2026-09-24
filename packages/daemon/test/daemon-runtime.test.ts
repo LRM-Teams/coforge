@@ -3062,6 +3062,84 @@ describe("DaemonRuntime", () => {
     }
   });
 
+  test("a successful Start clears the wake cooldown a failed wake launch left behind", async () => {
+    const credentials = new InMemoryDaemonCredentialStore();
+    await credentials.save(connection.workspaceId, connection.computerId, "token-a");
+    const exits = new Set<() => void>();
+    let launchAttempts = 0;
+    let broken = false;
+    const runtime = new DaemonRuntime(
+      connection,
+      () => ({
+        provider: "pi",
+        createAgentSession: async () => {
+          launchAttempts++;
+          if (broken) throw new Error("pi: command not found");
+          return {
+            ...sessionSpy(),
+            notify: async () => {},
+            onExit(listener) {
+              exits.add(listener);
+              return () => exits.delete(listener);
+            },
+          };
+        },
+      }),
+      credentials,
+      {
+        create: () => ({
+          async start() {},
+          async ready() {},
+          sendAgentStatus() {},
+          async sendAgentDeliveryAck() {},
+          async requestAgentApiKey() {
+            return `sk_agent_${"a".repeat(43)}`;
+          },
+          async revokeAgentApiKey() {},
+          async stop() {},
+        }),
+      },
+    );
+    const delivery = (sequence: number) => ({
+      protocolMajor: 1 as const,
+      requestId: `message-request-${sequence}`,
+      messageId: `message-${sequence}`,
+      deliveryId: `delivery-${sequence}`,
+      sequence,
+      workspaceId: connection.workspaceId,
+      conversationId: "conversation-1",
+      agentId: "agent-a",
+      body: `body ${sequence}`,
+      method: "agent:v1:message:deliver" as const,
+      target: "@agent",
+    });
+    const exitAll = () => {
+      for (const exit of [...exits]) exit();
+      exits.clear();
+    };
+
+    try {
+      await runtime.start(connection);
+      await runtime.startAgent("agent-a", config);
+      exitAll();
+      broken = true;
+      await expect(runtime.handleAgentMessage(delivery(1))).rejects.toThrow(
+        "pi: command not found",
+      );
+
+      // The configuration is fixed and the Agent is started explicitly, well inside the cooldown.
+      broken = false;
+      await runtime.startAgent("agent-a", config);
+      exitAll();
+      const beforeWake = launchAttempts;
+      await runtime.handleAgentMessage(delivery(2));
+      expect(launchAttempts).toBe(beforeWake + 1);
+      expect(runtime.agentProcessManager.session("agent-a")).toBeDefined();
+    } finally {
+      await runtime.stop();
+    }
+  });
+
   test("a message for an Agent whose wake launch just failed waits out the cooldown, then one launch carries every waiting message", async () => {
     const credentials = new InMemoryDaemonCredentialStore();
     await credentials.save(connection.workspaceId, connection.computerId, "token-a");

@@ -1608,6 +1608,8 @@ export class DaemonRuntime {
     const launch = launching
       .then(
         async (runtime) => {
+          // Any successful launch, a managed Start included, ends a wake cooldown.
+          this.#wakeLaunchFailures.reset(agentId);
           this.#ensureAgentInputDrain(agentId);
           if (recoveryCompletion) await recoveryCompletion;
           // The startup turn is not awaited: the launch (and the Start result reported from
@@ -2723,16 +2725,13 @@ export class DaemonRuntime {
     await Promise.all([launch, delivery]);
   }
 
-  /** Relaunches an exited Agent for a message and tracks the outcome for the wake cooldown. A
+  /** Relaunches an exited Agent for a message; a failure starts or extends the wake cooldown. A
    * successful launch presents whatever `AgentDeliveryQueue` holds for it as one notice. */
   #wakeAgent(agentId: string, restart: AgentRestartConfig): Promise<AgentRuntime> {
     const launch = this.#startAgent(agentId, restart.config, undefined, {
       sessionId: restart.sessionId,
     });
-    void launch.then(
-      () => this.#wakeLaunchFailures.reset(agentId),
-      () => this.#wakeLaunchFailures.recordFailure(agentId),
-    );
+    void launch.catch(() => this.#wakeLaunchFailures.recordFailure(agentId));
     return launch;
   }
 
