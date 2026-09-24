@@ -646,10 +646,20 @@ async function readAgentResponseText(response: Response, what: string): Promise<
 /** Throws when the response is a non-2xx: a safe validation message, or a typed transport error. */
 async function assertAgentResponseOk(response: Response, what: string): Promise<void> {
   if (response.ok) return;
-  throw AgentMessageRequestError.fromRpc(
-    response.status,
-    await readAgentResponseText(response, what),
-  );
+  const body = await readAgentResponseText(response, what);
+  // Temporary diagnostics: HTTP 5xx bodies are otherwise discarded by fromRpc, which leaves only
+  // SERVER_5XX at the Agent. Log a bounded snippet so the web exception can be recovered locally.
+  // Field name must not be `body` — LogTape's JSON sink redacts that key, which hid every prior probe.
+  if (response.status >= 500) {
+    logger.error("Upstream agent HTTP 5xx body", {
+      event: "agent.http.upstream_5xx_body",
+      what,
+      status: response.status,
+      upstream_body_length: body.length,
+      upstream_body_snippet: body.length > 0 ? body.slice(0, 2000) : "<empty>",
+    });
+  }
+  throw AgentMessageRequestError.fromRpc(response.status, body);
 }
 
 /**
