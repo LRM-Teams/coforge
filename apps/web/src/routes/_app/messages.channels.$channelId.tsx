@@ -239,12 +239,15 @@ function ChannelPage() {
         void page.reconciliation.reconcile().catch(() => {});
         return message;
       }}
-      onToggleReaction={async (messageId, emoji, active) => {
-        await toggleReaction({ data: { channelId, messageId, emoji, active } });
-        // Reactions ride no realtime signal, so re-read the loaded pages (the sanctioned
-        // path for changes the feed does not carry) instead of patching one page's cache.
-        await page.invalidate();
-      }}
+      onToggleReaction={(messageId, emoji, active) =>
+        page.toggleReaction(
+          messageId,
+          emoji,
+          conversation.viewerHandle ? `@${conversation.viewerHandle}` : undefined,
+          active,
+          () => toggleReaction({ data: { channelId, messageId, emoji, active } }),
+        )
+      }
       onJoin={async () => {
         await join({ data: { channelId } });
         await Promise.all([page.invalidate(), router.invalidate({ sync: true })]);
