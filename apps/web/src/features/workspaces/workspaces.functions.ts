@@ -71,6 +71,18 @@ export const loadMemberPeoplePage = createServerFn({ method: "GET" })
 
 export type MemberPerson = Awaited<ReturnType<typeof loadMemberPeoplePage>>["items"][number];
 
+/** Every human member and every visible Agent, for pickers; `viewerId` marks the viewer's own
+ * entry among the people. */
+export const loadWorkspaceDirectory = createServerFn({ method: "GET" })
+  .middleware([workspaceUserMiddleware])
+  .handler(async ({ context }) => {
+    const { user, db, workspaceId } = context;
+    const directory = await new WorkspaceMembers(db).directory(workspaceId, user.id);
+    return { viewerId: user.id, ...directory };
+  });
+
+export type WorkspaceDirectory = Awaited<ReturnType<typeof loadWorkspaceDirectory>>;
+
 export const selectWorkspace = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
   .validator(selectWorkspaceInputSchema)
