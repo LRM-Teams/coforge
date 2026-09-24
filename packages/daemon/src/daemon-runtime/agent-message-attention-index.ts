@@ -597,6 +597,21 @@ already have been read. A notice you have not acted on does not establish that t
     return [...(this.#attention.get(agentId)?.values() ?? [])];
   }
 
+  /** Acknowledges a delivery whose sequence the Agent has already consumed for its target and
+   * answers true; answers false, without side effects, for anything else. Lets the runtime drop a
+   * stale delivery before it wakes an exited Agent for it. */
+  async acknowledgeIfSeen(message: AgentMessageDelivery): Promise<boolean> {
+    if (!message.target || !Number.isInteger(message.sequence) || message.sequence < 1)
+      return false;
+    if (this.modelSeenSequence(message.agentId, message.target) < message.sequence) return false;
+    await this.sendAck({
+      ...message,
+      method: AGENT_MESSAGE_ACK_METHOD,
+      requestId: message.requestId,
+    });
+    return true;
+  }
+
   modelSeenSequence(agentId: string, target: string): number {
     this.#hydrate(agentId);
     return this.#modelSeen.get(agentId)?.get(target) ?? 0;

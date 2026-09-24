@@ -8,7 +8,7 @@ import {
   setSystemTime,
   test,
 } from "bun:test";
-import { rm } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir, userInfo } from "node:os";
 import { realpathSync } from "node:fs";
 import { join } from "node:path";
@@ -25,6 +25,7 @@ import {
 } from "#src/code-agent/contract";
 import type { WorkspaceConfig } from "#src/daemon-runtime/runtime";
 import { InMemoryDaemonCredentialStore } from "#src/credentials/credential-store";
+import { AgentConsumedSeqStore } from "#src/persistence/agent-consumed-seq-store";
 import {
   DaemonConnection,
   type AgentMessageTransportResponse,
@@ -2920,6 +2921,91 @@ describe("DaemonRuntime", () => {
     await runtime.stopAgent("agent-a");
     expect(statuses.at(-1)?.status).toBe("inactive");
     await runtime.stop();
+  });
+
+  test("acknowledges a message the Agent has already seen without waking its exited process", async () => {
+    // The Agent reviewed @agent through message 3 before its process exited; the consumed cursor
+    // outlives the process.
+    const consumedRoot = await mkdtemp(join(tmpdir(), "coforge-consumed-"));
+    new AgentConsumedSeqStore(consumedRoot).recordConsumedSeqs("agent-a", { "@agent": 3 });
+    const credentials = new InMemoryDaemonCredentialStore();
+    await credentials.save(connection.workspaceId, connection.computerId, "token-a");
+    const exits = new Set<() => void>();
+    const notices: string[] = [];
+    const acknowledgements: string[] = [];
+    let launches = 0;
+    const previousRoot = process.env.COFORGE_CLI_CONSUMED_SEQ_STATE_DIR;
+    process.env.COFORGE_CLI_CONSUMED_SEQ_STATE_DIR = consumedRoot;
+    let runtime: DaemonRuntime;
+    try {
+      runtime = new DaemonRuntime(
+        connection,
+        () => ({
+          provider: "pi",
+          createAgentSession: async () => {
+            launches++;
+            return {
+              ...sessionSpy(),
+              notify: async (notice) => {
+                notices.push(notice);
+              },
+              onExit(listener) {
+                exits.add(listener);
+                return () => exits.delete(listener);
+              },
+            };
+          },
+        }),
+        credentials,
+        {
+          create: () => ({
+            async start() {},
+            async ready() {},
+            sendAgentStatus() {},
+            async sendAgentDeliveryAck(ack) {
+              acknowledgements.push(ack.deliveryId);
+            },
+            async requestAgentApiKey() {
+              return `sk_agent_${"a".repeat(43)}`;
+            },
+            async revokeAgentApiKey() {},
+            async stop() {},
+          }),
+        },
+      );
+    } finally {
+      if (previousRoot === undefined) delete process.env.COFORGE_CLI_CONSUMED_SEQ_STATE_DIR;
+      else process.env.COFORGE_CLI_CONSUMED_SEQ_STATE_DIR = previousRoot;
+    }
+
+    try {
+      await runtime.start(connection);
+      await runtime.startAgent("agent-a", config);
+      for (const exit of exits) exit();
+      expect(runtime.agentProcessManager.session("agent-a")).toBeUndefined();
+
+      await runtime.handleAgentMessage({
+        protocolMajor: 1,
+        requestId: "message-request-3",
+        messageId: "message-3",
+        deliveryId: "delivery-3",
+        sequence: 3,
+        workspaceId: connection.workspaceId,
+        conversationId: "conversation-1",
+        agentId: "agent-a",
+        body: "already reviewed",
+        method: "agent:v1:message:deliver",
+        target: "@agent",
+      });
+
+      expect(acknowledgements).toEqual(["delivery-3"]);
+      expect(launches).toBe(1);
+      expect(runtime.agentProcessManager.session("agent-a")).toBeUndefined();
+      expect(notices).toEqual([]);
+    } finally {
+      await runtime.stop();
+      await rm(consumedRoot, { recursive: true, force: true });
+    }
   });
 
   test("reports active Agents inactive before a graceful daemon shutdown", async () => {

@@ -2652,6 +2652,15 @@ export class DaemonRuntime {
       throw new Error("unsupported agent protocol major");
     if (message.workspaceId !== this.#connection.workspaceId)
       throw new Error("agent message targets another Workspace");
+    // An exited Agent is not woken for a message it has already consumed: the delivery is
+    // acknowledged and dropped here, before any launch, rather than after one.
+    if (
+      this.#runnerHold === undefined &&
+      !this.#agentProcessManager.session(message.agentId) &&
+      !this.#agentLaunches.has(message.agentId) &&
+      (await this.#messageAttention.acknowledgeIfSeen(message))
+    )
+      return;
     const delivery = this.#enqueueAgentInput(message.agentId, (completion) => ({
       kind: "delivery",
       message,
