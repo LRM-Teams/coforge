@@ -789,6 +789,10 @@ model Message {
   /// Serves a member's own top-level messages newest first (the own-messages jump index read on
   /// every conversation open) and the `sender` foreign-key check when a member row is deleted.
   @@index([senderMemberId, threadRootId, sequence])
+  /// Serves Workspace-wide message reads newest first: human and Agent message search sorted by
+  /// recency, and a search with filters but no text, walk this index and stop after one page
+  /// instead of sorting every message in the Workspace.
+  @@index([workspaceId, createdAt(sort: Desc), id(sort: Desc)])
   /// Serves message search: case-insensitive substring match (`ILIKE '%term%'`) on the body,
   /// including Chinese text, which PostgreSQL's word-based full-text search does not segment.
   /// Needs the `pg_trgm` extension, which the migration that adds this index creates.
