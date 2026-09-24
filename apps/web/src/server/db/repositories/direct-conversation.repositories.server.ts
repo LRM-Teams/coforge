@@ -1,4 +1,5 @@
 import { lockConversation } from "#src/server/conversations/conversation-lock.server";
+import { setConversationPin } from "#src/server/conversations/conversation-pins.server";
 import type { MessageSenderKind, MessageTaskMetadata, TaskStatus } from "@lrm/coforge-sdk/internal";
 import { Prisma, type PrismaClient } from "#src/generated/prisma/client";
 import { AppError } from "#src/lib/app-error";
@@ -1012,17 +1013,12 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
     );
     await this.db.$transaction(async (tx) => {
       await lockConversation(tx, conversationId);
-      const where = { conversationId, memberId };
-      if (!pinned) {
-        await tx.conversationPin.deleteMany({ where });
-        return;
-      }
-      const order = sortOrder ?? (await tx.conversationPin.count({ where: { memberId } }));
-      await tx.conversationPin.upsert({
-        where: { conversationId_memberId: where },
-        create: { conversationId, memberId, workspaceId, sortOrder: order },
-        update: { sortOrder: order },
-      });
+      await setConversationPin(
+        tx,
+        { workspaceId, userId, conversationId, memberId },
+        pinned,
+        sortOrder,
+      );
     });
     return { pinned };
   }

@@ -57,7 +57,13 @@ function fixture(options: { exists?: boolean } = {}) {
           sortOrder: pin.sortOrder,
           conversation: { members: [{ agentId: AGENT_ID }] },
         })),
-      count: async () => pins.length,
+      // The next order is one past the highest among the user's pins; which pins count as "the
+      // user's" is a relation filter that runs against PostgreSQL in the integration suite.
+      aggregate: async () => ({
+        _max: { sortOrder: pins.length ? Math.max(...pins.map((pin) => pin.sortOrder)) : null },
+      }),
+      findUnique: async ({ where }: { where: { conversationId_memberId: { memberId: string } } }) =>
+        pins.find((pin) => pin.memberId === where.conversationId_memberId.memberId) ?? null,
       deleteMany: async ({ where }: { where: { memberId: string } }) => {
         for (let index = pins.length - 1; index >= 0; index -= 1)
           if (pins[index]!.memberId === where.memberId) pins.splice(index, 1);

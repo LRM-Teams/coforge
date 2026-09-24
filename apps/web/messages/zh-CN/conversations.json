@@ -258,6 +258,7 @@
   "conversation_save_failed": "收藏消息失败",
   "conversation_unsave": "从收藏中移除",
   "conversation_saved_nav": "已保存",
+  "conversation_pinned_section": "已置顶",
   "conversation_saved_count": [
     {
       "declarations": ["input count", "local countPlural = count: plural"],

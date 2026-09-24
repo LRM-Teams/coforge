@@ -18,6 +18,10 @@ These rules apply to `src/server/conversations/`.
   visibility checks and bounded history mapping.
 - A thread uses its root Message identity, never a separate conversation or
   Agent runtime.
+- A member's pins share one order across all their channels and DMs in the
+  Workspace. Write pins only through `setConversationPin`
+  (`conversation-pins.server.ts`): `ConversationPin.memberId` is a
+  per-conversation membership, so counting pins by it always answers 0.
 
 ## `#general`
 

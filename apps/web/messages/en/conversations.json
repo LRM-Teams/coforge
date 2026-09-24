@@ -272,6 +272,7 @@
   "conversation_save_failed": "Couldn't save the message",
   "conversation_unsave": "Remove from Saved",
   "conversation_saved_nav": "Saved",
+  "conversation_pinned_section": "Pinned",
   "conversation_saved_count": [
     {
       "declarations": ["input count", "local countPlural = count: plural"],

@@ -85,8 +85,8 @@ export function ConversationRowMenu({
 
   const items = conversationRowMenuItems(target);
 
-  /** Runs one menu mutation, then refetches the loader so the row's order, badge and presence
-   * all reflect it (the server's list owns pinned order, forced unread and the hidden filter). */
+  /** Runs one menu mutation, then refetches the loader so the row's section, badge and presence
+   * all reflect it (the server's list owns pin order, forced unread and the hidden filter). */
   async function run(action: () => Promise<unknown>) {
     setPending(true);
     try {

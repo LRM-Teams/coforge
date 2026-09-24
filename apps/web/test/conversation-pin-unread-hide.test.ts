@@ -71,8 +71,13 @@ function fixture(options: { member?: boolean; newestSequence?: number } = {}) {
       },
     },
     conversationPin: {
-      count: async ({ where }: { where: { memberId: string } }) =>
-        pins.filter((pin) => pin.memberId === where.memberId).length,
+      // The next order is one past the highest among the user's pins; which pins count as "the
+      // user's" is a relation filter that runs against PostgreSQL in the integration suite.
+      aggregate: async () => ({
+        _max: { sortOrder: pins.length ? Math.max(...pins.map((pin) => pin.sortOrder)) : null },
+      }),
+      findUnique: async ({ where }: { where: { conversationId_memberId: { memberId: string } } }) =>
+        pins.find((pin) => pin.memberId === where.conversationId_memberId.memberId) ?? null,
       deleteMany: async ({ where }: { where: { memberId: string } }) => {
         const before = pins.length;
         for (let index = pins.length - 1; index >= 0; index -= 1)
@@ -182,7 +187,7 @@ test("hiding stamps the member's own row and closing again clears it", async () 
   expect(member.hiddenAt).toBeNull();
 });
 
-test("the list hides a closed chat, reports pins, and puts them first", async () => {
+test("the list hides a closed chat and reports each pin with its order", async () => {
   const { channels } = fixture();
   await channels.setUserPinned(WORKSPACE_ID, USER_ID, CHANNEL_ID, true);
   const listed = await channels.list(WORKSPACE_ID, USER_ID);

@@ -13,6 +13,8 @@ These rules apply to `src/features/conversations/`.
   actions. `last-conversation.ts` owns which conversation Chat opens on a desktop
   (the remembered one while listed, else the first joined channel);
   `conversation-layout.tsx` only navigates there.
+- A pinned channel or DM appears only in the sidebar's Pinned section, which
+  `pinned-conversations.ts` builds by merging both kinds by pin order.
 - Direct and channel views share the empty-state layout and compact thread
   prompt in `direct-conversation.tsx`. Each supplies its own identity, media,
   and copy, and keeps its composer or join action.

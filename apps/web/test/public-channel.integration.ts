@@ -2896,3 +2896,75 @@ test("a closed channel stays closed until someone else posts a top-level message
     redis.close();
   }
 });
+
+test("pins keep one order across the member's channels and DMs: a new pin goes last, a re-pin moves to the end", async () => {
+  const connectionString = Bun.env.CHANNEL_TEST_DATABASE_URL;
+  if (!connectionString) throw new Error("CHANNEL_TEST_DATABASE_URL is required");
+  const db = new PrismaClient({ adapter: new PrismaPg({ connectionString }) });
+  const redis = new RedisClient(Bun.env.CHANNEL_TEST_REDIS_URL!);
+  const suffix = crypto.randomUUID();
+  const alice = await db.user.create({ data: { username: `pa${suffix.slice(0, 8)}` } });
+  const workspace = await db.workspace.create({
+    data: { slug: suffix, name: "Pins", members: { create: [{ userId: alice.id }] } },
+  });
+  try {
+    const computer = await db.computer.create({
+      data: { ownerId: alice.id, machineId: crypto.randomUUID() },
+    });
+    const helper = await db.agent.create({
+      data: {
+        workspaceId: workspace.id,
+        ownerId: alice.id,
+        computerId: computer.id,
+        name: "helper",
+        displayName: "Helper",
+        runtimeConfig: {},
+      },
+    });
+    const channels = new PublicChannels(db, new RedisMessageRequestIdempotency(redis));
+    const directs = new PrismaDirectConversationRepository(db);
+    const ops = await channels.create(workspace.id, alice.id, "ops");
+    const eng = await channels.create(workspace.id, alice.id, "eng");
+    await directs.getOrCreateUserAgent(workspace.id, alice.id, helper.id);
+
+    /** The member's pins as one list, the way the sidebar's Pinned section reads them. */
+    const pinned = async () => {
+      const [channelRows, preferences] = await Promise.all([
+        channels.list(workspace.id, alice.id),
+        directs.preferencesForUser(workspace.id, alice.id),
+      ]);
+      return [
+        ...channelRows
+          .filter((channel) => channel.pinned)
+          .map((channel) => ({ name: channel.name, order: channel.pinSortOrder! })),
+        ...preferences.pinned.map((pin) => ({ name: "@helper", order: pin.sortOrder })),
+      ]
+        .sort((left, right) => left.order - right.order)
+        .map((pin) => pin.name);
+    };
+
+    await channels.setUserPinned(workspace.id, alice.id, ops.id, true);
+    await directs.setPinnedForUser(workspace.id, alice.id, helper.id, true);
+    await channels.setUserPinned(workspace.id, alice.id, eng.id, true);
+    expect(await pinned()).toEqual(["ops", "@helper", "eng"]);
+
+    // Pinning what is already pinned keeps its place.
+    await channels.setUserPinned(workspace.id, alice.id, ops.id, true);
+    expect(await pinned()).toEqual(["ops", "@helper", "eng"]);
+
+    // Unpinning and pinning again puts it after every other pin, never on a slot another pin holds.
+    await channels.setUserPinned(workspace.id, alice.id, ops.id, false);
+    await channels.setUserPinned(workspace.id, alice.id, ops.id, true);
+    expect(await pinned()).toEqual(["@helper", "eng", "ops"]);
+    const orders = (await channels.list(workspace.id, alice.id))
+      .filter((channel) => channel.pinned)
+      .map((channel) => channel.pinSortOrder);
+    expect(new Set(orders).size).toBe(orders.length);
+  } finally {
+    await db.workspace.delete({ where: { id: workspace.id } });
+    await db.computer.deleteMany({ where: { ownerId: alice.id } });
+    await db.user.deleteMany({ where: { id: alice.id } });
+    await db.$disconnect();
+    redis.close();
+  }
+});
