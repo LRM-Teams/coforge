@@ -144,10 +144,16 @@ export function SearchPage({
         : conversationRoute({ agentId: preview.id });
     void router.navigate({ ...route, search: { message: preview.messageId } });
   };
-  const previewTitle =
+  const previewName =
     preview?.kind === "channel"
-      ? `#${directory?.channels.find((channel) => channel.id === preview.id)?.name ?? ""}`
-      : (directory?.agents.find((agent) => agent.id === preview?.id)?.name ?? "");
+      ? directory?.channels.find((channel) => channel.id === preview.id)?.name
+      : directory?.agents.find((agent) => agent.id === preview?.id)?.name;
+  // A place the lists do not name (yet) is still titled, never a bare "#".
+  const previewTitle = !previewName
+    ? m.search_preview()
+    : preview?.kind === "channel"
+      ? `#${previewName}`
+      : previewName;
 
   // Esc closes the preview, then leaves search for wherever it was opened from. A menu or dialog
   // takes its own Esc, and a filled box clears itself first.

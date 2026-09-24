@@ -186,7 +186,7 @@ function PreviewPane({
 /** Message-shaped placeholders while the conversation loads. */
 function PreviewSkeleton() {
   return (
-    <div role="status" aria-label={m.search_searching()} className="flex flex-col gap-4 p-4">
+    <div role="status" aria-label={m.search_preview_loading()} className="flex flex-col gap-4 p-4">
       {Array.from({ length: 6 }, (_, index) => (
         <div key={index} className="flex gap-3">
           <Skeleton className="size-8 shrink-0 rounded-full" />

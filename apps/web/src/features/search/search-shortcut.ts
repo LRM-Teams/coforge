@@ -3,11 +3,18 @@ import { useRouter } from "@tanstack/react-router";
 
 import { readLastSearch } from "./search-memory";
 
-/** The last page outside search, where Esc on the search page returns to. */
-let searchOrigin: string | undefined;
+/**
+ * Where each search history entry was opened from, keyed by the entry's history key, so Back
+ * and Forward into search keep their own origin. Entries reached from another search entry
+ * (typing, a filter, a preview) inherit that entry's origin.
+ */
+const searchOrigins = new Map<string, string>();
+let currentSearchOrigin: string | undefined;
+let lastPageOutsideSearch: string | undefined;
 
+/** The page search was opened from, where Esc on the search page returns to. */
 export function lastPageBeforeSearch(): string | undefined {
-  return searchOrigin;
+  return currentSearchOrigin;
 }
 
 /** Asks an open search page to put the caret back in its box. */
@@ -51,11 +58,21 @@ export function useSearchShortcutLabel(): string | undefined {
 export function useSearchShortcut(workspaceId: string | undefined, userId: string) {
   const router = useRouter();
   useEffect(() => {
-    // Remember each page outside search, so leaving search goes back to where it was opened
-    // from, whatever steps (filters, previews) were taken inside it.
+    // Remember where each search entry was opened from, so leaving search goes back there
+    // whatever steps (filters, previews, a visit to a result and Back) were taken since.
+    let previousPath: string | undefined;
     const remember = () => {
-      const { pathname, href } = router.state.location;
-      if (pathname !== "/search") searchOrigin = href;
+      const { pathname, href, state } = router.state.location;
+      const key = (state as { __TSR_key?: string }).__TSR_key;
+      if (pathname !== "/search") {
+        lastPageOutsideSearch = href;
+      } else {
+        const known = key ? searchOrigins.get(key) : undefined;
+        currentSearchOrigin =
+          known ?? (previousPath === "/search" ? currentSearchOrigin : lastPageOutsideSearch);
+        if (key && currentSearchOrigin) searchOrigins.set(key, currentSearchOrigin);
+      }
+      previousPath = pathname;
     };
     remember();
     return router.subscribe("onResolved", remember);
