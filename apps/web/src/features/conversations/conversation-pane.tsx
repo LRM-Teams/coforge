@@ -848,8 +848,8 @@ export function ConversationPane({
           onScroll={trackReadingPosition}
           className="h-full overflow-y-auto pb-6 [scrollbar-width:thin]"
         >
-          {/* The side room sits inside the scroller, so the scrollbar stays on the pane edge. A
-              thread pane is already narrow and keeps none. */}
+          {/* The reading column sits inside the scroller, so the scrollbar stays on the pane
+              edge. A thread pane is already narrow and keeps its full width. */}
           <div className={root ? undefined : MESSAGE_COLUMN_CLASS}>
             {rootSlot}
             {root && !rootSlot && (
