@@ -119,7 +119,7 @@ These instructions apply to the entire repository.
 - A task is complete only after the relevant short checks pass and the CR is approved. If a check does not exist yet, state that clearly in the CR.
 - Develop behavioral changes with test-driven development. Agree the public test seam first, then work in vertical slices: one failing test followed by the minimum implementation that passes it.
 - Start bug fixes with a regression test. Do not remove or weaken a valid test merely to make CI pass.
-- Keep refactoring in the independent review stage rather than expanding a red-green implementation slice.
+- Keep refactoring in the independent review stage rather than expanding a red-green implementation slice. Once the slice is green, run the `simplify` skill (built into Claude Code) on the branch diff, re-run the relevant checks, then request `code-review`.
 
 ## Testing
 
