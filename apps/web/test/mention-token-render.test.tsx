@@ -1,8 +1,8 @@
 import { expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 
-import { MessageBody } from "@/features/conversations/message-body";
-import { mentionHandlesByToken } from "@/features/conversations/message-markdown";
+import { MessageBody } from "#src/features/conversations/message-body";
+import { mentionHandlesByToken } from "#src/features/conversations/message-markdown";
 
 const HUMAN_ID = "d9956ab1-9063-4182-8eab-861d1559c8ee";
 
@@ -45,21 +45,25 @@ test("an unresolvable token degrades to literal text, never a phantom chip", () 
 });
 
 test("a stored task reference renders as a number-only chip, never the raw token", () => {
-  const markup = renderToStaticMarkup(<MessageBody body={"pairs with <@task:68> today"} />);
+  const markup = renderToStaticMarkup(
+    <MessageBody body={"pairs with <@task:68> today"} taskReferences={new Set([68])} />,
+  );
   expect(markup).not.toContain("&lt;@task:");
   // The chip shows the bare number; the words stay on the accessible name.
   expect(markup).toContain(">#68<");
   expect(markup).toContain('aria-label="task #68"');
 });
 
-test("a referenced task the conversation knows becomes a control; a stale number stays a highlight", () => {
+test("a referenced task the conversation knows becomes a control; any other number is plain text", () => {
   const clickable = renderToStaticMarkup(
     <MessageBody body={"<@task:68>"} taskReferences={new Set([68])} onOpenTask={() => {}} />,
   );
   expect(clickable).toContain("message-markdown-task-reference-link");
   expect(clickable).toContain('role="button"');
 
+  // A token is a claim, checked against the conversation's tasks: a number it has no task for
+  // reads as the words the author could have typed, with no chip.
   const plain = renderToStaticMarkup(<MessageBody body={"<@task:68>"} />);
-  expect(plain).toContain(">#68<");
-  expect(plain).not.toContain("message-markdown-task-reference-link");
+  expect(plain).toContain(">task #68<");
+  expect(plain).not.toContain("message-markdown-task-reference");
 });

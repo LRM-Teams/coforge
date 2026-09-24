@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { PageLoadError } from "@/features/errors/page-load-error";
-import { ProjectsContent, ProjectsPending } from "@/features/projects/projects-content";
-import { listProjects } from "@/features/projects/projects.functions";
+import { PageLoadError } from "#src/features/errors/page-load-error";
+import { ProjectsContent, ProjectsPending } from "#src/features/projects/projects-content";
+import { listProjects } from "#src/features/projects/projects.functions";
 
 export const Route = createFileRoute("/_app/projects/")({
   loader: () => listProjects(),

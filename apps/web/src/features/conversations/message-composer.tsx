@@ -3,7 +3,6 @@ import {
   useId,
   useRef,
   useState,
-  useSyncExternalStore,
   type ClipboardEvent,
   type CompositionEvent,
   type DragEvent,
@@ -23,29 +22,20 @@ import {
 } from "@untitledui/icons";
 import { Popover as AriaPopover } from "react-aria-components";
 
-import { getReadableFileSize } from "@/components/application/file-upload/file-upload-base";
-import { Avatar } from "@/components/base/avatar/avatar";
-import { Button } from "@/components/base/buttons/button";
-import { ButtonUtility } from "@/components/base/buttons/button-utility";
-import { Dropdown } from "@/components/base/dropdown/dropdown";
-import { ProgressBar } from "@/components/base/progress-indicators/progress-indicators";
-import { Dialog, DialogTrigger } from "@/components/application/modals/modal";
+import { getReadableFileSize } from "#src/components/application/file-upload/file-upload-base";
+import { Avatar } from "#src/components/base/avatar/avatar";
+import { Button } from "#src/components/base/buttons/button";
+import { ButtonUtility } from "#src/components/base/buttons/button-utility";
+import { ProgressBar } from "#src/components/base/progress-indicators/progress-indicators";
+import { Dialog, DialogTrigger } from "#src/components/application/modals/modal";
 import {
   dragCarriesFiles,
   fileFromDropItems,
   filesFromPaste,
   shouldSendOnEnter,
 } from "./composer-behavior";
-import {
-  createComposerOutbox,
-  draftWithUnsentMessage,
-  outboxLocalIdOfStorageKey,
-  unsentReasonAllowsRetry,
-  type ComposerOutbox,
-  type OutboxEntry,
-  type OutgoingMessage,
-  type UnsentReason,
-} from "./composer-outbox";
+import { draftWithUnsentMessage, type OutgoingMessage } from "./composer-outbox";
+import { useComposerRequests, useMessageOutbox } from "./use-message-outbox";
 import {
   clearComposerDraft,
   composerDraftKey,
@@ -53,11 +43,14 @@ import {
   writeComposerDraft,
 } from "./composer-draft";
 import type { Mentionable } from "./mention-text";
-import { useMentionCompletion } from "./use-mention-completion";
-import { MentionSuggestionList } from "./mention-suggestions";
+import type { ChannelSuggestion } from "./reference-completion";
+import { useReferenceCompletion } from "./use-reference-completion";
+import { ReferenceSuggestionList } from "./reference-suggestions";
+import { PendingMentionStrip, type PendingMention } from "./pending-mention-strip";
 import { fileIconType } from "./message-row";
-import { cx } from "@/utils/cx";
-import { m } from "@/paraglide/messages";
+import { cx } from "#src/utils/cx";
+import { m } from "#src/paraglide/messages";
+import { getLocale } from "#src/paraglide/runtime";
 
 export type SentMessage = {
   id: string;
@@ -65,13 +58,17 @@ export type SentMessage = {
   body: string;
   createdAt: Date | string;
   attachmentFileName?: string;
+  /** The `@handle`s this send left as text because they name nobody the sender can see. */
+  unresolvedMentionHandles?: readonly string[];
+  /** Mentions of people outside the channel this send did not notify, for the sender to act on. */
+  pendingMentionActions?: readonly PendingMention[];
 };
 
 /** At most 10 attachments per send, mirroring the server-side `attachmentIds` bound
  * (`conversation.schemas.ts`'s `attachmentIdsSchema`, the Agent API's `AgentMessagesSendRequest`). */
 const MAX_ATTACHMENTS = 10;
 
-type PendingAttachment = {
+export type PendingAttachment = {
   /** Stable key across renders and across the file's own upload lifecycle; independent of
    * `file` identity so two same-named files can coexist. */
   localId: string;
@@ -82,78 +79,6 @@ type PendingAttachment = {
   progress: number;
   failed: boolean;
 };
-
-let deviceOutbox: ComposerOutbox | undefined;
-
-/** The browser's one outbox, shared by every composer so a message outlives the composer that
- * sent it. Never created on the server, where module state would be shared across requests. */
-function composerOutbox(): ComposerOutbox {
-  if (!deviceOutbox) {
-    let storage: Storage | null = null;
-    try {
-      storage = localStorage;
-    } catch {
-      // Private mode or blocked storage: messages are still held for this page.
-    }
-    const outbox = createComposerOutbox(storage);
-    window.addEventListener("storage", (event) => {
-      const localId = outboxLocalIdOfStorageKey(event.key);
-      if (localId && event.newValue === null) outbox.discard(localId);
-    });
-    deviceOutbox = outbox;
-  }
-  return deviceOutbox;
-}
-
-const NO_OUTBOX_ENTRIES: readonly OutboxEntry[] = [];
-
-function subscribeToOutbox(listener: () => void) {
-  return composerOutbox().subscribe(listener);
-}
-
-/** The attachment chips of messages sent from this page, by outbox `localId`, so "Edit" can
- * put them back with their previews. Files cannot be stored, so after a reload an unsent
- * message with attachments can be retried or deleted, not edited. */
-const sentChips = new Map<string, PendingAttachment[]>();
-
-/** Messages sent (or retried) from this page. Only their failure reason is announced to screen
- * readers: rows restored from an earlier page were announced then, and must not be re-read on
- * every return to the chat. */
-const sentFromThisPage = new Set<string>();
-
-function unsentReasonText(reason: UnsentReason): string {
-  switch (reason) {
-    case "offline":
-      return m.conversation_unsent_offline();
-    case "unavailable":
-      return m.conversation_unsent_unavailable();
-    case "interrupted":
-      return m.conversation_unsent_interrupted();
-    case "denied":
-      return m.conversation_unsent_denied();
-    case "gone":
-      return m.conversation_unsent_gone();
-    case "rejected":
-      return m.conversation_unsent_rejected();
-  }
-}
-
-/** A message still on its way. Fast sends finish unseen; a slow one shows after a second, so
- * the reader knows the text that left the composer is not lost. */
-function SendingMessageRow({ body }: { body: string }) {
-  const [shown, setShown] = useState(false);
-  useEffect(() => {
-    const timer = setTimeout(() => setShown(true), 1000);
-    return () => clearTimeout(timer);
-  }, []);
-  if (!shown) return null;
-  return (
-    <li className="flex items-center gap-2 px-2 py-1 text-sm text-tertiary">
-      <span className="shrink-0">{m.conversation_sending()}</span>
-      <span className="min-w-0 flex-1 truncate">{body}</span>
-    </li>
-  );
-}
 
 /** Upload a composer attachment, reporting progress, and resolve with its id. */
 function uploadAttachment(
@@ -267,7 +192,7 @@ function AttachmentChip({
                   </p>
                   {uploading && <ProgressBar value={attachment.progress} className="mt-1.5" />}
                   {attachment.failed && (
-                    <Button color="link-destructive" size="sm" onPress={onRetry} className="mt-1">
+                    <Button color="link-color" size="sm" onPress={onRetry} className="mt-1">
                       {m.controls_retry()}
                     </Button>
                   )}
@@ -311,6 +236,7 @@ export function MessageComposer({
   inThread,
   mentionables,
   recentHandles,
+  channels,
   quotedDraft,
   onSend,
   onCreateTask,
@@ -323,11 +249,13 @@ export function MessageComposer({
   threadRootId?: string;
   /** Thread composers cannot create Tasks. */
   inThread: boolean;
-  /** The channel's @-completion candidates; absent outside channels (no popup, no mention). */
+  /** The conversation's @-completion candidates; absent or empty, `@` opens no popup. */
   mentionables?: readonly Mentionable[];
   /** Handles that recently sent a message in this conversation, most-recent first (channels
    * only); ranks @-completion candidates ahead of alphabetical order. */
   recentHandles?: readonly string[];
+  /** The Workspace's channels for #-completion; `conversationId` leads the list when it is one. */
+  channels?: readonly ChannelSuggestion[];
   /** A finished quote from a message the reader highlighted (`message-row.tsx`'s reply-to-
    * selection), to be appended to the draft. The `id` is what makes a repeat insertion of the same
    * text land again, so it is the caller's monotone counter — never a content hash. */
@@ -358,23 +286,61 @@ export function MessageComposer({
   useEffect(() => {
     writeComposerDraft(draftKey, body);
   }, [draftKey, body]);
-  // @-completion (channels only): query tracking, popup state, and keyboard interaction.
-  const mention = useMentionCompletion({
+  // @-member and #-channel completion: query tracking, popup state, and keyboard interaction.
+  const completion = useReferenceCompletion({
     mentionables,
     recentHandles,
+    channels,
+    currentChannelId: conversationId,
     value: body,
     onChange: (next) => {
       setBody(next);
       if (retryRef.current && next.trim() !== retryRef.current.body) retryRef.current = undefined;
     },
   });
+  // What this chat's newest accepted send did not reach: `@handle`s that name nobody, and mentions
+  // of people outside the channel. Kept with the chat and the message's position: a reply that
+  // lands after the reader moved to another chat, or after a newer send's reply, never replaces it.
+  const [unresolved, setUnresolved] = useState<
+    | {
+        draftKey: string;
+        sequence: number;
+        handles: readonly string[];
+        pendingMentions: readonly PendingMention[];
+      }
+    | undefined
+  >(undefined);
+  const current = unresolved?.draftKey === draftKey ? unresolved : undefined;
+  const unresolvedHandles = current?.handles ?? [];
+  const pendingMentions = current?.pendingMentions ?? [];
+  const unresolvedNotice = unresolvedHandles.length
+    ? m.conversation_unresolved_mentions({
+        handles: new Intl.ListFormat(getLocale(), { type: "conjunction" }).format(
+          unresolvedHandles.map((handle) => `@${handle}`),
+        ),
+      })
+    : "";
   // Submitting clears the composer at once and never disables it, so the next message can be
-  // typed straight away; the outbox holds each submitted message until the server accepts it.
-  const outboxEntries = useSyncExternalStore(
-    subscribeToOutbox,
-    () => composerOutbox().entries(draftKey),
-    () => NO_OUTBOX_ENTRIES,
-  );
+  // typed straight away; the outbox holds each submitted message until the server accepts it,
+  // and the conversation shows it (greyed, then failed if need be) in the message list.
+  const outbox = useMessageOutbox({
+    draftKey,
+    onSend,
+    onCreateTask,
+    onSent: (message) => {
+      onSent?.(message);
+      setUnresolved((current) =>
+        current?.draftKey === draftKey && current.sequence > message.sequence
+          ? current
+          : {
+              draftKey,
+              sequence: message.sequence,
+              handles: message.unresolvedMentionHandles ?? [],
+              pendingMentions: message.pendingMentionActions ?? [],
+            },
+      );
+    },
+  });
   const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
   const [asTask, setAsTask] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -449,7 +415,7 @@ export function MessageComposer({
   }
 
   function focusComposer() {
-    const textarea = mention.textareaRef.current;
+    const textarea = completion.textareaRef.current;
     if (!textarea) return;
     textarea.focus({ preventScroll: true });
     textarea.setSelectionRange(textarea.value.length, textarea.value.length);
@@ -482,69 +448,40 @@ export function MessageComposer({
         item.id ? [{ id: item.id, fileName: item.file.name }] : [],
       ),
     };
-    if (uploaded.length > 0) sentChips.set(message.localId, uploaded);
     retryRef.current = undefined;
     setBody("");
     clearComposerDraft(draftKey);
-    mention.close();
+    completion.close();
     setAttachments([]);
     setAsTask(false);
     // A click on the send button moved focus there; typing continues in the composer.
     focusComposer();
-    sentFromThisPage.add(message.localId);
-    void settle(message.localId, composerOutbox().send(message, deliver));
+    outbox.send(message, uploaded);
   }
 
-  /** Posts one outbox message through this chat's send (or task) operation. */
-  function deliver(message: OutgoingMessage) {
-    const attachmentIds = message.attachments.map((attachment) => attachment.id);
-    return message.asTask && onCreateTask
-      ? // Task creation stays single-attachment; the first upload (send order) is used.
-        onCreateTask(message.body, message.requestId, attachmentIds[0]).then(() => undefined)
-      : onSend(message.body, message.requestId, attachmentIds);
-  }
-
-  async function settle(localId: string, sending: Promise<SentMessage | void | undefined>) {
-    const sentMessage = await sending;
-    if (sentMessage) onSent?.(sentMessage);
-    if (
-      !composerOutbox()
-        .entries(draftKey)
-        .some((entry) => entry.localId === localId)
-    )
-      sentChips.delete(localId);
-  }
-
-  function retryUnsent(entry: OutboxEntry) {
-    focusComposer();
-    // The same request id, so a send the server did accept is not posted twice.
-    sentFromThisPage.add(entry.localId);
-    void settle(entry.localId, composerOutbox().retry(entry.localId, deliver));
-  }
-
-  function discardUnsent(entry: OutboxEntry) {
-    composerOutbox().discard(entry.localId);
-    sentChips.delete(entry.localId);
-    focusComposer();
-  }
-
-  /** Puts an unsent message back in the composer for editing, ahead of anything typed since. */
-  function editUnsent(entry: OutboxEntry) {
-    const chips = sentChips.get(entry.localId) ?? [];
-    composerOutbox().discard(entry.localId);
-    sentChips.delete(entry.localId);
-    setBody((current) => draftWithUnsentMessage(current, entry.body));
-    setAttachments((current) => [...chips, ...current]);
-    if (entry.asTask) setAsTask(true);
-    // Sending it again unchanged reuses its request id.
-    retryRef.current = { body: entry.body, requestId: entry.requestId, asTask: entry.asTask };
+  // "Edit" on an unsent message in the conversation puts it back here, ahead of anything typed
+  // since; sending it again unchanged reuses its request id. Retry and Delete just hand the focus
+  // back, since the row button that held it is gone.
+  useComposerRequests(draftKey, (request) => {
+    if (request.kind === "focus") {
+      focusComposer();
+      return;
+    }
+    setBody((current) => draftWithUnsentMessage(current, request.body));
+    setAttachments((current) => [...request.chips, ...current]);
+    if (request.asTask) setAsTask(true);
+    retryRef.current = {
+      body: request.body,
+      requestId: request.requestId,
+      asTask: request.asTask,
+    };
     requestAnimationFrame(focusComposer);
-  }
+  });
 
   function keyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
-    // The open @-completion owns navigation and confirmation keys; Enter must not send while a
+    // The open completion owns navigation and confirmation keys; Enter must not send while a
     // candidate is being picked. During IME composition the keys belong to the IME.
-    if (mention.handleKeyDown(event, isComposingRef.current)) return;
+    if (completion.handleKeyDown(event, isComposingRef.current)) return;
     const send = shouldSendOnEnter(
       {
         key: event.key,
@@ -636,87 +573,103 @@ export function MessageComposer({
           {m.conversation_drop_to_upload()}
         </div>
       )}
+      {pendingMentions.length > 0 && (
+        <PendingMentionStrip
+          key={current?.sequence}
+          mentions={pendingMentions}
+          onSettle={(resolutionIds, outcome) =>
+            setUnresolved(
+              (report) =>
+                report && {
+                  ...report,
+                  pendingMentions: report.pendingMentions.map((mention) =>
+                    resolutionIds.includes(mention.resolutionId)
+                      ? { ...mention, outcome }
+                      : mention,
+                  ),
+                },
+            )
+          }
+          onRemove={(resolutionId) =>
+            setUnresolved(
+              (report) =>
+                report && {
+                  ...report,
+                  pendingMentions: report.pendingMentions.filter(
+                    (mention) => mention.resolutionId !== resolutionId,
+                  ),
+                },
+            )
+          }
+        />
+      )}
+      {/* Always mounted, so a screen reader announces the notice when its text arrives. */}
+      <p role="status" className="sr-only">
+        {unresolvedNotice}
+      </p>
+      {unresolvedNotice && (
+        <div className="flex items-start gap-2 px-2 text-sm text-tertiary">
+          <AlertCircle
+            aria-hidden="true"
+            className="mt-0.5 size-4 shrink-0 text-fg-warning-primary"
+          />
+          <p aria-hidden="true" className="min-w-0 flex-1">
+            {unresolvedNotice}
+          </p>
+          <ButtonUtility
+            icon={XClose}
+            size="xs"
+            color="tertiary"
+            tooltip={m.conversation_unresolved_mentions_dismiss()}
+            onClick={() => setUnresolved((report) => report && { ...report, handles: [] })}
+          />
+        </div>
+      )}
       <label htmlFor={composerId} className="sr-only">
         {m.conversation_message_label()}
       </label>
       <textarea
         id={composerId}
-        ref={mention.textareaRef}
+        ref={completion.textareaRef}
         rows={1}
         value={body}
         disabled={composerDisabled}
         onChange={(event) => {
           setBody(event.target.value);
-          mention.track(event.target.value, event.target.selectionStart);
+          completion.track(event.target.value, event.target.selectionStart);
           if (retryRef.current && event.target.value.trim() !== retryRef.current.body)
             retryRef.current = undefined;
         }}
         onSelect={(event) =>
-          mention.track(event.currentTarget.value, event.currentTarget.selectionStart)
+          completion.track(event.currentTarget.value, event.currentTarget.selectionStart)
         }
-        onBlur={mention.close}
+        onBlur={completion.close}
         onKeyDown={keyDown}
         onCompositionStart={compositionStart}
         onCompositionEnd={compositionEnd}
         onPaste={paste}
-        aria-expanded={mention.open || undefined}
-        aria-controls={mention.open ? mention.listboxId : undefined}
-        aria-activedescendant={mention.open ? mention.optionId(mention.activeIndex) : undefined}
-        placeholder={m.conversation_message_placeholder()}
+        aria-expanded={completion.open || undefined}
+        aria-controls={completion.open ? completion.listboxId : undefined}
+        aria-activedescendant={
+          completion.open ? completion.optionId(completion.activeIndex) : undefined
+        }
+        placeholder={
+          inThread
+            ? m.conversation_thread_message_placeholder()
+            : m.conversation_message_placeholder()
+        }
         className="max-h-40 min-h-10 w-full resize-none bg-transparent px-2 py-1 text-md leading-6 outline-none [field-sizing:content] placeholder:text-placeholder disabled:opacity-50"
       />
-      {mention.open && (
-        <MentionSuggestionList
-          id={mention.listboxId}
-          items={mention.items}
-          activeIndex={mention.activeIndex}
-          optionId={mention.optionId}
-          onChoose={mention.choose}
-          onHighlight={mention.setActiveIndex}
+      {completion.open && completion.trigger && (
+        <ReferenceSuggestionList
+          id={completion.listboxId}
+          trigger={completion.trigger}
+          items={completion.items}
+          activeIndex={completion.activeIndex}
+          optionId={completion.optionId}
+          onChoose={completion.choose}
+          onHighlight={completion.setActiveIndex}
         />
-      )}
-      {outboxEntries.length > 0 && (
-        <ul className="flex flex-col gap-1">
-          {outboxEntries.map((entry) =>
-            entry.state === "sending" ? (
-              <SendingMessageRow key={entry.localId} body={entry.body} />
-            ) : (
-              <li key={entry.localId} className="rounded-lg bg-error-primary px-2 py-1 text-sm">
-                <div className="flex items-center gap-2">
-                  <AlertCircle
-                    aria-hidden="true"
-                    className="size-4 shrink-0 text-fg-error-secondary"
-                  />
-                  <span
-                    role={sentFromThisPage.has(entry.localId) ? "alert" : undefined}
-                    className="shrink-0 font-medium text-error-primary"
-                  >
-                    {unsentReasonText(entry.reason)}
-                  </span>
-                  <span className="min-w-0 flex-1 truncate text-secondary">{entry.body}</span>
-                  {unsentReasonAllowsRetry(entry.reason) && (
-                    <Button color="link-gray" size="sm" onPress={() => retryUnsent(entry)}>
-                      {m.controls_retry()}
-                    </Button>
-                  )}
-                  {(entry.attachments.length === 0 || sentChips.has(entry.localId)) && (
-                    <Button color="link-gray" size="sm" onPress={() => editUnsent(entry)}>
-                      {m.conversation_unsent_edit()}
-                    </Button>
-                  )}
-                  <Button color="link-destructive" size="sm" onPress={() => discardUnsent(entry)}>
-                    {m.conversation_unsent_discard()}
-                  </Button>
-                </div>
-                {entry.errorId && (
-                  <p className="pl-6 text-xs text-tertiary">
-                    {m.error_reference({ errorId: entry.errorId })}
-                  </p>
-                )}
-              </li>
-            ),
-          )}
-        </ul>
       )}
       {attachments.length > MAX_ATTACHMENTS && (
         <p className="px-2 text-sm text-error-primary">
@@ -724,42 +677,14 @@ export function MessageComposer({
         </p>
       )}
       <div className="flex items-center gap-2">
-        {taskMode ? (
-          <Dropdown.Root>
-            <ButtonUtility
-              icon={Paperclip}
-              size="sm"
-              color="tertiary"
-              isDisabled={composerDisabled}
-              aria-label={m.conversation_composer_actions()}
-            />
-            <Dropdown.Popover placement="top start">
-              <Dropdown.Menu>
-                <Dropdown.Item
-                  id="attachment"
-                  icon={Paperclip}
-                  label={m.conversation_attachment_label()}
-                  onAction={() => fileInputRef.current?.click()}
-                />
-                <Dropdown.Item
-                  id="task"
-                  icon={CheckSquare}
-                  label={m.tasks_as_task()}
-                  onAction={() => setAsTask(true)}
-                />
-              </Dropdown.Menu>
-            </Dropdown.Popover>
-          </Dropdown.Root>
-        ) : (
-          <ButtonUtility
-            icon={Paperclip}
-            size="sm"
-            color="tertiary"
-            isDisabled={composerDisabled}
-            tooltip={m.conversation_attachment_label()}
-            onClick={() => fileInputRef.current?.click()}
-          />
-        )}
+        <ButtonUtility
+          icon={Paperclip}
+          size="sm"
+          color="tertiary"
+          isDisabled={composerDisabled}
+          tooltip={m.conversation_attachment_label()}
+          onClick={() => fileInputRef.current?.click()}
+        />
         {attachments.map((item) => (
           <AttachmentChip
             key={item.localId}
@@ -783,33 +708,49 @@ export function MessageComposer({
           }}
           className="sr-only"
         />
-        {taskMode && asTask && (
-          <Button
-            color="secondary"
-            size="xs"
-            iconTrailing={XClose}
-            aria-pressed={true}
-            isDisabled={composerDisabled}
-            onPress={() => setAsTask(false)}
-          >
-            {m.tasks_as_task()}
-          </Button>
-        )}
-        <ButtonUtility
-          type="submit"
-          icon={ArrowUp}
-          size="sm"
-          color="tertiary"
-          isDisabled={
-            composerDisabled ||
-            uploading ||
-            anyFailed ||
-            attachments.length > MAX_ATTACHMENTS ||
-            (!body.trim() && attachments.length === 0)
-          }
-          tooltip={m.conversation_send()}
-          className="ml-auto rounded-full bg-brand-solid text-white hover:bg-brand-solid_hover hover:text-white"
-        />
+        {/* The Add-task control sits directly left of Send (the boss's ruling, #137). Both live
+            in a right-aligned group (`ml-auto`), so the entry tucks against Send instead of
+            stranding itself at the far left next to the paperclip. While the task chip is active
+            the entry yields to it (the chip is the pressed state with its X). */}
+        <div className="ml-auto flex items-center gap-2">
+          {taskMode && asTask && (
+            <Button
+              color="secondary"
+              size="xs"
+              iconTrailing={XClose}
+              aria-pressed={true}
+              isDisabled={composerDisabled}
+              onPress={() => setAsTask(false)}
+            >
+              {m.tasks_as_task()}
+            </Button>
+          )}
+          {taskMode && !asTask && (
+            <ButtonUtility
+              icon={CheckSquare}
+              size="sm"
+              color="tertiary"
+              isDisabled={composerDisabled}
+              tooltip={m.tasks_as_task()}
+              onClick={() => setAsTask(true)}
+            />
+          )}
+          <ButtonUtility
+            type="submit"
+            icon={ArrowUp}
+            size="sm"
+            color="tertiary"
+            isDisabled={
+              composerDisabled ||
+              uploading ||
+              anyFailed ||
+              attachments.length > MAX_ATTACHMENTS ||
+              (!body.trim() && attachments.length === 0)
+            }
+            tooltip={m.conversation_send()}
+            className="rounded-full bg-brand-solid text-white hover:bg-brand-solid_hover hover:text-white"
+          />
+        </div>
       </div>
     </form>
   );

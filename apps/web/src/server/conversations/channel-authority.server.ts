@@ -1,11 +1,11 @@
-import type { PrismaClient } from "../../../generated/client";
+import type { PrismaClient } from "#src/generated/prisma/client";
 import { ACTIVE_MEMBER_WHERE } from "./active-member.server";
 import type { ChannelActor } from "./public-channels.server";
-import { isElevatedServerRole } from "../workspaces/member-role.server";
-import { ACTIVE_AGENT_WHERE } from "../agents/active-agent.server";
+import { isElevatedServerRole } from "#src/server/workspaces/member-role.server";
+import { ACTIVE_AGENT_WHERE } from "#src/server/agents/active-agent.server";
 
 /**
- * Channel-level roles and capability computation (ADR 0030, superseding ADR 0024's
+ * Channel-level roles and capability computation (superseding the earlier
  * `agentHasAdminAuthority` authority table for `update`/`archive`/`unarchive`/`remove-member`).
  *
  * Two independent authority sources feed every gated channel operation:
@@ -53,11 +53,12 @@ export function deriveChannelAdminBasis(
 
 /**
  * Pure: the capability matrix for one actor in one channel.
- * - Active membership alone grants `post`, `leave` (never on `#general`), `add_member`
- *   (ADR 0025) — independent of admin basis.
- * - Either admin basis additionally grants `update`, `archive`, `unarchive`, `remove_member`
- *   (never on `#general`, and independent of active membership: a server admin who is not a
- *   channel member can still archive it).
+ * - Active membership alone grants `post`, `leave` (never on `#general`), `add_member`,
+ *   independent of admin basis.
+ * - Either admin basis additionally grants `update`, `archive`, `unarchive`, `remove_member`,
+ *   independent of active membership: a server admin who is not a channel member can still
+ *   archive it. On `#general` only `update` remains, and the write keeps its name fixed: its
+ *   description is still editable, like any other channel's.
  * - `manage_roles` is human-only (Agents never change channel roles; there is no Agent command
  *   for it) and requires an admin basis, never on `#general` (nobody can be channel admin there,
  *   so there is nothing to manage).
@@ -73,7 +74,7 @@ export function deriveChannelCapabilities(input: {
     post: input.isActiveMember,
     leave: input.isActiveMember && !input.isGeneral,
     add_member: input.isActiveMember,
-    update: isAdmin && !input.isGeneral,
+    update: isAdmin,
     archive: isAdmin && !input.isGeneral,
     unarchive: isAdmin && !input.isGeneral,
     remove_member: isAdmin && !input.isGeneral,
@@ -157,9 +158,9 @@ export async function resolveChannelAuthority(
   };
 }
 
-/** Convenience for the three Agent operations ADR 0024 gated on `agentHasAdminAuthority`
+/** Convenience for the three Agent operations previously gated on `agentHasAdminAuthority`
  * (`update`, `archive`/`unarchive`, `remove-member`), now channel-aware: the acting Agent has
- * authority when either basis applies on this specific channel (ADR 0030). */
+ * authority when either basis applies on this specific channel. */
 export async function hasChannelAdminAuthority(
   db: PrismaClient,
   workspaceId: string,

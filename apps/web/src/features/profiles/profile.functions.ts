@@ -1,7 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
-import { authMiddleware } from "../../server/auth/function-auth";
-import { requireDatabaseClient } from "../../server/db/client.server";
-import { PrismaUserProfileRepository } from "../../server/db/repositories/user-profile.repositories.server";
+import { authMiddleware } from "#src/features/auth/function-auth";
+import { requireDatabaseClient } from "#src/server/db/client.server";
+import { PrismaUserProfileRepository } from "#src/server/db/repositories/user-profile.repositories.server";
 import { saveUserProfileInputSchema } from "./profile.schemas";
 
 function profiles() {
@@ -15,6 +15,7 @@ export const getUserProfile = createServerFn({ method: "GET" })
     const user = context.user;
     const profile = await profiles().get(user.id);
     return {
+      id: user.id,
       name: profile.displayName ?? user.name,
       email: user.email,
       username: profile.username,

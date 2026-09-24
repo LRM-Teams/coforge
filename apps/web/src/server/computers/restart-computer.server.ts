@@ -1,7 +1,7 @@
 import { encodeComputerRestartIntent } from "@lrm/coforge-sdk/internal";
 
-import type { CentrifugoServerApi } from "../centrifugo/server-api.server";
-import { daemonControlChannel } from "../centrifugo/server-api.server";
+import type { CentrifugoServerApi } from "#src/server/centrifugo/server-api.server";
+import { daemonControlChannel } from "#src/server/centrifugo/server-api.server";
 import type { ComputerRestartStore } from "./computer-restart-store.server";
 
 export interface ComputerRestartAuthorization {

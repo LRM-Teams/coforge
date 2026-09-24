@@ -2,26 +2,26 @@ import { expect, test } from "bun:test";
 import { mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { PrismaPg } from "@prisma/adapter-pg";
-import { PrismaClient } from "../generated/client";
-import { ComputerRegistrar } from "../src/server/computers/registration.server";
-import { PublicChannels } from "../src/server/conversations/public-channels.server";
-import { TaskBoard } from "../src/server/tasks/task-board.server";
-import { PrismaAgentRepository } from "../src/server/db/repositories/agent.repositories.server";
+import { PrismaClient } from "#src/generated/prisma/client";
+import { ComputerRegistrar } from "#src/server/computers/registration.server";
+import { PublicChannels } from "#src/server/conversations/public-channels.server";
+import { TaskBoard } from "#src/server/tasks/task-board.server";
+import { PrismaAgentRepository } from "#src/server/db/repositories/agent.repositories.server";
 import {
   PrismaComputerRegistrationRepository,
   PrismaWorkspaceAccess,
-} from "../src/server/db/repositories/setup.repositories.server";
-import { ManageAgents } from "../src/server/agents/manage-agents.server";
-import { RedisMessageRequestIdempotency } from "../src/server/conversations/redis-message-request-idempotency.server";
-import { createCentrifugoServerApi } from "../src/server/centrifugo/server-api.server";
+} from "#src/server/db/repositories/setup.repositories.server";
+import { ManageAgents } from "#src/server/agents/manage-agents.server";
+import { RedisMessageRequestIdempotency } from "#src/server/conversations/redis-message-request-idempotency.server";
+import { createCentrifugoServerApi } from "#src/server/centrifugo/server-api.server";
 import {
   DaemonConnection,
   DaemonRuntime,
   InMemoryDaemonCredentialStore,
   defaultCentrifugeWorkspaceClientFactory,
   startAgentProxy,
-} from "../../../packages/daemon";
-import { PiJsonlFixtureProvider } from "../../../packages/daemon/test/fixtures/pi-jsonl-fixture-provider";
+} from "@lrm/coforge-daemon";
+import { PiJsonlFixtureProvider } from "@lrm/coforge-daemon/test/fixtures/pi-jsonl-fixture-provider";
 
 const databaseUrl = requireEnvironment("DATABASE_URL");
 const workspaceRoot = join(import.meta.dir, `../../../.amp/e2e/channel-${crypto.randomUUID()}`);

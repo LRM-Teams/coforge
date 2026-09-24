@@ -1,8 +1,8 @@
 import { join, resolve } from "node:path";
-import { resolveServerUrl } from "../../packages/computer/src/release-channel";
+import { resolveServerUrl } from "@coforge/computer/src/release-channel";
 import { zodResolvePlugin } from "../bun-resolve-zod-plugin";
 
-// The release target names this repository already uses across docs/release.md, updater.ts's
+// The release target names this repository already uses across docs/release/, updater.ts's
 // manifest.platforms keys and install.sh's/install.ps1's `uname`/architecture switch, mapped to
 // the `Bun.build({ compile: { target } })` string that actually cross-compiles each one. Verified
 // against Bun 1.4.0 by compiling this repository's own entrypoints for every target below and
@@ -82,7 +82,7 @@ export async function compileTargetArtifacts(
       "process.env.COFORGE_DAEMON_VERSION": JSON.stringify(options.version),
       // The `__agent-cli` dispatch bundles `@lrm/coforge/runner` (packages/coforge/src/cli.ts)
       // into this same executable; `coforge version`/`coforge --version` need the real release
-      // version inlined the same way, not the package.json fallback (docs/adr/0036-agent-manual.md).
+      // version inlined the same way, not the package.json fallback.
       "Bun.env.COFORGE_CLI_VERSION": JSON.stringify(options.version),
       "process.env.COFORGE_DAEMON_SERVER_URL": JSON.stringify(serverUrl),
     },

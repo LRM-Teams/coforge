@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { discoverCodeAgentInventory } from "../src/code-agent/runtime-inventory";
+import { discoverCodeAgentInventory } from "#src/code-agent/runtime-inventory";
 
 async function discover(mode: string, cache?: string) {
   const home = await mkdtemp(join(tmpdir(), "codex-catalog-"));

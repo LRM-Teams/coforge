@@ -7,9 +7,9 @@ import {
   latestActivityError,
   mergeAgentActivity,
   type ActivityEntry,
-} from "../src/features/agents/agent-activity";
+} from "#src/features/agents/agent-activity";
 
-test("agentActivityChannelForAgent names the per-Agent re-routing destination (ADR 0059)", () => {
+test("agentActivityChannelForAgent names the per-Agent re-routing destination", () => {
   expect(agentActivityChannelForAgent("workspace-1", "agent-1")).toBe(
     "agent:activity:workspace-1:agent-1",
   );
@@ -97,7 +97,7 @@ test.each(["thinking_started", "model_response_started"])(
   },
 );
 
-// ADR 0021, amended: tool_end/thinking_end/compaction_finished are ordinary status
+// tool_end/thinking_end/compaction_finished are ordinary status
 // observations now (persisted and shown live); only runtime_progress stays a
 // content-free liveness filler.
 test.each([
@@ -130,7 +130,7 @@ test("mergeAgentActivity drops runtime_progress entries even if not decoded away
   expect(result.map((value) => value.clientSeq)).toEqual([1]);
 });
 
-// ADR 0021, amended: unlike runtime_progress, these are ordinary Activity now.
+// Unlike runtime_progress, these are ordinary Activity now.
 test.each(["tool_end", "thinking_end", "compaction_finished"])(
   "mergeAgentActivity keeps %s entries",
   (detailKind) => {
@@ -190,7 +190,7 @@ test("a delayed publication does not replace its persisted metadata", () => {
 });
 
 // Invariant (b): tool_end/thinking_end/compaction_finished now existing in the merged
-// list (ADR 0021, amended) must not change latestActivityError/recoveredKinds — neither
+// list must not change latestActivityError/recoveredKinds — neither
 // is a recognized recovery kind and neither is level "error", so `.find`/`.some` skip
 // straight past them exactly as they would any other unrelated info-level entry.
 test("tool_end/thinking_end/compaction_finished rows do not change latestActivityError (invariant b)", () => {

@@ -5,12 +5,15 @@ import type {
   ReminderJob,
   ReminderSync,
 } from "@lrm/coforge-sdk/internal";
-import { APP_INBOX_PREVIEW_MAX_CHARS } from "../agent-app-inbox/registry";
+import { APP_INBOX_PREVIEW_MAX_CHARS } from "#src/agent-app-inbox/registry";
 
 const logger = getLogger(["coforge", "daemon", "reminder"]);
 const MAX_TIMER_MS = 24 * 60 * 60_000;
 const RETRY_BUDGET_MS = 15 * 60_000;
 const MAX_ATTEMPTS = 8;
+/** How far past its due time a wake has to reach the Agent before the reminder is called late. */
+const LATE_AFTER_MS = 60_000;
+export const RETRY_EXHAUSTED_CODE = "REMINDER_DELIVERY_RETRY_EXHAUSTED";
 
 /** Projects canonical reminder text into the strict, bounded App Inbox preview. */
 export function reminderAppInboxPreview(title: string): string {
@@ -26,6 +29,31 @@ export function reminderAppInboxPreview(title: string): string {
   if (lastCodeUnit >= 0xd800 && lastCodeUnit <= 0xdbff) preview = preview.slice(0, -1);
   return preview;
 }
+
+/** The App Inbox summary of a due reminder. One that reached the Agent late (the daemon was offline
+ * at its time, or delivery kept failing) says so and names when it was due, so the Agent can judge
+ * whether it still applies. */
+export function reminderAppInboxSummary(job: ReminderJob, late: boolean): string {
+  if (!late) return "Reminder due";
+  return `Overdue: was due ${new Date(job.fireAt).toISOString()}, delivered late`;
+}
+
+/** The durable step whose retries ran out: the fire request to the cloud, or waking the Agent. */
+export type ReminderRetryStage = "fire" | "wake";
+
+/**
+ * Why a receipt stopped retrying without delivering. Its presence is what tells a failed occurrence
+ * apart from one that ended because the Agent accepted the wake or the cloud declined the fire.
+ */
+export type ReminderRetryExhausted = {
+  code: typeof RETRY_EXHAUSTED_CODE;
+  stage: ReminderRetryStage;
+  attempts: number;
+  /** The receipt's retry deadline, epoch milliseconds. */
+  deadline: number;
+  /** When the scheduler gave up, epoch milliseconds. */
+  exhaustedAt: number;
+};
 
 export type ReminderReceipt = {
   workspaceId: string;
@@ -45,6 +73,7 @@ export type ReminderReceipt = {
   wakeAccepted: boolean;
   consumed: boolean;
   terminal: boolean;
+  retryExhausted?: ReminderRetryExhausted;
 };
 
 export interface ReminderReceiptStore {
@@ -87,6 +116,8 @@ export class ReminderScheduler {
   readonly #tombstones = new Set<string>();
   readonly #changedAfterSnapshot = new Set<string>();
   readonly #persistenceFailures = new Map<string, number>();
+  /** The most recent fire or wake failure per receipt, reported when its retries run out. */
+  readonly #lastFailures = new Map<string, unknown>();
   #generation = 0;
   #running = true;
 
@@ -94,7 +125,7 @@ export class ReminderScheduler {
     private readonly scope: { workspaceId: string; computerId: string },
     private readonly store: ReminderReceiptStore,
     private readonly fire: (request: ReminderFireRequest) => Promise<ReminderFireResponse>,
-    private readonly wake: (job: ReminderJob) => Promise<boolean>,
+    private readonly wake: (job: ReminderJob, occurrence: { late: boolean }) => Promise<boolean>,
     private readonly clock: ReminderClock = defaultClock,
   ) {}
 
@@ -145,15 +176,38 @@ export class ReminderScheduler {
     });
   }
 
+  /**
+   * Acknowledges one exact revision the Agent was woken for. A receipt missing from the store, or
+   * a store that cannot be read, falls back to this daemon's own copy of the receipt; only a
+   * revision neither knows as delivered answers false. A failed write still fails.
+   */
   acknowledge(agentId: string, reminderId: string, version: number): Promise<boolean> {
     return this.#serial(agentId, async () => {
-      const receipts = await this.store.read(agentId);
-      const receipt = receipts.find((r) => r.reminderId === reminderId && r.version === version);
+      const key = this.#receiptKey(agentId, reminderId, version);
+      let receipts: ReminderReceipt[] | undefined;
+      try {
+        receipts = await this.store.read(agentId);
+      } catch (error) {
+        logger.warn("Reminder receipts could not be read for an acknowledgement", {
+          error,
+          event: "reminder.ack_receipt_unreadable",
+          outcome: "failed",
+          agent_id: agentId,
+          reminder_id: reminderId,
+          reminder_version: version,
+        });
+      }
+      const stored = receipts?.find((r) => r.reminderId === reminderId && r.version === version);
+      const known = this.#receipts.get(key);
+      const receipt = stored ?? (known && structuredClone(known));
       if (!receipt || receipt.serverResult !== "accepted" || !receipt.serverFired) return false;
       receipt.consumed = true;
       receipt.terminal = true;
-      await this.store.write(agentId, this.#retained(receipts));
-      this.#receipts.set(this.#receiptKey(agentId, reminderId, version), receipt);
+      if (receipts) {
+        if (!stored) receipts.push(receipt);
+        await this.store.write(agentId, this.#retained(receipts));
+      }
+      this.#receipts.set(key, receipt);
       this.#cancelReceipt(agentId, reminderId, version);
       return true;
     });
@@ -176,6 +230,7 @@ export class ReminderScheduler {
       this.clock.cancel(timer);
     this.#scheduleTimers.clear();
     this.#receiptTimers.clear();
+    this.#lastFailures.clear();
     this.#jobs.clear();
     this.#authorized.clear();
   }
@@ -302,8 +357,12 @@ export class ReminderScheduler {
         outcome: "failed",
         agent_id: receipt.agentId,
       });
-      if (!this.#running || failures >= MAX_ATTEMPTS || this.clock.now() >= receipt.deadline)
+      if (!this.#running) return false;
+      if (failures >= MAX_ATTEMPTS || this.clock.now() >= receipt.deadline) {
+        // The store is what keeps failing, so this outcome can only be logged, not recorded.
+        this.#logExhausted(receipt, "persistence", error, failures);
         return false;
+      }
       receipt.nextAt = Math.min(receipt.deadline, this.clock.now() + this.#backoff(failures));
       this.#armReceipt(receipt, receipt.nextAt, false, afterFailure);
       return false;
@@ -314,11 +373,11 @@ export class ReminderScheduler {
     const key = this.#receiptKey(receipt.agentId, receipt.reminderId, receipt.version);
     if (!this.#running || this.#inFlight.has(key)) return;
     if (receipt.attempt >= MAX_ATTEMPTS || this.clock.now() >= receipt.deadline) {
-      receipt.terminal = true;
-      this.#track(this.#serial(receipt.agentId, () => this.#persistOrRetry(receipt, false)));
+      this.#exhaust(receipt);
       return;
     }
     receipt.attempt++;
+    this.#lastFailures.delete(key);
     this.#inFlight.add(key);
     const generation = this.#generation;
     let readyToWake = false;
@@ -368,6 +427,7 @@ export class ReminderScheduler {
       this.#correlate(receipt, candidate);
       response = candidate;
     } catch (error) {
+      this.#lastFailures.set(key, error);
       // Which reminder failed matters when several are scheduled: without the id and the
       // attempt, the log line cannot be told apart across retries (2026-09-23 morning: the
       // server answered every fire with RPC 104 "method not found" and the log named neither).
@@ -378,7 +438,7 @@ export class ReminderScheduler {
         agent_id: receipt.agentId,
         reminder_id: receipt.reminderId,
         // `reminder_version`, not `version`: the structured line already carries the build's
-        // `version` (docs/observability.md reserves it), and the two must stay tellable apart.
+        // `version` (docs/observability/structured-logging.md reserves it), and the two must stay tellable apart.
         reminder_version: receipt.version,
         attempt: receipt.attempt,
         retry_deadline: new Date(receipt.deadline).toISOString(),
@@ -417,9 +477,21 @@ export class ReminderScheduler {
   async #runWake(key: string, receipt: ReminderReceipt, generation: number): Promise<void> {
     let accepted = false;
     try {
-      accepted = await this.wake(receipt.job);
+      // Measured here rather than taken from the cloud's `catchup`, which calls any fire after the
+      // due instant a catch-up, including an on-time one that merely took a round trip.
+      const late = this.clock.now() - Date.parse(receipt.job.fireAt) > LATE_AFTER_MS;
+      accepted = await this.wake(receipt.job, { late });
     } catch (error) {
-      logger.error("Reminder wake failed", { error, agent_id: receipt.agentId });
+      this.#lastFailures.set(key, error);
+      logger.error("Reminder wake failed", {
+        error,
+        event: "reminder.wake_failed",
+        outcome: "failed",
+        agent_id: receipt.agentId,
+        reminder_id: receipt.reminderId,
+        reminder_version: receipt.version,
+        attempt: receipt.attempt,
+      });
     }
     await this.#serial(receipt.agentId, async () => {
       if (!this.#running || generation !== this.#generation) return;
@@ -433,12 +505,55 @@ export class ReminderScheduler {
 
   #retry(receipt: ReminderReceipt): void {
     if (receipt.attempt >= MAX_ATTEMPTS || this.clock.now() >= receipt.deadline) {
-      receipt.terminal = true;
-      this.#track(this.#serial(receipt.agentId, () => this.#persistOrRetry(receipt, false)));
+      this.#exhaust(receipt);
       return;
     }
     receipt.nextAt = Math.min(receipt.deadline, this.clock.now() + this.#backoff(receipt.attempt));
     this.#armReceipt(receipt, receipt.nextAt);
+  }
+
+  /** Ends a receipt whose attempts or deadline ran out, recording and logging the step that failed. */
+  #exhaust(receipt: ReminderReceipt): void {
+    if (receipt.terminal) return;
+    const key = this.#receiptKey(receipt.agentId, receipt.reminderId, receipt.version);
+    // Once the cloud has accepted and fired, only the local wake remains to succeed.
+    const stage: ReminderRetryStage =
+      receipt.serverResult === "accepted" && receipt.serverFired ? "wake" : "fire";
+    receipt.terminal = true;
+    receipt.retryExhausted = {
+      code: RETRY_EXHAUSTED_CODE,
+      stage,
+      attempts: receipt.attempt,
+      deadline: receipt.deadline,
+      exhaustedAt: this.clock.now(),
+    };
+    this.#logExhausted(receipt, stage, this.#lastFailures.get(key));
+    this.#lastFailures.delete(key);
+    this.#track(this.#serial(receipt.agentId, () => this.#persistOrRetry(receipt, false)));
+  }
+
+  #logExhausted(
+    receipt: ReminderReceipt,
+    stage: ReminderRetryStage | "persistence",
+    lastFailure: unknown,
+    persistenceFailures?: number,
+  ): void {
+    const code = (lastFailure as { code?: unknown } | undefined)?.code;
+    logger.error("Reminder delivery retries exhausted", {
+      event: "reminder.retry_exhausted",
+      outcome: "failed",
+      code: RETRY_EXHAUSTED_CODE,
+      agent_id: receipt.agentId,
+      reminder_id: receipt.reminderId,
+      // `reminder_version`, not `version`, for the same reason as `reminder.fire_failed`.
+      reminder_version: receipt.version,
+      stage,
+      attempts: receipt.attempt,
+      persistence_failures: persistenceFailures,
+      retry_deadline: new Date(receipt.deadline).toISOString(),
+      error_code: typeof code === "string" || typeof code === "number" ? String(code) : undefined,
+      error_name: lastFailure instanceof Error ? lastFailure.name : undefined,
+    });
   }
 
   #armReceipt(
@@ -497,6 +612,8 @@ export class ReminderScheduler {
     if (existing?.consumed) {
       merged.consumed = true;
       merged.terminal = true;
+      // The Agent acknowledged it, so it was delivered, whatever this copy's retries concluded.
+      delete merged.retryExhausted;
     }
     if (index < 0) receipts.push(merged);
     else receipts[index] = merged;

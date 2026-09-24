@@ -9,14 +9,14 @@ import { useEffect, useState } from "react";
 
 import { Button as AriaButton } from "react-aria-components";
 
-import { Dropdown } from "@/components/base/dropdown/dropdown";
-import { AnimatedSpan, Terminal, TypingAnimation } from "@/components/magicui/terminal";
-import AnimatedGradient from "@/components/spell/animated-gradient";
-import { BlurReveal } from "@/components/spell/blur-reveal";
-import { ShimmerText } from "@/components/spell/shimmer-text";
-import { installCommands, setupCommand } from "@/features/install/install-commands";
-import { m } from "@/paraglide/messages";
-import { getLocale } from "@/paraglide/runtime";
+import { Dropdown } from "#src/components/base/dropdown/dropdown";
+import { AnimatedSpan, Terminal, TypingAnimation } from "#src/components/magicui/terminal";
+import AnimatedGradient from "#src/components/spell/animated-gradient";
+import { BlurReveal } from "#src/components/spell/blur-reveal";
+import { ShimmerText } from "#src/components/spell/shimmer-text";
+import { installCommands, setupCommand } from "#src/features/install/install-commands";
+import { m } from "#src/paraglide/messages";
+import { getLocale } from "#src/paraglide/runtime";
 
 export const repositoryUrl = "https://github.com/LRM-Teams/coforge";
 

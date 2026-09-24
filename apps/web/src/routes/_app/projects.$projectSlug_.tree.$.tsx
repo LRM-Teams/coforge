@@ -1,12 +1,12 @@
 import { createFileRoute, notFound } from "@tanstack/react-router";
-import { PageLoadError } from "@/features/errors/page-load-error";
-import { ProjectsPending } from "@/features/projects/projects-content";
-import { ProjectTree } from "@/features/projects/project-tree";
+import { PageLoadError } from "#src/features/errors/page-load-error";
+import { ProjectsPending } from "#src/features/projects/projects-content";
+import { ProjectTree } from "#src/features/projects/project-tree";
 import {
   projectObjectQuery,
   projectQuery,
   projectTreeQuery,
-} from "@/features/projects/project-tree-queries";
+} from "#src/features/projects/project-tree-queries";
 
 export const Route = createFileRoute("/_app/projects/$projectSlug_/tree/$")({
   // The markdown Preview toggle renders ContentEditor (TipTap), which must not SSR.

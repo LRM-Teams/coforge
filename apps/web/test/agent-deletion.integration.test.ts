@@ -1,18 +1,21 @@
 import { expect, test } from "bun:test";
 import { PrismaPg } from "@prisma/adapter-pg";
-import { PrismaClient } from "../generated/client";
-import { AgentDeletion } from "../src/server/agents/agent-deletion.server";
-import { PrismaAgentDeletionStore } from "../src/server/db/repositories/agent-deletion.repositories.server";
-import { PrismaAgentRepository } from "../src/server/db/repositories/agent.repositories.server";
-import { PrismaDirectConversationRepository } from "../src/server/db/repositories/direct-conversation.repositories.server";
-import { enrollGeneralChannel } from "../src/server/conversations/public-channels.server";
-import { WorkspaceMembers, workspaceMemberRole } from "../src/server/workspaces/members.server";
-import { findWorkspaceUser } from "../src/server/agents/agent-user-info.server";
-import type { AgentVisibilityViewer } from "../src/server/agents/agent-visibility.server";
-import { TaskBoard } from "../src/server/tasks/task-board.server";
+import { PrismaClient } from "#src/generated/prisma/client";
+import { AgentDeletion } from "#src/server/agents/agent-deletion.server";
+import { PrismaAgentDeletionStore } from "#src/server/db/repositories/agent-deletion.repositories.server";
+import { PrismaAgentRepository } from "#src/server/db/repositories/agent.repositories.server";
+import { PrismaDirectConversationRepository } from "#src/server/db/repositories/direct-conversation.repositories.server";
+import {
+  enrollGeneralChannel,
+  PublicChannels,
+} from "#src/server/conversations/public-channels.server";
+import { WorkspaceMembers, workspaceMemberRole } from "#src/server/workspaces/members.server";
+import { findWorkspaceUser } from "#src/server/agents/agent-user-info.server";
+import type { AgentVisibilityViewer } from "#src/server/agents/agent-visibility.server";
+import { TaskBoard } from "#src/server/tasks/task-board.server";
 
 /**
- * End-to-end Agent deletion against local PostgreSQL (ADR 0044). Drives the real `AgentDeletion`
+ * End-to-end Agent deletion against local PostgreSQL. Drives the real `AgentDeletion`
  * and `PrismaAgentDeletionStore`, then asserts through the *other* live-view seams — the Members
  * directory, the DM read path, the by-name profile lookup, the message projection, the repository
  * listings and the unique Agent name constraint — so the test proves the delete actually makes the
@@ -56,6 +59,8 @@ async function setup() {
     },
   });
   await enrollGeneralChannel(db, workspace.id);
+  // An Agent joins #general muted; these tests need the ordinary #general Task delivery.
+  await new PublicChannels(db).setAgentMuted(workspace.id, agent.id, "#general", false);
   // A Computer assignment, so the delete's runtime Stop is genuinely attempted.
   const computer = await db.computer.create({
     data: {
@@ -103,7 +108,7 @@ test.skipIf(!connectionString)(
   "deleting an Agent hides it from every live view and keeps its history readable",
   async () => {
     const { db, workspace, owner, member, agent } = await setup();
-    // The Agent's own creator (ADR 0059); trivially visible regardless of `visibility`, so this
+    // The Agent's own creator; trivially visible regardless of `visibility`, so this
     // test's `findWorkspaceUser` calls exercise deletion, never a visibility rejection.
     const ownerViewer: AgentVisibilityViewer = { kind: "user", userId: owner.id, role: "owner" };
     try {
@@ -128,7 +133,13 @@ test.skipIf(!connectionString)(
 
       // Visible everywhere before the delete.
       expect(
-        (await new WorkspaceMembers(db).list(workspace.id, owner.id)).agents.map((a) => a.id),
+        (
+          await new WorkspaceMembers(db).agentPage(workspace.id, owner.id, {
+            owner: "all",
+            query: "",
+            limit: 50,
+          })
+        ).items.map((a) => a.id),
       ).toContain(agent.id);
       expect(await findWorkspaceUser(db, workspace.id, agent.name, ownerViewer)).toBeDefined();
 
@@ -160,7 +171,13 @@ test.skipIf(!connectionString)(
 
       // Hidden from the Members directory and from the by-name profile lookup.
       expect(
-        (await new WorkspaceMembers(db).list(workspace.id, owner.id)).agents.map((a) => a.id),
+        (
+          await new WorkspaceMembers(db).agentPage(workspace.id, owner.id, {
+            owner: "all",
+            query: "",
+            limit: 50,
+          })
+        ).items.map((a) => a.id),
       ).not.toContain(agent.id);
       expect(await findWorkspaceUser(db, workspace.id, agent.name, ownerViewer)).toBeUndefined();
 
@@ -348,6 +365,56 @@ test.skipIf(!connectionString)(
 );
 
 test.skipIf(!connectionString)(
+  "a deleted Agent keeps the Task it claimed, and the Task names it as deleted",
+  async () => {
+    const { db, workspace, owner, agent } = await setup();
+    try {
+      const general = await db.conversation.findUniqueOrThrow({
+        where: { workspaceId_channelName: { workspaceId: workspace.id, channelName: "general" } },
+      });
+      const board = new TaskBoard(db);
+      const principal = { workspaceId: workspace.id, userId: owner.id };
+      const created = await board.execute(principal, {
+        operation: "create",
+        idempotencyKey: crypto.randomUUID(),
+        conversationId: general.id,
+        title: "Half-done work",
+        assignee: `@${agent.name}`,
+      });
+      const number = created.tasks[0]!.number;
+      const listTask = async () =>
+        (
+          await board.execute(principal, {
+            operation: "list",
+            idempotencyKey: crypto.randomUUID(),
+            conversationId: general.id,
+          })
+        ).tasks.find((task) => task.number === number)!;
+      expect((await listTask()).owner).toMatchObject({ handle: agent.name, deleted: false });
+
+      await deletionFor(db, []).delete(
+        { userId: owner.id, workspaceId: workspace.id, role: "owner" },
+        agent.id,
+      );
+
+      // The claim and its status stay as they were; only the owner is now marked deleted, so a
+      // Workspace owner/admin can see the Task needs reassigning.
+      const after = await listTask();
+      expect(after.status).toBe(created.tasks[0]!.status);
+      expect(after.owner).toMatchObject({
+        kind: "agent",
+        id: agent.id,
+        handle: agent.name,
+        name: "Doomed",
+        deleted: true,
+      });
+    } finally {
+      await teardown(db, workspace.id, [owner.id]);
+    }
+  },
+);
+
+test.skipIf(!connectionString)(
   "the weekly-report assistant is refused and survives the attempt",
   async () => {
     const { db, workspace, owner } = await setup();
@@ -382,6 +449,65 @@ test.skipIf(!connectionString)(
       expect(
         (await db.agent.findUniqueOrThrow({ where: { id: assistant.id } })).deletedAt,
       ).toBeNull();
+    } finally {
+      await teardown(db, workspace.id, [owner.id]);
+    }
+  },
+);
+
+test.skipIf(!connectionString)(
+  "another Agent reading the channel sees a deleted Agent's Task marked deleted",
+  async () => {
+    const { db, workspace, owner, agent } = await setup();
+    try {
+      const general = await db.conversation.findUniqueOrThrow({
+        where: { workspaceId_channelName: { workspaceId: workspace.id, channelName: "general" } },
+      });
+      const reader = await db.agent.create({
+        data: {
+          workspaceId: workspace.id,
+          name: `reader-${agent.name}`,
+          displayName: "Reader",
+          ownerId: owner.id,
+          runtimeConfig: {},
+        },
+      });
+      await db.conversationMember.create({
+        data: { workspaceId: workspace.id, conversationId: general.id, agentId: reader.id },
+      });
+      const created = await new TaskBoard(db).execute(
+        { workspaceId: workspace.id, userId: owner.id },
+        {
+          operation: "create",
+          idempotencyKey: crypto.randomUUID(),
+          conversationId: general.id,
+          title: "Half-done work",
+          assignee: `@${agent.name}`,
+        },
+      );
+      const conversations = new PrismaDirectConversationRepository(db);
+      // Read around the Task's message, so each read sees it whatever the reader's cursor.
+      const taskLine = async () =>
+        (
+          await conversations.readMessages(workspace.id, reader.id, "#general", {
+            around: created.tasks[0]!.messageId,
+          })
+        ).find((message) => message.task)!.task;
+      // The handle carries no "@", like every other handle an Agent reads.
+      expect(await taskLine()).toMatchObject({
+        owner: { displayName: "Doomed", handle: agent.name },
+      });
+      expect((await taskLine())!.owner!.deleted).toBeUndefined();
+
+      await deletionFor(db, []).delete(
+        { userId: owner.id, workspaceId: workspace.id, role: "owner" },
+        agent.id,
+      );
+
+      expect(await taskLine()).toMatchObject({
+        status: "todo",
+        owner: { displayName: "Doomed", handle: agent.name, deleted: true },
+      });
     } finally {
       await teardown(db, workspace.id, [owner.id]);
     }

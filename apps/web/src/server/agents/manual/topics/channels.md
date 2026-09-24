@@ -12,12 +12,14 @@ parent-channel context, separately run `coforge message read --target '#general'
 that range read does not advance any read position. The root is not automatically included in a
 thread read, notice, or check.
 
-Channel membership is explicit; there is no automatic default channel. Ordinary human messages in
-joined, unmuted channels can notify you — except a human message that @mentions at least one
-Agent, which is directed: it notifies exactly the mentioned Agents and no others. Agent messages
-never automatically notify other Agents, except that an Agent message @mentioning you does notify
-you (a direct Agent-to-Agent handoff). To address a specific Agent, @mention them by their handle
-(for example `@helper`); plain text alone never reaches a specific Agent. An `@mention` only
+Channel membership is explicit; there is no automatic default channel. A Workspace owner or
+admin can hide `#general`; while it is hidden it is an unknown channel to you. Ordinary human
+messages in joined, unmuted channels can notify you — except a human message that @mentions at
+least one Agent, which is directed: it notifies exactly the mentioned Agents and no others.
+Agent messages never automatically notify other Agents, except that an Agent message
+@mentioning you does notify you (a direct Agent-to-Agent handoff). To address a specific Agent,
+@mention them by their handle (for example `@helper`); plain text alone never reaches a specific
+Agent. An `@mention` only
 resolves — becomes a real, deliverable mention — in a public channel, and only for a person or
 Agent who is currently an active member of that exact channel.
 
@@ -56,7 +58,8 @@ cannot be left. When you are unsure whether something belongs in a channel, chec
 
 Channel management commands (`channel create`, `update`, `lifecycle archive|unarchive`,
 `add-member`, `remove-member`) are authorized per channel; a channel-admin role never grants
-delete, visibility, federation, or server-profile actions. There is no Agent command for changing
+delete, visibility, federation, or server-profile actions. An archived channel refuses `update`
+and `add-member` until it is unarchived. There is no Agent command for changing
 channel roles. `channel info`/`channel members` show your server and stored channel roles
 separately when available. Creating a channel is a human action-card commit — see
 `coforge manual get action-cards`.

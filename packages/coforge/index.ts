@@ -12,6 +12,7 @@ import {
   type MentionSelectorInput as MentionSelector,
   type ReminderSummaryRecord,
   type TaskCommand,
+  type TaskHistoryEvent,
   type TaskResult,
   type TaskStatus,
   type WorkspaceInfoResponse,
@@ -19,7 +20,7 @@ import {
   type WeeklyReportResponse,
   WEEKLY_REPORT_SUBJECT_TYPES,
 } from "@lrm/coforge-sdk/internal";
-import { parseDurationSeconds } from "./src/reminder-duration";
+import { parseDurationSeconds } from "#src/reminder-duration";
 import {
   createAgentApiClient,
   createMessageTransportAgentApiTransport,
@@ -34,10 +35,10 @@ import {
   type GitHubCredentialResponse,
   type WorkspaceInfoRuntimeContext,
 } from "@lrm/coforge-sdk/agent";
-import { COFORGE_CLI_VERSION } from "./src/version";
-import { formatManualGet, formatManualSearchResults } from "./src/manual-format";
-import { formatProfile, formatUserInfo } from "./src/user-format";
-import { parseActionCardInput, toActionCardAction } from "./src/action-prepare-input";
+import { COFORGE_CLI_VERSION } from "#src/version";
+import { formatManualGet, formatManualSearchResults } from "#src/manual-format";
+import { formatProfile, formatUserInfo } from "#src/user-format";
+import { parseActionCardInput, toActionCardAction } from "#src/action-prepare-input";
 import {
   formatAttachmentDownloadSuccess,
   formatAttachmentUploadSuccess,
@@ -46,7 +47,7 @@ import {
   formatReadWindow,
   formatSearchResults,
   formatSendSuccess,
-} from "./src/message-format";
+} from "#src/message-format";
 import {
   formatChannelAddMember,
   formatChannelArchive,
@@ -57,14 +58,14 @@ import {
   formatChannelMembers,
   formatChannelRemoveMember,
   formatChannelUpdate,
-} from "./src/channel-format";
+} from "#src/channel-format";
 import {
   CliError,
   NO_MESSAGE_SENT_NEXT_ACTION,
   unknownDeliveryNextAction,
   withOutputMode,
-} from "./src/cli-error";
-import { attachmentMimeType, validateAttachmentUploadArgs } from "./src/attachment-upload";
+} from "#src/cli-error";
+import { attachmentMimeType, validateAttachmentUploadArgs } from "#src/attachment-upload";
 
 export { createAgentApiClient } from "@lrm/coforge-sdk/agent";
 
@@ -262,7 +263,7 @@ export type MessageTransport = {
   actionPrepare?(target: string, action: ActionCardAction): Promise<ActionPrepareResult>;
   manualGet?(topic: string, intent: string, reason: string): Promise<AgentManualGetResponse>;
   manualSearch?(query: string, intent: string, reason: string): Promise<AgentManualSearchResponse>;
-  /** `coforge version`'s local-only Daemon query (ADR 0036); never reaches Web/backend. */
+  /** `coforge version`'s local-only Daemon query; never reaches Web/backend. */
   version?(): Promise<AgentVersionResponse>;
   userInfo?(name: string): Promise<AgentUserInfoResponse>;
   profileShow?(target?: string): Promise<AgentProfileShowResponse>;
@@ -691,7 +692,7 @@ function parseWorkspaceInfoArgs(args: readonly string[]): WorkspaceInfoInvocatio
 const CHANNEL_MANAGEMENT_BOOLEAN_FLAGS = new Set(["--private", "--public", "--json"]);
 
 /** Rejects `--private`/`--public`, which Raft accepts but CoForge does not; every channel is
- * public and there is no private/visibility column (see ADR 0024). */
+ * public and there is no private/visibility column. */
 function privateChannelsUnsupportedError(): CliError {
   return new CliError({
     code: "UNSUPPORTED",
@@ -1346,7 +1347,7 @@ function trimmedEnv(value: string | undefined): string | undefined {
 }
 
 /**
- * `coforge whoami`: deliberately local (ADR 0036's placement-table rows) — it answers "what
+ * `coforge whoami`: deliberately local — it answers "what
  * identity and endpoint would my next command use", read only from the process environment the
  * Daemon already set for this Agent process (`code-agent/environment.ts`). It never makes a
  * request. `COFORGE_DAEMON_SOCKET` is always set to `""` for an Agent launch (`daemon-runtime/
@@ -2247,19 +2248,27 @@ function formatTasks(result: TaskResult, reviewerIsolation = false): string {
   return result.tasks
     .map(
       (task) =>
-        `#${task.number} status=${task.status} owner=${task.owner?.name ?? "unclaimed"} message=${task.messageId} revision=${task.revision} ${task.title}`,
+        `#${task.number} status=${task.status} owner=${task.owner?.name ?? "unclaimed"}${task.owner?.deleted ? " [deleted]" : ""} message=${task.messageId} revision=${task.revision} ${task.title}`,
     )
     .join("\n");
 }
 
+function historyActor(event: TaskHistoryEvent): string {
+  if (event.actorType === "system") return "@system";
+  return event.actorName ? `@${event.actorName}` : "<unresolved>";
+}
+
 function formatTaskHistory(result: TaskResult): string {
-  if (!result.history?.length) return "No task history.";
-  return result.history
-    .map(
-      (event) =>
-        `${event.sequence} ${event.eventType} actor=${event.actorName ?? event.actorKind} at=${event.createdAt}`,
-    )
-    .join("\n");
+  const task = result.tasks[0]!;
+  const events = result.history?.length
+    ? result.history
+        .map(
+          (event) =>
+            `seq=${event.seq} time=${event.createdAt} actor=${historyActor(event)} type=${event.eventType}\n  ${JSON.stringify(event.payload)}`,
+        )
+        .join("\n")
+    : "No recorded events.";
+  return `## Task #${task.number} history — revision ${task.revision}\n\n${task.title}\n\n${events}`;
 }
 
 function reviewerIsolationFromEnvironment(): boolean {

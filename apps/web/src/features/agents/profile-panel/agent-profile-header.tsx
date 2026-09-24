@@ -6,13 +6,13 @@ import {
   XClose as X,
 } from "@untitledui/icons";
 
-import { ButtonUtility } from "@/components/base/buttons/button-utility";
-import { AgentActivityAvatar } from "@/features/agents/agent-activity-avatar";
-import { agentDisplay } from "@/features/agents/agent-activity-presentation";
-import type { AgentRuntimeControls } from "@/features/agents/agent-runtime-controls";
-import { useAgentRecentActivity } from "@/features/agents/workspace-agents-realtime";
-import { m } from "@/paraglide/messages";
-import { localizeHref } from "@/paraglide/runtime";
+import { ButtonUtility } from "#src/components/base/buttons/button-utility";
+import { AgentActivityAvatar } from "#src/features/agents/agent-activity-avatar";
+import { agentDisplay } from "#src/features/agents/agent-activity-presentation";
+import type { AgentRuntimeControls } from "#src/features/agents/agent-runtime-controls";
+import { useAgentRecentActivity } from "#src/features/agents/workspace-agents-realtime";
+import { m } from "#src/paraglide/messages";
+import { localizeHref } from "#src/paraglide/runtime";
 import type { AgentDisplaySnapshot } from "@lrm/coforge-sdk/internal";
 
 /**
@@ -46,7 +46,7 @@ export function AgentProfileHeader({
   return (
     // Same 20px gutter as the panel body (px-5): the bordered utility buttons align by box edge,
     // while the borderless Close pulls -mr-1.5 so its glyph lands on the gutter
-    // (docs/design.md §8 optical alignment).
+    // (docs/design/page-skeleton-and-density.md §8 optical alignment).
     <header className="flex h-12 shrink-0 items-center gap-2 border-b border-secondary px-5 py-0">
       <AgentActivityAvatar
         agent={agent}
@@ -61,7 +61,7 @@ export function AgentProfileHeader({
         {/* What the Agent is doing, under its name — the line a direct message's header already
             shows, from the same `agentDisplay` the avatar's label reads, so the two cannot
             disagree. Nothing is shown when there is no live display: a deleted Agent has no
-            status to report (ADR 0044) and "Status unknown" is not news. */}
+            status to report and "Status unknown" is not news. */}
         {display && (
           <p role="status" className="truncate text-xs text-tertiary">
             {statusLabel}

@@ -1,10 +1,10 @@
 import { useRef, useState } from "react";
 import { Minus, Plus } from "@untitledui/icons";
 
-import { Button } from "@/components/base/buttons/button";
-import { ButtonUtility } from "@/components/base/buttons/button-utility";
-import { m } from "@/paraglide/messages";
-import { cn } from "@/lib/utils";
+import { Button } from "#src/components/base/buttons/button";
+import { ButtonUtility } from "#src/components/base/buttons/button-utility";
+import { m } from "#src/paraglide/messages";
+import { cn } from "#src/lib/utils";
 import {
   parseLevel2Blocks,
   serializeLevel2Blocks,

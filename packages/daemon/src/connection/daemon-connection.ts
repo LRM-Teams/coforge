@@ -58,6 +58,7 @@ import {
   decodeAgentStartIntent,
   decodeAgentStopIntent,
   decodeAgentActivityProbe,
+  decodeAgentInboxPurge,
   decodeAgentSkillsListRequest,
   encodeAgentSkillsListResult,
   AGENT_SKILLS_LIST_RESULT_METHOD,
@@ -111,6 +112,7 @@ import {
   type AgentStartIntent,
   type AgentStopIntent,
   type AgentActivityProbe,
+  type AgentInboxPurge,
   type AgentMessageDelivery,
   type AgentMessageDeliveryAck,
   type AgentMessageRequest,
@@ -136,10 +138,10 @@ import {
   type ChannelCommand,
   type ChannelOperation,
 } from "@lrm/coforge-sdk/internal";
-import { isAgentApiKey } from "../credentials/agent-api-key";
-import type { AgentRuntimeProviderConfig } from "../code-agent/contract";
-import type { AgentLaunchIdentity } from "../code-agent/agent-instructions";
-import { diagnosticErrorCode } from "../platform/diagnostic-error-code";
+import { isAgentApiKey } from "#src/credentials/agent-api-key";
+import type { AgentRuntimeProviderConfig } from "#src/code-agent/contract";
+import type { AgentLaunchIdentity } from "#src/code-agent/agent-instructions";
+import { diagnosticErrorCode } from "#src/platform/diagnostic-error-code";
 import { AgentWeeklyReportRequestError } from "./agent-weekly-report-request-error";
 import { controlPayloadShape } from "./control-payload";
 import { connectionLiveness, INBOUND_STALLED_MS } from "./connection-liveness";
@@ -483,6 +485,7 @@ export interface DaemonConnectionClient {
   onAgentStart?(callback: (intent: AgentStartIntent) => void): () => void;
   onAgentStop?(callback: (intent: AgentStopIntent) => void): () => void;
   onAgentActivityProbe?(callback: (probe: AgentActivityProbe) => void): () => void;
+  onAgentInboxPurge?(callback: (purge: AgentInboxPurge) => void): () => void;
   onAgentMessage?(callback: (message: AgentMessageDelivery) => void): () => void;
   onReminderSync?(callback: (sync: ReminderSync) => void): () => void;
   requestSnapshot?(request: ReminderSnapshotRequest): Promise<ReminderSync>;
@@ -497,7 +500,7 @@ export interface DaemonConnectionClient {
   /** Fire-and-forget: never blocks or fails a launch. Buffered latest-per-agent while
    * disconnected and flushed on reconnect, like `sendAgentActivity`. */
   sendSessionInvalidate?(message: AgentSessionInvalidate): void;
-  /** Fire-and-forget: never blocks or fails a turn (ADR 0050). Buffered latest-per-agent while
+  /** Fire-and-forget: never blocks or fails a turn. Buffered latest-per-agent while
    * disconnected and flushed on reconnect, like `sendSessionInvalidate`. */
   sendAgentContextUsage?(message: AgentContextUsage): void;
   sendAgentDeliveryAck?(ack: AgentMessageDeliveryAck): Promise<void>;
@@ -646,10 +649,20 @@ async function readAgentResponseText(response: Response, what: string): Promise<
 /** Throws when the response is a non-2xx: a safe validation message, or a typed transport error. */
 async function assertAgentResponseOk(response: Response, what: string): Promise<void> {
   if (response.ok) return;
-  throw AgentMessageRequestError.fromRpc(
-    response.status,
-    await readAgentResponseText(response, what),
-  );
+  const body = await readAgentResponseText(response, what);
+  // Temporary diagnostics: HTTP 5xx bodies are otherwise discarded by fromRpc, which leaves only
+  // SERVER_5XX at the Agent. Log a bounded snippet so the web exception can be recovered locally.
+  // Field name must not be `body` — LogTape's JSON sink redacts that key, which hid every prior probe.
+  if (response.status >= 500) {
+    logger.error("Upstream agent HTTP 5xx body", {
+      event: "agent.http.upstream_5xx_body",
+      what,
+      status: response.status,
+      upstream_body_length: body.length,
+      upstream_body_snippet: body.length > 0 ? body.slice(0, 2000) : "<empty>",
+    });
+  }
+  throw AgentMessageRequestError.fromRpc(response.status, body);
 }
 
 /**
@@ -705,7 +718,7 @@ async function getAgentJson<Result>(
 
 /**
  * GETs an Agent Manual route, whose JSON error body is always `{ ok: false, errorCode, error }`
- * (Raft-aligned; see ADR 0036), unlike the plain-text/allowlisted `messages` error contract
+ * (Raft-aligned), unlike the plain-text/allowlisted `messages` error contract
  * `getAgentJson` assumes. A well-formed error body becomes a typed `AgentManualRequestError`
  * carrying its `errorCode` through to the CLI; anything else is a genuine transport failure.
  */
@@ -1293,6 +1306,7 @@ export class DaemonConnection implements DaemonConnectionClient {
   readonly #agentStart = new ListenerSlot<(intent: AgentStartIntent) => void>();
   readonly #agentStop = new ListenerSlot<(intent: AgentStopIntent) => void>();
   readonly #agentActivityProbe = new ListenerSlot<(probe: AgentActivityProbe) => void>();
+  readonly #agentInboxPurge = new ListenerSlot<(purge: AgentInboxPurge) => void>();
   readonly #agentWorkspaceReset = new ListenerSlot<(request: AgentWorkspaceResetRequest) => void>();
   readonly #agentMessage = new ListenerSlot<(message: AgentMessageDelivery) => void>();
   readonly #reminderSync = new ListenerSlot<(sync: ReminderSync) => void>();
@@ -1336,7 +1350,7 @@ export class DaemonConnection implements DaemonConnectionClient {
    * been logged; suppresses repeats for the rest of this connection's lifetime (fix for a log
    * line that used to repeat on every rejected attempt). */
   #loggedUnknownSessionInvalidateMethod = false;
-  /** Latest-per-agent, like `#pendingSessionInvalidate` (ADR 0050). No launch-observation drop
+  /** Latest-per-agent, like `#pendingSessionInvalidate`. No launch-observation drop
    * rule here: the server's own launch-fence gate already rejects a stale one, and a context
    * reading is superseded by the next one anyway. */
   readonly #pendingContextUsage = new Map<string, AgentContextUsage>();
@@ -1344,7 +1358,7 @@ export class DaemonConnection implements DaemonConnectionClient {
    * `#loggedUnknownSessionInvalidateMethod`, for `agent:context:usage`. */
   #loggedUnknownContextUsageMethod = false;
   /** Same one-per-connection-lifetime log suppression as
-   * `#loggedUnknownSessionInvalidateMethod`, for `agent:context_scan_result` (ADR 0051). */
+   * `#loggedUnknownSessionInvalidateMethod`, for `agent:context_scan_result`. */
   #loggedUnknownContextScanResultMethod = false;
   readonly #latestStatuses = new Map<string, AgentStatus>();
   readonly #restartRequestIds = new Set<string>();
@@ -1458,6 +1472,10 @@ export class DaemonConnection implements DaemonConnectionClient {
     return this.#agentActivityProbe.set(callback);
   }
 
+  onAgentInboxPurge(callback: (purge: AgentInboxPurge) => void): () => void {
+    return this.#agentInboxPurge.set(callback);
+  }
+
   onAgentMessage(callback: (message: AgentMessageDelivery) => void): () => void {
     return this.#agentMessage.set(callback);
   }
@@ -1536,7 +1554,7 @@ export class DaemonConnection implements DaemonConnectionClient {
     this.#publishSessionInvalidate(this.#client, message);
   }
 
-  /** Fire-and-forget; never awaited by a caller and never fails a turn (ADR 0050). */
+  /** Fire-and-forget; never awaited by a caller and never fails a turn. */
   sendAgentContextUsage(message: AgentContextUsage): void {
     if (!this.#connected || !this.#client) {
       this.#pendingContextUsage.set(message.agentId, message);
@@ -2175,7 +2193,7 @@ export class DaemonConnection implements DaemonConnectionClient {
   }
 
   /**
-   * The direct-upload session routes (ADR 0028) are plain JSON, unlike the multipart upload
+   * The direct-upload session routes are plain JSON, unlike the multipart upload
    * above; each simply forwards its body (if any) to the matching cloud route with the same
    * Agent-scoped headers `agentAttachment`/`agentAttachmentUpload` already add.
    */
@@ -2412,6 +2430,11 @@ export class DaemonConnection implements DaemonConnectionClient {
       this.#route(data, decodeAgentActivityProbe, (probe) => {
         if (probe.protocolMajor !== 1 || !ownsDaemon(probe)) return false;
         this.#deliver(this.#agentActivityProbe, probe);
+        return true;
+      }) ||
+      this.#route(data, decodeAgentInboxPurge, (purge) => {
+        if (purge.protocolMajor !== 1 || !ownsDaemon(purge)) return false;
+        this.#deliver(this.#agentInboxPurge, purge);
         return true;
       });
     if (handled) return;
@@ -2740,6 +2763,7 @@ export class DaemonConnection implements DaemonConnectionClient {
       this.#agentStart,
       this.#agentStop,
       this.#agentActivityProbe,
+      this.#agentInboxPurge,
       this.#agentWorkspaceReset,
       this.#agentMessage,
       this.#reminderSync,

@@ -1,10 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { updateAgentInputFromForm } from "../src/features/agents/agent-form";
+import { updateAgentInputFromForm } from "#src/features/agents/agent-form";
 import {
   changeAgentVisibilityInputSchema,
   createAgentInputSchema,
   updateAgentInputSchema,
-} from "../src/features/agents/agent.schemas";
+} from "#src/features/agents/agent.schemas";
 
 const validInput = {
   name: "release-helper",

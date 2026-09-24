@@ -1,9 +1,13 @@
-import type { PrismaClient } from "../../../../generated/client";
-import { ACTIVE_AGENT_WHERE } from "../../agents/active-agent.server";
-import type { AgentDeletionOutcome, AgentDeletionStore } from "../../agents/agent-deletion.server";
+import type { PrismaClient } from "#src/generated/prisma/client";
+import { ACTIVE_AGENT_WHERE } from "#src/server/agents/active-agent.server";
+import { ACTIVE_CHANNEL_MEMBER_WHERE } from "#src/server/conversations/active-member.server";
+import type {
+  AgentDeletionOutcome,
+  AgentDeletionStore,
+} from "#src/server/agents/agent-deletion.server";
 
 /**
- * One transaction makes a deleted Agent inert cloud-side (ADR 0044): the Agent is marked
+ * One transaction makes a deleted Agent inert cloud-side: the Agent is marked
  * `deletedAt`, its Agent API keys are revoked, its public-channel memberships are soft-left
  * (which is what stops delivery and wake, since both read `ACTIVE_MEMBER_WHERE`), and its
  * scheduled Reminders are canceled. Messages, Tasks and Action cards are deliberately left
@@ -35,6 +39,14 @@ export class PrismaAgentDeletionStore implements AgentDeletionStore {
       // Already deleted: leave the original `deletedAt` and the first delete's effects alone.
       if (deleted.count === 0) return { outcome: "already-deleted" as const };
 
+      const activeChannels = await tx.conversationMember.findMany({
+        where: {
+          workspaceId: input.workspaceId,
+          agentId: input.agentId,
+          ...ACTIVE_CHANNEL_MEMBER_WHERE,
+        },
+        select: { conversationId: true },
+      });
       const membershipsLeft = await tx.conversationMember.updateMany({
         where: { workspaceId: input.workspaceId, agentId: input.agentId, leftAt: null },
         data: { leftAt: input.deletedAt },
@@ -54,6 +66,7 @@ export class PrismaAgentDeletionStore implements AgentDeletionStore {
       return {
         outcome: "deleted" as const,
         membershipsLeft: membershipsLeft.count,
+        leftChannelIds: activeChannels.map((row) => row.conversationId),
         remindersCanceled: remindersCanceled.count,
         apiKeysRevoked: apiKeysRevoked.count,
       };

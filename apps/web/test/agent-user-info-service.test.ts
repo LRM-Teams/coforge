@@ -1,7 +1,7 @@
 import { afterAll, expect, mock, test } from "bun:test";
 
 const displaySnapshots = new Map<string, string>();
-mock.module("../src/server/agents/agent-display.server", () => ({
+mock.module("#src/server/agents/agent-display.server", () => ({
   getAgentDisplay: () => ({
     snapshot: async (scope: { workspaceId: string; computerId: string; agentId: string }) => {
       const activityKind = displaySnapshots.get(scope.agentId);
@@ -22,7 +22,7 @@ mock.module("../src/server/agents/agent-display.server", () => ({
   }),
 }));
 
-const { resolveAgentUserInfo } = await import("../src/server/agents/agent-user-info.server");
+const { resolveAgentUserInfo } = await import("#src/server/agents/agent-user-info.server");
 
 afterAll(() => {
   mock.restore();
@@ -51,7 +51,7 @@ const AGENT_SCOUT = {
   computer: { name: "mac-1", displayName: "Alice's Mac" },
 };
 
-/** The calling Agent's own identity (ADR 0059's `agentVisibilityViewerForActor` lookup), distinct
+/** The calling Agent's own identity (the `agentVisibilityViewerForActor` lookup), distinct
  * from `AGENT_SCOUT`'s owner so a private target is invisible to the default caller unless a test
  * explicitly says otherwise via `overrides.callerAgent`. */
 const CALLER_IDENTITY = { ownerId: "user-caller-owner", role: "member" };
@@ -76,7 +76,7 @@ function baseDb(overrides: { agent?: unknown; membership?: unknown; callerAgent?
       }) => {
         // A `name`-keyed lookup resolves the requested target; an `id`-keyed lookup (no `name`)
         // is `agentVisibilityViewerForActor` resolving the CALLING Agent's own ownerId/role
-        // (ADR 0059) — two different queries this same fake table answers.
+        // — two different queries this same fake table answers.
         if (where.name === undefined) return overrides.callerAgent ?? CALLER_IDENTITY;
         if (overrides.agent !== undefined) return overrides.agent;
         return where.name === "scout" && where.workspaceId === WORKSPACE_ID ? AGENT_SCOUT : null;
@@ -250,7 +250,7 @@ test("user info: memberships never include a channel the caller cannot see", asy
   expect(outcome.body.memberships.some((m) => m.channel === "#secret")).toBe(false);
 });
 
-test("user info: a private Agent the caller cannot see answers agent_not_visible, not its details (ADR 0059)", async () => {
+test("user info: a private Agent the caller cannot see answers agent_not_visible, not its details", async () => {
   const ghost = {
     ...AGENT_SCOUT,
     id: "agent-ghost",

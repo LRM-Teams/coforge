@@ -5,7 +5,7 @@ import {
   buildRuntimeReconnectingActivity,
   scrubRuntimeErrorText,
   fingerprintRuntimeError,
-} from "../src/agent-runtime/runtime-error-activity";
+} from "#src/agent-runtime/runtime-error-activity";
 
 test("builds a runtime_error activity from the provider's message as reported, with an Error: entry and structured fields", () => {
   const long = "x".repeat(600);

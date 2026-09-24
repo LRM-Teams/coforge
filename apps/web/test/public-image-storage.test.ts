@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 
-import { FileStorageConfigError } from "../src/server/files/file-storage.server";
-import { readPublicImageStorageConfig } from "../src/server/files/public-image-storage.server";
+import { FileStorageConfigError } from "#src/server/files/file-storage.server";
+import { readPublicImageStorageConfig } from "#src/server/files/public-image-storage.server";
 
 const ossEnv = {
   COFORGE_FILE_STORAGE: "oss",

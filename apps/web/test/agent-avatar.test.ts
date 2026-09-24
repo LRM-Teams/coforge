@@ -1,8 +1,8 @@
 import { expect, test } from "bun:test";
 
-import { AppError } from "../src/lib/app-error";
-import { AgentAvatars } from "../src/server/agents/agent-avatar.server";
-import type { FileStorage } from "../src/server/files/file-storage.server";
+import { AppError } from "#src/lib/app-error";
+import { AgentAvatars } from "#src/server/agents/agent-avatar.server";
+import type { FileStorage } from "#src/server/files/file-storage.server";
 
 const png = (byte: number) =>
   new File([new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10, byte])], "avatar.png", {

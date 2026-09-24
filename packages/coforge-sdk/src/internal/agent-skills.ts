@@ -3,7 +3,7 @@ import { create, fromBinary, toBinary } from "@bufbuild/protobuf";
 import {
   AgentSkillsListRequestSchema,
   AgentSkillsListResultSchema,
-} from "./gen/coforge/rpc/v1/agent_skills_pb";
+} from "#src/internal/gen/coforge/rpc/v1/agent_skills_pb";
 import { parseRuntimeProvider, type RuntimeProvider } from "./index";
 
 export const AGENT_SKILLS_LIST_METHOD = RPC_METHODS.agentSkillsList;

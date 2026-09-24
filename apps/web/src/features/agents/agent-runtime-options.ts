@@ -1,7 +1,10 @@
 import { useCallback } from "react";
 import { useServerFn } from "@tanstack/react-start";
 
-import { getComputerRuntimeCatalog, listComputers } from "@/features/computers/computers.functions";
+import {
+  getComputerRuntimeCatalog,
+  listComputers,
+} from "#src/features/computers/computers.functions";
 import type { RuntimeOptions } from "./agent-runtime-fields";
 
 /**

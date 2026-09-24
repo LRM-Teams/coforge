@@ -2,9 +2,9 @@ import type { ReactNode } from "react";
 import { Heading, Text } from "react-aria-components";
 import { XClose as X } from "@untitledui/icons";
 
-import { ButtonUtility } from "@/components/base/buttons/button-utility";
-import { cn } from "@/lib/utils";
-import { m } from "@/paraglide/messages";
+import { ButtonUtility } from "#src/components/base/buttons/button-utility";
+import { cn } from "#src/lib/utils";
+import { m } from "#src/paraglide/messages";
 
 /** Title row of a form dialog: heading, optional description, optional close control. */
 export function DialogHeader({

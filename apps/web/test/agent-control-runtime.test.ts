@@ -6,15 +6,15 @@ import {
   AgentControl,
   type AgentControlAgent,
   type AgentControlStore,
-} from "../src/server/agents/agent-control.server";
-import { AgentSessionReceiver } from "../src/server/agents/agent-session.server";
+} from "#src/server/agents/agent-control.server";
+import { AgentSessionReceiver } from "#src/server/agents/agent-session.server";
 import {
   AgentSessions,
   type RuntimeSessionReference,
-} from "../src/server/agents/agent-sessions.server";
-import { DaemonRuntime } from "../../../packages/daemon/src/daemon-runtime/runtime";
-import { InMemoryDaemonCredentialStore } from "../../../packages/daemon/src/credentials/credential-store";
-import { AgentSessionRecoveryError } from "../../../packages/daemon/src/code-agent/contract";
+} from "#src/server/agents/agent-sessions.server";
+import { DaemonRuntime } from "@lrm/coforge-daemon";
+import { InMemoryDaemonCredentialStore } from "@lrm/coforge-daemon";
+import { AgentSessionRecoveryError } from "@lrm/coforge-daemon/src/code-agent/contract";
 import {
   decodeAgentStartIntent,
   decodeAgentStopIntent,
@@ -22,7 +22,7 @@ import {
   type AgentSessionReport,
   type AgentStartIntent,
 } from "@lrm/coforge-sdk/internal";
-import type { AgentSessionOptions } from "../../../packages/agent/src/contract";
+import type { AgentSessionOptions } from "@coforge/agent";
 
 test("cloud and daemon preserve Restart identity, reset sessions, fence Full Reset replay and report recovery", async () => {
   // macOS resolves os.tmpdir() through the /var -> /private/var symlink, which the
@@ -236,7 +236,7 @@ test("cloud and daemon preserve Restart identity, reset sessions, fence Full Res
   }
 });
 
-test("a Start that meets an already-running process rebinds it: one process, prepare/verify/accept intact, wake delivered (ADR 0041)", async () => {
+test("a Start that meets an already-running process rebinds it: one process, prepare/verify/accept intact, wake delivered", async () => {
   // macOS resolves os.tmpdir() through the /var -> /private/var symlink, which the
   // store's symlinked-ancestor guard rightly rejects; anchor the fixture on the real path.
   const root = await mkdtemp(join(await realpath(tmpdir()), "control-rebind-"));
@@ -270,7 +270,7 @@ test("a Start that meets an already-running process rebinds it: one process, pre
     },
   };
   // The real `AgentSessions` (`agent-sessions.server.ts`) `prepare`/`verify`/`accept` seam, not
-  // just `AgentSessionReceiver` — this is what proves ADR 0041's `prepare()` fix (rule 6): the
+  // just `AgentSessionReceiver` — this is what proves the `prepare()` fix: the
   // server-supplied launchId is carried into `RuntimeSessionReference` ahead of the Daemon's own
   // report, so a rebind's later Session report is accepted by exact launchId match.
   let sessionRef: RuntimeSessionReference | null = null;
@@ -333,7 +333,7 @@ test("a Start that meets an already-running process rebinds it: one process, pre
     { timeoutMs: 5_000, fallbackMs: 200 },
     sessions,
     undefined,
-    // ADR 0038's recovery-context seam: a user-initiated Start's wake message.
+    // The recovery-context seam: a user-initiated Start's wake message.
     {
       async readAgentRecoveryContext() {
         return {

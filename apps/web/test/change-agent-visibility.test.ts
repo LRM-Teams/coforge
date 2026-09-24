@@ -3,11 +3,25 @@ import { describe, expect, test } from "bun:test";
 import {
   ChangeAgentVisibility,
   type ChangeAgentVisibilityStore,
-} from "../src/server/agents/change-agent-visibility.server";
+} from "#src/server/agents/change-agent-visibility.server";
 import type {
   AgentRecord,
   AgentRepository,
-} from "../src/server/db/repositories/agent.repositories.server";
+} from "#src/server/db/repositories/agent.repositories.server";
+import type { AgentInboxPurgeRequest } from "#src/server/agents/agent-inbox-purge.server";
+
+/** Records inbox purges; the real publisher never rejects, so neither does this one. */
+function recordingInboxPurge() {
+  const purged: AgentInboxPurgeRequest[] = [];
+  return {
+    purged,
+    inboxPurge: {
+      purge: async (request: AgentInboxPurgeRequest) => {
+        purged.push(request);
+      },
+    },
+  };
+}
 
 function agent(overrides: Partial<AgentRecord> = {}): AgentRecord {
   return {
@@ -43,25 +57,45 @@ function repositoryFor(record: AgentRecord | undefined): AgentRepository {
   };
 }
 
-function fixture(options?: { record?: AgentRecord; changed?: boolean }) {
+function fixture(options?: {
+  record?: AgentRecord;
+  changed?: boolean;
+  leftChannelIds?: string[];
+  joinedChannelIds?: string[];
+  announceFails?: boolean;
+}) {
   const record = options?.record ?? agent();
   const applied: Parameters<ChangeAgentVisibilityStore["apply"]>[0][] = [];
   const notified: Array<{ workspaceId: string; agentId: string }> = [];
+  const announced: Array<{ workspaceId: string; conversationIds: readonly string[] }> = [];
   const store: ChangeAgentVisibilityStore = {
     apply: async (input) => {
       applied.push(input);
-      return { changed: options?.changed ?? true };
+      const changed = options?.changed ?? true;
+      return {
+        changed,
+        leftChannelIds: changed ? (options?.leftChannelIds ?? []) : [],
+        joinedChannelIds: changed ? (options?.joinedChannelIds ?? []) : [],
+      };
     },
     preview: async () => ({ channelNames: ["general"], readOnlyDirectMessageCount: 1 }),
   };
+  const { purged, inboxPurge } = recordingInboxPurge();
   const useCase = new ChangeAgentVisibility(
     repositoryFor(record),
     store,
     async (workspaceId, agentId) => {
       notified.push({ workspaceId, agentId });
     },
+    inboxPurge,
+    {
+      memberChanged: async (input) => {
+        if (options?.announceFails) throw new Error("realtime unavailable");
+        announced.push(input);
+      },
+    },
   );
-  return { useCase, applied, notified, record };
+  return { useCase, applied, notified, announced, purged, record };
 }
 
 describe("ChangeAgentVisibility", () => {
@@ -76,6 +110,60 @@ describe("ChangeAgentVisibility", () => {
       { agentId: "agent-1", workspaceId: "workspace-1", visibility: "private" },
     ]);
     expect(notified).toEqual([{ workspaceId: "workspace-1", agentId: "agent-1" }]);
+  });
+
+  test("going private tells each channel the Agent left that its member list changed", async () => {
+    const { useCase, announced } = fixture({ leftChannelIds: ["channel-1", "channel-2"] });
+    await useCase.execute(
+      { userId: "user-1", workspaceId: "workspace-1", role: "member" },
+      { agentId: "agent-1", visibility: "private" },
+    );
+    expect(announced).toEqual([
+      { workspaceId: "workspace-1", conversationIds: ["channel-1", "channel-2"] },
+    ]);
+  });
+
+  test("going private tells the Agent's daemon to drop every channel it left, in one purge", async () => {
+    const { useCase, purged } = fixture({ leftChannelIds: ["channel-1", "channel-2"] });
+    await useCase.execute(
+      { userId: "user-1", workspaceId: "workspace-1", role: "member" },
+      { agentId: "agent-1", visibility: "private" },
+    );
+    expect(purged).toEqual([
+      {
+        workspaceId: "workspace-1",
+        agentId: "agent-1",
+        conversationIds: ["channel-1", "channel-2"],
+        reason: "visibility_private",
+      },
+    ]);
+  });
+
+  test("going public or setting the same visibility again purges nothing", async () => {
+    const madePublic = fixture({
+      record: agent({ visibility: "private" }),
+      joinedChannelIds: ["general"],
+    });
+    await madePublic.useCase.execute(
+      { userId: "user-1", workspaceId: "workspace-1", role: "member" },
+      { agentId: "agent-1", visibility: "public" },
+    );
+    const unchanged = fixture({ changed: false });
+    await unchanged.useCase.execute(
+      { userId: "user-1", workspaceId: "workspace-1", role: "member" },
+      { agentId: "agent-1", visibility: "private" },
+    );
+    expect([...madePublic.purged, ...unchanged.purged]).toEqual([]);
+  });
+
+  test("a member-list signal that cannot be sent never fails the visibility change", async () => {
+    const { useCase } = fixture({ leftChannelIds: ["channel-1"], announceFails: true });
+    expect(
+      await useCase.execute(
+        { userId: "user-1", workspaceId: "workspace-1", role: "member" },
+        { agentId: "agent-1", visibility: "private" },
+      ),
+    ).toEqual({ visibility: "private", changed: true });
   });
 
   test("a Workspace admin may change visibility for an Agent owned by someone else", async () => {
@@ -148,12 +236,13 @@ describe("ChangeAgentVisibility", () => {
     const useCase = new ChangeAgentVisibility(
       repositoryFor(record),
       {
-        apply: async () => ({ changed: true }),
+        apply: async () => ({ changed: true, leftChannelIds: [], joinedChannelIds: [] }),
         preview: async () => ({ channelNames: [], readOnlyDirectMessageCount: 0 }),
       },
       async () => {
         throw new Error("realtime unavailable");
       },
+      recordingInboxPurge().inboxPurge,
     );
     const result = await useCase.execute(
       { userId: "user-1", workspaceId: "workspace-1", role: "member" },

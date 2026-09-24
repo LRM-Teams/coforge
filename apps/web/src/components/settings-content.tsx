@@ -1,10 +1,11 @@
-import { useSubmitGuard } from "@/hooks/use-submit-guard";
+import { useSubmitGuard } from "#src/hooks/use-submit-guard";
 import { useEffect, useRef, useState, type ChangeEvent } from "react";
 import {
   BellRinging01 as BellRing,
   Check,
   ChevronLeft,
   Clock as Clock3,
+  Hash01,
   Translate01 as Languages,
   LayoutLeft,
   MessageSquare01 as MessagesSquare,
@@ -19,30 +20,30 @@ import {
   Users01 as Users,
 } from "@untitledui/icons";
 
-import { PageHeader } from "@/components/layout/page-header";
-import { Avatar } from "@/components/base/avatar/avatar";
-import { Button } from "@/components/base/buttons/button";
-import { ButtonUtility } from "@/components/base/buttons/button-utility";
-import { Input } from "@/components/base/input/input";
-import { TextArea } from "@/components/base/textarea/textarea";
-import { Skeleton } from "@/components/ui/skeleton";
-import { ComboBox } from "@/components/base/select/combobox";
-import { Select } from "@/components/base/select/select";
-import { SelectItem } from "@/components/base/select/select-item";
-import { Toggle } from "@/components/base/toggle/toggle";
-import { ButtonGroup, ButtonGroupItem } from "@/components/base/button-group/button-group";
-import { WorkspaceMembersPanel } from "@/features/workspaces/workspace-members-panel";
-import { GitHubSettings } from "@/features/integrations/github-settings";
-import { TEXT_SIZE_OPTIONS, type TextSizeValue } from "@/features/settings/text-size";
+import { PageHeader } from "#src/components/layout/page-header";
+import { Avatar } from "#src/components/base/avatar/avatar";
+import { Button } from "#src/components/base/buttons/button";
+import { ButtonUtility } from "#src/components/base/buttons/button-utility";
+import { Input } from "#src/components/base/input/input";
+import { TextArea } from "#src/components/base/textarea/textarea";
+import { Skeleton } from "#src/components/ui/skeleton";
+import { Select } from "#src/components/base/select/select";
+import { SelectItem } from "#src/components/base/select/select-item";
+import { Toggle } from "#src/components/base/toggle/toggle";
+import { Checkbox } from "#src/components/base/checkbox/checkbox";
+import { ButtonGroup, ButtonGroupItem } from "#src/components/base/button-group/button-group";
+import { WorkspaceMembersPanel } from "#src/features/workspaces/workspace-members-panel";
+import { GitHubSettings } from "#src/features/integrations/github-settings";
+import { TEXT_SIZE_OPTIONS, type TextSizeValue } from "#src/features/settings/text-size";
 import {
   isConversationOpenMode,
   type ConversationOpenMode,
-} from "@/features/settings/conversation-open-mode";
-import { avatarInitial, avatarToneClassName } from "@/lib/avatar-tone";
-import { isTimeFormat, localeTimeFormat, type TimeFormat } from "@/lib/time-format";
-import { cn } from "@/lib/utils";
-import { isAppError } from "@/lib/app-error";
-import { m } from "@/paraglide/messages";
+} from "#src/features/settings/conversation-open-mode";
+import { avatarInitial, avatarToneClassName } from "#src/lib/avatar-tone";
+import { isTimeFormat, localeTimeFormat, type TimeFormat } from "#src/lib/time-format";
+import { cn } from "#src/lib/utils";
+import { isAppError } from "#src/lib/app-error";
+import { m } from "#src/paraglide/messages";
 
 type Locale = "en" | "zh-CN";
 type Theme = "system" | "light" | "dark";
@@ -50,6 +51,7 @@ type SettingsSection =
   | "account"
   | "language-region"
   | "members"
+  | "system-channels"
   | "preferences"
   | "notifications"
   | "integrations";
@@ -94,6 +96,7 @@ interface SettingsContentProps {
   railLabels: boolean;
   liveAgentActivity: boolean;
   textSize: TextSizeValue;
+  messageFullWidth: boolean;
   timeZone: string | null;
   timeFormat: TimeFormat | null;
   browserNotificationsEnabled: boolean;
@@ -106,6 +109,7 @@ interface SettingsContentProps {
   onLocaleChange: (locale: Locale) => void;
   onThemeChange: (theme: Theme) => void;
   onRailLabelsChange: (show: boolean) => void;
+  onMessageFullWidthChange: (full: boolean) => void;
   onLiveAgentActivityChange: (show: boolean) => void;
   onTextSizeChange: (size: TextSizeValue) => void;
   onDateTimeSave: (input: {
@@ -117,6 +121,10 @@ interface SettingsContentProps {
   onBrowserNotificationsChange: (enabled: boolean) => Promise<void>;
   onEnableBrowserNotifications: () => Promise<void>;
   onTestBrowserNotification: () => Promise<boolean>;
+  /** Whether #general is hidden from the Workspace; `null` unless the viewer is an owner or admin,
+   * who alone get Settings → System channels. */
+  generalChannelHidden: boolean | null;
+  onGeneralChannelHiddenSave: (hidden: boolean) => Promise<void>;
 }
 
 export function SettingsPending() {
@@ -189,12 +197,16 @@ export function SettingsPending() {
 
 export function SettingsContent(props: SettingsContentProps) {
   const [internalSection, setInternalSection] = useState<SettingsSection>("account");
-  const section = props.section ?? internalSection;
+  const requested = props.section ?? internalSection;
+  // System channels exists only for a Workspace owner or admin; anyone else asking gets Account.
+  const section =
+    requested === "system-channels" && props.generalChannelHidden === null ? "account" : requested;
   const [showList, setShowList] = useState(props.section !== "integrations");
   const sectionLabels: Record<SettingsSection, string> = {
     account: m.settings_account(),
     "language-region": m.settings_language_region(),
     members: m.settings_members(),
+    "system-channels": m.settings_system_channels(),
     preferences: m.settings_preferences(),
     notifications: m.settings_notifications(),
     integrations: m.settings_integrations(),
@@ -257,6 +269,15 @@ export function SettingsContent(props: SettingsContentProps) {
               label={m.settings_members()}
               onClick={() => selectSection("members")}
             />
+            {/* Workspace-wide channel settings: present only for a Workspace owner or admin. */}
+            {props.generalChannelHidden !== null && (
+              <SettingsNavigationButton
+                active={section === "system-channels"}
+                icon={Hash01}
+                label={m.settings_system_channels()}
+                onClick={() => selectSection("system-channels")}
+              />
+            )}
           </SettingsNavigationGroup>
         </div>
       </nav>
@@ -293,6 +314,11 @@ export function SettingsContent(props: SettingsContentProps) {
                 members={props.members.members}
                 pendingInvitations={props.members.pendingInvitations}
                 incomingInvitations={props.members.incomingInvitations}
+              />
+            ) : section === "system-channels" && props.generalChannelHidden !== null ? (
+              <SystemChannelsSettings
+                hidden={props.generalChannelHidden}
+                onSave={props.onGeneralChannelHiddenSave}
               />
             ) : section === "preferences" ? (
               <Preferences {...props} />
@@ -372,7 +398,7 @@ function AccountSettings({
   const [saving, guard] = useSubmitGuard();
   const [pendingAvatar, setPendingAvatar] = useState<File | null>(null);
   const [removeAvatar, setRemoveAvatar] = useState(false);
-  const [saveError, setSaveError] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<SaveError | null>(null);
   const [saveSuccess, setSaveSuccess] = useState(false);
   // Show the just-picked image immediately, before it is uploaded on Save. Without this the
   // preview keeps showing the saved `profile.avatarUrl` until a save round-trips, which reads as
@@ -438,11 +464,7 @@ function AccountSettings({
           : avatarChanged
             ? m.settings_avatar_save_error()
             : m.settings_profile_save_error();
-        const reference =
-          isAppError(cause) && cause.errorId
-            ? ` ${m.error_reference({ errorId: cause.errorId })}`
-            : "";
-        setSaveError(`${message}${reference}`);
+        setSaveError(saveErrorFrom(message, cause));
       }
     });
   }
@@ -560,9 +582,9 @@ function AccountSettings({
 
             <footer className="flex flex-wrap items-center justify-end gap-3 border-t border-secondary py-4">
               {saveError && (
-                <p role="alert" className="mr-auto text-sm text-error-primary">
-                  {saveError}
-                </p>
+                <div className="mr-auto">
+                  <SaveErrorMessage error={saveError} />
+                </div>
               )}
               <Button type="button" color="secondary" isDisabled={saving} onPress={cancelEditing}>
                 {m.settings_profile_cancel()}
@@ -639,6 +661,8 @@ function Preferences({
   onLiveAgentActivityChange,
   textSize,
   onTextSizeChange,
+  messageFullWidth,
+  onMessageFullWidthChange,
   conversationOpenMode,
   onConversationOpenModeChange,
 }: SettingsContentProps) {
@@ -767,6 +791,21 @@ function Preferences({
             </Select>
           </SettingsField>
         </SettingsCard>
+        <SettingsCard>
+          <SettingsField
+            inline
+            label={m.preferences_message_full_width()}
+            description={m.preferences_message_full_width_description()}
+            note={savedOnDevice}
+          >
+            <Toggle
+              size="md"
+              aria-label={m.preferences_message_full_width()}
+              isSelected={messageFullWidth}
+              onChange={onMessageFullWidthChange}
+            />
+          </SettingsField>
+        </SettingsCard>
       </SettingsGroup>
     </SettingsPage>
   );
@@ -786,7 +825,7 @@ function LanguageRegionSettings({
   const [draftTimeZone, setDraftTimeZone] = useState(timeZone ?? "");
   const [draftTimeFormat, setDraftTimeFormat] = useState<TimeFormat>(effectiveTimeFormat);
   const [saving, guard] = useSubmitGuard();
-  const [saveError, setSaveError] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<SaveError | null>(null);
 
   useEffect(() => {
     setDraftTimeZone(timeZone ?? "");
@@ -807,11 +846,7 @@ function LanguageRegionSettings({
             timeFormat === null && draftTimeFormat === effectiveTimeFormat ? null : draftTimeFormat,
         });
       } catch (cause) {
-        const reference =
-          isAppError(cause) && cause.errorId
-            ? ` ${m.error_reference({ errorId: cause.errorId })}`
-            : "";
-        setSaveError(`${m.settings_save_error()}${reference}`);
+        setSaveError(saveErrorFrom(m.settings_save_error(), cause));
       }
     });
   }
@@ -855,19 +890,17 @@ function LanguageRegionSettings({
             label={m.preferences_time_zone()}
             description={m.language_region_time_zone_description()}
           >
-            <ComboBox
+            <Select
               aria-label={m.preferences_time_zone()}
               className="max-w-sm"
-              placeholder={m.preferences_time_zone_search_placeholder()}
-              shortcut={false}
               items={timeZoneOptions}
-              selectedKey={draftTimeZone || "system"}
-              onSelectionChange={(key) => {
+              value={draftTimeZone || "system"}
+              onChange={(key) => {
                 if (key !== null) setDraftTimeZone(key === "system" ? "" : String(key));
               }}
             >
               {(option) => <SelectItem id={option.id} label={option.label} />}
-            </ComboBox>
+            </Select>
           </SettingsField>
           <SettingsField
             label={m.language_region_time_format()}
@@ -983,18 +1016,87 @@ function SettingsCardFooter({
   error,
   children,
 }: {
-  error?: string | null;
+  error?: SaveError | null;
   children: React.ReactNode;
 }) {
   return (
     <div className="flex flex-col items-start gap-2">
       {children}
-      {error && (
-        <p role="alert" className="text-sm text-error-primary">
-          {error}
-        </p>
+      {error && <SaveErrorMessage error={error} />}
+    </div>
+  );
+}
+
+type SaveError = { message: string; errorId?: string };
+
+function saveErrorFrom(message: string, cause: unknown): SaveError {
+  return { message, errorId: isAppError(cause) ? cause.errorId : undefined };
+}
+
+// The failure sentence stays red; its error reference sits on its own grey line below it.
+function SaveErrorMessage({ error }: { error: SaveError }) {
+  return (
+    <div className="flex flex-col gap-1">
+      <p role="alert" className="text-sm text-error-primary">
+        {error.message}
+      </p>
+      {error.errorId && (
+        <p className="text-xs text-tertiary">{m.error_reference({ errorId: error.errorId })}</p>
       )}
     </div>
+  );
+}
+
+/** Settings → System channels: hiding #general from the whole Workspace, the only way back once
+ * it is hidden. A checkbox and Save, so hiding it for everyone is a deliberate step. */
+function SystemChannelsSettings({
+  hidden,
+  onSave,
+}: {
+  hidden: boolean;
+  onSave: (hidden: boolean) => Promise<void>;
+}) {
+  const [draft, setDraft] = useState(hidden);
+  const [saving, guard] = useSubmitGuard();
+  const [saveError, setSaveError] = useState<SaveError | null>(null);
+  useEffect(() => setDraft(hidden), [hidden]);
+
+  function save() {
+    void guard(async () => {
+      setSaveError(null);
+      try {
+        await onSave(draft);
+      } catch (cause) {
+        setSaveError(saveErrorFrom(m.settings_save_error(), cause));
+      }
+    });
+  }
+
+  return (
+    <SettingsPage>
+      <SettingsGroup icon={Hash01} label={m.settings_system_channels()}>
+        <SettingsCard>
+          <SettingsField
+            inline
+            label={m.settings_system_channels_hide_general()}
+            description={m.settings_system_channels_hide_general_description()}
+          >
+            <Checkbox
+              size="md"
+              aria-label={m.settings_system_channels_hide_general()}
+              isSelected={draft}
+              isDisabled={saving}
+              onChange={setDraft}
+            />
+          </SettingsField>
+          <SettingsCardFooter error={saveError}>
+            <Button type="button" size="sm" isDisabled={saving || draft === hidden} onPress={save}>
+              {saving ? m.settings_group_saving() : m.settings_group_save()}
+            </Button>
+          </SettingsCardFooter>
+        </SettingsCard>
+      </SettingsGroup>
+    </SettingsPage>
   );
 }
 

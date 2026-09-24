@@ -1,21 +1,18 @@
 import { describe, expect, test } from "bun:test";
 import { decodeAgentStartIntent } from "@lrm/coforge-sdk/internal";
 
-import { ManageAgents } from "../src/server/agents/manage-agents.server";
-import { AgentControl } from "../src/server/agents/agent-control.server";
-import { AgentEnvironment } from "../src/server/agents/agent-environment.server";
-import { ChangeAgentRuntimeCredential } from "../src/server/agents/change-agent-runtime-credential.server";
-import type {
-  AgentControlAgent,
-  AgentControlStore,
-} from "../src/server/agents/agent-control.server";
+import { ManageAgents } from "#src/server/agents/manage-agents.server";
+import { AgentControl } from "#src/server/agents/agent-control.server";
+import { AgentEnvironment } from "#src/server/agents/agent-environment.server";
+import { ChangeAgentRuntimeCredential } from "#src/server/agents/change-agent-runtime-credential.server";
+import type { AgentControlAgent, AgentControlStore } from "#src/server/agents/agent-control.server";
 import type {
   AgentRecord,
   AgentRepository,
-} from "../src/server/db/repositories/agent.repositories.server";
+} from "#src/server/db/repositories/agent.repositories.server";
 
 /**
- * ADR 0044: deleting an Agent is durable. The review of the first implementation found that only
+ * Deleting an Agent is durable. The review of the first implementation found that only
  * `AgentControl.execute()` refused a deleted Agent, so the Agent's own owner could still restart it
  * by editing its runtime configuration. These tests pin the invariant at the seam every start
  * funnels through.
@@ -90,7 +87,7 @@ const startIntent = {
   reasoning: "",
 };
 
-describe("a deleted Agent is never started again (ADR 0044)", () => {
+describe("a deleted Agent is never started again", () => {
   test("publishStart refuses a deleted Agent and publishes nothing", async () => {
     const { instance, published } = control(controlAgent(new Date("2026-09-18T04:00:00Z")));
     await expect(instance.publishStart(startIntent, "user-1")).rejects.toMatchObject({
@@ -229,7 +226,7 @@ function environmentFixture(deletedAt: Date | null) {
   return { environment, events };
 }
 
-describe("the remaining deleted-Agent mutations (ADR 0044)", () => {
+describe("the remaining deleted-Agent mutations", () => {
   test("a live Agent's runtime credential can still be changed (control)", async () => {
     const { credentialChange, events } = credentialFixture(null);
     await credentialChange.save({ userId: "user-1", workspaceId: "workspace-1" }, "agent-1", "k");

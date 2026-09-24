@@ -3,7 +3,7 @@ import {
   type WeeklyReportCommand,
   type WeeklyReportRequest,
 } from "@lrm/coforge-sdk/internal";
-import { isAppError } from "../../lib/app-error";
+import { isAppError } from "#src/lib/app-error";
 
 /** The agent HTTP API's own shape: the shared weekly-report command and response call this key
  * `requestId` (it also crosses the local RPC and its protobuf), while the wire names it

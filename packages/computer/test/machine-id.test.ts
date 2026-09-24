@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 
-import { resolveMachineId } from "../src/machine-id";
+import { resolveMachineId } from "#src/machine-id";
 
 test("macOS machine id comes from IOPlatformUUID", async () => {
   await expect(

@@ -6,19 +6,20 @@ import {
   MenuItem as AriaMenuItem,
 } from "react-aria-components";
 
-import { Dialog, Modal, ModalOverlay } from "@/components/application/modals/modal";
-import { Button } from "@/components/base/buttons/button";
-import { Dropdown } from "@/components/base/dropdown/dropdown";
-import { useAppToast } from "@/components/ui/toast";
-import { isAppError } from "@/lib/app-error";
-import { m } from "@/paraglide/messages";
+import { Dialog, Modal, ModalOverlay } from "#src/components/application/modals/modal";
+import { Button } from "#src/components/base/buttons/button";
+import { Dropdown } from "#src/components/base/dropdown/dropdown";
+import { Input } from "#src/components/base/input/input";
+import { useAppToast } from "#src/components/ui/toast";
+import { isAppError } from "#src/lib/app-error";
+import { m } from "#src/paraglide/messages";
 import {
   isReservedWorkspaceSlug,
   isValidWorkspaceSlug,
   nameToWorkspaceSlug,
-} from "@/server/workspaces/workspace-slug";
-import { cx } from "@/utils/cx";
-import { DialogHeader } from "@/components/application/modals/dialog-header";
+} from "#src/features/workspaces/workspace-slug";
+import { cx } from "#src/utils/cx";
+import { DialogHeader } from "#src/components/application/modals/dialog-header";
 
 export type WorkspaceOption = { id: string; slug: string; name: string };
 
@@ -43,8 +44,8 @@ export function WorkspaceSwitcher({
   async function select(slug: string) {
     try {
       await onSelect?.(slug);
-    } catch (error) {
-      toast.error(m.workspace_select_error(), error);
+    } catch {
+      toast.error(m.workspace_select_error());
     }
   }
 
@@ -214,37 +215,29 @@ function CreateWorkspaceDialog({
               onClose={close}
             />
             <div className="grid gap-4 px-6 py-6">
-              <label htmlFor="workspace-create-name" className="grid gap-1.5 text-sm">
-                {m.workspace_name_label()}
-                <input
-                  id="workspace-create-name"
-                  name="name"
-                  required
-                  value={name}
-                  placeholder={m.workspace_name_placeholder()}
-                  onChange={(event) => {
-                    const value = event.target.value;
-                    setName(value);
-                    if (!slugTouched.current) setSlug(nameToWorkspaceSlug(value));
-                  }}
-                  className="h-9 rounded-md border border-secondary bg-primary px-3 outline-none focus:ring-2 focus:ring-brand/30"
-                />
-              </label>
-              <label htmlFor="workspace-create-slug" className="grid gap-1.5 text-sm">
-                {m.workspace_slug_label()}
-                <input
-                  id="workspace-create-slug"
-                  name="slug"
-                  required
-                  value={slug}
-                  placeholder={m.workspace_slug_placeholder()}
-                  onChange={(event) => {
-                    slugTouched.current = true;
-                    setSlug(event.target.value);
-                  }}
-                  className="h-9 rounded-md border border-secondary bg-primary px-3 outline-none focus:ring-2 focus:ring-brand/30"
-                />
-              </label>
+              <Input
+                label={m.workspace_name_label()}
+                name="name"
+                isRequired
+                value={name}
+                placeholder={m.workspace_name_placeholder()}
+                onChange={(value) => {
+                  setName(value);
+                  if (!slugTouched.current) setSlug(nameToWorkspaceSlug(value));
+                }}
+              />
+              <Input
+                label={m.workspace_slug_label()}
+                name="slug"
+                isRequired
+                value={slug}
+                placeholder={m.workspace_slug_placeholder()}
+                isInvalid={Boolean(slugError)}
+                onChange={(value) => {
+                  slugTouched.current = true;
+                  setSlug(value);
+                }}
+              />
               {(slugError || error) && (
                 <p role="alert" className="text-sm text-error-primary">
                   {error || slugError}

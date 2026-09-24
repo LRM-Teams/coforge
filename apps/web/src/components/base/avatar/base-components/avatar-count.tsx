@@ -1,4 +1,4 @@
-import { cx } from "@/utils/cx";
+import { cx } from "#src/utils/cx";
 
 interface AvatarCountProps {
     count: number;

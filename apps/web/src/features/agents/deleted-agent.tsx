@@ -1,8 +1,8 @@
-import { Badge } from "@/components/base/badges/badges";
-import { m } from "@/paraglide/messages";
+import { Badge } from "#src/components/base/badges/badges";
+import { m } from "#src/paraglide/messages";
 
 /**
- * ADR 0044: the single place that renders a deleted Agent's identity treatment. A deleted Agent
+ * The single place that renders a deleted Agent's identity treatment. A deleted Agent
  * keeps its history, so it can still appear in message rows, the thread root, the thread reply
  * preview and the DM header; all of those share this module so the grey avatar and the `DELETED`
  * badge cannot drift apart between surfaces.

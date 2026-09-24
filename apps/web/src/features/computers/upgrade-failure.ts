@@ -1,5 +1,5 @@
-import { m } from "@/paraglide/messages";
-import { isAppError } from "@/lib/app-error";
+import { m } from "#src/paraglide/messages";
+import { isAppError } from "#src/lib/app-error";
 import {
   UPGRADE_ERROR_CODE,
   parseUpgradeErrorCode,
@@ -206,7 +206,7 @@ export function describeComputerUpgradeFailure(
 }
 
 /**
- * The one-line toast confirmation for a completed upgrade. Per docs/design.md §13, the
+ * The one-line toast confirmation for a completed upgrade. Per docs/design/toast-vs-inline.md §13, the
  * version itself belongs to the meta line (the caller re-fetches once the status is completed);
  * this is only the courtesy that the action the user took just succeeded, never a second,
  * inline echo of the same event.

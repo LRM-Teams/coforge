@@ -15,8 +15,8 @@ import {
   frameLocalRpc,
   LOCAL_RPC_METHODS,
   readLocalRpcFrames,
-} from "../../packages/coforge-sdk";
-import { RedisComputerStatusCache } from "../../apps/web/src/server/centrifugo/computer-status.server";
+} from "@lrm/coforge-sdk";
+import { RedisComputerStatusCache } from "@coforge/web/src/server/centrifugo/computer-status.server";
 
 const root = resolve(import.meta.dir, "../..");
 const serverUrl = Bun.env.COFORGE_E2E_WEB_URL;

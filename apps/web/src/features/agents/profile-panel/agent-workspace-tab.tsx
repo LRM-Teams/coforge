@@ -22,16 +22,17 @@ import type {
   AgentWorkspaceFilesListResult,
 } from "@lrm/coforge-sdk/internal";
 
-import { Button } from "@/components/base/buttons/button";
-import { ButtonUtility } from "@/components/base/buttons/button-utility";
-import { useResizeObserver } from "@/hooks/use-resize-observer";
-import { copyText } from "@/features/records/report-editor/lib/clipboard";
-import { ProjectFileView, ProjectFileViewSkeleton } from "@/features/projects/project-file-view";
-import { Attachment } from "@/features/records/report-editor/attachment";
+import { Button } from "#src/components/base/buttons/button";
+import { ButtonUtility } from "#src/components/base/buttons/button-utility";
+import { useResizeObserver } from "#src/hooks/use-resize-observer";
+import { copyText } from "#src/features/records/report-editor/lib/clipboard";
+import { ProjectFileView, ProjectFileViewSkeleton } from "#src/features/projects/project-file-view";
+import { Attachment } from "#src/features/records/report-editor/attachment";
 import { workspaceImageSource } from "./agent-workspace-image";
-import { m } from "@/paraglide/messages";
-import { cn } from "@/lib/utils";
+import { m } from "#src/paraglide/messages";
+import { cn } from "#src/lib/utils";
 import { SECTION_CAPTION_CLASS } from "./inline-edit-field";
+import { PanelMessage } from "./panel-message";
 
 /** The container width, in CSS px, at and above which the tree and the open file split
  * side-by-side (the wide Members-page pane). Below it, the file replaces the tree and a
@@ -103,7 +104,7 @@ function joinPath(dirPath: string, name: string): string {
 /**
  * The Agent profile panel's Workspace tab: a lazy directory tree of the Agent's working directory
  * on its Computer, plus a read-only file viewer. Owner-only (gated by the caller via
- * `resolveAgentProfileTab`/`showWorkspaceTab`), matching the same publish/poll/timeout data shape
+ * `visibleAgentProfileTabs`), matching the same publish/poll/timeout data shape
  * as Skills, but with two operations (list, read) instead of one.
  */
 export function AgentWorkspaceTab({
@@ -384,12 +385,12 @@ function TreeRoot({
       </div>
     );
   }
-  if (state.status === "offline") return <TreeMessage text={m.agent_workspace_offline()} />;
+  if (state.status === "offline") return <PanelMessage text={m.agent_workspace_offline()} />;
   if (state.status === "timeout")
-    return <TreeMessage text={m.agent_workspace_timeout()} onRetry={onRetry} />;
+    return <PanelMessage text={m.agent_workspace_timeout()} onRetry={onRetry} />;
   if (state.status !== "ready")
-    return <TreeMessage text={m.agent_workspace_unavailable()} onRetry={onRetry} />;
-  if (state.entries.length === 0) return <TreeMessage text={m.agent_workspace_empty()} />;
+    return <PanelMessage text={m.agent_workspace_unavailable()} onRetry={onRetry} />;
+  if (state.entries.length === 0) return <PanelMessage text={m.agent_workspace_empty()} />;
 
   return (
     <WorkspaceTree
@@ -565,19 +566,6 @@ function WorkspaceTree({
     >
       {renderRow}
     </Tree>
-  );
-}
-
-function TreeMessage({ text, onRetry }: { text: string; onRetry?: () => void }) {
-  return (
-    <div className="flex flex-col items-center gap-3 px-4 py-10 text-center">
-      <p className="text-sm text-tertiary">{text}</p>
-      {onRetry && (
-        <Button size="sm" color="secondary" onPress={onRetry}>
-          {m.agent_workspace_retry()}
-        </Button>
-      )}
-    </div>
   );
 }
 

@@ -6,7 +6,7 @@ import {
   buildInitialMemoryMd,
   memoryIndexReminder,
   seedAgentMemory,
-} from "../src/agent-runtime/agent-memory-seed";
+} from "#src/agent-runtime/agent-memory-seed";
 
 test("buildInitialMemoryMd renders the displayName, role, and first-startup context", () => {
   const content = buildInitialMemoryMd({

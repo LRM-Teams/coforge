@@ -7,8 +7,8 @@ import {
   discoverExternalCodeAgents,
   loadCachedCodeAgentCatalogs,
   type ExternalCodeAgentProbe,
-} from "../src/code-agent/runtime-inventory";
-import { fileStatCacheKey, writeInventoryCache } from "../src/code-agent/runtime-inventory-cache";
+} from "#src/code-agent/runtime-inventory";
+import { fileStatCacheKey, writeInventoryCache } from "#src/code-agent/runtime-inventory-cache";
 
 const OPENCODE_FIXTURE = new URL("./fixtures/opencode-fixture.ts", import.meta.url).pathname;
 
@@ -67,7 +67,7 @@ describe("Code Agent probe cache", () => {
     }
   });
 
-  test("re-validates a cached Kiro runtime and drops it when below the ADR 0010 baseline", async () => {
+  test("re-validates a cached Kiro runtime and drops it when below the compatibility baseline", async () => {
     const stateDirectory = await mkdtemp(join(tmpdir(), "coforge-probe-cache-state-"));
     const binDirectory = await mkdtemp(join(tmpdir(), "coforge-probe-cache-bin-"));
     const kiroPath = join(binDirectory, "kiro-cli");

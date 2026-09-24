@@ -1,9 +1,9 @@
 import { formatValidationError, isValidationError } from "@lrm/coforge-sdk/internal";
-import { isAppError } from "@/lib/app-error";
-import { AgentMessageValidationError } from "../conversations/agent-message-validation-error.server";
-import { MessageRequestInProgressError } from "../conversations/message-request-idempotency.server";
-import { ComputerRegistrationError } from "../computers/registration.server";
-import { WorkspaceQueryError } from "../workspaces/query.server";
+import { isAppError } from "#src/lib/app-error";
+import { AgentMessageValidationError } from "#src/server/conversations/agent-message-validation-error.server";
+import { MessageRequestInProgressError } from "#src/server/conversations/message-request-idempotency.server";
+import { ComputerRegistrationError } from "#src/server/computers/registration.server";
+import { WorkspaceQueryError } from "#src/server/workspaces/query.server";
 
 export type HandledRequestError = { code: number; message: string };
 export class RequestAuthenticationError extends Error {}
@@ -29,11 +29,14 @@ export function handleRequestError(error: unknown): HandledRequestError {
       COMPUTER_IDENTITY_UNKNOWN: 409,
       RELEASE_FEED_UNAVAILABLE: 503,
       AGENT_CONTEXT_UNAVAILABLE: 404,
-      // A private Agent the viewer cannot see (ADR 0059): 404 status, no Agent details.
+      // A private Agent the viewer cannot see: 404 status, no Agent details.
       AGENT_NOT_VISIBLE: 404,
-      // A private Agent's direct conversation is scoped to its creator (ADR 0059): the caller can
+      // A private Agent's direct conversation is scoped to its creator: the caller can
       // see the Agent but its DM stays read-only for them, so this is a 403, not a 404.
       AGENT_DM_RESTRICTED: 403,
+      // The server could not reach this browser's push service: the caller should
+      // retry another way, not treat it as a permanent failure.
+      PUSH_SERVICE_UNREACHABLE: 503,
     }[error.code];
     return { code, message: error.message };
   }

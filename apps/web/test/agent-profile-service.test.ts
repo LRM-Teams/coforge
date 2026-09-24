@@ -1,7 +1,7 @@
 import { afterAll, expect, mock, test } from "bun:test";
 
 const displaySnapshots = new Map<string, string>();
-mock.module("../src/server/agents/agent-display.server", () => ({
+mock.module("#src/server/agents/agent-display.server", () => ({
   getAgentDisplay: () => ({
     snapshot: async (scope: { workspaceId: string; computerId: string; agentId: string }) => {
       const activityKind = displaySnapshots.get(scope.agentId);
@@ -23,7 +23,7 @@ mock.module("../src/server/agents/agent-display.server", () => ({
 }));
 
 const { createdAgentsFor, resolveAgentProfileShow, resolveAgentProfileUpdate } =
-  await import("../src/server/agents/agent-profile.server");
+  await import("#src/server/agents/agent-profile.server");
 
 afterAll(() => {
   mock.restore();
@@ -78,7 +78,7 @@ function baseDb(
       }) => {
         // A `name`-keyed lookup resolves the requested target; an `id`-keyed lookup (no `name`)
         // is `agentVisibilityViewerForActor` resolving the calling Agent's own ownerId/role
-        // (ADR 0059) — here the caller always is `scout` itself.
+        // — here the caller always is `scout` itself.
         if (where.name === undefined) return { ownerId: AGENT_SCOUT.ownerId, role: "member" };
         if (!agentRecord) return null;
         return where.name === (agentRecord as { name: string }).name ? agentRecord : null;
@@ -222,7 +222,7 @@ test("profile update: never accepts a name/Username field (the request type has 
   expect(updateData).not.toHaveProperty("name");
 });
 
-test("profile show: a private target Agent invisible to the caller answers agent_not_visible (ADR 0059)", async () => {
+test("profile show: a private target Agent invisible to the caller answers agent_not_visible", async () => {
   const ghost = {
     ...AGENT_SCOUT,
     name: "ghost",
@@ -243,7 +243,7 @@ test("profile show: a private target Agent invisible to the caller answers agent
   });
 });
 
-test("createdAgentsFor: hides a private Agent from a viewer who is not its creator (ADR 0059)", async () => {
+test("createdAgentsFor: hides a private Agent from a viewer who is not its creator", async () => {
   let query: unknown;
   const otherUsersPrivateAgent = { ...AGENT_SCOUT, visibility: "private" };
   const db = {

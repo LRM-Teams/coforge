@@ -3,13 +3,9 @@ import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { realpathSync } from "node:fs";
 import { join } from "node:path";
-import { DaemonRuntime, type WorkspaceConfig } from "../src/daemon-runtime/runtime";
-import type {
-  AgentRuntimeConfig,
-  AgentRuntimeEvent,
-  AgentSession,
-} from "../src/code-agent/contract";
-import { InMemoryDaemonCredentialStore } from "../src/credentials/credential-store";
+import { DaemonRuntime, type WorkspaceConfig } from "#src/daemon-runtime/runtime";
+import type { AgentRuntimeConfig, AgentRuntimeEvent, AgentSession } from "#src/code-agent/contract";
+import { InMemoryDaemonCredentialStore } from "#src/credentials/credential-store";
 import type { AgentActivity, AgentActivityDetailKind } from "@lrm/coforge-sdk/internal";
 
 // macOS tmpdir lives under /var, a symlink; the state store rejects linked ancestors.
@@ -459,7 +455,7 @@ test("stopping the Agent's launch clears its compaction watchdog without leaking
   }
 });
 
-// ADR 0021: tool_end/thinking_end/compaction_finished are busy-but-filler,
+// tool_end/thinking_end/compaction_finished are busy-but-filler,
 // exactly like runtime_progress — they re-arm the heartbeat.
 for (const detailKind of ["tool_end", "thinking_end", "compaction_finished"] as const) {
   test(`${detailKind} is busy-but-filler: it re-arms the heartbeat`, async () => {

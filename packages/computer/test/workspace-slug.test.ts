@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 
-import { isValidComputerWorkspaceSlug } from "../src/workspace/workspace-slug";
+import { isValidComputerWorkspaceSlug } from "#src/workspace/workspace-slug";
 
 test("accepts lowercase letters, digits, and single hyphens between segments", () => {
   expect(isValidComputerWorkspaceSlug("acme")).toBe(true);

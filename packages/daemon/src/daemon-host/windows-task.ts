@@ -1,6 +1,5 @@
 import { LocalDaemonLauncher, type LocalDaemonLauncherOptions } from "./launcher";
 import type { DaemonLauncher, DaemonWorkspaceConfig } from "./launcher";
-import { randomUUID } from "node:crypto";
 import { unlink } from "node:fs/promises";
 import { homedir, tmpdir, userInfo } from "node:os";
 import { join } from "node:path";
@@ -187,7 +186,7 @@ export class WindowsUserDaemonHost implements DaemonLauncher {
   }
 
   async #installAndRun(): Promise<boolean> {
-    const xmlPath = join(tmpdir(), `coforge-daemon-task-${randomUUID()}.xml`);
+    const xmlPath = join(tmpdir(), `coforge-daemon-task-${crypto.randomUUID()}.xml`);
     try {
       await this.#writeTaskXml(xmlPath, this.#xml);
       const created = await this.#run([

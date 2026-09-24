@@ -1,20 +1,20 @@
 import { expect, test } from "bun:test";
-import { handleAgentChannelsPost } from "../src/routes/api/agent/v1/channels";
+import { handleAgentChannelsPost } from "#src/routes/api/agent/v1/channels";
 import {
   handleAgentChannelGet,
   handleAgentChannelPatch,
-} from "../src/routes/api/agent/v1/channels_.$channel";
+} from "#src/routes/api/agent/v1/channels_.$channel";
 import {
   handleAgentChannelMembersDelete,
   handleAgentChannelMembersGet,
   handleAgentChannelMembersPost,
-} from "../src/routes/api/agent/v1/channels_.$channel.members";
-import { handleAgentChannelJoinPost } from "../src/routes/api/agent/v1/channels_.$channel.join";
-import { handleAgentChannelLeavePost } from "../src/routes/api/agent/v1/channels_.$channel.leave";
-import { handleAgentChannelArchivePost } from "../src/routes/api/agent/v1/channels_.$channel.archive";
-import { handleAgentChannelUnarchivePost } from "../src/routes/api/agent/v1/channels_.$channel.unarchive";
-import { AgentChannelManagementError } from "../src/server/conversations/agent-channel-management-error.server";
-import type { AgentChannelManagementRepository } from "../src/server/conversations/agent-channel-management.server";
+} from "#src/routes/api/agent/v1/channels_.$channel.members";
+import { handleAgentChannelJoinPost } from "#src/routes/api/agent/v1/channels_.$channel.join";
+import { handleAgentChannelLeavePost } from "#src/routes/api/agent/v1/channels_.$channel.leave";
+import { handleAgentChannelArchivePost } from "#src/routes/api/agent/v1/channels_.$channel.archive";
+import { handleAgentChannelUnarchivePost } from "#src/routes/api/agent/v1/channels_.$channel.unarchive";
+import { AgentChannelManagementError } from "#src/server/conversations/agent-channel-management-error.server";
+import type { AgentChannelManagementRepository } from "#src/server/conversations/agent-channel-management.server";
 
 const principal = { workspaceId: "workspace-1", agentId: "agent-1" };
 const get = (path: string) => new Request(`https://server.example${path}`);
@@ -305,7 +305,7 @@ test("POST /channels/:channel/members maps an unknown handle to its declared 404
   expect(await result.text()).toBe("member not found: @nobody");
 });
 
-test("POST /channels/:channel/members maps an errorCode-carrying failure to a JSON envelope (ADR 0059)", async () => {
+test("POST /channels/:channel/members maps an errorCode-carrying failure to a JSON envelope", async () => {
   const result = await handleAgentChannelMembersPost(
     post("/api/agent/v1/channels/%23eng/members", { agent: "@ghost" }),
     "#eng",

@@ -26,6 +26,10 @@
     "@alicloud/credentials": "2.4.7",
     "@bufbuild/buf": "1.72.0",
     "@bufbuild/protoc-gen-es": "^2.14.0",
+    "@coforge/computer": "workspace:*",
+    "@coforge/web": "workspace:*",
+    "@lrm/coforge-daemon": "workspace:*",
+    "@lrm/coforge-sdk": "workspace:*",
     "@tanstack/intent": "^0.3.7",
     "@types/ali-oss": "^6.23.3",
     "ali-oss": "6.23.0"

@@ -3,9 +3,12 @@ import { describe, expect, spyOn, test } from "bun:test";
 import {
   WebPushDeliveryError,
   WebPushNotifications,
+  classifyTestDelivery,
+  messageNotificationTag,
+  type NotificationPublisher,
   type WebPushSubscriptionStore,
   type WebPushTransport,
-} from "../src/server/notifications/web-push-notifications.server";
+} from "#src/server/notifications/web-push-notifications.server";
 
 const first = {
   id: "subscription-a",
@@ -28,6 +31,7 @@ function store(input?: {
   const saved: Array<{ userId: string; endpoint: string }> = [];
   const value: WebPushSubscriptionStore = {
     notificationForMessage: async () => input?.message ?? null,
+    notificationForRecipient: async () => null,
     subscriptionsForUser: async () => input?.subscriptions ?? [],
     saveSubscription: async (userId, subscription) => {
       saved.push({ userId, endpoint: subscription.endpoint });
@@ -50,7 +54,11 @@ describe("WebPushNotifications", () => {
         title: "#general",
         body: "@helper: Build finished",
         url: "/messages/channels/channel-a#message-message-a",
-        subscriptions: [first, second],
+        workspaceId: "workspace-a",
+        recipients: [
+          { userId: "alice", subscriptions: [first] },
+          { userId: "bob", subscriptions: [second] },
+        ],
       },
     });
     const transport: WebPushTransport = {
@@ -63,7 +71,7 @@ describe("WebPushNotifications", () => {
       "message-a",
     );
 
-    expect(result).toEqual({ sent: 2, failed: 0, removed: 0 });
+    expect(result).toEqual({ sent: 2, failed: 0, removed: 0, unreachable: 0 });
     expect(sent).toEqual([
       {
         id: "subscription-a",
@@ -86,13 +94,81 @@ describe("WebPushNotifications", () => {
     ]);
   });
 
+  test("a recipient without a browser subscription is still counted a recipient", async () => {
+    const repository = store({
+      message: {
+        title: "#general",
+        body: "@helper: Build finished",
+        url: "/messages/channels/channel-a#message-message-a",
+        workspaceId: "workspace-a",
+        recipients: [{ userId: "alice", subscriptions: [] }],
+      },
+    });
+    const publisher: NotificationPublisher = {
+      notifyRecipients: async () => {},
+    };
+    const seen: Array<{ messageId: string; workspaceId: string; userIds: readonly string[] }> = [];
+    publisher.notifyRecipients = async (input) => {
+      seen.push(input);
+    };
+
+    const result = await new WebPushNotifications(
+      repository.value,
+      { send: async () => {} },
+      publisher,
+    ).notifyMessage("message-a");
+
+    expect(result).toEqual({ sent: 0, failed: 0, removed: 0, unreachable: 0 });
+    expect(seen).toEqual([
+      { messageId: "message-a", workspaceId: "workspace-a", userIds: ["alice"] },
+    ]);
+  });
+
+  test("logs a publish failure without failing message delivery", async () => {
+    const warn = spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const repository = store({
+        message: {
+          title: "#general",
+          body: "@helper: Build finished",
+          url: "/messages/channels/channel-a#message-message-a",
+          workspaceId: "workspace-a",
+          recipients: [{ userId: "alice", subscriptions: [first] }],
+        },
+      });
+      const publisher: NotificationPublisher = {
+        notifyRecipients: async () => {
+          throw new Error("centrifugo unreachable");
+        },
+      };
+      const transport: WebPushTransport = { send: async () => {} };
+
+      const result = await new WebPushNotifications(
+        repository.value,
+        transport,
+        publisher,
+      ).notifyMessage("message-a");
+
+      expect(result).toEqual({ sent: 1, failed: 0, removed: 0, unreachable: 0 });
+      const logged = warn.mock.calls.map((call) => String(call[0])).join("\n");
+      expect(logged).toContain("in_page_notification.unavailable");
+      expect(logged).toContain("message-a");
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
   test("removes expired subscriptions without failing canonical message delivery", async () => {
     const repository = store({
       message: {
         title: "@helper",
         body: "Ready",
         url: "/messages/agent-a",
-        subscriptions: [first, second],
+        workspaceId: "workspace-a",
+        recipients: [
+          { userId: "alice", subscriptions: [first] },
+          { userId: "bob", subscriptions: [second] },
+        ],
       },
     });
     const transport: WebPushTransport = {
@@ -106,8 +182,71 @@ describe("WebPushNotifications", () => {
       "message-a",
     );
 
-    expect(result).toEqual({ sent: 0, failed: 1, removed: 1, errorId: expect.any(String) });
+    expect(result).toEqual({
+      sent: 0,
+      failed: 1,
+      removed: 1,
+      unreachable: 0,
+      errorId: expect.any(String),
+    });
     expect(repository.removed).toEqual([first.id]);
+  });
+
+  test("classifies a connection failure (no status code) as push-service-unreachable", async () => {
+    const repository = store({
+      message: {
+        title: "@helper",
+        body: "Ready",
+        url: "/messages/agent-a",
+        workspaceId: "workspace-a",
+        recipients: [{ userId: "alice", subscriptions: [first] }],
+      },
+    });
+    const transport: WebPushTransport = {
+      send: async () => {
+        throw new WebPushDeliveryError(undefined);
+      },
+    };
+
+    const result = await new WebPushNotifications(repository.value, transport).notifyMessage(
+      "message-a",
+    );
+
+    expect(result).toEqual({
+      sent: 0,
+      failed: 0,
+      removed: 0,
+      unreachable: 1,
+      errorId: expect.any(String),
+    });
+  });
+
+  test("exposes the shared message notification tag format", () => {
+    expect(messageNotificationTag("message-a")).toBe("message:message-a");
+  });
+
+  describe("classifyTestDelivery", () => {
+    test("sent whenever at least one device received it", () => {
+      expect(classifyTestDelivery({ sent: 1, failed: 1, removed: 1, unreachable: 1 })).toBe("sent");
+    });
+
+    test("unreachable only when every attempted delivery failed that exact way", () => {
+      expect(classifyTestDelivery({ sent: 0, failed: 0, removed: 0, unreachable: 1 })).toBe(
+        "unreachable",
+      );
+    });
+
+    test("failed when a removed or ordinary failure is mixed in, even alongside unreachable ones", () => {
+      expect(classifyTestDelivery({ sent: 0, failed: 0, removed: 1, unreachable: 1 })).toBe(
+        "failed",
+      );
+      expect(classifyTestDelivery({ sent: 0, failed: 1, removed: 0, unreachable: 1 })).toBe(
+        "failed",
+      );
+      expect(classifyTestDelivery({ sent: 0, failed: 1, removed: 0, unreachable: 0 })).toBe(
+        "failed",
+      );
+    });
   });
 
   test("a removed subscription leaves a trace in the log", async () => {
@@ -127,12 +266,41 @@ describe("WebPushNotifications", () => {
         failed: 0,
         removed: 1,
         errorId: expect.any(String),
+        unreachable: 0,
       });
       const logged = error.mock.calls.map((call) => String(call[0])).join("\n");
       expect(logged).toContain("web_push.subscription_removed");
       expect(logged).toContain(first.id);
+      // docs/observability/structured-logging.md: an error-level event must carry `outcome=failed` (#681 review).
+      expect(logged).toContain('"outcome":"failed"');
       // Never the endpoint: it is a capability URL.
       expect(logged).not.toContain(first.endpoint);
+    } finally {
+      error.mockRestore();
+    }
+  });
+
+  test("an ordinary delivery failure logs outcome=failed with its errorId", async () => {
+    const error = spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const repository = store({ subscriptions: [first] });
+      const notifications = new WebPushNotifications(repository.value, {
+        send: async () => {
+          throw new WebPushDeliveryError(500);
+        },
+      });
+      await expect(notifications.sendTest("user-a", first.endpoint, "en")).resolves.toEqual({
+        sent: 0,
+        failed: 1,
+        removed: 0,
+        errorId: expect.any(String),
+        unreachable: 0,
+      });
+      const logged = error.mock.calls.map((call) => String(call[0])).join("\n");
+      expect(logged).toContain("web_push.delivery_failed");
+      // The stable event + correlatable errorId already satisfy the rest of the contract;
+      // this is the field #681's review asked to fold in.
+      expect(logged).toContain('"outcome":"failed"');
     } finally {
       error.mockRestore();
     }
@@ -151,6 +319,7 @@ describe("WebPushNotifications", () => {
       sent: 1,
       failed: 0,
       removed: 0,
+      unreachable: 0,
     });
     expect(payloads).toEqual([
       expect.objectContaining({

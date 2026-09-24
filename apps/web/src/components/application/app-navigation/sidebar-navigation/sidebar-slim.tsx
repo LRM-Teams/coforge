@@ -3,17 +3,17 @@ import { useState } from "react";
 import { DotsVertical, LifeBuoy01, Settings01 } from "@untitledui/icons";
 import { AnimatePresence, motion } from "motion/react";
 import { Button as AriaButton, DialogTrigger as AriaDialogTrigger, Popover as AriaPopover } from "react-aria-components";
-import { Avatar } from "@/components/base/avatar/avatar";
-import { ButtonUtility } from "@/components/base/buttons/button-utility";
-import { UntitledLogo } from "@/components/foundations/logo/untitledui-logo";
-import { UntitledLogoMinimal } from "@/components/foundations/logo/untitledui-logo-minimal";
-import { cx } from "@/utils/cx";
-import { MobileNavigationHeader } from "../base-components/mobile-header";
-import { NavAccountCard, NavAccountMenu } from "../base-components/nav-account-card";
-import { NavButton } from "../base-components/nav-button";
-import { NavItemBase } from "../base-components/nav-item";
-import { NavList } from "../base-components/nav-list";
-import type { NavItemType } from "../config";
+import { Avatar } from "#src/components/base/avatar/avatar";
+import { ButtonUtility } from "#src/components/base/buttons/button-utility";
+import { UntitledLogo } from "#src/components/foundations/logo/untitledui-logo";
+import { UntitledLogoMinimal } from "#src/components/foundations/logo/untitledui-logo-minimal";
+import { cx } from "#src/utils/cx";
+import { MobileNavigationHeader } from "#src/components/application/app-navigation/base-components/mobile-header";
+import { NavAccountCard, NavAccountMenu } from "#src/components/application/app-navigation/base-components/nav-account-card";
+import { NavButton } from "#src/components/application/app-navigation/base-components/nav-button";
+import { NavItemBase } from "#src/components/application/app-navigation/base-components/nav-item";
+import { NavList } from "#src/components/application/app-navigation/base-components/nav-list";
+import type { NavItemType } from "#src/components/application/app-navigation/config";
 
 interface SidebarNavigationSlimProps {
     /** URL of the currently active item. */

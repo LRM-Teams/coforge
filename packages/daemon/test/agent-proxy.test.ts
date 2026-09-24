@@ -1,18 +1,61 @@
+import { networkInterfaces } from "node:os";
 import { afterEach, expect, test } from "bun:test";
 import { agentApiRoutes } from "@lrm/coforge-sdk/agent";
-import { startAgentProxy } from "../src/agent-proxy";
-import { AgentMessageRequestError } from "../src/connection/agent-message-request-error";
-import { AgentTaskRequestError } from "../src/connection/agent-task-request-error";
-import { AgentPreflightError } from "../src/daemon-runtime/agent-preflight-error";
-import { AgentTransportError } from "../src/connection/agent-transport-error";
-import { AgentManualRequestError } from "../src/connection/agent-manual-request-error";
-import { AgentUserInfoRequestError } from "../src/connection/agent-user-info-request-error";
-import type { AgentProxyFailureBody } from "../src/agent-proxy-failure";
+import { startAgentProxy } from "#src/agent-proxy";
+import { AgentMessageRequestError } from "#src/connection/agent-message-request-error";
+import { AgentTaskRequestError } from "#src/connection/agent-task-request-error";
+import { AgentPreflightError } from "#src/daemon-runtime/agent-preflight-error";
+import { AgentTransportError } from "#src/connection/agent-transport-error";
+import { AgentManualRequestError } from "#src/connection/agent-manual-request-error";
+import { AgentUserInfoRequestError } from "#src/connection/agent-user-info-request-error";
+import type { AgentProxyFailureBody } from "#src/agent-proxy-failure";
 
 const proxies: Array<{ close(): void }> = [];
 
 afterEach(() => {
   for (const proxy of proxies.splice(0)) proxy.close();
+});
+
+test("the proxy is reachable on loopback only, and no other listener can take over its port", async () => {
+  const proxy = startAgentProxy({ runtime: { agentMessage: async () => ({}) } });
+  proxies.push(proxy);
+  const port = Number(new URL(proxy.url).port);
+  const reachable = (hostname: string) =>
+    Bun.connect({ hostname, port, socket: { data() {} } }).then(
+      (socket) => {
+        socket.end();
+        return true;
+      },
+      () => false,
+    );
+  const otherAddresses = Object.values(networkInterfaces())
+    .flat()
+    .flatMap((address) =>
+      address && address.family === "IPv4" && !address.internal ? [address.address] : [],
+    );
+  // On Linux all of 127.0.0.0/8 is loopback, so 127.0.0.2 reaches a wildcard bind even on a host
+  // with no other interface, and the probes are the only guard (Linux also refuses the intruder
+  // bind below either way). macOS configures only 127.0.0.1 on lo0, but there the intruder bind
+  // guards the fix.
+  if (process.platform === "linux") otherAddresses.push("127.0.0.2");
+
+  expect(await reachable("127.0.0.1")).toBe(true);
+  // Every other address is refused. A wildcard bind answers on at least one of them.
+  expect(
+    await Promise.all(otherAddresses.map(async (address) => [address, await reachable(address)])),
+  ).toEqual(otherAddresses.map((address) => [address, false]));
+
+  // A wildcard bind would also let this more specific bind succeed and receive the Agents'
+  // requests to 127.0.0.1 (macOS allows it; Linux refuses it either way).
+  let intruder: ReturnType<typeof Bun.serve> | undefined;
+  let bindError: unknown;
+  try {
+    intruder = Bun.serve({ hostname: "127.0.0.1", port, fetch: () => new Response("intruder") });
+  } catch (error) {
+    bindError = error;
+  }
+  void intruder?.stop(true);
+  expect(bindError).toMatchObject({ code: "EADDRINUSE" });
 });
 
 test("proxy classifies Agent message failures: known validation passes through, upstream HTTP status passes through", async () => {

@@ -9,7 +9,7 @@ import {
   formatUtcTimestamp,
   neutralizeReferenceLiterals,
   renderSearchPreview,
-} from "../src/message-format";
+} from "#src/message-format";
 
 function message(overrides: Partial<AgentMessageRecord> = {}): AgentMessageRecord {
   return {
@@ -83,6 +83,18 @@ test("formatMessageLine renders the shared bracket line with attachment and task
       " [task #12 status=in_progress owner=@ada]",
   );
 
+  const withDeletedOwner = message({
+    task: {
+      number: 46,
+      status: "in_progress",
+      owner: { displayName: "Kiro", handle: "kiro", deleted: true },
+    },
+  });
+  expect(formatMessageLine(withDeletedOwner)).toBe(
+    "[target=#general msg=aaaaaaaa time=2026-09-07 10:00:00Z type=human] @ada: hello there" +
+      " [task #46 status=in_progress owner=@kiro [deleted]]",
+  );
+
   const withTaskNoOwner = message({ task: { number: 3, status: "todo" } });
   expect(formatMessageLine(withTaskNoOwner)).toBe(
     "[target=#general msg=aaaaaaaa time=2026-09-07 10:00:00Z type=human] @ada: hello there" +
@@ -143,10 +155,10 @@ test("formatMessageLine renders an Agent sender with its description and a syste
     senderKind: "system",
     senderHandle: "",
     senderDescription: "",
-    body: "@scout was assigned task #12.",
+    body: '📌 Assigned @scout to task #12 "Fix the login bug"',
   });
   expect(formatMessageLine(fromSystem)).toBe(
-    "[target=#general msg=aaaaaaaa time=2026-09-07 10:00:00Z type=system] system: @scout was assigned task #12.",
+    '[target=#general msg=aaaaaaaa time=2026-09-07 10:00:00Z type=system] system: 📌 Assigned @scout to task #12 "Fix the login bug"',
   );
 });
 

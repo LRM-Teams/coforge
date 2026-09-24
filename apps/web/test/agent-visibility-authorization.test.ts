@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
-import type { Prisma, PrismaClient } from "../generated/client";
-import { isAppError } from "../src/lib/app-error";
+import type { Prisma, PrismaClient } from "#src/generated/prisma/client";
+import { isAppError } from "#src/lib/app-error";
 import {
   agentVisibilityViewerForActor,
   agentVisibilityViewerForAgent,
@@ -11,7 +11,7 @@ import {
   type AgentVisibilityViewer,
   visibleAgentWhere,
   visiblePrivateAgentWhere,
-} from "../src/server/agents/agent-visibility.server";
+} from "#src/server/agents/agent-visibility.server";
 
 const WORKSPACE_ID = "workspace-1";
 const CREATOR = "user-creator";
@@ -87,7 +87,7 @@ describe("canSeeAgent", () => {
       expected: true,
     },
     {
-      name: "an admin-role Agent (ADR 0024) sees any private Agent",
+      name: "an admin-role Agent sees any private Agent",
       viewer: adminRoleAgentViewer,
       expected: true,
     },
@@ -195,7 +195,7 @@ describe("visibleAgentWhere agrees with canSeeAgent", () => {
 });
 
 /**
- * ADR 0059 realtime gap fix: an owner/admin (or a private Agent's creator) can see private
+ * Realtime gap fix: an owner/admin (or a private Agent's creator) can see private
  * Agents beyond their own `listAgents` roster — e.g. another member's private Agent — and the
  * browser needs their ids to subscribe the matching per-Agent realtime channels. This predicate
  * must agree with `canSeeAgent` AND the routing rule every publisher already uses: anything other

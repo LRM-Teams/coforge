@@ -51,15 +51,21 @@ export function agentIdFromProfileParam(profile: string | undefined): string | u
 /** The panel offers Profile, Reminders, Activity and Workspace. Reminders and Activity are
  * manager/owner-only (brief §Permissions); Workspace has its own, narrower gate — the Agent's
  * owner only, independent of `canSeeManagerTabs` (a manager who does not own the Agent must not
- * see Workspace). A requested tab the viewer cannot see, or no request at all, resolves to
- * Profile. */
-export function resolveAgentProfileTab(
-  requested: AgentProfileTab | undefined,
+ * see Workspace). Returned in default order. */
+export function visibleAgentProfileTabs(
   canSeeManagerTabs: boolean,
   canSeeWorkspace: boolean,
+): AgentProfileTab[] {
+  return AGENT_PROFILE_TABS.filter((tab) =>
+    tab === "profile" ? true : tab === "workspace" ? canSeeWorkspace : canSeeManagerTabs,
+  );
+}
+
+/** The tab the panel shows: the requested one when the viewer can see it, otherwise the first of
+ * `tabs` — the viewer's visible tabs in their saved order. */
+export function resolveAgentProfileTab(
+  requested: AgentProfileTab | undefined,
+  tabs: readonly AgentProfileTab[],
 ): AgentProfileTab {
-  if ((requested === "activity" || requested === "reminders") && canSeeManagerTabs)
-    return requested;
-  if (requested === "workspace" && canSeeWorkspace) return requested;
-  return "profile";
+  return requested && tabs.includes(requested) ? requested : (tabs[0] ?? "profile");
 }

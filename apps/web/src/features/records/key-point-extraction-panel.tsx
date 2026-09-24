@@ -1,12 +1,12 @@
 import { RefreshCcw01 as Refresh } from "@untitledui/icons";
 import { Link } from "@tanstack/react-router";
 
-import { Button } from "@/components/base/buttons/button";
-import { cn } from "@/lib/utils";
-import { m } from "@/paraglide/messages";
-import { formatAgentProfileParam } from "@/features/agents/profile-panel/profile-panel-search";
+import { Button } from "#src/components/base/buttons/button";
+import { cn } from "#src/lib/utils";
+import { m } from "#src/paraglide/messages";
+import { formatAgentProfileParam } from "#src/features/agents/profile-panel/profile-panel-search";
 import type { KeyPointExtractionMeta } from "./records-content";
-import { ReportSectionEditor } from "./report-editor/report-section-editor";
+import { ReportSectionEditor } from "#src/features/records/report-editor/report-section-editor";
 import { RecordsReadingColumn } from "./records-reading-column";
 
 export const KEY_POINT_EXTRACTION_TAB = "✨ 要点提炼";

@@ -4,11 +4,11 @@ import {
   DaemonHandshakeResponseSchema,
   DaemonCommandRequestSchema,
   DaemonCommandResponseSchema,
-} from "./gen/coforge/rpc/v1/daemon_pb";
+} from "#src/internal/gen/coforge/rpc/v1/daemon_pb";
 import {
   DaemonRuntimeConfigureRequestSchema,
   DaemonRuntimeConfigureResponseSchema,
-} from "./gen/coforge/rpc/v1/daemon_runtime_pb";
+} from "#src/internal/gen/coforge/rpc/v1/daemon_runtime_pb";
 import {
   LocalRpcRequestSchema,
   LocalRpcResponseSchema,
@@ -22,7 +22,7 @@ import {
   UsageScanResponseSchema,
   DaemonHoldRequestSchema,
   DaemonHoldResponseSchema,
-} from "./gen/coforge/rpc/v1/local_rpc_pb";
+} from "#src/internal/gen/coforge/rpc/v1/local_rpc_pb";
 import { assertValidMessageSender, type MessageSenderKind } from "./message-sender";
 
 export const LOCAL_RPC_PROTOCOL_MAJOR = 1 as const;
@@ -265,19 +265,20 @@ export type AgentMessageRecord = {
   /** Always present, possibly empty; order matches send/upload order. */
   attachments: LocalAttachment[];
   task?: MessageTaskMetadata;
-  /** True when this message personally @mentioned the reading Agent (ADR 0061). */
+  /** True when this message personally @mentioned the reading Agent. */
   mentionsAgent?: boolean;
 };
 export type MessageTaskMetadata = {
   number: number;
   status: import("./tasks").TaskStatus;
-  owner?: { displayName: string; handle: string };
+  /** `handle` has no leading "@"; `deleted` marks an Agent deleted while still holding the Task. */
+  owner?: { displayName: string; handle: string; deleted?: boolean };
 };
 
 export function decodeMessageTask(value: {
   number: number;
   status: string;
-  owner?: { displayName: string; handle: string };
+  owner?: { displayName: string; handle: string; deleted?: boolean };
 }): MessageTaskMetadata {
   let status: MessageTaskMetadata["status"];
   switch (value.status) {
@@ -296,7 +297,11 @@ export function decodeMessageTask(value: {
     status,
     ...(value.owner
       ? {
-          owner: { displayName: value.owner.displayName, handle: value.owner.handle },
+          owner: {
+            displayName: value.owner.displayName,
+            handle: value.owner.handle,
+            ...(value.owner.deleted ? { deleted: true } : {}),
+          },
         }
       : {}),
   };
@@ -359,7 +364,7 @@ export type MessageAttentionSummary = {
   firstPendingSequence: number;
   latestSequence: number;
   latestSenderKind?: MessageSenderKind;
-  /** Public handle without a leading "@". No description on this summary (ADR 0052, decision D). */
+  /** Public handle without a leading "@". No description on this summary. */
   latestSenderHandle?: string;
   flags: string[];
 };

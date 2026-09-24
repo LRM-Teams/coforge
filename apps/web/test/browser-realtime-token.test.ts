@@ -7,7 +7,7 @@ import {
   issueAgentStatusSubscriptionTokenForAgent,
   issueConversationRealtimeToken,
   issueBrowserRealtimeToken,
-} from "../src/server/auth/browser-realtime-token.server";
+} from "#src/server/auth/browser-realtime-token.server";
 
 async function signingFixture() {
   const { privateKey, publicKey } = await generateKeyPair("EdDSA", {
@@ -70,7 +70,7 @@ test("subscription token authorizes one User for the Workspace Agent status chan
   expect(payload.channels).toBeUndefined();
 });
 
-test("subscription token authorizes one User for one private Agent's per-Agent Activity channel (ADR 0059)", async () => {
+test("subscription token authorizes one User for one private Agent's per-Agent Activity channel", async () => {
   const { environment, publicKey } = await signingFixture();
   const token = await issueAgentActivitySubscriptionTokenForAgent(
     { userId: "user-1", workspaceId: "workspace-1", agentId: "agent-1" },
@@ -86,7 +86,7 @@ test("subscription token authorizes one User for one private Agent's per-Agent A
   expect(payload.channels).toBeUndefined();
 });
 
-test("subscription token authorizes one User for one private Agent's per-Agent status channel (ADR 0059)", async () => {
+test("subscription token authorizes one User for one private Agent's per-Agent status channel", async () => {
   const { environment, publicKey } = await signingFixture();
   const token = await issueAgentStatusSubscriptionTokenForAgent(
     { userId: "user-1", workspaceId: "workspace-1", agentId: "agent-1" },

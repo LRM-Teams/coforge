@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { create, toBinary } from "@bufbuild/protobuf";
-import { AgentReminderOperationRequestSchema } from "./gen/coforge/rpc/v1/reminder_pb";
+import { AgentReminderOperationRequestSchema } from "#src/internal/gen/coforge/rpc/v1/reminder_pb";
 import {
   REMINDER_SYNC_MESSAGE_TYPE,
   decodeAgentReminderOperationRequest,

@@ -3,7 +3,7 @@ import { realpathSync } from "node:fs";
 import { mkdtemp, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { listAgentSkills } from "../src/code-agent/agent-skills";
+import { listAgentSkills } from "#src/code-agent/agent-skills";
 
 // macOS tmpdir lives under /var, a symlink; listAgentSkills rejects linked roots.
 const tempRoot = realpathSync(tmpdir());

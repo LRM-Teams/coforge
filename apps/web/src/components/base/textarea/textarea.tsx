@@ -2,9 +2,9 @@ import type { ReactNode, Ref } from "react";
 import React from "react";
 import type { TextAreaProps as AriaTextAreaProps, TextFieldProps as AriaTextFieldProps } from "react-aria-components";
 import { TextArea as AriaTextArea, TextField as AriaTextField } from "react-aria-components";
-import { HintText } from "@/components/base/input/hint-text";
-import { Label } from "@/components/base/input/label";
-import { cx } from "@/utils/cx";
+import { HintText } from "#src/components/base/input/hint-text";
+import { Label } from "#src/components/base/input/label";
+import { cx } from "#src/utils/cx";
 
 // Creates a data URL for an SVG resize handle with a given color.
 const getResizeHandleBg = (color: string) => {

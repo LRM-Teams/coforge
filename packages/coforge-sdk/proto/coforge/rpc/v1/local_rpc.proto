@@ -15,7 +15,7 @@ message LocalRpcResponse {
 message AgentMessageRecord {
   string id = 1;
   uint64 sequence = 2;
-  // Closed vocabulary: "human", "agent", "system" (ADR 0052).
+  // Closed vocabulary: "human", "agent", "system".
   string sender_kind = 3;
   // Public handle without a leading "@"; required for "human"/"agent", empty for "system".
   string sender_handle = 4;
@@ -26,7 +26,7 @@ message AgentMessageRecord {
   string created_at = 8;
   repeated LocalAttachmentMetadata attachments = 9;
   LocalMessageTaskMetadata task = 10;
-  // Present when the sender knows whether this message personally @mentioned the reading Agent (ADR 0061).
+  // Present when the sender knows whether this message personally @mentioned the reading Agent.
   optional bool mentions_agent = 11;
 }
 
@@ -46,6 +46,8 @@ message LocalMessageTaskMetadata {
 message LocalMessageTaskOwner {
   string display_name = 1;
   string handle = 2;
+  // Present and true when the owner is an Agent that was deleted while still holding the Task.
+  optional bool deleted = 3;
 }
 
 message MessageAttentionSummary {
@@ -53,7 +55,7 @@ message MessageAttentionSummary {
   uint32 pending_count = 2;
   uint64 first_pending_sequence = 3;
   uint64 latest_sequence = 4;
-  // Closed vocabulary: "human", "agent", "system" (ADR 0052). No description on this summary.
+  // Closed vocabulary: "human", "agent", "system". No description on this summary.
   optional string latest_sender_kind = 5;
   // Public handle without a leading "@".
   optional string latest_sender_handle = 6;

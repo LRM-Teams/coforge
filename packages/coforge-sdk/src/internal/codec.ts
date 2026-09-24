@@ -4,7 +4,7 @@ import { assertValidMessageSender, isValidMessageSender } from "./message-sender
 import {
   ComputerRegisterRequestSchema,
   ComputerRegisterResponseSchema,
-} from "./gen/coforge/rpc/v1/computer_pb";
+} from "#src/internal/gen/coforge/rpc/v1/computer_pb";
 import {
   RUNTIME_PROVIDER,
   AGENT_SESSION_INVALIDATE_REASONS,
@@ -21,7 +21,7 @@ import {
   WorkspaceListRequestSchema,
   WorkspaceListResponseSchema,
   ActivitySystemEntrySchema,
-} from "./gen/coforge/rpc/v1/workspace_pb";
+} from "#src/internal/gen/coforge/rpc/v1/workspace_pb";
 import {
   DaemonRuntimeCodeAgentsUpdateRequestSchema,
   DaemonRuntimeProviderModelRefreshRequestSchema,
@@ -34,7 +34,7 @@ import {
   ComputerRestartIntentSchema,
   ComputerUpgradeIntentSchema,
   ComputerUpgradeResultSchema,
-} from "./gen/coforge/rpc/v1/daemon_runtime_pb";
+} from "#src/internal/gen/coforge/rpc/v1/daemon_runtime_pb";
 import {
   AgentSessionReportSchema,
   AgentSessionInvalidateSchema,
@@ -42,11 +42,12 @@ import {
   AgentStartIntentSchema,
   AgentStopIntentSchema,
   AgentActivityProbeSchema,
+  AgentInboxPurgeSchema,
   AgentMessageDeliverySchema,
   AgentActivitySchema,
   AgentStatusSchema,
   AgentMessageDeliveryAckSchema,
-} from "./gen/coforge/rpc/v1/workspace_pb";
+} from "#src/internal/gen/coforge/rpc/v1/workspace_pb";
 import type {
   AgentSessionReport,
   AgentSessionInvalidate,
@@ -54,6 +55,7 @@ import type {
   AgentStartIntent,
   AgentStopIntent,
   AgentActivityProbe,
+  AgentInboxPurge,
   AgentRuntimeProviderConfig,
   AgentRecoveryMessage,
   AgentMessageDelivery,
@@ -66,6 +68,8 @@ import {
   AGENT_START_MESSAGE_TYPE,
   AGENT_STOP_MESSAGE_TYPE,
   AGENT_ACTIVITY_PROBE_MESSAGE_TYPE,
+  AGENT_INBOX_PURGE_MESSAGE_TYPE,
+  AGENT_INBOX_PURGE_REASONS,
   USAGE_SCAN_MESSAGE_TYPE,
   USAGE_SCAN_RESPONSE_MESSAGE_TYPE,
   MODEL_REFRESH_MESSAGE_TYPE,
@@ -678,7 +682,7 @@ function validateAgentContextUsage(value: {
 export function encodeAgentStartIntent(value: AgentStartIntent): Uint8Array {
   if (value.controlEpoch !== undefined)
     assertPositiveControlCounter(value.controlEpoch, "Agent control epoch");
-  // ADR 0041: the server mints and supplies launchId for every managed (controlEpoch-carrying)
+  // The server mints and supplies launchId for every managed (controlEpoch-carrying)
   // start; a start intent with an epoch but no launchId is an internal bug, not a wire concern.
   if (value.controlEpoch !== undefined && !value.launchId?.trim())
     throw new Error("managed Agent start intent requires a launchId");
@@ -754,7 +758,7 @@ export function decodeAgentStartIntent(bytes: Uint8Array): AgentStartIntent {
     throw new Error(`unsupported runtime provider: ${v.provider}`);
   if (v.controlEpoch !== undefined)
     assertPositiveControlCounter(v.controlEpoch, "Agent control epoch");
-  // ADR 0041: a managed start (one carrying controlEpoch) must carry the server-minted
+  // A managed start (one carrying controlEpoch) must carry the server-minted
   // launchId; a decoded intent that fails this is malformed, not merely "unmanaged."
   if (v.controlEpoch !== undefined && !v.launchId?.trim())
     throw new Error("invalid agent start intent: managed start requires a launchId");
@@ -902,6 +906,44 @@ export function decodeAgentActivityProbe(bytes: Uint8Array): AgentActivityProbe 
     computerId: value.computerId,
     agentId: value.agentId,
     probeId: value.probeId,
+  };
+}
+
+export function encodeAgentInboxPurge(value: AgentInboxPurge): Uint8Array {
+  return toBinary(
+    AgentInboxPurgeSchema,
+    create(AgentInboxPurgeSchema, {
+      ...value,
+      messageType: AGENT_INBOX_PURGE_MESSAGE_TYPE,
+    }),
+  );
+}
+
+export function decodeAgentInboxPurge(bytes: Uint8Array): AgentInboxPurge {
+  const value = fromBinary(AgentInboxPurgeSchema, bytes);
+  const reason = AGENT_INBOX_PURGE_REASONS.find((candidate) => candidate === value.reason);
+  if (
+    value.messageType !== AGENT_INBOX_PURGE_MESSAGE_TYPE ||
+    !value.requestId ||
+    !value.workspaceId ||
+    !value.computerId ||
+    !value.agentId ||
+    !value.conversationIds.length ||
+    value.conversationIds.some((id) => !id.trim()) ||
+    value.targets.length !== value.conversationIds.length ||
+    value.targets.some((target) => !target.startsWith("#") || target.length < 2) ||
+    !reason
+  )
+    throw new Error("invalid agent inbox purge");
+  return {
+    protocolMajor: value.protocolMajor,
+    requestId: value.requestId,
+    workspaceId: value.workspaceId,
+    computerId: value.computerId,
+    agentId: value.agentId,
+    conversationIds: [...value.conversationIds],
+    targets: [...value.targets],
+    reason,
   };
 }
 

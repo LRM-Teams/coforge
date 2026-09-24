@@ -1,16 +1,16 @@
 import { describe, expect, test } from "bun:test";
 import { decodeAgentMessageDelivery } from "@lrm/coforge-sdk/internal";
-import type { PrismaClient } from "../generated/client";
+import type { PrismaClient } from "#src/generated/prisma/client";
 import {
   ReadDirectMessages,
   SendDirectMessage,
-} from "../src/server/conversations/direct-message.server";
+} from "#src/server/conversations/direct-message.server";
 import type {
   MessageRequestIdempotency,
   MessageRequestScope,
-} from "../src/server/conversations/message-request-idempotency.server";
-import type { DirectConversationRepository } from "../src/server/db/repositories/direct-conversation.repositories.server";
-import { bestEffortMessageNotifier } from "../src/server/notifications/web-push-composition.server";
+} from "#src/server/conversations/message-request-idempotency.server";
+import type { DirectConversationRepository } from "#src/server/db/repositories/direct-conversation.repositories.server";
+import { bestEffortMessageNotifier } from "#src/server/notifications/web-push-composition.server";
 
 const persisted = {
   id: "message-a",
@@ -213,6 +213,41 @@ describe("SendDirectMessage", () => {
       }),
     ).resolves.toEqual(persisted);
     expect(calls).toEqual(["persist", "browser:conversation-a:message-a:1", "daemon"]);
+  });
+
+  test("signals a human message with its request id, so the sender's browser can match it", async () => {
+    const signals: unknown[] = [];
+    const repository = {
+      async getOrCreateUserAgent() {
+        return { id: "conversation-a" };
+      },
+      async sendMessage() {
+        return persisted;
+      },
+    } satisfies DirectConversationRepository;
+    const useCase = new SendDirectMessage(
+      repository,
+      new MemoryMessageRequestIdempotency(),
+      { async publish() {} },
+      {
+        async memberChanged() {},
+        async messageAvailable(input) {
+          signals.push(input);
+        },
+      },
+    );
+
+    await useCase.execute({
+      requestId: "request-a",
+      workspaceId: "workspace-a",
+      conversationId: "conversation-a",
+      senderMemberId: "member-a",
+      senderUserId: "user-a",
+      body: "Hello Agent",
+    });
+    expect(signals).toEqual([
+      expect.objectContaining({ messageId: "message-a", requestId: "request-a" }),
+    ]);
   });
 
   test.each([

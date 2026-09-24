@@ -1,4 +1,4 @@
-import { agentEnvironment } from "../environment";
+import { agentEnvironment } from "#src/code-agent/environment";
 
 /**
  * The environment every one-shot Claude Code CLI invocation (`/usage`, `/context`) runs with:

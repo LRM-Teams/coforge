@@ -1,15 +1,15 @@
-import { useEffect, useRef, useState, type ComponentProps } from "react";
+import { useEffect, useMemo, useRef, useState, type ComponentProps } from "react";
 import { ChevronDown } from "@untitledui/icons";
 
-import { Button } from "@/components/base/buttons/button";
-import { cn } from "@/lib/utils";
-import { m } from "@/paraglide/messages";
-import { replaceMentionTokens, replaceTaskReferenceTokens } from "@lrm/coforge-sdk/internal";
+import { Button } from "#src/components/base/buttons/button";
+import { cn } from "#src/lib/utils";
+import { m } from "#src/paraglide/messages";
+import {
+  COLLAPSED_MESSAGE_MAX_HEIGHT_REM,
+  overflowsCollapsedMessage,
+} from "./collapsed-message-height";
 import { MessageBody } from "./message-body";
-
-/** Collapsed height, in px: 13 lines of the body's 24px line-height. Long enough that an ordinary
- * message is never touched, short enough that one wall of text cannot take over the viewport. */
-const COLLAPSED_MAX_HEIGHT = 13 * 24;
+import { messagePlainText } from "./selection-copy";
 
 /**
  * A message body that collapses when it is very long, with a control to show the rest — Slack's
@@ -55,10 +55,17 @@ export function CollapsibleMessageBody({
     // `overflow-hidden` is applied only once we know it overflows, so measuring the clamp would
     // never see an overflow in the first place. `scrollHeight` is the full content height in both
     // states, which also keeps the control visible while expanded — the reader needs the way back.
-    const measure = () => setOverflowing(content.scrollHeight > COLLAPSED_MAX_HEIGHT + 1);
+    // The collapsed height is rem, so it is resolved against the root font size at measure time.
+    const measure = () =>
+      setOverflowing(
+        overflowsCollapsedMessage(
+          content.scrollHeight,
+          Number.parseFloat(getComputedStyle(document.documentElement).fontSize),
+        ),
+      );
     measure();
     // The clamped height depends on the width, which changes with the window, the sidebar and the
-    // thread panel. The control renders *below* the clamped box, so this cannot feed back into its
+    // thread panel, and on the text size, which also resizes the body. The control renders *below* the clamped box, so this cannot feed back into its
     // own measurement.
     const observer = new ResizeObserver(measure);
     observer.observe(content);
@@ -66,23 +73,15 @@ export function CollapsibleMessageBody({
   }, [body]);
 
   const collapsed = overflowing && !expanded;
+  const { channelNames } = bodyProps;
+  const plainText = useMemo(
+    () => (collapsed ? messagePlainText({ body, mentions }, channelNames) : ""),
+    [collapsed, body, mentions, channelNames],
+  );
 
   return (
     <>
-      {collapsed && (
-        <p className="sr-only">
-          {replaceTaskReferenceTokens(
-            replaceMentionTokens(body, (kind, id) => {
-              const mention = mentions?.find(
-                (candidate) =>
-                  candidate.kind === kind && candidate.actorId.toLowerCase() === id.toLowerCase(),
-              );
-              return mention ? `@${mention.label}` : undefined;
-            }),
-            (number) => `task #${number}`,
-          )}
-        </p>
-      )}
+      {collapsed && <p className="sr-only">{plainText}</p>}
       <div
         ref={contentRef}
         aria-hidden={collapsed || undefined}
@@ -93,7 +92,7 @@ export function CollapsibleMessageBody({
           collapsed &&
             "overflow-hidden [mask-image:linear-gradient(to_bottom,black_calc(100%-2.5rem),transparent)]",
         )}
-        style={collapsed ? { maxHeight: `${COLLAPSED_MAX_HEIGHT}px` } : undefined}
+        style={collapsed ? { maxHeight: `${COLLAPSED_MESSAGE_MAX_HEIGHT_REM}rem` } : undefined}
       >
         <MessageBody body={body} mentions={mentions} {...bodyProps} />
       </div>

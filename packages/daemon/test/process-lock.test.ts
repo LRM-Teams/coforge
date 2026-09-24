@@ -2,7 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdir, mkdtemp, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { acquireProcessLock } from "../src/platform/process-lock";
+import { acquireProcessLock } from "#src/platform/process-lock";
 
 const fixture = new URL("fixtures/process-lock-child.ts", import.meta.url).pathname;
 const roots: string[] = [];

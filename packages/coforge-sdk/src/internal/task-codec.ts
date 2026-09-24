@@ -34,15 +34,17 @@ const operations = new Set<TaskCommand["operation"]>([
 ]);
 const statuses = new Set<string>(TASK_STATUSES);
 const modes = new Set(["inline", "withheld"]);
-const PG_MAX = 2_147_483_647;
+/** The largest PostgreSQL `integer`, the column type of a task's number and revision: a larger
+ * value names no task and cannot be stored or queried. */
+export const PG_INTEGER_MAX = 2_147_483_647;
 const targetPattern = /^(?:#[a-z0-9][a-z0-9_-]{0,31}|@[a-z0-9][a-z0-9_-]{0,31})$/;
 const ownerPattern = /^@[a-z0-9][a-z0-9_-]{0,63}$/;
 const isNonblank = (value: unknown): value is string =>
   typeof value === "string" && value.trim().length > 0;
 const isPgPositive = (value: unknown): value is number =>
-  Number.isInteger(value) && Number(value) > 0 && Number(value) <= PG_MAX;
+  Number.isInteger(value) && Number(value) > 0 && Number(value) <= PG_INTEGER_MAX;
 const isPgNonnegative = (value: unknown): value is number =>
-  Number.isInteger(value) && Number(value) >= 0 && Number(value) <= PG_MAX;
+  Number.isInteger(value) && Number(value) >= 0 && Number(value) <= PG_INTEGER_MAX;
 const isIsoDate = (value: unknown): value is string =>
   typeof value === "string" &&
   /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?(?:Z|[+-]\d\d:\d\d)$/.test(value) &&

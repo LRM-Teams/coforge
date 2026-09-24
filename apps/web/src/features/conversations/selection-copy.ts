@@ -14,9 +14,9 @@
  */
 import TurndownService from "turndown";
 import { gfm } from "turndown-plugin-gfm";
-import { replaceMentionTokens, replaceTaskReferenceTokens } from "@lrm/coforge-sdk/internal";
+import { readableBody } from "@lrm/coforge-sdk/internal";
 
-import { copyText } from "../records/report-editor/lib/clipboard";
+import { copyText } from "#src/features/records/report-editor/lib/clipboard";
 
 /** One service for the feature: fenced code, ATX headings, `-` bullets and `*` emphasis match
  * what the composer and body renderer accept. */
@@ -27,6 +27,15 @@ const turndown = new TurndownService({
   headingStyle: "atx",
 });
 turndown.use(gfm);
+// A channel or thread chip is a router link (`data-channel-id` / `data-thread-root-id`, see
+// `message-body.tsx`): it copies as the `#name` or `#name:<8 hex>` it reads, not as a Markdown link
+// to the app's own URL.
+turndown.addRule("channelReference", {
+  filter: (node) =>
+    node.nodeName === "A" &&
+    (node.hasAttribute("data-channel-id") || node.hasAttribute("data-thread-root-id")),
+  replacement: (content) => content,
+});
 
 /** The rendered fragment under a selection, as an HTML string. */
 export function selectionFragmentHtml(range: Range): string {
@@ -71,23 +80,31 @@ export function copyFragmentMarkdown(html: string): Promise<boolean> {
 }
 
 /**
- * The whole message as plain text: mention tokens resolved to their `@label` and task-reference
- * tokens (`<@task:68>`) to `task #68`, Markdown source kept as typed — Discord's "Copy Text"
- * copies the raw source too, and the composer round-trips it. A token nobody resolved stays as
- * written rather than vanishing. This is also the only copy path for a collapsed long message,
- * whose body is `inert` and cannot be highlighted at all.
+ * The whole message as plain text: mention tokens resolved to their `@label`, task-reference
+ * tokens (`<@task:68>`) to `task #68`, channel-reference tokens to `#name` and thread-reference
+ * tokens to `#name:<8 hex>` (the current name from `channelNames` when listed, the stored one
+ * otherwise), Markdown source kept as typed —
+ * Discord's "Copy Text" copies the raw source too, and the composer round-trips it. A mention token
+ * nobody resolved stays as written rather than vanishing. This is also the only copy path for a
+ * collapsed long message, whose body is `inert` and cannot be highlighted at all.
  */
-export function messagePlainText(message: {
-  body: string;
-  mentions?: { kind: "user" | "agent"; actorId: string; handle: string; label: string }[];
-}): string {
-  return replaceTaskReferenceTokens(
-    replaceMentionTokens(message.body, (kind, id) => {
-      const mention = message.mentions?.find(
+export function messagePlainText(
+  message: {
+    body: string;
+    mentions?: readonly {
+      kind: "user" | "agent";
+      actorId: string;
+      handle: string;
+      label: string;
+    }[];
+  },
+  channelNames?: ReadonlyMap<string, string>,
+): string {
+  return readableBody(message.body, {
+    mention: (kind, id) =>
+      message.mentions?.find(
         (candidate) => candidate.kind === kind && candidate.actorId.toLowerCase() === id,
-      );
-      return mention ? `@${mention.label}` : undefined;
-    }),
-    (number) => `task #${number}`,
-  );
+      )?.label,
+    channelName: (id) => channelNames?.get(id),
+  });
 }

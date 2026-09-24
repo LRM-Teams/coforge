@@ -3,13 +3,14 @@ import { AlertCircle, Stars01 as Stars, XClose as X } from "@untitledui/icons";
 import { Link } from "@tanstack/react-router";
 import { Heading, Text } from "react-aria-components";
 
-import { Dialog, Modal, ModalOverlay } from "@/components/application/modals/modal";
-import { Button } from "@/components/base/buttons/button";
-import { ButtonUtility } from "@/components/base/buttons/button-utility";
-import { FeaturedIcon } from "@/components/foundations/featured-icon/featured-icon";
-import { m } from "@/paraglide/messages";
+import { Dialog, Modal, ModalOverlay } from "#src/components/application/modals/modal";
+import { Button } from "#src/components/base/buttons/button";
+import { ButtonUtility } from "#src/components/base/buttons/button-utility";
+import { FeaturedIcon } from "#src/components/foundations/featured-icon/featured-icon";
+import { m } from "#src/paraglide/messages";
 import type { KeyPointExtractionMeta } from "./records-content";
 import { KeyPointExtractionPanel } from "./key-point-extraction-panel";
+import { RECORDS_PRIMARY_BUTTON_CLASSNAME } from "./records-primary-button";
 
 /** Failed because nobody submitted — toast-only, never a parked panel state. */
 export function isNoneSubmittedKeyPointFailure(
@@ -79,6 +80,7 @@ export function TeamKeyPointSection({
               type="button"
               size="sm"
               color="primary"
+              className={RECORDS_PRIMARY_BUTTON_CLASSNAME}
               iconLeading={Stars}
               isDisabled={busy}
               onPress={onPressStart}
@@ -145,6 +147,7 @@ export function TeamKeyPointSection({
                     type="button"
                     color="primary"
                     size="sm"
+                    className={RECORDS_PRIMARY_BUTTON_CLASSNAME}
                     isDisabled={busy}
                     onPress={() => {
                       setConfirmOpen(false);

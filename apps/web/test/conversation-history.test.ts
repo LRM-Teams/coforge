@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import type { PrismaClient } from "../generated/client";
-import { ConversationHistory } from "../src/server/conversations/conversation-history.server";
+import type { PrismaClient } from "#src/generated/prisma/client";
+import { ConversationHistory } from "#src/server/conversations/conversation-history.server";
 
 const membership = { id: "workspace-member-1" };
 
@@ -60,7 +60,10 @@ describe("ConversationHistory", () => {
         conversationId: "direct-conversation-1",
         threadRootId: null,
         sequence: { lt: 12 },
-        sender: { userId: "user-1" },
+        // The viewer's own member row, not a join through `sender.userId`: the filter is served
+        // by `messages(senderMemberId, threadRootId, sequence)` instead of walking the whole
+        // conversation's history backwards to find the viewer's few rows.
+        senderMemberId: "conversation-member-1",
       },
       orderBy: { sequence: "desc" },
       take: 3,
@@ -105,7 +108,7 @@ describe("ConversationHistory", () => {
       },
     } as unknown as PrismaClient;
 
-    await new ConversationHistory(db).listOwnMessages(
+    const page = await new ConversationHistory(db).listOwnMessages(
       "workspace-1",
       "user-1",
       "channel-conversation-1",
@@ -119,10 +122,41 @@ describe("ConversationHistory", () => {
         members: { where: { userId: "user-1" }, select: { id: true } },
       },
     });
+    // No member row means no message of theirs can exist here: nothing to scan.
+    expect(page).toEqual({ hasOlder: false, messages: [] });
+    expect(messageQueries).toEqual([]);
+  });
+
+  test("indexes a joined channel by the viewer's member row", async () => {
+    const messageQueries: object[] = [];
+    const db = {
+      workspaceMembership: { findUnique: async () => membership },
+      conversation: {
+        findFirst: async () => ({
+          directKey: null,
+          channelName: "general",
+          members: [{ id: "channel-member-1" }],
+        }),
+      },
+      message: {
+        findMany: async (input: object) => {
+          messageQueries.push(input);
+          return [];
+        },
+      },
+    } as unknown as PrismaClient;
+
+    await new ConversationHistory(db).listOwnMessages(
+      "workspace-1",
+      "user-1",
+      "channel-conversation-1",
+    );
+
     expect(messageQueries[0]).toMatchObject({
       where: {
         conversationId: "channel-conversation-1",
-        sender: { userId: "user-1" },
+        threadRootId: null,
+        senderMemberId: "channel-member-1",
       },
     });
   });
@@ -148,7 +182,40 @@ describe("ConversationHistory", () => {
     ).rejects.toThrow("ACCESS_DENIED");
   });
 
-  test("loads an around window only for an own message in the requested conversation", async () => {
+  test("rejects the around window for a non-member before any message read", async () => {
+    // The around read's anchor lookup deliberately has no sender filter (a saved jump #127 lands
+    // on other members' and Agent messages), so the membership decision must sit entirely in
+    // `authorize` — a non-member never reaches a message query.
+    const messageQueries: object[] = [];
+    const db = {
+      workspaceMembership: { findUnique: async () => membership },
+      conversation: {
+        findFirst: async () => ({
+          directKey: "agent:agent-2|user:user-2",
+          channelName: null,
+          members: [],
+        }),
+      },
+      message: {
+        findFirst: async (input: object) => {
+          messageQueries.push(input);
+          return { sequence: 10 };
+        },
+      },
+    } as unknown as PrismaClient;
+
+    await expect(
+      new ConversationHistory(db).loadAround(
+        "workspace-1",
+        "user-1",
+        "other-direct-conversation",
+        "message-10",
+      ),
+    ).rejects.toThrow("ACCESS_DENIED");
+    expect(messageQueries).toHaveLength(0);
+  });
+
+  test("loads an around window for any root message in the requested conversation", async () => {
     const messageQueries: object[] = [];
     const message = (id: string, sequence: number) => ({
       id,
@@ -215,9 +282,11 @@ describe("ConversationHistory", () => {
         id: "message-10",
         conversationId: "channel-conversation-1",
         threadRootId: null,
-        sender: { userId: "user-1" },
       },
     });
+    // No sender filter on the anchor: a saved jump (#127) lands on other members' and Agent
+    // messages too, so the where clause must not require the viewer to be the sender.
+    expect(JSON.stringify(messageQueries[0])).not.toContain("sender");
     expect(page).toMatchObject({
       conversationId: "channel-conversation-1",
       hasOlder: true,

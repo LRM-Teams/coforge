@@ -1,6 +1,6 @@
 generator client {
   provider        = "prisma-client"
-  output          = "../generated"
+  output          = "../src/generated/prisma"
   previewFeatures = ["fullTextSearchPostgres"]
 }
 
@@ -88,6 +88,7 @@ model User {
   gitHubAuthorization         GitHubAuthorization?
   gitHubUserInstallations     GitHubUserInstallation[]
   memberships                 WorkspaceMembership[]
+  pendingMentionActions       PendingMentionAction[]
   sentInvitations             WorkspaceInvitation[]           @relation("WorkspaceInvitationInviter")
   receivedInvitations         WorkspaceInvitation[]           @relation("WorkspaceInvitationInvitee")
   agents                      Agent[]
@@ -215,12 +216,12 @@ model Agent {
   avatarContentType         String?
   /// Agent's own server role for management authority: owner | admin | member (never "owner" in
   /// practice today, since only a human is ever created as a Workspace owner). Independent of
-  /// `Agent.ownerId`'s WorkspaceMembership role; see ADR 0024.
+  /// `Agent.ownerId`'s WorkspaceMembership role.
   role                      String                     @default("member")
   /// Who can see this Agent at all: "public" is
   /// visible workspace-wide; "private" is visible only to its creator (`ownerId`), other Agents
   /// sharing that same creator, and a viewer whose own server role is owner/admin. Existing rows
-  /// default to "public". See ADR 0059.
+  /// default to "public".
   visibility                String                     @default("public")
   createdAt                 DateTime                   @default(now())
   ownerId                   String                     @db.Uuid
@@ -230,14 +231,14 @@ model Agent {
   runtimeSession            Json?
   /// Current control request and fencing only, not Session history or a job queue.
   controlState              Json?
-  /// Set when a user stopped this Agent (ADR 0038): nothing may start or wake it except an
+  /// Set when a user stopped this Agent: nothing may start or wake it except an
   /// explicit user Start, Restart, Reset session or Full reset. Independent of `controlState`.
   stoppedAt                 DateTime?
-  /// Soft delete (ADR 0044): a deleted Agent is hidden from every directory, list, wake and
+  /// Soft delete: a deleted Agent is hidden from every directory, list, wake and
   /// profile lookup, but its Messages, Tasks and Action cards are kept so history stays
   /// readable. Never hard-deleted: `Message.sender`, `Task.creator/owner` and
   /// `ActionCard.preparedByAgent` are `onDelete: Restrict`, the same blocker `leftAt` solved
-  /// for channel membership (ADR 0024/0031).
+  /// for channel membership.
   deletedAt                 DateTime?
   currentSessionId          String?                    @db.Uuid
   currentSession            AgentSession?              @relation("CurrentAgentSession", fields: [currentSessionId], references: [id], onDelete: SetNull)
@@ -246,6 +247,7 @@ model Agent {
   owner                     User                       @relation(fields: [ownerId], references: [id])
   computer                  Computer?                  @relation(fields: [computerId], references: [id], onDelete: SetNull)
   conversations             ConversationMember[]
+  pendingMentionActions     PendingMentionAction[]
   deliveries                AgentMessageDelivery[]
   apiKeys                   AgentApiKey[]
   activity                  AgentActivity[]
@@ -447,7 +449,7 @@ model AgentActivity {
   @@map("agent_activities")
 }
 
-/// One `coforge manual get|search` call (ADR 0036): who asked, what topic/query with its
+/// One `coforge manual get|search` call: who asked, what topic/query with its
 /// required intent/reason, and whether it hit. Written for both `hit` and `not_found`; an
 /// invalid-input 400 (bad topic slug, invalid query, invalid intent/reason) is never recorded.
 model AgentManualEvent {
@@ -543,10 +545,27 @@ model WorkspaceMembership {
   createdAt   DateTime  @default(now())
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  preferences WorkspaceMemberPreference?
 
   @@id([workspaceId, userId])
   @@index([userId])
   @@map("workspace_memberships")
+}
+
+/// A member's own settings inside one Workspace, removed with the membership.
+model WorkspaceMemberPreference {
+  workspaceId          String              @db.Uuid
+  userId               String              @db.Uuid
+  membership           WorkspaceMembership @relation(fields: [workspaceId, userId], references: [workspaceId, userId], onDelete: Cascade)
+  /// Chat/Tasks/Files tab ids in the member's order; the first opens by default. Empty = default order.
+  conversationTabOrder String[]            @default([])
+  /// Agent profile panel tab ids (profile, reminders, activity, workspace) in the member's order.
+  agentProfileTabOrder   String[]            @default([])
+  createdAt            DateTime            @default(now())
+  updatedAt            DateTime            @updatedAt
+
+  @@id([workspaceId, userId])
+  @@map("workspace_member_preferences")
 }
 
 /// Pending human invites into a Workspace. Role is admin | member only; owner cannot be invited.
@@ -651,6 +670,11 @@ model Conversation {
   channelName    String?
   description    String                 @default("")
   archivedAt     DateTime?
+  /// Set while a Workspace owner/admin has hidden this channel from the whole Workspace (only
+  /// `#general` can be): it leaves every channel list, search, post, member and Agent surface,
+  /// its history kept, until they restore it. Unrelated to a member closing a chat
+  /// (`ConversationMember.hiddenAt`).
+  hiddenFromWorkspaceAt DateTime?
   nextTaskNumber Int                    @default(1)
   createdAt      DateTime               @default(now())
   workspace      Workspace              @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
@@ -661,6 +685,8 @@ model Conversation {
   attachmentUploadSessions AttachmentUploadSession[]
   tasks          Task[]
   actionCards    ActionCard[]
+  savedMessages  SavedMessage[]
+  pins           ConversationPin[]
   project        Project?               @relation("ProjectConversations", fields: [projectId], references: [id], onDelete: SetNull)
 
   @@unique([workspaceId, directKey])
@@ -682,7 +708,7 @@ model ConversationMember {
   /// conversation. Agents keep their own delivery cursor above; a human's
   /// channel-list unread count is `top-level messages with sequence > this`
   /// excluding their own messages. Thread replies never advance it: reading a
-  /// thread does not consume unread in the channel's main target (see ADR 0046).
+  /// thread does not consume unread in the channel's main target.
   readThroughSequence      Int               @default(0)
   channelMuted             Boolean           @default(false)
   /// Soft leave marker. Member rows can never be deleted once they own a Message/Task
@@ -693,8 +719,19 @@ model ConversationMember {
   /// membership row; #general members always stay "member" (nobody can be channel admin of
   /// #general, its rules are fixed). Never the sole authority source — see
   /// `channel-authority.server.ts`'s admin-basis computation, which also considers the actor's
-  /// Workspace/Agent server role. See ADR 0030.
+  /// Workspace/Agent server role.
   channelRole              String            @default("member")
+  /// Forced unread marker (mark-as-unread): top-level messages with sequence >= this read as
+  /// unread regardless of readThroughSequence. Null = none. Cleared when the member reads past it.
+  unreadFromSequence     Int?
+  /// Activity inbox Done boundary over top-level messages: the conversation leaves this
+  /// member's Activity list once they mark it Done, and returns when a top-level message with a
+  /// higher sequence arrives. Null = never marked Done. Thread replies never advance it; a
+  /// thread keeps its own boundary in `ThreadRead.doneThroughSequence`.
+  doneThroughSequence    Int?
+  /// Per-member hide/close: the conversation disappears from this member's list only.
+  /// Distinct from archivedAt (whole conversation) and leftAt (membership ended).
+  hiddenAt               DateTime?
   conversation             Conversation      @relation(fields: [conversationId, workspaceId], references: [id, workspaceId], onDelete: Cascade)
   workspace                Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   user                     User?             @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -704,6 +741,9 @@ model ConversationMember {
   threadFollows            ThreadFollow[]
   reactions                MessageReaction[]
   mentions                 MessageMention[]
+  sentPendingMentionActions PendingMentionAction[]
+  savedMessages            SavedMessage[]
+  pins                     ConversationPin[]
   ownedTasks               Task[]            @relation("TaskOwner")
   createdTasks             Task[]            @relation("TaskCreator")
 
@@ -734,6 +774,8 @@ model Message {
   threadFollows  ThreadFollow[]
   reactions      MessageReaction[]
   mentions       MessageMention[]
+  pendingMentionActions PendingMentionAction[]
+  savedBy        SavedMessage[]
   task           Task?
   actionCard     ActionCard?
 
@@ -742,8 +784,15 @@ model Message {
   @@index([conversationId, threadRootId, sequence])
   @@index([conversationId, createdAt])
   /// Serves workspace-wide top-level message scans with sequence ranges — the
-  /// sidebar's unread counts (ADR 0046) and future inbox-style reads.
+  /// sidebar's unread counts and future inbox-style reads.
   @@index([workspaceId, threadRootId, sequence])
+  /// Serves a member's own top-level messages newest first (the own-messages jump index read on
+  /// every conversation open) and the `sender` foreign-key check when a member row is deleted.
+  @@index([senderMemberId, threadRootId, sequence])
+  /// Serves message search: case-insensitive substring match (`ILIKE '%term%'`) on the body,
+  /// including Chinese text, which PostgreSQL's word-based full-text search does not segment.
+  /// Needs the `pg_trgm` extension, which the migration that adds this index creates.
+  @@index([body(ops: raw("gin_trgm_ops"))], type: Gin)
   @@map("messages")
 }
 
@@ -782,20 +831,19 @@ model Task {
 }
 
 model TaskHistoryEvent {
-  id                String   @id @default(uuid()) @db.Uuid
-  taskMessageId     String   @db.Uuid
-  sequence          Int
-  eventType         String
-  actorKind         String
-  actorName         String?
-  beforeTitle       String?
-  afterTitle        String?
-  beforeDescription String?
-  afterDescription  String?
-  createdAt         DateTime @default(now())
-  task              Task     @relation(fields: [taskMessageId], references: [messageId], onDelete: Cascade)
+  id            String   @id @default(uuid()) @db.Uuid
+  taskMessageId String   @db.Uuid
+  seq           Int
+  eventType     String
+  actorType     String
+  /// The actor's handle when the event was recorded (username or Agent name).
+  actorName     String?
+  /// The event's before/after facts, shaped per eventType (see TaskHistoryEvent in the SDK).
+  payload       Json
+  createdAt     DateTime @default(now())
+  task          Task     @relation(fields: [taskMessageId], references: [messageId], onDelete: Cascade)
 
-  @@unique([taskMessageId, sequence])
+  @@unique([taskMessageId, seq])
   @@index([taskMessageId, createdAt])
   @@map("task_history_events")
 }
@@ -836,10 +884,14 @@ model ThreadRead {
   conversationId      String             @db.Uuid
   workspaceId         String             @db.Uuid
   readThroughSequence Int                @default(0)
+  /// Activity inbox Done boundary over this thread's replies, the thread counterpart of
+  /// `ConversationMember.doneThroughSequence`. Null = never marked Done.
+  doneThroughSequence Int?
   member              ConversationMember @relation(fields: [memberId, conversationId, workspaceId], references: [id, conversationId, workspaceId], onDelete: Cascade)
   root                Message            @relation(fields: [rootMessageId, conversationId], references: [id, conversationId], onDelete: Cascade)
 
   @@id([memberId, rootMessageId])
+  @@index([rootMessageId, conversationId])
   @@map("thread_reads")
 }
 
@@ -853,6 +905,7 @@ model ThreadFollow {
   root           Message            @relation(fields: [rootMessageId, conversationId], references: [id, conversationId], onDelete: Cascade)
 
   @@id([memberId, rootMessageId])
+  @@index([rootMessageId, conversationId])
   @@map("thread_follows")
 }
 
@@ -880,7 +933,45 @@ model MessageMention {
 
   @@id([messageId, memberId])
   @@index([conversationId, createdAt])
+  /// Serves one member's mentions (the Activity inbox's Mentions filter and mention badge).
+  @@index([memberId])
   @@map("message_mentions")
+}
+
+/// One `@handle` of a sent message that named someone outside its conversation: a Workspace human
+/// or a public Agent who is not an active member, and so was not notified. The sender can act on it
+/// until `expiresAt` (7 days after the send): add the target to the channel, or let it go (the
+/// client-side Ignore writes nothing). Resolving it records the action taken; the row is kept so
+/// a repeated action reads as no longer pending. `id` is the resolution id the sender acts with.
+model PendingMentionAction {
+  id             String             @id @default(uuid()) @db.Uuid
+  messageId      String             @db.Uuid
+  conversationId String             @db.Uuid
+  workspaceId    String             @db.Uuid
+  senderMemberId String             @db.Uuid
+  /// Exactly one target is set (CHECK in the migration).
+  targetUserId   String?            @db.Uuid
+  targetAgentId  String?            @db.Uuid
+  /// The `@handle` as the sender wrote it (`user.username` or `agent.name`, both immutable).
+  targetHandle   String
+  expiresAt      DateTime
+  /// When the sender acted on it, and how: "add" (CHECK in the migration). Null while pending.
+  resolvedAt     DateTime?
+  resolvedAction String?
+  createdAt      DateTime           @default(now())
+  message        Message            @relation(fields: [messageId, conversationId], references: [id, conversationId], onDelete: Cascade)
+  sender         ConversationMember @relation(fields: [senderMemberId, conversationId, workspaceId], references: [id, conversationId, workspaceId], onDelete: Cascade)
+  targetUser     User?              @relation(fields: [targetUserId], references: [id], onDelete: Cascade)
+  targetAgent    Agent?             @relation(fields: [targetAgentId, workspaceId], references: [id, workspaceId], onDelete: Cascade)
+
+  @@unique([messageId, targetUserId])
+  @@unique([messageId, targetAgentId])
+  /// Serves a sender's pending list: their unresolved, unexpired actions.
+  @@index([senderMemberId, resolvedAt, expiresAt])
+  /// Serve the cascades when a target human or Agent is deleted.
+  @@index([targetUserId])
+  @@index([targetAgentId, workspaceId])
+  @@map("pending_mention_actions")
 }
 
 model MessageReaction {
@@ -898,12 +989,43 @@ model MessageReaction {
   @@map("message_reactions")
 }
 
+/// A member's saved messages (#120): bookmark a message, list them, jump back to the conversation.
+model SavedMessage {
+  messageId      String             @db.Uuid
+  conversationId String             @db.Uuid
+  workspaceId    String             @db.Uuid
+  memberId       String             @db.Uuid
+  createdAt      DateTime           @default(now())
+  message        Message            @relation(fields: [messageId, conversationId], references: [id, conversationId], onDelete: Cascade)
+  member         ConversationMember @relation(fields: [memberId, conversationId, workspaceId], references: [id, conversationId, workspaceId], onDelete: Cascade)
+  conversation   Conversation       @relation(fields: [conversationId, workspaceId], references: [id, workspaceId], onDelete: Cascade)
+
+  @@id([messageId, memberId])
+  @@index([workspaceId, memberId, createdAt])
+  @@map("saved_messages")
+}
+
+/// A member's pinned conversations (#121): ordered, per-member, independent of archive/leave.
+model ConversationPin {
+  conversationId String             @db.Uuid
+  workspaceId    String             @db.Uuid
+  memberId       String             @db.Uuid
+  sortOrder      Int                @default(0)
+  createdAt      DateTime           @default(now())
+  conversation   Conversation       @relation(fields: [conversationId, workspaceId], references: [id, workspaceId], onDelete: Cascade)
+  member         ConversationMember @relation(fields: [memberId, conversationId, workspaceId], references: [id, conversationId, workspaceId], onDelete: Cascade)
+
+  @@id([conversationId, memberId])
+  @@index([workspaceId, memberId, sortOrder])
+  @@map("conversation_pins")
+}
+
 model Attachment {
   id              String       @id @default(uuid()) @db.Uuid
   workspaceId     String       @db.Uuid
   conversationId  String       @db.Uuid
   /// Exactly one of `uploaderId` / `uploaderAgentId` is set; enforced in
-  /// `storeAttachment`/`storeAgentAttachment`, not a DB check constraint (see ADR 0023).
+  /// `storeAttachment`/`storeAgentAttachment`, not a DB check constraint.
   uploaderId      String?      @db.Uuid
   uploaderAgentId String?      @db.Uuid
   messageId       String?      @db.Uuid
@@ -927,7 +1049,7 @@ model Attachment {
   @@map("attachments")
 }
 
-/// A reserved presigned-upload session (ADR 0028): the Agent PUTs bytes straight to storage,
+/// A reserved presigned-upload session: the Agent PUTs bytes straight to storage,
 /// then `complete` verifies the object and creates the `Attachment` row that `attachmentId`
 /// reserves ahead of time. `attachmentId` is not a foreign key — that row does not exist until
 /// verification succeeds — only a unique reservation the eventual `Attachment.id` must match.

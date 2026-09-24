@@ -4,10 +4,10 @@ import {
   type AgentRuntimeEvent,
   type CodeAgentProvider,
   type ProviderDiscoveryOptions,
-} from "../contract";
-import { agentEnvironment } from "../environment";
-import { asRecord, eventTime } from "../json-record";
-import { discoverExternalCodeAgents } from "../runtime-inventory";
+} from "#src/code-agent/contract";
+import { agentEnvironment } from "#src/code-agent/environment";
+import { asRecord, eventTime } from "#src/code-agent/json-record";
+import { discoverExternalCodeAgents } from "#src/code-agent/runtime-inventory";
 import { discoverOpenCodeCatalog } from "./catalog";
 import { OpenCodeTurnProcess, type OpenCodeTurnResult } from "./turn-process";
 import { assertOpenCodeVersionSupported } from "./version";
@@ -416,12 +416,25 @@ class OpenCodeAgentSession implements AgentSession {
   }
 }
 
-/** OpenCode reports `{ error: { name, data: { message } } }`; prefer the message, fall back to the
- * name. */
+/** OpenCode reports provider failures as `{ error: { name, data: { message } } }` (auth errors
+ * carry the text there) and provider quota/HTTP failures as the top-level envelope the 2026-09-23
+ * live capture showed: `{ error: { type: "provider.quota", message, status: 429 } }`. Prefer the
+ * data message, then the classified kind plus the raw message, then the name — a bare
+ * "Execution failed" here is exactly how a quota failure degraded into an unexplainable
+ * "Agent runtime failed." (boss ruling: expose the real error). The classifier already maps
+ * `rate.limit`/`429` text to the `rate_limited` reason, so the surfaced cause flows into the
+ * Activity's class and retry decision unchanged. */
 function openCodeErrorMessage(record: Readonly<Record<string, unknown>>): string {
   const error = asRecord(record.error);
   const data = asRecord(error?.data);
   if (typeof data?.message === "string" && data.message.trim()) return data.message.trim();
+  const kind = typeof error?.type === "string" ? error.type.trim() : "";
+  const status = typeof error?.status === "number" ? ` (HTTP ${error.status})` : "";
+  if (typeof error?.message === "string" && error.message.trim()) {
+    const detail = error.message.trim();
+    return kind ? `${kind}${status}: ${detail}` : detail;
+  }
+  if (kind) return `${kind}${status || ""}`.trim();
   if (typeof error?.name === "string" && error.name.trim()) return error.name.trim();
   return "Execution failed";
 }

@@ -13,17 +13,17 @@ import {
   Settings01,
   XCircle,
 } from "@untitledui/icons";
-import { Avatar } from "@/components/base/avatar/avatar";
-import { Badge } from "@/components/base/badges/badges";
-import { Button } from "@/components/base/buttons/button";
-import { Tooltip, TooltipTrigger } from "@/components/base/tooltip/tooltip";
-import { PageHeader } from "@/components/layout/page-header";
-import { RelativeTime } from "@/components/ui/relative-time";
-import { Skeleton } from "@/components/ui/skeleton";
-import { CreateChannelDialog } from "@/features/conversations/create-channel-dialog";
-import { createPublicChannel } from "@/features/conversations/channels.functions";
-import { avatarInitial, avatarToneClassName } from "@/lib/avatar-tone";
-import { m } from "@/paraglide/messages";
+import { Avatar } from "#src/components/base/avatar/avatar";
+import { Badge } from "#src/components/base/badges/badges";
+import { Button } from "#src/components/base/buttons/button";
+import { Tooltip, TooltipTrigger } from "#src/components/base/tooltip/tooltip";
+import { PageHeader } from "#src/components/layout/page-header";
+import { RelativeTime } from "#src/components/ui/relative-time";
+import { Skeleton } from "#src/components/ui/skeleton";
+import { CreateChannelDialog } from "#src/features/conversations/create-channel-dialog";
+import { createPublicChannel } from "#src/features/conversations/channels.functions";
+import { avatarInitial, avatarToneClassName } from "#src/lib/avatar-tone";
+import { m } from "#src/paraglide/messages";
 import type { getProject, getProjectRepository } from "./projects.functions";
 import { ProjectImage } from "./project-image";
 import { RepositoryStatusMessage } from "./repository-status";

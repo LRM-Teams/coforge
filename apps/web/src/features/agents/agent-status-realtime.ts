@@ -1,7 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { parseAgentDisplaySnapshot, type AgentDisplaySnapshot } from "@lrm/coforge-sdk/internal";
 
-import { useRealtimeSubscription, useRealtimeSubscriptions } from "../realtime/browser-realtime";
+import {
+  useRealtimeSubscription,
+  useRealtimeSubscriptions,
+} from "#src/features/realtime/browser-realtime";
 import { AGENT_VISIBILITY } from "./agent-visibility";
 
 export type AgentStatusEvent = {
@@ -20,7 +23,7 @@ type StatusTrackedAgent = {
   workspaceId?: string;
   display?: AgentDisplaySnapshot;
   displayRevisionHighWater?: number;
-  /** ADR 0059: read by `useAgentStatuses` itself to derive which Agents in its own current
+  /** Read by `useAgentStatuses` itself to derive which Agents in its own current
    * state need a per-Agent status subscription. */
   visibility?: string;
 };
@@ -39,14 +42,14 @@ type UnknownAgentStatusView = Omit<AgentStatusView, "value"> & {
 
 export const agentStatusChannel = (workspaceId: string) => `agent:status:${workspaceId}`;
 
-/** The re-routed destination for a private Agent's `agent:display` snapshot (ADR 0059), the
+/** The re-routed destination for a private Agent's `agent:display` snapshot, the
  * status-channel sibling of `agentActivityChannelForAgent`: only a viewer who can currently see
  * that Agent is ever issued a subscription token for it. */
 export const agentStatusChannelForAgent = (workspaceId: string, agentId: string) =>
   `agent:status:${workspaceId}:${agentId}`;
 
 /**
- * ADR 0059: the id-only event a visibility change publishes on the shared status channel. A
+ * The id-only event a visibility change publishes on the shared status channel. A
  * browser that receives it refetches its Agent list, drops the Agent from caches if it can no
  * longer see it, or (re)subscribes to its per-Agent channels if it still can.
  */
@@ -202,7 +205,7 @@ export function mergeAgentStatusSnapshot<T extends StatusTrackedAgent>(
 }
 
 /**
- * ADR 0059: appends any `extraAgents` entries not already present in `list` by id. `list` is a
+ * Appends any `extraAgents` entries not already present in `list` by id. `list` is a
  * primary Agent list (e.g. `listAgents`'s owned-Agents roster) that a fresh refresh always
  * replaces wholesale; `extraAgents` are Agents visible to the viewer but outside that primary
  * list — e.g. an owner/admin's view of another member's private Agent — represented as
@@ -240,7 +243,7 @@ export function expireAgentStatuses<T extends StatusTrackedAgent>(agents: T[], n
  * display does not schedule its refresh at its own `expiresAt`: that
  * deadline is pushed out by `ACTIVITY_PROBE_TIMEOUT_MS + 1_000`, so the
  * refresh is purely a safety net behind the server sweep's own
- * `agent:display` push once its own probe times out (see ADR 0020). Every
+ * `agent:display` push once its own probe times out. Every
  * other display kind keeps refreshing right at its own `expiresAt`. Returns
  * `undefined` when there is nothing to schedule.
  */
@@ -273,16 +276,16 @@ export function useAgentStatuses<T extends StatusTrackedAgent>({
   workspaceId?: string;
   refresh: () => Promise<T[]>;
   getConnectionToken: () => Promise<string>;
-  /** ADR 0059: placeholder entries for Agents visible to the viewer but outside their own
+  /** Placeholder entries for Agents visible to the viewer but outside their own
    * primary `agents` list — e.g. an owner/admin's view of another member's private Agent.
    * Merged in (via `mergeExtraAgents`) alongside every fresh `agents`/`refresh()` result so a
    * refresh never silently drops them; a live publication updates them in place exactly like any
    * other tracked Agent once merged. */
   extraAgents?: T[];
-  /** ADR 0059: called whenever this hook observes `agent:visibility_changed`, so a caller
+  /** Called whenever this hook observes `agent:visibility_changed`, so a caller
    * tracking a separate id list (e.g. the `extraAgents` source query) can refetch it too. */
   onVisibilityChangedEvent?: () => void;
-  /** ADR 0059: a private Agent's `agent:display` snapshot no longer arrives on the shared status
+  /** A private Agent's `agent:display` snapshot no longer arrives on the shared status
    * channel, so this hook derives which of its own current Agents need a per-Agent subscription
    * from their `visibility` field itself — no lag from an external, previous-render list. */
   getPrivateAgentStatusToken?: (agentId: string) => Promise<string>;
@@ -376,7 +379,7 @@ export function useAgentStatuses<T extends StatusTrackedAgent>({
       const value =
         data instanceof Uint8Array ? (JSON.parse(new TextDecoder().decode(data)) as unknown) : data;
       if (isAgentVisibilityChangedEvent(value)) {
-        // ADR 0059: refetch immediately rather than waiting for the next scheduled refresh —
+        // Refetch immediately rather than waiting for the next scheduled refresh —
         // `mergeAgentStatusSnapshot` already drops any Agent absent from the fresh list, and
         // subscribing/unsubscribing its per-Agent channels follows from that same fresh list
         // wherever it is consumed (see `WorkspaceAgentsProvider`). A caller tracking a separate
@@ -401,7 +404,7 @@ export function useAgentStatuses<T extends StatusTrackedAgent>({
     onPublication: (publication) => handleStatusPublication(publication.data),
   });
 
-  // ADR 0059: one status subscription per visible private Agent, on the same shared client,
+  // One status subscription per visible private Agent, on the same shared client,
   // derived from this hook's own current `visibleAgents` state — never an external, previous-
   // render list, so a freshly-private Agent (e.g. right after an `agent:visibility_changed`
   // refresh above) is subscribed in the very render that learns about it.

@@ -5,57 +5,65 @@ import { z } from "zod";
 import {
   DirectConversation,
   DirectConversationHeader,
-} from "@/features/conversations/direct-conversation";
+} from "#src/features/conversations/direct-conversation";
 import {
   ConversationLoadError,
   ConversationPending,
-} from "@/features/conversations/conversation-pending";
-import { useLiveAgent } from "@/features/agents/workspace-agents-realtime";
+} from "#src/features/conversations/conversation-pending";
+import { useLiveAgent } from "#src/features/agents/workspace-agents-realtime";
 import {
+  ensureConversationWindow,
   directConversationQuery,
-  directConversationUpdates,
-  useConversationQuery,
-} from "@/features/conversations/conversation-queries";
-import { useConversationView } from "@/features/conversations/use-conversation-view";
-import { TaskBoard } from "@/features/tasks/task-board";
-import { ConversationFilesPanel } from "@/features/conversations/conversation-files";
-import { useTaskLayout } from "@/features/tasks/task-workflow";
-import { useConversationTasks } from "@/features/tasks/use-conversation-tasks";
+} from "#src/features/conversations/conversation-queries";
+import { useDirectConversation } from "#src/features/conversations/use-conversation-data";
 import {
-  loadOwnConversationMessages,
-  markDirectThreadRead,
-  sendDirectConversationMessage,
-  toggleDirectMessageReaction,
-} from "@/features/conversations/conversations.functions";
+  useConversationView,
+  useShownConversationTab,
+} from "#src/features/conversations/use-conversation-view";
+import { CONVERSATION_TABS } from "#src/features/conversations/conversation-tabs";
+import { openTaskParamSchema } from "#src/features/conversations/conversation-thread-search";
+import { TaskBoard } from "#src/features/tasks/task-board";
+import { ConversationFilesPanel } from "#src/features/conversations/conversation-files";
+import { useTaskLayout } from "#src/features/tasks/task-workflow";
 import {
   agentIdFromProfileParam,
   agentProfileParamSchema,
   agentProfileTabParamSchema,
-} from "@/features/agents/profile-panel/profile-panel-search";
-import { useOpenAgentProfile } from "@/features/agents/profile-panel/open-agent-profile";
+} from "#src/features/agents/profile-panel/profile-panel-search";
+import { useOpenAgentProfile } from "#src/features/agents/profile-panel/open-agent-profile";
 import {
   useConversationReadRequiresScroll,
   useMarkConversationSeen,
-} from "@/features/conversations/conversation-navigation";
+} from "#src/features/conversations/conversation-navigation";
 import {
   latestTopLevelSequence,
   persistReadCursor,
-} from "@/features/conversations/conversation-unread";
-import { markDirectConversationRead } from "@/features/conversations/conversations.functions";
+} from "#src/features/conversations/conversation-unread";
+import { markDirectConversationRead } from "#src/features/conversations/conversations.functions";
 import { useEffect } from "react";
 
 export const Route = createFileRoute("/_app/messages/$agentId")({
   validateSearch: z.object({
-    view: z.enum(["chat", "tasks", "files"]).optional().catch(undefined),
+    view: z.enum(CONVERSATION_TABS).optional().catch(undefined),
     layout: z.enum(["board", "list"]).optional().catch(undefined),
     message: z.uuid().optional().catch(undefined),
     threadRootId: z.uuid().optional().catch(undefined),
+    task: openTaskParamSchema,
     profile: agentProfileParamSchema,
     agentTab: agentProfileTabParamSchema,
   }),
+  loaderDeps: ({ search }) =>
+    ({
+      message: search.message,
+      threadRootId: search.threadRootId,
+    }) as const,
   remountDeps: ({ params }) => params.agentId,
-  loader: ({ context, params }) =>
-    context.queryClient.infiniteQuery(directConversationQuery(params.agentId).query),
+  loader: ({ context, params, deps }) =>
+    ensureConversationWindow(
+      context.queryClient,
+      directConversationQuery(params.agentId).query,
+      deps.threadRootId ?? deps.message,
+    ),
   pendingComponent: ConversationPending,
   errorComponent: ConversationLoadError,
   component: DirectConversationPage,
@@ -64,22 +72,14 @@ export const Route = createFileRoute("/_app/messages/$agentId")({
 function DirectConversationPage() {
   const { agentId } = Route.useParams();
   const agentStatus = useLiveAgent(agentId)?.status.value;
-  const { view, layout, profile, agentTab } = Route.useSearch();
+  const { view: requestedView, layout, profile, agentTab } = Route.useSearch();
+  const view = useShownConversationTab(requestedView);
   const taskLayout = useTaskLayout(layout);
   const { openAgentProfile, setAgentProfileTab, closeAgentProfile } = useOpenAgentProfile();
   const profileAgentId = agentIdFromProfileParam(profile);
-  const send = useServerFn(sendDirectConversationMessage);
-  const toggleReaction = useServerFn(toggleDirectMessageReaction);
-  const markRead = useServerFn(markDirectThreadRead);
-  const loadOwnMessages = useServerFn(loadOwnConversationMessages);
-  const page = useConversationQuery({
-    ...directConversationQuery(agentId),
-    loadUpdates: directConversationUpdates(agentId),
-    onRealtime: () => taskView.refresh(),
-  });
+  const { page, taskView, conversationProps } = useDirectConversation(agentId);
   const { conversation } = page;
-  const taskView = useConversationTasks(conversation.conversationId);
-  const { showChat, showTasks, showFiles, changeLayout, openTask, openMessage } =
+  const { showChat, showTasks, showFiles, changeLayout, openTask, openTaskThread, openMessage } =
     useConversationView(page.ensureLoaded);
 
   // Opening the DM is reading it — except in the `newest-unread` preference, which keeps
@@ -122,8 +122,10 @@ function DirectConversationPage() {
         />
       </div>
     );
-  if (view === "tasks")
-    return (
+  // The Tasks tab sits in the conversation's main pane, so a Task opened from it shows the
+  // conversation's Task popup over the board.
+  const tasksPane =
+    view === "tasks" ? (
       <TaskBoard
         header={
           <DirectConversationHeader
@@ -138,12 +140,13 @@ function DirectConversationPage() {
         onLayoutChange={changeLayout}
         tasks={taskView.tasks}
         conversationName={conversation.agent.displayName}
+        members={conversation.mentionables}
         currentMemberId={conversation.senderMemberId}
         canMutate
         loading={taskView.loading}
         error={taskView.error}
-        onOpenMessage={openTask}
-        onShowChat={showChat}
+        onOpenTask={openTask}
+        onOpenMessage={openTaskThread}
         onCreateTask={async (title, idempotencyKey) => {
           const [task] = await taskView.command({ operation: "create", title, idempotencyKey });
           await page.invalidate();
@@ -153,46 +156,16 @@ function DirectConversationPage() {
           await taskView.command(command);
         }}
       />
-    );
+    ) : undefined;
   return (
     <DirectConversation
       key={conversation.agent.id}
-      conversation={conversation}
+      {...conversationProps}
+      tasksPane={tasksPane}
       agentStatus={agentStatus}
-      tasks={taskView.tasks}
       onShowTasks={showTasks}
       onShowFiles={showFiles}
-      onCreateTask={async (title, idempotencyKey, attachmentId) => {
-        await taskView.command({ operation: "create", title, idempotencyKey, attachmentId });
-        await page.invalidate();
-      }}
-      onSend={async (body, requestId, attachmentIds, threadRootId) => {
-        const message = await send({
-          data: { agentId, requestId, body, attachmentIds, threadRootId },
-        });
-        page.mergeUpdates([message]);
-        void page.reconciliation.reconcile().catch(() => {});
-        return message;
-      }}
-      onToggleReaction={async (messageId, emoji, active) => {
-        await toggleReaction({ data: { agentId, messageId, emoji, active } });
-        // Reactions ride no realtime signal, so re-read the loaded pages (the sanctioned
-        // path for changes the feed does not carry) instead of patching one page's cache.
-        await page.invalidate();
-      }}
-      onReadThread={(threadRootId, throughSequence) =>
-        markRead({ data: { agentId, threadRootId, throughSequence } })
-      }
-      onLoadOwnMessages={(beforeSequence) =>
-        loadOwnMessages({
-          data: { conversationId: conversation.conversationId, beforeSequence },
-        })
-      }
-      onLoadMessageAround={page.loadMessageAround}
-      onShowLatest={page.showLatest}
       onReadLatest={readLatest}
-      onLoadOlder={page.loadOlder}
-      onLoadNewer={page.loadNewer}
       onOpenAgentProfile={openAgentProfile}
       agentProfile={{ agentId: profileAgentId, tab: agentTab }}
       onAgentProfileTabChange={setAgentProfileTab}

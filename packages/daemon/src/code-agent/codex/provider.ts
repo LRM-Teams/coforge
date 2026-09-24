@@ -5,16 +5,19 @@ import type {
   AgentSessionOptions,
   UsageSnapshot,
 } from "@coforge/agent";
-import type { CodeAgentProvider } from "../contract";
+import type { CodeAgentProvider } from "#src/code-agent/contract";
 import { readCodexUsage } from "./usage";
-import { agentEnvironment } from "../environment";
-import { JsonlProcess, JsonlRequestError } from "../jsonl-process";
-import { COFORGE_DAEMON_VERSION } from "../../version";
+import { agentEnvironment } from "#src/code-agent/environment";
+import { JsonlProcess, JsonlRequestError } from "#src/code-agent/jsonl-process";
+import { COFORGE_DAEMON_VERSION } from "#src/version";
 import { RUNTIME_PROVIDER } from "@lrm/coforge-sdk/internal";
 import { getLogger } from "@logtape/logtape";
-import { discoverCodexCatalog, discoverExternalCodeAgents } from "../runtime-inventory";
-import type { ProviderDiscoveryOptions } from "../contract";
-import { asRecord, eventTime } from "../json-record";
+import {
+  discoverCodexCatalog,
+  discoverExternalCodeAgents,
+} from "#src/code-agent/runtime-inventory";
+import type { ProviderDiscoveryOptions } from "#src/code-agent/contract";
+import { asRecord, eventTime } from "#src/code-agent/json-record";
 
 const logger = getLogger(["coforge", "daemon", "code-agent", "codex"]);
 

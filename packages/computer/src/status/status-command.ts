@@ -1,4 +1,4 @@
-import { CliError } from "../errors";
+import { CliError } from "#src/errors";
 import { collectComputerStatus } from "./collect-status";
 import { renderStatusHuman, renderStatusJson } from "./render-status";
 import type { StatusPorts } from "./types";

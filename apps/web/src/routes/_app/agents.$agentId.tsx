@@ -4,7 +4,7 @@ import { z } from "zod";
 import {
   agentProfileTabParamSchema,
   formatAgentProfileParam,
-} from "@/features/agents/profile-panel/profile-panel-search";
+} from "#src/features/agents/profile-panel/profile-panel-search";
 
 const legacyDetailTabSchema = z
   .enum(["profile", "activity", "reminders", "workspace"])

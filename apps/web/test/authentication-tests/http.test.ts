@@ -1,15 +1,12 @@
 import { expect, test } from "bun:test";
 
-import {
-  completeBrowserLogin,
-  startBrowserLogin,
-} from "../../src/server/auth/browser-login.server";
+import { completeBrowserLogin, startBrowserLogin } from "#src/server/auth/browser-login.server";
 import {
   handleCurrentUser,
   handleLoginCallback,
   handleLoginStart,
   handleLogout,
-} from "../../src/server/auth/http.server";
+} from "#src/server/auth/http.server";
 
 const sessionSecret = "test-session-secret-at-least-32-characters";
 const config = {

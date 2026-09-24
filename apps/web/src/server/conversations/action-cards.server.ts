@@ -1,3 +1,4 @@
+import { VISIBLE_CONVERSATION_WHERE } from "./active-member.server";
 import {
   actionCardActionSchema,
   validateActionCardAction,
@@ -5,10 +6,11 @@ import {
   type ActionCardKind,
   type ResolvedActionCardPayload,
 } from "@lrm/coforge-sdk/agent";
-import { AGENT_VISIBILITY } from "../../features/agents/agent-visibility";
-import { ACTIVE_AGENT_WHERE } from "../agents/active-agent.server";
-import type { Prisma, PrismaClient } from "../../../generated/client";
-import { AppError } from "../../lib/app-error";
+import { isChannelMessageTarget } from "@lrm/coforge-sdk/internal";
+import { AGENT_VISIBILITY } from "#src/features/agents/agent-visibility";
+import { ACTIVE_AGENT_WHERE } from "#src/server/agents/active-agent.server";
+import type { Prisma, PrismaClient } from "#src/generated/prisma/client";
+import { AppError } from "#src/lib/app-error";
 import { ActionCardError } from "./action-card-error.server";
 import { lockConversation } from "./conversation-lock.server";
 import {
@@ -17,10 +19,10 @@ import {
   resolveChannelThreadRoot,
 } from "./public-channels.server";
 import { ConversationHistory } from "./conversation-history.server";
-import { allocateSequence } from "../db/repositories/direct-conversation.repositories.server";
+import { allocateSequence } from "#src/server/db/repositories/direct-conversation.repositories.server";
 import { messageSignalScope, type ConversationRealtime } from "./conversation-realtime.server";
-import { isAdminLike } from "../workspaces/member-role.server";
-import { workspaceMemberRole } from "../workspaces/members.server";
+import { isAdminLike } from "#src/server/workspaces/member-role.server";
+import { workspaceMemberRole } from "#src/server/workspaces/members.server";
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -258,7 +260,8 @@ export class ActionCards {
           : Promise.resolve([]),
         channelIds.size
           ? this.db.conversation.findMany({
-              where: { id: { in: [...channelIds] } },
+              // A channel hidden from the Workspace is named on no card.
+              where: { id: { in: [...channelIds] }, ...VISIBLE_CONVERSATION_WHERE },
               select: { id: true, channelName: true },
             })
           : Promise.resolve([]),
@@ -423,7 +426,7 @@ export class ActionCards {
           messageId,
           sequence: message.sequence,
           // A card prepared inside a thread stays a thread reply here: republishing it without
-          // its anchor would let the browser count it as a channel message (ADR 0046).
+          // its anchor would let the browser count it as a channel message.
           ...(message.threadRootId ? { threadRootId: message.threadRootId } : {}),
           ...(await messageSignalScope(this.db, conversationId, message.workspaceId)),
         });
@@ -451,8 +454,8 @@ export class ActionCards {
       input.messageId,
       "channel:create",
     );
-    const channels = new PublicChannels(this.db);
-    // The Agent-proposed description (`Conversation.description`, ADR 0024) rides along from the
+    const channels = new PublicChannels(this.db, undefined, undefined, undefined, this.realtime);
+    // The Agent-proposed description (`Conversation.description`) rides along from the
     // card's own resolved payload, not a new browser-supplied input: it is the Agent's context,
     // not something the committing human retypes.
     const payload = card.payload as ResolvedActionCardPayload & { type: "channel:create" };
@@ -491,7 +494,7 @@ export class ActionCards {
       input.messageId,
       "channel:add_member",
     );
-    const channels = new PublicChannels(this.db);
+    const channels = new PublicChannels(this.db, undefined, undefined, undefined, this.realtime);
     await channels.addMembers(
       principal.workspaceId,
       { userId: principal.actorUserId },
@@ -579,6 +582,10 @@ export class ActionCards {
   private async resolveTarget(workspaceId: string, agentId: string, target: string) {
     const [parentTarget, anchor, extra] = target.split(":");
     if (!parentTarget || extra !== undefined) throw new AppError("INVALID_INPUT");
+    // A channel thread's anchor is eight hex characters or the whole id, as for `message send`;
+    // a shorter prefix that happens to be unique still names no thread.
+    if (parentTarget.startsWith("#") && anchor !== undefined && !isChannelMessageTarget(target))
+      throw new AppError("INVALID_INPUT");
     if (!this.conversations)
       throw new Error("ActionCards.prepare requires a conversations repository");
     const conversations = this.conversations;
@@ -709,8 +716,8 @@ export class ActionCards {
         });
     if (!agent)
       throw new ActionCardError(422, "INVALID_HANDLE", `unknown agent handle: ${value}`, { field });
-    // Every Agent an action card names becomes a channel member, and a private Agent never is one
-    // (ADR 0059). Refusing here also keeps its display name out of a card rendered to the channel.
+    // Every Agent an action card names becomes a channel member, and a private Agent never is one.
+    // Refusing here also keeps its display name out of a card rendered to the channel.
     if (agent.visibility !== AGENT_VISIBILITY.PUBLIC)
       throw new ActionCardError(
         422,
@@ -725,11 +732,16 @@ export class ActionCards {
     const bare = bareHandle(value);
     const channel = UUID_PATTERN.test(bare)
       ? await this.db.conversation.findFirst({
-          where: { id: bare, workspaceId, channelName: { not: null } },
+          where: {
+            id: bare,
+            workspaceId,
+            channelName: { not: null },
+            ...VISIBLE_CONVERSATION_WHERE,
+          },
           select: { id: true },
         })
       : await this.db.conversation.findFirst({
-          where: { workspaceId, channelName: bare },
+          where: { workspaceId, channelName: bare, ...VISIBLE_CONVERSATION_WHERE },
           select: { id: true },
         });
     if (!channel)

@@ -3,7 +3,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parseArgs, resolveReminderId, run } from "../index";
-import { CliError, renderCliErrorJson, renderCliErrorText } from "../src/cli-error";
+import { CliError, renderCliErrorJson, renderCliErrorText } from "#src/cli-error";
 import { validateTaskRequest } from "@lrm/coforge-sdk/internal";
 import {
   createAgentApiClient,
@@ -789,6 +789,70 @@ test("formats usable reminder lists, empty logs, and receipt acknowledgements", 
   ).toContain(`id=${reminderId} revision=3`);
 });
 
+test("Task history lists each event with its payload under the Task header", async () => {
+  const base = {
+    check: async () => ({ messages: [] }),
+    read: async () => undefined,
+    send: async () => undefined,
+    view: async () => ({ bytes: new Uint8Array() }),
+  };
+  const task = {
+    messageId: "message",
+    conversationId: "conversation",
+    number: 2,
+    title: "Ship it",
+    status: "in_progress" as const,
+    revision: 3,
+    owner: null,
+  };
+  const args = ["task", "history", "--target", "#general", "--number", "2"];
+  expect(
+    await run(args, {
+      ...base,
+      task: async () => ({
+        tasks: [task],
+        history: [
+          {
+            id: "event",
+            seq: 3,
+            eventType: "status_changed",
+            actorType: "agent",
+            actorName: "builder",
+            createdAt: "2026-09-23T06:00:00.000Z",
+            payload: { from: "todo", to: "in_progress" },
+          },
+          {
+            id: "system-event",
+            seq: 4,
+            eventType: "assignee_changed",
+            actorType: "system",
+            actorName: null,
+            createdAt: "2026-09-23T06:01:00.000Z",
+            payload: { assigneeId: null, assigneeType: null },
+          },
+          {
+            id: "legacy-event",
+            seq: 5,
+            eventType: "amended",
+            actorType: "user",
+            actorName: null,
+            createdAt: "2026-09-23T06:02:00.000Z",
+            payload: { changes: { title: { from: "Ship", to: "Ship it" } } },
+          },
+        ],
+      }),
+    }),
+  ).toBe(
+    "## Task #2 history — revision 3\n\nShip it\n\n" +
+      'seq=3 time=2026-09-23T06:00:00.000Z actor=@builder type=status_changed\n  {"from":"todo","to":"in_progress"}\n' +
+      'seq=4 time=2026-09-23T06:01:00.000Z actor=@system type=assignee_changed\n  {"assigneeId":null,"assigneeType":null}\n' +
+      'seq=5 time=2026-09-23T06:02:00.000Z actor=<unresolved> type=amended\n  {"changes":{"title":{"from":"Ship","to":"Ship it"}}}',
+  );
+  expect(await run(args, { ...base, task: async () => ({ tasks: [task], history: [] }) })).toBe(
+    "## Task #2 history — revision 3\n\nShip it\n\nNo recorded events.",
+  );
+});
+
 test("Task commands require exact arguments and reject thread targets", () => {
   expect(
     parseArgs(["task", "claim", "--target", "#general", "--message-id", "message-1"]),
@@ -947,7 +1011,13 @@ test("Task update reads one revision then submits once and formats Thread-useful
               title: "Verify",
               status: command.operation === "update" ? "in_review" : "in_progress",
               revision: 5,
-              owner: { memberId: "member", kind: "agent", name: "builder" },
+              owner: {
+                memberId: "member",
+                kind: "agent",
+                id: "agent",
+                name: "builder",
+                handle: "builder",
+              },
             },
           ],
         };
@@ -957,6 +1027,38 @@ test("Task update reads one revision then submits once and formats Thread-useful
   expect(calls).toHaveLength(2);
   expect(calls[1]).toMatchObject({ operation: "update", expectedRevision: 5 });
   expect(output).toContain("#2 status=in_review owner=builder message=message-2");
+});
+
+test("Task list marks an owner whose Agent was deleted", async () => {
+  const output = await run(["task", "list", "--target", "#general"], {
+    check: async () => ({ messages: [] }),
+    read: async () => ({}),
+    send: async () => ({}),
+    view: async () => ({ bytes: new Uint8Array() }),
+    task: async () => ({
+      tasks: [
+        {
+          messageId: "message-46",
+          conversationId: "conversation",
+          number: 46,
+          title: "Half-done work",
+          status: "in_progress",
+          revision: 3,
+          owner: {
+            memberId: "member",
+            kind: "agent",
+            id: "agent",
+            name: "Kiro",
+            handle: "kiro",
+            deleted: true,
+          },
+        },
+      ],
+    }),
+  });
+  expect(output).toBe(
+    "#46 status=in_progress owner=Kiro [deleted] message=message-46 revision=3 Half-done work",
+  );
 });
 
 test("Task unclaim reads one revision unless explicitly supplied and submits once", async () => {
@@ -981,7 +1083,13 @@ test("Task unclaim reads one revision unless explicitly supplied and submits onc
               title: "Verify",
               status: "in_progress",
               revision: 4,
-              owner: { memberId: "member", kind: "agent", name: "builder" },
+              owner: {
+                memberId: "member",
+                kind: "agent",
+                id: "agent",
+                name: "builder",
+                handle: "builder",
+              },
             },
           ],
         };

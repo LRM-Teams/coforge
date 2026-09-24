@@ -1,24 +1,25 @@
 import { expect, test } from "bun:test";
 
 import {
+  CHANNEL_CHIP_CLASS,
   MENTION_CHIP_AGENT_CLASS,
   MENTION_CHIP_CLASS,
   MENTION_CHIP_SELF_CLASS,
   TASK_CHIP_CLASS,
   TASK_CHIP_LINK_CLASS,
   type ChipMention,
-  escapeLiteralHtml,
   mentionHandlesByToken,
-  rehypeMentionChips,
-  rehypeTaskReferenceChips,
-} from "../src/features/conversations/message-markdown";
+  patternAlternation,
+  rehypeReferenceChips,
+} from "#src/features/conversations/message-markdown";
+import { escapeLiteralHtml } from "#src/lib/message-syntax";
 
 const UUID = "550e8400-e29b-41d4-a716-446655440000";
 const OTHER_UUID = "11111111-2222-4333-8444-555555555555";
 const AGENT_TOKEN = `<@agent:${UUID}>`;
 const HUMAN_TOKEN = `<@human:${OTHER_UUID}>`;
 
-/** Runs the chip plugin over a tree shaped like the one `rehype-sanitize` leaves behind. */
+/** Runs the chip pass over a tree shaped like the one `rehype-sanitize` leaves behind. */
 function chipify(
   children: unknown[],
   options: {
@@ -28,10 +29,10 @@ function chipify(
   } = {},
 ) {
   const tree = { type: "root", children } as never;
-  rehypeMentionChips({
-    handles: options.handles ?? new Map(),
+  rehypeReferenceChips({
+    mentions: options.handles ?? new Map(),
     viewerHandle: options.viewerHandle,
-    plain: options.plain,
+    plainMentions: options.plain,
   })(tree);
   return tree as { children: Array<Record<string, unknown>> };
 }
@@ -363,15 +364,15 @@ test("a plain handle of the viewer renders with the self chip class", () => {
   ).toBe(true);
 });
 
-/** Runs the task-reference chip plugin over a tree shaped like the sanitized one. */
+/** Runs the chip pass over a tree shaped like the sanitized one, for a conversation's tasks. */
 function taskChipify(children: unknown[], numbers: ReadonlySet<number> = new Set()) {
   const tree = { type: "root", children } as never;
-  rehypeTaskReferenceChips({ numbers })(tree);
+  rehypeReferenceChips({ mentions: new Map(), taskNumbers: numbers })(tree);
   return tree as { children: Array<Record<string, unknown>> };
 }
 
 test("a task token renders as a number-only chip", () => {
-  const tree = taskChipify([paragraph([text("with <@task:68> next")])]);
+  const tree = taskChipify([paragraph([text("with <@task:68> next")])], new Set([68]));
   const children = tree.children[0]!.children as Array<Record<string, unknown>>;
   expect(children[0]).toEqual(text("with "));
   expect(children[1]).toMatchObject({
@@ -393,16 +394,27 @@ test("a referenced number known here becomes a clickable chip", () => {
   expect(properties["data-task-reference-number"]).toBe(68);
 });
 
-test("a number that names no task still reads `#N`, but is not a control", () => {
-  const tree = taskChipify([paragraph([text("<@task:999>")])], new Set([68]));
-  const chip = (tree.children[0]!.children as Array<Record<string, unknown>>)[0]!;
-  const properties = chip.properties as {
-    className: string[];
-    "data-task-reference-number"?: number;
-  };
-  expect(properties.className).toEqual(TASK_CHIP_CLASS.split(" "));
-  expect(properties["data-task-reference-number"]).toBeUndefined();
-  expect(chip.children).toEqual([text("#999")]);
+test("a task token naming no task of this conversation reads as plain text, with no chip", () => {
+  // A token is a claim, checked against the conversation's tasks.
+  const tree = taskChipify([paragraph([text("see <@task:999>.")])], new Set([68]));
+  expect(tree.children[0]!.children).toEqual([text("see "), text("task #999"), text(".")]);
+});
+
+test("a task token or a plain @handle inside a link is text, never a control inside a link", () => {
+  const link = (value: string) =>
+    paragraph([
+      { type: "element", tagName: "a", properties: { href: "/x" }, children: [text(value)] },
+    ]);
+  const task = taskChipify([link("<@task:68>")], new Set([68]));
+  expect((task.children[0]!.children as Array<Record<string, unknown>>)[0]!.children).toEqual([
+    text("task #68"),
+  ]);
+  const plain = chipify([link("ask @ada")], {
+    plain: new Map([["ada", { handle: "ada", label: "Ada Lovelace" }]]),
+  });
+  expect((plain.children[0]!.children as Array<Record<string, unknown>>)[0]!.children).toEqual([
+    text("ask @ada"),
+  ]);
 });
 
 test("a task token inside a code element is never chipped", () => {
@@ -416,4 +428,91 @@ test("a task token inside a code element is never chipped", () => {
   );
   const code = (tree.children[0]!.children as Array<Record<string, unknown>>)[0]!;
   expect(code.children).toEqual([text("<@task:68>")]);
+});
+
+const CHANNEL_ID = "33333333-3333-4333-8333-333333333333";
+const CHANNEL_TOKEN = `<@channel:${CHANNEL_ID}:product>`;
+
+function channelChipify(children: unknown[], currentNames?: ReadonlyMap<string, string>) {
+  const tree = { type: "root", children } as never;
+  rehypeReferenceChips({ mentions: new Map(), channelNames: currentNames })(tree);
+  return tree as { children: Array<{ children: Array<Record<string, unknown>> }> };
+}
+
+test("a channel token keeps its angle brackets through the HTML escape", () => {
+  expect(escapeLiteralHtml(`see ${CHANNEL_TOKEN} now`)).toBe(`see ${CHANNEL_TOKEN} now`);
+});
+
+test("a channel token becomes a chip carrying the channel id and its current name", () => {
+  const tree = channelChipify(
+    [paragraph([text(`see ${CHANNEL_TOKEN} now`)])],
+    new Map([[CHANNEL_ID, "launch"]]),
+  );
+  const [before, chip, after] = tree.children[0]!.children;
+  expect(before).toEqual(text("see "));
+  expect(chip).toMatchObject({
+    tagName: "span",
+    properties: { className: CHANNEL_CHIP_CLASS.split(" "), "data-channel-id": CHANNEL_ID },
+    children: [text("#launch")],
+  });
+  expect(after).toEqual(text(" now"));
+});
+
+test("a channel token whose id the Workspace does not have reads as plain #name, with no link", () => {
+  // A token is a claim, checked against the Workspace's channels (closed ones included): an unknown
+  // or forged id gets no chip and no link, only the name as text — what typing `#name` gives.
+  const tree = channelChipify([paragraph([text(CHANNEL_TOKEN)])], new Map());
+  expect(tree.children[0]!.children).toEqual([text("#product")]);
+});
+
+test("without a place to navigate from, a channel token reads as plain #name", () => {
+  const tree = channelChipify([paragraph([text(`see ${CHANNEL_TOKEN}`)])]);
+  expect(tree.children[0]!.children).toEqual([text("see "), text("#product")]);
+});
+
+test("a channel token inside a link reads as plain #name, never a link in a link", () => {
+  const tree = channelChipify(
+    [
+      paragraph([
+        {
+          type: "element",
+          tagName: "a",
+          properties: { href: "/x" },
+          children: [text(CHANNEL_TOKEN)],
+        },
+      ]),
+    ],
+    new Map(),
+  );
+  const link = tree.children[0]!.children[0]!;
+  expect(link.children).toEqual([text("#product")]);
+});
+
+test("a channel token inside code, and a plain #name anywhere, stay as written", () => {
+  const tree = channelChipify(
+    [
+      paragraph([
+        { type: "element", tagName: "code", properties: {}, children: [text(CHANNEL_TOKEN)] },
+        text(" and #product"),
+      ]),
+    ],
+    new Map([[CHANNEL_ID, "product"]]),
+  );
+  const [code, prose] = tree.children[0]!.children;
+  expect(code!.children).toEqual([text(CHANNEL_TOKEN)]);
+  expect(prose).toEqual(text(" and #product"));
+});
+
+test("an alternation reads each match as its own pattern's groups, a `u` pattern included", () => {
+  const { pattern, read } = patternAlternation([
+    /<@x:(\d+)>/gi,
+    /(?<![\p{L}])@(\p{L}+)/gu,
+    /#([a-z]+)-(\d+)/g,
+  ]);
+  const reads = [..."ask @élodie about <@X:5> and #plan-2".matchAll(pattern)].map(read);
+  expect(reads).toEqual([
+    { index: 1, groups: ["élodie"] },
+    { index: 0, groups: ["5"] },
+    { index: 2, groups: ["plan", "2"] },
+  ]);
 });

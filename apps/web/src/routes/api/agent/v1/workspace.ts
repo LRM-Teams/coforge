@@ -1,13 +1,13 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { resolveAgentStatus } from "#/server/agents/agent-user-info.server";
-import { agentAuthMiddleware } from "#/server/agents/agent-http.middleware";
-import { buildAgentRuntimeContext } from "#/server/agents/agent-runtime-context.server";
-import { parseAgentRuntimeConfig } from "#/server/agents/agent-runtime-config.server";
-import { ACTIVE_AGENT_WHERE } from "#/server/agents/active-agent.server";
+import { resolveAgentStatus } from "#src/server/agents/agent-user-info.server";
+import { agentAuthMiddleware } from "#src/server/agents/agent-http-middleware.server";
+import { buildAgentRuntimeContext } from "#src/server/agents/agent-runtime-context.server";
+import { parseAgentRuntimeConfig } from "#src/server/agents/agent-runtime-config.server";
+import { ACTIVE_AGENT_WHERE } from "#src/server/agents/active-agent.server";
 import {
   agentVisibilityViewerForActor,
   visibleAgentWhere,
-} from "#/server/agents/agent-visibility.server";
+} from "#src/server/agents/agent-visibility.server";
 
 export const Route = createFileRoute("/api/agent/v1/workspace")({
   server: {
@@ -15,7 +15,7 @@ export const Route = createFileRoute("/api/agent/v1/workspace")({
     handlers: {
       GET: async ({ context: { principal, db } }) => {
         try {
-          // ADR 0059: a private Agent invisible to the caller is absent from the roster.
+          // A private Agent invisible to the caller is absent from the roster.
           const viewer = await agentVisibilityViewerForActor(db, principal.workspaceId, {
             agentId: principal.agentId,
           });

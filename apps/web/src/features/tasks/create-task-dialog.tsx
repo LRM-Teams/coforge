@@ -1,9 +1,10 @@
-import { useId, useRef, useState, type FormEvent } from "react";
+import { useRef, useState, type FormEvent } from "react";
 
-import { Button } from "@/components/base/buttons/button";
-import { Dialog, Modal, ModalOverlay } from "@/components/application/modals/modal";
-import { m } from "@/paraglide/messages";
-import { DialogHeader } from "@/components/application/modals/dialog-header";
+import { Button } from "#src/components/base/buttons/button";
+import { Input } from "#src/components/base/input/input";
+import { Dialog, Modal, ModalOverlay } from "#src/components/application/modals/modal";
+import { m } from "#src/paraglide/messages";
+import { DialogHeader } from "#src/components/application/modals/dialog-header";
 
 export function CreateTaskDialog({
   open,
@@ -14,7 +15,6 @@ export function CreateTaskDialog({
   onOpenChange: (open: boolean) => void;
   onCreate: (title: string, requestId: string) => Promise<void>;
 }) {
-  const id = useId();
   const [title, setTitle] = useState("");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
@@ -59,17 +59,13 @@ export function CreateTaskDialog({
                 className="px-0 pt-0"
               />
               <form onSubmit={(event) => void submit(event)} className="mt-5 flex flex-col gap-3">
-                <label htmlFor={id} className="text-sm font-medium">
-                  {m.tasks_title()}
-                </label>
-                <input
-                  id={id}
+                <Input
+                  label={m.tasks_title()}
                   value={title}
-                  onChange={(event) => setTitle(event.target.value)}
-                  required
+                  onChange={setTitle}
+                  isRequired
                   maxLength={500}
-                  disabled={saving}
-                  className="h-10 rounded-lg border border-secondary bg-primary px-3 text-sm outline-none focus:ring-2 focus:ring-brand"
+                  isDisabled={saving}
                 />
                 {error && (
                   <p role="alert" className="text-sm text-error-primary">

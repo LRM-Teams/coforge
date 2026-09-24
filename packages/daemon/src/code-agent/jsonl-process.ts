@@ -3,7 +3,7 @@ import {
   type OwnedChildProcess,
   type OwnedProcessTree,
   type ProcessTreeSpawner,
-} from "../platform/process-tree";
+} from "#src/platform/process-tree";
 import { AgentProcessCleanupError } from "./contract";
 import { getLogger } from "@logtape/logtape";
 

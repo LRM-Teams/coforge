@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 
-import { modelProviderDisplayName } from "@/features/agents/model-provider-display";
+import { modelProviderDisplayName } from "#src/features/agents/model-provider-display";
 
 test("known model providers use their brand names", () => {
   expect(modelProviderDisplayName("zai-coding-cn")).toBe("Z.AI Coding CN");

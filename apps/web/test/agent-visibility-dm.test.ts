@@ -1,9 +1,9 @@
 import { describe, expect, test } from "bun:test";
 
-import { canDirectMessageAgent } from "../src/server/agents/agent-visibility.server";
+import { canDirectMessageAgent } from "#src/server/agents/agent-visibility.server";
 
 /**
- * ADR 0059's stricter DM predicate: unlike `canSeeAgent` (which also admits an owner/admin
+ * The stricter DM predicate: unlike `canSeeAgent` (which also admits an owner/admin
  * viewer), a private Agent's direct conversation stays scoped to its own creator — an owner/admin
  * who can see and manage another member's private Agent still may not open or send a DM with it.
  */

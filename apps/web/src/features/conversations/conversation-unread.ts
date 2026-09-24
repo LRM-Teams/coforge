@@ -1,19 +1,20 @@
 import { useCallback, useRef, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 
-import { useRealtimeSubscription } from "../realtime/browser-realtime";
+import { useRealtimeSubscription } from "#src/features/realtime/browser-realtime";
 import {
   getUserConversationSubscriptionToken,
   getWorkspaceConversationSubscriptionToken,
-} from "../realtime/realtime.functions";
+} from "#src/features/realtime/realtime.functions";
 import {
+  decodeChannelUpdatedEvent,
   decodeMessageAvailableEvent,
   userConversationChannel,
   workspaceConversationChannel,
 } from "./conversation-realtime";
 
 /**
- * Sidebar unread state for the Chat page (ADR 0046, Slack/Discord model): a per-badge count
+ * Sidebar unread state for the Chat page (Slack/Discord model): a per-badge count
  * of unread top-level messages, seeded from the server's persisted read cursors and kept
  * live by realtime signals. Opening a conversation clears its badge; every list fetch
  * replaces local arithmetic with the server's own count.
@@ -83,6 +84,20 @@ export function applyUnreadEvent(
   };
 }
 
+/**
+ * Whether a new message landed in a chat the sidebar is not showing because the viewer closed it:
+ * a channel missing from the listed channels, or a DM whose Agent is in the closed set. Such a
+ * message brings the chat back, so the sidebar re-reads its list. Thread replies never do.
+ */
+export function activityInClosedConversation(
+  event: UnreadEventInput,
+  listed: { conversations: ReadonlySet<string>; hiddenAgentIds: ReadonlySet<string> },
+): boolean {
+  if (event.threadRootId) return false;
+  if (event.agentId) return listed.hiddenAgentIds.has(event.agentId);
+  return !listed.conversations.has(event.conversationId);
+}
+
 /** A conversation was read: clear its badge and remember the boundary it was read to. */
 export function clearUnread(
   current: UnreadCounts,
@@ -99,7 +114,7 @@ export function clearUnread(
 
 /**
  * The highest top-level sequence in a loaded conversation page — the boundary "I have read
- * everything shown in the main pane". Thread replies never advance it (ADR 0046). Shared by
+ * everything shown in the main pane". Thread replies never advance it. Shared by
  * the channel and DM routes so the two mark-read paths cannot drift.
  */
 export function latestTopLevelSequence(
@@ -180,6 +195,9 @@ export function useChannelUnread({
   channels,
   openConversationId,
   openAgentId,
+  hiddenAgentIds,
+  onClosedConversationActivity,
+  onChannelUpdated,
 }: {
   workspaceId?: string;
   /** The viewer, whose own direct-message signal channel carries their DM badges. */
@@ -190,22 +208,53 @@ export function useChannelUnread({
   openConversationId?: string;
   /** The Agent badge of the direct message currently shown, if a DM is open. */
   openAgentId?: string;
+  /** Agents whose DM the viewer closed; the sidebar leaves those rows out. */
+  hiddenAgentIds: ReadonlySet<string>;
+  /** A new message arrived in a closed chat: the sidebar re-reads its list to bring it back. */
+  onClosedConversationActivity: () => void;
+  /** A channel was renamed, described, archived or unarchived: the sidebar re-reads its list. */
+  onChannelUpdated: () => void;
 }): UnreadState {
   const [counts, setCounts] = useState<UnreadCounts>({});
   const getWorkspaceToken = useServerFn(getWorkspaceConversationSubscriptionToken);
   const getUserToken = useServerFn(getUserConversationSubscriptionToken);
-  const refs = useRef({ channels, openConversationId, openAgentId });
-  refs.current = { channels, openConversationId, openAgentId };
+  const refs = useRef({
+    channels,
+    openConversationId,
+    openAgentId,
+    hiddenAgentIds,
+    onClosedConversationActivity,
+    onChannelUpdated,
+  });
+  refs.current = {
+    channels,
+    openConversationId,
+    openAgentId,
+    hiddenAgentIds,
+    onClosedConversationActivity,
+    onChannelUpdated,
+  };
 
   const onPublication = useCallback((publication: { data: unknown }) => {
+    try {
+      decodeChannelUpdatedEvent(publication.data);
+      refs.current.onChannelUpdated();
+      return;
+    } catch {
+      // Not a channel update; the other payload is a message signal.
+    }
     try {
       const event = decodeMessageAvailableEvent(publication.data);
       const {
         channels: channelRows,
         openConversationId: open,
         openAgentId: openAgent,
+        hiddenAgentIds: hiddenAgents,
+        onClosedConversationActivity: reopenFromActivity,
       } = refs.current;
       const conversations = new Set(channelRows.map((channel) => channel.id));
+      if (activityInClosedConversation(event, { conversations, hiddenAgentIds: hiddenAgents }))
+        reopenFromActivity();
       setCounts((current) =>
         applyUnreadEvent(current, event, {
           conversations,

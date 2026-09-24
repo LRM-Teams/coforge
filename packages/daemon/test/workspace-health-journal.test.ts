@@ -7,7 +7,7 @@ import {
   WORKSPACE_HEALTH_DEGRADED_THRESHOLD,
   WorkspaceHealthJournal,
   workspaceHealthJournalPath,
-} from "../src/supervisor/workspace-health-journal";
+} from "#src/supervisor/workspace-health-journal";
 
 let directory: string;
 beforeEach(async () => {

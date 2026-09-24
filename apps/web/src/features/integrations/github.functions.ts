@@ -1,13 +1,13 @@
 import { createServerFn } from "@tanstack/react-start";
 import { getRequest, setResponseHeader } from "@tanstack/react-start/server";
 import { z } from "zod";
-import { AppError } from "../../lib/app-error";
-import { authMiddleware } from "../../server/auth/function-auth";
-import { configuredGitHub } from "../../server/integrations/github-config.server";
+import { AppError } from "#src/lib/app-error";
+import { authMiddleware } from "#src/features/auth/function-auth";
+import { configuredGitHub } from "#src/server/integrations/github-config.server";
 import {
   githubInstallationStateCookie,
   githubStateCookie,
-} from "../../server/integrations/github-http.server";
+} from "#src/server/integrations/github-http.server";
 
 async function requiredGitHub() {
   const github = await configuredGitHub();

@@ -1,23 +1,47 @@
-import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type ReactNode,
+} from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { DbClient } from "@tanstack/react-db";
 import { getRouteApi, useParams, useRouter, useRouterState } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { ArrowLeft } from "@untitledui/icons";
-import { ButtonUtility } from "@/components/base/buttons/button-utility";
-import { PageHeader } from "@/components/layout/page-header";
-import { useBreakpoint } from "@/hooks/use-breakpoint";
+import { ButtonUtility } from "#src/components/base/buttons/button-utility";
+import { PageHeader } from "#src/components/layout/page-header";
+import { useBreakpoint } from "#src/hooks/use-breakpoint";
 import { ConversationDirectory } from "./conversation-directory";
 import { LiveAgentActivityBar } from "./live-agent-activity-bar";
-import { m } from "@/paraglide/messages";
-import { cx } from "@/utils/cx";
+import { m } from "#src/paraglide/messages";
+import { cx } from "#src/utils/cx";
 import { createPublicChannel } from "./channels.functions";
-import { useCurrentWorkspaceId, useLiveAgents } from "@/features/agents/workspace-agents-realtime";
+import { listSavedMessages, saveMessage, unsaveMessage } from "./saved-messages.functions";
+import {
+  materializeSavedMessages,
+  savedMessagesQueryKey,
+  savedMessagesStore,
+  type SavedEntry,
+  type SavedMessagesStore,
+} from "./saved-messages-collection";
+import {
+  useCurrentWorkspaceId,
+  useLiveAgents,
+} from "#src/features/agents/workspace-agents-realtime";
 import { CreateChannelDialog } from "./create-channel-dialog";
+import { rememberConversation } from "./last-conversation";
 import { useChannelUnread } from "./conversation-unread";
+import { useRefreshSidebarChannels, useSidebarLists } from "./sidebar-lists";
 import {
   DEFAULT_CONVERSATION_OPEN_MODE,
   conversationOpenMode,
   type ConversationOpenMode,
-} from "@/features/settings/conversation-open-mode";
+} from "#src/features/settings/conversation-open-mode";
 
 const messagesRoute = getRouteApi("/_app/messages");
 const appRoute = getRouteApi("/_app");
@@ -38,6 +62,18 @@ type UnreadControls = {
 
 const UnreadContext = createContext<UnreadControls>({ counts: {}, clear: () => {} });
 const OpenModeContext = createContext<ConversationOpenMode>(DEFAULT_CONVERSATION_OPEN_MODE);
+
+/** The viewer's Saved list (#127), one TanStack DB collection behind the row stars, the sidebar
+ * entry, and the Saved view (`saved-messages-collection.ts`). Saves and unsaves show at once and
+ * roll back when the server refuses them. */
+type SavedMessagesState = {
+  store: SavedMessagesStore;
+  /** Resolves once the server has the save; rejects (after rolling back) when it fails. */
+  save: (saved: SavedEntry) => Promise<void>;
+  unsave: (messageId: string) => Promise<void>;
+};
+
+const SavedMessagesContext = createContext<SavedMessagesState | null>(null);
 
 export function useConversationDetailVisible() {
   return useContext(ConversationListContext)?.detailVisible ?? true;
@@ -67,6 +103,35 @@ export function useConversationOpenMode(): ConversationOpenMode {
   return useContext(OpenModeContext);
 }
 
+/** The Saved list controls; null where no Chat page is above (rows then offer no save). */
+export function useSavedMessages(): SavedMessagesState | null {
+  return useContext(SavedMessagesContext);
+}
+
+const NO_SAVED_ENTRIES: SavedEntry[] = [];
+const noSubscription = () => () => {};
+
+/** The Saved list, newest save first; undefined where no Chat page is above. */
+export function useSavedEntries(): SavedEntry[] | undefined {
+  const saved = useContext(SavedMessagesContext);
+  const entries = useSyncExternalStore(
+    saved?.store.subscribe ?? noSubscription,
+    () => saved?.store.entries() ?? NO_SAVED_ENTRIES,
+    () => saved?.store.entries() ?? NO_SAVED_ENTRIES,
+  );
+  return saved ? entries : undefined;
+}
+
+/** Whether one message is saved; a row re-renders only when its own answer changes. */
+export function useIsMessageSaved(messageId: string): boolean {
+  const saved = useContext(SavedMessagesContext);
+  return useSyncExternalStore(
+    saved?.store.subscribe ?? noSubscription,
+    () => saved?.store.has(messageId) ?? false,
+    () => saved?.store.has(messageId) ?? false,
+  );
+}
+
 /**
  * Whether the read cursor must wait for the user to actually reach the bottom
  * (`newest-unread`): opening the conversation clears the sidebar badge but the
@@ -78,7 +143,8 @@ export function useConversationReadRequiresScroll(): boolean {
 
 /** Keep both panels mounted so returning to the list preserves scroll and drafts. */
 export function ConversationNavigation({ children }: { children: ReactNode }) {
-  const { channels, projects, directUnread, viewerId } = messagesRoute.useLoaderData();
+  const { projects, saved } = messagesRoute.useLoaderData();
+  const { channels, directs, viewerId, readAt } = useSidebarLists();
   const { conversationOpenMode: savedOpenMode } = appRoute.useLoaderData();
   const openMode = conversationOpenMode(savedOpenMode);
   const agents = useLiveAgents();
@@ -105,7 +171,20 @@ export function ConversationNavigation({ children }: { children: ReactNode }) {
     });
   }, [router]);
 
+  // The conversation this is becomes the one Chat reopens in this Workspace. Only a conversation
+  // the user moved to counts: a Workspace switch keeps the URL, and recording it then would file the
+  // old Workspace's conversation under the new one.
+  const rememberedPath = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    if (!workspaceId || pathname === rememberedPath.current) return;
+    rememberedPath.current = pathname;
+    rememberConversation(workspaceId, pathname);
+  }, [workspaceId, pathname]);
+
   const visibleChannels = useMemo(() => channels.filter((listed) => !listed.archived), [channels]);
+  const hiddenAgentIds = useMemo(() => new Set(directs.hiddenAgentIds), [directs]);
+  const closedChatRefresh = useRef<"idle" | "running" | "queued">("idle");
+  const refreshChannels = useRefreshSidebarChannels();
   const unread = useChannelUnread({
     workspaceId,
     userId: viewerId,
@@ -113,25 +192,74 @@ export function ConversationNavigation({ children }: { children: ReactNode }) {
     openConversationId: channel?.channelId,
     // The open DM's own events must not bump its badge: they are being read right now.
     openAgentId: agent?.agentId,
+    hiddenAgentIds,
+    onClosedConversationActivity: () => {
+      // One refresh at a time: a burst of messages needs a single re-read of the list. A message
+      // that lands mid-refresh may have missed that read, so it queues exactly one more.
+      if (closedChatRefresh.current !== "idle") {
+        closedChatRefresh.current = "queued";
+        return;
+      }
+      const refresh = () => {
+        closedChatRefresh.current = "running";
+        void router.invalidate().finally(() => {
+          if (closedChatRefresh.current === "queued") refresh();
+          else closedChatRefresh.current = "idle";
+        });
+      };
+      refresh();
+    },
+    // A channel was renamed, described, archived or unarchived: only the channel list is stale.
+    onChannelUpdated: () => void refreshChannels(),
   });
-  // Every loader refresh carries the server's own persisted counts; local arithmetic
-  // restarts from them (sequence boundaries survive, so no event double-counts). Direct
-  // messages are already keyed by Agent id, the same key their realtime signal carries.
+  // Every server read of the lists carries the persisted counts; local arithmetic restarts from
+  // them (sequence boundaries survive, so no event double-counts). Direct messages are already
+  // keyed by Agent id, the same key their realtime signal carries. A re-seed follows each server
+  // read (`readAt`) and each change of a count shown (a mark-unread), not a pin, a drag, or a
+  // closed row with nothing unread.
   const { counts } = unread;
   const refresh = unread.replace;
-  useEffect(() => {
-    refresh([
-      ...visibleChannels,
-      ...Object.entries(directUnread).map(([agentId, unreadCount]) => ({
+  const seed = useMemo(() => {
+    const entries = [
+      ...visibleChannels.map((listed) => ({ id: listed.id, unreadCount: listed.unreadCount })),
+      ...Object.entries(directs.unread).map(([agentId, unreadCount]) => ({
         id: agentId,
         unreadCount,
       })),
-    ]);
-  }, [refresh, visibleChannels, directUnread]);
+    ];
+    const counts = entries
+      .flatMap((entry) => (entry.unreadCount > 0 ? [`${entry.id}:${entry.unreadCount}`] : []))
+      .join(",");
+    return { entries, key: `${readAt}|${counts}` };
+  }, [visibleChannels, directs, readAt]);
+  useEffect(() => {
+    refresh(seed.entries);
+  }, [refresh, seed.key]);
   const controls = useMemo<UnreadControls>(
     () => ({ counts, clear: unread.clear }),
     [counts, unread.clear],
   );
+  // Saved (#127): the loader seeds the collection; a toggle changes it at once and persists in
+  // the background. A router invalidation's fresh list reaches it through its Query.
+  const queryClient = useQueryClient();
+  const [dbClient] = useState(() => new DbClient({ queryClient }));
+  const savedWorkspaceId = workspaceId ?? "";
+  // The collection is seeded once per Workspace from the list at hand; later loader lists go
+  // through its Query (the effect below), never by re-seeding.
+  const seededSaved = useRef(saved);
+  const savedMessages = useMemo<SavedMessagesState>(() => {
+    const collection = materializeSavedMessages(dbClient, savedWorkspaceId, seededSaved.current, {
+      list: () => listSavedMessages(),
+      save: (target) => saveMessage({ data: target }),
+      unsave: (target) => unsaveMessage({ data: target }),
+    });
+    const store = savedMessagesStore(collection);
+    return { store, save: store.save, unsave: store.unsave };
+  }, [dbClient, savedWorkspaceId]);
+  useEffect(() => {
+    if (saved === seededSaved.current) return;
+    queryClient.setQueryData(savedMessagesQueryKey(savedWorkspaceId), saved);
+  }, [queryClient, savedWorkspaceId, saved]);
 
   return (
     <ConversationListContext
@@ -143,34 +271,38 @@ export function ConversationNavigation({ children }: { children: ReactNode }) {
     >
       <OpenModeContext value={openMode}>
         <UnreadContext value={controls}>
-          <main className="flex h-svh min-w-0 flex-col bg-primary lg:flex-row">
-            <section
-              className={cx(
-                "min-h-0 flex-1 flex-col lg:flex lg:w-72 lg:flex-none lg:border-r lg:border-secondary",
-                showList ? "flex" : "hidden",
-              )}
-            >
-              <PageHeader heading={m.navigation_chat()} />
-              <div className="min-h-0 flex-1 overflow-y-auto py-4">
-                <ConversationDirectory
-                  channels={visibleChannels}
-                  agents={agents}
-                  selectedChannelId={channel?.channelId}
-                  selectedAgentId={agent?.agentId}
-                  onCreateChannel={() => setCreating(true)}
-                />
+          <SavedMessagesContext value={savedMessages}>
+            <main className="flex h-svh min-w-0 flex-col bg-primary lg:flex-row">
+              <section
+                className={cx(
+                  "min-h-0 flex-1 flex-col lg:flex lg:w-72 lg:flex-none lg:border-r lg:border-secondary",
+                  showList ? "flex" : "hidden",
+                )}
+              >
+                <PageHeader heading={m.navigation_chat()} />
+                <div className="min-h-0 flex-1 overflow-y-auto py-4">
+                  <ConversationDirectory
+                    channels={visibleChannels}
+                    agents={agents}
+                    directRows={directs.byAgent}
+                    selectedChannelId={channel?.channelId}
+                    selectedAgentId={agent?.agentId}
+                    selectedSaved={pathname === "/messages/saved"}
+                    onCreateChannel={() => setCreating(true)}
+                  />
+                </div>
+                <LiveAgentActivityBar agents={agents} />
+              </section>
+              <div
+                className={cx(
+                  "min-h-0 min-w-0 flex-1 flex-col lg:flex",
+                  showList ? "hidden" : "flex",
+                )}
+              >
+                {children}
               </div>
-              <LiveAgentActivityBar agents={agents} />
-            </section>
-            <div
-              className={cx(
-                "min-h-0 min-w-0 flex-1 flex-col lg:flex",
-                showList ? "hidden" : "flex",
-              )}
-            >
-              {children}
-            </div>
-          </main>
+            </main>
+          </SavedMessagesContext>
           {creating && (
             <CreateChannelDialog
               open={creating}

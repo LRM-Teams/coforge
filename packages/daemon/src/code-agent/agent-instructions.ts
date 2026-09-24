@@ -24,8 +24,8 @@ export type CoforgeAgentPromptContext = {
   agentWorkspaceDirectory: string;
   agentId?: string;
   identity?: AgentLaunchIdentity;
-  /** Provider hook for the `CRITICAL RULES:` section (see `buildCriticalRulesSection`). Empty by
-   * default; no CoForge provider passes anything here today. */
+  /** Provider hook appended to the Boundaries section. Empty by default; no CoForge
+   * provider passes anything here today. */
   extraCriticalRules?: readonly string[];
 };
 
@@ -44,8 +44,8 @@ function sanitizeQuotedName(name: string): string {
 }
 
 /** Strips any line-leading `#` characters so a user-written description cannot forge a Markdown
- * heading inside `## Initial role`. Exported for `agent-memory-seed.ts`, which applies the same
- * rule to the description rendered into the seeded MEMORY.md's `## Role` section. */
+ * heading inside the Role bullet or the seeded MEMORY.md `## Role` section. Exported for
+ * `agent-memory-seed.ts`. */
 export function stripHeadingMarkers(text: string): string {
   return text
     .split("\n")

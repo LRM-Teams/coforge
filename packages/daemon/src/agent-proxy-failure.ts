@@ -1,12 +1,12 @@
 import {
   AgentTransportError,
   type AgentTransportFailureClass,
-} from "./connection/agent-transport-error";
-import { AgentMessageRequestError } from "./connection/agent-message-request-error";
-import { AgentTaskRequestError } from "./connection/agent-task-request-error";
-import { AgentUpstreamRefusalError } from "./connection/agent-upstream-refusal-error";
-import { AgentWeeklyReportRequestError } from "./connection/agent-weekly-report-request-error";
-import { AgentPreflightError } from "./daemon-runtime/agent-preflight-error";
+} from "#src/connection/agent-transport-error";
+import { AgentMessageRequestError } from "#src/connection/agent-message-request-error";
+import { AgentTaskRequestError } from "#src/connection/agent-task-request-error";
+import { AgentUpstreamRefusalError } from "#src/connection/agent-upstream-refusal-error";
+import { AgentWeeklyReportRequestError } from "#src/connection/agent-weekly-report-request-error";
+import { AgentPreflightError } from "#src/daemon-runtime/agent-preflight-error";
 
 /** Response header carrying the same correlation id as the JSON error body. */
 export const AGENT_PROXY_CORRELATION_HEADER = "x-coforge-correlation-id";

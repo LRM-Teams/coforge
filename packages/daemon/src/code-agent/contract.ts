@@ -28,7 +28,7 @@ export interface CodeAgentProvider {
     timeoutMs?: number;
   }): Promise<UsageSnapshot | null>;
   /**
-   * Reads a one-shot breakdown of the Agent's current context-window composition (ADR 0051),
+   * Reads a one-shot breakdown of the Agent's current context-window composition,
    * against the Agent's own already-running native session — never a fresh one. `undefined` means
    * "ran, but no report could be made of it" (the caller reports this as `unparsed`), matching
    * `readUsage`'s own `null`-means-no-signal convention. Only the Claude Code provider implements
@@ -64,7 +64,7 @@ export interface CodeAgentProbe {
 }
 export const AGENT_RUNTIME_EVENT_TYPE = {
   USAGE: "usage",
-  // A provider-observed context-window reading (ADR 0050), distinct from the plan-usage
+  // A provider-observed context-window reading, distinct from the plan-usage
   // `USAGE` event above. Claude Code only today; a provider with no such signal never emits it.
   CONTEXT_USAGE: "context-usage",
 } as const;
@@ -83,7 +83,7 @@ export class UsageUnsupportedError extends Error {
   }
 }
 
-/** A `readContextReport` call did not finish before its timeout (ADR 0051); the caller reports
+/** A `readContextReport` call did not finish before its timeout; the caller reports
  * this as `timeout`, distinct from `unparsed` (ran, produced nothing parseable) or a generic
  * `error` (the CLI itself failed). */
 export class AgentContextReportTimeoutError extends Error {

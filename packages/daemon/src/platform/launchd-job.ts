@@ -2,7 +2,7 @@ import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { getLogger } from "@logtape/logtape";
 
-import type { NativeProcessIdentity } from "../supervisor/workspace-instance";
+import type { NativeProcessIdentity } from "#src/supervisor/workspace-instance";
 import { nativeCommandDiagnostic, type NativeCommandResult } from "./native-command";
 
 /**

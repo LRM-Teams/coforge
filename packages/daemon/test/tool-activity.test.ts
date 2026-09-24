@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { toolActivityLabel } from "@lrm/coforge-sdk/internal";
-import { toolActivity } from "../src/code-agent/tool-activity";
+import { toolActivity } from "#src/code-agent/tool-activity";
 
 test("provider tool aliases retain known file and command semantics without exposing content", () => {
   for (const name of ["read", "Read", "ReadFile", "file_read", "read_file"])

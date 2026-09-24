@@ -2,8 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { ChevronDown, ChevronUp } from "@untitledui/icons";
 
-import { Button } from "@/components/base/buttons/button";
-import { m } from "@/paraglide/messages";
+import { Button } from "#src/components/base/buttons/button";
+import { m } from "#src/paraglide/messages";
 import { loadWeeklyReportCollectRun } from "./records.functions";
 
 function collectRunStatusLabel(status: string): string {

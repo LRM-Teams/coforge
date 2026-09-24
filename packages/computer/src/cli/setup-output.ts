@@ -1,5 +1,5 @@
-import { terminalText } from "../terminal-output";
-import type { SetupResult } from "../setup/computer-setup";
+import { terminalText } from "#src/terminal-output";
+import type { SetupResult } from "#src/setup/computer-setup";
 
 export function writeSetupResult(
   writeLine: (line: string) => void,

@@ -5,7 +5,7 @@ import { queryOptions, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 
 import { executeTask } from "./tasks.functions";
-import { m } from "@/paraglide/messages";
+import { m } from "#src/paraglide/messages";
 
 export function mergeTaskChanges(current: TaskView[], changes: TaskView[]) {
   const changed = new Map(changes.map((task) => [task.messageId, task]));
@@ -16,6 +16,9 @@ export function mergeTaskChanges(current: TaskView[], changes: TaskView[]) {
   const known = new Set(current.map((task) => task.messageId));
   return [...merged, ...changes.filter((task) => !known.has(task.messageId))];
 }
+
+/** The empty list while the Tasks load: one array, so what is memoized on `tasks` keeps. */
+const NO_TASKS: TaskView[] = [];
 
 /** The Tasks of one conversation, re-read every 30 seconds while visible and on focus. */
 export const conversationTasksQuery = (conversationId: string) =>
@@ -85,7 +88,7 @@ export function useConversationTasks(conversationId: string) {
   };
 
   return {
-    tasks: query.data ?? [],
+    tasks: query.data ?? NO_TASKS,
     loading: query.isPending,
     error: mutationError || (query.isError ? m.tasks_load_error() : ""),
     refresh,

@@ -46,7 +46,7 @@ $defaultFeedUrl = "https://releases.coforge.cn"
 # packages/computer/src/release-channel.ts hardens by inlining the feed URL at build time - an
 # attacker able to set this variable in the invoking shell can equally set PATH or a proxy
 # variable to reach the same result, so there is no additional boundary to enforce here. See
-# docs/release.md.
+# docs/release/per-user-installation.md.
 $feedUrl = $env:COFORGE_RELEASE_FEED_URL
 if ([string]::IsNullOrEmpty($feedUrl)) { $feedUrl = $defaultFeedUrl }
 $feedUrl = $feedUrl.TrimEnd("/")

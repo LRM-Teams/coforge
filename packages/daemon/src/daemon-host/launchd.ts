@@ -1,7 +1,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import type { ManagedRuntimeIdentity } from "@lrm/coforge-sdk/internal";
-import { nativeCommandDiagnostic, type NativeCommandResult } from "../platform/native-command";
+import { nativeCommandDiagnostic, type NativeCommandResult } from "#src/platform/native-command";
 import { LocalDaemonLauncher } from "./launcher";
 import type { DaemonLauncher, DaemonWorkspaceConfig, LocalDaemonConnection } from "./launcher";
 
@@ -42,11 +42,11 @@ export type LaunchdDaemonHostOptions = {
  * The launchd user-agent lifecycle that hosts the CoForge Daemon on macOS. Two capabilities: the
  * ordinary install/start path shared with every platform (`ensureInstalled`, `ensureRunning`,
  * `stop`), and the in-place restart path unique to launchd (`restart`, `assertRestartable`) that
- * an upgrade uses instead of stop-then-start (ADR 0032).
+ * an upgrade uses instead of stop-then-start.
  */
 export class LaunchdDaemonHost implements DaemonLauncher {
-  /** Tells an upgrade lifecycle to restart through `restart()` rather than `stop()` + `start()`
-   * (ADR 0032). Read this capability instead of branching on `instanceof`/`process.platform`. */
+  /** Tells an upgrade lifecycle to restart through `restart()` rather than `stop()` + `start()`.
+   * Read this capability instead of branching on `instanceof`/`process.platform`. */
   readonly restartsInPlace = true;
   readonly #plistPath: string;
   readonly #target: string;
@@ -113,7 +113,7 @@ export class LaunchdDaemonHost implements DaemonLauncher {
    * its own SIGTERM (grace) / SIGKILL (at 5 s) ladder. The dev.34→dev.35 upgrade incident this
    * fixes bootstrapped a replacement job during exactly that window, found the label still
    * "loaded" from the old instance's point of view, and skipped it — launchd then finished
-   * removing the job with nothing left to start the new daemon (ADR 0032). A caller must not
+   * removing the job with nothing left to start the new daemon. A caller must not
    * treat `bootout` returning as the job being gone; only a fresh `print` proves that. */
   async stop(): Promise<void> {
     // Darwin ESRCH (3) means the process is already absent, not a stop failure.
@@ -149,14 +149,14 @@ export class LaunchdDaemonHost implements DaemonLauncher {
   /** Throws unless the label is currently loaded in `gui/<uid>`. Lets an upgrade lifecycle refuse
    * a `foreground`, externally supervised Computer — which never installed this user agent —
    * before it switches the active executable symlink, rather than discovering it only after
-   * `restart()` finds nothing to kickstart (ADR 0032). */
+   * `restart()` finds nothing to kickstart. */
   async assertRestartable(): Promise<void> {
     const result = await this.#run(["launchctl", "print", this.#target]);
     if (result.code !== 0) throw launchctlFailure("print", result);
   }
 
   /**
-   * The in-place replacement an upgrade uses instead of `stop()` + `start()` (ADR 0032). When the
+   * The in-place replacement an upgrade uses instead of `stop()` + `start()`. When the
    * label is loaded, `launchctl kickstart -k` re-resolves `ProgramArguments` — so a symlink flip
    * that already landed is honoured — and is synchronous: it does not return until the *new*
    * process has been spawned, so there is never an unload window for launchd to remove the job
@@ -237,7 +237,7 @@ async function runCommand(command: string[]): Promise<NativeCommandResult> {
     stderr: "pipe",
     // Generous: a `kickstart -k` against a job that respawned inside launchd's throttle window
     // can legitimately block for several seconds (measured up to ~9 s), and this must not be
-    // mistaken for a hung command (ADR 0032).
+    // mistaken for a hung command.
     timeout: 30_000,
   });
   const [code, stderr] = await Promise.all([process.exited, new Response(process.stderr).text()]);

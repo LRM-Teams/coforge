@@ -14,9 +14,11 @@ import { Route as AppRouteImport } from './routes/_app'
 import { Route as HealthRouteImport } from './routes/health'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as DotwellKnownOauthAuthorizationServerRouteImport } from './routes/[.]well-known.oauth-authorization-server'
+import { Route as AppActivityRouteImport } from './routes/_app/activity'
 import { Route as AppComputersRouteImport } from './routes/_app/computers'
 import { Route as AppMessagesRouteImport } from './routes/_app/messages'
 import { Route as AppRecordsRouteImport } from './routes/_app/records'
+import { Route as AppSearchRouteImport } from './routes/_app/search'
 import { Route as AppSettingsRouteImport } from './routes/_app/settings'
 import { Route as AppTasksRouteImport } from './routes/_app/tasks'
 import { Route as ApiAgentApiKeysRouteImport } from './routes/api/agent-api-keys'
@@ -38,6 +40,7 @@ import { Route as AppComputersIndexRouteImport } from './routes/_app/computers.i
 import { Route as AppComputersComputerIdRouteImport } from './routes/_app/computers.$computerId'
 import { Route as AppMessagesIndexRouteImport } from './routes/_app/messages.index'
 import { Route as AppMessagesAgentIdRouteImport } from './routes/_app/messages.$agentId'
+import { Route as AppMessagesSavedRouteImport } from './routes/_app/messages.saved'
 import { Route as AppProjectsIndexRouteImport } from './routes/_app/projects.index'
 import { Route as AppProjectsProjectSlugRouteImport } from './routes/_app/projects.$projectSlug'
 import { Route as AppRecordsIndexRouteImport } from './routes/_app/records.index'
@@ -125,6 +128,11 @@ const DotwellKnownOauthAuthorizationServerRoute =
     path: '/.well-known/oauth-authorization-server',
     getParentRoute: () => rootRouteImport,
   } as any)
+const AppActivityRoute = AppActivityRouteImport.update({
+  id: '/activity',
+  path: '/activity',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppComputersRoute = AppComputersRouteImport.update({
   id: '/computers',
   path: '/computers',
@@ -138,6 +146,11 @@ const AppMessagesRoute = AppMessagesRouteImport.update({
 const AppRecordsRoute = AppRecordsRouteImport.update({
   id: '/records',
   path: '/records',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppSearchRoute = AppSearchRouteImport.update({
+  id: '/search',
+  path: '/search',
   getParentRoute: () => AppRoute,
 } as any)
 const AppSettingsRoute = AppSettingsRouteImport.update({
@@ -243,6 +256,11 @@ const AppMessagesIndexRoute = AppMessagesIndexRouteImport.update({
 const AppMessagesAgentIdRoute = AppMessagesAgentIdRouteImport.update({
   id: '/$agentId',
   path: '/$agentId',
+  getParentRoute: () => AppMessagesRoute,
+} as any)
+const AppMessagesSavedRoute = AppMessagesSavedRouteImport.update({
+  id: '/saved',
+  path: '/saved',
   getParentRoute: () => AppMessagesRoute,
 } as any)
 const AppProjectsIndexRoute = AppProjectsIndexRouteImport.update({
@@ -593,9 +611,11 @@ export interface FileRoutesByFullPath {
   '/health': typeof HealthRoute
   '/login': typeof LoginRoute
   '/.well-known/oauth-authorization-server': typeof DotwellKnownOauthAuthorizationServerRoute
+  '/activity': typeof AppActivityRoute
   '/computers': typeof AppComputersRouteWithChildren
   '/messages': typeof AppMessagesRouteWithChildren
   '/records': typeof AppRecordsRouteWithChildren
+  '/search': typeof AppSearchRoute
   '/settings': typeof AppSettingsRoute
   '/tasks': typeof AppTasksRoute
   '/api/agent-api-keys': typeof ApiAgentApiKeysRoute
@@ -614,6 +634,7 @@ export interface FileRoutesByFullPath {
   '/agents/$agentId': typeof AppAgentsAgentIdRoute
   '/computers/$computerId': typeof AppComputersComputerIdRoute
   '/messages/$agentId': typeof AppMessagesAgentIdRoute
+  '/messages/saved': typeof AppMessagesSavedRoute
   '/projects/$projectSlug': typeof AppProjectsProjectSlugRoute
   '/records/$recordId': typeof AppRecordsRecordIdRoute
   '/records/settings': typeof AppRecordsSettingsRoute
@@ -684,6 +705,8 @@ export interface FileRoutesByTo {
   '/health': typeof HealthRoute
   '/login': typeof LoginRoute
   '/.well-known/oauth-authorization-server': typeof DotwellKnownOauthAuthorizationServerRoute
+  '/activity': typeof AppActivityRoute
+  '/search': typeof AppSearchRoute
   '/settings': typeof AppSettingsRoute
   '/tasks': typeof AppTasksRoute
   '/api/agent-api-keys': typeof ApiAgentApiKeysRoute
@@ -702,6 +725,7 @@ export interface FileRoutesByTo {
   '/agents/$agentId': typeof AppAgentsAgentIdRoute
   '/computers/$computerId': typeof AppComputersComputerIdRoute
   '/messages/$agentId': typeof AppMessagesAgentIdRoute
+  '/messages/saved': typeof AppMessagesSavedRoute
   '/projects/$projectSlug': typeof AppProjectsProjectSlugRoute
   '/records/$recordId': typeof AppRecordsRecordIdRoute
   '/records/settings': typeof AppRecordsSettingsRoute
@@ -774,9 +798,11 @@ export interface FileRoutesById {
   '/health': typeof HealthRoute
   '/login': typeof LoginRoute
   '/.well-known/oauth-authorization-server': typeof DotwellKnownOauthAuthorizationServerRoute
+  '/_app/activity': typeof AppActivityRoute
   '/_app/computers': typeof AppComputersRouteWithChildren
   '/_app/messages': typeof AppMessagesRouteWithChildren
   '/_app/records': typeof AppRecordsRouteWithChildren
+  '/_app/search': typeof AppSearchRoute
   '/_app/settings': typeof AppSettingsRoute
   '/_app/tasks': typeof AppTasksRoute
   '/api/agent-api-keys': typeof ApiAgentApiKeysRoute
@@ -795,6 +821,7 @@ export interface FileRoutesById {
   '/_app/agents/$agentId': typeof AppAgentsAgentIdRoute
   '/_app/computers/$computerId': typeof AppComputersComputerIdRoute
   '/_app/messages/$agentId': typeof AppMessagesAgentIdRoute
+  '/_app/messages/saved': typeof AppMessagesSavedRoute
   '/_app/projects/$projectSlug': typeof AppProjectsProjectSlugRoute
   '/_app/records/$recordId': typeof AppRecordsRecordIdRoute
   '/_app/records/settings': typeof AppRecordsSettingsRoute
@@ -867,9 +894,11 @@ export interface FileRouteTypes {
     | '/health'
     | '/login'
     | '/.well-known/oauth-authorization-server'
+    | '/activity'
     | '/computers'
     | '/messages'
     | '/records'
+    | '/search'
     | '/settings'
     | '/tasks'
     | '/api/agent-api-keys'
@@ -888,6 +917,7 @@ export interface FileRouteTypes {
     | '/agents/$agentId'
     | '/computers/$computerId'
     | '/messages/$agentId'
+    | '/messages/saved'
     | '/projects/$projectSlug'
     | '/records/$recordId'
     | '/records/settings'
@@ -958,6 +988,8 @@ export interface FileRouteTypes {
     | '/health'
     | '/login'
     | '/.well-known/oauth-authorization-server'
+    | '/activity'
+    | '/search'
     | '/settings'
     | '/tasks'
     | '/api/agent-api-keys'
@@ -976,6 +1008,7 @@ export interface FileRouteTypes {
     | '/agents/$agentId'
     | '/computers/$computerId'
     | '/messages/$agentId'
+    | '/messages/saved'
     | '/projects/$projectSlug'
     | '/records/$recordId'
     | '/records/settings'
@@ -1047,9 +1080,11 @@ export interface FileRouteTypes {
     | '/health'
     | '/login'
     | '/.well-known/oauth-authorization-server'
+    | '/_app/activity'
     | '/_app/computers'
     | '/_app/messages'
     | '/_app/records'
+    | '/_app/search'
     | '/_app/settings'
     | '/_app/tasks'
     | '/api/agent-api-keys'
@@ -1068,6 +1103,7 @@ export interface FileRouteTypes {
     | '/_app/agents/$agentId'
     | '/_app/computers/$computerId'
     | '/_app/messages/$agentId'
+    | '/_app/messages/saved'
     | '/_app/projects/$projectSlug'
     | '/_app/records/$recordId'
     | '/_app/records/settings'
@@ -1233,6 +1269,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DotwellKnownOauthAuthorizationServerRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/_app/activity': {
+      id: '/_app/activity'
+      path: '/activity'
+      fullPath: '/activity'
+      preLoaderRoute: typeof AppActivityRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/computers': {
       id: '/_app/computers'
       path: '/computers'
@@ -1252,6 +1295,13 @@ declare module '@tanstack/react-router' {
       path: '/records'
       fullPath: '/records'
       preLoaderRoute: typeof AppRecordsRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/search': {
+      id: '/_app/search'
+      path: '/search'
+      fullPath: '/search'
+      preLoaderRoute: typeof AppSearchRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/settings': {
@@ -1399,6 +1449,13 @@ declare module '@tanstack/react-router' {
       path: '/$agentId'
       fullPath: '/messages/$agentId'
       preLoaderRoute: typeof AppMessagesAgentIdRouteImport
+      parentRoute: typeof AppMessagesRoute
+    }
+    '/_app/messages/saved': {
+      id: '/_app/messages/saved'
+      path: '/saved'
+      fullPath: '/messages/saved'
+      preLoaderRoute: typeof AppMessagesSavedRouteImport
       parentRoute: typeof AppMessagesRoute
     }
     '/_app/projects/': {
@@ -1847,12 +1904,14 @@ const AppComputersRouteWithChildren = AppComputersRoute._addFileChildren(
 
 interface AppMessagesRouteChildren {
   AppMessagesAgentIdRoute: typeof AppMessagesAgentIdRoute
+  AppMessagesSavedRoute: typeof AppMessagesSavedRoute
   AppMessagesIndexRoute: typeof AppMessagesIndexRoute
   AppMessagesChannelsChannelIdRoute: typeof AppMessagesChannelsChannelIdRoute
 }
 
 const AppMessagesRouteChildren: AppMessagesRouteChildren = {
   AppMessagesAgentIdRoute: AppMessagesAgentIdRoute,
+  AppMessagesSavedRoute: AppMessagesSavedRoute,
   AppMessagesIndexRoute: AppMessagesIndexRoute,
   AppMessagesChannelsChannelIdRoute: AppMessagesChannelsChannelIdRoute,
 }
@@ -1882,9 +1941,11 @@ const AppRecordsRouteWithChildren = AppRecordsRoute._addFileChildren(
 )
 
 interface AppRouteChildren {
+  AppActivityRoute: typeof AppActivityRoute
   AppComputersRoute: typeof AppComputersRouteWithChildren
   AppMessagesRoute: typeof AppMessagesRouteWithChildren
   AppRecordsRoute: typeof AppRecordsRouteWithChildren
+  AppSearchRoute: typeof AppSearchRoute
   AppSettingsRoute: typeof AppSettingsRoute
   AppTasksRoute: typeof AppTasksRoute
   AppAgentsAgentIdRoute: typeof AppAgentsAgentIdRoute
@@ -1896,9 +1957,11 @@ interface AppRouteChildren {
 }
 
 const AppRouteChildren: AppRouteChildren = {
+  AppActivityRoute: AppActivityRoute,
   AppComputersRoute: AppComputersRouteWithChildren,
   AppMessagesRoute: AppMessagesRouteWithChildren,
   AppRecordsRoute: AppRecordsRouteWithChildren,
+  AppSearchRoute: AppSearchRoute,
   AppSettingsRoute: AppSettingsRoute,
   AppTasksRoute: AppTasksRoute,
   AppAgentsAgentIdRoute: AppAgentsAgentIdRoute,

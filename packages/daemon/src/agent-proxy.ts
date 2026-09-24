@@ -38,22 +38,22 @@ import {
   type AgentProfileUpdateRequest,
   type AgentProfileUpdateResponse,
 } from "@lrm/coforge-sdk/agent";
-import { isAgentApiKey } from "./credentials/agent-api-key";
+import { isAgentApiKey } from "#src/credentials/agent-api-key";
 import { classifyAgentProxyFailure, AGENT_PROXY_CORRELATION_HEADER } from "./agent-proxy-failure";
-import { AgentManualRequestError } from "./connection/agent-manual-request-error";
-import { AgentUserInfoRequestError } from "./connection/agent-user-info-request-error";
-import { AgentProfileRequestError } from "./connection/agent-profile-request-error";
+import { AgentManualRequestError } from "#src/connection/agent-manual-request-error";
+import { AgentUserInfoRequestError } from "#src/connection/agent-user-info-request-error";
+import { AgentProfileRequestError } from "#src/connection/agent-profile-request-error";
 import {
   validateWeeklyReportCollectCommand,
   type WeeklyReportCollectCommand,
   type WeeklyReportCollectFailRunningCommand,
   type WeeklyReportCollectResult,
-} from "./connection/weekly-report-collect";
+} from "#src/connection/weekly-report-collect";
 import {
   validateWeeklyReportKeyPointsCommand,
   type WeeklyReportKeyPointsCommand,
   type WeeklyReportKeyPointsResult,
-} from "./connection/weekly-report-key-points";
+} from "#src/connection/weekly-report-key-points";
 import { getLogger } from "@logtape/logtape";
 
 export type AgentProxy = {
@@ -117,7 +117,7 @@ export type AgentProxyRuntime = {
     request: AgentManualSearchRequest,
     agentApiKey: string,
   ): Promise<AgentManualSearchResponse>;
-  /** `coforge version`'s local-only query (ADR 0036): answered entirely by the live Daemon, never
+  /** `coforge version`'s local-only query: answered entirely by the live Daemon, never
    * forwarded to Web/backend. */
   version?(
     context: string,
@@ -176,7 +176,7 @@ const LOCAL_ATTACHMENT_UPLOAD_PATH = agentApiRoutes.local.attachments.upload.pat
 // Mirrors `apps/web`'s `ATTACHMENT_MAX_BYTES` (10 MiB) plus slack for multipart framing
 // overhead (boundary markers, field headers); the daemon package cannot import from `apps/web`.
 const ATTACHMENT_UPLOAD_MAX_BYTES = 10 * 1024 * 1024 + 64 * 1024;
-// The four presigned-direct-upload session routes (ADR 0028) are plain JSON, so they reuse the
+// The four presigned-direct-upload session routes are plain JSON, so they reuse the
 // JSON body path below rather than the multipart forwarding above. `create` is a fixed path;
 // `complete`/`cancel`/`get` share a `/:uploadId[/complete]` prefix.
 const LOCAL_UPLOAD_SESSION_CREATE_PATH = agentApiRoutes.local.attachmentUploadSessions.create.path;
@@ -331,8 +331,8 @@ function operationFamily(prefix: string, fallback: string) {
     `${prefix}${typeof fields.operation === "string" ? fields.operation : fallback}`;
 }
 
-/** The Manual routes answer a domain error as JSON `{ ok: false, errorCode, error }` (ADR 0036,
- * Raft-aligned), so an `AgentManualRequestError` is forwarded rather than classified. */
+/** The Manual routes answer a domain error as JSON `{ ok: false, errorCode, error }`
+ * (Raft-aligned), so an `AgentManualRequestError` is forwarded rather than classified. */
 function manualDomainFailure(error: unknown): Response | undefined {
   if (!(error instanceof AgentManualRequestError)) return undefined;
   return Response.json(
@@ -342,7 +342,7 @@ function manualDomainFailure(error: unknown): Response | undefined {
 }
 
 /** `user info` answers a domain error as JSON `{ ok: false, errorCode, error }` (same convention
- * as the Manual routes; ADR 0036), so an `AgentUserInfoRequestError` is forwarded rather than
+ * as the Manual routes), so an `AgentUserInfoRequestError` is forwarded rather than
  * classified. */
 function userInfoDomainFailure(error: unknown): Response | undefined {
   if (!(error instanceof AgentUserInfoRequestError)) return undefined;
@@ -802,6 +802,10 @@ export function startAgentProxy(input: {
   // variable or running a refresh command.
   const contexts = new Map<string, TokenBinding>();
   const server = Bun.serve({
+    // Loopback only: Agents reach the proxy at 127.0.0.1 (see `url` below). Bun's default
+    // `0.0.0.0` would expose it to the network and let another local listener bind
+    // 127.0.0.1 on the same port and receive the Agents' requests instead.
+    hostname: "127.0.0.1",
     port: input.port ?? 0,
     async fetch(request) {
       const requestUrl = new URL(request.url);

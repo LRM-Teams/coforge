@@ -4,17 +4,17 @@ import { join } from "node:path";
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 
-import { AppError } from "../src/lib/app-error";
-import { storeAttachment } from "../src/server/attachments/attachment.server";
+import { AppError } from "#src/lib/app-error";
+import { storeAttachment } from "#src/server/attachments/attachment.server";
 import {
   createFileStorage,
   FileStorageConfigError,
   LocalFileStorage,
   readFileStorageConfig,
   type FileStorage,
-} from "../src/server/files/file-storage.server";
-import { createOssFileStorage } from "../src/server/files/oss-file-storage.server";
-import { storeUserAvatar } from "../src/server/profiles/user-avatar.server";
+} from "#src/server/files/file-storage.server";
+import { createOssFileStorage } from "#src/server/files/oss-file-storage.server";
+import { storeUserAvatar } from "#src/server/profiles/user-avatar.server";
 
 describe("file storage configuration", () => {
   test("defaults to the local directory under the working directory", async () => {

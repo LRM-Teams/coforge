@@ -1,14 +1,14 @@
 import { expect, test } from "bun:test";
-import type { PrismaClient } from "../generated/client";
-import { AppError } from "../src/lib/app-error";
-import { RecordCatalog } from "../src/server/records/record-catalog.server";
-import { PrismaAgentRepository } from "../src/server/db/repositories/agent.repositories.server";
+import type { PrismaClient } from "#src/generated/prisma/client";
+import { AppError } from "#src/lib/app-error";
+import { RecordCatalog } from "#src/server/records/record-catalog.server";
+import { PrismaAgentRepository } from "#src/server/db/repositories/agent.repositories.server";
 import {
   decodeWeeklyReportRequest,
   validateWeeklyReportRequest,
   WEEKLY_REPORT_PROTOCOL_MAJOR,
 } from "@lrm/coforge-sdk/internal";
-import { parseWeeklyReportAssistantSuggestion } from "../src/server/records/weekly-report-assistant-suggestion.server";
+import { parseWeeklyReportAssistantSuggestion } from "#src/server/records/weekly-report-assistant-suggestion.server";
 
 test("assistant section reads deny member reports the User cannot see", async () => {
   const db = {

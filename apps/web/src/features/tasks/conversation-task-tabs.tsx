@@ -1,15 +1,29 @@
 import { CheckSquare as ListTodo, MessageChatSquare, Paperclip } from "@untitledui/icons";
 
-import { Button } from "@/components/base/buttons/button";
-import { m } from "@/paraglide/messages";
+import { ReorderableTabStrip } from "#src/components/ui/reorderable-tab-strip";
+import {
+  CONVERSATION_TABS,
+  type ConversationTab,
+} from "#src/features/conversations/conversation-tabs";
+import { usePanelTabOrder } from "#src/features/panel-tabs/panel-tab-order-context";
+import { m } from "#src/paraglide/messages";
 
+const TABS = {
+  chat: { label: m.tasks_chat_tab, icon: MessageChatSquare },
+  tasks: { label: m.tasks_tab, icon: ListTodo },
+  files: { label: m.files_tab, icon: Paperclip },
+};
+
+/** Chat, Tasks and Files in the member's saved order; dragging a tab saves a new order. They are
+ * icon + label underline tabs sitting on the header's bottom rule, so the active one's brand
+ * underline replaces that rule under it. */
 export function ConversationTaskTabs({
   active,
   onShowChat,
   onShowTasks,
   onShowFiles,
 }: {
-  active: "chat" | "tasks" | "files";
+  active: ConversationTab;
   onShowChat?: () => void;
   onShowTasks?: () => void;
   onShowFiles?: () => void;
@@ -18,49 +32,19 @@ export function ConversationTaskTabs({
   // so the Files tab cannot be gated on `onShowFiles` alone — on the Files view itself that
   // would drop the very tab the user is on, leaving no tab highlighted.
   const showFilesTab = Boolean(onShowFiles) || active === "files";
+  const visible = CONVERSATION_TABS.filter((tab) => tab !== "files" || showFilesTab);
+  const { tabs, reorder } = usePanelTabOrder("conversation", visible);
+  const handlers = { chat: onShowChat, tasks: onShowTasks, files: onShowFiles };
   return (
-    <nav
-      aria-label={
-        showFilesTab
-          ? `${m.tasks_chat_tab()} / ${m.tasks_tab()} / ${m.files_tab()}`
-          : `${m.tasks_chat_tab()} / ${m.tasks_tab()}`
-      }
-      // -ml-3 cancels the first tab's own px-3 so the icon sits on the pane gutter and the
-      // row reads flush-left; only the active tab's box bleeds those 12px past the gutter.
-      className="-ml-3 flex items-center gap-1"
-    >
-      <Button
-        type="button"
-        color={active === "chat" ? "secondary" : "tertiary"}
-        size="sm"
-        aria-current={active === "chat" ? "page" : undefined}
-        iconLeading={MessageChatSquare}
-        onPress={onShowChat}
-      >
-        {m.tasks_chat_tab()}
-      </Button>
-      <Button
-        type="button"
-        color={active === "tasks" ? "secondary" : "tertiary"}
-        size="sm"
-        aria-current={active === "tasks" ? "page" : undefined}
-        iconLeading={ListTodo}
-        onPress={onShowTasks}
-      >
-        {m.tasks_tab()}
-      </Button>
-      {showFilesTab && (
-        <Button
-          type="button"
-          color={active === "files" ? "secondary" : "tertiary"}
-          size="sm"
-          aria-current={active === "files" ? "page" : undefined}
-          iconLeading={Paperclip}
-          onPress={onShowFiles}
-        >
-          {m.files_tab()}
-        </Button>
-      )}
-    </nav>
+    <ReorderableTabStrip
+      aria-label={tabs.map((tab) => TABS[tab].label()).join(" / ")}
+      tabs={tabs}
+      meta={TABS}
+      active={active}
+      onSelect={(tab) => handlers[tab]?.()}
+      onReorder={reorder}
+      type="underline"
+      size="md"
+    />
   );
 }

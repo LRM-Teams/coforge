@@ -1,14 +1,14 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 
-import { workspaceUserMiddleware } from "../../server/auth/function-auth";
-import { ActionCards } from "../../server/conversations/action-cards.server";
-import { CentrifugoConversationRealtime } from "../../server/conversations/conversation-realtime.server";
-import { createCentrifugoServerApi } from "../../server/centrifugo/server-api.server";
+import { workspaceUserMiddleware } from "#src/features/auth/function-auth";
+import { ActionCards } from "#src/server/conversations/action-cards.server";
+import { CentrifugoConversationRealtime } from "#src/server/conversations/conversation-realtime.server";
+import { createCentrifugoServerApi } from "#src/server/centrifugo/server-api.server";
 
 /**
- * Human commit/cancel Server Functions for Agent-prepared action cards (ADR 0027 "Commit and
- * cancel"). `channel:create` and `channel:add_member` commit here, reusing `PublicChannels`
+ * Human commit/cancel Server Functions for Agent-prepared action cards.
+ * `channel:create` and `channel:add_member` commit here, reusing `PublicChannels`
  * through `ActionCards`. `agent:create` commits through the existing `createAgent` Server
  * Function in `agents.functions.ts` instead (it already submits the human's full runtime form and
  * enforces `assertCanCreateAgents`); this module only guards it before and marks it after — see
@@ -78,7 +78,7 @@ export const cancelActionCard = createServerFn({ method: "POST" })
 
 /** Refreshes just the pending cards currently shown in an open conversation: called on a
  * realtime signal for that conversation and on window focus (see `use-conversation-view.ts`'s
- * caller in `direct-conversation.tsx`/`channel-conversation.tsx`), instead of re-fetching the
+ * caller in `threaded-conversation.tsx`/`channel-conversation.tsx`), instead of re-fetching the
  * whole message page. */
 export const loadActionCardStates = createServerFn({ method: "GET" })
   .middleware([workspaceUserMiddleware])

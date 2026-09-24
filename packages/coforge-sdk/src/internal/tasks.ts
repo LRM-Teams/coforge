@@ -4,6 +4,21 @@ import type { AgentMessageRecord } from "./local-daemon";
 export const TASK_STATUSES = ["todo", "in_progress", "in_review", "done", "closed"] as const;
 export type TaskStatus = (typeof TASK_STATUSES)[number];
 
+/** A conversation member named on a Task: its owner or its creator. */
+export type TaskMember = {
+  memberId: string;
+  kind: "user" | "agent";
+  /** The User or Agent id behind the member, as history payloads name an assignee. */
+  id: string;
+  name: string;
+  /** The username or Agent name. */
+  handle: string;
+  /** True when the named Agent has been deleted: the identity still reads, with its DELETED marker. */
+  deleted?: boolean;
+  /** Where the browser reads a human's avatar; absent for an Agent. */
+  avatarUrl?: string | null;
+};
+
 export type TaskView = {
   messageId: string;
   conversationId: string;
@@ -12,14 +27,9 @@ export type TaskView = {
   description?: string | null;
   status: TaskStatus;
   revision: number;
-  owner: {
-    memberId: string;
-    kind: "user" | "agent";
-    name: string;
-    /** Where the browser reads a human owner's avatar; absent for an Agent owner or a viewer
-     * surface that carries no avatar (the Agent API's TaskView). */
-    avatarUrl?: string | null;
-  } | null;
+  owner: TaskMember | null;
+  /** Who created the Task; only the history read carries it. */
+  creator?: TaskMember;
   channelRef?: string;
   requiresResourceReceipt?: boolean;
   resourceReceiptRecordedAt?: string | null;
@@ -44,18 +54,35 @@ export type TaskClaimResult = {
   reason?: string;
 };
 
+/** One Task change as history records it: `payload` carries the facts its `eventType` names. */
+export type TaskHistoryChange =
+  | { eventType: "created"; payload: { taskNumber: number; status: TaskStatus } }
+  | { eventType: "status_changed"; payload: { from: TaskStatus; to: TaskStatus } }
+  | {
+      eventType: "assignee_changed";
+      /** A User or Agent id, both null when the Task was unassigned. */
+      payload: { assigneeId: string | null; assigneeType: "user" | "agent" | null };
+    }
+  | {
+      eventType: "amended";
+      payload: {
+        changes: {
+          title?: { from: string; to: string };
+          description?: { from: string | null; to: string | null };
+        };
+        /** The Task revision this amendment produced; absent on amendments recorded before it. */
+        revision?: number;
+      };
+    };
+
 export type TaskHistoryEvent = {
   id: string;
-  sequence: number;
-  eventType: string;
-  actorKind: "user" | "agent" | "system";
+  seq: number;
+  actorType: "user" | "agent" | "system";
+  /** The actor's handle when the event was recorded. */
   actorName: string | null;
-  beforeTitle?: string;
-  afterTitle?: string;
-  beforeDescription?: string | null;
-  afterDescription?: string | null;
   createdAt: string;
-};
+} & TaskHistoryChange;
 
 export type TaskCommand = {
   operation:

@@ -1,12 +1,12 @@
 import { createFileRoute, notFound, useRouter } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 
-import { ComputerDetail } from "@/features/computers/computer-detail";
-import { ComputerNotFound } from "@/features/computers/computer-not-found";
+import { ComputerDetail } from "#src/features/computers/computer-detail";
+import { ComputerNotFound } from "#src/features/computers/computer-not-found";
 import {
   ComputerDetailLoadError,
   ComputerDetailPending,
-} from "@/features/computers/computers-pending";
+} from "#src/features/computers/computers-pending";
 import {
   readComputerRestartStatus,
   readComputerUpgradeStatus,
@@ -14,7 +14,7 @@ import {
   setRuntimeVisibility,
   updateComputerDisplayName,
   upgradeComputer,
-} from "@/features/computers/computers.functions";
+} from "#src/features/computers/computers.functions";
 
 export const Route = createFileRoute("/_app/computers/$computerId")({
   // The list the parent already loaded is the whole truth about which

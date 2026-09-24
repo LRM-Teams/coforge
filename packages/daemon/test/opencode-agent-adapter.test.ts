@@ -3,9 +3,13 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { OpenCodeProvider } from "../src/code-agent/opencode/provider";
-import { isOpenCodeVersionUnsupported } from "../src/code-agent/opencode/version";
-import type { AgentRuntimeEvent } from "../src/code-agent/contract";
+import { OpenCodeProvider } from "#src/code-agent/opencode/provider";
+import { isOpenCodeVersionUnsupported } from "#src/code-agent/opencode/version";
+import type { AgentRuntimeEvent } from "#src/code-agent/contract";
+import {
+  RUNTIME_ERROR_CLASS,
+  classifyRuntimeErrorText,
+} from "#src/agent-runtime/runtime-error-classification";
 
 const FIXTURE = new URL("./fixtures/opencode-fixture.ts", import.meta.url).pathname;
 const INSTRUCTIONS = "Standing OpenCode instructions.";
@@ -219,6 +223,79 @@ test("an error event fails the turn with OpenCode's own message", async () => {
         type: "error",
         message: "no credentials for provider opencode",
       });
+      expect(events).toContainEqual({ type: "completed", status: "failed" });
+    } finally {
+      await session.dispose();
+    }
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("a provider quota failure surfaces its kind, status and message, not a bare label", async () => {
+  // 2026-09-23: OpenCode Zen exhausted its pool and every turn ended as an unexplainable
+  // "Agent runtime failed." because the envelope's cause rode fields the adapter never read.
+  // The surfaced text must carry the classification the operator needs to act on.
+  const directory = await mkdtemp(join(tmpdir(), "opencode-quota-"));
+  try {
+    const session = await provider().createAgentSession({
+      agentWorkspaceDirectory: directory,
+      instructions: INSTRUCTIONS,
+      environment: {
+        COFORGE_OPENCODE_MODE: "provider-quota",
+        COFORGE_OPENCODE_TURN_DELAY_MS: "120",
+      },
+    });
+    try {
+      const events: AgentRuntimeEvent[] = [];
+      const completed = new Promise<void>((resolve) => {
+        session.subscribe((event) => {
+          events.push(event);
+          if (event.type === "completed") resolve();
+        });
+      });
+      await completed;
+      expect(events).toContainEqual({
+        type: "error",
+        message: "provider.quota (HTTP 429): Rate limit exceeded. Please try again later.",
+      });
+      expect(events).toContainEqual({ type: "completed", status: "failed" });
+      // The surfaced text is what the daemon classifies on — pin the classification itself, not
+      // just the string, so rewording the prefix cannot silently demote the rate_limited class
+      // (and its retry decision) back to generic.
+      const error = events.find((event) => event.type === "error");
+      const surfaced = error && error.type === "error" ? error.message : "";
+      expect(classifyRuntimeErrorText(surfaced).errorClass).toBe(RUNTIME_ERROR_CLASS.RATE_LIMIT);
+    } finally {
+      await session.dispose();
+    }
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("an unfamiliar error envelope still fails the turn with a non-empty message", async () => {
+  // A shape the adapter never met must degrade to words, never to an empty string — an empty
+  // reason is the same disease as the "Agent runtime failed." this fix removes; the exit code
+  // rides the separately-tested `exitFailureMessage` path when no event explains the exit.
+  const directory = await mkdtemp(join(tmpdir(), "opencode-opaque-"));
+  try {
+    const session = await provider().createAgentSession({
+      agentWorkspaceDirectory: directory,
+      instructions: INSTRUCTIONS,
+      environment: { COFORGE_OPENCODE_MODE: "opaque-error", COFORGE_OPENCODE_TURN_DELAY_MS: "120" },
+    });
+    try {
+      const events: AgentRuntimeEvent[] = [];
+      const completed = new Promise<void>((resolve) => {
+        session.subscribe((event) => {
+          events.push(event);
+          if (event.type === "completed") resolve();
+        });
+      });
+      await completed;
+      const error = events.find((event) => event.type === "error");
+      expect(error && error.type === "error" ? error.message.trim() : "").not.toBe("");
       expect(events).toContainEqual({ type: "completed", status: "failed" });
     } finally {
       await session.dispose();

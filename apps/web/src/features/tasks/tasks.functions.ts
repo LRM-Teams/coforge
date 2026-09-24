@@ -2,11 +2,11 @@ import { TASK_STATUSES, type TaskCommand } from "@lrm/coforge-sdk/internal";
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 
-import { CentrifugoConversationRealtime } from "../../server/conversations/conversation-realtime.server";
-import { createCentrifugoServerApi } from "../../server/centrifugo/server-api.server";
-import { bestEffortMessageNotifier } from "../../server/notifications/web-push-composition.server";
-import { workspaceUserMiddleware } from "../../server/auth/function-auth";
-import { TaskBoard } from "../../server/tasks/task-board.server";
+import { CentrifugoConversationRealtime } from "#src/server/conversations/conversation-realtime.server";
+import { createCentrifugoServerApi } from "#src/server/centrifugo/server-api.server";
+import { bestEffortMessageNotifier } from "#src/server/notifications/web-push-composition.server";
+import { workspaceUserMiddleware } from "#src/features/auth/function-auth";
+import { TaskBoard } from "#src/server/tasks/task-board.server";
 
 const taskCommand = z
   .object({
@@ -64,7 +64,7 @@ export const loadTaskOverview = createServerFn({ method: "GET" })
 
 export const executeTask = createServerFn({ method: "POST" })
   .middleware([workspaceUserMiddleware])
-  .validator((data: unknown): TaskCommand => taskCommand.parse(data))
+  .validator((data: TaskCommand): TaskCommand => taskCommand.parse(data))
   .handler(async ({ context, data }) => {
     const { user, db, workspaceId } = context;
     const centrifugo = createCentrifugoServerApi();

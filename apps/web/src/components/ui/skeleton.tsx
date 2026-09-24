@@ -1,4 +1,4 @@
-import { cn } from "@/lib/utils";
+import { cn } from "#src/lib/utils";
 
 /** Decorative only: the owning region provides a single loading announcement. */
 export function Skeleton({ className }: { className?: string }) {

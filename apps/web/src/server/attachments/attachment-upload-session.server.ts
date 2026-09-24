@@ -1,13 +1,13 @@
-import type { PrismaClient, Prisma } from "../../../generated/client";
+import type { PrismaClient, Prisma } from "#src/generated/prisma/client";
 import { ATTACHMENT_MAX_BYTES, ATTACHMENT_SESSION_SECONDS } from "./attachment.server";
-import type { FileStorage } from "../files/file-storage.server";
+import type { FileStorage } from "#src/server/files/file-storage.server";
 
 /**
- * Presigned direct-upload sessions (ADR 0028): the Agent PUTs bytes straight to storage with a
+ * Presigned direct-upload sessions: the Agent PUTs bytes straight to storage with a
  * short-lived presigned URL this module hands out, then `complete` verifies the object and
  * creates the real `Attachment` row that `attachmentId` reserved ahead of time. Mirrors Raft
  * 1.0.32's `attachment-upload-sessions` state machine and error codes; deviations are called out
- * where they occur (see the module's own doc comments and ADR 0028).
+ * where they occur (see the module's own doc comments).
  */
 export type AttachmentUploadSessionState =
   | "pending"
@@ -149,7 +149,7 @@ function isUniqueConstraintViolation(error: unknown): boolean {
 /**
  * Creates (or, for a repeated `clientRequestId`, replays) a direct-upload session. The caller has
  * already authorized `conversationId` (target resolution happens one layer up, in the route —
- * see ADR 0028's deviation from Raft's `channelId` field to this repo's `#channel`/`@user`
+ * a deviation from Raft's `channelId` field to this repo's `#channel`/`@user`
  * target grammar) and confirmed the storage backend supports direct upload.
  */
 export async function createAttachmentUploadSession(

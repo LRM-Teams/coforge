@@ -3,8 +3,8 @@ import {
   ACTION_HEREDOC_DELIMITER,
   extractActionCardJson,
   parseActionCardInput,
-} from "../src/action-prepare-input";
-import { CliError } from "../src/cli-error";
+} from "#src/action-prepare-input";
+import { CliError } from "#src/cli-error";
 
 test("ACTION_HEREDOC_DELIMITER is COFORGEACTION, not Raft's RAFTACTION", () => {
   expect(ACTION_HEREDOC_DELIMITER).toBe("COFORGEACTION");

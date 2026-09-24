@@ -3,13 +3,13 @@ import {
   decodeComputerRegisterRequest,
   encodeComputerRegisterResponse,
 } from "@lrm/coforge-sdk/internal";
-import { ComputerRegistrationError } from "../computers/registration.server";
+import { ComputerRegistrationError } from "#src/server/computers/registration.server";
 import {
   handleRequestError,
   RequestAuthenticationError,
-} from "../errors/request-error-handler.server";
+} from "#src/server/errors/request-error-handler.server";
 import { getComputerStatusCache, type ComputerStatusCache } from "./computer-status.server";
-import { WorkspaceQueryError, WorkspaceQueryUseCase } from "../workspaces/query.server";
+import { WorkspaceQueryError, WorkspaceQueryUseCase } from "#src/server/workspaces/query.server";
 import { decodeWorkspaceGetRequest, decodeWorkspaceListRequest } from "@lrm/coforge-sdk/internal";
 import {
   decodeAgentContextScanResponse,
@@ -28,38 +28,38 @@ import {
   type AgentContextReport,
 } from "./agent-context-cache.server";
 import { getUsageCache, type UsageCache, type UsageSnapshot } from "./usage-cache.server";
-import { PublishAgentRuntimeControl } from "../agents/agent-runtime-control.server";
+import { PublishAgentRuntimeControl } from "#src/server/agents/agent-runtime-control.server";
 import { decodeAgentMessageDeliveryAck } from "@lrm/coforge-sdk/internal";
 import {
   AGENT_STATUS_LEASE_MS,
   getAgentStatusCache,
   type AgentStatusCache,
-} from "../agents/agent-status.server";
+} from "#src/server/agents/agent-status.server";
 import {
   agentStatusChannel,
   agentStatusChannelForAgent,
   encodeAgentStatusEvent,
-} from "../../features/agents/agent-status-realtime";
-import { AGENT_VISIBILITY } from "../../features/agents/agent-visibility";
+} from "#src/features/agents/agent-status-realtime";
+import { AGENT_VISIBILITY } from "#src/features/agents/agent-visibility";
 import type { CentrifugoServerApi } from "./server-api.server";
-import type { AgentDisplay } from "../agents/agent-display.server";
+import type { AgentDisplay } from "#src/server/agents/agent-display.server";
 import {
   decodeReminderFireRequest,
   decodeReminderSnapshotRequest,
   encodeAgentReminderOperationResponse,
   decodeAgentReminderOperationRequest,
 } from "@lrm/coforge-sdk/internal";
-import type { Reminders } from "../reminders/reminders.server";
-import type { ComputerRestartStore } from "../computers/computer-restart-store.server";
+import type { Reminders } from "#src/server/reminders/reminders.server";
+import type { ComputerRestartStore } from "#src/server/computers/computer-restart-store.server";
 import {
   getComputerUpgradeStore,
   type RedisComputerUpgradeStore,
-} from "../computers/computer-upgrade-store.server";
+} from "#src/server/computers/computer-upgrade-store.server";
 import { decodeComputerUpgradeResult } from "@lrm/coforge-sdk/internal";
 import {
   computerObservationSchema,
   type ComputerObservation,
-} from "../computers/computer-metadata.server";
+} from "#src/server/computers/computer-metadata.server";
 export {
   createAgentSessionMethod,
   createAgentSessionInvalidateMethod,
@@ -221,7 +221,7 @@ export function createAgentStatusMethod(
         // The optional display read model cannot reject an accepted process fact.
       }
     }
-    // ADR 0059: folded into the Agent row already fetched above for authorization — no extra
+    // Folded into the Agent row already fetched above for authorization — no extra
     // query, and never optional in effect: `visibility === undefined` (the lookup found nothing
     // to route by; never happens once the authorization check above passed for a real Agent row)
     // skips fan-out entirely — fails closed — rather than guessing the shared channel. The
@@ -540,7 +540,7 @@ export function createDaemonRuntimeProviderModelRefreshResultMethod(): Centrifug
 }
 
 /**
- * The Daemon's terminal report for one Agent context-composition scan (ADR 0051). Mirrors the
+ * The Daemon's terminal report for one Agent context-composition scan. Mirrors the
  * usage-scan result method's principal checks; a valid `report_json` is parsed and stored, and
  * nothing else here interprets the report - the Web feature owns that. A result the daemon could
  * not produce (`no_session`, `unparsed`, ...) is still stored, as the visible reason the popover

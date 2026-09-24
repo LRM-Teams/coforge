@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
-import { buildCoforgeAgentInstructions } from "../src/code-agent/agent-instructions";
+
+import { buildCoforgeAgentInstructions } from "#src/code-agent/agent-instructions";
 
 const directory = "/coforge/workspaces/workspace-a/agents/agent-a";
 const instructions = buildCoforgeAgentInstructions({ agentWorkspaceDirectory: directory });
@@ -50,6 +51,7 @@ test("identity is optional and the configured directory appears exactly once", (
   expect(instructions.split(directory)).toHaveLength(2);
   expect(instructions).not.toContain("- Username:");
   expect(instructions).not.toContain("- Role:");
+  expect(instructions).not.toContain("- Hostname:");
 });
 
 test("known runtime identity remains available without repeating the role", () => {

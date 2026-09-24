@@ -1,8 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { z } from "zod";
 
-import { agentAuthMiddleware } from "#/server/agents/agent-http.middleware";
-import { applyKeyPointExtractionWriteBack } from "#/server/records/weekly-report-key-points.server";
+import { agentAuthMiddleware } from "#src/server/agents/agent-http-middleware.server";
+import { applyKeyPointExtractionWriteBack } from "#src/server/records/weekly-report-key-points.server";
 
 const bodySchema = z.object({
   idempotencyKey: z.string().uuid(),

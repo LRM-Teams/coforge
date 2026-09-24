@@ -3,7 +3,7 @@ import { chmod, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { createDaemonHost, LocalDaemonLauncher } from "@lrm/coforge-daemon";
-import { ComputerUpdater } from "../src/updater";
+import { ComputerUpdater } from "#src/updater";
 import { buildReleaseTree } from "../../../scripts/release/build-release";
 import {
   DAEMON_RUNTIME_READY_METHOD,

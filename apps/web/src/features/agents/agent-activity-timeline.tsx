@@ -1,5 +1,6 @@
 import {
   Fragment,
+  memo,
   useId,
   useLayoutEffect,
   useMemo,
@@ -7,14 +8,15 @@ import {
   useState,
   type CSSProperties,
 } from "react";
+import { replaceEqualDeep } from "@tanstack/react-query";
 import { Activity as ActivityIcon, ChevronRight } from "@untitledui/icons";
-import { Button } from "@/components/base/buttons/button";
-import { ClockTime } from "@/components/ui/relative-time";
-import { StatusDot } from "@/components/ui/status-dot";
-import { calendarDayKey, formatCalendarDayLabel } from "@/lib/dates";
-import { cn } from "@/lib/utils";
-import { getLocale } from "@/paraglide/runtime";
-import { m } from "@/paraglide/messages";
+import { Button } from "#src/components/base/buttons/button";
+import { ClockTime } from "#src/components/ui/relative-time";
+import { StatusDot } from "#src/components/ui/status-dot";
+import { calendarDayKey, formatCalendarDayLabel } from "#src/lib/dates";
+import { cn } from "#src/lib/utils";
+import { getLocale } from "#src/paraglide/runtime";
+import { m } from "#src/paraglide/messages";
 import type { ActivityEntry } from "./agent-activity";
 import { presentActivityRows, type PresentedActivityRow } from "./agent-activity-presentation";
 
@@ -22,21 +24,54 @@ export function AgentActivityTimeline({
   activity,
   timeZone,
   /** The Agent profile panel's narrow column: the list drops the page-level card border (the
-   * panel is flat, per docs/design.md §8) in favor of plain hairline rows. Same rows,
+   * panel is flat, per docs/design/page-skeleton-and-density.md §8) in favor of plain hairline rows. Same rows,
    * same clock column, same 6px coloured dot, same monospace command text — a responsive prop
-   * rather than a second component (`apps/web/AGENTS.md`'s Activity-tab guidance). */
+   * rather than a second component (`src/features/agents/AGENTS.md`'s Activity-tab rule). */
   compact = false,
 }: {
   activity: ActivityEntry[];
   timeZone: string | null;
   compact?: boolean;
 }) {
-  // presentActivityRows is newest-first (its own documented contract, kept for the
-  // avatar/popover's top-N slice); the timeline itself reads oldest at top, newest at bottom.
-  const rows = useMemo(() => [...presentActivityRows(activity)].reverse(), [activity]);
+  const locale = getLocale();
+  // Each live frame re-presents the whole feed into fresh objects. Handing an unchanged row its
+  // previous object (and calendar day) back lets `memo` skip it, so a frame re-renders only the
+  // rows it added or grew; a different zone or locale starts over.
+  const previous = useRef<{ zone: string | null; locale: string; rows: Map<string, TimelineRow> }>(
+    undefined,
+  );
+  const rows = useMemo(() => {
+    const reusable =
+      previous.current?.zone === timeZone && previous.current.locale === locale
+        ? previous.current.rows
+        : new Map<string, TimelineRow>();
+    const next = new Map<string, TimelineRow>();
+    let previousDay: string | undefined;
+    // presentActivityRows is newest-first (its own documented contract, kept for the
+    // avatar/popover's top-N slice); the timeline itself reads oldest at top, newest at bottom.
+    const timeline = presentActivityRows(activity)
+      .reverse()
+      .map((presented) => {
+        const earlier = reusable.get(presented.key);
+        const row = earlier ? replaceEqualDeep(earlier.row, presented) : presented;
+        const day =
+          earlier?.row.observedAtMs === row.observedAtMs
+            ? earlier.day
+            : calendarDayKey(new Date(row.observedAtMs), timeZone);
+        next.set(row.key, { row, day });
+        const dayLabel =
+          day === previousDay
+            ? undefined
+            : formatCalendarDayLabel(new Date(row.observedAtMs), timeZone, locale);
+        previousDay = day;
+        return { row, dayLabel };
+      });
+    previous.current = { zone: timeZone, locale, rows: next };
+    return timeline;
+  }, [activity, timeZone, locale]);
 
   const scrollRef = useRef<HTMLDivElement>(null);
-  const newest = rows.at(-1);
+  const newest = rows.at(-1)?.row;
   // Re-runs whenever a row is appended or the newest row grows (a streamed statement merging
   // in another fragment) — the two ways the list can change without an explicit "load more".
   const newestSignal = newest ? `${newest.key}:${newest.detail.length}` : "";
@@ -65,8 +100,6 @@ export function AgentActivityTimeline({
       </div>
     );
 
-  const locale = getLocale();
-
   return (
     <div ref={scrollRef} className="h-full overflow-y-auto">
       <ol
@@ -76,33 +109,28 @@ export function AgentActivityTimeline({
           compact ? "px-4" : "mt-6 rounded-xl border border-secondary px-4 md:px-6",
         )}
       >
-        {rows.map((row, index) => {
-          const previous = rows[index - 1];
-          const dayChanged =
-            !previous ||
-            calendarDayKey(new Date(previous.observedAtMs), timeZone) !==
-              calendarDayKey(new Date(row.observedAtMs), timeZone);
-          return (
-            <Fragment key={row.key}>
-              {dayChanged && (
-                <li
-                  aria-hidden="true"
-                  className="py-2 text-center text-xs font-medium text-tertiary"
-                  style={{ contentVisibility: "auto", containIntrinsicSize: "auto 36px" }}
-                >
-                  {formatCalendarDayLabel(new Date(row.observedAtMs), timeZone, locale)}
-                </li>
-              )}
-              <ActivityTimelineRow row={row} timeZone={timeZone} compact={compact} />
-            </Fragment>
-          );
-        })}
+        {rows.map(({ row, dayLabel }) => (
+          <Fragment key={row.key}>
+            {dayLabel && (
+              <li
+                aria-hidden="true"
+                className="py-2 text-center text-xs font-medium text-tertiary"
+                style={{ contentVisibility: "auto", containIntrinsicSize: "auto 36px" }}
+              >
+                {dayLabel}
+              </li>
+            )}
+            <ActivityTimelineRow row={row} timeZone={timeZone} compact={compact} />
+          </Fragment>
+        ))}
       </ol>
     </div>
   );
 }
 
-function ActivityTimelineRow({
+type TimelineRow = { row: PresentedActivityRow; day: string };
+
+const ActivityTimelineRow = memo(function ActivityTimelineRow({
   row,
   timeZone,
   compact,
@@ -225,4 +253,4 @@ function ActivityTimelineRow({
       </div>
     </li>
   );
-}
+});

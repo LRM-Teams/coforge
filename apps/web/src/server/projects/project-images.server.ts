@@ -1,14 +1,14 @@
-import type { PrismaClient } from "../../../generated/client";
-import { AppError } from "../../lib/app-error";
-import type { FileStorage } from "../files/file-storage.server";
+import type { PrismaClient } from "#src/generated/prisma/client";
+import { AppError } from "#src/lib/app-error";
+import type { FileStorage } from "#src/server/files/file-storage.server";
 import {
   PROFILE_IMAGE_STYLES,
   publicImageUrl,
   type PublicImageUrlResolver,
-} from "../files/public-image-delivery.server";
-import { getPublicImageStorage } from "../files/public-image-storage.server";
-import { validateImage } from "../files/image-upload.server";
-import { toPublicServerError } from "../errors/public-error.server";
+} from "#src/server/files/public-image-delivery.server";
+import { getPublicImageStorage } from "#src/server/files/public-image-storage.server";
+import { validateImage } from "#src/server/files/image-upload.server";
+import { toPublicServerError } from "#src/server/errors/public-error.server";
 
 /**
  * Where the browser reads a project icon: its own public URL on the image CDN when this

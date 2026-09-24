@@ -2,19 +2,19 @@ import { useEffect, useState } from "react";
 import { AlertCircle } from "@untitledui/icons";
 import { Text } from "react-aria-components";
 
-import { Button } from "@/components/base/buttons/button";
-import { Dialog, Modal, ModalOverlay } from "@/components/application/modals/modal";
-import { DialogHeader } from "@/components/application/modals/dialog-header";
-import { FeaturedIcon } from "@/components/foundations/featured-icon/featured-icon";
-import { Skeleton } from "@/components/ui/skeleton";
-import { m } from "@/paraglide/messages";
-import { isAppError } from "@/lib/app-error";
-import { useSubmitGuard } from "@/hooks/use-submit-guard";
-import type { AgentVisibilityChangePreview } from "@/server/agents/change-agent-visibility.server";
+import { Button } from "#src/components/base/buttons/button";
+import { Dialog, Modal, ModalOverlay } from "#src/components/application/modals/modal";
+import { DialogHeader } from "#src/components/application/modals/dialog-header";
+import { FeaturedIcon } from "#src/components/foundations/featured-icon/featured-icon";
+import { Skeleton } from "#src/components/ui/skeleton";
+import { m } from "#src/paraglide/messages";
+import { isAppError } from "#src/lib/app-error";
+import { useSubmitGuard } from "#src/hooks/use-submit-guard";
+import type { AgentVisibilityChangePreview } from "#src/server/agents/change-agent-visibility.server";
 import type { AgentVisibility } from "./agent-visibility";
 
 /**
- * The visibility-change confirmation (ADR 0059): public→private lists consequences (channels it
+ * The visibility-change confirmation: public→private lists consequences (channels it
  * will leave, existing DMs becoming read-only, Tasks staying assigned) fetched from
  * `previewAgentVisibilityChange`; private→public confirms inline with a static note about
  * private-period Activity becoming visible — no preview fetch, since nothing becomes read-only in
@@ -33,7 +33,7 @@ export function AgentVisibilityConfirmDialog({
 }: {
   agentName: string;
   /** The Agent's creator's display name; used in the public->private intro when the viewer is a
-   * Workspace owner/admin changing someone else's Agent (ADR 0059's "who can still see it" set
+   * Workspace owner/admin changing someone else's Agent (the "who can still see it" set
    * is the creator, not "you," in that case). */
   creatorName: string;
   /** Whether the current viewer is this Agent's own creator. */

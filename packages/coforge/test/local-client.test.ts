@@ -3,8 +3,8 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { agentApiRoutes } from "@lrm/coforge-sdk/agent";
-import { connectLocal } from "../src/local-client";
-import { CliError } from "../src/cli-error";
+import { connectLocal } from "#src/local-client";
+import { CliError } from "#src/cli-error";
 
 const proxyUrl = (route: { path: string } | string) =>
   `http://proxy.test${typeof route === "string" ? route : route.path}`;
@@ -1018,7 +1018,7 @@ test("channel: a 404 from a target operation becomes CliError NOT_FOUND with a f
   expect(cliError.retryable).toBe(false);
 });
 
-test("channel: an agent_not_visible JSON envelope becomes CliError AGENT_NOT_VISIBLE, never the fixed Channel-not-found text (ADR 0059)", async () => {
+test("channel: an agent_not_visible JSON envelope becomes CliError AGENT_NOT_VISIBLE, never the fixed Channel-not-found text", async () => {
   spyOn(globalThis, "fetch").mockResolvedValue(
     Response.json(
       { ok: false, errorCode: "agent_not_visible", error: "@ghost is not visible to you." },

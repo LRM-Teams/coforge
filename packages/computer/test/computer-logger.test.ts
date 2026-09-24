@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { computerLogPath, configureComputerLogger } from "../src/logging/computer-logger";
+import { computerLogPath, configureComputerLogger } from "#src/logging/computer-logger";
 
 test("Computer logger writes structured JSONL and redacts credentials", async () => {
   const directory = await mkdtemp(join(tmpdir(), "coforge-computer-logs-"));

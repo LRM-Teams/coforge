@@ -1,9 +1,9 @@
 import { encodeComputerUpgradeIntent } from "@lrm/coforge-sdk/internal";
-import { AppError } from "@/lib/app-error";
+import { AppError } from "#src/lib/app-error";
 
-import type { CentrifugoServerApi } from "../centrifugo/server-api.server";
-import { daemonControlChannel } from "../centrifugo/server-api.server";
-import type { ComputerStatusCache } from "../centrifugo/computer-status.server";
+import type { CentrifugoServerApi } from "#src/server/centrifugo/server-api.server";
+import { daemonControlChannel } from "#src/server/centrifugo/server-api.server";
+import type { ComputerStatusCache } from "#src/server/centrifugo/computer-status.server";
 import type { RedisComputerUpgradeStore } from "./computer-upgrade-store.server";
 
 export class UpgradeComputer {
@@ -28,8 +28,7 @@ export class UpgradeComputer {
     // is checked before liveness.
     const existing = await this.upgrades.status(scope, input.requestId);
     if (existing) return existing;
-    // Presence, not the upgrade identity snapshot, decides whether a *new* request can begin -
-    // see docs/adr/0030-upgrade-identity-durable-snapshot.md.
+    // Presence, not the upgrade identity snapshot, decides whether a *new* request can begin.
     if (!(await this.presence.get(scope))) throw new AppError("COMPUTER_OFFLINE");
     const expectedVersion = await this.latestVersion();
     const registered = await this.upgrades.begin(scope, input.requestId, expectedVersion);

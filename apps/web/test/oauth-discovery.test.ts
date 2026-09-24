@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 
-import { isNonLocalizedRequest } from "../src/server";
+import { isNonLocalizedRequest } from "#src/server";
 
 test("OAuth and API paths bypass Paraglide localization", () => {
   expect(

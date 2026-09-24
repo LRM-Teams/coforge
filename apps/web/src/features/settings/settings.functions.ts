@@ -2,12 +2,12 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { saveDateTimePreferencesInputSchema } from "./settings.schemas";
 
-import { authMiddleware } from "../../server/auth/function-auth";
-import { requireDatabaseClient } from "../../server/db/client.server";
+import { authMiddleware } from "#src/features/auth/function-auth";
+import { requireDatabaseClient } from "#src/server/db/client.server";
 import {
   PrismaUserPreferencesRepository,
   UserPreferences,
-} from "../../server/db/repositories/user-preferences.repositories.server";
+} from "#src/server/db/repositories/user-preferences.repositories.server";
 import { CONVERSATION_OPEN_MODES } from "./conversation-open-mode";
 
 function preferences() {

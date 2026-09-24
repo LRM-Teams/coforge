@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { getDatabaseClient } from "@/server/db/client.server";
-import { PrismaWorkspaceAccess } from "@/server/db/repositories/setup.repositories.server";
+import { getDatabaseClient } from "#src/server/db/client.server";
+import { PrismaWorkspaceAccess } from "#src/server/db/repositories/setup.repositories.server";
 
 export const Route = createFileRoute("/api/e2e/workspaces/$slug")({
   server: {

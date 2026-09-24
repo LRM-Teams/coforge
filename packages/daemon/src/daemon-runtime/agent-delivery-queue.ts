@@ -17,7 +17,7 @@ import type { AgentMessageDelivery } from "@lrm/coforge-sdk/internal";
  */
 export type AgentDeliveryMode = "steer" | "queue_until_idle";
 
-/** Scope decision (ADR 0048): moving Claude/Codex/Pi steering into the daemon itself, so this
+/** Scope decision: moving Claude/Codex/Pi steering into the daemon itself, so this
  * table could eventually replace every provider's own busy handling, is a later cleanup. This PR
  * only gates the providers that have no safe busy path today — none, right now. */
 export const AGENT_DELIVERY_MODE: Readonly<Record<RuntimeProvider, AgentDeliveryMode>> = {
@@ -28,14 +28,17 @@ export const AGENT_DELIVERY_MODE: Readonly<Record<RuntimeProvider, AgentDelivery
   [RUNTIME_PROVIDER.CURSOR]: "steer",
   [RUNTIME_PROVIDER.KIRO]: "steer",
   [RUNTIME_PROVIDER.OPENCODE]: "steer",
+  [RUNTIME_PROVIDER.GROK]: "steer",
 };
 
 /**
- * Daemon-owned per-Agent delivery queue (ADR 0048). Decides, per Agent, whether a delivery must
+ * Daemon-owned per-Agent delivery queue. Decides, per Agent, whether a delivery must
  * be held rather than reaching `AgentSession.notify()` right now, and holds it until it can be
- * released. `daemon-runtime/agent-message-attention-index.ts` is the only caller that currently
- * consults it (via the `shouldHold`/`enqueue` seam passed into its constructor) and the only one
- * that flushes held deliveries (`flush`, reusing its own coalesced-notice wording).
+ * released. `daemon-runtime/agent-message-attention-index.ts` consults it (via the
+ * `shouldHold`/`enqueue` seam passed into its constructor) and is the only one that flushes held
+ * deliveries (`flush`, reusing its own coalesced-notice wording). `daemon-runtime/runtime.ts` also
+ * enqueues deliveries that wait for an exited Agent's next launch (a wake cooldown, a failed
+ * launch, a batched wake).
  *
  * This module also exposes the seams later PRs in the same series attach to, without
  * implementing their behavior: `hold`/`release` for an explicit pause (error backoff, the
@@ -47,13 +50,13 @@ export class AgentDeliveryQueue {
   readonly #mode = new Map<string, AgentDeliveryMode>();
   readonly #busy = new Set<string>();
   readonly #held = new Map<string, AgentMessageDelivery[]>();
-  /** App-item ids held while busy (ADR 0048, `DaemonRuntime#notifyAppItem`) — a separate,
+  /** App-item ids held while busy (`DaemonRuntime#notifyAppItem`) — a separate,
    * app-inbox-owned notice, not an `AgentMessageDelivery`; kept apart from `#held` so the two
    * domains' storage never mixes. */
   readonly #heldAppItems = new Map<string, Set<string>>();
   /** Fallback notice text held for redelivery after a `steer` provider's own busy-delivery
    * protocol accepted a notice (`notify` resolved) but later learned it never actually reached
-   * the model (ADR 0048's `notice-undelivered` event) — raw text, not an `AgentMessageDelivery`,
+   * the model (the `notice-undelivered` event) — raw text, not an `AgentMessageDelivery`,
    * since the original delivery this text came from was already ACKed (or never had one, for an
    * App Inbox notice); redelivering it must never touch ACK bookkeeping again. */
   readonly #heldFallbackNotices = new Map<string, string[]>();
@@ -70,7 +73,7 @@ export class AgentDeliveryQueue {
   /**
    * The lower-level primitive `setProvider` calls through `AGENT_DELIVERY_MODE`. No
    * `RuntimeProvider` maps to `queue_until_idle` today (Kiro moved to `steer` once its own
-   * `_session/steer` extension was wired in — ADR 0048), so this is also the only way to
+   * `_session/steer` extension was wired in), so this is also the only way to
    * exercise that mode's gating directly, for a future provider that needs it and for this
    * module's own tests.
    */
@@ -98,11 +101,11 @@ export class AgentDeliveryQueue {
   }
 
   /**
-   * Records a delivery as held. The attention index is the only caller and already owns
-   * deliveryId dedupe for a *first* delivery (only a not-yet-notified resend of an
-   * already-accepted deliveryId — a distinct request, its own requestId — reaches this while
-   * held); every held request is flushed and ACKed once, so none is silently dropped even when
-   * its deliveryId repeats.
+   * Records a delivery as held. From the attention index, deliveryId dedupe has already happened
+   * for a *first* delivery (only a not-yet-notified resend of an already-accepted deliveryId — a
+   * distinct request, its own requestId — reaches this while held); the runtime's deliveries for
+   * an exited Agent are recorded by `flush` instead. Every held request is flushed and ACKed once,
+   * so none is silently dropped even when its deliveryId repeats.
    */
   enqueue(agentId: string, message: AgentMessageDelivery): void {
     const list = this.#held.get(agentId) ?? [];
@@ -125,11 +128,26 @@ export class AgentDeliveryQueue {
   /**
    * Unconditionally drains and returns everything held for the Agent, ignoring busy/idle and any
    * explicit hold — for a caller that has already decided these held deliveries are redundant
-   * (ADR 0048: a relaunch's `recover()` pass already told the Agent about the same canonical
+   * (a relaunch's `recover()` pass already told the Agent about the same canonical
    * unread state) and only needs them back to ACK each one, never to notify with them.
    */
   discardPending(agentId: string): AgentMessageDelivery[] {
     return this.#drain(agentId);
+  }
+
+  /** Removes and returns the held deliveries of these conversations: the Agent can no longer
+   * read them, so they are dropped without an ACK rather than presented. */
+  discardConversations(
+    agentId: string,
+    conversationIds: ReadonlySet<string>,
+  ): AgentMessageDelivery[] {
+    const list = this.#held.get(agentId);
+    if (!list) return [];
+    const dropped = list.filter((message) => conversationIds.has(message.conversationId));
+    const kept = list.filter((message) => !conversationIds.has(message.conversationId));
+    if (kept.length) this.#held.set(agentId, kept);
+    else this.#held.delete(agentId);
+    return dropped;
   }
 
   /** Records an app-item notice (`DaemonRuntime#notifyAppItem`) as held while busy. */
@@ -149,8 +167,8 @@ export class AgentDeliveryQueue {
     return items ? [...items] : [];
   }
 
-  /** Records a notice's text for redelivery once this Agent is next idle (ADR 0048,
-   * `notice-undelivered`). Order is not meaningful here (unlike `enqueue`'s deliveries) — each
+  /** Records a notice's text for redelivery once this Agent is next idle
+   * (`notice-undelivered`). Order is not meaningful here (unlike `enqueue`'s deliveries) — each
    * text is redelivered as its own independent `notify` call, never coalesced. */
   holdFallbackNotice(agentId: string, text: string): void {
     const list = this.#heldFallbackNotices.get(agentId) ?? [];
@@ -187,7 +205,7 @@ export class AgentDeliveryQueue {
 
   /** An unexpected process exit: the running turn is gone, so busy no longer applies, but
    * anything held (deliveries, app items, and fallback notices alike) stays held for the next
-   * launch (ADR 0048) — only explicit Stop (`clearAgent`) discards it. */
+   * launch — only explicit Stop (`clearAgent`) discards it. */
   onProcessExit(agentId: string): void {
     this.#busy.delete(agentId);
   }

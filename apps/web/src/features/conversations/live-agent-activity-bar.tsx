@@ -1,13 +1,13 @@
 import { useEffect, useState } from "react";
 import { Link } from "@tanstack/react-router";
 
-import { AgentDisplayAvatar } from "@/features/agents/agent-activity-avatar";
-import { m } from "@/paraglide/messages";
+import { AgentDisplayAvatar } from "#src/features/agents/agent-activity-avatar";
+import { m } from "#src/paraglide/messages";
 
 import {
   readLiveAgentActivity,
   subscribeLiveAgentActivity,
-} from "@/features/settings/live-agent-activity";
+} from "#src/features/settings/live-agent-activity";
 
 import { selectLiveAgentActivity, type LiveAgentActivityCandidate } from "./live-agent-activity";
 import { useCloseConversationList } from "./conversation-navigation";

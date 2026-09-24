@@ -12,7 +12,7 @@ import {
   LEGACY_REMINDER_FIRE_METHOD,
   LEGACY_REMINDER_SNAPSHOT_METHOD,
 } from "@lrm/coforge-sdk/internal";
-import { ACTIVE_AGENT_WHERE } from "../agents/active-agent.server";
+import { ACTIVE_AGENT_WHERE } from "#src/server/agents/active-agent.server";
 import { createAgentSkillsListResultMethod } from "./agent-skills-cache.server";
 import {
   createAgentWorkspaceFileReadResultMethod,
@@ -25,9 +25,9 @@ import {
   type CentrifugoRpcError,
   type CentrifugoRpcMethod,
 } from "./rpc-handler.server";
-import { getDatabaseClient } from "../db/client.server";
-import type { PrismaClient } from "../../../generated/client";
-import { PrismaWorkspaceAccess } from "../db/repositories/setup.repositories.server";
+import { getDatabaseClient } from "#src/server/db/client.server";
+import type { PrismaClient } from "#src/generated/prisma/client";
+import { PrismaWorkspaceAccess } from "#src/server/db/repositories/setup.repositories.server";
 import {
   createAgentSessionMethod,
   createAgentSessionInvalidateMethod,
@@ -53,45 +53,45 @@ import {
   DAEMON_CONNECTION_STATUS_METHOD,
   AGENT_STATUS_METHOD,
 } from "@lrm/coforge-sdk/internal";
-import { WorkspaceQueryUseCase } from "../workspaces/query.server";
-import { getComputerRestartStore } from "../computers/computer-restart-store.server";
-import { getComputerUpgradeStore } from "../computers/computer-upgrade-store.server";
-import { recordComputerObservation } from "../computers/computer-metadata.server";
+import { WorkspaceQueryUseCase } from "#src/server/workspaces/query.server";
+import { getComputerRestartStore } from "#src/server/computers/computer-restart-store.server";
+import { getComputerUpgradeStore } from "#src/server/computers/computer-upgrade-store.server";
+import { recordComputerObservation } from "#src/server/computers/computer-metadata.server";
 import {
   PrismaAgentRepository,
   RepositoryAgentAuthorization,
-} from "../db/repositories/agent.repositories.server";
+} from "#src/server/db/repositories/agent.repositories.server";
 import { createAgentStartMethod, createAgentDeliveryAckMethod } from "./rpc-handler.server";
 import {
   PublishAgentRuntimeControl,
   WorkspaceAgentRecovery,
-} from "../agents/agent-runtime-control.server";
-import { getAgentRuntimeLock } from "../agents/agent-runtime-lock.server";
-import { AgentControl } from "../agents/agent-control.server";
-import { getAgentControlSignal } from "../agents/agent-control-signal.server";
-import { PrismaAgentControlStore } from "../db/repositories/agent-control.repositories.server";
+} from "#src/server/agents/agent-runtime-control.server";
+import { getAgentRuntimeLock } from "#src/server/agents/agent-runtime-lock.server";
+import { AgentControl } from "#src/server/agents/agent-control.server";
+import { getAgentControlSignal } from "#src/server/agents/agent-control-signal.server";
+import { PrismaAgentControlStore } from "#src/server/db/repositories/agent-control.repositories.server";
 import { createCentrifugoServerApi } from "./server-api.server";
 import { AGENT_START_METHOD, AGENT_MESSAGE_ACK_METHOD } from "@lrm/coforge-sdk/internal";
-import { PrismaDirectConversationRepository } from "../db/repositories/direct-conversation.repositories.server";
-import { verifyDaemonApiKey } from "../auth/daemon-api-key.server";
+import { PrismaDirectConversationRepository } from "#src/server/db/repositories/direct-conversation.repositories.server";
+import { verifyDaemonApiKey } from "#src/server/auth/daemon-api-key.server";
 import {
   authenticateAgentApiKey,
   isAgentApiKeyBoundToComputer,
-} from "../agents/agent-api-key.server";
-import { PrismaAgentApiKeyRepository } from "../db/repositories/agent-api-key.repositories.server";
-import { PrismaComputerRuntimeRepository } from "../db/repositories/computer-runtime.repositories.server";
-import { PrismaDaemonApiKeyRepository } from "../db/repositories/daemon-api-key.repositories.server";
-import { createAgentSessions } from "../db/repositories/agent-session.repositories.server";
-import { AgentSessionReceiver } from "../agents/agent-session.server";
+} from "#src/server/agents/agent-api-key.server";
+import { PrismaAgentApiKeyRepository } from "#src/server/db/repositories/agent-api-key.repositories.server";
+import { PrismaComputerRuntimeRepository } from "#src/server/db/repositories/computer-runtime.repositories.server";
+import { PrismaDaemonApiKeyRepository } from "#src/server/db/repositories/daemon-api-key.repositories.server";
+import { createAgentSessions } from "#src/server/db/repositories/agent-session.repositories.server";
+import { AgentSessionReceiver } from "#src/server/agents/agent-session.server";
 import { createAgentControlResultMethod } from "./agent-control-receiver.server";
 import { createAgentContextUsageMethod } from "./agent-context-usage-receiver.server";
-import { PrismaReminderRepository } from "../db/repositories/reminder.repositories.server";
-import { Reminders } from "../reminders/reminders.server";
-import { getReminderCapabilityLease } from "../reminders/reminder-capability.server";
+import { PrismaReminderRepository } from "#src/server/db/repositories/reminder.repositories.server";
+import { Reminders } from "#src/server/reminders/reminders.server";
+import { getReminderCapabilityLease } from "#src/server/reminders/reminder-capability.server";
 import { daemonControlChannel } from "./server-api.server";
 import { encodeReminderSync } from "@lrm/coforge-sdk/internal";
-import { getAgentDisplay } from "../agents/agent-display.server";
-import { ensureAgentActivitySweep } from "../agents/agent-activity-sweep.server";
+import { getAgentDisplay } from "#src/server/agents/agent-display.server";
+import { ensureAgentActivitySweep } from "#src/server/agents/agent-activity-sweep.server";
 
 const unavailable: CentrifugoRpcError = {
   code: 503,
@@ -123,7 +123,7 @@ const unavailableMethod: CentrifugoRpcMethod = () => unavailable;
 async function requireAuthenticatedCentrifugoUser(
   request: { user?: string; meta?: Record<string, unknown> },
   context: Request,
-  daemonApiKeys: import("../auth/daemon-api-key.server").DaemonApiKeyRepository,
+  daemonApiKeys: import("#src/server/auth/daemon-api-key.server").DaemonApiKeyRepository,
 ) {
   const daemonHeader = context.headers.get("authorization");
   if (daemonHeader?.startsWith("Bearer ")) {

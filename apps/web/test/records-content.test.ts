@@ -16,7 +16,8 @@ import {
   withAutoSendCancelled,
   withWeekSendDismissed,
   isWeekSendDismissed,
-} from "@/features/records/records-content";
+  keyPointHistoryIndexOf,
+} from "#src/features/records/records-content";
 
 test("emptyReportContent creates named display pages", () => {
   expect(emptyReportContent(["Summary", "Research"])).toEqual({
@@ -231,4 +232,15 @@ test("removeKeyPointPromptHistoryEntry drops one history row by index", () => {
 
 test("formatWeeklyReportCompletedAt uses dotted Asia/Shanghai wall time", () => {
   expect(formatWeeklyReportCompletedAt("2026-09-03T02:34:12.000Z")).toBe("2026.09.03 10:34:12");
+});
+
+test("a captured key-point history entry resolves to its position in the latest history", () => {
+  const older = { text: "older prompt", updatedAt: "2026-09-01T00:00:00.000Z" };
+  const newer = { text: "newer prompt", updatedAt: "2026-09-02T00:00:00.000Z" };
+  const inserted = { text: "inserted prompt", updatedAt: "2026-09-03T00:00:00.000Z" };
+
+  expect(keyPointHistoryIndexOf([newer, older], older)).toBe(1);
+  expect(keyPointHistoryIndexOf([inserted, newer, older], older)).toBe(2);
+  expect(keyPointHistoryIndexOf([newer], older)).toBe(-1);
+  expect(keyPointHistoryIndexOf([{ ...older, text: "edited prompt" }], older)).toBe(-1);
 });

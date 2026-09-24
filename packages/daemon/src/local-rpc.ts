@@ -26,10 +26,10 @@ import {
   type DaemonCommandRequest,
   type ManagedRuntimeIdentity,
 } from "@lrm/coforge-sdk/internal";
-import type { DaemonConfig } from "./daemon-runtime/runtime";
-import type { DaemonCredentialStore } from "./credentials/credential-store";
-import type { DaemonConfigStore } from "./persistence/daemon-config";
-import { COFORGE_DAEMON_SERVER_URL } from "./connection/built-server";
+import type { DaemonConfig } from "#src/daemon-runtime/runtime";
+import type { DaemonCredentialStore } from "#src/credentials/credential-store";
+import type { DaemonConfigStore } from "#src/persistence/daemon-config";
+import { COFORGE_DAEMON_SERVER_URL } from "#src/connection/built-server";
 
 const logger = getLogger(["coforge", "daemon", "local-rpc"]);
 

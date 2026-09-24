@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 
-import { recipientUserIdsForSend } from "@/server/records/weekly-report-send-recipients";
+import { recipientUserIdsForSend } from "#src/server/records/weekly-report-send-recipients.server";
 
 test("allMembers send includes every workspace member during testing", () => {
   expect(

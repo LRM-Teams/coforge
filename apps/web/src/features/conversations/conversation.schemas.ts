@@ -2,6 +2,10 @@ import { z } from "zod";
 
 const uuid = z.uuid();
 
+/** A channel name: lowercase letters, digits, `-` and `_`, starting with a letter or digit, at
+ * most 32 characters. Creation and renaming share it. */
+export const CHANNEL_NAME_PATTERN = /^[a-z0-9][a-z0-9_-]{0,31}$/;
+
 /** Attachments already uploaded to this conversation, unlinked to any message, in send order.
  * Bounded and unique, mirroring `isValidMentionSelectorArray`'s shape (array, max length,
  * per-item validity) in `@lrm/coforge-sdk/internal/mentions.ts`. This composer migrates fully
@@ -58,4 +62,11 @@ export const toggleMessageReactionInputSchema = z.object({
   messageId: uuid,
   emoji: z.string().min(1).max(16),
   active: z.boolean(),
+});
+
+/** Save or unsave one message to the viewer's own Saved list (#120): both FKs are compound, so
+ * the conversation must accompany the message. */
+export const savedMessageInputSchema = z.object({
+  conversationId: uuid,
+  messageId: uuid,
 });

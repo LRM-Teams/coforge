@@ -4,14 +4,20 @@ import {
   type AgentStopIntent,
   type RuntimeProvider,
 } from "@lrm/coforge-sdk/internal";
-import { AppError } from "../../lib/app-error";
-import { AGENT_VISIBILITY, type AgentVisibility } from "../../features/agents/agent-visibility";
+import { AppError } from "#src/lib/app-error";
+import { AGENT_VISIBILITY, type AgentVisibility } from "#src/features/agents/agent-visibility";
 import { assertAgentLive } from "./active-agent.server";
-import type { AgentRecord, AgentRepository } from "../db/repositories/agent.repositories.server";
+import type {
+  AgentRecord,
+  AgentRepository,
+} from "#src/server/db/repositories/agent.repositories.server";
 import { publicAgentRuntimeConfig } from "./agent-runtime-config.server";
 import type { AgentRuntimeCredentials } from "./agent-runtime-credentials.server";
 import type { AgentRuntimeLock } from "./agent-runtime-lock.server";
-import { assertCanCreateAgents, type WorkspaceMemberRole } from "../workspaces/member-role.server";
+import {
+  assertCanCreateAgents,
+  type WorkspaceMemberRole,
+} from "#src/server/workspaces/member-role.server";
 
 const providers = new Set<unknown>(Object.values(RUNTIME_PROVIDER));
 
@@ -24,7 +30,7 @@ export type AgentCreateInput = {
   reasoning?: string;
   computerId: string;
   apiKey?: string;
-  /** ADR 0059; defaults to public when omitted, matching every creation path except the
+  /** Defaults to public when omitted, matching every creation path except the
    * weekly-report Collector Agent, which is created private outside this use case. */
   visibility?: AgentVisibility;
 };
@@ -155,7 +161,7 @@ export class ManageAgents {
         current.ownerId !== principal.userId
       )
         throw new Error("Agent is not authorized");
-      // ADR 0044: a deleted Agent has no editable configuration. Refused here rather than only by
+      // A deleted Agent has no editable configuration. Refused here rather than only by
       // the restart below, so a stopped/deleted Agent cannot be silently rewritten either.
       assertAgentLive(current);
       const computerId = input.computerId ?? current.computerId;
@@ -210,7 +216,7 @@ export class ManageAgents {
         }))
       )
         throw new AppError("INVALID_INPUT", { errorId: "agent-runtime-unavailable" });
-      // ADR 0038: a stopped Agent has nothing running under the old configuration, so config
+      // A stopped Agent has nothing running under the old configuration, so config
       // changes persist without the stop -> ... -> start dance; a confirmed Stop would make a
       // stopped Agent on an offline Computer uneditable.
       const stopped = Boolean(current.stoppedAt);
@@ -239,10 +245,7 @@ export class ManageAgents {
         return { agent: publicAgent(agent), restart: "not-required" as const };
       if (stopped) return { agent: publicAgent(agent), restart: "deferred" as const };
       try {
-        await this.runtimeControl.start(
-          agentStartIntent(agent, current.computerId),
-          principal.userId,
-        );
+        await this.runtimeControl.start(agentStartIntent(agent, computerId), principal.userId);
         return { agent: publicAgent(agent), restart: "published" as const };
       } catch {
         return { agent: publicAgent(agent), restart: "deferred" as const };

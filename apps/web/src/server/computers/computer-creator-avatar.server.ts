@@ -1,14 +1,14 @@
 import { z } from "zod";
-import type { PrismaClient } from "../../../generated/client";
-import { AppError, isAppError } from "../../lib/app-error";
-import { optionalBrowserUser } from "../auth/require-user.server";
-import { getDatabaseClient } from "../db/client.server";
+import type { PrismaClient } from "#src/generated/prisma/client";
+import { AppError, isAppError } from "#src/lib/app-error";
+import { optionalBrowserUser } from "#src/server/auth/require-user.server";
+import { getDatabaseClient } from "#src/server/db/client.server";
 import {
   PROFILE_IMAGE_STYLES,
   publicImageUrl,
   type PublicImageUrlResolver,
-} from "../files/public-image-delivery.server";
-import { readUserAvatar } from "../profiles/user-avatar.server";
+} from "#src/server/files/public-image-delivery.server";
+import { readUserAvatar } from "#src/server/profiles/user-avatar.server";
 
 /**
  * Where the browser reads the avatar of the person who connected a Computer. The image CDN

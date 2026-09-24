@@ -2,39 +2,39 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import type { LocalInboxRequest } from "@lrm/coforge-sdk/internal";
 import { dispose, getLogger, withContext } from "@logtape/logtape";
-import { startDaemonLocalRpcServer } from "./src/local-rpc";
-import { startAgentProxy, type AgentProxyRuntime } from "./src/agent-proxy";
-import { createCodeAgentProvider } from "./src/code-agent/registry";
+import { startDaemonLocalRpcServer } from "#src/local-rpc";
+import { startAgentProxy, type AgentProxyRuntime } from "#src/agent-proxy";
+import { createCodeAgentProvider } from "#src/code-agent/registry";
 import {
   DaemonRuntime,
   type BusyAgentReport,
   type DaemonConfig,
   type RecoveredUpgradeResult,
-} from "./src/daemon-runtime/runtime";
-import { diagnosticErrorCode } from "./src/platform/diagnostic-error-code";
-import { FileDaemonCredentialStore } from "./src/credentials/credential-store";
-import { DaemonConfigStore } from "./src/persistence/daemon-config";
+} from "#src/daemon-runtime/runtime";
+import { diagnosticErrorCode } from "#src/platform/diagnostic-error-code";
+import { FileDaemonCredentialStore } from "#src/credentials/credential-store";
+import { DaemonConfigStore } from "#src/persistence/daemon-config";
 import {
   DaemonConnection,
   defaultCentrifugeWorkspaceClientFactory,
-} from "./src/connection/daemon-connection";
-import { COFORGE_DAEMON_SERVER_URL, daemonConnectionEndpoint } from "./src/connection/built-server";
-import { COFORGE_DAEMON_VERSION } from "./src/version";
-import { LocalDaemonLauncher } from "./src/daemon-host/launcher";
-import { configureDaemonLogging } from "./src/platform/daemon-logging";
-import { stopLaunchdJobs } from "./src/platform/launchd-job";
-import { stopWorkspaceAgentProcesses } from "./src/platform/linux-agent-processes";
+} from "#src/connection/daemon-connection";
+import { COFORGE_DAEMON_SERVER_URL, daemonConnectionEndpoint } from "#src/connection/built-server";
+import { COFORGE_DAEMON_VERSION } from "#src/version";
+import { LocalDaemonLauncher } from "#src/daemon-host/launcher";
+import { configureDaemonLogging } from "#src/platform/daemon-logging";
+import { stopLaunchdJobs } from "#src/platform/launchd-job";
+import { stopWorkspaceAgentProcesses } from "#src/platform/linux-agent-processes";
 import {
   WorkspaceHealthJournal,
   workspaceDegradedMessage,
   workspaceHealthJournalPath,
-} from "./src/supervisor/workspace-health-journal";
-import { guardWorkspaceRunnerStart } from "./src/supervisor/workspace-runner-guard";
-export { launchdJobs } from "./src/platform/launchd-job";
-export { stopWorkspaceAgentProcesses } from "./src/platform/linux-agent-processes";
-export { FileBindingStore } from "./src/supervisor/binding-store";
-export { workspaceLaunchdIdentity } from "./src/supervisor/launchd-workspace-instance";
-export { workspaceStateDirectory } from "./src/supervisor/workspace-instance";
+} from "#src/supervisor/workspace-health-journal";
+import { guardWorkspaceRunnerStart } from "#src/supervisor/workspace-runner-guard";
+export { launchdJobs } from "#src/platform/launchd-job";
+export { stopWorkspaceAgentProcesses } from "#src/platform/linux-agent-processes";
+export { FileBindingStore } from "#src/supervisor/binding-store";
+export { workspaceLaunchdIdentity } from "#src/supervisor/launchd-workspace-instance";
+export { workspaceStateDirectory } from "#src/supervisor/workspace-instance";
 export {
   WORKSPACE_HEALTH_CRASH_WINDOW_MS,
   WORKSPACE_HEALTH_DEGRADED_THRESHOLD,
@@ -42,37 +42,37 @@ export {
   workspaceDegradedMessage,
   workspaceHealthJournalPath,
   workspaceHealthRecoveryCommand,
-} from "./src/supervisor/workspace-health-journal";
-export type { WorkspaceHealthState } from "./src/supervisor/workspace-health-journal";
-export { runMachineSupervisor } from "./src/supervisor/run-supervisor";
+} from "#src/supervisor/workspace-health-journal";
+export type { WorkspaceHealthState } from "#src/supervisor/workspace-health-journal";
+export { runMachineSupervisor } from "#src/supervisor/run-supervisor";
 export {
   holdRunnersUntilQuiescent,
   RUNNER_HOLD_MS,
   RUNNER_HOLD_POLL_MS,
-} from "./src/supervisor/runner-hold";
+} from "#src/supervisor/runner-hold";
 export type {
   RunnerHoldOptions,
   RunnerHoldOutcome,
   RunnerHoldSnapshot,
-} from "./src/supervisor/runner-hold";
-export { runLaunchdAgent } from "./src/platform/launchd-process";
+} from "#src/supervisor/runner-hold";
+export { runLaunchdAgent } from "#src/platform/launchd-process";
 
 export type { AgentRuntimeConfig, AgentSession, AgentSessionOptions } from "@coforge/agent";
 export type {
   AgentRuntimeEvent,
   CodeAgentProvider,
   CodeAgentProviderFactory,
-} from "./src/code-agent/contract";
-export { createCodeAgentProvider } from "./src/code-agent/registry";
-export { ClaudeCodeProvider } from "./src/code-agent/claude-code/provider";
-export { CodexProvider } from "./src/code-agent/codex/provider";
-export { readCodexUsage } from "./src/code-agent/codex/usage";
-export { readClaudeCodeUsage } from "./src/code-agent/claude-code/usage";
-export { CoforgeProvider, PiProvider } from "./src/code-agent/pi/provider";
-export { KiroProvider } from "./src/code-agent/kiro/provider";
-export { createDaemonHost } from "./src/daemon-host";
-export { startDaemonLocalRpcServer } from "./src/local-rpc";
-export { startAgentProxy } from "./src/agent-proxy";
+} from "#src/code-agent/contract";
+export { createCodeAgentProvider } from "#src/code-agent/registry";
+export { ClaudeCodeProvider } from "#src/code-agent/claude-code/provider";
+export { CodexProvider } from "#src/code-agent/codex/provider";
+export { readCodexUsage } from "#src/code-agent/codex/usage";
+export { readClaudeCodeUsage } from "#src/code-agent/claude-code/usage";
+export { CoforgeProvider, PiProvider } from "#src/code-agent/pi/provider";
+export { KiroProvider } from "#src/code-agent/kiro/provider";
+export { createDaemonHost } from "#src/daemon-host/index";
+export { startDaemonLocalRpcServer } from "#src/local-rpc";
+export { startAgentProxy } from "#src/agent-proxy";
 export {
   LaunchdDaemonHost,
   launchdPlist,
@@ -81,58 +81,58 @@ export {
   WindowsUserDaemonHost,
   windowsDaemonTaskXml,
   windowsTaskUserId,
-} from "./src/daemon-host";
-export { LocalDaemonLauncher, resolveDaemonExecutablePath } from "./src/daemon-host/launcher";
-export { cleanupComputerUpgradeJob } from "./src/platform/computer-upgrade-launcher";
-export { acquireProcessLock, isLockContention } from "./src/platform/process-lock";
-export { readOperatingSystem } from "./src/platform/operating-system";
-export type { ProcessLock } from "./src/platform/process-lock";
+} from "#src/daemon-host/index";
+export { LocalDaemonLauncher, resolveDaemonExecutablePath } from "#src/daemon-host/launcher";
+export { cleanupComputerUpgradeJob } from "#src/platform/computer-upgrade-launcher";
+export { acquireProcessLock, isLockContention } from "#src/platform/process-lock";
+export { readOperatingSystem } from "#src/platform/operating-system";
+export type { ProcessLock } from "#src/platform/process-lock";
 export type {
   DaemonLauncher,
   DaemonCommandRunner,
   DaemonWorkspaceConfig,
-} from "./src/daemon-host/launcher";
-export { DaemonConfigStore } from "./src/persistence/daemon-config";
-export { AgentProcessManager } from "./src/agent-runtime/agent-process-manager";
-export { agentWorkspaceDirectory } from "./src/agent-runtime/agent-workspace-path";
-export { AgentStateMachine } from "./src/agent-runtime/agent-state-machine";
-export { createAgentActivity } from "./src/agent-runtime/agent-activity";
-export type { AgentRuntime, AgentStatus } from "./src/agent-runtime/agent-process-manager";
-export type { AgentActivity, AgentActivityLevel } from "./src/agent-runtime/agent-activity";
+} from "#src/daemon-host/launcher";
+export { DaemonConfigStore } from "#src/persistence/daemon-config";
+export { AgentProcessManager } from "#src/agent-runtime/agent-process-manager";
+export { agentWorkspaceDirectory } from "#src/agent-runtime/agent-workspace-path";
+export { AgentStateMachine } from "#src/agent-runtime/agent-state-machine";
+export { createAgentActivity } from "#src/agent-runtime/agent-activity";
+export type { AgentRuntime, AgentStatus } from "#src/agent-runtime/agent-process-manager";
+export type { AgentActivity, AgentActivityLevel } from "#src/agent-runtime/agent-activity";
 export type {
   AgentStateEvent,
   AgentStateTransition,
   AgentStatus as AgentStateStatus,
-} from "./src/agent-runtime/agent-state-machine";
-export { DaemonRuntime } from "./src/daemon-runtime/runtime";
+} from "#src/agent-runtime/agent-state-machine";
+export { DaemonRuntime } from "#src/daemon-runtime/runtime";
 export {
   SystemdWorkspaceInstance,
   workspaceUnit,
-} from "./src/supervisor/systemd-workspace-instance";
-export { AgentMessageAttentionIndex } from "./src/daemon-runtime/agent-message-attention-index";
-export { AgentAppInbox } from "./src/agent-app-inbox/agent-app-inbox";
-export type { AgentAppItem, MintAppItem } from "./src/agent-app-inbox/agent-app-inbox";
+} from "#src/supervisor/systemd-workspace-instance";
+export { AgentMessageAttentionIndex } from "#src/daemon-runtime/agent-message-attention-index";
+export { AgentAppInbox } from "#src/agent-app-inbox/agent-app-inbox";
+export type { AgentAppItem, MintAppItem } from "#src/agent-app-inbox/agent-app-inbox";
 export type {
   DaemonConfig,
   WorkspaceConfig,
   RecoveredUpgradeResult,
-} from "./src/daemon-runtime/runtime";
+} from "#src/daemon-runtime/runtime";
 export {
   InMemoryDaemonCredentialStore,
   FileDaemonCredentialStore,
-} from "./src/credentials/credential-store";
-export type { DaemonCredentialStore } from "./src/credentials/credential-store";
+} from "#src/credentials/credential-store";
+export type { DaemonCredentialStore } from "#src/credentials/credential-store";
 export type {
   DaemonConnectionClient,
   DaemonConnectionConfig,
   DaemonConnectionClientFactory,
   AgentMessageHttpClient,
-} from "./src/connection/daemon-connection";
+} from "#src/connection/daemon-connection";
 export {
   DaemonConnection,
   defaultCentrifugeWorkspaceClientFactory,
-} from "./src/connection/daemon-connection";
-export { COFORGE_DAEMON_SERVER_URL, daemonConnectionEndpoint } from "./src/connection/built-server";
+} from "#src/connection/daemon-connection";
+export { COFORGE_DAEMON_SERVER_URL, daemonConnectionEndpoint } from "#src/connection/built-server";
 
 const DAEMON_CATEGORY = ["coforge", "daemon"];
 /** `--socket` is required for every launch this build understands; a launch missing it is a
@@ -308,7 +308,7 @@ export async function runDaemon(args: string[], computerVersion?: string): Promi
             recoveredUpgradeResults: terminalUpgradeResults(config),
             // Re-reads the same per-Workspace config file the Coordinator wrote before starting
             // this process - and may rewrite again while this process keeps running, once its
-            // continuous upgrade-receipt watch settles an operation (ADR 0037) - so a result
+            // continuous upgrade-receipt watch settles an operation - so a result
             // settled after this process started is still reported on the next reconnect.
             refreshUpgradeResults: async () => terminalUpgradeResults(await configStore.load()),
             acknowledgeUpgradeResult: supervisorSocket
@@ -356,7 +356,7 @@ export async function runDaemon(args: string[], computerVersion?: string): Promi
         },
         inbox: async (context: string, request: LocalInboxRequest) =>
           requireRuntime().inbox(context, request),
-        // Runner hold (ADR 0020). A Workspace with no configured runtime has nothing to drain and
+        // Runner hold. A Workspace with no configured runtime has nothing to drain and
         // reports itself quiescent, so it never holds an upgrade up.
         async hold(reason: string) {
           return { held: true, busyAgents: stampWorkspace(runtime?.holdRunners(reason)) };

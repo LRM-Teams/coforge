@@ -8,7 +8,7 @@ import {
   AuthConfigError,
   readAuthingConfig,
   readSessionSecret,
-} from "../../src/server/auth/config.server";
+} from "#src/server/auth/config.server";
 
 test("readAuthingConfig uses issuer endpoints and the request origin callback", async () => {
   const config = await readAuthingConfig(

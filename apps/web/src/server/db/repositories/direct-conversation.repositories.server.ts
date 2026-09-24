@@ -1,43 +1,51 @@
-import { lockConversation } from "../../conversations/conversation-lock.server";
+import { lockConversation } from "#src/server/conversations/conversation-lock.server";
+import {
+  lockMemberPins,
+  setConversationPin,
+} from "#src/server/conversations/conversation-pins.server";
 import type { MessageSenderKind, MessageTaskMetadata, TaskStatus } from "@lrm/coforge-sdk/internal";
+import { Prisma, type PrismaClient } from "#src/generated/prisma/client";
+import { AppError } from "#src/lib/app-error";
+import { canDirectMessageAgent } from "#src/server/agents/agent-visibility.server";
+import { AgentMessageValidationError } from "#src/server/conversations/agent-message-validation-error.server";
+import { messageAnchorWhere } from "#src/server/db/message-anchor.server";
+import { getAgentChannel, PublicChannels } from "#src/server/conversations/public-channels.server";
 import {
-  normalizeMentionBody,
-  resolveTaskReferences,
-  taskReferenceNumbers,
-} from "@lrm/coforge-sdk/internal";
-import { Prisma, type PrismaClient } from "../../../../generated/client";
-import { AppError } from "../../../lib/app-error";
-import { canDirectMessageAgent } from "../../agents/agent-visibility.server";
-import { AgentMessageValidationError } from "../../conversations/agent-message-validation-error.server";
-import { messageAnchorWhere } from "../message-anchor";
-import { getAgentChannel, PublicChannels } from "../../conversations/public-channels.server";
-import { ACTIVE_MEMBER_WHERE } from "../../conversations/active-member.server";
+  ACTIVE_MEMBER_WHERE,
+  VISIBLE_CONVERSATION_WHERE,
+} from "#src/server/conversations/active-member.server";
+import { HUMAN_UNREAD_MESSAGE_SQL } from "#src/server/conversations/human-unread.server";
 import {
-  agentReadableBody,
   BROWSER_MESSAGE_MENTIONS_SELECT,
+  MESSAGE_MENTIONS_SELECT,
   browserMessageMention,
-  deliveryMentionsAgent,
-  mentionedNames,
-} from "../../conversations/mentions";
-import { AgentSendRejectedError } from "../../conversations/agent-send-rejected-error.server";
+  type MessageMentionRef,
+} from "#src/server/conversations/mentions.server";
+import {
+  agentMessageView,
+  type AgentReadableBody,
+} from "#src/server/conversations/agent-message-view.server";
+import { AgentSendRejectedError } from "#src/server/conversations/agent-send-rejected-error.server";
+import { storeMessageBody } from "#src/server/conversations/message-references.server";
 import {
   MESSAGE_REACTIONS_SELECT,
   reactionSummaries,
-} from "../../conversations/message-reactions.server";
-import { toggleUserMessageReaction } from "../../conversations/user-message-reactions.server";
+} from "#src/server/conversations/message-reactions.server";
+import { toggleUserMessageReaction } from "#src/server/conversations/user-message-reactions.server";
 import {
   agentMessageSender,
   browserSenderHandle,
   browserSenderName,
   MESSAGE_SENDER_SELECT,
-} from "../../conversations/sender-display.server";
-import { agentAvatarUrl } from "../../agents/agent-avatar.server";
+} from "#src/server/conversations/sender-display.server";
+import { agentAvatarUrl } from "#src/server/agents/agent-avatar.server";
 import { workspaceUserAvatarUrl } from "./user-profile.repositories.server";
-import { attachmentView } from "../../attachments/attachment-view.server";
-import type { ActionCardView } from "../../conversations/action-cards.server";
-import { windowPageFlags } from "../../../lib/conversation-window";
+import { attachmentView } from "#src/server/attachments/attachment-view.server";
+import type { ActionCardView } from "#src/server/conversations/action-cards.server";
+import { windowPageFlags } from "#src/lib/conversation-window";
+import { channelTarget } from "#src/server/conversations/agent-delivery.server";
 
-/** The three Agent-visible sender facts (ADR 0052), spread onto every Agent-facing message shape
+/** The three Agent-visible sender facts, spread onto every Agent-facing message shape
  * in this file so they cannot drift into three different field sets. */
 type AgentFacingSender = {
   senderKind: MessageSenderKind;
@@ -120,6 +128,10 @@ export type PendingAgentDelivery = AgentRecoveryContext["resumeMessages"][number
   mentionsAgent?: boolean;
 };
 
+/** An Agent-facing record as this repository builds it: its `body` comes from `agentMessageView`.
+ * The port types keep a plain `body: string`, which this is assignable to. */
+type AgentFacing<T extends { body: string }> = Omit<T, "body"> & { body: AgentReadableBody };
+
 const AGENT_RECOVERY_MESSAGE_LIMIT = 100;
 const PUBLIC_USERNAME_TARGET = /^@[a-z0-9](?:[a-z0-9_-]{1,30}[a-z0-9])?$/;
 /** Eight-hex-character prefix or a full UUID; both address a Message. */
@@ -131,11 +143,6 @@ const ATTACHMENT_SELECT = {
   select: { id: true, fileName: true, contentType: true, sizeBytes: true, objectKey: true },
   orderBy: { position: "asc" },
 } satisfies Prisma.MessageSelect["attachments"];
-
-/** Stable mention identity for Agent-facing text; Agents always read the immutable handle. */
-const MESSAGE_MENTIONS_SELECT = {
-  select: { kind: true, actorId: true, handle: true },
-} satisfies NonNullable<Prisma.MessageSelect["mentions"]>;
 
 /** Message projection sent to the browser client. */
 const BROWSER_MESSAGE_SELECT = {
@@ -164,7 +171,7 @@ const TASK_METADATA_SELECT = {
     owner: {
       select: {
         user: { select: { username: true, displayName: true } },
-        agent: { select: { name: true, displayName: true } },
+        agent: { select: { name: true, displayName: true, deletedAt: true } },
       },
     },
   },
@@ -202,7 +209,7 @@ function conversationTarget(conversation: {
   members: { user: { username: string } | null }[];
 }) {
   return conversation.channelName
-    ? `#${conversation.channelName}`
+    ? channelTarget(conversation.channelName)
     : `@${conversation.members[0]?.user?.username}`;
 }
 
@@ -212,31 +219,27 @@ function toAgentMessage(
     task: Parameters<typeof messageTask>[0];
     attachments: AttachmentMetadata[];
     actionCard?: { state: string } | null;
-    mentions?: { kind: string; actorId: string; handle: string }[];
+    mentions?: MessageMentionRef[];
   },
   target: string,
   readerAgentId?: string,
 ) {
   const task = messageTask(row.task);
   const sender = agentMessageSender(row.sender);
-  // Agents read plain `@handle` text: the embedded-UUID token form is a storage/browser concern
-  // and never crosses onto the Agent channel.
-  const body = agentReadableBody(row.body, row.mentions ?? []);
-  const mentionsAgent = readerAgentId ? deliveryMentionsAgent(row.mentions, readerAgentId) : false;
   return {
     id: row.id,
     sequence: row.sequence,
     senderKind: sender.kind,
     senderHandle: sender.handle,
     senderDescription: sender.description,
-    // An Agent reads message text, not the browser card UI; append the card's current state so it
-    // never claims a resource exists before a human has actually committed the card (ADR 0027).
-    body: row.actionCard ? `${body} [action card: ${row.actionCard.state}]` : body,
+    ...agentMessageView(
+      { body: row.body, mentions: row.mentions ?? [], actionCard: row.actionCard },
+      readerAgentId,
+    ),
     createdAt: row.createdAt,
     target,
     attachments: row.attachments,
     ...(task ? { task } : {}),
-    ...(mentionsAgent ? { mentionsAgent: true } : {}),
   };
 }
 
@@ -255,7 +258,7 @@ function toBrowserMessage(message: BrowserMessageRow, workspaceId: string) {
     /** The sender's Agent id, present only for an Agent-sent message; opens the Agent profile
      * panel from a message row (`features/agents/profile-panel/`). */
     senderAgentId: message.sender?.agentId ?? undefined,
-    /** True when the sending Agent has since been deleted (ADR 0044): the row renders its sender
+    /** True when the sending Agent has since been deleted: the row renders its sender
      * greyed with a `DELETED` marker, and no longer opens that Agent's profile. */
     senderDeleted: Boolean(message.sender?.agent?.deletedAt),
     senderAvatarUrl: message.sender?.userId
@@ -303,10 +306,16 @@ function unreadForAgentWhere(agentId: string, isChannel: boolean) {
  *
  * `senderAgentName`/`senderAgentDescription` and `senderUsername`/`senderUserDescription` carry
  * the message's own author (an Agent, else a human) as separate columns rather than one merged
- * name, so the caller can tell which kind it is and attach its description (ADR 0052); a raw SQL
+ * name, so the caller can tell which kind it is and attach its description; a raw SQL
  * statement cannot call the shared `agentMessageSender` projection directly. `otherUsername` is
  * the *recipient* — the conversation's other active member, which a DM target needs and a
  * message's sender cannot supply.
+ *
+ * The `m` subquery narrows the scan before the rule is applied, one disjoint branch per
+ * conversation kind: a channel message only counts with a delivery row, so channels are read through the
+ * Agent's deliveries instead of their history, and a direct message's top level is an index range
+ * above the Agent's boundary. Only direct-message thread replies, whose boundary is per thread,
+ * are scanned in full. The outer `WHERE` still states the whole rule.
  */
 function unreadAgentMessagesFragment(workspaceId: string, agentId: string) {
   return Prisma.sql`
@@ -321,7 +330,35 @@ function unreadAgentMessagesFragment(workspaceId: string, agentId: string) {
         LEFT JOIN "agents" oa ON oa."id" = om."agentId"
         WHERE om."conversationId" = c."id" AND om."id" <> am."id" AND om."leftAt" IS NULL
         ORDER BY ou."username" NULLS LAST LIMIT 1) AS "otherUsername"
-    FROM "messages" m
+    FROM (
+      SELECT cm."id", cm."sequence", cm."body", cm."conversationId", cm."threadRootId",
+        cm."senderMemberId"
+      FROM "agent_message_deliveries" cd
+      JOIN "messages" cm ON cm."id" = cd."messageId"
+      JOIN "conversations" cc ON cc."id" = cm."conversationId" AND cc."channelName" IS NOT NULL
+        AND cc."hiddenFromWorkspaceAt" IS NULL
+      WHERE cd."workspaceId" = ${workspaceId}::uuid AND cd."agentId" = ${agentId}::uuid
+      UNION ALL
+      SELECT dm."id", dm."sequence", dm."body", dm."conversationId", dm."threadRootId",
+        dm."senderMemberId"
+      FROM "conversation_members" dam
+      JOIN "conversations" dc ON dc."id" = dam."conversationId" AND dc."channelName" IS NULL
+      JOIN "messages" dm ON dm."conversationId" = dam."conversationId"
+        AND dm."threadRootId" IS NULL AND dm."sequence" > dam."agentReadThroughSequence"
+      WHERE dam."workspaceId" = ${workspaceId}::uuid AND dam."agentId" = ${agentId}::uuid
+        AND dam."leftAt" IS NULL
+      UNION ALL
+      SELECT dm."id", dm."sequence", dm."body", dm."conversationId", dm."threadRootId",
+        dm."senderMemberId"
+      FROM "conversation_members" dam
+      JOIN "conversations" dc ON dc."id" = dam."conversationId" AND dc."channelName" IS NULL
+      JOIN "messages" dm ON dm."conversationId" = dam."conversationId"
+        AND dm."threadRootId" IS NOT NULL
+      LEFT JOIN "thread_reads" dtr
+        ON dtr."memberId" = dam."id" AND dtr."rootMessageId" = dm."threadRootId"
+      WHERE dam."workspaceId" = ${workspaceId}::uuid AND dam."agentId" = ${agentId}::uuid
+        AND dam."leftAt" IS NULL AND dm."sequence" > COALESCE(dtr."readThroughSequence", 0)
+    ) m
     JOIN "conversation_members" am ON am."conversationId" = m."conversationId"
       AND am."workspaceId" = ${workspaceId}::uuid AND am."agentId" = ${agentId}::uuid
       AND am."leftAt" IS NULL
@@ -391,17 +428,27 @@ function messageTask(
     status: string;
     owner: {
       user: { username: string; displayName: string | null } | null;
-      agent: { name: string; displayName: string } | null;
+      agent: { name: string; displayName: string; deletedAt: Date | null } | null;
     } | null;
   } | null,
 ): MessageTaskMetadata | undefined {
   if (!task) return undefined;
-  const identity = task.owner?.agent ?? task.owner?.user;
-  const handle = task.owner?.agent ? `@${task.owner.agent.name}` : `@${task.owner?.user?.username}`;
+  const agent = task.owner?.agent;
+  const identity = agent ?? task.owner?.user;
+  const handle = agent ? agent.name : task.owner?.user?.username;
   return {
     number: task.number,
     status: taskStatus(task.status),
-    ...(identity ? { owner: { displayName: identity.displayName || handle, handle } } : {}),
+    ...(identity && handle
+      ? {
+          owner: {
+            displayName: identity.displayName || handle,
+            handle,
+            // A deleted Agent keeps the Task; the reading Agent must not take it for a live owner.
+            ...(agent?.deletedAt ? { deleted: true } : {}),
+          },
+        }
+      : {}),
   };
 }
 
@@ -555,7 +602,7 @@ export type DirectConversationRepository = {
     seenUpToSequence: number,
   ): Promise<number>;
   /** Per-DM unread for the sidebar: other-authored top-level messages past the member's
-   * cursor, keyed by the Agent whose row the badge belongs to (ADR 0046). One grouped query
+   * cursor, keyed by the Agent whose row the badge belongs to. One grouped query
    * for the whole Workspace; the agent member row is the join, never the viewer's own row. */
   unreadCountsForUser?(
     workspaceId: string,
@@ -598,7 +645,7 @@ export type DirectConversationRepository = {
       mentions?: { kind: string; actorId: string; handle: string }[];
       /** Always present, possibly empty; order matches send order. */
       attachments: AttachmentMetadata[];
-      // The sending Agent's identity, for delivery envelopes (ADR 0052).
+      // The sending Agent's identity, for delivery envelopes.
     } & Partial<LatestSenderFields>
   >;
   openForUser?(
@@ -609,11 +656,11 @@ export type DirectConversationRepository = {
   ): Promise<{
     conversationId: string;
     senderMemberId: string;
-    /** The viewer's conversation-level read cursor over top-level messages (ADR 0046). */
+    /** The viewer's conversation-level read cursor over top-level messages. */
     readThroughSequence?: number;
     threadReadThrough?: Record<string, number>;
     agent: { id: string; name: string; displayName: string; deletedAt: Date | null };
-    /** Whether this viewer may still send here (ADR 0059); see `PrismaDirectConversationRepository`. */
+    /** Whether this viewer may still send here; see `PrismaDirectConversationRepository`. */
     dmWritable: boolean;
     hasOlder: boolean;
     hasNewer?: boolean;
@@ -777,6 +824,7 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
       where: {
         workspaceId,
         conversation: {
+          ...VISIBLE_CONVERSATION_WHERE,
           members: { some: { agentId, ...ACTIVE_MEMBER_WHERE } },
           ...(scope ? { id: scope.conversationId } : {}),
         },
@@ -831,7 +879,10 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
     const rows = await this.db.message.findMany({
       where: {
         workspaceId,
-        conversation: { members: { some: { agentId, ...ACTIVE_MEMBER_WHERE } } },
+        conversation: {
+          ...VISIBLE_CONVERSATION_WHERE,
+          members: { some: { agentId, ...ACTIVE_MEMBER_WHERE } },
+        },
         id: messageAnchorWhere(anchor),
       },
       take: 2,
@@ -940,7 +991,7 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
 
   async getOrCreateUserAgent(workspaceId: string, userId: string, agentId: string) {
     // Deliberately *not* filtered by `ACTIVE_AGENT_WHERE`: a deleted Agent's direct conversation
-    // stays readable (ADR 0044 keeps history), and `ownedConversations` decides per operation
+    // stays readable (history is kept), and `ownedConversations` decides per operation
     // whether reading or writing is allowed. Starting a new conversation with a deleted Agent is
     // unreachable anyway — the DM list and profile affordances no longer offer one.
     const agent = await this.db.agent.findFirst({
@@ -951,7 +1002,7 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
     const where = { workspaceId_directKey: { workspaceId, directKey: keyFor(userId, agentId) } };
     const existing = await this.db.conversation.findUnique({ where, select: { id: true } });
     if (existing) return existing;
-    // A brand-new DM with a private Agent may only ever be started by its own creator (ADR 0059):
+    // A brand-new DM with a private Agent may only ever be started by its own creator:
     // an existing DM someone else already had stays readable/read-only (handled above by
     // returning it unconditionally), but nobody else may open a first one.
     if (!canDirectMessageAgent(userId, agent)) throw new AppError("AGENT_DM_RESTRICTED");
@@ -988,6 +1039,162 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
     return { conversationId: conversation.id, senderMemberId: member.id };
   }
 
+  /**
+   * The viewer's own membership of their DM with this Agent, resolved without creating anything:
+   * a preference must not bring a conversation into existence as a side effect. `NOT_FOUND` covers
+   * both "no DM yet" and "not this viewer's DM", so the mutations cannot probe another pair.
+   */
+  private async memberForPreference(workspaceId: string, userId: string, agentId: string) {
+    const conversation = await this.findUserAgentConversation(workspaceId, userId, agentId);
+    if (!conversation) throw new AppError("NOT_FOUND");
+    const member = await this.db.conversationMember.findFirst({
+      where: { conversationId: conversation.id, userId, leftAt: null },
+      select: { id: true },
+    });
+    if (!member) throw new AppError("NOT_FOUND");
+    return { conversationId: conversation.id, memberId: member.id };
+  }
+
+  /** Pins the viewer's DM with this Agent above the rest of their list, or unpins it (#121). The
+   * conversation lock orders it against concurrent writes the way the channel side does. */
+  async setPinnedForUser(
+    workspaceId: string,
+    userId: string,
+    agentId: string,
+    pinned: boolean,
+    sortOrder?: number,
+  ) {
+    const { conversationId, memberId } = await this.memberForPreference(
+      workspaceId,
+      userId,
+      agentId,
+    );
+    await this.db.$transaction(async (tx) => {
+      await lockMemberPins(tx, workspaceId, userId);
+      await lockConversation(tx, conversationId);
+      await setConversationPin(
+        tx,
+        { workspaceId, userId, conversationId, memberId },
+        pinned,
+        sortOrder,
+      );
+    });
+    return { pinned };
+  }
+
+  /** Marks the viewer's DM with this Agent unread, anchored on its newest top-level message, or
+   * clears the marker. A DM with no messages has nothing to mark. */
+  async setUnreadForUser(workspaceId: string, userId: string, agentId: string, unread: boolean) {
+    const { conversationId } = await this.memberForPreference(workspaceId, userId, agentId);
+    let marker: number | null = null;
+    await this.db.$transaction(async (tx) => {
+      await lockConversation(tx, conversationId);
+      if (unread) {
+        const newest = await tx.message.findFirst({
+          where: { conversationId, threadRootId: null },
+          orderBy: { sequence: "desc" },
+          select: { sequence: true },
+        });
+        marker = newest?.sequence ?? null;
+      }
+      await tx.conversationMember.updateMany({
+        where: { conversationId, userId, leftAt: null },
+        data: { unreadFromSequence: marker },
+      });
+    });
+    return { unread: marker !== null };
+  }
+
+  /** Closes the viewer's DM with this Agent in their list only, or brings it back. */
+  async setHiddenForUser(workspaceId: string, userId: string, agentId: string, hidden: boolean) {
+    const { conversationId } = await this.memberForPreference(workspaceId, userId, agentId);
+    await this.db.$transaction(async (tx) => {
+      await lockConversation(tx, conversationId);
+      await tx.conversationMember.updateMany({
+        where: { conversationId, userId, leftAt: null },
+        data: { hiddenAt: hidden ? new Date() : null },
+      });
+    });
+    return { hidden };
+  }
+
+  /**
+   * What the sidebar needs about the viewer's own DMs, keyed the way it addresses them: an Agent id
+   * (DM rows come from the live Agent list, not from a server list). Pins carry their order; hidden
+   * DMs are listed so the sidebar can leave them out.
+   */
+  async preferencesForUser(workspaceId: string, userId: string) {
+    const dmScope = {
+      workspaceId,
+      userId,
+      leftAt: null,
+      conversation: { directKey: { not: null } },
+    };
+    const [conversations, pins, hidden] = await Promise.all([
+      // Which of the live Agent rows are conversations at all: DM rows come from the Agent list, so
+      // this is the only way the sidebar can tell a started DM from an Agent it has never written
+      // to — and a preference must not be offered on the latter (it would only answer NOT_FOUND).
+      this.db.conversationMember.findMany({
+        where: dmScope,
+        select: {
+          conversation: {
+            select: { members: { where: { agentId: { not: null } }, select: { agentId: true } } },
+          },
+        },
+      }),
+      this.db.conversationPin.findMany({
+        where: {
+          workspaceId,
+          member: { userId, leftAt: null },
+          conversation: { directKey: { not: null } },
+        },
+        select: {
+          sortOrder: true,
+          conversation: {
+            select: { members: { where: { agentId: { not: null } }, select: { agentId: true } } },
+          },
+        },
+      }),
+      // DMs the viewer closed that stay closed: a top-level message the Agent posted after the
+      // close brings one back. `NOT EXISTS` stops at the first such message on the
+      // `messages(conversationId, createdAt)` index instead of loading the DM's history.
+      this.db.$queryRaw<{ agentId: string }[]>`
+        SELECT am."agentId" AS "agentId"
+        FROM "conversation_members" cm
+        JOIN "conversations" c
+          ON c."id" = cm."conversationId"
+         AND c."workspaceId" = ${workspaceId}::uuid
+         AND c."directKey" IS NOT NULL
+        JOIN "conversation_members" am
+          ON am."conversationId" = cm."conversationId"
+         AND am."agentId" IS NOT NULL
+        WHERE cm."userId" = ${userId}::uuid
+          AND cm."workspaceId" = ${workspaceId}::uuid
+          AND cm."leftAt" IS NULL
+          AND cm."hiddenAt" IS NOT NULL
+          AND NOT EXISTS (
+            SELECT 1 FROM "messages" m
+            WHERE m."conversationId" = cm."conversationId"
+              AND m."threadRootId" IS NULL
+              AND m."senderMemberId" = am."id"
+              AND m."createdAt" > cm."hiddenAt"
+          )
+      `,
+    ]);
+    return {
+      conversations: conversations.flatMap((row) =>
+        row.conversation.members.map((member) => member.agentId!),
+      ),
+      pinned: pins
+        .flatMap((pin) =>
+          pin.conversation.members.map((m) => ({ agentId: m.agentId!, sortOrder: pin.sortOrder })),
+        )
+        .sort((left, right) => left.sortOrder - right.sortOrder),
+      // Closed DMs, pinned or not: the sidebar keeps a pinned one listed (in Pinned).
+      hidden: hidden.map((row) => row.agentId),
+    };
+  }
+
   async openForUser(
     workspaceId: string,
     userId: string,
@@ -1009,7 +1216,7 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
             userId: true,
             agentId: true,
             // The viewer's own conversation-level read cursor: the client positions the
-            // initial view at the first unread message and draws the divider there (ADR 0046).
+            // initial view at the first unread message and draws the divider there.
             readThroughSequence: true,
             threadReads: {
               select: { rootMessageId: true, readThroughSequence: true },
@@ -1035,7 +1242,7 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
                 deletedAt: true,
                 avatarObjectKey: true,
                 // Not sent to the browser (see the trimmed `agent:` field below); read only to
-                // compute `dmWritable` (ADR 0059).
+                // compute `dmWritable`.
                 ownerId: true,
                 visibility: true,
               },
@@ -1088,7 +1295,7 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
         sender.threadReads.map((r) => [r.rootMessageId, r.readThroughSequence]),
       ),
       // Never `agentMember.agent` wholesale: `ownerId`/`visibility` are read above only to
-      // compute `dmWritable` (ADR 0059) and must not reach the browser payload.
+      // compute `dmWritable` and must not reach the browser payload.
       agent: {
         id: agentMember.agent.id,
         name: agentMember.agent.name,
@@ -1100,9 +1307,9 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
           agentMember.agent.avatarObjectKey,
         ),
       },
-      // Whether this viewer may still send here (ADR 0059): a private Agent's DM stays scoped to
+      // Whether this viewer may still send here: a private Agent's DM stays scoped to
       // its own creator, so an existing DM held by anyone else reads read-only once it goes
-      // private. Independent of `deletedAt`'s own read-only rule (ADR 0044).
+      // private. Independent of `deletedAt`'s own read-only rule.
       dmWritable: canDirectMessageAgent(userId, agentMember.agent),
       viewerHandle: sender.user?.username,
       // Who a mention here can be resolved to. A direct conversation has no candidate affinity to
@@ -1169,19 +1376,21 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
   }
 
   async unreadCountsForUser(workspaceId: string, userId: string) {
-    // One grouped scan over the user's own DM memberships: other-authored top-level messages
-    // past the member's cursor. Direct conversations only (`directKey` is not null). The badge
-    // key is the *agent* member of the conversation, not the viewer's own row: a DM's two
-    // member rows are separate (one `userId`, one `agentId`), so `cm."agentId"` on the viewer's
-    // row is always null. Driven from the viewer's memberships so the sequence range is an
-    // index condition against `messages(conversationId, threadRootId, sequence)`.
+    // One count per the user's own DM memberships: other-authored top-level messages past the
+    // member's cursor, or from their mark-as-unread marker when that is lower. Direct
+    // conversations only (`directKey` is not null). The badge key is the *agent* member of the
+    // conversation, not the viewer's own row: a DM's two member rows are separate (one
+    // `userId`, one `agentId`), so `cm."agentId"` on the viewer's row is always null. The count
+    // is a LATERAL per membership with a single lower bound, so it is an index range on
+    // `messages(conversationId, sequence)` covering only the unread tail; a plain join (or an
+    // OR of the two bounds) lets the planner hash-join every message of every DM instead.
     const rows = await this.db.$queryRaw<
       {
         agentId: string;
         unread: number;
       }[]
     >`
-      SELECT am."agentId" AS "agentId", COUNT(m."id")::int AS "unread"
+      SELECT am."agentId" AS "agentId", SUM(unread."count")::int AS "unread"
       FROM "conversation_members" cm
       JOIN "conversations" c
         ON c."id" = cm."conversationId" AND c."directKey" IS NOT NULL
@@ -1189,12 +1398,13 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
         ON am."conversationId" = cm."conversationId"
        AND am."agentId" IS NOT NULL
        AND am."leftAt" IS NULL
-      LEFT JOIN "messages" m
-        ON m."conversationId" = cm."conversationId"
-       AND m."threadRootId" IS NULL
-       AND m."senderMemberId" IS NOT NULL
-       AND m."senderMemberId" IS DISTINCT FROM cm."id"
-       AND m."sequence" > cm."readThroughSequence"
+      CROSS JOIN LATERAL (
+        SELECT COUNT(*) AS "count"
+        FROM "messages" m
+        WHERE m."conversationId" = cm."conversationId"
+          AND m."threadRootId" IS NULL
+          AND ${HUMAN_UNREAD_MESSAGE_SQL}
+      ) unread
       WHERE cm."userId" = ${userId}::uuid
         AND cm."leftAt" IS NULL
         AND cm."workspaceId" = ${workspaceId}::uuid
@@ -1229,6 +1439,17 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
           leftAt: null,
         },
         data: { readThroughSequence: boundary },
+      });
+      // Reading past the forced `mark as unread` marker consumes it, so the badge does not come
+      // back on the next render (same rule as the channel side).
+      await tx.conversationMember.updateMany({
+        where: {
+          conversationId: conversation.id,
+          userId,
+          unreadFromSequence: { not: null, lte: boundary },
+          leftAt: null,
+        },
+        data: { unreadFromSequence: null },
       });
     });
   }
@@ -1297,7 +1518,7 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
     if (!sender) throw new Error("sender is not a conversation member");
     if (conversation.members.length !== 2 || agents.length !== 1 || !agents[0]?.agentId)
       throw new Error("only User-Agent direct conversations are supported");
-    // A private Agent's direct conversation stays scoped to its own creator (ADR 0059): once it
+    // A private Agent's direct conversation stays scoped to its own creator: once it
     // goes private, an existing DM held by anyone else stops accepting new messages, though its
     // history stays readable.
     if (agents[0].agent && !canDirectMessageAgent(senderUserId, agents[0].agent))
@@ -1343,13 +1564,21 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
         if (!attachment) throw new Error("attachment is not available for this message");
         attachments.push(attachment);
       }
+      // A DM keeps plain `@handle` text (no mention targets), but its task and channel
+      // references are stored as tokens like every other conversation's.
+      const stored = await storeMessageBody(
+        tx,
+        { workspaceId: conversation.workspaceId, conversationId },
+        body,
+        { targets: [] },
+      );
       const created = await tx.message.create({
         data: {
           conversationId,
           workspaceId: conversation.workspaceId,
           senderMemberId,
           threadRootId: root?.id,
-          body,
+          body: stored.body,
           sequence,
           deliveries: {
             create: {
@@ -1421,9 +1650,27 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
   async readPendingAgentDeliveries(
     workspaceId: string,
     agentId: string,
-  ): Promise<PendingAgentDelivery[]> {
+  ): Promise<AgentFacing<PendingAgentDelivery>[]> {
     const deliveries = await this.db.agentMessageDelivery.findMany({
-      where: { workspaceId, agentId, receivedAt: null },
+      // Deliveries into a channel hidden from the Workspace wait there until it is restored. A
+      // channel the Agent has left (or was removed from, or left by going private) no longer
+      // replays: its daemon was told to drop those messages. Direct messages always replay.
+      where: {
+        workspaceId,
+        agentId,
+        receivedAt: null,
+        conversation: {
+          AND: [
+            VISIBLE_CONVERSATION_WHERE,
+            {
+              OR: [
+                { channelName: null },
+                { members: { some: { agentId, ...ACTIVE_MEMBER_WHERE } } },
+              ],
+            },
+          ],
+        },
+      },
       orderBy: [{ createdAt: "asc" }, { deliveryId: "asc" }],
       select: {
         deliveryId: true,
@@ -1453,7 +1700,7 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
     return deliveries.map((delivery) => {
       // An Agent-authored message has no `user` on its sender row, so a `user.username`-only
       // derivation produced a bare `@` and rejected every pending Agent message. Reuse the one
-      // sender projection every Agent read path calls (`agentMessageSender`, ADR 0052): it
+      // sender projection every Agent read path calls (`agentMessageSender`): it
       // throws a named error rather than shipping a degraded identity, and the handle it
       // returns is already checked against the public handle grammar.
       const sender = agentMessageSender(delivery.message.sender);
@@ -1470,10 +1717,7 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
         latestSenderKind: sender.kind,
         latestSenderHandle: sender.handle,
         latestSenderDescription: sender.description,
-        body: agentReadableBody(delivery.message.body, delivery.message.mentions),
-        ...(deliveryMentionsAgent(delivery.message.mentions, agentId)
-          ? { mentionsAgent: true }
-          : {}),
+        ...agentMessageView(delivery.message, agentId),
       };
     });
   }
@@ -1615,7 +1859,11 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
   async readAgentRecoveryContext(
     workspaceId: string,
     agentId: string,
-  ): Promise<AgentRecoveryContext> {
+  ): Promise<
+    Omit<AgentRecoveryContext, "resumeMessages"> & {
+      resumeMessages: AgentFacing<AgentRecoveryContext["resumeMessages"][number]>[];
+    }
+  > {
     // One statement over every unread message the Agent owes attention to, ranked globally by
     // (conversation, thread root, sequence). Rows past the resume budget are kept only for the
     // first message of each target so unreadSummary stays complete without a second pass.
@@ -1635,7 +1883,7 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
       FROM ranked
       WHERE "globalRank" <= ${AGENT_RECOVERY_MESSAGE_LIMIT} OR "targetRank" = 1
       ORDER BY "globalRank"`;
-    const resumeMessages: AgentRecoveryContext["resumeMessages"] = [];
+    const resumeMessages: AgentFacing<AgentRecoveryContext["resumeMessages"][number]>[] = [];
     const unreadSummary: Record<string, number> = {};
     // The raw statement cannot join the mention rows, so translate embedded tokens in a second
     // pass; Agents only ever read plain `@handle` text.
@@ -1667,7 +1915,7 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
       // The author, read from the message in every conversation kind. A DM's other member is its
       // *recipient*, so deriving the sender from the conversation attributes the message to the
       // wrong side — and, in a conversation with no user member, to nothing at all. Routed through
-      // the shared projection (ADR 0052) so a missing name fails loudly rather than degrading.
+      // the shared projection so a missing name fails loudly rather than degrading.
       const sender = agentMessageSender(
         row.senderMemberId === null
           ? null
@@ -1692,7 +1940,7 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
         latestSenderKind: sender.kind,
         latestSenderHandle: sender.handle,
         latestSenderDescription: sender.description,
-        body: agentReadableBody(row.body, mentionsByMessage.get(row.id) ?? []),
+        ...agentMessageView({ body: row.body, mentions: mentionsByMessage.get(row.id) ?? [] }),
       });
     }
     return { resumeMessages, unreadSummary };
@@ -1947,7 +2195,7 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
       sequence: number;
       sender: Parameters<typeof agentMessageSender>[0];
       body: string;
-      mentions: Parameters<typeof agentReadableBody>[1];
+      mentions: readonly MessageMentionRef[];
       createdAt: Date;
       attachments: { id: string; fileName: string; contentType: string; sizeBytes: number }[];
     },
@@ -1959,7 +2207,7 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
       senderKind: sender.kind,
       senderHandle: sender.handle,
       senderDescription: sender.description,
-      body: agentReadableBody(m.body, m.mentions),
+      ...agentMessageView(m),
       createdAt: m.createdAt,
       target: canonicalTarget,
       attachments: m.attachments,
@@ -2003,12 +2251,32 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
     });
     if (!conversation) throw new Error("conversation scope is not authorized");
     if (conversation.channelName && conversation.archivedAt) throw new AppError("CONFLICT");
-    const sender = conversation.members.find((m) => m.agentId === agentId && !m.leftAt);
+    let sender = conversation.members.find((m) => m.agentId === agentId && !m.leftAt);
     const user = conversation.members.find((m) => m.userId && !m.leftAt);
+    // A soft-left DM membership is not an intentional leave: visibility changes never touch
+    // DMs, and a deleted Agent cannot call send (keys revoked). Clear `leftAt` on the same
+    // row — the channel rejoin pattern — so a still-live Agent can deliver again instead of
+    // surfacing a bare 500. Channel soft-leaves stay rejected; those are intentional removals.
+    if (!sender && !conversation.channelName) {
+      const softLeft = conversation.members.find((m) => m.agentId === agentId && m.leftAt);
+      if (softLeft) {
+        const self = await this.db.agent.findUnique({
+          where: { id: agentId },
+          select: { deletedAt: true },
+        });
+        if (self && !self.deletedAt) {
+          await this.db.conversationMember.update({
+            where: { id: softLeft.id },
+            data: { leftAt: null },
+          });
+          sender = { ...softLeft, leftAt: null };
+        }
+      }
+    }
     if (!sender || (!conversation.channelName && !user))
-      throw new Error("agent is not a conversation member");
-    // A private Agent's own outbound DM is just as read-only as the human side of it (ADR 0059:
-    // "neither side can send"). Channels are unaffected — a private Agent is never a channel
+      throw new AgentSendRejectedError(403, "agent is not a conversation member");
+    // A private Agent's own outbound DM is just as read-only as the human side of it
+    // ("neither side can send"). Channels are unaffected — a private Agent is never a channel
     // member in the first place, so this only ever narrows the direct-conversation case.
     if (!conversation.channelName && user) {
       const self = await this.db.agent.findUnique({
@@ -2026,8 +2294,8 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
       : undefined;
     const result = await this.db.$transaction(async (tx) => {
       const sequence = await allocateSequence(tx, conversationId);
-      // The sending Agent must be the same Agent that uploaded each attachment (ADR 0022's
-      // "Known limitation" of never checking uploader identity, closed by ADR 0023's Agent
+      // The sending Agent must be the same Agent that uploaded each attachment (the
+      // earlier limitation of never checking uploader identity, closed by the Agent
       // upload route: `uploaderAgentId` now names the uploading Agent). Validated before the
       // message exists, then linked (messageId + position) once it does.
       const requestedAttachmentIds = attachmentIds ?? [];
@@ -2074,71 +2342,53 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
           mentionedMemberIds.push(match.id);
         }
       }
-      // Channel bodies are persisted in the Slack-style token form: every @mention that
+      // Bodies are persisted in the Slack-style token form. In a channel every @mention that
       // resolves to an active member — whether given as a structured `--mention` selector or
-      // written plainly — becomes a `<@kind:uuid>` token plus a MessageMention row. DMs keep
-      // plain text (no mention structure there).
-      const resolution = conversation.channelName
-        ? normalizeMentionBody(
-            body,
-            conversation.members
-              .filter((member) => !member.leftAt)
-              .map((member) =>
-                member.userId
-                  ? {
-                      key: member.id,
-                      type: "user" as const,
-                      id: member.userId,
-                      handle: member.user!.username,
-                    }
-                  : {
-                      key: member.id,
-                      type: "agent" as const,
-                      id: member.agentId!,
-                      handle: member.agent!.name,
-                    },
-              ),
-            mentions ?? [],
-          )
-        : { body, mentions: [] };
-      // The same structured-reference treatment as mentions, but for tasks and on every
-      // conversation: a `task #N` that names a real task here becomes a stored `<@task:N>` token,
-      // so a renderer reads the reference back as a chip instead of parsing prose.
-      const referencedTaskNumbers = taskReferenceNumbers(resolution.body);
-      const knownTaskNumbers = referencedTaskNumbers.length
-        ? new Set(
-            (
-              await tx.task.findMany({
-                where: { conversationId, number: { in: referencedTaskNumbers } },
-                select: { number: true },
-              })
-            ).map((task) => task.number),
-          )
-        : new Set<number>();
-      const taskResolution = resolveTaskReferences(resolution.body, (number) =>
-        knownTaskNumbers.has(number),
+      // written plainly — becomes a `<@kind:uuid>` token plus a MessageMention row; a DM keeps
+      // plain `@handle` text (no mention targets). On every conversation a `task #N` naming a
+      // real task becomes `<@task:N>`, a `#name` naming a Workspace channel becomes
+      // `<@channel:uuid:name>`, and a `#name:shortid` naming one of its threads becomes
+      // `<@thread:uuid:uuid:name>`, so a renderer reads each back as a chip instead of parsing
+      // prose.
+      const stored = await storeMessageBody(
+        tx,
+        { workspaceId: conversation.workspaceId, conversationId },
+        body,
+        {
+          targets: conversation.channelName
+            ? conversation.members
+                .filter((member) => !member.leftAt)
+                .map((member) =>
+                  member.userId
+                    ? {
+                        key: member.id,
+                        type: "user" as const,
+                        id: member.userId,
+                        handle: member.user!.username,
+                      }
+                    : {
+                        key: member.id,
+                        type: "agent" as const,
+                        id: member.agentId!,
+                        handle: member.agent!.name,
+                      },
+                )
+            : [],
+          bindings: mentions ?? [],
+        },
       );
       // Other Agents this channel message wakes: every resolved Agent mention. An Agent message
       // without an Agent mention never notifies another Agent, and an Agent never wakes itself.
       const mentionedAgentIds = new Set(
-        resolution.mentions
-          .filter((mention) => mention.type === "agent")
-          .map((mention) => mention.id),
+        stored.mentions.filter((mention) => mention.type === "agent").map((mention) => mention.id),
       );
       mentionedAgentIds.delete(agentId);
       if (conversation.channelName && root) {
-        const names = mentionedNames(body);
-        const mentioned = await tx.conversationMember.findMany({
-          where: {
-            conversationId,
-            OR: [{ user: { username: { in: names } } }, { agent: { name: { in: names } } }],
-            ...ACTIVE_MEMBER_WHERE,
-          },
-          select: { id: true },
-        });
+        // Everyone the reply mentions follows the thread: exactly the members its stored mention
+        // rows name (each mention's key is the member id), plus every `--mention` binding.
         const followerIds = new Set([
           sender.id,
-          ...mentioned.map(({ id }) => id),
+          ...stored.mentions.map((mention) => mention.key),
           ...mentionedMemberIds,
         ]);
         // Enroll the root author only for the first reply. An explicit unfollow is a durable
@@ -2164,11 +2414,11 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
           workspaceId: conversation.workspaceId,
           senderMemberId: sender.id,
           threadRootId: root?.id,
-          body: taskResolution.body,
+          body: stored.body,
           sequence,
-          mentions: resolution.mentions.length
+          mentions: stored.mentions.length
             ? {
-                create: resolution.mentions.map((mention) => ({
+                create: stored.mentions.map((mention) => ({
                   memberId: mention.key,
                   workspaceId: conversation.workspaceId,
                   kind: mention.type,
@@ -2215,7 +2465,7 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
       );
       return { ...created, attachments };
     });
-    // Never falls back to the internal Agent id: a missing name fails loudly (ADR 0052, decision B).
+    // Never falls back to the internal Agent id: a missing name fails loudly.
     const senderIdentity = agentMessageSender({ agentId, agent: sender.agent, user: null });
     return {
       ...result,

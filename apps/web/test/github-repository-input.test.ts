@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
-import { AppError } from "../src/lib/app-error";
-import { parseGitHubRepositoryInput } from "../src/features/projects/github-repository-input";
-import { GitHubConnection } from "../src/server/integrations/github-connection.server";
+import { AppError } from "#src/lib/app-error";
+import { parseGitHubRepositoryInput } from "#src/features/projects/github-repository-input";
+import { GitHubConnection } from "#src/server/integrations/github-connection.server";
 
 test("reads owner/repo, github.com URLs, and SSH remotes", () => {
   expect(parseGitHubRepositoryInput("acme/widgets")).toEqual({ fullName: "acme/widgets" });

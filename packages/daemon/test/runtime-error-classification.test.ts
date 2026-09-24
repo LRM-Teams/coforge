@@ -3,7 +3,7 @@ import {
   classifyRuntimeErrorText,
   RUNTIME_ERROR_CLASS,
   RUNTIME_ERROR_RETRY_DECISION,
-} from "../src/agent-runtime/runtime-error-classification";
+} from "#src/agent-runtime/runtime-error-classification";
 
 test("classifies a rate-limit message as retryable", () => {
   const result = classifyRuntimeErrorText("You are being rate limited, please slow down");

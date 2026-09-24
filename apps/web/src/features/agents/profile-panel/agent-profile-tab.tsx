@@ -8,30 +8,30 @@ import {
   Upload01,
 } from "@untitledui/icons";
 import { RUNTIME_PROVIDER } from "@lrm/coforge-sdk/internal";
-import { Avatar } from "@/components/base/avatar/avatar";
-import { Badge } from "@/components/base/badges/badges";
-import { Button } from "@/components/base/buttons/button";
-import { ButtonUtility } from "@/components/base/buttons/button-utility";
-import { Select } from "@/components/base/select/select";
-import { HoverPopover } from "@/components/ui/hover-popover";
-import { RelativeTime } from "@/components/ui/relative-time";
-import { StatusDot } from "@/components/ui/status-dot";
-import { Tooltip, TooltipTrigger } from "@/components/base/tooltip/tooltip";
-import { avatarInitial, avatarToneClassName } from "@/lib/avatar-tone";
-import { formatDateForDisplay } from "@/lib/dates";
-import { useTimeFormat } from "@/lib/time-format-context";
-import { m } from "@/paraglide/messages";
-import { getLocale } from "@/paraglide/runtime";
-import { runtimeProviderLabel } from "@/features/agents/runtime-provider-display";
-import { RuntimeProviderMark } from "@/features/agents/runtime-provider-mark";
-import { computerIcon } from "@/features/computers/computer-identity";
-import { RuntimeUsage, UsageHealthDot } from "@/features/computers/runtime-usage";
-import { useAgentContextReport } from "@/features/agents/agent-context-report";
-import { AgentContextPopoverContent } from "@/features/agents/agent-context-popover";
-import type { AgentRuntimeControls } from "@/features/agents/agent-runtime-controls";
-import type { getAgentProfile } from "@/features/agents/agents.functions";
-import { AgentSkills, type AgentSkillsLoadResult } from "@/features/agents/agent-skills";
-import { AGENT_VISIBILITY, type AgentVisibility } from "@/features/agents/agent-visibility";
+import { Avatar } from "#src/components/base/avatar/avatar";
+import { Badge } from "#src/components/base/badges/badges";
+import { Button } from "#src/components/base/buttons/button";
+import { ButtonUtility } from "#src/components/base/buttons/button-utility";
+import { Select } from "#src/components/base/select/select";
+import { HoverPopover } from "#src/components/ui/hover-popover";
+import { RelativeTime } from "#src/components/ui/relative-time";
+import { StatusDot } from "#src/components/ui/status-dot";
+import { Tooltip, TooltipTrigger } from "#src/components/base/tooltip/tooltip";
+import { avatarInitial, avatarToneClassName } from "#src/lib/avatar-tone";
+import { formatDateForDisplay } from "#src/lib/dates";
+import { useTimeFormat } from "#src/lib/time-format-context";
+import { m } from "#src/paraglide/messages";
+import { getLocale } from "#src/paraglide/runtime";
+import { runtimeProviderLabel } from "#src/features/agents/runtime-provider-display";
+import { RuntimeProviderMark } from "#src/features/agents/runtime-provider-mark";
+import { computerIcon } from "#src/features/computers/computer-identity";
+import { RuntimeUsage, UsageHealthDot } from "#src/features/computers/runtime-usage";
+import { useAgentContextReport } from "#src/features/agents/agent-context-report";
+import { AgentContextPopoverContent } from "#src/features/agents/agent-context-popover";
+import type { AgentRuntimeControls } from "#src/features/agents/agent-runtime-controls";
+import type { getAgentProfile } from "#src/features/agents/agents.functions";
+import { AgentSkills, type AgentSkillsLoadResult } from "#src/features/agents/agent-skills";
+import { AGENT_VISIBILITY, type AgentVisibility } from "#src/features/agents/agent-visibility";
 import { InlineEditField, SECTION_CAPTION_CLASS, SUBFIELD_LABEL_CLASS } from "./inline-edit-field";
 
 /** Values are never shown in the chip; the dot count hints at length without revealing it. */
@@ -43,7 +43,7 @@ type AgentProfile = Awaited<ReturnType<typeof getAgentProfile>>;
 
 /** A small chip-style badge for Runtime / Model / Reasoning and the Role field — the prototype's
  * `.chip`; the app has no separate chip primitive, so this reuses the official `Badge` at
- * `color="gray"`, the same "short fact" vocabulary `docs/design.md` §11 already uses. */
+ * `color="gray"`, the same "short fact" vocabulary `docs/design/color-status-typography.md` §11 already uses. */
 function FactBadge({
   children,
   icon,
@@ -62,14 +62,14 @@ function FactBadge({
 }
 
 /**
- * The Agent's current context-window usage, next to the Runtime badge — display only (ADR 0050):
+ * The Agent's current context-window usage, next to the Runtime badge — display only:
  * nothing here triggers on any threshold, and it never colors by how full the window is. Hidden
  * entirely by the caller when there is no reading. The tooltip's observed time uses the same
  * `formatDateForDisplay` helper (workspace time zone, viewer locale) the Runtime usage popover's
  * `RelativeTime` already renders through.
  *
- * For a Claude Code Agent the badge is also the trigger of the context-breakdown popover (ADR
- * 0051): hover shows the last stored report with the same auto-refresh-once/Refresh pattern the
+ * For a Claude Code Agent the badge is also the trigger of the context-breakdown popover:
+ * hover shows the last stored report with the same auto-refresh-once/Refresh pattern the
  * Runtime usage popover uses. Other runtimes keep the plain badge + tooltip.
  */
 function ContextUsageBadge({
@@ -152,7 +152,7 @@ function ContextUsageBadge({
 
 /**
  * The Agent profile panel's Profile tab body: label-over-value throughout, no left/right fact
- * rows, no leading row icons (`docs/design.md` §9's field-grid style, per the approved
+ * rows, no leading row icons (`docs/design/field-display.md` §9's field-grid style, per the approved
  * prototype). Managers/owners get the pencils, INFO's Role editor, RUNTIME CONFIG's credential
  * dialog and the ACTIONS section; everyone else sees a read-only Profile.
  */
@@ -176,7 +176,7 @@ export function AgentProfileTab({
 }: {
   profile: NonNullable<AgentProfile>;
   timeZone: string | null;
-  /** The Agent's current context-window usage (ADR 0050), or `null` when there is no reading —
+  /** The Agent's current context-window usage, or `null` when there is no reading —
    * hidden entirely in that case. Display only; nothing triggers on it. */
   contextUsage?: { usedTokens: number; windowTokens: number; observedAtMs: number } | null;
   /** `canManageAgentRole || ownedByCurrentUser` — gates every pencil, the ACTIONS section. */
@@ -188,8 +188,8 @@ export function AgentProfileTab({
   onAvatarChange?: (file: File) => Promise<void>;
   onAvatarRemove?: () => Promise<void>;
   onSaveRole?: (role: "admin" | "member") => Promise<void>;
-  /** Opens the container's `AgentVisibilityConfirmDialog` for the given target visibility (ADR
-   * 0059). Present only for the creator or a human Workspace owner/admin. */
+  /** Opens the container's `AgentVisibilityConfirmDialog` for the given target visibility.
+   * Present only for the creator or a human Workspace owner/admin. */
   onRequestVisibilityChange?: (target: AgentVisibility) => void;
   runtimeCredentialDialog: ReactNode;
   /** Opens the container's `AgentRuntimeConfigDialog` (see `agent-profile-panel.tsx`). The
@@ -198,7 +198,7 @@ export function AgentProfileTab({
   /** Owner-only, same as the old Agent detail page's Skills section. Omitted for a viewer who
    * does not own the Agent. */
   onLoadSkills?: () => Promise<AgentSkillsLoadResult>;
-  /** Opens the container's `AgentDeleteDialog` (ADR 0044). Present only when the viewer holds
+  /** Opens the container's `AgentDeleteDialog`. Present only when the viewer holds
    * Raft's `deleteAgents` capability and this Agent is a delete target at all. */
   onStartDelete?: () => void;
   /** Owner-only read view of the Agent's launch environment overrides, masked; editing happens in
@@ -208,7 +208,8 @@ export function AgentProfileTab({
   envVars?: Record<string, string>;
 }) {
   const { runtime, model, reasoning } = profile.runtimeConfig;
-  const canEditRuntime = canManage && Boolean(profile.computer) && Boolean(onStartRuntimeEdit);
+  const canEditRuntime = canManage && Boolean(onStartRuntimeEdit);
+  const needsComputerSetup = canManage && !profile.computer;
   const runtimeLabel = runtimeProviderLabel(runtime);
   const runtimeIcon = <RuntimeProviderMark provider={runtime} className="size-3.5" />;
   const creatorName = profile.owner.displayName?.trim() || profile.owner.username;
@@ -336,7 +337,7 @@ export function AgentProfileTab({
               <ComputerIcon className="size-4 shrink-0 text-tertiary" aria-hidden="true" />
             )}
             <span className="truncate font-mono">
-              {profile.computer?.label || m.agent_computer_unnamed()}
+              {profile.computer?.label || m.agent_profile_computer_unassigned()}
             </span>
           </p>
           {profile.computer && (
@@ -383,7 +384,7 @@ export function AgentProfileTab({
       <section className="border-b border-secondary px-6 py-5">
         <div className="flex items-center gap-1.5">
           <p className={SECTION_CAPTION_CLASS}>{m.agent_profile_section_runtime()}</p>
-          {canEditRuntime && (
+          {canEditRuntime && !needsComputerSetup && (
             <ButtonUtility
               aria-label={m.agent_profile_edit_runtime_config()}
               tooltip={m.agent_profile_edit_runtime_config()}
@@ -395,7 +396,14 @@ export function AgentProfileTab({
           )}
           {canManage && runtimeCredentialDialog}
         </div>
-        <div className="mt-3 flex flex-wrap gap-x-8 gap-y-4">
+        {needsComputerSetup && onStartRuntimeEdit && (
+          <div className="mt-3">
+            <Button color="secondary" size="sm" onPress={onStartRuntimeEdit}>
+              {m.agent_profile_setup_runtime()}
+            </Button>
+          </div>
+        )}
+        <div className={`flex flex-wrap gap-x-8 gap-y-4 ${needsComputerSetup ? "mt-4" : "mt-3"}`}>
           <div>
             <p className={SUBFIELD_LABEL_CLASS}>{m.agent_runtime_field()}</p>
             <p className="mt-1 flex flex-wrap items-center gap-2">
@@ -499,7 +507,7 @@ export function AgentProfileTab({
               {m.agent_control_restart_reset_tooltip()}
             </Button>
             {onStartDelete && (
-              /* A danger entry button is still a button (`docs/design.md` §11 危险操作), so it
+              /* A danger entry button is still a button (`docs/design/color-status-typography.md` §11 危险操作), so it
                * gets the bordered red rather than bare red text. The one solid red belongs to the
                * confirm in `AgentDeleteDialog`; `mt-1` keeps a small break between the reversible
                * actions above and this one. */
@@ -520,7 +528,7 @@ export function AgentProfileTab({
 }
 
 /**
- * Visibility (ADR 0059) reads as a badge, same as Role; an authorized viewer (creator or
+ * Visibility reads as a badge, same as Role; an authorized viewer (creator or
  * Workspace owner/admin) gets a pencil that swaps it for the Select — both directions have real
  * consequences, so picking an option still opens the container's confirmation dialog rather
  * than applying immediately.
@@ -626,7 +634,7 @@ function RoleField({
             <Select.Item id="admin" label={m.agent_role_admin()} />
           </Select>
         ) : (
-          <Badge color="brand" size="sm">
+          <Badge color="gray" size="sm">
             {role === "admin" ? m.agent_role_admin() : m.agent_role_member()}
           </Badge>
         )}

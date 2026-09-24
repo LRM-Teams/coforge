@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
-import { handleComputerCreatorAvatar } from "../src/server/computers/computer-creator-avatar.server";
-import { AppError } from "../src/lib/app-error";
+import { handleComputerCreatorAvatar } from "#src/server/computers/computer-creator-avatar.server";
+import { AppError } from "#src/lib/app-error";
 
 const computerId = "00000000-0000-4000-8000-000000000001";
 const workspaceId = "00000000-0000-4000-8000-000000000002";

@@ -6,10 +6,12 @@
  *
  * 1. Raw HTML stays literal. `react-markdown` drops HTML by default, which would silently
  *    delete a body such as `<div>x</div>` — a data-loss regression, not a safety win. Every
- *    HTML-looking `<` outside code is escaped so it renders as the characters the author typed.
- *    GFM autolinks (`<https://…>`) and mention tokens keep their `<`.
- * 2. A stored `<@kind:uuid>` token still renders as a mention chip, and still never inside a
- *    code span or fence — the same rule `splitCodeSpans` gives the composer and the server.
+ *    HTML-looking `<` outside code is escaped (`escapeLiteralHtml`, `#src/lib/message-syntax`) so
+ *    it renders as the characters the author typed. GFM autolinks (`<https://…>`) and reference
+ *    tokens keep their `<`.
+ * 2. A stored `<@kind:…>` token (a mention, a task, a channel or a thread) still renders as its chip, and
+ *    still never inside a code span or fence — the server never stores one there either (its
+ *    recognizer reads the same Markdown syntax, `#src/lib/message-syntax`).
  *
  * Chips are injected *after* `rehype-sanitize` runs. The sanitizer strips `className`, and the
  * nodes injected here are trusted — a fixed `span` whose only text is a resolved display label —
@@ -17,17 +19,16 @@
  * it runs.
  */
 import {
+  CHANNEL_REFERENCE_TOKEN_PATTERN,
   MENTION_PATTERN,
   MENTION_TOKEN_PATTERN,
-  splitCodeSpans,
   TASK_REFERENCE_TOKEN_PATTERN,
+  THREAD_REFERENCE_TOKEN_PATTERN,
+  threadReferenceText,
 } from "@lrm/coforge-sdk/internal";
 import type { Element, Root, Text } from "hast";
 
 import type { MentionRef } from "./mention-text";
-
-/** A URI scheme right after `<` means a GFM autolink, not an HTML tag. */
-const URI_SCHEME = /^[a-zA-Z][a-zA-Z0-9+.-]*:/;
 
 /**
  * Complete class literals so Tailwind's source scan emits every utility. The chip treatment
@@ -52,31 +53,23 @@ export const TASK_CHIP_CLASS = `${TASK_CHIP_BASE} bg-brand-primary text-brand-se
 export const TASK_CHIP_LINK_CLASS = "message-markdown-task-reference-link";
 
 /**
- * Escapes HTML-looking text outside code spans so Markdown renders it literally, matching the
- * plain-text rendering this replaces.
- *
- * Only `<` is escaped. Escaping `&` as well would corrupt a bare URL autolink: GFM reads the
- * literal `https://x?a=1&amp;b=2` as the URL text and escapes its `&` again, so the link and its
- * label both end up showing `&amp;`. Decoding an entity such as `&lt;` into `<` is ordinary
- * Markdown behavior and loses no information.
- *
- * Code spans and fences pass through byte-for-byte: their contents already render as literal
- * code, and rewriting them would corrupt the sample the author wrote.
+ * Channel-reference chip classes. A `<@channel:uuid:name>` token renders with the same soft fill as
+ * the other reference chips; the renderer turns the chip into a link to that channel (see
+ * `message-body.tsx`).
  */
-export function escapeLiteralHtml(body: string): string {
-  return splitCodeSpans(body)
-    .map((segment) => {
-      if (segment.code) return segment.text;
-      return segment.text.replace(/</g, (character, offset: number, whole: string) => {
-        const rest = whole.slice(offset + 1);
-        // `<https://…>` is a GFM autolink and `<@agent:uuid>` is a mention token. Both must
-        // keep their `<` or the autolink and the chip are destroyed.
-        if (URI_SCHEME.test(rest) || rest.startsWith("@")) return character;
-        return "&lt;";
-      });
-    })
-    .join("");
-}
+export const CHANNEL_CHIP_CLASS =
+  "message-markdown-channel-reference rounded-sm px-0.5 font-medium bg-brand-primary text-brand-secondary";
+/** The chip's `className` list, split once; nothing mutates it. */
+const CHANNEL_CHIP_CLASSES = CHANNEL_CHIP_CLASS.split(" ");
+
+/**
+ * Thread-reference chip classes. A `<@thread:uuid:uuid:name>` token renders with the same soft fill;
+ * the renderer turns the chip into a link that opens the thread in its channel (see
+ * `message-body.tsx`).
+ */
+export const THREAD_CHIP_CLASS =
+  "message-markdown-thread-reference rounded-sm px-0.5 font-medium bg-brand-primary text-brand-secondary";
+const THREAD_CHIP_CLASSES = THREAD_CHIP_CLASS.split(" ");
 
 /** A resolved mention as a chip needs both its stable handle (identity/self matching) and its
  * display label, plus the Agent id to open its profile panel when applicable. */
@@ -102,196 +95,273 @@ export function mentionHandlesByToken(mentions: readonly MentionRef[]): Map<stri
   );
 }
 
-/**
- * Replaces resolved mention tokens with chips in an already-sanitized tree, skipping anything
- * inside `code` or `pre`. A mention is a reference, not a link, so a chip is a plain `span`
- * with no interaction — membership and wake rules live on the server.
- *
- * `plain` additionally chips a body's *plain* `@handle` spellings (no embedded token — a DM
- * body, or a channel body whose author never used the completion): any `@handle` that matches a
- * conversation member's exact handle renders the same chip with that member's display label.
- * Display-only: storage and wake rules are unchanged, and the match reuses the shared
- * `MENTION_PATTERN` grammar (so emails and `@@` never match) against the member directory only —
- * an unknown handle stays literal text.
- */
-export function rehypeMentionChips(options: {
-  handles: Map<string, ChipMention>;
+/** Where a text node sits: code keeps its text as written, and inside a link nothing becomes a
+ * chip. That is one consistency rule for every kind, not only the chips a renderer turns into a
+ * control: a link reads as the text it shows and keeps pointing where its author aimed it. */
+type Place = "prose" | "link";
+
+/** What a chip pass knows about the viewer and the conversation, each the authority for one kind. */
+type ReferenceChipOptions = {
+  /** The message's mention rows, keyed the way `mentionHandlesByToken` keys them. */
+  mentions: Map<string, ChipMention>;
   viewerHandle?: string;
-  plain?: Map<string, ChipMention>;
-}) {
-  const { handles, viewerHandle, plain } = options;
-  const tokenPattern = new RegExp(MENTION_TOKEN_PATTERN.source, "gi");
-  const plainPattern =
-    plain && plain.size > 0 ? new RegExp(MENTION_PATTERN.source, "g") : undefined;
+  /** Plain-`@handle` display resolution: every conversation member's handle → chip. */
+  plainMentions?: Map<string, ChipMention>;
+  /** The conversation's own task numbers. */
+  taskNumbers?: ReadonlySet<number>;
+  /** Every channel of the Workspace, id → current name, for a view that can navigate: the authority
+   * for channel and thread tokens alike. */
+  channelNames?: ReadonlyMap<string, string>;
+};
+
+/** One kind of reference: its pattern, and what one match becomes in a given place —
+ * `undefined` when the match is no reference and stays as written. */
+type ReferenceKind = {
+  pattern: RegExp;
+  build: (groups: readonly string[], place: Place) => Element | Text | undefined;
+};
+
+/**
+ * Replaces every reference in an already-sanitized tree with its chip, in one pass. Every chip comes
+ * from a stored `<@kind:…>` token, and each token is a claim checked against its own authority:
+ *
+ * - a mention token (`<@human|agent:uuid>`) against the message's mention rows (`mentions`): a
+ *   token with no row stays as written rather than becoming a phantom highlight. The chip shows the
+ *   member's display label; an Agent chip carries its id (`data-mention-agent-id`) so the renderer
+ *   can open its profile. A mention is a reference, not a link — wake rules live on the server;
+ * - a task token (`<@task:68>`) against the conversation's tasks (`taskNumbers`): a listed number is
+ *   a **number-only** chip (`#68`, `title`/`aria-label` "task #68") carrying
+ *   `data-task-reference-number` for the renderer to make a control; any other number reads as the
+ *   text `task #N`;
+ * - a channel token (`<@channel:uuid:name>`) against the Workspace's channels (`channelNames`, closed
+ *   and archived ones included): a listed id is a chip under the channel's current name, carrying
+ *   `data-channel-id` for the renderer to make a link; any other id — unknown, deleted or forged —
+ *   reads as the plain `#name` it stored. Without `channelNames` (a view that is itself one link,
+ *   such as a Saved card) every channel token reads as plain `#name`;
+ * - a thread token (`<@thread:uuid:uuid:name>`) against the same channels: a listed channel id is a
+ *   chip `#name:<8 hex>` under the channel's current name, carrying `data-thread-channel-id` and
+ *   `data-thread-root-id` for the renderer to make a link that opens the thread; any other reads as
+ *   the plain `#name:<8 hex>` it stored. Whether the root message still exists is the thread
+ *   opener's to say: the chip claims only the channel.
+ *
+ * `plainMentions` additionally chips a *plain* `@handle` (a DM body, or a channel body whose author
+ * never used the completion) that names a conversation member exactly, with that member's display
+ * label. Display-only: the stored body and the wake rules are unchanged, and an unknown handle, an
+ * email address or `@@` stays literal text (`MENTION_PATTERN`).
+ *
+ * Every pattern is matched in one scan of each text node, so a chip's own label (an Agent called
+ * "Scout #5") is finished markup that is never read again. Code (`code`, `pre`) keeps its text as
+ * written; inside a link (`a`) every token reads as its text and nothing becomes a chip, whatever
+ * its kind (see `Place`).
+ */
+export function rehypeReferenceChips(options: ReferenceChipOptions) {
+  const kinds = referenceKinds(options);
+  const { pattern, read } = patternAlternation(kinds.map((kind) => kind.pattern));
+  const plain = options.plainMentions !== undefined && options.plainMentions.size > 0;
+
+  /** The replacement for one text node, or `undefined` when nothing in it is a reference. */
+  const parts = (value: string, place: Place): Array<Element | Text> | undefined => {
+    const result: Array<Element | Text> = [];
+    let offset = 0;
+    for (const match of value.matchAll(pattern)) {
+      const { index: kind, groups } = read(match);
+      const built = kinds[kind]!.build(groups, place);
+      if (built === undefined) continue;
+      if (match.index > offset)
+        result.push({ type: "text", value: value.slice(offset, match.index) });
+      result.push(built);
+      offset = match.index + match[0].length;
+    }
+    if (result.length === 0) return undefined;
+    if (offset < value.length) result.push({ type: "text", value: value.slice(offset) });
+    return result;
+  };
 
   return (tree: Root) => {
-    const visit = (node: Root | Element, inCode: boolean) => {
-      const tagName = node.type === "element" ? node.tagName : undefined;
-      const code = inCode || tagName === "code" || tagName === "pre";
+    const visit = (node: Root | Element, place: Place) => {
       const next: Array<Element | Text> = [];
-
+      let changed = false;
       for (const child of node.children as Array<Element | Text>) {
-        if (child.type === "text" && !code && (child.value.includes("<@") || plainPattern)) {
-          const parts = chipParts(
-            child.value,
-            tokenPattern,
-            plainPattern,
-            handles,
-            plain,
-            viewerHandle,
-          );
-          if (parts) {
-            next.push(...parts);
+        if (child.type === "element") {
+          if (child.tagName !== "code" && child.tagName !== "pre")
+            visit(child, child.tagName === "a" ? "link" : place);
+        } else if (
+          child.type === "text" &&
+          (child.value.includes("<@") || (plain && child.value.includes("@")))
+        ) {
+          const replaced = parts(child.value, place);
+          if (replaced) {
+            next.push(...replaced);
+            changed = true;
             continue;
           }
         }
-        if (child.type === "element") visit(child, code);
         next.push(child);
       }
-
-      node.children = next;
+      if (changed) node.children = next;
     };
 
-    visit(tree, false);
+    visit(tree, "prose");
   };
 }
 
 /**
- * Replaces stored task-reference tokens (`<@task:68>`) with a **number-only** chip (`#68`), skipping
- * anything inside `code` or `pre`. Raft draws the reference as the bare number, so the chip carries
- * the number rather than the prose the author typed; `title`/`aria-label` still spell "task #68" so
- * a hover and a screen reader keep the meaning. Unlike a mention token, a task token always has a
- * readable fallback — the number is the reference — so a token is never left raw. A number present
- * in `numbers` names a task the viewer can open, and its chip carries `data-task-reference-number`
- * for the `span` renderer to turn into a control; any other number renders as plain chip text.
+ * Several patterns as one alternation, matched in one scan: at each position the first listed
+ * pattern that matches there wins. `read` names which pattern a match came from, by its index, and
+ * that pattern's own capture groups.
+ *
+ * The alternation is one pattern, so it has one set of flags: `g` and every flag of every pattern.
+ * A pattern that needs `u` (a `\p{…}` class) brings `u`, and every source is then read in `u` mode;
+ * a case-insensitive pattern makes the whole alternation case-insensitive, so a case-sensitive
+ * pattern alongside it also matches other cases, and its reader must tell them apart.
  */
-export function rehypeTaskReferenceChips(options: { numbers: ReadonlySet<number> }) {
-  const { numbers } = options;
-  const pattern = new RegExp(TASK_REFERENCE_TOKEN_PATTERN.source, "gi");
-
-  return (tree: Root) => {
-    const visit = (node: Root | Element, inCode: boolean) => {
-      const tagName = node.type === "element" ? node.tagName : undefined;
-      const code = inCode || tagName === "code" || tagName === "pre";
-      const next: Array<Element | Text> = [];
-
-      for (const child of node.children as Array<Element | Text>) {
-        if (child.type === "text" && !code && child.value.includes("<@task:")) {
-          const parts = taskChipParts(child.value, pattern, numbers);
-          if (parts) {
-            next.push(...parts);
-            continue;
-          }
-        }
-        if (child.type === "element") visit(child, code);
-        next.push(child);
-      }
-
-      node.children = next;
-    };
-
-    visit(tree, false);
+export function patternAlternation(patterns: readonly RegExp[]): {
+  pattern: RegExp;
+  read: (match: RegExpMatchArray) => { index: number; groups: string[] };
+} {
+  const flags = [...new Set(["g", ...patterns.flatMap((each) => [...each.flags])])]
+    .filter((flag) => flag !== "y")
+    .join("");
+  // Each pattern's own capture groups, counted under the alternation's flags, follow its one
+  // wrapping group.
+  const groupCounts = patterns.map(
+    (each) => new RegExp(`${each.source}|`, flags).exec("")!.length - 1,
+  );
+  const pattern = new RegExp(patterns.map((each) => `(${each.source})`).join("|"), flags);
+  return {
+    pattern,
+    read: (match) => {
+      // The pattern whose wrapping group matched, and its own groups after it.
+      let group = 1;
+      let index = 0;
+      while (match[group] === undefined) group += 1 + groupCounts[index++]!;
+      return { index, groups: match.slice(group + 1, group + 1 + groupCounts[index]!) as string[] };
+    },
   };
 }
 
-/** The chip/text replacement for one text node, or `undefined` when no token matches. */
-function taskChipParts(
-  value: string,
-  pattern: RegExp,
-  numbers: ReadonlySet<number>,
-): Array<Element | Text> | undefined {
-  pattern.lastIndex = 0;
-  const matches = [...value.matchAll(pattern)];
-  if (matches.length === 0) return undefined;
-
-  const parts: Array<Element | Text> = [];
-  let offset = 0;
-  for (const match of matches) {
-    const number = Number(match[1]);
-    if (match.index > offset) parts.push({ type: "text", value: value.slice(offset, match.index) });
-    const clickable = numbers.has(number);
-    const className = TASK_CHIP_CLASS.split(" ");
-    if (clickable) className.push(TASK_CHIP_LINK_CLASS);
-    parts.push({
-      type: "element",
-      tagName: "span",
-      properties: {
-        className,
-        // The chip shows only the number (Raft's treatment); the words stay available to a hover
-        // and to assistive technology so "#68" is still readable as a task reference.
-        title: `task #${number}`,
-        "aria-label": `task #${number}`,
-        ...(clickable ? { "data-task-reference-number": number } : {}),
+/** The kinds a pass matches, each with its chip builder, the plain `@handle` only when asked for. */
+function referenceKinds(options: ReferenceChipOptions): ReferenceKind[] {
+  const { mentions, viewerHandle, plainMentions, taskNumbers, channelNames } = options;
+  const kinds: ReferenceKind[] = [
+    {
+      pattern: MENTION_TOKEN_PATTERN,
+      build: ([kind, id], place) => {
+        const mention = mentions.get(
+          `${kind!.toLowerCase() === "human" ? "user" : "agent"}:${id!.toLowerCase()}`,
+        );
+        // A token with no mention row stays as written rather than becoming a phantom highlight.
+        if (!mention) return undefined;
+        // Inside a link every kind reads as its text (see `Place`), a mention included.
+        return place === "link"
+          ? { type: "text", value: `@${mention.label}` }
+          : mentionChip(mention, viewerHandle);
       },
-      children: [{ type: "text", value: `#${number}` }],
+    },
+    {
+      pattern: TASK_REFERENCE_TOKEN_PATTERN,
+      build: ([digits], place) => {
+        const number = Number(digits);
+        return place === "prose" && taskNumbers?.has(number)
+          ? taskChip(number)
+          : { type: "text", value: `task #${number}` };
+      },
+    },
+    {
+      pattern: CHANNEL_REFERENCE_TOKEN_PATTERN,
+      build: ([rawId, stored], place) => {
+        const id = rawId!.toLowerCase();
+        const current = channelNames?.get(id);
+        // Inside a link the token reads as text under the channel's current name when the
+        // Workspace still has it, the name its chip would show, and only otherwise under the
+        // name it stored. That is intended: a renamed channel reads the same in and out of a link.
+        return place === "prose" && current !== undefined
+          ? channelChip(id, current)
+          : { type: "text", value: `#${current ?? stored!}` };
+      },
+    },
+    {
+      pattern: THREAD_REFERENCE_TOKEN_PATTERN,
+      build: ([rawChannelId, rawRootId, stored], place) => {
+        const channelId = rawChannelId!.toLowerCase();
+        const rootId = rawRootId!.toLowerCase();
+        const current = channelNames?.get(channelId);
+        // The channel token's rule: under the current name when the Workspace still has the
+        // channel, in a link and out of one.
+        return place === "prose" && current !== undefined
+          ? threadChip(channelId, rootId, current)
+          : { type: "text", value: threadReferenceText(current ?? stored!, rootId) };
+      },
+    },
+  ];
+  if (plainMentions && plainMentions.size > 0)
+    kinds.push({
+      pattern: MENTION_PATTERN,
+      // The token patterns make the alternation case-insensitive (`patternAlternation`), so it also
+      // matches `@Bob`, which `MENTION_PATTERN` alone would not. The lookup is exact-case against
+      // lower-case handles, so such a match finds no member and stays as written: the kind keeps
+      // its own lower-case rule.
+      build: ([handle], place) => {
+        const mention = plainMentions.get(handle!);
+        return mention && place === "prose" ? mentionChip(mention, viewerHandle) : undefined;
+      },
     });
-    offset = match.index + match[0].length;
-  }
-  if (offset < value.length) parts.push({ type: "text", value: value.slice(offset) });
-  return parts;
+  return kinds;
 }
 
-/** The chip/text replacement for one text node, or `undefined` when nothing matches. */
-function chipParts(
-  value: string,
-  tokenPattern: RegExp,
-  plainPattern: RegExp | undefined,
-  handles: Map<string, ChipMention>,
-  plain: Map<string, ChipMention> | undefined,
-  viewerHandle?: string,
-): Array<Element | Text> | undefined {
-  tokenPattern.lastIndex = 0;
-  const parts: Array<Element | Text> = [];
-  let offset = 0;
-  let matched = false;
+/** A mention chip: the self treatment for the viewer, and an Agent chip the renderer can open. */
+function mentionChip(mention: ChipMention, viewerHandle: string | undefined): Element {
+  const self = Boolean(viewerHandle) && mention.handle === viewerHandle;
+  const className = (self ? MENTION_CHIP_SELF_CLASS : MENTION_CHIP_CLASS).split(" ");
+  // A human chip stays a plain reference: there is no human profile panel to open.
+  if (mention.agentId) className.push(MENTION_CHIP_AGENT_CLASS);
+  return {
+    type: "element",
+    tagName: "span",
+    properties: {
+      className,
+      ...(mention.agentId ? { "data-mention-agent-id": mention.agentId } : {}),
+    },
+    children: [{ type: "text", value: `@${mention.label}` }],
+  };
+}
 
-  // One merged scan: tokens take precedence (their span covers the whole `<@kind:uuid>` form, so
-  // a plain `@agent`-looking prefix inside an unresolved token is never chipped twice), and each
-  // plain `@handle` chips only when it names a conversation member exactly.
-  const matches: Array<{ index: number; text: string; mention?: ChipMention }> = [];
-  for (const match of value.matchAll(tokenPattern)) {
-    const kind = match[1]!.toLowerCase() === "human" ? "user" : "agent";
-    const mention = handles.get(`${kind}:${match[2]!.toLowerCase()}`);
-    matches.push({ index: match.index, text: match[0], mention });
-  }
-  if (plainPattern && plain && plain.size > 0) {
-    for (const match of value.matchAll(plainPattern)) {
-      const index = match.index;
-      if (matches.some((token) => index >= token.index && index < token.index + token.text.length))
-        continue;
-      const chip = plain.get(match[1]!);
-      if (chip) matches.push({ index, text: match[0], mention: chip });
-    }
-    matches.sort((a, b) => a.index - b.index);
-  }
+/** A task chip: only the number is shown; the words stay on the hover and the accessible name, so
+ * "#68" still reads as a task reference. */
+function taskChip(number: number): Element {
+  return {
+    type: "element",
+    tagName: "span",
+    properties: {
+      className: [...TASK_CHIP_CLASS.split(" "), TASK_CHIP_LINK_CLASS],
+      title: `task #${number}`,
+      "aria-label": `task #${number}`,
+      "data-task-reference-number": number,
+    },
+    children: [{ type: "text", value: `#${number}` }],
+  };
+}
 
-  for (const match of matches) {
-    matched = true;
-    const mention = match.mention;
-    if (match.index > offset) parts.push({ type: "text", value: value.slice(offset, match.index) });
-    if (mention === undefined) {
-      // An unresolvable token stays as written rather than becoming a phantom highlight.
-      parts.push({ type: "text", value: match.text });
-    } else {
-      const self = Boolean(viewerHandle) && mention.handle === viewerHandle;
-      const className = (self ? MENTION_CHIP_SELF_CLASS : MENTION_CHIP_CLASS).split(" ");
-      // An Agent chip is clickable: it carries its Agent id and the recognisable class the
-      // renderer turns into a button. A human chip stays a plain reference (no profile panel).
-      if (mention.agentId) className.push(MENTION_CHIP_AGENT_CLASS);
-      parts.push({
-        type: "element",
-        tagName: "span",
-        properties: {
-          className,
-          ...(mention.agentId ? { "data-mention-agent-id": mention.agentId } : {}),
-        },
-        children: [{ type: "text", value: `@${mention.label}` }],
-      });
-    }
-    offset = match.index + match.text.length;
-  }
+/** A channel chip under the channel's current name. */
+function channelChip(id: string, name: string): Element {
+  return {
+    type: "element",
+    tagName: "span",
+    properties: { className: CHANNEL_CHIP_CLASSES, "data-channel-id": id },
+    children: [{ type: "text", value: `#${name}` }],
+  };
+}
 
-  if (!matched) return undefined;
-  if (offset < value.length) parts.push({ type: "text", value: value.slice(offset) });
-  return parts;
+/** A thread chip, `#name:<8 hex>` under the channel's current name. */
+function threadChip(channelId: string, rootId: string, name: string): Element {
+  return {
+    type: "element",
+    tagName: "span",
+    properties: {
+      className: THREAD_CHIP_CLASSES,
+      "data-thread-channel-id": channelId,
+      "data-thread-root-id": rootId,
+    },
+    children: [{ type: "text", value: threadReferenceText(name, rootId) }],
+  };
 }

@@ -1,7 +1,7 @@
-import type { PrismaClient } from "../../../generated/client";
+import type { PrismaClient } from "#src/generated/prisma/client";
 import { RUNTIME_PROVIDER } from "@lrm/coforge-sdk/internal";
-import { AppError } from "../../lib/app-error";
-import { AGENT_VISIBILITY } from "../../features/agents/agent-visibility";
+import { AppError } from "#src/lib/app-error";
+import { AGENT_VISIBILITY } from "#src/features/agents/agent-visibility";
 
 export const WEEKLY_REPORT_ASSISTANT_DISPLAY_NAME = "周报助手";
 

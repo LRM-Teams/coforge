@@ -1,11 +1,14 @@
 import { useMemo, useRef } from "react";
 import {
   infiniteQueryOptions,
+  queryOptions,
   useQueryClient,
   useSuspenseInfiniteQuery,
   type InfiniteData,
+  type QueryClient,
 } from "@tanstack/react-query";
 
+import { isAppError } from "#src/lib/app-error";
 import { mergeMessages } from "./conversation-messages";
 import { createConversationReconciler } from "./conversation-reconciliation";
 import { useConversationRealtime } from "./conversation-realtime-client";
@@ -18,21 +21,28 @@ import {
   nextPageCursor,
   previousPageCursor,
   type ConversationWindowCursor,
-} from "@/lib/conversation-window";
+} from "#src/lib/conversation-window";
 import {
   loadConversationAround,
   loadDirectConversation,
   loadDirectConversationUpdates,
 } from "./conversations.functions";
-import { loadPublicChannel, loadPublicChannelUpdates } from "./channels.functions";
+import {
+  listChannelNames,
+  loadPublicChannel,
+  loadPublicChannelUpdates,
+} from "./channels.functions";
 import { loadActionCardStates } from "./action-cards.functions";
+import { channelMembersQueryKey } from "./conversation-query-keys";
 import type { ActionCardView } from "./action-card";
+import { createReactionToggler, type ReactionSummary } from "./message-reactions";
 
 type PageMessage = {
   id: string;
   sequence: number;
   threadRootId?: string;
   actionCard?: ActionCardView;
+  reactions?: ReactionSummary[];
 };
 type ConversationPage<M extends PageMessage> = {
   conversationId: string;
@@ -99,6 +109,24 @@ export const publicChannelQuery = (channelId: string) =>
     beforeFirstMessage,
   );
 
+/** A bounded window around one message, kept in the same Query cache as the stream. */
+export const conversationAroundQuery = (conversationId: string, messageId: string) =>
+  queryOptions({
+    queryKey: ["conversation", "around", conversationId, messageId],
+    queryFn: () => loadConversationAround({ data: { conversationId, messageId } }),
+    staleTime: 0,
+  });
+
+/** Every channel of the Workspace by id, closed ones included — what a body's channel links and
+ * the composer's `#` list read. Chat reads it from its layout loader; a page outside Chat that
+ * shows a conversation (the Tasks page's popup) reads it here. */
+export const channelNamesQuery = (workspaceId: string) =>
+  queryOptions({
+    queryKey: ["conversation", "channel-names", workspaceId],
+    queryFn: () => listChannelNames(),
+    staleTime: 60_000,
+  });
+
 export const directConversationUpdates = (agentId: string) => (afterSequence: number) =>
   loadDirectConversationUpdates({ data: { agentId, afterSequence } });
 
@@ -108,11 +136,58 @@ export const publicChannelUpdates = (channelId: string) => (afterSequence: numbe
 type Pages<T> = InfiniteData<T, ConversationWindowCursor>;
 
 /**
+ * Seed the route's infinite query and, when the URL names a message outside its first page,
+ * replace that page with the bounded around-window before the route renders. This keeps a
+ * position/thread deep link on the loader path; the browser-only hash fallback remains in
+ * `useConversationSync` because SSR has no hash to inspect.
+ */
+export async function ensureConversationWindow<
+  M extends PageMessage,
+  T extends ConversationPage<M>,
+>(
+  queryClient: QueryClient,
+  query: ReturnType<typeof conversationPages<M, T>>["query"],
+  targetMessageId?: string,
+): Promise<InfiniteData<T, ConversationWindowCursor>> {
+  const initial = await queryClient.ensureInfiniteQueryData(query);
+  const latest = initial.pages.at(-1);
+  if (
+    !targetMessageId ||
+    !latest ||
+    initial.pages.some((page) => page.messages.some((message) => message.id === targetMessageId))
+  )
+    return initial;
+
+  try {
+    const around = await queryClient.fetchQuery(
+      conversationAroundQuery(latest.conversationId, targetMessageId),
+    );
+    const window: InfiniteData<T, ConversationWindowCursor> = {
+      pages: [{ ...latest, ...around }],
+      pageParams: [undefined],
+    };
+    queryClient.setQueryData(query.queryKey, window);
+    return window;
+  } catch {
+    // A link can name a deleted or inaccessible message. Leave the normal client-side sync seam
+    // to render its inline missing/failed state instead of replacing the whole conversation with
+    // the route error boundary; the next effect will retry and surface the precise state.
+    return initial;
+  }
+}
+
+/**
  * A message route's conversation, read from the Query cache the loader populated.
  * Older history is more pages of the same infinite query; everything that arrives later
  * (polls, realtime, the user's own sends, an "around" jump) is written into the cache with
  * setQueryData, so every reader of the key sees the same conversation.
  */
+/** The conversation no longer exists for this viewer, such as a channel hidden from the
+ * Workspace: its page leaves for Chat instead of showing a load failure. */
+export function isConversationGone(error: unknown) {
+  return isAppError(error) && error.code === "NOT_FOUND";
+}
+
 export function useConversationQuery<M extends PageMessage, T extends ConversationPage<M>>({
   query,
   loadInitialPage,
@@ -127,8 +202,15 @@ export function useConversationQuery<M extends PageMessage, T extends Conversati
   onRealtime?: () => Promise<unknown>;
 }) {
   const queryClient = useQueryClient();
-  const { data, hasPreviousPage, hasNextPage, fetchPreviousPage, fetchNextPage } =
+  const { data, error, hasPreviousPage, hasNextPage, fetchPreviousPage, fetchNextPage } =
     useSuspenseInfiniteQuery(query);
+  // A refetch that finds the conversation gone (a channel hidden from the Workspace) keeps the
+  // stale pages; hand the error to the route's error view, which leaves for Chat. The cached
+  // pages and error go too, so opening it again later (after a restore) fetches afresh.
+  if (isConversationGone(error)) {
+    queryClient.removeQueries({ queryKey: query.queryKey, exact: true });
+    throw error;
+  }
   const latestPage = data.pages.at(-1)!;
   const conversationId = latestPage.conversationId;
 
@@ -199,7 +281,7 @@ export function useConversationQuery<M extends PageMessage, T extends Conversati
     // A new conversation starts a new reconciler; later pages of the same one keep it.
     [conversationId],
   );
-  /** Refreshes just the pending action cards currently shown (ADR 0027 "Commit and cancel"),
+  /** Refreshes just the pending action cards currently shown,
    * without re-fetching the whole page; reads the live message list at call time via the closure
    * captured into `reconcileRef` by `useConversationRealtime`. */
   const refreshActionCards = async () => {
@@ -218,6 +300,32 @@ export function useConversationQuery<M extends PageMessage, T extends Conversati
       })),
     }));
   };
+  /** Replace one loaded message, keeping every other page and message object as it is. */
+  const updateMessage = (messageId: string, update: (message: M) => M) =>
+    setPages((pages) => ({
+      ...pages,
+      pages: pages.pages.map((page) =>
+        page.messages.some((message) => message.id === messageId)
+          ? {
+              ...page,
+              messages: page.messages.map((message) =>
+                message.id === messageId ? update(message) : message,
+              ),
+            }
+          : page,
+      ),
+    }));
+  const updateMessageRef = useRef(updateMessage);
+  updateMessageRef.current = updateMessage;
+  const toggleReaction = useMemo(
+    () =>
+      createReactionToggler<M>({
+        update: (messageId, update) => updateMessageRef.current(messageId, update),
+        resync: () => queryClient.invalidateQueries({ queryKey: query.queryKey }),
+      }),
+    // A new conversation starts a new toggler, like the reconciler above.
+    [conversationId],
+  );
   useConversationRealtime(
     conversationId,
     async () => {
@@ -228,16 +336,23 @@ export function useConversationQuery<M extends PageMessage, T extends Conversati
       ]);
     },
     // A membership change stale-dates the composer's @-directory (and plain-@handle
-    // resolution); the next render picks the refetched directory up. Inert for DMs.
+    // resolution) and the settings panel's Members strip; the next render picks the refetched
+    // lists up. Inert for DMs.
     () =>
-      void queryClient
-        .invalidateQueries({ queryKey: ["conversation", "mentionables", conversationId] })
-        .catch(() => {}),
+      void Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: ["conversation", "mentionables", conversationId],
+        }),
+        queryClient.invalidateQueries({ queryKey: channelMembersQueryKey(conversationId) }),
+      ]).catch(() => {}),
+    // The channel was renamed, described, archived, unarchived or hidden elsewhere: refetch the
+    // page, which carries those facts. Inert for DMs.
+    () => void queryClient.invalidateQueries({ queryKey: query.queryKey }).catch(() => {}),
   );
 
   /** Replace the loaded history with a window around one message. */
   const loadMessageAround = async (messageId: string) => {
-    const around = await loadConversationAround({ data: { conversationId, messageId } });
+    const around = await queryClient.fetchQuery(conversationAroundQuery(conversationId, messageId));
     setPages((pages) => ({
       pages: [{ ...pages.pages.at(-1)!, ...around }],
       pageParams: [undefined],
@@ -291,5 +406,8 @@ export function useConversationQuery<M extends PageMessage, T extends Conversati
     },
     /** Re-read every loaded page after a change the realtime feed does not carry. */
     invalidate: () => queryClient.invalidateQueries({ queryKey: query.queryKey }),
+    /** Toggle the viewer's reaction: shown at once, settled by the server's summary for that
+     * message (no page re-read), re-read only when the call fails. */
+    toggleReaction,
   };
 }

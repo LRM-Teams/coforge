@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { Route } from "../src/routes/api/agent/v1/profile";
+import { Route } from "#src/routes/api/agent/v1/profile";
 
 const handlers = Route.options.server!.handlers;
 if (
@@ -40,7 +40,7 @@ function baseDb(overrides: { update?: (data: Record<string, unknown>) => void } 
     agent: {
       findFirst: async ({ where }: { where: { name?: string } }) => {
         // A `name`-less `findFirst` is `agentVisibilityViewerForActor` resolving the calling
-        // Agent's own ownerId/role (ADR 0059); the caller here always is `scout` itself.
+        // Agent's own ownerId/role; the caller here always is `scout` itself.
         if (where.name === undefined) return { ownerId: state.ownerId, role: state.role };
         return where.name === "scout" ? state : null;
       },

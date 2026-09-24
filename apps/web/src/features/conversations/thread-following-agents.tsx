@@ -6,16 +6,17 @@ import {
 } from "react-aria-components";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { CpuChip01 as Cpu, XClose } from "@untitledui/icons";
+import { AlertCircle, XClose } from "@untitledui/icons";
 
-import { Button } from "@/components/base/buttons/button";
-import { ButtonUtility } from "@/components/base/buttons/button-utility";
-import { LoadingIndicator } from "@/components/ui/loading-indicator";
-import { useAppToast } from "@/components/ui/toast";
-import { AgentDisplayAvatar } from "@/features/agents/agent-activity-avatar";
-import { useLiveAgent } from "@/features/agents/workspace-agents-realtime";
-import { cn } from "@/lib/utils";
-import { m } from "@/paraglide/messages";
+import { Button } from "#src/components/base/buttons/button";
+import { ButtonUtility } from "#src/components/base/buttons/button-utility";
+import { useAppToast } from "#src/components/ui/toast";
+import { Avatar } from "#src/components/base/avatar/avatar";
+import { avatarInitial, avatarToneClassName } from "#src/lib/avatar-tone";
+import { AgentDisplayAvatar } from "#src/features/agents/agent-activity-avatar";
+import { useLiveAgent } from "#src/features/agents/workspace-agents-realtime";
+import { cn } from "#src/lib/utils";
+import { m } from "#src/paraglide/messages";
 import {
   loadPublicChannelThreadFollowingAgents,
   unfollowPublicChannelThreadAgent,
@@ -39,14 +40,18 @@ function useThreadFollowingAgents(channelId: string, threadRootId: string) {
   });
 }
 
-function LeadFollowingAgentAvatar({ agent }: { agent: FollowingAgent }) {
-  const live = useLiveAgent(agent.id);
+/** A face in the trigger's stack: no status dot, which the overlap would half cover; the
+ * popover's rows carry each Agent's status. */
+function FollowingAgentFace({ agent }: { agent: FollowingAgent }) {
   return (
-    <AgentDisplayAvatar
-      name={agent.displayName}
-      src={agent.avatarUrl}
-      display={live?.display}
+    <Avatar
       size="xs"
+      alt=""
+      src={agent.avatarUrl}
+      initials={avatarInitial(agent.displayName)}
+      contentClassName={avatarToneClassName(agent.displayName)}
+      // The ring separates the overlapping faces, as an avatar group does.
+      className="ring-2 ring-bg-primary"
     />
   );
 }
@@ -106,9 +111,9 @@ function FollowingAgentRow({
 }
 
 /**
- * Channel thread header control: the first following Agent's avatar plus a count, opening the
- * Agents currently following this Thread. A channel member can stop one Agent following; the
- * Agent stays in the channel.
+ * Channel thread header control: the first three following Agents' avatars plus a count,
+ * opening the Agents currently following this Thread. Hidden until someone follows. A channel
+ * member can stop one Agent following; the Agent stays in the channel.
  */
 export function ThreadFollowingAgents({
   channelId,
@@ -127,8 +132,6 @@ export function ThreadFollowingAgents({
   const agents = query.data?.agents ?? [];
   const canUnfollow = query.data?.canUnfollow ?? false;
   const count = agents.length;
-  const lead = agents[0];
-  const empty = !query.isPending && !query.isError && count === 0;
 
   async function unfollowAgent(agentId: string) {
     try {
@@ -138,21 +141,46 @@ export function ThreadFollowingAgents({
           ? { ...current, agents: current.agents.filter((agent) => agent.id !== agentId) }
           : current,
       );
-    } catch (cause) {
-      toast.error(m.conversation_thread_following_agents_error(), cause);
+    } catch {
+      toast.error(m.conversation_thread_following_agents_unfollow_error());
     }
   }
 
-  if (empty) return null;
+  // Only a load with nothing to show is a failure: a failed background refetch keeps the list
+  // it already has.
+  const failed = query.isError && !query.data;
+  // Shown once someone follows; a failure still gets a trigger, so its message can be read.
+  if (!failed && count === 0) return null;
 
   return (
     <AriaDialogTrigger>
-      <ButtonUtility
-        icon={lead ? <LeadFollowingAgentAvatar agent={lead} /> : <Cpu data-icon />}
-        size="sm"
+      <Button
         color="tertiary"
-        aria-label={m.conversation_thread_following_agents_count({ count })}
-      />
+        size="sm"
+        aria-label={
+          failed
+            ? m.conversation_thread_following_agents_error()
+            : m.conversation_thread_following_agents_count({ count })
+        }
+        // Base Button wraps children in an inline `span[data-text]`; make it the flex row that
+        // holds the avatar stack and the count.
+        className="px-1.5 [&>[data-text]]:flex [&>[data-text]]:items-center [&>[data-text]]:gap-1.5"
+      >
+        {failed ? (
+          <AlertCircle aria-hidden="true" className="size-4 text-fg-quaternary" />
+        ) : (
+          <>
+            <span aria-hidden="true" className="flex -space-x-1">
+              {agents.slice(0, 3).map((agent) => (
+                <FollowingAgentFace key={agent.id} agent={agent} />
+              ))}
+            </span>
+            <span aria-hidden="true" className="tabular-nums">
+              {count}
+            </span>
+          </>
+        )}
+      </Button>
       <AriaPopover
         placement="bottom end"
         offset={8}
@@ -178,14 +206,7 @@ export function ThreadFollowingAgents({
                   {m.conversation_thread_following_agents()}
                 </Heading>
               </div>
-              {query.isPending ? (
-                <div role="status" className="flex h-14 items-center justify-center text-tertiary">
-                  <LoadingIndicator
-                    className="size-4"
-                    label={m.conversation_thread_following_agents()}
-                  />
-                </div>
-              ) : query.isError ? (
+              {failed ? (
                 <p role="alert" className="px-3 py-3 text-sm text-error-primary">
                   {m.conversation_thread_following_agents_error()}
                 </p>

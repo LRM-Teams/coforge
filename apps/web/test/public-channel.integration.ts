@@ -1,31 +1,45 @@
 import { expect, test } from "bun:test";
 import { PrismaPg } from "@prisma/adapter-pg";
-import { PrismaClient } from "../generated/client";
+import { PrismaClient } from "#src/generated/prisma/client";
 import {
   PublicChannels,
   enrollGeneralChannel,
   getAgentChannel,
-} from "../src/server/conversations/public-channels.server";
+} from "#src/server/conversations/public-channels.server";
 import { RedisClient } from "bun";
-import { RedisMessageRequestIdempotency } from "../src/server/conversations/redis-message-request-idempotency.server";
-import { PrismaWorkspaceCatalogStore } from "../src/server/workspaces/catalog.server";
-import { PrismaWorkspaceEnrollmentStore } from "../src/server/workspaces/enrollment.server";
-import { readAuthorizedAttachment } from "../src/server/attachments/attachment.server";
-import { PrismaDirectConversationRepository } from "../src/server/db/repositories/direct-conversation.repositories.server";
+import { RedisMessageRequestIdempotency } from "#src/server/conversations/redis-message-request-idempotency.server";
+import { PrismaWorkspaceCatalogStore } from "#src/server/workspaces/catalog.server";
+import { PrismaWorkspaceEnrollmentStore } from "#src/server/workspaces/enrollment.server";
+import { readAuthorizedAttachment } from "#src/server/attachments/attachment.server";
+import { PrismaDirectConversationRepository } from "#src/server/db/repositories/direct-conversation.repositories.server";
 import { decodeAgentMessageDelivery } from "@lrm/coforge-sdk/internal";
-import type { CentrifugoServerApi } from "../src/server/centrifugo/server-api.server";
+import type { CentrifugoServerApi } from "#src/server/centrifugo/server-api.server";
 import {
   executeAgentSendMessageWithPolicy,
   muteAgentChannel,
   readAgentMessages,
   unfollowAgentThread,
-} from "../src/server/agents/agent-messages.service";
-import { SendDirectMessage } from "../src/server/conversations/direct-message.server";
-import { CentrifugoConversationRealtime } from "../src/server/conversations/conversation-realtime.server";
-import { PrismaAgentRepository } from "../src/server/db/repositories/agent.repositories.server";
-import { PrismaWebPushSubscriptionStore } from "../src/server/notifications/prisma-web-push-subscriptions.server";
-import { ConversationHistory } from "../src/server/conversations/conversation-history.server";
-import { AgentChannelManagement } from "../src/server/conversations/agent-channel-management.server";
+} from "#src/server/agents/agent-messages.server";
+import { SendDirectMessage } from "#src/server/conversations/direct-message.server";
+import { CentrifugoConversationRealtime } from "#src/server/conversations/conversation-realtime.server";
+import { PrismaAgentRepository } from "#src/server/db/repositories/agent.repositories.server";
+import { PrismaWebPushSubscriptionStore } from "#src/server/notifications/prisma-web-push-subscriptions.server";
+import type { MessageWebPushNotification } from "#src/server/notifications/web-push-notifications.server";
+import { ConversationHistory } from "#src/server/conversations/conversation-history.server";
+import { AgentChannelManagement } from "#src/server/conversations/agent-channel-management.server";
+import { TaskBoard } from "#src/server/tasks/task-board.server";
+import { arrangeConversationPins } from "#src/server/conversations/conversation-pins.server";
+import { isAppError } from "#src/lib/app-error";
+import {
+  MAX_THREAD_REFERENCES,
+  storeMessageBody,
+} from "#src/server/conversations/message-references.server";
+
+/** Flattens every recipient's browser subscriptions, matching the earlier assertions this
+ * suite made directly against `notificationForMessage`'s old flat `subscriptions` field. */
+function subscriptionsOf(notification: MessageWebPushNotification | null) {
+  return notification?.recipients.flatMap((recipient) => recipient.subscriptions) ?? [];
+}
 
 test("Workspace humans enrolled in general see one general channel; outsiders cannot discover it", async () => {
   const connectionString = Bun.env.CHANNEL_TEST_DATABASE_URL;
@@ -74,6 +88,7 @@ test("Workspace humans enrolled in general see one general channel; outsiders ca
       sequence: number;
       workspaceId?: string;
       threadRootId?: string;
+      requestId?: string;
     }> = [];
     const channels = new PublicChannels(
       db,
@@ -99,6 +114,9 @@ test("Workspace humans enrolled in general see one general channel; outsiders ca
         archived: false,
         muted: false,
         unreadCount: 0,
+        hidden: false,
+        pinned: false,
+        pinSortOrder: null,
       },
     ]);
     expect(second).toEqual(first);
@@ -161,13 +179,14 @@ test("Workspace humans enrolled in general see one general channel; outsiders ca
       body: "Hello Bob",
       attachmentIds: [attachment.id],
     });
-    expect((await pushSubscriptions.notificationForMessage(saved.id))?.subscriptions).toEqual([]);
+    expect(subscriptionsOf(await pushSubscriptions.notificationForMessage(saved.id))).toEqual([]);
     expect(realtimeEvents).toContainEqual({
       conversationId: engineering.id,
       messageId: saved.id,
       sequence: saved.sequence,
       workspaceId: workspace.id,
       threadRootId: undefined,
+      requestId,
     });
     expect((await send(alice.id, "Hello Bob", requestId)).id).toBe(saved.id);
     const unjoined = await channels.open(workspace.id, bob.id, engineering.id);
@@ -196,23 +215,39 @@ test("Workspace humans enrolled in general see one general channel; outsiders ca
     const mutedChannel = await channels.open(workspace.id, bob.id, engineering.id);
     expect(mutedChannel.senderMemberId).not.toBe("");
     expect(mutedChannel.muted).toBeTrue();
-    expect((await pushSubscriptions.notificationForMessage(saved.id))?.subscriptions).toEqual([]);
+    expect(subscriptionsOf(await pushSubscriptions.notificationForMessage(saved.id))).toEqual([]);
     const mutedOrdinary = await send(alice.id, "Muted ordinary message");
     expect(
-      (await pushSubscriptions.notificationForMessage(mutedOrdinary.id))?.subscriptions,
+      subscriptionsOf(await pushSubscriptions.notificationForMessage(mutedOrdinary.id)),
     ).toEqual([]);
+    // notificationForRecipient shares the same recipient rule, narrowed to one already-known user
+    // (the seam `getMessageNotification` reads): muted bob is not a recipient of the ordinary
+    // message, and the sender is never their own recipient either.
+    expect(await pushSubscriptions.notificationForRecipient(mutedOrdinary.id, bob.id)).toBeNull();
+    expect(await pushSubscriptions.notificationForRecipient(mutedOrdinary.id, alice.id)).toBeNull();
     const mutedMention = await send(alice.id, `@${bob.username} please review this`);
     const mentionNotification = await pushSubscriptions.notificationForMessage(mutedMention.id);
-    expect(mentionNotification?.subscriptions).toEqual([
+    expect(subscriptionsOf(mentionNotification)).toEqual([
       expect.objectContaining({
         endpoint: `https://fcm.googleapis.com/wp/bob-${suffix}`,
       }),
     ]);
+    // The target names the Chat tab: a member's own tab order can put another tab first.
     expect(mentionNotification?.url).toBe(
-      `/notifications/open?workspace=${workspace.slug}&target=${encodeURIComponent(`/messages/channels/${engineering.id}#message-${mutedMention.id}`)}`,
+      `/notifications/open?workspace=${workspace.slug}&target=${encodeURIComponent(`/messages/channels/${engineering.id}?view=chat#message-${mutedMention.id}`)}`,
     );
+    // An explicit @mention pierces the mute for notificationForRecipient too, with the same
+    // title/body/url/tag/conversationPath the push payload carries.
+    expect(await pushSubscriptions.notificationForRecipient(mutedMention.id, bob.id)).toEqual({
+      title: mentionNotification!.title,
+      body: mentionNotification!.body,
+      url: mentionNotification!.url,
+      tag: `message:${mutedMention.id}`,
+      conversationPath: `/messages/channels/${engineering.id}`,
+    });
+    expect(await pushSubscriptions.notificationForRecipient(mutedMention.id, alice.id)).toBeNull();
     await channels.setUserMuted(workspace.id, bob.id, engineering.id, false);
-    expect((await pushSubscriptions.notificationForMessage(saved.id))?.subscriptions).toEqual([
+    expect(subscriptionsOf(await pushSubscriptions.notificationForMessage(saved.id))).toEqual([
       expect.objectContaining({
         endpoint: `https://fcm.googleapis.com/wp/bob-${suffix}`,
       }),
@@ -225,7 +260,7 @@ test("Workspace humans enrolled in general see one general channel; outsiders ca
       [
         [1, alice.username, alice.username, "Hello Bob"],
         [2, alice.username, alice.username, "Muted ordinary message"],
-        // A resolved mention is stored as an embedded-UUID token (ADR 0022 / PR #338) and carries a
+        // A resolved mention is stored as an embedded-UUID token (PR #338) and carries a
         // MessageMention row; the browser renders the handle from that row, never by re-parsing
         // prose. `agentReadableBody` is what turns the token back into `@handle` for Agents.
         [3, alice.username, alice.username, `<@human:${bob.id}> please review this`],
@@ -265,9 +300,17 @@ test("Workspace humans enrolled in general see one general channel; outsiders ca
       `<@human:${bob.id}> please review this`,
       "Concurrent A",
     ]);
+    // A jump lands on another member's message too (#740): for a channel, Workspace membership is
+    // the whole access decision, so Bob opens the window around Alice's message and an outsider
+    // is refused.
+    expect(
+      (
+        await browserHistory.loadAround(workspace.id, bob.id, engineering.id, saved.id)
+      ).messages.some((message) => message.id === saved.id),
+    ).toBe(true);
     await expect(
-      browserHistory.loadAround(workspace.id, bob.id, engineering.id, saved.id),
-    ).rejects.toThrow("NOT_FOUND");
+      browserHistory.loadAround(workspace.id, outsider.id, engineering.id, saved.id),
+    ).rejects.toThrow("ACCESS_DENIED");
     await expect(
       browserHistory.listOwnMessages(workspace.id, outsider.id, engineering.id),
     ).rejects.toThrow("ACCESS_DENIED");
@@ -329,12 +372,12 @@ test("Workspace humans enrolled in general see one general channel; outsiders ca
       });
       const id = typeof created === "string" ? created : created.id;
       try {
-        // Workspace creation itself enrolls the creator; reads never repair enrollment.
-        const general = await db.conversation.findFirst({
+        // Workspace creation itself creates #general with its creator in it; reads never enroll.
+        const createdGeneral = await db.conversation.findFirst({
           where: { workspaceId: id, channelName: "general" },
           include: { members: true },
         });
-        expect(general?.members.map((m) => m.userId)).toEqual([alice.id]);
+        expect(createdGeneral?.members.map((m) => m.userId)).toEqual([alice.id]);
       } finally {
         await db.workspace.delete({ where: { id } });
       }
@@ -390,6 +433,7 @@ test("Agent channel mute suppresses ordinary notices, preserves mentions and rea
         published.push(decodeAgentMessageDelivery(payload));
       },
       publishJson: async () => {},
+      broadcast: async () => {},
     });
     const general = (await channels.list(workspace.id, user.id))[0]!;
     await db.userPreference.create({
@@ -493,6 +537,9 @@ test("Agent channel mute suppresses ordinary notices, preserves mentions and rea
       publishJson: async () => {
         throw new Error("Agent reply must not publish");
       },
+      broadcast: async () => {
+        throw new Error("Agent reply must not publish");
+      },
     };
     const agentSender = new SendDirectMessage(
       repo,
@@ -521,8 +568,9 @@ test("Agent channel mute suppresses ordinary notices, preserves mentions and rea
     expect(published.length).toBe(beforeReply);
     if (!reply.messageId) throw new Error("Agent reply did not return its message identity");
     expect(
-      (await new PrismaWebPushSubscriptionStore(db).notificationForMessage(reply.messageId))
-        ?.subscriptions,
+      subscriptionsOf(
+        await new PrismaWebPushSubscriptionStore(db).notificationForMessage(reply.messageId),
+      ),
     ).toEqual([
       expect.objectContaining({
         endpoint: `https://fcm.googleapis.com/wp/agent-mention-${workspace.id}`,
@@ -554,6 +602,9 @@ test("Agent channel mute suppresses ordinary notices, preserves mentions and rea
         reasoning: "",
       },
     });
+    // Creating a public Agent puts it in #general. Joining late opens the history to it, while
+    // delivery (below) covers only what is sent afterwards.
+    expect(await repo.readPendingAgentDeliveries(workspace.id, second.id)).toEqual([]);
     expect(
       (await repo.readMessages(workspace.id, second.id, "#general")).some(
         (m) => m.id === reply.messageId,
@@ -565,9 +616,19 @@ test("Agent channel mute suppresses ordinary notices, preserves mentions and rea
       userId: user.id,
       channelId: general.id,
       requestId: crypto.randomUUID(),
-      body: "A default unmuted channel update",
+      body: "An Agent joins #general muted, so ordinary chatter there does not reach it",
     });
-    expect(published.slice(start).map((m) => m.agentId)).toEqual([second.id]);
+    expect(published.slice(start).map((m) => m.agentId)).toEqual([]);
+    await channels.setAgentMuted(workspace.id, second.id, "#general", false);
+    const unmutedStart = published.length;
+    await channels.send({
+      workspaceId: workspace.id,
+      userId: user.id,
+      channelId: general.id,
+      requestId: crypto.randomUUID(),
+      body: "An unmuted channel update",
+    });
+    expect(published.slice(unmutedStart).map((m) => m.agentId)).toEqual([second.id]);
 
     const other = await channels.create(workspace.id, user.id, "not-joined");
     await expect(repo.readMessages(workspace.id, agent.id, "#not-joined")).rejects.toThrow(
@@ -672,6 +733,7 @@ test("a channel @mention persists as a token and wakes only the mentioned Agent,
     const channels = new PublicChannels(db, new RedisMessageRequestIdempotency(redis), {
       publish: async () => {},
       publishJson: async () => {},
+      broadcast: async () => {},
     });
     const general = (await channels.list(workspace.id, user.id))[0]!;
     const repo = new PrismaDirectConversationRepository(db);
@@ -700,7 +762,7 @@ test("a channel @mention persists as a token and wakes only the mentioned Agent,
         (row) => row.agentId,
       ),
     ).toEqual([helper.id]);
-    expect(
+    expect<string | undefined>(
       (await repo.readMessages(workspace.id, helper.id, "#general")).find(
         (message) => message.id === humanMention.id,
       )?.body,
@@ -744,11 +806,920 @@ test("a channel @mention persists as a token and wakes only the mentioned Agent,
         (message) => message.id === handoff.id,
       ),
     ).toMatchObject({ senderKind: "agent", senderHandle: "helper", target: "#general" });
-    expect(
+    expect<string | undefined>(
       (await repo.readMessages(workspace.id, scout.id, "#general")).find(
         (message) => message.id === handoff.id,
       )?.body,
     ).toBe("@scout please take the follow-up.");
+  } finally {
+    await db.workspace.delete({ where: { id: workspace.id } });
+    await db.computer.deleteMany({ where: { ownerId: user.id } });
+    await db.user.delete({ where: { id: user.id } });
+    await db.$disconnect();
+    redis.close();
+  }
+});
+
+test("a channel send reports the @handles that name nobody the sender can see, and a replay reports the same", async () => {
+  const connectionString = Bun.env.CHANNEL_TEST_DATABASE_URL;
+  if (!connectionString) throw new Error("CHANNEL_TEST_DATABASE_URL is required");
+  const db = new PrismaClient({ adapter: new PrismaPg({ connectionString }) });
+  const redis = new RedisClient(Bun.env.CHANNEL_TEST_REDIS_URL!);
+  const suffix = crypto.randomUUID().slice(0, 8);
+  const alice = await db.user.create({ data: { username: `ua${suffix}` } });
+  const bob = await db.user.create({ data: { username: `ub${suffix}` } });
+  const workspace = await db.workspace.create({
+    data: {
+      slug: crypto.randomUUID(),
+      name: "Unresolved mentions",
+      members: { create: [{ userId: alice.id }, { userId: bob.id }] },
+    },
+  });
+  try {
+    const computer = await db.computer.create({
+      data: { ownerId: bob.id, machineId: crypto.randomUUID() },
+    });
+    // A public Agent outside the channel is someone the sender can see; a private Agent of
+    // another owner is not.
+    await db.agent.create({
+      data: {
+        workspaceId: workspace.id,
+        ownerId: bob.id,
+        computerId: computer.id,
+        name: "helper",
+        displayName: "Helper",
+        runtimeConfig: {},
+      },
+    });
+    await db.agent.create({
+      data: {
+        workspaceId: workspace.id,
+        ownerId: bob.id,
+        computerId: computer.id,
+        name: "secret",
+        displayName: "Secret",
+        visibility: "private",
+        runtimeConfig: {},
+      },
+    });
+    const channels = new PublicChannels(db, new RedisMessageRequestIdempotency(redis), {
+      publish: async () => {},
+      publishJson: async () => {},
+      broadcast: async () => {},
+    });
+    const triage = await channels.create(workspace.id, alice.id, `triage-${suffix}`);
+    const send = {
+      workspaceId: workspace.id,
+      userId: alice.id,
+      channelId: triage.id,
+      requestId: crypto.randomUUID(),
+      body: `@ua${suffix} @helper @ub${suffix} @ghost @secret \`@quoted\` @ghost in #triage-${suffix} <@human:00000000-0000-4000-8000-000000000000>`,
+    };
+
+    const sent = await channels.send(send);
+    // The sender resolves as a member; helper and bob are Workspace members outside the channel;
+    // ghost names nobody and secret is invisible to the sender; code is never a mention, and a
+    // stored token (the channel reference, a typed mention token) is never read as a handle.
+    expect(sent.unresolvedMentionHandles).toEqual(["ghost", "secret"]);
+    expect((await channels.send(send)).unresolvedMentionHandles).toEqual(["ghost", "secret"]);
+  } finally {
+    await db.workspace.delete({ where: { id: workspace.id } });
+    await db.computer.deleteMany({ where: { ownerId: bob.id } });
+    await db.user.deleteMany({ where: { id: { in: [alice.id, bob.id] } } });
+    await db.$disconnect();
+    redis.close();
+  }
+});
+
+test("a channel @mention of someone outside the channel becomes the sender's pending mention action for 7 days, and a replay returns the same one", async () => {
+  const connectionString = Bun.env.CHANNEL_TEST_DATABASE_URL;
+  if (!connectionString) throw new Error("CHANNEL_TEST_DATABASE_URL is required");
+  const db = new PrismaClient({ adapter: new PrismaPg({ connectionString }) });
+  const redis = new RedisClient(Bun.env.CHANNEL_TEST_REDIS_URL!);
+  const suffix = crypto.randomUUID().slice(0, 8);
+  const alice = await db.user.create({ data: { username: `pa${suffix}` } });
+  const bob = await db.user.create({ data: { username: `pb${suffix}` } });
+  const carol = await db.user.create({ data: { username: `pc${suffix}` } });
+  const workspace = await db.workspace.create({
+    data: {
+      slug: crypto.randomUUID(),
+      name: "Pending mentions",
+      members: { create: [{ userId: alice.id }, { userId: bob.id }, { userId: carol.id }] },
+    },
+  });
+  try {
+    const computer = await db.computer.create({
+      data: { ownerId: bob.id, machineId: crypto.randomUUID() },
+    });
+    const helper = await db.agent.create({
+      data: {
+        workspaceId: workspace.id,
+        ownerId: bob.id,
+        computerId: computer.id,
+        name: "helper",
+        displayName: "Helper",
+        runtimeConfig: {},
+      },
+    });
+    // A private Agent the sender can see (its owner) still cannot join a channel.
+    await db.agent.create({
+      data: {
+        workspaceId: workspace.id,
+        ownerId: alice.id,
+        computerId: computer.id,
+        name: "mine",
+        displayName: "Mine",
+        visibility: "private",
+        runtimeConfig: {},
+      },
+    });
+    const channels = new PublicChannels(db, new RedisMessageRequestIdempotency(redis), {
+      publish: async () => {},
+      publishJson: async () => {},
+      broadcast: async () => {},
+    });
+    const triage = await channels.create(workspace.id, alice.id, `pending-${suffix}`);
+    await channels.addMembers(workspace.id, { userId: alice.id }, triage.id, {
+      userIds: [carol.id],
+      agentIds: [],
+    });
+    const send = {
+      workspaceId: workspace.id,
+      userId: alice.id,
+      channelId: triage.id,
+      requestId: crypto.randomUUID(),
+      body: `@pc${suffix} @pb${suffix} @helper @mine \`@pb${suffix}\` @ghost @pb${suffix}`,
+    };
+
+    const sent = await channels.send(send);
+    // Carol is a member and was mentioned; bob and helper are outside the channel; a private
+    // Agent is never offered; ghost is unresolved; code is never a mention.
+    expect(
+      sent.pendingMentionActions.map((action) => [
+        action.targetType,
+        action.targetId,
+        action.targetHandle,
+        action.availableActions,
+      ]),
+    ).toEqual([
+      ["user", bob.id, `pb${suffix}`, ["add"]],
+      ["agent", helper.id, "helper", ["add"]],
+    ]);
+    expect(sent.unresolvedMentionHandles).toEqual(["ghost"]);
+    for (const action of sent.pendingMentionActions) {
+      expect(action.messageId).toBe(sent.id);
+      expect(new Date(action.expiresAt).getTime() - sent.createdAt.getTime()).toBe(
+        7 * 24 * 60 * 60 * 1000,
+      );
+    }
+    const replay = await channels.send(send);
+    expect(replay.pendingMentionActions.map((action) => action.resolutionId)).toEqual(
+      sent.pendingMentionActions.map((action) => action.resolutionId),
+    );
+  } finally {
+    await db.workspace.delete({ where: { id: workspace.id } });
+    await db.computer.deleteMany({ where: { ownerId: bob.id } });
+    await db.user.deleteMany({ where: { id: { in: [alice.id, bob.id, carol.id] } } });
+    await db.$disconnect();
+    redis.close();
+  }
+});
+
+test("the sender adds a mentioned outsider to the channel once; another member's id, an expired one and a repeat are refused", async () => {
+  const connectionString = Bun.env.CHANNEL_TEST_DATABASE_URL;
+  if (!connectionString) throw new Error("CHANNEL_TEST_DATABASE_URL is required");
+  const db = new PrismaClient({ adapter: new PrismaPg({ connectionString }) });
+  const redis = new RedisClient(Bun.env.CHANNEL_TEST_REDIS_URL!);
+  const suffix = crypto.randomUUID().slice(0, 8);
+  const alice = await db.user.create({ data: { username: `xa${suffix}` } });
+  const bob = await db.user.create({ data: { username: `xb${suffix}` } });
+  const carol = await db.user.create({ data: { username: `xc${suffix}` } });
+  const workspace = await db.workspace.create({
+    data: {
+      slug: crypto.randomUUID(),
+      name: "Mention actions",
+      members: { create: [{ userId: alice.id }, { userId: bob.id }, { userId: carol.id }] },
+    },
+  });
+  try {
+    const computer = await db.computer.create({
+      data: { ownerId: bob.id, machineId: crypto.randomUUID() },
+    });
+    const helper = await db.agent.create({
+      data: {
+        workspaceId: workspace.id,
+        ownerId: bob.id,
+        computerId: computer.id,
+        name: "helper",
+        displayName: "Helper",
+        runtimeConfig: {},
+      },
+    });
+    const announced: string[][] = [];
+    const channels = new PublicChannels(
+      db,
+      new RedisMessageRequestIdempotency(redis),
+      { publish: async () => {}, publishJson: async () => {}, broadcast: async () => {} },
+      undefined,
+      {
+        messageAvailable: async () => {},
+        memberChanged: async (event: { conversationIds: string[] }) => {
+          announced.push(event.conversationIds);
+        },
+      } as unknown as ConstructorParameters<typeof PublicChannels>[4],
+    );
+    const triage = await channels.create(workspace.id, alice.id, `actions-${suffix}`);
+    await channels.addMembers(workspace.id, { userId: alice.id }, triage.id, {
+      userIds: [carol.id],
+      agentIds: [],
+    });
+    announced.length = 0;
+    const sent = await channels.send({
+      workspaceId: workspace.id,
+      userId: alice.id,
+      channelId: triage.id,
+      requestId: crypto.randomUUID(),
+      body: `@xb${suffix} and @helper, please look`,
+    });
+    const [forBob, forHelper] = sent.pendingMentionActions.map((action) => action.resolutionId);
+
+    // Only the sender can act on their pending mentions.
+    expect(
+      (await channels.executeMentionActions(workspace.id, carol.id, "add", [forBob!])).map(
+        (result) => [result.resolutionId, result.status],
+      ),
+    ).toEqual([[forBob, "not_found"]]);
+
+    const added = await channels.executeMentionActions(workspace.id, alice.id, "add", [
+      forBob!,
+      forHelper!,
+    ]);
+    expect(added.map((result) => [result.targetType, result.targetId, result.status])).toEqual([
+      ["user", bob.id, "delivered"],
+      ["agent", helper.id, "delivered"],
+    ]);
+    expect(
+      await db.conversationMember.count({
+        where: {
+          conversationId: triage.id,
+          leftAt: null,
+          OR: [{ userId: bob.id }, { agentId: helper.id }],
+        },
+      }),
+    ).toBe(2);
+    expect(announced).toEqual([[triage.id]]);
+    // Someone who left the Workspace after the send cannot be added, and does not sink the others
+    // added in the same request; nor can a target already in the channel, nor another Workspace.
+    const dave = await db.user.create({ data: { username: `xe${suffix}` } });
+    const frank = await db.user.create({ data: { username: `xf${suffix}` } });
+    const elsewhere = await db.workspace.create({
+      data: {
+        slug: crypto.randomUUID(),
+        name: "Elsewhere",
+        members: { create: { userId: alice.id } },
+      },
+    });
+    try {
+      await db.workspaceMembership.createMany({
+        data: [dave.id, frank.id].map((userId) => ({ workspaceId: workspace.id, userId })),
+      });
+      const mixed = await channels.send({
+        workspaceId: workspace.id,
+        userId: alice.id,
+        channelId: triage.id,
+        requestId: crypto.randomUUID(),
+        body: `@xe${suffix} and @xf${suffix}`,
+      });
+      const [forDave, forFrank] = mixed.pendingMentionActions.map((action) => action.resolutionId);
+      await db.workspaceMembership.deleteMany({
+        where: { workspaceId: workspace.id, userId: dave.id },
+      });
+      expect(
+        (
+          await channels.send({
+            ...{ workspaceId: workspace.id, userId: alice.id, channelId: triage.id },
+            requestId: crypto.randomUUID(),
+            body: `@xe${suffix} again`,
+          })
+        ).pendingMentionActions,
+      ).toEqual([]);
+      expect(
+        (
+          await channels.executeMentionActions(workspace.id, alice.id, "add", [forDave!, forFrank!])
+        ).map((result) => [result.status, result.reason]),
+      ).toEqual([
+        ["stale", "target_unavailable"],
+        ["delivered", undefined],
+      ]);
+      expect(
+        (await channels.executeMentionActions(elsewhere.id, alice.id, "add", [forDave!])).map(
+          (result) => result.status,
+        ),
+      ).toEqual(["not_found"]);
+    } finally {
+      await db.workspace.delete({ where: { id: elsewhere.id } });
+      await db.workspaceMembership.deleteMany({ where: { userId: { in: [dave.id, frank.id] } } });
+      await db.conversationMember.deleteMany({ where: { userId: { in: [dave.id, frank.id] } } });
+      await db.user.deleteMany({ where: { id: { in: [dave.id, frank.id] } } });
+    }
+    // Acted on once; the send's own list no longer offers it.
+    expect(
+      (await channels.executeMentionActions(workspace.id, alice.id, "add", [forBob!])).map(
+        (result) => [result.status, result.reason],
+      ),
+    ).toEqual([["stale", "no_longer_pending"]]);
+
+    const later = await channels.send({
+      workspaceId: workspace.id,
+      userId: carol.id,
+      channelId: triage.id,
+      requestId: crypto.randomUUID(),
+      body: `@xa${suffix} is here already; @helper too`,
+    });
+    expect(later.pendingMentionActions).toEqual([]);
+    const outsider = await db.user.create({ data: { username: `xd${suffix}` } });
+    try {
+      await db.workspaceMembership.create({
+        data: { workspaceId: workspace.id, userId: outsider.id },
+      });
+      const old = await channels.send({
+        workspaceId: workspace.id,
+        userId: alice.id,
+        channelId: triage.id,
+        requestId: crypto.randomUUID(),
+        body: `@xd${suffix} ping`,
+      });
+      const forOutsider = old.pendingMentionActions[0]!.resolutionId;
+      // Someone who joined in the meantime needs nothing done.
+      const joinedSince = await channels.send({
+        workspaceId: workspace.id,
+        userId: alice.id,
+        channelId: triage.id,
+        requestId: crypto.randomUUID(),
+        body: `@xd${suffix} once more`,
+      });
+      await db.conversationMember.create({
+        data: { workspaceId: workspace.id, conversationId: triage.id, userId: outsider.id },
+      });
+      expect(
+        (
+          await channels.executeMentionActions(workspace.id, alice.id, "add", [
+            joinedSince.pendingMentionActions[0]!.resolutionId,
+          ])
+        ).map((result) => [result.status, result.reason]),
+      ).toEqual([["stale", "target_already_member"]]);
+      await db.conversationMember.deleteMany({
+        where: { conversationId: triage.id, userId: outsider.id },
+      });
+      await db.pendingMentionAction.update({
+        where: { id: forOutsider },
+        data: { expiresAt: new Date(Date.now() - 1000) },
+      });
+      expect(
+        (await channels.executeMentionActions(workspace.id, alice.id, "add", [forOutsider])).map(
+          (result) => result.status,
+        ),
+      ).toEqual(["expired"]);
+      // Nobody joins an archived channel, including from a mention.
+      const beforeArchive = await channels.send({
+        workspaceId: workspace.id,
+        userId: alice.id,
+        channelId: triage.id,
+        requestId: crypto.randomUUID(),
+        body: `@xd${suffix} last call`,
+      });
+      await db.conversation.update({ where: { id: triage.id }, data: { archivedAt: new Date() } });
+      expect(
+        (
+          await channels.executeMentionActions(workspace.id, alice.id, "add", [
+            beforeArchive.pendingMentionActions[0]!.resolutionId,
+          ])
+        ).map((result) => [result.status, result.reason]),
+      ).toEqual([["no_permission", "channel_archived"]]);
+    } finally {
+      await db.workspaceMembership.deleteMany({ where: { userId: outsider.id } });
+      await db.user.delete({ where: { id: outsider.id } }).catch(() => {});
+    }
+  } finally {
+    await db.workspace.delete({ where: { id: workspace.id } });
+    await db.computer.deleteMany({ where: { ownerId: bob.id } });
+    await db.user.deleteMany({ where: { id: { in: [alice.id, bob.id, carol.id] } } });
+    await db.$disconnect();
+    redis.close();
+  }
+});
+
+test("a #channel reference is stored as a channel token on every send path, and every Agent-facing body reads it as #name", async () => {
+  const connectionString = Bun.env.CHANNEL_TEST_DATABASE_URL;
+  if (!connectionString) throw new Error("CHANNEL_TEST_DATABASE_URL is required");
+  const db = new PrismaClient({ adapter: new PrismaPg({ connectionString }) });
+  const redis = new RedisClient(Bun.env.CHANNEL_TEST_REDIS_URL!);
+  const user = await db.user.create({
+    data: { username: `u${crypto.randomUUID().slice(0, 8)}` },
+  });
+  const workspace = await db.workspace.create({
+    data: {
+      slug: crypto.randomUUID(),
+      name: "Channel references",
+      members: { create: { userId: user.id } },
+    },
+  });
+  try {
+    const computer = await db.computer.create({
+      data: { ownerId: user.id, machineId: crypto.randomUUID() },
+    });
+    const helper = await db.agent.create({
+      data: {
+        workspaceId: workspace.id,
+        ownerId: user.id,
+        computerId: computer.id,
+        name: "helper",
+        displayName: "Helper",
+        runtimeConfig: {},
+      },
+    });
+    await enrollGeneral(db, workspace.id);
+    // Every body published to a daemon, decoded as the daemon reads it.
+    const published: ReturnType<typeof decodeAgentMessageDelivery>[] = [];
+    const centrifugo = {
+      publish: async (_channel: string, payload: Uint8Array) => {
+        published.push(decodeAgentMessageDelivery(payload));
+      },
+      publishJson: async () => {},
+      broadcast: async () => {},
+    };
+    const channels = new PublicChannels(db, new RedisMessageRequestIdempotency(redis), centrifugo);
+    const general = (await channels.list(workspace.id, user.id))[0]!;
+    // Every #general message below must reach the Agent, which joined #general muted.
+    await channels.setAgentMuted(workspace.id, helper.id, "#general", false);
+    const product = await channels.create(workspace.id, user.id, "product");
+    const productToken = `<@channel:${product.id}:product>`;
+    const repo = new PrismaDirectConversationRepository(db);
+    const sender = new SendDirectMessage(
+      repo,
+      new RedisMessageRequestIdempotency(redis),
+      centrifugo,
+    );
+    const publishedBody = (messageId: string) =>
+      published.find((delivery) => delivery.messageId === messageId)?.body;
+
+    // A human channel message: the channel reference is stored as a token next to the mention
+    // token; an unknown name, a code span and a thread reference stay as written.
+    const typed = "@helper see #Product and #nope, `#product`, #product:deadbeef";
+    const readable = "@helper see #product and #nope, `#product`, #product:deadbeef";
+    const human = await channels.send({
+      workspaceId: workspace.id,
+      userId: user.id,
+      channelId: general.id,
+      requestId: crypto.randomUUID(),
+      body: typed,
+    });
+    expect(human.body).toBe(
+      `<@agent:${helper.id}> see ${productToken} and #nope, \`#product\`, #product:deadbeef`,
+    );
+    // Every body that reaches the daemon or the Agent's CLI reads `#product`, never the token.
+    expect(publishedBody(human.id)).toBe(readable);
+    const bodyOf = (messages: readonly { id?: string; messageId?: string; body: string }[]) =>
+      messages.find((message) => (message.id ?? message.messageId) === human.id)?.body;
+    // The unread readers first: draining the events advances the Agent's read boundary.
+    expect(bodyOf(await repo.readPendingAgentDeliveries(workspace.id, helper.id))).toBe(readable);
+    expect(
+      bodyOf((await repo.readAgentRecoveryContext(workspace.id, helper.id)).resumeMessages),
+    ).toBe(readable);
+    expect(bodyOf(await repo.readPendingAgentContext(workspace.id, helper.id, "#general", 0))).toBe(
+      readable,
+    );
+    expect(bodyOf((await repo.drainAgentEvents(workspace.id, helper.id)).messages)).toBe(readable);
+    expect(
+      bodyOf(await repo.readMessages(workspace.id, helper.id, "#general", { around: human.id })),
+    ).toBe(readable);
+    // The token keeps the channel's name, so a body search for the name still finds the message.
+    expect(bodyOf(await repo.searchMessages(workspace.id, helper.id, { query: "product" }))).toBe(
+      readable,
+    );
+    expect<string>((await repo.resolveAgentMessage(workspace.id, helper.id, human.id)).body).toBe(
+      readable,
+    );
+
+    // A quote that spans lines keeps its references, and its mention wakes the Agent as before.
+    const quote = await channels.send({
+      workspaceId: workspace.id,
+      userId: user.id,
+      channelId: general.id,
+      requestId: crypto.randomUUID(),
+      body: "> **Ada** 10:00:\n> @helper see #product\n\nagreed",
+    });
+    expect(quote.body).toBe(
+      `> **Ada** 10:00:\n> <@agent:${helper.id}> see ${productToken}\n\nagreed`,
+    );
+    expect(
+      (await db.agentMessageDelivery.findMany({ where: { messageId: quote.id } })).map(
+        (row) => row.agentId,
+      ),
+    ).toEqual([helper.id]);
+    expect(publishedBody(quote.id)).toBe("> **Ada** 10:00:\n> @helper see #product\n\nagreed");
+
+    // A token the sender typed is stored as typed: it is a claim every consumer checks (the web
+    // links a channel only when the Workspace has its id), and an Agent reads it as plain text.
+    const forgedChannel = crypto.randomUUID();
+    const forged = await channels.send({
+      workspaceId: workspace.id,
+      userId: user.id,
+      channelId: general.id,
+      requestId: crypto.randomUUID(),
+      body: `see <@channel:${forgedChannel}:evil> and <@task:9>`,
+    });
+    expect(forged.body).toBe(`see <@channel:${forgedChannel}:evil> and <@task:9>`);
+    expect(publishedBody(forged.id)).toBe("see #evil and task #9");
+
+    // An Agent channel message.
+    const fromAgent = await sender.executeFromAgent({
+      requestId: crypto.randomUUID(),
+      workspaceId: workspace.id,
+      agentId: helper.id,
+      target: "#general",
+      body: "moving this to #product",
+    });
+    expect(fromAgent.body).toBe(`moving this to ${productToken}`);
+    // Push bodies read the same way.
+    expect(
+      (await new PrismaWebPushSubscriptionStore(db).notificationForMessage(fromAgent.id))?.body,
+    ).toBe("@helper: moving this to #product");
+    // A Task converted from that message shows its title as text in the view Agents read.
+    const converted = await new TaskBoard(db).execute(
+      { workspaceId: workspace.id, agentId: helper.id },
+      {
+        operation: "convert",
+        idempotencyKey: crypto.randomUUID(),
+        target: "#general",
+        messageId: fromAgent.id,
+      },
+    );
+    expect(converted.tasks[0]?.title).toBe("moving this to #product");
+    // A converted title carrying a mention token reads it back through the message's mention row.
+    const convertedHuman = await new TaskBoard(db).execute(
+      { workspaceId: workspace.id, agentId: helper.id },
+      {
+        operation: "convert",
+        idempotencyKey: crypto.randomUUID(),
+        target: "#general",
+        messageId: human.id,
+      },
+    );
+    expect(convertedHuman.tasks[0]?.title).toBe(readable);
+
+    // A bare `#N` naming a task of this channel is stored as the task token and reads back as
+    // `task #N`; a number naming no task here, one beyond any task number, and a `#N` inside code
+    // stay as written.
+    const taskNumber = converted.tasks[0]!.number;
+    const bareTyped = `see #${taskNumber}, not #${taskNumber + 100} or #99999999999 or \`#${taskNumber}\``;
+    const bare = await channels.send({
+      workspaceId: workspace.id,
+      userId: user.id,
+      channelId: general.id,
+      requestId: crypto.randomUUID(),
+      body: bareTyped,
+    });
+    expect(bare.body).toBe(
+      `see <@task:${taskNumber}>, not #${taskNumber + 100} or #99999999999 or \`#${taskNumber}\``,
+    );
+    expect(publishedBody(bare.id)).toBe(
+      `see task #${taskNumber}, not #${taskNumber + 100} or #99999999999 or \`#${taskNumber}\``,
+    );
+    // The same from an Agent, and in a task's own channel only: the DM below has no such task.
+    const bareFromAgent = await sender.executeFromAgent({
+      requestId: crypto.randomUUID(),
+      workspaceId: workspace.id,
+      agentId: helper.id,
+      target: "#general",
+      body: `picking up #${taskNumber}`,
+    });
+    expect(bareFromAgent.body).toBe(`picking up <@task:${taskNumber}>`);
+
+    // A human DM to the Agent: stored as a token, published to the daemon as text.
+    const opened = await repo.openForUser(workspace.id, user.id, helper.id);
+    const dm = await sender.execute({
+      requestId: crypto.randomUUID(),
+      workspaceId: workspace.id,
+      conversationId: opened.conversationId,
+      senderMemberId: opened.senderMemberId,
+      senderUserId: user.id,
+      body: `check #product and #${taskNumber}`,
+    });
+    expect(dm.body).toBe(`check ${productToken} and #${taskNumber}`);
+    expect(publishedBody(dm.id)).toBe(`check #product and #${taskNumber}`);
+
+    // An Agent DM reply.
+    const reply = await sender.executeFromAgent({
+      requestId: crypto.randomUUID(),
+      workspaceId: workspace.id,
+      agentId: helper.id,
+      target: `@${user.username}`,
+      body: "done in #product",
+    });
+    expect(reply.body).toBe(`done in ${productToken}`);
+    expect<string | undefined>(
+      (await repo.readMessages(workspace.id, helper.id, `@${user.username}`)).find(
+        (message) => message.id === reply.id,
+      )?.body,
+    ).toBe("done in #product");
+  } finally {
+    await db.workspace.delete({ where: { id: workspace.id } });
+    await db.computer.deleteMany({ where: { ownerId: user.id } });
+    await db.user.delete({ where: { id: user.id } });
+    await db.$disconnect();
+    redis.close();
+  }
+});
+
+test("a body's thread references are read in one query per channel, and only the first MAX_THREAD_REFERENCES of them", async () => {
+  const connectionString = Bun.env.CHANNEL_TEST_DATABASE_URL;
+  if (!connectionString) throw new Error("CHANNEL_TEST_DATABASE_URL is required");
+  const db = new PrismaClient({ adapter: new PrismaPg({ connectionString }) });
+  const redis = new RedisClient(Bun.env.CHANNEL_TEST_REDIS_URL!);
+  const user = await db.user.create({
+    data: { username: `u${crypto.randomUUID().slice(0, 8)}` },
+  });
+  const workspace = await db.workspace.create({
+    data: {
+      slug: crypto.randomUUID(),
+      name: "Thread reference reads",
+      members: { create: { userId: user.id } },
+    },
+  });
+  try {
+    await enrollGeneral(db, workspace.id);
+    const channels = new PublicChannels(db, new RedisMessageRequestIdempotency(redis), {
+      publish: async () => {},
+      publishJson: async () => {},
+      broadcast: async () => {},
+    });
+    const general = (await channels.list(workspace.id, user.id))[0]!;
+    const product = await channels.create(workspace.id, user.id, "product");
+    const random = await channels.create(workspace.id, user.id, "random");
+    let sequence = 1_000_000;
+    const createRoot = async (conversationId: string, id = crypto.randomUUID()) =>
+      (
+        await db.message.create({
+          data: {
+            id,
+            conversationId,
+            workspaceId: workspace.id,
+            body: "root",
+            sequence: sequence++,
+          },
+        })
+      ).id;
+    // Six roots in #product, two more sharing a six-hex prefix, one root in #random.
+    const productRoots = await Promise.all(Array.from({ length: 6 }, () => createRoot(product.id)));
+    const prefix = crypto.randomUUID().slice(0, 6);
+    await createRoot(product.id, `${prefix}00-0000-4000-8000-000000000000`);
+    await createRoot(product.id, `${prefix}ff-0000-4000-8000-000000000001`);
+    const randomRoot = await createRoot(random.id);
+    const token = (channel: { id: string }, name: string, root: string) =>
+      `<@thread:${channel.id}:${root}:${name}>`;
+
+    /** `storeMessageBody` in a transaction whose message reads are counted. */
+    const store = (body: string) =>
+      db.$transaction(async (tx) => {
+        const reads: unknown[] = [];
+        const counted = {
+          task: tx.task,
+          conversation: tx.conversation,
+          message: {
+            findMany: (args: Parameters<typeof tx.message.findMany>[0]) => {
+              reads.push(args);
+              return tx.message.findMany(args);
+            },
+          },
+        } as unknown as Parameters<typeof storeMessageBody>[0];
+        const stored = await storeMessageBody(
+          counted,
+          { workspaceId: workspace.id, conversationId: general.id },
+          body,
+          { targets: [] },
+        );
+        return { body: stored.body, reads: reads.length };
+      });
+
+    // References into two channels take one read each, however many there are; a prefix two
+    // messages share, read in the same batch, still names nothing.
+    const [first] = productRoots;
+    const mixed = await store(
+      [
+        `#product:${first!.slice(0, 8)}`,
+        `#product:${prefix}`,
+        `#product:${first!.slice(0, 6)}`,
+        `#random:${randomRoot.slice(0, 7)}`,
+        `#random:${randomRoot}`,
+        "#nope:abcdef12",
+      ].join(" "),
+    );
+    expect(mixed.body).toBe(
+      [
+        token(product, "product", first!),
+        `#product:${prefix}`,
+        token(product, "product", first!),
+        token(random, "random", randomRoot),
+        token(random, "random", randomRoot),
+        "#nope:abcdef12",
+      ].join(" "),
+    );
+    expect(mixed.reads).toBe(2);
+
+    // Twenty-four distinct references: the first MAX_THREAD_REFERENCES resolve, the rest stay text.
+    const spellings = productRoots.flatMap((root) => [
+      `#product:${root.slice(0, 6)}`,
+      `#product:${root.slice(0, 7)}`,
+      `#product:${root.slice(0, 8)}`,
+      `#product:${root}`,
+    ]);
+    expect(spellings.length).toBeGreaterThan(MAX_THREAD_REFERENCES);
+    const capped = await store(spellings.join(" "));
+    expect(capped.body).toBe(
+      spellings
+        .map((written, index) =>
+          index < MAX_THREAD_REFERENCES
+            ? token(product, "product", productRoots[Math.floor(index / 4)]!)
+            : written,
+        )
+        .join(" "),
+    );
+    expect(capped.reads).toBe(1);
+  } finally {
+    await db.workspace.delete({ where: { id: workspace.id } });
+    await db.user.delete({ where: { id: user.id } });
+    await db.$disconnect();
+    redis.close();
+  }
+});
+
+test("a #name:shortid naming a channel thread is stored as a thread token, and every Agent-facing body reads it as a thread target", async () => {
+  const connectionString = Bun.env.CHANNEL_TEST_DATABASE_URL;
+  if (!connectionString) throw new Error("CHANNEL_TEST_DATABASE_URL is required");
+  const db = new PrismaClient({ adapter: new PrismaPg({ connectionString }) });
+  const redis = new RedisClient(Bun.env.CHANNEL_TEST_REDIS_URL!);
+  const user = await db.user.create({
+    data: { username: `u${crypto.randomUUID().slice(0, 8)}` },
+  });
+  const workspace = await db.workspace.create({
+    data: {
+      slug: crypto.randomUUID(),
+      name: "Thread references",
+      members: { create: { userId: user.id } },
+    },
+  });
+  try {
+    const computer = await db.computer.create({
+      data: { ownerId: user.id, machineId: crypto.randomUUID() },
+    });
+    const helper = await db.agent.create({
+      data: {
+        workspaceId: workspace.id,
+        ownerId: user.id,
+        computerId: computer.id,
+        name: "helper",
+        displayName: "Helper",
+        runtimeConfig: {},
+      },
+    });
+    await enrollGeneral(db, workspace.id);
+    const published: ReturnType<typeof decodeAgentMessageDelivery>[] = [];
+    const centrifugo = {
+      publish: async (_channel: string, payload: Uint8Array) => {
+        published.push(decodeAgentMessageDelivery(payload));
+      },
+      publishJson: async () => {},
+      broadcast: async () => {},
+    };
+    const channels = new PublicChannels(db, new RedisMessageRequestIdempotency(redis), centrifugo);
+    const general = (await channels.list(workspace.id, user.id))[0]!;
+    const product = await channels.create(workspace.id, user.id, "product");
+    const repo = new PrismaDirectConversationRepository(db);
+    const sender = new SendDirectMessage(
+      repo,
+      new RedisMessageRequestIdempotency(redis),
+      centrifugo,
+    );
+    const send = (channelId: string, body: string, threadRootId?: string) =>
+      channels.send({
+        workspaceId: workspace.id,
+        userId: user.id,
+        channelId,
+        requestId: crypto.randomUUID(),
+        body,
+        threadRootId,
+      });
+    const publishedBody = (messageId: string) =>
+      published.find((delivery) => delivery.messageId === messageId)?.body;
+
+    // A thread root in #product, a reply in it, and two top-level messages whose ids share their
+    // first six hex characters.
+    const root = await send(product.id, "launch plan");
+    const reply = await send(product.id, "first reply", root.id);
+    const prefix = crypto.randomUUID().slice(0, 6);
+    for (const [index, tail] of ["00", "ff"].entries())
+      await db.message.create({
+        data: {
+          id: `${prefix}${tail}-0000-4000-8000-00000000000${index}`,
+          conversationId: product.id,
+          workspaceId: workspace.id,
+          body: `twin ${index}`,
+          sequence: 1_000_000 + index,
+        },
+      });
+    const short = root.id.slice(0, 8);
+    const token = `<@thread:${product.id}:${root.id}:product>`;
+    const target = `#product:${short}`;
+
+    // Every spelling of the root resolves: eight, seven or six hex characters, the whole id, any
+    // case. A reply's id, a prefix two messages share, an unknown channel and code stay as written,
+    // and none of them is read as a `#product` channel reference.
+    const typed = [
+      `@helper see #product:${short},`,
+      `#PRODUCT:${root.id.slice(0, 7).toUpperCase()},`,
+      `#product:${root.id.slice(0, 6)} and 看#product:${root.id}的讨论;`,
+      `not #product:${reply.id.slice(0, 8)}, #product:${prefix}, #nope:${short} or \`#product:${short}\``,
+    ].join(" ");
+    const human = await send(general.id, typed);
+    expect(human.body).toBe(
+      [
+        `<@agent:${helper.id}> see ${token},`,
+        `${token},`,
+        `${token} and 看${token}的讨论;`,
+        `not #product:${reply.id.slice(0, 8)}, #product:${prefix}, #nope:${short} or \`#product:${short}\``,
+      ].join(" "),
+    );
+    const readable = [
+      `@helper see ${target},`,
+      `${target},`,
+      `${target} and 看${target}的讨论;`,
+      `not #product:${reply.id.slice(0, 8)}, #product:${prefix}, #nope:${short} or \`#product:${short}\``,
+    ].join(" ");
+
+    // Every body that reaches the daemon or the Agent's CLI reads `#product:<8 hex>`.
+    expect(publishedBody(human.id)).toBe(readable);
+    const bodyOf = (messages: readonly { id?: string; messageId?: string; body: string }[]) =>
+      messages.find((message) => (message.id ?? message.messageId) === human.id)?.body;
+    expect(bodyOf(await repo.readPendingAgentDeliveries(workspace.id, helper.id))).toBe(readable);
+    expect(
+      bodyOf((await repo.readAgentRecoveryContext(workspace.id, helper.id)).resumeMessages),
+    ).toBe(readable);
+    expect(bodyOf(await repo.readPendingAgentContext(workspace.id, helper.id, "#general", 0))).toBe(
+      readable,
+    );
+    expect(bodyOf((await repo.drainAgentEvents(workspace.id, helper.id)).messages)).toBe(readable);
+    expect(
+      bodyOf(await repo.readMessages(workspace.id, helper.id, "#general", { around: human.id })),
+    ).toBe(readable);
+    expect(bodyOf(await repo.searchMessages(workspace.id, helper.id, { query: "product" }))).toBe(
+      readable,
+    );
+    expect<string>((await repo.resolveAgentMessage(workspace.id, helper.id, human.id)).body).toBe(
+      readable,
+    );
+
+    // An Agent writes one the same way, and can reply to the thread by the target it read.
+    const fromAgent = await sender.executeFromAgent({
+      requestId: crypto.randomUUID(),
+      workspaceId: workspace.id,
+      agentId: helper.id,
+      target: "#general",
+      body: `details in ${target}`,
+    });
+    expect(fromAgent.body).toBe(`details in ${token}`);
+    await db.conversationMember.create({
+      data: { workspaceId: workspace.id, conversationId: product.id, agentId: helper.id },
+    });
+    const threadReply = await sender.executeFromAgent({
+      requestId: crypto.randomUUID(),
+      workspaceId: workspace.id,
+      agentId: helper.id,
+      target,
+      body: "on it",
+    });
+    expect(
+      (await db.message.findUniqueOrThrow({ where: { id: threadReply.id } })).threadRootId,
+    ).toBe(root.id);
+
+    // A DM resolves a channel thread too.
+    const opened = await repo.openForUser(workspace.id, user.id, helper.id);
+    const dm = await sender.execute({
+      requestId: crypto.randomUUID(),
+      workspaceId: workspace.id,
+      conversationId: opened.conversationId,
+      senderMemberId: opened.senderMemberId,
+      senderUserId: user.id,
+      body: `look at ${target}`,
+    });
+    expect(dm.body).toBe(`look at ${token}`);
+    expect(publishedBody(dm.id)).toBe(`look at ${target}`);
+
+    // After a rename, an Agent still reads the name the message was sent with.
+    await db.conversation.update({ where: { id: product.id }, data: { channelName: "launch" } });
+    expect<string>(
+      (await repo.resolveAgentMessage(workspace.id, helper.id, fromAgent.id)).body,
+    ).toBe(`details in ${target}`);
   } finally {
     await db.workspace.delete({ where: { id: workspace.id } });
     await db.computer.deleteMany({ where: { ownerId: user.id } });
@@ -802,6 +1773,7 @@ test("channel threads enforce channel scope and isolate reads, recovery, notific
         published.push(decodeAgentMessageDelivery(payload));
       },
       publishJson: async () => {},
+      broadcast: async () => {},
     });
     const general = await channels.create(workspace.id, alice.id, "threads");
     await db.conversationMember.create({
@@ -1036,7 +2008,7 @@ test("channel threads enforce channel scope and isolate reads, recovery, notific
     });
     const pushSubscriptions = new PrismaWebPushSubscriptionStore(db);
     expect(
-      (await pushSubscriptions.notificationForMessage(followerNotice.id))?.subscriptions,
+      subscriptionsOf(await pushSubscriptions.notificationForMessage(followerNotice.id)),
     ).toEqual([
       expect.objectContaining({
         endpoint: `https://fcm.googleapis.com/wp/channel-thread-${suffix}`,
@@ -1052,7 +2024,7 @@ test("channel threads enforce channel scope and isolate reads, recovery, notific
       threadRootId: root.id,
     });
     expect(
-      (await pushSubscriptions.notificationForMessage(unfollowedNotice.id))?.subscriptions,
+      subscriptionsOf(await pushSubscriptions.notificationForMessage(unfollowedNotice.id)),
     ).toEqual([]);
 
     // An Agent's first reply enrolls the root author, while a later reply respects that author's
@@ -1183,6 +2155,9 @@ test("reads never enroll: general membership comes from write points and the bac
         archived: false,
         muted: false,
         unreadCount: 0,
+        hidden: false,
+        pinned: false,
+        pinSortOrder: null,
       },
     ]);
 
@@ -1204,6 +2179,9 @@ test("reads never enroll: general membership comes from write points and the bac
           archived: false,
           muted: false,
           unreadCount: 0,
+          hidden: false,
+          pinned: false,
+          pinSortOrder: null,
         },
       ]);
       await channels.open(workspace.id, carol.id, general.id);
@@ -1266,6 +2244,7 @@ test("channel members add humans and Agents; a Workspace member outside the chan
         published.push(decodeAgentMessageDelivery(payload));
       },
       publishJson: async () => {},
+      broadcast: async () => {},
     });
 
     // A plain Workspace member creates the channel (Slack: any member can create a channel).
@@ -1435,7 +2414,7 @@ test("Agent channel management: authority, join/leave, archive, and add/remove m
       },
     });
     // Never joins #eng either: `server_role` basis grants admin authority independent of
-    // membership (ADR 0030) — "a server admin without membership can still archive".
+    // membership — "a server admin without membership can still archive".
     const nonMemberServerAdmin = await db.agent.create({
       data: {
         workspaceId: workspace.id,
@@ -1454,7 +2433,7 @@ test("Agent channel management: authority, join/leave, archive, and add/remove m
       },
     });
 
-    // Authority (Slack's default, ADR 0025): any Agent that belongs to the Workspace may
+    // Authority (Slack's default): any Agent that belongs to the Workspace may
     // create a channel — including a plain, non-admin Agent — the same as `PublicChannels
     // .create` for humans. The creator becomes a member.
     const created = await manage.create(workspace.id, member.id, "#eng", "Engineering");
@@ -1482,7 +2461,7 @@ test("Agent channel management: authority, join/leave, archive, and add/remove m
 
     // Roster reflects both Agents, tagging the caller "self" and the creator "admin". `admin`'s
     // basis is its own server role (`Agent.role`); `member`'s is the `channelRole` it got as
-    // #eng's creator (ADR 0030) — neither is #general, so both bases are reported.
+    // #eng's creator — neither is #general, so both bases are reported.
     const roster = await manage.members(workspace.id, member.id, "#eng");
     expect(roster.agents.sort((a, b) => a.name.localeCompare(b.name))).toEqual([
       {
@@ -1538,14 +2517,14 @@ test("Agent channel management: authority, join/leave, archive, and add/remove m
       manage.removeMember(workspace.id, admin.id, "#general", { agent: `@${member.name}` }),
     ).rejects.toThrow("cannot remove a member from #general");
 
-    // Update requires admin authority (channel-aware, ADR 0030) and at least one field; general
+    // Update requires admin authority (channel-aware) and at least one field; general
     // is reserved. `member` is #eng's creator, so it is itself a channel admin now (channelRole
     // "admin") — `outsiderAgent` (never a member, plain `Agent.role`) exercises the plain
     // denial instead.
     await expect(
       manage.update(workspace.id, outsiderAgent.id, "#eng", { name: "x" }),
     ).rejects.toThrow("this Agent's owner lacks admin authority for update");
-    // Positive path for the OTHER basis (`channel_role`, ADR 0030): #eng's creator may update
+    // Positive path for the OTHER basis (`channel_role`): #eng's creator may update
     // its own channel with no server-role admin authority at all.
     const channelRoleUpdate = await manage.update(workspace.id, member.id, "#eng", {
       description: "Updated via channel_role admin",
@@ -1573,6 +2552,12 @@ test("Agent channel management: authority, join/leave, archive, and add/remove m
     const archived = await manage.setArchived(workspace.id, admin.id, "#eng", true);
     expect(archived).toEqual({ target: "#eng", archived: true });
     expect((await manage.info(workspace.id, admin.id, "#eng")).archived).toBe(true);
+    // The composer's `#` list still offers an archived channel, with its description and flag.
+    expect(
+      (await new PublicChannels(db).names(workspace.id, owner.id)).find(
+        (channel) => channel.name === "eng",
+      ),
+    ).toEqual({ id: expect.any(String), name: "eng", description: "Eng team", archived: true });
     await expect(manage.join(workspace.id, admin.id, "#eng")).rejects.toThrow(
       "channel is archived",
     );
@@ -1580,7 +2565,7 @@ test("Agent channel management: authority, join/leave, archive, and add/remove m
     expect((await manage.info(workspace.id, admin.id, "#eng")).archived).toBe(false);
 
     // `server_role` basis needs no membership at all: a server admin who never joined #eng can
-    // still archive/unarchive it (ADR 0030).
+    // still archive/unarchive it.
     const nonMemberArchived = await manage.setArchived(
       workspace.id,
       nonMemberServerAdmin.id,
@@ -1590,7 +2575,7 @@ test("Agent channel management: authority, join/leave, archive, and add/remove m
     expect(nonMemberArchived).toEqual({ target: "#eng", archived: true });
     await manage.setArchived(workspace.id, nonMemberServerAdmin.id, "#eng", false);
 
-    // add-member (Slack's default, ADR 0025): the acting Agent must itself already be an
+    // add-member (Slack's default): the acting Agent must itself already be an
     // active member of the channel — not gated by Agent.role admin authority, reused from
     // `PublicChannels.addMembers`. Unknown handle 404s; a human must already be a Workspace
     // member (also enforced by the shared method, surfaced as the same 404).
@@ -1696,7 +2681,7 @@ test("Agent channel management: authority, join/leave, archive, and add/remove m
   }
 });
 
-test("Channel roles (ADR 0030): creator is channel admin, a plain member cannot archive, promote/demote via setChannelRole, server admin without membership, #general's roles are fixed", async () => {
+test("Channel roles: creator is channel admin, a plain member cannot archive, promote/demote via setChannelRole, server admin without membership, #general's roles are fixed", async () => {
   const connectionString = Bun.env.CHANNEL_TEST_DATABASE_URL;
   if (!connectionString) throw new Error("CHANNEL_TEST_DATABASE_URL is required");
   const db = new PrismaClient({ adapter: new PrismaPg({ connectionString }) });
@@ -1723,10 +2708,11 @@ test("Channel roles (ADR 0030): creator is channel admin, a plain member cannot 
     const channels = new PublicChannels(db, new RedisMessageRequestIdempotency(redis), {
       publish: async () => {},
       publishJson: async () => {},
+      broadcast: async () => {},
     });
     await enrollGeneral(db, workspace.id);
 
-    // The creator is the channel's own admin (ADR 0030): `channelRole` "admin", basis
+    // The creator is the channel's own admin: `channelRole` "admin", basis
     // "channel_role", and every admin capability except on `#general`.
     const channel = await channels.create(workspace.id, creator.id, "roles-eng");
     await channels.join(workspace.id, plainMember.id, channel.id);
@@ -1835,8 +2821,9 @@ test("Channel roles (ADR 0030): creator is channel admin, a plain member cannot 
       general.id,
     );
     expect(generalServerAdminView.channelAdminBasis).toBe("server_role");
+    // A server admin edits #general's description (never its name) and nothing else.
     expect(generalServerAdminView.channelCapabilities).toMatchObject({
-      update: false,
+      update: true,
       archive: false,
       unarchive: false,
       remove_member: false,
@@ -1896,6 +2883,7 @@ test("channel leave and member removal: owner/admin removes a human and an Agent
         published.push(decodeAgentMessageDelivery(payload));
       },
       publishJson: async () => {},
+      broadcast: async () => {},
     });
 
     const ops = await channels.create(workspace.id, owner.id, "ops");
@@ -1912,7 +2900,7 @@ test("channel leave and member removal: owner/admin removes a human and an Agent
       channels.removeMember(workspace.id, owner.id, general.id, { userId: plain.id }),
     ).rejects.toThrow("CONFLICT");
     const generalMembers = await channels.members(workspace.id, { userId: owner.id }, general.id);
-    expect(generalMembers.canLeave).toBe(false);
+    expect(generalMembers.channelCapabilities.leave).toBe(false);
     expect(generalMembers.canRemoveMembers).toBe(false);
 
     // A plain member cannot remove anyone.
@@ -1921,7 +2909,7 @@ test("channel leave and member removal: owner/admin removes a human and an Agent
     ).rejects.toThrow("ACCESS_DENIED");
     const opsMembersAsPlain = await channels.members(workspace.id, { userId: plain.id }, ops.id);
     expect(opsMembersAsPlain.canRemoveMembers).toBe(false);
-    expect(opsMembersAsPlain.canLeave).toBe(true);
+    expect(opsMembersAsPlain.channelCapabilities.leave).toBe(true);
     const opsMembersAsAdmin = await channels.members(workspace.id, { userId: admin.id }, ops.id);
     expect(opsMembersAsAdmin.canRemoveMembers).toBe(true);
 
@@ -2052,7 +3040,7 @@ test("channel leave and member removal: owner/admin removes a human and an Agent
   }
 });
 
-test("Agent channel info exposes a bound Project (ADR 0026) scoped to the Agent's own Workspace; an unbound channel omits it, and another Workspace's Project never leaks", async () => {
+test("Agent channel info exposes a bound Project scoped to the Agent's own Workspace; an unbound channel omits it, and another Workspace's Project never leaks", async () => {
   const connectionString = Bun.env.CHANNEL_TEST_DATABASE_URL;
   if (!connectionString) throw new Error("CHANNEL_TEST_DATABASE_URL is required");
   const db = new PrismaClient({ adapter: new PrismaPg({ connectionString }) });
@@ -2101,7 +3089,7 @@ test("Agent channel info exposes a bound Project (ADR 0026) scoped to the Agent'
       data: { workspaceId: foreignWorkspace.id, name: "Foreign", slug: `foreign-${suffix}` },
     });
 
-    // A Project discussion group (ADR 0026): bound to `boundProject`, which itself has a
+    // A Project discussion group: bound to `boundProject`, which itself has a
     // GitHub repository.
     const withGithub = await db.conversation.create({
       data: {
@@ -2179,7 +3167,7 @@ test("Agent channel info exposes a bound Project (ADR 0026) scoped to the Agent'
   }
 });
 
-test("channel unread (ADR 0046): list counts other-authored top-level messages past the cursor, markRead advances monotonically, threads never count, join/addMembers seed the cursor", async () => {
+test("channel unread: list counts other-authored top-level messages past the cursor, markRead advances monotonically, threads never count, join/addMembers seed the cursor", async () => {
   const connectionString = Bun.env.CHANNEL_TEST_DATABASE_URL;
   if (!connectionString)
     throw new Error("CHANNEL_TEST_DATABASE_URL must point to local PostgreSQL");
@@ -2200,6 +3188,7 @@ test("channel unread (ADR 0046): list counts other-authored top-level messages p
     const channels = new PublicChannels(db, new RedisMessageRequestIdempotency(redis), {
       publish: async () => {},
       publishJson: async () => {},
+      broadcast: async () => {},
     });
     const engineering = await channels.create(workspace.id, alice.id, "unread-eng");
 
@@ -2282,6 +3271,71 @@ test("channel unread (ADR 0046): list counts other-authored top-level messages p
   }
 });
 
+test("channel unread: a mark-as-unread marker below the read cursor counts from the marker, and a read past it clears it", async () => {
+  const connectionString = Bun.env.CHANNEL_TEST_DATABASE_URL;
+  if (!connectionString)
+    throw new Error("CHANNEL_TEST_DATABASE_URL must point to local PostgreSQL");
+  const db = new PrismaClient({ adapter: new PrismaPg({ connectionString }) });
+  const suffix = crypto.randomUUID();
+  const alice = await db.user.create({ data: { username: `alice-${suffix}` } });
+  const bob = await db.user.create({ data: { username: `bob-${suffix}` } });
+  const workspace = await db.workspace.create({
+    data: {
+      slug: suffix,
+      name: "Unread marker",
+      members: { create: [{ userId: alice.id }, { userId: bob.id }] },
+    },
+  });
+  try {
+    await enrollGeneral(db, workspace.id);
+    const redis = new RedisClient(Bun.env.CHANNEL_TEST_REDIS_URL!);
+    const channels = new PublicChannels(db, new RedisMessageRequestIdempotency(redis), {
+      publish: async () => {},
+      publishJson: async () => {},
+      broadcast: async () => {},
+    });
+    const channel = await channels.create(workspace.id, alice.id, "unread-marker");
+    await channels.join(workspace.id, alice.id, channel.id);
+    await channels.join(workspace.id, bob.id, channel.id);
+    const send = (userId: string, body: string) =>
+      channels.send({
+        workspaceId: workspace.id,
+        userId,
+        channelId: channel.id,
+        body,
+        requestId: crypto.randomUUID(),
+      });
+    const unreadFor = async (userId: string) =>
+      (await channels.list(workspace.id, userId)).find((c) => c.id === channel.id)?.unreadCount;
+
+    await send(alice.id, "one");
+    await send(alice.id, "two");
+    await channels.markRead(workspace.id, bob.id, channel.id, 10_000);
+    expect(await unreadFor(bob.id)).toBe(0);
+
+    // Marked unread: the newest message counts again although the cursor is past it.
+    await channels.setUserUnread(workspace.id, bob.id, channel.id, true);
+    expect(await unreadFor(bob.id)).toBe(1);
+    // Newer messages add to it; the viewer's own message still never counts.
+    await send(alice.id, "three");
+    await send(bob.id, "bob's own");
+    expect(await unreadFor(bob.id)).toBe(2);
+
+    // Reading through the end clears the marker.
+    await channels.markRead(workspace.id, bob.id, channel.id, 10_000);
+    expect(await unreadFor(bob.id)).toBe(0);
+
+    // Clearing the marker by hand leaves only what is past the cursor.
+    await channels.setUserUnread(workspace.id, bob.id, channel.id, true);
+    await channels.setUserUnread(workspace.id, bob.id, channel.id, false);
+    expect(await unreadFor(bob.id)).toBe(0);
+  } finally {
+    await db.workspace.deleteMany({ where: { id: workspace.id } });
+    await db.user.deleteMany({ where: { id: { in: [alice.id, bob.id] } } });
+    await db.$disconnect();
+  }
+});
+
 test("a thread's root author starts following that thread, so later replies reach them", async () => {
   const connectionString = Bun.env.CHANNEL_TEST_DATABASE_URL;
   if (!connectionString) throw new Error("CHANNEL_TEST_DATABASE_URL is required");
@@ -2301,6 +3355,7 @@ test("a thread's root author starts following that thread, so later replies reac
     const channels = new PublicChannels(db, new RedisMessageRequestIdempotency(redis), {
       publish: async () => {},
       publishJson: async () => {},
+      broadcast: async () => {},
     });
     const channel = await channels.create(workspace.id, alice.id, "rootfollow");
     await channels.join(workspace.id, bob.id, channel.id);
@@ -2358,6 +3413,79 @@ test("a thread's root author starts following that thread, so later replies reac
   }
 });
 
+test("an Agent's thread reply enrolls exactly the members its stored mention rows name; an @handle in code or a link label enrolls nobody", async () => {
+  const connectionString = Bun.env.CHANNEL_TEST_DATABASE_URL;
+  if (!connectionString) throw new Error("CHANNEL_TEST_DATABASE_URL is required");
+  const db = new PrismaClient({ adapter: new PrismaPg({ connectionString }) });
+  const redis = new RedisClient(Bun.env.CHANNEL_TEST_REDIS_URL!);
+  const suffix = crypto.randomUUID().slice(0, 8);
+  const alice = await db.user.create({ data: { username: `ea${suffix}` } });
+  const bob = await db.user.create({ data: { username: `eb${suffix}` } });
+  const carol = await db.user.create({ data: { username: `ec${suffix}` } });
+  const workspace = await db.workspace.create({
+    data: {
+      slug: `agent-enroll-${suffix}`,
+      name: "Agent reply enrollment",
+      members: {
+        create: [{ userId: alice.id, role: "owner" }, { userId: bob.id }, { userId: carol.id }],
+      },
+    },
+  });
+  try {
+    const helper = await db.agent.create({
+      data: {
+        workspaceId: workspace.id,
+        ownerId: alice.id,
+        name: "helper",
+        displayName: "Helper",
+        runtimeConfig: {},
+      },
+    });
+    await enrollGeneral(db, workspace.id);
+    const channels = new PublicChannels(db, new RedisMessageRequestIdempotency(redis), {
+      publish: async () => {},
+      publishJson: async () => {},
+      broadcast: async () => {},
+    });
+    const repo = new PrismaDirectConversationRepository(db);
+    const general = (await channels.list(workspace.id, alice.id))[0]!;
+    const root = await channels.send({
+      workspaceId: workspace.id,
+      userId: alice.id,
+      channelId: general.id,
+      requestId: crypto.randomUUID(),
+      body: "root by alice",
+    });
+    const reply = await repo.sendAgentMessage(
+      general.id,
+      helper.id,
+      `@${bob.username} please look; not \`@${carol.username}\` or [ask @${carol.username}](https://example.com)`,
+      undefined,
+      root.id.slice(0, 8),
+    );
+    const followers = await db.threadFollow.findMany({
+      where: { rootMessageId: root.id },
+      select: { member: { select: { userId: true, agentId: true } } },
+    });
+    // The reply's mention rows name bob alone, and enrollment follows them: the replying Agent,
+    // the root author (first reply) and bob. Carol, written only in code and in a link label,
+    // is no mention and no follower.
+    expect(
+      (await db.messageMention.findMany({ where: { messageId: reply.id } })).map(
+        (mention) => mention.actorId,
+      ),
+    ).toEqual([bob.id]);
+    expect(followers.map(({ member }) => member.userId ?? member.agentId).sort()).toEqual(
+      [alice.id, bob.id, helper.id].sort(),
+    );
+  } finally {
+    await db.workspace.deleteMany({ where: { id: workspace.id } });
+    await db.user.deleteMany({ where: { id: { in: [alice.id, bob.id, carol.id] } } });
+    await db.$disconnect();
+    redis.close();
+  }
+});
+
 test("a channel member can list and unfollow Agents following a thread; a private Agent is never a channel follower", async () => {
   const connectionString = Bun.env.CHANNEL_TEST_DATABASE_URL;
   if (!connectionString) throw new Error("CHANNEL_TEST_DATABASE_URL is required");
@@ -2389,7 +3517,7 @@ test("a channel member can list and unfollow Agents following a thread; a privat
         runtimeConfig: {},
       },
     });
-    // ADR 0059: a private Agent is never an active channel member — not even in #general. It
+    // A private Agent is never an active channel member — not even in #general. It
     // cannot be @mentioned there (mentions resolve against active members), is never delivered a
     // channel reply, and so never becomes a thread follower. Only the public `helper` can appear
     // in any follower list below; `scout` is here to prove it stays absent even for its creator.
@@ -2408,9 +3536,10 @@ test("a channel member can list and unfollow Agents following a thread; a privat
     const channels = new PublicChannels(db, new RedisMessageRequestIdempotency(redis), {
       publish: async () => {},
       publishJson: async () => {},
+      broadcast: async () => {},
     });
     const general = (await channels.list(workspace.id, alice.id))[0]!;
-    // ADR 0059's membership rule, pinned directly, so the absences below have one named cause:
+    // The membership rule, pinned directly, so the absences below have one named cause:
     // #general enrolls every public Agent and no private one.
     expect(
       (
@@ -2478,7 +3607,7 @@ test("a channel member can list and unfollow Agents following a thread; a privat
         helper.id,
       ),
     ).toEqual({ followed: false });
-    // `helper` was the only follower alice could see (see the ADR 0059 note above), so
+    // `helper` was the only follower alice could see (see the membership-rule note above), so
     // unfollowing it leaves the list empty — the private `scout` is not a hidden fallback.
     expect(
       (
@@ -2489,6 +3618,471 @@ test("a channel member can list and unfollow Agents following a thread; a privat
     await db.workspace.deleteMany({ where: { id: workspace.id } });
     await db.computer.deleteMany({ where: { ownerId: alice.id } });
     await db.user.deleteMany({ where: { id: { in: [alice.id, bob.id] } } });
+    await db.$disconnect();
+    redis.close();
+  }
+});
+
+test("a channel member without a browser push subscription is still a notificationForMessage recipient", async () => {
+  const connectionString = Bun.env.CHANNEL_TEST_DATABASE_URL;
+  if (!connectionString) throw new Error("CHANNEL_TEST_DATABASE_URL is required");
+  const db = new PrismaClient({ adapter: new PrismaPg({ connectionString }) });
+  const redis = new RedisClient(Bun.env.CHANNEL_TEST_REDIS_URL!);
+  const suffix = crypto.randomUUID().slice(0, 8);
+  const alice = await db.user.create({ data: { username: `na${suffix}` } });
+  // Notifications enabled, but this user never registered a browser subscription — the in-page
+  // path must still treat them as a recipient so a later realtime signal reaches them,
+  // even though the old flat `subscriptions` field would have silently dropped them.
+  const carol = await db.user.create({
+    data: {
+      username: `nc${suffix}`,
+      preferences: { create: { browserNotificationsEnabled: true } },
+    },
+  });
+  const workspace = await db.workspace.create({
+    data: {
+      slug: `no-subscription-${suffix}`,
+      name: "No subscription",
+      members: { create: [{ userId: alice.id }, { userId: carol.id }] },
+    },
+  });
+  try {
+    const channels = new PublicChannels(db, new RedisMessageRequestIdempotency(redis), {
+      publish: async () => {},
+      publishJson: async () => {},
+      broadcast: async () => {},
+    });
+    const room = await channels.create(workspace.id, alice.id, "no-subscription");
+    await channels.join(workspace.id, carol.id, room.id);
+    const message = await channels.send({
+      workspaceId: workspace.id,
+      userId: alice.id,
+      channelId: room.id,
+      requestId: crypto.randomUUID(),
+      body: "hello without a subscription",
+    });
+    const pushSubscriptions = new PrismaWebPushSubscriptionStore(db);
+    const notification = await pushSubscriptions.notificationForMessage(message.id);
+    expect(notification?.workspaceId).toBe(workspace.id);
+    expect(notification?.recipients).toEqual([{ userId: carol.id, subscriptions: [] }]);
+    expect(await pushSubscriptions.notificationForRecipient(message.id, carol.id)).toEqual({
+      title: notification!.title,
+      body: notification!.body,
+      url: notification!.url,
+      tag: `message:${message.id}`,
+      conversationPath: `/messages/channels/${room.id}`,
+    });
+  } finally {
+    await db.workspace.deleteMany({ where: { id: workspace.id } });
+    await db.user.deleteMany({ where: { id: { in: [alice.id, carol.id] } } });
+    await db.$disconnect();
+    redis.close();
+  }
+});
+
+test("a mention pierces a muted member's push only through the message's stored mention rows; an @handle in code or a link label does not", async () => {
+  const connectionString = Bun.env.CHANNEL_TEST_DATABASE_URL;
+  if (!connectionString) throw new Error("CHANNEL_TEST_DATABASE_URL is required");
+  const db = new PrismaClient({ adapter: new PrismaPg({ connectionString }) });
+  const redis = new RedisClient(Bun.env.CHANNEL_TEST_REDIS_URL!);
+  const suffix = crypto.randomUUID().slice(0, 8);
+  const alice = await db.user.create({ data: { username: `pa${suffix}` } });
+  const bob = await db.user.create({
+    data: {
+      username: `pb${suffix}`,
+      preferences: { create: { browserNotificationsEnabled: true } },
+    },
+  });
+  const workspace = await db.workspace.create({
+    data: {
+      slug: `mute-pierce-${suffix}`,
+      name: "Mute pierce",
+      members: { create: [{ userId: alice.id }, { userId: bob.id }] },
+    },
+  });
+  try {
+    const channels = new PublicChannels(db, new RedisMessageRequestIdempotency(redis), {
+      publish: async () => {},
+      publishJson: async () => {},
+      broadcast: async () => {},
+    });
+    const room = await channels.create(workspace.id, alice.id, "mute-pierce");
+    await channels.join(workspace.id, bob.id, room.id);
+    await channels.setUserMuted(workspace.id, bob.id, room.id, true);
+    const send = (body: string) =>
+      channels.send({
+        workspaceId: workspace.id,
+        userId: alice.id,
+        channelId: room.id,
+        requestId: crypto.randomUUID(),
+        body,
+      });
+    const pushSubscriptions = new PrismaWebPushSubscriptionStore(db);
+    const recipientsOf = async (messageId: string) =>
+      (await pushSubscriptions.notificationForMessage(messageId))?.recipients.map(
+        (recipient) => recipient.userId,
+      );
+
+    const mentioned = await send(`@${bob.username} please review`);
+    expect(await recipientsOf(mentioned.id)).toEqual([bob.id]);
+    expect(await pushSubscriptions.notificationForRecipient(mentioned.id, bob.id)).not.toBeNull();
+
+    const notMentioned = await send(
+      `see \`@${bob.username}\` and [ask @${bob.username}](https://example.com)`,
+    );
+    expect(await db.messageMention.count({ where: { messageId: notMentioned.id } })).toBe(0);
+    expect(await recipientsOf(notMentioned.id)).toEqual([]);
+    expect(await pushSubscriptions.notificationForRecipient(notMentioned.id, bob.id)).toBeNull();
+  } finally {
+    await db.workspace.deleteMany({ where: { id: workspace.id } });
+    await db.user.deleteMany({ where: { id: { in: [alice.id, bob.id] } } });
+    await db.$disconnect();
+    redis.close();
+  }
+});
+
+test("a closed channel stays closed until someone else posts a top-level message after the close", async () => {
+  const connectionString = Bun.env.CHANNEL_TEST_DATABASE_URL;
+  if (!connectionString) throw new Error("CHANNEL_TEST_DATABASE_URL is required");
+  const db = new PrismaClient({ adapter: new PrismaPg({ connectionString }) });
+  const redis = new RedisClient(Bun.env.CHANNEL_TEST_REDIS_URL!);
+  const suffix = crypto.randomUUID();
+  const alice = await db.user.create({ data: { username: `ca${suffix.slice(0, 8)}` } });
+  const bob = await db.user.create({ data: { username: `cb${suffix.slice(0, 8)}` } });
+  const workspace = await db.workspace.create({
+    data: {
+      slug: suffix,
+      name: "Closed chats",
+      members: { create: [{ userId: alice.id }, { userId: bob.id }] },
+    },
+  });
+  try {
+    const channels = new PublicChannels(db, new RedisMessageRequestIdempotency(redis));
+    const ops = await channels.create(workspace.id, alice.id, "ops");
+    await channels.join(workspace.id, bob.id, ops.id);
+    const send = (userId: string, body: string, threadRootId?: string) =>
+      channels.send({
+        workspaceId: workspace.id,
+        userId,
+        channelId: ops.id,
+        body,
+        requestId: crypto.randomUUID(),
+        ...(threadRootId ? { threadRootId } : {}),
+      });
+    const listed = async () =>
+      (await channels.list(workspace.id, alice.id)).find((channel) => channel.id === ops.id);
+
+    // Unread from before the close does not hold the chat open.
+    const root = await send(bob.id, "before the close");
+    await channels.setUserHidden(workspace.id, alice.id, ops.id, true);
+    expect(await listed()).toBeUndefined();
+    // A closed channel stays in the names a body's channel references link by (and the composer's
+    // `#` list offers): closing hides it from the list, not from the Workspace.
+    expect(
+      (await channels.names(workspace.id, alice.id)).find((channel) => channel.id === ops.id),
+    ).toEqual({ id: ops.id, name: "ops", description: "", archived: false });
+
+    // Alice's own message is not "someone else posting".
+    await Bun.sleep(2); // createdAt and hiddenAt are millisecond timestamps
+    await send(alice.id, "my own, after the close");
+    expect(await listed()).toBeUndefined();
+
+    // A thread reply belongs to its thread, not the channel list.
+    await send(bob.id, "a reply, after the close", root.id);
+    expect(await listed()).toBeUndefined();
+
+    await send(bob.id, "after the close");
+    expect(await listed()).toEqual(expect.objectContaining({ hidden: false, unreadCount: 2 }));
+  } finally {
+    await db.workspace.delete({ where: { id: workspace.id } });
+    await db.user.deleteMany({ where: { id: { in: [alice.id, bob.id] } } });
+    await db.$disconnect();
+    redis.close();
+  }
+});
+
+test("pins keep one order across the member's channels and DMs: a new pin goes last, a pin made again after unpinning goes last", async () => {
+  const connectionString = Bun.env.CHANNEL_TEST_DATABASE_URL;
+  if (!connectionString) throw new Error("CHANNEL_TEST_DATABASE_URL is required");
+  const db = new PrismaClient({ adapter: new PrismaPg({ connectionString }) });
+  const redis = new RedisClient(Bun.env.CHANNEL_TEST_REDIS_URL!);
+  const suffix = crypto.randomUUID();
+  const alice = await db.user.create({ data: { username: `pa${suffix.slice(0, 8)}` } });
+  const workspace = await db.workspace.create({
+    data: { slug: suffix, name: "Pins", members: { create: [{ userId: alice.id }] } },
+  });
+  try {
+    const computer = await db.computer.create({
+      data: { ownerId: alice.id, machineId: crypto.randomUUID() },
+    });
+    const helper = await db.agent.create({
+      data: {
+        workspaceId: workspace.id,
+        ownerId: alice.id,
+        computerId: computer.id,
+        name: "helper",
+        displayName: "Helper",
+        runtimeConfig: {},
+      },
+    });
+    const channels = new PublicChannels(db, new RedisMessageRequestIdempotency(redis));
+    const directs = new PrismaDirectConversationRepository(db);
+    const ops = await channels.create(workspace.id, alice.id, "ops");
+    const eng = await channels.create(workspace.id, alice.id, "eng");
+    await directs.getOrCreateUserAgent(workspace.id, alice.id, helper.id);
+
+    /** The member's pins as one list, the way the sidebar's Pinned section reads them. */
+    const pinned = async () => {
+      const [channelRows, preferences] = await Promise.all([
+        channels.list(workspace.id, alice.id),
+        directs.preferencesForUser(workspace.id, alice.id),
+      ]);
+      return [
+        ...channelRows
+          .filter((channel) => channel.pinned)
+          .map((channel) => ({ name: channel.name, order: channel.pinSortOrder! })),
+        ...preferences.pinned.map((pin) => ({ name: "@helper", order: pin.sortOrder })),
+      ]
+        .sort((left, right) => left.order - right.order)
+        .map((pin) => pin.name);
+    };
+
+    await channels.setUserPinned(workspace.id, alice.id, ops.id, true);
+    await directs.setPinnedForUser(workspace.id, alice.id, helper.id, true);
+    await channels.setUserPinned(workspace.id, alice.id, eng.id, true);
+    expect(await pinned()).toEqual(["ops", "@helper", "eng"]);
+
+    // Pinning what is already pinned keeps its place.
+    await channels.setUserPinned(workspace.id, alice.id, ops.id, true);
+    expect(await pinned()).toEqual(["ops", "@helper", "eng"]);
+
+    // Unpinning and pinning again puts it after every other pin, never on a slot another pin holds.
+    await channels.setUserPinned(workspace.id, alice.id, ops.id, false);
+    await channels.setUserPinned(workspace.id, alice.id, ops.id, true);
+    expect(await pinned()).toEqual(["@helper", "eng", "ops"]);
+    const orders = (await channels.list(workspace.id, alice.id))
+      .filter((channel) => channel.pinned)
+      .map((channel) => channel.pinSortOrder);
+    expect(new Set(orders).size).toBe(orders.length);
+
+    // Closing a pinned chat does not take it out of Pinned: the list keeps reporting it.
+    await channels.setUserHidden(workspace.id, alice.id, eng.id, true);
+    expect(await pinned()).toEqual(["@helper", "eng", "ops"]);
+  } finally {
+    await db.workspace.delete({ where: { id: workspace.id } });
+    await db.computer.deleteMany({ where: { ownerId: alice.id } });
+    await db.user.deleteMany({ where: { id: alice.id } });
+    await db.$disconnect();
+    redis.close();
+  }
+});
+
+test("arranging a member's pins sets their order in one step, pins what is new, unpins only what it names, and refuses conversations the member is not in", async () => {
+  const connectionString = Bun.env.CHANNEL_TEST_DATABASE_URL;
+  if (!connectionString) throw new Error("CHANNEL_TEST_DATABASE_URL is required");
+  const db = new PrismaClient({ adapter: new PrismaPg({ connectionString }) });
+  const redis = new RedisClient(Bun.env.CHANNEL_TEST_REDIS_URL!);
+  const suffix = crypto.randomUUID();
+  const alice = await db.user.create({ data: { username: `ra${suffix.slice(0, 8)}` } });
+  const bob = await db.user.create({ data: { username: `rb${suffix.slice(0, 8)}` } });
+  const workspace = await db.workspace.create({
+    data: {
+      slug: suffix,
+      name: "Pin order",
+      members: { create: [{ userId: alice.id }, { userId: bob.id }] },
+    },
+  });
+  try {
+    const computer = await db.computer.create({
+      data: { ownerId: alice.id, machineId: crypto.randomUUID() },
+    });
+    const helper = await db.agent.create({
+      data: {
+        workspaceId: workspace.id,
+        ownerId: alice.id,
+        computerId: computer.id,
+        name: "helper",
+        displayName: "Helper",
+        runtimeConfig: {},
+      },
+    });
+    const channels = new PublicChannels(db, new RedisMessageRequestIdempotency(redis));
+    const directs = new PrismaDirectConversationRepository(db);
+    const ops = await channels.create(workspace.id, alice.id, "ops");
+    const eng = await channels.create(workspace.id, alice.id, "eng");
+    const bobsOwn = await channels.create(workspace.id, bob.id, "bobs");
+    await directs.getOrCreateUserAgent(workspace.id, alice.id, helper.id);
+    const pinned = async () => {
+      const [channelRows, preferences] = await Promise.all([
+        channels.list(workspace.id, alice.id),
+        directs.preferencesForUser(workspace.id, alice.id),
+      ]);
+      return [
+        ...channelRows
+          .filter((channel) => channel.pinned)
+          .map((channel) => ({ name: channel.name, order: channel.pinSortOrder! })),
+        ...preferences.pinned.map((pin) => ({ name: "@helper", order: pin.sortOrder })),
+      ]
+        .sort((left, right) => left.order - right.order)
+        .map((pin) => pin.name);
+    };
+
+    await channels.setUserPinned(workspace.id, alice.id, ops.id, true);
+    // A new pin dropped at the top, ahead of the existing one.
+    await arrangeConversationPins(db, workspace.id, alice.id, {
+      pins: [
+        { kind: "direct", agentId: helper.id },
+        { kind: "channel", channelId: ops.id },
+      ],
+      unpinned: [],
+    });
+    expect(await pinned()).toEqual(["@helper", "ops"]);
+
+    // Reordered, with one more pinned in between and one dragged out (unpinned).
+    await arrangeConversationPins(db, workspace.id, alice.id, {
+      pins: [
+        { kind: "channel", channelId: eng.id },
+        { kind: "direct", agentId: helper.id },
+      ],
+      unpinned: [{ kind: "channel", channelId: ops.id }],
+    });
+    expect(await pinned()).toEqual(["eng", "@helper"]);
+
+    // A pin the arranged list does not know about (made in another tab) is kept, after the rest.
+    await channels.setUserPinned(workspace.id, alice.id, ops.id, true);
+    await arrangeConversationPins(db, workspace.id, alice.id, {
+      pins: [
+        { kind: "direct", agentId: helper.id },
+        { kind: "channel", channelId: eng.id },
+      ],
+      unpinned: [],
+    });
+    expect(await pinned()).toEqual(["@helper", "eng", "ops"]);
+
+    // A channel Alice never joined cannot be pinned, and the refusal changes nothing.
+    const error = await arrangeConversationPins(db, workspace.id, alice.id, {
+      pins: [{ kind: "channel", channelId: bobsOwn.id }],
+      unpinned: [],
+    }).catch((cause: unknown) => cause);
+    expect(isAppError(error) && error.code).toBe("ACCESS_DENIED");
+    expect(await pinned()).toEqual(["@helper", "eng", "ops"]);
+
+    // Another member's pins are their own.
+    await arrangeConversationPins(db, workspace.id, bob.id, { pins: [], unpinned: [] });
+    expect(await pinned()).toEqual(["@helper", "eng", "ops"]);
+
+    // Dragging the only arranged row out: the rest close up from the first place.
+    await arrangeConversationPins(db, workspace.id, alice.id, {
+      pins: [],
+      unpinned: [{ kind: "direct", agentId: helper.id }],
+    });
+    expect(await pinned()).toEqual(["eng", "ops"]);
+    expect(
+      (await channels.list(workspace.id, alice.id))
+        .filter((channel) => channel.pinned)
+        .map((channel) => channel.pinSortOrder),
+    ).toEqual([0, 1]);
+
+    // A menu pin and a drag by the same member at the same moment both complete: they wait for
+    // each other instead of deadlocking.
+    for (let round = 0; round < 15; round += 1) {
+      await Promise.all([
+        channels.setUserPinned(workspace.id, alice.id, ops.id, round % 2 === 0),
+        directs.setPinnedForUser(workspace.id, alice.id, helper.id, round % 2 === 1),
+        arrangeConversationPins(db, workspace.id, alice.id, {
+          pins: [
+            { kind: "channel", channelId: ops.id },
+            { kind: "channel", channelId: eng.id },
+          ],
+          unpinned: [],
+        }),
+      ]);
+    }
+    // Whichever finished last, the drag left ops and eng pinned, in that order, with no gaps.
+    const [channelRows, preferences] = await Promise.all([
+      channels.list(workspace.id, alice.id),
+      directs.preferencesForUser(workspace.id, alice.id),
+    ]);
+    const orders = [
+      ...channelRows.flatMap((channel) => (channel.pinned ? [channel.pinSortOrder!] : [])),
+      ...preferences.pinned.map((pin) => pin.sortOrder),
+    ].sort((left, right) => left - right);
+    expect(orders).toEqual([...orders.keys()]);
+    expect((await pinned()).filter((name) => name !== "@helper")).toEqual(["ops", "eng"]);
+  } finally {
+    await db.workspace.delete({ where: { id: workspace.id } });
+    await db.computer.deleteMany({ where: { ownerId: alice.id } });
+    await db.user.deleteMany({ where: { id: { in: [alice.id, bob.id] } } });
+    await db.$disconnect();
+    redis.close();
+  }
+});
+
+test("@-completion scores count only the viewer's own mentions in the channel, thread replies included", async () => {
+  const connectionString = Bun.env.CHANNEL_TEST_DATABASE_URL;
+  if (!connectionString) throw new Error("CHANNEL_TEST_DATABASE_URL is required");
+  const db = new PrismaClient({ adapter: new PrismaPg({ connectionString }) });
+  const redis = new RedisClient(Bun.env.CHANNEL_TEST_REDIS_URL!);
+  const suffix = crypto.randomUUID().slice(0, 8);
+  const [alice, bob, carol, dana] = await Promise.all(
+    ["ma", "mb", "mc", "md"].map((prefix) =>
+      db.user.create({ data: { username: `${prefix}${suffix}` } }),
+    ),
+  );
+  const workspace = await db.workspace.create({
+    data: {
+      slug: `mentions-${suffix}`,
+      name: "Mentions",
+      members: { create: [alice!, bob!, carol!].map((user) => ({ userId: user.id })) },
+    },
+  });
+  try {
+    await enrollGeneral(db, workspace.id);
+    // Dana joins the Workspace after enrollment: she can read #general without a member row.
+    await db.workspaceMembership.create({ data: { workspaceId: workspace.id, userId: dana!.id } });
+    const channels = new PublicChannels(db, new RedisMessageRequestIdempotency(redis), {
+      publish: async () => {},
+      publishJson: async () => {},
+      broadcast: async () => {},
+    });
+    const general = (await channels.list(workspace.id, alice!.id))[0]!;
+    const send = (userId: string, body: string, threadRootId?: string) =>
+      channels.send({
+        workspaceId: workspace.id,
+        userId,
+        channelId: general.id,
+        requestId: crypto.randomUUID(),
+        body,
+        threadRootId,
+      });
+    const root = await send(alice!.id, `@${bob!.username} can you look?`);
+    await send(alice!.id, `@${bob!.username} following up`, root.id);
+    // Carol mentions both Alice and Bob: someone else's mention never scores for Alice.
+    await send(carol!.id, `@${alice!.username} @${bob!.username} on it`);
+
+    const scores = (mentionables: { handle: string; mentionScore: number }[]) =>
+      Object.fromEntries(mentionables.map((entry) => [entry.handle, entry.mentionScore]));
+    const bobInTwo = { [alice!.username]: 0, [bob!.username]: 200, [carol!.username]: 0 };
+    expect(scores((await channels.open(workspace.id, alice!.id, general.id)).mentionables)).toEqual(
+      bobInTwo,
+    );
+    expect(scores(await channels.mentionDirectory(workspace.id, alice!.id, general.id))).toEqual(
+      bobInTwo,
+    );
+    expect(scores(await channels.mentionDirectory(workspace.id, carol!.id, general.id))).toEqual({
+      [alice!.username]: 100,
+      [bob!.username]: 100,
+      [carol!.username]: 0,
+    });
+    // A reader with no member row has mentioned no one here.
+    expect(
+      Object.values(scores((await channels.open(workspace.id, dana!.id, general.id)).mentionables)),
+    ).toEqual([0, 0, 0]);
+  } finally {
+    await db.workspace.delete({ where: { id: workspace.id } });
+    await db.user.deleteMany({
+      where: { id: { in: [alice!, bob!, carol!, dana!].map((user) => user.id) } },
+    });
     await db.$disconnect();
     redis.close();
   }

@@ -7,8 +7,6 @@
   "channel_name_hint": "Use lowercase letters, numbers, hyphens or underscores (up to 32 characters).",
   "channel_public": "Workspace public",
   "channel_public_description": "Everyone in this Workspace can read. Join to send messages.",
-  "channel_mute": "Mute channel notifications",
-  "channel_unmute": "Unmute channel notifications",
   "channel_join": "Join channel",
   "channel_joined": "Joined",
   "channel_joining": "Joining…",
@@ -16,7 +14,6 @@
   "channel_conflict": "That channel name is already in use.",
   "channel_empty": "This is the start of the channel. Send the first message to your Workspace.",
   "channel_empty_preview": "Messages shared in this channel will appear here.",
-  "channel_members_button": "Members",
   "channel_members_title": "Channel members",
   "channel_members_loading": "Loading members…",
   "channel_members_load_error": "Members could not be loaded. Try again.",
@@ -37,11 +34,77 @@
   "channel_members_removing": "Removing…",
   "channel_members_remove_error": "Could not remove {name}. Try again.",
   "channel_members_cancel": "Cancel",
-  "channel_members_leave_action": "Leave channel",
-  "channel_members_leave_confirm": "Leave #{channel}? You'll need to rejoin to send messages there again.",
-  "channel_members_leave_confirm_action": "Leave",
-  "channel_members_leaving": "Leaving…",
-  "channel_members_leave_error": "Could not leave the channel. Try again.",
+  "channel_settings_open": "Channel details and settings",
+  "channel_settings_close": "Close channel details and settings",
+  "channel_settings_public": "Public",
+  "channel_settings_members": "Members",
+  "channel_settings_humans": [
+    {
+      "declarations": ["input count", "local p = count: plural"],
+      "selectors": ["p"],
+      "match": {
+        "p=one": "{count} human",
+        "p=other": "{count} humans"
+      }
+    }
+  ],
+  "channel_settings_agents": [
+    {
+      "declarations": ["input count", "local p = count: plural"],
+      "selectors": ["p"],
+      "match": {
+        "p=one": "{count} agent",
+        "p=other": "{count} agents"
+      }
+    }
+  ],
+  "channel_settings_members_more": "{count} more members",
+  "channel_settings_add_members": "Add members",
+  "channel_settings_info": "Info",
+  "channel_settings_name": "Name",
+  "channel_settings_name_placeholder": "e.g. ai-research",
+  "channel_settings_general_cannot_rename": "The #general channel cannot be renamed",
+  "channel_settings_description": "Description",
+  "channel_settings_description_placeholder": "What is this channel about?",
+  "channel_settings_project": "Project",
+  "channel_settings_view_repository": "View {repository} on GitHub",
+  "channel_settings_cancel": "Cancel",
+  "channel_settings_save": "Save",
+  "channel_settings_saving": "Saving…",
+  "channel_settings_saved": "Changes saved",
+  "channel_settings_save_error": "Could not save the channel. Try again.",
+  "channel_settings_access_denied": "Only channel admins can change this channel.",
+  "channel_settings_preferences": "Preferences",
+  "channel_settings_pin": "Pin channel",
+  "channel_settings_pin_description": "Keep this channel pinned to the top of your sidebar.",
+  "channel_settings_mute": "Mute activity",
+  "channel_settings_mute_description": "Mute ordinary activity from this channel. Only affects you.",
+  "channel_settings_preference_error": "Could not update this preference. Try again.",
+  "channel_settings_actions": "Actions",
+  "channel_settings_archive": "Archive channel",
+  "channel_settings_archive_action": "Archive",
+  "channel_settings_archiving": "Archiving…",
+  "channel_settings_archive_confirm": "Members keep read access to #{name} and its history, but posting will stop and the channel will be hidden from sidebars. You can unarchive it later.",
+  "channel_settings_archive_error": "Could not archive the channel. Try again.",
+  "channel_settings_unarchive": "Unarchive channel",
+  "channel_settings_unarchiving": "Unarchiving…",
+  "channel_settings_unarchive_error": "Could not unarchive the channel. Try again.",
+  "channel_settings_leave": "Leave channel",
+  "channel_settings_leave_action": "Leave",
+  "channel_settings_leaving": "Leaving…",
+  "channel_settings_leave_confirm": "You will stop receiving messages from #{name} and cannot send messages there until you rejoin.",
+  "channel_settings_leave_error": "Could not leave the channel. Try again.",
+  "channel_settings_hide_general": "Hide #general",
+  "channel_settings_hide_general_confirm": "#general will disappear from channel lists, and Workspace members and Agents will no longer be able to read or post there — including you. Existing history is preserved. To bring it back, go to Settings → System channels and turn off \"Hide #general channel\".",
+  "channel_settings_hiding_general": "Hiding…",
+  "channel_settings_hide_general_error": "Could not hide #general. Try again.",
+  "channel_settings_unsaved_title": "Unsaved changes",
+  "channel_settings_unsaved_message": "The channel name or description has unsaved edits. Save them before closing?",
+  "channel_settings_save_and_close": "Save and close",
+  "channel_settings_discard": "Discard changes",
+  "channel_settings_keep_editing": "Keep editing",
+  "channel_archived_notice": "This channel is archived.",
+  "channel_archived_unarchive": "Unarchive",
   "channel_unread_accessible": [
     {
       "declarations": ["input channel", "input count", "local countPlural = count: plural"],
@@ -53,6 +116,49 @@
     }
   ],
   "conversation_unread_divider": "New messages",
+  "conversation_system_group_task_updates": [
+    {
+      "declarations": ["input count", "local countPlural = count: plural"],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=one": "{count} task update",
+        "countPlural=other": "{count} task updates"
+      }
+    }
+  ],
+  "conversation_system_group_reminders": [
+    {
+      "declarations": ["input count", "local countPlural = count: plural"],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=one": "{count} reminder update",
+        "countPlural=other": "{count} reminder updates"
+      }
+    }
+  ],
+  "conversation_system_group_messages": [
+    {
+      "declarations": ["input count", "local countPlural = count: plural"],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=one": "{count} system message",
+        "countPlural=other": "{count} system messages"
+      }
+    }
+  ],
+  "conversation_system_group_one_part": [
+    {
+      "declarations": ["input count", "input part", "local countPlural = count: plural"],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=one": "There is {part}",
+        "countPlural=other": "There are {part}"
+      }
+    }
+  ],
+  "conversation_system_group_parts": "There are {parts}",
+  "conversation_system_group_mixed": "There are {count} system updates: {parts}",
+  "conversation_system_group_separator": ", ",
   "messages_title": "Messages",
   "messages_agent_list_label": "Agent conversations",
   "messages_agents_action": "Direct messages",
@@ -77,12 +183,18 @@
   "conversation_message_placeholder": "Write a message…",
   "conversation_send": "Send",
   "conversation_sending": "Sending…",
-  "conversation_unsent_offline": "Not sent: couldn't reach the server",
-  "conversation_unsent_unavailable": "Not sent: the service is temporarily unavailable",
-  "conversation_unsent_interrupted": "May not have been sent: the page closed while it was sending",
-  "conversation_unsent_denied": "Not sent: you can't post here",
-  "conversation_unsent_gone": "Not sent: this conversation no longer exists",
-  "conversation_unsent_rejected": "Not sent: the message wasn't accepted. Edit it and send again",
+  "conversation_menu_label": "Conversation actions",
+  "conversation_menu_mark_unread": "Mark as Unread",
+  "conversation_menu_pin": "Pin",
+  "conversation_menu_unpin": "Unpin",
+  "conversation_menu_close": "Close Chat",
+  "conversation_menu_action_error": "Couldn't update the conversation.",
+  "conversation_unsent_offline": "Couldn't send. Check your connection and try again",
+  "conversation_unsent_unavailable": "Couldn't send. Try again in a moment",
+  "conversation_unsent_interrupted": "This may not have been sent. Trying again won't send it twice",
+  "conversation_unsent_denied": "Couldn't send. You don't have permission to post here",
+  "conversation_unsent_gone": "Couldn't send. This conversation was deleted",
+  "conversation_unsent_rejected": "Couldn't send. Edit the message and send it again",
   "conversation_unsent_edit": "Edit",
   "conversation_unsent_discard": "Delete",
   "conversation_attachment_limit": "A message can have at most {max} attachments. Remove the extra ones first.",
@@ -92,7 +204,6 @@
   "conversation_new_messages": "{count} new messages",
   "conversation_back_to_bottom": "Back to bottom",
   "conversation_message_navigation": "Message navigation",
-  "conversation_message_actions": "Message actions",
   "conversation_your_messages": "Your messages",
   "conversation_loading_your_messages": "Loading your messages…",
   "conversation_load_older": "Load older messages",
@@ -133,7 +244,17 @@
     }
   ],
   "conversation_thread_following_agents_error": "Could not load following Agents.",
+  "conversation_thread_following_agents_unfollow_error": "Could not stop the Agent following this thread.",
   "conversation_thread_unfollow_agent": "Stop {name} following this thread",
+  "conversation_thread_title_context": " — {name}",
+  "conversation_thread_scroll_to_top": "Scroll to the first message",
+  "conversation_thread_close": "Close thread",
+  "conversation_thread_unavailable": "This thread can't be opened. Its first message may have been deleted.",
+  "conversation_thread_load_error": "The thread could not be loaded. Try again.",
+  "conversation_thread_actions": "Thread actions",
+  "conversation_thread_view_in_channel": "View in channel",
+  "conversation_thread_beginning": "Beginning of replies",
+  "conversation_thread_message_placeholder": "Message thread",
   "conversation_you": "You",
   "tasks_tab": "Tasks",
   "tasks_chat_tab": "Chat",
@@ -150,6 +271,7 @@
   "tasks_as_task": "As task",
   "tasks_loading": "Loading tasks…",
   "tasks_empty": "No tasks in this conversation",
+  "tasks_group_empty": "No tasks",
   "tasks_load_error": "Tasks could not be loaded. Try again.",
   "tasks_mutation_error": "The task could not be updated. The latest version has been loaded.",
   "tasks_unassigned": "Unassigned",
@@ -158,21 +280,27 @@
   "tasks_owned_by_other": "Owned by another member",
   "tasks_more_actions": "More actions for task #{number}",
   "tasks_view_details": "View and edit",
+  "tasks_move_to": "Move to",
   "tasks_details_title": "Task #{number}",
-  "tasks_details_description": "Edit task metadata, assignment, and review its history.",
   "tasks_description": "Description",
-  "tasks_save_changes": "Save changes",
-  "tasks_assignee": "Assignee handle",
-  "tasks_assign": "Assign",
-  "tasks_unassign": "Unassign",
   "tasks_history": "History",
-  "tasks_refresh_history": "Refresh history",
   "tasks_history_empty": "No task changes recorded",
   "tasks_history_error": "Task history could not be loaded. Try again.",
-  "tasks_delete": "Delete task",
-  "tasks_delete_confirmation": "Delete this Task's metadata? The original message and thread will remain.",
-  "tasks_confirm_delete": "Delete task metadata",
-  "tasks_cancel": "Cancel",
+  "tasks_created_by": "Created by",
+  "tasks_change_assignee": "Change owner",
+  "tasks_search_members": "Search members",
+  "tasks_reopen_to_todo": "Reopen to Todo",
+  "tasks_update_failed": "Task update failed. Try again.",
+  "tasks_history_created": "Created task",
+  "tasks_history_status_changed": "Changed status",
+  "tasks_history_assignee_changed": "Changed owner",
+  "tasks_history_amended": "Updated task",
+  "tasks_history_created_detail": "Task #{number} · Status: {status}",
+  "tasks_history_assigned_to": "Owner: {name}",
+  "tasks_history_unassigned": "Unassigned",
+  "tasks_history_field_change": "{field}: {from} → {to}",
+  "tasks_history_unknown_member": "Unknown member",
+  "tasks_no_replies": "No replies yet",
   "tasks_close": "Close",
   "tasks_status_todo": "To do",
   "tasks_status_in_progress": "In progress",
@@ -183,7 +311,12 @@
   "tasks_overview_all": "All",
   "tasks_overview_owner": "Owner",
   "tasks_overview_empty": "No tasks in visible conversations",
-  "tasks_overview_filter_empty": "No tasks match this status",
+  "tasks_overview_filter_empty": "No tasks match these filters",
+  "tasks_overview_project": "Project",
+  "tasks_overview_me": "Me",
+  "tasks_overview_no_project": "No project",
+  "tasks_overview_filter_count": "{label} · {count}",
+  "tasks_overview_clear_filters": "Clear filters",
   "action_card_title_channel_create": "Create channel",
   "action_card_title_agent_create": "Create agent",
   "action_card_title_add_member": "Add members",
@@ -203,10 +336,181 @@
   "action_card_suggested_computer": "Suggested computer: {name}",
   "action_card_initial_members": "Initial members",
   "conversation_mention_suggestions": "Mention suggestions",
+  "conversation_channel_suggestions": "Channel suggestions",
+  "conversation_channel_archived": "Archived",
   "files_tab": "Files",
   "files_empty": "No files have been shared in this conversation yet.",
   "files_download": "Download",
   "files_locate_message": "View in chat",
   "files_loading": "Loading…",
-  "files_load_failed": "Failed to load files"
+  "files_load_failed": "Failed to load files",
+  "conversation_save": "Save message",
+  "conversation_save_failed": "Couldn't save the message",
+  "conversation_unsave": "Remove from Saved",
+  "conversation_saved_nav": "Saved",
+  "conversation_pinned_section": "Pinned",
+  "conversation_pinned_empty_hint": "Drag channels or DMs here to pin",
+  "conversation_saved_count": [
+    {
+      "declarations": ["input count", "local countPlural = count: plural"],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=one": "{count} saved item",
+        "countPlural=other": "{count} saved items"
+      }
+    }
+  ],
+  "conversation_saved_empty_title": "No saved messages yet",
+  "conversation_saved_empty_description": "Save a message by selecting its bookmark icon.",
+  "conversation_saved_copy_link": "Copy link",
+  "conversation_saved_link_copied": "Link copied",
+  "activity_inbox_active": [
+    {
+      "declarations": ["input count", "local countPlural = count: plural"],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=one": "{count} active",
+        "countPlural=other": "{count} active"
+      }
+    }
+  ],
+  "activity_inbox_unread": [
+    {
+      "declarations": ["input count", "local countPlural = count: plural"],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=one": "{count} unread",
+        "countPlural=other": "{count} unread"
+      }
+    }
+  ],
+  "activity_inbox_filter_label": "Filter Activity",
+  "activity_inbox_filter_all": "All",
+  "activity_inbox_filter_unread": "Unread",
+  "activity_inbox_filter_mentions": "Mentions",
+  "activity_inbox_mark_all_read": "Mark all read",
+  "activity_inbox_mark_read": "Mark as Read",
+  "activity_inbox_done": "Mark as Done",
+  "activity_inbox_menu_done": "Done",
+  "activity_inbox_menu_label": "Activity item actions",
+  "activity_inbox_action_error": "That change could not be saved. Try again.",
+  "activity_inbox_replies": [
+    {
+      "declarations": ["input count", "local countPlural = count: plural"],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=one": "{count} reply",
+        "countPlural=other": "{count} replies"
+      }
+    }
+  ],
+  "activity_inbox_new": [
+    {
+      "declarations": ["input count", "local countPlural = count: plural"],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=one": "{count} new",
+        "countPlural=other": "{count} new"
+      }
+    }
+  ],
+  "activity_inbox_mention_badge": "you",
+  "activity_inbox_system_sender": "System",
+  "activity_inbox_empty_title": "Activity is empty",
+  "activity_inbox_empty_description": "Channels, DMs, and followed threads stay here until they are done.",
+  "activity_inbox_empty_unread_title": "No unread chats",
+  "activity_inbox_empty_mentions_title": "No mentions yet",
+  "activity_inbox_empty_mentions_description": "Channels, DMs, and threads where someone @mentions you will appear here.",
+  "activity_inbox_load_error": "Activity could not be loaded.",
+  "activity_inbox_retry": "Try again",
+  "activity_inbox_loading_more": "Loading more…",
+  "search_title": "Search",
+  "search_placeholder": "Search messages…",
+  "search_empty_title": "Search messages",
+  "search_empty_description": "Find messages in every channel and your direct messages.",
+  "search_searching": "Searching…",
+  "search_messages_heading": "Messages",
+  "search_no_results_title": "No results for “{query}”",
+  "search_no_results_description": "Try different keywords or a shorter phrase.",
+  "search_failed_title": "Search failed",
+  "search_failed_description": "The search could not be completed. Try again.",
+  "search_retry": "Retry",
+  "search_load_more": "Load more",
+  "search_load_more_failed": "Could not load more results.",
+  "search_archived": "Archived",
+  "search_results_count": [
+    {
+      "declarations": ["input count", "local countPlural = count: plural"],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=one": "{count} result",
+        "countPlural=other": "{count} results"
+      }
+    }
+  ],
+  "search_clear": "Clear search",
+  "search_results_count_more": [
+    {
+      "declarations": ["input count", "local countPlural = count: plural"],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=one": "{count}+ result",
+        "countPlural=other": "{count}+ results"
+      }
+    }
+  ],
+  "activity_inbox_loading": "Loading Activity…",
+  "activity_inbox_show_all": "Show all",
+  "activity_inbox_load_more_error": "More items could not be loaded.",
+  "activity_inbox_dismiss": "Dismiss",
+  "search_filters": "Search filters",
+  "search_from": "From",
+  "search_from_named": "From: {name}",
+  "search_from_me": "Me",
+  "search_from_anyone": "Anyone",
+  "search_find_sender": "Find a person or Agent",
+  "search_scope": "Scope",
+  "search_scope_count": "Scope {count}",
+  "search_scope_mentioned": "@ Me",
+  "search_scope_humans": "Humans",
+  "search_scope_agents": "Agents",
+  "search_channel": "Channel",
+  "search_channel_any": "Any channel",
+  "search_find_channel": "Find a channel",
+  "search_time": "Time",
+  "search_time_any": "Any time",
+  "search_time_today": "Today",
+  "search_time_last_7_days": "Last 7 days",
+  "search_time_last_30_days": "Last 30 days",
+  "search_sort": "Sort",
+  "search_sort_named": "Sort: {order}",
+  "search_sort_relevant": "Relevant",
+  "search_sort_recent": "Recent",
+  "search_clear_filters": "Clear all",
+  "search_no_matching_messages": "No matching messages",
+  "search_try_different_filters": "Try a different filter set.",
+  "conversation_unresolved_mentions": "No one matches {handles}, so that part of your message notified nobody. To notify someone, pick them from the @ list and mention them again.",
+  "conversation_unresolved_mentions_dismiss": "Dismiss",
+  "conversation_pending_mention_not_notified": "{target} was not notified because they are not in {channel}",
+  "conversation_pending_mention_added": "{target} was added to {channel}",
+  "conversation_pending_mention_add": "Add",
+  "conversation_pending_mention_add_all": "Add all",
+  "conversation_pending_mention_added_label": "Added",
+  "conversation_pending_mention_ignore": "Ignore",
+  "conversation_pending_mention_added_partial": "Added {succeeded} of {total}. {reason}",
+  "conversation_pending_mention_add_failed": "Adding failed. Please try again.",
+  "conversation_pending_mention_already_member": "They are already in the channel, so nothing needs to be done.",
+  "conversation_pending_mention_target_unavailable": "They can no longer be added to this channel.",
+  "conversation_pending_mention_sender_lacks_access": "You are no longer in that channel, so they were not added.",
+  "conversation_pending_mention_channel_archived": "The channel is archived, so no one can be added.",
+  "conversation_pending_mention_no_longer_pending": "This mention was already taken care of.",
+  "conversation_pending_mention_expired": "This mention is more than 7 days old and can no longer be acted on.",
+  "conversation_pending_mention_unavailable": "This mention can no longer be acted on.",
+  "search_entities_heading": "In this Workspace",
+  "search_entity_channel": "Channel",
+  "search_entity_computer": "Computer",
+  "search_entity_agent": "Agent",
+  "search_no_messages_match": "No messages match.",
+  "conversation_pending_mention_add_target": "Add {target}",
+  "conversation_pending_mention_ignore_target": "Ignore {target}"
 }

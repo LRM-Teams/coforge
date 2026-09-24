@@ -1,13 +1,25 @@
 import type { AgentStopIntent } from "@lrm/coforge-sdk/internal";
-import { AppError } from "../../lib/app-error";
-import { assertCanDeleteAgents, type WorkspaceMemberRole } from "../workspaces/member-role.server";
-import type { AgentRecord, AgentRepository } from "../db/repositories/agent.repositories.server";
+import { AppError } from "#src/lib/app-error";
+import {
+  assertCanDeleteAgents,
+  type WorkspaceMemberRole,
+} from "#src/server/workspaces/member-role.server";
+import type {
+  AgentRecord,
+  AgentRepository,
+} from "#src/server/db/repositories/agent.repositories.server";
 import type { AgentRuntimeLock } from "./agent-runtime-lock.server";
 import { agentStopIntent } from "./manage-agents.server";
+import {
+  announceMemberChanged,
+  type ConversationRealtime,
+} from "#src/server/conversations/conversation-realtime.server";
 
 /** What one delete changed. */
 export type AgentDeletionEffects = {
   membershipsLeft: number;
+  /** The channels the Agent was an active member of, whose member lists now changed. */
+  leftChannelIds: string[];
   remindersCanceled: number;
   apiKeysRevoked?: number;
 };
@@ -26,7 +38,7 @@ export type AgentDeletionOutcome =
  * One atomic transition from live to deleted: mark the Agent and make it inert cloud-side
  * (revoke Agent API keys, soft-leave channel memberships, cancel scheduled Reminders). Message,
  * Task and Action-card rows are never touched — their `Restrict` foreign keys make them
- * undeletable, and history must stay readable (ADR 0044).
+ * undeletable, and history must stay readable.
  */
 export interface AgentDeletionStore {
   delete(input: {
@@ -41,7 +53,7 @@ type AgentRuntimeControl = {
 };
 
 /**
- * Deletes one Agent (ADR 0044). Authorization is Raft's `deleteAgents` capability — Workspace
+ * Deletes one Agent. Authorization is Raft's `deleteAgents` capability — Workspace
  * owner/admin only, never by Agent ownership alone. Runs under the Agent runtime lock so a
  * concurrent config/credential change cannot interleave with the delete.
  *
@@ -58,6 +70,7 @@ export class AgentDeletion {
     private readonly runtimeControl: AgentRuntimeControl,
     private readonly runtimeLock: AgentRuntimeLock,
     private readonly now: () => Date = () => new Date(),
+    private readonly realtime?: Pick<ConversationRealtime, "memberChanged">,
   ) {}
 
   async delete(
@@ -65,19 +78,25 @@ export class AgentDeletion {
     agentId: string,
   ): Promise<AgentDeletionOutcome> {
     assertCanDeleteAgents(principal.role);
-    return this.runtimeLock.run(agentId, async () => {
+    const result = await this.runtimeLock.run(agentId, async () => {
       const agent = await this.agents.getById(agentId);
       if (!agent || agent.workspaceId !== principal.workspaceId) throw new AppError("NOT_FOUND");
-      const result = await this.store.delete({
+      const outcome = await this.store.delete({
         agentId: agent.id,
         workspaceId: agent.workspaceId,
         deletedAt: this.now(),
       });
       // A repeated delete is an idempotent no-op; never send a second stop for it.
-      if (result.outcome !== "deleted") return result;
-      await this.#stopRuntime(agent, principal.userId);
-      return result;
+      if (outcome.outcome === "deleted") await this.#stopRuntime(agent, principal.userId);
+      return outcome;
     });
+    // Outside the runtime lock: a slow browser signal must never hold up the Agent's runtime.
+    if (result.outcome === "deleted")
+      await announceMemberChanged(this.realtime, {
+        workspaceId: principal.workspaceId,
+        conversationIds: result.leftChannelIds,
+      });
+    return result;
   }
 
   /**

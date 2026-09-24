@@ -1,15 +1,15 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { agentAuthMiddleware } from "#/server/agents/agent-http.middleware";
-import { PrismaAgentManualEventRepository } from "#/server/db/repositories/agent-manual-event.repositories.server";
+import { agentAuthMiddleware } from "#src/server/agents/agent-http-middleware.server";
+import { PrismaAgentManualEventRepository } from "#src/server/db/repositories/agent-manual-event.repositories.server";
 import {
   recordManualEvent,
   resolveManualGet,
   type AgentManualEventRepository,
-} from "#/server/agents/agent-manual.service";
+} from "#src/server/agents/agent-manual.server";
 
 export type AgentManualGetPrincipal = { workspaceId: string; agentId: string };
 
-/** `GET /api/agent/v1/manual` — Agent Manual `get` (ADR 0036): topic content, or the generated
+/** `GET /api/agent/v1/manual` — Agent Manual `get`: topic content, or the generated
  * `index` catalog. Mirrors Raft 1.0.32's `/knowledge` response shape (`ok`, `docId`,
  * `topicOrPath`, `docVersion`, `docState`, `contentType`, `content`). */
 export async function handleAgentManualGet(

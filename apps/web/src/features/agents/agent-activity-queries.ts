@@ -12,7 +12,10 @@ import {
   RECENT_ACTIVITY_LIMIT,
   type ActivityEntry,
 } from "./agent-activity";
-import { useRealtimeSubscription, useRealtimeSubscriptions } from "../realtime/browser-realtime";
+import {
+  useRealtimeSubscription,
+  useRealtimeSubscriptions,
+} from "#src/features/realtime/browser-realtime";
 import type { QueryClient } from "@tanstack/react-query";
 
 export const agentActivityKeys = {
@@ -27,8 +30,8 @@ export type RecentActivityByAgent = Record<string, ActivityEntry[]>;
 // Shared by the queryFn's per-agent merge and the publication patch, so both
 // sides of the cache apply the same merge and the same cap. Also keeps this
 // short "recent activity" cache free of the ordinary status rows the Agent
-// detail feed now shows (tool_end/thinking_end/compaction_finished; ADR
-// 0021, amended) — filtered here, upstream of the cap, so a run of those
+// detail feed now shows (tool_end/thinking_end/compaction_finished) —
+// filtered here, upstream of the cap, so a run of those
 // doesn't crowd out the popover's genuinely noteworthy events.
 const mergeRecent = (current: ActivityEntry[] | undefined, incoming: ActivityEntry[]) =>
   mergeAgentActivity(
@@ -70,7 +73,7 @@ export const workspaceActivityQuery = (workspaceId: string | undefined) =>
       : skipToken,
   });
 
-/** The Agent detail Activity tab's feed (up to 500 rows, newest first). */
+/** The profile panel's Activity tab feed (up to 500 rows, newest first). */
 export const agentActivityFeedQuery = (agentId: string) =>
   queryOptions({
     queryKey: agentActivityKeys.agent(agentId),
@@ -83,7 +86,7 @@ export const agentActivityFeedQuery = (agentId: string) =>
   });
 
 /** Shared by the shared-channel and per-Agent-channel subscriptions below, so a private Agent's
- * frame — arriving only on its own per-Agent channel now (ADR 0059) — patches the exact same
+ * frame — arriving only on its own per-Agent channel now — patches the exact same
  * cache shapes a public Agent's frame patches on the shared channel. */
 function applyActivityPublication(
   queryClient: QueryClient,
@@ -103,8 +106,8 @@ function applyActivityPublication(
   // A publication that beat the first snapshot must not stand in for the whole
   // history: invalidate so the snapshot still loads and merges onto it.
   if (!seeded) void queryClient.invalidateQueries({ queryKey: key });
-  // Only patches a feed tab that is already cached; the route loader seeds
-  // it, and an uncached feed has no reader to patch here.
+  // Only patches a feed that is already cached; the panel loads it on open, and an
+  // uncached feed has no reader to patch here.
   queryClient.setQueryData(
     agentActivityFeedQuery(agentId).queryKey,
     (current: ActivityEntry[] | undefined) => current && mergeAgentActivity(current, [entry]),
@@ -116,7 +119,7 @@ function applyActivityPublication(
  * both query shapes so a gap left by a disconnect is closed by a refetch;
  * publications in between patch the cache directly.
  *
- * `privateAgentIds` (ADR 0059) are the viewer's own visible private Agents: their Activity no
+ * `privateAgentIds` are the viewer's own visible private Agents: their Activity no
  * longer arrives on the shared channel at all, so each gets its own per-Agent subscription on
  * the same shared client.
  */

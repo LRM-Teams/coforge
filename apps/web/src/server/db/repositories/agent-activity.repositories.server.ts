@@ -1,12 +1,12 @@
 import { AGENT_ACTIVITY_DETAIL_KIND } from "@lrm/coforge-sdk/internal";
 import { parseActivityEntries, type AgentActivity } from "@lrm/coforge-sdk/internal";
-import type { PrismaClient } from "../../../../generated/client";
-import { activityKindForObservation } from "../../agents/agent-display.server";
-import { ACTIVE_AGENT_WHERE } from "../../agents/active-agent.server";
+import type { PrismaClient } from "#src/generated/prisma/client";
+import { activityKindForObservation } from "#src/server/agents/agent-display.server";
+import { ACTIVE_AGENT_WHERE } from "#src/server/agents/active-agent.server";
 import {
   agentVisibilityViewerForUser,
   visibleAgentWhere,
-} from "../../agents/agent-visibility.server";
+} from "#src/server/agents/agent-visibility.server";
 
 export type TrustedAgentActivity = AgentActivity & { computerId: string };
 
@@ -47,7 +47,7 @@ export class AgentActivityRepository {
   constructor(private readonly db: PrismaClient) {}
 
   async listForMember(workspaceId: string, userId: string) {
-    // ADR 0059: a private Agent the viewer cannot see never contributes an Activity row here —
+    // A private Agent the viewer cannot see never contributes an Activity row here —
     // the same `visibleAgentWhere` predicate every Agent list applies, resolved once against the
     // viewer's own Workspace role and reused as a plain id filter inside the CTE below (SQL never
     // re-derives the visibility rule itself, so the two can never disagree).
@@ -58,7 +58,7 @@ export class AgentActivityRepository {
     });
     const visibleAgentIds = visibleAgents.map((agent) => agent.id);
     if (visibleAgentIds.length === 0) return [];
-    // Excluded from the popover's top-5 selection only (ADR 0021, amended): tool_end,
+    // Excluded from the popover's top-5 selection only: tool_end,
     // thinking_end and compaction_finished are ordinary, persisted status rows in the Agent
     // detail Activity feed (AgentActivityRepository.list), but they occur once per tool call
     // or thinking phase and would crowd out genuinely noteworthy events in this short list.
@@ -77,52 +77,63 @@ export class AgentActivityRepository {
           AND membership."userId" = ${userId}::uuid
           AND agent."id" = ANY(${visibleAgentIds}::uuid[])
       ),
-      ranked AS (
+      -- Each Agent's five newest shown rows, read from the head of its
+      -- (workspaceId, agentId, occurredAt DESC) index instead of ranking its whole history.
+      recent AS (
         SELECT
-          activity."agentId",
-          activity."launchId",
+          agent."id" AS "agentId",
+          recent."launchId",
           ROW_NUMBER() OVER (
-            PARTITION BY activity."agentId"
-            ORDER BY activity."occurredAt" DESC, activity."createdAt" DESC, activity."id" DESC
-          ) AS slot,
-          ROW_NUMBER() OVER (
-            PARTITION BY activity."agentId", activity."launchId"
-            ORDER BY activity."occurredAt" DESC, activity."createdAt" DESC, activity."id" DESC
-          ) AS launch_chronological_position
-        FROM "agent_activities" AS activity
-        INNER JOIN authorized_agents AS agent ON agent."id" = activity."agentId"
-        WHERE activity."workspaceId" = ${workspaceId}::uuid
-          AND activity."detailKind" NOT IN (${excludedTool}, ${excludedThinking}, ${excludedCompaction}, ${excludedReview})
+            PARTITION BY agent."id"
+            ORDER BY recent."occurredAt" DESC, recent."createdAt" DESC, recent."id" DESC
+          ) AS slot
+        FROM authorized_agents AS agent
+        CROSS JOIN LATERAL (
+          SELECT activity."id", activity."launchId", activity."occurredAt", activity."createdAt"
+          FROM "agent_activities" AS activity
+          WHERE activity."workspaceId" = ${workspaceId}::uuid
+            AND activity."agentId" = agent."id"
+            AND activity."detailKind" NOT IN (${excludedTool}, ${excludedThinking}, ${excludedCompaction}, ${excludedReview})
+          ORDER BY activity."occurredAt" DESC, activity."createdAt" DESC, activity."id" DESC
+          LIMIT 5
+        ) AS recent
       ),
-      sequence_ranked AS (
+      -- A clock rollback can reorder a launch's rows by time, so the slot's k-th newest row of
+      -- its launch shows that launch's k-th highest clientSeq instead. Every newer row of the
+      -- launch is also newer overall, so k is its rank among these five slots.
+      positioned AS (
         SELECT
-          activity."id",
-          activity."agentId",
-          activity."launchId",
-          activity."clientSeq",
-          activity."detailKind",
-          activity."level",
-          activity."detail",
-          activity."entries",
-          activity."occurredAt",
-          activity."createdAt",
+          recent.*,
           ROW_NUMBER() OVER (
-            PARTITION BY activity."agentId", activity."launchId"
-            ORDER BY activity."clientSeq" DESC
-          ) AS launch_sequence_position
-        FROM "agent_activities" AS activity
-        INNER JOIN authorized_agents AS agent ON agent."id" = activity."agentId"
-        WHERE activity."workspaceId" = ${workspaceId}::uuid
-          AND activity."detailKind" NOT IN (${excludedTool}, ${excludedThinking}, ${excludedCompaction}, ${excludedReview})
+            PARTITION BY recent."agentId", recent."launchId"
+            ORDER BY recent.slot
+          ) AS launch_position
+        FROM recent
       ),
       compact AS (
-        SELECT sequence_ranked.*, ranked.slot
-        FROM ranked
-        INNER JOIN sequence_ranked
-          ON sequence_ranked."agentId" = ranked."agentId"
-          AND sequence_ranked."launchId" = ranked."launchId"
-          AND sequence_ranked.launch_sequence_position = ranked.launch_chronological_position
-        WHERE ranked.slot <= 5
+        SELECT sequenced.*, positioned.slot
+        FROM positioned
+        CROSS JOIN LATERAL (
+          SELECT
+            activity."id",
+            activity."agentId",
+            activity."launchId",
+            activity."clientSeq",
+            activity."detailKind",
+            activity."level",
+            activity."detail",
+            activity."entries",
+            activity."occurredAt",
+            activity."createdAt"
+          FROM "agent_activities" AS activity
+          WHERE activity."workspaceId" = ${workspaceId}::uuid
+            AND activity."agentId" = positioned."agentId"
+            AND activity."launchId" = positioned."launchId"
+            AND activity."detailKind" NOT IN (${excludedTool}, ${excludedThinking}, ${excludedCompaction}, ${excludedReview})
+          ORDER BY activity."clientSeq" DESC
+          OFFSET positioned.launch_position - 1
+          LIMIT 1
+        ) AS sequenced
       )
       SELECT
         agent."id" AS "agentId",

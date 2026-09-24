@@ -4,7 +4,7 @@ import { decodeDaemonRuntimeUsageScanRequest } from "@lrm/coforge-sdk/internal";
 import {
   createCentrifugoServerApi,
   createUsageScan,
-} from "../src/server/centrifugo/server-api.server";
+} from "#src/server/centrifugo/server-api.server";
 
 const originalFetch = globalThis.fetch;
 
@@ -73,6 +73,74 @@ test("publishes an idempotent JSON chat event through the Centrifugo v6 HTTP API
   });
 });
 
+test("broadcasts one JSON payload to many channels in a single Centrifugo call", async () => {
+  let request: Request | undefined;
+  globalThis.fetch = Object.assign(
+    (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+      request = new Request(input, init);
+      return Promise.resolve(Response.json({ result: { responses: [{}, {}] } }));
+    },
+    { preconnect: originalFetch.preconnect },
+  );
+
+  await createCentrifugoServerApi({
+    COFORGE_CENTRIFUGO_API_URL: "http://centrifugo.test/api",
+    COFORGE_CENTRIFUGO_API_KEY: "test-api-key",
+  }).broadcast(
+    ["chat:user:user-1", "chat:user:user-2"],
+    { type: "notification.available.v1", messageId: "message-1", workspaceId: "workspace-1" },
+    "notification:message-1",
+  );
+
+  expect(await request?.json()).toEqual({
+    method: "broadcast",
+    params: {
+      channels: ["chat:user:user-1", "chat:user:user-2"],
+      data: {
+        type: "notification.available.v1",
+        messageId: "message-1",
+        workspaceId: "workspace-1",
+      },
+      idempotency_key: "notification:message-1",
+    },
+  });
+});
+
+test("skips the Centrifugo call entirely when a broadcast has no channels", async () => {
+  let called = false;
+  globalThis.fetch = Object.assign(
+    () => {
+      called = true;
+      return Promise.resolve(Response.json({ result: {} }));
+    },
+    { preconnect: originalFetch.preconnect },
+  );
+
+  await createCentrifugoServerApi({
+    COFORGE_CENTRIFUGO_API_URL: "http://centrifugo.test/api",
+    COFORGE_CENTRIFUGO_API_KEY: "test-api-key",
+  }).broadcast([], { type: "notification.available.v1" });
+
+  expect(called).toBe(false);
+});
+
+test("rejects when any individual channel in a broadcast fails", async () => {
+  globalThis.fetch = Object.assign(
+    () =>
+      Promise.resolve(
+        Response.json({ result: { responses: [{}, { error: { code: 103, message: "denied" } }] } }),
+      ),
+    { preconnect: originalFetch.preconnect },
+  );
+
+  expect(
+    createCentrifugoServerApi({
+      COFORGE_CENTRIFUGO_API_URL: "http://centrifugo.test/api",
+      COFORGE_CENTRIFUGO_API_KEY: "test-api-key",
+    }).broadcast(["chat:user:user-1", "chat:user:user-2"], { type: "notification.available.v1" }),
+  ).rejects.toThrow("Centrifugo broadcast failed (103)");
+});
+
 test("rejects a Centrifugo command error returned with HTTP 200", async () => {
   globalThis.fetch = Object.assign(
     () => Promise.resolve(Response.json({ error: { code: 102, message: "unknown channel" } })),
@@ -111,4 +179,28 @@ test("directs a runtime usage scan to the selected Computer's Daemon", async () 
     computerId: "computer-1",
     provider: "codex",
   });
+});
+
+test("abandons a Centrifugo call that never answers at its deadline, aborting the request", async () => {
+  let signal: AbortSignal | undefined;
+  globalThis.fetch = Object.assign(
+    (_input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+      signal = init?.signal ?? undefined;
+      return new Promise<Response>((_, reject) =>
+        signal?.addEventListener("abort", () => reject(signal?.reason)),
+      );
+    },
+    { preconnect: originalFetch.preconnect },
+  );
+
+  await expect(
+    createCentrifugoServerApi(
+      {
+        COFORGE_CENTRIFUGO_API_URL: "http://centrifugo.test/api",
+        COFORGE_CENTRIFUGO_API_KEY: "test-api-key",
+      },
+      { timeoutMs: 10 },
+    ).publishJson("chat:conversation-1", { type: "member.changed.v1" }),
+  ).rejects.toMatchObject({ name: "TimeoutError" });
+  expect(signal?.aborted).toBe(true);
 });

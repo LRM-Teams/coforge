@@ -1,11 +1,11 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { z } from "zod";
-import type { PrismaClient } from "../../../generated/client";
-import { requireBrowserUser } from "#/server/auth/require-user.server";
-import { storeAttachment } from "#/server/attachments/attachment.server";
-import { getDatabaseClient } from "#/server/db/client.server";
-import { toPublicServerError } from "#/server/errors/public-error.server";
-import { AppError, isAppError, type AppErrorCode } from "#/lib/app-error";
+import type { PrismaClient } from "#src/generated/prisma/client";
+import { requireBrowserUser } from "#src/server/auth/require-user.server";
+import { storeAttachment } from "#src/server/attachments/attachment.server";
+import { getDatabaseClient } from "#src/server/db/client.server";
+import { toPublicServerError } from "#src/server/errors/public-error.server";
+import { AppError, isAppError, type AppErrorCode } from "#src/lib/app-error";
 
 const attachmentUploadInputSchema = z.object({
   conversationId: z.string().min(1),

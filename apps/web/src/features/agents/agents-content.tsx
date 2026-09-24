@@ -1,11 +1,14 @@
 import { useEffect, useState } from "react";
+import { keepPreviousData, useInfiniteQuery } from "@tanstack/react-query";
+import { GridList, GridListItem, GridListLoadMoreItem, ProgressBar } from "react-aria-components";
 import { Group, Panel, Separator, useDefaultLayout } from "react-resizable-panels";
-import { getRouteApi, Link, useNavigate, useRouter } from "@tanstack/react-router";
-import { useBreakpoint } from "@/hooks/use-breakpoint";
+import { getRouteApi, Link, useNavigate } from "@tanstack/react-router";
+import { useBreakpoint } from "#src/hooks/use-breakpoint";
 import {
   Calendar,
   DotsVertical,
-  Eye,
+  Edit01,
+  Loading02,
   Monitor01 as Monitor,
   Plus,
   SearchLg as Search,
@@ -14,18 +17,18 @@ import {
   UsersPlus,
 } from "@untitledui/icons";
 
-import { Tab, TabList, TabPanel, Tabs } from "@/components/application/tabs/tabs";
-import { ButtonGroup, ButtonGroupItem } from "@/components/base/button-group/button-group";
-import { Dropdown } from "@/components/base/dropdown/dropdown";
-import { Select } from "@/components/base/select/select";
-import { MobileNavigationButton } from "@/components/layout/sidebar/mobile-header";
-import { formatCalendarDate } from "@/lib/dates";
-import { Avatar } from "@/components/base/avatar/avatar";
-import { avatarInitial, avatarToneClassName } from "@/lib/avatar-tone";
-import { getLocale, localizeHref } from "@/paraglide/runtime";
-import { Button } from "@/components/base/buttons/button";
-import { Input } from "@/components/base/input/input";
-import { ButtonUtility } from "@/components/base/buttons/button-utility";
+import { Tab, TabList, TabPanel, Tabs } from "#src/components/application/tabs/tabs";
+import { ButtonGroup, ButtonGroupItem } from "#src/components/base/button-group/button-group";
+import { Dropdown } from "#src/components/base/dropdown/dropdown";
+import { Tooltip, TooltipTrigger } from "#src/components/base/tooltip/tooltip";
+import { MobileNavigationButton } from "#src/components/layout/sidebar/mobile-header";
+import { formatCalendarDate } from "#src/lib/dates";
+import { Avatar } from "#src/components/base/avatar/avatar";
+import { avatarInitial, avatarToneClassName } from "#src/lib/avatar-tone";
+import { getLocale, localizeHref } from "#src/paraglide/runtime";
+import { Button } from "#src/components/base/buttons/button";
+import { Input } from "#src/components/base/input/input";
+import { ButtonUtility } from "#src/components/base/buttons/button-utility";
 import {
   Empty,
   EmptyContent,
@@ -33,11 +36,11 @@ import {
   EmptyHeader,
   EmptyMedia,
   EmptyTitle,
-} from "@/components/ui/empty";
-import { cn } from "@/lib/utils";
-import { m } from "@/paraglide/messages";
-import { InviteMemberDialog } from "@/features/workspaces/invite-member-dialog";
-import { conversationLayoutStorage } from "@/features/conversations/layout-storage";
+} from "#src/components/ui/empty";
+import { cn } from "#src/lib/utils";
+import { m } from "#src/paraglide/messages";
+import { InviteMemberDialog } from "#src/features/workspaces/invite-member-dialog";
+import { conversationLayoutStorage } from "#src/features/conversations/layout-storage";
 import type { AgentStatusView } from "./agent-status-realtime";
 import type { AgentDisplaySnapshot } from "@lrm/coforge-sdk/internal";
 
@@ -46,13 +49,18 @@ import { AgentCreateDialog } from "./agent-create-dialog";
 import { AgentDeleteDialog } from "./agent-delete-dialog";
 import type { RuntimeCatalog } from "./agent-runtime-fields";
 import type { CreateAgentInput } from "./agent.schemas";
-import type { WorkspaceMemberDirectory } from "@/features/workspaces/workspaces.functions";
-import { AgentProfilePanel } from "./profile-panel/agent-profile-panel";
-import { useOpenAgentProfile } from "./profile-panel/open-agent-profile";
+import type {
+  MemberAgent,
+  MemberDirectorySummary,
+  MemberPerson,
+} from "#src/features/workspaces/workspaces.functions";
+import { memberAgentsQuery, memberPeopleQuery } from "./member-directory-queries";
+import { AgentProfilePanel } from "#src/features/agents/profile-panel/agent-profile-panel";
+import { useOpenAgentProfile } from "#src/features/agents/profile-panel/open-agent-profile";
 import {
   formatAgentProfileParam,
   type AgentProfileTab,
-} from "./profile-panel/profile-panel-search";
+} from "#src/features/agents/profile-panel/profile-panel-search";
 
 type ComputerOption = {
   id: string;
@@ -75,14 +83,11 @@ export type AgentView = {
 
 export type MemberTab = "agent" | "human";
 export type OwnerFilter = "all" | "mine";
-/** The Computer filter value for Agents that have no Computer in this Workspace. */
-const NO_COMPUTER = "none";
 
 export function AgentsContent({
-  directory,
+  summary,
   memberType,
   owner,
-  computer,
   onFiltersChange,
   agents,
   computers,
@@ -94,16 +99,10 @@ export function AgentsContent({
   onDeleteAgent,
   defaultCreateDialogOpen = false,
 }: {
-  directory: WorkspaceMemberDirectory;
+  summary: MemberDirectorySummary;
   memberType: MemberTab;
   owner: OwnerFilter;
-  /** A Computer id, `"none"`, or undefined for every Computer. */
-  computer?: string;
-  onFiltersChange: (filters: {
-    memberType?: MemberTab;
-    owner?: OwnerFilter;
-    computer?: string | undefined;
-  }) => void;
+  onFiltersChange: (filters: { memberType?: MemberTab; owner?: OwnerFilter }) => void;
   agents: AgentView[];
   computers: ComputerOption[];
   profileAgentId?: string;
@@ -114,44 +113,54 @@ export function AgentsContent({
   onDeleteAgent: (agentId: string, confirmation: string) => Promise<void>;
   defaultCreateDialogOpen?: boolean;
 }) {
-  const router = useRouter();
   const { setAgentProfileTab, closeAgentProfile } = useOpenAgentProfile();
   const timeZone = appRoute.useLoaderData().timeZone;
   const locale = getLocale();
   const [search, setSearch] = useState("");
+  // The server searches; wait for a pause in typing instead of fetching on every keystroke.
+  const [query, setQuery] = useState("");
+  useEffect(() => {
+    const timer = setTimeout(() => setQuery(search.trim()), SEARCH_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+  }, [search]);
   const [open, setOpen] = useState(defaultCreateDialogOpen);
   const [inviteOpen, setInviteOpen] = useState(false);
   // The target outlives `deleteOpen` so the dialog keeps its title through the close animation.
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deferredStart, setDeferredStart] = useState(false);
-  const canInviteMember = directory.actorRole === "owner" || directory.actorRole === "admin";
+  const canInviteMember = summary.actorRole === "owner" || summary.actorRole === "admin";
   // Agent creation requires Workspace owner/admin; see ManageAgents.create / assertCanCreateAgents.
   const canCreateAgent = canInviteMember;
-  // Deletion is the same owner/admin capability (ADR 0044), and only for Agents the directory marks
+  // Deletion is the same owner/admin capability, and only for Agents the directory marks
   // deletable; the server re-checks both.
   const canDeleteAgent = canInviteMember;
   const onAgentTab = memberType === "agent";
-  const tabTotal = onAgentTab ? directory.agents.length : directory.people.length;
+  const tabTotal = onAgentTab ? summary.agentCount : summary.peopleCount;
   const ownedAgents = new Map(agents.map((agent) => [agent.id, agent]));
-  const computerOptions = agentComputerOptions(directory.agents);
-  const query = search.trim().toLowerCase();
-  const filtersActive = onAgentTab && (owner === "mine" || computer !== undefined);
-  const filteredPeople = onAgentTab
-    ? []
-    : directory.people.filter((person) =>
-        `${person.displayName} ${person.name}`.toLowerCase().includes(query),
-      );
-  const filteredAgents = onAgentTab
-    ? directory.agents.filter(
-        (agent) =>
-          (owner === "all" || agent.owner.id === directory.viewerId) &&
-          (computer === undefined || (agent.computerId ?? NO_COMPUTER) === computer) &&
-          `${agent.displayName} ${agent.name} ${agent.computerName ?? ""}`
-            .toLowerCase()
-            .includes(query),
-      )
+  const filtersActive = onAgentTab && owner === "mine";
+  const searchLabel = onAgentTab ? m.member_search_agents() : m.member_search_humans();
+  // Keep the cards already on screen while a changed filter or search loads its first page.
+  const agentPages = useInfiniteQuery({
+    ...memberAgentsQuery(summary.workspaceId, { owner, query }),
+    enabled: onAgentTab,
+    placeholderData: keepPreviousData,
+  });
+  const peoplePages = useInfiniteQuery({
+    ...memberPeopleQuery(summary.workspaceId, query),
+    enabled: !onAgentTab,
+    placeholderData: keepPreviousData,
+  });
+  const pages = onAgentTab ? agentPages : peoplePages;
+  const listedAgents = onAgentTab
+    ? (agentPages.data?.pages.flatMap((page) => page.items) ?? [])
     : [];
+  const listedPeople = onAgentTab
+    ? []
+    : (peoplePages.data?.pages.flatMap((page) => page.items) ?? []);
+  const loadMore = () => {
+    if (pages.hasNextPage && !pages.isFetchingNextPage) void pages.fetchNextPage();
+  };
   const profileOpen = Boolean(profileAgentId);
   // `useBreakpoint` is true during SSR. Stay stacked until after mount so a phone never
   // first-paints the profile as a 35% column with a blank left side.
@@ -189,7 +198,9 @@ export function AgentsContent({
       <header className="flex shrink-0 flex-wrap items-center gap-x-3 border-b border-secondary px-4 sm:px-6 @2xl/members:grid @2xl/members:h-12 @2xl/members:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)]">
         <div className="flex h-12 min-w-0 flex-1 items-center gap-3">
           <MobileNavigationButton />
-          <h1 className="truncate text-lg font-semibold text-primary">{m.navigation_agents()}</h1>
+          <h1 className="truncate text-lg font-semibold text-primary">
+            {m.member_directory_title()}
+          </h1>
         </div>
         <div className="order-last flex basis-full self-end @2xl/members:order-none @2xl/members:basis-auto">
           <TabList
@@ -197,8 +208,8 @@ export function AgentsContent({
             type="underline"
             className="gap-6 before:hidden"
           >
-            <Tab id="agent">{m.member_tab_agents_count({ count: directory.agents.length })}</Tab>
-            <Tab id="human">{m.member_tab_humans_count({ count: directory.people.length })}</Tab>
+            <Tab id="agent">{m.member_tab_agents_count({ count: summary.agentCount })}</Tab>
+            <Tab id="human">{m.member_tab_humans_count({ count: summary.peopleCount })}</Tab>
           </TabList>
         </div>
         <div className="ml-auto flex shrink-0 items-center gap-2 @2xl/members:justify-self-end">
@@ -223,48 +234,27 @@ export function AgentsContent({
       {tabTotal > 0 && (
         <div className="flex shrink-0 flex-wrap items-center gap-3 px-4 pt-5 sm:px-6">
           {onAgentTab && (
-            <>
-              <ButtonGroup
-                aria-label={m.member_owner_filter()}
-                size="sm"
-                selectionMode="single"
-                disallowEmptySelection
-                selectedKeys={[owner]}
-                onSelectionChange={(keys) => {
-                  const [next] = [...keys];
-                  if (next === "all" || next === "mine") onFiltersChange({ owner: next });
-                }}
-              >
-                <ButtonGroupItem id="mine">{m.filters_mine()}</ButtonGroupItem>
-                <ButtonGroupItem id="all">{m.filters_all()}</ButtonGroupItem>
-              </ButtonGroup>
-              <Select
-                aria-label={m.filters_computer()}
-                size="sm"
-                placeholder={m.filters_computer()}
-                selectedKey={computer ?? null}
-                onSelectionChange={(key) =>
-                  onFiltersChange({
-                    computer: key === ALL_COMPUTERS || key === null ? undefined : String(key),
-                  })
-                }
-                className="w-44"
-                popoverClassName="min-w-56"
-              >
-                {[{ id: ALL_COMPUTERS, label: m.member_all_computers() }, ...computerOptions].map(
-                  (option) => (
-                    <Select.Item key={option.id} id={option.id} label={option.label} />
-                  ),
-                )}
-              </Select>
-            </>
+            <ButtonGroup
+              aria-label={m.member_owner_filter()}
+              size="sm"
+              selectionMode="single"
+              disallowEmptySelection
+              selectedKeys={[owner]}
+              onSelectionChange={(keys) => {
+                const [next] = [...keys];
+                if (next === "all" || next === "mine") onFiltersChange({ owner: next });
+              }}
+            >
+              <ButtonGroupItem id="mine">{m.filters_mine()}</ButtonGroupItem>
+              <ButtonGroupItem id="all">{m.filters_all()}</ButtonGroupItem>
+            </ButtonGroup>
           )}
           <Input
             type="search"
             size="sm"
             icon={Search}
-            aria-label={m.filters_search()}
-            placeholder={`${m.filters_search()}...`}
+            aria-label={searchLabel}
+            placeholder={`${searchLabel}...`}
             value={search}
             onChange={setSearch}
             className="w-full sm:w-80"
@@ -280,15 +270,23 @@ export function AgentsContent({
             {m.agent_deferred_start_notice()}
           </p>
         )}
-        {filteredPeople.length + filteredAgents.length ? (
-          <ul
+        {pages.isError && !pages.data ? (
+          <div role="alert" className="mt-8 flex flex-col items-center gap-3 text-center">
+            <p className="text-sm text-error-primary">{m.member_directory_load_error()}</p>
+            <Button size="sm" color="secondary" onPress={() => void pages.refetch()}>
+              {m.controls_retry()}
+            </Button>
+          </div>
+        ) : pages.isPending ? null : listedPeople.length + listedAgents.length ? (
+          <GridList
             aria-label={onAgentTab ? m.member_tab_agents() : m.member_tab_humans()}
-            className="mt-4 grid gap-4 md:grid-cols-[repeat(auto-fill,minmax(18rem,1fr))]"
+            layout="grid"
+            className="mt-4 grid gap-4 outline-none md:grid-cols-[repeat(auto-fill,minmax(18rem,1fr))]"
           >
-            {filteredPeople.map((person) => (
+            {listedPeople.map((person) => (
               <PersonCard key={person.id} person={person} />
             ))}
-            {filteredAgents.map((member) => (
+            {listedAgents.map((member) => (
               <AgentCard
                 key={member.id}
                 member={member}
@@ -299,6 +297,8 @@ export function AgentsContent({
                 createdOn={
                   timeZone || mounted ? formatCalendarDate(member.createdAt, timeZone, locale) : ""
                 }
+                // Editing follows the profile panel's rule: Workspace owner/admin or the creator.
+                canEdit={canInviteMember || member.owner.id === summary.viewerId}
                 onDelete={
                   canDeleteAgent && member.deletable
                     ? () => {
@@ -309,8 +309,32 @@ export function AgentsContent({
                 }
               />
             ))}
-          </ul>
-        ) : (
+            {/* React Aria asks for the next page as this sentinel nears the scroll area's end. */}
+            <GridListLoadMoreItem
+              onLoadMore={loadMore}
+              isLoading={pages.isFetchingNextPage}
+              className="col-span-full flex justify-center py-4"
+            >
+              <ProgressBar
+                isIndeterminate
+                aria-label={m.member_loading_more()}
+                className="text-fg-quaternary"
+              >
+                <Loading02 aria-hidden="true" className="size-5 motion-safe:animate-spin" />
+              </ProgressBar>
+            </GridListLoadMoreItem>
+          </GridList>
+        ) : null}
+        {pages.isFetchNextPageError ? (
+          // React Aria re-arms its sentinel only when the list changes, so a failed page needs an
+          // explicit retry or the list would silently end early.
+          <div role="alert" className="mt-4 flex flex-col items-center gap-3 text-center">
+            <p className="text-sm text-error-primary">{m.member_directory_load_error()}</p>
+            <Button size="sm" color="secondary" onPress={() => void pages.fetchNextPage()}>
+              {m.controls_retry()}
+            </Button>
+          </div>
+        ) : pages.isError || pages.isPending || listedPeople.length + listedAgents.length ? null : (
           <Empty
             className={
               tabTotal ? "gap-5 px-0 py-12" : "gap-6 px-0 pt-[clamp(3rem,12svh,7rem)] pb-10"
@@ -353,7 +377,8 @@ export function AgentsContent({
                   color="secondary"
                   onPress={() => {
                     setSearch("");
-                    if (filtersActive) onFiltersChange({ owner: "all", computer: undefined });
+                    setQuery("");
+                    if (filtersActive) onFiltersChange({ owner: "all" });
                   }}
                 >
                   {filtersActive ? m.member_clear_filters() : m.agent_clear_search()}
@@ -405,7 +430,6 @@ export function AgentsContent({
         onOpenChange={setInviteOpen}
         onInvite={async (input) => {
           await onInviteMember(input);
-          await router.invalidate({ sync: true });
         }}
       />
 
@@ -434,32 +458,17 @@ export function AgentsContent({
   );
 }
 
-type DirectoryAgent = WorkspaceMemberDirectory["agents"][number];
-type DirectoryPerson = WorkspaceMemberDirectory["people"][number];
+type DirectoryAgent = MemberAgent;
+type DirectoryPerson = MemberPerson;
 
-/** The Computer select's "every Computer" entry; never a real Computer id. */
-const ALL_COMPUTERS = "all";
-
-/** The Computers the listed Agents run on, by name, plus "no Computer" when any Agent has none. */
-function agentComputerOptions(agents: DirectoryAgent[]) {
-  const byId = new Map<string, string>();
-  let unassigned = false;
-  for (const agent of agents) {
-    if (agent.computerId === null) unassigned = true;
-    else byId.set(agent.computerId, agent.computerName || m.agent_computer_unnamed());
-  }
-  const options = [...byId]
-    .map(([id, label]) => ({ id, label }))
-    .sort((a, b) => a.label.localeCompare(b.label));
-  return unassigned ? [...options, { id: NO_COMPUTER, label: m.member_no_computer() }] : options;
-}
+const SEARCH_DEBOUNCE_MS = 250;
 
 const CARD_CLASS =
-  "flex min-w-0 flex-col gap-2.5 rounded-xl bg-primary p-4 shadow-xs ring-1 ring-secondary ring-inset";
+  "flex min-w-0 flex-col gap-2.5 rounded-xl bg-primary p-4 shadow-xs ring-1 ring-secondary outline-focus-ring ring-inset data-focus-visible:outline-2 data-focus-visible:outline-offset-2";
 
 function PersonCard({ person }: { person: DirectoryPerson }) {
   return (
-    <li className={CARD_CLASS}>
+    <GridListItem id={person.id} textValue={person.displayName} className={CARD_CLASS}>
       <Avatar
         size="lg"
         alt={person.displayName}
@@ -476,7 +485,7 @@ function PersonCard({ person }: { person: DirectoryPerson }) {
           {person.description}
         </p>
       )}
-    </li>
+    </GridListItem>
   );
 }
 
@@ -485,25 +494,36 @@ function AgentCard({
   ownedAgent,
   selected,
   createdOn,
+  canEdit,
   onDelete,
 }: {
   member: DirectoryAgent;
   ownedAgent?: AgentView;
   selected: boolean;
   createdOn: string;
+  canEdit: boolean;
   /** Present only for a viewer who may delete Agents. */
   onDelete?: () => void;
 }) {
   const navigate = useNavigate();
-  const openProfile = () =>
+  // Editing happens in the profile panel's Profile tab.
+  const openProfileToEdit = () =>
     void navigate({
       to: "/agents",
       resetScroll: false,
-      search: (previous) => ({ ...previous, profile: formatAgentProfileParam(member.id) }),
+      search: (previous) => ({
+        ...previous,
+        profile: formatAgentProfileParam(member.id),
+        agentTab: "profile",
+      }),
     });
 
   return (
-    <li className={cn(CARD_CLASS, selected && "ring-2 ring-brand")}>
+    <GridListItem
+      id={member.id}
+      textValue={member.displayName}
+      className={cn(CARD_CLASS, selected && "ring-2 ring-brand")}
+    >
       <div className="flex items-start justify-between gap-3">
         {ownedAgent ? (
           <AgentDisplayAvatar
@@ -533,21 +553,29 @@ function AgentCard({
               size="sm"
               color="tertiary"
               tooltip={m.member_agent_actions({ name: member.displayName })}
+              // Greyed out, as in the design, when the viewer may neither edit nor delete.
+              isDisabled={!canEdit && !onDelete}
             />
             <Dropdown.Popover placement="bottom end" className="w-44">
               <Dropdown.Menu
                 onAction={(key) => {
-                  if (key === "details") openProfile();
+                  if (key === "edit") openProfileToEdit();
                   if (key === "delete") onDelete?.();
                 }}
               >
-                <Dropdown.Item id="details" icon={Eye} label={m.member_view_details()} />
+                {canEdit ? <Dropdown.Item id="edit" icon={Edit01} label={m.agent_edit()} /> : null}
                 {onDelete ? (
-                  <Dropdown.Item
-                    id="delete"
-                    icon={Trash01}
-                    label={m.agent_profile_action_delete()}
-                  />
+                  // A destructive menu item is red text (docs/design/color-status-typography.md);
+                  // the official item colours its label and icon grey, so both go in as children.
+                  <Dropdown.Item id="delete" textValue={m.member_agent_delete()}>
+                    <span className="flex items-center text-error-primary">
+                      <Trash01
+                        aria-hidden="true"
+                        className="mr-2 size-4 shrink-0 stroke-[2.25px]"
+                      />
+                      {m.member_agent_delete()}
+                    </span>
+                  </Dropdown.Item>
                 ) : null}
               </Dropdown.Menu>
             </Dropdown.Popover>
@@ -587,23 +615,29 @@ function AgentCard({
         {member.description}
       </p>
       <div className="mt-auto flex min-w-0 items-center gap-4 pt-1 text-sm text-tertiary">
-        <span className="flex min-w-0 items-center gap-2">
-          <Avatar
-            size="xs"
-            alt=""
-            src={member.owner.avatarUrl ?? undefined}
-            initials={avatarInitial(member.owner.displayName)}
-            contentClassName={avatarToneClassName(member.owner.displayName)}
-          />
-          <span className="sr-only">{m.member_created_by()}</span>
-          <span className="truncate">{member.owner.displayName}</span>
-        </span>
-        <span className="flex shrink-0 items-center gap-1.5">
-          <Calendar aria-hidden="true" className="size-4 text-fg-quaternary" />
-          <span className="sr-only">{m.member_created_on()}</span>
-          <time dateTime={new Date(member.createdAt).toISOString()}>{createdOn}</time>
-        </span>
+        <Tooltip title={m.member_created_by()} arrow>
+          <TooltipTrigger className="flex min-w-0 cursor-default items-center gap-2 rounded-sm outline-focus-ring focus-visible:outline-2">
+            <Avatar
+              size="xs"
+              alt=""
+              src={member.owner.avatarUrl ?? undefined}
+              initials={avatarInitial(member.owner.displayName)}
+              contentClassName={avatarToneClassName(member.owner.displayName)}
+            />
+            <span className="sr-only">{m.member_created_by()}</span>
+            <span className="truncate">{member.owner.displayName}</span>
+          </TooltipTrigger>
+        </Tooltip>
+        <Tooltip title={m.member_created_on()} arrow>
+          <TooltipTrigger className="flex shrink-0 cursor-default items-center gap-1.5 rounded-sm outline-focus-ring focus-visible:outline-2">
+            <Calendar aria-hidden="true" className="size-4 text-fg-quaternary" />
+            <span className="sr-only">{m.member_created_on()}</span>
+            <time className="tabular-nums" dateTime={new Date(member.createdAt).toISOString()}>
+              {createdOn}
+            </time>
+          </TooltipTrigger>
+        </Tooltip>
       </div>
-    </li>
+    </GridListItem>
   );
 }

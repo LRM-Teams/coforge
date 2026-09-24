@@ -3,7 +3,7 @@ import { mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { FileCredentialStore } from "../src/credential-store";
+import { FileCredentialStore } from "#src/credential-store";
 
 test("credential store writes a server credential with private permissions", async () => {
   const directory = await mkdtemp(join(tmpdir(), "coforge-credential-"));

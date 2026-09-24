@@ -1,3 +1,4 @@
+import { ProgressBar } from "react-aria-components";
 import {
   useEffect,
   useLayoutEffect,
@@ -11,6 +12,7 @@ import {
 import { Link, getRouteApi, useRouter } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import {
+  Loading02,
   ChevronDown,
   ChevronRightDouble,
   CheckCircle,
@@ -26,24 +28,24 @@ import {
   Trash01 as Trash,
 } from "@untitledui/icons";
 
-import { Avatar } from "@/components/base/avatar/avatar";
-import { Dropdown } from "@/components/base/dropdown/dropdown";
-import { Dialog, Modal, ModalOverlay } from "@/components/application/modals/modal";
-import { LoadingIndicator } from "@/components/ui/loading-indicator";
+import { Avatar } from "#src/components/base/avatar/avatar";
+import { Dropdown } from "#src/components/base/dropdown/dropdown";
+import { Dialog, Modal, ModalOverlay } from "#src/components/application/modals/modal";
 import { useSendWindowCountdown } from "./use-send-window";
-import { Button } from "@/components/base/buttons/button";
-import { ButtonUtility } from "@/components/base/buttons/button-utility";
-import { Input } from "@/components/base/input/input";
-import { TextArea } from "@/components/base/textarea/textarea";
-import { avatarInitial, avatarToneClassName } from "@/lib/avatar-tone";
-import { m } from "@/paraglide/messages";
-import { formatAgentProfileParam } from "@/features/agents/profile-panel/profile-panel-search";
-import { cx } from "@/utils/cx";
-import { shouldSendOnEnter } from "../conversations/composer-behavior";
-import { useConversationRealtime } from "../conversations/conversation-realtime-client";
-import type { WeeklyReportAssistantSuggestion } from "../../server/records/weekly-report-assistant-suggestion.server";
+import { Button } from "#src/components/base/buttons/button";
+import { ButtonUtility } from "#src/components/base/buttons/button-utility";
+import { Input } from "#src/components/base/input/input";
+import { TextArea } from "#src/components/base/textarea/textarea";
+import { avatarInitial, avatarToneClassName } from "#src/lib/avatar-tone";
+import { m } from "#src/paraglide/messages";
+import { formatAgentProfileParam } from "#src/features/agents/profile-panel/profile-panel-search";
+import { cx } from "#src/utils/cx";
+import { shouldSendOnEnter } from "#src/features/conversations/composer-behavior";
+import { useConversationRealtime } from "#src/features/conversations/conversation-realtime-client";
+import type { WeeklyReportAssistantSuggestion } from "#src/server/records/weekly-report-assistant-suggestion.server";
 import type { KeyPointExtractionMeta, ReportContent } from "./records-content";
 import { formatWeeklyReportCompletedAt } from "./records-content";
+import { RECORDS_PRIMARY_BUTTON_CLASSNAME } from "./records-primary-button";
 import {
   addRecordComment,
   acceptMemberGenerateHelp,
@@ -67,7 +69,6 @@ import {
 import {
   looksLikeMemberGenerateOfferAccept,
   looksLikeTeamKeyPointReorganizeRequest,
-  looksLikeSideChatGreeting,
   shouldUseMemberReportRulePath,
   looksLikeSynthesizeWeeklyReportRequest,
   parseRecordAssistantPayload,
@@ -136,7 +137,6 @@ export function RecordSidePanel({
   subjectType,
   subjectId,
   surface,
-  formatCopy,
   countdownUntil,
   refreshToken = 0,
   open,
@@ -152,7 +152,6 @@ export function RecordSidePanel({
   subjectType: "report" | "cycle";
   subjectId: string;
   surface: RecordSideSurface;
-  formatCopy?: "preview" | "cancelled" | "ready";
   /** End of the open send window; the panel renders the countdown itself. */
   countdownUntil?: Date | null;
   refreshToken?: number;
@@ -332,7 +331,7 @@ export function RecordSidePanel({
   async function loadThread(sessionId: string, legacyId: string | null) {
     const [rows, status, context, chat] = await Promise.all([
       ensureIntro({
-        data: { subjectType, subjectId, assistantSessionId: sessionId, surface, formatCopy },
+        data: { subjectType, subjectId, assistantSessionId: sessionId, surface },
       }),
       loadAssistantStatus().catch(() => null),
       loadAssistantContext({ data: { subjectType, subjectId } }).catch(() => null),
@@ -407,7 +406,6 @@ export function RecordSidePanel({
     subjectType,
     subjectId,
     surface,
-    formatCopy,
     ensureSessions,
     ensureIntro,
     loadAssistantContext,
@@ -698,9 +696,7 @@ export function RecordSidePanel({
       }
 
       const useRulePath =
-        looksLikeSideChatGreeting(body) ||
-        shouldUseMemberReportRulePath(surface, body) ||
-        !assistantReady(assistantStatus);
+        shouldUseMemberReportRulePath(surface, body) || !assistantReady(assistantStatus);
       if (useRulePath) {
         if (!assistantReady(assistantStatus)) {
           session.setupDismissed = false;
@@ -1185,6 +1181,17 @@ export function RecordSidePanel({
                     (row.authorType === "user" && (row.body === "确认" || row.body === "不是"))
                   );
                 });
+              const offerResolved =
+                payload?.kind === "offer-send" &&
+                (!sendOfferActive ||
+                  (commentIndex >= 0 &&
+                    comments.slice(commentIndex + 1).some((row) => {
+                      const later = payloadOf(row);
+                      return (
+                        later?.kind === "offer-send" ||
+                        (row.authorType === "assistant" && row.body.includes("已取消本周周报"))
+                      );
+                    })));
               return (
                 <article key={item.id} className="space-y-2">
                   <div className="flex items-center gap-2">
@@ -1206,46 +1213,39 @@ export function RecordSidePanel({
                   {payload?.kind === "offer-send" ? (
                     <div className="space-y-3">
                       <AssistantAttachmentCard payload={payload} />
-                      {sendOfferActive &&
-                      !comments.slice(commentIndex + 1).some((row) => {
-                        const later = payloadOf(row);
-                        return (
-                          later?.kind === "offer-send" ||
-                          (row.authorType === "assistant" && row.body.includes("已取消本周周报"))
-                        );
-                      }) ? (
-                        <div className="space-y-2">
-                          <div className="flex flex-wrap gap-2">
-                            <Button
-                              size="sm"
-                              color="primary"
-                              isDisabled={busy}
-                              onPress={() => onRequestSend?.()}
-                            >
-                              {m.records_assistant_confirm_send()}
-                            </Button>
-                            <Button
-                              size="sm"
-                              color="secondary"
-                              isDisabled={busy}
-                              onPress={() => void onDismissWeekSend()}
-                            >
-                              {m.records_assistant_cancel_week()}
-                            </Button>
-                          </div>
-                          {countdown ? (
-                            <p className="text-xs text-tertiary">
-                              {m.records_assistant_auto_send_in({ countdown })}
-                            </p>
-                          ) : null}
+                      <div className={`space-y-2 ${offerResolved ? "opacity-60" : ""}`}>
+                        <div className="flex flex-wrap gap-2">
+                          <Button
+                            size="sm"
+                            color="primary"
+                            className={RECORDS_PRIMARY_BUTTON_CLASSNAME}
+                            isDisabled={busy || offerResolved}
+                            onPress={() => onRequestSend?.()}
+                          >
+                            {m.records_assistant_confirm_send()}
+                          </Button>
+                          <Button
+                            size="sm"
+                            color="secondary"
+                            isDisabled={busy || offerResolved}
+                            onPress={() => void onDismissWeekSend()}
+                          >
+                            {m.records_assistant_cancel_week()}
+                          </Button>
                         </div>
-                      ) : null}
+                        {countdown && !offerResolved ? (
+                          <p className="text-xs text-tertiary">
+                            {m.records_assistant_auto_send_in({ countdown })}
+                          </p>
+                        ) : null}
+                      </div>
                     </div>
                   ) : null}
                   {payload?.kind === "offer-help-generate" && !generateHelpConsumed ? (
                     <Button
                       size="sm"
                       color="primary"
+                      className={RECORDS_PRIMARY_BUTTON_CLASSNAME}
                       isDisabled={busy}
                       onPress={() => void onAcceptGenerateHelp()}
                     >
@@ -1257,6 +1257,7 @@ export function RecordSidePanel({
                       <Button
                         size="sm"
                         color="primary"
+                        className={RECORDS_PRIMARY_BUTTON_CLASSNAME}
                         isDisabled={busy}
                         onPress={() => void onConfirmIntent(payload.intent, payload.userGuidance)}
                       >
@@ -1377,6 +1378,7 @@ export function RecordSidePanel({
                         <Button
                           size="sm"
                           color="primary"
+                          className={RECORDS_PRIMARY_BUTTON_CLASSNAME}
                           isDisabled={busy}
                           onPress={() => void confirmSuggestion(message.id, suggestion)}
                         >
@@ -1408,10 +1410,13 @@ export function RecordSidePanel({
 
         {awaitingSynthesis ? (
           <div className="flex items-center gap-2 border-t border-secondary px-4 py-2">
-            <LoadingIndicator
-              label={m.records_side_chat_assistant_running()}
-              className="size-4 text-brand-secondary"
-            />
+            <ProgressBar
+              isIndeterminate
+              aria-label={m.records_side_chat_assistant_running()}
+              className="inline-flex shrink-0 size-4 text-brand-secondary"
+            >
+              <Loading02 aria-hidden className="size-full motion-safe:animate-spin" />
+            </ProgressBar>
             <span className="text-xs text-tertiary">{m.records_side_chat_assistant_running()}</span>
           </div>
         ) : null}
@@ -1467,7 +1472,7 @@ export function RecordSidePanel({
                 size="sm"
                 color="secondary"
                 icon={Send}
-                className="bg-brand-solid text-white hover:bg-brand-solid"
+                className={RECORDS_PRIMARY_BUTTON_CLASSNAME}
                 aria-label={m.records_side_chat_send()}
                 isDisabled={sendLocked || !draft.trim()}
               />
@@ -1510,6 +1515,7 @@ export function RecordSidePanel({
                 <Button
                   size="sm"
                   color="primary"
+                  className={RECORDS_PRIMARY_BUTTON_CLASSNAME}
                   isDisabled={!renameDraft.trim() || busy}
                   onPress={() => void submitRename()}
                 >
@@ -1547,9 +1553,9 @@ function AssistantAttachmentCard({
       : Math.max(0, recipients.length - shown.length);
 
   return (
-    <div className="overflow-hidden rounded-xl bg-gradient-to-br from-brand-primary via-brand-primary/40 to-primary p-3">
+    <div className="overflow-hidden rounded-xl bg-gradient-to-br from-secondary via-secondary/40 to-primary p-3">
       <div className="flex items-start gap-3">
-        <div className="flex size-10 shrink-0 items-center justify-center rounded-full bg-brand-solid text-white">
+        <div className="flex size-10 shrink-0 items-center justify-center rounded-full bg-tertiary text-fg-secondary">
           <LinkIcon className="size-4" />
         </div>
         <div className="min-w-0 flex-1">

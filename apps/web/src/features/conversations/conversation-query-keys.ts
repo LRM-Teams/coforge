@@ -7,3 +7,18 @@ export function threadFollowingAgentsQueryKey(channelId: string, threadRootId: s
 export function threadFollowingAgentsQueryPrefix(channelId: string) {
   return ["conversation", "thread-following-agents", channelId] as const;
 }
+
+/** One public channel's member roster, as the settings panel's Members strip reads it. */
+export function channelMembersQueryKey(channelId: string) {
+  return ["conversation", "channel-members", channelId] as const;
+}
+
+/** The Chat sidebar's channel list for one Workspace (`sidebar-lists.ts`). */
+export function sidebarChannelsQueryKey(workspaceId: string) {
+  return ["conversation", "sidebar", workspaceId, "channels"] as const;
+}
+
+/** The Chat sidebar's DM rows and the viewer's id for one Workspace (`sidebar-lists.ts`). */
+export function sidebarDirectsQueryKey(workspaceId: string) {
+  return ["conversation", "sidebar", workspaceId, "directs"] as const;
+}

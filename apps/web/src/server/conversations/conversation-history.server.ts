@@ -1,14 +1,17 @@
-import type { Prisma, PrismaClient } from "../../../generated/client";
-import { AppError } from "../../lib/app-error";
-import { attachmentView } from "../attachments/attachment-view.server";
-import { agentAvatarUrl } from "../agents/agent-avatar.server";
-import { workspaceUserAvatarUrl } from "../db/repositories/user-profile.repositories.server";
-import { BROWSER_MESSAGE_MENTIONS_SELECT, browserMessageMention } from "./mentions";
+import { VISIBLE_CONVERSATION_WHERE } from "./active-member.server";
+import type { Prisma, PrismaClient } from "#src/generated/prisma/client";
+import { AppError } from "#src/lib/app-error";
+import { attachmentView } from "#src/server/attachments/attachment-view.server";
+import { agentAvatarUrl } from "#src/server/agents/agent-avatar.server";
+import { workspaceUserAvatarUrl } from "#src/server/db/repositories/user-profile.repositories.server";
+import { BROWSER_MESSAGE_MENTIONS_SELECT, browserMessageMention } from "./mentions.server";
 import { MESSAGE_REACTIONS_SELECT, reactionSummaries } from "./message-reactions.server";
 import { browserSenderHandle, browserSenderName } from "./sender-display.server";
 import type { ActionCardView } from "./action-cards.server";
 
-const browserMessageFields = {
+/** Exported so projections that must render exactly like the message stream (the Saved list,
+ * #120/#124) reuse this same row shape instead of growing a near-copy. */
+export const browserMessageFields = {
   id: true,
   sequence: true,
   threadRootId: true,
@@ -60,7 +63,7 @@ export function mapBrowserMessage(message: BrowserMessageRow, workspaceId: strin
     /** The sender's Agent id, present only for an Agent-sent message; opens the Agent profile
      * panel from a message row (`features/agents/profile-panel/`). */
     senderAgentId: message.sender?.agentId ?? undefined,
-    /** True when the sending Agent has since been deleted (ADR 0044): the row renders its sender
+    /** True when the sending Agent has since been deleted: the row renders its sender
      * greyed with a `DELETED` marker, and no longer opens that Agent's profile. */
     senderDeleted: Boolean(message.sender?.agent?.deletedAt),
     senderAvatarUrl: message.sender?.userId
@@ -103,14 +106,23 @@ function attachmentFileNameSummary(attachments: { fileName: string }[]): string 
 export class ConversationHistory {
   constructor(private readonly db: PrismaClient) {}
 
-  async authorize(workspaceId: string, userId: string, conversationId: string) {
+  /**
+   * Resolves to the viewer's own member row in the conversation, if they have one (a Workspace
+   * member may read a public channel without joining it).
+   */
+  async authorize(
+    workspaceId: string,
+    userId: string,
+    conversationId: string,
+  ): Promise<{ viewerMemberId: string | undefined }> {
     const [membership, conversation] = await Promise.all([
       this.db.workspaceMembership.findUnique({
         where: { workspaceId_userId: { workspaceId, userId } },
         select: { userId: true },
       }),
       this.db.conversation.findFirst({
-        where: { id: conversationId, workspaceId },
+        // A channel hidden from the Workspace is unreadable for everyone until it is restored.
+        where: { id: conversationId, workspaceId, ...VISIBLE_CONVERSATION_WHERE },
         select: {
           directKey: true,
           channelName: true,
@@ -120,8 +132,9 @@ export class ConversationHistory {
     ]);
     if (!membership) throw new AppError("ACCESS_DENIED");
     if (!conversation) throw new AppError("NOT_FOUND");
-    if (conversation.channelName !== null) return;
-    if (conversation.directKey !== null && conversation.members.length > 0) return;
+    const viewer = { viewerMemberId: conversation.members[0]?.id };
+    if (conversation.channelName !== null) return viewer;
+    if (conversation.directKey !== null && viewer.viewerMemberId) return viewer;
     throw new AppError("ACCESS_DENIED");
   }
 
@@ -131,14 +144,19 @@ export class ConversationHistory {
     conversationId: string,
     page: { beforeSequence?: number; limit?: number } = {},
   ) {
-    await this.authorize(workspaceId, userId, conversationId);
+    const { viewerMemberId } = await this.authorize(workspaceId, userId, conversationId);
+    // A viewer who never joined has sent nothing here.
+    if (!viewerMemberId) return { hasOlder: false, messages: [] };
     const limit = Math.min(Math.max(page.limit ?? 20, 1), 50);
     const rows = await this.db.message.findMany({
       where: {
         conversationId,
         threadRootId: null,
         sequence: page.beforeSequence ? { lt: page.beforeSequence } : undefined,
-        sender: { userId },
+        // By the member row (one per user per conversation, kept after leaving), not a join
+        // through `sender.userId`: that walked the conversation's whole history backwards to find
+        // the viewer's rows; this is a range on `messages(senderMemberId, threadRootId, sequence)`.
+        senderMemberId: viewerMemberId,
       },
       orderBy: { sequence: "desc" },
       take: limit + 1,
@@ -176,12 +194,16 @@ export class ConversationHistory {
     requestedLimit = 41,
   ) {
     await this.authorize(workspaceId, userId, conversationId);
+    // The anchor is any root message in this conversation. No sender filter: a saved jump (#127)
+    // lands on other members' and Agent messages too, and the viewer's membership — checked just
+    // above — is the whole access decision. (The notification deep link only ever targeted the
+    // viewer's own sends, which is where the old `sender: { userId }` came from; it made every
+    // other-sender anchor a NOT_FOUND and the jump read as a history-load failure.)
     const anchor = await this.db.message.findFirst({
       where: {
         id: messageId,
         conversationId,
         threadRootId: null,
-        sender: { userId },
       },
       select: { sequence: true },
     });

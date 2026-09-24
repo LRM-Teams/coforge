@@ -1,31 +1,51 @@
 import { Outlet, createFileRoute } from "@tanstack/react-router";
 
-import { MessagesPending } from "@/features/conversations/conversation-pending";
-import { ConversationNavigation } from "@/features/conversations/conversation-navigation";
-import { PageLoadError } from "@/features/errors/page-load-error";
-import { listPublicChannels } from "@/features/conversations/channels.functions";
+import { MessagesPending } from "#src/features/conversations/conversation-pending";
+import { ConversationNavigation } from "#src/features/conversations/conversation-navigation";
+import { PageLoadError } from "#src/features/errors/page-load-error";
+import { listChannelNames } from "#src/features/conversations/channels.functions";
 import {
-  loadDirectConversationBadges,
-  type DirectConversationBadges,
-} from "@/features/conversations/conversations.functions";
-import { listProjects } from "@/features/projects/projects.functions";
-
-const EMPTY_DIRECT_BADGES: DirectConversationBadges = { viewerId: "", unread: {} };
+  sidebarChannelsQuery,
+  sidebarDirectsQuery,
+} from "#src/features/conversations/sidebar-collections";
+import { listProjects } from "#src/features/projects/projects.functions";
+import { listSavedMessages } from "#src/features/conversations/saved-messages.functions";
 
 export const Route = createFileRoute("/_app/messages")({
-  loader: async () => {
-    const [channels, projects, badges] = await Promise.all([
-      listPublicChannels(),
+  loader: async ({ context: { queryClient }, parentMatchPromise, cause }) => {
+    // The sidebar's channel and DM lists go into the Query cache, which the server render reads and
+    // the client hydrates; after hydration they back the sidebar's collections
+    // (`sidebar-collections.ts`). A navigation or an invalidation (joining, leaving, closing a
+    // chat) reads them afresh; a hover preload reuses what is cached.
+    const sidebarLists = parentMatchPromise.then(async (parent) => {
+      const workspaceId = parent.loaderData?.currentWorkspace?.id ?? "";
+      const staleTime = cause === "preload" ? ("static" as const) : 0;
+      // A first load has no DM rows to keep, so each of its reads falls back on its own; a later
+      // one that fails keeps the rows the sidebar has.
+      const firstLoad =
+        queryClient.getQueryData(sidebarDirectsQuery(workspaceId).queryKey) === undefined;
+      const directs = queryClient.query({
+        ...sidebarDirectsQuery(workspaceId, { tolerant: firstLoad }),
+        staleTime,
+      });
+      await Promise.all([
+        queryClient.query({ ...sidebarChannelsQuery(workspaceId), staleTime }),
+        firstLoad ? directs : directs.catch(() => undefined),
+      ]);
+    });
+    const [channelNames, projects, saved] = await Promise.all([
+      listChannelNames(),
       listProjects(),
-      loadDirectConversationBadges().catch(() => EMPTY_DIRECT_BADGES),
+      // Saved (#127) tolerates a failed read: the chat page stays up and simply starts from an
+      // empty saved list.
+      listSavedMessages().catch(() => []),
+      sidebarLists,
     ]);
     return {
-      channels,
+      // Every channel by id, closed ones included: the authority a body's channel links check.
+      channelNames,
       projects,
-      directUnread: badges.unread,
-      // Absent when the badge read failed: the sidebar then holds no personal signal channel
-      // rather than subscribing to one keyed by an empty id.
-      viewerId: badges.viewerId || undefined,
+      saved,
     };
   },
   pendingComponent: MessagesPending,

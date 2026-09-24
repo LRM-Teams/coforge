@@ -3,8 +3,8 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
-import { WindowsWorkspaceInstance } from "../src/supervisor/windows-workspace-instance";
-import type { WorkspaceInstanceConfig } from "../src/supervisor/workspace-instance";
+import { WindowsWorkspaceInstance } from "#src/supervisor/windows-workspace-instance";
+import type { WorkspaceInstanceConfig } from "#src/supervisor/workspace-instance";
 
 async function config(): Promise<WorkspaceInstanceConfig & { root: string }> {
   const root = await mkdtemp(join(tmpdir(), "coforge-windows-workspace-"));

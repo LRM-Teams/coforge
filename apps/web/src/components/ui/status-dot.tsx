@@ -1,4 +1,4 @@
-import { cn } from "@/lib/utils";
+import { cn } from "#src/lib/utils";
 
 /** Every presence/activity colour the app draws as a dot: Computers are online or offline;
  * Agents add what they are doing right now. */
@@ -21,11 +21,11 @@ export function statusToneClass(tone: StatusTone) {
       return "bg-online";
     case "working":
     case "thinking":
-      return "bg-amber-500";
+      return "bg-utility-amber-500";
     case "error":
       return "bg-error-solid";
     case "output":
-      return "bg-cyan-500";
+      return "bg-utility-sky-500";
     default:
       return "bg-offline";
   }

@@ -1,11 +1,11 @@
 import {
   createCentrifugoServerApi,
   type CentrifugoServerApi,
-} from "../centrifugo/server-api.server";
-import { agentStatusChannel } from "../../features/agents/agent-status-realtime";
+} from "#src/server/centrifugo/server-api.server";
+import { agentStatusChannel } from "#src/features/agents/agent-status-realtime";
 
 /**
- * ADR 0059's `agent:visibility_changed` publisher. After a visibility change commits, every
+ * The `agent:visibility_changed` publisher. After a visibility change commits, every
  * already-connected browser needs to know: refetch its Agent list, drop the Agent if it can no
  * longer see it, or (re)subscribe to its per-Agent channels if it still can. The event carries
  * only the Agent id — on the existing shared status channel, since it names nothing a viewer who

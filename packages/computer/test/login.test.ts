@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import pc from "picocolors";
 
-import { ComputerLogin, type CredentialStore, type DeviceAuthorizationClient } from "../src/login";
+import { ComputerLogin, type CredentialStore, type DeviceAuthorizationClient } from "#src/login";
 
 const config = { async saveCurrentProfile() {} };
 

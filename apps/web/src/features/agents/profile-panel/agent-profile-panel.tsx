@@ -4,43 +4,48 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { getRouteApi, useRouter } from "@tanstack/react-router";
 import { Edit01 as Pencil, UserX01, XClose as X } from "@untitledui/icons";
 
-import { ButtonUtility } from "@/components/base/buttons/button-utility";
-import { isAppError } from "@/lib/app-error";
-import { Skeleton } from "@/components/ui/skeleton";
+import { ButtonUtility } from "#src/components/base/buttons/button-utility";
+import { isAppError } from "#src/lib/app-error";
+import { Skeleton } from "#src/components/ui/skeleton";
 import {
   Empty,
   EmptyHeader,
   EmptyMedia,
   EmptyTitle,
   EmptyDescription,
-} from "@/components/ui/empty";
-import { m } from "@/paraglide/messages";
-import { useSubmitGuard } from "@/hooks/use-submit-guard";
-import { useLiveAgent, useAgentActivityFeed } from "@/features/agents/workspace-agents-realtime";
-import { agentDisplay } from "@/features/agents/agent-activity-presentation";
-import { AgentActivityTimeline } from "@/features/agents/agent-activity-timeline";
-import { AgentReminders } from "@/features/agents/agent-reminders";
-import { listAgentReminders } from "@/features/agents/agent-reminders.functions";
-import { getAgentSkills } from "@/features/agents/agent-skills.functions";
+} from "#src/components/ui/empty";
+import { m } from "#src/paraglide/messages";
+import { useSubmitGuard } from "#src/hooks/use-submit-guard";
+import {
+  useAgentActivityFeed,
+  useLiveAgent,
+  usePrefetchAgentActivityFeed,
+} from "#src/features/agents/workspace-agents-realtime";
+import { agentDisplay } from "#src/features/agents/agent-activity-presentation";
+import { AgentActivityTimeline } from "#src/features/agents/agent-activity-timeline";
+import { AgentReminders } from "#src/features/agents/agent-reminders";
+import { listAgentReminders } from "#src/features/agents/agent-reminders.functions";
+import { getAgentSkills } from "#src/features/agents/agent-skills.functions";
 import {
   listAgentWorkspaceFiles,
   readAgentWorkspaceFile,
-} from "@/features/agents/agent-workspace-files.functions";
-import { useAgentRuntimeControls } from "@/features/agents/agent-runtime-controls";
-import { runtimeProviderLabel } from "@/features/agents/runtime-provider-display";
-import { executeAgentControl } from "@/features/agents/agent-control.functions";
-import { AgentControlDialogs } from "@/features/agents/agent-control-dialogs";
-import { AgentRuntimeCredentialDialog } from "@/features/agents/agent-runtime-credential-dialog";
+} from "#src/features/agents/agent-workspace-files.functions";
+import { useAgentRuntimeControls } from "#src/features/agents/agent-runtime-controls";
+import { runtimeProviderLabel } from "#src/features/agents/runtime-provider-display";
+import { executeAgentControl } from "#src/features/agents/agent-control.functions";
+import { AgentControlDialogs } from "#src/features/agents/agent-control-dialogs";
+import { AgentRuntimeCredentialDialog } from "#src/features/agents/agent-runtime-credential-dialog";
 import {
   AgentRuntimeConfigDialog,
   type AgentEnvironmentState,
-} from "@/features/agents/agent-runtime-config-dialog";
-import { useAgentRuntimeOptionsLoader } from "@/features/agents/agent-runtime-options";
+} from "#src/features/agents/agent-runtime-config-dialog";
+import { useAgentRuntimeOptionsLoader } from "#src/features/agents/agent-runtime-options";
+import { listComputers } from "#src/features/computers/computers.functions";
 import {
   agentUpdateErrorMessage,
   parseAgentEnvironmentFromForm,
   updateAgentInputFromForm,
-} from "@/features/agents/agent-form";
+} from "#src/features/agents/agent-form";
 import {
   updateAgent,
   uploadAgentAvatar,
@@ -52,15 +57,16 @@ import {
   deleteAgent,
   changeAgentVisibility,
   previewAgentVisibilityChange,
-} from "@/features/agents/agents.functions";
-import { AgentDeleteDialog } from "@/features/agents/agent-delete-dialog";
-import { AgentVisibilityConfirmDialog } from "@/features/agents/agent-visibility-confirm-dialog";
-import type { AgentVisibility } from "@/features/agents/agent-visibility";
-import { useAppToast } from "@/components/ui/toast";
+} from "#src/features/agents/agents.functions";
+import { AgentDeleteDialog } from "#src/features/agents/agent-delete-dialog";
+import { AgentVisibilityConfirmDialog } from "#src/features/agents/agent-visibility-confirm-dialog";
+import type { AgentVisibility } from "#src/features/agents/agent-visibility";
+import { useAppToast } from "#src/components/ui/toast";
 import { AgentProfileHeader } from "./agent-profile-header";
-import { AgentProfileTabs } from "./agent-profile-tabs";
+import { AgentProfileTabs, useAgentProfileTabOrder } from "./agent-profile-tabs";
 import { AgentProfileTab } from "./agent-profile-tab";
 import { AgentWorkspaceTab } from "./agent-workspace-tab";
+import { PanelMessage } from "./panel-message";
 import {
   resolveAgentProfileTab,
   type AgentProfileTab as ProfileTabId,
@@ -68,7 +74,7 @@ import {
 import {
   agentEnvironmentKey,
   agentEnvironmentQuery,
-  useAgentProfileData,
+  agentProfileQuery,
   useInvalidateAgentProfile,
 } from "./agent-profile-queries";
 
@@ -78,7 +84,7 @@ const appRoute = getRouteApi("/_app");
  * The conversation's right-hand slot content when the Agent profile is the visible panel: same
  * chrome as the Thread panel (48px header band, 44px tab band, flat body, no page-level card),
  * built from `getAgentProfile` plus the existing workspace realtime hooks for live status/activity
- * — never its own subscription (`apps/web/AGENTS.md`'s panel-ownership rule).
+ * — never its own subscription (`src/features/agents/AGENTS.md`'s Agent-state rule).
  */
 export function AgentProfilePanel({
   agentId,
@@ -107,16 +113,36 @@ export function AgentProfilePanel({
     return () => document.removeEventListener("keydown", onKeyDown);
   }, [onClose]);
   const liveAgent = useLiveAgent(agentId);
-  const query = useAgentProfileData(agentId);
+  const query = useQuery(agentProfileQuery(agentId));
   const profile = query.data;
   const invalidate = useInvalidateAgentProfile(agentId);
-  const liveActivity = useAgentActivityFeed(agentId);
-  const activity = liveActivity ?? profile?.activity ?? [];
+  usePrefetchAgentActivityFeed(agentId);
 
   const knownName = profile?.displayName ?? liveAgent?.displayName ?? "";
   const canManage = profile ? profile.canManageAgentRole || profile.ownedByCurrentUser : false;
   const canSeeWorkspace = profile ? profile.ownedByCurrentUser : false;
-  const tab = resolveAgentProfileTab(requestedTab, canManage, canSeeWorkspace);
+  const loadComputers = useServerFn(listComputers);
+  const computersQuery = useQuery({
+    queryKey: ["agent-runtime-computers", profile?.id, profile?.computerId ?? "none"],
+    queryFn: () => loadComputers(),
+    enabled: Boolean(profile && canManage && !profile.computer),
+  });
+  const setupComputers =
+    profile && !profile.computer && computersQuery.isSuccess
+      ? (computersQuery.data ?? []).map((computer) => ({
+          id: computer.id,
+          displayName: computer.displayName || computer.name || m.agent_computer_unnamed(),
+          online: Boolean(computer.online),
+        }))
+      : undefined;
+  const tabOrder = useAgentProfileTabOrder(canManage, canSeeWorkspace);
+  const tab = resolveAgentProfileTab(requestedTab, tabOrder.tabs);
+  // Opened without `agentTab`, the panel lands on the first tab of the viewer's order once their
+  // permissions are known, and writes it into the URL so a later reorder does not move it.
+  const loaded = Boolean(profile);
+  useEffect(() => {
+    if (loaded && !requestedTab) onTabChange(tab);
+  }, [loaded, requestedTab, tab, onTabChange]);
 
   const loadReminders = useServerFn(listAgentReminders);
   const onLoadReminders = useCallback(
@@ -213,14 +239,14 @@ export function AgentProfilePanel({
   // fire with only one of the two actually different from what loaded.
   function onSaveRuntime(form: FormData, changed: { runtime: boolean; environment: boolean }) {
     void guardRuntimeForm(async () => {
-      if (!profile || !profile.computer) return;
+      if (!profile) return;
       setRuntimeFormError("");
       try {
         if (changed.runtime)
           await update({
             data: updateAgentInputFromForm(form, {
               agentId: profile.id,
-              computerId: profile.computer.id,
+              computerId: profile.computer?.id,
               displayName: profile.displayName,
               description: profile.description ?? "",
             }),
@@ -233,6 +259,9 @@ export function AgentProfilePanel({
         await Promise.all([
           invalidate(),
           queryClient.invalidateQueries({ queryKey: agentEnvironmentKey(profile.id) }),
+          queryClient.invalidateQueries({
+            queryKey: ["agent-runtime-computers", profile.id, profile.computerId ?? "none"],
+          }),
         ]);
       } catch (cause) {
         setRuntimeFormError(agentUpdateErrorMessage(cause));
@@ -241,7 +270,7 @@ export function AgentProfilePanel({
   }
 
   if (query.isError) {
-    // ADR 0059: an Agent that exists but is private to someone else answers a distinct, detail-
+    // An Agent that exists but is private to someone else answers a distinct, detail-
     // free state — no "you may not have access, or it was removed" guess, just the one fact.
     const notVisible = isAppError(query.error) && query.error.code === "AGENT_NOT_VISIBLE";
     return (
@@ -282,13 +311,12 @@ export function AgentProfilePanel({
           description: profile?.description ?? undefined,
           avatarUrl: profile?.avatarUrl,
         }}
-        // ADR 0059: `liveAgent` (the shared realtime roster) is blank for an Agent outside the
+        // `liveAgent` (the shared realtime roster) is blank for an Agent outside the
         // viewer's own `listAgents` roster until its first live publication arrives — e.g. an
         // owner/admin's placeholder for another member's private Agent. `getAgentProfile`
         // (`profile`, this panel's own authorized fetch) already computes an initial
-        // status/display snapshot for any Agent the viewer can see, exactly like `activity`'s
-        // fallback below; prefer the live one once a publication lands, but seed from the
-        // authorized fetch instead of showing nothing.
+        // status/display snapshot for any Agent the viewer can see; prefer the live one once a
+        // publication lands, but seed from the authorized fetch instead of showing nothing.
         display={liveAgent?.display ?? profile?.display}
         timeZone={timeZone}
         controls={controls}
@@ -296,12 +324,12 @@ export function AgentProfilePanel({
       />
       {/* The four tabs need ~465px, more than a phone is wide, so the band scrolls instead of
           pushing the panel (and with it the whole page) past the viewport. */}
-      <div className="scrollbar-hide flex h-11 shrink-0 items-center overflow-x-auto border-b border-secondary px-5">
+      <div className="scrollbar-hide flex h-14 shrink-0 items-center overflow-x-auto border-b border-secondary px-5">
         <AgentProfileTabs
           active={tab}
-          showManagerTabs={canManage}
-          showWorkspaceTab={canSeeWorkspace}
+          tabs={tabOrder.tabs}
           onSelect={onTabChange}
+          onReorder={tabOrder.reorder}
         />
       </div>
       {/* Workspace is a split tree/file viewer: each pane scrolls on its own. A shared
@@ -326,7 +354,7 @@ export function AgentProfilePanel({
             <Skeleton className="h-24 w-full" />
           </div>
         ) : tab === "activity" ? (
-          <AgentActivityTimeline activity={activity} timeZone={timeZone} compact />
+          <AgentActivityTab agentId={agentId} timeZone={timeZone} />
         ) : tab === "reminders" ? (
           <div className="px-5 pb-5">
             <AgentReminders
@@ -351,7 +379,7 @@ export function AgentProfilePanel({
             // Realtime once a display snapshot has arrived, the initial `getAgentProfile` load
             // until then — trusting `liveAgent.display`'s own (possibly explicitly null)
             // `contextUsage` once present, never falling back past it to a stale initial read.
-            // Display-only (ADR 0050): nothing here triggers on any threshold.
+            // Display-only: nothing here triggers on any threshold.
             contextUsage={
               liveAgent?.display
                 ? (liveAgent.display.contextUsage ?? null)
@@ -473,11 +501,12 @@ export function AgentProfilePanel({
           />
         )}
       </div>
-      {profile && profile.computer && (
+      {profile && (
         <AgentRuntimeConfigDialog
           open={runtimeEditing}
           onClose={onCancelRuntimeEdit}
-          computerId={profile.computer.id}
+          computerId={profile.computer?.id ?? ""}
+          computers={setupComputers}
           credentialConfigured={Boolean(profile.runtimeCredential)}
           initial={{
             provider: profile.runtimeConfig.runtime,
@@ -533,6 +562,28 @@ export function AgentProfilePanel({
           }}
         />
       )}
+    </div>
+  );
+}
+
+function AgentActivityTab({ agentId, timeZone }: { agentId: string; timeZone: string | null }) {
+  const feed = useAgentActivityFeed(agentId);
+  if (feed.data) return <AgentActivityTimeline activity={feed.data} timeZone={timeZone} compact />;
+  if (feed.isError && !feed.isFetching)
+    return (
+      <PanelMessage text={m.agent_activity_error()} alert onRetry={() => void feed.refetch()} />
+    );
+  return (
+    <div aria-busy="true" className="flex flex-col gap-5 px-4 py-4">
+      <p role="status" className="sr-only">
+        {m.agent_activity_loading()}
+      </p>
+      {["w-2/5", "w-3/5", "w-1/2", "w-3/4"].map((width) => (
+        <div key={width} className="grid grid-cols-[3.5rem_1fr] gap-2">
+          <Skeleton className="h-4 w-12" />
+          <Skeleton className={`h-4 ${width}`} />
+        </div>
+      ))}
     </div>
   );
 }

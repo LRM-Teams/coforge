@@ -1,4 +1,4 @@
-import type { LatestSenderFields } from "../db/repositories/direct-conversation.repositories.server";
+import type { LatestSenderFields } from "#src/server/db/repositories/direct-conversation.repositories.server";
 
 export type PersistedDirectMessage = {
   id: string;
@@ -6,7 +6,7 @@ export type PersistedDirectMessage = {
   createdAt: Date;
   sequence: number;
   /** The message's thread anchor, or null for a top-level message. Carried so the browser
-   * signal can exclude thread replies from channel unread (ADR 0046). Round-trips through
+   * signal can exclude thread replies from channel unread. Round-trips through
    * Redis with the rest of the persisted result on idempotent retries. */
   threadRootId: string | null;
   /** Always present, possibly empty; order matches send/upload order. Not itself compared for

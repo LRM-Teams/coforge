@@ -5,7 +5,9 @@ export const conversationRealtimeChannel = (conversationId: string) => `chat:${c
  * versioned `message.available.v1` payloads as `chat:<conversationId>`, but
  * one subscription per open Workspace keeps the sidebar unread counts live
  * without holding a per-conversation subscription for every channel in the
- * list. Authorization mirrors the status/activity workspace channels: the
+ * list. It also carries `channel.updated.v1`, so the sidebar re-reads a renamed
+ * or archived channel, and `task.changed.v1` (`features/tasks/task-realtime.ts`), so an open
+ * Tasks page updates the rows a Task write changed. Authorization mirrors the status/activity workspace channels: the
  * subscription token is issued only to Workspace members.
  */
 export const workspaceConversationChannel = (workspaceId: string) =>
@@ -33,6 +35,13 @@ export type MessageAvailableEvent = {
    * channel is already scoped to one viewer, so the badge key needs no conversation alias.
    */
   agentId?: string;
+  /**
+   * Set only for a message a person sent from the browser: the send's idempotency key
+   * (`requestId`). The sender's own page shows the message greyed the moment it is submitted and
+   * uses this to replace that pending copy with the real message, even when this signal outruns
+   * the send's own response. Meaningless to anyone else, who ignores it.
+   */
+  requestId?: string;
 };
 
 export function decodeMessageAvailableEvent(value: unknown): MessageAvailableEvent {
@@ -47,6 +56,7 @@ export function decodeMessageAvailableEvent(value: unknown): MessageAvailableEve
   const workspaceId = Reflect.get(value, "workspaceId");
   const threadRootId = Reflect.get(value, "threadRootId");
   const agentId = Reflect.get(value, "agentId");
+  const requestId = Reflect.get(value, "requestId");
   if (
     type !== "message.available.v1" ||
     typeof conversationId !== "string" ||
@@ -57,7 +67,8 @@ export function decodeMessageAvailableEvent(value: unknown): MessageAvailableEve
     sequence < 1 ||
     (workspaceId !== undefined && (typeof workspaceId !== "string" || !workspaceId)) ||
     (threadRootId !== undefined && (typeof threadRootId !== "string" || !threadRootId)) ||
-    (agentId !== undefined && (typeof agentId !== "string" || !agentId))
+    (agentId !== undefined && (typeof agentId !== "string" || !agentId)) ||
+    (requestId !== undefined && (typeof requestId !== "string" || !requestId))
   )
     throw new Error("invalid conversation event");
   return {
@@ -68,7 +79,41 @@ export function decodeMessageAvailableEvent(value: unknown): MessageAvailableEve
     ...(workspaceId ? { workspaceId } : {}),
     ...(threadRootId ? { threadRootId } : {}),
     ...(agentId ? { agentId } : {}),
+    ...(requestId ? { requestId } : {}),
   };
+}
+
+/**
+ * An in-page notification signal (Frank, 2026-09-23): while a CoForge tab is open, the page shows
+ * the OS notification itself from this realtime event instead of relying on Web Push, since Google
+ * push services are unreachable from mainland-China staging and clients. It carries
+ * no message text — the bodiless-event rule applies here too — so the browser
+ * fetches title/body/url over authenticated HTTPS (`getMessageNotification`) before it can show
+ * anything. Published only to the recipient's own `chat:user:<user_id>` channel.
+ */
+export type NotificationAvailableEvent = {
+  type: "notification.available.v1";
+  messageId: string;
+  workspaceId: string;
+};
+
+export function decodeNotificationAvailableEvent(value: unknown): NotificationAvailableEvent {
+  if (value instanceof Uint8Array)
+    return decodeNotificationAvailableEvent(JSON.parse(new TextDecoder().decode(value)) as unknown);
+  if (!value || typeof value !== "object" || Array.isArray(value))
+    throw new Error("invalid conversation event");
+  const type = Reflect.get(value, "type");
+  const messageId = Reflect.get(value, "messageId");
+  const workspaceId = Reflect.get(value, "workspaceId");
+  if (
+    type !== "notification.available.v1" ||
+    typeof messageId !== "string" ||
+    !messageId ||
+    typeof workspaceId !== "string" ||
+    !workspaceId
+  )
+    throw new Error("invalid conversation event");
+  return { type, messageId, workspaceId };
 }
 
 /**
@@ -99,4 +144,35 @@ export function decodeMemberChangedEvent(value: unknown): MemberChangedEvent {
   )
     throw new Error("invalid conversation event");
   return { type, conversationId, ...(workspaceId ? { workspaceId } : {}) };
+}
+
+/**
+ * A channel's own facts changed: its name, description, or archived state. Published on the
+ * Workspace channel, so every member's sidebar re-reads its channel list, and on the channel's own
+ * conversation channel, so a page showing it refetches its header and composer state. Like the
+ * other signals it carries no payload beyond the ids; the client reloads what it shows.
+ */
+export type ChannelUpdatedEvent = {
+  type: "channel.updated.v1";
+  conversationId: string;
+  workspaceId: string;
+};
+
+export function decodeChannelUpdatedEvent(value: unknown): ChannelUpdatedEvent {
+  if (value instanceof Uint8Array)
+    return decodeChannelUpdatedEvent(JSON.parse(new TextDecoder().decode(value)) as unknown);
+  if (!value || typeof value !== "object" || Array.isArray(value))
+    throw new Error("invalid conversation event");
+  const type = Reflect.get(value, "type");
+  const conversationId = Reflect.get(value, "conversationId");
+  const workspaceId = Reflect.get(value, "workspaceId");
+  if (
+    type !== "channel.updated.v1" ||
+    typeof conversationId !== "string" ||
+    !conversationId ||
+    typeof workspaceId !== "string" ||
+    !workspaceId
+  )
+    throw new Error("invalid conversation event");
+  return { type, conversationId, workspaceId };
 }

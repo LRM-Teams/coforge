@@ -7,26 +7,33 @@ import {
 } from "@lrm/coforge-sdk/internal";
 import { agentEnvironment } from "./environment";
 import { JsonlProcess, JsonlRequestError } from "./jsonl-process";
-import { probeClaudeCodeVersion, resolveClaudeCodeExecutable } from "./claude-code/runtime";
-import { COFORGE_DAEMON_VERSION } from "../version";
-import { codeAgentExecutableSearchPath } from "../platform/code-agent-path";
+import {
+  probeClaudeCodeVersion,
+  resolveClaudeCodeExecutable,
+} from "#src/code-agent/claude-code/runtime";
+import { COFORGE_DAEMON_VERSION } from "#src/version";
+import { codeAgentExecutableSearchPath } from "#src/platform/code-agent-path";
 import {
   COFORGE_PROVIDER_MODELS_GENERATED,
   discoverPiModels,
   getAgentDir,
   PI_SDK_VERSION,
 } from "@coforge/agent";
-import { COFORGE_AGENT_RUNTIME_METADATA } from "./pi/metadata";
-import { discoverKiroCatalog } from "./kiro/catalog";
-import { isKiroVersionUnsupported, logKiroVersionUnsupported } from "./kiro/version";
-import { discoverCursorCatalog } from "./cursor/catalog";
-import { discoverOpenCodeCatalog } from "./opencode/catalog";
-import { isOpenCodeVersionUnsupported, logOpenCodeVersionUnsupported } from "./opencode/version";
+import { COFORGE_AGENT_RUNTIME_METADATA } from "#src/code-agent/pi/metadata";
+import { discoverKiroCatalog } from "#src/code-agent/kiro/catalog";
+import { isKiroVersionUnsupported, logKiroVersionUnsupported } from "#src/code-agent/kiro/version";
+import { discoverCursorCatalog } from "#src/code-agent/cursor/catalog";
+import { isGrokVersionUnsupported, logGrokVersionUnsupported } from "#src/code-agent/grok/version";
+import { discoverOpenCodeCatalog } from "#src/code-agent/opencode/catalog";
+import {
+  isOpenCodeVersionUnsupported,
+  logOpenCodeVersionUnsupported,
+} from "#src/code-agent/opencode/version";
 import { getLogger } from "@logtape/logtape";
 import type { CodeAgentProbe } from "./contract";
 import { createCodeAgentProvider } from "./registry";
 import { asRecord } from "./json-record";
-import { diagnosticErrorCode } from "../platform/diagnostic-error-code";
+import { diagnosticErrorCode } from "#src/platform/diagnostic-error-code";
 import {
   CATALOG_CACHE_TTL_MS,
   fileStatCacheKey,
@@ -70,6 +77,7 @@ const externalCodeAgents = [
   { provider: RUNTIME_PROVIDER.KIRO, executable: "kiro-cli" },
   { provider: RUNTIME_PROVIDER.CURSOR, executable: "cursor-agent" },
   { provider: RUNTIME_PROVIDER.OPENCODE, executable: "opencode" },
+  { provider: RUNTIME_PROVIDER.GROK, executable: "grok" },
 ] as const;
 
 /** The subset of RuntimeProvider backed by an external executable this module probes. */
@@ -108,7 +116,15 @@ async function probeRuntimeVersion(
     });
     return undefined;
   }
-  const version = lastWord(output);
+  // Grok prints `grok <version> (<build hash>)`; the version is the dotted-numeric token, not the
+  // last word.
+  const version =
+    provider === RUNTIME_PROVIDER.GROK
+      ? output
+          .trim()
+          .split(/\s+/)
+          .find((token) => /^\d+(\.\d+)*$/.test(token))
+      : lastWord(output);
   if (!version) return undefined;
   if (provider === RUNTIME_PROVIDER.KIRO && isKiroVersionUnsupported(version)) {
     logKiroVersionUnsupported(name, version);
@@ -116,6 +132,10 @@ async function probeRuntimeVersion(
   }
   if (provider === RUNTIME_PROVIDER.OPENCODE && isOpenCodeVersionUnsupported(version)) {
     logOpenCodeVersionUnsupported(name, version);
+    return undefined;
+  }
+  if (provider === RUNTIME_PROVIDER.GROK && isGrokVersionUnsupported(version)) {
+    logGrokVersionUnsupported(name, version);
     return undefined;
   }
   return { provider, version, displayName: externalRuntimeDisplayName(provider) };
@@ -743,6 +763,8 @@ function externalRuntimeDisplayName(provider: ExternalCodeAgentProvider): string
       return "Cursor CLI";
     case RUNTIME_PROVIDER.OPENCODE:
       return "OpenCode";
+    case RUNTIME_PROVIDER.GROK:
+      return "Grok Build";
     default: {
       const unreachable: never = provider;
       throw new Error(`Unhandled external Code Agent provider: ${unreachable}`);

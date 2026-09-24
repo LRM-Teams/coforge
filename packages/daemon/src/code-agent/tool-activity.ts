@@ -5,8 +5,8 @@ import {
   truncateCodePoints,
   type AgentActivityDetailKind,
 } from "@lrm/coforge-sdk/internal";
-import { redactTrajectoryText } from "../agent-runtime/activity-trajectory";
-import { createAgentActivity } from "../agent-runtime/agent-activity";
+import { redactTrajectoryText } from "#src/agent-runtime/activity-trajectory";
+import { createAgentActivity } from "#src/agent-runtime/agent-activity";
 import { collapseWhitespace } from "./agent-instructions";
 
 // `TOOL_ALIASES` (shared with the web tool row labels — see
@@ -80,7 +80,7 @@ export function toolActivity(name: string, args: unknown, occurredAt?: string) {
 /**
  * `detail` is always the generic, argument-free label (`toolActivityLabel`) — never
  * the command, path or other summary — so the Agent status header can never leak one
- * (see `docs/observability.md`). The summary itself, when there is one, travels only
+ * (see `docs/observability/running-command-summary.md`). The summary itself, when there is one, travels only
  * in the entry's `toolInput`, sanitized to satisfy the SDK's `validToolInput` (at most
  * 200 code points, no control characters).
  */
@@ -213,7 +213,7 @@ function resolveCoforgeInvocation(tokens: readonly string[]): CoforgeInvocation 
       summary: allowlistedString(tokens[3], 120),
     };
   } else if (category === "whoami") {
-    // Deliberately local (ADR 0036): no wire call, so it is always read-only, unconditionally.
+    // Deliberately local: no wire call, so it is always read-only, unconditionally.
     return { tool: "whoami" };
   } else if (category === "version") {
     return { tool: "get_version" };

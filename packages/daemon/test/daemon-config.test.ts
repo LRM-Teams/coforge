@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { DaemonConfigStore } from "../src/persistence/daemon-config";
+import { DaemonConfigStore } from "#src/persistence/daemon-config";
 
 test("daemon rejects a cross-environment configure request before applying it", () => {
   const store = new DaemonConfigStore("/unused", { serverHttpUrl: "https://coforge.cn" });

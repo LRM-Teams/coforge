@@ -12,14 +12,11 @@ const {
   mergeAgentStatusSnapshot,
   mergeExtraAgents,
   nextDisplayRefreshDelayMs,
-} = await import("../src/features/agents/agent-status-realtime");
-import type {
-  AgentStatusEvent,
-  AgentStatusView,
-} from "../src/features/agents/agent-status-realtime";
+} = await import("#src/features/agents/agent-status-realtime");
+import type { AgentStatusEvent, AgentStatusView } from "#src/features/agents/agent-status-realtime";
 import { parseAgentDisplaySnapshot, type AgentDisplaySnapshot } from "@lrm/coforge-sdk/internal";
 
-test("agentStatusChannelForAgent names the per-Agent re-routing destination (ADR 0059)", () => {
+test("agentStatusChannelForAgent names the per-Agent re-routing destination", () => {
   expect(agentStatusChannelForAgent("workspace-1", "agent-1")).toBe(
     "agent:status:workspace-1:agent-1",
   );
@@ -28,7 +25,7 @@ test("agentStatusChannelForAgent names the per-Agent re-routing destination (ADR
   );
 });
 
-test("isAgentVisibilityChangedEvent recognizes the id-only visibility-change event (ADR 0059)", () => {
+test("isAgentVisibilityChangedEvent recognizes the id-only visibility-change event", () => {
   expect(
     isAgentVisibilityChangedEvent({ type: "agent:visibility_changed", agentId: "agent-1" }),
   ).toBe(true);
@@ -39,7 +36,7 @@ test("isAgentVisibilityChangedEvent recognizes the id-only visibility-change eve
   expect(isAgentVisibilityChangedEvent([])).toBe(false);
 });
 
-// ADR 0059 realtime gap: an owner/admin (or a private Agent's creator) can see private Agents
+// Realtime gap: an owner/admin (or a private Agent's creator) can see private Agents
 // outside their own primary `agents` list (e.g. another member's private Agent). `mergeExtraAgents`
 // keeps those visible without letting a fresh refresh of the primary list silently drop them.
 test("mergeExtraAgents appends extras the primary list does not already have", () => {
@@ -164,7 +161,7 @@ test("snapshot merges membership and fields without letting unordered status rep
   ]);
 });
 
-// ADR 0059: the exact sequence `useAgentStatuses` runs on every refresh/agent:visibility_changed
+// The exact sequence `useAgentStatuses` runs on every refresh/agent:visibility_changed
 // cycle for an "extra" (owner/admin-visible-but-not-owned) Agent — `mergeExtraAgents` re-appends
 // its bare placeholder, then `mergeAgentStatusSnapshot` must carry its already-live status and
 // display forward rather than resetting it back to the placeholder's "inactive"/no-display.

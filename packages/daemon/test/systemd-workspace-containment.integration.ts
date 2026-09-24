@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
-import { SystemdWorkspaceInstance } from "../src/supervisor/systemd-workspace-instance";
+import { SystemdWorkspaceInstance } from "#src/supervisor/systemd-workspace-instance";
 
 // Explicit invocation: mise exec -- bun test ./packages/daemon/test/systemd-workspace-containment.integration.ts
 // Requires an existing Linux user manager. Never installs one or changes lingering.

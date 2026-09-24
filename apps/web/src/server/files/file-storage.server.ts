@@ -5,9 +5,8 @@ import { readEnvSecret } from "./env-secret.server";
 
 /**
  * Private user-file storage behind chat attachments and profile avatars. PostgreSQL keeps only
- * the stable object key; this port maps that key to bytes. docs/architecture.md ("Alibaba Cloud
- * OSS：私有用户文件数据面") fixes the object-key layout and requires that switching the backing
- * store never changes the key, the database rows, or the client contract.
+ * the stable object key; this port maps that key to bytes. The object-key layout is fixed, and
+ * switching the backing store never changes the key, the database rows, or the client contract.
  */
 export interface FileStorage {
   /** Writes one immutable object. Keys are server-generated UUID paths, so they never collide. */
@@ -18,12 +17,12 @@ export interface FileStorage {
   remove(objectKey: string): Promise<void>;
   /**
    * Reports one object's size and content type without downloading its bytes, or `null` when it
-   * does not exist. Backs the direct-upload `complete` verification (ADR 0028).
+   * does not exist. Backs the direct-upload `complete` verification.
    */
   head(objectKey: string): Promise<{ sizeBytes: number; contentType: string | null } | null>;
   /**
    * Issues a short-lived presigned PUT for a not-yet-written object, or is absent when this
-   * backend cannot support direct upload (see ADR 0028; `LocalFileStorage` has none).
+   * backend cannot support direct upload (`LocalFileStorage` has none).
    * `attachmentCapabilities` reports `directUploadEnabled` exactly when this method exists. The
    * returned `headers` are the exact headers the caller must send with the PUT — including
    * whichever header this backend uses to refuse to overwrite an existing object.

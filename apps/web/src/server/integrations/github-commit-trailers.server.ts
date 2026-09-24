@@ -1,4 +1,4 @@
-import type { PrismaClient } from "../../../generated/client";
+import type { PrismaClient } from "#src/generated/prisma/client";
 import { readGitHubAppBotIdentity } from "./github-config.server";
 
 /**

@@ -1,10 +1,10 @@
 import { createFileRoute, notFound } from "@tanstack/react-router";
 
-import { PageLoadError } from "@/features/errors/page-load-error";
-import { RecordDetail } from "@/features/records/record-detail";
-import { loadRecordSubject } from "@/features/records/records.functions";
-import { sanitizeRecordsReturnTo } from "@/features/records/records-return-to";
-import { isAppError } from "@/lib/app-error";
+import { PageLoadError } from "#src/features/errors/page-load-error";
+import { RecordDetail } from "#src/features/records/record-detail";
+import { loadRecordSubject } from "#src/features/records/records.functions";
+import { sanitizeRecordsReturnTo } from "#src/features/records/records-return-to";
+import { isAppError } from "#src/lib/app-error";
 
 export const Route = createFileRoute("/_app/records/$recordId")({
   // Loader may run on the server; TipTap must not SSR (client-only).

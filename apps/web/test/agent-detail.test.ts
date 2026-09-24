@@ -1,14 +1,14 @@
 import { describe, expect, test } from "bun:test";
 
-import { AppError } from "../src/lib/app-error";
-import { AgentDetailQuery } from "../src/server/agents/agent-detail.server";
+import { AppError } from "#src/lib/app-error";
+import { AgentDetailQuery } from "#src/server/agents/agent-detail.server";
 import {
   presentActivity,
   presentActivityRows,
   agentDisplay,
-} from "../src/features/agents/agent-activity-presentation";
+} from "#src/features/agents/agent-activity-presentation";
 import type { AgentDisplaySnapshot } from "@lrm/coforge-sdk/internal";
-import type { ActivityEntry } from "../src/features/agents/agent-activity";
+import type { ActivityEntry } from "#src/features/agents/agent-activity";
 
 function display(overrides: Partial<AgentDisplaySnapshot> = {}): AgentDisplaySnapshot {
   return {
@@ -93,7 +93,7 @@ test("formats only the cloud display decision even when its raw detail kind conf
   });
 });
 
-test("a stopped Agent (ADR 0038) keeps its real display kind and label, adding only a status caption", () => {
+test("a stopped Agent keeps its real display kind and label, adding only a status caption", () => {
   const offline = display({ activityKind: "offline", detailKind: "model_response_started" });
   expect(agentDisplay(offline, { stopped: true })).toMatchObject({
     kind: "offline",
@@ -148,7 +148,6 @@ test("status presentation uses backend detail instead of hardcoding the received
   ]);
 });
 
-// ADR 0021
 test("compacting_context uses a dedicated label instead of the generic working text", () => {
   const observation = {
     activityKind: "working" as const,
@@ -166,7 +165,6 @@ test("compacting_context uses a dedicated label instead of the generic working t
   ]);
 });
 
-// ADR 0021, amended
 test.each([
   ["tool_end", "Tool finished"],
   ["thinking_end", "Thinking finished"],
@@ -491,20 +489,7 @@ test("a newly appended fragment keeps the same row key as the statement grows", 
 });
 
 describe("Agent detail", () => {
-  test("keeps authorized profile and Activity available when status cannot be read", async () => {
-    const activity = [
-      {
-        id: "activity-1",
-        computerId: "computer-1",
-        launchId: "launch-1",
-        clientSeq: 1,
-        detailKind: "model_response_started",
-        level: "info",
-        detail: "Working",
-        observedAtMs: Date.parse("2026-08-29T02:00:00Z"),
-        createdAt: new Date("2026-08-29T02:00:01Z"),
-      },
-    ];
+  test("keeps the authorized profile available when status cannot be read", async () => {
     const query = new AgentDetailQuery(
       {
         findAuthorized: async () => ({
@@ -518,7 +503,6 @@ describe("Agent detail", () => {
           owner: { id: "owner-1", username: "alice" },
           runtimeConfig: {},
         }),
-        listActivity: async () => activity,
       },
       {
         snapshot: async () => {
@@ -530,7 +514,6 @@ describe("Agent detail", () => {
     const result = await query.get("workspace-1", "agent-1", "viewer-1");
 
     expect(result?.displayName).toBe("Builder");
-    expect(result?.activity).toEqual(activity);
     expect(result?.status).toEqual({
       value: "unknown",
       expiresAt: null,
@@ -538,13 +521,10 @@ describe("Agent detail", () => {
     });
   });
 
-  test("propagates AGENT_NOT_VISIBLE from findAuthorized instead of reading it as absent (ADR 0059)", async () => {
+  test("propagates AGENT_NOT_VISIBLE from findAuthorized instead of reading it as absent", async () => {
     const query = new AgentDetailQuery({
       findAuthorized: async () => {
         throw new AppError("AGENT_NOT_VISIBLE");
-      },
-      listActivity: async () => {
-        throw new Error("must not read Activity for an Agent the caller cannot see");
       },
     });
 
@@ -553,7 +533,7 @@ describe("Agent detail", () => {
     );
   });
 
-  test("exposes stopped from stoppedAt (ADR 0038)", async () => {
+  test("exposes stopped from stoppedAt", async () => {
     const baseAgent = {
       id: "agent-1",
       workspaceId: "workspace-1",
@@ -567,18 +547,16 @@ describe("Agent detail", () => {
     };
     const stoppedQuery = new AgentDetailQuery({
       findAuthorized: async () => ({ ...baseAgent, stoppedAt: new Date("2026-09-17T00:00:00Z") }),
-      listActivity: async () => [],
     });
     expect((await stoppedQuery.get("workspace-1", "agent-1", "viewer-1"))?.stopped).toBe(true);
 
     const runningQuery = new AgentDetailQuery({
       findAuthorized: async () => ({ ...baseAgent, stoppedAt: null }),
-      listActivity: async () => [],
     });
     expect((await runningQuery.get("workspace-1", "agent-1", "viewer-1"))?.stopped).toBe(false);
   });
 
-  test("returns the complete profile and newest-first Activity to a Workspace member", async () => {
+  test("returns the complete profile to a Workspace member", async () => {
     const query = new AgentDetailQuery({
       findAuthorized: async () => ({
         id: "agent-1",
@@ -595,30 +573,6 @@ describe("Agent detail", () => {
           reasoning: "high",
         },
       }),
-      listActivity: async () => [
-        {
-          id: "activity-2",
-          computerId: "computer-12345678",
-          launchId: "launch-2",
-          clientSeq: 2,
-          detailKind: "model_response_started",
-          level: "info",
-          detail: "Working",
-          observedAtMs: Date.parse("2026-08-29T02:00:00Z"),
-          createdAt: new Date("2026-08-29T02:00:01Z"),
-        },
-        {
-          id: "activity-1",
-          computerId: "computer-old",
-          launchId: "launch-1",
-          clientSeq: 1,
-          detailKind: "runtime_error",
-          level: "error",
-          detail: "Agent runtime could not be started.",
-          observedAtMs: Date.parse("2026-08-29T01:00:00Z"),
-          createdAt: new Date("2026-08-29T01:00:01Z"),
-        },
-      ],
     });
 
     const result = await query.get("workspace-1", "agent-1", "viewer-1");
@@ -630,8 +584,6 @@ describe("Agent detail", () => {
       reasoning: "high",
     });
     expect(result?.computer).toBeUndefined();
-    expect(result?.latestError).toBeUndefined();
-    expect(result?.activity.map((entry) => entry.id)).toEqual(["activity-2", "activity-1"]);
   });
 
   test("labels the assigned Computer by display name instead of a truncated id", async () => {
@@ -653,19 +605,6 @@ describe("Agent detail", () => {
         owner: { id: "owner-1", username: "alice" },
         runtimeConfig: {},
       }),
-      listActivity: async () => [
-        {
-          id: "activity-2",
-          computerId: "computer-12345678",
-          launchId: "launch-2",
-          clientSeq: 2,
-          detailKind: "model_response_started",
-          level: "info",
-          detail: "Working",
-          observedAtMs: Date.parse("2026-08-29T02:00:00Z"),
-          createdAt: new Date("2026-08-29T02:00:01Z"),
-        },
-      ],
     });
 
     const result = await query.get("workspace-1", "agent-1", "viewer-1");
@@ -696,7 +635,6 @@ describe("Agent detail", () => {
         owner: { id: "owner-1", username: "alice" },
         runtimeConfig: {},
       }),
-      listActivity: async () => [],
     });
 
     const result = await query.get("workspace-1", "agent-1", "viewer-1");
@@ -708,56 +646,9 @@ describe("Agent detail", () => {
     });
   });
 
-  test.each([
-    ["starting", "info", false],
-    ["model_response_started", "info", false],
-    ["thinking_started", "info", false],
-    ["idle", "info", false],
-    ["stopped", "info", true],
-    ["warning", "warning", true],
-    ["unknown", "info", true],
-    ["running", "info", true],
-    ["error", "error", true],
-  ])("only recovery supersedes failures: %s", async (detailKind, level, showError) => {
-    const entries = [
-      { id: "new", detailKind, level },
-      { id: "failure", detailKind: "runtime_error", level: "error" },
-      { id: "old-start", detailKind: "starting", level: "info" },
-    ].map((entry, index) => ({
-      ...entry,
-      computerId: "computer-1",
-      launchId: "launch-1",
-      clientSeq: 3 - index,
-      detail: entry.detailKind,
-      observedAtMs: 3000 - index * 1000,
-      createdAt: new Date(3000 - index * 1000),
-    }));
-    const query = new AgentDetailQuery({
-      findAuthorized: async () => ({
-        id: "agent-1",
-        workspaceId: "workspace-1",
-        name: "builder",
-        displayName: "Builder",
-        role: "member",
-        createdAt: new Date(0),
-        owner: { id: "owner-1", username: "alice" },
-        runtimeConfig: {},
-      }),
-      listActivity: async () => entries,
-    });
-    const result = await query.get("workspace-1", "agent-1", "viewer-1");
-    expect(result?.latestError?.id).toBe(
-      showError ? (level === "error" ? "new" : "failure") : undefined,
-    );
-    expect(result?.activity).toEqual(entries);
-  });
-
   test("does not expose an Agent outside the viewer's Workspace authorization", async () => {
     const query = new AgentDetailQuery({
       findAuthorized: async () => undefined,
-      listActivity: async () => {
-        throw new Error("must not load activity");
-      },
     });
     expect(await query.get("workspace-1", "agent-1", "outsider")).toBeUndefined();
   });

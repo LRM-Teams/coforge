@@ -1,5 +1,5 @@
-import type { MessageTaskMetadata } from "../internal/local-daemon";
-import type { MessageSenderKind } from "../internal/message-sender";
+import type { MessageTaskMetadata } from "#src/internal/local-daemon";
+import type { MessageSenderKind } from "#src/internal/message-sender";
 
 export type AgentMessageOperation = "read" | "search" | "send";
 

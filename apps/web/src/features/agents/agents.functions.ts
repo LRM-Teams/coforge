@@ -14,71 +14,71 @@ import {
   updateAgentRoleInputSchema,
 } from "./agent.schemas";
 import { AGENT_VISIBILITY } from "./agent-visibility";
-import { publishAgentVisibilityChanged } from "../../server/agents/agent-visibility-realtime.server";
-import { ChangeAgentVisibility } from "../../server/agents/change-agent-visibility.server";
-import { PrismaChangeAgentVisibilityStore } from "../../server/db/repositories/agent-visibility-change.repositories.server";
-import { setAgentRole } from "../../server/agents/agent-role.server";
-import { AppError } from "../../lib/app-error";
-import { ACTIVE_AGENT_WHERE } from "../../server/agents/active-agent.server";
-import { AgentAvatars, agentAvatarUrl } from "../../server/agents/agent-avatar.server";
-import { isAdminLike, type WorkspaceMemberRole } from "../../server/workspaces/member-role.server";
-import { requireDatabaseClient } from "../../server/db/client.server";
+import { publishAgentVisibilityChanged } from "#src/server/agents/agent-visibility-realtime.server";
+import { ChangeAgentVisibility } from "#src/server/agents/change-agent-visibility.server";
+import { AgentInboxPurgePublisher } from "#src/server/agents/agent-inbox-purge.server";
+import { PrismaChangeAgentVisibilityStore } from "#src/server/db/repositories/agent-visibility-change.repositories.server";
+import { setAgentRole } from "#src/server/agents/agent-role.server";
+import { AppError } from "#src/lib/app-error";
+import { ACTIVE_AGENT_WHERE } from "#src/server/agents/active-agent.server";
+import { AgentAvatars, agentAvatarUrl } from "#src/server/agents/agent-avatar.server";
+import { isAdminLike, type WorkspaceMemberRole } from "#src/server/workspaces/member-role.server";
+import { requireDatabaseClient } from "#src/server/db/client.server";
 import {
   PrismaAgentRepository,
   RepositoryAgentAuthorization,
-} from "../../server/db/repositories/agent.repositories.server";
-import { ManageAgents } from "../../server/agents/manage-agents.server";
-import { AgentDeletion } from "../../server/agents/agent-deletion.server";
-import { PrismaAgentDeletionStore } from "../../server/db/repositories/agent-deletion.repositories.server";
-import { PublishAgentRuntimeControl } from "../../server/agents/agent-runtime-control.server";
-import { AgentControl } from "../../server/agents/agent-control.server";
-import { getAgentControlSignal } from "../../server/agents/agent-control-signal.server";
-import { PrismaAgentControlStore } from "../../server/db/repositories/agent-control.repositories.server";
-import { createCentrifugoServerApi } from "../../server/centrifugo/server-api.server";
+} from "#src/server/db/repositories/agent.repositories.server";
+import { ManageAgents } from "#src/server/agents/manage-agents.server";
+import { AgentDeletion } from "#src/server/agents/agent-deletion.server";
+import { PrismaAgentDeletionStore } from "#src/server/db/repositories/agent-deletion.repositories.server";
+import { PublishAgentRuntimeControl } from "#src/server/agents/agent-runtime-control.server";
+import { AgentControl } from "#src/server/agents/agent-control.server";
+import { getAgentControlSignal } from "#src/server/agents/agent-control-signal.server";
+import { PrismaAgentControlStore } from "#src/server/db/repositories/agent-control.repositories.server";
+import { createCentrifugoServerApi } from "#src/server/centrifugo/server-api.server";
 import {
   authMiddleware,
   workspaceUserMiddleware,
   type WorkspaceUserContext,
-} from "../../server/auth/function-auth";
-import { ActionCards } from "../../server/conversations/action-cards.server";
-import { CentrifugoConversationRealtime } from "../../server/conversations/conversation-realtime.server";
-import { AgentDetailQuery } from "../../server/agents/agent-detail.server";
+} from "#src/features/auth/function-auth";
+import { ActionCards } from "#src/server/conversations/action-cards.server";
+import { CentrifugoConversationRealtime } from "#src/server/conversations/conversation-realtime.server";
+import { AgentDetailQuery } from "#src/server/agents/agent-detail.server";
 import {
   agentVisibilityViewerForUser,
   assertAgentVisible,
   visiblePrivateAgentWhere,
   type AgentVisibilityViewer,
-} from "../../server/agents/agent-visibility.server";
-import { AgentActivityRepository } from "../../server/db/repositories/agent-activity.repositories.server";
-import { workspaceIdForUser } from "../../server/workspaces/enrollment.server";
-import { workspaceMemberRole } from "../../server/workspaces/members.server";
-import { workspaceUserAvatarUrl } from "../../server/db/repositories/user-profile.repositories.server";
-import { ComputerRuntimeVisibility } from "../../server/computers/computer-runtime-visibility.server";
-import { PrismaComputerRuntimeRepository } from "../../server/db/repositories/computer-runtime.repositories.server";
-import { PrismaAgentRuntimeCredentialRepository } from "../../server/db/repositories/agent-runtime-credential.repositories.server";
+} from "#src/server/agents/agent-visibility.server";
+import { workspaceIdForUser } from "#src/server/workspaces/enrollment.server";
+import { workspaceMemberRole } from "#src/server/workspaces/members.server";
+import { workspaceUserAvatarUrl } from "#src/server/db/repositories/user-profile.repositories.server";
+import { ComputerRuntimeVisibility } from "#src/server/computers/computer-runtime-visibility.server";
+import { PrismaComputerRuntimeRepository } from "#src/server/db/repositories/computer-runtime.repositories.server";
+import { PrismaAgentRuntimeCredentialRepository } from "#src/server/db/repositories/agent-runtime-credential.repositories.server";
 import {
   AgentRuntimeCredentials,
   readAgentRuntimeCredentialEncryptionKey,
-} from "../../server/agents/agent-runtime-credentials.server";
-import { ChangeAgentRuntimeCredential } from "../../server/agents/change-agent-runtime-credential.server";
-import { getAgentRuntimeLock } from "../../server/agents/agent-runtime-lock.server";
-import { agentRuntimeSelectionIsAvailable } from "../../server/agents/agent-runtime-availability.server";
-import { ensureWeeklyReportAssistant } from "../../server/records/weekly-report-assistant.server";
+} from "#src/server/agents/agent-runtime-credentials.server";
+import { ChangeAgentRuntimeCredential } from "#src/server/agents/change-agent-runtime-credential.server";
+import { getAgentRuntimeLock } from "#src/server/agents/agent-runtime-lock.server";
+import { agentRuntimeSelectionIsAvailable } from "#src/server/agents/agent-runtime-availability.server";
+import { ensureWeeklyReportAssistant } from "#src/server/records/weekly-report-assistant.server";
 import {
   parseAgentRuntimeConfig,
   publicAgentRuntimeConfig,
-} from "../../server/agents/agent-runtime-config.server";
-import { getAgentStatusCache } from "../../server/agents/agent-status.server";
-import { getComputerStatusCache } from "../../server/centrifugo/computer-status.server";
-import { createAgentSessions } from "../../server/db/repositories/agent-session.repositories.server";
-import { getAgentDisplay } from "../../server/agents/agent-display.server";
-import { AgentEnvironment } from "../../server/agents/agent-environment.server";
+} from "#src/server/agents/agent-runtime-config.server";
+import { getAgentStatusCache } from "#src/server/agents/agent-status.server";
+import { getComputerStatusCache } from "#src/server/centrifugo/computer-status.server";
+import { createAgentSessions } from "#src/server/db/repositories/agent-session.repositories.server";
+import { getAgentDisplay } from "#src/server/agents/agent-display.server";
+import { AgentEnvironment } from "#src/server/agents/agent-environment.server";
 import {
   issueAgentActivitySubscriptionToken,
   issueAgentActivitySubscriptionTokenForAgent,
   issueAgentStatusSubscriptionToken,
   issueAgentStatusSubscriptionTokenForAgent,
-} from "../../server/auth/browser-realtime-token.server";
+} from "#src/server/auth/browser-realtime-token.server";
 
 type Database = ReturnType<typeof requireDatabaseClient>;
 
@@ -204,6 +204,7 @@ function changeAgentVisibilityUseCase(db: Database) {
     new PrismaAgentRepository(db),
     new PrismaChangeAgentVisibilityStore(db),
     publishAgentVisibilityChanged,
+    new AgentInboxPurgePublisher(db),
   );
 }
 
@@ -283,7 +284,7 @@ export const getAgentActivitySubscriptionToken = createServerFn({
     return issueAgentActivitySubscriptionToken({ userId: user.id, workspaceId });
   });
 
-/** The minimal row `assertAgentVisible` (ADR 0059) needs for the per-Agent subscription-token
+/** The minimal row `assertAgentVisible` needs for the per-Agent subscription-token
  * endpoints below — never the full `AgentRecord`, and never cached. */
 async function agentVisibilityRow(db: Database, agentId: string) {
   return db.agent.findUnique({
@@ -293,7 +294,7 @@ async function agentVisibilityRow(db: Database, agentId: string) {
 }
 
 /**
- * ADR 0059: a per-Agent realtime subscription token is only ever issued to a viewer who can
+ * A per-Agent realtime subscription token is only ever issued to a viewer who can
  * currently see that Agent — an unrecognized/missing Agent and an invisible one answer the same
  * `AGENT_NOT_VISIBLE`, so neither leaks which case applies.
  */
@@ -331,7 +332,7 @@ export const getAgentStatusSubscriptionTokenForAgent = createServerFn({ method: 
   });
 
 /**
- * ADR 0059 realtime gap: the viewer's own `listAgents` roster (their owned Agents) is narrower
+ * Realtime gap: the viewer's own `listAgents` roster (their owned Agents) is narrower
  * than what they are authorized to see — an owner/admin, or a private Agent's creator viewing it
  * from outside their own roster, can still see other private Agents. This returns exactly the
  * ids the browser needs to subscribe the matching per-Agent realtime channels for, never a full
@@ -360,7 +361,7 @@ export const createAgent = createServerFn({ method: "POST" })
       getRequest().headers.get("accept-language") ?? "",
     );
     const role = await workspaceMemberRole(db, workspaceId, user.id);
-    // An `agent:create` action card (ADR 0027 "Commit and cancel"): guard it is still committable
+    // An `agent:create` action card: guard it is still committable
     // *before* creating the Agent, then mark it `executed` *after* — `ManageAgents.create` below
     // enforces `assertCanCreateAgents` itself, so a plain member fails there and the card stays
     // `pending`; see `ActionCards`'s ordering comment in `action-cards.server.ts`.
@@ -420,7 +421,7 @@ export const updateAgentRole = createServerFn({ method: "POST" })
   );
 
 /**
- * Changes one Agent's visibility (ADR 0059): the creator or a human Workspace owner/admin only.
+ * Changes one Agent's visibility: the creator or a human Workspace owner/admin only.
  * `ChangeAgentVisibility.execute` authorizes and runs the transition; the shared
  * `AppError`→HTTP mapping surfaces `NOT_FOUND`/`ACCESS_DENIED` to the profile panel's inline
  * error the same way every other Agent mutation does.
@@ -455,14 +456,14 @@ export const previewAgentVisibilityChange = createServerFn({ method: "GET" })
 
 /**
  * Backs `getAgentProfile`, the one seam the Members page and every conversation panel share:
- * identity, permissions, live display, runtime config summary and Activity. Does not run
+ * identity, permissions, live display and runtime config summary. Activity history is not part
+ * of it: the Activity tab reads its own feed (`getAgentActivityFeed`). Does not run
  * `listComputers`/`getUserPreferences` — those stay owned by the route loaders that actually need
  * a Computer picker or a User's time zone preference.
  */
 async function loadAgentProfileDetail(context: WorkspaceUserContext, agentId: string) {
   const { user, db, workspaceId } = context;
-  const activity = new AgentActivityRepository(db);
-  // Fetched once, ahead of `AgentDetailQuery` so `findAuthorized`'s visibility gate (ADR 0059)
+  // Fetched once, ahead of `AgentDetailQuery` so `findAuthorized`'s visibility gate
   // and `canManageAgentRole` below share this single membership lookup.
   const viewerMembership = await db.workspaceMembership.findUnique({
     where: { workspaceId_userId: { workspaceId, userId: user.id } },
@@ -481,7 +482,7 @@ async function loadAgentProfileDetail(context: WorkspaceUserContext, agentId: st
             id,
             workspaceId,
             workspace: { members: { some: { userId } } },
-            // ADR 0044: a deleted Agent has no profile to open; its history stays readable
+            // A deleted Agent has no profile to open; its history stays readable
             // through the conversation views instead.
             ...ACTIVE_AGENT_WHERE,
           },
@@ -514,13 +515,12 @@ async function loadAgentProfileDetail(context: WorkspaceUserContext, agentId: st
           },
         });
         if (!agent) return undefined;
-        // ADR 0059: an existing-but-invisible Agent answers a stable "not visible" result, never
+        // An existing-but-invisible Agent answers a stable "not visible" result, never
         // its details — distinct from the plain absence above so the profile panel can render
         // the specific "not visible" copy instead of a generic "not found".
         assertAgentVisible(viewer, { visibility: agent.visibility, ownerId: agent.owner.id });
         return agent;
       },
-      listActivity: (workspaceId, id) => activity.list(workspaceId, id),
     },
     {
       snapshot: (scope) => getAgentStatusCache().snapshot(scope),
@@ -543,11 +543,11 @@ async function loadAgentProfileDetail(context: WorkspaceUserContext, agentId: st
   // `resetAgentWorkspace` (Full reset) is owner/admin only, same role check as agent-role
   // management. Server-side authorization lives in AgentControl.execute(); this is UI gating.
   const canFullResetAgent = canManageAgentRole;
-  // ADR 0044: Raft's `deleteAgents` is owner/admin only, the same gate as `createAgents`. The
+  // Raft's `deleteAgents` is owner/admin only, the same gate as `createAgents`. The
   // weekly-report assistant is provisioned by Records on demand, so it is never a delete target
   // even for an owner/admin viewer. Server-side authorization lives in `AgentDeletion.delete()`.
   const canDeleteAgent = canManageAgentRole && !result.isWeeklyReportAssistant;
-  // ADR 0059: the creator or a human Workspace owner/admin may change visibility; never an Agent
+  // The creator or a human Workspace owner/admin may change visibility; never an Agent
   // (this seam is always reached by a human viewer) and never a plain member acting on someone
   // else's Agent.
   const canChangeVisibility = ownedByCurrentUser || canManageAgentRole;
@@ -663,7 +663,7 @@ export const deleteAgentRuntimeCredential = createServerFn({ method: "POST" })
   });
 
 /**
- * Deletes an Agent (ADR 0044): Raft's `deleteAgents` capability, Workspace owner/admin only. The
+ * Deletes an Agent: Raft's `deleteAgents` capability, Workspace owner/admin only. The
  * typed name is re-checked against the Agent's current `name` here, inside the same call that
  * performs the delete, so a concurrent rename cannot bypass confirmation — the same guard
  * `ProjectSettings.delete` uses. Deleting the Agent's own runtime credential is a separate

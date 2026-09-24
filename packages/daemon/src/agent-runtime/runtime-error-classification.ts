@@ -49,7 +49,7 @@ export const RUNTIME_ERROR_RETRY_DECISION = {
    * not folded into its sticky-terminal/action-required class) — a stuck provider needs a
    * kill/restart, not a redelivered message. A future CR that gives `terminal` real teeth (D:
    * stopping the Agent, prompting re-auth) must re-examine `TimeoutError` specifically before
-   * attaching that behavior to it; see docs/adr/0055's "TimeoutError's scope" note.
+   * attaching that behavior to it.
    */
   TERMINAL: "terminal",
 } as const;

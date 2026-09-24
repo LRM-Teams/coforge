@@ -3,17 +3,21 @@ import { z } from "zod";
 import {
   workspaceUserMiddleware,
   type WorkspaceUserContext,
-} from "../../server/auth/function-auth";
-import { AppError } from "../../lib/app-error";
-import { PublicChannels } from "../../server/conversations/public-channels.server";
-import { attachActionCardViews } from "../../server/conversations/action-cards.server";
-import { attachmentView } from "../../server/attachments/attachment-view.server";
-import { attachmentIdsSchema, conversationPageInputSchema } from "./conversation.schemas";
-import { CentrifugoConversationRealtime } from "../../server/conversations/conversation-realtime.server";
-import { createCentrifugoServerApi } from "../../server/centrifugo/server-api.server";
-import { bestEffortMessageNotifier } from "../../server/notifications/web-push-composition.server";
-import { browserMessageMention } from "../../server/conversations/mentions";
-import { workspaceUserAvatarUrl } from "../../server/db/repositories/user-profile.repositories.server";
+} from "#src/features/auth/function-auth";
+import { AppError, isAppError } from "#src/lib/app-error";
+import { PublicChannels } from "#src/server/conversations/public-channels.server";
+import { attachActionCardViews } from "#src/server/conversations/action-cards.server";
+import { attachmentView } from "#src/server/attachments/attachment-view.server";
+import {
+  CHANNEL_NAME_PATTERN,
+  attachmentIdsSchema,
+  conversationPageInputSchema,
+} from "./conversation.schemas";
+import { CentrifugoConversationRealtime } from "#src/server/conversations/conversation-realtime.server";
+import { createCentrifugoServerApi } from "#src/server/centrifugo/server-api.server";
+import { bestEffortMessageNotifier } from "#src/server/notifications/web-push-composition.server";
+import { browserMessageMention } from "#src/server/conversations/mentions.server";
+import { workspaceUserAvatarUrl } from "#src/server/db/repositories/user-profile.repositories.server";
 
 const channelInput = z.object({ channelId: z.uuid() });
 const channelPageInput = channelInput.extend(conversationPageInputSchema);
@@ -45,14 +49,20 @@ export const listPublicChannels = createServerFn({ method: "GET" })
     return channels.list(workspaceId, userId);
   });
 
+/** Every channel's id and current name, closed ones included: what a body's channel references
+ * link by. */
+export const listChannelNames = createServerFn({ method: "GET" })
+  .middleware([workspaceUserMiddleware])
+  .handler(async ({ context }) => {
+    const { channels, workspaceId, userId } = channelScope(context);
+    return channels.names(workspaceId, userId);
+  });
+
 export const createPublicChannel = createServerFn({ method: "POST" })
   .middleware([workspaceUserMiddleware])
   .validator(
     z.object({
-      name: z
-        .string()
-        .trim()
-        .regex(/^[a-z0-9][a-z0-9_-]{0,31}$/),
+      name: z.string().trim().regex(CHANNEL_NAME_PATTERN),
       projectId: z.uuid().optional(),
     }),
   )
@@ -123,7 +133,22 @@ export const addPublicChannelMembers = createServerFn({ method: "POST" })
     });
   });
 
-/** Promote/demote a channel member's stored `channelRole` (ADR 0030). Human-only: there is no
+/** The sender acts on mentions of their own messages that did not reach someone outside the
+ * channel: `add` makes each target a channel member. */
+export const executeMentionActions = createServerFn({ method: "POST" })
+  .middleware([workspaceUserMiddleware])
+  .validator(
+    z.object({
+      action: z.literal("add"),
+      resolutionIds: z.array(z.uuid()).min(1).max(20),
+    }),
+  )
+  .handler(async ({ data, context }) => {
+    const { channels, workspaceId, userId } = channelScope(context);
+    return channels.executeMentionActions(workspaceId, userId, data.action, data.resolutionIds);
+  });
+
+/** Promote/demote a channel member's stored `channelRole`. Human-only: there is no
  * Agent CLI/API route for this. `PublicChannels.setChannelRole` enforces `manage_roles`
  * (Workspace owner/admin, or channel admin of this channel) and rejects `#general`. */
 export const setPublicChannelMemberRole = createServerFn({ method: "POST" })
@@ -190,12 +215,89 @@ export const removePublicChannelMember = createServerFn({ method: "POST" })
     );
   });
 
+/** The settings panel's Info form: renames the channel and/or changes its description. */
+export const updatePublicChannelInfo = createServerFn({ method: "POST" })
+  .middleware([workspaceUserMiddleware])
+  .validator(
+    channelInput.extend({
+      name: z.string().trim().optional(),
+      description: z.string().trim().optional(),
+    }),
+  )
+  .handler(async ({ data, context }) => {
+    const { channels, workspaceId, userId } = channelScope(context);
+    return channels.updateInfo(workspaceId, { userId }, data.channelId, {
+      name: data.name,
+      description: data.description,
+    });
+  });
+
+export const setPublicChannelArchived = createServerFn({ method: "POST" })
+  .middleware([workspaceUserMiddleware])
+  .validator(channelInput.extend({ archived: z.boolean() }))
+  .handler(async ({ data, context }) => {
+    const { channels, workspaceId, userId } = channelScope(context);
+    return channels.setArchived(workspaceId, { userId }, data.channelId, data.archived);
+  });
+
+/** Whether `#general` is hidden from the whole Workspace, for Settings → System channels; `null`
+ * for anyone but a Workspace owner or admin (or a Workspace without #general), who get no such
+ * section. */
+export const loadGeneralChannelHidden = createServerFn({ method: "GET" })
+  .middleware([workspaceUserMiddleware])
+  .handler(async ({ context }): Promise<{ hidden: boolean } | null> => {
+    const { channels, workspaceId, userId } = channelScope(context);
+    try {
+      return { hidden: await channels.generalHidden(workspaceId, userId) };
+    } catch (error) {
+      if (isAppError(error) && (error.code === "ACCESS_DENIED" || error.code === "NOT_FOUND"))
+        return null;
+      throw error;
+    }
+  });
+
+/** Hides `#general` from the whole Workspace, or restores it (owner/admin only). */
+export const setGeneralChannelHidden = createServerFn({ method: "POST" })
+  .middleware([workspaceUserMiddleware])
+  .validator(z.object({ hidden: z.boolean() }))
+  .handler(async ({ data, context }) => {
+    const { channels, workspaceId, userId } = channelScope(context);
+    return channels.setGeneralHidden(workspaceId, userId, data.hidden);
+  });
+
 export const setPublicChannelMuted = createServerFn({ method: "POST" })
   .middleware([workspaceUserMiddleware])
   .validator(channelInput.extend({ muted: z.boolean() }))
   .handler(async ({ data, context }) => {
     const { channels, workspaceId, userId } = channelScope(context);
     return channels.setUserMuted(workspaceId, userId, data.channelId, data.muted);
+  });
+
+/** Pins the conversation after this member's other pins, or unpins it (#121). */
+export const setPublicConversationPinned = createServerFn({ method: "POST" })
+  .middleware([workspaceUserMiddleware])
+  .validator(channelInput.extend({ pinned: z.boolean() }))
+  .handler(async ({ data, context }) => {
+    const { channels, workspaceId, userId } = channelScope(context);
+    return channels.setUserPinned(workspaceId, userId, data.channelId, data.pinned);
+  });
+
+/** Marks the conversation unread for this member, or clears the marker (#122). */
+export const setPublicConversationUnread = createServerFn({ method: "POST" })
+  .middleware([workspaceUserMiddleware])
+  .validator(channelInput.extend({ unread: z.boolean() }))
+  .handler(async ({ data, context }) => {
+    const { channels, workspaceId, userId } = channelScope(context);
+    return channels.setUserUnread(workspaceId, userId, data.channelId, data.unread);
+  });
+
+/** Closes (hides) the conversation for this member only, or brings it back (#122). */
+export const setPublicConversationHidden = createServerFn({ method: "POST" })
+  .middleware([workspaceUserMiddleware])
+  .validator(channelInput.extend({ hidden: z.boolean() }))
+  .handler(async ({ data, context }) => {
+    const { channels, workspaceId, userId } = channelScope(context);
+    return channels.setUserHidden(workspaceId, userId, data.channelId, data.hidden);
   });
 
 export const markPublicChannelThreadRead = createServerFn({ method: "POST" })
@@ -297,6 +399,8 @@ export const sendPublicChannelMessage = createServerFn({ method: "POST" })
       reactions: undefined,
       // A human-sent message never carries an action card (those are Agent-authored only).
       actionCard: undefined,
+      unresolvedMentionHandles: message.unresolvedMentionHandles,
+      pendingMentionActions: message.pendingMentionActions,
     };
   });
 

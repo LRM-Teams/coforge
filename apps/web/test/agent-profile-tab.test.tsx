@@ -7,11 +7,11 @@ import { RUNTIME_PROVIDER } from "@lrm/coforge-sdk/internal";
 import {
   AgentProfileTab,
   visibilityChangeTarget,
-} from "@/features/agents/profile-panel/agent-profile-tab";
-import type { AgentRuntimeControls } from "@/features/agents/agent-runtime-controls";
-import type { getAgentProfile } from "@/features/agents/agents.functions";
-import { formatDateForDisplay } from "@/lib/dates";
-import { m } from "@/paraglide/messages";
+} from "#src/features/agents/profile-panel/agent-profile-tab";
+import type { AgentRuntimeControls } from "#src/features/agents/agent-runtime-controls";
+import type { getAgentProfile } from "#src/features/agents/agents.functions";
+import { formatDateForDisplay } from "#src/lib/dates";
+import { m } from "#src/paraglide/messages";
 
 type AgentProfile = NonNullable<Awaited<ReturnType<typeof getAgentProfile>>>;
 
@@ -46,8 +46,6 @@ function profileFixture(overrides: Partial<AgentProfile> = {}): AgentProfile {
     isWeeklyReportAssistant: false,
     stopped: false,
     status: { value: "active", expiresAt: null, ordering: null },
-    latestError: undefined,
-    activity: [],
     ownedByCurrentUser: false,
     runtimeCredential: null,
     canManageAgentRole: false,

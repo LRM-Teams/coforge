@@ -1,87 +1,30 @@
 <!-- intent-skills:start -->
-# TanStack Intent - before editing files, run the matching guidance command.
-tanstackIntent:
-  - id: "@tanstack/react-start#lifecycle/migrate-from-nextjs"
-    run: "cat .agents/skills/tanstack-react-start/lifecycle/migrate-from-nextjs/SKILL.md"
-    for: "Step-by-step migration from Next.js App Router to TanStack Start: route definition conversion, API mapping, server function conversion from Server Actions, middleware conversion, data fetching pattern changes."
-  - id: "@tanstack/react-start#react-start"
-    run: "cat .agents/skills/tanstack-react-start/SKILL.md"
-    for: "React bindings for TanStack Start: createStart, StartClient, StartServer, React-specific imports, re-exports from @tanstack/react-router, full project setup with React, useServerFn hook."
-  - id: "@tanstack/react-start#react-start/server-components"
-    run: "cat .agents/skills/tanstack-react-start/server-components/SKILL.md"
-    for: "Implement, review, debug, and refactor TanStack Start React Server Components in React 19 apps. Use when tasks mention @tanstack/react-start/rsc, renderServerComponent, createCompositeComponent, CompositeComponent, renderToReadableStream, createFromReadableStream, createFromFetch, Composite Components, React Flight streams, loader or query owned RSC caching, router.invalidate, structuralSharing: false, selective SSR, stale names like renderRsc or .validator, or migration from Next App Router RSC patterns. Do not use for generic SSR or non-TanStack RSC frameworks except brief comparison."
-  - id: "@tanstack/router-core#router-core"
-    run: "cat .agents/skills/tanstack-router-core/SKILL.md"
-    for: "Framework-agnostic core concepts for TanStack Router: route trees, createRouter, createRoute, createRootRoute, createRootRouteWithContext, addChildren, Register type declaration, route matching, route sorting, file naming conventions. Entry point for all router skills."
-  - id: "@tanstack/router-core#router-core/auth-and-guards"
-    run: "cat .agents/skills/tanstack-router-core/auth-and-guards/SKILL.md"
-    for: "Route protection with beforeLoad, redirect()/throw redirect(), isRedirect helper, authenticated layout routes (_authenticated), non-redirect auth (inline login), RBAC with roles and permissions, auth provider integration (Auth0, Clerk, Supabase), router context for auth state."
-  - id: "@tanstack/router-core#router-core/code-splitting"
-    run: "cat .agents/skills/tanstack-router-core/code-splitting/SKILL.md"
-    for: "Automatic code splitting (autoCodeSplitting), .lazy.tsx convention, createLazyFileRoute, createLazyRoute, lazyRouteComponent, getRouteApi for typed hooks in split files, codeSplitGroupings per-route override, splitBehavior programmatic config, critical vs non-critical properties."
-  - id: "@tanstack/router-core#router-core/data-loading"
-    run: "cat .agents/skills/tanstack-router-core/data-loading/SKILL.md"
-    for: "Route loader option, loaderDeps for cache keys, staleTime/gcTime/ defaultPreloadStaleTime SWR caching, pendingComponent/pendingMs/ pendingMinMs, errorComponent/onError/onCatch, beforeLoad, router context and createRootRouteWithContext DI pattern, router.invalidate, Await component, deferred data loading with unawaited promises."
-  - id: "@tanstack/router-core#router-core/navigation"
-    run: "cat .agents/skills/tanstack-router-core/navigation/SKILL.md"
-    for: "Link component, useNavigate, Navigate component, router.navigate, ToOptions/NavigateOptions/LinkOptions, from/to relative navigation, activeOptions/activeProps, preloading (intent/viewport/render), preloadDelay, navigation blocking (useBlocker, Block), createLink, linkOptions helper, scroll restoration, MatchRoute."
-  - id: "@tanstack/router-core#router-core/not-found-and-errors"
-    run: "cat .agents/skills/tanstack-router-core/not-found-and-errors/SKILL.md"
-    for: "notFound() function, notFoundComponent, defaultNotFoundComponent, notFoundMode (fuzzy/root), errorComponent, CatchBoundary, CatchNotFound, isNotFound, NotFoundRoute (deprecated), route masking (mask option, createRouteMask, unmaskOnReload)."
-  - id: "@tanstack/router-core#router-core/path-params"
-    run: "cat .agents/skills/tanstack-router-core/path-params/SKILL.md"
-    for: "Dynamic path segments ($paramName), splat routes ($ / _splat), optional params ({-$paramName}), prefix/suffix patterns ({$param}.ext), useParams, params.parse/stringify, pathParamsAllowedCharacters, i18n locale patterns."
-  - id: "@tanstack/router-core#router-core/search-params"
-    run: "cat .agents/skills/tanstack-router-core/search-params/SKILL.md"
-    for: "validateSearch, search param validation with Zod/Valibot/ArkType adapters, fallback(), search middlewares (retainSearchParams, stripSearchParams), custom serialization (parseSearch, stringifySearch), search param inheritance, loaderDeps for cache keys, reading and writing search params."
-  - id: "@tanstack/router-core#router-core/ssr"
-    run: "cat .agents/skills/tanstack-router-core/ssr/SKILL.md"
-    for: "Non-streaming and streaming SSR, RouterClient/RouterServer, renderRouterToString/renderRouterToStream, createRequestHandler, defaultRenderHandler/defaultStreamHandler, HeadContent/Scripts components, head route option (meta/links/styles/scripts), ScriptOnce, automatic loader dehydration/hydration, memory history on server, data serialization, document head management."
-  - id: "@tanstack/router-core#router-core/type-safety"
-    run: "cat .agents/skills/tanstack-router-core/type-safety/SKILL.md"
-    for: "Full type inference philosophy (never cast, never annotate inferred values), Register module declaration, from narrowing on hooks and Link, strict:false for shared components, getRouteApi for code-split typed access, addChildren with object syntax for TS perf, LinkProps and ValidateLinkOptions type utilities, as const satisfies pattern."
-  - id: "@tanstack/router-plugin#router-plugin"
-    run: "cat .agents/skills/tanstack-router-plugin/SKILL.md"
-    for: "TanStack Router bundler plugin for route generation and automatic code splitting. Supports Vite, Webpack, Rspack, and esbuild. Configures autoCodeSplitting, routesDirectory, target framework, and code split groupings."
-  - id: "@tanstack/start-client-core#start-core"
-    run: "cat .agents/skills/tanstack-start-client-core/SKILL.md"
-    for: "Core overview for TanStack Start: tanstackStart() Vite plugin, getRouter() factory, root route document shell (HeadContent, Scripts, Outlet), client/server entry points, routeTree.gen.ts, tsconfig configuration. Entry point for all Start skills."
-  - id: "@tanstack/start-client-core#start-core/auth-server-primitives"
-    run: "cat .agents/skills/tanstack-start-client-core/auth-server-primitives/SKILL.md"
-    for: "Server-side authentication primitives for TanStack Start: session cookies (HttpOnly, Secure, SameSite, __Host- prefix), session read/issue/destroy via createServerFn and middleware, OAuth authorization-code flow with state and PKCE, password-reset enumeration defense, CSRF for non-GET RPCs, rate limiting auth endpoints, session rotation on privilege change. Pairs with router-core/auth-and-guards for the routing side."
-  - id: "@tanstack/start-client-core#start-core/deployment"
-    run: "cat .agents/skills/tanstack-start-client-core/deployment/SKILL.md"
-    for: "Deploy to Cloudflare Workers, Netlify, Vercel, Node.js/Docker, Bun, Railway. Selective SSR (ssr option per route), SPA mode, static prerendering, ISR with Cache-Control headers, SEO and head management."
-  - id: "@tanstack/start-client-core#start-core/execution-model"
-    run: "cat .agents/skills/tanstack-start-client-core/execution-model/SKILL.md"
-    for: "Isomorphic-by-default principle, environment boundary functions (createServerFn, createServerOnlyFn, createClientOnlyFn, createIsomorphicFn), ClientOnly component, useHydrated hook, import protection, dead code elimination, environment variable safety (VITE_ prefix, process.env)."
-  - id: "@tanstack/start-client-core#start-core/middleware"
-    run: "cat .agents/skills/tanstack-start-client-core/middleware/SKILL.md"
-    for: "createMiddleware, request middleware (.server only), server function middleware (.client + .server), context passing via next({ context }), sendContext for client-server transfer, global middleware via createStart in src/start.ts, middleware factories, method order enforcement, fetch override precedence."
-  - id: "@tanstack/start-client-core#start-core/server-functions"
-    run: "cat .agents/skills/tanstack-start-client-core/server-functions/SKILL.md"
-    for: "createServerFn (GET/POST), validator (Zod or function), useServerFn hook, server context utilities (getRequest, getRequestHeader, setResponseHeader, setResponseStatus), error handling (throw errors, redirect, notFound), streaming, FormData handling, file organization (.functions.ts, .server.ts)."
-  - id: "@tanstack/start-client-core#start-core/server-routes"
-    run: "cat .agents/skills/tanstack-start-client-core/server-routes/SKILL.md"
-    for: "Server-side API endpoints using the server property on createFileRoute, HTTP method handlers (GET, POST, PUT, DELETE), createHandlers for per-handler middleware, handler context (request, params, context), request body parsing, response helpers, file naming for API routes."
-  - id: "@tanstack/start-server-core#start-server-core"
-    run: "cat .agents/skills/tanstack-start-server-core/SKILL.md"
-    for: "Server-side runtime for TanStack Start: createStartHandler, request/response utilities (getRequest, setResponseHeader, setCookie, getCookie, useSession), three-phase request handling, AsyncLocalStorage context."
-  - id: "@tanstack/virtual-file-routes#virtual-file-routes"
-    run: "cat .agents/skills/tanstack-virtual-file-routes/SKILL.md"
-    for: "Programmatic route tree building as an alternative to filesystem conventions: rootRoute, index, route, layout, physical, defineVirtualSubtreeConfig. Use with TanStack Router plugin's virtualRouteConfig option."
+## Skill Loading
+
+Before editing files for a substantial task:
+- Run `bunx @tanstack/intent@latest list` from the workspace root to see available local skills.
+- If a listed skill matches the task, run `bunx @tanstack/intent@latest load <package>#<skill>` before changing files.
+- Use the loaded `SKILL.md` guidance while making the change.
+- Monorepos: when working across packages, run the skill check from the workspace root and prefer the local skill for the package being changed.
+- Multiple matches: prefer the most specific local skill for the package or concern you are changing; load additional skills only when the task spans multiple packages or concerns.
 <!-- intent-skills:end -->
 
 # CoForge repository instructions
 
 These instructions apply to the entire repository.
 
-## Read the architecture first
+## Decisions
 
-- Read [`docs/architecture.md`](docs/architecture.md) before changing package boundaries, process ownership, transport, delivery semantics, persistence, infrastructure, or runtime versions.
-- Treat that document as the canonical architecture source. Update it in the same change whenever an architectural decision changes.
-- Keep `docs/architecture.md` as the single maintained architecture source; do not create a duplicate HTML companion.
-- Do not turn an unresolved question into code or a repository convention. Present the options and trade-offs in `#coforge`, then record the decision before implementation; use Frank's approval only when the decision meets a gate below.
+- Do not turn an unresolved question into code or a repository convention. Present the options and trade-offs in `#coforge`, then record the decision in the CR description before implementation; use Frank's approval only when the decision meets a gate below.
+- This repository keeps no ADRs, no separate architecture document, and no implementation-slice notes. Do not create `docs/adr/`, `docs/architecture.md`, or similar decision logs, even when a skill suggests one. The architecture invariants below and the owning directory's `AGENTS.md` are the maintained rules.
+
+## Documentation and agent instructions
+
+- Put project documentation under `docs/`. The root `README.md` is the documentation index: every document or topic directory under `docs/`, each app or package `AGENTS.md`, and every package or directory `README.md` is linked from it with one line saying what it covers. Nested `AGENTS.md` files are linked from their parent `AGENTS.md`.
+- Use progressive disclosure. A document is an overview plus links to smaller topic files; keep each Markdown file under 200 lines and split it into a directory of topic files before it grows past that.
+- Keep each `AGENTS.md` under 200 lines. It holds rules an agent cannot infer from the code: commands, conventions, boundaries, and gotchas. Do not write function-by-function descriptions, implementation walkthroughs, change history, or "historical status" notes; the code, its comments, and its tests carry those.
+- Place instructions next to the code they govern. A rule that applies only to one directory belongs in that directory's `AGENTS.md`, which agents load only when they work there. Put long, occasionally needed procedures in a skill under `.agents/skills/` with its details in linked reference files.
+- A change that alters documented behavior, a rule, or a command updates the document that states it in the same CR. Delete statements that are no longer true instead of annotating them.
 
 ## Module design and implementation discipline
 
@@ -112,6 +55,20 @@ These instructions apply to the entire repository.
   `AgentRuntimePool`. Avoid vague names such as `Helper`, `Utils`,
   `Service`, `Resolver`, or `Manager` unless the name is an established
   domain role with a narrowly defined responsibility.
+- Import code in the same package through the `#src/` alias
+  (`#src/code-agent/contract`), and a sibling file through `./`. Do not write
+  `../` into the package's own `src/`. Packages declare `#src/*` in their
+  `package.json` `imports` (Node subpath imports, so each package resolves its
+  own alias even when another package compiles its source); `apps/web`, which
+  no workspace package imports, declares it in `tsconfig.json` because it has `.tsx`
+  modules. Web's type check applies that mapping to package source it
+  compiles, so a package `#src/x` must never name a file that also exists in
+  `apps/web/src` (`apps/web/test/import-alias-isolation.test.ts` enforces it).
+  Another package is imported by its package name (a `workspace:*`
+  dependency, then the entry or a subpath). The repository-root `scripts/`
+  belong to no package, so `apps/*` and `packages/*` import them by relative
+  path. Scripts that run before `bun install` (staging `deploy` runs
+  `validate-web-push-keys.ts`) keep relative imports: package names need it.
 - Keep terminology consistent across code, protocol, logs, and documentation.
   Use one convention for each concept; do not alternate between snake_case,
   camelCase, and arbitrary synonyms for the same public field or event.
@@ -120,9 +77,10 @@ These instructions apply to the entire repository.
   through the framework in owning modules. Do not add a logger wrapper,
   adapter, facade, parallel low-level logger, or another abstraction layer over
   capabilities the logging framework already provides.
-- Define the module map in the owning app's `AGENTS.md` before reorganizing or
-  adding a feature. If the ownership or boundary is unclear, stop and record
-  the design options and decision before writing implementation code.
+- Keep a module map in the owning app's `AGENTS.md`: one line per module
+  naming its directory and single responsibility. Update it before
+  reorganizing or adding a module. If the ownership or boundary is unclear,
+  stop and settle the design options before writing implementation code.
 - For behavior changes, establish the public module seam and regression test
   first. Test application/domain behavior independently from CLI rendering,
   transport framing, and provider-specific adapters.
@@ -161,10 +119,12 @@ These instructions apply to the entire repository.
 - A task is complete only after the relevant short checks pass and the CR is approved. If a check does not exist yet, state that clearly in the CR.
 - Develop behavioral changes with test-driven development. Agree the public test seam first, then work in vertical slices: one failing test followed by the minimum implementation that passes it.
 - Start bug fixes with a regression test. Do not remove or weaken a valid test merely to make CI pass.
-- Keep refactoring in the independent review stage rather than expanding a red-green implementation slice.
+- Keep refactoring in the independent review stage rather than expanding a red-green implementation slice. Once the slice is green, run the `simplify` skill (built into Claude Code) on the branch diff, re-run the relevant checks, then request `code-review`.
 
 ## Testing
 
+- NEVER write unit tests after you write code.
+- Highly prefer E2E tests as the sole testing mechanism. Use them to verify complex features work. At the end of E2E tests, produce a verifiable and repeatable artifact.
 - When writing or modifying tests, investigating test failures, or reviewing test changes, read and follow [the testing guidance](docs/agents/testing.md). Unrelated tasks do not require loading this document.
 
 ## Toolchain
@@ -183,7 +143,7 @@ These instructions apply to the entire repository.
   in `mise.toml`, substantial procedural logic in checked executable scripts,
   and CI-provider concerns in workflow YAML.
 
-- Do not silently change a runtime or tool version. Update `mise.toml`, affected lockfiles, CI, and architecture documentation together.
+- Do not silently change a runtime or tool version. Update `mise.toml`, affected lockfiles, and CI together.
 - Protobuf schemas under `packages/coforge-sdk/proto` must pass `buf lint` and
   `buf format --diff --exit-code`; do not use TypeScript lint rules as a
   substitute for `.proto` validation.
@@ -204,9 +164,9 @@ These instructions apply to the entire repository.
 
 - Project skills live in `.agents/skills`; `skills-lock.json` records their upstream source and content hash.
 - Read and apply `tdd` for behavioral implementation and `codebase-design` when choosing or changing a test seam.
-- Use `domain-modeling` when changing canonical domain terms or relationships; do not turn `CONTEXT.md` into a running specification.
+- The repository keeps no separate glossary. Do not create `CONTEXT.md`, even when `domain-modeling` suggests one.
 - Use `code-review` from an independent context with an explicit fixed point. The coordinator must include this instruction in every Standards and Spec reviewer brief: perform the assigned review directly; do not invoke `code-review` again or spawn additional reviewers.
-- Use `coforge-release` when inspecting or executing a cloud test deployment, publishing a local Computer installation candidate assembled from the `coforge-computer` and `coforge-daemon` packages, preparing or executing an exact-artifact production promotion, verifying release evidence, or rolling back. [`docs/release.md`](docs/release.md) is the canonical release contract; the Skill is only its execution layer.
+- Use `coforge-release` when inspecting or executing a cloud test deployment, publishing a local Computer installation candidate assembled from the `coforge-computer` and `coforge-daemon` packages, preparing or executing an exact-artifact production promotion, verifying release evidence, or rolling back. [`docs/release/README.md`](docs/release/README.md) is the overview of the canonical release contract, with one topic file per concern under `docs/release/`; the Skill is only its execution layer.
 - When comparing CoForge with Raft Computer, the reference is the shipped
   binary 1.0.32, not any npm release. Read
   [the Raft Computer 1.0.32 research guide](docs/agents/reference-cli-research.md)
@@ -226,12 +186,12 @@ These instructions apply to the entire repository.
 - Caddy owns public TLS and edge proxying. Standalone Centrifugo OSS owns WSS/RPC transport mechanics only. Web/backend owns authentication, conversations, persistence, and routing decisions.
 - PostgreSQL is accessed through Web/backend. Centrifugo must not acquire domain or database ownership.
 - Redis is Centrifugo broker/presence/hot-history state plus Web message-request idempotency state. PostgreSQL canonical Message/read state is the message recovery boundary; any daemon status spool does not make Agent Activity reliable.
-- Agent Activity is best-effort observation over the dedicated `agent:activity:<workspace_id>` Centrifugo namespace, or, for a private Agent (ADR 0059), the re-routed per-Agent `agent:activity:<workspace_id>:<agent_id>` (with a matching per-Agent `agent:status:<workspace_id>:<agent_id>` for `agent:display`) — Daemon always publishes to the shared namespace unchanged; the Web publish proxy picks the destination from the Agent's current visibility. Daemon does not wait, retry, spool, or require an application ACK; publish-proxy authorization must validate the trusted connection scope before allowing the publication.
+- Agent Activity is best-effort observation over the dedicated `agent:activity:<workspace_id>` Centrifugo namespace, or, for a private Agent, the re-routed per-Agent `agent:activity:<workspace_id>:<agent_id>` (with a matching per-Agent `agent:status:<workspace_id>:<agent_id>` for `agent:display`) — Daemon always publishes to the shared namespace unchanged; the Web publish proxy picks the destination from the Agent's current visibility. Daemon does not wait, retry, spool, or require an application ACK; publish-proxy authorization must validate the trusted connection scope before allowing the publication.
 - Do not reintroduce the removed custom Go realtime-gateway, add Fiber, or embed Centrifuge as a production path.
-- The current MVP has no local durable message inbox/outbox and no complete per-Agent delivery ledger. ACK only after `CodeAgentSession`/`notify` successfully accepts the attention; ACK does not mean the Agent run finished.
+- The current MVP has no local durable message inbox/outbox and no complete per-Agent delivery ledger. ACK once the daemon takes custody of a delivery: its notice was accepted, it is held locally for a later notice or launch, an inbox purge dropped it, or the Agent's consumed cursor already covers it. ACK does not mean the Agent read the message or that a run finished; after a daemon restart, unread messages come back from the cloud read boundary, not from ACK state. The runner hold during a Computer upgrade is the one exception and does not ACK.
 - Recover lost volatile attention from cloud canonical Message/read boundaries. Agent→Web read/send uses the independent HTTPS RPC and retries the same `request_id`; do not route it through WSS.
-- Do not introduce a database command mailbox, claim/lease workflow, or treat a connection-local WebSocket outbox as durable storage without a new recorded architecture decision.
-- The MVP supports private User–Agent direct chat and Workspace-visible public channels. Channel notifications follow per-Agent mute settings, with human personal mentions overriding mute; Agent-originated messages never automatically wake Agents. Do not make commands, generic jobs, workflows, or run/event persistence part of the core model without a recorded decision.
+- Do not introduce a database command mailbox, claim/lease workflow, or treat a connection-local WebSocket outbox as durable storage without Frank's approval.
+- The MVP supports private User–Agent direct chat and Workspace-visible public channels. Channel notifications follow per-Agent mute settings, with human personal mentions overriding mute; Agent-originated messages never automatically wake Agents. Do not make commands, generic jobs, workflows, or run/event persistence part of the core model without Frank's approval.
 
 ## Dependency and security rules
 

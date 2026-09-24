@@ -3,12 +3,12 @@ import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { realpathSync } from "node:fs";
 import { join } from "node:path";
-import { DaemonRuntime } from "../src/daemon-runtime/runtime";
-import type { AgentRuntimeConfig, AgentSession } from "../src/code-agent/contract";
-import type { WorkspaceConfig } from "../src/daemon-runtime/runtime";
-import { InMemoryDaemonCredentialStore } from "../src/credentials/credential-store";
+import { DaemonRuntime } from "#src/daemon-runtime/runtime";
+import type { AgentRuntimeConfig, AgentSession } from "#src/code-agent/contract";
+import type { WorkspaceConfig } from "#src/daemon-runtime/runtime";
+import { InMemoryDaemonCredentialStore } from "#src/credentials/credential-store";
 
-/** ADR 0042: focused daemon coverage for self-initiated launches reusing the server's last
+/** Focused daemon coverage for self-initiated launches reusing the server's last
  * launchId. Deliberately a new, small file — see the working rules for this branch — copying
  * only the small fixture helpers `daemon-runtime.test.ts` already uses (`sessionSpy`,
  * `agentLaunchConfig`, the `tempRoot`/`connection`/`config` constants). */
@@ -47,7 +47,7 @@ const config: AgentRuntimeConfig = {
 
 /** Builds a runtime whose provider session exits on demand (via the returned `exit()`), and
  * captures every session report, sent activity, and control result — the same observable
- * surface `daemon-runtime.test.ts`'s rebind test (ADR 0041) already uses. */
+ * surface `daemon-runtime.test.ts`'s rebind test already uses. */
 async function harness() {
   const stateDirectory = join(tempRoot, `coforge-wake-launch-id-state-${crypto.randomUUID()}`);
   const credentials = new InMemoryDaemonCredentialStore();
@@ -265,7 +265,7 @@ test("a rebind updates the remembered launchId; a later wake reuses the rebound 
   try {
     await h.runtime.start(connection);
     await h.runtime.handleAgentStart(managedStart("wake-d", "start-1", 1, "launch-1"));
-    // A Start with a higher epoch meets the already-running process: rebinds (ADR 0041), no
+    // A Start with a higher epoch meets the already-running process: rebinds, no
     // second process.
     await h.runtime.handleAgentStart(managedStart("wake-d", "start-2", 2, "launch-2"));
     expect(h.sessionCount()).toBe(1);

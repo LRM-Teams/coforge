@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
-import type { PrismaClient } from "../generated/client";
-import { RecordCatalog } from "../src/server/records/record-catalog.server";
+import type { PrismaClient } from "#src/generated/prisma/client";
+import { RecordCatalog } from "#src/server/records/record-catalog.server";
 
 test("sendWeeklyAssignments creates a new parent and unread assignments for recipients", async () => {
   const created: Array<Record<string, unknown>> = [];
@@ -666,6 +666,102 @@ test("runDueScheduledWeeklyAssignments skips when Leader edited the format this 
 
   expect(result.sent).toBe(0);
   expect(result.results[0]).toMatchObject({
+    status: "skipped",
+    reason: "auto-send-cancelled",
+  });
+});
+
+test("dismissWeeklyFormatSend stamps the current ISO week so a stale cycle cannot leak auto-send", async () => {
+  const contentUpdates: Array<Record<string, unknown>> = [];
+  let liveContent: Record<string, unknown> = {
+    tabs: { Summary: { markdown: "outline" } },
+  };
+  const formatRow = {
+    id: "format-1",
+    authorId: "leader",
+    kind: "template",
+    settingsId: "settings-1",
+    content: liveContent,
+    // Document still bound to last week while calendar is W39.
+    cycle: { year: 2026, week: 38 },
+    submissions: [] as Array<{ id: string }>,
+  };
+  const db = {
+    workspaceMembership: {
+      findUnique: async () => ({ role: "member" }),
+      findMany: async () => [],
+    },
+    weeklyReport: {
+      findFirst: async (query: {
+        where?: {
+          id?: string;
+          settingsId?: string;
+          submissions?: { some?: unknown; none?: unknown };
+          cycle?: { year?: number; week?: number };
+        };
+      }) => {
+        if (query.where?.submissions?.some) return null;
+        if (query.where?.submissions?.none) return { id: "format-1", content: liveContent };
+        if (query.where?.id === "format-1" || query.where?.settingsId) return formatRow;
+        return null;
+      },
+      update: async (query: { data: Record<string, unknown> }) => {
+        contentUpdates.push(query.data);
+        if (query.data.content && typeof query.data.content === "object") {
+          liveContent = query.data.content as Record<string, unknown>;
+          formatRow.content = liveContent;
+        }
+        return { id: "format-1" };
+      },
+    },
+    weeklyReportTemplate: {
+      findFirst: async () => ({
+        id: "settings-1",
+        sendWeekday: 4,
+        sendTime: "15:00",
+        scheduleEnabled: true,
+        applied: true,
+      }),
+      findMany: async () => [
+        {
+          id: "settings-1",
+          name: "算法汇报",
+          workspaceId: "workspace-1",
+          ownerId: "leader",
+          sendTime: "15:00",
+          sendWeekday: 4,
+        },
+      ],
+    },
+    recordComment: {
+      create: async () => ({ id: "c1" }),
+      findMany: async () => [],
+    },
+  } as unknown as PrismaClient;
+
+  const catalog = new RecordCatalog(db);
+  // Thursday 14:40 Shanghai = inside the 14:00–15:00 preview hour for Thursday 15:00 (W39).
+  const now = new Date("2026-09-24T06:40:00.000Z");
+  await catalog.dismissWeeklyFormatSend({
+    workspaceId: "workspace-1",
+    userId: "leader",
+    reportId: "format-1",
+    now,
+  });
+
+  expect(contentUpdates[0]?.content).toMatchObject({
+    schedule: {
+      cancelledYear: 2026,
+      cancelledWeek: 39,
+      dismissSend: true,
+    },
+  });
+
+  const tick = await catalog.runDueScheduledWeeklyAssignments({
+    now: new Date("2026-09-24T07:00:00.000Z"),
+  });
+  expect(tick.sent).toBe(0);
+  expect(tick.results[0]).toMatchObject({
     status: "skipped",
     reason: "auto-send-cancelled",
   });
@@ -1675,7 +1771,7 @@ test("setReportFavorite rejects reports the viewer cannot open", async () => {
   ).rejects.toMatchObject({ code: "NOT_FOUND" });
 });
 
-test("saveReportContent with askToSend posts an offer-send assistant card when eligible", async () => {
+test("saveReportContent with askToSend cancels auto-send and leaves offer-send to the open session", async () => {
   const comments: Array<Record<string, unknown>> = [];
   const contentUpdates: Array<Record<string, unknown>> = [];
   const formatRow = {
@@ -1760,18 +1856,10 @@ test("saveReportContent with askToSend posts an offer-send assistant card when e
 
   expect(result.assistantPosted).toBe(true);
   expect(result.autoSendJustCancelled).toBe(true);
+  expect(comments).toHaveLength(1);
   expect(comments[0]).toMatchObject({
     authorType: "assistant",
     body: "已取消本周自动发送。保存后请手动发送周报模板。",
-  });
-  expect(comments[1]).toMatchObject({
-    authorType: "assistant",
-    body: "hi，Mark，2026 W38的工作周报模板已生成，请确认是否发送。",
-    payload: {
-      kind: "offer-send",
-      year: 2026,
-      week: 38,
-    },
   });
   expect(
     (contentUpdates[0]?.content as { schedule?: { cancelledWeek?: number } })?.schedule
@@ -2243,4 +2331,108 @@ test("saveReportContent does not re-trigger key-point extraction when already su
   });
 
   expect(extractionLookups).toBe(0);
+});
+
+test("updateFormatReportMeta renames the live format without rebinding its ISO week", async () => {
+  const reportUpdates: Array<Record<string, unknown>> = [];
+  const settingsUpdates: Array<Record<string, unknown>> = [];
+  const db = {
+    workspaceMembership: {
+      findUnique: async () => ({ role: "owner" }),
+    },
+    weeklyReport: {
+      findFirst: async () => ({
+        id: "format-1",
+        authorId: "leader",
+        kind: "template",
+        title: "LRM周报",
+        settingsId: "settings-1",
+        cycleId: "cycle-38",
+        cycle: { id: "cycle-38", year: 2026, week: 38 },
+        submissions: [],
+      }),
+      update: async (query: { data: Record<string, unknown> }) => {
+        reportUpdates.push(query.data);
+        return { id: "format-1" };
+      },
+    },
+    weeklyReportTemplate: {
+      update: async (query: { data: Record<string, unknown> }) => {
+        settingsUpdates.push(query.data);
+        return { id: "settings-1" };
+      },
+    },
+  } as unknown as PrismaClient;
+
+  const result = await new RecordCatalog(db).updateFormatReportMeta({
+    workspaceId: "workspace-1",
+    userId: "leader",
+    reportId: "format-1",
+    title: "产品周报",
+  });
+
+  expect(result).toEqual({
+    id: "format-1",
+    title: "产品周报",
+    year: 2026,
+    week: 38,
+  });
+  expect(reportUpdates[0]).toEqual({ title: "产品周报" });
+  expect(settingsUpdates[0]).toMatchObject({ name: "产品周报" });
+});
+
+test("updateFormatReportMeta rejects overview templates and blank titles", async () => {
+  const overviewDb = {
+    workspaceMembership: {
+      findUnique: async () => ({ role: "owner" }),
+    },
+    weeklyReport: {
+      findFirst: async () => ({
+        id: "overview-1",
+        authorId: "leader",
+        kind: "template",
+        title: "2026 W38 工作周报",
+        settingsId: "settings-1",
+        cycleId: "cycle-38",
+        cycle: { id: "cycle-38", year: 2026, week: 38 },
+        submissions: [{ id: "member-1" }],
+      }),
+    },
+  } as unknown as PrismaClient;
+
+  await expect(
+    new RecordCatalog(overviewDb).updateFormatReportMeta({
+      workspaceId: "workspace-1",
+      userId: "leader",
+      reportId: "overview-1",
+      title: "新产品",
+    }),
+  ).rejects.toMatchObject({ code: "ACCESS_DENIED" });
+
+  const formatDb = {
+    workspaceMembership: {
+      findUnique: async () => ({ role: "owner" }),
+    },
+    weeklyReport: {
+      findFirst: async () => ({
+        id: "format-1",
+        authorId: "leader",
+        kind: "template",
+        title: "LRM周报",
+        settingsId: "settings-1",
+        cycleId: "cycle-38",
+        cycle: { id: "cycle-38", year: 2026, week: 38 },
+        submissions: [],
+      }),
+    },
+  } as unknown as PrismaClient;
+
+  await expect(
+    new RecordCatalog(formatDb).updateFormatReportMeta({
+      workspaceId: "workspace-1",
+      userId: "leader",
+      reportId: "format-1",
+      title: "   ",
+    }),
+  ).rejects.toMatchObject({ code: "INVALID_INPUT" });
 });

@@ -1,4 +1,4 @@
-import { MobileNavigationButton } from "@/components/layout/sidebar/mobile-header";
+import { MobileNavigationButton } from "#src/components/layout/sidebar/mobile-header";
 
 /** The 48px header band every page owns. On mobile it carries the drawer button. */
 export function PageHeader({

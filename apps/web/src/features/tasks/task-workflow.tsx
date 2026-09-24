@@ -10,30 +10,41 @@ import {
   useSensors,
   type DragEndEvent,
 } from "@dnd-kit/core";
-import { Columns03 as Columns3, DotsGrid as GripVertical, List } from "@untitledui/icons";
-import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
+import { useHydrated } from "@tanstack/react-router";
+import {
+  ChevronDown,
+  Columns03 as Columns3,
+  DotsGrid as GripVertical,
+  List,
+} from "@untitledui/icons";
+import { useId, useMemo, useRef, useState, type ReactNode } from "react";
+import { Button as AriaButton, Disclosure, DisclosurePanel, Heading } from "react-aria-components";
 
-import { ButtonGroup, ButtonGroupItem } from "@/components/base/button-group/button-group";
-import { ButtonUtility } from "@/components/base/buttons/button-utility";
-import { Select } from "@/components/base/select/select";
-import { m } from "@/paraglide/messages";
+import { ButtonGroup, ButtonGroupItem } from "#src/components/base/button-group/button-group";
+import { ButtonUtility } from "#src/components/base/buttons/button-utility";
+import { useBreakpoint } from "#src/hooks/use-breakpoint";
+import { cn } from "#src/lib/utils";
+import { m } from "#src/paraglide/messages";
 import { getTaskMoveCommand } from "./task-move";
 
 export type TaskLayout = "board" | "list";
 export type TaskMoveCommand = NonNullable<ReturnType<typeof getTaskMoveCommand>>;
-export type TaskControls = { handle: ReactNode; status: ReactNode };
+/** The drag handle and the "Move to" choices a card's menu offers; both carry every move the
+ * server allows, while the popup's status menu keeps to `STATUS_TRANSITIONS`. */
+export type TaskControls = {
+  handle: ReactNode;
+  moves: { status: TaskStatus; onMove: () => void }[];
+};
+
+/** Finished statuses start collapsed when the board shows several statuses: they only grow, and
+ * the work in flight is what the board is for. The choice lasts while the board is mounted. */
+const COLLAPSED_BY_DEFAULT: ReadonlySet<TaskStatus> = new Set(["done", "closed"]);
 
 export function useTaskLayout(layout: TaskLayout | undefined): TaskLayout {
-  // Keep SSR and initial hydration identical; viewport defaults apply after mount.
-  const [defaultLayout, setDefaultLayout] = useState<TaskLayout>("board");
-  useEffect(() => {
-    const desktop = window.matchMedia("(min-width: 768px)");
-    const update = () => setDefaultLayout(desktop.matches ? "board" : "list");
-    update();
-    desktop.addEventListener("change", update);
-    return () => desktop.removeEventListener("change", update);
-  }, []);
-  return layout ?? defaultLayout;
+  // Keep SSR and initial hydration identical (board); the viewport default applies once hydrated.
+  const hydrated = useHydrated();
+  const desktop = useBreakpoint("md");
+  return layout ?? (!hydrated || desktop ? "board" : "list");
 }
 
 export function TaskLayoutToggle({
@@ -108,30 +119,15 @@ export function TaskWorkflow<T extends TaskView>({
   }, [tasks, pending, statuses]);
 
   const controls = (task: T): TaskControls => {
-    const available = TASK_STATUSES.filter((status) =>
+    if (disabled) return { handle: null, moves: [] };
+    const moves = TASK_STATUSES.filter((status) =>
       getTaskMoveCommand(task, currentMemberId(task), status),
-    );
-    if (disabled || available.length === 0) return { handle: null, status: null };
+    ).map((status) => ({ status, onMove: () => void move(task, status) }));
+    if (moves.length === 0) return { handle: null, moves };
     const isPending = Boolean(pending);
     return {
       handle: <DragHandle task={task} disabled={isPending} />,
-      status: (
-        <Select
-          aria-label={m.tasks_change_status()}
-          size="sm"
-          selectedKey={task.status}
-          isDisabled={isPending}
-          onSelectionChange={(key) => {
-            const nextStatus = parseTaskStatus(key === null ? null : String(key));
-            if (nextStatus) void move(task, nextStatus);
-          }}
-        >
-          <Select.Item id={task.status} label={statusLabel(task.status)} />
-          {available.map((status) => (
-            <Select.Item key={status} id={status} label={statusLabel(status)} />
-          ))}
-        </Select>
-      ),
+      moves: isPending ? [] : moves,
     };
   };
 
@@ -152,19 +148,21 @@ export function TaskWorkflow<T extends TaskView>({
       )}
       <div
         className={
-          layout === "board" && groups.length > 1
-            ? "grid grid-cols-1 items-start gap-4 md:grid-cols-[repeat(5,minmax(15rem,1fr))] md:overflow-x-auto md:pb-2"
-            : layout === "board"
-              ? "grid max-w-sm gap-4"
-              : "flex flex-col gap-6"
+          layout === "list"
+            ? "flex flex-col gap-4"
+            : groups.length > 1
+              ? "flex flex-col gap-3 md:h-full md:flex-row md:items-stretch md:overflow-x-auto"
+              : "flex max-w-sm flex-col md:h-full"
         }
       >
         {groups.map((group) => (
           <TaskGroup
-            key={group.status}
+            // A single-status view remounts its group so it starts expanded.
+            key={groups.length === 1 ? `only-${group.status}` : group.status}
             status={group.status}
             count={group.tasks.length}
             board={layout === "board"}
+            defaultExpanded={groups.length === 1 || !COLLAPSED_BY_DEFAULT.has(group.status)}
             enabled={Boolean(
               !disabled &&
               !pending &&
@@ -182,9 +180,11 @@ export function TaskWorkflow<T extends TaskView>({
       </div>
       <DragOverlay dropAnimation={null}>
         {active ? (
-          <div className="w-64 rounded-xl border border-secondary bg-primary p-4 shadow-lg">
-            <p className="text-sm leading-snug font-semibold text-primary">{active.title}</p>
-            <span className="mt-2 inline-block text-xs text-tertiary">#{active.number}</span>
+          <div className="w-64 rotate-2 rounded-lg border border-secondary bg-primary p-3 shadow-lg">
+            <span className="text-xs font-medium text-tertiary tabular-nums">#{active.number}</span>
+            <p className="mt-1 line-clamp-3 text-sm leading-snug font-medium text-primary">
+              {active.title}
+            </p>
           </div>
         ) : null}
       </DragOverlay>
@@ -237,56 +237,85 @@ function TaskGroup({
   status,
   count,
   board,
+  defaultExpanded,
   enabled,
   children,
 }: {
   status: TaskStatus;
   count: number;
   board: boolean;
+  defaultExpanded: boolean;
   enabled: boolean;
   children: ReactNode;
 }) {
+  // A collapsed group stays a drop target, so a card can still be moved into it.
   const drop = useDroppable({ id: status, disabled: !enabled });
+  const label = statusLabel(status);
+  const [expanded, setExpanded] = useState(defaultExpanded);
   return (
     <section
       ref={drop.setNodeRef}
-      aria-label={statusLabel(status)}
+      aria-label={label}
       className={
         board
-          ? `min-w-0 rounded-2xl border border-secondary bg-primary p-3 shadow-xs transition-shadow ${drop.isOver ? "ring-2 ring-brand" : ""}`
-          : "min-w-0 overflow-hidden rounded-xl border border-secondary bg-primary shadow-xs"
+          ? cn(
+              "flex min-w-0 flex-col rounded-xl bg-secondary transition-shadow md:max-w-80 md:min-w-60 md:flex-1",
+              !expanded && "md:self-start",
+              drop.isOver && "ring-2 ring-brand ring-inset",
+            )
+          : cn(
+              "min-w-0 overflow-hidden rounded-xl border border-secondary bg-primary",
+              drop.isOver && "ring-2 ring-brand",
+            )
       }
     >
-      <h2
-        aria-label={`${statusLabel(status)} ${count}`}
-        className={
-          board
-            ? "mb-4 flex items-center gap-2.5 px-1 pt-1 text-sm font-semibold text-primary"
-            : "flex items-center gap-2 border-b border-secondary bg-secondary px-5 py-4 text-base font-semibold"
-        }
+      <Disclosure
+        isExpanded={expanded}
+        onExpandedChange={setExpanded}
+        className={board ? "flex min-h-0 flex-1 flex-col" : undefined}
       >
-        <span className="inline-flex items-center gap-2.5">
-          <span
-            aria-hidden="true"
-            className={`shrink-0 rounded-full ${board ? "size-3" : "size-2"} ${statusAppearance[status].background}`}
-          />
-          {statusLabel(status)}
-          <span
-            className={`inline-flex min-h-5 min-w-6 shrink-0 items-center justify-center rounded-full px-2 text-xs font-medium tabular-nums ${statusAppearance[status].badge}`}
+        <Heading level={2}>
+          <AriaButton
+            slot="trigger"
+            aria-label={`${label} ${count}`}
+            className={cn(
+              "flex h-10 w-full cursor-pointer items-center gap-2 text-sm font-semibold text-primary outline-focus-ring focus-visible:outline-2 focus-visible:-outline-offset-2",
+              board
+                ? "shrink-0 rounded-xl px-3"
+                : cn("bg-secondary px-4", expanded && "border-b border-secondary"),
+            )}
           >
-            {count}
-          </span>
-        </span>
-      </h2>
-      <div
-        className={
-          board
-            ? "flex min-h-24 flex-col gap-4"
-            : "flex flex-col divide-y divide-secondary [&_article]:rounded-none [&_article]:border-0 [&_article]:shadow-none"
-        }
-      >
-        {children}
-      </div>
+            <span
+              aria-hidden="true"
+              className={`size-2 shrink-0 rounded-full ${TASK_STATUS_COLOR[status].dot}`}
+            />
+            <span className="truncate">{label}</span>
+            <span className="font-medium text-quaternary tabular-nums">{count}</span>
+            <ChevronDown
+              aria-hidden="true"
+              className={cn(
+                "ml-auto size-4 shrink-0 text-fg-quaternary transition-transform",
+                !expanded && "-rotate-90",
+              )}
+            />
+          </AriaButton>
+        </Heading>
+        <DisclosurePanel
+          // A collapsed panel is `hidden="until-found"`, which keeps its box: drop the sizing too.
+          className={cn(
+            board
+              ? "flex min-h-16 flex-col gap-2 px-2 pb-2 md:min-h-0 md:flex-1 md:overflow-y-auto"
+              : "flex flex-col divide-y divide-secondary",
+            !expanded && "hidden",
+          )}
+        >
+          {/* The panel keeps its children mounted while hidden; a collapsed group renders none. */}
+          {expanded && children}
+          {expanded && !board && count === 0 && (
+            <p className="px-4 py-3 text-sm text-tertiary">{m.tasks_group_empty()}</p>
+          )}
+        </DisclosurePanel>
+      </Disclosure>
     </section>
   );
 }
@@ -301,13 +330,15 @@ export function statusLabel(status: TaskStatus) {
   }[status]();
 }
 
-const statusAppearance = {
-  todo: { background: "bg-fg-quaternary", badge: "bg-secondary text-secondary" },
-  in_progress: { background: "bg-utility-blue-500", badge: "bg-secondary text-secondary" },
-  in_review: { background: "bg-brand-solid", badge: "bg-secondary text-secondary" },
-  done: { background: "bg-fg-success-primary", badge: "bg-secondary text-secondary" },
-  closed: { background: "bg-offline", badge: "bg-secondary text-secondary" },
-} satisfies Record<TaskStatus, { background: string; badge: string }>;
+/** One colour per status, shared by the board columns and the task popup: the badge colour, the
+ * solid dot, and the lighter line the popup's history timeline draws between nodes. */
+export const TASK_STATUS_COLOR = {
+  todo: { badge: "orange", dot: "bg-utility-orange-500", line: "bg-utility-orange-300" },
+  in_progress: { badge: "blue", dot: "bg-utility-blue-500", line: "bg-utility-blue-300" },
+  in_review: { badge: "indigo", dot: "bg-utility-indigo-500", line: "bg-utility-indigo-300" },
+  done: { badge: "success", dot: "bg-utility-green-500", line: "bg-utility-green-300" },
+  closed: { badge: "gray", dot: "bg-utility-neutral-400", line: "bg-utility-neutral-300" },
+} as const satisfies Record<TaskStatus, { badge: string; dot: string; line: string }>;
 
 function parseTaskStatus(value: string | null): TaskStatus | undefined {
   return TASK_STATUSES.find((status) => status === value);

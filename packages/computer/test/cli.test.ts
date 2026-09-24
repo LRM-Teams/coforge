@@ -8,9 +8,9 @@ import {
   type LoginCommand,
   type SetupCommand,
   type StatusCommand,
-} from "../src/cli";
-import { UpgradeCoordinatorError } from "../src/release/upgrade-coordinator";
-import { CliError, loginError, setupError } from "../src/errors";
+} from "#src/cli";
+import { UpgradeCoordinatorError } from "#src/release/upgrade-coordinator";
+import { CliError, loginError, setupError } from "#src/errors";
 import { COMPUTER_CLI_COMMANDS } from "@lrm/coforge-sdk/internal";
 
 test("the CLI's actual registered commands match the shared COMPUTER_CLI_COMMANDS vocabulary", async () => {

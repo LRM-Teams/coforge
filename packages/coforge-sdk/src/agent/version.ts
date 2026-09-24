@@ -1,6 +1,5 @@
 /**
- * Wire contract for `coforge version`'s local-only Daemon query (see `docs/adr/0036-agent-manual.md`'s
- * placement-table rows for how this compares to the reference product's `raft version`). Unlike the
+ * Wire contract for `coforge version`'s local-only Daemon query. Unlike the
  * Manual routes, `GET /api/agent/v1/version` never reaches Web/backend: the Daemon answers it
  * directly from the live process that is already running, which is the whole point of the command
  * ("what is the live Daemon actually running", not a cloud-recorded fact).
@@ -12,8 +11,8 @@ export type AgentVersionResponse = {
   /** The live Daemon process's own version (`COFORGE_DAEMON_VERSION`). */
   daemonVersion: string;
   /** The Computer executable version the Daemon was launched with, when known. The Computer
-   * bundles both the Computer and Daemon package roles into one executable (see
-   * `docs/architecture.md`), so this is the Computer's own version, not a separate installation. */
+   * bundles both the Computer and Daemon package roles into one executable, so this
+   * is the Computer's own version, not a separate installation. */
   computerVersion?: string;
   /** The live Daemon process id, for diagnostics. */
   daemonPid?: number;

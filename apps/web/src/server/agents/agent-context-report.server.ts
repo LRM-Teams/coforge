@@ -1,24 +1,24 @@
 import { RUNTIME_PROVIDER } from "@lrm/coforge-sdk/internal";
-import type { PrismaClient } from "../../../generated/client";
+import type { PrismaClient } from "#src/generated/prisma/client";
 import { ACTIVE_AGENT_WHERE } from "./active-agent.server";
 import { parseAgentRuntimeConfig } from "./agent-runtime-config.server";
 import {
   createAgentContextScan,
   createCentrifugoServerApi,
   type CentrifugoServerApi,
-} from "../centrifugo/server-api.server";
+} from "#src/server/centrifugo/server-api.server";
 import {
   getAgentContextCache,
   type AgentContextCache,
   type AgentContextReadResult,
-} from "../centrifugo/agent-context-cache.server";
-import { getComputerStatusCache } from "../centrifugo/computer-status.server";
+} from "#src/server/centrifugo/agent-context-cache.server";
+import { getComputerStatusCache } from "#src/server/centrifugo/computer-status.server";
 
 export type AgentContextViewer = { userId: string; workspaceId: string };
 
 /** The Computer/launch/session scope one context scan runs against, resolved from the Agent's own
  * record. `launchId`/`sessionId` are what the server currently believes is live; the daemon
- * re-checks both against its own state before running anything (ADR 0051). */
+ * re-checks both against its own state before running anything. */
 export type AgentContextAssignment = {
   computerId: string;
   provider: string;
@@ -52,7 +52,7 @@ export async function readAgentContextReport(
 }
 
 /**
- * Asks the Agent's Computer for a fresh context-window composition (ADR 0051). Gated on the same
+ * Asks the Agent's Computer for a fresh context-window composition. Gated on the same
  * ownership rule as the read path plus the Computer being online; the daemon re-checks the
  * launch/session itself, so a request naming a launch the daemon has already superseded is
  * refused there without running the CLI. The previous report stays readable through

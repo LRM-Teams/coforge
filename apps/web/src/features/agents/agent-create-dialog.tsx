@@ -2,17 +2,17 @@ import { useState, type FormEvent } from "react";
 import { parseRuntimeProvider, RUNTIME_PROVIDER } from "@lrm/coforge-sdk/internal";
 import { Monitor01 as Monitor } from "@untitledui/icons";
 
-import { useSubmitGuard } from "@/hooks/use-submit-guard";
-import { localizeHref } from "@/paraglide/runtime";
-import { Button } from "@/components/base/buttons/button";
-import { Dialog, Modal, ModalOverlay } from "@/components/application/modals/modal";
-import { DialogHeader } from "@/components/application/modals/dialog-header";
-import { HintText } from "@/components/base/input/hint-text";
-import { Input } from "@/components/base/input/input";
-import { Select } from "@/components/base/select/select";
-import { TextArea } from "@/components/base/textarea/textarea";
-import { StatusDot } from "@/components/ui/status-dot";
-import { m } from "@/paraglide/messages";
+import { useSubmitGuard } from "#src/hooks/use-submit-guard";
+import { localizeHref } from "#src/paraglide/runtime";
+import { Button } from "#src/components/base/buttons/button";
+import { Dialog, Modal, ModalOverlay } from "#src/components/application/modals/modal";
+import { DialogHeader } from "#src/components/application/modals/dialog-header";
+import { HintText } from "#src/components/base/input/hint-text";
+import { Input } from "#src/components/base/input/input";
+import { Select } from "#src/components/base/select/select";
+import { TextArea } from "#src/components/base/textarea/textarea";
+import { StatusDot } from "#src/components/ui/status-dot";
+import { m } from "#src/paraglide/messages";
 import { AGENT_VISIBILITY, type AgentVisibility } from "./agent-visibility";
 import { AgentRuntimeFields, type RuntimeCatalog } from "./agent-runtime-fields";
 import type { CreateAgentInput } from "./agent.schemas";
@@ -26,7 +26,7 @@ export type AgentCreateComputerOption = {
 };
 
 /** The Agent-create form, shared by the Members page ("New agent") and an `agent:create`
- * action card's commit button (ADR 0027 "Commit and cancel"). `defaults` prefills the form;
+ * action card's commit button. `defaults` prefills the form;
  * `computerLocked` mirrors a card's `requiredComputer` by disabling the Computer selector. */
 export function AgentCreateDialog({
   open,
@@ -105,8 +105,9 @@ export function AgentCreateDialog({
                   title={m.agent_form_title()}
                   description={m.agent_form_description()}
                   onClose={close}
+                  className="px-4 pt-4 sm:px-6 sm:pt-6"
                 />
-                <div className="grid gap-4 px-6 py-6 sm:grid-cols-2">
+                <div className="grid gap-3 px-4 py-4 sm:grid-cols-2 sm:gap-4 sm:px-6 sm:py-6">
                   <Select
                     name="computerId"
                     isRequired
@@ -152,7 +153,7 @@ export function AgentCreateDialog({
                   <TextArea
                     label={m.agent_profile_description()}
                     name="description"
-                    rows={3}
+                    rows={2}
                     defaultValue={defaults?.description}
                     placeholder={m.agent_form_description_placeholder()}
                     className="min-w-0 sm:col-span-2"
@@ -196,7 +197,7 @@ export function AgentCreateDialog({
                     </HintText>
                   )}
                 </div>
-                <div className="grid grid-cols-2 gap-3 border-t border-secondary px-6 py-4 sm:flex sm:justify-end">
+                <div className="grid grid-cols-2 gap-3 border-t border-secondary px-4 py-3 sm:flex sm:justify-end sm:px-6 sm:py-4">
                   <Button
                     type="button"
                     color="secondary"

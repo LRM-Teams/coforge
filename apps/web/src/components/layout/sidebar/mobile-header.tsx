@@ -1,5 +1,5 @@
 // Copied from the official app-navigation/base-components/mobile-header.tsx template
-// (see docs/design.md §7), adapted so the drawer opens from each page's own
+// (see docs/design/official-components.md §7), adapted so the drawer opens from each page's own
 // header instead of a separate app header: one 48px band per page on mobile.
 import { createContext, useContext, useEffect, useState, type PropsWithChildren } from "react";
 import { useRouter } from "@tanstack/react-router";
@@ -10,9 +10,10 @@ import {
   Modal as AriaModal,
   ModalOverlay as AriaModalOverlay,
 } from "react-aria-components";
-import { ButtonUtility } from "@/components/base/buttons/button-utility";
-import { m } from "@/paraglide/messages";
-import { cx } from "@/utils/cx";
+import { ButtonUtility } from "#src/components/base/buttons/button-utility";
+import { useBreakpoint } from "#src/hooks/use-breakpoint";
+import { m } from "#src/paraglide/messages";
+import { cx } from "#src/utils/cx";
 
 const MobileDrawerContext = createContext<{
   isOpen: boolean;
@@ -24,12 +25,9 @@ export const MobileDrawerProvider = ({ children }: PropsWithChildren) => {
   const [isOpen, setOpen] = useState(false);
   const router = useRouter();
   useEffect(() => router.subscribe("onResolved", () => setOpen(false)), [router]);
-  useEffect(() => {
-    const desktop = window.matchMedia("(min-width: 1024px)");
-    const close = () => setOpen(false);
-    desktop.addEventListener("change", close);
-    return () => desktop.removeEventListener("change", close);
-  }, []);
+  // The drawer only exists below `lg`; crossing the breakpoint either way closes it.
+  const desktop = useBreakpoint("lg");
+  useEffect(() => setOpen(false), [desktop]);
   return <MobileDrawerContext value={{ isOpen, setOpen }}>{children}</MobileDrawerContext>;
 };
 

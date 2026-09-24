@@ -1,5 +1,5 @@
 import type { AgentStartIntent, AgentStopIntent } from "@lrm/coforge-sdk/internal";
-import type { AgentRecord } from "../db/repositories/agent.repositories.server";
+import type { AgentRecord } from "#src/server/db/repositories/agent.repositories.server";
 import type { AgentRuntimeConfig, EncryptedAgentEnvironment } from "./agent-runtime-config.server";
 import type { AgentRuntimeLock } from "./agent-runtime-lock.server";
 import { assertAgentLive } from "./active-agent.server";
@@ -61,7 +61,7 @@ export class AgentEnvironment {
         agent.ownerId !== principal.userId
       )
         throw new Error("Agent is not authorized");
-      // ADR 0044: a deleted Agent has no environment to edit, and no restart either. Answers the
+      // A deleted Agent has no environment to edit, and no restart either. Answers the
       // same NOT_FOUND a live-view lookup gives, not the authorization failure above it.
       assertAgentLive(agent);
       const envVars = validateAgentEnvironment(input);
@@ -70,7 +70,7 @@ export class AgentEnvironment {
       const nextConfig = Object.keys(envVars).length
         ? { ...withoutEnvironment, environment: await this.#encrypt(agentId, envVars) }
         : withoutEnvironment;
-      // ADR 0038: a stopped Agent has nothing running under the old environment; persist without
+      // A stopped Agent has nothing running under the old environment; persist without
       // the stop -> ... -> start dance.
       if (agent.stoppedAt) {
         await this.repository.updateRuntimeConfig(agentId, nextConfig);

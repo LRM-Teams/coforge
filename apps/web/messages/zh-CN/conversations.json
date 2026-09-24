@@ -8,8 +8,6 @@
   "channel_name_hint": "使用小写字母、数字、连字符或下划线，最多 32 个字符。",
   "channel_public": "工作空间内公开",
   "channel_public_description": "此工作空间的所有成员均可阅读，加入后可发送消息。",
-  "channel_mute": "静音频道通知",
-  "channel_unmute": "取消静音频道通知",
   "channel_join": "加入频道",
   "channel_joined": "已加入",
   "channel_joining": "加入中…",
@@ -17,7 +15,6 @@
   "channel_conflict": "此频道名称已被使用。",
   "channel_empty": "这里是频道的起点。发送第一条消息，与工作空间成员开始交流。",
   "channel_empty_preview": "此频道中的消息将显示在这里。",
-  "channel_members_button": "成员",
   "channel_members_title": "频道成员",
   "channel_members_loading": "正在加载成员…",
   "channel_members_load_error": "成员加载失败，请重试。",
@@ -38,11 +35,77 @@
   "channel_members_removing": "正在移除…",
   "channel_members_remove_error": "移除 {name} 失败，请重试。",
   "channel_members_cancel": "取消",
-  "channel_members_leave_action": "离开频道",
-  "channel_members_leave_confirm": "离开 #{channel}？之后需要重新加入才能在此发送消息。",
-  "channel_members_leave_confirm_action": "离开",
-  "channel_members_leaving": "正在离开…",
-  "channel_members_leave_error": "离开频道失败，请重试。",
+  "channel_settings_open": "频道详情与设置",
+  "channel_settings_close": "关闭频道详情与设置",
+  "channel_settings_public": "公开",
+  "channel_settings_members": "成员",
+  "channel_settings_humans": [
+    {
+      "declarations": ["input count", "local p = count: plural"],
+      "selectors": ["p"],
+      "match": {
+        "p=one": "{count} 位人类",
+        "p=other": "{count} 位人类"
+      }
+    }
+  ],
+  "channel_settings_agents": [
+    {
+      "declarations": ["input count", "local p = count: plural"],
+      "selectors": ["p"],
+      "match": {
+        "p=one": "{count} 个 Agent",
+        "p=other": "{count} 个 Agent"
+      }
+    }
+  ],
+  "channel_settings_members_more": "另外 {count} 位成员",
+  "channel_settings_add_members": "添加成员",
+  "channel_settings_info": "信息",
+  "channel_settings_name": "名称",
+  "channel_settings_name_placeholder": "例如 ai-research",
+  "channel_settings_general_cannot_rename": "#general 频道无法重命名",
+  "channel_settings_description": "描述",
+  "channel_settings_description_placeholder": "这个频道是做什么的？",
+  "channel_settings_project": "项目",
+  "channel_settings_view_repository": "在 GitHub 上查看 {repository}",
+  "channel_settings_cancel": "取消",
+  "channel_settings_save": "保存",
+  "channel_settings_saving": "保存中…",
+  "channel_settings_saved": "已保存",
+  "channel_settings_save_error": "保存失败，请重试。",
+  "channel_settings_access_denied": "只有频道管理员可以修改这个频道。",
+  "channel_settings_preferences": "偏好",
+  "channel_settings_pin": "置顶频道",
+  "channel_settings_pin_description": "将此频道固定在你的侧栏顶部。",
+  "channel_settings_mute": "静音活动",
+  "channel_settings_mute_description": "静音此频道的普通活动，只影响你。",
+  "channel_settings_preference_error": "更新失败，请重试。",
+  "channel_settings_actions": "操作",
+  "channel_settings_archive": "归档频道",
+  "channel_settings_archive_action": "归档",
+  "channel_settings_archiving": "归档中…",
+  "channel_settings_archive_confirm": "成员仍可阅读 #{name} 及其历史记录，但将无法发送新消息，且该频道会从侧栏中隐藏。你之后可以取消归档。",
+  "channel_settings_archive_error": "归档失败，请重试。",
+  "channel_settings_unarchive": "取消归档频道",
+  "channel_settings_unarchiving": "正在取消归档…",
+  "channel_settings_unarchive_error": "取消归档失败，请重试。",
+  "channel_settings_leave": "退出频道",
+  "channel_settings_leave_action": "离开",
+  "channel_settings_leaving": "正在退出…",
+  "channel_settings_leave_confirm": "你将不再收到 #{name} 的消息，重新加入前也无法在这里发送消息。",
+  "channel_settings_leave_error": "退出失败，请重试。",
+  "channel_settings_hide_general": "隐藏 #general",
+  "channel_settings_hide_general_confirm": "#general 将从频道列表中消失，Workspace 成员和 Agent 将无法在其中阅读或发送消息——包括你自己。已有的历史记录会保留。要恢复它，请前往 设置 → 系统频道，关闭「隐藏 #general 频道」。",
+  "channel_settings_hiding_general": "正在隐藏…",
+  "channel_settings_hide_general_error": "隐藏失败，请重试。",
+  "channel_settings_unsaved_title": "未保存的修改",
+  "channel_settings_unsaved_message": "频道名称或描述有未保存的修改，关闭前要保存吗？",
+  "channel_settings_save_and_close": "保存并关闭",
+  "channel_settings_discard": "放弃更改",
+  "channel_settings_keep_editing": "继续编辑",
+  "channel_archived_notice": "该频道已归档。",
+  "channel_archived_unarchive": "取消归档",
   "channel_unread_accessible": [
     {
       "declarations": ["input channel", "input count", "local countPlural = count: plural"],
@@ -53,6 +116,45 @@
     }
   ],
   "conversation_unread_divider": "新消息",
+  "conversation_system_group_task_updates": [
+    {
+      "declarations": ["input count", "local countPlural = count: plural"],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=other": "{count} 条任务更新"
+      }
+    }
+  ],
+  "conversation_system_group_reminders": [
+    {
+      "declarations": ["input count", "local countPlural = count: plural"],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=other": "{count} 条提醒更新"
+      }
+    }
+  ],
+  "conversation_system_group_messages": [
+    {
+      "declarations": ["input count", "local countPlural = count: plural"],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=other": "{count} 条系统消息"
+      }
+    }
+  ],
+  "conversation_system_group_one_part": [
+    {
+      "declarations": ["input count", "input part", "local countPlural = count: plural"],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=other": "{part}"
+      }
+    }
+  ],
+  "conversation_system_group_parts": "{parts}",
+  "conversation_system_group_mixed": "{count} 条系统更新：{parts}",
+  "conversation_system_group_separator": "、",
   "messages_title": "消息",
   "messages_agent_list_label": "智能体会话",
   "messages_agents_action": "私聊",
@@ -76,12 +178,18 @@
   "conversation_message_placeholder": "输入消息…",
   "conversation_send": "发送",
   "conversation_sending": "发送中…",
-  "conversation_unsent_offline": "未发送：连不上服务器",
-  "conversation_unsent_unavailable": "未发送：服务暂时不可用",
-  "conversation_unsent_interrupted": "可能未发送：发送时页面被关闭了",
-  "conversation_unsent_denied": "未发送：你没有在这里发消息的权限",
-  "conversation_unsent_gone": "未发送：这个对话已不存在",
-  "conversation_unsent_rejected": "未发送：消息没有被接受，请修改后再发",
+  "conversation_menu_label": "会话操作",
+  "conversation_menu_mark_unread": "标记为未读",
+  "conversation_menu_pin": "置顶",
+  "conversation_menu_unpin": "取消置顶",
+  "conversation_menu_close": "关闭会话",
+  "conversation_menu_action_error": "会话设置更新失败，请重试。",
+  "conversation_unsent_offline": "发送失败，请检查网络后重试",
+  "conversation_unsent_unavailable": "发送失败，请稍后重试",
+  "conversation_unsent_interrupted": "可能没有发出去，重试不会重复发送",
+  "conversation_unsent_denied": "发送失败，你没有在这里发消息的权限",
+  "conversation_unsent_gone": "发送失败，这个对话已被删除",
+  "conversation_unsent_rejected": "发送失败，请修改后重新发送",
   "conversation_unsent_edit": "编辑",
   "conversation_unsent_discard": "删除",
   "conversation_attachment_limit": "一条消息最多 {max} 个附件，请先移除多余的附件。",
@@ -91,7 +199,6 @@
   "conversation_new_messages": "{count} 条新消息",
   "conversation_back_to_bottom": "回到底部",
   "conversation_message_navigation": "消息导航",
-  "conversation_message_actions": "消息操作",
   "conversation_your_messages": "我发送的消息",
   "conversation_loading_your_messages": "正在加载我发送的消息…",
   "conversation_load_older": "加载更早消息",
@@ -123,7 +230,17 @@
   "conversation_thread_following_agents": "关注中的 Agent",
   "conversation_thread_following_agents_count": "{count} 个关注中的 Agent",
   "conversation_thread_following_agents_error": "无法加载关注此讨论的 Agent。",
+  "conversation_thread_following_agents_unfollow_error": "无法让该 Agent 停止关注此讨论。",
   "conversation_thread_unfollow_agent": "停止 {name} 关注此讨论",
+  "conversation_thread_title_context": " — {name}",
+  "conversation_thread_scroll_to_top": "滚动到第一条消息",
+  "conversation_thread_close": "关闭讨论",
+  "conversation_thread_unavailable": "无法打开这个讨论，它的原始消息可能已被删除。",
+  "conversation_thread_load_error": "讨论加载失败，请重试。",
+  "conversation_thread_actions": "讨论操作",
+  "conversation_thread_view_in_channel": "在频道中查看",
+  "conversation_thread_beginning": "回复的开头",
+  "conversation_thread_message_placeholder": "回复讨论…",
   "conversation_you": "我",
   "tasks_tab": "任务",
   "tasks_chat_tab": "聊天",
@@ -140,6 +257,7 @@
   "tasks_as_task": "作为任务",
   "tasks_loading": "正在加载任务…",
   "tasks_empty": "此会话暂无任务",
+  "tasks_group_empty": "暂无任务",
   "tasks_load_error": "任务加载失败，请重试。",
   "tasks_mutation_error": "任务更新失败，已加载最新状态。",
   "tasks_unassigned": "未认领",
@@ -148,21 +266,27 @@
   "tasks_owned_by_other": "由其他成员认领",
   "tasks_more_actions": "任务 #{number} 的更多操作",
   "tasks_view_details": "查看和编辑",
+  "tasks_move_to": "移动到",
   "tasks_details_title": "任务 #{number}",
-  "tasks_details_description": "编辑任务元数据和负责人，并查看变更历史。",
   "tasks_description": "描述",
-  "tasks_save_changes": "保存更改",
-  "tasks_assignee": "负责人账号",
-  "tasks_assign": "分配",
-  "tasks_unassign": "取消分配",
   "tasks_history": "历史记录",
-  "tasks_refresh_history": "刷新历史记录",
   "tasks_history_empty": "暂无任务变更记录",
   "tasks_history_error": "任务历史记录加载失败，请重试。",
-  "tasks_delete": "删除任务",
-  "tasks_delete_confirmation": "删除此任务的元数据？原始消息和讨论串将保留。",
-  "tasks_confirm_delete": "删除任务元数据",
-  "tasks_cancel": "取消",
+  "tasks_created_by": "创建者",
+  "tasks_change_assignee": "更改负责人",
+  "tasks_search_members": "搜索成员",
+  "tasks_reopen_to_todo": "重新打开为待办",
+  "tasks_update_failed": "任务更新失败，请重试。",
+  "tasks_history_created": "创建任务",
+  "tasks_history_status_changed": "变更状态",
+  "tasks_history_assignee_changed": "变更负责人",
+  "tasks_history_amended": "更新任务",
+  "tasks_history_created_detail": "任务 #{number} · 状态：{status}",
+  "tasks_history_assigned_to": "负责人：{name}",
+  "tasks_history_unassigned": "取消指派",
+  "tasks_history_field_change": "{field}：{from} → {to}",
+  "tasks_history_unknown_member": "未知成员",
+  "tasks_no_replies": "暂无回复",
   "tasks_close": "关闭",
   "tasks_status_todo": "待办",
   "tasks_status_in_progress": "进行中",
@@ -173,7 +297,12 @@
   "tasks_overview_all": "全部",
   "tasks_overview_owner": "负责人",
   "tasks_overview_empty": "可见会话中暂无任务",
-  "tasks_overview_filter_empty": "没有符合此状态的任务",
+  "tasks_overview_filter_empty": "没有符合筛选条件的任务",
+  "tasks_overview_project": "项目",
+  "tasks_overview_me": "我",
+  "tasks_overview_no_project": "无项目",
+  "tasks_overview_filter_count": "{label} · {count}",
+  "tasks_overview_clear_filters": "清除筛选",
   "action_card_title_channel_create": "创建频道",
   "action_card_title_agent_create": "创建 Agent",
   "action_card_title_add_member": "添加成员",
@@ -193,10 +322,174 @@
   "action_card_suggested_computer": "建议的电脑：{name}",
   "action_card_initial_members": "初始成员",
   "conversation_mention_suggestions": "提及建议",
+  "conversation_channel_suggestions": "频道建议",
+  "conversation_channel_archived": "已归档",
   "files_tab": "文件",
   "files_empty": "这个会话还没有发过文件。",
   "files_download": "下载",
   "files_locate_message": "定位到消息",
   "files_loading": "加载中…",
-  "files_load_failed": "文件加载失败"
+  "files_load_failed": "文件加载失败",
+  "conversation_save": "收藏消息",
+  "conversation_save_failed": "收藏消息失败",
+  "conversation_unsave": "从收藏中移除",
+  "conversation_saved_nav": "已保存",
+  "conversation_pinned_section": "已置顶",
+  "conversation_pinned_empty_hint": "将频道或私信拖到这里置顶",
+  "conversation_saved_count": [
+    {
+      "declarations": ["input count", "local countPlural = count: plural"],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=other": "{count} 项"
+      }
+    }
+  ],
+  "conversation_saved_empty_title": "暂无收藏的消息",
+  "conversation_saved_empty_description": "选择消息上的书签图标即可保存。",
+  "conversation_saved_copy_link": "复制链接",
+  "conversation_saved_link_copied": "链接已复制",
+  "activity_inbox_active": [
+    {
+      "declarations": ["input count", "local countPlural = count: plural"],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=other": "{count} 条进行中"
+      }
+    }
+  ],
+  "activity_inbox_unread": [
+    {
+      "declarations": ["input count", "local countPlural = count: plural"],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=other": "{count} 条未读"
+      }
+    }
+  ],
+  "activity_inbox_filter_label": "筛选动态",
+  "activity_inbox_filter_all": "全部",
+  "activity_inbox_filter_unread": "未读",
+  "activity_inbox_filter_mentions": "提及",
+  "activity_inbox_mark_all_read": "全部已读",
+  "activity_inbox_mark_read": "标为已读",
+  "activity_inbox_done": "标记为完成",
+  "activity_inbox_menu_done": "完成",
+  "activity_inbox_menu_label": "动态条目操作",
+  "activity_inbox_action_error": "操作没有保存，请重试。",
+  "activity_inbox_replies": [
+    {
+      "declarations": ["input count", "local countPlural = count: plural"],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=other": "{count} 条回复"
+      }
+    }
+  ],
+  "activity_inbox_new": [
+    {
+      "declarations": ["input count", "local countPlural = count: plural"],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=other": "{count} 条新消息"
+      }
+    }
+  ],
+  "activity_inbox_mention_badge": "你",
+  "activity_inbox_system_sender": "系统",
+  "activity_inbox_empty_title": "动态为空",
+  "activity_inbox_empty_description": "频道、私信和已关注的讨论会一直保留在这里，直到处理完成。",
+  "activity_inbox_empty_unread_title": "没有未读会话",
+  "activity_inbox_empty_mentions_title": "暂无提及",
+  "activity_inbox_empty_mentions_description": "有人在频道、私信或讨论中 @提到你时，会显示在这里。",
+  "activity_inbox_load_error": "动态加载失败。",
+  "activity_inbox_retry": "重试",
+  "activity_inbox_loading_more": "加载更多…",
+  "search_title": "搜索",
+  "search_placeholder": "搜索消息…",
+  "search_empty_title": "搜索消息",
+  "search_empty_description": "在所有频道和你的私信中查找消息。",
+  "search_searching": "搜索中…",
+  "search_messages_heading": "消息",
+  "search_no_results_title": "没有找到“{query}”的结果",
+  "search_no_results_description": "试试其他关键词或更短的短语。",
+  "search_failed_title": "搜索失败",
+  "search_failed_description": "这次搜索没有完成，请重试。",
+  "search_retry": "重试",
+  "search_load_more": "加载更多",
+  "search_load_more_failed": "无法加载更多结果。",
+  "search_archived": "已归档",
+  "search_results_count": [
+    {
+      "declarations": ["input count", "local countPlural = count: plural"],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=other": "{count} 条结果"
+      }
+    }
+  ],
+  "search_clear": "清除搜索",
+  "search_results_count_more": [
+    {
+      "declarations": ["input count", "local countPlural = count: plural"],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=other": "{count}+ 条结果"
+      }
+    }
+  ],
+  "activity_inbox_loading": "正在加载动态…",
+  "activity_inbox_show_all": "显示全部",
+  "activity_inbox_load_more_error": "无法加载更多动态。",
+  "activity_inbox_dismiss": "关闭",
+  "search_filters": "搜索筛选",
+  "search_from": "发送者",
+  "search_from_named": "发送者：{name}",
+  "search_from_me": "我",
+  "search_from_anyone": "任何人",
+  "search_find_sender": "查找成员或 Agent",
+  "search_scope": "范围",
+  "search_scope_count": "范围 {count}",
+  "search_scope_mentioned": "@我",
+  "search_scope_humans": "人类",
+  "search_scope_agents": "Agent",
+  "search_channel": "频道",
+  "search_channel_any": "任意频道",
+  "search_find_channel": "查找频道",
+  "search_time": "时间",
+  "search_time_any": "不限时间",
+  "search_time_today": "今天",
+  "search_time_last_7_days": "最近 7 天",
+  "search_time_last_30_days": "最近 30 天",
+  "search_sort": "排序",
+  "search_sort_named": "排序：{order}",
+  "search_sort_relevant": "相关度",
+  "search_sort_recent": "最新",
+  "search_clear_filters": "清除筛选",
+  "search_no_matching_messages": "没有匹配的消息",
+  "search_try_different_filters": "试试其他筛选组合。",
+  "conversation_unresolved_mentions": "没有找到 {handles}，对应的提及没有通知到任何人。要通知某人，请从 @ 列表中选择后再提及一次。",
+  "conversation_unresolved_mentions_dismiss": "关闭",
+  "conversation_pending_mention_not_notified": "{target} 未收到通知，因为他们不在 {channel}",
+  "conversation_pending_mention_added": "{target} 已加入 {channel}",
+  "conversation_pending_mention_add": "添加",
+  "conversation_pending_mention_add_all": "全部添加",
+  "conversation_pending_mention_added_label": "已添加",
+  "conversation_pending_mention_ignore": "忽略",
+  "conversation_pending_mention_added_partial": "已添加 {succeeded}/{total}。{reason}",
+  "conversation_pending_mention_add_failed": "添加失败，请稍后重试。",
+  "conversation_pending_mention_already_member": "对方已在频道中，无需操作。",
+  "conversation_pending_mention_target_unavailable": "对方已无法加入这个频道。",
+  "conversation_pending_mention_sender_lacks_access": "你已不在这个频道，没有添加对方。",
+  "conversation_pending_mention_channel_archived": "频道已归档，无法添加成员。",
+  "conversation_pending_mention_no_longer_pending": "这个提及已经处理过了。",
+  "conversation_pending_mention_expired": "这个提及已超过 7 天，无法再处理。",
+  "conversation_pending_mention_unavailable": "这个提及已无法处理。",
+  "search_entities_heading": "工作区内",
+  "search_entity_channel": "频道",
+  "search_entity_computer": "电脑",
+  "search_entity_agent": "Agent",
+  "search_no_messages_match": "没有匹配的消息。",
+  "conversation_pending_mention_add_target": "添加 {target}",
+  "conversation_pending_mention_ignore_target": "忽略 {target}"
 }

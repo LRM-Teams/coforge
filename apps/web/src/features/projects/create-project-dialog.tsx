@@ -2,18 +2,19 @@ import { useEffect, useRef, useState, type ComponentType, type SVGProps } from "
 import { Link } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { ChevronRight, FolderLock, GitBranch01, Share04 } from "@untitledui/icons";
-import { Dialog, Modal, ModalOverlay } from "@/components/application/modals/modal";
-import { DialogHeader } from "@/components/application/modals/dialog-header";
-import { Button } from "@/components/base/buttons/button";
-import { ComboBox } from "@/components/base/select/combobox";
-import { SelectItem } from "@/components/base/select/select-item";
+import { Dialog, Modal, ModalOverlay } from "#src/components/application/modals/modal";
+import { DialogHeader } from "#src/components/application/modals/dialog-header";
+import { Button } from "#src/components/base/buttons/button";
+import { Input } from "#src/components/base/input/input";
+import { ComboBox } from "#src/components/base/select/combobox";
+import { SelectItem } from "#src/components/base/select/select-item";
 import {
   getGitHubConnection,
   listAccessibleGitHubRepositories,
-} from "@/features/integrations/github.functions";
-import { isAppError } from "@/lib/app-error";
-import { nameToSlug } from "@/lib/slug";
-import { m } from "@/paraglide/messages";
+} from "#src/features/integrations/github.functions";
+import { isAppError } from "#src/lib/app-error";
+import { nameToSlug } from "#src/lib/slug";
+import { m } from "#src/paraglide/messages";
 import { parseGitHubRepositoryInput } from "./github-repository-input";
 import { createProject } from "./projects.functions";
 import { isValidProjectSlug, PROJECT_SLUG_MAX_LENGTH } from "./projects.schemas";
@@ -258,32 +259,23 @@ export function CreateProjectDialog({
               ) : (
                 <form onSubmit={submit}>
                   <div className="grid gap-4 px-6 py-6">
-                    <label className="grid gap-1 text-sm">
-                      {m.project_name()}
-                      <input
-                        required
-                        value={name}
-                        onChange={(e) => changeName(e.target.value)}
-                        className="h-9 rounded-md border border-secondary bg-primary px-3"
-                      />
-                    </label>
-                    <label className="grid gap-1 text-sm">
-                      {m.project_slug()}
-                      <input
-                        required
+                    <Input label={m.project_name()} isRequired value={name} onChange={changeName} />
+                    <div className="grid gap-1.5">
+                      <Input
+                        label={m.project_slug()}
+                        isRequired
                         pattern="[a-z0-9]+(?:-[a-z0-9]+)*"
                         maxLength={PROJECT_SLUG_MAX_LENGTH}
                         value={slug}
-                        onChange={(e) => changeSlug(e.target.value)}
-                        aria-invalid={slugError ? true : undefined}
-                        className="h-9 rounded-md border border-secondary bg-primary px-3"
+                        onChange={changeSlug}
+                        isInvalid={Boolean(slugError)}
                       />
                       {slugError && (
                         <p role="alert" className="text-sm text-error-primary">
                           {slugError}
                         </p>
                       )}
-                    </label>
+                    </div>
                     {needsRepository && (
                       <>
                         <ComboBox

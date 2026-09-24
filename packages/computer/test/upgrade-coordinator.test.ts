@@ -9,14 +9,14 @@ import {
   UpgradeCoordinatorError,
   upgradeReceiptPaths,
   type UpgradeCoordinatorOptions,
-} from "../src/release/upgrade-coordinator";
-import type { UpgradeOperation } from "../src/release/upgrade-operation";
-import { ComputerUpdater, type LockedComputerUpdater } from "../src/updater";
+} from "#src/release/upgrade-coordinator";
+import type { UpgradeOperation } from "#src/release/upgrade-operation";
+import { ComputerUpdater, type LockedComputerUpdater } from "#src/updater";
 import {
   createSupervisorUpgradeLifecycle,
   type ManagedRuntimeSnapshot,
   type UpgradeLifecycle,
-} from "../src/release/upgrade-lifecycle";
+} from "#src/release/upgrade-lifecycle";
 
 const directories: string[] = [];
 
@@ -325,7 +325,7 @@ test("stages describe an executable-only switch when no supervisor is running", 
   ]);
 });
 
-test("an in-place lifecycle switches by check, activate, restart, probe with no stop/start stage text (ADR 0032)", async () => {
+test("an in-place lifecycle switches by check, activate, restart, probe with no stop/start stage text", async () => {
   const { calls, options } = await harness();
   const stages: string[] = [];
   options.lifecycle = {
@@ -384,7 +384,7 @@ test("an in-place lifecycle switches by check, activate, restart, probe with no 
   ]);
 });
 
-test("an in-place rollback re-checks, restores, and restarts when the candidate restart fails (ADR 0032)", async () => {
+test("an in-place rollback re-checks, restores, and restarts when the candidate restart fails", async () => {
   const { calls, options } = await harness();
   let starts = 0;
   options.lifecycle = {

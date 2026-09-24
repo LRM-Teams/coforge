@@ -1,13 +1,13 @@
 import { expect, test } from "bun:test";
 
-import { AppError } from "../src/lib/app-error";
+import { AppError } from "#src/lib/app-error";
 import {
   WorkspaceMemberDirectory,
   type WorkspaceMemberDirectoryStore,
   type WorkspaceInvitationRecord,
   type WorkspaceMemberRecord,
-} from "../src/server/workspaces/member-directory.server";
-import type { WorkspaceMemberRole } from "../src/server/workspaces/member-role.server";
+} from "#src/server/workspaces/member-directory.server";
+import type { WorkspaceMemberRole } from "#src/server/workspaces/member-role.server";
 
 const workspaceId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const ownerId = "11111111-1111-4111-8111-111111111111";
@@ -108,6 +108,39 @@ test("owner cannot leave; admin can leave and be removed", async () => {
   expect(store.members.has(`${workspaceId}:${adminId}`)).toBe(false);
 });
 
+test("leaving or being removed tells each of the person's channels that its member list changed", async () => {
+  const store = memoryStore();
+  store.seedMember({ workspaceId, userId: ownerId, role: "owner", username: "ada" });
+  store.seedMember({
+    workspaceId,
+    userId: adminId,
+    role: "admin",
+    username: "admin",
+    channelIds: ["channel-1"],
+  });
+  store.seedMember({
+    workspaceId,
+    userId: memberId,
+    role: "member",
+    username: "bob",
+    channelIds: ["channel-1", "channel-2"],
+  });
+  const announced: Array<{ workspaceId: string; conversationIds: readonly string[] }> = [];
+  const directory = new WorkspaceMemberDirectory(store, undefined, {
+    memberChanged: async (input) => {
+      announced.push(input);
+    },
+  });
+
+  await directory.leave({ workspaceId, userId: adminId });
+  await directory.removeMember({ workspaceId, actorUserId: ownerId, targetUserId: memberId });
+
+  expect(announced).toEqual([
+    { workspaceId, conversationIds: ["channel-1"] },
+    { workspaceId, conversationIds: ["channel-1", "channel-2"] },
+  ]);
+});
+
 test("ordinary members can list peers but cannot invite", async () => {
   const store = memoryStore();
   store.seedMember({ workspaceId, userId: ownerId, role: "owner", username: "ada" });
@@ -129,6 +162,8 @@ test("ordinary members can list peers but cannot invite", async () => {
 
 function memoryStore(): WorkspaceMemberDirectoryStore & {
   members: Map<string, WorkspaceMemberRecord>;
+  /** The channels each `${workspaceId}:${userId}` member is active in. */
+  channels: Map<string, string[]>;
   invitations: Map<string, WorkspaceInvitationRecord>;
   users: Map<string, { id: string; username: string }>;
   seedMember(input: {
@@ -136,20 +171,24 @@ function memoryStore(): WorkspaceMemberDirectoryStore & {
     userId: string;
     role: WorkspaceMemberRole;
     username: string;
+    channelIds?: string[];
   }): void;
   seedUser(userId: string, username: string): void;
 } {
   const members = new Map<string, WorkspaceMemberRecord>();
+  const channels = new Map<string, string[]>();
   const invitations = new Map<string, WorkspaceInvitationRecord>();
   const users = new Map<string, { id: string; username: string }>();
   let invitationSeq = 0;
 
   return {
     members,
+    channels,
     invitations,
     users,
     seedMember(input) {
       users.set(input.userId, { id: input.userId, username: input.username });
+      channels.set(`${input.workspaceId}:${input.userId}`, input.channelIds ?? []);
       members.set(`${input.workspaceId}:${input.userId}`, {
         workspaceId: input.workspaceId,
         userId: input.userId,
@@ -235,7 +274,11 @@ function memoryStore(): WorkspaceMemberDirectoryStore & {
       return member;
     },
     async removeMember(workspaceId, userId) {
-      members.delete(`${workspaceId}:${userId}`);
+      const key = `${workspaceId}:${userId}`;
+      members.delete(key);
+      const leftChannelIds = channels.get(key) ?? [];
+      channels.delete(key);
+      return { leftChannelIds };
     },
   };
 }

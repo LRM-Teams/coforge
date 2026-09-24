@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { TaskStatus, TaskView } from "@lrm/coforge-sdk/internal";
-import { getTaskMoveCommand } from "../src/features/tasks/task-move";
+import { getTaskMoveCommand, taskStatusOptions } from "#src/features/tasks/task-move";
 
 const task = (status: TaskStatus, owner: TaskView["owner"] = null): TaskView => ({
   messageId: "message-1",
@@ -15,7 +15,9 @@ const task = (status: TaskStatus, owner: TaskView["owner"] = null): TaskView => 
 const owner = (memberId: string): NonNullable<TaskView["owner"]> => ({
   memberId,
   kind: "user",
+  id: `user-${memberId}`,
   name: memberId,
+  handle: memberId,
 });
 
 describe("getTaskMoveCommand", () => {
@@ -29,23 +31,12 @@ describe("getTaskMoveCommand", () => {
       operation: "claim",
       number: 7,
     });
-    expect(getTaskMoveCommand(task("todo"), "me", "in_review")).toEqual({
-      operation: "update",
-      number: 7,
-      status: "in_review",
-      expectedRevision: 4,
-    });
-    expect(getTaskMoveCommand(task("todo"), "me", "done")).toBeUndefined();
     expect(getTaskMoveCommand(task("todo", owner("me")), "me", "in_progress")).toEqual({
       operation: "claim",
       number: 7,
     });
-    expect(getTaskMoveCommand(task("todo", owner("other")), "me", "in_progress")).toEqual({
-      operation: "update",
-      number: 7,
-      status: "in_progress",
-      expectedRevision: 4,
-    });
+    expect(getTaskMoveCommand(task("todo"), "me", "in_review")).toBeUndefined();
+    expect(getTaskMoveCommand(task("todo"), "me", "done")).toBeUndefined();
   });
 
   test("lets owners move to every status with revision checking", () => {
@@ -59,9 +50,15 @@ describe("getTaskMoveCommand", () => {
     }
   });
 
-  test("keeps status changes independent from assignment", () => {
+  test("leaves in progress and in review to the owner, as the server does", () => {
     const someoneElses = task("in_review", owner("other"));
-    for (const nextStatus of ["todo", "in_progress", "done", "closed"] as const) {
+    expect(getTaskMoveCommand(someoneElses, "me", "in_progress")).toBeUndefined();
+    expect(getTaskMoveCommand(task("todo", owner("other")), "me", "in_progress")).toBeUndefined();
+    expect(
+      getTaskMoveCommand(task("in_progress", owner("other")), "me", "in_review"),
+    ).toBeUndefined();
+    expect(getTaskMoveCommand(task("in_review"), "me", "in_progress")).toBeUndefined();
+    for (const nextStatus of ["todo", "done", "closed"] as const) {
       expect(getTaskMoveCommand(someoneElses, "me", nextStatus)).toEqual({
         operation: "update",
         number: 7,
@@ -79,11 +76,58 @@ describe("getTaskMoveCommand", () => {
       status: "closed",
       expectedRevision: 4,
     });
+    expect(getTaskMoveCommand(task("in_progress"), "me", "todo")).toEqual({
+      operation: "update",
+      number: 7,
+      status: "todo",
+      expectedRevision: 4,
+    });
     expect(getTaskMoveCommand(task("done", owner("other")), "me", "todo")).toEqual({
       operation: "update",
       number: 7,
       status: "todo",
       expectedRevision: 4,
     });
+  });
+});
+
+describe("taskStatusOptions", () => {
+  test("offers the current status first, then the statuses a Task may move to from it", () => {
+    const mine = owner("me");
+    expect(taskStatusOptions(task("todo", mine), "me")).toEqual(["todo", "in_progress", "closed"]);
+    expect(taskStatusOptions(task("in_progress", mine), "me")).toEqual([
+      "in_progress",
+      "in_review",
+      "done",
+      "closed",
+    ]);
+    expect(taskStatusOptions(task("in_review", mine), "me")).toEqual([
+      "in_review",
+      "done",
+      "in_progress",
+      "closed",
+    ]);
+    expect(taskStatusOptions(task("done", mine), "me")).toEqual([
+      "done",
+      "todo",
+      "in_progress",
+      "in_review",
+      "closed",
+    ]);
+    expect(taskStatusOptions(task("closed", mine), "me")).toEqual([
+      "closed",
+      "todo",
+      "in_progress",
+    ]);
+  });
+
+  test("drops moves the viewer cannot make", () => {
+    expect(taskStatusOptions(task("in_review"), "me")).toEqual(["in_review", "closed"]);
+    expect(taskStatusOptions(task("in_progress", owner("other")), "me")).toEqual([
+      "in_progress",
+      "done",
+      "closed",
+    ]);
+    expect(taskStatusOptions(task("todo"), null)).toEqual(["todo"]);
   });
 });

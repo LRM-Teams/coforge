@@ -1,26 +1,27 @@
 import {
-  AGENT_MESSAGE_METHOD,
   AGENT_START_METHOD,
   AGENT_ACTIVITY_METHOD,
-  WORKSPACE_PROTOCOL_MAJOR,
   decodeAgentActivity,
-  encodeAgentMessageDelivery,
   encodeAgentStartIntent,
   encodeAgentStopIntent,
   type AgentActivity,
   type AgentStartIntent,
   type AgentStopIntent,
 } from "@lrm/coforge-sdk/internal";
-import { daemonControlChannel, type CentrifugoServerApi } from "../centrifugo/server-api.server";
+import { encodeAgentDelivery } from "#src/server/conversations/agent-delivery.server";
+import {
+  daemonControlChannel,
+  type CentrifugoServerApi,
+} from "#src/server/centrifugo/server-api.server";
 import { agentStartIntent } from "./manage-agents.server";
 import type { AgentSessions } from "./agent-sessions.server";
-import type { AgentRepository } from "../db/repositories/agent.repositories.server";
+import type { AgentRepository } from "#src/server/db/repositories/agent.repositories.server";
 import type { AgentRuntimeLock } from "./agent-runtime-lock.server";
 import type { AgentControl } from "./agent-control.server";
 import type {
   AgentRecoveryContext,
   PendingAgentDelivery,
-} from "../db/repositories/direct-conversation.repositories.server";
+} from "#src/server/db/repositories/direct-conversation.repositories.server";
 
 export type AgentRuntimeControlAuthorization = {
   computerIdForAuthorizedAgent(
@@ -112,7 +113,7 @@ export class WorkspaceAgentRecovery {
   ) {
     const runningAgents = new Set(runningAgentIds);
     const agents = await this.agents.listForComputer(workspaceId, computerId);
-    // ADR 0044: a deleted Agent is never recovered — but if the Daemon still reports one running
+    // A deleted Agent is never recovered — but if the Daemon still reports one running
     // (its Stop never reached an offline Daemon, or its result was lost), reconcile with a Stop.
     // Deleted Agents are listed separately because `listForComputer` only returns live ones.
     const control = this.control;
@@ -139,7 +140,7 @@ export class WorkspaceAgentRecovery {
           if (!agent || agent.workspaceId !== workspaceId || agent.computerId !== computerId)
             return;
           if (agent.stoppedAt) {
-            // ADR 0038: a user stopped this Agent; nothing here may start or wake it. If the
+            // A user stopped this Agent; nothing here may start or wake it. If the
             // Daemon still reports it running (Stop requested while offline, or its result was
             // lost), reconcile with a Stop through AgentControl, without blocking the rest of
             // recovery on its result.
@@ -161,13 +162,13 @@ export class WorkspaceAgentRecovery {
               deliveries.map((delivery) =>
                 this.api.publish(
                   daemonControlChannel(workspaceId, computerId),
-                  encodeAgentMessageDelivery({
-                    protocolMajor: WORKSPACE_PROTOCOL_MAJOR,
+                  encodeAgentDelivery({
                     requestId: crypto.randomUUID(),
                     workspaceId,
                     agentId: agent.id,
-                    method: AGENT_MESSAGE_METHOD,
                     ...delivery,
+                    // Pending deliveries are already read back as text; reading again is a no-op.
+                    mentions: [],
                   }),
                 ),
               ),

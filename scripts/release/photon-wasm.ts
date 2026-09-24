@@ -1,8 +1,9 @@
 import { createRequire } from "node:module";
 import { dirname, resolve } from "node:path";
 
-/** The exact file name docs/release.md's feed layout and packages/computer/src/updater.ts's
- * manifest.photonWasm.file both pin - never "some safe filename". */
+/** The exact file name docs/release/local-distribution.md's feed layout and
+ * packages/computer/src/updater.ts's manifest.photonWasm.file both pin - never "some safe
+ * filename". */
 export const PHOTON_WASM_FILE = "photon_rs_bg.wasm";
 
 const REPO_ROOT = resolve(import.meta.dir, "../..");
@@ -13,8 +14,7 @@ const AGENT_PACKAGE_DIRECTORY = resolve(REPO_ROOT, "packages/agent");
  * pi-coding-agent`, a `packages/agent` dependency) depends on `@silvia-odwyer/photon-node`,
  * whose package directory ships the wasm file next to its `package.json`; walking that exact
  * dependency chain (rather than a fixed `node_modules/.bun/...` path) is what keeps this resolver
- * correct across package-manager layout changes and version bumps of either package - see
- * docs/adr/0062-photon-wasm-sidecar.md.
+ * correct across package-manager layout changes and version bumps of either package.
  *
  * `fromDirectory` lets tests point resolution at a fixture tree instead of the real installed
  * dependency. */

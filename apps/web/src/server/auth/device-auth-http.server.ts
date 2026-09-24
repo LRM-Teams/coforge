@@ -1,6 +1,6 @@
-import { getDatabaseClient } from "../db/client.server";
-import { PrismaDeviceAuthorizationStore } from "../db/repositories/device-auth.repositories.server";
-import { publicOrigin } from "../http/public-origin.server";
+import { getDatabaseClient } from "#src/server/db/client.server";
+import { PrismaDeviceAuthorizationStore } from "#src/server/db/repositories/device-auth.repositories.server";
+import { publicOrigin } from "#src/server/http/public-origin.server";
 import {
   authorizeDevice,
   DEVICE_CLIENT_ID,

@@ -4,7 +4,7 @@ import {
   restartSupervisor,
   type RestartSupervisorHost,
   type RestartSupervisorLocal,
-} from "../src/cli";
+} from "#src/cli";
 
 function fakeLocal(overrides: Partial<RestartSupervisorLocal> = {}): RestartSupervisorLocal & {
   calls: string[];

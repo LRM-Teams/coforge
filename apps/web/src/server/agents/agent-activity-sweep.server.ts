@@ -4,14 +4,17 @@ import { encodeAgentActivityProbe } from "@lrm/coforge-sdk/internal";
 import {
   agentStatusChannel,
   agentStatusChannelForAgent,
-} from "../../features/agents/agent-status-realtime";
-import { AGENT_VISIBILITY } from "../../features/agents/agent-visibility";
-import { createCentrifugoServerApi, daemonControlChannel } from "../centrifugo/server-api.server";
-import type { CentrifugoServerApi } from "../centrifugo/server-api.server";
+} from "#src/features/agents/agent-status-realtime";
+import { AGENT_VISIBILITY } from "#src/features/agents/agent-visibility";
+import {
+  createCentrifugoServerApi,
+  daemonControlChannel,
+} from "#src/server/centrifugo/server-api.server";
+import type { CentrifugoServerApi } from "#src/server/centrifugo/server-api.server";
 import { getAgentDisplay, type AgentDisplay, type Scope } from "./agent-display.server";
-import { getDatabaseClient } from "../db/client.server";
+import { getDatabaseClient } from "#src/server/db/client.server";
 
-/** How often `AgentActivitySweep.tick()` looks for stale busy leases. See ADR 0020. */
+/** How often `AgentActivitySweep.tick()` looks for stale busy leases. */
 export const ACTIVITY_SWEEP_INTERVAL_MS = 5_000;
 /** How long a liveness probe waits for the daemon's reply before the sweep synthesises `online`. */
 export const ACTIVITY_PROBE_TIMEOUT_MS = 5_000;
@@ -40,7 +43,7 @@ export class RedisAgentActivitySweepLock implements AgentActivitySweepLock {
 }
 
 /**
- * Server-side liveness sweep (ADR 0020, CR-B of PR #251). Every tick, one web
+ * Server-side liveness sweep (CR-B of PR #251). Every tick, one web
  * instance (decided by `lock`) walks the `activity-leases` index for busy
  * displays whose lease has lapsed, asks the daemon directly via
  * `AgentActivityProbe`, and — once a probe times out without a reply —
@@ -60,7 +63,7 @@ export class AgentActivitySweep {
     private readonly lock: AgentActivitySweepLock,
     private readonly clock: () => number = Date.now,
     private readonly instanceId: string = crypto.randomUUID(),
-    /** ADR 0059: the Agent's current visibility, read fresh (no cache) for every synthesized
+    /** The Agent's current visibility, read fresh (no cache) for every synthesized
      * display push — never optional in effect: a lookup that finds nothing to route by skips
      * the publish entirely (fails closed) rather than defaulting to the shared channel. A
      * recognized non-`"public"` value routes it to the per-Agent one instead, same as the
@@ -140,7 +143,7 @@ export class AgentActivitySweep {
       return;
     }
     if (result.outcome === "expired") {
-      // ADR 0059: fail closed. A lookup that finds nothing to route by skips the publish
+      // Fail closed. A lookup that finds nothing to route by skips the publish
       // entirely rather than guessing the shared channel — the stale badge self-corrects on a
       // later tick once the lookup can answer.
       const visibility = await this.visibility(scope);

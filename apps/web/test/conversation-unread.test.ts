@@ -1,18 +1,19 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  activityInClosedConversation,
   applyUnreadEvent,
   clearUnread,
   seedUnreadCounts,
   replaceUnreadCounts,
   latestTopLevelSequence,
   persistReadCursor,
-} from "../src/features/conversations/conversation-unread";
+} from "#src/features/conversations/conversation-unread";
 import {
   decodeMessageAvailableEvent,
   userConversationChannel,
   workspaceConversationChannel,
-} from "../src/features/conversations/conversation-realtime";
+} from "#src/features/conversations/conversation-realtime";
 
 const channels = new Set(["channel-a", "channel-b"]);
 
@@ -113,7 +114,7 @@ describe("applyUnreadEvent", () => {
   test("bumps a DM badge by the event's own Agent id, with no conversation alias", () => {
     // The user channel is already scoped to this viewer and names its badge directly, so the
     // event needs no listed-conversation check: a DM created after the last list fetch still
-    // bumps live (ADR 0046).
+    // bumps live.
     const next = applyUnreadEvent(
       {},
       { conversationId: "dm-conversation", sequence: 4, agentId: "agent-1" },
@@ -326,4 +327,33 @@ describe("persistReadCursor", () => {
     expect(warnings).toHaveLength(1);
     expect(String(warnings[0])).toContain("read cursor did not persist");
   });
+});
+
+test("a new top-level message in a chat the sidebar is not showing is activity in a closed chat", () => {
+  const listed = {
+    conversations: new Set(["channel-1"]),
+    hiddenAgentIds: new Set(["agent-closed"]),
+  };
+  const message = { conversationId: "channel-2", sequence: 5 };
+
+  // A channel missing from the list (the viewer closed it) and a closed DM both count.
+  expect(activityInClosedConversation(message, listed)).toBe(true);
+  expect(
+    activityInClosedConversation(
+      { ...message, conversationId: "dm-1", agentId: "agent-closed" },
+      listed,
+    ),
+  ).toBe(true);
+
+  // Listed chats, open DMs and thread replies do not: nothing new would appear in the list.
+  expect(activityInClosedConversation({ ...message, conversationId: "channel-1" }, listed)).toBe(
+    false,
+  );
+  expect(
+    activityInClosedConversation(
+      { ...message, conversationId: "dm-2", agentId: "agent-open" },
+      listed,
+    ),
+  ).toBe(false);
+  expect(activityInClosedConversation({ ...message, threadRootId: "root-1" }, listed)).toBe(false);
 });

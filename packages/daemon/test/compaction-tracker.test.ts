@@ -1,5 +1,5 @@
 import { afterEach, expect, jest, test } from "bun:test";
-import { CompactionTracker, COMPACTION_STALE_MS } from "../src/agent-runtime/compaction-tracker";
+import { CompactionTracker, COMPACTION_STALE_MS } from "#src/agent-runtime/compaction-tracker";
 
 afterEach(() => jest.useRealTimers());
 

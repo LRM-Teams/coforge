@@ -70,7 +70,7 @@ Untitled 自己的暗色模式规则是**不改梯度数值，只改语义 token
 | `--color-terminal`         | `#171b23`                                 | `#171b23`（明暗一致）                    | 终端/命令块底色           |
 | `--color-terminal-fg`      | `#f4f6fb`                                 | `#f4f6fb`（明暗一致）                    | 终端/命令块文字           |
 | `--color-avatar-1…6`       | `#7556b9` `#d18a38` `#b65757` `#5268b7` `#497665` `#ba5937` | 同亮色 | 无头像时的占位底色（设计稿用真实头像图，未定义专门配色）|
-| `--color-avatar-deleted`   | `#afbccb`                                 | `#778393`                                | 已删除 Agent 的头像底色（ADR 0044），取值与离线圆点一致但语义独立 |
+| `--color-avatar-deleted`   | `#afbccb`                                 | `#778393`                                | 已删除 Agent 的头像底色，取值与离线圆点一致但语义独立 |
 | `--color-online`           | `#1bb618`                                 | `#42c83f`                                | 在线/成功圆点             |
 | `--color-offline`          | `#afbccb`                                 | `#778393`                                | 离线圆点                  |
 
@@ -97,7 +97,7 @@ Untitled 自己的暗色模式规则是**不改梯度数值，只改语义 token
 
 ## 6. 维护约定
 
-- 尺寸单位（rem 与 px 的分工）见 [design.md §12](design.md#12-尺寸单位rem-与-px)；本文只管颜色与字体。
+- 尺寸单位（rem 与 px 的分工）见 [design §12](design/sizing-units.md)；本文只管颜色与字体。
 - 颜色一律用 Untitled 的语义工具类（`bg-primary`、`text-tertiary`、`border-secondary`……),不写死十六进制,
   不写 `bg-[...]` 任意值,新概念先加 token 再用。
 - 只在 `coforge-theme.css` 覆盖 `--color-brand-*` 或新增 CoForge 专属 token；`theme.css` / `typography.css`

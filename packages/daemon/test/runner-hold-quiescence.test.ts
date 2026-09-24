@@ -7,7 +7,7 @@ import {
   RUNNER_HOLD_MS,
   RUNNER_HOLD_POLL_MS,
   type RunnerHoldSnapshot,
-} from "../src/supervisor/runner-hold";
+} from "#src/supervisor/runner-hold";
 
 /** A virtual clock: `sleep` advances `now` instantly, so a 30s bound costs no wall time. */
 function clock() {
@@ -126,7 +126,7 @@ describe("answeredWithin", () => {
     );
   });
 
-  test("an answered race leaves nothing that keeps the process alive (ADR 0032)", async () => {
+  test("an answered race leaves nothing that keeps the process alive", async () => {
     // The 2026-09-17 incident: the losing `Bun.sleep(5_000)` of a settled race kept the
     // Coordinator alive 5 s past its own shutdown. Only a real process exit can prove the absence
     // of a pending timer, so this measures one.
