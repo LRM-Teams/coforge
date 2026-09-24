@@ -1,16 +1,29 @@
-import { useMemo } from "react";
-import { useHydrated } from "@tanstack/react-router";
+import { useCallback, useEffect, useMemo, useRef } from "react";
+import { getRouteApi, useHydrated } from "@tanstack/react-router";
+import { useServerFn } from "@tanstack/react-start";
 import { useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import type { QueryClient } from "@tanstack/react-query";
 import { useLiveQuery } from "@tanstack/react-db";
 
 import { useCurrentWorkspaceId } from "#src/features/agents/workspace-agents-realtime";
 import {
+  userConversationChannel,
+  workspaceConversationChannel,
+} from "#src/features/conversations/conversation-realtime";
+import { useRealtimeSubscription } from "#src/features/realtime/browser-realtime";
+import {
+  getUserConversationSubscriptionToken,
+  getWorkspaceConversationSubscriptionToken,
+} from "#src/features/realtime/realtime.functions";
+import {
   createTaskOverview,
   taskOverviewQuery,
   type OverviewTaskRow,
   type TaskOverviewCollection,
 } from "./task-overview-collection";
+import { decodeTaskChangedEvent, type TaskChangedEvent } from "./task-realtime";
+
+const appRoute = getRouteApi("/_app");
 
 // React access to the Tasks page's rows (`task-overview-collection.ts`).
 
@@ -66,6 +79,7 @@ export function useTaskOverview() {
         : cache.tasks,
     [liveRows, position, cache.tasks],
   );
+  useTaskOverviewRealtime(overview, workspaceId);
   return useMemo(
     () => ({
       tasks,
@@ -76,4 +90,54 @@ export function useTaskOverview() {
     }),
     [tasks, overview, queryClient, workspaceId],
   );
+}
+
+/** Announcements arriving together (an Agent working through several Tasks) apply in one write. */
+const APPLY_DELAY_MS = 100;
+
+/**
+ * Keeps the rows live: listens for `task.changed.v1` on the Workspace channel (channel Tasks)
+ * and the viewer's own channel (direct-message Tasks), the subscriptions the nav rail already
+ * holds, and applies each burst in one write. Every other publication (every chat message) is
+ * dropped before any parsing beyond its type. Only a Task the page does not list yet reads the
+ * list again, once per burst.
+ */
+function useTaskOverviewRealtime(
+  overview: TaskOverviewCollection | undefined,
+  workspaceId: string,
+) {
+  const queryClient = useQueryClient();
+  const userId = appRoute.useLoaderData({ select: (data) => data.user.id });
+  const getWorkspaceToken = useServerFn(getWorkspaceConversationSubscriptionToken);
+  const getUserToken = useServerFn(getUserConversationSubscriptionToken);
+  const pending = useRef<TaskChangedEvent[]>([]);
+  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  useEffect(() => () => clearTimeout(timer.current), []);
+
+  const onPublication = useCallback(
+    (publication: { data: unknown }) => {
+      const event = decodeTaskChangedEvent(publication.data);
+      if (!event || !overview || event.workspaceId !== workspaceId) return;
+      pending.current.push(event);
+      if (timer.current !== undefined) return;
+      timer.current = setTimeout(() => {
+        timer.current = undefined;
+        const events = pending.current.splice(0);
+        if (overview.apply(events))
+          void queryClient.invalidateQueries({ queryKey: taskOverviewQuery(workspaceId).queryKey });
+      }, APPLY_DELAY_MS);
+    },
+    [overview, workspaceId, queryClient],
+  );
+
+  useRealtimeSubscription({
+    channel: overview && workspaceId ? workspaceConversationChannel(workspaceId) : undefined,
+    getToken: getWorkspaceToken,
+    onPublication,
+  });
+  useRealtimeSubscription({
+    channel: overview ? userConversationChannel(userId) : undefined,
+    getToken: getUserToken,
+    onPublication,
+  });
 }

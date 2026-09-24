@@ -31,7 +31,9 @@ workspaceId]` Query its loader fills (`task-overview-collection.ts`,
   shows a move at once and writes back the server's copy; refreshes
   invalidate that Query, never the router. A command with nothing to show
   first still reaches the server: an empty optimistic transaction is never
-  saved.
+  saved. Announced Task changes (`task.changed.v1`, `task-realtime.ts`) are
+  applied to the rows with `apply` in one write per burst; only a Task the page
+  does not list yet reads the list again.
 - `/tasks` filters are search params, comma-separated: `owners` holds User
   or Agent ids and `projects` holds Project ids, with `none` meaning no owner
   or no Project (`task-filters.ts`).

@@ -110,3 +110,40 @@ test("a move of a Task the page no longer lists is still saved", async () => {
   await overview.run(gone, { operation: "claim", number: 9 });
   expect(commands.map((command) => command.operation)).toEqual(["claim"]);
 });
+
+const announced = (tasks: TaskView[], deleted: string[] = []) => ({
+  type: "task.changed.v1" as const,
+  workspaceId: "w",
+  conversationId: "conversation-1",
+  tasks,
+  deleted,
+});
+
+test("an announced change updates its row in place, without reading the list again", async () => {
+  const { overview, reads } = await overviewWith(async () => ({ tasks: [] }));
+  const needsRead = overview.apply([
+    announced([task(1, { status: "done", revision: 3, owner: viewer })]),
+  ]);
+  expect(needsRead).toBe(false);
+  expect(overview.tasks.get("message-1")).toMatchObject({
+    status: "done",
+    revision: 3,
+    owner: viewer,
+    project: { id: "project-1" },
+  });
+  expect(reads()).toBe(1);
+});
+
+test("an announced copy no newer than the row on screen is ignored", async () => {
+  const { overview } = await overviewWith(async () => ({ tasks: [] }));
+  overview.apply([announced([task(2, { status: "todo", revision: 1 })])]);
+  expect(overview.tasks.get("message-2")?.status).toBe("in_progress");
+});
+
+test("an announced new Task asks for one read of the list; a deleted Task leaves", async () => {
+  const { overview } = await overviewWith(async () => ({ tasks: [] }));
+  const needsRead = overview.apply([announced([task(7)]), announced([], ["message-2"])]);
+  expect(needsRead).toBe(true);
+  expect(overview.tasks.has("message-2")).toBe(false);
+  expect(overview.tasks.has("message-1")).toBe(true);
+});

@@ -20,6 +20,7 @@ import { AppError } from "#src/lib/app-error";
 import {
   messageSignalScope,
   type ConversationRealtime,
+  type MessageSignalScope,
 } from "#src/server/conversations/conversation-realtime.server";
 import {
   agentReadableBody,
@@ -1054,19 +1055,27 @@ export class TaskBoard {
         scope.conversationId,
         scope.workspaceId,
       );
-      const effects: Promise<unknown>[] = result.tasks.flatMap((task, index) => [
-        ...(member.userId
-          ? [attempt(() => this.dependencies.notifications?.notifyMessage(task.messageId))]
-          : []),
-        attempt(() =>
-          this.dependencies.realtime?.messageAvailable({
-            conversationId: scope.conversationId,
-            messageId: task.messageId,
-            sequence: result.sequences[index]!,
-            ...signalScope,
-          }),
-        ),
-      ]);
+      const effects: Promise<unknown>[] = [
+        this.announceTasks(scope, signalScope, {
+          tasks: result.tasks.map(view),
+          publicationId: `${result.tasks[0]!.messageId}:task:created`,
+        }),
+      ];
+      effects.push(
+        ...result.tasks.flatMap((task, index) => [
+          ...(member.userId
+            ? [attempt(() => this.dependencies.notifications?.notifyMessage(task.messageId))]
+            : []),
+          attempt(() =>
+            this.dependencies.realtime?.messageAvailable({
+              conversationId: scope.conversationId,
+              messageId: task.messageId,
+              sequence: result.sequences[index]!,
+              ...signalScope,
+            }),
+          ),
+        ]),
+      );
       if (member.userId && this.dependencies.publisher) {
         const messages = await this.db.message.findMany({
           where: { id: { in: result.tasks.map((task) => task.messageId) } },
@@ -1693,6 +1702,12 @@ export class TaskBoard {
     if (!task) throw new AppError("NOT_FOUND");
     if (task.creatorMemberId !== member.id) await this.requireManager(this.db, workspaceId, member);
     await this.db.task.delete({ where: { messageId: task.messageId } });
+    if (this.dependencies.realtime?.taskChanged)
+      await this.announceTasks(
+        { conversationId, workspaceId },
+        await messageSignalScope(this.db, conversationId, workspaceId),
+        { deleted: [task.messageId], publicationId: `${task.messageId}:task:deleted` },
+      );
     return { tasks: [] };
   }
 
@@ -1859,17 +1874,48 @@ export class TaskBoard {
   }
 
   private async signalTaskChange(task: SelectedTask) {
+    const realtime = this.dependencies.realtime;
+    if (!realtime) return;
     try {
-      await this.dependencies.realtime?.messageAvailable({
-        conversationId: task.conversationId,
-        messageId: task.messageId,
-        sequence: task.message.sequence,
-        // Task metadata changes are always top-level messages, never thread replies.
-        ...(await messageSignalScope(this.db, task.conversationId, task.workspaceId)),
-        publicationId: `${task.messageId}:task:${task.revision}`,
-      });
+      const scope = await messageSignalScope(this.db, task.conversationId, task.workspaceId);
+      const publicationId = `${task.messageId}:task:${task.revision}`;
+      await Promise.allSettled([
+        Promise.resolve().then(() =>
+          realtime.messageAvailable({
+            conversationId: task.conversationId,
+            messageId: task.messageId,
+            sequence: task.message.sequence,
+            // Task metadata changes are always top-level messages, never thread replies.
+            ...scope,
+            publicationId,
+          }),
+        ),
+        this.announceTasks(task, scope, { tasks: [view(task)], publicationId }),
+      ]);
     } catch {
       // PostgreSQL is canonical; normal reconciliation repairs a missed metadata event.
+    }
+  }
+
+  /** Tells open Tasks pages the new copies of the Tasks a write changed, or the ids of those it
+   * deleted, where `scope` sends a message of their conversation. Never fails the write. */
+  private async announceTasks(
+    conversation: { conversationId: string; workspaceId: string },
+    scope: MessageSignalScope,
+    change: { tasks?: TaskView[]; deleted?: string[]; publicationId: string },
+  ) {
+    try {
+      await this.dependencies.realtime?.taskChanged?.({
+        workspaceId: conversation.workspaceId,
+        conversationId: conversation.conversationId,
+        tasks: change.tasks ?? [],
+        deleted: change.deleted ?? [],
+        userId: scope.userId,
+        agentId: scope.agentId,
+        publicationId: change.publicationId,
+      });
+    } catch {
+      // PostgreSQL is canonical: a page that missed it shows the change on its next read.
     }
   }
 }
