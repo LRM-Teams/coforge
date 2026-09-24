@@ -47,3 +47,7 @@ contract is `packages/coforge-sdk/src/internal/tasks.ts`.
   channel: it is created in the person's direct conversation with the Agent
   (`getOrCreateUserAgent`, so the private-Agent DM rule applies) and assigned
   to it through `TaskBoard.execute`, never around it.
+- An Agent's own list (`list` with `mine`) returns every Task assigned to it in
+  the conversations it is a member of, unfinished by default and without a page
+  limit. Its `coverage` and `pagination` describe that query and come from
+  `agentOwnTaskScope` beside it; change the two together.

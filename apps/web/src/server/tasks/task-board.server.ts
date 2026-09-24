@@ -4,8 +4,10 @@ import {
   WORKSPACE_PROTOCOL_MAJOR,
   encodeReminderSync,
   type TaskCommand,
+  type TaskConversationKind,
   type TaskHistoryChange,
   type TaskHistoryEvent,
+  type TaskListCoverage,
   type TaskMember,
   type TaskPrincipal,
   type TaskResult,
@@ -64,6 +66,7 @@ const TASK_MEMBER_SELECT = {
   id: true,
   userId: true,
   agentId: true,
+  leftAt: true,
   user: { select: { username: true, displayName: true, avatarObjectKey: true } },
   agent: { select: { name: true, displayName: true, deletedAt: true } },
 } satisfies Prisma.ConversationMemberSelect;
@@ -81,8 +84,11 @@ const taskSelection = {
   status: true,
   revision: true,
   claimedAt: true,
+  createdAt: true,
+  updatedAt: true,
   ownerMemberId: true,
   owner: { select: TASK_MEMBER_SELECT },
+  creator: { select: TASK_MEMBER_SELECT },
   // The backing message's sequence, so realtime signals need no second read, and its mention rows,
   // which a title converted from that message needs to read its mention tokens back.
   message: {
@@ -259,6 +265,46 @@ function overviewConversationWhere(userId: string): Prisma.ConversationWhereInpu
   };
 }
 
+/** Which conversations each kind an Agent's own Task list reads is. */
+const CONVERSATION_KIND_WHERE = {
+  channel: { channelName: { not: null } },
+  dm: { directKey: { not: null } },
+} satisfies Record<TaskConversationKind, Prisma.ConversationWhereInput>;
+
+/** What an Agent's own Task list reads: every kind, archived channels included. */
+const AGENT_OWN_TASK_READ = {
+  kinds: ["channel", "dm"] as TaskConversationKind[],
+  includesArchived: true,
+};
+
+/**
+ * The conversations an Agent's own Task list reads, and the coverage the list reports. Both come
+ * from `AGENT_OWN_TASK_READ`, so the reported coverage is the query's and cannot drift from it.
+ * The list reads every match without a page limit.
+ */
+function agentOwnTaskScope(agentId: string): {
+  conversations: Prisma.ConversationWhereInput;
+  coverage: TaskListCoverage;
+} {
+  const { kinds, includesArchived } = AGENT_OWN_TASK_READ;
+  return {
+    conversations: {
+      ...VISIBLE_CONVERSATION_WHERE,
+      ...(includesArchived ? {} : { archivedAt: null }),
+      OR: kinds.map((kind) => CONVERSATION_KIND_WHERE[kind]),
+      members: { some: { agentId, ...ACTIVE_MEMBER_WHERE } },
+    },
+    coverage: {
+      status: "incomplete",
+      visibleConversationKinds: [...kinds],
+      includesArchived,
+      inaccessibleScope: "not_asserted",
+      reason:
+        "Reads the channels and DMs this Agent is a member of now. A conversation it has left, and a channel hidden from the Workspace, are not read, so Tasks there are not listed.",
+    },
+  };
+}
+
 function overviewSelection(userId: string) {
   return {
     ...taskSelection,
@@ -331,6 +377,7 @@ function taskMember(
       // A deleted Agent keeps the Tasks it holds so history stays readable; the marker says so
       // rather than letting the card read as if the holder were still live.
       deleted: member.agent.deletedAt !== null,
+      ...(member.leftAt !== null && { left: true }),
     };
   const user = member.user!;
   return {
@@ -339,6 +386,7 @@ function taskMember(
     id: member.userId!,
     name: user.displayName || `@${user.username}`,
     handle: user.username,
+    ...(member.leftAt !== null && { left: true }),
     avatarUrl: workspaceUserAvatarUrl(workspaceId, member.userId!, user.avatarObjectKey),
   };
 }
@@ -371,6 +419,9 @@ function view(task: SelectedTask): TaskView {
       },
     }),
     owner: task.owner && taskMember(task.workspaceId, task.owner),
+    creator: taskMember(task.workspaceId, task.creator),
+    createdAt: task.createdAt.toISOString(),
+    updatedAt: task.updatedAt.toISOString(),
   };
 }
 
@@ -646,6 +697,7 @@ export class TaskBoard {
   async execute(principal: TaskPrincipal, command: TaskCommand): Promise<TaskResult> {
     this.validateCommand(command);
     if (command.operation === "list" && command.mine && principal.agentId) {
+      const scope = agentOwnTaskScope(principal.agentId);
       const tasks = await this.db.task.findMany({
         where: {
           workspaceId: principal.workspaceId,
@@ -654,10 +706,7 @@ export class TaskBoard {
             command.status === "all"
               ? undefined
               : (command.status ?? { notIn: ["done", "closed"] }),
-          conversation: {
-            ...VISIBLE_CONVERSATION_WHERE,
-            members: { some: { agentId: principal.agentId, ...ACTIVE_MEMBER_WHERE } },
-          },
+          conversation: scope.conversations,
         },
         orderBy: [{ conversationId: "asc" }, { number: "asc" }],
         select: {
@@ -680,6 +729,8 @@ export class TaskBoard {
             ? `#${task.conversation.channelName}`
             : `@${task.conversation.members[0]!.user!.username}`,
         })),
+        coverage: scope.coverage,
+        pagination: { mode: "complete", truncated: false },
       };
     }
     const scope = await this.scope(principal, command);
@@ -1918,13 +1969,12 @@ export class TaskBoard {
       },
       select: {
         ...taskSelection,
-        creator: { select: TASK_MEMBER_SELECT },
         history: { orderBy: { seq: "asc" } },
       },
     });
     if (!task) throw new AppError("NOT_FOUND");
     return {
-      tasks: [{ ...view(task), creator: taskMember(task.workspaceId, task.creator) }],
+      tasks: [view(task)],
       history: task.history.map(historyEventView),
     };
   }

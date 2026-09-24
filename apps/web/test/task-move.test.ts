@@ -10,6 +10,15 @@ const task = (status: TaskStatus, owner: TaskView["owner"] = null): TaskView => 
   status,
   revision: 4,
   owner,
+  creator: {
+    memberId: "member-creator",
+    kind: "user",
+    id: "user-creator",
+    name: "Creator",
+    handle: "creator",
+  },
+  createdAt: "2026-09-24T08:00:00.000Z",
+  updatedAt: "2026-09-24T09:00:00.000Z",
 });
 
 const owner = (memberId: string): NonNullable<TaskView["owner"]> => ({

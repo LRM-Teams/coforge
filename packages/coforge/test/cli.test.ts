@@ -789,6 +789,19 @@ test("formats usable reminder lists, empty logs, and receipt acknowledgements", 
   ).toContain(`id=${reminderId} revision=3`);
 });
 
+/** The creator and timestamps every Task read carries. */
+const taskStamps = {
+  creator: {
+    memberId: "member-ada",
+    kind: "user" as const,
+    id: "user-ada",
+    name: "Ada",
+    handle: "ada",
+  },
+  createdAt: "2026-09-23T05:00:00.000Z",
+  updatedAt: "2026-09-23T06:00:00.000Z",
+};
+
 test("Task history lists each event with its payload under the Task header", async () => {
   const base = {
     check: async () => ({ messages: [] }),
@@ -803,6 +816,7 @@ test("Task history lists each event with its payload under the Task header", asy
     title: "Ship it",
     status: "in_progress" as const,
     revision: 3,
+    ...taskStamps,
     owner: null,
   };
   const args = ["task", "history", "--target", "#general", "--number", "2"];
@@ -1011,6 +1025,7 @@ test("Task update reads one revision then submits once and formats Thread-useful
               title: "Verify",
               status: command.operation === "update" ? "in_review" : "in_progress",
               revision: 5,
+              ...taskStamps,
               owner: {
                 memberId: "member",
                 kind: "agent",
@@ -1044,6 +1059,7 @@ test("Task list marks an owner whose Agent was deleted", async () => {
           title: "Half-done work",
           status: "in_progress",
           revision: 3,
+          ...taskStamps,
           owner: {
             memberId: "member",
             kind: "agent",
@@ -1083,6 +1099,7 @@ test("Task unclaim reads one revision unless explicitly supplied and submits onc
               title: "Verify",
               status: "in_progress",
               revision: 4,
+              ...taskStamps,
               owner: {
                 memberId: "member",
                 kind: "agent",
@@ -1118,6 +1135,7 @@ test("Task unassign submits its own protocol operation with no assignee", async 
             title: "Verify",
             status: "in_progress",
             revision: 4,
+            ...taskStamps,
             owner: null,
           },
         ],
