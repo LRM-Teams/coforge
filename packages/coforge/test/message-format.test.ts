@@ -404,7 +404,10 @@ test("formatHeldSend collapses newlines and runs of whitespace in the preview", 
 
 test("tracked Tasks carry one workflow pointer per window, not per message", () => {
   const ordinary = message();
-  const first = message({ id: "bbbbbbbb-0000-4000-8000-000000000002", task: { number: 7, status: "todo" } });
+  const first = message({
+    id: "bbbbbbbb-0000-4000-8000-000000000002",
+    task: { number: 7, status: "todo" },
+  });
   const second = message({
     id: "cccccccc-0000-4000-8000-000000000003",
     task: { number: 8, status: "in_progress" },

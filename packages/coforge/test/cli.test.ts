@@ -2093,7 +2093,7 @@ test("message check prints one Tasks manual pointer for a window with tracked wo
   expect(output).toContain("[task #7 status=todo]");
   expect(output).toContain("[task #8 status=todo]");
   expect(output).toContain("Tracked Tasks: coforge manual get tasks");
-  expect(output.split("coforge manual get tasks")).toHaveLength(2);
+  expect((output as string).split("coforge manual get tasks")).toHaveLength(2);
   expect(output).toContain("No more new messages.");
 });
 
