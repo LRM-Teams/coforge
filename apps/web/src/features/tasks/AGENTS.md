@@ -10,6 +10,9 @@ These rules apply to `src/features/tasks/`.
 - Board and List views share the status-grouped layout and drag interactions
   in this directory. The `/tasks` and conversation routes own the validated
   view search state.
+- Done and Closed start collapsed whenever several statuses show; a
+  single-status view starts expanded. A collapsed group renders no cards but
+  stays a drop target. The choice is not persisted.
 - Cards and list rows carry no status select: the column or group is the
   status. Moves go through drag or the card menu's "Move to" section, which
   both offer every move `getTaskMoveCommand` allows.

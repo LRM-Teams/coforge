@@ -11,12 +11,19 @@ import {
   type DragEndEvent,
 } from "@dnd-kit/core";
 import { useHydrated } from "@tanstack/react-router";
-import { Columns03 as Columns3, DotsGrid as GripVertical, List } from "@untitledui/icons";
+import {
+  ChevronDown,
+  Columns03 as Columns3,
+  DotsGrid as GripVertical,
+  List,
+} from "@untitledui/icons";
 import { useId, useMemo, useRef, useState, type ReactNode } from "react";
+import { Button as AriaButton, Disclosure, DisclosurePanel, Heading } from "react-aria-components";
 
 import { ButtonGroup, ButtonGroupItem } from "#src/components/base/button-group/button-group";
 import { ButtonUtility } from "#src/components/base/buttons/button-utility";
 import { useBreakpoint } from "#src/hooks/use-breakpoint";
+import { cn } from "#src/lib/utils";
 import { m } from "#src/paraglide/messages";
 import { getTaskMoveCommand } from "./task-move";
 
@@ -28,6 +35,10 @@ export type TaskControls = {
   handle: ReactNode;
   moves: { status: TaskStatus; onMove: () => void }[];
 };
+
+/** Finished statuses start collapsed when the board shows several statuses: they only grow, and
+ * the work in flight is what the board is for. The choice lasts while the board is mounted. */
+const COLLAPSED_BY_DEFAULT: ReadonlySet<TaskStatus> = new Set(["done", "closed"]);
 
 export function useTaskLayout(layout: TaskLayout | undefined): TaskLayout {
   // Keep SSR and initial hydration identical (board); the viewport default applies once hydrated.
@@ -146,10 +157,12 @@ export function TaskWorkflow<T extends TaskView>({
       >
         {groups.map((group) => (
           <TaskGroup
-            key={group.status}
+            // A single-status view remounts its group so it starts expanded.
+            key={groups.length === 1 ? `only-${group.status}` : group.status}
             status={group.status}
             count={group.tasks.length}
             board={layout === "board"}
+            defaultExpanded={groups.length === 1 || !COLLAPSED_BY_DEFAULT.has(group.status)}
             enabled={Boolean(
               !disabled &&
               !pending &&
@@ -224,64 +237,83 @@ function TaskGroup({
   status,
   count,
   board,
+  defaultExpanded,
   enabled,
   children,
 }: {
   status: TaskStatus;
   count: number;
   board: boolean;
+  defaultExpanded: boolean;
   enabled: boolean;
   children: ReactNode;
 }) {
+  // A collapsed group stays a drop target, so a card can still be moved into it.
   const drop = useDroppable({ id: status, disabled: !enabled });
-  const dot = (
-    <span
-      aria-hidden="true"
-      className={`size-2 shrink-0 rounded-full ${TASK_STATUS_COLOR[status].dot}`}
-    />
-  );
-  const heading = (
-    <>
-      {dot}
-      <span className="truncate">{statusLabel(status)}</span>
-      <span className="font-medium text-quaternary tabular-nums">{count}</span>
-    </>
-  );
-  if (board) {
-    return (
-      <section
-        ref={drop.setNodeRef}
-        aria-label={statusLabel(status)}
-        className={`flex min-w-0 flex-col rounded-xl bg-secondary transition-shadow md:max-w-80 md:min-w-60 md:flex-1 ${drop.isOver ? "ring-2 ring-brand ring-inset" : ""}`}
-      >
-        <h2
-          aria-label={`${statusLabel(status)} ${count}`}
-          className="flex h-10 shrink-0 items-center gap-2 px-3 text-sm font-semibold text-primary"
-        >
-          {heading}
-        </h2>
-        <div className="flex min-h-16 flex-col gap-2 px-2 pb-2 md:min-h-0 md:flex-1 md:overflow-y-auto">
-          {children}
-        </div>
-      </section>
-    );
-  }
+  const label = statusLabel(status);
+  const [expanded, setExpanded] = useState(defaultExpanded);
   return (
     <section
       ref={drop.setNodeRef}
-      aria-label={statusLabel(status)}
-      className={`min-w-0 overflow-hidden rounded-xl border border-secondary bg-primary ${drop.isOver ? "ring-2 ring-brand" : ""}`}
+      aria-label={label}
+      className={
+        board
+          ? cn(
+              "flex min-w-0 flex-col rounded-xl bg-secondary transition-shadow md:max-w-80 md:min-w-60 md:flex-1",
+              !expanded && "md:self-start",
+              drop.isOver && "ring-2 ring-brand ring-inset",
+            )
+          : cn(
+              "min-w-0 overflow-hidden rounded-xl border border-secondary bg-primary",
+              drop.isOver && "ring-2 ring-brand",
+            )
+      }
     >
-      <h2
-        aria-label={`${statusLabel(status)} ${count}`}
-        className="flex h-10 items-center gap-2 border-b border-secondary bg-secondary px-4 text-sm font-semibold text-primary"
+      <Disclosure
+        isExpanded={expanded}
+        onExpandedChange={setExpanded}
+        className={board ? "flex min-h-0 flex-1 flex-col" : undefined}
       >
-        {heading}
-      </h2>
-      <div className="flex flex-col divide-y divide-secondary">
-        {children}
-        {count === 0 && <p className="px-4 py-3 text-sm text-tertiary">{m.tasks_group_empty()}</p>}
-      </div>
+        <Heading level={2}>
+          <AriaButton
+            slot="trigger"
+            aria-label={`${label} ${count}`}
+            className={cn(
+              "flex h-10 w-full cursor-pointer items-center gap-2 text-sm font-semibold text-primary outline-focus-ring focus-visible:outline-2 focus-visible:-outline-offset-2",
+              board
+                ? "shrink-0 rounded-xl px-3"
+                : cn("bg-secondary px-4", expanded && "border-b border-secondary"),
+            )}
+          >
+            <span
+              aria-hidden="true"
+              className={`size-2 shrink-0 rounded-full ${TASK_STATUS_COLOR[status].dot}`}
+            />
+            <span className="truncate">{label}</span>
+            <span className="font-medium text-quaternary tabular-nums">{count}</span>
+            <ChevronDown
+              aria-hidden="true"
+              className={cn(
+                "ml-auto size-4 shrink-0 text-fg-quaternary transition-transform",
+                !expanded && "-rotate-90",
+              )}
+            />
+          </AriaButton>
+        </Heading>
+        <DisclosurePanel
+          className={
+            board
+              ? "flex min-h-16 flex-col gap-2 px-2 pb-2 md:min-h-0 md:flex-1 md:overflow-y-auto"
+              : "flex flex-col divide-y divide-secondary"
+          }
+        >
+          {/* The panel keeps its children mounted while hidden; a collapsed group renders none. */}
+          {expanded && children}
+          {expanded && !board && count === 0 && (
+            <p className="px-4 py-3 text-sm text-tertiary">{m.tasks_group_empty()}</p>
+          )}
+        </DisclosurePanel>
+      </Disclosure>
     </section>
   );
 }
