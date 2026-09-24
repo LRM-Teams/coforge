@@ -8,9 +8,10 @@ import { DEV_BROWSER_USER } from "#src/server/auth/dev-skip-auth.server";
 
 /**
  * The search page's filters in a real browser. From, Scope, Channel and Time narrow the results
- * and live in the URL, so a reload keeps them (chip labels included). Choosing a Scope that
- * contradicts the chosen sender drops the sender. Filters search on their own without a query;
- * Sort needs a query. Clear all resets every filter but keeps the sort.
+ * and live in the URL, so a reload keeps them (chip labels included) and Back undoes a change.
+ * A Scope that contradicts the sender drops the sender, and a sender that contradicts the Scope
+ * drops that part of it. Filters search on their own without a query; Sort needs a query and
+ * Recent orders newest first. Clear all resets every filter but keeps the sort.
  *
  * Opt-in like the other browser E2Es: real local Web + `agent-browser`. Seeds are deterministic
  * and reset on every run. Screenshots are written under `.amp/e2e/search-filters/`.
@@ -80,8 +81,8 @@ test("search filters narrow results, survive a reload, and clear together", asyn
   const option = (text: string) =>
     find(
       '[role="menuitemradio"], [role="menuitemcheckbox"], [role="menuitem"]',
-      // A person's row also shows their `@username` after the name.
-      `element.textContent.trim().startsWith(${JSON.stringify(text)})`,
+      // A person's row also shows an avatar initial before the name and `@username` after it.
+      `element.textContent.includes(${JSON.stringify(text)})`,
     );
   async function pick(chipPrefix: string, optionText: string) {
     await browser("eval", `${chip(chipPrefix)}.click()`);
@@ -94,9 +95,12 @@ test("search filters narrow results, survive a reload, and clear together", asyn
     evaluate<string[]>(
       `[...document.querySelectorAll("main ol li [data-search-message-id]")].map((row) => row.dataset.searchMessageId)`,
     );
+  /** Waits for a settled list of `count` rows; zero means the no-results state is showing. */
   const waitForResults = (count: number) =>
     waitFor(
-      `!document.querySelector('[aria-busy="true"]') && document.querySelectorAll("main ol li [data-search-message-id]").length === ${count}`,
+      count === 0
+        ? `/No results for|No matching messages/.test(document.querySelector("main").textContent)`
+        : `!document.querySelector('[aria-busy="true"]') && document.querySelectorAll("main ol li [data-search-message-id]").length === ${count}`,
     );
 
   const channelA = seededUuid("e2e-search-filters:channel-a");
@@ -212,12 +216,46 @@ test("search filters narrow results, survive a reload, and clear together", asyn
     await waitForResults(1);
     expect(await resultIds()).toEqual([humanToday.id]);
 
-    // Sort changes are kept by Clear all; every filter goes.
+    // Back undoes a filter change: the Agent sender returns and the scope goes.
+    await browser("back");
+    await waitFor(
+      `${param("scope")} === "" && ${param("senderId")} === ${JSON.stringify(agentId)}`,
+    );
+    await waitForResults(2);
+
+    // An Agent sender contradicts a Humans-only scope, so that part of the scope goes.
+    await browser(
+      "open",
+      `${origin}/en/search?q=${encodeURIComponent(phrase)}&scope=mentioned,humans`,
+    );
+    await waitForResults(0);
+    await pick("From", "Search Bot");
+    await waitFor(
+      `${param("scope")} === "mentioned" && ${param("senderId")} === ${JSON.stringify(agentId)}`,
+    );
+    await waitForResults(1);
+    expect(await resultIds()).toEqual([agentOld.id]);
+
+    // A sender the filters cannot name (gone from the Workspace) is dropped by a Humans-only
+    // scope too, instead of leaving a search that can match nothing.
+    const unknownSender = seededUuid("e2e-search-filters:unknown-sender");
+    await browser(
+      "open",
+      `${origin}/en/search?q=${encodeURIComponent(phrase)}&senderId=${unknownSender}`,
+    );
+    await waitForResults(0);
+    await pick("Scope", "Humans");
+    await browser("press", "Escape");
+    await waitFor(`${param("scope")} === "humans" && ${param("senderId")} === ""`);
+    await waitForResults(1);
+
+    // Recent orders newest first; the sort is kept by Clear all, every filter goes.
     await pick("Sort", "Recent");
     await waitFor(`${param("sort")} === "recent"`);
     await browser("eval", `${chip("Clear all")}.click()`);
     await waitFor(`${param("scope")} === "" && ${param("sort")} === "recent"`);
     await waitForResults(3);
+    expect(await resultIds()).toEqual([humanToday.id, agentInB.id, agentOld.id]);
 
     // @ Me: only the message that mentions the viewer.
     await pick("Scope", "@ Me");
@@ -227,11 +265,25 @@ test("search filters narrow results, survive a reload, and clear together", asyn
     expect(await resultIds()).toEqual([agentOld.id]);
     await browser("eval", `${chip("Clear all")}.click()`);
 
-    // Time: the last 7 days leave out the ten-day-old message.
+    // Time: the last 7 days leave out the ten-day-old message; Today leaves out yesterday's.
     await pick("Time", "Last 7 days");
     await waitFor(`${param("range")} === "7d"`);
     await waitForResults(2);
     expect((await resultIds()).sort()).toEqual([humanToday.id, agentInB.id].sort());
+    await pick("Last 7 days", "Today");
+    await waitFor(`${param("range")} === "today"`);
+    await waitForResults(1);
+    expect(await resultIds()).toEqual([humanToday.id]);
+
+    // A reload keeps every filter and names it on its chip.
+    await pick("Scope", "Humans");
+    await browser("press", "Escape");
+    await waitFor(`${param("scope")} === "humans"`);
+    await browser("reload");
+    await waitFor(
+      `${chip("Scope 1")} !== undefined && ${chip("Today")} !== undefined && ${chip("Sort: Recent")} !== undefined`,
+    );
+    await waitForResults(1);
     await browser("eval", `${chip("Clear all")}.click()`);
 
     // Channel, then no query: the filter alone searches, and Sort waits for a query.
@@ -261,4 +313,4 @@ test("search filters narrow results, survive a reload, and clear together", asyn
       .catch(() => {});
     await db.$disconnect();
   }
-}, 120_000);
+}, 240_000);

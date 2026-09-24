@@ -20,6 +20,7 @@ import { RelativeTime } from "#src/components/ui/relative-time";
 import { Skeleton } from "#src/components/ui/skeleton";
 import { savedJumpTarget } from "#src/features/conversations/saved-messages-model";
 import { messagePlainText } from "#src/features/conversations/selection-copy";
+import { avatarInitial, avatarToneClassName } from "#src/lib/avatar-tone";
 import { searchTerms } from "#src/lib/search-terms";
 import { m } from "#src/paraglide/messages";
 import type { MessageSearchHit } from "#src/server/conversations/message-search.server";
@@ -295,6 +296,8 @@ function SearchResultRow({ hit, terms }: { hit: MessageSearchHit; terms: string[
             <Avatar
               size="xs"
               src={message.senderAvatarUrl ?? null}
+              initials={avatarInitial(message.senderName)}
+              contentClassName={avatarToneClassName(message.senderName)}
               alt=""
               className="size-4 shrink-0"
             />
