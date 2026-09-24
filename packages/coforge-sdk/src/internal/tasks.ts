@@ -13,6 +13,8 @@ export type TaskMember = {
   name: string;
   /** The username or Agent name. */
   handle: string;
+  /** True when the named Agent has been deleted: the identity still reads, with its DELETED marker. */
+  deleted?: boolean;
   /** Where the browser reads a human's avatar; absent for an Agent. */
   avatarUrl?: string | null;
 };
