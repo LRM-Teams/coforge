@@ -23,6 +23,11 @@ export const AGENT_STOP_METHOD = RPC_METHODS.agentStop;
 export const AGENT_STOP_MESSAGE_TYPE = "coforge.rpc.v1.AgentStopIntent" as const;
 export const AGENT_ACTIVITY_PROBE_METHOD = RPC_METHODS.agentActivityProbe;
 export const AGENT_ACTIVITY_PROBE_MESSAGE_TYPE = "coforge.rpc.v1.AgentActivityProbe" as const;
+export const AGENT_INBOX_PURGE_METHOD = RPC_METHODS.agentInboxPurge;
+export const AGENT_INBOX_PURGE_MESSAGE_TYPE = "coforge.rpc.v1.AgentInboxPurge" as const;
+/** Why an Agent lost read access to channels. */
+export const AGENT_INBOX_PURGE_REASONS = ["member_removed", "left", "visibility_private"] as const;
+export type AgentInboxPurgeReason = (typeof AGENT_INBOX_PURGE_REASONS)[number];
 export const USAGE_SCAN_MESSAGE_TYPE = "coforge.rpc.v1.DaemonRuntimeUsageScanRequest" as const;
 export const USAGE_SCAN_RESPONSE_MESSAGE_TYPE =
   "coforge.rpc.v1.DaemonRuntimeUsageScanResponse" as const;
@@ -605,6 +610,18 @@ export type AgentActivityProbe = {
   agentId: string;
   probeId: string;
 };
+/** Versioned server-to-daemon notice that an Agent can no longer read these channels (and their
+ * threads); the daemon drops its local, unacknowledged state for them. One-way. */
+export type AgentInboxPurge = {
+  protocolMajor: number;
+  requestId: string;
+  workspaceId: string;
+  computerId: string;
+  agentId: string;
+  conversationIds: string[];
+  targets: string[];
+  reason: AgentInboxPurgeReason;
+};
 export type AgentRecoveryMessage = {
   messageId: string;
   deliveryId: string;
@@ -866,6 +883,8 @@ export {
   decodeAgentStopIntent,
   encodeAgentActivityProbe,
   decodeAgentActivityProbe,
+  encodeAgentInboxPurge,
+  decodeAgentInboxPurge,
   encodeAgentMessageDelivery,
   decodeAgentMessageDelivery,
   encodeAgentMessageDeliveryAck,
