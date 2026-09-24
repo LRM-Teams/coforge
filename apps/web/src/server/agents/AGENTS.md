@@ -84,16 +84,19 @@ these modules have their own rules in `src/server/centrifugo/AGENTS.md`.
 
 - `Agent.stoppedAt` is the persisted user stop intent, independent of
   `controlState`. Nothing may start or wake a stopped Agent except an explicit
-  user Start, Restart, Reset Session, or Full Reset.
+  user Start, Restart, Reset Session, Full Reset, or a channel's "Resume all".
 - `stop` persists `stoppedAt` before running the stop chain, so the intent
   survives an unresponsive Computer. The other user operations clear it first.
-- `stopMany` (a channel's "Stop all Agents", `ChannelAgentStop`) writes the
-  same stop for many Agents with the actor's role read once, at most four at a
-  time (each holds a runtime-lock connection and a transaction). It sends each
-  stop command without waiting for the Daemon and retries a failed send once;
-  an Agent still `stopping` is sent its stop again by the next call. Do not
-  loop `execute` over Agents: each call re-reads the role and polls for its
-  receipt.
+- `stopMany` and `startMany` (a channel's "Stop all Agents" and "Resume
+  all", `ChannelAgentControl`) write the same stop or start as `execute` for
+  many Agents with the actor's role read once, at most four at a time (each
+  holds a runtime-lock connection and a transaction). They send each command
+  without waiting for the Daemon and retry a failed send once; an Agent still
+  `stopping` is sent its stop again by the next stop. Do not loop `execute`
+  over Agents: each call re-reads the role and polls for its receipt.
+- `startMany`'s Start carries the user's `resumePrompt` and no message
+  recovery, and only on that first send: ready recovery re-sends the same
+  Start without it, so the Agent never reads the guidance twice.
 - A user `start` carries the same recovery context
   (`conversations.readAgentRecoveryContext`) as a Daemon-ready recovery start.
 - Ready recovery skips a stopped Agent; if the Daemon still reports it running,

@@ -64,9 +64,9 @@ const commands = {
   },
   start: { pending: "starting", result: "started", completed: "completed" },
 } as const;
-/** How many Agents `stopMany` stops at once: each holds a runtime-lock connection and a
- * transaction, and both pools default to 10 connections for the whole process. */
-const STOP_MANY_CONCURRENCY = 4;
+/** How many Agents `stopMany`/`startMany` change at once: each holds a runtime-lock connection
+ * and a transaction, and both pools default to 10 connections for the whole process. */
+const CONTROL_MANY_CONCURRENCY = 4;
 /** Raft capability required for each user-initiated execute() action. Start and Stop need only
  * `controlAgentRuntime`, the same as Restart and Reset session. */
 const EXECUTE_CAPABILITY: Record<AgentControlAction, AgentControlCapability> = {
@@ -369,54 +369,84 @@ export class AgentControl {
   }
   /**
    * Stops several Agents for one user at once (a channel's "Stop all Agents"): for each Agent the
-   * same durable stop `execute({ action: "stop" })` writes, with the actor's role read once and at
-   * most `STOP_MANY_CONCURRENCY` Agents in flight, since each holds a runtime-lock connection and
-   * a transaction. The stop command is sent without waiting for the Daemon: `stoppedAt` keeps the
-   * intent, and a Daemon that reconnects still running the Agent is stopped by ready recovery. A
-   * command that cannot be sent is tried once more; if it still fails the Agent is reported as not
-   * stopped, and its operation stays "stopping" so a later stop sends it again.
+   * same durable stop `execute({ action: "stop" })` writes. The stop command is sent without
+   * waiting for the Daemon: `stoppedAt` keeps the intent, and a Daemon that reconnects still
+   * running the Agent is stopped by ready recovery. A command that cannot be sent is tried once
+   * more; if it still fails the Agent is reported as not done, and its operation stays "stopping"
+   * so a later stop sends it again.
    */
-  async stopMany(input: {
+  stopMany(input: { userId: string; workspaceId: string; agentIds: readonly string[] }) {
+    const stoppedAt = new Date(this.clock());
+    return this.#controlMany(input, "stop", async (agent) => {
+      const state = await this.begin(agent, "stop", crypto.randomUUID(), 1, stoppedAt);
+      return () => this.sendStop(state);
+    });
+  }
+  /**
+   * Starts several stopped Agents for one user at once (a channel's "Resume all"), each opening
+   * its first turn with `resumePrompt` instead of message recovery: the prompt tells it to catch
+   * up itself. Clears `stoppedAt` like a user Start. The Start is sent without waiting for the
+   * Daemon, and only this once: a Daemon that reconnects before launching gets the same Start
+   * from ready recovery, without the prompt, so it is never delivered twice.
+   */
+  startMany(input: {
     userId: string;
     workspaceId: string;
     agentIds: readonly string[];
-  }): Promise<{ agentId: string; stopped: boolean }[]> {
-    const role = await this.actorRole(input.workspaceId, input.userId, "stop");
-    const stoppedAt = new Date(this.clock());
-    const stopOne = async (agentId: string) => {
-      try {
-        const state = await this.runtimeLock.run(agentId, async () => {
-          const agent = await this.controllableAgent(
-            agentId,
-            input.workspaceId,
-            input.userId,
-            role,
-          );
-          return this.begin(agent, "stop", crypto.randomUUID(), 1, stoppedAt);
+    resumePrompt: string;
+  }) {
+    return this.#controlMany(input, "start", async (agent) => {
+      const state = await this.begin(agent, "start", crypto.randomUUID(), 1, null);
+      return () =>
+        this.sendStart(agent, state, state.launchId, {
+          resumePrompt: input.resumePrompt,
         });
-        await this.sendStop(state).catch(() => this.sendStop(state));
-        return { agentId, stopped: true };
+    });
+  }
+  /**
+   * Runs one control operation over many Agents for one user: the role is read once, each Agent
+   * is changed under its runtime lock by `change`, and the command it returns is sent after the
+   * lock is released, tried twice at most and never waited on. At most `CONTROL_MANY_CONCURRENCY`
+   * Agents are in flight, since each holds a runtime-lock connection and a transaction.
+   */
+  async #controlMany(
+    input: { userId: string; workspaceId: string; agentIds: readonly string[] },
+    action: AgentControlAction,
+    change: (agent: AgentControlAgent) => Promise<() => Promise<unknown>>,
+  ): Promise<{ agentId: string; done: boolean }[]> {
+    const role = await this.actorRole(input.workspaceId, input.userId, action);
+    const one = async (agentId: string) => {
+      try {
+        const send = await this.runtimeLock.run(agentId, async () =>
+          change(await this.controllableAgent(agentId, input.workspaceId, input.userId, role)),
+        );
+        await send().catch(() => send());
+        return { agentId, done: true };
       } catch (error) {
         console.warn(
           JSON.stringify({
-            event: "agent_control:stop_many_failed",
+            event: "agent_control:control_many_failed",
+            action,
             agent_id: agentId,
             workspace_id: input.workspaceId,
             error_type: error instanceof Error ? error.name : typeof error,
           }),
         );
-        return { agentId, stopped: false };
+        return { agentId, done: false };
       }
     };
-    const results: { agentId: string; stopped: boolean }[] = [];
+    const results: { agentId: string; done: boolean }[] = [];
     let next = 0;
     await Promise.all(
-      Array.from({ length: Math.min(STOP_MANY_CONCURRENCY, input.agentIds.length) }, async () => {
-        while (next < input.agentIds.length) {
-          const index = next++;
-          results[index] = await stopOne(input.agentIds[index]!);
-        }
-      }),
+      Array.from(
+        { length: Math.min(CONTROL_MANY_CONCURRENCY, input.agentIds.length) },
+        async () => {
+          while (next < input.agentIds.length) {
+            const index = next++;
+            results[index] = await one(input.agentIds[index]!);
+          }
+        },
+      ),
     );
     return results;
   }
@@ -699,10 +729,6 @@ export class AgentControl {
       // boundary, the same recovery a plain Start reads in `execute`.
       if (!recovery && state.phase === "starting" && state.action !== "start")
         recovery = await this.readRecovery(state.workspaceId, agentId);
-      const identity = state.identity;
-      const reset =
-        state.phase !== "completed" &&
-        (state.action === "reset-session" || state.action === "full-reset");
       // `launchId` should already be minted (`begin()`/`advance()`, the moment this
       // operation entered "starting"); the only gap is a "starting" row written before this
       // record shipped. Mint and persist it here, once, before publish — never for a "completed"
@@ -718,36 +744,51 @@ export class AgentControl {
           launchId = refreshedLaunchId;
         }
       }
-      const intent: AgentStartIntent = {
-        protocolMajor: 1,
-        requestId,
-        workspaceId: state.workspaceId,
-        computerId: state.computerId,
-        agentId,
-        ...runtimeStartFields(agent.runtimeConfig),
-        controlEpoch: state.epoch,
-        ...(launchId ? { launchId } : {}),
-        ...(this.#subjectSessionByRequest.get(requestId)
-          ? this.#subjectSessionByRequest.get(requestId)
-          : !reset &&
-              identity?.sessionId &&
-              (identity.state !== "empty" || state.phase === "completed")
-            ? { sessionId: identity.sessionId }
-            : {}),
-        ...(recovery
-          ? {
-              wakeMessage: recovery.wakeMessage,
-              resumeMessages: recovery.resumeMessages,
-              unreadSummary: recovery.unreadSummary,
-            }
-          : {}),
-      };
-      const selected = this.sessions ? await this.sessions.prepare(intent) : intent;
-      await this.api.publish(
-        daemonControlChannel(state.workspaceId, state.computerId),
-        encodeAgentStartIntent(selected),
-      );
+      await this.sendStart(agent, state, launchId, { recovery });
     }
+  }
+  /** Sends `state`'s Start for `agent`, carrying either message recovery or a resume prompt. */
+  private async sendStart(
+    agent: AgentControlAgent,
+    state: AgentControlState,
+    launchId: string | undefined,
+    first: { recovery?: AgentRecoveryFields; resumePrompt?: string },
+  ) {
+    const { requestId, identity } = state;
+    const reset =
+      state.phase !== "completed" &&
+      (state.action === "reset-session" || state.action === "full-reset");
+    const { recovery, resumePrompt } = first;
+    const intent: AgentStartIntent = {
+      protocolMajor: 1,
+      requestId,
+      workspaceId: state.workspaceId,
+      computerId: state.computerId,
+      agentId: agent.id,
+      ...runtimeStartFields(agent.runtimeConfig),
+      controlEpoch: state.epoch,
+      ...(launchId ? { launchId } : {}),
+      ...(this.#subjectSessionByRequest.get(requestId)
+        ? this.#subjectSessionByRequest.get(requestId)
+        : !reset &&
+            identity?.sessionId &&
+            (identity.state !== "empty" || state.phase === "completed")
+          ? { sessionId: identity.sessionId }
+          : {}),
+      ...(recovery
+        ? {
+            wakeMessage: recovery.wakeMessage,
+            resumeMessages: recovery.resumeMessages,
+            unreadSummary: recovery.unreadSummary,
+          }
+        : {}),
+      ...(resumePrompt !== undefined ? { resumePrompt } : {}),
+    };
+    const selected = this.sessions ? await this.sessions.prepare(intent) : intent;
+    await this.api.publish(
+      daemonControlChannel(state.workspaceId, state.computerId),
+      encodeAgentStartIntent(selected),
+    );
   }
   private async drive(
     agentId: string,

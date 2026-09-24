@@ -6,7 +6,9 @@ import {
 } from "#src/features/auth/function-auth";
 import { AppError, isAppError } from "#src/lib/app-error";
 import { PublicChannels } from "#src/server/conversations/public-channels.server";
-import { ChannelAgentStop } from "#src/server/conversations/channel-agent-stop.server";
+import { ChannelAgentControl } from "#src/server/conversations/channel-agent-control.server";
+import { CHANNEL_AGENT_GUIDANCE_MAX_LENGTH } from "#src/lib/channel-agent-guidance";
+import { getComputerStatusCache } from "#src/server/centrifugo/computer-status.server";
 import { userAgentControl } from "#src/server/agents/user-agent-control.server";
 import { attachActionCardViews } from "#src/server/conversations/action-cards.server";
 import { attachmentView } from "#src/server/attachments/attachment-view.server";
@@ -277,16 +279,24 @@ export const setGeneralChannelHidden = createServerFn({ method: "POST" })
     return channels.setGeneralHidden(workspaceId, userId, data.hidden);
   });
 
+function channelAgents(db: WorkspaceUserContext["db"]) {
+  return new ChannelAgentControl(db, userAgentControl(db), getComputerStatusCache());
+}
+
+export const resumeChannelAgents = createServerFn({ method: "POST" })
+  .middleware([workspaceUserMiddleware])
+  .validator(channelInput.extend({ guidance: z.string().max(CHANNEL_AGENT_GUIDANCE_MAX_LENGTH) }))
+  .handler(async ({ data, context }) => {
+    const { db, workspaceId, userId } = channelScope(context);
+    return channelAgents(db).resumeAll(workspaceId, userId, data.channelId, data.guidance);
+  });
+
 export const stopChannelAgents = createServerFn({ method: "POST" })
   .middleware([workspaceUserMiddleware])
   .validator(channelInput)
   .handler(async ({ data, context }) => {
     const { db, workspaceId, userId } = channelScope(context);
-    return new ChannelAgentStop(db, userAgentControl(db)).stopAll(
-      workspaceId,
-      userId,
-      data.channelId,
-    );
+    return channelAgents(db).stopAll(workspaceId, userId, data.channelId);
   });
 
 export const deletePublicChannel = createServerFn({ method: "POST" })

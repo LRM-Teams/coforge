@@ -20,9 +20,10 @@ These rules apply to `src/server/conversations/`.
   send's transaction, what the sender may still do about it (7 days), and the
   claim that lets an action run once. `PublicChannels.executeMentionActions`
   carries out `add` through `addMembers`, under the sender's own authority.
-- `channel-agent-stop.server.ts` (`ChannelAgentStop`) owns a channel's "Stop
-  all Agents": which Agents it stops and who may ask. The stop itself goes
-  through `AgentControl.stopMany`.
+- `channel-agent-control.server.ts` (`ChannelAgentControl`) owns a channel's
+  "Stop all Agents" and "Resume all": which Agents each acts on, who may ask,
+  and the resume prompt built from the member's guidance. The control itself
+  goes through `AgentControl.stopMany` and `startMany`.
 - `human-unread.server.ts` owns a person's unread rule and their read and Done
   cursor SQL. The sidebar badges and the Activity inbox (`server/inbox/`) both
   use it; do not write another unread predicate or cursor update.
