@@ -151,6 +151,8 @@ export type TaskOverview = {
         agentId: string | null;
         label: string;
       };
+      /** The Project the task's channel belongs to; a DM task has none. */
+      project: { id: string; name: string; slug: string } | null;
     }
   >;
 };
@@ -356,6 +358,7 @@ export class TaskBoard {
         conversation: {
           select: {
             channelName: true,
+            project: { select: { id: true, name: true, slug: true } },
             members: {
               where: { OR: [{ userId }, { agentId: { not: null } }] },
               select: {
@@ -387,6 +390,7 @@ export class TaskBoard {
                 agentId: agent!.id,
                 label: agent!.displayName || agent!.name,
               },
+          project: task.conversation.project,
         };
       }),
     };

@@ -1,23 +1,24 @@
 import { TASK_STATUSES } from "@lrm/coforge-sdk/internal";
-import { createFileRoute, useNavigate, useRouter } from "@tanstack/react-router";
-import { useServerFn } from "@tanstack/react-start";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { z } from "zod";
 
 import { PageLoadError } from "#src/features/errors/page-load-error";
 import { OverviewTaskPopup } from "#src/features/tasks/overview-task-popup";
+import { TaskOverview } from "#src/features/tasks/task-overview";
+import { filterParam, parseFilterParam } from "#src/features/tasks/task-filters";
 import {
-  TaskOverview,
+  taskOverviewQuery,
   type OverviewTaskCommand,
-  type TaskOverviewItem,
-} from "#src/features/tasks/task-overview";
+  type OverviewTaskRow,
+} from "#src/features/tasks/task-overview-collection";
 import {
   overviewTaskParam,
   overviewTaskParamSchema,
   parseOverviewTaskParam,
 } from "#src/features/tasks/task-overview-search";
 import { useTaskLayout } from "#src/features/tasks/task-workflow";
-import { executeTask, loadTaskOverview } from "#src/features/tasks/tasks.functions";
+import { useTaskOverview } from "#src/features/tasks/use-task-overview";
 import { m } from "#src/paraglide/messages";
 
 export const Route = createFileRoute("/_app/tasks")({
@@ -25,8 +26,20 @@ export const Route = createFileRoute("/_app/tasks")({
     status: z.enum(TASK_STATUSES).optional().catch(undefined),
     layout: z.enum(["board", "list"]).optional().catch(undefined),
     task: overviewTaskParamSchema,
+    // Comma-separated User or Agent ids and Project ids (`none` for nobody / no Project).
+    owners: z.string().optional().catch(undefined),
+    projects: z.string().optional().catch(undefined),
   }),
-  loader: () => loadTaskOverview(),
+  // The rows go into the Query cache, which the server render reads and the client hydrates;
+  // after hydration they back the page's collection (`task-overview-collection.ts`). A navigation
+  // reads them afresh; a hover preload reuses what is cached.
+  loader: async ({ context: { queryClient }, parentMatchPromise, cause }) => {
+    const workspaceId = (await parentMatchPromise).loaderData?.currentWorkspace?.id ?? "";
+    await queryClient.query({
+      ...taskOverviewQuery(workspaceId),
+      staleTime: cause === "preload" ? "static" : 0,
+    });
+  },
   pendingComponent: () => (
     <main className="flex-1 p-6">
       <p role="status" className="text-sm text-tertiary">
@@ -39,40 +52,32 @@ export const Route = createFileRoute("/_app/tasks")({
 });
 
 function TasksPage() {
-  const data = Route.useLoaderData();
-  const { status, layout, task: taskParam } = Route.useSearch();
+  const { tasks, run, refetch } = useTaskOverview();
+  const { status, layout, task: taskParam, owners, projects } = Route.useSearch();
   const taskLayout = useTaskLayout(layout);
   const navigate = useNavigate({ from: Route.fullPath });
-  const execute = useServerFn(executeTask);
-  const router = useRouter();
-  const command = async (task: TaskOverviewItem, input: OverviewTaskCommand) => {
-    try {
-      await execute({
-        data: {
-          ...input,
-          idempotencyKey: crypto.randomUUID(),
-          conversationId: task.conversationId,
-        },
-      });
-    } finally {
-      // The loader re-reads the overview; no local copy to keep in step.
-      await router.invalidate({ sync: true });
-    }
-  };
+  const filter = useMemo(
+    () => ({ owners: parseFilterParam(owners), projects: parseFilterParam(projects) }),
+    [owners, projects],
+  );
+  // A move shows at once and takes the server's copy of the Task; a refused one is back in place.
+  const command = run
+    ? (task: OverviewTaskRow, input: OverviewTaskCommand) => run(task, input)
+    : undefined;
 
   // The Task whose popup `task` names, and the rest of its conversation's Tasks.
   const openTask = useMemo(() => {
     const ref = parseOverviewTaskParam(taskParam);
     return ref
-      ? data.tasks.find(
+      ? tasks.find(
           (task) => task.conversationId === ref.conversationId && task.number === ref.number,
         )
       : undefined;
-  }, [taskParam, data.tasks]);
+  }, [taskParam, tasks]);
   const openConversationId = openTask?.conversationId;
   const conversationTasks = useMemo(
-    () => data.tasks.filter((task) => task.conversationId === openConversationId),
-    [data.tasks, openConversationId],
+    () => tasks.filter((task) => task.conversationId === openConversationId),
+    [tasks, openConversationId],
   );
   // Opening a popup is a history entry, so Back closes it; closing replaces in place.
   const openPopup = useCallback(
@@ -98,7 +103,7 @@ function TasksPage() {
       }),
     [navigate],
   );
-  const refreshOverview = useCallback(() => void router.invalidate(), [router]);
+  const refreshOverview = useCallback(() => void refetch(), [refetch]);
   // A `task` the overview does not list may be newer than the overview (a `task #N` chip for a
   // Task created since it loaded): the overview is re-read once for it. Still missing after that
   // read (deleted, or in a conversation this viewer cannot see), it opens nothing, so it leaves
@@ -117,17 +122,26 @@ function TasksPage() {
       return;
     }
     recheckedTask.current = unresolvedTask;
-    void router
-      .invalidate({ sync: true })
+    void refetch()
       .catch(() => {})
       .finally(() => setRecheckDone({ task: unresolvedTask }));
-  }, [unresolvedTask, recheckDone, closePopup, router]);
+  }, [unresolvedTask, recheckDone, closePopup, refetch]);
 
   return (
     <>
       <TaskOverview
-        tasks={data.tasks}
+        tasks={tasks}
         status={status}
+        filter={filter}
+        onFilterChange={(next) =>
+          void navigate({
+            search: (previous) => ({
+              ...previous,
+              owners: filterParam(next.owners),
+              projects: filterParam(next.projects),
+            }),
+          })
+        }
         layout={taskLayout}
         onStatusChange={(nextStatus) =>
           void navigate({ search: (previous) => ({ ...previous, status: nextStatus }) })
@@ -146,7 +160,7 @@ function TasksPage() {
           conversationTasks={conversationTasks}
           onOpenTask={openConversationTask}
           onClose={closePopup}
-          onCommand={(input) => command(openTask, input)}
+          onCommand={(input) => (command ? command(openTask, input) : Promise.resolve())}
           onTaskChanged={refreshOverview}
         />
       )}

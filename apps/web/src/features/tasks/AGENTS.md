@@ -25,3 +25,13 @@ These rules apply to `src/features/tasks/`.
 - `/tasks` names its open popup as `task=<conversationId>:<number>`
   (`task-overview-search.ts`); a conversation route's `task` is the bare
   number. Opening pushes a history entry, closing replaces it.
+- `/tasks` rows are a TanStack DB collection over the `["task", "overview",
+workspaceId]` Query its loader fills (`task-overview-collection.ts`,
+  `use-task-overview.ts`). Commands go through the collection's `run`, which
+  shows a move at once and writes back the server's copy; refreshes
+  invalidate that Query, never the router. A command with nothing to show
+  first still reaches the server: an empty optimistic transaction is never
+  saved.
+- `/tasks` filters are search params, comma-separated: `owners` holds User
+  or Agent ids and `projects` holds Project ids, with `none` meaning no owner
+  or no Project (`task-filters.ts`).

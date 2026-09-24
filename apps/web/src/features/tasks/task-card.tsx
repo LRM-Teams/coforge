@@ -16,6 +16,7 @@ export function TaskCard({
   task,
   renderTitle,
   source,
+  project,
   controls,
   menu,
   actions,
@@ -26,6 +27,9 @@ export function TaskCard({
   renderTitle: (title: ReactNode) => ReactNode;
   /** The conversation the task belongs to, on surfaces that mix conversations. */
   source?: string;
+  /** The Project the task's conversation belongs to, on surfaces that mix Projects; empty when it
+   * has none (the list keeps the column, the card shows nothing). */
+  project?: string;
   controls: TaskControls;
   menu?: ReactNode;
   actions?: ReactNode;
@@ -57,6 +61,11 @@ export function TaskCard({
               {source}
             </span>
           )}
+          {project !== undefined && (
+            <span className="max-w-24 truncate text-xs text-tertiary sm:w-28 sm:max-w-none">
+              {project}
+            </span>
+          )}
           <div className="min-w-0 flex-1 sm:w-36 sm:flex-none">
             <TaskOwner owner={task.owner} />
           </div>
@@ -72,6 +81,7 @@ export function TaskCard({
         <span className="truncate">
           #{task.number}
           {source && <span className="font-normal"> · {source}</span>}
+          {project && <span className="font-normal"> · {project}</span>}
         </span>
       </div>
       <div className="mt-1">{title}</div>

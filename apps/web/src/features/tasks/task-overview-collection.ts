@@ -1,0 +1,112 @@
+import { queryOptions } from "@tanstack/react-query";
+import type { QueryClient } from "@tanstack/react-query";
+import { createCollection, createOptimisticAction } from "@tanstack/react-db";
+import {
+  queryCollectionOptions,
+  UpdateOperationItemNotFoundError,
+} from "@tanstack/query-db-collection";
+import type { TaskCommand, TaskResult, TaskStatus } from "@lrm/coforge-sdk/internal";
+
+import { executeTask, loadTaskOverview } from "./tasks.functions";
+
+// The Tasks page's rows as a TanStack DB collection over the Query key its loader fills, and the
+// changes made on the page: a move shows at once, the saved Task comes back from the server.
+
+type Overview = Awaited<ReturnType<typeof loadTaskOverview>>;
+export type OverviewTaskRow = Overview["tasks"][number];
+
+/** A Task command as the page issues it: the conversation comes from the Task. */
+export type OverviewTaskCommand = Omit<TaskCommand, "idempotencyKey" | "conversationId"> & {
+  number: number;
+};
+
+/** The server calls the page makes; tests pass their own. */
+export type TaskOverviewApi = {
+  load: () => Promise<Overview>;
+  execute: (command: TaskCommand) => Promise<TaskResult>;
+};
+
+export const serverTaskOverviewApi: TaskOverviewApi = {
+  load: () => loadTaskOverview(),
+  execute: (command) => executeTask({ data: command }),
+};
+
+const taskOverviewQueryKey = (workspaceId: string) => ["task", "overview", workspaceId] as const;
+
+export const taskOverviewQuery = (
+  workspaceId: string,
+  api: TaskOverviewApi = serverTaskOverviewApi,
+) =>
+  queryOptions({
+    queryKey: taskOverviewQueryKey(workspaceId),
+    queryFn: () => api.load(),
+  });
+
+/** The status a command moves its Task to, when it moves it: shown before the server answers. */
+function statusAfter(command: OverviewTaskCommand): TaskStatus | undefined {
+  if (command.operation === "claim") return "in_progress";
+  if (command.operation === "update" && command.status !== "all") return command.status;
+  return undefined;
+}
+
+export function createTaskOverview(
+  queryClient: QueryClient,
+  workspaceId: string,
+  api: TaskOverviewApi = serverTaskOverviewApi,
+) {
+  const tasks = createCollection(
+    queryCollectionOptions({
+      id: `task-overview:${workspaceId}`,
+      queryKey: taskOverviewQueryKey(workspaceId),
+      queryFn: () => api.load(),
+      queryClient,
+      getKey: (row: OverviewTaskRow) => row.messageId,
+      select: (overview) => overview.tasks,
+    }),
+  );
+
+  const save = async (row: OverviewTaskRow, command: OverviewTaskCommand) => {
+    const result = await api.execute({
+      ...command,
+      idempotencyKey: crypto.randomUUID(),
+      conversationId: row.conversationId,
+    });
+    // The server's copy of each Task it changed replaces the shown one; the page's own fields
+    // (source, Project, the viewer's membership) stay as they are.
+    for (const view of result.tasks)
+      if (tasks.has(view.messageId)) {
+        try {
+          tasks.utils.writeUpdate({ ...view, messageId: view.messageId });
+        } catch (error) {
+          // The Task left the page meanwhile: the next read shows the list as it is.
+          if (!(error instanceof UpdateOperationItemNotFoundError)) throw error;
+        }
+      }
+  };
+
+  const move = createOptimisticAction<{ row: OverviewTaskRow; command: OverviewTaskCommand }>({
+    onMutate: ({ row, command }) => {
+      const status = statusAfter(command);
+      if (status && tasks.has(row.messageId))
+        tasks.update(row.messageId, (draft) => {
+          draft.status = status;
+        });
+    },
+    mutationFn: ({ row, command }) => save(row, command),
+  });
+
+  /** Runs a command on a Task. A move shows at once; the promise settles when the server has
+   * answered, rejecting when it refused (the row is back by then). A command that changes nothing
+   * on screen first (assign, a move to the same status, a Task the page no longer lists) makes an
+   * empty transaction, which TanStack DB never saves: it goes straight to the server. */
+  const run = (row: OverviewTaskRow, command: OverviewTaskCommand) => {
+    const transaction = move({ row, command });
+    return transaction.mutations.length > 0
+      ? transaction.isPersisted.promise.then(() => {})
+      : save(row, command);
+  };
+
+  return { tasks, run };
+}
+
+export type TaskOverviewCollection = ReturnType<typeof createTaskOverview>;

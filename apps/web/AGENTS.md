@@ -89,9 +89,9 @@ live in nested `AGENTS.md` files listed at the end.
   state unless the dialog must be deep-linkable or browser-history addressable.
 - When a mutation changes loader data, await it, then call
   `router.invalidate({ sync: true })` if the next UI step needs fresh data.
-  Chat sidebar changes are TanStack DB optimistic actions instead, and a
-  change made outside the sidebar re-reads its list (see
-  `src/features/conversations/AGENTS.md`).
+  Chat sidebar and Tasks page changes are TanStack DB optimistic actions
+  instead, and a change made outside them re-reads their Query (see
+  `src/features/conversations/AGENTS.md`, `src/features/tasks/AGENTS.md`).
 - Preserve TanStack Router inference. Do not add casts or unnecessary type
   annotations to route params, search, loader data, or navigation options.
 - Keep feature modules out of the shared layout unless they are genuinely
