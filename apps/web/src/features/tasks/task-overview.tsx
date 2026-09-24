@@ -1,12 +1,7 @@
-import {
-  TASK_STATUSES,
-  type TaskCommand,
-  type TaskStatus,
-  type TaskView,
-} from "@lrm/coforge-sdk/internal";
+import { TASK_STATUSES, type TaskStatus } from "@lrm/coforge-sdk/internal";
 
 import { Link } from "@tanstack/react-router";
-import type { ReactNode } from "react";
+import { useMemo, type ReactNode } from "react";
 import { FilterLines as ListFilter } from "@untitledui/icons";
 
 import { PageHeader } from "#src/components/layout/page-header";
@@ -22,45 +17,46 @@ import {
 } from "./task-workflow";
 import { TaskDetailMenu } from "./task-detail-dialog";
 import { overviewTaskParam } from "./task-overview-search";
-
-/** A Task command as the overview issues it: the conversation comes from the Task. */
-export type OverviewTaskCommand = Omit<TaskCommand, "idempotencyKey" | "conversationId"> & {
-  number: number;
-};
-
-export type TaskOverviewItem = TaskView & {
-  currentMemberId?: string | null;
-  source: { channelName: string | null; agentId: string | null; label: string };
-};
+import type { OverviewTaskCommand, OverviewTaskRow } from "./task-overview-collection";
+import { taskMatches, type TaskFilter } from "./task-filters";
+import { TaskFilterMenus } from "./task-filter-menus";
 
 export function TaskOverview({
   tasks,
   status,
+  filter,
   layout,
   onStatusChange,
+  onFilterChange,
   onLayoutChange,
   onOpenTask,
   onCommand,
 }: {
-  tasks: TaskOverviewItem[];
+  tasks: readonly OverviewTaskRow[];
   status?: TaskStatus;
+  filter: TaskFilter;
   layout?: TaskLayout;
   onStatusChange: (status?: TaskStatus) => void;
+  onFilterChange: (filter: TaskFilter) => void;
   onLayoutChange?: (layout: TaskLayout) => void;
   /** Opens a Task's popup over the overview (the card menu's "View details"). */
-  onOpenTask: (task: TaskOverviewItem) => void;
-  onCommand?: (task: TaskOverviewItem, command: OverviewTaskCommand) => Promise<void>;
+  onOpenTask: (task: OverviewTaskRow) => void;
+  onCommand?: (task: OverviewTaskRow, command: OverviewTaskCommand) => Promise<void>;
 }) {
   layout ??= "board";
   onLayoutChange ??= () => {};
-  const visible = status ? tasks.filter((task) => task.status === status) : tasks;
+  const filtered = status !== undefined || filter.owners.length > 0 || filter.projects.length > 0;
+  const visible = useMemo(
+    () => tasks.filter((task) => (!status || task.status === status) && taskMatches(task, filter)),
+    [tasks, status, filter],
+  );
   return (
     <main className="flex h-svh max-h-svh min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-primary">
       <PageHeader
         heading={m.tasks_tab()}
         actions={<TaskLayoutToggle layout={layout} onChange={onLayoutChange} />}
       />
-      <div className="flex h-11 shrink-0 items-center justify-between gap-3 border-b border-secondary px-4 md:px-6">
+      <div className="flex min-h-11 shrink-0 flex-wrap items-center gap-2 border-b border-secondary px-4 py-1.5 md:px-6">
         <Select
           aria-label={m.tasks_overview_status()}
           size="sm"
@@ -75,11 +71,12 @@ export function TaskOverview({
             <Select.Item key={value} id={value} label={statusLabel(value)} />
           ))}
         </Select>
+        <TaskFilterMenus tasks={tasks} filter={filter} onChange={onFilterChange} />
       </div>
       <div className="min-h-0 flex-1 overflow-auto p-4 md:p-6">
         {visible.length === 0 && (
           <p className="py-16 text-center text-sm text-tertiary">
-            {status ? m.tasks_overview_filter_empty() : m.tasks_overview_empty()}
+            {filtered ? m.tasks_overview_filter_empty() : m.tasks_overview_empty()}
           </p>
         )}
         <TaskWorkflow
@@ -113,7 +110,7 @@ function OverviewTaskCard({
   onOpenDetails,
   onCommand,
 }: {
-  task: TaskOverviewItem;
+  task: OverviewTaskRow;
   controls: TaskControls;
   list: boolean;
   onOpenDetails: () => void;
@@ -138,6 +135,8 @@ function OverviewTaskCard({
       list={list}
       renderTitle={renderTitle}
       source={task.source.label}
+      // Empty for a Task outside any Project, so the list keeps its column.
+      project={task.project?.name ?? ""}
       controls={controls}
       menu={
         onCommand && (
