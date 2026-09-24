@@ -143,8 +143,9 @@ export function TaskToolbar({
             </Dropdown.Menu>
           </Dropdown.Popover>
         </Dropdown.Root>
-        {chips.length > 0 && (
-          // Removing one moves focus to its neighbour (React Aria TagGroup).
+        {
+          // Removing one moves focus to its neighbour, or to the group once none is left, so the
+          // group stays mounted (React Aria TagGroup).
           <TagGroup
             aria-label={m.tasks_filters_in_use()}
             onRemove={(keys) => {
@@ -160,12 +161,13 @@ export function TaskToolbar({
                   className="inline-flex h-7 max-w-[20rem] cursor-default items-center gap-1 rounded-md border border-secondary pr-1.5 pl-2.5 text-xs text-secondary outline-focus-ring focus-visible:outline-2"
                 >
                   <span className="truncate">{chip.label}</span>
-                  <TagCloseX size="md" aria-label={m.tasks_filter_remove({ filter: chip.label })} />
+                  {/* React Aria names it "<this label> <the chip>". */}
+                  <TagCloseX size="md" aria-label={m.tasks_filter_remove()} />
                 </Tag>
               ))}
             </TagList>
           </TagGroup>
-        )}
+        }
       </div>
       <DisplayMenu layout={layout} onLayoutChange={onLayoutChange} />
     </div>

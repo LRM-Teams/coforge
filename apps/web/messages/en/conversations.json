@@ -330,7 +330,7 @@
   "tasks_filter_project_is": "Project is {names}",
   "tasks_filter_status_is": "Status is {name}",
   "tasks_filter_names_more": "{names} +{count}",
-  "tasks_filter_remove": "Remove filter: {filter}",
+  "tasks_filter_remove": "Remove",
   "tasks_filter_other": "Other",
   "tasks_filters_in_use": "Filters in use",
   "tasks_field_number": "Number",

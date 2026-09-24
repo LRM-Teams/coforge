@@ -18,7 +18,11 @@ const HIDDEN_ON_OVERVIEW = {
   owner: "[.task-hide-owner_[data-task-overview]_&]:hidden",
   sourceDot: "[.task-hide-number_[data-task-overview]_&]:hidden",
   projectDot: "[.task-hide-number.task-hide-source_[data-task-overview]_&]:hidden",
+  // The meta line goes once all it would show is hidden; the title then clears the corner tools.
   meta: "[.task-hide-number.task-hide-source.task-hide-project_[data-task-overview]_&]:hidden",
+  metaWithoutProject: "[.task-hide-number.task-hide-source_[data-task-overview]_&]:hidden",
+  titleClear: "[.task-hide-number.task-hide-source.task-hide-project_[data-task-overview]_&]:pr-14",
+  titleClearWithoutProject: "[.task-hide-number.task-hide-source_[data-task-overview]_&]:pr-14",
 };
 
 /** Classes for the link or button a caller wraps around the title. */
@@ -113,7 +117,7 @@ export function TaskCard({
       <div
         className={cn(
           "flex h-6 items-center pr-14 text-xs font-medium text-tertiary tabular-nums",
-          HIDDEN_ON_OVERVIEW.meta,
+          project ? HIDDEN_ON_OVERVIEW.meta : HIDDEN_ON_OVERVIEW.metaWithoutProject,
         )}
       >
         <span className="truncate">
@@ -132,7 +136,14 @@ export function TaskCard({
           )}
         </span>
       </div>
-      <div className="mt-1">{title}</div>
+      <div
+        className={cn(
+          "mt-1",
+          project ? HIDDEN_ON_OVERVIEW.titleClear : HIDDEN_ON_OVERVIEW.titleClearWithoutProject,
+        )}
+      >
+        {title}
+      </div>
       {task.description && (
         <p className="mt-1 line-clamp-2 text-sm text-tertiary [overflow-wrap:anywhere]">
           {task.description}

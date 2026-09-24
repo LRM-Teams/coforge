@@ -31,7 +31,7 @@ export function serializeTaskDisplayFields(fields: TaskDisplayFields): string {
 
 /** The boot script's part (in __root.tsx): the stored hidden fields' classes on <html>, before
  * the first paint, so the server markup (every field) never shows a field then hides it. */
-export const TASK_DISPLAY_FIELDS_BOOT = `var taskHidden=localStorage.getItem("${STORAGE_KEY}");if(taskHidden){taskHidden.split(",").forEach(function(field){if(["number","source","project","owner"].indexOf(field)>=0){document.documentElement.classList.add("task-hide-"+field)}})}`;
+export const TASK_DISPLAY_FIELDS_BOOT = `var taskHidden=localStorage.getItem("${STORAGE_KEY}");if(taskHidden){taskHidden.split(",").forEach(function(field){if(${JSON.stringify(TASK_DISPLAY_FIELDS)}.indexOf(field)>=0){document.documentElement.classList.add("task-hide-"+field)}})}`;
 
 // Per-device preference, applied as classes on <html> so cards follow by CSS alone: toggling a
 // field re-renders only the Display menu, never the cards. The menu reads the choice from here.
