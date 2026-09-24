@@ -11,7 +11,11 @@ export function searchExcerpt(text: string, terms: string[]): ExcerptPart[] {
   const flat = text.replace(/\s+/g, " ").trim();
   if (terms.length === 0) return [{ text: flat, match: false }];
   const pattern = new RegExp(
-    `(${terms.map((term) => term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")})`,
+    // Longest first, so a term that contains another (`ab` and `a`) is marked whole.
+    `(${[...terms]
+      .sort((a, b) => b.length - a.length)
+      .map((term) => term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+      .join("|")})`,
     "gi",
   );
   const first = flat.search(pattern);

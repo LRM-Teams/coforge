@@ -10,6 +10,7 @@ import { Input } from "#src/components/base/input/input";
 import { PageHeader } from "#src/components/layout/page-header";
 import {
   Empty,
+  EmptyContent,
   EmptyDescription,
   EmptyHeader,
   EmptyMedia,
@@ -44,30 +45,36 @@ export function SearchPage({
   onQueryChange: (query: string) => void;
 }) {
   const [text, setText] = useState(query);
-  const composing = useRef(false);
+  // State, not a ref: ending a composition must re-run the commit effect even when the last
+  // input event (which browsers fire before `compositionend`) already set the final text.
+  const [composing, setComposing] = useState(false);
+  // The query this input last committed, so its own URL update never overwrites what has been
+  // typed since; only a change from elsewhere (a link, Back) replaces the text.
+  const lastCommitted = useRef(query);
   const committed = query.trim();
 
-  // Back/forward or a link can change `q` under the input; show what is being searched.
-  useEffect(() => setText(query), [query]);
+  useEffect(() => {
+    if (query === lastCommitted.current) return;
+    lastCommitted.current = query;
+    setText(query);
+  }, [query]);
 
   useEffect(() => {
-    if (composing.current || text === query) return;
-    const timer = setTimeout(() => onQueryChange(text), COMMIT_DELAY_MS);
+    if (composing || text === lastCommitted.current) return;
+    const timer = setTimeout(() => {
+      lastCommitted.current = text;
+      onQueryChange(text);
+    }, COMMIT_DELAY_MS);
     return () => clearTimeout(timer);
-  }, [text, query, onQueryChange]);
+  }, [text, composing, onQueryChange]);
 
   return (
     <main className="flex h-svh min-w-0 flex-col bg-primary">
       <PageHeader heading={m.search_title()} />
       <div
         className="border-b border-secondary px-4 py-3 sm:px-6"
-        onCompositionStart={() => {
-          composing.current = true;
-        }}
-        onCompositionEnd={(event) => {
-          composing.current = false;
-          setText(event.currentTarget.querySelector("input")?.value ?? text);
-        }}
+        onCompositionStart={() => setComposing(true)}
+        onCompositionEnd={() => setComposing(false)}
       >
         <Input
           type="search"
@@ -83,7 +90,15 @@ export function SearchPage({
         />
       </div>
       {committed ? (
-        <SearchResults workspaceId={workspaceId} query={committed} />
+        <SearchResults
+          workspaceId={workspaceId}
+          query={committed}
+          onClear={() => {
+            lastCommitted.current = "";
+            setText("");
+            onQueryChange("");
+          }}
+        />
       ) : (
         <div className="flex min-h-0 flex-1 items-start justify-center px-6 pt-16">
           <Empty>
@@ -101,7 +116,15 @@ export function SearchPage({
   );
 }
 
-function SearchResults({ workspaceId, query }: { workspaceId: string; query: string }) {
+function SearchResults({
+  workspaceId,
+  query,
+  onClear,
+}: {
+  workspaceId: string;
+  query: string;
+  onClear: () => void;
+}) {
   const search = useInfiniteQuery(messageSearchQuery(workspaceId, { query }));
   const hits = search.data?.pages.flatMap((page) => page.results) ?? [];
   const terms = searchTerms(query);
@@ -143,6 +166,11 @@ function SearchResults({ workspaceId, query }: { workspaceId: string; query: str
             <EmptyTitle>{m.search_no_results_title({ query })}</EmptyTitle>
             <EmptyDescription>{m.search_no_results_description()}</EmptyDescription>
           </EmptyHeader>
+          <EmptyContent>
+            <Button size="sm" color="secondary" onClick={onClear}>
+              {m.search_clear()}
+            </Button>
+          </EmptyContent>
         </Empty>
       </div>
     );
@@ -158,8 +186,10 @@ function SearchResults({ workspaceId, query }: { workspaceId: string; query: str
           <h2 id="search-messages-heading" className="text-sm font-semibold text-secondary">
             {m.search_messages_heading()}
           </h2>
-          <span role="status" className="text-xs text-tertiary">
-            {m.search_results_count({ count: hits.length })}
+          <span role="status" className="text-xs text-tertiary tabular-nums">
+            {search.hasNextPage
+              ? m.search_results_count_more({ count: hits.length })
+              : m.search_results_count({ count: hits.length })}
           </span>
         </div>
         <ol className="flex flex-col gap-2">

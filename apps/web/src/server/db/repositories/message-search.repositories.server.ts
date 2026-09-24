@@ -47,7 +47,7 @@ export async function findMessageSearchIds(
 ): Promise<string[]> {
   const conditions: Prisma.Sql[] = [
     Prisma.sql`m."workspaceId" = ${criteria.workspaceId}::uuid`,
-    Prisma.sql`(c."channelName" IS NOT NULL OR EXISTS (
+    Prisma.sql`(c."channelName" IS NOT NULL OR c."directKey" IS NOT NULL AND EXISTS (
       SELECT 1 FROM "conversation_members" v
       WHERE v."conversationId" = c."id" AND v."userId" = ${criteria.viewerUserId}::uuid))`,
     ...criteria.terms.map((term) => Prisma.sql`m."body" ILIKE ${containsPattern(term)}`),

@@ -438,5 +438,16 @@
         "countPlural=other": "{count} results"
       }
     }
+  ],
+  "search_clear": "Clear search",
+  "search_results_count_more": [
+    {
+      "declarations": ["input count", "local countPlural = count: plural"],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=one": "{count}+ result",
+        "countPlural=other": "{count}+ results"
+      }
+    }
   ]
 }

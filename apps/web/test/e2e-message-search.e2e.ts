@@ -52,6 +52,8 @@ test("the search page finds a message and opens it in its channel", async () => 
     return JSON.parse(JSON.parse(await browser("eval", `JSON.stringify(${expression})`))) as T;
   }
   const waitFor = (condition: string) => browser("wait", "--fn", condition);
+  const byText = (selector: string, text: string) =>
+    `[...document.querySelectorAll(${JSON.stringify(selector)})].find((element) => element.textContent.trim() === ${JSON.stringify(text)})`;
 
   const channelId = seededUuid("e2e-message-search:channel");
   const authorUserId = DEV_BROWSER_USER.id;
@@ -130,9 +132,41 @@ test("the search page finds a message and opens it in its channel", async () => 
     // Back returns to the same search; a query with no match keeps the box and says so.
     await browser("back");
     await waitFor(`new URLSearchParams(location.search).get("q") === "蓝鲸"`);
+    await waitFor(`document.querySelector('input[type="search"]').value === "蓝鲸"`);
     await browser("fill", 'input[type="search"]', "不存在的暗号");
     await waitFor(`document.body.textContent.includes("No results for “不存在的暗号”")`);
     await browser("screenshot", join(artifacts, "no-results.png"));
+
+    // The no-results state offers to clear the search, which empties the box and the URL.
+    await browser("eval", `${byText("button", "Clear search")}.click()`);
+    await waitFor(`new URLSearchParams(location.search).get("q") === null`);
+    await waitFor(`document.querySelector('input[type="search"]').value === ""`);
+    // An input method: nothing is searched while composing, and the text it produces is
+    // searched once composition ends, even though its last input event came before that end.
+    await browser(
+      "eval",
+      `(() => {
+        const input = document.querySelector('input[type="search"]');
+        const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set;
+        input.dispatchEvent(new CompositionEvent("compositionstart", { bubbles: true }));
+        for (const value of ["l", "la", "lan", "蓝鲸"]) {
+          setValue.call(input, value);
+          input.dispatchEvent(new InputEvent("input", { bubbles: true, isComposing: true, data: value }));
+        }
+        window.__composingSince = Date.now();
+      })()`,
+    );
+    // Well past the commit delay, the URL still waits for the composition to end.
+    await waitFor(`Date.now() - window.__composingSince > 600`);
+    expect(await evaluate<string | null>(`new URLSearchParams(location.search).get("q")`)).toBe(
+      null,
+    );
+    await browser(
+      "eval",
+      `document.querySelector('input[type="search"]').dispatchEvent(new CompositionEvent("compositionend", { bubbles: true, data: "蓝鲸" }))`,
+    );
+    await waitFor(`new URLSearchParams(location.search).get("q") === "蓝鲸"`);
+    await waitFor(`document.querySelector("main ol li mark")?.textContent === "蓝鲸"`);
   } finally {
     await browser("close").catch(() => undefined);
     await db.conversation.deleteMany({ where: { id: channelId } }).catch(() => {});
