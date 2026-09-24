@@ -91,7 +91,7 @@ export const MANUAL_TOPICS: readonly AgentManualTopic[] = [
     slug: "tasks",
     title: "Tasks: claiming, status flow, amendments, and creating tasks",
     summary:
-      "Full task reference: how tasks appear in messages, statuses and the claim/unclaim rules, auditable amendments, the claim-to-done workflow, splitting for parallel work, when coforge task create is and is not appropriate, and listing a conversation's board or your own tasks with coforge task list --mine.",
+      "Full task reference: how tasks appear in messages, statuses and the claim/unclaim rules, auditable amendments, the claim-to-done workflow, splitting for parallel work, when coforge task create is and is not appropriate, convert/unclaim/assign/update/delete/receipt, and listing a conversation's board or your own tasks with coforge task list --mine.",
     body: tasksBody,
   },
 ];
