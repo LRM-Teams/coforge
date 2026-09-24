@@ -5,7 +5,7 @@ import {
 } from "@lrm/coforge-sdk/internal";
 import { getLogger } from "@logtape/logtape";
 import { diagnosticErrorCode } from "#src/platform/diagnostic-error-code";
-import { agentEnvironment } from "#src/code-agent/environment";
+import { runCatalogCommand } from "#src/code-agent/catalog-command";
 
 const logger = getLogger(["coforge", "daemon", "code-agent", "cursor"]);
 
@@ -63,38 +63,16 @@ export async function discoverCursorCatalog(
   timeoutMs = 5_000,
 ): Promise<CodeAgentModelCatalog | undefined> {
   try {
-    const spawnEnvironment = {
-      ...agentEnvironment(undefined, environment),
-      NO_COLOR: "1",
-      FORCE_COLOR: "0",
-    };
-    const child = Bun.spawn({
-      cmd: [...command],
-      cwd,
-      env: spawnEnvironment,
-      stdin: "ignore",
-      stdout: "pipe",
-      stderr: "ignore",
-    });
-    try {
-      const [output, exitCode] = await Promise.race([
-        Promise.all([new Response(child.stdout).text(), child.exited]),
-        Bun.sleep(timeoutMs).then((): [string, number] => {
-          throw new Error("Cursor model catalog discovery timed out");
-        }),
-      ]);
-      if (exitCode !== 0) {
-        logger.warning("Cursor model catalog unavailable", {
-          event: "cursor.catalog.unavailable",
-          exit_code: exitCode,
-        });
-        return undefined;
-      }
-      const models = parseCursorModelList(output);
-      return models.length ? { provider: RUNTIME_PROVIDER.CURSOR, models } : undefined;
-    } finally {
-      child.kill();
+    const { output, exitCode } = await runCatalogCommand(command, cwd, environment, timeoutMs);
+    if (exitCode !== 0) {
+      logger.warning("Cursor model catalog unavailable", {
+        event: "cursor.catalog.unavailable",
+        exit_code: exitCode,
+      });
+      return undefined;
     }
+    const models = parseCursorModelList(output);
+    return models.length ? { provider: RUNTIME_PROVIDER.CURSOR, models } : undefined;
   } catch (error) {
     logger.warning("Cursor model catalog discovery failed", {
       event: "cursor.catalog.unavailable",
