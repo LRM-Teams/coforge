@@ -49,6 +49,7 @@ import {
 } from "#src/features/conversations/conversation-unread";
 import { useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
+import { useRefreshSidebarChannels } from "#src/features/conversations/sidebar-lists";
 import { threadFollowingAgentsQueryPrefix } from "#src/features/conversations/conversation-query-keys";
 
 export const Route = createFileRoute("/_app/messages/channels/$channelId")({
@@ -134,10 +135,10 @@ function ChannelPage() {
   };
 
   // The settings panel writes the channel (name, description, archive), the viewer's own
-  // membership (leave) or preferences (pin, mute) itself; this refreshes the page and the
-  // sidebar, which reads them through the layout loader.
+  // membership (leave) or mute itself; this re-reads the page and the sidebar's channel list.
+  const refreshSidebarChannels = useRefreshSidebarChannels();
   const refreshChannel = async () => {
-    await Promise.all([page.invalidate(), router.invalidate({ sync: true })]);
+    await Promise.all([page.invalidate(), refreshSidebarChannels()]);
   };
   const followThread = (threadRootId: string) =>
     page.patch((current) => ({
