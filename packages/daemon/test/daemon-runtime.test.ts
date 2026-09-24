@@ -3039,7 +3039,7 @@ describe("DaemonRuntime", () => {
     });
     expect(starts).toBe(2);
     expect(notices).toEqual([
-      "[CoForge inbox notice:\nInbox update: 1 message delivered or held for you\n@agent  new: 1 message\nWhat the server still has for you is answered only by `coforge message check`, or\n`coforge message read --target <target>`; either may return nothing, because a message can\nalready have been read. A notice you have not acted on does not establish that there is no work.]",
+      "[CoForge inbox notice:\nInbox update: 1 message delivered or held for you\n@agent  new: 1 message\nDrain each listed target with `coforge message check --target <target>`, or inspect with `coforge message read --target <target>`. Either may return nothing, because a message can already have been read.]",
     ]);
     expect(acknowledgements).toEqual(["delivery-1"]);
 

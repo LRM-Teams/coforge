@@ -9,7 +9,7 @@ test("ordinary requests do not require task creation or per-turn memory bookkeep
   expect(instructions).toContain("Do ordinary work directly");
   expect(instructions).toContain("complex, coordinated, or already-shared Tasks");
   expect(instructions).toContain("If a claim fails, do not start conflicting execution");
-  expect(instructions).toContain("when recovering missing context");
+  expect(instructions).toContain("when this request lacks context");
   expect(instructions).not.toContain("## Startup sequence");
   expect(instructions).not.toContain("Before a long task");
   expect(instructions).not.toContain("before you finish that turn");
@@ -38,7 +38,9 @@ test("preserves privacy, credential handling and uncertain-send safety", () => {
 });
 
 test("recovers context on demand and keeps help discoverable", () => {
-  expect(instructions).toContain("coforge message check");
+  expect(instructions).toContain("coforge message check --target");
+  expect(instructions).toContain("Do not announce the notice or read MEMORY.md first");
+  expect(instructions).toContain("an inbox notice is not missing context");
   expect(instructions).toContain("coforge message search");
   expect(instructions).toContain("read --around");
   expect(instructions).toContain("coforge manual get");

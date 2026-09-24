@@ -190,7 +190,7 @@ test("updates attention, sends only a body-free notice, and ACKs takeover", asyn
     }),
   ]);
   expect(notices).toEqual([
-    "[CoForge inbox notice:\nInbox update: 1 message delivered or held for you\n@ada  new: 1 message · latest sender @ada\nWhat the server still has for you is answered only by `coforge message check`, or\n`coforge message read --target <target>`; either may return nothing, because a message can\nalready have been read. A notice you have not acted on does not establish that there is no work.]",
+    "[CoForge inbox notice:\nInbox update: 1 message delivered or held for you\n@ada  new: 1 message · latest sender @ada\nDrain each listed target with `coforge message check --target <target>`, or inspect with `coforge message read --target <target>`. Either may return nothing, because a message can already have been read.]",
   ]);
   expect(notices[0]).not.toContain("private body");
   expect(acks).toEqual(["delivery-one"]);
@@ -451,8 +451,8 @@ test("recovery directs every target with messages beyond the batch to canonical 
   expect(notices[0]).toContain("[CoForge inbox notice (restart recovery):");
   expect(notices[0]).toContain("@ada  new: 1 message");
   expect(notices[0]).toContain("@grace  new: 1 message");
-  expect(notices[0]).toContain("Run `coforge message check` to drain pending messages");
-  expect(notices[0]).toContain("`coforge message read --target @x` to inspect one target");
+  expect(notices[0]).toContain("coforge message check --target <target>");
+  expect(notices[0]).toContain("coforge message read --target <target>");
   expect(notices[0]).not.toContain("Please resume this work");
   expect(notices[0]).not.toContain("New message received:");
   expect(index.modelSeenSequence("agent-1", "@ada")).toBe(0);
@@ -987,9 +987,9 @@ test("a sender handle that fails the handle grammar never reaches the notice", a
   expect(notices[0]).toContain("#general  new: 1 message");
   expect(notices[0]).not.toContain("latest sender");
   // The notice's shape is fixed: the opening line, the headline, one line per target, then the
-  // three-line closing guidance. A sender name cannot add a line to it.
+  // one-line drain hint. A sender name cannot add a line to it.
   expect(notices).toHaveLength(1);
-  expect(notices[0]!.split("\n")).toHaveLength(6);
+  expect(notices[0]!.split("\n")).toHaveLength(4);
 });
 
 test("an unrecognized sender kind never reaches the notice", async () => {
@@ -1063,8 +1063,8 @@ test("a notice claims only what the daemon can establish, never the server's rea
   ])
     expect(notices[0]).not.toContain(readStateClaim);
   expect(notices[0]).toContain("delivered or held for you");
-  expect(notices[0]).toContain("answered only by `coforge message check`");
-  expect(notices[0]).toContain("either may return nothing");
+  expect(notices[0]).toContain("coforge message check --target <target>");
+  expect(notices[0]).toContain("Either may return nothing");
 });
 
 test("a coalesced flush spanning targets gives each target its own line", async () => {

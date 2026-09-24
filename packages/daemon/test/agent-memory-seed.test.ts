@@ -8,7 +8,7 @@ import {
   seedAgentMemory,
 } from "#src/agent-runtime/agent-memory-seed";
 
-test("buildInitialMemoryMd renders the displayName, role, and first-startup context", () => {
+test("buildInitialMemoryMd renders the displayName, role, and an empty active context", () => {
   const content = buildInitialMemoryMd({
     name: "scout",
     displayName: "Scout",
@@ -23,11 +23,12 @@ Reviews pull requests for the platform team.
 -
 
 ## Active Context (≤5 lines)
-- First startup.
+-
 
 ## Index
 - notes/work-log.md   按时间的完整历史
 `);
+  expect(content).not.toContain("First startup");
 });
 
 test("buildInitialMemoryMd falls back to name, then a generic title, when displayName is missing", () => {
