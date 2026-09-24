@@ -212,7 +212,7 @@ message AgentActivityProbe {
 }
 
 // Versioned server-to-daemon notice that an Agent can no longer read some
-// channels: the daemon drops its local, unacknowledged state for them. No reply.
+// channels: the daemon drops, and acknowledges, its local state for them. No reply.
 message AgentInboxPurge {
   uint32 protocol_major = 1;
   string request_id = 2;

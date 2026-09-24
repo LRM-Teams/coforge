@@ -320,8 +320,9 @@ export class AgentControl {
       throw new Error("Full reset confirmation is required");
     // `stop` persists the user's stop intent before the chain runs at all, so it
     // survives even if the Computer never answers; every other action clears it first. Messages
-    // that arrived while stopped are surfaced only for the explicit "start" action, the same
-    // recovery context a Daemon-ready recovery start carries.
+    // that arrived while stopped are surfaced for the explicit "start" action here, and for the
+    // Start that ends a Restart or Reset in `publishCurrent`: the same recovery context a
+    // Daemon-ready recovery start carries.
     const stoppedAt = input.action === "stop" ? new Date(this.clock()) : null;
     const recovery =
       input.action === "start" && this.conversations
@@ -580,6 +581,11 @@ export class AgentControl {
         encodeAgentWorkspaceResetRequest(state),
       );
     } else if (state.phase === "starting" || (state.phase === "completed" && recovery)) {
+      // A Restart or Reset ends with a Start after its stop step, which dropped what the daemon
+      // held (already acknowledged). That Start carries the unread messages from the read
+      // boundary, the same recovery a plain Start reads in `execute`.
+      if (!recovery && state.phase === "starting" && state.action !== "start" && this.conversations)
+        recovery = await this.conversations.readAgentRecoveryContext(state.workspaceId, agentId);
       const identity = state.identity;
       const reset =
         state.phase !== "completed" &&

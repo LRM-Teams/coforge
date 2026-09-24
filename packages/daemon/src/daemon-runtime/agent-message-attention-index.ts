@@ -218,7 +218,7 @@ export class AgentMessageAttentionIndex {
         if (this.hold.shouldHold(message.agentId)) {
           this.hold.enqueue(message.agentId, message);
           // Held for a later notice: the daemon has it, so it is acknowledged now.
-          await this.acknowledge(message);
+          this.acknowledgeCustody(message);
           return;
         }
         const attempt = generation.notificationAttempts.get(message.deliveryId);
@@ -254,7 +254,7 @@ export class AgentMessageAttentionIndex {
     if (this.hold.shouldHold(message.agentId)) {
       this.hold.enqueue(message.agentId, message);
       // Held for a later notice: the daemon has it, so it is acknowledged now.
-      await this.acknowledge(message);
+      this.acknowledgeCustody(message);
       return;
     }
     await this.#notify(message, current);
@@ -645,6 +645,22 @@ already have been read. A notice you have not acted on does not establish that t
    * chatter that does not mention it), so an exited Agent need not be launched for it. */
   isSilent(message: AgentMessageDelivery): boolean {
     return hasDeliveryScope(message) && !shouldWakeForDelivery(message);
+  }
+
+  /**
+   * ACKs a delivery the daemon has just taken into its own keeping (held for a later notice or
+   * launch, or dropped), without waiting: a failed ACK only means the server replays it on the
+   * next `ready`, and a daemon restart recovers unread messages from the cloud read boundary.
+   */
+  acknowledgeCustody(message: AgentMessageDelivery): void {
+    void this.acknowledge(message).catch((error: unknown) => {
+      logger.warn("Agent delivery could not be acknowledged on taking it", {
+        event: "agent.message.custody_ack_failed",
+        agent_id: message.agentId,
+        delivery_id: message.deliveryId,
+        error_code: error instanceof Error ? error.name : "UnknownError",
+      });
+    });
   }
 
   /** ACKs a delivery without notifying the Agent: the caller has established it needs no attention. */

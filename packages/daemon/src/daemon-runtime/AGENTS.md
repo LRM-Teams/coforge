@@ -37,11 +37,12 @@ Rules for one Workspace child's runtime in `src/daemon-runtime/`. They extend
   it shows a truncated preview without whether the message mentions the Agent.
 - A delivery is ACKed as soon as the daemon takes custody of it: when its
   notice is accepted, or when it is held for a later notice or launch
-  (`AgentDeliveryQueue`, a failed launch's input queue). Never ACK during the
-  runner hold of a Computer upgrade.
+  (`AgentDeliveryQueue`, a failed launch's input queue). A delivery that
+  arrives during the runner hold of a Computer upgrade is not ACKed.
 - An inbox purge (`agent:v1:inbox:purge`) drops the waiting deliveries and
   pending attention of channels the Agent can no longer read, threads
-  included; what it drops is ACKed, so a later rejoin does not replay it.
+  included; what it drops is ACKed, so a later rejoin does not replay it on
+  `ready` (a Start still surfaces it as unread from the read boundary).
 - Never launch an exited Agent for a delivery it has already consumed or that
   would not wake a running Agent; ACK it instead.
 - A failed message-triggered launch starts the per-Agent wake cooldown

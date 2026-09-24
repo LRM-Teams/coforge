@@ -2320,6 +2320,108 @@ test("a user-initiated Start carries the same recovery context a Daemon-ready re
   });
 });
 
+test.each(["restart", "reset-session"] as const)(
+  "a %s's Start carries the messages that arrived while the Agent was stopped",
+  async (action) => {
+    const config = {
+      runtime: "pi" as const,
+      provider: { kind: "default" as const },
+      model: "",
+      modelProvider: "",
+      reasoning: "",
+    };
+    let agent: AgentControlAgent = {
+      id: "agent-a",
+      workspaceId: "workspace-a",
+      computerId: "computer-a",
+      ownerId: "owner-a",
+      visibility: "public",
+      runtimeConfig: config,
+      state: null,
+    };
+    const store: AgentControlStore = {
+      memberRole: async () => "owner",
+      async get() {
+        return structuredClone(agent);
+      },
+      async replace(before, state) {
+        if (JSON.stringify(before.state) !== JSON.stringify(agent.state)) return false;
+        agent = { ...agent, state };
+        return true;
+      },
+    };
+    const starts: ReturnType<typeof decodeAgentStartIntent>[] = [];
+    const control: AgentControl = new AgentControl(
+      store,
+      {
+        async publish(_channel, bytes) {
+          try {
+            const stop = decodeAgentStopIntent(bytes);
+            await control.result(stop, {
+              ...stop,
+              provider: stop.provider!,
+              epoch: stop.controlEpoch!,
+              phase: "stopped",
+              sequence: 1,
+            });
+          } catch {
+            const start = decodeAgentStartIntent(bytes);
+            starts.push(start);
+            await control.authorizeLaunch(start);
+            await control.result(start, {
+              ...start,
+              epoch: start.controlEpoch!,
+              launchId: start.launchId!,
+              phase: "started",
+              sequence: 2,
+              identity: { sessionId: "fresh", state: "empty" },
+            });
+          }
+        },
+      },
+      { run: async (_id, work) => work() },
+      { timeoutMs: 1, fallbackMs: 0 },
+      undefined,
+      undefined,
+      {
+        readAgentRecoveryContext: async () => ({
+          resumeMessages: [
+            {
+              messageId: "message-1",
+              deliveryId: "delivery-1",
+              conversationId: "conversation-1",
+              sequence: 3,
+              target: "@alice",
+              latestSenderKind: "human",
+              latestSenderHandle: "alice",
+              latestSenderDescription: "",
+              body: "held by the daemon before the restart",
+            },
+          ],
+          unreadSummary: { "@alice": 2 },
+        }),
+      },
+    );
+
+    await control.execute({
+      userId: "owner-a",
+      workspaceId: "workspace-a",
+      agentId: "agent-a",
+      requestId: "request-a",
+      action,
+    });
+
+    // The stop step drops what the daemon held, already acknowledged; the Start that follows
+    // brings the unread messages back from the read boundary, like a plain Start does.
+    expect(starts.length).toBeGreaterThan(0);
+    for (const start of starts)
+      expect(start).toMatchObject({
+        resumeMessages: [expect.objectContaining({ messageId: "message-1" })],
+        unreadSummary: { "@alice": 2 },
+      });
+  },
+);
+
 test("a pending operation is superseded by a user-initiated Stop", async () => {
   const { store, current } = pendingOpStore({
     id: "a",
