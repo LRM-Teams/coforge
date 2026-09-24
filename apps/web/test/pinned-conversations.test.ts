@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 
 import {
   canDropInto,
+  dropTarget,
   moveInDirectory,
   pinsAfterDrag,
   splitPinnedConversations,
@@ -120,4 +121,41 @@ test("pinned rows reorder among themselves; a section's own rows keep their orde
   const unchanged = moveInDirectory(layout, natural, "channel:eng", "channels", 0);
   expect(unchanged.channels).toEqual(["channel:general", "channel:eng"]);
   expect(pinsAfterDrag(layout, unchanged)).toBeNull();
+});
+
+/**
+ * Where a dragged row lands for what it is over: above or below the hovered row by which half of
+ * it the dragged row's centre is in, so crossing a row's middle is what moves it.
+ */
+test("the row under the dragged one decides by its halves, including a midline crossed inside it", () => {
+  const current: DirectoryLayout = {
+    pinned: ["channel:a", "channel:b", "channel:c"],
+    channels: [],
+    agents: [],
+  };
+  const overB = { key: "channel:b", section: "pinned" as const, type: "row" as const };
+  // Dragging c up: in b's lower half nothing moves yet; in its upper half c goes above b.
+  expect(dropTarget(current, "channel:c", overB, { dragged: 115, over: 100 })).toEqual({
+    section: "pinned",
+    index: 2,
+  });
+  expect(dropTarget(current, "channel:c", overB, { dragged: 95, over: 100 })).toEqual({
+    section: "pinned",
+    index: 1,
+  });
+  // Over itself, or over the list it is already in, it stays where it is.
+  const overSelf = { key: "channel:c", section: "pinned" as const, type: "row" as const };
+  expect(dropTarget(current, "channel:c", overSelf, { dragged: 0, over: 0 })).toBeNull();
+  const overList = { key: "section:pinned", section: "pinned" as const, type: "section" as const };
+  expect(dropTarget(current, "channel:c", overList, null)).toBeNull();
+  // Over a list it is not in yet, it joins at the end.
+  expect(dropTarget({ ...current, pinned: [] }, "channel:c", overList, null)).toEqual({
+    section: "pinned",
+    index: 0,
+  });
+});
+
+test("a move that leaves every row where it is returns the same layout, so nothing re-renders", () => {
+  expect(moveInDirectory(layout, natural, "channel:ops", "pinned", 0)).toBe(layout);
+  expect(moveInDirectory(layout, natural, "channel:eng", "channels", 0)).toBe(layout);
 });

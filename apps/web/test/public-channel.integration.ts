@@ -3380,11 +3380,24 @@ test("arranging a member's pins sets their order in one step, pins what is new, 
     await arrangeConversationPins(db, workspace.id, bob.id, { pins: [], unpinned: [] });
     expect(await pinned()).toEqual(["@helper", "eng", "ops"]);
 
+    // Dragging the only arranged row out: the rest close up from the first place.
+    await arrangeConversationPins(db, workspace.id, alice.id, {
+      pins: [],
+      unpinned: [{ kind: "direct", agentId: helper.id }],
+    });
+    expect(await pinned()).toEqual(["eng", "ops"]);
+    expect(
+      (await channels.list(workspace.id, alice.id))
+        .filter((channel) => channel.pinned)
+        .map((channel) => channel.pinSortOrder),
+    ).toEqual([0, 1]);
+
     // A menu pin and a drag by the same member at the same moment both complete: they wait for
     // each other instead of deadlocking.
     for (let round = 0; round < 15; round += 1) {
       await Promise.all([
         channels.setUserPinned(workspace.id, alice.id, ops.id, round % 2 === 0),
+        directs.setPinnedForUser(workspace.id, alice.id, helper.id, round % 2 === 1),
         arrangeConversationPins(db, workspace.id, alice.id, {
           pins: [
             { kind: "channel", channelId: ops.id },
@@ -3394,6 +3407,17 @@ test("arranging a member's pins sets their order in one step, pins what is new, 
         }),
       ]);
     }
+    // Whichever finished last, the drag left ops and eng pinned, in that order, with no gaps.
+    const [channelRows, preferences] = await Promise.all([
+      channels.list(workspace.id, alice.id),
+      directs.preferencesForUser(workspace.id, alice.id),
+    ]);
+    const orders = [
+      ...channelRows.flatMap((channel) => (channel.pinned ? [channel.pinSortOrder!] : [])),
+      ...preferences.pinned.map((pin) => pin.sortOrder),
+    ].sort((left, right) => left - right);
+    expect(orders).toEqual([...orders.keys()]);
+    expect((await pinned()).filter((name) => name !== "@helper")).toEqual(["ops", "eng"]);
   } finally {
     await db.workspace.delete({ where: { id: workspace.id } });
     await db.computer.deleteMany({ where: { ownerId: alice.id } });

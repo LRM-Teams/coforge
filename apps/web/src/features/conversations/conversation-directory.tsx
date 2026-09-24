@@ -1,5 +1,5 @@
 import { Bookmark, ChevronRight, Hash01 as Hash, Plus } from "@untitledui/icons";
-import { useEffect, useId, useState, type ReactNode } from "react";
+import { useEffect, useId, useMemo, useState, type ReactNode } from "react";
 import { Link, useRouter } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { DndContext } from "@dnd-kit/core";
@@ -234,30 +234,36 @@ export function ConversationDirectory({
 }) {
   const unreadCounts = useChannelUnreadCounts();
   const savedCount = useSavedMessages()?.entries.length;
-  const sortedChannels = [...channels].sort((left, right) =>
-    left.joined === right.joined ? 0 : left.joined ? -1 : 1,
-  );
-  /** DM rows in the Agent list's own order; a closed one is left out of its section by the split. */
-  const directRows = agents.map((agent) => ({
-    agent,
-    preference: directRowPreference(directPreferences, agent.id),
-  }));
-  const sections = splitPinnedConversations(sortedChannels, directRows);
-  const base: DirectoryLayout = {
-    pinned: sections.pinned.map((entry) =>
-      entry.kind === "channel" ? channelRowKey(entry.id) : directRowKey(entry.id),
-    ),
-    channels: sections.channels.map((channel) => channelRowKey(channel.id)),
-    agents: sections.directs.map(({ agent }) => directRowKey(agent.id)),
-  };
-  /** Where a row returns to when it is dragged out of Pinned: its list's own order. A closed DM
-   * that is still pinned is included so it can be seen while it is dragged. */
-  const natural = {
-    channels: sortedChannels.map((channel) => channelRowKey(channel.id)),
-    agents: directRows
-      .filter(({ preference }) => preference.pinned || !preference.hidden)
-      .map(({ agent }) => directRowKey(agent.id)),
-  };
+  // Derived once per list change, not per render: the drag reads `base` and `natural` on every
+  // pointer move.
+  const { sortedChannels, directRows, base, natural } = useMemo(() => {
+    const sortedChannels = [...channels].sort((left, right) =>
+      left.joined === right.joined ? 0 : left.joined ? -1 : 1,
+    );
+    /** DM rows in the Agent list's own order; a closed one is left out of its section by the
+     * split. */
+    const directRows = agents.map((agent) => ({
+      agent,
+      preference: directRowPreference(directPreferences, agent.id),
+    }));
+    const sections = splitPinnedConversations(sortedChannels, directRows);
+    const base: DirectoryLayout = {
+      pinned: sections.pinned.map((entry) =>
+        entry.kind === "channel" ? channelRowKey(entry.id) : directRowKey(entry.id),
+      ),
+      channels: sections.channels.map((channel) => channelRowKey(channel.id)),
+      agents: sections.directs.map(({ agent }) => directRowKey(agent.id)),
+    };
+    /** Where a row returns to when it is dragged out of Pinned: its list's own order. A closed DM
+     * that is still pinned is included so it can be seen while it is dragged. */
+    const natural = {
+      channels: sortedChannels.map((channel) => channelRowKey(channel.id)),
+      agents: directRows
+        .filter(({ preference }) => preference.pinned || !preference.hidden)
+        .map(({ agent }) => directRowKey(agent.id)),
+    };
+    return { sortedChannels, directRows, base, natural };
+  }, [channels, agents, directPreferences]);
   const router = useRouter();
   const toast = useAppToast();
   const arrangePins = useServerFn(arrangePinnedConversations);
