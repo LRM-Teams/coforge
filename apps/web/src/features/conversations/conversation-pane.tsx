@@ -540,12 +540,13 @@ export function ConversationPane({
     if (anchor.rowId) {
       // A folded system group is one row for all its notices, and its row id is its first notice:
       // a page that extends the group backwards gives it a new first notice. The group that still
-      // holds the anchored notice is the same row the reader was looking at. The row itself comes
-      // first: an open group also lists the notice its own row shows.
+      // holds the anchored notice is the same row the reader was looking at. A notice's own row
+      // comes first: an open group lists the notices it shows and shares its first one's id.
       const id = CSS.escape(anchor.rowId);
       const row =
-        history.querySelector<HTMLElement>(`li[data-message-id="${id}"]`) ??
-        history.querySelector<HTMLElement>(`li[data-system-group-members~="${id}"]`);
+        history.querySelector<HTMLElement>(
+          `li[data-message-id="${id}"]:not([data-system-group])`,
+        ) ?? history.querySelector<HTMLElement>(`li[data-system-group-members~="${id}"]`);
       if (row) {
         const containerTop = history.getBoundingClientRect().top;
         const delta = row.getBoundingClientRect().top - (containerTop + anchor.offset);
