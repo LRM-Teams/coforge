@@ -368,10 +368,10 @@ function agentAttentionDeliveryWhere(scope: AgentAttentionScope) {
  * message's sender cannot supply.
  *
  * The `m` subquery narrows the scan before the rule is applied, one disjoint branch per
- * conversation kind: a channel message only counts with a delivery row, so channels are read through the
- * Agent's deliveries instead of their history, and a direct message's top level is an index range
- * above the Agent's boundary. Only direct-message thread replies, whose boundary is per thread,
- * are scanned in full. The outer `WHERE` still states the whole rule.
+ * conversation kind and level: a channel message only counts with a delivery row, so a channel's
+ * top level is an index range over the Agent's deliveries above its boundary, and a direct
+ * message's top level is an index range over the history above it. Only thread replies, whose
+ * boundary is per thread, are scanned in full. The outer `WHERE` still states the whole rule.
  */
 function unreadAgentMessagesFragment(
   workspaceId: string,
@@ -383,6 +383,13 @@ function unreadAgentMessagesFragment(
     : scope.threadRootId
       ? Prisma.sql` AND m."conversationId" = ${scope.conversationId}::uuid AND m."threadRootId" = ${scope.threadRootId}::uuid`
       : Prisma.sql` AND m."conversationId" = ${scope.conversationId}::uuid AND m."threadRootId" IS NULL`;
+  // A channel delivery already read while the Agent was notified from outside the channel is not
+  // read again as a member.
+  const notReadAsNonMember = Prisma.sql`NOT EXISTS (
+    SELECT 1 FROM "pending_mention_actions" rpma
+    WHERE rpma."messageId" = cd."messageId" AND rpma."targetAgentId" = ${agentId}::uuid
+      AND rpma."targetReadAt" IS NOT NULL
+  )`;
   return Prisma.sql`
     SELECT m."id", m."sequence", m."body", m."conversationId", m."threadRootId",
       m."senderMemberId", COALESCE(r."sequence", 0) AS "rootSequence",
@@ -399,19 +406,38 @@ function unreadAgentMessagesFragment(
     FROM (
       SELECT cm."id", cm."sequence", cm."body", cm."conversationId", cm."threadRootId",
         cm."senderMemberId"
-      FROM "agent_message_deliveries" cd
-      JOIN "messages" cm ON cm."id" = cd."messageId"
-      JOIN "conversations" cc ON cc."id" = cm."conversationId" AND cc."channelName" IS NOT NULL
+      FROM "conversation_members" cam
+      JOIN "conversations" cc ON cc."id" = cam."conversationId" AND cc."channelName" IS NOT NULL
         AND cc."hiddenFromWorkspaceAt" IS NULL
-      JOIN "conversation_members" cam ON cam."conversationId" = cm."conversationId"
-        AND cam."agentId" = ${agentId}::uuid AND cam."leftAt" IS NULL
-      WHERE cd."workspaceId" = ${workspaceId}::uuid AND cd."agentId" = ${agentId}::uuid
-        -- Already read while the Agent was notified from outside the channel: not again as a member.
-        AND NOT EXISTS (
-          SELECT 1 FROM "pending_mention_actions" rpma
-          WHERE rpma."messageId" = cd."messageId" AND rpma."targetAgentId" = ${agentId}::uuid
-            AND rpma."targetReadAt" IS NOT NULL
-        )
+      -- Each membership reads its own index range above the Agent's boundary; a delivery carries
+      -- its message's sequence. OFFSET 0 is an optimization fence: without it PostgreSQL flattens
+      -- the subquery and, unable to estimate a bound taken from another row, joins every
+      -- delivery the Agent has ever received.
+      CROSS JOIN LATERAL (
+        SELECT d."messageId" FROM "agent_message_deliveries" d
+        WHERE d."agentId" = cam."agentId" AND d."conversationId" = cam."conversationId"
+          AND d."sequence" > cam."agentReadThroughSequence"
+        OFFSET 0
+      ) cd
+      JOIN "messages" cm ON cm."id" = cd."messageId" AND cm."threadRootId" IS NULL
+      WHERE cam."workspaceId" = ${workspaceId}::uuid AND cam."agentId" = ${agentId}::uuid
+        AND cam."leftAt" IS NULL AND ${notReadAsNonMember}
+      UNION ALL
+      SELECT cm."id", cm."sequence", cm."body", cm."conversationId", cm."threadRootId",
+        cm."senderMemberId"
+      FROM "conversation_members" cam
+      JOIN "conversations" cc ON cc."id" = cam."conversationId" AND cc."channelName" IS NOT NULL
+        AND cc."hiddenFromWorkspaceAt" IS NULL
+      -- Starts from the channel's thread replies and joins each reply's delivery: starting from
+      -- the Agent's deliveries would walk its whole channel history again.
+      JOIN "messages" cm ON cm."conversationId" = cam."conversationId"
+        AND cm."threadRootId" IS NOT NULL
+      JOIN "agent_message_deliveries" cd ON cd."messageId" = cm."id" AND cd."agentId" = cam."agentId"
+      LEFT JOIN "thread_reads" ctr
+        ON ctr."memberId" = cam."id" AND ctr."rootMessageId" = cm."threadRootId"
+      WHERE cam."workspaceId" = ${workspaceId}::uuid AND cam."agentId" = ${agentId}::uuid
+        AND cam."leftAt" IS NULL AND cm."sequence" > COALESCE(ctr."readThroughSequence", 0)
+        AND ${notReadAsNonMember}
       UNION ALL
       SELECT dm."id", dm."sequence", dm."body", dm."conversationId", dm."threadRootId",
         dm."senderMemberId"

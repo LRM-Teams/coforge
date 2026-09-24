@@ -53,8 +53,13 @@ test("events drain returns unread rows in canonical order, advances read boundar
     );
     const threadTarget = `@${username}:${root.id}`;
 
-    // A #general channel message the Agent has a delivery for.
+    // A #general channel message the Agent has a delivery for. An Agent joins #general muted,
+    // so it is unmuted here to receive ordinary chatter.
     const general = await enrollGeneralChannel(db, workspace.id);
+    await db.conversationMember.update({
+      where: { conversationId_agentId: { conversationId: general.id, agentId: agent.id } },
+      data: { channelMuted: false },
+    });
     const channelMessage = await channels.send({
       workspaceId: workspace.id,
       userId: user.id,
@@ -198,6 +203,11 @@ test("events drain and recovery keep the unread rule across channels, direct mes
         }),
       ),
     );
+    // An Agent joins #general muted; unmuted, ordinary chatter reaches it with a delivery row.
+    await db.conversationMember.update({
+      where: { id: channelAgentMember.id },
+      data: { channelMuted: false },
+    });
     // Rows the product has no public path for (an Agent's own or a system message) are written
     // directly with the next sequence.
     async function insert(
@@ -353,6 +363,123 @@ test("events drain and recovery keep the unread rule across channels, direct mes
       hasMore: false,
     });
     void late;
+  } finally {
+    await db.agentMessageDelivery.deleteMany({ where: { workspaceId: workspace.id } });
+    await db.message.deleteMany({ where: { workspaceId: workspace.id } });
+    await db.workspace.delete({ where: { id: workspace.id } });
+    await db.user.delete({ where: { id: user.id } });
+    await db.$disconnect();
+  }
+});
+
+test("events drain returns only an Agent's channel deliveries above its read boundaries, however long its history", async () => {
+  const connectionString = Bun.env.EVENTS_TEST_DATABASE_URL;
+  if (!connectionString) throw new Error("EVENTS_TEST_DATABASE_URL is required (local PostgreSQL)");
+  const db = new PrismaClient({ adapter: new PrismaPg({ connectionString }) });
+  const id = crypto.randomUUID();
+  const user = await db.user.create({ data: { username: `e${id.slice(0, 8)}` } });
+  const workspace = await db.workspace.create({
+    data: { slug: id, name: "Events history test", members: { create: { userId: user.id } } },
+  });
+  try {
+    const agent = await db.agent.create({
+      data: {
+        workspaceId: workspace.id,
+        ownerId: user.id,
+        name: "helper",
+        displayName: "Helper",
+        runtimeConfig: {},
+      },
+    });
+    const repo = new PrismaDirectConversationRepository(db);
+    const general = await enrollGeneralChannel(db, workspace.id);
+    const [userMember, agentMember] = await Promise.all([
+      db.conversationMember.findUniqueOrThrow({
+        where: { conversationId_userId: { conversationId: general.id, userId: user.id } },
+      }),
+      db.conversationMember.findUniqueOrThrow({
+        where: { conversationId_agentId: { conversationId: general.id, agentId: agent.id } },
+      }),
+    ]);
+    let sequence = 0;
+    // A delivered #general message from the user, written directly: the history is too long to
+    // send one message at a time.
+    async function delivered(body: string, threadRootId?: string) {
+      return db.message.create({
+        data: {
+          conversationId: general.id,
+          workspaceId: workspace.id,
+          senderMemberId: userMember.id,
+          body,
+          threadRootId: threadRootId ?? null,
+          sequence: ++sequence,
+          deliveries: {
+            create: {
+              workspaceId: workspace.id,
+              conversationId: general.id,
+              agentId: agent.id,
+              sequence,
+            },
+          },
+        },
+      });
+    }
+    // A long delivered history the Agent has already read.
+    const history = Array.from({ length: 300 }, (_, index) => ({
+      id: crypto.randomUUID(),
+      conversationId: general.id,
+      workspaceId: workspace.id,
+      senderMemberId: userMember.id,
+      body: `history ${index}`,
+      sequence: ++sequence,
+    }));
+    await db.message.createMany({ data: history });
+    await db.agentMessageDelivery.createMany({
+      data: history.map((message) => ({
+        messageId: message.id,
+        workspaceId: workspace.id,
+        conversationId: general.id,
+        agentId: agent.id,
+        sequence: message.sequence,
+      })),
+    });
+    const readRoot = await delivered("read root");
+    const readReply = await delivered("read reply", readRoot.id);
+    await db.threadRead.create({
+      data: {
+        memberId: agentMember.id,
+        conversationId: general.id,
+        workspaceId: workspace.id,
+        rootMessageId: readRoot.id,
+        readThroughSequence: readReply.sequence,
+      },
+    });
+    // A thread the Agent never read: its reply sits below the top-level boundary set next, and
+    // still counts, because a thread keeps its own boundary.
+    const openRoot = await delivered("open root");
+    await delivered("open reply", openRoot.id);
+    const boundary = sequence;
+    await db.conversationMember.update({
+      where: { id: agentMember.id },
+      data: { agentReadThroughSequence: boundary },
+    });
+    await delivered("newer reply", readRoot.id);
+    await delivered("newer top level");
+
+    const drained = await repo.drainAgentEvents(workspace.id, agent.id, 50);
+    expect(drained.hasMore).toBe(false);
+    expect(drained.messages.map((message) => [message.body, message.target])).toEqual(
+      expect.arrayContaining([
+        ["open reply", `#general:${openRoot.id}`],
+        ["newer reply", `#general:${readRoot.id}`],
+        ["newer top level", "#general"],
+      ]),
+    );
+    expect(drained.messages).toHaveLength(3);
+    expect(await repo.drainAgentEvents(workspace.id, agent.id, 50)).toEqual({
+      messages: [],
+      hasMore: false,
+    });
   } finally {
     await db.agentMessageDelivery.deleteMany({ where: { workspaceId: workspace.id } });
     await db.message.deleteMany({ where: { workspaceId: workspace.id } });
