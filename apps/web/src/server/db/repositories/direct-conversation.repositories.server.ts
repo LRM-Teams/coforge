@@ -2277,8 +2277,10 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
       // resolves to an active member — whether given as a structured `--mention` selector or
       // written plainly — becomes a `<@kind:uuid>` token plus a MessageMention row; a DM keeps
       // plain `@handle` text (no mention targets). On every conversation a `task #N` naming a
-      // real task becomes `<@task:N>` and a `#name` naming a Workspace channel becomes
-      // `<@channel:uuid:name>`, so a renderer reads each back as a chip instead of parsing prose.
+      // real task becomes `<@task:N>`, a `#name` naming a Workspace channel becomes
+      // `<@channel:uuid:name>`, and a `#name:shortid` naming one of its threads becomes
+      // `<@thread:uuid:uuid:name>`, so a renderer reads each back as a chip instead of parsing
+      // prose.
       const stored = await storeMessageBody(
         tx,
         { workspaceId: conversation.workspaceId, conversationId },

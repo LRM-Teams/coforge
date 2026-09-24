@@ -26,7 +26,9 @@
  * channel, but the `#5` is written exactly and is still the task.
  *
  * An unresolved thread reference — no such channel, no such message, or a prefix two messages
- * share — stays text as a whole: its `#name` is consumed with it and never read as a channel.
+ * share — stays text as a whole: its `#name` is consumed with it and never read as a channel, nor,
+ * when it is a number, as a task: `#5:abcdef` is a thread reference (to a channel named `5`) even
+ * when task 5 exists, and stays text when no such thread does.
  *
  * What resolves becomes its stored token, spliced into the body as written at the node's source
  * offsets (mapped back through the escaping), so every byte outside a replaced reference stays
