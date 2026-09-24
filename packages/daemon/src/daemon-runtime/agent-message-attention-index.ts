@@ -106,6 +106,22 @@ function countDistinctMessages(deliveries: readonly AgentMessageDelivery[]): num
   return new Set(deliveries.map((delivery) => delivery.messageId)).size;
 }
 
+/** The fields every delivery must carry before it can touch attention or be acknowledged. */
+function hasDeliveryScope(
+  message: AgentMessageDelivery,
+): message is AgentMessageDelivery & { target: string } {
+  return Boolean(
+    message.conversationId &&
+    message.agentId &&
+    message.messageId &&
+    message.body &&
+    message.target &&
+    (message.target.startsWith("@") || isChannelMessageTarget(message.target)) &&
+    message.target.length >= 2 &&
+    message.sequence >= 1,
+  );
+}
+
 /** Daemon-owned volatile attention and model-visible sequence index. */
 export class AgentMessageAttentionIndex {
   readonly #generations = new Map<
@@ -189,17 +205,7 @@ export class AgentMessageAttentionIndex {
   async receive(message: AgentMessageDelivery): Promise<void> {
     if (message.workspaceId !== this.#workspaceId)
       throw new Error("agent message targets another Workspace");
-    if (
-      !message.conversationId ||
-      !message.agentId ||
-      !message.messageId ||
-      !message.body ||
-      !message.target ||
-      (!message.target.startsWith("@") && !isChannelMessageTarget(message.target)) ||
-      message.target.length < 2 ||
-      message.sequence < 1
-    )
-      throw new Error("invalid agent message scope");
+    if (!hasDeliveryScope(message)) throw new Error("invalid agent message scope");
     const generation = this.#generation(message.agentId);
     if (generation.seenDeliveryIds.has(message.deliveryId)) {
       if (!generation.notified.has(message.deliveryId)) {
@@ -595,6 +601,25 @@ already have been read. A notice you have not acted on does not establish that t
 
   check(agentId: string): MessageAttention[] {
     return [...(this.#attention.get(agentId)?.values() ?? [])];
+  }
+
+  /** Whether the Agent's consumed cursor already covers this well-formed delivery. Reads the
+   * durable cursor, so it throws for an Agent id that cursor cannot store. Lets the runtime drop a
+   * stale delivery before it wakes an exited Agent for it. */
+  hasConsumed(message: AgentMessageDelivery): boolean {
+    return (
+      hasDeliveryScope(message) &&
+      this.modelSeenSequence(message.agentId, message.target) >= message.sequence
+    );
+  }
+
+  /** ACKs a delivery without notifying the Agent: the caller has established it needs no attention. */
+  acknowledge(message: AgentMessageDelivery): Promise<void> {
+    return this.sendAck({
+      ...message,
+      method: AGENT_MESSAGE_ACK_METHOD,
+      requestId: message.requestId,
+    });
   }
 
   modelSeenSequence(agentId: string, target: string): number {
