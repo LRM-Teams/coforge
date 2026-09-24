@@ -24,7 +24,7 @@ export type OverviewTaskCommand = Omit<TaskCommand, "idempotencyKey" | "conversa
 
 /** The server calls the page makes; tests pass their own. */
 export type TaskOverviewApi = {
-  load: (options?: { finished?: number }) => Promise<Overview>;
+  load: (options?: FinishedDepths) => Promise<Overview>;
   execute: (command: TaskCommand) => Promise<TaskResult>;
 };
 
@@ -35,11 +35,18 @@ export const serverTaskOverviewApi: TaskOverviewApi = {
 
 const taskOverviewQueryKey = (workspaceId: string) => ["task", "overview", workspaceId] as const;
 
-/** How many finished Tasks of each status the page lists, per client and Workspace: "Show older"
- * deepens it, and every later read of the list (whoever asks for it) keeps that depth. */
-const finishedDepths = new WeakMap<QueryClient, Map<string, number>>();
-const finishedDepth = (client: QueryClient, workspaceId: string) =>
-  finishedDepths.get(client)?.get(workspaceId) ?? FINISHED_TASKS_PAGE;
+/** How many finished Tasks of each status the page lists. */
+type FinishedDepths = { done: number; closed: number };
+type FinishedStatus = keyof FinishedDepths;
+
+/** The depths per client and Workspace: "Show older" deepens one status, and every later read of
+ * the list (whoever asks for it) keeps those depths. */
+const finishedDepths = new WeakMap<QueryClient, Map<string, FinishedDepths>>();
+const finishedDepth = (client: QueryClient, workspaceId: string): FinishedDepths =>
+  finishedDepths.get(client)?.get(workspaceId) ?? {
+    done: FINISHED_TASKS_PAGE,
+    closed: FINISHED_TASKS_PAGE,
+  };
 
 export const taskOverviewQuery = (
   workspaceId: string,
@@ -47,7 +54,7 @@ export const taskOverviewQuery = (
 ) =>
   queryOptions({
     queryKey: taskOverviewQueryKey(workspaceId),
-    queryFn: ({ client }) => api.load({ finished: finishedDepth(client, workspaceId) }),
+    queryFn: ({ client }) => api.load(finishedDepth(client, workspaceId)),
   });
 
 /** The status a command moves its Task to, when it moves it: shown before the server answers. */
@@ -83,7 +90,7 @@ export function createTaskOverview(
       id: `task-overview:${workspaceId}`,
       queryKey: taskOverviewQueryKey(workspaceId),
       // The same read as `taskOverviewQuery`, at the same depth.
-      queryFn: () => api.load({ finished: finishedDepth(queryClient, workspaceId) }),
+      queryFn: () => api.load(finishedDepth(queryClient, workspaceId)),
       queryClient,
       getKey: (row: OverviewTaskRow) => row.messageId,
       select: (overview) => withAnnounced(overview.tasks),
@@ -181,21 +188,25 @@ export function createTaskOverview(
     return needsRead;
   };
 
-  /** Whether older Done or Closed Tasks exist than those listed. */
-  const more = () =>
-    queryClient.getQueryData<Overview>(taskOverviewQueryKey(workspaceId))?.more ?? {
-      done: false,
-      closed: false,
+  /** Whether older Done or Closed Tasks exist than those listed, and can still be listed. */
+  const more = (): Record<FinishedStatus, boolean> => {
+    const listed = queryClient.getQueryData<Overview>(taskOverviewQueryKey(workspaceId))?.more;
+    const depth = finishedDepth(queryClient, workspaceId);
+    return {
+      done: Boolean(listed?.done) && depth.done < FINISHED_TASKS_MAX,
+      closed: Boolean(listed?.closed) && depth.closed < FINISHED_TASKS_MAX,
     };
+  };
 
-  /** Lists the next page of older Done and Closed Tasks; settles once they are read. */
-  const showOlder = async () => {
+  /** Lists the next page of older Tasks of one finished status; settles once they are read. */
+  const showOlder = async (status: FinishedStatus) => {
     let depths = finishedDepths.get(queryClient);
     if (!depths) finishedDepths.set(queryClient, (depths = new Map()));
-    depths.set(
-      workspaceId,
-      Math.min(finishedDepth(queryClient, workspaceId) + FINISHED_TASKS_PAGE, FINISHED_TASKS_MAX),
-    );
+    const current = finishedDepth(queryClient, workspaceId);
+    depths.set(workspaceId, {
+      ...current,
+      [status]: Math.min(current[status] + FINISHED_TASKS_PAGE, FINISHED_TASKS_MAX),
+    });
     await tasks.utils.refetch();
   };
 

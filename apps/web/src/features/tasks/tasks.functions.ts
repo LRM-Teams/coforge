@@ -56,17 +56,18 @@ const taskCommand = z
   })
   .strict();
 
-const overviewInput = z
-  .object({ finished: z.number().int().min(1).max(FINISHED_TASKS_MAX).optional() })
-  .strict()
-  .optional();
+const finishedDepth = z.number().int().min(1).max(FINISHED_TASKS_MAX).optional();
+const overviewInput = z.object({ done: finishedDepth, closed: finishedDepth }).strict().optional();
 
 export const loadTaskOverview = createServerFn({ method: "GET" })
   .middleware([workspaceUserMiddleware])
-  .validator((data?: { finished?: number }) => overviewInput.parse(data))
+  .validator((data?: { done?: number; closed?: number }) => overviewInput.parse(data))
   .handler(async ({ context, data }) => {
     const { user, db, workspaceId } = context;
-    return new TaskBoard(db).overview(workspaceId, user.id, { finished: data?.finished });
+    return new TaskBoard(db).overview(workspaceId, user.id, {
+      done: data?.done,
+      closed: data?.closed,
+    });
   });
 
 export const executeTask = createServerFn({ method: "POST" })

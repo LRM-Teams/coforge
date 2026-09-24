@@ -34,11 +34,11 @@ const viewer = {
 async function overviewWith(execute: TaskOverviewApi["execute"]) {
   const commands: TaskCommand[] = [];
   let reads = 0;
-  const finishedReads: Array<number | undefined> = [];
+  const finishedReads: Array<{ done?: number; closed?: number } | undefined> = [];
   const api: TaskOverviewApi = {
     load: async (options) => {
       reads += 1;
-      finishedReads.push(options?.finished);
+      finishedReads.push(options);
       return {
         more: { done: true, closed: false },
         tasks: [task(1), task(2, { status: "in_progress", owner: viewer })].map((view) => ({
@@ -174,13 +174,17 @@ test("a read whose snapshot predates an announced change does not undo it", asyn
   expect(overview.tasks.has("message-2")).toBe(false);
 });
 
-test("showing older finished Tasks reads more of them, and every later read keeps that depth", async () => {
+test("showing older finished Tasks of one status reads more of those, and every later read keeps that depth", async () => {
   const { overview, queryClient, finishedReads } = await overviewWith(async () => ({ tasks: [] }));
   expect(overview.more()).toEqual({ done: true, closed: false });
-  await overview.showOlder();
+  await overview.showOlder("done");
   // A later read, as a new Task or a refresh asks for, still lists the older ones.
   await queryClient.invalidateQueries({ queryKey: taskOverviewQuery("w").queryKey });
-  expect(finishedReads).toEqual([50, 100, 100]);
+  expect(finishedReads).toEqual([
+    { done: 50, closed: 50 },
+    { done: 100, closed: 50 },
+    { done: 100, closed: 50 },
+  ]);
 });
 
 test("a Task converted again from a deleted Task's message comes back", async () => {

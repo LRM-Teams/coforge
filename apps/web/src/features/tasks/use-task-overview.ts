@@ -91,8 +91,9 @@ export function useTaskOverview() {
       tasks,
       /** Undefined until hydrated: the server render offers no commands. */
       run: overview?.run,
-      /** Whether older Done or Closed Tasks exist than those listed. */
-      more,
+      /** Whether older Done or Closed Tasks exist than those listed (and, once hydrated, can
+       * still be listed). */
+      more: overview ? overview.more() : more,
       /** Lists older Done and Closed Tasks; undefined until hydrated. */
       showOlder: overview?.showOlder,
       refetch: () =>

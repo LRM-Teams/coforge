@@ -88,7 +88,8 @@ export function TaskWorkflow<T extends TaskView>({
   disabled,
   onMove,
   renderTask,
-  older,
+  more,
+  onOlder,
 }: {
   tasks: readonly T[];
   layout: TaskLayout;
@@ -97,8 +98,10 @@ export function TaskWorkflow<T extends TaskView>({
   disabled?: boolean;
   onMove: (task: T, command: TaskMoveCommand) => Promise<void>;
   renderTask: (task: T, controls: TaskControls) => ReactNode;
-  /** Per status, how to read older Tasks than those given, when older ones exist. */
-  older?: Partial<Record<TaskStatus, () => Promise<void>>>;
+  /** Per status, whether older Tasks exist than those given. */
+  more?: Partial<Record<TaskStatus, boolean>>;
+  /** Per status, how to read them. */
+  onOlder?: Partial<Record<TaskStatus, () => Promise<void>>>;
 }) {
   const id = useId();
   const [active, setActive] = useState<T>();
@@ -169,7 +172,8 @@ export function TaskWorkflow<T extends TaskView>({
             key={groups.length === 1 ? `only-${group.status}` : group.status}
             status={group.status}
             count={group.tasks.length}
-            onOlder={older?.[group.status]}
+            hasOlder={Boolean(more?.[group.status])}
+            onOlder={more?.[group.status] ? onOlder?.[group.status] : undefined}
             board={layout === "board"}
             defaultExpanded={groups.length === 1 || !COLLAPSED_BY_DEFAULT.has(group.status)}
             enabled={Boolean(
@@ -249,6 +253,7 @@ function DragHandle({ task, disabled }: { task: TaskView; disabled: boolean }) {
 function TaskGroup({
   status,
   count,
+  hasOlder,
   onOlder,
   board,
   defaultExpanded,
@@ -257,7 +262,9 @@ function TaskGroup({
 }: {
   status: TaskStatus;
   count: number;
-  /** Reads older Tasks of this status; given only while older ones exist. */
+  /** Older Tasks of this status exist than those given. */
+  hasOlder: boolean;
+  /** Reads them; absent until the page can (before hydration). */
   onOlder?: () => Promise<void>;
   board: boolean;
   defaultExpanded: boolean;
@@ -271,9 +278,10 @@ function TaskGroup({
   const [expanded, setExpanded] = useState(defaultExpanded);
   const [shown, setShown] = useState(RENDER_PAGE);
   const [readingOlder, setReadingOlder] = useState(false);
+  const [olderFailed, setOlderFailed] = useState(false);
   const hidden = count - shown;
   // More older Tasks exist than those read: the count is a floor.
-  const countLabel = onOlder ? `${count}+` : String(count);
+  const countLabel = hasOlder ? `${count}+` : String(count);
   const footerClass = board ? "justify-center" : "justify-start px-4 py-2";
   return (
     <section
@@ -339,27 +347,34 @@ function TaskGroup({
               <Button
                 size="sm"
                 color="link-gray"
-                onClick={() => setShown((current) => current + RENDER_PAGE)}
+                onPress={() => setShown((current) => current + RENDER_PAGE)}
               >
-                {m.tasks_group_show_more({ count: String(hidden) })}
+                {m.tasks_group_show_more({ count: String(Math.min(hidden, RENDER_PAGE)) })}
               </Button>
             </div>
           )}
           {expanded && hidden <= 0 && onOlder && (
-            <div className={cn("flex", footerClass)}>
+            <div className={cn("flex flex-col items-start gap-1", footerClass)}>
               <Button
                 size="sm"
                 color="link-gray"
                 isDisabled={readingOlder}
-                onClick={() => {
+                onPress={() => {
                   setReadingOlder(true);
+                  setOlderFailed(false);
                   void onOlder()
                     .then(() => setShown((current) => current + RENDER_PAGE))
+                    .catch(() => setOlderFailed(true))
                     .finally(() => setReadingOlder(false));
                 }}
               >
                 {m.tasks_group_show_older()}
               </Button>
+              {olderFailed && (
+                <p role="alert" className="text-sm text-error-primary">
+                  {m.tasks_group_show_older_error()}
+                </p>
+              )}
             </div>
           )}
           {expanded && !board && count === 0 && (

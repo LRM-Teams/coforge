@@ -53,13 +53,13 @@ export const Route = createFileRoute("/_app/tasks")({
 
 function TasksPage() {
   const { tasks, run, refetch, more, showOlder } = useTaskOverview();
-  const older = useMemo(
+  const onOlder = useMemo(
     () =>
       showOlder && {
-        done: more.done ? showOlder : undefined,
-        closed: more.closed ? showOlder : undefined,
+        done: () => showOlder("done"),
+        closed: () => showOlder("closed"),
       },
-    [showOlder, more],
+    [showOlder],
   );
   const { status, layout, task: taskParam, owners, projects } = Route.useSearch();
   const taskLayout = useTaskLayout(layout);
@@ -158,7 +158,8 @@ function TasksPage() {
         status={status}
         filter={filter}
         onFilterChange={changeFilter}
-        older={older || undefined}
+        more={more}
+        onOlder={onOlder || undefined}
         layout={taskLayout}
         onStatusChange={(nextStatus) =>
           void navigate({ search: (previous) => ({ ...previous, status: nextStatus }) })
