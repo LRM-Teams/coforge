@@ -2,8 +2,12 @@ import { afterAll, expect, mock, test } from "bun:test";
 
 const displaySnapshots = new Map<string, string>();
 mock.module("#src/server/agents/agent-display.server", () => ({
-  getAgentDisplay: () => ({
-    snapshot: async (scope: { workspaceId: string; computerId: string; agentId: string }) => {
+  getAgentDisplay: () => {
+    const snapshotFor = async (scope: {
+      workspaceId: string;
+      computerId: string;
+      agentId: string;
+    }) => {
       const activityKind = displaySnapshots.get(scope.agentId);
       if (!activityKind) throw new Error("no snapshot");
       return {
@@ -18,8 +22,15 @@ mock.module("#src/server/agents/agent-display.server", () => ({
         entries: [],
         expiresAt: null,
       };
-    },
-  }),
+    };
+    return {
+      snapshot: snapshotFor,
+      // The batched reader the Agent lists use: one call, the same per-scope answer, in order.
+      snapshotMany: async (
+        scopes: Array<{ workspaceId: string; computerId: string; agentId: string }>,
+      ) => Promise.all(scopes.map(snapshotFor)),
+    };
+  },
 }));
 
 const { resolveAgentUserInfo } = await import("#src/server/agents/agent-user-info.server");

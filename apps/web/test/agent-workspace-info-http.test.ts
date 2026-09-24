@@ -20,6 +20,26 @@ mock.module("#src/server/agents/agent-display.server", () => ({
         expiresAt: null,
       };
     },
+    // The batched reader the route uses: it fails as a whole when any scope cannot be read, which is
+    // what sends the route to its per-Agent fallback. That fallback is the reason this test still
+    // sees `agent-1` as online while every other Agent is unknown, so it is exercised on purpose.
+    snapshotMany: async (
+      scopes: Array<{ workspaceId: string; computerId: string; agentId: string }>,
+    ) => {
+      if (scopes.some((scope) => scope.agentId !== "agent-1")) throw new Error("no snapshot");
+      return scopes.map((scope) => ({
+        protocolMajor: 1 as const,
+        workspaceId: scope.workspaceId,
+        computerId: scope.computerId,
+        agentId: scope.agentId,
+        revision: 1,
+        activityKind: "online",
+        detailKind: "idle",
+        detail: "",
+        entries: [],
+        expiresAt: null,
+      }));
+    },
   }),
 }));
 

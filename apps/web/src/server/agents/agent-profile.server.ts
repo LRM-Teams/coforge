@@ -6,7 +6,12 @@ import type {
 import { ACTIVE_AGENT_WHERE } from "./active-agent.server";
 import type { PrismaClient } from "#src/generated/prisma/client";
 import { AGENT_DISPLAY_NAME_MAX_LENGTH } from "#src/features/agents/agent.schemas";
-import { AGENT_NOT_VISIBLE, findWorkspaceUser, resolveAgentStatus } from "./agent-user-info.server";
+import {
+  AGENT_NOT_VISIBLE,
+  findWorkspaceUser,
+  resolveAgentStatus,
+  resolveAgentStatuses,
+} from "./agent-user-info.server";
 import {
   agentVisibilityViewerForActor,
   visibleAgentWhere,
@@ -55,12 +60,12 @@ export async function createdAgentsFor(
     select: { id: true, name: true, displayName: true, computerId: true, stoppedAt: true },
     orderBy: { name: "asc" },
   });
-  return Promise.all(
-    owned.map(async (agent) => {
-      const { status } = await resolveAgentStatus(workspaceId, agent);
-      return { name: agent.name, displayName: agent.displayName, status };
-    }),
-  );
+  const resolved = await resolveAgentStatuses(workspaceId, owned);
+  return owned.map((agent, index) => ({
+    name: agent.name,
+    displayName: agent.displayName,
+    status: resolved[index].status,
+  }));
 }
 
 async function creatorFor(db: PrismaClient, ownerId: string): Promise<AgentProfileCreator | null> {
