@@ -97,6 +97,7 @@ function useNavItems(
       icon: Activity,
       badge: activityDot,
     },
+    { label: m.tasks_tab(), bareHref: "/tasks", href: localizeHref("/tasks"), icon: ListTodo },
     {
       label: m.projects_title(),
       bareHref: "/projects",
@@ -109,7 +110,6 @@ function useNavItems(
       href: localizeHref("/agents"),
       icon: Users,
     },
-    { label: m.tasks_tab(), bareHref: "/tasks", href: localizeHref("/tasks"), icon: ListTodo },
     {
       label: m.navigation_records(),
       bareHref: "/records",
