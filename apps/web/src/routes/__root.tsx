@@ -6,7 +6,7 @@ import { getLocale } from "#src/paraglide/runtime";
 
 import appCss from "#src/styles.css?url";
 
-const themeScript = `try{var theme=localStorage.getItem("coforge-theme");if(theme==="dark"||((!theme||theme==="system")&&matchMedia("(prefers-color-scheme: dark)").matches)){document.documentElement.classList.add("dark-mode")}if(localStorage.getItem("coforge-rail-labels")==="hide"){document.documentElement.classList.add("rail-labels-hidden")}var textSizePercents={sm:"90%",lg:"110%",xl:"125%",xxl:"140%"};var textSize=localStorage.getItem("coforge-text-size");if(textSize&&textSizePercents[textSize]){document.documentElement.style.fontSize=textSizePercents[textSize]}}catch{}`;
+const themeScript = `try{var theme=localStorage.getItem("coforge-theme");if(theme==="dark"||((!theme||theme==="system")&&matchMedia("(prefers-color-scheme: dark)").matches)){document.documentElement.classList.add("dark-mode")}if(localStorage.getItem("coforge-rail-labels")==="hide"){document.documentElement.classList.add("rail-labels-hidden")}if(localStorage.getItem("coforge-message-width")==="full"){document.documentElement.classList.add("message-full-width")}var textSizePercents={sm:"90%",lg:"110%",xl:"125%",xxl:"140%"};var textSize=localStorage.getItem("coforge-text-size");if(textSize&&textSizePercents[textSize]){document.documentElement.style.fontSize=textSizePercents[textSize]}}catch{}`;
 
 export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()({
   head: () => ({

@@ -30,6 +30,7 @@ import {
 } from "#src/features/workspaces/members.functions";
 import { getLocale, setLocale } from "#src/paraglide/runtime";
 import { readRailLabels, writeRailLabels } from "#src/features/settings/rail-labels";
+import { readMessageFullWidth, writeMessageFullWidth } from "#src/features/settings/message-width";
 import {
   readLiveAgentActivity,
   writeLiveAgentActivity,
@@ -94,6 +95,7 @@ function SettingsPage() {
   const [railLabels, setRailLabels] = useState(true);
   const [liveAgentActivity, setLiveAgentActivity] = useState(true);
   const [textSize, setTextSize] = useState<TextSizeValue>("default");
+  const [messageFullWidth, setMessageFullWidth] = useState(false);
   const { section, github } = Route.useSearch();
   const navigate = Route.useNavigate();
   const {
@@ -129,6 +131,7 @@ function SettingsPage() {
     setRailLabels(readRailLabels());
     setLiveAgentActivity(readLiveAgentActivity());
     setTextSize(readTextSize());
+    setMessageFullWidth(readMessageFullWidth());
   }, []);
 
   useEffect(() => {
@@ -164,6 +167,11 @@ function SettingsPage() {
   function changeLiveAgentActivity(show: boolean) {
     setLiveAgentActivity(show);
     writeLiveAgentActivity(show);
+  }
+
+  function changeMessageFullWidth(full: boolean) {
+    setMessageFullWidth(full);
+    writeMessageFullWidth(full);
   }
 
   function changeTextSize(next: TextSizeValue) {
@@ -305,6 +313,8 @@ function SettingsPage() {
       liveAgentActivity={liveAgentActivity}
       onLiveAgentActivityChange={changeLiveAgentActivity}
       textSize={textSize}
+      messageFullWidth={messageFullWidth}
+      onMessageFullWidthChange={changeMessageFullWidth}
       onTextSizeChange={changeTextSize}
       onDateTimeSave={changeDateTime}
       conversationOpenMode={conversationOpenMode(savedOpenMode)}
