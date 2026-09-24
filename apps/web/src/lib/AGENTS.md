@@ -1,6 +1,6 @@
 # Shared library rules
 
-These rules apply to `src/lib/`.
+These rules apply to `src/lib/`; the date and time rules apply to all of `apps/web`.
 
 ## Dates and times
 
