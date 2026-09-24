@@ -92,3 +92,14 @@ test("the viewer is Me even when their first listed Task is in a conversation th
     count: 2,
   });
 });
+
+test("a counted group of finished Tasks adds its count to its owner and Project choices", () => {
+  const finished = { ...task(person("user-jordan", "Jordan Lee"), infra), count: 40 };
+  expect(ownerOptions([tasks[1]!, finished])).toEqual([
+    { id: "user-jordan", kind: "user", name: "Jordan Lee", count: 41 },
+  ]);
+  expect(projectOptions([tasks[1]!, finished])).toEqual([
+    { id: infra.id, name: "Infra", count: 40 },
+    { id: launch.id, name: "Launch", count: 1 },
+  ]);
+});

@@ -22,13 +22,12 @@ import {
   type TaskOverviewCollection,
 } from "./task-overview-collection";
 import { decodeTaskChangedEvent, type TaskChangedEvent } from "./task-realtime";
+import { finishedTasksKey } from "./use-finished-tasks";
 
 const appRoute = getRouteApi("/_app");
 
-const selectListing = (overview: {
-  tasks: readonly { messageId: string }[];
-  more: { done: boolean; closed: boolean };
-}) => ({ order: overview.tasks.map((task) => task.messageId), more: overview.more });
+const selectOrder = (overview: { tasks: readonly { messageId: string }[] }) =>
+  overview.tasks.map((task) => task.messageId);
 
 // React access to the Tasks page's rows (`task-overview-collection.ts`).
 
@@ -55,9 +54,9 @@ export function useTaskOverview() {
   // The server's list of Tasks, which and in what order. Structurally shared, so it re-renders
   // only when a read changes that list, not when a change rewrites a row in the cache: after
   // hydration the rows themselves come from the collection.
-  const { order, more } = useSuspenseQuery({
+  const order = useSuspenseQuery({
     ...taskOverviewQuery(workspaceId),
-    select: selectListing,
+    select: selectOrder,
     notifyOnChangeProps: ["data"],
   }).data;
   const hydrated = useHydrated();
@@ -91,15 +90,10 @@ export function useTaskOverview() {
       tasks,
       /** Undefined until hydrated: the server render offers no commands. */
       run: overview?.run,
-      /** Whether older Done or Closed Tasks exist than those listed (and, once hydrated, can
-       * still be listed). */
-      more: overview ? overview.more() : more,
-      /** Lists older Done and Closed Tasks; undefined until hydrated. */
-      showOlder: overview?.showOlder,
       refetch: () =>
         queryClient.invalidateQueries({ queryKey: taskOverviewQuery(workspaceId).queryKey }),
     }),
-    [tasks, overview, more, queryClient, workspaceId],
+    [tasks, overview, queryClient, workspaceId],
   );
 }
 
@@ -140,6 +134,9 @@ function useTaskOverviewRealtime(
       burst.timer = setTimeout(() => {
         burst.timer = undefined;
         const events = burst.pending.splice(0);
+        // Done and Closed are counted and paged by the server: a change may move a Task into or
+        // out of them, so their counts and opened pages are read again, once per burst.
+        void queryClient.invalidateQueries({ queryKey: finishedTasksKey(workspaceId) });
         let needsRead: boolean;
         try {
           needsRead = overview.apply(events);

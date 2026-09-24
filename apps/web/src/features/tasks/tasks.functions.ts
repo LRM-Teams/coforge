@@ -7,7 +7,6 @@ import { createCentrifugoServerApi } from "#src/server/centrifugo/server-api.ser
 import { bestEffortMessageNotifier } from "#src/server/notifications/web-push-composition.server";
 import { workspaceUserMiddleware } from "#src/features/auth/function-auth";
 import { TaskBoard } from "#src/server/tasks/task-board.server";
-import { FINISHED_TASKS_MAX } from "./task-overview-limits";
 
 const taskCommand = z
   .object({
@@ -56,18 +55,58 @@ const taskCommand = z
   })
   .strict();
 
-const finishedDepth = z.number().int().min(1).max(FINISHED_TASKS_MAX).optional();
-const overviewInput = z.object({ done: finishedDepth, closed: finishedDepth }).strict().optional();
-
 export const loadTaskOverview = createServerFn({ method: "GET" })
   .middleware([workspaceUserMiddleware])
-  .validator((data?: { done?: number; closed?: number }) => overviewInput.parse(data))
+  .handler(async ({ context }) => {
+    const { user, db, workspaceId } = context;
+    return new TaskBoard(db).overview(workspaceId, user.id);
+  });
+
+/** One Task as the Tasks page shows it, in any status; null when the viewer cannot see it. */
+export const loadOverviewTask = createServerFn({ method: "GET" })
+  .middleware([workspaceUserMiddleware])
+  .validator(z.object({ conversationId: z.uuid(), number: z.number().int().positive() }).strict())
   .handler(async ({ context, data }) => {
     const { user, db, workspaceId } = context;
-    return new TaskBoard(db).overview(workspaceId, user.id, {
-      done: data?.done,
-      closed: data?.closed,
-    });
+    return new TaskBoard(db).overviewTask({ workspaceId, userId: user.id }, data);
+  });
+
+/** Where a finished-work read looks: the Workspace Tasks page, or one conversation's Tasks tab. */
+const finishedScope = {
+  conversationId: z.uuid().optional(),
+  window: z.enum(["week", "month", "all"]),
+};
+
+/** Finished Tasks counted by status, owner and Project for the chosen window. */
+export const loadFinishedTaskSummary = createServerFn({ method: "GET" })
+  .middleware([workspaceUserMiddleware])
+  .validator(z.object(finishedScope).strict())
+  .handler(async ({ context, data }) => {
+    const { user, db, workspaceId } = context;
+    return new TaskBoard(db).finishedSummary(
+      { workspaceId, userId: user.id, conversationId: data.conversationId },
+      { window: data.window },
+    );
+  });
+
+/** One page of finished Tasks in one status; `cursor` is the previous page's `nextCursor`. */
+export const loadFinishedTasks = createServerFn({ method: "GET" })
+  .middleware([workspaceUserMiddleware])
+  .validator(
+    z
+      .object({
+        ...finishedScope,
+        status: z.enum(["done", "closed"]),
+        cursor: z.string().max(100).nullable().optional(),
+        owners: z.array(z.string().min(1).max(64)).max(100).optional(),
+        projects: z.array(z.string().min(1).max(64)).max(100).optional(),
+      })
+      .strict(),
+  )
+  .handler(async ({ context, data }) => {
+    const { user, db, workspaceId } = context;
+    const { conversationId, ...query } = data;
+    return new TaskBoard(db).finishedPage({ workspaceId, userId: user.id, conversationId }, query);
   });
 
 export const executeTask = createServerFn({ method: "POST" })

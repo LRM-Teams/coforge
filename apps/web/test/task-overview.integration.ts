@@ -147,3 +147,400 @@ test("TaskBoard overview returns every visible Workspace task without leaking pr
     await db.$disconnect();
   }
 });
+
+/**
+ * A Workspace with one channel (in a Project), the viewer's direct conversation with an Agent, a
+ * channel the viewer has not joined, and a direct conversation the viewer is not part of. Each Task
+ * is created through the board, then its status and last update are set as the case needs.
+ */
+async function finishedWorkFixture() {
+  const connectionString = Bun.env.TASK_TEST_DATABASE_URL ?? Bun.env.DATABASE_URL;
+  if (!connectionString)
+    throw new Error("TASK_TEST_DATABASE_URL or DATABASE_URL must point to local PostgreSQL");
+  const db = new PrismaClient({ adapter: new PrismaPg({ connectionString }) });
+  const board = new TaskBoard(db);
+  const short = crypto.randomUUID().slice(0, 8);
+  const [viewer, peer] = await Promise.all(
+    ["viewer", "peer"].map((name) =>
+      db.user.create({ data: { username: `fin-${name}-${short}` } }),
+    ),
+  );
+  const workspace = await db.workspace.create({
+    data: {
+      slug: `task-finished-${short}`,
+      name: "Finished work",
+      members: { create: [{ userId: viewer!.id }, { userId: peer!.id }] },
+      agents: {
+        create: [
+          {
+            name: `fin-agent-${short}`,
+            displayName: "Viewer Agent",
+            ownerId: viewer!.id,
+            runtimeConfig: {},
+          },
+          {
+            name: `fin-peer-agent-${short}`,
+            displayName: "Peer Agent",
+            ownerId: peer!.id,
+            runtimeConfig: {},
+          },
+        ],
+      },
+    },
+    include: { agents: true },
+  });
+  const viewerAgent = workspace.agents.find((agent) => agent.displayName === "Viewer Agent")!;
+  const peerAgent = workspace.agents.find((agent) => agent.displayName === "Peer Agent")!;
+  const project = await db.project.create({
+    data: { workspaceId: workspace.id, name: "Launch", slug: `launch-${short}` },
+  });
+  const conversation = (data: {
+    channelName?: string;
+    userId: string;
+    agentId?: string;
+    projectId?: string;
+  }) =>
+    db.conversation.create({
+      data: {
+        workspaceId: workspace.id,
+        channelName: data.channelName,
+        projectId: data.projectId,
+        directKey: data.agentId ? [data.userId, data.agentId].sort().join(":") : undefined,
+        members: {
+          create: [{ userId: data.userId }, ...(data.agentId ? [{ agentId: data.agentId }] : [])],
+        },
+      },
+    });
+  const channel = await conversation({
+    channelName: `fin-${short}`,
+    userId: viewer!.id,
+    projectId: project.id,
+  });
+  // The peer joins the channel so a Task can be assigned to them.
+  await db.conversationMember.create({
+    data: { conversationId: channel.id, workspaceId: workspace.id, userId: peer!.id },
+  });
+  const unjoined = await conversation({ channelName: `fin-unjoined-${short}`, userId: peer!.id });
+  const ownDm = await conversation({ userId: viewer!.id, agentId: viewerAgent.id });
+  const otherDm = await conversation({ userId: peer!.id, agentId: peerAgent.id });
+
+  /** Creates a Task, then sets its status, owner and last update directly. */
+  async function task(
+    where: { id: string },
+    creator: string,
+    title: string,
+    state: { status: string; daysAgo?: number; ownerUserId?: string },
+  ) {
+    const created = await board.execute(
+      { workspaceId: workspace.id, userId: creator },
+      { operation: "create", idempotencyKey: crypto.randomUUID(), conversationId: where.id, title },
+    );
+    const row = created.tasks[0]!;
+    const owner = state.ownerUserId
+      ? await db.conversationMember.findFirst({
+          where: { conversationId: where.id, userId: state.ownerUserId },
+          select: { id: true },
+        })
+      : null;
+    const updatedAt = new Date(Date.now() - (state.daysAgo ?? 0) * 86_400_000);
+    await db.$executeRaw`UPDATE tasks SET status = ${state.status}, "ownerMemberId" = ${owner?.id ?? null}::uuid, "updatedAt" = ${updatedAt} WHERE "messageId" = ${row.messageId}::uuid`;
+    return row;
+  }
+
+  return {
+    db,
+    board,
+    viewer: viewer!,
+    peer: peer!,
+    workspace,
+    project,
+    channel,
+    unjoined,
+    ownDm,
+    otherDm,
+    task,
+    async cleanup() {
+      await db.workspace.deleteMany({ where: { id: workspace.id } });
+      await db.user.deleteMany({ where: { id: { in: [viewer!.id, peer!.id] } } });
+      await db.$disconnect();
+    },
+  };
+}
+
+test("TaskBoard overview leaves finished Tasks out", async () => {
+  const f = await finishedWorkFixture();
+  try {
+    await f.task(f.channel, f.viewer.id, "Open work", { status: "todo" });
+    await f.task(f.channel, f.viewer.id, "In review work", { status: "in_review" });
+    await f.task(f.channel, f.viewer.id, "Finished work", { status: "done" });
+    await f.task(f.channel, f.viewer.id, "Dropped work", { status: "closed" });
+
+    const result = await f.board.overview(f.workspace.id, f.viewer.id);
+    expect(result.tasks.map(({ title }) => title).sort()).toEqual(["In review work", "Open work"]);
+  } finally {
+    await f.cleanup();
+  }
+});
+
+test("TaskBoard pages the viewer's finished Tasks newest first within the chosen window", async () => {
+  const f = await finishedWorkFixture();
+  try {
+    await f.task(f.channel, f.viewer.id, "Done today", { status: "done" });
+    await f.task(f.ownDm, f.viewer.id, "Done in own DM", { status: "done", daysAgo: 2 });
+    await f.task(f.unjoined, f.peer.id, "Done in unjoined channel", { status: "done", daysAgo: 3 });
+    await f.task(f.channel, f.viewer.id, "Done ten days ago", { status: "done", daysAgo: 10 });
+    await f.task(f.channel, f.viewer.id, "Done two months ago", { status: "done", daysAgo: 60 });
+    await f.task(f.channel, f.viewer.id, "Closed today", { status: "closed" });
+    await f.task(f.channel, f.viewer.id, "Still open", { status: "todo" });
+    await f.task(f.otherDm, f.peer.id, "Done in someone else's DM", { status: "done" });
+
+    const page = (window: "week" | "month" | "all", cursor?: string | null, limit?: number) =>
+      f.board.finishedPage(
+        { workspaceId: f.workspace.id, userId: f.viewer.id },
+        { status: "done", window, cursor, limit },
+      );
+    const titles = (result: { tasks: { title: string }[] }) =>
+      result.tasks.map(({ title }) => title);
+
+    expect(titles(await page("week"))).toEqual([
+      "Done today",
+      "Done in own DM",
+      "Done in unjoined channel",
+    ]);
+    expect(titles(await page("month"))).toEqual([
+      "Done today",
+      "Done in own DM",
+      "Done in unjoined channel",
+      "Done ten days ago",
+    ]);
+
+    const first = await page("all", null, 2);
+    expect(titles(first)).toEqual(["Done today", "Done in own DM"]);
+    expect(first.nextCursor).toEqual(expect.any(String));
+    const second = await page("all", first.nextCursor, 2);
+    expect(titles(second)).toEqual(["Done in unjoined channel", "Done ten days ago"]);
+    const last = await page("all", second.nextCursor, 2);
+    expect(titles(last)).toEqual(["Done two months ago"]);
+    expect(last.nextCursor).toBeNull();
+
+    // A page row reads like an overview row, so the board renders both the same way.
+    expect(first.tasks[0]).toMatchObject({
+      status: "done",
+      source: { channelName: f.channel.channelName, label: `#${f.channel.channelName}` },
+      project: { id: f.project.id, name: "Launch" },
+      currentMemberId: expect.any(String),
+    });
+  } finally {
+    await f.cleanup();
+  }
+});
+
+test("TaskBoard filters a finished page by owner and Project like the Tasks page filters", async () => {
+  const f = await finishedWorkFixture();
+  try {
+    await f.task(f.channel, f.viewer.id, "Viewer's in Launch", {
+      status: "done",
+      ownerUserId: f.viewer.id,
+    });
+    await f.task(f.channel, f.viewer.id, "Peer's in Launch", {
+      status: "done",
+      ownerUserId: f.peer.id,
+    });
+    await f.task(f.channel, f.viewer.id, "Nobody's in Launch", { status: "done", daysAgo: 1 });
+    await f.task(f.ownDm, f.viewer.id, "Viewer's without Project", {
+      status: "done",
+      ownerUserId: f.viewer.id,
+      daysAgo: 2,
+    });
+
+    const titles = async (filter: { owners?: string[]; projects?: string[] }) =>
+      (
+        await f.board.finishedPage(
+          { workspaceId: f.workspace.id, userId: f.viewer.id },
+          { status: "done", window: "week", ...filter },
+        )
+      ).tasks
+        .map(({ title }) => title)
+        .sort();
+
+    expect(await titles({ owners: [f.viewer.id] })).toEqual([
+      "Viewer's in Launch",
+      "Viewer's without Project",
+    ]);
+    expect(await titles({ owners: [f.peer.id, "none"] })).toEqual([
+      "Nobody's in Launch",
+      "Peer's in Launch",
+    ]);
+    expect(await titles({ projects: ["none"] })).toEqual(["Viewer's without Project"]);
+    expect(await titles({ owners: [f.viewer.id], projects: [f.project.id] })).toEqual([
+      "Viewer's in Launch",
+    ]);
+  } finally {
+    await f.cleanup();
+  }
+});
+
+test("TaskBoard summarizes the viewer's finished Tasks in the window by status, owner and Project", async () => {
+  const f = await finishedWorkFixture();
+  try {
+    await f.task(f.channel, f.viewer.id, "A", { status: "done", ownerUserId: f.viewer.id });
+    await f.task(f.channel, f.viewer.id, "B", {
+      status: "done",
+      ownerUserId: f.viewer.id,
+      daysAgo: 1,
+    });
+    await f.task(f.channel, f.viewer.id, "C", { status: "done", ownerUserId: f.peer.id });
+    await f.task(f.ownDm, f.viewer.id, "D", { status: "closed", daysAgo: 3 });
+    await f.task(f.channel, f.viewer.id, "Too old", { status: "done", daysAgo: 20 });
+    await f.task(f.channel, f.viewer.id, "Open", { status: "todo" });
+    await f.task(f.otherDm, f.peer.id, "Hidden", { status: "done" });
+
+    const summary = await f.board.finishedSummary(
+      { workspaceId: f.workspace.id, userId: f.viewer.id },
+      { window: "week" },
+    );
+    const groups = summary.groups
+      .map((group) => ({
+        status: group.status,
+        owner: group.owner?.id ?? null,
+        viewerOwns: group.owner !== null && group.owner.memberId === group.currentMemberId,
+        project: group.project?.id ?? null,
+        count: group.count,
+      }))
+      .sort((left, right) =>
+        `${left.status}${left.owner}`.localeCompare(`${right.status}${right.owner}`),
+      );
+    const expected: typeof groups = [
+      { status: "closed", owner: null, viewerOwns: false, project: null, count: 1 },
+      { status: "done", owner: f.peer.id, viewerOwns: false, project: f.project.id, count: 1 },
+      { status: "done", owner: f.viewer.id, viewerOwns: true, project: f.project.id, count: 2 },
+    ];
+    expect(groups).toEqual(
+      expected.sort((left, right) =>
+        `${left.status}${left.owner}`.localeCompare(`${right.status}${right.owner}`),
+      ),
+    );
+  } finally {
+    await f.cleanup();
+  }
+});
+
+test("TaskBoard pages and summarizes one conversation's finished Tasks for the conversation Tasks tab", async () => {
+  const f = await finishedWorkFixture();
+  try {
+    await f.task(f.channel, f.viewer.id, "Channel done", { status: "done" });
+    await f.task(f.ownDm, f.viewer.id, "DM done", { status: "done" });
+    await f.task(f.unjoined, f.peer.id, "Unjoined done", { status: "done", daysAgo: 1 });
+    await f.task(f.otherDm, f.peer.id, "Other DM done", { status: "done" });
+
+    const scope = (conversationId: string) => ({
+      workspaceId: f.workspace.id,
+      userId: f.viewer.id,
+      conversationId,
+    });
+    const titles = async (conversationId: string) =>
+      (
+        await f.board.finishedPage(scope(conversationId), { status: "done", window: "week" })
+      ).tasks.map(({ title }) => title);
+
+    expect(await titles(f.channel.id)).toEqual(["Channel done"]);
+    // A public channel reads to every Workspace member, joined or not, as its Task list does.
+    expect(await titles(f.unjoined.id)).toEqual(["Unjoined done"]);
+    const summary = await f.board.finishedSummary(scope(f.channel.id), { window: "week" });
+    expect(summary.groups.map(({ status, count }) => ({ status, count }))).toEqual([
+      { status: "done", count: 1 },
+    ]);
+
+    await expect(titles(f.otherDm.id)).rejects.toThrow("ACCESS_DENIED");
+    await expect(f.board.finishedSummary(scope(f.otherDm.id), { window: "week" })).rejects.toThrow(
+      "ACCESS_DENIED",
+    );
+  } finally {
+    await f.cleanup();
+  }
+});
+
+test("TaskBoard reads one Task as an overview row, finished or not, only where the viewer sees it", async () => {
+  const f = await finishedWorkFixture();
+  try {
+    const done = await f.task(f.channel, f.viewer.id, "Done long ago", {
+      status: "done",
+      daysAgo: 90,
+    });
+    const hidden = await f.task(f.otherDm, f.peer.id, "Someone else's", { status: "todo" });
+    const scope = { workspaceId: f.workspace.id, userId: f.viewer.id };
+
+    expect(
+      await f.board.overviewTask(scope, { conversationId: f.channel.id, number: done.number }),
+    ).toMatchObject({
+      title: "Done long ago",
+      status: "done",
+      source: { label: `#${f.channel.channelName}` },
+      project: { id: f.project.id },
+    });
+    expect(
+      await f.board.overviewTask(scope, { conversationId: f.otherDm.id, number: hidden.number }),
+    ).toBeNull();
+    expect(
+      await f.board.overviewTask(scope, { conversationId: f.channel.id, number: 999 }),
+    ).toBeNull();
+  } finally {
+    await f.cleanup();
+  }
+});
+
+test("TaskBoard pages Tasks updated at the same instant across a page boundary once each", async () => {
+  const f = await finishedWorkFixture();
+  try {
+    const rows = [];
+    for (const title of ["A", "B", "C", "D", "E"])
+      rows.push(await f.task(f.channel, f.viewer.id, title, { status: "done", daysAgo: 1 }));
+    const instant = new Date(Date.now() - 86_400_000);
+    await f.db.task.updateMany({
+      where: { messageId: { in: rows.map(({ messageId }) => messageId) } },
+      data: { updatedAt: instant },
+    });
+    const read = (cursor?: string | null) =>
+      f.board.finishedPage(
+        { workspaceId: f.workspace.id, userId: f.viewer.id },
+        { status: "done", window: "week", cursor, limit: 2 },
+      );
+    const seen: string[] = [];
+    let cursor: string | null | undefined;
+    do {
+      const page = await read(cursor);
+      seen.push(...page.tasks.map(({ messageId }) => messageId));
+      cursor = page.nextCursor;
+    } while (cursor);
+    // Same update time: the message id breaks the tie, highest first.
+    expect(seen).toEqual(
+      rows
+        .map(({ messageId }) => messageId)
+        .sort()
+        .reverse(),
+    );
+  } finally {
+    await f.cleanup();
+  }
+});
+
+test("TaskBoard leaves a channel hidden from the Workspace out of every finished read", async () => {
+  const f = await finishedWorkFixture();
+  try {
+    const hidden = await f.task(f.channel, f.viewer.id, "Hidden done", { status: "done" });
+    await f.db.conversation.update({
+      where: { id: f.channel.id },
+      data: { hiddenFromWorkspaceAt: new Date() },
+    });
+    const scope = { workspaceId: f.workspace.id, userId: f.viewer.id };
+    const page = await f.board.finishedPage(scope, { status: "done", window: "all" });
+    expect(page.tasks).toEqual([]);
+    const summary = await f.board.finishedSummary(scope, { window: "all" });
+    expect(summary.groups).toEqual([]);
+    expect(
+      await f.board.overviewTask(scope, { conversationId: f.channel.id, number: hidden.number }),
+    ).toBeNull();
+  } finally {
+    await f.cleanup();
+  }
+});

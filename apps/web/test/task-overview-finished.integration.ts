@@ -14,10 +14,10 @@ afterAll(async () => {
 });
 
 /**
- * The Tasks page lists every open Task, but only the most recently finished Done and Closed
- * ones, since those only grow; it says whether older ones exist, and a larger limit reads more.
+ * The Tasks page lists every open Task, and reads Done and Closed apart, latest first and a page
+ * at a time, since those only grow; the counts cover every finished Task, not only those read.
  */
-test("the overview lists every open Task and only the latest finished ones, saying when there are more", async () => {
+test("the overview lists every open Task; finished ones are read latest first, a page at a time", async () => {
   const short = crypto.randomUUID().slice(0, 8);
   const user = await db.user.create({ data: { username: `finished-${short}` } });
   const workspace = await db.workspace.create({
@@ -56,29 +56,32 @@ test("the overview lists every open Task and only the latest finished ones, sayi
   }
   for (const title of ["Closed 1", "Closed 2"])
     await run({ operation: "update", number: numberOf(title), status: "closed" });
-  // Distinct change and creation times, in that order, whatever the clock's resolution.
-  for (const [index, title] of titles.entries())
-    await db.task.update({
-      where: { messageId: created.find((task) => task.title === title)!.messageId },
-      data: {
-        createdAt: new Date(Date.UTC(2026, 0, 1, 0, index)),
-        updatedAt: new Date(Date.UTC(2026, 0, 2, 0, index)),
-      },
-    });
 
-  const limited = await board.overview(workspace.id, user.id, { done: 2, closed: 1 });
-  expect(limited.tasks.map((task) => task.title)).toEqual([
-    // Open Tasks newest first, so a new one is never behind "Show more".
-    "Open 2",
-    "Open 1",
-    // Finished ones most recently changed first, each status to its own depth.
-    "Done 3",
-    "Done 2",
-    "Closed 2",
-  ]);
-  expect(limited.more).toEqual({ done: true, closed: true });
+  const overview = await board.overview(workspace.id, user.id);
+  expect(overview.tasks.map((task) => task.title)).toEqual(["Open 1", "Open 2"]);
 
-  const everything = await board.overview(workspace.id, user.id, { done: 3, closed: 2 });
-  expect(everything.tasks.map((task) => task.title)).toContain("Done 1");
-  expect(everything.more).toEqual({ done: false, closed: false });
+  const page = (status: "done" | "closed", cursor?: string | null) =>
+    board.finishedPage(as, { status, window: "week", cursor, limit: 2 });
+  const titlesOf = (result: { tasks: { title: string }[] }) => result.tasks.map((t) => t.title);
+  const firstDone = await page("done");
+  // The latest first, and a cursor while older ones exist.
+  expect(titlesOf(firstDone)).toEqual(["Done 3", "Done 2"]);
+  expect(firstDone.nextCursor).not.toBeNull();
+  const olderDone = await page("done", firstDone.nextCursor);
+  expect(titlesOf(olderDone)).toEqual(["Done 1"]);
+  expect(olderDone.nextCursor).toBeNull();
+  const closed = await page("closed");
+  expect(titlesOf(closed)).toEqual(["Closed 2", "Closed 1"]);
+  expect(closed.nextCursor).toBeNull();
+
+  const summary = await board.finishedSummary(as, { window: "week" });
+  const counts = Object.fromEntries(
+    ["done", "closed"].map((status) => [
+      status,
+      summary.groups
+        .filter((group) => group.status === status)
+        .reduce((sum, g) => sum + g.count, 0),
+    ]),
+  );
+  expect(counts).toEqual({ done: 3, closed: 2 });
 });

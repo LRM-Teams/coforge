@@ -17,7 +17,7 @@ import {
   DotsGrid as GripVertical,
   List,
 } from "@untitledui/icons";
-import { useId, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import { Button as AriaButton, Disclosure, DisclosurePanel, Heading } from "react-aria-components";
 
 import { ButtonGroup, ButtonGroupItem } from "#src/components/base/button-group/button-group";
@@ -37,9 +37,16 @@ export type TaskControls = {
   moves: { status: TaskStatus; onMove: () => void }[];
 };
 
-/** Finished statuses start collapsed when the board shows several statuses: they only grow, and
- * the work in flight is what the board is for. The choice lasts while the board is mounted. */
-const COLLAPSED_BY_DEFAULT: ReadonlySet<TaskStatus> = new Set(["done", "closed"]);
+/**
+ * A group whose Tasks the caller reads in pages rather than holding them all: its header shows
+ * `count` (every Task in the group, not only the loaded ones), `onExpandedChange` says when it
+ * opens so its first page is read only then, and `footer` goes under its loaded cards.
+ */
+export type PagedTaskGroup = {
+  count: number;
+  onExpandedChange: (expanded: boolean) => void;
+  footer: ReactNode;
+};
 
 /** How many cards a group shows at first, and how many more "Show more" adds: a group of
  * hundreds would otherwise build every card, handle and menu at once. */
@@ -88,20 +95,16 @@ export function TaskWorkflow<T extends TaskView>({
   disabled,
   onMove,
   renderTask,
-  more,
-  onOlder,
+  paged,
 }: {
   tasks: readonly T[];
   layout: TaskLayout;
   statuses?: readonly TaskStatus[];
+  paged?: Partial<Record<TaskStatus, PagedTaskGroup>>;
   currentMemberId: (task: T) => string | null;
   disabled?: boolean;
   onMove: (task: T, command: TaskMoveCommand) => Promise<void>;
   renderTask: (task: T, controls: TaskControls) => ReactNode;
-  /** Per status, whether older Tasks exist than those given. */
-  more?: Partial<Record<TaskStatus, boolean>>;
-  /** Per status, how to read them. */
-  onOlder?: Partial<Record<TaskStatus, () => Promise<void>>>;
 }) {
   const id = useId();
   const [active, setActive] = useState<T>();
@@ -168,14 +171,12 @@ export function TaskWorkflow<T extends TaskView>({
       >
         {groups.map((group) => (
           <TaskGroup
-            // A single-status view remounts its group so it starts expanded.
-            key={groups.length === 1 ? `only-${group.status}` : group.status}
+            key={group.status}
             status={group.status}
-            count={group.tasks.length}
-            hasOlder={Boolean(more?.[group.status])}
-            onOlder={more?.[group.status] ? onOlder?.[group.status] : undefined}
+            count={paged?.[group.status]?.count ?? group.tasks.length}
+            loaded={group.tasks.length}
+            paged={paged?.[group.status]}
             board={layout === "board"}
-            defaultExpanded={groups.length === 1 || !COLLAPSED_BY_DEFAULT.has(group.status)}
             enabled={Boolean(
               !disabled &&
               !pending &&
@@ -253,36 +254,39 @@ function DragHandle({ task, disabled }: { task: TaskView; disabled: boolean }) {
 function TaskGroup({
   status,
   count,
-  hasOlder,
-  onOlder,
+  loaded,
   board,
-  defaultExpanded,
   enabled,
+  paged,
   children,
 }: {
   status: TaskStatus;
+  /** Every Task in the group; for a paged group, more than those read. */
   count: number;
-  /** Older Tasks of this status exist than those given. */
-  hasOlder: boolean;
-  /** Reads them; absent until the page can (before hydration). */
-  onOlder?: () => Promise<void>;
+  /** The cards the group holds now. */
+  loaded: number;
   board: boolean;
-  defaultExpanded: boolean;
   enabled: boolean;
+  paged?: PagedTaskGroup;
   /** The group's first `shown` cards. */
   children: (shown: number) => ReactNode;
 }) {
   // A collapsed group stays a drop target, so a card can still be moved into it.
   const drop = useDroppable({ id: status, disabled: !enabled });
   const label = statusLabel(status);
-  const [expanded, setExpanded] = useState(defaultExpanded);
+  // Every group starts open; its header collapses it for as long as the board is shown.
+  const [expanded, setExpanded] = useState(true);
+  const onExpandedChange = paged?.onExpandedChange;
+  // A paged group reads its Tasks only while open, including when it starts open.
+  useEffect(() => {
+    onExpandedChange?.(expanded);
+    // A group that leaves the board (another status picked) stops reading too.
+    return () => onExpandedChange?.(false);
+  }, [onExpandedChange, expanded]);
+  // A group renders its cards in pages. A paged group is already read in pages no longer than
+  // one render page, so it renders every card it has read and keeps to its own footer.
   const [shown, setShown] = useState(RENDER_PAGE);
-  const [readingOlder, setReadingOlder] = useState(false);
-  const [olderFailed, setOlderFailed] = useState(false);
-  const hidden = count - shown;
-  // More older Tasks exist than those read: the count is a floor.
-  const countLabel = hasOlder ? `${count}+` : String(count);
-  const footerClass = board ? "justify-center" : "justify-start px-4 py-2";
+  const hidden = paged ? 0 : loaded - shown;
   return (
     <section
       ref={drop.setNodeRef}
@@ -308,7 +312,7 @@ function TaskGroup({
         <Heading level={2}>
           <AriaButton
             slot="trigger"
-            aria-label={`${label} ${countLabel}`}
+            aria-label={`${label} ${count}`}
             className={cn(
               "flex h-10 w-full cursor-pointer items-center gap-2 text-sm font-semibold text-primary outline-focus-ring focus-visible:outline-2 focus-visible:-outline-offset-2",
               board
@@ -321,7 +325,7 @@ function TaskGroup({
               className={`size-2 shrink-0 rounded-full ${TASK_STATUS_COLOR[status].dot}`}
             />
             <span className="truncate">{label}</span>
-            <span className="font-medium text-quaternary tabular-nums">{countLabel}</span>
+            <span className="font-medium text-quaternary tabular-nums">{count}</span>
             <ChevronDown
               aria-hidden="true"
               className={cn(
@@ -332,7 +336,7 @@ function TaskGroup({
           </AriaButton>
         </Heading>
         <DisclosurePanel
-          // A collapsed panel is `hidden="until-found"`, which keeps its box: drop the sizing too.
+          // A collapsed panel is `hidden="until-found"`, which Tailwind's preflight leaves displayed: hide it outright.
           className={cn(
             board
               ? "flex min-h-16 flex-col gap-2 px-2 pb-2 md:min-h-0 md:flex-1 md:overflow-y-auto"
@@ -341,43 +345,20 @@ function TaskGroup({
           )}
         >
           {/* The panel keeps its children mounted while hidden; a collapsed group renders none. */}
-          {expanded && children(shown)}
+          {expanded && children(paged ? loaded : shown)}
           {expanded && hidden > 0 && (
-            <div className={cn("flex", footerClass)}>
+            <div className={cn("flex", board ? "justify-center" : "justify-start px-4 py-2")}>
               <Button
                 size="sm"
                 color="link-gray"
-                onPress={() => setShown((current) => current + RENDER_PAGE)}
+                onClick={() => setShown((current) => current + RENDER_PAGE)}
               >
-                {m.tasks_group_show_more({ count: String(Math.min(hidden, RENDER_PAGE)) })}
+                {m.tasks_group_show_more({ count: String(hidden) })}
               </Button>
             </div>
           )}
-          {expanded && hidden <= 0 && onOlder && (
-            <div className={cn("flex flex-col items-start gap-1", footerClass)}>
-              <Button
-                size="sm"
-                color="link-gray"
-                isDisabled={readingOlder}
-                onPress={() => {
-                  setReadingOlder(true);
-                  setOlderFailed(false);
-                  void onOlder()
-                    .then(() => setShown((current) => current + RENDER_PAGE))
-                    .catch(() => setOlderFailed(true))
-                    .finally(() => setReadingOlder(false));
-                }}
-              >
-                {m.tasks_group_show_older()}
-              </Button>
-              {olderFailed && (
-                <p role="alert" className="text-sm text-error-primary">
-                  {m.tasks_group_show_older_error()}
-                </p>
-              )}
-            </div>
-          )}
-          {expanded && !board && count === 0 && (
+          {expanded && paged?.footer}
+          {expanded && !paged && !board && count === 0 && (
             <p className="px-4 py-3 text-sm text-tertiary">{m.tasks_group_empty()}</p>
           )}
         </DisclosurePanel>
