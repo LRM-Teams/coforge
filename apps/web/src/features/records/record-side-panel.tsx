@@ -69,7 +69,6 @@ import {
 import {
   looksLikeMemberGenerateOfferAccept,
   looksLikeTeamKeyPointReorganizeRequest,
-  looksLikeSideChatGreeting,
   shouldUseMemberReportRulePath,
   looksLikeSynthesizeWeeklyReportRequest,
   parseRecordAssistantPayload,
@@ -697,9 +696,7 @@ export function RecordSidePanel({
       }
 
       const useRulePath =
-        looksLikeSideChatGreeting(body) ||
-        shouldUseMemberReportRulePath(surface, body) ||
-        !assistantReady(assistantStatus);
+        shouldUseMemberReportRulePath(surface, body) || !assistantReady(assistantStatus);
       if (useRulePath) {
         if (!assistantReady(assistantStatus)) {
           session.setupDismissed = false;

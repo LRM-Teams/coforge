@@ -32,3 +32,5 @@ These rules also cover `src/server/records/`.
   current ISO week into the session that loads first; do not fan the card out
   to every new or idle side-panel session (`hasCurrentWeekOfferSend`). Other
   sessions stay empty — do not stuff a ready/cancelled tip into them.
+- Side-chat greetings (hi / 你好 / …) are not platform rule replies; route them
+  through the weekly-report Agent like ordinary turns.
