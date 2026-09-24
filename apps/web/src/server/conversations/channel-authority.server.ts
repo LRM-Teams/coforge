@@ -82,6 +82,17 @@ export function deriveChannelCapabilities(input: {
   };
 }
 
+/** Only a Workspace owner or admin hides `#general` from the Workspace, whatever their role in it. */
+export function canHideGeneralChannel(channelName: string, serverRole: string | undefined) {
+  return channelName === "general" && isElevatedServerRole(serverRole);
+}
+
+/** Only a Workspace owner or admin deletes a channel, whatever their role in it (a channel admin
+ * cannot); `#general` is never deleted. */
+export function canDeleteChannel(channelName: string, serverRole: string | undefined) {
+  return channelName !== "general" && isElevatedServerRole(serverRole);
+}
+
 /** A `ConversationMember` `where` clause identifying `actor`'s own row in a channel. Shared by
  * `PublicChannels` (which otherwise duplicated this as a private method) and this module. */
 export function channelActorMemberWhere(actor: ChannelActor) {

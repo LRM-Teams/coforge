@@ -63,6 +63,13 @@ These rules apply to `src/server/conversations/`.
   `VISIBLE_CONVERSATION_WHERE` (raw SQL: `"hiddenFromWorkspaceAt" IS NULL`), so a
   new channel read must too. Enrollment keeps running, so a restore is whole.
 
+- Only a Workspace owner or admin deletes a channel (`deleteChannel`), never
+  `#general`; a channel admin cannot, and no Agent command does. Deletion is
+  hard and whole: everything in the channel goes, Reminders aimed at it or its
+  threads are canceled, and its stored files are removed best effort. Purge its
+  Agents' inboxes before the delete, while the publisher can still read the
+  channel's name.
+
 ## Channel membership
 
 - Any Workspace member may create or join a channel. Only a channel member may
@@ -75,13 +82,14 @@ These rules apply to `src/server/conversations/`.
   `ChannelActor = { userId } | { agentId }` and share one authorization and
   write path. Do not add a parallel Agent-only path.
 - Leaving and removal are soft: set `ConversationMember.leftAt` through the
-  one `softLeaveMember` helper. Never hard-delete a membership row;
-  `Message.sender` is `onDelete: Restrict`.
+  one `softLeaveMember` helper. Never hard-delete a membership row on its own
+  (only deleting the whole channel does); `Message.sender` is
+  `onDelete: Restrict`.
 - When an Agent leaves or is removed from a channel, after the write commits,
   publish an inbox purge through `AgentInboxPurgePublisher`
   (`server/agents/agent-inbox-purge.server.ts`) so its daemon drops that
-  channel's pending messages. Channel archive, Agent deletion, and Workspace
-  member removal send none.
+  channel's pending messages; channel deletion does too. Channel archive,
+  Agent deletion, and Workspace member removal send none.
 - Active-membership reads filter through `ACTIVE_MEMBER_WHERE`
   (`active-member.server.ts`). Adding a soft-left member clears `leftAt`
   instead of skipping the row.
@@ -93,7 +101,11 @@ These rules apply to `src/server/conversations/`.
 
 - `channel-authority.server.ts` is the single authority seam for channel
   administration on both the human and Agent sides. Do not add
-  `Agent.role`-only or Workspace-role-only channel checks.
+  `Agent.role`-only or Workspace-role-only channel checks elsewhere. The two
+  Workspace-level channel actions, hiding `#general` and deleting a channel,
+  are decided there by server role alone (`canHideGeneralChannel`,
+  `canDeleteChannel`) and stay out of the capability matrix, which Agents also
+  receive.
 - `ConversationMember.channelRole` (`admin | member`, default `member`) is
   stored on the membership. A channel's creator, human or Agent, gets
   `admin` on their own row.
