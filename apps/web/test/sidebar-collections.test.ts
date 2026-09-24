@@ -77,6 +77,13 @@ test("marking unread a row with no count shows one at once and saves it", async 
   expect(saves).toEqual([`unread {"kind":"channel","channelId":"general"}`]);
 });
 
+test("marking unread a row already showing a count changes nothing on screen but is saved", async () => {
+  const { sidebar, saves } = await sidebarWith();
+  await sidebar.actions.markUnread({ kind: "channel", channelId: "random" });
+  expect(sidebar.channels.get("random")?.unreadCount).toBe(2);
+  expect(saves).toEqual([`unread {"kind":"channel","channelId":"random"}`]);
+});
+
 test("a change made before the lists have synced (another page) is still saved", async () => {
   const { sidebar, saves } = await sidebarWith({}, { synced: false });
   await sidebar.actions.markUnread({ kind: "direct", agentId: "helper" });
