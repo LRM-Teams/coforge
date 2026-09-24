@@ -446,7 +446,10 @@ function AssigneeMenu({
   const ownerKey = task.owner ? memberKey(task.owner) : undefined;
   return (
     <Dropdown.Root onOpenChange={(isOpen) => isOpen && setSearch("")}>
-      <EditableTrigger label={`${m.tasks_change_assignee()}: ${name}`} disabled={disabled}>
+      <EditableTrigger
+        label={`${m.tasks_change_assignee()}: ${name}${task.owner?.deleted ? `, ${m.agent_deleted_badge()}` : ""}`}
+        disabled={disabled}
+      >
         {value}
       </EditableTrigger>
       <Dropdown.Popover placement="bottom start" className="w-72">

@@ -5,6 +5,7 @@ import { useState } from "react";
 import { Button as AriaButton } from "react-aria-components";
 
 import { Button } from "#src/components/base/buttons/button";
+import { DeletedAgentBadge } from "#src/features/agents/deleted-agent";
 import { m } from "#src/paraglide/messages";
 import { ConversationTaskTabs } from "./conversation-task-tabs";
 import { CreateTaskDialog } from "./create-task-dialog";
@@ -263,6 +264,7 @@ export function TaskBadge({ task }: { task: TaskView }) {
   return (
     <span className="mt-1 inline-flex flex-wrap items-center gap-1 text-xs text-tertiary">
       #{task.number} · {statusLabel(task.status)} · {task.owner?.name ?? m.tasks_unassigned()}
+      {task.owner?.deleted && <DeletedAgentBadge />}
     </span>
   );
 }
