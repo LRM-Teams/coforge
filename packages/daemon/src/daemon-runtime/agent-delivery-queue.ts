@@ -135,7 +135,6 @@ export class AgentDeliveryQueue {
     return this.#drain(agentId);
   }
 
-  /** Records an app-item notice (`DaemonRuntime#notifyAppItem`) as held while busy. */
   /** Removes and returns the held deliveries of these conversations: the Agent can no longer
    * read them, so they are dropped without an ACK rather than presented. */
   discardConversations(
@@ -151,6 +150,7 @@ export class AgentDeliveryQueue {
     return dropped;
   }
 
+  /** Records an app-item notice (`DaemonRuntime#notifyAppItem`) as held while busy. */
   holdAppItem(agentId: string, itemId: string): void {
     const items = this.#heldAppItems.get(agentId) ?? new Set<string>();
     items.add(itemId);

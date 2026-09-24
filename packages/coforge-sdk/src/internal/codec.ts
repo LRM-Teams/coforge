@@ -929,7 +929,8 @@ export function decodeAgentInboxPurge(bytes: Uint8Array): AgentInboxPurge {
     !value.computerId ||
     !value.agentId ||
     !value.conversationIds.length ||
-    value.conversationIds.some((id) => !id) ||
+    value.conversationIds.some((id) => !id.trim()) ||
+    value.targets.length !== value.conversationIds.length ||
     value.targets.some((target) => !target.startsWith("#") || target.length < 2) ||
     !reason
   )
