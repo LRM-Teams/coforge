@@ -3,8 +3,10 @@ import { configure, reset, type LogRecord } from "@logtape/logtape";
 import {
   createAgentMessageHttpClient,
   defaultAgentChannelHttpClient,
-  DaemonConnection,
   type AgentMessageTransportResponse,
+} from "#src/connection/agent-http-clients";
+import {
+  DaemonConnection,
   type CentrifugeWorkspaceClient,
 } from "#src/connection/daemon-connection";
 import type { AgentSendResponse } from "@lrm/coforge-sdk/agent";
