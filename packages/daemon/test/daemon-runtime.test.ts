@@ -5271,6 +5271,58 @@ describe("DaemonRuntime", () => {
     await harness.runtime.stop();
   });
 
+  const resumePrompt = "Stop editing the schema; only the frontend.";
+  const resumeIntent = {
+    protocolMajor: 1,
+    requestId: "resume-prompt-request",
+    workspaceId: connection.workspaceId,
+    computerId: connection.computerId,
+    agentId: "agent-a",
+    provider: "pi" as const,
+    model: "",
+    reasoning: "",
+    resumePrompt,
+  };
+  /** Resolves with the first notice the Agent's session receives. */
+  function firstNotice() {
+    let resolve!: (notice: string) => void;
+    const notice = new Promise<string>((done) => (resolve = done));
+    return { notice, notify: (text: string) => resolve(text) };
+  }
+
+  test("a resume prompt opens a resumed session's first turn", async () => {
+    const first = firstNotice();
+    const harness = await queueHarness({ notify: first.notify });
+    await harness.runtime.handleAgentStart({
+      ...resumeIntent,
+      sessionId: "stored-session-id",
+      sessionMode: "resume",
+      controlEpoch: 1,
+      launchId: "launch-resume-1",
+    });
+    expect(await first.notice).toBe(resumePrompt);
+    expect(harness.notices).toEqual([resumePrompt]);
+    await harness.runtime.stop();
+  });
+
+  test("a resume prompt opens a new session's first turn", async () => {
+    const first = firstNotice();
+    const harness = await queueHarness({ notify: first.notify });
+    await harness.runtime.handleAgentStart({ ...resumeIntent, sessionMode: "create" });
+    expect(await first.notice).toBe(resumePrompt);
+    expect(harness.notices).toEqual([resumePrompt]);
+    await harness.runtime.stop();
+  });
+
+  test("a resume prompt reaches an Agent that is already running", async () => {
+    const first = firstNotice();
+    const harness = await queueHarness({ notify: first.notify });
+    await harness.runtime.startAgent("agent-a", config);
+    await harness.runtime.handleAgentStart(resumeIntent);
+    expect(await first.notice).toBe(resumePrompt);
+    await harness.runtime.stop();
+  });
+
   test("a resume launch sends no notices", async () => {
     const harness = await queueHarness();
     await harness.runtime.startAgent(

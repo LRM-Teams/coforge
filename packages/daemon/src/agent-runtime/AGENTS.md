@@ -20,10 +20,13 @@ Rules for Agent lifecycle, control, Session state, and Activity in
 - When a start follows a stop for the same Agent, wait for confirmed stop
   completion before launching the replacement.
 - A start for an already running Agent preserves its process, session, and
-  config. It accepts only `wakeMessage` and ignores that start's
-  `resumeMessages` and `unreadSummary`.
+  config. It accepts only `wakeMessage` and `resumePrompt` and ignores that
+  start's `resumeMessages` and `unreadSummary`. A replay of the same Start
+  (equal epoch) never delivers its `resumePrompt` again.
 - A still-launching Agent is not reported as running; it accepts the full
-  recovery context on its shared launch.
+  recovery context and `resumePrompt` on its shared launch.
+- A `resumePrompt` is the launch's first turn, in place of message recovery,
+  on a new or resumed session alike.
 - Restart recovery must not eagerly load all canonical Message history.
 
 ## Control fencing (`agent-control.ts`)
