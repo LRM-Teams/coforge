@@ -121,6 +121,6 @@
   "preferences_appearance_description": "使用浅色或深色，或跟随系统设置。",
   "preferences_text_size_description": "缩放此设备上的所有文字和控件。",
   "preferences_rail_labels_description": "在左侧导航的每个图标下显示文字。",
-  "preferences_message_full_width_description": "消息和输入框占满对话区宽度，不限制在居中的阅读栏里。",
+  "preferences_message_full_width_description": "消息和输入框占满对话区宽度，两边不留空白。",
   "preferences_conversation_open_mode_description": "打开频道或私聊时停在哪里，以及何时算作已读。"
 }

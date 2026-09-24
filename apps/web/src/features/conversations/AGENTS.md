@@ -40,7 +40,7 @@ These rules apply to `src/features/conversations/`.
 - `conversation-header.tsx` is the one header row both DM and channel headers
   fill (identity, centered Chat/Tasks/Files tabs, actions); give it slots rather
   than laying out a second tab row.
-- The main stream's reading column (and its "Full-width messages" device setting)
+- The main stream's side room (and its "Full-width messages" device setting)
   is `MESSAGE_COLUMN_CLASS` in `features/settings/message-width.ts`; history
   and composer both use it so they line up. Do not add a second width rule.
 - `direct-conversation.tsx` is the DM wrapper and header; `threaded-conversation.tsx`

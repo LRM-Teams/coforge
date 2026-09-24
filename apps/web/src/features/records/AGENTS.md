@@ -34,3 +34,6 @@ These rules also cover `src/server/records/`.
   sessions stay empty — do not stuff a ready/cancelled tip into them.
 - Side-chat greetings (hi / 你好 / …) are not platform rule replies; route them
   through the weekly-report Agent like ordinary turns.
+- Live format documents rebase onto the current ISO week when reused or when
+  posting the offer-send card; do not keep showing the creation-week cycle after
+  the calendar advances (see `rebaseLiveFormatToCurrentWeek`).

@@ -704,10 +704,6 @@ export function ConversationPane({
       // The first row that is not entirely above the container's top edge is the one the reader
       // is looking at; the ones before it are already scrolled off.
       if (rect.bottom <= containerTop) continue;
-      // An open system group's rows follow it in document order and anchor more precisely: a page
-      // that extends the group backwards grows it above them, so only they keep their place.
-      if (row.dataset.systemGroup !== undefined && row.querySelector("li[data-message-id]"))
-        continue;
       rowId = row.dataset.messageId;
       offset = scrollAnchorOf(row).getBoundingClientRect().top - containerTop;
       break;
@@ -863,8 +859,8 @@ export function ConversationPane({
           onScroll={trackReadingPosition}
           className="h-full overflow-y-auto pb-6 [scrollbar-width:thin]"
         >
-          {/* The reading column sits inside the scroller, so the scrollbar stays on the pane
-              edge. A thread pane is already narrow and keeps its full width. */}
+          {/* The side room sits inside the scroller, so the scrollbar stays on the pane edge. A
+              thread pane is already narrow and keeps none. */}
           <div className={root ? undefined : MESSAGE_COLUMN_CLASS}>
             {rootSlot}
             {root && !rootSlot && (
