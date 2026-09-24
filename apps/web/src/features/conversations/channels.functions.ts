@@ -6,6 +6,8 @@ import {
 } from "#src/features/auth/function-auth";
 import { AppError, isAppError } from "#src/lib/app-error";
 import { PublicChannels } from "#src/server/conversations/public-channels.server";
+import { ChannelAgentStop } from "#src/server/conversations/channel-agent-stop.server";
+import { userAgentControl } from "#src/server/agents/user-agent-control.server";
 import { attachActionCardViews } from "#src/server/conversations/action-cards.server";
 import { attachmentView } from "#src/server/attachments/attachment-view.server";
 import {
@@ -273,6 +275,18 @@ export const setGeneralChannelHidden = createServerFn({ method: "POST" })
   .handler(async ({ data, context }) => {
     const { channels, workspaceId, userId } = channelScope(context);
     return channels.setGeneralHidden(workspaceId, userId, data.hidden);
+  });
+
+export const stopChannelAgents = createServerFn({ method: "POST" })
+  .middleware([workspaceUserMiddleware])
+  .validator(channelInput)
+  .handler(async ({ data, context }) => {
+    const { db, workspaceId, userId } = channelScope(context);
+    return new ChannelAgentStop(db, userAgentControl(db)).stopAll(
+      workspaceId,
+      userId,
+      data.channelId,
+    );
   });
 
 export const deletePublicChannel = createServerFn({ method: "POST" })

@@ -87,6 +87,13 @@ these modules have their own rules in `src/server/centrifugo/AGENTS.md`.
   user Start, Restart, Reset Session, or Full Reset.
 - `stop` persists `stoppedAt` before running the stop chain, so the intent
   survives an unresponsive Computer. The other user operations clear it first.
+- `stopMany` (a channel's "Stop all Agents", `ChannelAgentStop`) writes the
+  same stop for many Agents with the actor's role read once, at most four at a
+  time (each holds a runtime-lock connection and a transaction). It sends each
+  stop command without waiting for the Daemon and retries a failed send once;
+  an Agent still `stopping` is sent its stop again by the next call. Do not
+  loop `execute` over Agents: each call re-reads the role and polls for its
+  receipt.
 - A user `start` carries the same recovery context
   (`conversations.readAgentRecoveryContext`) as a Daemon-ready recovery start.
 - Ready recovery skips a stopped Agent; if the Daemon still reports it running,

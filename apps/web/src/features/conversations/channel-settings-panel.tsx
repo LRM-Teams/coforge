@@ -10,6 +10,7 @@ import {
   LogOut01 as LogOut,
   RefreshCcw01 as Unarchive,
   Share04 as Share,
+  StopCircle,
   Trash01,
 } from "@untitledui/icons";
 
@@ -46,6 +47,7 @@ import {
   updatePublicChannelInfo,
 } from "./channels.functions";
 import { channelMembersQueryKey } from "./conversation-query-keys";
+import { StopChannelAgentsDialog } from "./stop-channel-agents-dialog";
 
 /** How many member avatars the strip shows before the "+N" tile. */
 const MEMBER_STRIP_LIMIT = 14;
@@ -81,6 +83,7 @@ export function ChannelSettingsPanel({
   const [membersDialogOpen, setMembersDialogOpen] = useState(false);
   const [unsavedPromptOpen, setUnsavedPromptOpen] = useState(false);
   const [confirming, setConfirming] = useState<ConfirmedAction | null>(null);
+  const [stoppingAgents, setStoppingAgents] = useState(false);
   const info = useInfoForm(conversation, onChanged);
   // What to do once the panel has closed, held while unsaved edits are being confirmed.
   const afterClose = useRef<(() => void) | undefined>(undefined);
@@ -146,10 +149,12 @@ export function ChannelSettingsPanel({
                 capabilities.unarchive ||
                 capabilities.leave ||
                 conversation.canHideGeneral ||
+                conversation.canStopAgents ||
                 conversation.canDelete) && (
                 <ActionsSection
                   conversation={conversation}
                   onConfirm={setConfirming}
+                  onStopAgents={() => setStoppingAgents(true)}
                   onChanged={onChanged}
                 />
               )}
@@ -191,6 +196,13 @@ export function ChannelSettingsPanel({
           else afterClose.current = undefined;
         }}
       />
+      {stoppingAgents && (
+        <StopChannelAgentsDialog
+          channelId={channelId}
+          channelName={conversation.name}
+          onClose={() => setStoppingAgents(false)}
+        />
+      )}
       <ChannelActionConfirmDialog
         kind={confirming}
         channelId={channelId}
@@ -570,10 +582,12 @@ function PreferenceRow({
 function ActionsSection({
   conversation,
   onConfirm,
+  onStopAgents,
   onChanged,
 }: {
   conversation: ChannelConversationView;
   onConfirm: (kind: ConfirmedAction) => void;
+  onStopAgents: () => void;
   onChanged: () => Promise<void>;
 }) {
   const setArchived = useServerFn(setPublicChannelArchived);
@@ -641,6 +655,16 @@ function ActionsSection({
             onPress={() => onConfirm("leave")}
           >
             {m.channel_settings_leave()}
+          </Button>
+        )}
+        {conversation.canStopAgents && (
+          <Button
+            color="secondary"
+            iconLeading={StopCircle}
+            className="w-full"
+            onPress={onStopAgents}
+          >
+            {m.channel_stop_agents()}
           </Button>
         )}
         {conversation.canDelete && !conversation.archived && (

@@ -64,6 +64,9 @@ const commands = {
   },
   start: { pending: "starting", result: "started", completed: "completed" },
 } as const;
+/** How many Agents `stopMany` stops at once: each holds a runtime-lock connection and a
+ * transaction, and both pools default to 10 connections for the whole process. */
+const STOP_MANY_CONCURRENCY = 4;
 /** Raft capability required for each user-initiated execute() action. Start and Stop need only
  * `controlAgentRuntime`, the same as Restart and Reset session. */
 const EXECUTE_CAPABILITY: Record<AgentControlAction, AgentControlCapability> = {
@@ -364,6 +367,59 @@ export class AgentControl {
     });
     return this.drive(input.agentId, drivenRequestId, recovery);
   }
+  /**
+   * Stops several Agents for one user at once (a channel's "Stop all Agents"): for each Agent the
+   * same durable stop `execute({ action: "stop" })` writes, with the actor's role read once and at
+   * most `STOP_MANY_CONCURRENCY` Agents in flight, since each holds a runtime-lock connection and
+   * a transaction. The stop command is sent without waiting for the Daemon: `stoppedAt` keeps the
+   * intent, and a Daemon that reconnects still running the Agent is stopped by ready recovery. A
+   * command that cannot be sent is tried once more; if it still fails the Agent is reported as not
+   * stopped, and its operation stays "stopping" so a later stop sends it again.
+   */
+  async stopMany(input: {
+    userId: string;
+    workspaceId: string;
+    agentIds: readonly string[];
+  }): Promise<{ agentId: string; stopped: boolean }[]> {
+    const role = await this.actorRole(input.workspaceId, input.userId, "stop");
+    const stoppedAt = new Date(this.clock());
+    const stopOne = async (agentId: string) => {
+      try {
+        const state = await this.runtimeLock.run(agentId, async () => {
+          const agent = await this.controllableAgent(
+            agentId,
+            input.workspaceId,
+            input.userId,
+            role,
+          );
+          return this.begin(agent, "stop", crypto.randomUUID(), 1, stoppedAt);
+        });
+        await this.sendStop(state).catch(() => this.sendStop(state));
+        return { agentId, stopped: true };
+      } catch (error) {
+        console.warn(
+          JSON.stringify({
+            event: "agent_control:stop_many_failed",
+            agent_id: agentId,
+            workspace_id: input.workspaceId,
+            error_type: error instanceof Error ? error.name : typeof error,
+          }),
+        );
+        return { agentId, stopped: false };
+      }
+    };
+    const results: { agentId: string; stopped: boolean }[] = [];
+    let next = 0;
+    await Promise.all(
+      Array.from({ length: Math.min(STOP_MANY_CONCURRENCY, input.agentIds.length) }, async () => {
+        while (next < input.agentIds.length) {
+          const index = next++;
+          results[index] = await stopOne(input.agentIds[index]!);
+        }
+      }),
+    );
+    return results;
+  }
   private async authorized(userId: string, workspaceId: string, agentId: string) {
     const agent = await this.store.get(agentId);
     if (!agent || agent.ownerId !== userId || agent.workspaceId !== workspaceId)
@@ -371,15 +427,30 @@ export class AgentControl {
     return agent;
   }
   /**
-   * execute() is the only user-initiated control path; it authorizes by the actor's current
-   * Workspace membership and Raft capability, not by Agent ownership (`authorized()` above,
-   * still used unchanged by recover/publishStart/publishStop).
+   * execute() and stopMany() are the user-initiated control paths; they authorize by the actor's
+   * current Workspace membership and Agent-control capability, not by Agent ownership (`authorized()`
+   * above, still used unchanged by recover/publishStart/publishStop).
    */
   private async authorizedForExecute(
     userId: string,
     workspaceId: string,
     agentId: string,
     action: AgentControlAction,
+  ) {
+    const role = await this.actorRole(workspaceId, userId, action);
+    return this.controllableAgent(agentId, workspaceId, userId, role);
+  }
+  private async actorRole(workspaceId: string, userId: string, action: AgentControlAction) {
+    const role = await this.store.memberRole(workspaceId, userId);
+    if (!role) throw new Error("Agent is not authorized or assigned");
+    assertHasAgentControlCapability(role, EXECUTE_CAPABILITY[action]);
+    return role;
+  }
+  private async controllableAgent(
+    agentId: string,
+    workspaceId: string,
+    userId: string,
+    role: WorkspaceMemberRole,
   ) {
     const agent = await this.store.get(agentId);
     if (!agent || agent.workspaceId !== workspaceId)
@@ -388,9 +459,6 @@ export class AgentControl {
     // Only the internal `recover`/`publishStop` paths may still touch one, to reconcile a process
     // the Daemon reports as running.
     assertAgentLive(agent);
-    const role = await this.store.memberRole(workspaceId, userId);
-    if (!role) throw new Error("Agent is not authorized or assigned");
-    assertHasAgentControlCapability(role, EXECUTE_CAPABILITY[action]);
     // "any current member may control" stops at a private Agent the actor cannot see —
     // the same absent shape every other visibility failure uses, never a detail leak. Owner/admin
     // always passes (`canSeeAgent`'s elevated-role branch), matching the visibility rule's one
@@ -607,16 +675,19 @@ export class AgentControl {
     }
   }
 
+  private sendStop(state: AgentControlState) {
+    return this.api.publish(
+      daemonControlChannel(state.workspaceId, state.computerId),
+      encodeAgentStopIntent({ ...state, controlEpoch: state.epoch }),
+    );
+  }
   private async publishCurrent(agentId: string, requestId: string, recovery?: AgentRecoveryFields) {
     const agent = await this.store.get(agentId);
     const state = agent?.state;
     if (!agent || !state || state.requestId !== requestId || !current(agent, state))
       throw new Error("Agent configuration changed");
     if (state.phase === "stopping") {
-      await this.api.publish(
-        daemonControlChannel(state.workspaceId, state.computerId),
-        encodeAgentStopIntent({ ...state, controlEpoch: state.epoch }),
-      );
+      await this.sendStop(state);
     } else if (state.phase === "clearing") {
       await this.api.publish(
         daemonControlChannel(state.workspaceId, state.computerId),

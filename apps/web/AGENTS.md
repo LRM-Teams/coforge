@@ -154,7 +154,7 @@ responsibility.
   result caches.
 - `server/computers/` — Computer registration, metadata, restart and upgrade
   operations, and runtime visibility.
-- `server/conversations/` — public channels, channel authority, direct messages, history, message search, action cards, reactions, and conversation realtime.
+- `server/conversations/` — public channels, channel authority, stopping a channel's Agents, direct messages, history, message search, action cards, reactions, and conversation realtime.
 - `server/db/` — the Prisma client and repositories.
 - `server/errors/` — public error mapping and request error handling.
 - `server/files/` — file storage, delivery, and uploaded-image validation.

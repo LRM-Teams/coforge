@@ -1,17 +1,8 @@
 import { createServerFn } from "@tanstack/react-start";
 import { setResponseHeader } from "@tanstack/react-start/server";
 import { z } from "zod";
-import {
-  workspaceUserMiddleware,
-  type WorkspaceUserContext,
-} from "#src/features/auth/function-auth";
-import { AgentControl } from "#src/server/agents/agent-control.server";
-import { getAgentControlSignal } from "#src/server/agents/agent-control-signal.server";
-import { PrismaAgentControlStore } from "#src/server/db/repositories/agent-control.repositories.server";
-import { createAgentSessions } from "#src/server/db/repositories/agent-session.repositories.server";
-import { PrismaDirectConversationRepository } from "#src/server/db/repositories/direct-conversation.repositories.server";
-import { getAgentRuntimeLock } from "#src/server/agents/agent-runtime-lock.server";
-import { createCentrifugoServerApi } from "#src/server/centrifugo/server-api.server";
+import { workspaceUserMiddleware } from "#src/features/auth/function-auth";
+import { userAgentControl } from "#src/server/agents/user-agent-control.server";
 
 const agentId = z.string().uuid();
 const executeInput = z.object({
@@ -21,23 +12,11 @@ const executeInput = z.object({
   confirmed: z.boolean().optional(),
 });
 
-function agentControl(db: WorkspaceUserContext["db"]) {
-  return new AgentControl(
-    new PrismaAgentControlStore(db),
-    createCentrifugoServerApi(),
-    getAgentRuntimeLock(),
-    undefined,
-    createAgentSessions(db),
-    getAgentControlSignal(),
-    new PrismaDirectConversationRepository(db),
-  );
-}
-
 export const executeAgentControl = createServerFn({ method: "POST" })
   .middleware([workspaceUserMiddleware])
   .validator(executeInput)
   .handler(async ({ data, context: { user, db, workspaceId } }) => {
     setResponseHeader("cache-control", "no-store");
-    const result = await agentControl(db).execute({ ...data, userId: user.id, workspaceId });
+    const result = await userAgentControl(db).execute({ ...data, userId: user.id, workspaceId });
     if (result.phase === "failed") throw new Error("Agent control failed");
   });
