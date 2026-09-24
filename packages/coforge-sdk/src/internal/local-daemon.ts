@@ -328,7 +328,7 @@ export function decodeLocalAttachments(values: readonly RawLocalAttachment[]): L
     sizeBytes: Number(value.sizeBytes),
   }));
 }
-/** One mention the sender's message did not deliver, as Raft 1.0.32 reports it. */
+/** One mention the sender's message did not deliver, as the send reports it. */
 export type AgentPendingMentionAction = {
   resolutionId: string;
   messageId: string;

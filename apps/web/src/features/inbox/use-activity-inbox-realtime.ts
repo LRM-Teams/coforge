@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef } from "react";
 import { useServerFn } from "@tanstack/react-start";
 
 import {
+  decodeActivityChangedEvent,
   decodeMessageAvailableEvent,
   userConversationChannel,
   workspaceConversationChannel,
@@ -42,8 +43,12 @@ export function useActivityInboxRealtime({
     try {
       decodeMessageAvailableEvent(publication.data);
     } catch {
-      // Not a message signal (the channels also carry other events).
-      return;
+      try {
+        decodeActivityChangedEvent(publication.data);
+      } catch {
+        // Neither a message nor an Activity signal (the channels also carry other events).
+        return;
+      }
     }
     clearTimeout(timer.current);
     timer.current = setTimeout(() => onActivityRef.current(), REFRESH_DELAY_MS);

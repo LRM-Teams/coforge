@@ -45,6 +45,7 @@ import {
   notifyMentionTargets,
   pendingMentionActionsForMessage,
   publishNonMemberDeliveries,
+  announceNotifiedPeople,
   recordPendingMentionActions,
   releaseMentionActions,
   type MentionActionResult,
@@ -1502,7 +1503,7 @@ export class PublicChannels {
   ): Promise<MentionActionResult[]> {
     await this.authorize(workspaceId, userId);
     if (action === "notify") {
-      const { results, deliveries } = await notifyMentionTargets(
+      const { results, deliveries, notifiedUserIds } = await notifyMentionTargets(
         this.db,
         workspaceId,
         { userId },
@@ -1514,6 +1515,7 @@ export class PublicChannels {
         workspaceId,
         deliveries,
       );
+      await announceNotifiedPeople(this.realtime, workspaceId, notifiedUserIds);
       return results;
     }
     const { refused, claimed } = await claimMentionActions(
@@ -1540,6 +1542,7 @@ export class PublicChannels {
             status: "delivered",
             targetType: claim.targetType,
             targetId: claim.targetId,
+            targetHandle: claim.targetHandle,
           });
       } catch (error) {
         await releaseMentionActions(this.db, claims);
@@ -1551,6 +1554,7 @@ export class PublicChannels {
             reason: "could_not_apply",
             targetType: claim.targetType,
             targetId: claim.targetId,
+            targetHandle: claim.targetHandle,
           });
       }
     }

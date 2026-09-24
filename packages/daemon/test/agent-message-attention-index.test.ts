@@ -117,6 +117,37 @@ test("an Agent-authored message the Agent was notified of from outside the chann
   expect(notices).toHaveLength(1);
 });
 
+test("a recovered message the Agent was notified of from outside the channel keeps its flag", async () => {
+  const shared = session(() => {});
+  const index = new AgentMessageAttentionIndex(
+    "workspace-1",
+    { session: () => shared },
+    async () => {},
+  );
+  const delivered = { ...delivery("channel", "human", "alice"), target: "#triage" };
+  await index.recover(
+    "agent-1",
+    [
+      {
+        messageId: delivered.messageId,
+        deliveryId: delivered.deliveryId,
+        conversationId: delivered.conversationId,
+        sequence: delivered.sequence,
+        target: "#triage",
+        latestSenderKind: "human",
+        latestSenderHandle: "alice",
+        latestSenderDescription: "",
+        body: delivered.body,
+        nonMemberMention: true,
+      },
+    ],
+    { "#triage": 1 },
+  );
+  expect(index.check("agent-1")).toEqual([
+    expect.objectContaining({ target: "#triage", flags: ["channel", "non_member_mention"] }),
+  ]);
+});
+
 test("channel delivery and restart recovery notify the same session without injecting history", async () => {
   const notices: string[] = [];
   const shared = session((notice) => {

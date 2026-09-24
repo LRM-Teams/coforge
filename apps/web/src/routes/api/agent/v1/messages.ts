@@ -103,7 +103,7 @@ function mapSendResult(idempotencyKey: string, result: AgentSendMessageResult) {
     freshnessContextMode: result.freshnessContextMode,
     withheldMessageCount: result.withheldMessageCount,
     recentUnread: (result.recentUnread ?? []).map(toAgentMessage),
-    // Sent only: what the message did not reach, in Raft's field names.
+    // Sent only: what the message did not reach.
     pendingMentionActions:
       result.state === "sent"
         ? (result.pendingMentionActions ?? []).map((action) => ({

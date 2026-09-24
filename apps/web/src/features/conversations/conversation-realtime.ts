@@ -147,6 +147,25 @@ export function decodeMemberChangedEvent(value: unknown): MemberChangedEvent {
 }
 
 /**
+ * Something reached one person's Activity inbox without a message arriving in a conversation they
+ * are in: a mention from outside the channel they were notified of. Published on that person's own
+ * channel; their Activity page and nav dot re-read what they show.
+ */
+export type ActivityChangedEvent = { type: "activity.changed.v1"; workspaceId: string };
+
+export function decodeActivityChangedEvent(value: unknown): ActivityChangedEvent {
+  if (value instanceof Uint8Array)
+    return decodeActivityChangedEvent(JSON.parse(new TextDecoder().decode(value)) as unknown);
+  if (!value || typeof value !== "object" || Array.isArray(value))
+    throw new Error("invalid conversation event");
+  const type = Reflect.get(value, "type");
+  const workspaceId = Reflect.get(value, "workspaceId");
+  if (type !== "activity.changed.v1" || typeof workspaceId !== "string" || !workspaceId)
+    throw new Error("invalid conversation event");
+  return { type, workspaceId };
+}
+
+/**
  * A channel's own facts changed: its name, description, or archived state. Published on the
  * Workspace channel, so every member's sidebar re-reads its channel list, and on the channel's own
  * conversation channel, so a page showing it refetches its header and composer state. Like the

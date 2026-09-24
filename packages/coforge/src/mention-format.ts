@@ -3,11 +3,7 @@ import type {
   AgentMentionActionResult,
   AgentMentionPendingAction,
 } from "@lrm/coforge-sdk/agent";
-import {
-  NON_MEMBER_MENTION_NOTICE,
-  authoredMentionToken,
-  mentionRecoveryVerbs,
-} from "#src/message-format";
+import { NON_MEMBER_MENTION_NOTICE, mentionRecoveryVerbs } from "#src/message-format";
 
 /** The result status that means an action reached its target. */
 const COMPLETED_STATUS: Record<AgentMentionActionKind, string> = {
@@ -29,9 +25,7 @@ export function formatPendingMentionActions(actions: readonly AgentMentionPendin
     return lines.join("\n");
   }
   for (const action of actions) {
-    lines.push(
-      `- ${action.resolutionId} — ${authoredMentionToken(action.targetHandle)} (${action.targetType})`,
-    );
+    lines.push(`- ${action.resolutionId} — ${action.targetHandle} (${action.targetType})`);
     lines.push(`  message: ${action.messageId}`);
     lines.push("  reason: not in the conversation at send time, so the @mention was not delivered");
     lines.push(`  expires: ${action.expiresAt}`);
@@ -54,17 +48,28 @@ export function formatMentionActionResults(
   action: AgentMentionActionKind,
   results: readonly AgentMentionActionResult[],
 ): string {
-  const lines = [
-    `Mention ${action} results`,
-    "",
-    ...results.map(
-      (result) =>
-        `- ${result.resolutionId}: ${result.status}${result.reason ? ` — ${result.reason}` : ""}`,
-    ),
-  ];
+  const lines = [`Mention ${action} results`, ""];
+  if (!results.length) {
+    lines.push("No result rows returned.");
+    return lines.join("\n");
+  }
+  for (const result of results) {
+    const detail = resultDetail(result);
+    lines.push(
+      `- ${result.resolutionId}${result.targetHandle ? ` ${result.targetHandle}` : ""}: ${result.status}${detail ? ` — ${detail}` : ""}`,
+    );
+  }
   if (results.some((result) => result.status === "queued" && result.reason !== "already_queued"))
     lines.push("", RECIPIENT_GUIDANCE);
   return lines.join("\n");
+}
+
+/** What a result row says after its status: the server's reason, and for a dropped notification
+ * that it was not delivered. */
+function resultDetail(result: AgentMentionActionResult): string | undefined {
+  if (result.status === "dropped")
+    return result.reason ? `not delivered: ${result.reason}` : "not delivered";
+  return result.reason;
 }
 
 /**

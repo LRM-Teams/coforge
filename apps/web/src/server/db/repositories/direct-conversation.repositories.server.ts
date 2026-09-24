@@ -5,10 +5,10 @@ import {
 } from "#src/server/conversations/conversation-pins.server";
 import type { MessageSenderKind, MessageTaskMetadata, TaskStatus } from "@lrm/coforge-sdk/internal";
 import { Prisma, type PrismaClient } from "#src/generated/prisma/client";
-import { AppError } from "#src/lib/app-error";
+import { AppError, isAppError } from "#src/lib/app-error";
 import { canDirectMessageAgent } from "#src/server/agents/agent-visibility.server";
 import { AgentMessageValidationError } from "#src/server/conversations/agent-message-validation-error.server";
-import { messageAnchorWhere } from "#src/server/db/message-anchor.server";
+import { messageAnchorWhere, messageIdMatchesAnchor } from "#src/server/db/message-anchor.server";
 import { getAgentChannel, PublicChannels } from "#src/server/conversations/public-channels.server";
 import {
   ACTIVE_MEMBER_WHERE,
@@ -129,6 +129,8 @@ export type AgentRecoveryContext = {
       sequence: number;
       target: string;
       body: string;
+      /** The Agent was notified of this channel message without being a member of the channel. */
+      nonMemberMention?: boolean;
     } & LatestSenderFields
   >;
   unreadSummary: Readonly<Record<string, number>>;
@@ -136,8 +138,6 @@ export type AgentRecoveryContext = {
 
 export type PendingAgentDelivery = AgentRecoveryContext["resumeMessages"][number] & {
   mentionsAgent?: boolean;
-  /** The Agent was notified of this channel message without being a member of the channel. */
-  nonMemberMention?: boolean;
 };
 
 /** A mention whose target is this Agent, which the sender had it notified of. */
@@ -369,6 +369,12 @@ function unreadAgentMessagesFragment(
       JOIN "conversation_members" cam ON cam."conversationId" = cm."conversationId"
         AND cam."agentId" = ${agentId}::uuid AND cam."leftAt" IS NULL
       WHERE cd."workspaceId" = ${workspaceId}::uuid AND cd."agentId" = ${agentId}::uuid
+        -- Already read while the Agent was notified from outside the channel: not again as a member.
+        AND NOT EXISTS (
+          SELECT 1 FROM "pending_mention_actions" rpma
+          WHERE rpma."messageId" = cd."messageId" AND rpma."targetAgentId" = ${agentId}::uuid
+            AND rpma."targetReadAt" IS NOT NULL
+        )
       UNION ALL
       SELECT dm."id", dm."sequence", dm."body", dm."conversationId", dm."threadRootId",
         dm."senderMemberId"
@@ -832,6 +838,38 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
    * to its conversation, thread root and canonical spelling. Public so other Agent HTTP routes
    * (e.g. attachment upload) can reuse the same target grammar instead of duplicating it.
    */
+  /**
+   * The target an Agent drains (`message check --target`): one it belongs to, or a channel it is
+   * not in but was notified of a message in and has not read yet. The latter only reaches those
+   * notified messages (the drain's non-member branch); the channel itself stays closed to it.
+   */
+  private async drainScope(workspaceId: string, agentId: string, target: string) {
+    try {
+      return await this.resolveAgentTarget(workspaceId, agentId, target);
+    } catch (error) {
+      const [parent, anchor] = target.split(":");
+      if (!parent?.startsWith("#") || !isAppError(error) || error.code !== "ACCESS_DENIED")
+        throw error;
+      const notified = await this.db.pendingMentionAction.findMany({
+        where: {
+          workspaceId,
+          ...NOTIFIED_AGENT_WHERE(agentId),
+          targetReadAt: null,
+          message: {
+            conversation: { ...VISIBLE_CONVERSATION_WHERE, channelName: parent.slice(1) },
+            threadRootId: anchor ? { not: null } : null,
+          },
+        },
+        select: { conversationId: true, message: { select: { threadRootId: true } } },
+      });
+      const match = notified.find(
+        (row) => !anchor || messageIdMatchesAnchor(row.message.threadRootId!, anchor),
+      );
+      if (!match) throw error;
+      return { conversationId: match.conversationId, threadRootId: match.message.threadRootId };
+    }
+  }
+
   async resolveAgentTarget(workspaceId: string, agentId: string, target: string) {
     const parentTarget = target.split(":")[0]!;
     const isChannel = parentTarget.startsWith("#");
@@ -1755,6 +1793,19 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
         },
       },
     });
+    // A notified delivery reaches the Agent as a non-member only while it is not in the channel.
+    const memberOf = new Set(
+      (
+        await this.db.conversationMember.findMany({
+          where: {
+            agentId,
+            ...ACTIVE_MEMBER_WHERE,
+            conversationId: { in: [...new Set(deliveries.map((d) => d.conversationId))] },
+          },
+          select: { conversationId: true },
+        })
+      ).map((member) => member.conversationId),
+    );
     return deliveries.map((delivery) => {
       // An Agent-authored message has no `user` on its sender row, so a `user.username`-only
       // derivation produced a bare `@` and rejected every pending Agent message. Reuse the one
@@ -1776,7 +1827,9 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
         latestSenderHandle: sender.handle,
         latestSenderDescription: sender.description,
         ...agentMessageView(delivery.message, agentId),
-        ...(delivery.message.pendingMentionActions.length ? { nonMemberMention: true } : {}),
+        ...(delivery.message.pendingMentionActions.length && !memberOf.has(delivery.conversationId)
+          ? { nonMemberMention: true }
+          : {}),
       };
     });
   }
@@ -1938,7 +1991,8 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
       )
       SELECT "id", "sequence", "body", "conversationId", "threadRootId", "senderMemberId",
         "deliveryId", "senderAgentName", "senderAgentDescription", "senderUsername",
-        "senderUserDescription", "channelName", "otherUsername", "unreadCount", "globalRank"
+        "senderUserDescription", "channelName", "otherUsername", "unreadCount", "globalRank",
+        "nonMemberMention"
       FROM ranked
       WHERE "globalRank" <= ${AGENT_RECOVERY_MESSAGE_LIMIT} OR "targetRank" = 1
       ORDER BY "globalRank"`;
@@ -2000,6 +2054,7 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
         latestSenderHandle: sender.handle,
         latestSenderDescription: sender.description,
         ...agentMessageView({ body: row.body, mentions: mentionsByMessage.get(row.id) ?? [] }),
+        ...(row.nonMemberMention ? { nonMemberMention: true } : {}),
       });
     }
     return { resumeMessages, unreadSummary };
@@ -2021,7 +2076,7 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
     hasMore: boolean;
   }> {
     const bounded = Math.min(Math.max(limit, 1), 100);
-    const scope = target ? await this.resolveAgentTarget(workspaceId, agentId, target) : undefined;
+    const scope = target ? await this.drainScope(workspaceId, agentId, target) : undefined;
     return this.db.$transaction(async (tx) => {
       const rows = await tx.$queryRaw<
         Array<

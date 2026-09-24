@@ -398,6 +398,9 @@ export class AgentMessageAttentionIndex {
             : message.target.includes(":")
               ? "thread"
               : "dm",
+          ...(message.nonMemberMention || previous?.flags.includes("non_member_mention")
+            ? ["non_member_mention"]
+            : []),
         ],
       });
     }

@@ -1409,12 +1409,25 @@ test("the sender notifies a mentioned outsider once: an Agent gets the message a
         pending.nonMemberMention,
       ]),
     ).toEqual([[sent.id, true]]);
-    // Its `message check` reads the message once, marked as reaching it outside the channel.
-    const drained = await repo.drainAgentEvents(workspace.id, helper.id);
+    // A restart's recovery carries it with the same flag.
+    expect(
+      (await repo.readAgentRecoveryContext(workspace.id, helper.id)).resumeMessages.map(
+        (message) => [message.messageId, message.nonMemberMention],
+      ),
+    ).toEqual([[sent.id, true]]);
+    // Its `message check`, scoped to the channel as its inbox notice says, reads the message once,
+    // marked as reaching it outside the channel; the channel's history stays closed to it.
+    const drained = await repo.drainAgentEvents(workspace.id, helper.id, 20, `#notify-${suffix}`);
     expect(
       drained.messages.map((message) => [message.id, message.target, message.nonMemberMention]),
     ).toEqual([[sent.id, `#notify-${suffix}`, true]]);
     expect((await repo.drainAgentEvents(workspace.id, helper.id)).messages).toEqual([]);
+    expect(
+      await repo
+        .readMessages(workspace.id, helper.id, `#notify-${suffix}`)
+        .then(() => "read")
+        .catch(() => "refused"),
+    ).toBe("refused");
     // Notified once; still addable.
     expect(
       (
@@ -1431,6 +1444,20 @@ test("the sender notifies a mentioned outsider once: an Agent gets the message a
     expect(
       (await channels.send(send)).pendingMentionActions.map((action) => action.availableActions),
     ).toEqual([["add"], ["add"]]);
+    // Once added, the Agent reads the channel as a member: the message it already read as a
+    // non-member is not read again, and nothing replays as reaching it from outside.
+    expect(
+      (await channels.executeMentionActions(workspace.id, alice.id, "add", [forHelper!])).map(
+        (result) => result.status,
+      ),
+    ).toEqual(["delivered"]);
+    expect((await repo.drainAgentEvents(workspace.id, helper.id)).messages).toEqual([]);
+    expect(
+      (await repo.readPendingAgentDeliveries(workspace.id, helper.id)).map((pending) => [
+        pending.messageId,
+        pending.nonMemberMention,
+      ]),
+    ).toEqual([[sent.id, undefined]]);
   } finally {
     await db.workspace.delete({ where: { id: workspace.id } });
     await db.computer.deleteMany({ where: { ownerId: alice.id } });

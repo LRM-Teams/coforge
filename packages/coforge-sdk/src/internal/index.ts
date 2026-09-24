@@ -638,6 +638,8 @@ export type AgentRecoveryMessage = {
   latestSenderHandle: string;
   latestSenderDescription: string;
   body: string;
+  /** True when the Agent is not in the channel and was notified of this one message. */
+  nonMemberMention?: boolean;
 };
 export type AgentMessageDelivery = {
   protocolMajor: number;

@@ -627,11 +627,20 @@ test("a person notified of a mention outside their channels finds it in Activity
     },
   });
   try {
-    const channels = new PublicChannels(db, undefined, {
-      publish: async () => {},
-      publishJson: async () => {},
-      broadcast: async () => {},
-    });
+    const announced: { workspaceId: string; userId: string }[] = [];
+    const channels = new PublicChannels(
+      db,
+      undefined,
+      { publish: async () => {}, publishJson: async () => {}, broadcast: async () => {} },
+      undefined,
+      {
+        messageAvailable: async () => {},
+        memberChanged: async () => {},
+        activityChanged: async (input) => {
+          announced.push(input);
+        },
+      },
+    );
     const triage = await channels.create(workspace.id, alice.id, `triage-${suffix}`);
     const sent = await channels.send({
       workspaceId: workspace.id,
@@ -648,6 +657,8 @@ test("a person notified of a mention outside their channels finds it in Activity
 
     const resolutionId = sent.pendingMentionActions[0]!.resolutionId;
     await channels.executeMentionActions(workspace.id, alice.id, "notify", [resolutionId]);
+    // Bob's open Activity page and nav dot are told to re-read.
+    expect(announced).toEqual([{ workspaceId: workspace.id, userId: bob.id }]);
     const [item] = await mentionsOf();
     expect(item).toMatchObject({
       key: `mention:${resolutionId}`,

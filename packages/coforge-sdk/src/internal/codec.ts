@@ -832,6 +832,7 @@ export function decodeAgentStartIntent(bytes: Uint8Array): AgentStartIntent {
     latestSenderHandle: message.latestSenderHandle,
     latestSenderDescription: message.latestSenderDescription,
     body: message.body,
+    ...(message.nonMemberMention ? { nonMemberMention: true } : {}),
   });
   return {
     protocolMajor: v.protocolMajor,
