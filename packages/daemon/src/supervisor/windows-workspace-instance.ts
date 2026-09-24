@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
@@ -39,7 +38,7 @@ export class WindowsWorkspaceInstance implements WorkspaceInstance {
     private readonly signalProcess: WindowsProcessSignal = defaultSignal,
   ) {
     validateWorkspaceEndpoint(config.daemonConnectionEndpoint);
-    this.identityKey = createHash("sha256")
+    this.identityKey = new Bun.CryptoHasher("sha256")
       .update(`${config.stateRoot}\0${config.workspaceId}`)
       .digest("hex")
       .slice(0, 24);

@@ -1,5 +1,4 @@
 import type { Prisma, PrismaClient } from "#src/generated/prisma/client";
-import { createHash } from "node:crypto";
 import { AppError } from "#src/lib/app-error";
 import { collectorRuntimeConfigured } from "./weekly-report-collector.server";
 
@@ -478,7 +477,7 @@ export async function failRunningCollectSlotsForAgent(
 
 /** Stable UUID per (turn request, slot) so Daemon retries remain idempotent. */
 export function collectFailRequestId(turnRequestId: string, slotId: string): string {
-  const hex = createHash("sha256").update(`${turnRequestId}:${slotId}`).digest("hex");
+  const hex = new Bun.CryptoHasher("sha256").update(`${turnRequestId}:${slotId}`).digest("hex");
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(13, 16)}-a${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
 }
 

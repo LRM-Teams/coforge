@@ -1,4 +1,4 @@
-import { createHash, randomBytes, randomInt } from "node:crypto";
+import { randomBytes, randomInt } from "node:crypto";
 
 import {
   formatUserCode,
@@ -57,7 +57,7 @@ export interface DeviceAuthorizationStore {
  * without a salt is deliberate - lookup is by exact digest, and neither value is user-chosen,
  * low-entropy, or reused anywhere else. */
 function digest(value: string): string {
-  return createHash("sha256").update(value).digest("base64url");
+  return new Bun.CryptoHasher("sha256").update(value).digest("base64url");
 }
 
 function generateUserCode(): string {

@@ -1,4 +1,4 @@
-import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
+import { randomBytes, timingSafeEqual } from "node:crypto";
 
 export type AgentApiKeyRecord = {
   id: string;
@@ -27,7 +27,7 @@ export function isAgentApiKeyBoundToComputer(
 }
 
 export function hashAgentApiKey(value: string): string {
-  return createHash("sha256").update(value).digest("hex");
+  return new Bun.CryptoHasher("sha256").update(value).digest("hex");
 }
 
 export function createAgentApiKey(input: {

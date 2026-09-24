@@ -1,4 +1,4 @@
-import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
+import { randomBytes, timingSafeEqual } from "node:crypto";
 import { type JWK } from "jose";
 
 export type DaemonApiKeyClaims = {
@@ -25,7 +25,7 @@ export interface DaemonApiKeyRepository {
 const DAEMON_API_KEY = /^dk_[A-Za-z0-9_-]{43}$/;
 
 export function hashDaemonApiKey(value: string): string {
-  return createHash("sha256").update(value).digest("hex");
+  return new Bun.CryptoHasher("sha256").update(value).digest("hex");
 }
 
 export function createDaemonApiKeyFactory(repository: DaemonApiKeyRepository) {
