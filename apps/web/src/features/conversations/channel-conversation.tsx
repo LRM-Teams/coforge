@@ -219,12 +219,12 @@ export function ChannelConversation({
     refetchOnWindowFocus: true,
   });
   // Who else the viewer may mention on purpose; kept current by the same invalidation (the key
-  // shares the directory's prefix). Loaded only for a member, who has a composer.
+  // shares the directory's prefix). Loaded only for a member of an open channel, who has a composer.
   const mentionOutsiders = useQuery({
     queryKey: ["conversation", "mentionables", conversation.conversationId, "outsiders"],
     queryFn: (): Promise<Mentionable[]> =>
       loadPublicChannelMentionOutsiders({ data: { channelId: conversation.conversationId } }),
-    enabled: Boolean(conversation.senderMemberId),
+    enabled: Boolean(conversation.senderMemberId) && !conversation.archived,
     staleTime: 15_000,
     refetchOnWindowFocus: true,
   });

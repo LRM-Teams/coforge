@@ -4078,6 +4078,19 @@ test("@-completion offers the Workspace's people and public Agents outside the c
     ]);
     expect(outsiders.every((row) => row.outsider)).toBe(true);
     expect(outsiders[1]!.description).toBe("helper helps");
+
+    // Someone who left the channel is outside it again; a viewer outside the channel is never
+    // offered to themselves.
+    await db.conversationMember.updateMany({
+      where: { conversationId: triage.id, userId: carol.id },
+      data: { leftAt: new Date() },
+    });
+    expect(
+      (await channels.mentionOutsiders(workspace.id, bob.id, triage.id)).map((row) => row.handle),
+    ).toEqual([`oc${suffix}`, "helper"]);
+    // Nobody outside the Workspace, and no channel of another Workspace, is answered.
+    await expect(channels.mentionOutsiders(workspace.id, stranger.id, triage.id)).rejects.toThrow();
+    await expect(channels.mentionOutsiders(other.id, stranger.id, triage.id)).rejects.toThrow();
   } finally {
     await db.workspace.delete({ where: { id: workspace.id } });
     await db.workspace.delete({ where: { id: other.id } });

@@ -17,8 +17,11 @@ import type { ReferenceSuggestion } from "./use-reference-completion";
  * mentionable members (`@`) or the Workspace's channels (`#`), filtered to the in-progress query.
  * Every row is one line so more candidates fit above the composer. A member row reads avatar,
  * display name, a Human/Agent badge and the profile description, with the `@handle` pinned to the
- * right edge. A channel row reads a `#` icon, the name and the description, with an "Archived"
- * badge on the right; an archived channel's row is dimmed.
+ * right edge. In a channel the `@` list has two groups, the members and then the Workspace's people
+ * and public Agents outside the channel, titled only when both are shown; an outsider's name reads
+ * dimmed, since mentioning them notifies no one by itself. A channel row reads a `#` icon, the
+ * name and the description, with an "Archived" badge on the right; an archived channel's row is
+ * dimmed.
  * An Agent's avatar carries the same online/working/thinking/error/offline dot the sidebar and
  * conversation header use, so you can see whether an Agent is around before mentioning it; the
  * snapshot comes from the app shell's one subscription through `useLiveAgents`. People have no
@@ -59,7 +62,12 @@ export function ReferenceSuggestionList({
 
   // Keep the highlighted row visible while arrowing past the popup's own scroll window.
   useEffect(() => {
-    activeOptionRef.current?.scrollIntoView({ block: "nearest" });
+    const option = activeOptionRef.current;
+    // The first row of a titled group brings its title along.
+    const group = option?.closest<HTMLElement>("[role=group]");
+    (group?.querySelector("[role=option]") === option ? group : option)?.scrollIntoView({
+      block: "nearest",
+    });
   }, [activeIndex]);
 
   const renderOption = ({ item, index }: { item: ReferenceSuggestion; index: number }) => {
@@ -159,7 +167,8 @@ export function ReferenceSuggestionList({
   );
 }
 
-/** A member row: avatar (an Agent's with its live status dot), name, kind, description, handle. */
+/** A member row: avatar (an Agent's with its live status dot), name, kind, description, handle.
+ * Someone outside the channel reads with a dimmed name, the way an archived channel does. */
 function MentionRow({
   mention,
   display,
@@ -186,7 +195,14 @@ function MentionRow({
         />
       )}
       <span className="grid min-w-0 flex-1 grid-cols-[minmax(0,auto)_auto_minmax(0,1fr)] items-center gap-1.5">
-        <span className="truncate text-sm font-medium text-primary">{mention.label}</span>
+        <span
+          className={cx(
+            "truncate text-sm font-medium",
+            mention.outsider ? "text-tertiary" : "text-primary",
+          )}
+        >
+          {mention.label}
+        </span>
         <Badge size="sm" color="gray" type="modern">
           {mention.kind === "agent" ? m.member_agent() : m.member_person()}
         </Badge>

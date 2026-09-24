@@ -57,6 +57,9 @@ These rules apply to `src/features/conversations/`.
   `useDirectConversation` (`use-conversation-data.ts`), shared by the
   conversation routes and the Tasks page popup. Change a send or read path
   there, not in a route.
+- `mentionOutsiders` (the channel's people and public Agents outside it) is for
+  @-completion only. Never merge it into `mentionables`, which also resolves
+  plain `@handle` labels and stored mention tokens.
 - Message index and around-window reads go through this feature's shared
   Server Function seam, scoped by `conversationId` for both direct
   conversations and channels.
