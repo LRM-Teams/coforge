@@ -11,7 +11,7 @@ type AgentMessageDelivery = Parameters<typeof encodeAgentMessageDelivery>[0];
 /**
  * The one way a message is encoded for an Agent's daemon. Its body always goes through
  * `agentReadableBody` here, with the message's mention rows, so no stored token (`<@agent:…>`,
- * `<@task:N>`, `<@channel:…>`) ever reaches a daemon, whichever path sends it. A body that is
+ * `<@task:N>`, `<@channel:…>`, `<@thread:…>`) ever reaches a daemon, whichever path sends it. A body that is
  * already readable reads back unchanged.
  */
 export function encodeAgentDelivery(

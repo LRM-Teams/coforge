@@ -58,7 +58,9 @@ export function browserMessageMention(row: BrowserMessageMentionRow) {
 /**
  * The Agent-facing body: embedded mention tokens (`<@human:uuid>`/`<@agent:uuid>`) read back as
  * plain `@handle` text, task-reference tokens (`<@task:68>`) as `task #68`, and channel-reference
- * tokens (`<@channel:uuid:product>`) as `#product`, the channel's name when the message was sent.
+ * tokens (`<@channel:uuid:product>`) as `#product`, the channel's name when the message was sent,
+ * and thread-reference tokens (`<@thread:uuid:uuid:product>`) as `#product:<8 hex>`, the target
+ * that thread takes.
  * The token form is a storage/browser-render concern and never crosses onto the Agent channel; an
  * unresolved mention token (no matching mention row) stays as written.
  */

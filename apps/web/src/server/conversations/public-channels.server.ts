@@ -1524,9 +1524,10 @@ export class PublicChannels {
           // each resolved mention as an embedded-UUID token (`<@human:…>`/`<@agent:…>`,
           // Slack-style) and every resolved mention becomes a MessageMention row in the same
           // transaction, so renders and delivery never re-parse prose. Task references
-          // (`task #68` → `<@task:68>`) and channel references (`#product` →
-          // `<@channel:uuid:product>`) are resolved in the same pass: the server decides what
-          // names a real task or channel, and anything else stays ordinary text.
+          // (`task #68` → `<@task:68>`), channel references (`#product` →
+          // `<@channel:uuid:product>`) and thread references (`#product:abcdef12` →
+          // `<@thread:uuid:uuid:product>`) are resolved in the same pass: the server decides what
+          // names a real task, channel or thread, and anything else stays ordinary text.
           const activeMembers = await tx.conversationMember.findMany({
             where: { conversationId: channelId, ...ACTIVE_MEMBER_WHERE },
             select: {
