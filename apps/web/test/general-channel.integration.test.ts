@@ -7,6 +7,8 @@ import { PrismaWorkspaceCatalogStore } from "#src/server/workspaces/catalog.serv
 import { PrismaWorkspaceEnrollmentStore } from "#src/server/workspaces/enrollment.server";
 import { PrismaWorkspaceMemberDirectoryStore } from "#src/server/workspaces/member-directory-store.server";
 import { PrismaAgentRepository } from "#src/server/db/repositories/agent.repositories.server";
+import { PublicChannels } from "#src/server/conversations/public-channels.server";
+import { PrismaChangeAgentVisibilityStore } from "#src/server/db/repositories/agent-visibility-change.repositories.server";
 
 /**
  * `#general` is the Workspace-wide channel: every human member and every public, live Agent is in
@@ -47,7 +49,10 @@ async function generalMembers(db: Prisma.TransactionClient, workspaceId: string)
     members: general.members
       .map((row) => (row.userId ? `user:${row.userId}` : `agent:${row.agentId}`))
       .sort(),
-    muted: general.members.filter((row) => row.channelMuted).length,
+    muted: general.members
+      .filter((row) => row.channelMuted)
+      .map((row) => (row.userId ? `user:${row.userId}` : `agent:${row.agentId}`))
+      .sort(),
   };
 }
 
@@ -76,12 +81,12 @@ test.skipIf(!connectionString)(
       expect(await generalMembers(db, fromCatalog.id)).toEqual({
         archived: false,
         members: [`user:${alice.id}`],
-        muted: 0,
+        muted: [],
       });
       expect(await generalMembers(db, fromEnrollment)).toEqual({
         archived: false,
         members: [`user:${bob.id}`],
-        muted: 0,
+        muted: [],
       });
     } finally {
       await db.workspace.deleteMany({ where: { id: { in: created } } });
@@ -92,7 +97,7 @@ test.skipIf(!connectionString)(
 );
 
 test.skipIf(!connectionString)(
-  "an accepted invitation and a new public Agent join #general; a private Agent does not",
+  "an accepted invitation and a new public Agent join #general, the Agent muted; a private Agent does not until it becomes public",
   async () => {
     const db = connect();
     const suffix = crypto.randomUUID().slice(0, 8);
@@ -165,8 +170,34 @@ test.skipIf(!connectionString)(
         [`user:${owner.id}`, `user:${invitee.id}`, `agent:${helper.id}`].sort(),
       );
       expect(enrolled?.members).not.toContain(`agent:${secret.id}`);
-      // Agents join unmuted, as their instructions say; ordinary chatter still does not wake them.
-      expect(enrolled?.muted).toBe(0);
+      // An Agent joins #general muted, so ordinary chatter there does not wake every Agent in the
+      // Workspace; a personal @mention still reaches it. Humans join unmuted.
+      expect(enrolled?.muted).toEqual([`agent:${helper.id}`]);
+
+      // An Agent that later becomes public joins #general muted too.
+      await new PrismaChangeAgentVisibilityStore(db).apply({
+        agentId: secret.id,
+        workspaceId: workspace.id,
+        visibility: "public",
+      });
+      expect((await generalMembers(db, workspace.id))?.muted).toEqual(
+        [`agent:${helper.id}`, `agent:${secret.id}`].sort(),
+      );
+
+      // A re-join keeps the Agent's own setting: unmuted, made private (leaving), made public again.
+      const visibility = new PrismaChangeAgentVisibilityStore(db);
+      await new PublicChannels(db).setAgentMuted(workspace.id, secret.id, "#general", false);
+      await visibility.apply({
+        agentId: secret.id,
+        workspaceId: workspace.id,
+        visibility: "private",
+      });
+      await visibility.apply({
+        agentId: secret.id,
+        workspaceId: workspace.id,
+        visibility: "public",
+      });
+      expect((await generalMembers(db, workspace.id))?.muted).toEqual([`agent:${helper.id}`]);
       // The returning invitee starts read through the history, like anyone joining.
       const inviteeRow = await db.conversationMember.findUniqueOrThrow({
         where: { conversationId_userId: { conversationId: general.id, userId: invitee.id } },
@@ -183,17 +214,17 @@ test.skipIf(!connectionString)(
 class Rollback extends Error {}
 
 test.skipIf(!connectionString)(
-  "the migration brings #general back: unarchived or created, with every human and public live Agent in it",
+  "the migrations bring #general back: unarchived or created, with every human and public live Agent in it, the Agents muted",
   async () => {
     const db = connect();
-    const migrationDir = readdirSync(join(import.meta.dir, "../prisma/migrations")).find((name) =>
-      name.endsWith("_restore_general_channel"),
-    );
-    expect(migrationDir).toBeDefined();
-    const sql = readFileSync(
-      join(import.meta.dir, "../prisma/migrations", migrationDir!, "migration.sql"),
-      "utf8",
-    );
+    // The restore migration, then the one that mutes the Agents it enrolled, in deploy order.
+    const migrations = join(import.meta.dir, "../prisma/migrations");
+    const sqlFor = (suffix: string) => {
+      const dir = readdirSync(migrations).find((name) => name.endsWith(suffix));
+      expect(dir).toBeDefined();
+      return readFileSync(join(migrations, dir!, "migration.sql"), "utf8");
+    };
+    const steps = [sqlFor("_restore_general_channel"), sqlFor("_mute_agents_in_general")];
     const suffix = crypto.randomUUID().slice(0, 8);
     try {
       await db.$transaction(async (tx) => {
@@ -247,15 +278,14 @@ test.skipIf(!connectionString)(
           },
         });
 
-        await tx.$executeRawUnsafe(sql);
-        // Running it twice changes nothing more.
-        await tx.$executeRawUnsafe(sql);
+        // Running them twice changes nothing more.
+        for (const sql of [...steps, ...steps]) await tx.$executeRawUnsafe(sql);
 
         const restored = await generalMembers(tx, archived.id);
         expect(restored).toEqual({
           archived: false,
           members: [`user:${owner.id}`, `user:${leaver.id}`, `agent:${liveAgent.id}`].sort(),
-          muted: 0,
+          muted: [`agent:${liveAgent.id}`],
         });
         expect(restored?.members).not.toContain(`agent:${privateAgent.id}`);
         expect(restored?.members).not.toContain(`agent:${deletedAgent.id}`);
@@ -273,7 +303,7 @@ test.skipIf(!connectionString)(
         expect(await generalMembers(tx, fresh.id)).toEqual({
           archived: false,
           members: [`user:${other.id}`],
-          muted: 0,
+          muted: [],
         });
         throw new Rollback();
       });

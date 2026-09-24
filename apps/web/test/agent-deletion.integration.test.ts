@@ -5,7 +5,10 @@ import { AgentDeletion } from "#src/server/agents/agent-deletion.server";
 import { PrismaAgentDeletionStore } from "#src/server/db/repositories/agent-deletion.repositories.server";
 import { PrismaAgentRepository } from "#src/server/db/repositories/agent.repositories.server";
 import { PrismaDirectConversationRepository } from "#src/server/db/repositories/direct-conversation.repositories.server";
-import { enrollGeneralChannel } from "#src/server/conversations/public-channels.server";
+import {
+  enrollGeneralChannel,
+  PublicChannels,
+} from "#src/server/conversations/public-channels.server";
 import { WorkspaceMembers, workspaceMemberRole } from "#src/server/workspaces/members.server";
 import { findWorkspaceUser } from "#src/server/agents/agent-user-info.server";
 import type { AgentVisibilityViewer } from "#src/server/agents/agent-visibility.server";
@@ -56,6 +59,8 @@ async function setup() {
     },
   });
   await enrollGeneralChannel(db, workspace.id);
+  // An Agent joins #general muted; these tests need the ordinary #general Task delivery.
+  await new PublicChannels(db).setAgentMuted(workspace.id, agent.id, "#general", false);
   // A Computer assignment, so the delete's runtime Stop is genuinely attempted.
   const computer = await db.computer.create({
     data: {

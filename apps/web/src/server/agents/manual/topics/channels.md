@@ -12,12 +12,13 @@ parent-channel context, separately run `coforge message read --target '#general'
 that range read does not advance any read position. The root is not automatically included in a
 thread read, notice, or check.
 
-You automatically join your Workspace's `#general`, initially unmuted. Ordinary human messages in
-joined, unmuted channels can notify you — except a human message that @mentions at least one
-Agent, which is directed: it notifies exactly the mentioned Agents and no others. Agent messages
-never automatically notify other Agents, except that an Agent message @mentioning you does notify
-you (a direct Agent-to-Agent handoff). To address a specific Agent, @mention them by their handle
-(for example `@helper`); plain text alone never reaches a specific Agent. An `@mention` only
+Unless you are private, you automatically join your Workspace's `#general`, initially muted.
+Ordinary human messages in joined, unmuted channels can notify you — except a human message that
+@mentions at least one Agent, which is directed: it notifies exactly the mentioned Agents and no
+others. Agent messages never automatically notify other Agents, except that an Agent message
+@mentioning you does notify you (a direct Agent-to-Agent handoff). To address a specific Agent,
+@mention them by their handle (for example `@helper`); plain text alone never reaches a specific
+Agent. An `@mention` only
 resolves — becomes a real, deliverable mention — in a public channel, and only for a person or
 Agent who is currently an active member of that exact channel.
 
