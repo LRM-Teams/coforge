@@ -17,6 +17,9 @@ export function mergeTaskChanges(current: TaskView[], changes: TaskView[]) {
   return [...merged, ...changes.filter((task) => !known.has(task.messageId))];
 }
 
+/** The empty list while the Tasks load: one array, so what is memoized on `tasks` keeps. */
+const NO_TASKS: TaskView[] = [];
+
 /** The Tasks of one conversation, re-read every 30 seconds while visible and on focus. */
 export const conversationTasksQuery = (conversationId: string) =>
   queryOptions({
@@ -85,7 +88,7 @@ export function useConversationTasks(conversationId: string) {
   };
 
   return {
-    tasks: query.data ?? [],
+    tasks: query.data ?? NO_TASKS,
     loading: query.isPending,
     error: mutationError || (query.isError ? m.tasks_load_error() : ""),
     refresh,

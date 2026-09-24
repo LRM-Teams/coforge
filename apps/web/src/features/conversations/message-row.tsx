@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { memo, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import type { AgentDisplaySnapshot } from "@lrm/coforge-sdk/internal";
 import { FileIcon as FileTypeIcon } from "@untitledui/file-icons";
 import {
@@ -513,7 +513,12 @@ export function DayDivider({ value, locale }: { value: Date | string; locale?: s
 const ROW_CLASS = "flex flex-col";
 
 /** One history row: optional day divider, then the message with its hover actions. */
-export function MessageRow({
+/**
+ * Memoized: a conversation re-renders on every send, poll, page and pane change, and a row only
+ * needs to when its own message or row state does. Callers keep its props stable (`useCallback`,
+ * `useLatestCallback` for event handlers) so an unrelated change skips the row.
+ */
+export const MessageRow = memo(function MessageRow({
   message,
   own,
   dayChanged,
@@ -545,7 +550,8 @@ export function MessageRow({
    * than the row, so a row that re-renders (or is skipped and rendered again as you scroll) never
    * collapses behind the reader. */
   expanded: boolean;
-  onToggleExpanded: () => void;
+  /** Called with this row's message id, so one stable handler serves every row. */
+  onToggleExpanded: (messageId: string) => void;
   /** The live display snapshot for one Agent, from the app shell's subscription. Absent where the
    * surface has no access to it; the avatar then renders without a dot rather than as a wrong one. */
   agentDisplay?: (agentId: string) => AgentDisplaySnapshot | undefined;
@@ -914,7 +920,7 @@ export function MessageRow({
                 channelNames={channelNames}
                 onOpenAgentProfile={onOpenAgentProfile}
                 expanded={expanded}
-                onToggleExpanded={onToggleExpanded}
+                onToggleExpanded={() => onToggleExpanded(message.id)}
               />
               {quoteOffer && onQuoteSelection && (
                 <div
@@ -1222,4 +1228,4 @@ export function MessageRow({
       </div>
     </li>
   );
-}
+});
