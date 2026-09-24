@@ -392,6 +392,7 @@ export function ConversationPane({
    * row: a row is skipped and laid out again as it leaves and re-enters the viewport, and an
    * expanded message must not re-collapse behind the reader. */
   const [expandedMessages, setExpandedMessages] = useState<ReadonlySet<string>>(new Set());
+  const collapsible = conversation.collapseLongMessages !== false;
   const toggleExpandedMessage = useCallback((messageId: string) => {
     setExpandedMessages((current) => {
       const next = new Set(current);
@@ -885,6 +886,7 @@ export function ConversationPane({
                     unreadStartsHere={false}
                     expanded={expandedMessages.has(root.id)}
                     onToggleExpanded={toggleExpandedMessage}
+                    collapsible={collapsible}
                     agentDisplay={agentDisplayFor}
                     dateLocale={dateLocale}
                     messageFooter={messageFooter}
@@ -1011,6 +1013,7 @@ export function ConversationPane({
                               highlighted={message.id === jumpHighlightId}
                               expanded={false}
                               onToggleExpanded={toggleExpandedMessage}
+                              collapsible={collapsible}
                               dateLocale={dateLocale}
                             />
                           ))}
@@ -1037,6 +1040,7 @@ export function ConversationPane({
                       highlighted={message.id === jumpHighlightId}
                       expanded={expandedMessages.has(message.id)}
                       onToggleExpanded={toggleExpandedMessage}
+                      collapsible={collapsible}
                       agentDisplay={agentDisplayFor}
                       dateLocale={dateLocale}
                       threadEntry={threadEntry}

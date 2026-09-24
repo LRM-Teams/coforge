@@ -711,6 +711,9 @@ model ConversationMember {
   /// thread does not consume unread in the channel's main target.
   readThroughSequence      Int               @default(0)
   channelMuted             Boolean           @default(false)
+  /// This member's own display preference for this conversation: long messages fold behind
+  /// "Show more". On unless they turn it off.
+  collapseLongMessages     Boolean           @default(true)
   /// Soft leave marker. Member rows can never be deleted once they own a Message/Task
   /// (onDelete: Restrict), so "left" is represented here instead of by row absence.
   /// Re-joining clears this and keeps the row, so read boundaries and mute preferences survive.

@@ -518,6 +518,7 @@ export const MessageRow = memo(function MessageRow({
   grouped,
   expanded,
   onToggleExpanded,
+  collapsible = true,
   agentDisplay,
   unreadStartsHere,
   highlighted,
@@ -545,6 +546,8 @@ export const MessageRow = memo(function MessageRow({
   expanded: boolean;
   /** Called with this row's message id, so one stable handler serves every row. */
   onToggleExpanded: (messageId: string) => void;
+  /** Whether a long body may fold at all (the viewer's "Collapse long messages" preference). */
+  collapsible?: boolean;
   /** The live display snapshot for one Agent, from the app shell's subscription. Absent where the
    * surface has no access to it; the avatar then renders without a dot rather than as a wrong one. */
   agentDisplay?: (agentId: string) => AgentDisplaySnapshot | undefined;
@@ -915,6 +918,7 @@ export const MessageRow = memo(function MessageRow({
                 channelNames={channelNames}
                 onOpenAgentProfile={onOpenAgentProfile}
                 expanded={expanded}
+                collapsible={collapsible}
                 onToggleExpanded={() => onToggleExpanded(message.id)}
               />
               {quoteOffer && onQuoteSelection && (

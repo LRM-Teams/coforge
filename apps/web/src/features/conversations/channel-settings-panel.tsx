@@ -46,6 +46,7 @@ import {
   leavePublicChannel,
   setGeneralChannelHidden,
   setPublicChannelArchived,
+  setPublicChannelCollapseLongMessages,
   setPublicChannelMuted,
   setPublicConversationPinned,
   updatePublicChannelInfo,
@@ -562,11 +563,12 @@ function PreferencesSection({
 }) {
   const setPinned = useServerFn(setPublicConversationPinned);
   const setMuted = useServerFn(setPublicChannelMuted);
-  const [pending, setPending] = useState<"pin" | "mute" | null>(null);
+  const setCollapse = useServerFn(setPublicChannelCollapseLongMessages);
+  const [pending, setPending] = useState<"pin" | "mute" | "collapse" | null>(null);
   const [error, setError] = useState("");
   const channelId = conversation.conversationId;
 
-  async function change(which: "pin" | "mute", write: () => Promise<unknown>) {
+  async function change(which: "pin" | "mute" | "collapse", write: () => Promise<unknown>) {
     setPending(which);
     setError("");
     try {
@@ -607,6 +609,22 @@ function PreferencesSection({
             isDisabled={pending !== null}
             onChange={(muted) =>
               void change("mute", () => setMuted({ data: { channelId, muted } }))
+            }
+          />
+        </PreferenceRow>
+        <PreferenceRow
+          title={m.channel_settings_collapse_long_messages()}
+          description={m.channel_settings_collapse_long_messages_description()}
+        >
+          <Toggle
+            size="md"
+            aria-label={m.channel_settings_collapse_long_messages()}
+            isSelected={conversation.collapseLongMessages !== false}
+            isDisabled={pending !== null}
+            onChange={(collapseLongMessages) =>
+              void change("collapse", () =>
+                setCollapse({ data: { channelId, collapseLongMessages } }),
+              )
             }
           />
         </PreferenceRow>

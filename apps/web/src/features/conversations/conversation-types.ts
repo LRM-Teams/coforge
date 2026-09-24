@@ -34,6 +34,8 @@ export type DirectConversationView = {
   /** The viewing user's `@handle`; powers the stronger "mentioned me" chip, and lets the composer
    * drop the viewer from its candidate list. Absent for a non-member. */
   viewerHandle?: string;
+  /** The viewer's own preference: long messages fold behind "Show more". Absent means on. */
+  collapseLongMessages?: boolean;
   /** The composer's @-completion source *and* the resolver for a body's `<@kind:uuid>` tokens:
    * every active member, the viewer included. Absent for a non-member. */
   mentionables?: Mentionable[];
