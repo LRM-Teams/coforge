@@ -66,6 +66,7 @@ import { composerDraftKey } from "./composer-draft";
 import { OutboxMessageRow } from "./outbox-message-row";
 import { SystemMessageGroup } from "./system-message-group";
 import { groupSystemMessages } from "./system-message-groups";
+import { groupRepliesByRoot } from "./conversation-messages";
 import { useMessageOutbox, useOutboxEntries } from "./use-message-outbox";
 import {
   OwnMessagesMenu,
@@ -73,6 +74,7 @@ import {
   type OwnMessageIndexEntry,
 } from "./own-messages-menu";
 import { cn } from "#src/lib/utils";
+import { useLatestCallback } from "#src/hooks/use-latest-callback";
 import { TaskBadge } from "#src/features/tasks/task-board";
 import { TaskDetailDialog } from "#src/features/tasks/task-detail-dialog";
 import { m } from "#src/paraglide/messages";
@@ -458,17 +460,18 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
     () => conversation.messages.filter((message) => !message.threadRootId),
     [conversation.messages],
   );
-  // Replies grouped once per message list, instead of a filter per rendered root.
-  const repliesByRoot = useMemo(() => {
-    const byRoot = new Map<string, DirectConversationView["messages"]>();
-    for (const message of conversation.messages) {
-      if (!message.threadRootId) continue;
-      const replies = byRoot.get(message.threadRootId);
-      if (replies) replies.push(message);
-      else byRoot.set(message.threadRootId, [message]);
-    }
-    return byRoot;
-  }, [conversation.messages]);
+  // Replies grouped once per message list, instead of a filter per rendered root; the grouping
+  // keeps its identity while the replies are unchanged, so the thread entry and preview below
+  // (and every memoized row that takes them) survive a new top-level message.
+  const previousRepliesByRoot =
+    useRef<ReturnType<typeof groupRepliesByRoot<DirectConversationView["messages"][number]>>>(
+      undefined,
+    );
+  const repliesByRoot = useMemo(
+    () => groupRepliesByRoot(conversation.messages, previousRepliesByRoot.current),
+    [conversation.messages],
+  );
+  previousRepliesByRoot.current = repliesByRoot;
   const repliesOf = (rootId: string) => repliesByRoot.get(rootId) ?? [];
   // A stored channel reference links to its channel, under its current name, only when the
   // Workspace has that channel: every channel by id, closed ones included, from the messages layout.
@@ -696,6 +699,91 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
           ? { status: "missing" }
           : threadRootLoad.load
       : undefined;
+  // Row render props, memoized on the data they read so a memoized row re-renders when its own
+  // thread or task changes and not on every pane render.
+  const threadEntry = useCallback(
+    (message: DirectConversationView["messages"][number]) => {
+      const boundary = threadCursor(message.id) ?? 0;
+      return {
+        unread: (repliesByRoot.get(message.id) ?? []).filter(
+          (reply) => reply.senderKind === "agent" && reply.sequence > boundary,
+        ).length,
+        open: () => openThread(message.id),
+      };
+    },
+    [repliesByRoot, threadCursor, openThread],
+  );
+  const threadPreview = useCallback(
+    (message: DirectConversationView["messages"][number]) => {
+      // System notices are stream bookkeeping, not a person replying: they belong to the full
+      // thread pane, never to the preview card under the root (the boss on the phone — a
+      // preview row that reads as a reply but has no content is worse than none). Filtering
+      // before the count too, so a thread with only notices shows no preview button at all;
+      // the thread pane still lists every reply when opened.
+      const threadReplies = (repliesByRoot.get(message.id) ?? []).filter(
+        (reply) => reply.senderKind !== "system",
+      );
+      if (!threadReplies.length) return null;
+      const label = replyCountLabel(threadReplies.length);
+      const unread = threadReplies.filter(
+        (reply) => reply.senderKind === "agent" && reply.sequence > (threadCursor(message.id) ?? 0),
+      ).length;
+      // The newest few only; the side pane holds the full thread.
+      const visible = threadReplies.slice(-3);
+      return (
+        <Button
+          color="tertiary"
+          size="sm"
+          noTextPadding
+          onPress={() => openThread(message.id)}
+          className="mt-1.5 block h-auto w-full rounded-lg bg-secondary p-2 text-left font-normal hover:bg-secondary_hover"
+        >
+          <span className="flex items-center gap-0.5 text-sm font-medium text-brand-secondary">
+            {unread > 0 ? `${label} · ${m.conversation_thread_unread({ count: unread })}` : label}
+            <ChevronRight aria-hidden="true" className="size-4" />
+          </span>
+          <span className="mt-1 flex flex-col gap-1.5">
+            {visible.map((reply) => (
+              <span key={reply.id} className="flex min-w-0 items-center gap-2">
+                <Avatar
+                  size="xs"
+                  alt={reply.senderName}
+                  src={reply.senderAvatarUrl}
+                  initials={avatarInitial(reply.senderName)}
+                  contentClassName={
+                    reply.senderDeleted
+                      ? DELETED_AGENT_AVATAR_CLASS
+                      : avatarToneClassName(reply.senderName)
+                  }
+                  className="shrink-0"
+                />
+                <span className="shrink-0 text-sm font-medium text-primary">
+                  {reply.senderName}
+                </span>
+                <span className="min-w-0 flex-1 truncate text-sm text-secondary">
+                  {formatPreviewBody(reply.body)}
+                </span>
+                <RelativeTime
+                  value={reply.createdAt}
+                  plain
+                  className="shrink-0 text-xs whitespace-nowrap text-tertiary"
+                />
+              </span>
+            ))}
+          </span>
+        </Button>
+      );
+    },
+    [repliesByRoot, threadCursor, openThread, formatPreviewBody],
+  );
+  const tasks = props.tasks;
+  const messageFooter = useCallback(
+    (message: DirectConversationView["messages"][number]) => {
+      const task = tasks?.find((candidate) => candidate.messageId === message.id);
+      return task ? <TaskBadge task={task} /> : null;
+    },
+    [tasks],
+  );
   const conversationMainPane = (
     <ConversationPane
       {...conversationProps}
@@ -710,80 +798,9 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
       onReadLatest={onReadLatest}
       header={header}
       conversation={{ ...conversation, messages: mainMessages }}
-      threadEntry={(message) => {
-        const boundary = threadCursor(message.id) ?? 0;
-        return {
-          unread: repliesOf(message.id).filter(
-            (reply) => reply.senderKind === "agent" && reply.sequence > boundary,
-          ).length,
-          open: () => openThread(message.id),
-        };
-      }}
-      threadPreview={(message) => {
-        // System notices are stream bookkeeping, not a person replying: they belong to the full
-        // thread pane, never to the preview card under the root (the boss on the phone — a
-        // preview row that reads as a reply but has no content is worse than none). Filtering
-        // before the count too, so a thread with only notices shows no preview button at all;
-        // the thread pane still lists every reply when opened.
-        const threadReplies = repliesOf(message.id).filter(
-          (reply) => reply.senderKind !== "system",
-        );
-        if (!threadReplies.length) return null;
-        const label = replyCountLabel(threadReplies.length);
-        const unread = threadReplies.filter(
-          (reply) =>
-            reply.senderKind === "agent" && reply.sequence > (threadCursor(message.id) ?? 0),
-        ).length;
-        // The newest few only; the side pane holds the full thread.
-        const visible = threadReplies.slice(-3);
-        return (
-          <Button
-            color="tertiary"
-            size="sm"
-            noTextPadding
-            onPress={() => openThread(message.id)}
-            className="mt-1.5 block h-auto w-full rounded-lg bg-secondary p-2 text-left font-normal hover:bg-secondary_hover"
-          >
-            <span className="flex items-center gap-0.5 text-sm font-medium text-brand-secondary">
-              {unread > 0 ? `${label} · ${m.conversation_thread_unread({ count: unread })}` : label}
-              <ChevronRight aria-hidden="true" className="size-4" />
-            </span>
-            <span className="mt-1 flex flex-col gap-1.5">
-              {visible.map((reply) => (
-                <span key={reply.id} className="flex min-w-0 items-center gap-2">
-                  <Avatar
-                    size="xs"
-                    alt={reply.senderName}
-                    src={reply.senderAvatarUrl}
-                    initials={avatarInitial(reply.senderName)}
-                    contentClassName={
-                      reply.senderDeleted
-                        ? DELETED_AGENT_AVATAR_CLASS
-                        : avatarToneClassName(reply.senderName)
-                    }
-                    className="shrink-0"
-                  />
-                  <span className="shrink-0 text-sm font-medium text-primary">
-                    {reply.senderName}
-                  </span>
-                  <span className="min-w-0 flex-1 truncate text-sm text-secondary">
-                    {formatPreviewBody(reply.body)}
-                  </span>
-                  <RelativeTime
-                    value={reply.createdAt}
-                    plain
-                    className="shrink-0 text-xs whitespace-nowrap text-tertiary"
-                  />
-                </span>
-              ))}
-            </span>
-          </Button>
-        );
-      }}
-      messageFooter={(message) => {
-        const task = props.tasks?.find((candidate) => candidate.messageId === message.id);
-        return task ? <TaskBadge task={task} /> : null;
-      }}
+      threadEntry={threadEntry}
+      threadPreview={threadPreview}
+      messageFooter={messageFooter}
     />
   );
   const conversationSidePane = visibleSlot && (
@@ -1026,15 +1043,19 @@ export function ConversationPane({
     quoteSequenceRef.current += 1;
     setQuotedDraft({ id: quoteSequenceRef.current, text });
   }, []);
-  const toggleReaction = useCallback(
-    (messageId: string, emoji: string, active: boolean) => {
-      if (!onToggleReaction) return;
-      void onToggleReaction(messageId, emoji, active).catch(() => {
-        toast.error(m.conversation_reaction_error());
-      });
-    },
-    [onToggleReaction, toast],
+  // Row event handlers keep one identity across renders (`useLatestCallback`), so the memoized
+  // rows skip a pane render that did not change them.
+  const toggleReaction = useLatestCallback(
+    onToggleReaction
+      ? (messageId: string, emoji: string, active: boolean) => {
+          void onToggleReaction(messageId, emoji, active).catch(() => {
+            toast.error(m.conversation_reaction_error());
+          });
+        }
+      : undefined,
   );
+  const openAgentProfile = useLatestCallback(onOpenAgentProfile);
+  const openTaskReference = useLatestCallback(onOpenTask);
   // Saving (#127) is viewer-global state with a conversation-scoped write: the pane owns the
   // conversation id, the Chat page's Saved context owns the list every star (and the Saved view)
   // reads. Membership-gated exactly like the channel gates its row actions; outside the Chat
@@ -1042,7 +1063,7 @@ export function ConversationPane({
   const savedMessages = useSavedMessages();
   const saveMessageFn = useServerFn(saveMessage);
   const unsaveMessageFn = useServerFn(unsaveMessage);
-  const onToggleSave =
+  const onToggleSave = useLatestCallback(
     savedMessages && conversation.senderMemberId
       ? async (messageId: string, saved: boolean) => {
           if (saved) {
@@ -1056,7 +1077,8 @@ export function ConversationPane({
           }
           await savedMessages.refresh();
         }
-      : undefined;
+      : undefined,
+  );
   const [followingLatest, followingLatestRef, setFollowingLatest] = useStateWithRef(true);
   const [loadingOlder, loadingOlderRef, setLoadingOlder] = useStateWithRef(false);
   const [, loadingNewerRef, setLoadingNewer] = useStateWithRef(false);
@@ -1720,17 +1742,17 @@ export function ConversationPane({
                   grouped={false}
                   unreadStartsHere={false}
                   expanded={expandedMessages.has(root.id)}
-                  onToggleExpanded={() => toggleExpandedMessage(root.id)}
+                  onToggleExpanded={toggleExpandedMessage}
                   agentDisplay={agentDisplayFor}
                   dateLocale={dateLocale}
                   messageFooter={messageFooter}
-                  onToggleReaction={onToggleReaction ? toggleReaction : undefined}
+                  onToggleReaction={toggleReaction}
                   onToggleSave={onToggleSave}
-                  onOpenAgentProfile={onOpenAgentProfile}
+                  onOpenAgentProfile={openAgentProfile}
                   viewerHandle={conversation.viewerHandle}
                   plainMentions={plainMentions}
                   taskReferences={taskReferences}
-                  onOpenTask={onOpenTask}
+                  onOpenTask={openTaskReference}
                   channelNames={channelNames}
                   onQuoteSelection={quoteSelection}
                 />
@@ -1846,7 +1868,7 @@ export function ConversationPane({
                             grouped={false}
                             highlighted={message.id === jumpHighlightId}
                             expanded={false}
-                            onToggleExpanded={() => toggleExpandedMessage(message.id)}
+                            onToggleExpanded={toggleExpandedMessage}
                             dateLocale={dateLocale}
                           />
                         ))}
@@ -1872,19 +1894,19 @@ export function ConversationPane({
                     unreadStartsHere={unreadStartsHere}
                     highlighted={message.id === jumpHighlightId}
                     expanded={expandedMessages.has(message.id)}
-                    onToggleExpanded={() => toggleExpandedMessage(message.id)}
+                    onToggleExpanded={toggleExpandedMessage}
                     agentDisplay={agentDisplayFor}
                     dateLocale={dateLocale}
                     threadEntry={threadEntry}
                     threadPreview={threadPreview}
                     messageFooter={messageFooter}
-                    onToggleReaction={onToggleReaction ? toggleReaction : undefined}
+                    onToggleReaction={toggleReaction}
                     onToggleSave={onToggleSave}
-                    onOpenAgentProfile={onOpenAgentProfile}
+                    onOpenAgentProfile={openAgentProfile}
                     viewerHandle={conversation.viewerHandle}
                     plainMentions={plainMentions}
                     taskReferences={taskReferences}
-                    onOpenTask={onOpenTask}
+                    onOpenTask={openTaskReference}
                     channelNames={channelNames}
                     onQuoteSelection={quoteSelection}
                   />
