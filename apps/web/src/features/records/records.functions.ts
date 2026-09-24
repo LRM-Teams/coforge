@@ -790,7 +790,6 @@ export const ensureRecordAssistantIntro = createServerFn({ method: "POST" })
       subjectId: z.string().uuid(),
       assistantSessionId: z.string().uuid(),
       surface: z.enum(["format", "member-leader", "member-assignee", "plain"]),
-      formatCopy: z.enum(["preview", "cancelled", "ready"]).optional(),
     }),
   )
   .handler(async ({ data, context: { user, db, workspaceId } }) => {
@@ -801,7 +800,6 @@ export const ensureRecordAssistantIntro = createServerFn({ method: "POST" })
       subjectId: data.subjectId,
       assistantSessionId: data.assistantSessionId,
       surface: data.surface,
-      formatCopy: data.formatCopy,
     });
   });
 

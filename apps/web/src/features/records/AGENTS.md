@@ -25,3 +25,10 @@ These rules also cover `src/server/records/`.
   remounts children in a Hidden tree; ModalOverlay is not hideable, so an open
   dialog mounts twice and `ariaHideOutside` makes the visible one inert.
   Render settings dialogs as siblings outside `Tabs` (see `weekly-report-settings.tsx`).
+- 「取消本周周报」and schedule-tick skip keys use the current ISO week
+  (`currentIsoWeek(zonedCalendarDate(now))`), not the live format document's
+  possibly stale `cycle`. Stamp dismiss with that calendar week.
+- Format offer-send (发送 / 取消本周周报) is posted once per report for the
+  current ISO week into the session that loads first; do not fan the card out
+  to every new or idle side-panel session (`hasCurrentWeekOfferSend`). Other
+  sessions stay empty — do not stuff a ready/cancelled tip into them.

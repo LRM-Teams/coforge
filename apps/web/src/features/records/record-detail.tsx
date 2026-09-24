@@ -48,6 +48,7 @@ import {
 } from "./records.functions";
 import {
   clearReportContent,
+  currentIsoWeek,
   formatWeeklyReportCompletedAt,
   isAutoSendCancelled,
   isValidTemplateName,
@@ -72,6 +73,7 @@ import { readSidePanelPinned } from "./record-side-panel-pin";
 import { TemplateChildrenTable, type TemplateChild } from "./template-children-table";
 import { normalizeLeaderFormatTabs } from "./template-outline-sections";
 import { WEEKLY_SEND_TOAST_MS, WeeklySendConfirmDialog } from "./weekly-send-confirm-dialog";
+import { zonedCalendarDate } from "./weekly-report-schedule-due";
 import { sendWindowEnd, useWeeklySendArmed } from "./use-send-window";
 
 type ReportSubject = {
@@ -609,8 +611,10 @@ function TemplateReportDetail({
   contentRef.current = content;
   const reportIdRef = useRef(report.id);
   reportIdRef.current = report.id;
-  const formatCancelled = isAutoSendCancelled(content, report.cycle.year, report.cycle.week);
-  const weekDismissed = isWeekSendDismissed(content, report.cycle.year, report.cycle.week);
+  // Schedule cancel/dismiss keys follow the calendar week (same as the tick), not the document cycle.
+  const scheduleWeek = currentIsoWeek(zonedCalendarDate(new Date()));
+  const formatCancelled = isAutoSendCancelled(content, scheduleWeek.year, scheduleWeek.week);
+  const weekDismissed = isWeekSendDismissed(content, scheduleWeek.year, scheduleWeek.week);
   const [sideOpen, setSideOpen] = useState(() =>
     readSidePanelPinned("report", report.id, formatSurface),
   );
@@ -658,9 +662,6 @@ function TemplateReportDetail({
     () => (sendWindow ? sendWindowEnd(sendWindow, sendArmed) : null),
     [sendWindow, sendArmed],
   );
-  const formatCopy: "preview" | "cancelled" | "ready" =
-    weekDismissed || formatCancelled ? "cancelled" : sendArmed ? "preview" : "ready";
-
   useEffect(() => {
     setCanSendAssignments(Boolean(report.canSendAssignments));
     setDirty(false);
@@ -1013,7 +1014,6 @@ function TemplateReportDetail({
         subjectType="report"
         subjectId={report.id}
         surface={formatSurface}
-        formatCopy={formatCopy}
         countdownUntil={countdownUntil}
         refreshToken={sideRefresh}
         open={sideOpen}
@@ -1024,11 +1024,8 @@ function TemplateReportDetail({
           setConfirmOpen(true);
         }}
         onWeekSendDismissed={() => {
-          const next = withWeekSendDismissed(
-            contentRef.current,
-            report.cycle.year,
-            report.cycle.week,
-          );
+          const week = currentIsoWeek(zonedCalendarDate(new Date()));
+          const next = withWeekSendDismissed(contentRef.current, week.year, week.week);
           setContent(next);
           contentRef.current = next;
           writeReportDraft(report.id, next);

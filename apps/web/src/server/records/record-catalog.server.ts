@@ -1981,22 +1981,9 @@ export class RecordCatalog {
         assistantPosted = true;
       }
       if (input.askToSend) {
-        const offer = await this.buildFormatOfferSend({
-          workspaceId: input.workspaceId,
-          userId: input.userId,
-          reportId: report.id,
-          now,
-        });
-        if (offer) {
-          await this.writeAssistantComment({
-            workspaceId: input.workspaceId,
-            subjectType: "report",
-            subjectId: report.id,
-            body: offer.body,
-            payload: offer.payload,
-          });
-          assistantPosted = true;
-        }
+        // Do not post a null-session offer-send here — that would gate every
+        // thread. The open side-panel session gets the card via ensureIntro.
+        assistantPosted = true;
       }
     }
 
@@ -2679,7 +2666,6 @@ export class RecordCatalog {
     subjectType: "report" | "cycle";
     subjectId: string;
     surface: "format" | "member-leader" | "member-assignee" | "plain";
-    formatCopy?: "preview" | "cancelled" | "ready";
     assistantSessionId: string;
     now?: Date;
   }) {
@@ -2725,15 +2711,15 @@ export class RecordCatalog {
 
   /**
    * When the live format enters a sendable window, post the T2 offer-send card
-   * once per session. Outside the window, keep a short ready/cancelled tip if
-   * the thread is still empty.
+   * once per report for the current ISO week (the open session that loads first).
+   * Other sessions must not grow their own send/cancel buttons — leave those
+   * threads empty rather than stuffing a ready/cancelled tip.
    */
   private async ensureFormatSendOfferIntro(input: {
     workspaceId: string;
     userId: string;
     subjectId: string;
     assistantSessionId: string;
-    formatCopy?: "preview" | "cancelled" | "ready";
     existing: Awaited<ReturnType<RecordCatalog["listComments"]>>;
     now?: Date;
   }) {
@@ -2742,42 +2728,31 @@ export class RecordCatalog {
     );
     if (hasOfferSend) return input.existing;
 
+    if (
+      await this.hasCurrentWeekOfferSend({
+        workspaceId: input.workspaceId,
+        reportId: input.subjectId,
+        now: input.now,
+      })
+    ) {
+      return input.existing;
+    }
+
     const offer = await this.buildFormatOfferSend({
       workspaceId: input.workspaceId,
       userId: input.userId,
       reportId: input.subjectId,
       now: input.now,
     });
-    if (offer) {
-      await this.writeAssistantComment({
-        workspaceId: input.workspaceId,
-        subjectType: "report",
-        subjectId: input.subjectId,
-        assistantSessionId: input.assistantSessionId,
-        body: offer.body,
-        payload: offer.payload,
-      });
-      return this.listComments({
-        workspaceId: input.workspaceId,
-        userId: input.userId,
-        subjectType: "report",
-        subjectId: input.subjectId,
-        assistantSessionId: input.assistantSessionId,
-      });
-    }
+    if (!offer) return input.existing;
 
-    if (input.existing.length > 0) return input.existing;
-
-    const body =
-      input.formatCopy === "cancelled"
-        ? "已取消本周自动发送。保存后请手动发送周报模板。"
-        : "需要把周报模板发给成员时，保存后点击发送即可。";
     await this.writeAssistantComment({
       workspaceId: input.workspaceId,
       subjectType: "report",
       subjectId: input.subjectId,
       assistantSessionId: input.assistantSessionId,
-      body,
+      body: offer.body,
+      payload: offer.payload,
     });
     return this.listComments({
       workspaceId: input.workspaceId,
@@ -2785,6 +2760,30 @@ export class RecordCatalog {
       subjectType: "report",
       subjectId: input.subjectId,
       assistantSessionId: input.assistantSessionId,
+    });
+  }
+
+  /** True when any session (or null-session) already has this week's offer-send card. */
+  private async hasCurrentWeekOfferSend(input: {
+    workspaceId: string;
+    reportId: string;
+    now?: Date;
+  }): Promise<boolean> {
+    const { year, week } = currentIsoWeek(zonedCalendarDate(input.now ?? new Date()));
+    const rows = await this.db.recordComment.findMany({
+      where: {
+        workspaceId: input.workspaceId,
+        subjectType: "report",
+        reportId: input.reportId,
+        authorType: "assistant",
+      },
+      select: { payload: true },
+      orderBy: { createdAt: "desc" },
+      take: 100,
+    });
+    return rows.some((row) => {
+      const payload = parseRecordAssistantPayload(row.payload);
+      return payload?.kind === "offer-send" && payload.year === year && payload.week === week;
     });
   }
 
@@ -2913,11 +2912,11 @@ export class RecordCatalog {
     });
     if (!sendState.canSend && !sendState.schedule) throw new AppError("INVALID_INPUT");
 
-    const content = withWeekSendDismissed(
-      asReportContent(report.content),
-      report.cycle.year,
-      report.cycle.week,
-    );
+    // Stamp the calendar week the schedule tick arbitrates on — not the live
+    // format's possibly stale creation cycle (otherwise auto-send still fires).
+    const now = input.now ?? new Date();
+    const { year, week } = currentIsoWeek(zonedCalendarDate(now));
+    const content = withWeekSendDismissed(asReportContent(report.content), year, week);
     await this.db.weeklyReport.update({
       where: { id: report.id },
       data: { content: content as unknown as Prisma.InputJsonValue },
