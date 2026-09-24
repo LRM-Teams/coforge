@@ -11,6 +11,7 @@ import { AgentMessageValidationError } from "#src/server/conversations/agent-mes
 import { messageAnchorWhere } from "#src/server/db/message-anchor.server";
 import { getAgentChannel, PublicChannels } from "#src/server/conversations/public-channels.server";
 import { ACTIVE_MEMBER_WHERE } from "#src/server/conversations/active-member.server";
+import { HUMAN_UNREAD_MESSAGE_SQL } from "#src/server/conversations/human-unread.server";
 import {
   BROWSER_MESSAGE_MENTIONS_SELECT,
   MESSAGE_MENTIONS_SELECT,
@@ -1392,11 +1393,8 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
         SELECT COUNT(*) AS "count"
         FROM "messages" m
         WHERE m."conversationId" = cm."conversationId"
-          -- LEAST ignores a NULL marker, leaving the read cursor as the bound.
-          AND m."sequence" > LEAST(cm."readThroughSequence", cm."unreadFromSequence" - 1)
           AND m."threadRootId" IS NULL
-          AND m."senderMemberId" IS NOT NULL
-          AND m."senderMemberId" <> cm."id"
+          AND ${HUMAN_UNREAD_MESSAGE_SQL}
       ) unread
       WHERE cm."userId" = ${userId}::uuid
         AND cm."leftAt" IS NULL

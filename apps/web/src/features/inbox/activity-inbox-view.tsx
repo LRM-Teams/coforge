@@ -40,6 +40,7 @@ import {
   markPublicChannelRead,
   markPublicChannelThreadRead,
   setPublicChannelThreadFollowed,
+  setPublicConversationUnread,
 } from "#src/features/conversations/channels.functions";
 import {
   decodeMessageAvailableEvent,
@@ -49,6 +50,7 @@ import {
 import {
   markDirectConversationRead,
   markDirectThreadRead,
+  setDirectConversationUnread,
 } from "#src/features/conversations/conversations.functions";
 import { MessagePreview } from "#src/features/conversations/message-preview";
 import {
@@ -322,14 +324,21 @@ function useActivityItemActions({
   const markChannelThreadRead = useServerFn(markPublicChannelThreadRead);
   const markDirectRead = useServerFn(markDirectConversationRead);
   const markDirectThread = useServerFn(markDirectThreadRead);
+  // The Chat sidebar's optimistic actions; `undefined` where the sidebar is not mounted, which
+  // is every page except Chat (so the Activity page saves through the Server Functions below).
   const sidebar = useSidebarActions();
+  const setChannelUnread = useServerFn(setPublicConversationUnread);
+  const setDirectUnread = useServerFn(setDirectConversationUnread);
   const setThreadFollowed = useServerFn(setPublicChannelThreadFollowed);
   const markDone = useServerFn(markActivityItemDone);
 
   return useMemo(() => {
     function run(action: () => Promise<unknown>) {
       onFailure(null);
-      void action()
+      // Through a resolved promise, so an action that throws before it returns a promise is
+      // reported like one that rejects.
+      void Promise.resolve()
+        .then(action)
         .catch(() => onFailure({ retry: () => run(action) }))
         .finally(onChanged);
     }
@@ -350,15 +359,22 @@ function useActivityItemActions({
 
     return {
       read: (item: ActivityInboxItem) => run(() => read(item)),
-      // The sidebar's own action: its badge moves at once, then the list refreshes.
+      // The sidebar's optimistic collections are live only on the Chat page; here the change is
+      // saved directly and the refresh brings the sidebar's badge along.
       unread: ({ place }: ActivityInboxItem) =>
-        run(
-          () =>
-            sidebar?.markUnread(
-              place.kind === "channel"
-                ? { kind: "channel", channelId: place.conversationId }
-                : { kind: "direct", agentId: place.agent.id },
-            ) ?? Promise.resolve(),
+        run(() =>
+          // The Chat sidebar's collections are live only there; when they are mounted its own
+          // action moves the badge at once, and otherwise (this page) the change is saved
+          // directly and the refresh brings the sidebar's badge along.
+          sidebar
+            ? sidebar.markUnread(
+                place.kind === "channel"
+                  ? { kind: "channel", channelId: place.conversationId }
+                  : { kind: "direct", agentId: place.agent.id },
+              )
+            : place.kind === "channel"
+              ? setChannelUnread({ data: { channelId: place.conversationId, unread: true } })
+              : setDirectUnread({ data: { agentId: place.agent.id, unread: true } }),
         ),
       unfollow: ({ place, thread }: ActivityInboxItem) => {
         if (!thread) return;
@@ -404,6 +420,8 @@ function useActivityItemActions({
     markDirectRead,
     markDirectThread,
     sidebar,
+    setChannelUnread,
+    setDirectUnread,
     setThreadFollowed,
     markDone,
   ]);
@@ -534,7 +552,10 @@ const ActivityInboxCard = memo(function ActivityInboxCard({
         <Dropdown.Popover placement="bottom start">
           <Dropdown.Menu aria-label={m.activity_inbox_menu_label()} onAction={handleAction}>
             {unread ? (
+              // Keyed by id: React Aria refuses an item whose id changes in place, which happens
+              // when a read or unread lands while the menu is still closing.
               <Dropdown.Item
+                key="read"
                 id="read"
                 icon={Mail01}
                 label={m.activity_inbox_mark_read()}
@@ -542,6 +563,7 @@ const ActivityInboxCard = memo(function ActivityInboxCard({
               />
             ) : thread ? null : (
               <Dropdown.Item
+                key="unread"
                 id="unread"
                 icon={Mail01}
                 label={m.conversation_menu_mark_unread()}

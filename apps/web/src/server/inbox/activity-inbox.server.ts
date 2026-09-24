@@ -12,12 +12,12 @@ import {
 } from "#src/server/conversations/conversation-history.server";
 import {
   HUMAN_UNREAD_MESSAGE_SQL,
-  advanceConversationCursorsSql,
-  advanceThreadCursorsSql,
   directThreadsSql,
   followedChannelThreadsSql,
   humanUnreadReplySql,
+  markConversationDoneSql,
   markConversationsReadSql,
+  markThreadDoneSql,
   markThreadsReadSql,
 } from "#src/server/conversations/human-unread.server";
 import { browserSenderName } from "#src/server/conversations/sender-display.server";
@@ -67,8 +67,12 @@ export class ActivityInbox {
     options: { filter: ActivityInboxFilter; offset?: number; limit?: number },
   ) {
     await this.authorize(workspaceId, userId);
-    const loadedAt = new Date();
-    const candidates = (await this.candidates(workspaceId, userId)).filter((candidate) =>
+    // The database's clock, the one message `createdAt` values come from.
+    const [[{ now: loadedAt }], all] = await Promise.all([
+      this.db.$queryRaw<[{ now: Date }]>`SELECT now() AS "now"`,
+      this.candidates(workspaceId, userId),
+    ]);
+    const candidates = all.filter((candidate) =>
       options.filter === "unread"
         ? candidate.unreadCount > 0
         : options.filter === "mentions"
@@ -117,7 +121,7 @@ export class ActivityInbox {
     if (boundary < 1) return;
     await this.db.$executeRaw(
       rootMessageId
-        ? advanceThreadCursorsSql(
+        ? markThreadDoneSql(
             {
               memberId: member.id,
               conversationId: item.conversationId,
@@ -125,9 +129,8 @@ export class ActivityInbox {
               rootMessageId,
             },
             boundary,
-            { done: true },
           )
-        : advanceConversationCursorsSql(member.id, boundary, { done: true }),
+        : markConversationDoneSql(member.id, boundary),
     );
   }
 
