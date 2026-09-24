@@ -2,6 +2,7 @@ import type { TaskResult } from "@lrm/coforge-sdk/internal";
 
 import type { PrismaClient } from "#src/generated/prisma/client";
 import { AppError } from "#src/lib/app-error";
+import { canDirectMessageAgent } from "#src/server/agents/agent-visibility.server";
 import { PrismaDirectConversationRepository } from "#src/server/db/repositories/direct-conversation.repositories.server";
 import type { TaskBoard } from "./task-board.server";
 
@@ -25,9 +26,12 @@ export async function createAgentDirectTask(
 ): Promise<TaskResult> {
   const agent = await db.agent.findFirst({
     where: { id: input.agentId, workspaceId: input.workspaceId, deletedAt: null },
-    select: { name: true },
+    select: { name: true, visibility: true, ownerId: true },
   });
   if (!agent) throw new AppError("NOT_FOUND");
+  // Checked here as well: an existing conversation is returned without the check, and an Agent
+  // made private since then must not be handed new work (and woken) through it.
+  if (!canDirectMessageAgent(input.userId, agent)) throw new AppError("AGENT_DM_RESTRICTED");
   const conversation = await new PrismaDirectConversationRepository(db).getOrCreateUserAgent(
     input.workspaceId,
     input.userId,

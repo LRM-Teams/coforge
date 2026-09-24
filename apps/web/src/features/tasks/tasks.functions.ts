@@ -138,7 +138,7 @@ export const createTaskForAgent = createServerFn({ method: "POST" })
         agentId: z.uuid(),
         title: z.string().trim().min(1).max(8_000),
         description: z.string().max(50_000).nullable().optional(),
-        idempotencyKey: z.string().min(1).max(200),
+        idempotencyKey: z.uuid(),
       })
       .strict(),
   )

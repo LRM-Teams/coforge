@@ -45,8 +45,9 @@ contract is `packages/coforge-sdk/src/internal/tasks.ts`.
   command keeps its own semantics.
 - A Task for an Agent from the Tasks page (`createAgentDirectTask`) needs no
   channel: it is created in the person's direct conversation with the Agent
-  (`getOrCreateUserAgent`, so the private-Agent DM rule applies) and assigned
-  to it through `TaskBoard.execute`, never around it.
+  (`getOrCreateUserAgent`) and assigned to it through `TaskBoard.execute`,
+  never around it. It checks `canDirectMessageAgent` itself, since an existing
+  conversation is returned without that check.
 - An Agent's own list (`list` with `mine`) returns every Task assigned to it in
   the conversations it is a member of, unfinished by default and without a page
   limit. Its `coverage` and `pagination` describe that query and come from
