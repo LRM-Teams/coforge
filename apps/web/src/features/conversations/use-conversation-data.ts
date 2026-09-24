@@ -43,13 +43,13 @@ export function useChannelConversation(channelId: string) {
   const page = useConversationQuery({
     ...publicChannelQuery(channelId),
     loadUpdates: publicChannelUpdates(channelId),
+    // No Task refresh here: a Task change arrives as its own `task.changed.v1` event, which
+    // `useConversationTasks` applies to the cached list. Reloading the list on every publication
+    // meant one list read per message in the conversation.
     onRealtime: () =>
-      Promise.all([
-        taskView.refresh(),
-        queryClient.invalidateQueries({
-          queryKey: threadFollowingAgentsQueryPrefix(channelId),
-        }),
-      ]),
+      queryClient.invalidateQueries({
+        queryKey: threadFollowingAgentsQueryPrefix(channelId),
+      }),
   });
   const { conversation } = page;
   const taskView = useConversationTasks(conversation.conversationId);
@@ -144,7 +144,7 @@ export function useDirectConversation(agentId: string) {
   const page = useConversationQuery({
     ...directConversationQuery(agentId),
     loadUpdates: directConversationUpdates(agentId),
-    onRealtime: () => taskView.refresh(),
+    // No Task refresh here either — see the channel branch above.
   });
   const { conversation } = page;
   const taskView = useConversationTasks(conversation.conversationId);
