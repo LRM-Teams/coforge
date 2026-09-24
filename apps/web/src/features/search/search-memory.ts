@@ -33,6 +33,13 @@ const FUTURE_TOLERANCE_MS = 5 * 60_000;
 
 export type SearchUsage = Record<string, number[]>;
 
+/** Whether a `storage` event's key is one of this page's lists (`null` is a whole clear). */
+export function isSearchMemoryKey(key: string | null, workspaceId: string, userId: string) {
+  return (
+    key === null || key === historyKey(workspaceId, userId) || key === usageKey(workspaceId, userId)
+  );
+}
+
 function historyKey(workspaceId: string, userId: string) {
   return `coforge:search-history:${workspaceId}:${userId}`;
 }

@@ -159,5 +159,10 @@ function useFrequentEntities(
   }, [directory, usage]);
   // With nothing remembered there is nothing to wait for.
   const remembered = Object.keys(usage).length > 0;
-  return { entities, pending: remembered && isPending, failed: remembered && isError };
+  // A failed refetch keeps the cards it already has; only a list never loaded is a failure.
+  return {
+    entities,
+    pending: remembered && isPending,
+    failed: remembered && isError && !directory,
+  };
 }

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 import {
+  isSearchMemoryKey,
   readSearchHistory,
   readSearchUsage,
   withOpen,
@@ -36,9 +37,13 @@ export function useSearchMemory(workspaceId: string, userId: string) {
 
   useEffect(() => {
     reload();
-    window.addEventListener("storage", reload);
-    return () => window.removeEventListener("storage", reload);
-  }, [reload]);
+    // Other tabs write drafts and layout sizes too; only this page's lists matter here.
+    const onStorage = (event: StorageEvent) => {
+      if (isSearchMemoryKey(event.key, workspaceId, userId)) reload();
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, [reload, workspaceId, userId]);
 
   const updateHistory = useCallback(
     (change: (history: string[]) => string[]) => {
