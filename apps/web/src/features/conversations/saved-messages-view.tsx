@@ -1,5 +1,4 @@
 import { Link, useRouter } from "@tanstack/react-router";
-import { useServerFn } from "@tanstack/react-start";
 import { Bookmark, BookmarkCheck, Copy01, Link01, MessageTextSquare01 } from "@untitledui/icons";
 import { Link as AriaLink } from "react-aria-components";
 
@@ -17,11 +16,10 @@ import {
 import { RelativeTime } from "#src/components/ui/relative-time";
 import { useAppToast } from "#src/components/ui/toast";
 import { copyText } from "#src/features/records/report-editor/lib/clipboard";
-import type { SavedMessageView } from "#src/server/conversations/saved-messages.server";
 import { m } from "#src/paraglide/messages";
-import { useSavedMessages } from "./conversation-navigation";
-import { unsaveMessage } from "./saved-messages.functions";
+import { useSavedEntries, useSavedMessages } from "./conversation-navigation";
 import { savedJumpTarget } from "./saved-messages-model";
+import type { SavedEntry } from "./saved-messages-collection";
 import { messagePlainText } from "./selection-copy";
 
 /**
@@ -33,7 +31,7 @@ import { messagePlainText } from "./selection-copy";
  */
 export function SavedMessagesView() {
   const saved = useSavedMessages();
-  const entries = saved?.entries ?? [];
+  const entries = useSavedEntries() ?? [];
   if (!saved) return null;
 
   return (
@@ -61,7 +59,7 @@ export function SavedMessagesView() {
       ) : (
         <ol className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-4">
           {entries.map((entry) => (
-            <SavedMessageCard key={entry.message.id} entry={entry} onRefresh={saved.refresh} />
+            <SavedMessageCard key={entry.message.id} entry={entry} onUnsave={saved.unsave} />
           ))}
         </ol>
       )}
@@ -71,14 +69,14 @@ export function SavedMessagesView() {
 
 function SavedMessageCard({
   entry,
-  onRefresh,
+  onUnsave,
 }: {
-  entry: SavedMessageView;
-  onRefresh: () => Promise<void>;
+  entry: SavedEntry;
+  /** Takes the card away at once; rejects (after putting it back) when the server refuses. */
+  onUnsave: (messageId: string) => Promise<void>;
 }) {
   const router = useRouter();
   const toast = useAppToast();
-  const unsave = useServerFn(unsaveMessage);
   const { conversation, message } = entry;
   const jump = savedJumpTarget(conversation, message);
   // The localized URL (`publicHref`), the one the card links to and the address bar shows.
@@ -89,9 +87,7 @@ function SavedMessageCard({
   const attachmentName = message.attachments[0]?.fileName;
 
   function remove() {
-    void unsave({ data: { conversationId: conversation.id, messageId: message.id } })
-      .then(onRefresh)
-      .catch(() => toast.error(m.conversation_save_failed()));
+    void onUnsave(message.id).catch(() => toast.error(m.conversation_save_failed()));
   }
 
   function copy(text: string, success: string) {

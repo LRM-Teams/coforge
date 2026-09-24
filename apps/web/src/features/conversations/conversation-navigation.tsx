@@ -5,8 +5,11 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
   type ReactNode,
 } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { DbClient } from "@tanstack/react-db";
 import { getRouteApi, useParams, useRouter, useRouterState } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { ArrowLeft } from "@untitledui/icons";
@@ -18,7 +21,14 @@ import { LiveAgentActivityBar } from "./live-agent-activity-bar";
 import { m } from "#src/paraglide/messages";
 import { cx } from "#src/utils/cx";
 import { createPublicChannel } from "./channels.functions";
-import { listSavedMessages } from "./saved-messages.functions";
+import { listSavedMessages, saveMessage, unsaveMessage } from "./saved-messages.functions";
+import {
+  materializeSavedMessages,
+  savedMessagesQueryKey,
+  savedMessagesStore,
+  type SavedEntry,
+  type SavedMessagesStore,
+} from "./saved-messages-collection";
 import {
   useCurrentWorkspaceId,
   useLiveAgents,
@@ -53,16 +63,14 @@ type UnreadControls = {
 const UnreadContext = createContext<UnreadControls>({ counts: {}, clear: () => {} });
 const OpenModeContext = createContext<ConversationOpenMode>(DEFAULT_CONVERSATION_OPEN_MODE);
 
-type SavedMessageViews = Awaited<ReturnType<typeof listSavedMessages>>;
-
-/** The viewer's Saved list (#127): loader-seeded, re-read after every toggle — one source of
- * truth for the row stars, the sidebar entry, and the Saved view. */
+/** The viewer's Saved list (#127), one TanStack DB collection behind the row stars, the sidebar
+ * entry, and the Saved view (`saved-messages-collection.ts`). Saves and unsaves show at once and
+ * roll back when the server refuses them. */
 type SavedMessagesState = {
-  entries: SavedMessageViews;
-  /** The saved message ids a row's star consults. */
-  ids: ReadonlySet<string>;
-  /** Re-reads the saved list from the server after a save or unsave. */
-  refresh: () => Promise<void>;
+  store: SavedMessagesStore;
+  /** Resolves once the server has the save; rejects (after rolling back) when it fails. */
+  save: (saved: SavedEntry) => Promise<void>;
+  unsave: (messageId: string) => Promise<void>;
 };
 
 const SavedMessagesContext = createContext<SavedMessagesState | null>(null);
@@ -98,6 +106,30 @@ export function useConversationOpenMode(): ConversationOpenMode {
 /** The Saved list controls; null where no Chat page is above (rows then offer no save). */
 export function useSavedMessages(): SavedMessagesState | null {
   return useContext(SavedMessagesContext);
+}
+
+const NO_SAVED_ENTRIES: SavedEntry[] = [];
+const noSubscription = () => () => {};
+
+/** The Saved list, newest save first; undefined where no Chat page is above. */
+export function useSavedEntries(): SavedEntry[] | undefined {
+  const saved = useContext(SavedMessagesContext);
+  const entries = useSyncExternalStore(
+    saved?.store.subscribe ?? noSubscription,
+    () => saved?.store.entries() ?? NO_SAVED_ENTRIES,
+    () => saved?.store.entries() ?? NO_SAVED_ENTRIES,
+  );
+  return saved ? entries : undefined;
+}
+
+/** Whether one message is saved; a row re-renders only when its own answer changes. */
+export function useIsMessageSaved(messageId: string): boolean {
+  const saved = useContext(SavedMessagesContext);
+  return useSyncExternalStore(
+    saved?.store.subscribe ?? noSubscription,
+    () => saved?.store.has(messageId) ?? false,
+    () => saved?.store.has(messageId) ?? false,
+  );
 }
 
 /**
@@ -201,30 +233,27 @@ export function ConversationNavigation({ children }: { children: ReactNode }) {
     () => ({ counts, clear: unread.clear }),
     [counts, unread.clear],
   );
-  // Saved (#127): the loader seeds it, every toggle re-reads it — the row stars and the Saved
-  // view both follow this one list; router invalidations refresh it with the rest of the loader.
-  const [savedEntries, setSavedEntries] = useState<SavedMessageViews>(saved);
-  useEffect(() => setSavedEntries(saved), [saved]);
-  const reloadSaved = useServerFn(listSavedMessages);
-  const savedMessages = useMemo<SavedMessagesState>(
-    () => ({
-      entries: savedEntries,
-      ids: new Set(savedEntries.map((entry) => entry.message.id)),
-      // A failed re-read must not reject into the caller's save handler: the write has already
-      // succeeded, and the row's catch reports any rejection as "couldn't save" — or, through a
-      // shared loader copy, as "messages could not be loaded" — both wrong about what happened
-      // (#132). Keep the previous list, so the star stays truthful, and let the next toggle or
-      // route invalidation pick the fresh list up.
-      refresh: async () => {
-        try {
-          setSavedEntries(await reloadSaved());
-        } catch (error) {
-          console.error("saved messages refresh failed", error);
-        }
-      },
-    }),
-    [savedEntries, reloadSaved],
-  );
+  // Saved (#127): the loader seeds the collection; a toggle changes it at once and persists in
+  // the background. A router invalidation's fresh list reaches it through its Query.
+  const queryClient = useQueryClient();
+  const [dbClient] = useState(() => new DbClient({ queryClient }));
+  const savedWorkspaceId = workspaceId ?? "";
+  // The collection is seeded once per Workspace from the list at hand; later loader lists go
+  // through its Query (the effect below), never by re-seeding.
+  const seededSaved = useRef(saved);
+  const savedMessages = useMemo<SavedMessagesState>(() => {
+    const collection = materializeSavedMessages(dbClient, savedWorkspaceId, seededSaved.current, {
+      list: () => listSavedMessages(),
+      save: (target) => saveMessage({ data: target }),
+      unsave: (target) => unsaveMessage({ data: target }),
+    });
+    const store = savedMessagesStore(collection);
+    return { store, save: store.save, unsave: store.unsave };
+  }, [dbClient, savedWorkspaceId]);
+  useEffect(() => {
+    if (saved === seededSaved.current) return;
+    queryClient.setQueryData(savedMessagesQueryKey(savedWorkspaceId), saved);
+  }, [queryClient, savedWorkspaceId, saved]);
 
   return (
     <ConversationListContext

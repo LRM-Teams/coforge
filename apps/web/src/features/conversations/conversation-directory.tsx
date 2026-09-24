@@ -14,7 +14,7 @@ import { m } from "#src/paraglide/messages";
 import {
   useChannelUnreadCounts,
   useCloseConversationList,
-  useSavedMessages,
+  useSavedEntries,
 } from "./conversation-navigation";
 import { ConversationRowMenu } from "./conversation-row-menu";
 import { conversationRowMenuEnabled, directRowPreference } from "./conversation-row-menu-model";
@@ -232,7 +232,7 @@ export function ConversationDirectory({
   onCreateChannel?: () => void;
 }) {
   const unreadCounts = useChannelUnreadCounts();
-  const savedCount = useSavedMessages()?.entries.length;
+  const savedCount = useSavedEntries()?.length;
   // Derived once per list change, not per render: the drag reads `base` and `natural` on every
   // pointer move.
   const { sortedChannels, directRows, base, natural } = useMemo(() => {

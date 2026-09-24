@@ -35,7 +35,7 @@ import { m } from "#src/paraglide/messages";
 import { ActionCard, type ActionCardView } from "./action-card";
 import { AttachmentPreview } from "./attachment-preview";
 import { attachmentPreviewKind } from "./attachment-preview-kind";
-import { useSavedMessages } from "./conversation-navigation";
+import { useIsMessageSaved } from "./conversation-navigation";
 import { CollapsibleMessageBody } from "./collapsible-message-body";
 import type { ChipMention } from "./message-markdown";
 import { formatSelectionQuote, selectionAffordancePlacement } from "./message-quote";
@@ -640,8 +640,7 @@ export const MessageRow = memo(function MessageRow({
    * that way raises the platform's own edit menu above the highlight, so the bar goes below it. */
   const touchSelectionRef = useRef(false);
   const toast = useAppToast();
-  const savedMessages = useSavedMessages();
-  const saveSaved = savedMessages?.ids.has(message.id) ?? false;
+  const saveSaved = useIsMessageSaved(message.id);
   const [quoteOffer, setQuoteOffer] = useState<
     { quote: string; html: string; text: string; top: number; left: number } | undefined
   >(undefined);
