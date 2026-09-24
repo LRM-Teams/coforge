@@ -820,6 +820,76 @@ test("a channel @mention persists as a token and wakes only the mentioned Agent,
   }
 });
 
+test("a channel send reports the @handles that name nobody the sender can see, and a replay reports the same", async () => {
+  const connectionString = Bun.env.CHANNEL_TEST_DATABASE_URL;
+  if (!connectionString) throw new Error("CHANNEL_TEST_DATABASE_URL is required");
+  const db = new PrismaClient({ adapter: new PrismaPg({ connectionString }) });
+  const redis = new RedisClient(Bun.env.CHANNEL_TEST_REDIS_URL!);
+  const suffix = crypto.randomUUID().slice(0, 8);
+  const alice = await db.user.create({ data: { username: `ua${suffix}` } });
+  const bob = await db.user.create({ data: { username: `ub${suffix}` } });
+  const workspace = await db.workspace.create({
+    data: {
+      slug: crypto.randomUUID(),
+      name: "Unresolved mentions",
+      members: { create: [{ userId: alice.id }, { userId: bob.id }] },
+    },
+  });
+  try {
+    const computer = await db.computer.create({
+      data: { ownerId: bob.id, machineId: crypto.randomUUID() },
+    });
+    // A public Agent outside the channel is someone the sender can see; a private Agent of
+    // another owner is not.
+    await db.agent.create({
+      data: {
+        workspaceId: workspace.id,
+        ownerId: bob.id,
+        computerId: computer.id,
+        name: "helper",
+        displayName: "Helper",
+        runtimeConfig: {},
+      },
+    });
+    await db.agent.create({
+      data: {
+        workspaceId: workspace.id,
+        ownerId: bob.id,
+        computerId: computer.id,
+        name: "secret",
+        displayName: "Secret",
+        visibility: "private",
+        runtimeConfig: {},
+      },
+    });
+    const channels = new PublicChannels(db, new RedisMessageRequestIdempotency(redis), {
+      publish: async () => {},
+      publishJson: async () => {},
+      broadcast: async () => {},
+    });
+    const triage = await channels.create(workspace.id, alice.id, `triage-${suffix}`);
+    const send = {
+      workspaceId: workspace.id,
+      userId: alice.id,
+      channelId: triage.id,
+      requestId: crypto.randomUUID(),
+      body: `@ua${suffix} @helper @ub${suffix} @ghost @secret \`@quoted\` @ghost`,
+    };
+
+    const sent = await channels.send(send);
+    // The sender resolves as a member; helper and bob are Workspace members outside the channel;
+    // ghost names nobody and secret is invisible to the sender; code is never a mention.
+    expect(sent.unresolvedMentionHandles).toEqual(["ghost", "secret"]);
+    expect((await channels.send(send)).unresolvedMentionHandles).toEqual(["ghost", "secret"]);
+  } finally {
+    await db.workspace.delete({ where: { id: workspace.id } });
+    await db.computer.deleteMany({ where: { ownerId: bob.id } });
+    await db.user.deleteMany({ where: { id: { in: [alice.id, bob.id] } } });
+    await db.$disconnect();
+    redis.close();
+  }
+});
+
 test("a #channel reference is stored as a channel token on every send path, and every Agent-facing body reads it as #name", async () => {
   const connectionString = Bun.env.CHANNEL_TEST_DATABASE_URL;
   if (!connectionString) throw new Error("CHANNEL_TEST_DATABASE_URL is required");

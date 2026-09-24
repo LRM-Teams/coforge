@@ -11,7 +11,15 @@ import {
 } from "react";
 import { useHydrated } from "@tanstack/react-router";
 import { FileIcon as FileTypeIcon } from "@untitledui/file-icons";
-import { ArrowUp, CheckSquare, Download01, Paperclip, Trash01, XClose } from "@untitledui/icons";
+import {
+  AlertCircle,
+  ArrowUp,
+  CheckSquare,
+  Download01,
+  Paperclip,
+  Trash01,
+  XClose,
+} from "@untitledui/icons";
 import { Popover as AriaPopover } from "react-aria-components";
 
 import { getReadableFileSize } from "#src/components/application/file-upload/file-upload-base";
@@ -41,6 +49,7 @@ import { ReferenceSuggestionList } from "./reference-suggestions";
 import { fileIconType } from "./message-row";
 import { cx } from "#src/utils/cx";
 import { m } from "#src/paraglide/messages";
+import { getLocale } from "#src/paraglide/runtime";
 
 export type SentMessage = {
   id: string;
@@ -48,6 +57,8 @@ export type SentMessage = {
   body: string;
   createdAt: Date | string;
   attachmentFileName?: string;
+  /** The `@handle`s this send left as text because they name nobody the sender can see. */
+  unresolvedMentionHandles?: readonly string[];
 };
 
 /** At most 10 attachments per send, mirroring the server-side `attachmentIds` bound
@@ -287,7 +298,18 @@ export function MessageComposer({
   // Submitting clears the composer at once and never disables it, so the next message can be
   // typed straight away; the outbox holds each submitted message until the server accepts it,
   // and the conversation shows it (greyed, then failed if need be) in the message list.
-  const outbox = useMessageOutbox({ draftKey, onSend, onCreateTask, onSent });
+  // The last send's `@handle`s that reached nobody; each accepted send replaces it.
+  const [unresolvedHandles, setUnresolvedHandles] = useState<readonly string[]>([]);
+  useEffect(() => setUnresolvedHandles([]), [draftKey]);
+  const outbox = useMessageOutbox({
+    draftKey,
+    onSend,
+    onCreateTask,
+    onSent: (message) => {
+      onSent?.(message);
+      setUnresolvedHandles(message.unresolvedMentionHandles ?? []);
+    },
+  });
   const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
   const [asTask, setAsTask] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -518,6 +540,28 @@ export function MessageComposer({
       {draggingFile && (
         <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-xl bg-brand-secondary text-sm font-medium text-brand-primary">
           {m.conversation_drop_to_upload()}
+        </div>
+      )}
+      {unresolvedHandles.length > 0 && (
+        <div role="status" className="flex items-start gap-2 px-2 text-sm text-tertiary">
+          <AlertCircle
+            aria-hidden="true"
+            className="mt-0.5 size-4 shrink-0 text-fg-warning-primary"
+          />
+          <p className="min-w-0 flex-1">
+            {m.conversation_unresolved_mentions({
+              handles: new Intl.ListFormat(getLocale(), { type: "conjunction" }).format(
+                unresolvedHandles.map((handle) => `@${handle}`),
+              ),
+            })}
+          </p>
+          <ButtonUtility
+            icon={XClose}
+            size="xs"
+            color="tertiary"
+            tooltip={m.conversation_unresolved_mentions_dismiss()}
+            onClick={() => setUnresolvedHandles([])}
+          />
         </div>
       )}
       <label htmlFor={composerId} className="sr-only">

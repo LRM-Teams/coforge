@@ -458,5 +458,7 @@
   "search_sort_recent": "最新",
   "search_clear_filters": "清除筛选",
   "search_no_matching_messages": "没有匹配的消息",
-  "search_try_different_filters": "试试其他筛选组合。"
+  "search_try_different_filters": "试试其他筛选组合。",
+  "conversation_unresolved_mentions": "没有找到 {handles}，没有人收到通知。要通知某人，请从 @ 列表中选择后再提及一次。",
+  "conversation_unresolved_mentions_dismiss": "关闭"
 }

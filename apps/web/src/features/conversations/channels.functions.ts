@@ -359,6 +359,7 @@ export const sendPublicChannelMessage = createServerFn({ method: "POST" })
       reactions: undefined,
       // A human-sent message never carries an action card (those are Agent-authored only).
       actionCard: undefined,
+      unresolvedMentionHandles: message.unresolvedMentionHandles,
     };
   });
 

@@ -32,6 +32,7 @@ import {
 } from "#src/server/centrifugo/server-api.server";
 import type { MessageNotifier } from "#src/server/notifications/web-push-composition.server";
 import { storeMessageBody } from "./message-references.server";
+import { unresolvedMentionHandles } from "./unresolved-mentions.server";
 import {
   BROWSER_MESSAGE_MENTIONS_SELECT,
   browserMessageMention,
@@ -1814,7 +1815,9 @@ export class PublicChannels {
           ),
         ),
     );
-    return message;
+    // Read from the stored body, so an idempotent replay reports what the first send did.
+    const unresolved = await unresolvedMentionHandles(this.db, workspaceId, { userId }, message);
+    return { ...message, unresolvedMentionHandles: unresolved };
   }
 
   /**
