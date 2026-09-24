@@ -115,7 +115,6 @@ function ChannelPage() {
           onShowChat={showChat}
           onShowTasks={showTasks}
           onChanged={refreshChannelAndSidebar}
-          onOpenAgentProfile={openAgentProfile}
         />
         <ConversationFilesPanel
           conversationId={conversation.conversationId}
@@ -135,7 +134,6 @@ function ChannelPage() {
             onShowChat={showChat}
             onShowFiles={showFiles}
             onChanged={refreshChannelAndSidebar}
-            onOpenAgentProfile={openAgentProfile}
           />
         }
         layout={taskLayout}

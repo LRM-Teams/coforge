@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useEffectEvent, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { getRouteApi, useRouter } from "@tanstack/react-router";
-import { Edit01 as Pencil, UserX01, XClose as X } from "@untitledui/icons";
+import { ArrowLeft, Edit01 as Pencil, UserX01, XClose as X } from "@untitledui/icons";
 
 import { ButtonUtility } from "#src/components/base/buttons/button-utility";
 import { isAppError } from "#src/lib/app-error";
@@ -81,7 +81,8 @@ import {
 const appRoute = getRouteApi("/_app");
 
 /**
- * The conversation's right-hand slot content when the Agent profile is the visible panel: same
+ * An Agent's profile: the conversation's right-hand slot content when it is the visible panel,
+ * and a page of the channel settings sheet (with `back`) opened from its members. Same
  * chrome as the Thread panel (48px header band, 44px tab band, flat body, no page-level card),
  * built from `getAgentProfile` plus the existing workspace realtime hooks for live status/activity
  * — never its own subscription (`src/features/agents/AGENTS.md`'s Agent-state rule).
@@ -91,27 +92,31 @@ export function AgentProfilePanel({
   requestedTab,
   onTabChange,
   onClose,
+  back,
 }: {
   agentId: string;
   requestedTab: ProfileTabId | undefined;
   onTabChange: (tab: ProfileTabId) => void;
   onClose: () => void;
+  /** Shown inside another page: its Back button (see `AgentProfileHeader`). */
+  back?: { label: string; onPress: () => void };
 }) {
   const timeZone = appRoute.useLoaderData().timeZone;
   const router = useRouter();
   // Escape closes the panel, like Thread's Close; an open overlay or a field being edited keeps it.
+  // An effect event, so a caller's fresh `onClose` each render does not re-add the listener.
+  const onKeyDown = useEffectEvent((event: KeyboardEvent) => {
+    if (event.key !== "Escape" || event.defaultPrevented) return;
+    const target = event.target instanceof HTMLElement ? event.target : null;
+    if (target?.closest("input, textarea, [contenteditable=true]")) return;
+    if (document.querySelector("[role=dialog], [role=alertdialog], [role=listbox], [role=menu]"))
+      return;
+    onClose();
+  });
   useEffect(() => {
-    function onKeyDown(event: KeyboardEvent) {
-      if (event.key !== "Escape" || event.defaultPrevented) return;
-      const target = event.target instanceof HTMLElement ? event.target : null;
-      if (target?.closest("input, textarea, [contenteditable=true]")) return;
-      if (document.querySelector("[role=dialog], [role=alertdialog], [role=listbox], [role=menu]"))
-        return;
-      onClose();
-    }
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
-  }, [onClose]);
+  }, []);
   const liveAgent = useLiveAgent(agentId);
   const query = useQuery(agentProfileQuery(agentId));
   const profile = query.data;
@@ -138,7 +143,8 @@ export function AgentProfilePanel({
   const tabOrder = useAgentProfileTabOrder(canManage, canSeeWorkspace);
   const tab = resolveAgentProfileTab(requestedTab, tabOrder.tabs);
   // Opened without `agentTab`, the panel lands on the first tab of the viewer's order once their
-  // permissions are known, and writes it into the URL so a later reorder does not move it.
+  // permissions are known, and records it through `onTabChange` (the URL, or the embedding page's
+  // state) so a later reorder does not move it.
   const loaded = Boolean(profile);
   useEffect(() => {
     if (loaded && !requestedTab) onTabChange(tab);
@@ -275,7 +281,19 @@ export function AgentProfilePanel({
     const notVisible = isAppError(query.error) && query.error.code === "AGENT_NOT_VISIBLE";
     return (
       <div className="flex h-full min-h-0 flex-col">
-        <header className="flex h-12 shrink-0 items-center justify-end border-b border-secondary pr-2">
+        <header className="flex h-12 shrink-0 items-center justify-between border-b border-secondary px-2">
+          {back ? (
+            <ButtonUtility
+              icon={ArrowLeft}
+              size="sm"
+              color="tertiary"
+              tooltip={back.label}
+              aria-label={back.label}
+              onClick={back.onPress}
+            />
+          ) : (
+            <span />
+          )}
           <ButtonUtility
             icon={X}
             size="sm"
@@ -321,6 +339,7 @@ export function AgentProfilePanel({
         timeZone={timeZone}
         controls={controls}
         onClose={onClose}
+        back={back}
       />
       {/* The four tabs need ~465px, more than a phone is wide, so the band scrolls instead of
           pushing the panel (and with it the whole page) past the viewport. */}

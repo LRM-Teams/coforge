@@ -61,7 +61,6 @@ export function ChannelConversationHeader({
   onShowTasks,
   onShowFiles,
   onChanged,
-  onOpenAgentProfile,
   settingsOpen: controlledSettingsOpen,
   onSettingsOpenChange,
 }: {
@@ -72,8 +71,6 @@ export function ChannelConversationHeader({
   onShowFiles?: () => void;
   /** Refreshes the page and the sidebar after the settings panel changed the channel. */
   onChanged: () => Promise<void>;
-  /** Opens the Agent profile panel from an Agent row in the Members dialog. */
-  onOpenAgentProfile?: (agentId: string) => void;
   /** Set when something outside the header (the archived notice) also opens the panel. */
   settingsOpen?: boolean;
   onSettingsOpenChange?: (open: boolean) => void;
@@ -140,7 +137,6 @@ export function ChannelConversationHeader({
           open={settingsOpen}
           onOpenChange={setSettingsOpen}
           onChanged={onChanged}
-          onOpenAgentProfile={onOpenAgentProfile}
         />
       )}
     </>
@@ -335,7 +331,6 @@ export function ChannelConversation({
           onShowTasks={onShowTasks}
           onShowFiles={onShowFiles}
           onChanged={onChanged}
-          onOpenAgentProfile={onOpenAgentProfile}
           settingsOpen={settingsOpen}
           onSettingsOpenChange={setSettingsOpen}
         />

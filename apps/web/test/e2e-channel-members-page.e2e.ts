@@ -198,9 +198,33 @@ test("the settings panel shows a channel's members as a page, adds and removes o
       ).leftAt,
     ).not.toBeNull();
 
+    // An Agent's row opens its profile inside the panel; Back returns to the members with the
+    // search kept and focus on the row that opened it.
+    const openProfile = `[aria-label="Open ${inside.displayName}'s profile"]`;
+    const search = `${panel}?.querySelector('input[placeholder="Search members…"]')`;
+    await browser("fill", 'input[placeholder="Search members…"]', inside.displayName);
+    await browser("eval", `document.querySelector(${JSON.stringify(openProfile)}).click()`);
+    await waitFor(`${panel}?.querySelector('[role="tablist"]') != null && !${onRoster}`);
+    await waitFor(panelHas(inside.displayName));
+    await browser("screenshot", join(artifacts, "profile.png"));
+    await browser("eval", `document.querySelector('[aria-label="Back to members"]').click()`);
+    await waitFor(
+      `${search}?.value === ${JSON.stringify(inside.displayName)} && document.activeElement?.matches(${JSON.stringify(openProfile)})`,
+    );
+
     // Back returns to the settings.
     await browser("eval", `document.querySelector('[aria-label="Back"]').click()`);
     await waitFor(panelHas("Preferences"));
+
+    // Close from the profile closes the whole panel; the next opening starts on the settings.
+    await clickText(`[role="dialog"] button`, "1 human · 1 agent");
+    await waitFor(`${search}?.value === ""`);
+    await browser("eval", `document.querySelector(${JSON.stringify(openProfile)}).click()`);
+    await waitFor(`${panel}?.querySelector('[role="tablist"]') != null`);
+    await browser("eval", `${panel}.querySelector('[aria-label="Close"]').click()`);
+    await waitFor(`${panel} === null`);
+    await browser("click", '[aria-label="Channel details and settings"]');
+    await waitFor(`${panelHas("Preferences")} && !${onRoster}`);
   } finally {
     await db.conversation.deleteMany({ where: { id: channel.id } }).catch(() => {});
     await db.agent.deleteMany({ where: { id: { in: agentIds } } }).catch(() => {});
