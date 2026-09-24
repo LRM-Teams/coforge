@@ -1,6 +1,6 @@
 #Requires -Version 5.1
 <#
-.\scripts\restart-windows-daemon.ps1 -Setup my  
+.\scripts\restart-windows-daemon.ps1 -Setup my
 
 .SYNOPSIS
   Rebuild the local Windows Computer/Daemon fixture, install it, and restart
