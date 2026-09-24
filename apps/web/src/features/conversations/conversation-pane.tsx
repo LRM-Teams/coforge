@@ -44,6 +44,7 @@ import { OwnMessagesMenu, useOwnMessagesIndex } from "./own-messages-menu";
 import { positionJumpDecision } from "./conversation-thread-search";
 import { replyCountLabel } from "./conversation-labels";
 import type { ConversationProps, DirectConversationView } from "./conversation-types";
+import { MESSAGE_COLUMN_CLASS } from "#src/features/settings/message-width";
 
 /** How close to the bottom the pane must be for a content-resize to re-pin it (see the pinning
  * ResizeObserver). Tight on purpose: the reading position itself uses a wider tolerance. */
@@ -847,183 +848,32 @@ export function ConversationPane({
           onScroll={trackReadingPosition}
           className="h-full overflow-y-auto pb-6 [scrollbar-width:thin]"
         >
-          {rootSlot}
-          {root && !rootSlot && (
-            <div
-              aria-label={m.conversation_thread_root()}
-              className="border-b border-secondary py-3"
-            >
-              {/* The root is an ordinary message row so it keeps every message affordance
+          {/* The side room sits inside the scroller, so the scrollbar stays on the pane edge. A
+              thread pane is already narrow and keeps none. */}
+          <div className={root ? undefined : MESSAGE_COLUMN_CLASS}>
+            {rootSlot}
+            {root && !rootSlot && (
+              <div
+                aria-label={m.conversation_thread_root()}
+                className="border-b border-secondary py-3"
+              >
+                {/* The root is an ordinary message row so it keeps every message affordance
                   (hover toolbar on wide shells, tap action sheet below `lg`, reactions, action
                   cards, quote-selection) instead of being a bespoke display-only block. Only the
                   thread entry is held back: this pane already is that message's thread. The one-
                   item list keeps the li valid; the rule under it separates the root from its
                   replies. */}
-              <ol className="flex flex-col">
-                <MessageRow
-                  message={root}
-                  own={isOwn(root)}
-                  dayChanged={false}
-                  grouped={false}
-                  unreadStartsHere={false}
-                  expanded={expandedMessages.has(root.id)}
-                  onToggleExpanded={toggleExpandedMessage}
-                  agentDisplay={agentDisplayFor}
-                  dateLocale={dateLocale}
-                  messageFooter={messageFooter}
-                  onToggleReaction={toggleReaction}
-                  onToggleSave={onToggleSave}
-                  onOpenAgentProfile={openAgentProfile}
-                  viewerHandle={conversation.viewerHandle}
-                  plainMentions={plainMentions}
-                  taskReferences={taskReferences}
-                  onOpenTask={openTaskReference}
-                  channelNames={channelNames}
-                  onQuoteSelection={quoteSelection}
-                />
-              </ol>
-            </div>
-          )}
-          {threadMarker && (
-            // Where the replies begin and how many there are; notices count, since they are
-            // replies in this thread too. The pane always holds the whole thread, so this is
-            // the top of the replies, never a load-older point.
-            <div className="px-4 pt-2 text-center text-sm text-tertiary md:px-6">
-              <p className="pb-1">{m.conversation_thread_beginning()}</p>
-              <p className="border-b border-secondary pb-2">
-                {replyCountLabel(conversation.messages.length + shownOutbox.length)}
-              </p>
-            </div>
-          )}
-          {!root && conversation.hasOlder && onLoadOlder && (
-            <div
-              ref={olderSentinelRef}
-              aria-live="polite"
-              className="flex h-8 items-center justify-center px-4 pt-4 text-xs text-tertiary md:px-6"
-            >
-              {loadingOlder && m.conversation_loading_older()}
-            </div>
-          )}
-          {streamState(conversation.messages.length, streamRead) === "loading" ? (
-            // A window replacement is in flight (an "around" read): no messages yet, but that is not
-            // an empty conversation. Only a settled read may say so (stream-state.ts, #112/#113).
-            <div
-              role="status"
-              className={cn(
-                "flex items-center justify-center text-tertiary",
-                root ? "px-4 py-8 md:px-6" : "px-4 pt-[clamp(2rem,10svh,5rem)] pb-8 md:px-6",
-              )}
-            >
-              <ProgressBar
-                isIndeterminate
-                aria-label={m.conversation_loading()}
-                className="inline-flex shrink-0 size-4"
-              >
-                <Loading02 aria-hidden className="size-full motion-safe:animate-spin" />
-              </ProgressBar>
-            </div>
-          ) : conversation.messages.length === 0 && shownOutbox.length === 0 ? (
-            <Empty
-              className={
-                root
-                  ? "px-4 py-8 md:px-6"
-                  : "items-start px-4 pt-[clamp(2rem,10svh,5rem)] pb-8 text-left md:px-6"
-              }
-            >
-              <EmptyHeader className={root ? "gap-2" : "w-full max-w-sm items-start gap-3"}>
-                <EmptyMedia className="mb-1">{emptyState.media}</EmptyMedia>
-                <EmptyTitle
-                  role="heading"
-                  aria-level={root ? 3 : 2}
-                  className={cn(
-                    "max-w-full [overflow-wrap:anywhere]",
-                    root ? "text-sm" : "text-xl font-semibold",
-                  )}
-                >
-                  {emptyState.title}
-                </EmptyTitle>
-                <EmptyDescription>{emptyState.description}</EmptyDescription>
-              </EmptyHeader>
-            </Empty>
-          ) : (
-            // Every loaded row is rendered, in normal flow. Nothing here computes a row's position
-            // or its height, so no measurement can shift a row under the reader and no scroll
-            // correction is needed while you read; the scrollbar is the real content height.
-            <ol
-              ref={messageListRef}
-              className={cn("flex flex-col", threadMarker ? "pt-2" : "pt-6")}
-            >
-              {streamItems.map((item, index) => {
-                // The message just above this item: the previous item's last message.
-                const before = streamItems[index - 1];
-                // A thread's first reply opens under the replies marker, which stands in for the
-                // day divider there; later day changes in the thread still get theirs.
-                const opensThread = threadMarker && index === 0;
-                const previous =
-                  before?.type === "systemGroup" ? before.messages.at(-1) : before?.message;
-                const first = item.type === "systemGroup" ? item.messages[0]! : item.message;
-                // The unread divider is anchored to the snapshot taken at open: once the
-                // mark-read effect has advanced the cursor, the divider must not jump.
-                const unreadStartsHere = openBoundary?.sequence === first.sequence;
-                if (item.type === "systemGroup") {
-                  const groupOpen = item.messages.some((message) =>
-                    openedSystemMessages.has(message.id),
-                  );
-                  return (
-                    <SystemMessageGroup
-                      key={first.id}
-                      id={item.id}
-                      messages={item.messages}
-                      expanded={groupOpen}
-                      onToggleExpanded={() => toggleSystemGroup(item.messages)}
-                      dayChanged={
-                        !opensThread &&
-                        groupsWithPrevious(first, previous, false, false, dateLocale).dayChanged
-                      }
-                      unreadStartsHere={unreadStartsHere}
-                      dateLocale={dateLocale}
-                    >
-                      {groupOpen &&
-                        item.messages.map((message) => (
-                          <MessageRow
-                            key={message.id}
-                            message={message}
-                            own={false}
-                            dayChanged={false}
-                            grouped={false}
-                            highlighted={message.id === jumpHighlightId}
-                            expanded={false}
-                            onToggleExpanded={toggleExpandedMessage}
-                            dateLocale={dateLocale}
-                          />
-                        ))}
-                    </SystemMessageGroup>
-                  );
-                }
-                const message = item.message;
-                const own = isOwn(message);
-                const { dayChanged, grouped } = groupsWithPrevious(
-                  message,
-                  previous,
-                  own,
-                  previous ? isOwn(previous) : false,
-                  dateLocale,
-                );
-                return (
+                <ol className="flex flex-col">
                   <MessageRow
-                    key={message.id}
-                    message={message}
-                    own={own}
-                    dayChanged={dayChanged && !opensThread}
-                    grouped={grouped}
-                    unreadStartsHere={unreadStartsHere}
-                    highlighted={message.id === jumpHighlightId}
-                    expanded={expandedMessages.has(message.id)}
+                    message={root}
+                    own={isOwn(root)}
+                    dayChanged={false}
+                    grouped={false}
+                    unreadStartsHere={false}
+                    expanded={expandedMessages.has(root.id)}
                     onToggleExpanded={toggleExpandedMessage}
                     agentDisplay={agentDisplayFor}
                     dateLocale={dateLocale}
-                    threadEntry={threadEntry}
-                    threadPreview={threadPreview}
                     messageFooter={messageFooter}
                     onToggleReaction={toggleReaction}
                     onToggleSave={onToggleSave}
@@ -1035,33 +885,188 @@ export function ConversationPane({
                     channelNames={channelNames}
                     onQuoteSelection={quoteSelection}
                   />
-                );
-              })}
-              {shownOutbox.map((entry, index) => (
-                <OutboxMessageRow
-                  key={entry.localId}
-                  entry={entry}
-                  grouped={index > 0 || outboxContinuesRun}
-                  composerShown={!readOnlyNotice}
-                  plainMentions={plainMentions}
-                  viewerHandle={conversation.viewerHandle}
-                  taskReferences={taskReferences}
-                  onOpenTask={openTaskReference}
-                  onRetry={() => outbox.retry(entry)}
-                  onEdit={() => outbox.edit(entry)}
-                  onDiscard={() => outbox.remove(entry)}
-                />
-              ))}
-            </ol>
-          )}
-          {!root &&
-            conversation.hasNewer &&
-            onLoadNewer && (
-              // An empty sentinel below the newest row: coming into view asks for the page that
-              // restores the evicted tail. Nothing is shown for it — the reader reached the bottom
-              // and the tail is on its way.
-              <div ref={newerSentinelRef} aria-hidden="true" className="h-8" />
+                </ol>
+              </div>
             )}
+            {threadMarker && (
+              // Where the replies begin and how many there are; notices count, since they are
+              // replies in this thread too. The pane always holds the whole thread, so this is
+              // the top of the replies, never a load-older point.
+              <div className="px-4 pt-2 text-center text-sm text-tertiary md:px-6">
+                <p className="pb-1">{m.conversation_thread_beginning()}</p>
+                <p className="border-b border-secondary pb-2">
+                  {replyCountLabel(conversation.messages.length + shownOutbox.length)}
+                </p>
+              </div>
+            )}
+            {!root && conversation.hasOlder && onLoadOlder && (
+              <div
+                ref={olderSentinelRef}
+                aria-live="polite"
+                className="flex h-8 items-center justify-center px-4 pt-4 text-xs text-tertiary md:px-6"
+              >
+                {loadingOlder && m.conversation_loading_older()}
+              </div>
+            )}
+            {streamState(conversation.messages.length, streamRead) === "loading" ? (
+              // A window replacement is in flight (an "around" read): no messages yet, but that is not
+              // an empty conversation. Only a settled read may say so (stream-state.ts, #112/#113).
+              <div
+                role="status"
+                className={cn(
+                  "flex items-center justify-center text-tertiary",
+                  root ? "px-4 py-8 md:px-6" : "px-4 pt-[clamp(2rem,10svh,5rem)] pb-8 md:px-6",
+                )}
+              >
+                <ProgressBar
+                  isIndeterminate
+                  aria-label={m.conversation_loading()}
+                  className="inline-flex shrink-0 size-4"
+                >
+                  <Loading02 aria-hidden className="size-full motion-safe:animate-spin" />
+                </ProgressBar>
+              </div>
+            ) : conversation.messages.length === 0 && shownOutbox.length === 0 ? (
+              <Empty
+                className={
+                  root
+                    ? "px-4 py-8 md:px-6"
+                    : "items-start px-4 pt-[clamp(2rem,10svh,5rem)] pb-8 text-left md:px-6"
+                }
+              >
+                <EmptyHeader className={root ? "gap-2" : "w-full max-w-sm items-start gap-3"}>
+                  <EmptyMedia className="mb-1">{emptyState.media}</EmptyMedia>
+                  <EmptyTitle
+                    role="heading"
+                    aria-level={root ? 3 : 2}
+                    className={cn(
+                      "max-w-full [overflow-wrap:anywhere]",
+                      root ? "text-sm" : "text-xl font-semibold",
+                    )}
+                  >
+                    {emptyState.title}
+                  </EmptyTitle>
+                  <EmptyDescription>{emptyState.description}</EmptyDescription>
+                </EmptyHeader>
+              </Empty>
+            ) : (
+              // Every loaded row is rendered, in normal flow. Nothing here computes a row's position
+              // or its height, so no measurement can shift a row under the reader and no scroll
+              // correction is needed while you read; the scrollbar is the real content height.
+              <ol
+                ref={messageListRef}
+                className={cn("flex flex-col", threadMarker ? "pt-2" : "pt-6")}
+              >
+                {streamItems.map((item, index) => {
+                  // The message just above this item: the previous item's last message.
+                  const before = streamItems[index - 1];
+                  // A thread's first reply opens under the replies marker, which stands in for the
+                  // day divider there; later day changes in the thread still get theirs.
+                  const opensThread = threadMarker && index === 0;
+                  const previous =
+                    before?.type === "systemGroup" ? before.messages.at(-1) : before?.message;
+                  const first = item.type === "systemGroup" ? item.messages[0]! : item.message;
+                  // The unread divider is anchored to the snapshot taken at open: once the
+                  // mark-read effect has advanced the cursor, the divider must not jump.
+                  const unreadStartsHere = openBoundary?.sequence === first.sequence;
+                  if (item.type === "systemGroup") {
+                    const groupOpen = item.messages.some((message) =>
+                      openedSystemMessages.has(message.id),
+                    );
+                    return (
+                      <SystemMessageGroup
+                        key={first.id}
+                        id={item.id}
+                        messages={item.messages}
+                        expanded={groupOpen}
+                        onToggleExpanded={() => toggleSystemGroup(item.messages)}
+                        dayChanged={
+                          !opensThread &&
+                          groupsWithPrevious(first, previous, false, false, dateLocale).dayChanged
+                        }
+                        unreadStartsHere={unreadStartsHere}
+                        dateLocale={dateLocale}
+                      >
+                        {groupOpen &&
+                          item.messages.map((message) => (
+                            <MessageRow
+                              key={message.id}
+                              message={message}
+                              own={false}
+                              dayChanged={false}
+                              grouped={false}
+                              highlighted={message.id === jumpHighlightId}
+                              expanded={false}
+                              onToggleExpanded={toggleExpandedMessage}
+                              dateLocale={dateLocale}
+                            />
+                          ))}
+                      </SystemMessageGroup>
+                    );
+                  }
+                  const message = item.message;
+                  const own = isOwn(message);
+                  const { dayChanged, grouped } = groupsWithPrevious(
+                    message,
+                    previous,
+                    own,
+                    previous ? isOwn(previous) : false,
+                    dateLocale,
+                  );
+                  return (
+                    <MessageRow
+                      key={message.id}
+                      message={message}
+                      own={own}
+                      dayChanged={dayChanged && !opensThread}
+                      grouped={grouped}
+                      unreadStartsHere={unreadStartsHere}
+                      highlighted={message.id === jumpHighlightId}
+                      expanded={expandedMessages.has(message.id)}
+                      onToggleExpanded={toggleExpandedMessage}
+                      agentDisplay={agentDisplayFor}
+                      dateLocale={dateLocale}
+                      threadEntry={threadEntry}
+                      threadPreview={threadPreview}
+                      messageFooter={messageFooter}
+                      onToggleReaction={toggleReaction}
+                      onToggleSave={onToggleSave}
+                      onOpenAgentProfile={openAgentProfile}
+                      viewerHandle={conversation.viewerHandle}
+                      plainMentions={plainMentions}
+                      taskReferences={taskReferences}
+                      onOpenTask={openTaskReference}
+                      channelNames={channelNames}
+                      onQuoteSelection={quoteSelection}
+                    />
+                  );
+                })}
+                {shownOutbox.map((entry, index) => (
+                  <OutboxMessageRow
+                    key={entry.localId}
+                    entry={entry}
+                    grouped={index > 0 || outboxContinuesRun}
+                    composerShown={!readOnlyNotice}
+                    plainMentions={plainMentions}
+                    viewerHandle={conversation.viewerHandle}
+                    taskReferences={taskReferences}
+                    onOpenTask={openTaskReference}
+                    onRetry={() => outbox.retry(entry)}
+                    onEdit={() => outbox.edit(entry)}
+                    onDiscard={() => outbox.remove(entry)}
+                  />
+                ))}
+              </ol>
+            )}
+            {!root &&
+              conversation.hasNewer &&
+              onLoadNewer && (
+                // An empty sentinel below the newest row: coming into view asks for the page that
+                // restores the evicted tail. Nothing is shown for it — the reader reached the bottom
+                // and the tail is on its way.
+                <div ref={newerSentinelRef} aria-hidden="true" className="h-8" />
+              )}
+          </div>
         </div>
         {(ownMessages.length > 0 || !followingLatest) && (
           <div
@@ -1117,20 +1122,22 @@ export function ConversationPane({
         )}
       </div>
 
-      {readOnlyNotice ?? (
-        <MessageComposer
-          conversationId={conversation.conversationId}
-          threadRootId={root?.id}
-          inThread={Boolean(root)}
-          mentionables={mentionCandidates}
-          recentHandles={recentHandles}
-          channels={channels}
-          onSend={onSend}
-          onCreateTask={onCreateTask}
-          onSent={ownIndex.add}
-          quotedDraft={quotedDraft}
-        />
-      )}
+      <div className={root ? undefined : MESSAGE_COLUMN_CLASS}>
+        {readOnlyNotice ?? (
+          <MessageComposer
+            conversationId={conversation.conversationId}
+            threadRootId={root?.id}
+            inThread={Boolean(root)}
+            mentionables={mentionCandidates}
+            recentHandles={recentHandles}
+            channels={channels}
+            onSend={onSend}
+            onCreateTask={onCreateTask}
+            onSent={ownIndex.add}
+            quotedDraft={quotedDraft}
+          />
+        )}
+      </div>
     </div>
   );
 }

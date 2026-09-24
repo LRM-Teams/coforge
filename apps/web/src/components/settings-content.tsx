@@ -93,6 +93,7 @@ interface SettingsContentProps {
   railLabels: boolean;
   liveAgentActivity: boolean;
   textSize: TextSizeValue;
+  messageFullWidth: boolean;
   timeZone: string | null;
   timeFormat: TimeFormat | null;
   browserNotificationsEnabled: boolean;
@@ -105,6 +106,7 @@ interface SettingsContentProps {
   onLocaleChange: (locale: Locale) => void;
   onThemeChange: (theme: Theme) => void;
   onRailLabelsChange: (show: boolean) => void;
+  onMessageFullWidthChange: (full: boolean) => void;
   onLiveAgentActivityChange: (show: boolean) => void;
   onTextSizeChange: (size: TextSizeValue) => void;
   onDateTimeSave: (input: {
@@ -634,6 +636,8 @@ function Preferences({
   onLiveAgentActivityChange,
   textSize,
   onTextSizeChange,
+  messageFullWidth,
+  onMessageFullWidthChange,
   conversationOpenMode,
   onConversationOpenModeChange,
 }: SettingsContentProps) {
@@ -760,6 +764,21 @@ function Preferences({
               <SelectItem id="first-unread" label={m.preferences_open_first_unread()} />
               <SelectItem id="newest-unread" label={m.preferences_open_newest_unread()} />
             </Select>
+          </SettingsField>
+        </SettingsCard>
+        <SettingsCard>
+          <SettingsField
+            inline
+            label={m.preferences_message_full_width()}
+            description={m.preferences_message_full_width_description()}
+            note={savedOnDevice}
+          >
+            <Toggle
+              size="md"
+              aria-label={m.preferences_message_full_width()}
+              isSelected={messageFullWidth}
+              onChange={onMessageFullWidthChange}
+            />
           </SettingsField>
         </SettingsCard>
       </SettingsGroup>

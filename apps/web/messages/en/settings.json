@@ -87,6 +87,7 @@
   "settings_save_error": "The preference could not be saved. Try again.",
   "preferences_sidebar": "Sidebar",
   "preferences_rail_labels": "Show labels in the sidebar",
+  "preferences_message_full_width": "Full-width messages",
   "preferences_live_agent_activity": "Live agent activity",
   "preferences_live_agent_activity_hint": "Show the latest agent status at the bottom of the chat list.",
   "preferences_conversations": "Conversations",
@@ -117,5 +118,6 @@
   "preferences_appearance_description": "Use light or dark colors, or follow your system.",
   "preferences_text_size_description": "Scale all text and controls on this device.",
   "preferences_rail_labels_description": "Show a caption under each icon in the left rail.",
+  "preferences_message_full_width_description": "Let messages and the composer use the whole width of the conversation instead of leaving room on both sides.",
   "preferences_conversation_open_mode_description": "Where a channel or direct message opens, and when it counts as read."
 }
