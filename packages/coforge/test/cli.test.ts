@@ -1029,6 +1029,38 @@ test("Task update reads one revision then submits once and formats Thread-useful
   expect(output).toContain("#2 status=in_review owner=builder message=message-2");
 });
 
+test("Task list marks an owner whose Agent was deleted", async () => {
+  const output = await run(["task", "list", "--target", "#general"], {
+    check: async () => ({ messages: [] }),
+    read: async () => ({}),
+    send: async () => ({}),
+    view: async () => ({ bytes: new Uint8Array() }),
+    task: async () => ({
+      tasks: [
+        {
+          messageId: "message-46",
+          conversationId: "conversation",
+          number: 46,
+          title: "Half-done work",
+          status: "in_progress",
+          revision: 3,
+          owner: {
+            memberId: "member",
+            kind: "agent",
+            id: "agent",
+            name: "Kiro",
+            handle: "kiro",
+            deleted: true,
+          },
+        },
+      ],
+    }),
+  });
+  expect(output).toBe(
+    "#46 status=in_progress owner=Kiro [deleted] message=message-46 revision=3 Half-done work",
+  );
+});
+
 test("Task unclaim reads one revision unless explicitly supplied and submits once", async () => {
   for (const args of [
     ["task", "unclaim", "--target", "#general", "--number", "2"],
