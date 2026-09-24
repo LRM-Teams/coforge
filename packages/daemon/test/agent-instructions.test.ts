@@ -208,7 +208,9 @@ test("direct user messages require a visible CoForge reply", () => {
 });
 
 test("channels keep a standing mute/silence pointer and defer how-to to the Manual", () => {
-  expect(instructions).toContain("initially unmuted");
+  expect(instructions).toContain(
+    "Unless you are private, you automatically join your Workspace's #general, initially muted",
+  );
   expect(instructions).toContain("Do not reply to every ordinary channel message");
   expect(instructions).toContain("never reuse that silence rule for a direct `@handle` chat");
   expect(instructions).toContain("Use channel mute when ordinary parent-channel traffic is noisy");

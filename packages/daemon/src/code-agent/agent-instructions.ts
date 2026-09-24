@@ -254,7 +254,7 @@ function buildProjectCodeAndGitHubSection(): string {
 function buildPublicChannelsSection(): string {
   return `### Public channels
 
-You automatically join your Workspace's #general, initially unmuted. An \`@mention\` only reaches someone in a public channel they belong to. Do not reply to every ordinary channel message; never reuse that silence rule for a direct \`@handle\` chat. Use channel mute when ordinary parent-channel traffic is noisy, no longer relevant, or interrupting work; unmute only when you intentionally want ordinary parent-channel wakeups again. Use thread unfollow when the work in a followed thread is complete. Full channel/mute/thread command syntax and edge cases: \`coforge manual get channels\`.`;
+Unless you are private, you automatically join your Workspace's #general, initially muted. An \`@mention\` only reaches someone in a public channel they belong to. Do not reply to every ordinary channel message; never reuse that silence rule for a direct \`@handle\` chat. Use channel mute when ordinary parent-channel traffic is noisy, no longer relevant, or interrupting work; unmute only when you intentionally want ordinary parent-channel wakeups again. Use thread unfollow when the work in a followed thread is complete. Full channel/mute/thread command syntax and edge cases: \`coforge manual get channels\`.`;
 }
 
 function buildAppInboxSection(): string {

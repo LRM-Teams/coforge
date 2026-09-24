@@ -616,9 +616,19 @@ test("Agent channel mute suppresses ordinary notices, preserves mentions and rea
       userId: user.id,
       channelId: general.id,
       requestId: crypto.randomUUID(),
-      body: "A default unmuted channel update",
+      body: "An Agent joins #general muted, so ordinary chatter there does not reach it",
     });
-    expect(published.slice(start).map((m) => m.agentId)).toEqual([second.id]);
+    expect(published.slice(start).map((m) => m.agentId)).toEqual([]);
+    await channels.setAgentMuted(workspace.id, second.id, "#general", false);
+    const unmutedStart = published.length;
+    await channels.send({
+      workspaceId: workspace.id,
+      userId: user.id,
+      channelId: general.id,
+      requestId: crypto.randomUUID(),
+      body: "An unmuted channel update",
+    });
+    expect(published.slice(unmutedStart).map((m) => m.agentId)).toEqual([second.id]);
 
     const other = await channels.create(workspace.id, user.id, "not-joined");
     await expect(repo.readMessages(workspace.id, agent.id, "#not-joined")).rejects.toThrow(
@@ -851,6 +861,8 @@ test("a #channel reference is stored as a channel token on every send path, and 
     };
     const channels = new PublicChannels(db, new RedisMessageRequestIdempotency(redis), centrifugo);
     const general = (await channels.list(workspace.id, user.id))[0]!;
+    // Every #general message below must reach the Agent, which joined #general muted.
+    await channels.setAgentMuted(workspace.id, helper.id, "#general", false);
     const product = await channels.create(workspace.id, user.id, "product");
     const productToken = `<@channel:${product.id}:product>`;
     const repo = new PrismaDirectConversationRepository(db);
