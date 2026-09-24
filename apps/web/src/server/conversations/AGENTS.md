@@ -31,8 +31,8 @@ These rules apply to `src/server/conversations/`.
 - Every Workspace has a `#general` that every human member and every public,
   live Agent is in. Workspace creation creates it with its creator in it;
   accepting an invitation, creating a public Agent, and making an Agent public
-  enroll through `enrollGeneralChannel` (or the visibility store), so reads
-  never enroll. A private Agent is never in it.
+  enroll through `enrollGeneralChannel` or `joinGeneralChannel`, so reads never
+  enroll. A private Agent is never in it.
 - Nobody can be a channel admin of `#general`; its members always keep
   `channelRole: "member"`. No one leaves or is removed from `#general`, no role
   changes apply to it, and it is never archived. The only admin-derived

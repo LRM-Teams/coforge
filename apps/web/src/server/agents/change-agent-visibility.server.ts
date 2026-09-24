@@ -19,8 +19,8 @@ export interface ChangeAgentVisibilityStore {
     changed: boolean;
     /** The channels a public→private change soft-left; empty otherwise. */
     leftChannelIds: string[];
-    /** The channel a private→public change re-joined (`#general`); absent otherwise. */
-    joinedChannelIds?: string[];
+    /** The channels a private→public change re-joined (`#general`); empty otherwise. */
+    joinedChannelIds: string[];
   }>;
   /** What a public→private change would do, for the confirmation dialog. Read-only. */
   preview(input: { agentId: string; workspaceId: string }): Promise<AgentVisibilityChangePreview>;
@@ -58,11 +58,7 @@ export class ChangeAgentVisibility {
     input: { agentId: string; visibility: AgentVisibility },
   ): Promise<{ visibility: AgentVisibility; changed: boolean }> {
     const agent = await this.authorize(principal, input.agentId);
-    const {
-      changed,
-      leftChannelIds,
-      joinedChannelIds = [],
-    } = await this.store.apply({
+    const { changed, leftChannelIds, joinedChannelIds } = await this.store.apply({
       agentId: agent.id,
       workspaceId: agent.workspaceId,
       visibility: input.visibility,

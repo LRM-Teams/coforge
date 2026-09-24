@@ -153,7 +153,8 @@ export class PrismaAgentRepository implements AgentRepository {
   async create(input: Omit<AgentRecord, "id" | "createdAt"> & { id?: string }) {
     return this.db.$transaction(async (tx) => {
       const agent = mapAgent(await tx.agent.create({ data: input }));
-      // A public Agent is in #general from the start; a private one never is.
+      // #general holds every public Agent from the start (a private one never): the enrollment
+      // brings the whole Workspace's #general membership up to date, this Agent included.
       await enrollGeneralChannel(tx, input.workspaceId);
       return agent;
     });

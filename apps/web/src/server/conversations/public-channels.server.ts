@@ -255,18 +255,47 @@ export async function enrollGeneralChannel(db: Prisma.TransactionClient, workspa
     })),
     skipDuplicates: true,
   });
+  // Nobody leaves #general: anyone whose row was soft-left is back in, a human read through its
+  // history like anyone joining, an Agent (as on any late join) able to read that history.
   await db.conversationMember.updateMany({
     where: {
       conversationId: general.id,
       leftAt: { not: null },
-      OR: [
-        { userId: { in: members.map(({ userId }) => userId) } },
-        { agentId: { in: agents.map(({ id }) => id) } },
-      ],
+      userId: { in: members.map(({ userId }) => userId) },
+    },
+    data: { leftAt: null, readThroughSequence },
+  });
+  await db.conversationMember.updateMany({
+    where: {
+      conversationId: general.id,
+      leftAt: { not: null },
+      agentId: { in: agents.map(({ id }) => id) },
     },
     data: { leftAt: null },
   });
   return general;
+}
+
+/** Puts one Agent that just became public back in `#general`, creating the channel if needed,
+ * and returns the channel's id. The row is upserted so a first-time membership and a re-join
+ * through a soft-left row are the same write; its read cursor and mute survive a re-join. */
+export async function joinGeneralChannel(
+  db: Prisma.TransactionClient,
+  workspaceId: string,
+  agentId: string,
+) {
+  const general = await db.conversation.upsert({
+    where: { workspaceId_channelName: { workspaceId, channelName: "general" } },
+    create: { workspaceId, channelName: "general" },
+    update: {},
+    select: { id: true },
+  });
+  await db.conversationMember.upsert({
+    where: { conversationId_agentId: { conversationId: general.id, agentId } },
+    create: { workspaceId, conversationId: general.id, agentId },
+    update: { leftAt: null },
+  });
+  return general.id;
 }
 
 export async function getAgentChannel(
@@ -973,7 +1002,7 @@ export class PublicChannels {
   /**
    * A human leaves a public channel they are an active member of themselves ("Leave a channel",
    * Slack: any member may leave a channel they belong to). Never `#general` (`CONFLICT`, Slack:
-   * "It's not possible to leave a reserved legacy #general channel"). Soft-left (`leftAt` set), not
+   * "It's not possible to leave the default #general channel"). Soft-left (`leftAt` set), not
    * deleted: the same row's mute preference and read boundary survive a later `join`, which clears
    * `leftAt` again.
    */

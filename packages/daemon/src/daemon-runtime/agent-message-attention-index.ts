@@ -43,7 +43,7 @@ const PENDING_WINDOW_LIMIT = HELD_CONTEXT_LIMIT;
 /**
  * Agent-authored parent-channel chatter should not wake other Agents unless it personally
  * @mentions them. Human ordinary channel messages still wake every delivered Agent so each can
- * decide whether to participate; the old default #general channel is retired separately.
+ * decide whether to participate.
  */
 function shouldWakeForDelivery(message: AgentMessageDelivery): boolean {
   const target = message.target ?? "";

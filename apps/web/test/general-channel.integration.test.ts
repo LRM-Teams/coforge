@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { PrismaPg } from "@prisma/adapter-pg";
-import { PrismaClient } from "#src/generated/prisma/client";
+import { PrismaClient, type Prisma } from "#src/generated/prisma/client";
 import { PrismaWorkspaceCatalogStore } from "#src/server/workspaces/catalog.server";
 import { PrismaWorkspaceEnrollmentStore } from "#src/server/workspaces/enrollment.server";
 import { PrismaWorkspaceMemberDirectoryStore } from "#src/server/workspaces/member-directory-store.server";
@@ -18,8 +18,8 @@ import { PrismaAgentRepository } from "#src/server/db/repositories/agent.reposit
 const connectionString = Bun.env.CHANNEL_TEST_DATABASE_URL;
 
 const RUNTIME_CONFIG = {
-  runtime: "pi",
-  provider: { kind: "default" },
+  runtime: "pi" as const,
+  provider: { kind: "default" as const },
   model: "",
   modelProvider: "",
   reasoning: "",
@@ -30,7 +30,7 @@ function connect() {
 }
 
 /** The active members of a Workspace's `#general`, as `user:<id>` / `agent:<id>` keys. */
-async function generalMembers(db: PrismaClient, workspaceId: string) {
+async function generalMembers(db: Prisma.TransactionClient, workspaceId: string) {
   const general = await db.conversation.findUnique({
     where: { workspaceId_channelName: { workspaceId, channelName: "general" } },
     select: {
@@ -104,6 +104,30 @@ test.skipIf(!connectionString)(
       userId: owner.id,
     });
     try {
+      // The invitee was in #general once before (their row is soft-left) and it has history.
+      const general = await db.conversation.findUniqueOrThrow({
+        where: { workspaceId_channelName: { workspaceId: workspace.id, channelName: "general" } },
+      });
+      const ownerRow = await db.conversationMember.findUniqueOrThrow({
+        where: { conversationId_userId: { conversationId: general.id, userId: owner.id } },
+      });
+      await db.message.create({
+        data: {
+          workspaceId: workspace.id,
+          conversationId: general.id,
+          senderMemberId: ownerRow.id,
+          sequence: 7,
+          body: "Before the invitee came back",
+        },
+      });
+      await db.conversationMember.create({
+        data: {
+          workspaceId: workspace.id,
+          conversationId: general.id,
+          userId: invitee.id,
+          leftAt: new Date(),
+        },
+      });
       const invitation = await db.workspaceInvitation.create({
         data: {
           workspaceId: workspace.id,
@@ -125,13 +149,7 @@ test.skipIf(!connectionString)(
         displayName: "Helper",
         ownerId: owner.id,
         visibility: "public",
-        runtimeConfig: {
-          runtime: "pi",
-          provider: { kind: "default" },
-          model: "",
-          modelProvider: "",
-          reasoning: "",
-        },
+        runtimeConfig: RUNTIME_CONFIG,
       });
       const secret = await agents.create({
         workspaceId: workspace.id,
@@ -139,22 +157,21 @@ test.skipIf(!connectionString)(
         displayName: "Secret",
         ownerId: owner.id,
         visibility: "private",
-        runtimeConfig: {
-          runtime: "pi",
-          provider: { kind: "default" },
-          model: "",
-          modelProvider: "",
-          reasoning: "",
-        },
+        runtimeConfig: RUNTIME_CONFIG,
       });
 
-      const general = await generalMembers(db, workspace.id);
-      expect(general?.members).toEqual(
+      const enrolled = await generalMembers(db, workspace.id);
+      expect(enrolled?.members).toEqual(
         [`user:${owner.id}`, `user:${invitee.id}`, `agent:${helper.id}`].sort(),
       );
-      expect(general?.members).not.toContain(`agent:${secret.id}`);
+      expect(enrolled?.members).not.toContain(`agent:${secret.id}`);
       // Agents join unmuted, as their instructions say; ordinary chatter still does not wake them.
-      expect(general?.muted).toBe(0);
+      expect(enrolled?.muted).toBe(0);
+      // The returning invitee starts read through the history, like anyone joining.
+      const inviteeRow = await db.conversationMember.findUniqueOrThrow({
+        where: { conversationId_userId: { conversationId: general.id, userId: invitee.id } },
+      });
+      expect(inviteeRow.readThroughSequence).toBe(7);
     } finally {
       await db.workspace.delete({ where: { id: workspace.id } }).catch(() => {});
       await db.user.deleteMany({ where: { id: { in: [owner.id, invitee.id] } } });
@@ -234,7 +251,7 @@ test.skipIf(!connectionString)(
         // Running it twice changes nothing more.
         await tx.$executeRawUnsafe(sql);
 
-        const restored = await generalMembers(tx as unknown as PrismaClient, archived.id);
+        const restored = await generalMembers(tx, archived.id);
         expect(restored).toEqual({
           archived: false,
           members: [`user:${owner.id}`, `user:${leaver.id}`, `agent:${liveAgent.id}`].sort(),
@@ -242,13 +259,18 @@ test.skipIf(!connectionString)(
         });
         expect(restored?.members).not.toContain(`agent:${privateAgent.id}`);
         expect(restored?.members).not.toContain(`agent:${deletedAgent.id}`);
+        // A human who comes back starts read through the history.
+        const leaverRow = await tx.conversationMember.findUniqueOrThrow({
+          where: { conversationId_userId: { conversationId: oldGeneral.id, userId: leaver.id } },
+        });
+        expect(leaverRow.readThroughSequence).toBe(0);
         // The restored channel is the same row, so its history stays with it.
         const same = await tx.conversation.findUnique({
           where: { workspaceId_channelName: { workspaceId: archived.id, channelName: "general" } },
           select: { id: true },
         });
         expect(same?.id).toBe(oldGeneral.id);
-        expect(await generalMembers(tx as unknown as PrismaClient, fresh.id)).toEqual({
+        expect(await generalMembers(tx, fresh.id)).toEqual({
           archived: false,
           members: [`user:${other.id}`],
           muted: 0,

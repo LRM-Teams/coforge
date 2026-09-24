@@ -57,7 +57,11 @@ function fixture(options?: {
     apply: async (input) => {
       applied.push(input);
       const changed = options?.changed ?? true;
-      return { changed, leftChannelIds: changed ? (options?.leftChannelIds ?? []) : [] };
+      return {
+        changed,
+        leftChannelIds: changed ? (options?.leftChannelIds ?? []) : [],
+        joinedChannelIds: [],
+      };
     },
     preview: async () => ({ channelNames: ["general"], readOnlyDirectMessageCount: 1 }),
   };
@@ -182,7 +186,7 @@ describe("ChangeAgentVisibility", () => {
     const useCase = new ChangeAgentVisibility(
       repositoryFor(record),
       {
-        apply: async () => ({ changed: true, leftChannelIds: [] }),
+        apply: async () => ({ changed: true, leftChannelIds: [], joinedChannelIds: [] }),
         preview: async () => ({ channelNames: [], readOnlyDirectMessageCount: 0 }),
       },
       async () => {
