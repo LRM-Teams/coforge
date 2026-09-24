@@ -4,10 +4,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { RUNTIME_PROVIDER } from "@lrm/coforge-sdk/internal";
 
-import {
-  AgentProfileTab,
-  visibilityChangeTarget,
-} from "#src/features/agents/profile-panel/agent-profile-tab";
+import { AgentProfileTab } from "#src/features/agents/profile-panel/agent-profile-tab";
 import type { AgentRuntimeControls } from "#src/features/agents/agent-runtime-controls";
 import type { getAgentProfile } from "#src/features/agents/agents.functions";
 import { formatDateForDisplay } from "#src/lib/dates";
@@ -394,7 +391,7 @@ test("a Claude Code Agent's context badge becomes the breakdown popover trigger"
   );
 });
 
-test("a viewer who cannot change visibility sees the plain Visibility badge, no pencil", () => {
+test("a viewer who cannot change visibility sees the plain Visibility badge, no change button", () => {
   const markup = render(
     <AgentProfileTab
       profile={profileFixture()}
@@ -408,10 +405,10 @@ test("a viewer who cannot change visibility sees the plain Visibility badge, no 
   );
   expect(markup).toContain("Visibility");
   expect(markup).toContain("Public");
-  expect(markup).not.toContain("Edit visibility");
+  expect(markup).not.toContain("Make private");
 });
 
-test("the creator (or owner/admin) gets the Visibility pencil like the Role pencil", () => {
+test("the creator (or owner/admin) sees the current visibility and a button to change it", () => {
   const markup = render(
     <AgentProfileTab
       profile={profileFixture({ visibility: "private", canChangeVisibility: true })}
@@ -424,9 +421,8 @@ test("the creator (or owner/admin) gets the Visibility pencil like the Role penc
       runtimeCredentialDialog={null}
     />,
   );
-  expect(markup).toContain("Edit visibility");
-  // The badge reflects the current state before any edit.
   expect(markup).toContain("Private");
+  expect(markup).toMatch(/<button[^>]*>(?:(?!<\/button>).)*Make public/);
 });
 
 test("a private Agent without the visibility grant shows the Private badge with no edit affordance", () => {
@@ -442,12 +438,5 @@ test("a private Agent without the visibility grant shows the Private badge with 
     />,
   );
   expect(markup).toContain("Private");
-  expect(markup).not.toContain("Edit visibility");
-});
-
-test("visibilityChangeTarget: choosing the current state is a no-op, the opposite opens the dialog", () => {
-  expect(visibilityChangeTarget("public", "public")).toBeNull();
-  expect(visibilityChangeTarget("private", "private")).toBeNull();
-  expect(visibilityChangeTarget("public", "private")).toBe("private");
-  expect(visibilityChangeTarget("private", "public")).toBe("public");
+  expect(markup).not.toContain("Make public");
 });

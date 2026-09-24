@@ -11,6 +11,7 @@ import { Avatar } from "#src/components/base/avatar/avatar";
 import { Button } from "#src/components/base/buttons/button";
 import { ButtonUtility } from "#src/components/base/buttons/button-utility";
 import { Input } from "#src/components/base/input/input";
+import { Toggle } from "#src/components/base/toggle/toggle";
 import { useAppToast } from "#src/components/ui/toast";
 import { avatarInitial, avatarToneClassName } from "#src/lib/avatar-tone";
 import { m } from "#src/paraglide/messages";
@@ -479,29 +480,16 @@ export function ComputerDetail({
                         <RuntimeIdentity runtime={runtime} />
                       )}
                       {computer.ownedByCurrentUser && (
-                        <div className="shrink-0">
-                          <Button
-                            type="button"
-                            size="sm"
-                            color="secondary"
-                            aria-pressed={runtime.isPublic}
-                            aria-label={
-                              runtime.isPublic
-                                ? m.computer_runtime_make_private_label({
-                                    runtime: runtime.displayName,
-                                  })
-                                : m.computer_runtime_publish_label({
-                                    runtime: runtime.displayName,
-                                  })
-                            }
-                            isDisabled={updatingRuntimeIdsState.has(runtime.id)}
-                            onPress={() => void setRuntimePublic(runtime.id, !runtime.isPublic)}
-                          >
-                            {runtime.isPublic
-                              ? m.computer_runtime_public()
-                              : m.computer_runtime_private()}
-                          </Button>
-                        </div>
+                        <Toggle
+                          className="shrink-0"
+                          label={m.computer_runtime_public()}
+                          aria-label={m.computer_runtime_public_label({
+                            runtime: runtime.displayName,
+                          })}
+                          isSelected={runtime.isPublic}
+                          isDisabled={updatingRuntimeIdsState.has(runtime.id)}
+                          onChange={(isPublic) => void setRuntimePublic(runtime.id, isPublic)}
+                        />
                       )}
                       {computer.ownedByCurrentUser && runtimeVisibilityErrorIds.has(runtime.id) && (
                         <p role="alert" className="basis-full text-xs text-error-primary">
