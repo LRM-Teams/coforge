@@ -85,7 +85,8 @@ export function mentionHandlesByToken(mentions: readonly MentionRef[]): Map<stri
 }
 
 /** Where a text node sits: code keeps its text as written, and inside a link nothing becomes a
- * chip (a link keeps pointing where its author aimed it, with no control nested in it). */
+ * chip. That is one consistency rule for every kind, not only the chips a renderer turns into a
+ * control: a link reads as the text it shows and keeps pointing where its author aimed it. */
 type Place = "prose" | "link";
 
 /** What a chip pass knows about the viewer and the conversation, each the authority for one kind. */
@@ -133,13 +134,12 @@ type ReferenceKind = {
  *
  * Every pattern is matched in one scan of each text node, so a chip's own label (an Agent called
  * "Scout #5") is finished markup that is never read again. Code (`code`, `pre`) keeps its text as
- * written; inside a link (`a`) every token reads as its text and nothing becomes a chip.
+ * written; inside a link (`a`) every token reads as its text and nothing becomes a chip, whatever
+ * its kind (see `Place`).
  */
 export function rehypeReferenceChips(options: ReferenceChipOptions) {
   const kinds = referenceKinds(options);
-  // Each kind's own capture groups follow its one wrapping group in the combined pattern.
-  const groupCounts = kinds.map(({ pattern }) => new RegExp(`${pattern.source}|`).exec("")!.length);
-  const pattern = new RegExp(kinds.map((kind) => `(${kind.pattern.source})`).join("|"), "gi");
+  const { pattern, read } = patternAlternation(kinds.map((kind) => kind.pattern));
   const plain = options.plainMentions !== undefined && options.plainMentions.size > 0;
 
   /** The replacement for one text node, or `undefined` when nothing in it is a reference. */
@@ -147,11 +147,7 @@ export function rehypeReferenceChips(options: ReferenceChipOptions) {
     const result: Array<Element | Text> = [];
     let offset = 0;
     for (const match of value.matchAll(pattern)) {
-      // The kind whose wrapping group matched, and its own groups after it.
-      let group = 1;
-      let kind = 0;
-      while (match[group] === undefined) group += groupCounts[kind++]!;
-      const groups = match.slice(group + 1, group + groupCounts[kind]!) as string[];
+      const { index: kind, groups } = read(match);
       const built = kinds[kind]!.build(groups, place);
       if (built === undefined) continue;
       if (match.index > offset)
@@ -192,6 +188,41 @@ export function rehypeReferenceChips(options: ReferenceChipOptions) {
   };
 }
 
+/**
+ * Several patterns as one alternation, matched in one scan: at each position the first listed
+ * pattern that matches there wins. `read` names which pattern a match came from, by its index, and
+ * that pattern's own capture groups.
+ *
+ * The alternation is one pattern, so it has one set of flags: `g` and every flag of every pattern.
+ * A pattern that needs `u` (a `\p{…}` class) brings `u`, and every source is then read in `u` mode;
+ * a case-insensitive pattern makes the whole alternation case-insensitive, so a case-sensitive
+ * pattern alongside it also matches other cases, and its reader must tell them apart.
+ */
+export function patternAlternation(patterns: readonly RegExp[]): {
+  pattern: RegExp;
+  read: (match: RegExpMatchArray) => { index: number; groups: string[] };
+} {
+  const flags = [...new Set(["g", ...patterns.flatMap((each) => [...each.flags])])]
+    .filter((flag) => flag !== "y")
+    .join("");
+  // Each pattern's own capture groups, counted under the alternation's flags, follow its one
+  // wrapping group.
+  const groupCounts = patterns.map(
+    (each) => new RegExp(`${each.source}|`, flags).exec("")!.length - 1,
+  );
+  const pattern = new RegExp(patterns.map((each) => `(${each.source})`).join("|"), flags);
+  return {
+    pattern,
+    read: (match) => {
+      // The pattern whose wrapping group matched, and its own groups after it.
+      let group = 1;
+      let index = 0;
+      while (match[group] === undefined) group += 1 + groupCounts[index++]!;
+      return { index, groups: match.slice(group + 1, group + 1 + groupCounts[index]!) as string[] };
+    },
+  };
+}
+
 /** The kinds a pass matches, each with its chip builder, the plain `@handle` only when asked for. */
 function referenceKinds(options: ReferenceChipOptions): ReferenceKind[] {
   const { mentions, viewerHandle, plainMentions, taskNumbers, channelNames } = options;
@@ -204,6 +235,7 @@ function referenceKinds(options: ReferenceChipOptions): ReferenceKind[] {
         );
         // A token with no mention row stays as written rather than becoming a phantom highlight.
         if (!mention) return undefined;
+        // Inside a link every kind reads as its text (see `Place`), a mention included.
         return place === "link"
           ? { type: "text", value: `@${mention.label}` }
           : mentionChip(mention, viewerHandle);
@@ -223,6 +255,9 @@ function referenceKinds(options: ReferenceChipOptions): ReferenceKind[] {
       build: ([rawId, stored], place) => {
         const id = rawId!.toLowerCase();
         const current = channelNames?.get(id);
+        // Inside a link the token reads as text under the channel's current name when the
+        // Workspace still has it, the name its chip would show, and only otherwise under the
+        // name it stored. That is intended: a renamed channel reads the same in and out of a link.
         return place === "prose" && current !== undefined
           ? channelChip(id, current)
           : { type: "text", value: `#${current ?? stored!}` };
@@ -232,6 +267,10 @@ function referenceKinds(options: ReferenceChipOptions): ReferenceKind[] {
   if (plainMentions && plainMentions.size > 0)
     kinds.push({
       pattern: MENTION_PATTERN,
+      // The token patterns make the alternation case-insensitive (`patternAlternation`), so it also
+      // matches `@Bob`, which `MENTION_PATTERN` alone would not. The lookup is exact-case against
+      // lower-case handles, so such a match finds no member and stays as written: the kind keeps
+      // its own lower-case rule.
       build: ([handle], place) => {
         const mention = plainMentions.get(handle!);
         return mention && place === "prose" ? mentionChip(mention, viewerHandle) : undefined;

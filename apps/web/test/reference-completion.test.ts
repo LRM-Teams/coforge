@@ -177,10 +177,23 @@ test("channel suggestions are capped by limit, 8 by default", () => {
 });
 
 test("insertReference replaces the typed token and leaves the caret after a trailing space", () => {
-  expect(insertReference("see #r later", 4, 6, "#random")).toEqual({
-    value: "see #random  later",
-    caret: 12,
-  });
   expect(insertReference("hi @al", 3, 6, "@alice")).toEqual({ value: "hi @alice ", caret: 10 });
   expect(insertReference("#", 0, 1, "#product")).toEqual({ value: "#product ", caret: 9 });
+});
+
+test("insertReference reuses a space or tab already after the token, and the caret passes it", () => {
+  expect(insertReference("see #r later", 4, 6, "#random")).toEqual({
+    value: "see #random later",
+    caret: 12,
+  });
+  expect(insertReference("hi @al there", 3, 6, "@alice")).toEqual({
+    value: "hi @alice there",
+    caret: 10,
+  });
+  expect(insertReference("#r\tnow", 0, 2, "#random")).toEqual({ value: "#random\tnow", caret: 8 });
+  // A line break is not that space: the caret stays on the reference's line.
+  expect(insertReference("#r\nnext", 0, 2, "#random")).toEqual({
+    value: "#random \nnext",
+    caret: 8,
+  });
 });

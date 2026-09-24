@@ -20,12 +20,15 @@
  * A bare `#N` therefore carries its own fall-through: it is read with the whole `#name` run it
  * starts, and resolves to the task N, else the channel that run names. When the run is longer than
  * the number (`#132-plan`), a channel with that whole name comes first, so a channel name that
- * starts with digits still reads whole; failing that, the number is still the task.
+ * starts with digits still reads whole; failing that, the number is still the task. Only the
+ * channel reading needs the whole run written exactly: in `#5-\_b\_` the escapes rule out a
+ * channel, but the `#5` is written exactly and is still the task.
  *
  * What resolves becomes its stored token, spliced into the body as written at the node's source
  * offsets (mapped back through the escaping), so every byte outside a replaced reference stays
  * identical. A match whose source is not exactly its text — an escaped `\#name`, a character
- * reference — is written literally, not referenced.
+ * reference — is written literally, not referenced (except a bare `#N` whose number is written
+ * exactly, above).
  *
  * A token already in the body is not special here: like a mention token, it is a claim that every
  * consumer checks against authoritative data (the renderer links a channel token only when the
@@ -61,8 +64,12 @@ type Reference =
   | { kind: "bareNumber"; number: number; name: string; rest: string }
   | { kind: "channel"; name: string };
 
-/** One alternative's reading of its match: the reference, and the text it consumes. */
-type Reading = { reference: Reference; text: string };
+/**
+ * One alternative's reading of its match: the reference, and the text it consumes. `exactPart` is
+ * what a prefix of that text still reads as when the whole is not written exactly but the prefix
+ * is (see `proseReferences`).
+ */
+type Reading = { reference: Reference; text: string; exactPart?: Omit<Reading, "exactPart"> };
 
 /** The `#name` run a channel reference reads, anchored where a bare `#N` starts. */
 const CHANNEL_RUN = new RegExp(CHANNEL_REFERENCE_PATTERN.source, "uy");
@@ -97,14 +104,20 @@ function readBareNumber(match: RegExpExecArray): Reading {
   CHANNEL_RUN.lastIndex = match.index;
   // The run always matches here: a bare `#N` is itself a `#name` run.
   const run = CHANNEL_RUN.exec(match.input)![0];
+  const number = Number(match[1]);
   return {
     reference: {
       kind: "bareNumber",
-      number: Number(match[1]),
+      number,
       name: run.slice(1).toLowerCase(),
       rest: run.slice(match[0].length),
     },
     text: run,
+    // Only the channel reading needs the whole run: the number alone is still the task.
+    exactPart:
+      run.length > match[0].length
+        ? { reference: { kind: "task", number }, text: match[0] }
+        : undefined,
   };
 }
 
@@ -244,11 +257,15 @@ function proseReferences(body: string): { reference: Reference; start: number; e
     for (const match of matches) {
       const from = aligned.starts[match.index]!;
       // Written exactly as matched: an escape or a character reference inside it means the
-      // author wrote the characters literally.
-      if (!source.startsWith(match.text, from)) continue;
+      // author wrote the characters literally. A reading whose exact prefix still means something
+      // (a bare `#N` whose run goes on) falls back to that prefix.
+      const exact = [match, match.exactPart].find(
+        (reading) => reading !== undefined && source.startsWith(reading.text, from),
+      );
+      if (!exact) continue;
       // Reference text holds no `<`, so it maps back to the body one character for one.
       const start = toBody ? toBody[from]! : from;
-      references.push({ reference: match.reference, start, end: start + match.text.length });
+      references.push({ reference: exact.reference, start, end: start + exact.text.length });
     }
   }
   return references;
@@ -427,9 +444,9 @@ function characterReferenceAt(
  * The references in one run of prose, in reading order. Each alternative keeps its next match until
  * the cursor passes it, so a long text is scanned once per alternative.
  */
-function matchesIn(text: string): { reference: Reference; index: number; text: string }[] {
+function matchesIn(text: string): (Reading & { index: number })[] {
   const upcoming: (RegExpExecArray | null | undefined)[] = SCANNERS.map(() => undefined);
-  const matches: { reference: Reference; index: number; text: string }[] = [];
+  const matches: (Reading & { index: number })[] = [];
   let cursor = 0;
   for (;;) {
     let best = -1;
@@ -444,8 +461,8 @@ function matchesIn(text: string): { reference: Reference; index: number; text: s
     }
     if (best === -1) return matches;
     const match = upcoming[best]!;
-    const { reference, text: read } = ALTERNATIVES[best]!.read(match);
-    matches.push({ reference, index: match.index, text: read });
-    cursor = match.index + read.length;
+    const reading = ALTERNATIVES[best]!.read(match);
+    matches.push({ ...reading, index: match.index });
+    cursor = match.index + reading.text.length;
   }
 }
