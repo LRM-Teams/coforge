@@ -3180,6 +3180,111 @@ describe("DaemonRuntime", () => {
     }
   });
 
+  test("a message that arrives while a recovery Start is in flight is not acknowledged by that recovery", async () => {
+    const credentials = new InMemoryDaemonCredentialStore();
+    await credentials.save(connection.workspaceId, connection.computerId, "token-a");
+    const exits = new Set<() => void>();
+    const events: string[] = [];
+    let launchAttempts = 0;
+    const recoveryLaunch = Promise.withResolvers<void>();
+    const recoveryLaunching = Promise.withResolvers<void>();
+    const fourthAcknowledged = Promise.withResolvers<void>();
+    const runtime = new DaemonRuntime(
+      connection,
+      () => ({
+        provider: "pi",
+        createAgentSession: async () => {
+          launchAttempts++;
+          if (launchAttempts === 2) throw new Error("pi: command not found");
+          if (launchAttempts === 3) {
+            recoveryLaunching.resolve();
+            await recoveryLaunch.promise;
+          }
+          return {
+            ...sessionSpy(),
+            notify: async () => {
+              events.push("notice");
+            },
+            onExit(listener) {
+              exits.add(listener);
+              return () => exits.delete(listener);
+            },
+          };
+        },
+      }),
+      credentials,
+      {
+        create: () => ({
+          async start() {},
+          async ready() {},
+          sendAgentStatus() {},
+          async sendAgentDeliveryAck(ack) {
+            events.push(`ack ${ack.deliveryId}`);
+            if (ack.deliveryId === "delivery-4") fourthAcknowledged.resolve();
+          },
+          async requestAgentApiKey() {
+            return `sk_agent_${"a".repeat(43)}`;
+          },
+          async revokeAgentApiKey() {},
+          async stop() {},
+        }),
+      },
+    );
+    const delivery = (sequence: number) => ({
+      protocolMajor: 1 as const,
+      requestId: `message-request-${sequence}`,
+      messageId: `message-${sequence}`,
+      deliveryId: `delivery-${sequence}`,
+      sequence,
+      workspaceId: connection.workspaceId,
+      conversationId: "conversation-1",
+      agentId: "agent-a",
+      body: `body ${sequence}`,
+      method: "agent:v1:message:deliver" as const,
+      target: "@agent",
+    });
+
+    try {
+      await runtime.start(connection);
+      await runtime.startAgent("agent-a", config);
+      for (const exit of [...exits]) exit();
+      // M1's wake launch fails, so M1 waits for the next launch.
+      await expect(runtime.handleAgentMessage(delivery(1))).rejects.toThrow(
+        "pi: command not found",
+      );
+
+      // A Start whose recovery context covers M1 is in flight when M4 arrives.
+      const started = runtime.startAgent("agent-a", config, undefined, undefined, {
+        resumeMessages: [
+          {
+            messageId: "message-1",
+            deliveryId: "delivery-1",
+            conversationId: "conversation-1",
+            sequence: 1,
+            target: "@agent",
+            latestSenderKind: "human" as const,
+            latestSenderHandle: "ada",
+            latestSenderDescription: "",
+            body: "body 1",
+          },
+        ],
+        unreadSummary: {},
+      });
+      await recoveryLaunching.promise;
+      const fourth = runtime.handleAgentMessage(delivery(4));
+      void fourth.catch(() => {});
+      recoveryLaunch.resolve();
+      await started;
+      await fourthAcknowledged.promise;
+
+      // The recovery notice covers M1 only; M4 is acknowledged only after a notice of its own.
+      const fourthAck = events.indexOf("ack delivery-4");
+      expect(events.slice(0, fourthAck).filter((event) => event === "notice")).toHaveLength(2);
+    } finally {
+      await runtime.stop();
+    }
+  });
+
   test("a successful Start clears the wake cooldown a failed wake launch left behind", async () => {
     const credentials = new InMemoryDaemonCredentialStore();
     await credentials.save(connection.workspaceId, connection.computerId, "token-a");

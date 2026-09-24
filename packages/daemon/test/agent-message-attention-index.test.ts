@@ -723,6 +723,60 @@ test("flushing deliveries that waited for a launch records them as a received de
   expect(index.pendingWindow("agent-1", "@agent", 10)).toHaveLength(2);
 });
 
+test("flushing waiting deliveries treats consumed, silent, and malformed ones as receive would", async () => {
+  const notices: string[] = [];
+  const acks: string[] = [];
+  const index = new AgentMessageAttentionIndex(
+    "workspace-1",
+    { session: () => session((notice) => notices.push(notice)) },
+    async (ack) => {
+      acks.push(ack.deliveryId);
+    },
+  );
+  index.recordModelSeen("agent-1", "@agent", 1);
+
+  await index.flush("agent-1", [
+    // Already consumed: ACKed, neither recorded nor announced.
+    delivery("consumed"),
+    // Another Agent's chatter that does not mention this one: ACKed and recorded, not announced.
+    {
+      ...delivery("chatter", "agent", "builder"),
+      sequence: 2,
+      target: "#team",
+      mentionsAgent: false,
+    },
+    { ...delivery("fresh", "human", "ada"), sequence: 3 },
+    // Missing its target: neither announced nor ACKed, and it cannot sink the batch.
+    { ...delivery("malformed"), sequence: 4, target: undefined },
+  ]);
+
+  expect(notices).toHaveLength(1);
+  expect(notices[0]).toContain("Inbox update: 1 message delivered or held for you");
+  expect(notices[0]).toContain("@agent  new: 1 message");
+  expect(notices[0]).not.toContain("#team");
+  expect(acks).toEqual(["delivery-consumed", "delivery-chatter", "delivery-fresh"]);
+  expect(index.pendingMessageCount("agent-1", "@agent")).toBe(1);
+  expect(index.latestSequence("agent-1", "#team")).toBe(2);
+});
+
+test("flushing only deliveries that need no notice sends none and still ACKs them", async () => {
+  const notices: string[] = [];
+  const acks: string[] = [];
+  const index = new AgentMessageAttentionIndex(
+    "workspace-1",
+    { session: () => session((notice) => notices.push(notice)) },
+    async (ack) => {
+      acks.push(ack.deliveryId);
+    },
+  );
+  index.recordModelSeen("agent-1", "@agent", 1);
+
+  await index.flush("agent-1", [delivery("consumed")]);
+
+  expect(notices).toEqual([]);
+  expect(acks).toEqual(["delivery-consumed"]);
+});
+
 test("flush is a no-op when nothing was held", async () => {
   const notices: string[] = [];
   const index = new AgentMessageAttentionIndex(

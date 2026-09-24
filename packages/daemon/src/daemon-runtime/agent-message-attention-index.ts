@@ -292,30 +292,44 @@ export class AgentMessageAttentionIndex {
    * Delivers every notice `AgentDeliveryQueue` held for `agentId`, oldest first, as
    * one call to `AgentSession.notify` once the Agent is idle — the daemon core is the only
    * caller, right after `AgentDeliveryQueue.idle`/`release` hands back what it drained. A delivery
-   * held by `receive` already has its attention recorded; one the runtime queued before the
-   * Agent's process existed (a wake cooldown, a batched wake) is recorded here first, exactly as
-   * `receive` would have. ACKs every held delivery only once that single notice is accepted —
-   * never on failure, so an un-acked delivery stays safe to hold or redeliver.
+   * held by `receive` already passed its checks and has its attention recorded. One the runtime
+   * queued before the Agent's process existed (a wake cooldown, a batched wake) gets `receive`'s
+   * treatment here: an already-consumed one is only ACKed, one that never wakes the Agent is
+   * recorded and ACKed but not announced, and a malformed one is neither announced nor ACKed.
+   * ACKs only once the single notice is accepted (or when nothing needed announcing) — never on
+   * failure, so an un-acked delivery stays safe to hold or redeliver.
    */
   async flush(agentId: string, held: readonly AgentMessageDelivery[]): Promise<void> {
     if (!held.length) return;
     const generation = this.#generation(agentId);
+    const acknowledged: AgentMessageDelivery[] = [];
+    const announced: AgentMessageDelivery[] = [];
     for (const message of held) {
-      if (generation.seenDeliveryIds.has(message.deliveryId) || !hasDeliveryScope(message))
+      if (!hasDeliveryScope(message)) continue;
+      acknowledged.push(message);
+      if (generation.seenDeliveryIds.has(message.deliveryId)) {
+        announced.push(message);
         continue;
+      }
       this.#remember(generation, message.deliveryId);
+      if (this.modelSeenSequence(agentId, message.target) >= message.sequence) continue;
       this.#recordAttention(message);
+      if (shouldWakeForDelivery(message)) announced.push(message);
     }
     // One notice for the whole coalesced batch, carrying the batch itself: the queue is per Agent,
     // so a batch legitimately spans channels, DMs and threads, and each target needs its own line.
-    await this.#notify(held[held.length - 1]!, undefined, held);
-    if (this.#generations.get(agentId) !== generation) return;
-    for (const message of held)
+    if (announced.length) {
+      await this.#notify(announced[announced.length - 1]!, undefined, announced);
+      if (this.#generations.get(agentId) !== generation) return;
+    }
+    for (const message of acknowledged) {
+      generation.notified.add(message.deliveryId);
       await this.sendAck({
         ...message,
         method: AGENT_MESSAGE_ACK_METHOD,
         requestId: message.requestId,
       });
+    }
   }
 
   async recover(
