@@ -770,6 +770,14 @@ export const buildUserAgentConversationCreateInput = (
     },
   }) satisfies Prisma.ConversationCreateInput;
 
+/** An Agent-facing target (`#channel` or `@user`, optionally `:root`) resolved by `resolveAgentTarget`. */
+type ResolvedAgentTarget = {
+  conversationId: string;
+  threadRootId: string | null;
+  canonicalTarget: string;
+  isChannel: boolean;
+};
+
 export class PrismaDirectConversationRepository implements DirectConversationRepository {
   constructor(private readonly db: PrismaClient) {}
   async userIdForUsername(target: string) {
@@ -870,7 +878,11 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
     }
   }
 
-  async resolveAgentTarget(workspaceId: string, agentId: string, target: string) {
+  async resolveAgentTarget(
+    workspaceId: string,
+    agentId: string,
+    target: string,
+  ): Promise<ResolvedAgentTarget> {
     const parentTarget = target.split(":")[0]!;
     const isChannel = parentTarget.startsWith("#");
     const conversation = isChannel
@@ -2184,17 +2196,43 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
     });
   }
 
+  /**
+   * One Agent-facing target resolved once, with the freshness reads and the read-through advance
+   * a send checks against it (`executeAgentSendMessageWithPolicy`), so they share that resolution.
+   */
+  async agentTargetFreshness(workspaceId: string, agentId: string, target: string) {
+    const resolved = await this.resolveAgentTarget(workspaceId, agentId, target);
+    return {
+      advanceReadThrough: (seenUpToSequence: number) =>
+        this.#advanceAgentReadThrough(workspaceId, agentId, resolved, seenUpToSequence),
+      readPending: (afterSequence?: number) =>
+        this.#readPendingAgentContext(agentId, resolved, afterSequence),
+      countPending: (afterSequence?: number) =>
+        this.#countPendingAgentContext(agentId, resolved, afterSequence),
+      readRecent: (limit: number) => this.#readRecentAgentContext(agentId, resolved, limit),
+    };
+  }
+
   async advanceAgentReadThrough(
     workspaceId: string,
     agentId: string,
     target: string,
     seenUpToSequence: number,
   ): Promise<number> {
-    const { conversationId, threadRootId } = await this.resolveAgentTarget(
+    return this.#advanceAgentReadThrough(
       workspaceId,
       agentId,
-      target,
+      await this.resolveAgentTarget(workspaceId, agentId, target),
+      seenUpToSequence,
     );
+  }
+
+  async #advanceAgentReadThrough(
+    workspaceId: string,
+    agentId: string,
+    { conversationId, threadRootId }: ResolvedAgentTarget,
+    seenUpToSequence: number,
+  ): Promise<number> {
     const latest = await this.db.message.findFirst({
       where: { conversationId, threadRootId },
       orderBy: { sequence: "desc" },
@@ -2228,18 +2266,15 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
   }
 
   /**
-   * Resolves the pending-agent-context scope (conversation/thread, unread boundary and `where`
-   * clause) shared by `readPendingAgentContext` and `countPendingAgentContext`, so a bounded
-   * read and its unbounded count cannot drift apart.
+   * The pending-agent-context scope of a resolved target (unread boundary and `where` clause)
+   * shared by the pending read and its count, so a bounded read and its unbounded count cannot
+   * drift apart.
    */
   private async pendingAgentContextScope(
-    workspaceId: string,
     agentId: string,
-    target: string,
+    { conversationId, threadRootId, canonicalTarget, isChannel }: ResolvedAgentTarget,
     afterSequence?: number,
   ) {
-    const { conversationId, threadRootId, canonicalTarget, isChannel } =
-      await this.resolveAgentTarget(workspaceId, agentId, target);
     const agentMember = await this.db.conversationMember.findUnique({
       where: { conversationId_agentId: { conversationId, agentId } },
       select: { id: true },
@@ -2274,10 +2309,21 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
     target: string,
     afterSequence?: number,
   ) {
-    const { canonicalTarget, where } = await this.pendingAgentContextScope(
-      workspaceId,
+    return this.#readPendingAgentContext(
       agentId,
-      target,
+      await this.resolveAgentTarget(workspaceId, agentId, target),
+      afterSequence,
+    );
+  }
+
+  async #readPendingAgentContext(
+    agentId: string,
+    resolved: ResolvedAgentTarget,
+    afterSequence?: number,
+  ) {
+    const { canonicalTarget, where } = await this.pendingAgentContextScope(
+      agentId,
+      resolved,
       afterSequence,
     );
     const rows = await this.db.message.findMany({
@@ -2304,8 +2350,18 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
     target: string,
     limit: number,
   ) {
-    const { conversationId, threadRootId, canonicalTarget, isChannel } =
-      await this.resolveAgentTarget(workspaceId, agentId, target);
+    return this.#readRecentAgentContext(
+      agentId,
+      await this.resolveAgentTarget(workspaceId, agentId, target),
+      limit,
+    );
+  }
+
+  async #readRecentAgentContext(
+    agentId: string,
+    { conversationId, threadRootId, canonicalTarget, isChannel }: ResolvedAgentTarget,
+    limit: number,
+  ) {
     const agentMember = await this.db.conversationMember.findUnique({
       where: { conversationId_agentId: { conversationId, agentId } },
       select: { id: true },
@@ -2362,12 +2418,19 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
     target: string,
     afterSequence?: number,
   ) {
-    const { where } = await this.pendingAgentContextScope(
-      workspaceId,
+    return this.#countPendingAgentContext(
       agentId,
-      target,
+      await this.resolveAgentTarget(workspaceId, agentId, target),
       afterSequence,
     );
+  }
+
+  async #countPendingAgentContext(
+    agentId: string,
+    resolved: ResolvedAgentTarget,
+    afterSequence?: number,
+  ) {
+    const { where } = await this.pendingAgentContextScope(agentId, resolved, afterSequence);
     return this.db.message.count({ where });
   }
 

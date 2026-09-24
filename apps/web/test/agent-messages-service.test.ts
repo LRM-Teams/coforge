@@ -9,6 +9,7 @@ import {
   searchAgentMessages,
   unfollowAgentThread,
   type AgentMessageRepository,
+  type AgentTargetFreshness,
 } from "#src/server/agents/agent-messages.server";
 
 function repository(overrides: Partial<AgentMessageRepository> = {}): AgentMessageRepository {
@@ -17,6 +18,11 @@ function repository(overrides: Partial<AgentMessageRepository> = {}): AgentMessa
     setAgentThreadFollowed: async () => {},
     ...overrides,
   };
+}
+
+/** A repository whose send target resolves to these freshness reads. */
+function freshnessRepository(freshness: AgentTargetFreshness): AgentMessageRepository {
+  return repository({ agentTargetFreshness: async () => freshness });
 }
 
 test("channel actions preserve the authenticated scope", async () => {
@@ -282,18 +288,23 @@ test("react rejects an emoji longer than sixteen characters", async () => {
   ).rejects.toThrow("reaction emoji must be one to sixteen characters without whitespace");
 });
 
-test("send policy advances the read-through boundary before reading pending context", async () => {
+test("send policy resolves the target once, then advances the read-through boundary before reading pending context", async () => {
   const calls: unknown[] = [];
   const result = await executeAgentSendMessageWithPolicy(
     {
       repository: repository({
-        advanceAgentReadThrough: async (...args) => {
-          calls.push(args);
-          return 5;
-        },
-        readPendingAgentContext: async (...args) => {
-          calls.push(["pending", ...args]);
-          return [];
+        agentTargetFreshness: async (...args) => {
+          calls.push(["target", ...args]);
+          return {
+            advanceReadThrough: async (...advanceArgs) => {
+              calls.push(["advance", ...advanceArgs]);
+              return 5;
+            },
+            readPending: async (...pendingArgs) => {
+              calls.push(["pending", ...pendingArgs]);
+              return [];
+            },
+          };
         },
       }),
       sender: { executeFromAgent: async () => ({ id: "message-1" }) },
@@ -308,8 +319,9 @@ test("send policy advances the read-through boundary before reading pending cont
     },
   );
   expect(calls).toEqual([
-    ["workspace-1", "agent-a", "@user", 7],
-    ["pending", "workspace-1", "agent-a", "@user", 5],
+    ["target", "workspace-1", "agent-a", "@user"],
+    ["advance", 7],
+    ["pending", 5],
   ]);
   expect(result).toMatchObject({
     state: "sent",
@@ -364,8 +376,8 @@ test("send policy holds unseen pending context, then forwards once the Agent rep
   const pending = [pendingRow(7, "first"), pendingRow(9, "second")];
   const held = await executeAgentSendMessageWithPolicy(
     {
-      repository: repository({
-        readPendingAgentContext: async (_workspace, _agent, _target, after) =>
+      repository: freshnessRepository({
+        readPending: async (after) =>
           after === undefined ? pending : pending.filter((row) => row.sequence > after),
       }),
       sender: { executeFromAgent: async () => ({ id: "unreachable" }) },
@@ -388,9 +400,9 @@ test("send policy holds unseen pending context, then forwards once the Agent rep
 
   const sent = await executeAgentSendMessageWithPolicy(
     {
-      repository: repository({
-        advanceAgentReadThrough: async () => 9,
-        readPendingAgentContext: async (_workspace, _agent, _target, after) =>
+      repository: freshnessRepository({
+        advanceReadThrough: async () => 9,
+        readPending: async (after) =>
           after === undefined ? pending : pending.filter((row) => row.sequence > after),
       }),
       sender: { executeFromAgent: async () => ({ id: "message-10" }) },
@@ -407,7 +419,7 @@ test("send policy holds unseen pending context, then forwards once the Agent rep
 
 test("send policy suggests --anyway only for a draft that has already been held", async () => {
   const dependencies = {
-    repository: repository({ readPendingAgentContext: async () => [pendingRow(7, "first")] }),
+    repository: freshnessRepository({ readPending: async () => [pendingRow(7, "first")] }),
     sender: { executeFromAgent: async () => ({ id: "unreachable" }) },
   };
   expect(
@@ -421,9 +433,9 @@ test("send policy suggests --anyway only for a draft that has already been held"
 test("send policy holds a first touch of a target that already carries context", async () => {
   const result = await executeAgentSendMessageWithPolicy(
     {
-      repository: repository({
-        readPendingAgentContext: async () => [],
-        readRecentAgentContext: async () => [pendingRow(4, "recent context")],
+      repository: freshnessRepository({
+        readPending: async () => [],
+        readRecent: async () => [pendingRow(4, "recent context")],
       }),
       sender: { executeFromAgent: async () => ({ id: "unreachable" }) },
     },
@@ -443,9 +455,9 @@ test("send policy holds a first touch of a target that already carries context",
 test("send policy forwards a first touch of a target with no context at all", async () => {
   const result = await executeAgentSendMessageWithPolicy(
     {
-      repository: repository({
-        readPendingAgentContext: async () => [],
-        readRecentAgentContext: async () => [],
+      repository: freshnessRepository({
+        readPending: async () => [],
+        readRecent: async () => [],
       }),
       sender: { executeFromAgent: async () => ({ id: "message-1" }) },
     },
@@ -463,7 +475,7 @@ test("send policy bypasses a hold when the Agent sends anyway and returns what i
   const pending = [pendingRow(7, "missed while held")];
   const result = await executeAgentSendMessageWithPolicy(
     {
-      repository: repository({ readPendingAgentContext: async () => pending }),
+      repository: freshnessRepository({ readPending: async () => pending }),
       sender: { executeFromAgent: async () => ({ id: "message-8" }) },
     },
     sendInput({ continueAnyway: true }),
@@ -480,10 +492,10 @@ test("send policy bypasses a hold when the Agent sends anyway and returns what i
 test("send policy reports the unbounded newer count, so omitted messages stay visible", async () => {
   const result = await executeAgentSendMessageWithPolicy(
     {
-      repository: repository({
+      repository: freshnessRepository({
         // The inline window is bounded to three rows; the count is not.
-        readPendingAgentContext: async () => [pendingRow(8, "third"), pendingRow(9, "fourth")],
-        countPendingAgentContext: async () => 5,
+        readPending: async () => [pendingRow(8, "third"), pendingRow(9, "fourth")],
+        countPending: async () => 5,
       }),
       sender: { executeFromAgent: async () => ({ id: "unreachable" }) },
     },
@@ -498,18 +510,13 @@ test("send policy reports the unbounded newer count, so omitted messages stay vi
 });
 
 test("every freshness decision names its own fact id", async () => {
-  const send = (options: {
-    seenUpToSeq?: number;
-    readRecentAgentContext?: () => Promise<never[]>;
-  }) =>
+  const send = (options: { seenUpToSeq?: number; readRecent?: () => Promise<never[]> }) =>
     executeAgentSendMessageWithPolicy(
       {
-        repository: repository({
-          advanceAgentReadThrough: async () => options.seenUpToSeq ?? 0,
-          readPendingAgentContext: async () => [],
-          ...(options.readRecentAgentContext
-            ? { readRecentAgentContext: options.readRecentAgentContext }
-            : {}),
+        repository: freshnessRepository({
+          advanceReadThrough: async () => options.seenUpToSeq ?? 0,
+          readPending: async () => [],
+          ...(options.readRecent ? { readRecent: options.readRecent } : {}),
         }),
         sender: { executeFromAgent: async () => ({ id: "message-1" }) },
       },
@@ -529,12 +536,12 @@ test("send policy in withheld mode hides bodies and reports the repository's tru
   let boundary: number | undefined | "unset" = "unset";
   const result = await executeAgentSendMessageWithPolicy(
     {
-      repository: repository({
-        readPendingAgentContext: async (_workspace, _agent, _target, after) => {
+      repository: freshnessRepository({
+        readPending: async (after) => {
           boundary = after;
           return [pendingRow(7, "SECRET")];
         },
-        countPendingAgentContext: async () => 12,
+        countPending: async () => 12,
       }),
       sender: { executeFromAgent: async () => ({ id: "unreachable" }) },
     },
