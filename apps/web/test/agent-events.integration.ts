@@ -361,3 +361,128 @@ test("events drain and recovery keep the unread rule across channels, direct mes
     await db.$disconnect();
   }
 });
+
+test("an Agent's channel send freshness reads count only its delivered messages above the boundary", async () => {
+  const connectionString = Bun.env.EVENTS_TEST_DATABASE_URL;
+  if (!connectionString) throw new Error("EVENTS_TEST_DATABASE_URL is required (local PostgreSQL)");
+  const db = new PrismaClient({ adapter: new PrismaPg({ connectionString }) });
+  const id = crypto.randomUUID();
+  const user = await db.user.create({ data: { username: `f${id.slice(0, 8)}` } });
+  const workspace = await db.workspace.create({
+    data: { slug: id, name: "Freshness test", members: { create: { userId: user.id } } },
+  });
+  try {
+    const agent = await db.agent.create({
+      data: {
+        workspaceId: workspace.id,
+        ownerId: user.id,
+        name: "helper",
+        displayName: "Helper",
+        runtimeConfig: {},
+      },
+    });
+    const repo = new PrismaDirectConversationRepository(db);
+    const channels = new PublicChannels(db, { execute: async (_scope, persist) => persist() });
+    const general = await enrollGeneralChannel(db, workspace.id);
+    const agentMember = await db.conversationMember.findUniqueOrThrow({
+      where: { conversationId_agentId: { conversationId: general.id, agentId: agent.id } },
+    });
+    async function post(body: string, delivered: boolean, threadRootId?: string) {
+      const message = await channels.send({
+        workspaceId: workspace.id,
+        userId: user.id,
+        channelId: general.id,
+        requestId: crypto.randomUUID(),
+        body,
+        ...(threadRootId ? { threadRootId } : {}),
+      });
+      await db.agentMessageDelivery.deleteMany({ where: { messageId: message.id } });
+      if (delivered) await deliver(message);
+      return message;
+    }
+    async function deliver(message: { id: string; sequence: number }) {
+      await db.agentMessageDelivery.create({
+        data: {
+          messageId: message.id,
+          workspaceId: workspace.id,
+          conversationId: general.id,
+          agentId: agent.id,
+          sequence: message.sequence,
+        },
+      });
+    }
+    // The Agent's own post has no public path here; it is written with the next sequence. It
+    // carries a delivery row so the reads show that the Agent's own message never counts.
+    async function ownPost(body: string) {
+      const { _max } = await db.message.aggregate({
+        where: { conversationId: general.id },
+        _max: { sequence: true },
+      });
+      const message = await db.message.create({
+        data: {
+          conversationId: general.id,
+          workspaceId: workspace.id,
+          senderMemberId: agentMember.id,
+          body,
+          sequence: (_max.sequence ?? 0) + 1,
+        },
+      });
+      await deliver(message);
+      return message;
+    }
+    const bodies = (rows: readonly { body: string }[]) => rows.map((row) => row.body);
+
+    await post("delivered before own post", true);
+    await ownPost("own post");
+    await post("undelivered", false);
+    const root = await post("delivered root", true);
+    await post("delivered reply", true, root.id);
+    await post("undelivered reply", false, root.id);
+    const first = await post("delivered 1", true);
+    await post("delivered 2", true);
+    await post("undelivered late", false);
+    await post("delivered 3", true);
+
+    // With no reported boundary, the Agent's own last post in the target is the boundary.
+    expect(bodies(await repo.readPendingAgentContext(workspace.id, agent.id, "#general"))).toEqual([
+      "delivered 1",
+      "delivered 2",
+      "delivered 3",
+    ]);
+    expect(await repo.countPendingAgentContext(workspace.id, agent.id, "#general")).toBe(4);
+    // A reported boundary replaces it.
+    expect(
+      bodies(
+        await repo.readPendingAgentContext(workspace.id, agent.id, "#general", first.sequence),
+      ),
+    ).toEqual(["delivered 2", "delivered 3"]);
+    // The boundary-driven reads still count the Agent's own delivered post.
+    expect(await repo.countPendingAgentContext(workspace.id, agent.id, "#general", 0)).toBe(6);
+    // A thread target reads its own delivered replies.
+    const thread = `#general:${root.id}`;
+    expect(bodies(await repo.readPendingAgentContext(workspace.id, agent.id, thread))).toEqual([
+      "delivered reply",
+    ]);
+    expect(await repo.countPendingAgentContext(workspace.id, agent.id, thread)).toBe(1);
+    // First-touch context ignores every boundary but still skips the Agent's own and undelivered
+    // messages.
+    expect(
+      bodies(await repo.readRecentAgentContext(workspace.id, agent.id, "#general", 10)),
+    ).toEqual([
+      "delivered before own post",
+      "delivered root",
+      "delivered 1",
+      "delivered 2",
+      "delivered 3",
+    ]);
+    expect(
+      bodies(await repo.readRecentAgentContext(workspace.id, agent.id, "#general", 2)),
+    ).toEqual(["delivered 2", "delivered 3"]);
+  } finally {
+    await db.agentMessageDelivery.deleteMany({ where: { workspaceId: workspace.id } });
+    await db.message.deleteMany({ where: { workspaceId: workspace.id } });
+    await db.workspace.delete({ where: { id: workspace.id } });
+    await db.user.delete({ where: { id: user.id } });
+    await db.$disconnect();
+  }
+});
