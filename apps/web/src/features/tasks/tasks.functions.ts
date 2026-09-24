@@ -6,7 +6,7 @@ import { CentrifugoConversationRealtime } from "#src/server/conversations/conver
 import { createCentrifugoServerApi } from "#src/server/centrifugo/server-api.server";
 import { bestEffortMessageNotifier } from "#src/server/notifications/web-push-composition.server";
 import { workspaceUserMiddleware } from "#src/features/auth/function-auth";
-import { TaskBoard } from "#src/server/tasks/task-board.server";
+import { refuseUnclaimed, TaskBoard } from "#src/server/tasks/task-board.server";
 import { createAgentDirectTask } from "#src/server/tasks/agent-direct-task.server";
 
 const taskCommand = z
@@ -125,7 +125,9 @@ export const executeTask = createServerFn({ method: "POST" })
   .validator((data: TaskCommand): TaskCommand => taskCommand.parse(data))
   .handler(async ({ context, data }) => {
     const { user, db, workspaceId } = context;
-    return browserTaskBoard(db).execute({ workspaceId, userId: user.id }, data);
+    const result = await browserTaskBoard(db).execute({ workspaceId, userId: user.id }, data);
+    if (data.operation === "claim") refuseUnclaimed(result);
+    return result;
   });
 
 /** A Task for an Agent from the Tasks page: in the person's direct conversation with it,

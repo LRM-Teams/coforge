@@ -206,8 +206,12 @@ test("TaskBoard atomically creates, converts, claims and revision-checks message
         ),
       ),
     );
-    expect(competingClaims.filter(({ status }) => status === "fulfilled")).toHaveLength(1);
-    expect(competingClaims.filter(({ status }) => status === "rejected")).toHaveLength(1);
+    // Both claims are answered; exactly one of them holds the Task.
+    const claimRows = competingClaims.map((settled) =>
+      settled.status === "fulfilled" ? settled.value.claims?.[0] : undefined,
+    );
+    expect(claimRows.filter((claim) => claim?.success)).toHaveLength(1);
+    expect(claimRows.filter((claim) => claim && !claim.success)).toHaveLength(1);
 
     const converted = await board.execute(
       { workspaceId: workspace.id, agentId: agent.id },
@@ -241,17 +245,26 @@ test("TaskBoard atomically creates, converts, claims and revision-checks message
       owner: { kind: "agent" },
     });
 
-    await expect(
-      board.execute(
-        { workspaceId: workspace.id, userId: bob.id },
-        {
-          operation: "claim",
-          idempotencyKey: crypto.randomUUID(),
-          conversationId: channel.id,
-          number: 2,
-        },
-      ),
-    ).rejects.toThrow("CONFLICT");
+    expect(
+      (
+        await board.execute(
+          { workspaceId: workspace.id, userId: bob.id },
+          {
+            operation: "claim",
+            idempotencyKey: crypto.randomUUID(),
+            conversationId: channel.id,
+            number: 2,
+          },
+        )
+      ).claims,
+    ).toEqual([
+      expect.objectContaining({
+        number: 2,
+        success: false,
+        reason: "already claimed",
+        conflict: expect.objectContaining({ currentAssignee: { type: "agent", name: agent.name } }),
+      }),
+    ]);
     const review = await board.execute(
       { workspaceId: workspace.id, agentId: agent.id },
       {
@@ -526,17 +539,19 @@ test("TaskBoard atomically creates, converts, claims and revision-checks message
         success: true,
       },
     ]);
-    await expect(
-      board.execute(
-        { workspaceId: workspace.id, agentId: agent.id },
-        {
-          operation: "claim",
-          idempotencyKey: crypto.randomUUID(),
-          target: `#${channel.channelName}`,
-          numbers: [batchClosed.tasks[0]!.number],
-        },
-      ),
-    ).rejects.toThrow("CONFLICT");
+    expect(
+      (
+        await board.execute(
+          { workspaceId: workspace.id, agentId: agent.id },
+          {
+            operation: "claim",
+            idempotencyKey: crypto.randomUUID(),
+            target: `#${channel.channelName}`,
+            numbers: [batchClosed.tasks[0]!.number],
+          },
+        )
+      ).claims,
+    ).toEqual([{ number: batchClosed.tasks[0]!.number, success: false, reason: "task is closed" }]);
     for (const changes of [
       { title: "   " },
       { title: "x".repeat(10_001) },

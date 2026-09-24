@@ -490,17 +490,19 @@ test("TaskBoard enforces conversation authorization, idempotency, and ownership 
         ),
       ).rejects.toThrow("CONFLICT");
     }
-    await expect(
-      board.execute(
-        { workspaceId: workspace.id, agentId: agent!.id },
-        {
-          operation: "claim",
-          idempotencyKey: crypto.randomUUID(),
-          target: `#${publicChannel.channelName}`,
-          number: ownership.number,
-        },
-      ),
-    ).rejects.toThrow("CONFLICT");
+    expect(
+      (
+        await board.execute(
+          { workspaceId: workspace.id, agentId: agent!.id },
+          {
+            operation: "claim",
+            idempotencyKey: crypto.randomUUID(),
+            target: `#${publicChannel.channelName}`,
+            number: ownership.number,
+          },
+        )
+      ).claims,
+    ).toEqual([{ number: ownership.number, success: false, reason: "task is done" }]);
     const reset = await board.execute(
       { workspaceId: workspace.id, userId: alice!.id },
       {
@@ -557,17 +559,19 @@ test("TaskBoard enforces conversation authorization, idempotency, and ownership 
         expectedRevision: closedTask.revision,
       },
     );
-    await expect(
-      board.execute(
-        { workspaceId: workspace.id, agentId: agent!.id },
-        {
-          operation: "claim",
-          idempotencyKey: crypto.randomUUID(),
-          target: `#${publicChannel.channelName}`,
-          number: closedTask.number,
-        },
-      ),
-    ).rejects.toThrow("CONFLICT");
+    expect(
+      (
+        await board.execute(
+          { workspaceId: workspace.id, agentId: agent!.id },
+          {
+            operation: "claim",
+            idempotencyKey: crypto.randomUUID(),
+            target: `#${publicChannel.channelName}`,
+            number: closedTask.number,
+          },
+        )
+      ).claims,
+    ).toEqual([{ number: closedTask.number, success: false, reason: "task is closed" }]);
 
     const ownerRace = concurrent[1]!.tasks[0]!;
     const ownerClaim = await board.execute(
