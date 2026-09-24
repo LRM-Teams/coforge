@@ -28,6 +28,13 @@ export function reminderAppInboxPreview(title: string): string {
   return preview;
 }
 
+/** The App Inbox summary of a due reminder. One the cloud fired late (the daemon was offline at its
+ * time) says so and names when it was due, so the Agent can judge whether it still applies. */
+export function reminderAppInboxSummary(job: ReminderJob, catchup: boolean): string {
+  if (!catchup) return "Reminder due";
+  return `Overdue: was due ${new Date(job.fireAt).toISOString()}, delivered late`;
+}
+
 /** The durable step whose retries ran out: the fire request to the cloud, or waking the Agent. */
 export type ReminderRetryStage = "fire" | "wake";
 
@@ -115,7 +122,7 @@ export class ReminderScheduler {
     private readonly scope: { workspaceId: string; computerId: string },
     private readonly store: ReminderReceiptStore,
     private readonly fire: (request: ReminderFireRequest) => Promise<ReminderFireResponse>,
-    private readonly wake: (job: ReminderJob) => Promise<boolean>,
+    private readonly wake: (job: ReminderJob, occurrence: { catchup: boolean }) => Promise<boolean>,
     private readonly clock: ReminderClock = defaultClock,
   ) {}
 
@@ -444,7 +451,7 @@ export class ReminderScheduler {
   async #runWake(key: string, receipt: ReminderReceipt, generation: number): Promise<void> {
     let accepted = false;
     try {
-      accepted = await this.wake(receipt.job);
+      accepted = await this.wake(receipt.job, { catchup: receipt.serverCatchup === true });
     } catch (error) {
       this.#lastFailures.set(key, error);
       logger.error("Reminder wake failed", {

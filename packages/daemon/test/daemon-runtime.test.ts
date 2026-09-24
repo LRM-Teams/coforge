@@ -3155,7 +3155,8 @@ describe("DaemonRuntime", () => {
       void second.catch(() => {});
       failLaunch(new Error("pi: command not found"));
       await expect(first).rejects.toThrow("pi: command not found");
-      await second.catch(() => {});
+      // Kept for the next launch, not failed.
+      await expect(second).resolves.toBeUndefined();
       expect(events).toEqual([]);
 
       // The cooldown itself is under test, so it runs on the real clock.
