@@ -15,6 +15,7 @@ import {
 import { avatarInitial, avatarToneClassName } from "#src/lib/avatar-tone";
 import { m } from "#src/paraglide/messages";
 import { ConversationTaskTabs } from "#src/features/tasks/conversation-task-tabs";
+import { ConversationHeader } from "./conversation-header";
 import { ConversationListButton } from "./conversation-navigation";
 import { ThreadedConversation } from "./threaded-conversation";
 import type {
@@ -51,59 +52,63 @@ export function DirectConversationHeader({
   const openProfile =
     onOpenAgentProfile && !deleted ? () => onOpenAgentProfile(conversation.agent.id) : undefined;
   return (
-    <header className="shrink-0 border-b border-secondary px-4 md:px-6">
-      <div className="-mx-4 flex h-12 items-center gap-2 border-b border-secondary px-4 md:-mx-6 md:gap-3 md:px-6">
-        <ConversationListButton />
-        <AgentActivityAvatar
-          agent={conversation.agent}
-          src={conversation.agent.avatarUrl}
-          size="sm"
-          display={display}
-          deleted={deleted}
-          timeZone={timeZone}
-          onPress={openProfile}
-          {...activity}
-        />
-        <div className="min-w-0">
-          <div className="flex min-w-0 items-center gap-2">
-            {openProfile ? (
-              <Button
-                color="tertiary"
-                noTextPadding
-                onPress={openProfile}
-                aria-label={m.agent_open_profile({ name: conversation.agent.displayName })}
-                className="h-auto min-w-0 max-w-full rounded p-0 text-base font-semibold text-primary hover:bg-transparent hover:text-primary hover:underline"
-              >
-                <h1 className="truncate">{conversation.agent.displayName}</h1>
-              </Button>
-            ) : (
-              <h1 className="truncate text-base font-semibold">{conversation.agent.displayName}</h1>
+    <ConversationHeader
+      identity={
+        <>
+          <ConversationListButton />
+          <AgentActivityAvatar
+            agent={conversation.agent}
+            src={conversation.agent.avatarUrl}
+            size="sm"
+            display={display}
+            deleted={deleted}
+            timeZone={timeZone}
+            onPress={openProfile}
+            {...activity}
+          />
+          <div className="min-w-0">
+            <div className="flex min-w-0 items-center gap-2">
+              {openProfile ? (
+                <Button
+                  color="tertiary"
+                  noTextPadding
+                  onPress={openProfile}
+                  aria-label={m.agent_open_profile({ name: conversation.agent.displayName })}
+                  className="h-auto min-w-0 max-w-full rounded p-0 text-base font-semibold text-primary hover:bg-transparent hover:text-primary hover:underline"
+                >
+                  <h1 className="truncate">{conversation.agent.displayName}</h1>
+                </Button>
+              ) : (
+                <h1 className="truncate text-base font-semibold">
+                  {conversation.agent.displayName}
+                </h1>
+              )}
+              {deleted && <DeletedAgentBadge />}
+            </div>
+            {/* A deleted Agent has no live status to report, so the header states the delete instead
+                  of the generic "Status unknown" an absent display would otherwise produce. */}
+            {!deleted && (
+              <p role="status" className="truncate text-xs text-tertiary">
+                {displayLabel}
+              </p>
             )}
-            {deleted && <DeletedAgentBadge />}
           </div>
-          {/* A deleted Agent has no live status to report, so the header states the delete instead
-              of the generic "Status unknown" an absent display would otherwise produce. */}
-          {!deleted && (
-            <p role="status" className="truncate text-xs text-tertiary">
-              {displayLabel}
-            </p>
-          )}
-        </div>
-        <span className="hidden shrink-0 text-sm text-tertiary sm:block">
-          @{conversation.agent.name}
-        </span>
-      </div>
-      {(onShowChat || onShowTasks || onShowFiles) && (
-        <div className="-mx-4 flex h-14 items-center px-4 md:-mx-6 md:px-6">
+          <span className="hidden shrink-0 text-sm text-tertiary sm:block">
+            @{conversation.agent.name}
+          </span>
+        </>
+      }
+      tabs={
+        (onShowChat || onShowTasks || onShowFiles) && (
           <ConversationTaskTabs
             active={active}
             onShowChat={onShowChat}
             onShowTasks={onShowTasks}
             onShowFiles={onShowFiles}
           />
-        </div>
-      )}
-    </header>
+        )
+      }
+    />
   );
 }
 

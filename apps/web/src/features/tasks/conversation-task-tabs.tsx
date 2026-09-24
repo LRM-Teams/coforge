@@ -1,5 +1,3 @@
-import { CheckSquare as ListTodo, MessageChatSquare, Paperclip } from "@untitledui/icons";
-
 import { ReorderableTabStrip } from "#src/components/ui/reorderable-tab-strip";
 import {
   CONVERSATION_TABS,
@@ -9,12 +7,14 @@ import { usePanelTabOrder } from "#src/features/panel-tabs/panel-tab-order-conte
 import { m } from "#src/paraglide/messages";
 
 const TABS = {
-  chat: { label: m.tasks_chat_tab, icon: MessageChatSquare },
-  tasks: { label: m.tasks_tab, icon: ListTodo },
-  files: { label: m.files_tab, icon: Paperclip },
+  chat: { label: m.tasks_chat_tab },
+  tasks: { label: m.tasks_tab },
+  files: { label: m.files_tab },
 };
 
-/** Chat, Tasks and Files in the member's saved order; dragging a tab saves a new order. */
+/** Chat, Tasks and Files in the member's saved order; dragging a tab saves a new order. They are
+ * text-only underline tabs sitting on the header's bottom rule, so the active one's brand
+ * underline replaces that rule under it. */
 export function ConversationTaskTabs({
   active,
   onShowChat,
@@ -41,6 +41,8 @@ export function ConversationTaskTabs({
       active={active}
       onSelect={(tab) => handlers[tab]?.()}
       onReorder={reorder}
+      type="underline"
+      size="md"
     />
   );
 }

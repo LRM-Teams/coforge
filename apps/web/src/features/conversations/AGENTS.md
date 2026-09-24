@@ -37,6 +37,9 @@ These rules apply to `src/features/conversations/`.
 - Direct and channel views share the empty-state layout and compact thread
   prompt in `direct-conversation.tsx`. Each supplies its own identity, media,
   and copy, and keeps its composer or join action.
+- `conversation-header.tsx` is the one header row both DM and channel headers
+  fill (identity, centered Chat/Tasks/Files tabs, actions); give it slots rather
+  than laying out a second tab row.
 - `direct-conversation.tsx` is the DM wrapper and header; `threaded-conversation.tsx`
   coordinates thread/profile panes; `conversation-pane.tsx` renders one message
   stream; `use-conversation-sync.ts` owns browser-only deep-link and read-cursor
