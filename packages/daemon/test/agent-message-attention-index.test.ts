@@ -777,6 +777,51 @@ test("flushing only deliveries that need no notice sends none and still ACKs the
   expect(acks).toEqual(["delivery-consumed"]);
 });
 
+test("a delivery the Agent already saw out of order is acknowledged without a notice", async () => {
+  const notices: string[] = [];
+  const acks: string[] = [];
+  const index = new AgentMessageAttentionIndex(
+    "workspace-1",
+    { session: () => session((notice) => notices.push(notice)) },
+    async (ack) => {
+      acks.push(ack.deliveryId);
+    },
+  );
+  // Reviewed through message 5, then shown message 7 by itself (an anchored read or a search),
+  // which leaves message 6 unreviewed and the frontier at 5.
+  index.recordModelSeen("agent-1", "@agent", 5);
+  index.recordSeenMessages("agent-1", [{ target: "@agent", id: "message-seven" }]);
+
+  const seven = { ...delivery("seven"), messageId: "message-seven", sequence: 7 };
+  expect(index.hasConsumed(seven)).toBe(true);
+  await index.receive(seven);
+  expect(notices).toEqual([]);
+  expect(acks).toEqual(["delivery-seven"]);
+
+  // Message 6 was never shown, so it still wakes the Agent.
+  await index.receive({ ...delivery("six"), messageId: "message-six", sequence: 6 });
+  expect(notices).toHaveLength(1);
+  expect(index.modelSeenSequence("agent-1", "@agent")).toBe(5);
+});
+
+test("flushing a waiting delivery the Agent already saw out of order only acknowledges it", async () => {
+  const notices: string[] = [];
+  const acks: string[] = [];
+  const index = new AgentMessageAttentionIndex(
+    "workspace-1",
+    { session: () => session((notice) => notices.push(notice)) },
+    async (ack) => {
+      acks.push(ack.deliveryId);
+    },
+  );
+  index.recordSeenMessages("agent-1", [{ target: "@agent", id: "message-seven" }]);
+
+  await index.flush("agent-1", [{ ...delivery("seven"), messageId: "message-seven", sequence: 7 }]);
+
+  expect(notices).toEqual([]);
+  expect(acks).toEqual(["delivery-seven"]);
+});
+
 test("flush is a no-op when nothing was held", async () => {
   const notices: string[] = [];
   const index = new AgentMessageAttentionIndex(
