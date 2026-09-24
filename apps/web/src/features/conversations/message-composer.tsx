@@ -603,46 +603,49 @@ export function MessageComposer({
           }}
           className="sr-only"
         />
-        {taskMode && asTask && (
-          <Button
-            color="secondary"
-            size="xs"
-            iconTrailing={XClose}
-            aria-pressed={true}
-            isDisabled={composerDisabled}
-            onPress={() => setAsTask(false)}
-          >
-            {m.tasks_as_task()}
-          </Button>
-        )}
-        {/* The Add-task control sits directly left of Send (the boss's ruling, #137): one icon,
-            pressed state lives in the chip above, and Send keeps its ml-auto so it stays the
-            rightmost control while this button tucks against it. */}
-        {taskMode && !asTask && (
+        {/* The Add-task control sits directly left of Send (the boss's ruling, #137). Both live
+            in a right-aligned group (`ml-auto`), so the entry tucks against Send instead of
+            stranding itself at the far left next to the paperclip. While the task chip is active
+            the entry yields to it (the chip is the pressed state with its X). */}
+        <div className="ml-auto flex items-center gap-2">
+          {taskMode && asTask && (
+            <Button
+              color="secondary"
+              size="xs"
+              iconTrailing={XClose}
+              aria-pressed={true}
+              isDisabled={composerDisabled}
+              onPress={() => setAsTask(false)}
+            >
+              {m.tasks_as_task()}
+            </Button>
+          )}
+          {taskMode && !asTask && (
+            <ButtonUtility
+              icon={CheckSquare}
+              size="sm"
+              color="tertiary"
+              isDisabled={composerDisabled}
+              tooltip={m.tasks_as_task()}
+              onClick={() => setAsTask(true)}
+            />
+          )}
           <ButtonUtility
-            icon={CheckSquare}
+            type="submit"
+            icon={ArrowUp}
             size="sm"
             color="tertiary"
-            isDisabled={composerDisabled}
-            tooltip={m.tasks_as_task()}
-            onClick={() => setAsTask(true)}
+            isDisabled={
+              composerDisabled ||
+              uploading ||
+              anyFailed ||
+              attachments.length > MAX_ATTACHMENTS ||
+              (!body.trim() && attachments.length === 0)
+            }
+            tooltip={m.conversation_send()}
+            className="rounded-full bg-brand-solid text-white hover:bg-brand-solid_hover hover:text-white"
           />
-        )}
-        <ButtonUtility
-          type="submit"
-          icon={ArrowUp}
-          size="sm"
-          color="tertiary"
-          isDisabled={
-            composerDisabled ||
-            uploading ||
-            anyFailed ||
-            attachments.length > MAX_ATTACHMENTS ||
-            (!body.trim() && attachments.length === 0)
-          }
-          tooltip={m.conversation_send()}
-          className="ml-auto rounded-full bg-brand-solid text-white hover:bg-brand-solid_hover hover:text-white"
-        />
+        </div>
       </div>
     </form>
   );
