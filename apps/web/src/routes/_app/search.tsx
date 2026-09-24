@@ -2,12 +2,7 @@ import { useCallback, useMemo } from "react";
 import { createFileRoute, getRouteApi, useNavigate } from "@tanstack/react-router";
 import { z } from "zod";
 
-import {
-  SEARCH_RANGES,
-  SEARCH_SCOPES,
-  type SearchFilters,
-  type SearchScope,
-} from "#src/features/search/search-filters";
+import { parseScope, SEARCH_RANGES, type SearchFilters } from "#src/features/search/search-filters";
 import { SearchPage } from "#src/features/search/search-page";
 import { SEARCH_QUERY_MAX_LENGTH } from "#src/features/search/search.schemas";
 
@@ -29,12 +24,6 @@ export const Route = createFileRoute("/_app/search")({
   }),
   component: SearchRoute,
 });
-
-function parseScope(value: string | undefined): SearchScope[] | undefined {
-  const chosen = new Set(value?.split(","));
-  const scope = SEARCH_SCOPES.filter((item) => chosen.has(item));
-  return scope.length ? scope : undefined;
-}
 
 function SearchRoute() {
   const { q, senderId, scope, channelId, range, sort } = Route.useSearch();

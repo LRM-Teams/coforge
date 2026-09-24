@@ -28,11 +28,20 @@ export function clearedFilters(filters: SearchFilters): SearchFilters {
   return { sort: filters.sort };
 }
 
+export function isSearchRange(value: unknown): value is SearchRange {
+  return (SEARCH_RANGES as readonly unknown[]).includes(value);
+}
+
 /** Scope kept in one order, so the same choice always produces the same URL. */
-function orderedScope(scope: Iterable<SearchScope>): SearchScope[] | undefined {
+function orderedScope(scope: Iterable<unknown>): SearchScope[] | undefined {
   const chosen = new Set(scope);
   const ordered = SEARCH_SCOPES.filter((value) => chosen.has(value));
   return ordered.length ? ordered : undefined;
+}
+
+/** The scope a URL's comma-separated `scope` names; unknown entries are ignored. */
+export function parseScope(value: string | undefined): SearchScope[] | undefined {
+  return orderedScope(value?.split(",") ?? []);
 }
 
 /** The sender kind a Humans-only or Agents-only scope allows, or undefined when it allows both. */
@@ -62,25 +71,28 @@ export function withSender(
 
 /**
  * Chooses the scope. A chosen sender that the new Humans-only or Agents-only scope contradicts is
- * dropped, for the same reason as in `withSender`.
+ * dropped, for the same reason as in `withSender`. So is a sender whose kind is unknown (one no
+ * longer in the Workspace, or not loaded yet): keeping it could leave a search that matches
+ * nothing.
  */
 export function withScope(
   filters: SearchFilters,
-  scope: Iterable<SearchScope>,
+  scope: Iterable<unknown>,
   senderKind: SenderKind | undefined,
 ): SearchFilters {
   const next = orderedScope(scope);
   const allowed = scopeSenderKind(next);
-  const dropSender = Boolean(filters.senderId && allowed && senderKind && allowed !== senderKind);
+  const dropSender = Boolean(filters.senderId && allowed && allowed !== senderKind);
   return { ...filters, scope: next, senderId: dropSender ? undefined : filters.senderId };
 }
 
 const DAY_MS = 86_400_000;
 
 /**
- * The server request for a query and filters at `now`. Time ranges are resolved here, when the
- * search runs, so they never sit in a cache key: "Today" starts at midnight in the viewer's time
- * zone; the 7- and 30-day ranges are rolling.
+ * The server request for a query and filters, with a time range starting from `now` (fixed for
+ * all of one search's pages, see `messageSearchQuery`). "Today" starts at midnight in the
+ * viewer's time zone; the 7- and 30-day ranges are rolling. The `before` bound comes from the
+ * server (`searchedAt`), never the browser's clock.
  */
 export function messageSearchParams(
   query: string,

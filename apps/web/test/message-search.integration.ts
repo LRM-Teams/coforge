@@ -221,6 +221,18 @@ test("searches the messages a human may read, with filters, sorting and paging",
     expect(last.results.map((hit) => hit.message.id)).toEqual([exact.id]);
     expect(last.hasMore).toBe(false);
 
+    // A page reports the server's moment it searched at; passing it back as `before` keeps later
+    // pages to that moment, so a message posted while paging never shifts the offsets.
+    const pinned = await search({ query: "部署发版", limit: 2 });
+    const late = await post(general.id, aliceInGeneral.id, "late 部署发版", { minutesAgo: 0 });
+    expect(pinned.searchedAt).toBeInstanceOf(Date);
+    expect(
+      (await search({ query: "部署发版", limit: 2, before: pinned.searchedAt })).results.map(
+        (hit) => hit.message.id,
+      ),
+    ).toEqual([inOwnDm.id, inArchived.id]);
+    expect((await ids({ query: "部署发版" }))[0]).toBe(late.id);
+
     // Someone outside the Workspace cannot search it.
     await expect(
       searchMessages(db, {

@@ -20,5 +20,6 @@ export function avatarToneClassName(name: string): string {
     hash = (hash * 31 + character.codePointAt(0)!) % 4093;
   }
   const tone = (hash % TONE_COUNT) + 1;
-  return `bg-avatar-${tone} text-white`;
+  // The official Avatar colours its initials `text-quaternary`; on a tone tile they are white.
+  return `bg-avatar-${tone} text-white *:text-white`;
 }
