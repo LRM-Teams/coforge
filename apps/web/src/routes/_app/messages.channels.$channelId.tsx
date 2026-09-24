@@ -149,7 +149,6 @@ function ChannelPage() {
         error={taskView.error}
         onOpenTask={openTask}
         onOpenMessage={openTaskThread}
-        onShowChat={showChat}
         onCreateTask={
           conversation.senderMemberId
             ? async (title, idempotencyKey) => {

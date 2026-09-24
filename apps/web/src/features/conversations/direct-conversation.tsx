@@ -93,7 +93,7 @@ export function DirectConversationHeader({
               </p>
             )}
           </div>
-          <span className="hidden shrink-0 text-sm text-tertiary sm:block">
+          <span className="hidden min-w-0 truncate text-sm text-tertiary sm:block">
             @{conversation.agent.name}
           </span>
         </>
