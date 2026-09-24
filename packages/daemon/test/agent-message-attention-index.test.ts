@@ -673,7 +673,7 @@ function heldQueue() {
   };
 }
 
-test("a held delivery updates attention but does not notify or ACK until flush", async () => {
+test("a held delivery updates attention and is acknowledged at once, but is announced only at flush", async () => {
   const notices: string[] = [];
   const acks: string[] = [];
   const queue = heldQueue();
@@ -692,7 +692,8 @@ test("a held delivery updates attention but does not notify or ACK until flush",
   await index.receive({ ...delivery("two"), sequence: 2 });
   expect(index.check("agent-1")[0]).toMatchObject({ pendingCount: 2 });
   expect(notices).toEqual([]);
-  expect(acks).toEqual([]);
+  // Held for a later notice, so the daemon acknowledges each one as it takes it.
+  expect(acks).toEqual(["delivery-one", "delivery-two"]);
 
   const held = queue.drain();
   expect(held.map((message) => message.deliveryId)).toEqual(["delivery-one", "delivery-two"]);
@@ -714,7 +715,8 @@ test("flushing deliveries that waited for a launch records them as a received de
   // Queued by the runtime before the Agent's process existed, so never passed through `receive`.
   await index.flush("agent-1", [delivery("one"), { ...delivery("two"), sequence: 2 }]);
 
-  expect(acks).toEqual(["delivery-one", "delivery-two"]);
+  // The runtime acknowledged them when it queued them; flushing only presents them.
+  expect(acks).toEqual([]);
   expect(index.check("agent-1")).toEqual([
     expect.objectContaining({ target: "@agent", pendingCount: 2, latestSequence: 2 }),
   ]);
@@ -754,12 +756,13 @@ test("flushing waiting deliveries treats consumed, silent, and malformed ones as
   expect(notices[0]).toContain("Inbox update: 1 message delivered or held for you");
   expect(notices[0]).toContain("@agent  new: 1 message");
   expect(notices[0]).not.toContain("#team");
-  expect(acks).toEqual(["delivery-consumed", "delivery-chatter", "delivery-fresh"]);
+  // All were acknowledged when the runtime queued them; flushing only presents them.
+  expect(acks).toEqual([]);
   expect(index.pendingMessageCount("agent-1", "@agent")).toBe(1);
   expect(index.latestSequence("agent-1", "#team")).toBe(2);
 });
 
-test("flushing only deliveries that need no notice sends none and still ACKs them", async () => {
+test("flushing only deliveries that need no notice sends none", async () => {
   const notices: string[] = [];
   const acks: string[] = [];
   const index = new AgentMessageAttentionIndex(
@@ -774,7 +777,7 @@ test("flushing only deliveries that need no notice sends none and still ACKs the
   await index.flush("agent-1", [delivery("consumed")]);
 
   expect(notices).toEqual([]);
-  expect(acks).toEqual(["delivery-consumed"]);
+  expect(acks).toEqual([]);
 });
 
 test("a delivery the Agent already saw out of order is acknowledged without a notice", async () => {
@@ -804,7 +807,7 @@ test("a delivery the Agent already saw out of order is acknowledged without a no
   expect(index.modelSeenSequence("agent-1", "@agent")).toBe(5);
 });
 
-test("flushing a waiting delivery the Agent already saw out of order only acknowledges it", async () => {
+test("flushing a waiting delivery the Agent already saw out of order does not announce it", async () => {
   const notices: string[] = [];
   const acks: string[] = [];
   const index = new AgentMessageAttentionIndex(
@@ -819,7 +822,7 @@ test("flushing a waiting delivery the Agent already saw out of order only acknow
   await index.flush("agent-1", [{ ...delivery("seven"), messageId: "message-seven", sequence: 7 }]);
 
   expect(notices).toEqual([]);
-  expect(acks).toEqual(["delivery-seven"]);
+  expect(acks).toEqual([]);
 });
 
 test("flush is a no-op when nothing was held", async () => {
