@@ -14,6 +14,7 @@ export DATABASE_URL REDIS_URL
 # seed-dev workspace already exists, so the full managed stack is unnecessary — just the
 # web service serving the seeded database (managed-web.sh in another shell works too).
 export COFORGE_E2E_WEB_URL="${COFORGE_E2E_WEB_URL:-http://127.0.0.1:8788}"
+export AGENT_BROWSER_DEFAULT_TIMEOUT="${AGENT_BROWSER_DEFAULT_TIMEOUT:-15000}"
 
 cd "$root/apps/web"
 exec bun test ./test/e2e-mobile-no-horizontal-overflow.e2e.ts

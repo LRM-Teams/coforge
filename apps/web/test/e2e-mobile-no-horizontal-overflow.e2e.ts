@@ -1,8 +1,8 @@
 import { expect, test } from "bun:test";
 import { createHash } from "node:crypto";
 import { PrismaPg } from "@prisma/adapter-pg";
-import { PrismaClient } from "../generated/client";
-import { DEV_BROWSER_USER } from "../src/server/auth/dev-skip-auth.server";
+import { PrismaClient } from "#src/generated/prisma/client";
+import { DEV_BROWSER_USER } from "#src/server/auth/dev-skip-auth.server";
 
 /**
  * The regression that proved the boss's E2E-first policy (#790): a `<TooltipTrigger>` wrapper
@@ -49,7 +49,6 @@ test("a phone viewport never scrolls the message stream sideways, even with long
   const session = `mobile-overflow-${process.pid}`;
   async function browser(...args: string[]) {
     const child = Bun.spawn([browserPath!, "--session", session, ...args], {
-      env: { ...Bun.env, AGENT_BROWSER_DEFAULT_TIMEOUT: "15000" },
       stdout: "pipe",
       stderr: "pipe",
     });
