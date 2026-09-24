@@ -2915,6 +2915,9 @@ test("Agent channel management: authority, join/leave, archive, and add/remove m
       snapshot: async () => {
         throw new Error("no live display data in this test");
       },
+      snapshotMany: async () => {
+        throw new Error("no live display data in this test");
+      },
     });
 
     // Authority (Slack's default): any Agent that belongs to the Workspace may
@@ -3614,6 +3617,9 @@ test("Agent channel info exposes a bound Project scoped to the Agent's own Works
 
     const manage = new AgentChannelManagement(db, {
       snapshot: async () => {
+        throw new Error("no live display data in this test");
+      },
+      snapshotMany: async () => {
         throw new Error("no live display data in this test");
       },
     });
