@@ -32,20 +32,28 @@ export function TaskPerson({
   );
 }
 
-export function TaskOwner({ owner }: { owner: TaskView["owner"] }) {
+/** The owner as an avatar alone (its name for assistive tech), as list rows and board cards
+ * show it; no owner is a dashed ring. No tooltip: its trigger would add a tab stop per card. */
+export function TaskOwnerAvatar({ owner }: { owner: TaskView["owner"] }) {
+  const name = owner?.name ?? m.tasks_unassigned();
   return (
-    <span className="flex min-w-0 items-center text-xs">
-      <span className="sr-only">{m.tasks_overview_owner()}: </span>
+    <span className="flex shrink-0 items-center">
+      <span className="sr-only">
+        {m.tasks_overview_owner()}: {name}
+      </span>
       {owner ? (
-        <TaskPerson person={owner} className="text-xs font-normal text-secondary" />
+        <Avatar
+          size="xs"
+          initials={owner.name.trim().charAt(0).toUpperCase()}
+          alt=""
+          src={owner.avatarUrl ?? undefined}
+          contentClassName={owner.deleted ? DELETED_AGENT_AVATAR_CLASS : undefined}
+        />
       ) : (
-        <span className="flex min-w-0 items-center gap-2 text-tertiary">
-          <span
-            aria-hidden="true"
-            className="size-6 shrink-0 rounded-full border border-dashed border-primary"
-          />
-          <span className="truncate">{m.tasks_unassigned()}</span>
-        </span>
+        <span
+          aria-hidden="true"
+          className="size-6 shrink-0 rounded-full border border-dashed border-primary"
+        />
       )}
     </span>
   );

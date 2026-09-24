@@ -19,6 +19,7 @@ import {
   parseOverviewTaskParam,
 } from "#src/features/tasks/task-overview-search";
 import { useTaskLayout } from "#src/features/tasks/task-workflow";
+import { TasksPending } from "#src/features/tasks/tasks-pending";
 import { useTaskOverview } from "#src/features/tasks/use-task-overview";
 import {
   finishedSummaryQuery,
@@ -28,7 +29,6 @@ import {
 import type { FinishedWindow } from "#src/features/tasks/finished-tasks";
 import { loadOverviewTask } from "#src/features/tasks/tasks.functions";
 import { useCurrentWorkspaceId } from "#src/features/agents/workspace-agents-realtime";
-import { m } from "#src/paraglide/messages";
 
 export const Route = createFileRoute("/_app/tasks")({
   validateSearch: z.object({
@@ -60,13 +60,7 @@ export const Route = createFileRoute("/_app/tasks")({
       }),
     ]);
   },
-  pendingComponent: () => (
-    <main className="flex-1 p-6">
-      <p role="status" className="text-sm text-tertiary">
-        {m.tasks_loading()}
-      </p>
-    </main>
-  ),
+  pendingComponent: TasksPendingPage,
   errorComponent: PageLoadError,
   component: TasksPage,
 });
@@ -226,4 +220,10 @@ function TasksPage() {
       )}
     </>
   );
+}
+
+/** The loading page in the layout the address asks for, so it matches what arrives. */
+function TasksPendingPage() {
+  const { layout } = Route.useSearch();
+  return <TasksPending layout={layout} />;
 }
