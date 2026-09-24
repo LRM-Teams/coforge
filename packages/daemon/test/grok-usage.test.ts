@@ -21,7 +21,7 @@ test("reads and projects account billing through the public reader", async () =>
   expect(snapshot).toMatchObject({
     provider: "grok",
     planType: "pro",
-    accountLabel: "ada@example.com",
+    accountLabel: "a****@example.com",
     health: "ok",
     primary: { usedPercent: 42.5, resetsAt: new Date(1_793_304_000 * 1000).toISOString() },
   });
@@ -54,6 +54,6 @@ test("maps ACP method and auth failures at the public boundary", async () => {
 
 test("propagates unknown ACP failures", async () => {
   await expect(read({}, { code: -32700, message: "parse error" })).rejects.toMatchObject({
-    responseError: { code: -32700 },
+    code: -32700,
   });
 });

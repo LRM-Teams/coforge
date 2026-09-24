@@ -1,4 +1,4 @@
-import { client, type AnyMessage } from "@agentclientprotocol/sdk";
+import { client, RequestError, type AnyMessage } from "@agentclientprotocol/sdk";
 import type { UsageSnapshot, UsageWindow } from "#src/code-agent/contract";
 import { UsageUnavailableError, UsageUnsupportedError } from "#src/code-agent/contract";
 import { agentEnvironment } from "#src/code-agent/environment";
@@ -68,10 +68,20 @@ export async function readGrokUsage(
 /** Maps a failed billing call to its contract error class, or `undefined` when the failure is
  * not one of the recognized ACP refusals and must propagate as-is. Exported for tests. */
 function classifyUsageFailure(error: unknown): Error | undefined {
-  if (!(error instanceof JsonlRequestError)) return undefined;
-  const rpc = asRecord(error.responseError);
-  const code = typeof rpc?.code === "number" ? rpc.code : undefined;
-  const message = typeof rpc?.message === "string" ? rpc.message : "";
+  const rpc = error instanceof JsonlRequestError ? asRecord(error.responseError) : undefined;
+  const code =
+    error instanceof RequestError
+      ? error.code
+      : typeof rpc?.code === "number"
+        ? rpc.code
+        : undefined;
+  const message =
+    error instanceof RequestError
+      ? error.message
+      : typeof rpc?.message === "string"
+        ? rpc.message
+        : "";
+  if (!(error instanceof JsonlRequestError) && !(error instanceof RequestError)) return undefined;
   if (code === -32601) return new UsageUnsupportedError();
   if (code === -32000 || /auth(?:entication)?|log(?:ged)? ?in/iu.test(message))
     return new UsageUnavailableError();
