@@ -89,7 +89,7 @@ export function ChannelMembersPage({
   canCreateAgents,
   view,
   onViewChange,
-  onOpenAgentProfile,
+  roster,
 }: {
   channelId: string;
   channelName: string;
@@ -99,7 +99,7 @@ export function ChannelMembersPage({
   canCreateAgents: boolean;
   view: ChannelMembersView;
   onViewChange: (view: ChannelMembersView) => void;
-  onOpenAgentProfile?: (agentId: string) => void;
+  roster: RosterState;
 }) {
   const members = useChannelMembers(channelId);
   const createdAgentJoin = useCreatedAgentJoin(channelId);
@@ -127,10 +127,20 @@ export function ChannelMembersPage({
       viewerHandle={viewerHandle}
       data={members.data}
       onAdd={() => onViewChange("add")}
-      onOpenAgentProfile={onOpenAgentProfile}
+      roster={roster}
     />
   );
 }
+
+/** The roster's state that outlives it while an Agent's profile is open in its place, so Back
+ * returns to the same search, with focus on the row that opened the profile. */
+export type RosterState = {
+  search: string;
+  onSearchChange: (search: string) => void;
+  onOpenAgentProfile: (agentId: string) => void;
+  /** The Agent whose profile was just left: its row takes focus. */
+  returnFocusAgentId?: string;
+};
 
 function MembersRoster({
   channelId,
@@ -138,19 +148,18 @@ function MembersRoster({
   viewerHandle,
   data,
   onAdd,
-  onOpenAgentProfile,
+  roster: { search, onSearchChange, onOpenAgentProfile, returnFocusAgentId },
 }: {
   channelId: string;
   channelName: string;
   viewerHandle?: string;
   data: ChannelMembers;
   onAdd: () => void;
-  onOpenAgentProfile?: (agentId: string) => void;
+  roster: RosterState;
 }) {
   const queryClient = useQueryClient();
   const setRole = useServerFn(setPublicChannelMemberRole);
   const displays = useAgentDisplays();
-  const [search, setSearch] = useState("");
   const [roleTarget, setRoleTarget] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [removing, setRemoving] = useState<Member | null>(null);
@@ -200,8 +209,6 @@ function MembersRoster({
     },
     [channelId, queryClient, setRole],
   );
-  const openAgentProfile = onOpenAgentProfile;
-
   function rowFor(member: Member) {
     const self = "username" in member && member.username === viewerHandle;
     return (
@@ -214,7 +221,8 @@ function MembersRoster({
         canRemove={data.canRemoveMembers}
         onToggleRole={toggleRole}
         onRemove={setRemoving}
-        onOpenAgentProfile={openAgentProfile}
+        onOpenAgentProfile={onOpenAgentProfile}
+        autoFocus={member.kind === "agent" && member.id === returnFocusAgentId}
       />
     );
   }
@@ -228,7 +236,7 @@ function MembersRoster({
           placeholder={m.channel_members_search_placeholder()}
           icon={SearchLg}
           value={search}
-          onChange={setSearch}
+          onChange={onSearchChange}
         />
       </div>
       {error && (
@@ -297,6 +305,7 @@ const MemberRow = memo(function MemberRow({
   onToggleRole,
   onRemove,
   onOpenAgentProfile,
+  autoFocus,
 }: {
   member: Member;
   display: AgentDisplaySnapshot | undefined;
@@ -305,7 +314,8 @@ const MemberRow = memo(function MemberRow({
   canRemove: boolean;
   onToggleRole: (member: Member) => void;
   onRemove: (member: Member) => void;
-  onOpenAgentProfile?: (agentId: string) => void;
+  onOpenAgentProfile: (agentId: string) => void;
+  autoFocus: boolean;
 }) {
   const hasActions = canChangeRole || canRemove;
   const identity = (
@@ -340,9 +350,10 @@ const MemberRow = memo(function MemberRow({
   );
   return (
     <li className="group flex items-center gap-3 px-4 py-2 md:px-6">
-      {member.kind === "agent" && onOpenAgentProfile ? (
+      {member.kind === "agent" ? (
         <AriaButton
           aria-label={m.agent_open_profile({ name: member.displayName })}
+          autoFocus={autoFocus}
           className="flex min-w-0 flex-1 cursor-pointer items-center gap-3 rounded-md outline-focus-ring focus-visible:outline-2"
           onPress={() => onOpenAgentProfile(member.id)}
         >

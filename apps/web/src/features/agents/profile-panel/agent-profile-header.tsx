@@ -1,4 +1,5 @@
 import {
+  ArrowLeft,
   MessageSquare01 as MessageSquare,
   Play,
   RefreshCcw01 as RotateCcw,
@@ -27,6 +28,7 @@ export function AgentProfileHeader({
   timeZone,
   controls,
   onClose,
+  back,
 }: {
   agent: {
     id: string;
@@ -39,6 +41,9 @@ export function AgentProfileHeader({
   timeZone: string | null;
   controls: AgentRuntimeControls;
   onClose: () => void;
+  /** Where the profile was opened from, when it is shown inside another page (a channel's
+   * members): a Back button before the avatar returns there. */
+  back?: { label: string; onPress: () => void };
 }) {
   const activity = useAgentRecentActivity(agent.id);
   // The live status line, from the same source the avatar's own label uses.
@@ -48,6 +53,17 @@ export function AgentProfileHeader({
     // while the borderless Close pulls -mr-1.5 so its glyph lands on the gutter
     // (docs/design/page-skeleton-and-density.md §8 optical alignment).
     <header className="flex h-12 shrink-0 items-center gap-2 border-b border-secondary px-5 py-0">
+      {back && (
+        <ButtonUtility
+          icon={ArrowLeft}
+          size="sm"
+          color="tertiary"
+          className="-ml-1.5"
+          tooltip={back.label}
+          aria-label={back.label}
+          onClick={back.onPress}
+        />
+      )}
       <AgentActivityAvatar
         agent={agent}
         src={agent.avatarUrl}

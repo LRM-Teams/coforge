@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { Heading, Text } from "react-aria-components";
 import {
@@ -34,6 +34,8 @@ import { Tooltip, TooltipTrigger } from "#src/components/base/tooltip/tooltip";
 import { Skeleton } from "#src/components/ui/skeleton";
 import { avatarInitial, avatarToneClassName } from "#src/lib/avatar-tone";
 import { isAppError } from "#src/lib/app-error";
+import { AgentProfilePanel } from "#src/features/agents/profile-panel/agent-profile-panel";
+import type { AgentProfileTab as AgentProfileTabId } from "#src/features/agents/profile-panel/profile-panel-search";
 import { m } from "#src/paraglide/messages";
 import type { ChannelConversationView } from "./channel-conversation";
 import {
@@ -71,21 +73,23 @@ export function ChannelSettingsPanel({
   open,
   onOpenChange,
   onChanged,
-  onOpenAgentProfile,
 }: {
   conversation: ChannelConversationView;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   /** Refreshes the page and the sidebar after a write changed the channel or the membership. */
   onChanged: () => Promise<void>;
-  /** Opens the Agent profile panel from the Members dialog (this panel closes first). */
-  onOpenAgentProfile?: (agentId: string) => void;
 }) {
   const channelId = conversation.conversationId;
   const capabilities = conversation.channelCapabilities;
   const isMember = Boolean(conversation.senderMemberId);
   // The members page (or its add view) shown in place of the settings; null shows the settings.
   const [membersView, setMembersView] = useState<ChannelMembersView | null>(null);
+  // An Agent's profile opened from the members page, shown in place of it; Back returns there.
+  const [profileAgentId, setProfileAgentId] = useState<string | null>(null);
+  const [profileTab, setProfileTab] = useState<AgentProfileTabId | undefined>(undefined);
+  const [rosterSearch, setRosterSearch] = useState("");
+  const [returnFocusAgentId, setReturnFocusAgentId] = useState<string | undefined>(undefined);
   const [unsavedPromptOpen, setUnsavedPromptOpen] = useState(false);
   const [confirming, setConfirming] = useState<ConfirmedAction | null>(null);
   const [stoppingAgents, setStoppingAgents] = useState(false);
@@ -95,7 +99,11 @@ export function ChannelSettingsPanel({
 
   // Each opening starts on the settings; reset on open, so closing never flashes them.
   useEffect(() => {
-    if (open) setMembersView(null);
+    if (!open) return;
+    setMembersView(null);
+    setProfileAgentId(null);
+    setRosterSearch("");
+    setReturnFocusAgentId(undefined);
   }, [open]);
 
   function close() {
@@ -110,6 +118,28 @@ export function ChannelSettingsPanel({
     if (info.dirty) setUnsavedPromptOpen(true);
     else close();
   }
+  // Stable, so the memoized roster rows do not re-render with the panel.
+  const openAgentProfile = useCallback((agentId: string) => {
+    setProfileTab(undefined);
+    setProfileAgentId(agentId);
+  }, []);
+  const profileBack = useMemo(
+    () => ({
+      label: m.channel_members_back_to_members(),
+      onPress: () => {
+        setReturnFocusAgentId(profileAgentId ?? undefined);
+        setProfileAgentId(null);
+      },
+    }),
+    [profileAgentId],
+  );
+  // The roster's search and the focused row survive only a trip to a profile and back; any
+  // other view change starts the roster afresh, as it did before it kept them.
+  const changeMembersView = useCallback((view: ChannelMembersView | null) => {
+    setReturnFocusAgentId(undefined);
+    setRosterSearch("");
+    setMembersView(view);
+  }, []);
 
   return (
     <>
@@ -120,87 +150,108 @@ export function ChannelSettingsPanel({
       >
         <SlideoutModal className="max-w-136">
           <SlideoutDialog aria-label={m.channel_settings_open()} className="gap-0">
-            <SlideoutMenu.Header
-              onClose={() => requestClose()}
-              className="border-b border-secondary pb-4"
-            >
-              {membersView ? (
-                <MembersPageHeading
-                  key={membersView}
-                  channelId={channelId}
-                  view={membersView}
-                  onBack={() => setMembersView(membersView === "add" ? "members" : null)}
-                />
-              ) : (
-                <>
-                  <div className="flex min-w-0 items-center gap-2 pr-8">
-                    <Heading slot="title" className="truncate text-lg font-semibold text-primary">
-                      #{conversation.name}
-                    </Heading>
-                    <Badge size="sm" color="gray" className="shrink-0">
-                      {m.channel_settings_public()}
-                    </Badge>
-                  </div>
-                  {conversation.description && (
-                    <p className="mt-1 truncate text-sm text-tertiary">
-                      {conversation.description}
-                    </p>
-                  )}
-                </>
-              )}
-            </SlideoutMenu.Header>
-            {membersView ? (
+            {profileAgentId ? (
               <div className="flex min-h-0 w-full flex-1 flex-col">
-                <ChannelMembersPage
-                  channelId={channelId}
-                  channelName={conversation.name}
-                  viewerHandle={conversation.viewerHandle}
-                  canCreateAgents={conversation.canCreateAgents}
-                  view={membersView}
-                  onViewChange={setMembersView}
-                  onOpenAgentProfile={
-                    onOpenAgentProfile &&
-                    ((agentId: string) => requestClose(() => onOpenAgentProfile(agentId)))
-                  }
+                <AgentProfilePanel
+                  key={profileAgentId}
+                  agentId={profileAgentId}
+                  requestedTab={profileTab}
+                  onTabChange={setProfileTab}
+                  onClose={() => requestClose()}
+                  back={profileBack}
                 />
               </div>
             ) : (
-              <SlideoutMenu.Content className="gap-0 pb-6">
-                <MembersStrip
-                  channelId={channelId}
-                  canAdd={isMember && !conversation.archived}
-                  onOpenMembers={() => setMembersView("members")}
-                  onAddMembers={() => setMembersView("add")}
-                />
-                {(capabilities.update || conversation.project) && (
-                  <PanelSection title={m.channel_settings_info()}>
-                    {capabilities.update && (
-                      <InfoForm
-                        form={info}
-                        channelName={conversation.name}
-                        archived={conversation.archived}
+              <>
+                <SlideoutMenu.Header
+                  onClose={() => requestClose()}
+                  className="border-b border-secondary pb-4"
+                >
+                  {membersView ? (
+                    <MembersPageHeading
+                      key={membersView}
+                      channelId={channelId}
+                      view={membersView}
+                      takesFocus={!returnFocusAgentId}
+                      onBack={() => changeMembersView(membersView === "add" ? "members" : null)}
+                    />
+                  ) : (
+                    <>
+                      <div className="flex min-w-0 items-center gap-2 pr-8">
+                        <Heading
+                          slot="title"
+                          className="truncate text-lg font-semibold text-primary"
+                        >
+                          #{conversation.name}
+                        </Heading>
+                        <Badge size="sm" color="gray" className="shrink-0">
+                          {m.channel_settings_public()}
+                        </Badge>
+                      </div>
+                      {conversation.description && (
+                        <p className="mt-1 truncate text-sm text-tertiary">
+                          {conversation.description}
+                        </p>
+                      )}
+                    </>
+                  )}
+                </SlideoutMenu.Header>
+                {membersView ? (
+                  <div className="flex min-h-0 w-full flex-1 flex-col">
+                    <ChannelMembersPage
+                      channelId={channelId}
+                      channelName={conversation.name}
+                      viewerHandle={conversation.viewerHandle}
+                      canCreateAgents={conversation.canCreateAgents}
+                      view={membersView}
+                      onViewChange={changeMembersView}
+                      roster={{
+                        search: rosterSearch,
+                        onSearchChange: setRosterSearch,
+                        onOpenAgentProfile: openAgentProfile,
+                        returnFocusAgentId,
+                      }}
+                    />
+                  </div>
+                ) : (
+                  <SlideoutMenu.Content className="gap-0 pb-6">
+                    <MembersStrip
+                      channelId={channelId}
+                      canAdd={isMember && !conversation.archived}
+                      onOpenMembers={() => setMembersView("members")}
+                      onAddMembers={() => setMembersView("add")}
+                    />
+                    {(capabilities.update || conversation.project) && (
+                      <PanelSection title={m.channel_settings_info()}>
+                        {capabilities.update && (
+                          <InfoForm
+                            form={info}
+                            channelName={conversation.name}
+                            archived={conversation.archived}
+                          />
+                        )}
+                        {conversation.project && <ProjectField project={conversation.project} />}
+                      </PanelSection>
+                    )}
+                    {isMember && (
+                      <PreferencesSection conversation={conversation} onChanged={onChanged} />
+                    )}
+                    {(capabilities.archive ||
+                      capabilities.unarchive ||
+                      capabilities.leave ||
+                      conversation.canHideGeneral ||
+                      conversation.canStopAgents ||
+                      conversation.canDelete) && (
+                      <ActionsSection
+                        conversation={conversation}
+                        onConfirm={setConfirming}
+                        onStopAgents={() => setStoppingAgents(true)}
+                        onChanged={onChanged}
                       />
                     )}
-                    {conversation.project && <ProjectField project={conversation.project} />}
-                  </PanelSection>
+                  </SlideoutMenu.Content>
                 )}
-                {isMember && (
-                  <PreferencesSection conversation={conversation} onChanged={onChanged} />
-                )}
-                {(capabilities.archive ||
-                  capabilities.unarchive ||
-                  capabilities.leave ||
-                  conversation.canHideGeneral ||
-                  conversation.canStopAgents ||
-                  conversation.canDelete) && (
-                  <ActionsSection
-                    conversation={conversation}
-                    onConfirm={setConfirming}
-                    onStopAgents={() => setStoppingAgents(true)}
-                    onChanged={onChanged}
-                  />
-                )}
-              </SlideoutMenu.Content>
+              </>
             )}
           </SlideoutDialog>
         </SlideoutModal>
@@ -262,10 +313,13 @@ function PanelSection({ title, children }: { title: string; children: ReactNode 
 function MembersPageHeading({
   channelId,
   view,
+  takesFocus,
   onBack,
 }: {
   channelId: string;
   view: ChannelMembersView;
+  /** False when the roster returns focus to a row instead. */
+  takesFocus: boolean;
   onBack: () => void;
 }) {
   const members = useChannelMembers(channelId);
@@ -277,7 +331,7 @@ function MembersPageHeading({
         size="sm"
         color="tertiary"
         // Focus follows the view switch (the add view's search takes it instead).
-        autoFocus={view === "members"}
+        autoFocus={takesFocus && view === "members"}
         tooltip={view === "add" ? m.channel_members_back_to_members() : m.channel_members_back()}
         aria-label={view === "add" ? m.channel_members_back_to_members() : m.channel_members_back()}
         onClick={onBack}
