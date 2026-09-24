@@ -295,19 +295,38 @@ export function MessageComposer({
       if (retryRef.current && next.trim() !== retryRef.current.body) retryRef.current = undefined;
     },
   });
+  // The `@handle`s that reached nobody in this chat's newest accepted send. Kept with the chat and
+  // the message's position: a reply that lands after the reader moved to another chat, or after a
+  // newer send's reply, never replaces what the notice shows.
+  const [unresolved, setUnresolved] = useState<
+    { draftKey: string; sequence: number; handles: readonly string[] } | undefined
+  >(undefined);
+  const unresolvedHandles = unresolved?.draftKey === draftKey ? unresolved.handles : [];
+  const unresolvedNotice = unresolvedHandles.length
+    ? m.conversation_unresolved_mentions({
+        handles: new Intl.ListFormat(getLocale(), { type: "conjunction" }).format(
+          unresolvedHandles.map((handle) => `@${handle}`),
+        ),
+      })
+    : "";
   // Submitting clears the composer at once and never disables it, so the next message can be
   // typed straight away; the outbox holds each submitted message until the server accepts it,
   // and the conversation shows it (greyed, then failed if need be) in the message list.
-  // The last send's `@handle`s that reached nobody; each accepted send replaces it.
-  const [unresolvedHandles, setUnresolvedHandles] = useState<readonly string[]>([]);
-  useEffect(() => setUnresolvedHandles([]), [draftKey]);
   const outbox = useMessageOutbox({
     draftKey,
     onSend,
     onCreateTask,
     onSent: (message) => {
       onSent?.(message);
-      setUnresolvedHandles(message.unresolvedMentionHandles ?? []);
+      setUnresolved((current) =>
+        current?.draftKey === draftKey && current.sequence > message.sequence
+          ? current
+          : {
+              draftKey,
+              sequence: message.sequence,
+              handles: message.unresolvedMentionHandles ?? [],
+            },
+      );
     },
   });
   const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
@@ -542,25 +561,25 @@ export function MessageComposer({
           {m.conversation_drop_to_upload()}
         </div>
       )}
-      {unresolvedHandles.length > 0 && (
-        <div role="status" className="flex items-start gap-2 px-2 text-sm text-tertiary">
+      {/* Always mounted, so a screen reader announces the notice when its text arrives. */}
+      <p role="status" className="sr-only">
+        {unresolvedNotice}
+      </p>
+      {unresolvedNotice && (
+        <div className="flex items-start gap-2 px-2 text-sm text-tertiary">
           <AlertCircle
             aria-hidden="true"
             className="mt-0.5 size-4 shrink-0 text-fg-warning-primary"
           />
-          <p className="min-w-0 flex-1">
-            {m.conversation_unresolved_mentions({
-              handles: new Intl.ListFormat(getLocale(), { type: "conjunction" }).format(
-                unresolvedHandles.map((handle) => `@${handle}`),
-              ),
-            })}
+          <p aria-hidden="true" className="min-w-0 flex-1">
+            {unresolvedNotice}
           </p>
           <ButtonUtility
             icon={XClose}
             size="xs"
             color="tertiary"
             tooltip={m.conversation_unresolved_mentions_dismiss()}
-            onClick={() => setUnresolvedHandles([])}
+            onClick={() => setUnresolved(undefined)}
           />
         </div>
       )}
