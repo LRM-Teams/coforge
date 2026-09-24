@@ -167,7 +167,7 @@ responsibility.
 - `server/projects/` — project settings, images, and repository file download.
 - `server/records/` — Workspace Records (see the last section).
 - `server/reminders/` — cloud Agent Reminders.
-- `server/tasks/` — the message-backed TaskBoard, its Task view, history records, and notice wording.
+- `server/tasks/` — the message-backed TaskBoard, the Tasks page's overview reads, its Task view, history records, and notice wording.
 - `server/workspaces/` — Workspace catalog, selection, enrollment, member
   roles, and member directory.
 - `prisma/` (app root) — schema and migrations; `messages/` — UI translations.

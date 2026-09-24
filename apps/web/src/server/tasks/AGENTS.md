@@ -45,6 +45,10 @@ contract is `packages/coforge-sdk/src/internal/tasks.ts`.
   reads and browser projections expose the server identity as `system` without
   changing Agent-send wake rules.
 - Task message metadata belongs to the existing message read projections.
+- The Workspace Tasks page's reads (`overview`, `overviewTask`, `finishedSummary`,
+  `finishedPage`) live in `task-overview.server.ts` (`TaskOverviewReads`);
+  `TaskBoard` keeps them as entry points and lends it the `list` authorization
+  for a one-conversation read, so Task authorization stays in TaskBoard.
 - `TaskBoard.overview(workspaceId, userId)` is browser-only. It reads visible
   channels only; a direct message's Tasks stay on that conversation's Tasks tab,
   and every Workspace-page read (`overviewTask`, `finishedSummary`,
