@@ -70,6 +70,11 @@ test("TaskBoard overview returns every visible Workspace task without leaking pr
     });
 
   const joined = await makeConversation({ channelName: `joined-${short}`, userId: alice!.id });
+  // The joined channel belongs to a Project, so its tasks carry it (the Tasks page filters by it).
+  const project = await db.project.create({
+    data: { workspaceId: workspace.id, name: "Launch", slug: `launch-${short}` },
+  });
+  await db.conversation.update({ where: { id: joined.id }, data: { projectId: project.id } });
   const unjoined = await makeConversation({ channelName: `unjoined-${short}`, userId: bob!.id });
   const ownDm = await makeConversation({ userId: alice!.id, agentId: aliceAgent!.id });
   const otherDm = await makeConversation({ userId: bob!.id, agentId: bobAgent!.id });
@@ -105,6 +110,7 @@ test("TaskBoard overview returns every visible Workspace task without leaking pr
       ...joinedTask.tasks[0],
       currentMemberId: expect.any(String),
       source: { channelName: joined.channelName, agentId: null, label: `#${joined.channelName}` },
+      project: { id: project.id, name: "Launch", slug: project.slug },
     });
     expect(result.tasks.find(({ title }) => title === "Unjoined public")).toEqual({
       ...unjoinedTask.tasks[0],
@@ -114,11 +120,13 @@ test("TaskBoard overview returns every visible Workspace task without leaking pr
         agentId: null,
         label: `#${unjoined.channelName}`,
       },
+      project: null,
     });
     expect(result.tasks.find(({ title }) => title === "Own direct")).toEqual({
       ...ownDmTask.tasks[0],
       currentMemberId: expect.any(String),
       source: { channelName: null, agentId: aliceAgent!.id, label: "Alice Agent" },
+      project: null,
     });
     const memberIds = await db.conversationMember.findMany({
       where: { userId: alice!.id, conversationId: { in: [joined.id, ownDm.id] } },

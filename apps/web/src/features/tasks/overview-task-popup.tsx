@@ -15,11 +15,11 @@ import {
   useDirectConversation,
 } from "#src/features/conversations/use-conversation-data";
 import { TaskDetailDialog } from "./task-detail-dialog";
-import type { OverviewTaskCommand, TaskOverviewItem } from "./task-overview";
+import type { OverviewTaskCommand, OverviewTaskRow } from "./task-overview-collection";
 
 type OverviewTaskPopupProps = {
   /** The open Task, as the overview lists it. */
-  task: TaskOverviewItem;
+  task: OverviewTaskRow;
   /** The overview's Tasks of the same conversation: what the popup offers until the
    * conversation's own Task list has loaded. */
   conversationTasks: TaskView[];
