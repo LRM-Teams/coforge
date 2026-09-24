@@ -1632,6 +1632,8 @@ export class PublicChannels {
       // Only a Workspace owner or admin hides #general (`setGeneralHidden`), whatever their role in it.
       canHideGeneral: canHideGeneralChannel(channel.channelName!, authority.serverRole),
       canDelete: canDeleteChannel(channel.channelName!, authority.serverRole),
+      // Any member of a live channel stops its Agents (`ChannelAgentStop.stopAll`).
+      canStopAgents: authority.isActiveMember && channel.archivedAt === null,
       // The viewer's conversation-level read cursor over top-level messages:
       // the client positions the initial view at the first unread message and draws the
       // divider there. Undefined for a non-member (nothing is "unread for them").
