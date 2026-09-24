@@ -1,3 +1,8 @@
+import {
+  assertDeliveryNotApplicationOrigin,
+  normalizeDeliveryBaseUrl,
+  type DeliveryUrlRule,
+} from "./delivery-base-url.server";
 import { readEnvSecret } from "./env-secret.server";
 
 /**
@@ -43,8 +48,8 @@ export class FileDeliveryConfigError extends Error {
 export async function readFileDeliveryConfig(env: NodeJS.ProcessEnv): Promise<FileDeliveryConfig> {
   const rawUrl = env.COFORGE_FILE_DELIVERY_URL?.trim();
   if (!rawUrl) return null;
-  const baseUrl = normalizeBaseUrl(rawUrl);
-  assertNotApplicationOrigin(baseUrl, env);
+  const baseUrl = normalizeDeliveryBaseUrl(rawUrl, FILE_DELIVERY_URL_RULE);
+  assertDeliveryNotApplicationOrigin(baseUrl, env, FILE_DELIVERY_URL_RULE);
   const key = await readEnvSecret(env, "COFORGE_FILE_DELIVERY_KEY", (message) => {
     throw new FileDeliveryConfigError(message);
   });
@@ -57,57 +62,20 @@ export async function readFileDeliveryConfig(env: NodeJS.ProcessEnv): Promise<Fi
 }
 
 /**
- * Delivery must be a different origin from the application.
+ * Delivery must be a different origin from the application, or a signed URL would be framed on the
+ * cookie-bearing host: these URLs carry attachment bytes the sender chose, and some are rendered as
+ * documents rather than images (a PDF in the browser's own viewer), which would reach every cookie
+ * this deployment has. `getFileDelivery` turns this error into the disabled state, so attachments
+ * fall back to the authenticated backend route, which serves every non-image as an opaque download.
  *
- * Signed delivery URLs carry attachment bytes the sender chose, and some of them are rendered as
- * documents rather than images (a PDF in the browser's own viewer). On a separate origin such a
- * document reaches none of this application's cookies; on this application's own origin it would
- * reach all of them, which inverts the reason those types are refused inline from here. A
- * deployment that points delivery at the app's own host is therefore refused rather than trusted:
- * `getFileDelivery` turns this error into the disabled state, so attachments fall back to the
- * authenticated backend route, which serves every non-image as an opaque download.
- *
- * The application origin is taken from the configured OAuth redirect URI, the one setting that
- * already has to name this deployment's public origin. `AUTHING_REDIRECT_URI` is optional — the
- * auth config otherwise derives the callback from the request — so a deployment can reach here
- * with nothing to compare, and this check then permits the delivery URL. That is why it is not the
- * only gate: `isFrameableDocumentUrl` refuses a same-origin document in the browser, and refuses
- * one outright wherever no page origin is known, so the frame is never emitted on a check that did
- * not run. A same-origin misconfiguration in such a deployment loses the PDF preview (the
- * attachment stays a download) instead of framing a sender's document on the cookie-bearing host.
+ * The rule itself — https, no path/query/hash, not this application's origin — lives once in
+ * `delivery-base-url.server.ts`, shared with public image delivery; only the setting and the error
+ * class are this feature's.
  */
-function assertNotApplicationOrigin(baseUrl: string, env: NodeJS.ProcessEnv): void {
-  const redirectUri = env.AUTHING_REDIRECT_URI?.trim();
-  if (!redirectUri) return;
-  let applicationOrigin: string;
-  try {
-    applicationOrigin = new URL(redirectUri).origin;
-  } catch {
-    return;
-  }
-  if (new URL(baseUrl).origin !== applicationOrigin) return;
-  throw new FileDeliveryConfigError(
-    "COFORGE_FILE_DELIVERY_URL must not be the application's own origin",
-  );
-}
-
-function normalizeBaseUrl(rawUrl: string): string {
-  let url: URL;
-  try {
-    url = new URL(rawUrl);
-  } catch {
-    throw new FileDeliveryConfigError("COFORGE_FILE_DELIVERY_URL must be a valid URL");
-  }
-  if (url.protocol !== "https:") {
-    throw new FileDeliveryConfigError("COFORGE_FILE_DELIVERY_URL must use https");
-  }
-  if (url.search || url.hash || (url.pathname !== "/" && url.pathname !== "")) {
-    throw new FileDeliveryConfigError(
-      "COFORGE_FILE_DELIVERY_URL must not have a path, query, or hash",
-    );
-  }
-  return `${url.protocol}//${url.host}`;
-}
+const FILE_DELIVERY_URL_RULE: DeliveryUrlRule = {
+  envVar: "COFORGE_FILE_DELIVERY_URL",
+  fail: (message) => new FileDeliveryConfigError(message),
+};
 
 export type FileDeliveryStatus =
   | { state: "configured" }
@@ -204,8 +172,8 @@ function inlineFileDeliveryConfig(
     );
   }
   if (env.COFORGE_FILE_DELIVERY_KEY_FILE?.trim()) return { pending: true };
-  const baseUrl = normalizeBaseUrl(rawUrl);
-  assertNotApplicationOrigin(baseUrl, env);
+  const baseUrl = normalizeDeliveryBaseUrl(rawUrl, FILE_DELIVERY_URL_RULE);
+  assertDeliveryNotApplicationOrigin(baseUrl, env, FILE_DELIVERY_URL_RULE);
   const key = env.COFORGE_FILE_DELIVERY_KEY?.trim();
   if (!key) {
     throw new FileDeliveryConfigError(
