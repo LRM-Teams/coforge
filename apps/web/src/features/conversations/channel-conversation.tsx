@@ -7,6 +7,7 @@ import { Button } from "#src/components/base/buttons/button";
 import { ButtonUtility } from "#src/components/base/buttons/button-utility";
 import { ChannelSettingsPanel } from "./channel-settings-panel";
 import type { ChannelCapabilities } from "#src/server/conversations/channel-authority.server";
+import { ConversationHeader } from "./conversation-header";
 import { ConversationListButton } from "./conversation-navigation";
 import { ThreadFollowingAgents } from "./thread-following-agents";
 import { ConversationTaskTabs } from "#src/features/tasks/conversation-task-tabs";
@@ -68,39 +69,45 @@ export function ChannelConversationHeader({
   const settingsOpen = controlledSettingsOpen ?? ownSettingsOpen;
   const setSettingsOpen = onSettingsOpenChange ?? setOwnSettingsOpen;
   return (
-    <header className="shrink-0 border-b border-secondary px-4 md:px-6">
-      <div className="-mx-4 flex h-12 items-center gap-3 border-b border-secondary px-4 md:-mx-6 md:px-6">
-        <ConversationListButton />
-        <div className="flex min-w-0 flex-1 items-baseline gap-3">
-          <h1 className="shrink-0 truncate text-base font-semibold">#{conversation.name}</h1>
-          {conversation.description && (
-            <p className="hidden min-w-0 truncate text-sm text-tertiary sm:block">
-              {conversation.description}
-            </p>
-          )}
-        </div>
-        {/* Borderless utility strip: the -mr-1.5 cancels the last button's p-1.5 so its glyph
-            lands on the pane gutter (docs/design/page-skeleton-and-density.md §8 optical alignment). */}
-        <div className="-mr-1.5 flex shrink-0 items-center gap-3">
-          <ButtonUtility
-            icon={Settings}
-            size="sm"
-            color="tertiary"
-            tooltip={m.channel_settings_open()}
-            onClick={() => setSettingsOpen(true)}
-          />
-        </div>
-      </div>
-      {(onShowChat || onShowTasks || onShowFiles) && (
-        <div className="-mx-4 flex h-14 items-center px-4 md:-mx-6 md:px-6">
-          <ConversationTaskTabs
-            active={active}
-            onShowChat={onShowChat}
-            onShowTasks={onShowTasks}
-            onShowFiles={onShowFiles}
-          />
-        </div>
-      )}
+    <>
+      <ConversationHeader
+        identity={
+          <>
+            <ConversationListButton />
+            <div className="flex min-w-0 flex-1 items-baseline gap-3">
+              <h1 className="shrink-0 truncate text-base font-semibold">#{conversation.name}</h1>
+              {conversation.description && (
+                <p className="hidden min-w-0 truncate text-sm text-tertiary sm:block">
+                  {conversation.description}
+                </p>
+              )}
+            </div>
+          </>
+        }
+        actions={
+          // Borderless utility strip: the -mr-1.5 cancels the last button's p-1.5 so its glyph
+          // lands on the pane gutter (docs/design/page-skeleton-and-density.md §8 optical alignment).
+          <div className="-mr-1.5 flex shrink-0 items-center gap-3">
+            <ButtonUtility
+              icon={Settings}
+              size="sm"
+              color="tertiary"
+              tooltip={m.channel_settings_open()}
+              onClick={() => setSettingsOpen(true)}
+            />
+          </div>
+        }
+        tabs={
+          (onShowChat || onShowTasks || onShowFiles) && (
+            <ConversationTaskTabs
+              active={active}
+              onShowChat={onShowChat}
+              onShowTasks={onShowTasks}
+              onShowFiles={onShowFiles}
+            />
+          )
+        }
+      />
       {settingsOpen && (
         <ChannelSettingsPanel
           conversation={conversation}
@@ -110,7 +117,7 @@ export function ChannelConversationHeader({
           onOpenAgentProfile={onOpenAgentProfile}
         />
       )}
-    </header>
+    </>
   );
 }
 

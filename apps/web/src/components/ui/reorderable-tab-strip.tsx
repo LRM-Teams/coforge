@@ -18,11 +18,12 @@ import {
 import { Tab, TabList, Tabs } from "#src/components/application/tabs/tabs";
 import { cx } from "#src/utils/cx";
 
-export type ReorderableTabMeta = { label: () => string; icon: FC<{ className?: string }> };
+export type ReorderableTabMeta = { label: () => string; icon?: FC<{ className?: string }> };
 
 /**
  * A panel's tab strip whose tabs the viewer drags into their own order. It is the official
- * horizontal `button-border` Tabs list; dragging only translates a tab along the strip
+ * horizontal Tabs list (`button-border` unless the caller picks another official type); dragging
+ * only translates a tab along the strip
  * ([dnd-kit Sortable](https://docs.dndkit.com/presets/sortable)). A mouse drag starts after 6px
  * of movement so a click still selects; a touch drag starts after a 250ms press so a swipe still
  * scrolls a strip that overflows a phone
@@ -34,6 +35,8 @@ export function ReorderableTabStrip<T extends string>({
   active,
   onSelect,
   onReorder,
+  type = "button-border",
+  size = "sm",
   className,
   "aria-label": ariaLabel,
 }: {
@@ -43,6 +46,8 @@ export function ReorderableTabStrip<T extends string>({
   active: T;
   onSelect: (tab: T) => void;
   onReorder: (order: T[]) => void;
+  type?: "button-border" | "underline";
+  size?: "sm" | "md";
   className?: string;
   "aria-label": string;
 }) {
@@ -80,7 +85,7 @@ export function ReorderableTabStrip<T extends string>({
         {/* Selection stays with the caller: a mouse press would otherwise select on press start,
          * before a drag can begin, so each tab selects from its own `onPress` instead. */}
         <Tabs ref={tabsRef} selectedKey={active} className={cx("w-max shrink-0", className)}>
-          <TabList type="button-border" size="sm" aria-label={ariaLabel}>
+          <TabList type={type} size={size} aria-label={ariaLabel}>
             {tabs.map((tab) => (
               <SortableTab
                 key={tab}
