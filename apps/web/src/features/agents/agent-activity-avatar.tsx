@@ -52,7 +52,7 @@ export function AgentDisplayAvatar({
     <span
       role="img"
       aria-label={`${name}, ${deleted ? m.agent_deleted_badge() : view.label}`}
-      className="relative block shrink-0 rounded-[inherit]"
+      className="relative flex shrink-0 rounded-[inherit]"
     >
       <Avatar
         size={size}
