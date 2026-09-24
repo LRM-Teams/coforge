@@ -275,8 +275,7 @@ type AgentRecoveryContext = Pick<
 /** Whether a recovery context has anything concrete to deliver. `recoveryOf(intent)` always
  * returns an object, even for a launch with no wake message, resume messages, or unread summary,
  * so callers cannot tell "nothing to recover" from "recovery was requested" by presence alone —
- * this is the same check `#recoverAttention` uses to skip an empty context, reused by the
- * startup turn below so the two never both fire for one launch. */
+ * this is the same check `#recoverAttention` uses to skip an empty context. */
 function recoveryHasContent(context: AgentRecoveryContext | undefined): boolean {
   return Boolean(
     context &&
@@ -286,14 +285,9 @@ function recoveryHasContent(context: AgentRecoveryContext | undefined): boolean 
   );
 }
 
-/** The fixed input of a startup turn: a launch that creates a new native session with nothing to
- * recover opens its first turn with it, so the standing "Startup sequence" instructions run. */
-export const AGENT_STARTUP_TURN_TEXT = "Start.";
-
 type AgentInput =
   | { kind: "recovery"; context: AgentRecoveryContext; completion: AgentInputCompletion }
-  | { kind: "delivery"; message: AgentMessageDelivery; completion: AgentInputCompletion }
-  | { kind: "startup"; completion: AgentInputCompletion };
+  | { kind: "delivery"; message: AgentMessageDelivery; completion: AgentInputCompletion };
 
 type AgentInputQueue = {
   items: AgentInput[];
@@ -1616,15 +1610,6 @@ export class DaemonRuntime {
     // Register the launch before its first await so concurrent starts cannot mint twice.
     // Launch failure is surfaced by `launch`; the item completion is also rejected when cleared.
     void recoveryCompletion?.catch(() => {});
-    // Only a launch the server explicitly asked to create a new native session for gets a
-    // startup turn: a daemon-initiated wake carries no `sessionMode`, and an unknown mode is
-    // never treated as a cold start. Queued before the
-    // launch so any message that arrives while the process is still starting queues behind it.
-    const startupCompletion =
-      request.sessionMode === "create" && !recoveryHasContent(recovery)
-        ? this.#enqueueAgentInput(agentId, (completion) => ({ kind: "startup", completion }))
-        : undefined;
-    void startupCompletion?.catch(() => {});
     const launching = this.#launchAgent(agentId, config, request);
     const launch = launching
       .then(
@@ -1633,11 +1618,10 @@ export class DaemonRuntime {
           this.#wakeLaunchFailures.reset(agentId);
           this.#ensureAgentInputDrain(agentId);
           if (recoveryCompletion) await recoveryCompletion;
-          // The startup turn is not awaited: the launch (and the Start result reported from
-          // it) completes when the process is up, never after a whole model turn.
           // No recovery item was enqueued for this launch at all (so
           // `#recoverAttention` never ran), yet the session is ready — flush anything
-          // AgentDeliveryQueue held across an unexpected exit now.
+          // AgentDeliveryQueue held across an unexpected exit now. Do not open a
+          // synthetic first turn: standing instructions are already on the session.
           else {
             this.#flushSurvivingDeliveryQueue(agentId);
             this.#releaseHeldAppItems(agentId);
@@ -1710,8 +1694,6 @@ export class DaemonRuntime {
             target: item.message.target,
             sequence: item.message.sequence,
           });
-        } else if (item.kind === "startup") {
-          await this.#runStartupTurn(agentId);
         } else await this.#recoverAttention(agentId, item.context);
       } catch (error) {
         if (item.kind === "recovery" && this.#agentLaunches.has(agentId)) {
@@ -1719,18 +1701,6 @@ export class DaemonRuntime {
           return;
         }
         if (item.kind === "delivery") {
-          item.completion.reject(error);
-          continue;
-        }
-        if (item.kind === "startup") {
-          // The launch is not rolled back here: a provider that refuses input handles it the way
-          // it handles any refused input (Kiro, for one, disposes its session), and the process
-          // exit that follows is reported through the ordinary exit path.
-          logger.warn("Agent startup turn was not accepted", {
-            event: "agent.startup_turn.rejected",
-            agent_id: agentId,
-            error_code: diagnosticErrorCode(error),
-          });
           item.completion.reject(error);
           continue;
         }
@@ -1811,21 +1781,6 @@ export class DaemonRuntime {
         error_code: error instanceof Error ? error.name : "UnknownError",
       });
     });
-  }
-
-  /** Opens a freshly created session's first turn with a fixed prompt so its standing "Startup
-   * sequence" instructions run immediately, rather than leaving the Agent idle until its first
-   * real message. */
-  async #runStartupTurn(agentId: string): Promise<void> {
-    const session = this.#agentProcessManager.session(agentId);
-    if (!session?.notify) {
-      logger.debug("Agent startup turn skipped: the session accepts no input", {
-        event: "agent.startup_turn.skipped",
-        agent_id: agentId,
-      });
-      return;
-    }
-    await session.notify(AGENT_STARTUP_TURN_TEXT);
   }
 
   /** Tears down a launch whose recovery notice was rejected; returns the error to surface. */

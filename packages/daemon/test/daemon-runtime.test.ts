@@ -12,7 +12,7 @@ import { rm } from "node:fs/promises";
 import { tmpdir, userInfo } from "node:os";
 import { realpathSync } from "node:fs";
 import { join } from "node:path";
-import { AGENT_STARTUP_TURN_TEXT, DaemonRuntime } from "#src/daemon-runtime/runtime";
+import { DaemonRuntime } from "#src/daemon-runtime/runtime";
 import {
   AGENT_RUNTIME_EVENT_TYPE,
   AgentProcessCleanupError,
@@ -5255,7 +5255,7 @@ describe("DaemonRuntime", () => {
     await runtime.stop();
   });
 
-  test("a launch that creates a new session with nothing to recover sends one startup turn", async () => {
+  test("a launch that creates a new session with nothing to recover sends no notices", async () => {
     const harness = await queueHarness();
     await harness.runtime.startAgent(
       "agent-a",
@@ -5267,56 +5267,11 @@ describe("DaemonRuntime", () => {
       "create",
     );
     await Bun.sleep(10);
-    expect(harness.notices).toEqual([AGENT_STARTUP_TURN_TEXT]);
+    expect(harness.notices).toEqual([]);
     await harness.runtime.stop();
   });
 
-  test("the end of the startup turn reports the Agent idle", async () => {
-    const listeners: Array<(event: AgentRuntimeEvent) => void> = [];
-    const kinds: string[] = [];
-    const harness = await queueHarness({
-      subscribe: (listener) => listeners.push(listener),
-      notify: () => {
-        for (const listener of listeners) listener({ type: "completed", status: "completed" });
-      },
-      activity: (activity) => kinds.push(activity.detailKind),
-    });
-    await harness.runtime.startAgent(
-      "agent-a",
-      config,
-      undefined,
-      "create-request",
-      undefined,
-      undefined,
-      "create",
-    );
-    await Bun.sleep(10);
-    expect(harness.notices).toEqual([AGENT_STARTUP_TURN_TEXT]);
-    expect(kinds.indexOf("idle")).toBeGreaterThan(kinds.indexOf("starting"));
-    expect(kinds).toContain("starting");
-    await harness.runtime.stop();
-  });
-
-  test("the launch resolves without waiting for the startup turn to finish", async () => {
-    let finishTurn!: () => void;
-    const turn = new Promise<void>((resolve) => (finishTurn = resolve));
-    const harness = await queueHarness({ notify: () => turn });
-    await harness.runtime.startAgent(
-      "agent-a",
-      config,
-      undefined,
-      "create-request",
-      undefined,
-      undefined,
-      "create",
-    );
-    await Bun.sleep(10);
-    expect(harness.notices).toEqual([AGENT_STARTUP_TURN_TEXT]);
-    finishTurn();
-    await harness.runtime.stop();
-  });
-
-  test("a resume launch sends no startup turn", async () => {
+  test("a resume launch sends no notices", async () => {
     const harness = await queueHarness();
     await harness.runtime.startAgent(
       "agent-a",
@@ -5332,7 +5287,7 @@ describe("DaemonRuntime", () => {
     await harness.runtime.stop();
   });
 
-  test("a launch without an explicit session mode sends no startup turn", async () => {
+  test("a launch without an explicit session mode sends no notices", async () => {
     const harness = await queueHarness();
     await harness.runtime.startAgent("agent-a", config);
     await Bun.sleep(10);
@@ -5371,7 +5326,7 @@ describe("DaemonRuntime", () => {
     await harness.runtime.stop();
   });
 
-  test("a stop that races a create launch drops its queued startup turn", async () => {
+  test("a stop that races a create launch sends no notices", async () => {
     let releaseLaunch!: () => void;
     const launchGate = new Promise<void>((resolve) => (releaseLaunch = resolve));
     const harness = await queueHarness({ launch: () => launchGate });
@@ -6698,9 +6653,9 @@ describe("DaemonRuntime", () => {
         expect(
           activities.filter((activity) => activity.detailKind === "runtime_unavailable"),
         ).toHaveLength(1);
-        // The fresh session the retry creates opens with the startup turn.
+        // The fresh session the retry creates waits for a real message.
         await Bun.sleep(10);
-        expect(notices).toEqual([AGENT_STARTUP_TURN_TEXT]);
+        expect(notices).toEqual([]);
       } finally {
         await runtime.stop();
         await rm(stateDirectory, { recursive: true, force: true });

@@ -6,8 +6,8 @@ const directory = "/coforge/workspaces/workspace-a/agents/agent-a";
 const instructions = buildCoforgeAgentInstructions({ agentWorkspaceDirectory: directory });
 
 test("ordinary requests do not require task creation or per-turn memory bookkeeping", () => {
-  expect(instructions).toContain("Ordinary requests need no Task");
-  expect(instructions).toContain("existing shared Task");
+  expect(instructions).toContain("Do ordinary work directly");
+  expect(instructions).toContain("complex, coordinated, or already-shared Tasks");
   expect(instructions).toContain("If a claim fails, do not start conflicting execution");
   expect(instructions).toContain("when recovering missing context");
   expect(instructions).not.toContain("## Startup sequence");

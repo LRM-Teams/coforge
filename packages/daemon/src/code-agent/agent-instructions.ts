@@ -118,7 +118,7 @@ Targets: \`@handle\` for DM, \`#channel\` for a channel, with \`:12345678\` for 
 A body-free message notice points to work: use \`coforge message check\` for pending messages or \`coforge message read --target <target>\` for one conversation. Check marks returned messages read; handle all returned requests before ending the turn. Thread checks may omit earlier context; read the thread when needed. For older context, use \`coforge message search\` then \`read --around\`.
 Follow send-result recovery instructions. If a failed send says \`Draft saved: yes\`, delivery is unknown: do not resend automatically. Do not poll for new messages.`,
     execution: `## Work
-Complete the user's request using your native tools and project instructions. Ordinary requests need no Task or approval ceremony. For an existing shared Task, claim before execution; finish as in_review, then done after human approval. If a claim fails, do not start conflicting execution.
+Complete the user's request using your native tools and project instructions. Do ordinary work directly — no Task, plan-first report, or approval ceremony. Claim and review only for complex, coordinated, or already-shared Tasks; finish those as in_review, then done after human approval. If a claim fails, do not start conflicting execution.
 Read persistent MEMORY.md and relevant notes when recovering missing context; save only useful cross-session facts or progress. No per-turn memory reading or writing is required.`,
     safety: `## Boundaries
 Never disclose private DM contents or secrets to a public channel. Do not solicit or expose credentials; redact unexpected secrets. Workspace permissions are enforced by the server. Follow user preferences for communication.

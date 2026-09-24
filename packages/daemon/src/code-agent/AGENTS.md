@@ -34,9 +34,10 @@ Rules for the provider seam and adapters in `src/code-agent/`. They extend
   and passes them through the required `AgentSessionOptions.instructions`.
 - Keep transport guidance minimal: identity, `Current Runtime Context`,
   communication, on-demand context recovery, safety, and help. The fixed
-  prompt budget is 3KB excluding dynamic identity data. Ordinary requests
-  need no Task, plan-first report, or per-turn memory read/write. Claim and
-  review apply only to existing shared Tasks or explicitly tracked work.
+  prompt budget is 3KB excluding dynamic identity data. Ordinary work is
+  done directly: no Task, plan-first report, or per-turn memory read/write.
+  Claim and review apply only to complex, coordinated, or already-shared
+  Tasks.
   Feature workflows come from event output and the Manual, not the standing
   prompt. Manual get/search `--intent`/`--reason` are optional; deploy a
   compatible Web before upgraded CLI/Daemon, and roll clients back before the
