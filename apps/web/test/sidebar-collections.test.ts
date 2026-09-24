@@ -84,8 +84,13 @@ test("marking unread a row already showing a count changes nothing on screen but
   expect(saves).toEqual([`unread {"kind":"channel","channelId":"random"}`]);
 });
 
-test("a change made before the lists have synced (another page) is still saved", async () => {
-  const { sidebar, saves } = await sidebarWith({}, { synced: false });
+test("a change made before the lists have synced (another page) is saved and marks them stale", async () => {
+  const { sidebar, saves, queryClient } = await sidebarWith({}, { synced: false });
+  const stale = () =>
+    [sidebarChannelsQuery("w"), sidebarDirectsQuery("w")].map(
+      (query) => queryClient.getQueryState(query.queryKey)?.isInvalidated,
+    );
+  expect(stale()).toEqual([false, false]);
   await sidebar.actions.markUnread({ kind: "direct", agentId: "helper" });
   await sidebar.actions.setPinned({ kind: "channel", channelId: "random" }, true);
   await sidebar.actions.close({ kind: "channel", channelId: "random" });
@@ -94,6 +99,8 @@ test("a change made before the lists have synced (another page) is still saved",
     `pin {"kind":"channel","channelId":"random"} true`,
     `close {"kind":"channel","channelId":"random"}`,
   ]);
+  // The next page to show the lists reads them again instead of the copy from before.
+  expect(stale()).toEqual([true, true]);
 });
 
 test("a pin shows at once, is saved, and stays when a later re-read fails", async () => {

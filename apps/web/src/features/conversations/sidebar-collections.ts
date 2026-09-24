@@ -1,8 +1,11 @@
 import { queryOptions } from "@tanstack/react-query";
-import type { QueryClient } from "@tanstack/react-query";
+import type { QueryClient, QueryKey } from "@tanstack/react-query";
 import { createCollection, createOptimisticAction } from "@tanstack/react-db";
 import type { PendingMutation, Transaction } from "@tanstack/react-db";
-import { queryCollectionOptions } from "@tanstack/query-db-collection";
+import {
+  queryCollectionOptions,
+  UpdateOperationItemNotFoundError,
+} from "@tanstack/query-db-collection";
 
 import { nextPinOrder, pinOrdersAfterArrange } from "#src/lib/pin-order";
 import {
@@ -181,10 +184,8 @@ export function createSidebar(
       try {
         write(mutation);
       } catch (error) {
-        // The row is no longer in the synced list: the next read shows the list as it is. The
-        // error class is not exported by @tanstack/query-db-collection, so it is known by name.
-        if (!(error instanceof Error && error.name === "UpdateOperationItemNotFoundError"))
-          throw error;
+        // The row is no longer in the synced list: the next read shows the list as it is.
+        if (!(error instanceof UpdateOperationItemNotFoundError)) throw error;
       }
     }
   };
@@ -270,17 +271,30 @@ export function createSidebar(
 
   /** Settles when the change is saved. A change with nothing to show first (the lists have not
    * loaded on this page, the row has left them, or it already shows the change) makes an empty
-   * transaction, which TanStack DB never saves: that one goes straight to the server. */
-  const saved = (transaction: Transaction, save: () => Promise<unknown>) =>
-    (transaction.mutations.length > 0 ? transaction.isPersisted.promise : save()).then(() => {});
+   * transaction, which TanStack DB never saves: that one goes straight to the server, and the
+   * lists it touches are marked stale, so the next page to show them reads them again. */
+  const saved = (
+    transaction: Transaction,
+    save: () => Promise<unknown>,
+    stale: readonly QueryKey[],
+  ) =>
+    (transaction.mutations.length > 0
+      ? transaction.isPersisted.promise
+      : save().then(() => {
+          for (const queryKey of stale) void queryClient.invalidateQueries({ queryKey });
+        })
+    ).then(() => {});
+  const channelsKey = sidebarChannelsQueryKey(workspaceId);
+  const directsKey = sidebarDirectsQueryKey(workspaceId);
+  const listOf = (target: PinRef) => [target.kind === "channel" ? channelsKey : directsKey];
   const actions = {
     setPinned: (target: PinRef, pinned: boolean) =>
-      saved(pin({ target, pinned }), () => api.pin(target, pinned)),
+      saved(pin({ target, pinned }), () => api.pin(target, pinned), listOf(target)),
     markUnread: (target: PinRef) =>
-      saved(markUnreadAtOnce(target), () => api.markUnread(target).then(() => reread(target))),
-    close: (target: PinRef) => saved(close(target), () => api.close(target)),
+      saved(markUnreadAtOnce(target), () => api.markUnread(target), listOf(target)),
+    close: (target: PinRef) => saved(close(target), () => api.close(target), listOf(target)),
     arrange: (arrangement: Arrangement) =>
-      saved(arrange(arrangement), () => saveArrangement(arrangement)),
+      saved(arrange(arrangement), () => saveArrangement(arrangement), [channelsKey, directsKey]),
   };
   return { channels, directs, actions };
 }
