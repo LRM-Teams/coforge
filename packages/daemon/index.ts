@@ -126,8 +126,8 @@ export type {
   DaemonConnectionClient,
   DaemonConnectionConfig,
   DaemonConnectionClientFactory,
-  AgentMessageHttpClient,
 } from "#src/connection/daemon-connection";
+export type { AgentMessageHttpClient } from "#src/connection/agent-http-clients";
 export {
   DaemonConnection,
   defaultCentrifugeWorkspaceClientFactory,

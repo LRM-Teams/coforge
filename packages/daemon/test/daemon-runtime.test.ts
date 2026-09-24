@@ -26,9 +26,9 @@ import {
 import type { WorkspaceConfig } from "#src/daemon-runtime/runtime";
 import { InMemoryDaemonCredentialStore } from "#src/credentials/credential-store";
 import { AgentConsumedSeqStore } from "#src/persistence/agent-consumed-seq-store";
+import type { AgentMessageTransportResponse } from "#src/connection/agent-http-clients";
 import {
   DaemonConnection,
-  type AgentMessageTransportResponse,
   type CentrifugeWorkspaceClient,
 } from "#src/connection/daemon-connection";
 import { startAgentProxy, type AgentProxy } from "#src/agent-proxy";
