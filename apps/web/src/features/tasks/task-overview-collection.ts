@@ -55,6 +55,22 @@ export function createTaskOverview(
   workspaceId: string,
   api: TaskOverviewApi = serverTaskOverviewApi,
 ) {
+  // Announced changes a read may not have seen yet: a read whose snapshot was taken before a
+  // change reaches the collection after it, and must not put the older copy back. The collection
+  // also writes each applied change into the cached list, so a copy leaves only once a newer one
+  // is listed; a deleted Task never comes back, so its id stays.
+  const announced = new Map<string, TaskView>();
+  const deletedTasks = new Set<string>();
+  const withAnnounced = (rows: readonly OverviewTaskRow[]) =>
+    rows.flatMap((row) => {
+      if (deletedTasks.has(row.messageId)) return [];
+      const newer = announced.get(row.messageId);
+      if (!newer) return [row];
+      if (newer.revision >= row.revision) return [{ ...row, ...newer }];
+      announced.delete(row.messageId);
+      return [row];
+    });
+
   const tasks = createCollection(
     queryCollectionOptions({
       id: `task-overview:${workspaceId}`,
@@ -62,7 +78,7 @@ export function createTaskOverview(
       queryFn: () => api.load(),
       queryClient,
       getKey: (row: OverviewTaskRow) => row.messageId,
-      select: (overview) => overview.tasks,
+      select: (overview) => withAnnounced(overview.tasks),
     }),
   );
 
@@ -137,6 +153,12 @@ export function createTaskOverview(
       const row = tasks.get(view.messageId);
       if (!row) needsRead = true;
       else if (view.revision > row.revision) updates.push(view);
+    }
+    for (const view of newest.values())
+      if (!deleted.has(view.messageId)) announced.set(view.messageId, view);
+    for (const messageId of deleted) {
+      announced.delete(messageId);
+      deletedTasks.add(messageId);
     }
     const removed = [...deleted].filter((messageId) => tasks.has(messageId));
     if (updates.length > 0 || removed.length > 0)
