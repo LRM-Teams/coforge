@@ -1,6 +1,6 @@
-import { infiniteQueryOptions } from "@tanstack/react-query";
+import { infiniteQueryOptions, queryOptions } from "@tanstack/react-query";
 
-import { loadActivityInbox } from "./activity-inbox.functions";
+import { loadActivityInbox, loadActivityNavAttention } from "./activity-inbox.functions";
 import type { ActivityInboxFilter } from "./activity-inbox.schemas";
 
 /** Every cached page of every view shares this prefix, so one invalidation refreshes them all. */
@@ -16,3 +16,12 @@ export const activityInboxQuery = (workspaceId: string, filter: ActivityInboxFil
   });
 
 export type ActivityInboxPage = Awaited<ReturnType<typeof loadActivityInbox>>;
+
+/** Whether the viewer has unread activity, for the nav rail's Activity dot. Shares the inbox's
+ * query prefix, so every list refresh also refreshes the dot. */
+export const activityNavAttentionQuery = () =>
+  queryOptions({
+    queryKey: [...ACTIVITY_INBOX_QUERY_PREFIX, "nav-attention"],
+    queryFn: () => loadActivityNavAttention(),
+    staleTime: 30_000,
+  });
