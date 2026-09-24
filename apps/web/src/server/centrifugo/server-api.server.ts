@@ -60,8 +60,13 @@ export function createCentrifugoServerApi(
   }
   return {
     async publish(channel, data) {
+      // `btoa` wants a binary string; building it chunk-wise (32 KiB of bytes per
+      // `String.fromCharCode` call) keeps the spread under the engine's argument limit and avoids
+      // the per-byte string append the former loop paid on every publish.
+      const CHUNK = 0x8000;
       let binary = "";
-      for (const byte of data) binary += String.fromCharCode(byte);
+      for (let index = 0; index < data.length; index += CHUNK)
+        binary += String.fromCharCode(...data.subarray(index, index + CHUNK));
       await call("publish", { channel, b64data: btoa(binary) });
     },
     async publishJson(channel, data, idempotencyKey) {
