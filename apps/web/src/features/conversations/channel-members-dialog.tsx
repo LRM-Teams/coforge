@@ -1,111 +1,46 @@
 import { useEffect, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
-import { Shield01 } from "@untitledui/icons";
-
 import { Dialog, Modal, ModalOverlay } from "#src/components/application/modals/modal";
 import { DialogHeader } from "#src/components/application/modals/dialog-header";
 import { Avatar } from "#src/components/base/avatar/avatar";
-import { Badge } from "#src/components/base/badges/badges";
 import { Button } from "#src/components/base/buttons/button";
-import { ButtonUtility } from "#src/components/base/buttons/button-utility";
 import { Checkbox } from "#src/components/base/checkbox/checkbox";
-import { Dropdown } from "#src/components/base/dropdown/dropdown";
 import { avatarInitial, avatarToneClassName } from "#src/lib/avatar-tone";
 import { isAppError } from "#src/lib/app-error";
 import { m } from "#src/paraglide/messages";
-import {
-  addPublicChannelMembers,
-  loadPublicChannelMembers,
-  removePublicChannelMember,
-  setPublicChannelMemberRole,
-} from "./channels.functions";
+import { loadPublicChannelMembers } from "./channels.functions";
 
 type ChannelMembersView = Awaited<ReturnType<typeof loadPublicChannelMembers>>;
-type ChannelMemberTarget = { userId?: string; agentId?: string };
 
 type LoadState =
   | { status: "loading" }
   | { status: "error" }
   | { status: "ready"; data: ChannelMembersView };
 
-/** Badge + Promote/Demote control for one roster row, reused for humans and Agents. The "Admin"
- * badge is always shown so every member can see who is a channel admin; the Dropdown itself only
- * renders when the viewer has `manage_roles` on this channel. */
-function ChannelRoleControl({
-  channelRole,
-  canManageRoles,
-  pending,
-  onToggle,
-}: {
-  channelRole: string;
-  canManageRoles: boolean;
-  pending: boolean;
-  onToggle: () => void;
-}) {
-  const isAdmin = channelRole === "admin";
-  const actionLabel = isAdmin ? m.channel_members_demote() : m.channel_members_promote();
-  return (
-    <div className="flex shrink-0 items-center gap-2">
-      {isAdmin && (
-        <Badge size="sm" color="gray">
-          {m.channel_members_role_admin()}
-        </Badge>
-      )}
-      {canManageRoles && (
-        <Dropdown.Root>
-          <ButtonUtility
-            icon={Shield01}
-            size="sm"
-            color="tertiary"
-            isDisabled={pending}
-            tooltip={actionLabel}
-          />
-          <Dropdown.Popover placement="bottom end" className="w-52">
-            <Dropdown.Menu aria-label={actionLabel} onAction={() => onToggle()}>
-              <Dropdown.Item id="toggle-channel-role" icon={Shield01} label={actionLabel} />
-            </Dropdown.Menu>
-          </Dropdown.Popover>
-        </Dropdown.Root>
-      )}
-    </div>
-  );
-}
-
-/** Channel member roster and add-members action, opened from the channel header, or (with
- * `preselected`/`commit`) from an Agent-prepared `channel:add_member` action card's commit
- * button. */
-type PendingRemoval = { kind: "user" | "agent"; id: string; name: string };
-
+/** The channel's roster and the members an Agent-prepared `channel:add_member` action card
+ * proposes, preselected; submitting commits the card. The settings panel's members page is the
+ * everyday roster. */
 export function ChannelMembersDialog({
   channelId,
   open,
   onOpenChange,
   preselected,
   commit,
-  onOpenAgentProfile,
 }: {
   channelId: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   /** An action card's proposed humans/Agents: preselected, individually deselectable. */
   preselected?: { userIds: string[]; agentIds: string[] };
-  /** When set, submitting commits the action card (marking it `executed`) instead of calling the
-   * ordinary `addPublicChannelMembers` Server Function. Remove is hidden in this mode. */
-  commit?: {
+  /** Submitting commits the action card (marking it `executed`). */
+  commit: {
     messageId: string;
     submit: (input: { userIds: string[]; agentIds: string[] }) => Promise<unknown>;
     onCommitted: () => void;
   };
-  /** Opens the Agent profile panel for an Agent row; absent where the caller does not own that
-   * slot. The caller is responsible for closing this dialog (see `channel-conversation.tsx`). */
-  onOpenAgentProfile?: (agentId: string) => void;
 }) {
   const load = useServerFn(loadPublicChannelMembers);
-  const addMembers = useServerFn(addPublicChannelMembers);
-  const setRole = useServerFn(setPublicChannelMemberRole);
-  const removeMember = useServerFn(removePublicChannelMember);
   const [state, setState] = useState<LoadState>({ status: "loading" });
-  const [roleTargetId, setRoleTargetId] = useState<string | null>(null);
   const [selectedUserIds, setSelectedUserIds] = useState<Set<string>>(
     () => new Set(preselected?.userIds),
   );
@@ -114,17 +49,12 @@ export function ChannelMembersDialog({
   );
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
-  const [pendingRemoval, setPendingRemoval] = useState<PendingRemoval | null>(null);
-  const [removing, setRemoving] = useState(false);
-  const [removeError, setRemoveError] = useState("");
 
   useEffect(() => {
     let cancelled = false;
     setState({ status: "loading" });
     setSelectedUserIds(new Set(preselected?.userIds));
     setSelectedAgentIds(new Set(preselected?.agentIds));
-    setPendingRemoval(null);
-    setRemoveError("");
     load({ data: { channelId } })
       .then((data) => {
         if (!cancelled) setState({ status: "ready", data });
@@ -143,42 +73,7 @@ export function ChannelMembersDialog({
     setSelectedUserIds(new Set());
     setSelectedAgentIds(new Set());
     setError("");
-    setPendingRemoval(null);
-    setRemoveError("");
     onOpenChange(false);
-  }
-
-  function beginRemove(kind: "user" | "agent", id: string, name: string) {
-    setPendingRemoval({ kind, id, name });
-    setRemoveError("");
-  }
-
-  function cancelRemove() {
-    setPendingRemoval(null);
-    setRemoveError("");
-  }
-
-  async function confirmRemove() {
-    if (!pendingRemoval) return;
-    setRemoving(true);
-    setRemoveError("");
-    try {
-      await removeMember({
-        data: {
-          channelId,
-          ...(pendingRemoval.kind === "user"
-            ? { userId: pendingRemoval.id }
-            : { agentId: pendingRemoval.id }),
-        },
-      });
-      setPendingRemoval(null);
-      const data = await load({ data: { channelId } });
-      setState({ status: "ready", data });
-    } catch {
-      setRemoveError(m.channel_members_remove_error({ name: pendingRemoval.name }));
-    } finally {
-      setRemoving(false);
-    }
   }
 
   async function submitAdd() {
@@ -189,16 +84,9 @@ export function ChannelMembersDialog({
     try {
       const userIds = [...selectedUserIds];
       const agentIds = [...selectedAgentIds];
-      if (commit) {
-        await commit.submit({ userIds, agentIds });
-        commit.onCommitted();
-        onOpenChange(false);
-        return;
-      }
-      const data = await addMembers({ data: { channelId, userIds, agentIds } });
-      setState({ status: "ready", data });
-      setSelectedUserIds(new Set());
-      setSelectedAgentIds(new Set());
+      await commit.submit({ userIds, agentIds });
+      commit.onCommitted();
+      onOpenChange(false);
     } catch (cause) {
       setError(
         isAppError(cause) && cause.code === "ACCESS_DENIED"
@@ -207,22 +95,6 @@ export function ChannelMembersDialog({
       );
     } finally {
       setSubmitting(false);
-    }
-  }
-
-  async function submitRole(target: ChannelMemberTarget, role: "admin" | "member") {
-    if (state.status !== "ready") return;
-    const targetId = target.userId ?? target.agentId!;
-    setRoleTargetId(targetId);
-    setError("");
-    try {
-      await setRole({ data: { channelId, ...target, role } });
-      const data = await load({ data: { channelId } });
-      setState({ status: "ready", data });
-    } catch {
-      setError(m.channel_members_role_error());
-    } finally {
-      setRoleTargetId(null);
     }
   }
 
@@ -265,36 +137,7 @@ export function ChannelMembersDialog({
                             <span className="min-w-0 flex-1 truncate text-sm text-primary">
                               {human.displayName}
                             </span>
-                            <ChannelRoleControl
-                              channelRole={human.channelRole}
-                              canManageRoles={state.data.channelCapabilities.manage_roles}
-                              pending={roleTargetId === human.id}
-                              onToggle={() =>
-                                void submitRole(
-                                  { userId: human.id },
-                                  human.channelRole === "admin" ? "member" : "admin",
-                                )
-                              }
-                            />
-                            {!commit && state.data.canRemoveMembers && (
-                              <Button
-                                size="sm"
-                                color="tertiary-destructive"
-                                onPress={() => beginRemove("user", human.id, human.displayName)}
-                              >
-                                {m.channel_members_remove_action()}
-                              </Button>
-                            )}
                           </div>
-                          {pendingRemoval?.kind === "user" && pendingRemoval.id === human.id && (
-                            <RemoveConfirm
-                              text={m.channel_members_remove_confirm({ name: human.displayName })}
-                              error={removeError}
-                              busy={removing}
-                              onConfirm={() => void confirmRemove()}
-                              onCancel={cancelRemove}
-                            />
-                          )}
                         </li>
                       ))}
                     </ul>
@@ -309,69 +152,17 @@ export function ChannelMembersDialog({
                       {state.data.agents.map((agent) => (
                         <li key={agent.id} className="flex flex-col gap-2 py-2">
                           <div className="flex items-center gap-3">
-                            {onOpenAgentProfile ? (
-                              <Button
-                                color="tertiary"
-                                noTextPadding
-                                aria-label={m.agent_open_profile({ name: agent.displayName })}
-                                onPress={() => onOpenAgentProfile(agent.id)}
-                                className="h-auto min-w-0 flex-1 justify-start gap-3 rounded p-0 hover:bg-transparent"
-                              >
-                                <Avatar
-                                  size="sm"
-                                  alt=""
-                                  src={agent.avatarUrl}
-                                  initials={avatarInitial(agent.displayName)}
-                                  contentClassName={avatarToneClassName(agent.displayName)}
-                                />
-                                <span className="min-w-0 flex-1 truncate text-sm text-primary hover:underline">
-                                  {agent.displayName}
-                                </span>
-                              </Button>
-                            ) : (
-                              <>
-                                <Avatar
-                                  size="sm"
-                                  alt={agent.displayName}
-                                  src={agent.avatarUrl}
-                                  initials={avatarInitial(agent.displayName)}
-                                  contentClassName={avatarToneClassName(agent.displayName)}
-                                />
-                                <span className="min-w-0 flex-1 truncate text-sm text-primary">
-                                  {agent.displayName}
-                                </span>
-                              </>
-                            )}
-                            <ChannelRoleControl
-                              channelRole={agent.channelRole}
-                              canManageRoles={state.data.channelCapabilities.manage_roles}
-                              pending={roleTargetId === agent.id}
-                              onToggle={() =>
-                                void submitRole(
-                                  { agentId: agent.id },
-                                  agent.channelRole === "admin" ? "member" : "admin",
-                                )
-                              }
+                            <Avatar
+                              size="sm"
+                              alt={agent.displayName}
+                              src={agent.avatarUrl}
+                              initials={avatarInitial(agent.displayName)}
+                              contentClassName={avatarToneClassName(agent.displayName)}
                             />
-                            {!commit && state.data.canRemoveMembers && (
-                              <Button
-                                size="sm"
-                                color="tertiary-destructive"
-                                onPress={() => beginRemove("agent", agent.id, agent.displayName)}
-                              >
-                                {m.channel_members_remove_action()}
-                              </Button>
-                            )}
+                            <span className="min-w-0 flex-1 truncate text-sm text-primary">
+                              {agent.displayName}
+                            </span>
                           </div>
-                          {pendingRemoval?.kind === "agent" && pendingRemoval.id === agent.id && (
-                            <RemoveConfirm
-                              text={m.channel_members_remove_confirm({ name: agent.displayName })}
-                              error={removeError}
-                              busy={removing}
-                              onConfirm={() => void confirmRemove()}
-                              onCancel={cancelRemove}
-                            />
-                          )}
                         </li>
                       ))}
                     </ul>
@@ -459,46 +250,5 @@ export function ChannelMembersDialog({
         </Dialog>
       </Modal>
     </ModalOverlay>
-  );
-}
-
-/** Inline confirm block for removing one human or Agent row; no browser `confirm()`, no toast. */
-function RemoveConfirm({
-  text,
-  error,
-  busy,
-  onConfirm,
-  onCancel,
-}: {
-  text: string;
-  error: string;
-  busy: boolean;
-  onConfirm: () => void;
-  onCancel: () => void;
-}) {
-  return (
-    <div className="flex flex-col gap-2 rounded-md bg-secondary p-3">
-      <p className="text-sm text-primary">{text}</p>
-      {error && (
-        <p role="alert" className="text-sm text-error-primary">
-          {error}
-        </p>
-      )}
-      <div className="flex gap-2">
-        <Button
-          size="sm"
-          color="primary-destructive"
-          isDisabled={busy}
-          isLoading={busy}
-          showTextWhileLoading
-          onPress={onConfirm}
-        >
-          {busy ? m.channel_members_removing() : m.channel_members_remove_confirm_action()}
-        </Button>
-        <Button size="sm" color="tertiary" isDisabled={busy} onPress={onCancel}>
-          {m.channel_members_cancel()}
-        </Button>
-      </div>
-    </div>
   );
 }
