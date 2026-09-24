@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import { keepPreviousData, useInfiniteQuery, useQuery } from "@tanstack/react-query";
-import { Link } from "@tanstack/react-router";
+import { Link, useRouter } from "@tanstack/react-router";
 import { MessageTextSquare01, SearchLg } from "@untitledui/icons";
 
 import { Avatar } from "#src/components/base/avatar/avatar";
@@ -18,7 +18,9 @@ import {
 } from "#src/components/ui/empty";
 import { RelativeTime } from "#src/components/ui/relative-time";
 import { Skeleton } from "#src/components/ui/skeleton";
+import { conversationRoute } from "#src/features/conversations/last-conversation";
 import { savedJumpTarget } from "#src/features/conversations/saved-messages-model";
+import { useBreakpoint } from "#src/hooks/use-breakpoint";
 import { computerLabel } from "#src/features/computers/computer-identity";
 import { messagePlainText } from "#src/features/conversations/selection-copy";
 import { avatarInitial, avatarToneClassName } from "#src/lib/avatar-tone";
@@ -27,7 +29,15 @@ import { m } from "#src/paraglide/messages";
 import type { MessageSearchHit } from "#src/server/conversations/message-search.server";
 import { matchSearchEntities, type SearchEntity } from "./search-entities";
 import { SearchEntityList } from "./search-entity-list";
+import { useResultClick } from "./search-click";
 import { searchExcerpt } from "./search-excerpt";
+import { SearchPreview, type SearchPreviewTarget } from "./search-preview";
+import {
+  isPreviewed,
+  messagePreviewTarget,
+  SearchPreviewContext,
+  useSearchPreview,
+} from "./search-preview-context";
 import { SearchHome } from "./search-home";
 import { searchEntityKey, type SearchEntityKey } from "./search-memory";
 import { SEARCH_FOCUS_EVENT, useSearchShortcutLabel } from "./search-shortcut";
@@ -44,7 +54,8 @@ const COMMIT_DELAY_MS = 200;
  * The Workspace search page. The query and filters live in the URL, so a search can be shared,
  * reloaded, and returned to with Back; typing commits the query after a short pause, and never
  * while an input method is still composing. Filters search on their own, without a query.
- * Clicking a result opens its conversation at that message.
+ * On a wide screen a click previews a result's conversation beside the list (kept in the URL) and
+ * a double click opens it; on a narrow one a click opens it. Esc closes the preview, then leaves.
  */
 export function SearchPage({
   workspaceId,
@@ -55,6 +66,8 @@ export function SearchPage({
   filters,
   onQueryChange,
   onFiltersChange,
+  preview,
+  onPreviewChange,
 }: {
   workspaceId: string;
   viewerId: string;
@@ -65,8 +78,19 @@ export function SearchPage({
   filters: SearchFilters;
   onQueryChange: (query: string) => void;
   onFiltersChange: (filters: SearchFilters) => void;
+  preview: SearchPreviewTarget | undefined;
+  onPreviewChange: (preview: SearchPreviewTarget | undefined) => void;
 }) {
   const memory = useSearchMemory(workspaceId, viewerId);
+  const router = useRouter();
+  // A preview needs room beside the list; below `md` a click opens the conversation instead.
+  const wide = useBreakpoint("md");
+  const showPreview = Boolean(preview && wide);
+  const directory = useQuery(searchDirectoryQuery(workspaceId)).data;
+  const previewContext = useMemo(
+    () => ({ previewed: preview, preview: wide ? onPreviewChange : undefined }),
+    [preview, wide, onPreviewChange],
+  );
   const shortcut = useSearchShortcutLabel();
   const [text, setText] = useState(query);
   // State, not a ref: ending a composition must re-run the commit effect even when the last
@@ -108,81 +132,132 @@ export function SearchPage({
     return () => document.removeEventListener(SEARCH_FOCUS_EVENT, focus);
   }, []);
 
+  const openPreviewed = () => {
+    if (!preview) return;
+    const route =
+      preview.kind === "channel"
+        ? conversationRoute({ channelId: preview.id })
+        : conversationRoute({ agentId: preview.id });
+    void router.navigate({ ...route, search: { message: preview.messageId } });
+  };
+  const previewTitle =
+    preview?.kind === "channel"
+      ? `#${directory?.channels.find((channel) => channel.id === preview.id)?.name ?? ""}`
+      : (directory?.agents.find((agent) => agent.id === preview?.id)?.name ?? "");
+
+  // Esc closes the preview, then leaves search for wherever it was opened from. A menu or dialog
+  // takes its own Esc, and a filled box clears itself first.
+  const onEscape = useEffectEvent((event: KeyboardEvent) => {
+    if (event.key !== "Escape" || event.defaultPrevented) return;
+    const target = event.target instanceof Element ? event.target : null;
+    if (target?.closest('[role="menu"], [role="listbox"], [role="dialog"]')) return;
+    if (preview) {
+      // Only the preview closes: a search box's own Esc would also clear the query.
+      event.preventDefault();
+      onPreviewChange(undefined);
+      return;
+    }
+    if (target instanceof HTMLInputElement && target.value) return;
+    if (router.history.canGoBack()) router.history.back();
+    else void router.navigate({ to: "/messages" });
+  });
+  useEffect(() => {
+    window.addEventListener("keydown", onEscape);
+    return () => window.removeEventListener("keydown", onEscape);
+  }, []);
+
   return (
-    <main className="flex h-svh min-w-0 flex-col bg-primary">
-      <PageHeader heading={m.search_title()} />
-      <div
-        className="border-b border-secondary px-4 py-3 sm:px-6"
-        onCompositionStart={() => setComposing(true)}
-        onCompositionEnd={() => setComposing(false)}
-      >
-        <Input
-          type="search"
-          size="md"
-          icon={SearchLg}
-          aria-label={m.search_title()}
-          placeholder={m.search_placeholder()}
-          maxLength={SEARCH_QUERY_MAX_LENGTH}
-          ref={input}
-          shortcut={shortcut}
-          autoFocus
-          value={text}
-          onChange={setText}
-          className="w-full"
-        />
-        <div className="mt-3">
-          <SearchFilterBar
-            workspaceId={workspaceId}
-            query={committed}
-            filters={filters}
-            onChange={onFiltersChange}
-          />
+    <SearchPreviewContext.Provider value={previewContext}>
+      <main className="flex h-svh min-w-0 bg-primary">
+        <div
+          className={
+            showPreview ? "flex w-[35rem] shrink-0 flex-col" : "flex min-w-0 flex-1 flex-col"
+          }
+        >
+          <PageHeader heading={m.search_title()} />
+          <div
+            className="border-b border-secondary px-4 py-3 sm:px-6"
+            onCompositionStart={() => setComposing(true)}
+            onCompositionEnd={() => setComposing(false)}
+          >
+            <Input
+              type="search"
+              size="md"
+              icon={SearchLg}
+              aria-label={m.search_title()}
+              placeholder={m.search_placeholder()}
+              maxLength={SEARCH_QUERY_MAX_LENGTH}
+              ref={input}
+              shortcut={shortcut}
+              autoFocus
+              value={text}
+              onChange={setText}
+              className="w-full"
+            />
+            <div className="mt-3">
+              <SearchFilterBar
+                workspaceId={workspaceId}
+                query={committed}
+                filters={filters}
+                onChange={onFiltersChange}
+              />
+            </div>
+          </div>
+          {committed || (hasActiveFilter(filters) && !deferred) ? (
+            <SearchResults
+              workspaceId={workspaceId}
+              timeZone={timeZone}
+              query={committed}
+              filters={filters}
+              onOpen={(entity) => memory.recordOpen(committed, entity)}
+              onClear={() => {
+                if (committed) {
+                  lastCommitted.current = "";
+                  setText("");
+                  onQueryChange("");
+                } else {
+                  onFiltersChange(clearedFilters(filters));
+                }
+                // The button goes away with the results; keep the keyboard in the search box.
+                input.current?.focus();
+              }}
+            />
+          ) : (
+            <SearchHome
+              workspaceId={workspaceId}
+              loaded={memory.loaded}
+              history={memory.history}
+              usage={memory.usage}
+              onSearch={(next) => {
+                lastCommitted.current = next;
+                setText(next);
+                onQueryChange(next);
+                input.current?.focus();
+              }}
+              onRemoveSearch={(entry) => {
+                memory.removeSearch(entry);
+                // The removed chip took focus with it; keep the keyboard in the search box.
+                input.current?.focus();
+              }}
+              onClearHistory={() => {
+                memory.clearHistory();
+                input.current?.focus();
+              }}
+              onOpen={(entity) => memory.recordOpen("", searchEntityKey(entity))}
+            />
+          )}
         </div>
-      </div>
-      {committed || (hasActiveFilter(filters) && !deferred) ? (
-        <SearchResults
-          workspaceId={workspaceId}
-          timeZone={timeZone}
-          query={committed}
-          filters={filters}
-          onOpen={(entity) => memory.recordOpen(committed, entity)}
-          onClear={() => {
-            if (committed) {
-              lastCommitted.current = "";
-              setText("");
-              onQueryChange("");
-            } else {
-              onFiltersChange(clearedFilters(filters));
-            }
-            // The button goes away with the results; keep the keyboard in the search box.
-            input.current?.focus();
-          }}
-        />
-      ) : (
-        <SearchHome
-          workspaceId={workspaceId}
-          loaded={memory.loaded}
-          history={memory.history}
-          usage={memory.usage}
-          onSearch={(next) => {
-            lastCommitted.current = next;
-            setText(next);
-            onQueryChange(next);
-            input.current?.focus();
-          }}
-          onRemoveSearch={(entry) => {
-            memory.removeSearch(entry);
-            // The removed chip took focus with it; keep the keyboard in the search box.
-            input.current?.focus();
-          }}
-          onClearHistory={() => {
-            memory.clearHistory();
-            input.current?.focus();
-          }}
-          onOpen={(entity) => memory.recordOpen("", searchEntityKey(entity))}
-        />
-      )}
-    </main>
+        {showPreview && preview && (
+          <SearchPreview
+            key={`${preview.kind}:${preview.id}`}
+            target={preview}
+            title={previewTitle}
+            onOpen={openPreviewed}
+            onClose={() => onPreviewChange(undefined)}
+          />
+        )}
+      </main>
+    </SearchPreviewContext.Provider>
   );
 }
 
@@ -419,22 +494,29 @@ function SearchResultRow({
   onOpen: () => void;
 }) {
   const { conversation, message } = hit;
+  const { previewed, preview } = useSearchPreview();
   const place = conversation.channelName
     ? `#${conversation.channelName}`
     : `@${conversation.directAgent?.displayName ?? message.senderName}`;
   const text = message.body
     ? messagePlainText({ body: message.body, mentions: message.mentions })
     : (message.attachments[0]?.fileName ?? "");
+  const target = messagePreviewTarget(conversation, message);
+  const onClick = useResultClick({
+    onPreview: preview && target ? () => preview(target) : undefined,
+    onOpened: onOpen,
+  });
 
   return (
     <li>
       <Link
         {...savedJumpTarget(conversation, message)}
         data-search-message-id={message.id}
-        onClick={onOpen}
+        aria-current={target && isPreviewed(previewed, target) ? "true" : undefined}
+        onClick={onClick}
         // A middle click opens a new tab without a click event; it is still an open.
         onAuxClick={(event) => event.button === 1 && onOpen()}
-        className="block rounded-xl border border-secondary bg-primary p-3 outline-focus-ring transition-colors hover:bg-secondary focus-visible:outline-2 focus-visible:outline-offset-2"
+        className="block rounded-xl border border-secondary bg-primary p-3 outline-focus-ring transition-colors hover:bg-secondary focus-visible:outline-2 focus-visible:outline-offset-2 aria-[current=true]:border-brand aria-[current=true]:bg-secondary"
       >
         <div className="flex min-w-0 items-center gap-2 text-xs text-tertiary">
           <span className="truncate font-medium">{place}</span>

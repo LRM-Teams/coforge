@@ -124,7 +124,8 @@ test("the search page finds a message and opens it in its channel", async () => 
     await browser("screenshot", join(artifacts, "results.png"));
 
     // The result opens its channel at the message.
-    await browser("click", "main ol li a");
+    // On a wide screen a single click previews; a double click opens.
+    await browser("dblclick", "main ol li a");
     await waitFor(`location.pathname === "/en/messages/channels/${channelId}"`);
     await waitFor(`document.querySelector('li[data-message-id="${match.id}"]') !== null`);
     await browser("screenshot", join(artifacts, "jumped.png"));

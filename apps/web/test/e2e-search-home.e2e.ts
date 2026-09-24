@@ -132,7 +132,7 @@ test("the empty search page offers recent searches and frequently used places", 
     // Opening a message result records its query and its channel.
     await searchFor(phrase);
     await waitFor(`document.querySelector('[data-search-message-id="${message.id}"]') !== null`);
-    await browser("click", `[data-search-message-id="${message.id}"]`);
+    await browser("dblclick", `[data-search-message-id="${message.id}"]`);
     await waitFor(`location.pathname === "/en/messages/channels/${channelA}"`);
 
     // Opening a match records the typed text and the match; the same search in another case
@@ -142,7 +142,7 @@ test("the empty search page offers recent searches and frequently used places", 
       await waitFor(
         `document.querySelector('[data-search-entity="channel:${channelB}"]') !== null`,
       );
-      await browser("click", `[data-search-entity="channel:${channelB}"]`);
+      await browser("dblclick", `[data-search-entity="channel:${channelB}"]`);
       await waitFor(`location.pathname === "/en/messages/channels/${channelB}"`);
     }
 
@@ -166,7 +166,7 @@ test("the empty search page offers recent searches and frequently used places", 
     await waitFor(
       `document.querySelector('${FREQUENT}[data-search-entity="channel:${channelA}"]') !== null`,
     );
-    await browser("click", `${FREQUENT}[data-search-entity="channel:${channelA}"]`);
+    await browser("dblclick", `${FREQUENT}[data-search-entity="channel:${channelA}"]`);
     await waitFor(`location.pathname === "/en/messages/channels/${channelA}"`);
 
     // One entry can be removed, then the rest cleared; the frequently used places stay.
@@ -258,7 +258,7 @@ test("frequently used shows ten usable places and keeps opens from a clock sligh
     expect(cards).toEqual(ids.slice(1).map((id) => `channel:${id}`));
 
     // Opening another place keeps the open stamped slightly ahead.
-    await browser("click", `${FREQUENT}[data-search-entity="channel:${ids[5]}"]`);
+    await browser("dblclick", `${FREQUENT}[data-search-entity="channel:${ids[5]}"]`);
     await waitFor(`location.pathname === "/en/messages/channels/${ids[5]}"`);
     const stored = await evaluate<Record<string, number[]>>(
       `JSON.parse(localStorage.getItem(${JSON.stringify(usageKey)}))`,

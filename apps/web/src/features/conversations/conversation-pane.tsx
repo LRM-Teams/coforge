@@ -170,6 +170,8 @@ export function ConversationPane({
   // twice inserts twice.
   const [quotedDraft, setQuotedDraft] = useState<{ id: number; text: string } | undefined>();
   const quoteSequenceRef = useRef(0);
+  // A read-only pane (a preview, an archived channel) offers nothing that writes a message.
+  const canCompose = !readOnlyNotice;
   const quoteSelection = useCallback((text: string) => {
     if (!text) return;
     quoteSequenceRef.current += 1;
@@ -898,7 +900,7 @@ export function ConversationPane({
                     taskReferences={taskReferences}
                     onOpenTask={openTaskReference}
                     channelNames={channelNames}
-                    onQuoteSelection={quoteSelection}
+                    onQuoteSelection={canCompose ? quoteSelection : undefined}
                   />
                 </ol>
               </div>
@@ -1052,7 +1054,7 @@ export function ConversationPane({
                       taskReferences={taskReferences}
                       onOpenTask={openTaskReference}
                       channelNames={channelNames}
-                      onQuoteSelection={quoteSelection}
+                      onQuoteSelection={canCompose ? quoteSelection : undefined}
                     />
                   );
                 })}
@@ -1061,7 +1063,7 @@ export function ConversationPane({
                     key={entry.localId}
                     entry={entry}
                     grouped={index > 0 || outboxContinuesRun}
-                    composerShown={!readOnlyNotice}
+                    composerShown={canCompose}
                     plainMentions={plainMentions}
                     viewerHandle={conversation.viewerHandle}
                     taskReferences={taskReferences}
