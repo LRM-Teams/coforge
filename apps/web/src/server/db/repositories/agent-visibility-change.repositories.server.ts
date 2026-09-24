@@ -12,14 +12,16 @@ import type {
  * still-live Agent (`ACTIVE_AGENT_WHERE`): a repeated call with the same visibility is a no-op
  * (`changed: false`) so a double submit never soft-leaves or re-joins twice.
  *
- * public → private soft-leaves every active channel membership in one `updateMany` — the same
- * `leftAt` representation `softLeaveMember`/`AgentDeletion` use, just
+ * public → private soft-leaves every active channel membership, `#general` included, in one
+ * `updateMany` — the same `leftAt` representation `softLeaveMember`/`AgentDeletion` use, just
  * applied to every channel row at once rather than one conversation at a time. Direct
  * conversations are never touched here: they become read-only through the DM send/open guards in
  * `direct-conversation.repositories.server.ts`, not by leaving anything.
  *
- * private → public does not restore any channel membership. The Agent can be added to channels
- * explicitly later; DMs are unaffected by the channel visibility transition.
+ * private → public re-joins `#general` only, the Workspace-wide channel every public Agent is in;
+ * any other channel it left stays left until someone adds it again. The row is upserted so a
+ * first-time membership and a re-join through a soft-left row are the same write, and unrelated
+ * columns (read cursor, mute) survive a re-join.
  */
 export class PrismaChangeAgentVisibilityStore implements ChangeAgentVisibilityStore {
   constructor(private readonly db: PrismaClient) {}
@@ -28,7 +30,7 @@ export class PrismaChangeAgentVisibilityStore implements ChangeAgentVisibilitySt
     agentId: string;
     workspaceId: string;
     visibility: string;
-  }): Promise<{ changed: boolean; leftChannelIds: string[] }> {
+  }): Promise<{ changed: boolean; leftChannelIds: string[]; joinedChannelIds?: string[] }> {
     return this.db.$transaction(async (tx) => {
       const updated = await tx.agent.updateMany({
         where: {
@@ -40,8 +42,26 @@ export class PrismaChangeAgentVisibilityStore implements ChangeAgentVisibilitySt
         data: { visibility: input.visibility },
       });
       if (updated.count === 0) return { changed: false, leftChannelIds: [] };
-      if (input.visibility !== AGENT_VISIBILITY.PRIVATE)
-        return { changed: true, leftChannelIds: [] };
+      if (input.visibility !== AGENT_VISIBILITY.PRIVATE) {
+        const general = await tx.conversation.upsert({
+          where: {
+            workspaceId_channelName: { workspaceId: input.workspaceId, channelName: "general" },
+          },
+          create: { workspaceId: input.workspaceId, channelName: "general" },
+          update: {},
+          select: { id: true },
+        });
+        await tx.conversationMember.upsert({
+          where: { conversationId_agentId: { conversationId: general.id, agentId: input.agentId } },
+          create: {
+            workspaceId: input.workspaceId,
+            conversationId: general.id,
+            agentId: input.agentId,
+          },
+          update: { leftAt: null },
+        });
+        return { changed: true, leftChannelIds: [], joinedChannelIds: [general.id] };
+      }
       const left = await tx.conversationMember.updateManyAndReturn({
         where: {
           workspaceId: input.workspaceId,

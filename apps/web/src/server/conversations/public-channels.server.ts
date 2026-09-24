@@ -197,9 +197,21 @@ export function channelMessageView(message: ChannelMessageRow, workspaceId: stri
   };
 }
 
+/** Nested creation keeps a new Workspace's `#general` inside the Workspace creation write, with
+ * its creator already in it. */
+export function generalChannelForCreator(userId: string) {
+  return {
+    create: { channelName: "general", members: { create: { userId } } },
+  };
+}
+
 /**
- * Legacy/test helper for explicitly creating a `#general` fixture. Production Workspace/member/
- * Agent creation no longer auto-creates or auto-enrolls #general.
+ * Puts every Workspace human and every public, live Agent in `#general`, creating the channel if
+ * the Workspace has none. `#general` is the Workspace-wide channel: nobody leaves it, so anyone
+ * whose row was soft-left is back in. Called from the write points that add someone to the
+ * Workspace (an accepted invitation, a new Agent); a new Workspace gets it through
+ * `generalChannelForCreator`, and the 20260924040000 migration brought it back for older ones, so
+ * reads never enroll.
  */
 export async function enrollGeneralChannel(db: Prisma.TransactionClient, workspaceId: string) {
   await db.conversation.createMany({
@@ -229,8 +241,8 @@ export async function enrollGeneralChannel(db: Prisma.TransactionClient, workspa
     })),
     skipDuplicates: true,
   });
-  // A private Agent is never an active channel member. Even this legacy/test
-  // #general fixture must not enroll one, and later repair/backfill passes keep it out too.
+  // A private Agent is never an active channel member, #general included; making it public
+  // enrolls it again (see `PrismaChangeAgentVisibilityStore`).
   const agents = await db.agent.findMany({
     where: { workspaceId, visibility: AGENT_VISIBILITY.PUBLIC, ...ACTIVE_AGENT_WHERE },
     select: { id: true },
@@ -242,6 +254,17 @@ export async function enrollGeneralChannel(db: Prisma.TransactionClient, workspa
       agentId,
     })),
     skipDuplicates: true,
+  });
+  await db.conversationMember.updateMany({
+    where: {
+      conversationId: general.id,
+      leftAt: { not: null },
+      OR: [
+        { userId: { in: members.map(({ userId }) => userId) } },
+        { agentId: { in: agents.map(({ id }) => id) } },
+      ],
+    },
+    data: { leftAt: null },
   });
   return general;
 }
@@ -704,7 +727,7 @@ export class PublicChannels {
   ) {
     await this.authorize(workspaceId, userId);
     if (!CHANNEL_NAME_PATTERN.test(name)) throw new AppError("INVALID_INPUT");
-    // The built-in #general channel was removed; keep the old reserved name from coming back.
+    // #general is the Workspace's own channel, created with the Workspace.
     if (name === "general") throw new AppError("CONFLICT");
     if (projectId) {
       const project = await this.db.project.findFirst({

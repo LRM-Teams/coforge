@@ -372,10 +372,12 @@ test("Workspace humans enrolled in general see one general channel; outsiders ca
       });
       const id = typeof created === "string" ? created : created.id;
       try {
-        // Workspace creation no longer creates or enrolls #general; channels are made on purpose.
-        expect(
-          await db.conversation.findFirst({ where: { workspaceId: id, channelName: "general" } }),
-        ).toBeNull();
+        // Workspace creation itself creates #general with its creator in it; reads never enroll.
+        const createdGeneral = await db.conversation.findFirst({
+          where: { workspaceId: id, channelName: "general" },
+          include: { members: true },
+        });
+        expect(createdGeneral?.members.map((m) => m.userId)).toEqual([alice.id]);
       } finally {
         await db.workspace.delete({ where: { id } });
       }
@@ -600,12 +602,8 @@ test("Agent channel mute suppresses ordinary notices, preserves mentions and rea
         reasoning: "",
       },
     });
-    // Creating an Agent does not enroll it anywhere; the channel's human member adds it. Joining
-    // late opens the history to it, while delivery (below) covers only what is sent afterwards.
-    await channels.addMembers(workspace.id, { userId: user.id }, general.id, {
-      userIds: [],
-      agentIds: [second.id],
-    });
+    // Creating a public Agent puts it in #general. Joining late opens the history to it, while
+    // delivery (below) covers only what is sent afterwards.
     expect(await repo.readPendingAgentDeliveries(workspace.id, second.id)).toEqual([]);
     expect(
       (await repo.readMessages(workspace.id, second.id, "#general")).some(

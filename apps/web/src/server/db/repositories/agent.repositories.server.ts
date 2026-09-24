@@ -1,5 +1,6 @@
 import type { PrismaClient } from "#src/generated/prisma/client";
 import { ACTIVE_AGENT_WHERE } from "#src/server/agents/active-agent.server";
+import { enrollGeneralChannel } from "#src/server/conversations/public-channels.server";
 import {
   parseAgentRuntimeConfig,
   type AgentRuntimeConfig,
@@ -150,7 +151,12 @@ export class PrismaAgentRepository implements AgentRepository {
   }
 
   async create(input: Omit<AgentRecord, "id" | "createdAt"> & { id?: string }) {
-    return mapAgent(await this.db.agent.create({ data: input }));
+    return this.db.$transaction(async (tx) => {
+      const agent = mapAgent(await tx.agent.create({ data: input }));
+      // A public Agent is in #general from the start; a private one never is.
+      await enrollGeneralChannel(tx, input.workspaceId);
+      return agent;
+    });
   }
 
   async update(

@@ -2,44 +2,10 @@ import { expect, test } from "bun:test";
 import type { PrismaClient } from "#src/generated/prisma/client";
 import { isAppError } from "#src/lib/app-error";
 import { PublicChannels } from "#src/server/conversations/public-channels.server";
-import { PrismaAgentRepository } from "#src/server/db/repositories/agent.repositories.server";
 import { AgentChannelManagement } from "#src/server/conversations/agent-channel-management.server";
 import { AgentChannelManagementError } from "#src/server/conversations/agent-channel-management-error.server";
 
 const WORKSPACE_ID = "workspace-1";
-
-test("PrismaAgentRepository.create() creates only the Agent, not a default channel membership", async () => {
-  let createdAgentData: Record<string, unknown> | undefined;
-  const db = {
-    agent: {
-      create: async ({ data }: { data: Record<string, unknown> }) => {
-        createdAgentData = data;
-        return {
-          id: "agent-new",
-          createdAt: new Date(),
-          ...data,
-        };
-      },
-    },
-  } as unknown as PrismaClient;
-
-  await new PrismaAgentRepository(db).create({
-    workspaceId: WORKSPACE_ID,
-    name: "collector",
-    displayName: "Collector",
-    ownerId: "user-1",
-    visibility: "private",
-    runtimeConfig: {
-      runtime: "pi",
-      provider: { kind: "default" },
-      model: "",
-      modelProvider: "",
-      reasoning: "",
-    },
-  });
-
-  expect(createdAgentData).toMatchObject({ workspaceId: WORKSPACE_ID, visibility: "private" });
-});
 
 function publicChannelsFixture(target: {
   id: string;

@@ -11,22 +11,24 @@ import {
 /**
  * The atomic visibility transition, or whether it was a no-op. Implementations own the
  * public↔private side effects in one transaction: public→private soft-leaves every active channel
- * membership; private→public does not restore channel membership automatically. Messages, Tasks
- * and Action cards are never touched — history stays exactly as it was.
+ * membership, `#general` included; private→public re-joins `#general` only. Messages, Tasks and
+ * Action cards are never touched — history stays exactly as it was.
  */
 export interface ChangeAgentVisibilityStore {
   apply(input: { agentId: string; workspaceId: string; visibility: AgentVisibility }): Promise<{
     changed: boolean;
     /** The channels a public→private change soft-left; empty otherwise. */
     leftChannelIds: string[];
+    /** The channel a private→public change re-joined (`#general`); absent otherwise. */
+    joinedChannelIds?: string[];
   }>;
   /** What a public→private change would do, for the confirmation dialog. Read-only. */
   preview(input: { agentId: string; workspaceId: string }): Promise<AgentVisibilityChangePreview>;
 }
 
 export type AgentVisibilityChangePreview = {
-  /** Names of the channels (unprefixed) a public→private change would soft-leave; empty for an
-   * Agent already private or in no active channel. */
+  /** Names of the channels (including `#general`, unprefixed) a public→private change would
+   * soft-leave; empty for an Agent already private or in no active channel. */
   channelNames: string[];
   /** Existing direct conversations that would become read-only: every DM the Agent has with
    * someone other than its own creator, who alone keeps write access to a private Agent's DM. */
@@ -56,7 +58,11 @@ export class ChangeAgentVisibility {
     input: { agentId: string; visibility: AgentVisibility },
   ): Promise<{ visibility: AgentVisibility; changed: boolean }> {
     const agent = await this.authorize(principal, input.agentId);
-    const { changed, leftChannelIds } = await this.store.apply({
+    const {
+      changed,
+      leftChannelIds,
+      joinedChannelIds = [],
+    } = await this.store.apply({
       agentId: agent.id,
       workspaceId: agent.workspaceId,
       visibility: input.visibility,
@@ -64,7 +70,7 @@ export class ChangeAgentVisibility {
     if (changed) await this.onVisibilityChanged(agent.workspaceId, agent.id).catch(() => {});
     await announceMemberChanged(this.realtime, {
       workspaceId: agent.workspaceId,
-      conversationIds: leftChannelIds,
+      conversationIds: [...leftChannelIds, ...joinedChannelIds],
     });
     return { visibility: input.visibility, changed };
   }
