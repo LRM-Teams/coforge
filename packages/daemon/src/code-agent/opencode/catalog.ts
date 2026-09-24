@@ -5,7 +5,7 @@ import {
 } from "@lrm/coforge-sdk/internal";
 import { getLogger } from "@logtape/logtape";
 import { diagnosticErrorCode } from "#src/platform/diagnostic-error-code";
-import { agentEnvironment } from "#src/code-agent/environment";
+import { runCatalogCommand } from "#src/code-agent/catalog-command";
 
 const logger = getLogger(["coforge", "daemon", "code-agent", "opencode"]);
 
@@ -158,8 +158,9 @@ function reasoningLevels(variants: unknown): string[] {
  * Runs `opencode models --verbose` (Raft's own 15 s budget: a recent OpenCode syncs its hosted
  * model catalog over the network here) and parses the catalog. An empty or unusable verbose result
  * retries the plain command, which omits per-model metadata but still lists the ids — the path the
- * released v2 CLI takes, since it rejects `--verbose` as an unknown flag. Any failure - missing
- * CLI, non-zero exit, timeout, unparseable output - means no catalog, never a thrown error.
+ * released v2 CLI takes, since it rejects `--verbose` as an unknown flag. Missing CLI, empty
+ * output, timeout, or unparseable output means no catalog, never a thrown error; a non-zero exit
+ * with usable output remains acceptable for stale provider configuration.
  */
 export async function discoverOpenCodeCatalog(
   command: readonly string[],
@@ -194,39 +195,17 @@ async function runOpenCodeModels(
   timeoutMs: number,
 ): Promise<string | undefined> {
   try {
-    const spawnEnvironment = {
-      ...agentEnvironment(undefined, environment),
-      NO_COLOR: "1",
-      FORCE_COLOR: "0",
-    };
-    const child = Bun.spawn({
-      cmd: [...command],
-      cwd,
-      env: spawnEnvironment,
-      stdin: "ignore",
-      stdout: "pipe",
-      stderr: "ignore",
-    });
-    try {
-      const [output, exitCode] = await Promise.race([
-        Promise.all([new Response(child.stdout).text(), child.exited]),
-        Bun.sleep(timeoutMs).then((): [string, number] => {
-          throw new Error("OpenCode model catalog discovery timed out");
-        }),
-      ]);
-      // A stale config entry can make `opencode models` exit non-zero while still listing the
-      // resolvable catalog (Raft reads the output regardless of exit code, `models.go:674-680`).
-      if (!output.trim()) {
-        logger.warning("OpenCode model catalog unavailable", {
-          event: "opencode.catalog.unavailable",
-          exit_code: exitCode,
-        });
-        return undefined;
-      }
-      return output;
-    } finally {
-      child.kill();
+    const { output, exitCode } = await runCatalogCommand(command, cwd, environment, timeoutMs);
+    // A stale config entry can make `opencode models` exit non-zero while still listing the
+    // resolvable catalog (Raft reads the output regardless of exit code, `models.go:674-680`).
+    if (!output.trim()) {
+      logger.warning("OpenCode model catalog unavailable", {
+        event: "opencode.catalog.unavailable",
+        exit_code: exitCode,
+      });
+      return undefined;
     }
+    return output;
   } catch (error) {
     logger.warning("OpenCode model catalog discovery failed", {
       event: "opencode.catalog.unavailable",
