@@ -551,7 +551,7 @@ function VisibilityField({
         {onRequest && (
           <Button
             size="sm"
-            color="link-gray"
+            color="secondary"
             onPress={() =>
               onRequest(isPrivate ? AGENT_VISIBILITY.PUBLIC : AGENT_VISIBILITY.PRIVATE)
             }
