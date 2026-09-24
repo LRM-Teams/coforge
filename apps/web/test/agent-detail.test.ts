@@ -521,6 +521,46 @@ describe("Agent detail", () => {
     });
   });
 
+  test("starts the status and display reads together instead of one after the other", async () => {
+    const timeline: string[] = [];
+    const query = new AgentDetailQuery(
+      {
+        findAuthorized: async () => ({
+          id: "agent-1",
+          workspaceId: "workspace-1",
+          name: "builder",
+          displayName: "Builder",
+          role: "member",
+          createdAt: new Date("2026-08-29T00:00:00Z"),
+          computerId: "computer-1",
+          owner: { id: "owner-1", username: "alice" },
+          runtimeConfig: {},
+        }),
+      },
+      {
+        snapshot: async () => {
+          timeline.push("status:start");
+          // Yields once, so a sequential implementation would let status finish first.
+          await Promise.resolve();
+          timeline.push("status:end");
+          return undefined;
+        },
+      },
+      {
+        snapshot: async () => {
+          timeline.push("display:start");
+          return display();
+        },
+      },
+    );
+
+    await query.get("workspace-1", "agent-1", "viewer-1");
+
+    // Both reads are in flight before the first finishes; one-after-the-other would read
+    // status:start, status:end, display:start — which is why this asserts the whole timeline.
+    expect(timeline).toEqual(["status:start", "display:start", "status:end"]);
+  });
+
   test("propagates AGENT_NOT_VISIBLE from findAuthorized instead of reading it as absent", async () => {
     const query = new AgentDetailQuery({
       findAuthorized: async () => {

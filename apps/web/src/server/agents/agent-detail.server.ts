@@ -1,7 +1,6 @@
 import type { Prisma } from "#src/generated/prisma/client";
 import type { AgentStatusCache } from "./agent-status.server";
 import type { AgentDisplay } from "./agent-display.server";
-import type { AgentDisplaySnapshot } from "@lrm/coforge-sdk/internal";
 
 type DetailComputer = {
   id: string;
@@ -69,31 +68,22 @@ export class AgentDetailQuery {
   async get(workspaceId: string, agentId: string, userId: string) {
     const agent = await this.source.findAuthorized(workspaceId, agentId, userId);
     if (!agent) return undefined;
-    let status;
+    // The two reads are independent stores, so they overlap rather than queue: the page waits for
+    // the slower of the two, not for both in turn. Each keeps its own failure mode — a failed
+    // status read is reported as unknown, and a failed display read just loses the display block.
+    const scope = agent.computerId
+      ? { workspaceId, computerId: agent.computerId, agentId }
+      : undefined;
     let statusReadFailed = false;
-    let display: AgentDisplaySnapshot | undefined;
-    if (agent.computerId && this.status) {
-      try {
-        status = await this.status.snapshot({
-          workspaceId,
-          computerId: agent.computerId,
-          agentId,
-        });
-      } catch {
-        statusReadFailed = true;
-      }
-    }
-    if (agent.computerId && this.display) {
-      try {
-        display = await this.display.snapshot({
-          workspaceId,
-          computerId: agent.computerId,
-          agentId,
-        });
-      } catch {
-        // Display is an optional read model; unavailable is not equivalent to offline.
-      }
-    }
+    const [status, display] = await Promise.all([
+      scope && this.status
+        ? this.status.snapshot(scope).catch(() => {
+            statusReadFailed = true;
+            return undefined;
+          })
+        : undefined,
+      scope && this.display ? this.display.snapshot(scope).catch(() => undefined) : undefined,
+    ]);
     const assigned = assignedComputer(agent);
     return {
       id: agent.id,
