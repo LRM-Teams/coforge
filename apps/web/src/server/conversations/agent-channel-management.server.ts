@@ -231,6 +231,10 @@ export class AgentChannelManagement {
       throw new AgentChannelManagementError(400, "update requires --name or --description");
     const channelName = this.parseChannelTarget(target);
     const channel = await this.findChannel(workspaceId, channelName);
+    // Authority before the input is judged, so an Agent without it learns nothing else.
+    if (!(await hasChannelAdminAuthority(this.db, workspaceId, { agentId }, channel)))
+      throw channelAuthorityDeniedError("update");
+    if (channel.archivedAt) throw new AgentChannelManagementError(409, "channel is archived");
     let nextName: string | undefined;
     if (patch.name !== undefined) {
       if (channelName === "general")
@@ -238,8 +242,7 @@ export class AgentChannelManagement {
       nextName = this.normalizeChannelName(patch.name);
       if (nextName === "general") throw new AgentChannelManagementError(409, "general is reserved");
     }
-    // Shared with the human settings panel: `PublicChannels.updateInfo` checks the acting Agent's
-    // channel-aware authority (its own server role, or its `channelRole` on this channel).
+    // Shared with the human settings panel, which applies the same authority and archive rules.
     try {
       await this.channels.updateInfo(workspaceId, { agentId }, channel.id, {
         name: nextName,
@@ -351,6 +354,8 @@ export class AgentChannelManagement {
         );
       if (isAppError(error) && (error.code === "INVALID_INPUT" || error.code === "NOT_FOUND"))
         throw new AgentChannelManagementError(404, `member not found: @${handle}`);
+      if (isAppError(error) && error.code === "CONFLICT")
+        throw new AgentChannelManagementError(409, "channel is archived");
       throw error;
     }
     return {

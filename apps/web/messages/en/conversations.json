@@ -67,6 +67,7 @@
   "channel_settings_description": "Description",
   "channel_settings_description_placeholder": "What is this channel about?",
   "channel_settings_project": "Project",
+  "channel_settings_view_repository": "View {repository} on GitHub",
   "channel_settings_cancel": "Cancel",
   "channel_settings_save": "Save",
   "channel_settings_saving": "Saving…",

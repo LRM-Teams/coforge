@@ -2375,7 +2375,7 @@ test("channel leave and member removal: owner/admin removes a human and an Agent
       channels.removeMember(workspace.id, owner.id, general.id, { userId: plain.id }),
     ).rejects.toThrow("CONFLICT");
     const generalMembers = await channels.members(workspace.id, { userId: owner.id }, general.id);
-    expect(generalMembers.canLeave).toBe(false);
+    expect(generalMembers.channelCapabilities.leave).toBe(false);
     expect(generalMembers.canRemoveMembers).toBe(false);
 
     // A plain member cannot remove anyone.
@@ -2384,7 +2384,7 @@ test("channel leave and member removal: owner/admin removes a human and an Agent
     ).rejects.toThrow("ACCESS_DENIED");
     const opsMembersAsPlain = await channels.members(workspace.id, { userId: plain.id }, ops.id);
     expect(opsMembersAsPlain.canRemoveMembers).toBe(false);
-    expect(opsMembersAsPlain.canLeave).toBe(true);
+    expect(opsMembersAsPlain.channelCapabilities.leave).toBe(true);
     const opsMembersAsAdmin = await channels.members(workspace.id, { userId: admin.id }, ops.id);
     expect(opsMembersAsAdmin.canRemoveMembers).toBe(true);
 

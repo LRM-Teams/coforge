@@ -10,8 +10,7 @@ import type { ChannelCapabilities } from "#src/server/conversations/channel-auth
 import { ConversationListButton } from "./conversation-navigation";
 import { ThreadFollowingAgents } from "./thread-following-agents";
 import { ConversationTaskTabs } from "#src/features/tasks/conversation-task-tabs";
-import { loadPublicChannelMentionables, setPublicChannelArchived } from "./channels.functions";
-import { useServerFn } from "@tanstack/react-start";
+import { loadPublicChannelMentionables } from "./channels.functions";
 import {
   ThreadedConversation,
   type DirectConversationView,
@@ -47,6 +46,8 @@ export function ChannelConversationHeader({
   onShowFiles,
   onChanged,
   onOpenAgentProfile,
+  settingsOpen: controlledSettingsOpen,
+  onSettingsOpenChange,
 }: {
   conversation: ChannelConversationView;
   active: ConversationTab;
@@ -57,8 +58,13 @@ export function ChannelConversationHeader({
   onChanged: () => Promise<void>;
   /** Opens the Agent profile panel from an Agent row in the Members dialog. */
   onOpenAgentProfile?: (agentId: string) => void;
+  /** Set when something outside the header (the archived notice) also opens the panel. */
+  settingsOpen?: boolean;
+  onSettingsOpenChange?: (open: boolean) => void;
 }) {
-  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [ownSettingsOpen, setOwnSettingsOpen] = useState(false);
+  const settingsOpen = controlledSettingsOpen ?? ownSettingsOpen;
+  const setSettingsOpen = onSettingsOpenChange ?? setOwnSettingsOpen;
   return (
     <header className="shrink-0 border-b border-secondary px-4 md:px-6">
       <div className="-mx-4 flex h-12 items-center gap-3 border-b border-secondary px-4 md:-mx-6 md:px-6">
@@ -175,6 +181,7 @@ export function ChannelConversation({
 }) {
   const [joining, setJoining] = useState(false);
   const [error, setError] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   // The @-completion directory stays current while the conversation is open. It starts from the
   // page payload's copy (no second load on mount) and is refetched when a membership write pushes
   // `member.changed.v1`, when the subscription could not replay what it missed — including the
@@ -275,11 +282,16 @@ export function ChannelConversation({
           onShowFiles={onShowFiles}
           onChanged={onChanged}
           onOpenAgentProfile={onOpenAgentProfile}
+          settingsOpen={settingsOpen}
+          onSettingsOpenChange={setSettingsOpen}
         />
       }
       readOnlyNotice={
         conversation.archived ? (
-          <ArchivedChannelNotice conversation={conversation} onChanged={onChanged} />
+          <ArchivedChannelNotice
+            canUnarchive={conversation.channelCapabilities.unarchive}
+            onOpenSettings={() => setSettingsOpen(true)}
+          />
         ) : !conversation.senderMemberId ? (
           <div className="mx-4 mb-4 flex flex-col items-start gap-3 rounded-lg border border-secondary bg-secondary p-4 md:mx-6 md:mb-6">
             <p className="text-sm text-tertiary">{m.channel_public_description()}</p>
@@ -298,49 +310,22 @@ export function ChannelConversation({
   );
 }
 
-/** Replaces the composer of an archived channel: nobody posts or joins until it is unarchived,
- * which a channel admin can do from here. */
+/** Replaces the composer of an archived channel: nobody posts or joins until it is unarchived.
+ * A channel admin's Unarchive opens the settings panel, where the action lives. */
 function ArchivedChannelNotice({
-  conversation,
-  onChanged,
+  canUnarchive,
+  onOpenSettings,
 }: {
-  conversation: ChannelConversationView;
-  onChanged: () => Promise<void>;
+  canUnarchive: boolean;
+  onOpenSettings: () => void;
 }) {
-  const setArchived = useServerFn(setPublicChannelArchived);
-  const [unarchiving, setUnarchiving] = useState(false);
-  const [error, setError] = useState(false);
-  async function unarchive() {
-    setUnarchiving(true);
-    setError(false);
-    try {
-      await setArchived({ data: { channelId: conversation.conversationId, archived: false } });
-      await onChanged();
-    } catch {
-      setError(true);
-    } finally {
-      setUnarchiving(false);
-    }
-  }
   return (
-    <div className="mx-4 mb-4 flex flex-col items-center gap-2 rounded-lg border border-secondary bg-secondary p-4 md:mx-6 md:mb-6">
-      <div className="flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-sm">
-        <span className="font-medium text-primary">{m.channel_archived_notice()}</span>
-        {conversation.channelCapabilities.unarchive && (
-          <Button
-            color="link-color"
-            size="sm"
-            isDisabled={unarchiving}
-            onPress={() => void unarchive()}
-          >
-            {unarchiving ? m.channel_settings_unarchiving() : m.channel_archived_unarchive()}
-          </Button>
-        )}
-      </div>
-      {error && (
-        <p role="alert" className="text-sm text-error-primary">
-          {m.channel_settings_unarchive_error()}
-        </p>
+    <div className="mx-4 mb-4 flex flex-wrap items-center justify-center gap-x-2 gap-y-1 rounded-lg border border-secondary bg-secondary p-4 text-sm md:mx-6 md:mb-6">
+      <span className="font-medium text-primary">{m.channel_archived_notice()}</span>
+      {canUnarchive && (
+        <Button color="link-color" size="sm" onPress={onOpenSettings}>
+          {m.channel_archived_unarchive()}
+        </Button>
       )}
     </div>
   );

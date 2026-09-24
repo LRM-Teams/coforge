@@ -7,7 +7,6 @@ import {
   Check,
   ChevronRight,
   LogOut01 as LogOut,
-  Plus,
   RefreshCcw01 as Unarchive,
   Share04 as Share,
 } from "@untitledui/icons";
@@ -21,6 +20,7 @@ import {
 import { Dialog, Modal, ModalOverlay } from "#src/components/application/modals/modal";
 import { DialogHeader } from "#src/components/application/modals/dialog-header";
 import { Avatar } from "#src/components/base/avatar/avatar";
+import { AvatarAddButton } from "#src/components/base/avatar/base-components/avatar-add-button";
 import { Badge } from "#src/components/base/badges/badges";
 import { Button } from "#src/components/base/buttons/button";
 import { Input } from "#src/components/base/input/input";
@@ -47,6 +47,9 @@ import { channelMembersQueryKey } from "./conversation-query-keys";
 const MEMBER_STRIP_LIMIT = 14;
 const SAVED_NOTICE_MS = 1500;
 
+/** The channel actions that ask for confirmation first. */
+type ConfirmedAction = "archive" | "leave";
+
 /**
  * The channel header's details-and-settings slideout: identity, the Members strip, the Info form
  * (name and description, for channel admins), the viewer's own preferences (pin, mute), and the
@@ -72,12 +75,22 @@ export function ChannelSettingsPanel({
   const isMember = Boolean(conversation.senderMemberId);
   const [membersDialogOpen, setMembersDialogOpen] = useState(false);
   const [unsavedPromptOpen, setUnsavedPromptOpen] = useState(false);
-  const [confirming, setConfirming] = useState<"archive" | "leave" | null>(null);
+  const [confirming, setConfirming] = useState<ConfirmedAction | null>(null);
   const info = useInfoForm(conversation, onChanged);
+  // What to do once the panel has closed, held while unsaved edits are being confirmed.
+  const afterClose = useRef<(() => void) | undefined>(undefined);
 
-  function requestClose() {
+  function close() {
+    onOpenChange(false);
+    afterClose.current?.();
+    afterClose.current = undefined;
+  }
+
+  /** Every way out of the panel comes through here, so unsaved Info edits always ask first. */
+  function requestClose(then?: () => void) {
+    afterClose.current = then;
     if (info.dirty) setUnsavedPromptOpen(true);
-    else onOpenChange(false);
+    else close();
   }
 
   return (
@@ -89,7 +102,10 @@ export function ChannelSettingsPanel({
       >
         <SlideoutModal className="max-w-136">
           <SlideoutDialog aria-label={m.channel_settings_open()} className="gap-0">
-            <SlideoutMenu.Header onClose={requestClose} className="border-b border-secondary pb-4">
+            <SlideoutMenu.Header
+              onClose={() => requestClose()}
+              className="border-b border-secondary pb-4"
+            >
               <div className="flex min-w-0 items-center gap-2 pr-8">
                 <Heading slot="title" className="truncate text-lg font-semibold text-primary">
                   #{conversation.name}
@@ -110,7 +126,13 @@ export function ChannelSettingsPanel({
               />
               {(capabilities.update || conversation.project) && (
                 <PanelSection title={m.channel_settings_info()}>
-                  {capabilities.update && <InfoForm form={info} channelName={conversation.name} />}
+                  {capabilities.update && (
+                    <InfoForm
+                      form={info}
+                      channelName={conversation.name}
+                      archived={conversation.archived}
+                    />
+                  )}
                   {conversation.project && <ProjectField project={conversation.project} />}
                 </PanelSection>
               )}
@@ -135,8 +157,7 @@ export function ChannelSettingsPanel({
             onOpenAgentProfile
               ? (agentId: string) => {
                   setMembersDialogOpen(false);
-                  onOpenChange(false);
-                  onOpenAgentProfile(agentId);
+                  requestClose(() => onOpenAgentProfile(agentId));
                 }
               : undefined
           }
@@ -145,16 +166,20 @@ export function ChannelSettingsPanel({
       <UnsavedChangesDialog
         open={unsavedPromptOpen}
         saving={info.saving}
-        onKeepEditing={() => setUnsavedPromptOpen(false)}
+        onKeepEditing={() => {
+          afterClose.current = undefined;
+          setUnsavedPromptOpen(false);
+        }}
         onDiscard={() => {
           info.reset();
           setUnsavedPromptOpen(false);
-          onOpenChange(false);
+          close();
         }}
         onSaveAndClose={async () => {
           const saved = await info.save();
           setUnsavedPromptOpen(false);
-          if (saved) onOpenChange(false);
+          if (saved) close();
+          else afterClose.current = undefined;
         }}
       />
       <ChannelActionConfirmDialog
@@ -245,26 +270,19 @@ function MembersStrip({
           </Tooltip>
         ))}
         {more > 0 && (
-          <Button
-            color="secondary"
-            size="sm"
-            aria-label={m.channel_settings_members_more({ count: more })}
-            className="size-8 rounded-full p-0 text-xs"
-            onPress={onOpenMembers}
-          >
-            +{more}
-          </Button>
-        )}
-        {canAdd && members.data && (
-          <Tooltip title={m.channel_settings_add_members()}>
-            <TooltipTrigger
-              aria-label={m.channel_settings_add_members()}
-              className="flex size-8 shrink-0 items-center justify-center rounded-full border border-dashed border-primary text-fg-quaternary hover:text-fg-quaternary_hover"
-              onPress={onOpenMembers}
-            >
-              <Plus aria-hidden="true" className="size-4" />
+          <Tooltip title={m.channel_settings_members_more({ count: more })}>
+            <TooltipTrigger className="shrink-0 rounded-full" onPress={onOpenMembers}>
+              <Avatar size="sm" alt="" initials={`+${more}`} />
+              <span className="sr-only">{m.channel_settings_members_more({ count: more })}</span>
             </TooltipTrigger>
           </Tooltip>
+        )}
+        {canAdd && members.data && (
+          <AvatarAddButton
+            size="sm"
+            title={m.channel_settings_add_members()}
+            onPress={onOpenMembers}
+          />
         )}
       </div>
     </section>
@@ -357,8 +375,18 @@ function infoSaveError(cause: unknown) {
   return m.channel_settings_save_error();
 }
 
-function InfoForm({ form, channelName }: { form: InfoForm; channelName: string }) {
+function InfoForm({
+  form,
+  channelName,
+  archived,
+}: {
+  form: InfoForm;
+  channelName: string;
+  /** An archived channel's name and description are frozen until it is unarchived. */
+  archived: boolean;
+}) {
   const isGeneral = channelName === "general";
+  const locked = archived || form.saving;
   return (
     <form
       className="flex flex-col gap-4"
@@ -373,7 +401,7 @@ function InfoForm({ form, channelName }: { form: InfoForm; channelName: string }
         value={form.name}
         onChange={form.setName}
         isRequired
-        isDisabled={isGeneral || form.saving}
+        isDisabled={isGeneral || locked}
         hint={isGeneral ? m.channel_settings_general_cannot_rename() : m.channel_name_hint()}
       />
       <TextArea
@@ -381,7 +409,7 @@ function InfoForm({ form, channelName }: { form: InfoForm; channelName: string }
         placeholder={m.channel_settings_description_placeholder()}
         value={form.description}
         onChange={form.setDescription}
-        isDisabled={form.saving}
+        isDisabled={locked}
         rows={2}
       />
       {form.error && (
@@ -390,19 +418,14 @@ function InfoForm({ form, channelName }: { form: InfoForm; channelName: string }
         </p>
       )}
       <div className="flex justify-end gap-2">
-        <Button
-          size="sm"
-          color="secondary"
-          isDisabled={!form.dirty || form.saving}
-          onPress={form.reset}
-        >
+        <Button size="sm" color="secondary" isDisabled={!form.dirty || locked} onPress={form.reset}>
           {m.channel_settings_cancel()}
         </Button>
         <Button
           type="submit"
           size="sm"
           iconLeading={form.saved ? Check : undefined}
-          isDisabled={!form.dirty || form.saving}
+          isDisabled={!form.dirty || locked}
           isLoading={form.saving}
           showTextWhileLoading
         >
@@ -423,15 +446,15 @@ function InfoForm({ form, channelName }: { form: InfoForm; channelName: string }
 function ProjectField({ project }: { project: NonNullable<ChannelConversationView["project"]> }) {
   return (
     <div className="mt-4 first:mt-0">
-      <p className="text-sm font-medium text-secondary">{m.channel_settings_project()}</p>
-      <div className="mt-1.5 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-sm">
-        <span className="truncate text-primary">{project.name}</span>
+      <p className="text-sm text-tertiary">{m.channel_settings_project()}</p>
+      <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-sm">
+        <span className="truncate font-medium text-primary">{project.name}</span>
         {project.githubHtmlUrl && project.githubFullName && (
           <a
             href={project.githubHtmlUrl}
             target="_blank"
             rel="noreferrer"
-            aria-label={`View ${project.githubFullName} on GitHub`}
+            aria-label={m.channel_settings_view_repository({ repository: project.githubFullName })}
             className="inline-flex min-w-0 items-center gap-1 text-brand-secondary hover:underline"
           >
             <span className="truncate">{project.githubFullName}</span>
@@ -536,7 +559,7 @@ function ActionsSection({
   onChanged,
 }: {
   conversation: ChannelConversationView;
-  onConfirm: (kind: "archive" | "leave") => void;
+  onConfirm: (kind: ConfirmedAction) => void;
   onChanged: () => Promise<void>;
 }) {
   const setArchived = useServerFn(setPublicChannelArchived);
@@ -576,7 +599,7 @@ function ActionsSection({
             )
           : capabilities.archive && (
               <Button
-                color="secondary"
+                color="secondary-destructive"
                 iconLeading={Archive}
                 className="w-full"
                 onPress={() => onConfirm("archive")}
@@ -584,9 +607,9 @@ function ActionsSection({
                 {m.channel_settings_archive()}
               </Button>
             )}
-        {capabilities.leave && (
+        {capabilities.leave && !conversation.archived && (
           <Button
-            color="secondary"
+            color="secondary-destructive"
             iconLeading={LogOut}
             className="w-full"
             onPress={() => onConfirm("leave")}
@@ -604,6 +627,32 @@ function ActionsSection({
   );
 }
 
+const CONFIRM_COPY: Record<
+  ConfirmedAction,
+  {
+    title: () => string;
+    body: (name: string) => string;
+    confirm: () => string;
+    pending: () => string;
+    error: () => string;
+  }
+> = {
+  archive: {
+    title: m.channel_settings_archive,
+    body: (name) => m.channel_settings_archive_confirm({ name }),
+    confirm: m.channel_settings_archive_action,
+    pending: m.channel_settings_archiving,
+    error: m.channel_settings_archive_error,
+  },
+  leave: {
+    title: m.channel_settings_leave,
+    body: (name) => m.channel_settings_leave_confirm({ name }),
+    confirm: m.channel_settings_leave_action,
+    pending: m.channel_settings_leaving,
+    error: m.channel_settings_leave_error,
+  },
+};
+
 /** Confirms archiving or leaving the channel; the write runs here so its error stays inline. */
 function ChannelActionConfirmDialog({
   kind,
@@ -612,7 +661,7 @@ function ChannelActionConfirmDialog({
   onClose,
   onDone,
 }: {
-  kind: "archive" | "leave" | null;
+  kind: ConfirmedAction | null;
   channelId: string;
   channelName: string;
   onClose: () => void;
@@ -623,9 +672,10 @@ function ChannelActionConfirmDialog({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   // Keeps the last action's copy while the dialog animates closed.
-  const lastKind = useRef<"archive" | "leave">("archive");
+  const lastKind = useRef<ConfirmedAction>("archive");
   if (kind) lastKind.current = kind;
   const archive = lastKind.current === "archive";
+  const copy = CONFIRM_COPY[lastKind.current];
 
   async function confirm() {
     setBusy(true);
@@ -635,7 +685,7 @@ function ChannelActionConfirmDialog({
       else await leave({ data: { channelId } });
       await onDone();
     } catch {
-      setError(archive ? m.channel_settings_archive_error() : m.channel_settings_leave_error());
+      setError(copy.error());
     } finally {
       setBusy(false);
     }
@@ -655,14 +705,9 @@ function ChannelActionConfirmDialog({
         <Dialog className="overflow-hidden text-left">
           {({ close }) => (
             <>
-              <DialogHeader
-                title={archive ? m.channel_settings_archive() : m.channel_settings_leave()}
-                onClose={busy ? undefined : close}
-              />
+              <DialogHeader title={copy.title()} onClose={busy ? undefined : close} />
               <Text slot="description" className="mx-6 mt-4 block text-sm text-secondary">
-                {archive
-                  ? m.channel_settings_archive_confirm({ name: channelName })
-                  : m.channel_settings_leave_confirm({ name: channelName })}
+                {copy.body(channelName)}
               </Text>
               {error && (
                 <p role="alert" className="px-6 pt-4 text-sm text-error-primary">
@@ -680,13 +725,7 @@ function ChannelActionConfirmDialog({
                   showTextWhileLoading
                   onPress={() => void confirm()}
                 >
-                  {busy
-                    ? archive
-                      ? m.channel_settings_archiving()
-                      : m.channel_settings_leaving()
-                    : archive
-                      ? m.channel_settings_archive_action()
-                      : m.channel_settings_leave_action()}
+                  {busy ? copy.pending() : copy.confirm()}
                 </Button>
               </div>
             </>

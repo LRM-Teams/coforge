@@ -7,6 +7,7 @@ import {
 } from "#src/server/conversations/public-channels.server";
 import type { ConversationRealtime } from "#src/server/conversations/conversation-realtime.server";
 import { isAppError } from "#src/lib/app-error";
+import { AgentChannelManagement } from "#src/server/conversations/agent-channel-management.server";
 
 /**
  * The channel settings panel's writes: renaming, describing, archiving and unarchiving a channel
@@ -156,8 +157,27 @@ test.skipIf(!connectionString)(
           }),
         ),
       ).toBe("CONFLICT");
-      // A Workspace member outside the channel cannot join it while it is archived.
+      // A Workspace member outside the channel cannot join it while it is archived, nobody adds
+      // members to it, and its name and description are frozen too.
       expect(await appErrorCode(channels.join(workspace.id, owner.id, team.id))).toBe("CONFLICT");
+      expect(
+        await appErrorCode(
+          channels.addMembers(workspace.id, { userId: bob.id }, team.id, {
+            userIds: [owner.id],
+            agentIds: [],
+          }),
+        ),
+      ).toBe("CONFLICT");
+      expect(
+        (await channels.members(workspace.id, { userId: bob.id }, team.id)).canAddMembers,
+      ).toBe(false);
+      expect(
+        await appErrorCode(
+          channels.updateInfo(workspace.id, { userId: creator.id }, team.id, {
+            description: "frozen",
+          }),
+        ),
+      ).toBe("CONFLICT");
 
       expect(
         await channels.setArchived(workspace.id, { userId: creator.id }, team.id, false),
@@ -205,6 +225,50 @@ test.skipIf(!connectionString)(
         update: true,
         archive: false,
       });
+    } finally {
+      await teardown(db, workspace.id, [owner.id, creator.id, bob.id]);
+    }
+  },
+);
+
+test.skipIf(!connectionString)(
+  "an Agent without admin authority is refused before its channel update input is judged",
+  async () => {
+    const { db, channels, workspace, owner, creator, bob, team } = await setup();
+    try {
+      const agent = await db.agent.create({
+        data: {
+          workspaceId: workspace.id,
+          name: `cs-agent-${team.id.slice(0, 8)}`,
+          displayName: "Settings agent",
+          ownerId: bob.id,
+          runtimeConfig: {
+            runtime: "pi",
+            provider: { kind: "default" },
+            model: "",
+            modelProvider: "",
+            reasoning: "",
+          },
+        },
+      });
+      const channel = await db.conversation.findUniqueOrThrow({ where: { id: team.id } });
+      const management = new AgentChannelManagement(db, undefined, channels);
+      for (const patch of [{ name: "Bad Name" }, { name: "general" }]) {
+        const refused = await management
+          .update(workspace.id, agent.id, `#${channel.channelName}`, patch)
+          .then(
+            () => undefined,
+            (error: { status?: number }) => error.status,
+          );
+        expect(refused).toBe(403);
+      }
+      const renameGeneral = await management
+        .update(workspace.id, agent.id, "#general", { name: "elsewhere" })
+        .then(
+          () => undefined,
+          (error: { status?: number }) => error.status,
+        );
+      expect(renameGeneral).toBe(403);
     } finally {
       await teardown(db, workspace.id, [owner.id, creator.id, bob.id]);
     }

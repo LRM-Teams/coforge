@@ -11,7 +11,7 @@ import { DEV_BROWSER_USER } from "#src/server/auth/dev-skip-auth.server";
  * channel with its Public badge and member summary. A channel admin saves a new description and
  * name from Info. Closing with unsaved edits asks first. Pin and Mute change only the viewer's
  * membership. Archiving (after a confirmation) replaces the composer with an archived notice
- * whose Unarchive brings it back. Leaving (after a confirmation) turns the channel read-only
+ * whose Unarchive opens the panel to bring it back. Leaving (after a confirmation) turns the channel read-only
  * until the viewer rejoins.
  *
  * Opt-in like the other browser E2Es: real local Web + `agent-browser`. The channel is seeded
@@ -180,8 +180,22 @@ test("the channel settings panel edits info, preferences, archive and membership
       (await db.conversation.findUniqueOrThrow({ where: { id: channelId } })).archivedAt,
     ).not.toBeNull();
     await browser("screenshot", join(artifacts, "archived.png"));
+    // The notice's Unarchive opens the panel, where an archived channel offers no Leave and a
+    // frozen Info form.
     await clickText("button", "Unarchive");
+    await waitFor(panelOpen);
+    const archivedPanel = await evaluate<{ leave: boolean; nameDisabled: boolean }>(`(() => {
+      const panel = document.querySelector('[role="dialog"][aria-label="Channel details and settings"]');
+      return {
+        leave: panel.textContent.includes("Leave channel"),
+        nameDisabled: panel.querySelector('input[type="text"]').disabled,
+      };
+    })()`);
+    expect(archivedPanel).toEqual({ leave: false, nameDisabled: true });
+    await clickText("button", "Unarchive channel");
     await waitFor(`!document.body.textContent.includes("This channel is archived.")`);
+    await browser("press", "Escape");
+    await waitFor(`!(${panelOpen})`);
     expect(
       (await db.conversation.findUniqueOrThrow({ where: { id: channelId } })).archivedAt,
     ).toBeNull();

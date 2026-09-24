@@ -81,6 +81,11 @@ export async function softLeaveMember(
 
 /** Enroll Workspace humans and Agents. Membership alone never creates attention. */
 /** Just the columns channelMessageView renders; the Agent row carries runtime JSON we never send. */
+/** Prisma's unique-constraint failure: here, a channel name already taken in the Workspace. */
+function isUniqueViolation(error: unknown) {
+  return error instanceof Error && "code" in error && error.code === "P2002";
+}
+
 const CHANNEL_MESSAGE_SELECT = {
   id: true,
   sequence: true,
@@ -717,8 +722,7 @@ export class PublicChannels {
         select: { id: true },
       });
     } catch (error) {
-      if (error instanceof Error && "code" in error && error.code === "P2002")
-        throw new AppError("CONFLICT");
+      if (isUniqueViolation(error)) throw new AppError("CONFLICT");
       throw error;
     }
   }
@@ -784,7 +788,7 @@ export class PublicChannels {
    * Renames a channel or changes its description, for a human from the channel settings panel
    * and for an Agent's `channel update`. Needs the `update` capability (Workspace owner/admin or
    * this channel's admin). The name follows the creation rule and stays unique; `#general` keeps
-   * its name but its description can change.
+   * its name but its description can change. An archived channel's info is frozen.
    */
   async updateInfo(
     workspaceId: string,
@@ -795,6 +799,7 @@ export class PublicChannels {
     const channel = await this.findChannelById(workspaceId, channelId);
     const authority = await resolveChannelAuthority(this.db, workspaceId, actor, channel);
     if (!authority.capabilities.update) throw new AppError("ACCESS_DENIED");
+    if (channel.archivedAt) throw new AppError("CONFLICT");
     const rename = patch.name !== undefined && patch.name !== channel.channelName;
     if (rename) {
       if (channel.channelName === "general") throw new AppError("CONFLICT");
@@ -812,8 +817,7 @@ export class PublicChannels {
       });
       return { id: updated.id, name: updated.channelName!, description: updated.description };
     } catch (error) {
-      if (error instanceof Error && "code" in error && error.code === "P2002")
-        throw new AppError("CONFLICT");
+      if (isUniqueViolation(error)) throw new AppError("CONFLICT");
       throw error;
     }
   }
@@ -997,7 +1001,7 @@ export class PublicChannels {
     await this.authorizeActor(workspaceId, actor);
     const channel = await this.db.conversation.findFirst({
       where: { id: channelId, workspaceId, channelName: { not: null } },
-      select: { id: true, channelName: true },
+      select: { id: true, channelName: true, archivedAt: true },
     });
     if (!channel) throw new AppError("NOT_FOUND");
     const isGeneral = channel.channelName === "general";
@@ -1070,18 +1074,16 @@ export class PublicChannels {
     });
 
     return {
-      canAddMembers: isActiveMember,
+      // Nobody adds members to an archived channel.
+      canAddMembers: isActiveMember && channel.archivedAt === null,
       // The actor's own channel role/admin basis/capabilities on this channel.
       channelRole: actorRow?.channelRole,
       channelAdminBasis: actorAdminBasis,
       channelCapabilities: capabilities,
-      // Aliases of the capability matrix above, kept for the existing human UI
-      // (`ChannelMembersDialog`'s Remove/Leave actions): `remove_member`/`leave` are now the
-      // single source of truth, a strict superset of the original owner/admin-only rule
-      // — a channel admin via `channelRole` (not just a Workspace owner/admin) may also remove
+      // Alias of the capability matrix above for `ChannelMembersDialog`'s Remove action: a
+      // channel admin via `channelRole` (not just a Workspace owner/admin) may also remove
       // members from a channel it administers.
       canRemoveMembers: capabilities.remove_member,
-      canLeave: capabilities.leave,
       humans: memberRows
         .filter((row) => row.user)
         .map((row) => {
@@ -1146,9 +1148,11 @@ export class PublicChannels {
     await this.authorizeActor(workspaceId, actor);
     const channel = await this.db.conversation.findFirst({
       where: { id: channelId, workspaceId, channelName: { not: null } },
-      select: { id: true },
+      select: { id: true, archivedAt: true },
     });
     if (!channel) throw new AppError("NOT_FOUND");
+    // Nobody joins an archived channel, including by being added.
+    if (channel.archivedAt) throw new AppError("CONFLICT");
 
     const actorMembership = await this.db.conversationMember.findFirst({
       where: {

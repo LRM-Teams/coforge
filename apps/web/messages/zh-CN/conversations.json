@@ -68,6 +68,7 @@
   "channel_settings_description": "描述",
   "channel_settings_description_placeholder": "这个频道是做什么的？",
   "channel_settings_project": "项目",
+  "channel_settings_view_repository": "在 GitHub 上查看 {repository}",
   "channel_settings_cancel": "取消",
   "channel_settings_save": "保存",
   "channel_settings_saving": "保存中…",
