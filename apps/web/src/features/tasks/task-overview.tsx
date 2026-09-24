@@ -1,7 +1,7 @@
 import { TASK_STATUSES, type TaskStatus } from "@lrm/coforge-sdk/internal";
 
 import { Link } from "@tanstack/react-router";
-import { useMemo, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 
 import { PageHeader } from "#src/components/layout/page-header";
 import { m } from "#src/paraglide/messages";
@@ -15,6 +15,7 @@ import type { FinishedStatus, FinishedWindow } from "./finished-tasks";
 import type { FinishedColumn, FinishedTasks } from "./use-finished-tasks";
 import { Button } from "#src/components/base/buttons/button";
 import { TaskToolbar } from "./task-toolbar";
+import { CreateOverviewTaskDialog } from "./create-overview-task-dialog";
 import { TaskCardSkeleton } from "./tasks-pending";
 import { cn } from "#src/lib/utils";
 import { useTaskHiddenColumns } from "#src/features/settings/task-hidden-columns";
@@ -36,6 +37,7 @@ export function TaskOverview({
   onLayoutChange,
   onOpenTask,
   onCommand,
+  onCreated,
 }: {
   /** The unfinished Tasks, and any the page itself moved to Done or Closed. */
   tasks: readonly OverviewTaskRow[];
@@ -52,10 +54,14 @@ export function TaskOverview({
   /** Opens a Task's popup over the overview (the card menu's "View details"). */
   onOpenTask: (task: OverviewTaskRow) => void;
   onCommand?: (task: OverviewTaskRow, command: OverviewTaskCommand) => Promise<void>;
+  /** A Task was created from a group's "+": the page reads its Tasks again. */
+  onCreated?: () => void;
 }) {
   layout ??= "board";
   onLayoutChange ??= () => {};
   const [hiddenColumns, setColumnHidden] = useTaskHiddenColumns();
+  // The group whose "+" opened the new-Task dialog.
+  const [creating, setCreating] = useState<TaskStatus>();
   const filtered = status !== undefined || filter.owners.length > 0 || filter.projects.length > 0;
   const { done, closed } = finished.columns;
   const unfinished = useMemo(() => tasks.filter((task) => !isFinished(task.status)), [tasks]);
@@ -120,6 +126,7 @@ export function TaskOverview({
           paged={paged}
           hidden={hiddenColumns}
           onHiddenChange={setColumnHidden}
+          onCreate={onCommand ? setCreating : undefined}
           disabled={!onCommand}
           currentMemberId={(task) => task.currentMemberId ?? null}
           onMove={async (task, command) => {
@@ -136,6 +143,14 @@ export function TaskOverview({
           )}
         />
       </div>
+      <CreateOverviewTaskDialog
+        status={creating}
+        onOpenChange={(open) => !open && setCreating(undefined)}
+        onCreated={() => {
+          setCreating(undefined);
+          onCreated?.();
+        }}
+      />
     </main>
   );
 }
