@@ -1,6 +1,7 @@
 import { lockConversation } from "#src/server/conversations/conversation-lock.server";
 import {
   REMINDER_SYNC_MESSAGE_TYPE,
+  TASK_STATUSES,
   WORKSPACE_PROTOCOL_MAJOR,
   encodeReminderSync,
   type TaskCommand,
@@ -172,6 +173,14 @@ export type TaskOverview = {
 /** The statuses a Task finishes in. The board counts and pages them apart from the work in flight. */
 export const FINISHED_TASK_STATUSES = ["done", "closed"] as const;
 export type FinishedTaskStatus = (typeof FINISHED_TASK_STATUSES)[number];
+/**
+ * The statuses of work in flight. Reads of unfinished Tasks match these rather than excluding the
+ * finished ones: PostgreSQL ranges an `IN` list over a Task index, but must read every finished
+ * Task in the Workspace to discard a `NOT IN`.
+ */
+const UNFINISHED_TASK_STATUSES = TASK_STATUSES.filter(
+  (status) => !(FINISHED_TASK_STATUSES as readonly string[]).includes(status),
+);
 
 /** Whose finished Tasks a read covers: the Workspace Tasks page's, or one conversation's. */
 export type FinishedTaskScope = { workspaceId: string; userId: string; conversationId?: string };
@@ -532,7 +541,7 @@ export class TaskBoard {
       where: {
         workspaceId,
         // Finished Tasks only grow; the board pages them through `finishedPage` instead.
-        status: { notIn: [...FINISHED_TASK_STATUSES] },
+        status: { in: UNFINISHED_TASK_STATUSES },
         conversation: overviewConversationWhere(userId),
       },
       // Newest first: a group renders its first cards, and new work is what gets looked at.
@@ -708,7 +717,7 @@ export class TaskBoard {
           status:
             command.status === "all"
               ? undefined
-              : (command.status ?? { notIn: ["done", "closed"] }),
+              : (command.status ?? { in: UNFINISHED_TASK_STATUSES }),
           conversation: scope.conversations,
         },
         orderBy: [{ conversationId: "asc" }, { number: "asc" }],
