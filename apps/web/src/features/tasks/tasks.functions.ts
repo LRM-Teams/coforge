@@ -7,6 +7,7 @@ import { createCentrifugoServerApi } from "#src/server/centrifugo/server-api.ser
 import { bestEffortMessageNotifier } from "#src/server/notifications/web-push-composition.server";
 import { workspaceUserMiddleware } from "#src/features/auth/function-auth";
 import { TaskBoard } from "#src/server/tasks/task-board.server";
+import { createAgentDirectTask } from "#src/server/tasks/agent-direct-task.server";
 
 const taskCommand = z
   .object({
@@ -109,15 +110,43 @@ export const loadFinishedTasks = createServerFn({ method: "GET" })
     return new TaskBoard(db).finishedPage({ workspaceId, userId: user.id, conversationId }, query);
   });
 
+/** The board a person's Task writes go through: signalled, pushed and delivered. */
+function browserTaskBoard(db: Parameters<typeof bestEffortMessageNotifier>[0]) {
+  const centrifugo = createCentrifugoServerApi();
+  return new TaskBoard(db, {
+    notifications: bestEffortMessageNotifier(db),
+    realtime: new CentrifugoConversationRealtime(centrifugo),
+    publisher: centrifugo,
+  });
+}
+
 export const executeTask = createServerFn({ method: "POST" })
   .middleware([workspaceUserMiddleware])
   .validator((data: TaskCommand): TaskCommand => taskCommand.parse(data))
   .handler(async ({ context, data }) => {
     const { user, db, workspaceId } = context;
-    const centrifugo = createCentrifugoServerApi();
-    return new TaskBoard(db, {
-      notifications: bestEffortMessageNotifier(db),
-      realtime: new CentrifugoConversationRealtime(centrifugo),
-      publisher: centrifugo,
-    }).execute({ workspaceId, userId: user.id }, data);
+    return browserTaskBoard(db).execute({ workspaceId, userId: user.id }, data);
+  });
+
+/** A Task for an Agent from the Tasks page: in the person's direct conversation with it,
+ * assigned to it (`createAgentDirectTask`). */
+export const createTaskForAgent = createServerFn({ method: "POST" })
+  .middleware([workspaceUserMiddleware])
+  .validator(
+    z
+      .object({
+        agentId: z.uuid(),
+        title: z.string().trim().min(1).max(8_000),
+        description: z.string().max(50_000).nullable().optional(),
+        idempotencyKey: z.string().min(1).max(200),
+      })
+      .strict(),
+  )
+  .handler(async ({ context, data }) => {
+    const { user, db, workspaceId } = context;
+    return createAgentDirectTask(db, browserTaskBoard(db), {
+      workspaceId,
+      userId: user.id,
+      ...data,
+    });
   });

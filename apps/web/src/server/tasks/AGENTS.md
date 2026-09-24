@@ -43,3 +43,7 @@ contract is `packages/coforge-sdk/src/internal/tasks.ts`.
   `(updatedAt, messageId)`), both limited to a `week | month | all` window
   and scoped to the Workspace page or one conversation. The Agent `list`
   command keeps its own semantics.
+- A Task for an Agent from the Tasks page (`createAgentDirectTask`) needs no
+  channel: it is created in the person's direct conversation with the Agent
+  (`getOrCreateUserAgent`, so the private-Agent DM rule applies) and assigned
+  to it through `TaskBoard.execute`, never around it.
