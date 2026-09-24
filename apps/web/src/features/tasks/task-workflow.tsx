@@ -301,7 +301,7 @@ function TaskGroup({
           </AriaButton>
         </Heading>
         <DisclosurePanel
-          // A collapsed panel is `hidden="until-found"`, which keeps its box: drop the sizing too.
+          // A collapsed panel is `hidden="until-found"`, which Tailwind's preflight leaves displayed: hide it outright.
           className={cn(
             board
               ? "flex min-h-16 flex-col gap-2 px-2 pb-2 md:min-h-0 md:flex-1 md:overflow-y-auto"
