@@ -6,7 +6,7 @@ import { z } from "zod";
 import { PageLoadError } from "#src/features/errors/page-load-error";
 import { OverviewTaskPopup } from "#src/features/tasks/overview-task-popup";
 import { TaskOverview } from "#src/features/tasks/task-overview";
-import { filterParam, parseFilterParam } from "#src/features/tasks/task-filters";
+import { filterParam, parseFilterParam, type TaskFilter } from "#src/features/tasks/task-filters";
 import {
   taskOverviewQuery,
   type OverviewTaskCommand,
@@ -61,9 +61,25 @@ function TasksPage() {
     [owners, projects],
   );
   // A move shows at once and takes the server's copy of the Task; a refused one is back in place.
-  const command = run
-    ? (task: OverviewTaskRow, input: OverviewTaskCommand) => run(task, input)
-    : undefined;
+  const command = useMemo(
+    () =>
+      run ? (task: OverviewTaskRow, input: OverviewTaskCommand) => run(task, input) : undefined,
+    [run],
+  );
+  // Picks replace the address in place: Back leaves the page rather than undoing each pick.
+  const changeFilter = useCallback(
+    (next: TaskFilter) =>
+      void navigate({
+        replace: true,
+        resetScroll: false,
+        search: (previous) => ({
+          ...previous,
+          owners: filterParam(next.owners),
+          projects: filterParam(next.projects),
+        }),
+      }),
+    [navigate],
+  );
 
   // The Task whose popup `task` names, and the rest of its conversation's Tasks.
   const openTask = useMemo(() => {
@@ -133,15 +149,7 @@ function TasksPage() {
         tasks={tasks}
         status={status}
         filter={filter}
-        onFilterChange={(next) =>
-          void navigate({
-            search: (previous) => ({
-              ...previous,
-              owners: filterParam(next.owners),
-              projects: filterParam(next.projects),
-            }),
-          })
-        }
+        onFilterChange={changeFilter}
         layout={taskLayout}
         onStatusChange={(nextStatus) =>
           void navigate({ search: (previous) => ({ ...previous, status: nextStatus }) })
