@@ -54,8 +54,8 @@ test("a delivery's body never carries a stored token", () => {
 
 /**
  * Agent-facing message records are built only by `agentMessageView`: no serializer reads a stored
- * body back itself. The daemon encoder, a Task's title (`view`, `quotedTask`) and the push preview
- * are the other readers of stored bodies, each at its single call site.
+ * body back itself. The daemon encoder, a Task's title (`taskView`, its history diff, `quotedTask`)
+ * and the push preview are the other readers of stored bodies, each at its single call site.
  */
 test("no Agent-facing serializer reads a stored body except through agentMessageView", async () => {
   const callers = (await filesContaining("agentReadableBody(")).filter(
@@ -66,7 +66,9 @@ test("no Agent-facing serializer reads a stored body except through agentMessage
     "src/server/conversations/agent-message-view.server.ts",
     "src/server/notifications/prisma-web-push-subscriptions.server.ts",
     "src/server/tasks/task-board.server.ts",
+    "src/server/tasks/task-history.server.ts",
     "src/server/tasks/task-notices.server.ts",
+    "src/server/tasks/task-view.server.ts",
   ]);
   // Only the projection mints the readable-body type.
   expect(await filesContaining("as AgentReadableBody")).toEqual([
