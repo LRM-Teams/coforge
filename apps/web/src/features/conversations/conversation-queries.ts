@@ -27,12 +27,14 @@ import {
 import { loadPublicChannel, loadPublicChannelUpdates } from "./channels.functions";
 import { loadActionCardStates } from "./action-cards.functions";
 import type { ActionCardView } from "./action-card";
+import { createReactionToggler, type ReactionSummary } from "./message-reactions";
 
 type PageMessage = {
   id: string;
   sequence: number;
   threadRootId?: string;
   actionCard?: ActionCardView;
+  reactions?: ReactionSummary[];
 };
 type ConversationPage<M extends PageMessage> = {
   conversationId: string;
@@ -218,6 +220,32 @@ export function useConversationQuery<M extends PageMessage, T extends Conversati
       })),
     }));
   };
+  /** Replace one loaded message, keeping every other page and message object as it is. */
+  const updateMessage = (messageId: string, update: (message: M) => M) =>
+    setPages((pages) => ({
+      ...pages,
+      pages: pages.pages.map((page) =>
+        page.messages.some((message) => message.id === messageId)
+          ? {
+              ...page,
+              messages: page.messages.map((message) =>
+                message.id === messageId ? update(message) : message,
+              ),
+            }
+          : page,
+      ),
+    }));
+  const updateMessageRef = useRef(updateMessage);
+  updateMessageRef.current = updateMessage;
+  const toggleReaction = useMemo(
+    () =>
+      createReactionToggler<M>({
+        update: (messageId, update) => updateMessageRef.current(messageId, update),
+        resync: () => queryClient.invalidateQueries({ queryKey: query.queryKey }),
+      }),
+    // A new conversation starts a new toggler, like the reconciler above.
+    [conversationId],
+  );
   useConversationRealtime(
     conversationId,
     async () => {
@@ -291,5 +319,8 @@ export function useConversationQuery<M extends PageMessage, T extends Conversati
     },
     /** Re-read every loaded page after a change the realtime feed does not carry. */
     invalidate: () => queryClient.invalidateQueries({ queryKey: query.queryKey }),
+    /** Toggle the viewer's reaction: shown at once, settled by the server's summary for that
+     * message (no page re-read), re-read only when the call fails. */
+    toggleReaction,
   };
 }
