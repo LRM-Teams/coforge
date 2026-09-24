@@ -7,7 +7,6 @@ import { Button as AriaButton } from "react-aria-components";
 import { Button } from "#src/components/base/buttons/button";
 import { DeletedAgentBadge } from "#src/features/agents/deleted-agent";
 import { m } from "#src/paraglide/messages";
-import { ConversationTaskTabs } from "./conversation-task-tabs";
 import { CreateTaskDialog } from "./create-task-dialog";
 import { TaskDetailMenu } from "./task-detail-dialog";
 import { TASK_TITLE_CLASS, TaskCard } from "./task-card";
@@ -34,14 +33,14 @@ export type TaskBoardProps = {
   onCommand: (
     command: Omit<TaskCommand, "idempotencyKey" | "conversationId"> & { number: number },
   ) => Promise<void>;
-  onShowChat: () => void;
   conversationName?: string;
   /** Who the task popup names as assignees and offers to assign. */
   members?: readonly Mentionable[];
   onCreateTask?: (title: string, idempotencyKey: string) => Promise<TaskView | void>;
   layout?: TaskLayout;
   onLayoutChange?: (layout: TaskLayout) => void;
-  header?: React.ReactNode;
+  /** The conversation header (with its Chat / Tasks / Files tabs) the board sits under. */
+  header: React.ReactNode;
 };
 
 export function TaskBoard({
@@ -53,7 +52,6 @@ export function TaskBoard({
   onOpenTask,
   onOpenMessage,
   onCommand,
-  onShowChat,
   conversationName,
   members,
   onCreateTask,
@@ -69,23 +67,7 @@ export function TaskBoard({
     >
       {header}
       <header className="shrink-0 border-b border-secondary px-4 md:px-6">
-        {!header && (
-          <>
-            {conversationName && (
-              <div className="-mx-4 flex h-12 items-center border-b border-secondary px-4 md:-mx-6 md:px-6">
-                <h1 className="truncate text-base font-medium">{conversationName}</h1>
-              </div>
-            )}
-            <div className="flex h-14 items-center border-t border-secondary">
-              <ConversationTaskTabs active="tasks" onShowChat={onShowChat} />
-            </div>
-          </>
-        )}
-        <div
-          role="toolbar"
-          aria-label={m.tasks_layout()}
-          className="flex h-11 items-center gap-2 border-t border-secondary"
-        >
+        <div role="toolbar" aria-label={m.tasks_layout()} className="flex h-11 items-center gap-2">
           <TaskLayoutToggle layout={layout} onChange={onLayoutChange} />
           {canMutate && onCreateTask && (
             <Button
