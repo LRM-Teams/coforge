@@ -52,6 +52,12 @@ test("the Activity page lists, filters, marks Done and opens inbox items", async
   async function evaluate<T>(expression: string): Promise<T> {
     return JSON.parse(JSON.parse(await browser("eval", `JSON.stringify(${expression})`))) as T;
   }
+  /**
+   * TanStack Start has hydrated the page: its SSR bootstrap (`$_TSR`) is marked hydrated, and
+   * deleted once the stream has also ended. Server-rendered cards already satisfy the card waits,
+   * and a click before hydration lands on inert HTML.
+   */
+  const hydrated = `(!window.$_TSR || window.$_TSR.hydrated === true)`;
   /** The text of every card this test seeded, in page order. */
   const seededCards = `[...document.querySelectorAll("ol > li")]
     .map((card) => card.textContent)
@@ -136,7 +142,7 @@ test("the Activity page lists, filters, marks Done and opens inbox items", async
 
     await browser("set", "viewport", "1440", "900");
     await browser("open", `${origin}/en/activity`);
-    await browser("wait", "--fn", `${seededCards}.length === 2`);
+    await browser("wait", "--fn", `${seededCards}.length === 2 && ${hydrated}`);
     const cards = await evaluate<string[]>(seededCards);
     // Newest activity first: the channel's unread message was posted after the thread reply.
     expect(cards[0]).toContain("#e2e-activity-inbox");
@@ -197,7 +203,12 @@ test("the Activity page lists, filters, marks Done and opens inbox items", async
         return true;
       })()`)
         .then(() =>
-          browser("wait", "--fn", `document.querySelectorAll('[role="menuitem"]').length > 0`),
+          // This menu's own item: the previous menu may still be closing.
+          browser(
+            "wait",
+            "--fn",
+            `[...document.querySelectorAll('[role="menuitem"]')].some((item) => item.textContent.trim() === ${JSON.stringify(label)})`,
+          ),
         )
         .then(() =>
           evaluate(`[...document.querySelectorAll('[role="menuitem"]')]
@@ -220,7 +231,7 @@ test("the Activity page lists, filters, marks Done and opens inbox items", async
     })()`);
     await browser("wait", "--fn", `${seededCards}.length === 1`);
     await browser("reload");
-    await browser("wait", "--fn", `${seededCards}.length === 1`);
+    await browser("wait", "--fn", `${seededCards}.length === 1 && ${hydrated}`);
     expect((await evaluate<string[]>(seededCards))[0]).toContain("E2E activity root");
 
     await browser("find", "text", "E2E activity root", "click");
@@ -231,7 +242,7 @@ test("the Activity page lists, filters, marks Done and opens inbox items", async
 
     await browser("set", "viewport", "390", "844");
     await browser("open", `${origin}/en/activity`);
-    await browser("wait", "--fn", `${seededCards}.length === 1`);
+    await browser("wait", "--fn", `${seededCards}.length === 1 && ${hydrated}`);
     // Opening the thread read it: its card stays, without the unread badge.
     expect((await evaluate<string[]>(seededCards))[0]).not.toContain("1 new");
     await browser("screenshot", join(artifacts, "phone.png"));

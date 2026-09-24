@@ -48,10 +48,7 @@ import {
   setDirectConversationUnread,
 } from "#src/features/conversations/conversations.functions";
 import { MessagePreview } from "#src/features/conversations/message-preview";
-import {
-  useRefreshSidebarLists,
-  useSidebarActions,
-} from "#src/features/conversations/sidebar-lists";
+import { useRefreshSidebarLists } from "#src/features/conversations/sidebar-lists";
 import { TASK_STATUS_COLOR } from "#src/features/tasks/task-workflow";
 import { cn } from "#src/lib/utils";
 import { DeletedAgentBadge } from "#src/features/agents/deleted-agent";
@@ -60,6 +57,7 @@ import type { ActivityInboxItem } from "#src/server/inbox/activity-inbox.server"
 import { markActivityInboxRead, markActivityItemDone } from "./activity-inbox.functions";
 import { useActivityInboxRealtime } from "./use-activity-inbox-realtime";
 import {
+  ACTIVITY_INBOX_LISTS_KEY,
   ACTIVITY_INBOX_QUERY_PREFIX,
   activityInboxQuery,
   type ActivityInboxPage,
@@ -266,9 +264,6 @@ function useActivityItemActions({
   const markChannelThreadRead = useServerFn(markPublicChannelThreadRead);
   const markDirectRead = useServerFn(markDirectConversationRead);
   const markDirectThread = useServerFn(markDirectThreadRead);
-  // The Chat sidebar's optimistic actions; `undefined` where the sidebar is not mounted, which
-  // is every page except Chat (so the Activity page saves through the Server Functions below).
-  const sidebar = useSidebarActions();
   const setChannelUnread = useServerFn(setPublicConversationUnread);
   const setDirectUnread = useServerFn(setDirectConversationUnread);
   const setThreadFollowed = useServerFn(setPublicChannelThreadFollowed);
@@ -301,22 +296,13 @@ function useActivityItemActions({
 
     return {
       read: (item: ActivityInboxItem) => run(() => read(item)),
-      // The sidebar's optimistic collections are live only on the Chat page; here the change is
-      // saved directly and the refresh brings the sidebar's badge along.
+      // Saved directly: the sidebar's optimistic lists are synced only on the Chat page, and the
+      // refresh afterwards brings the sidebar's badge along.
       unread: ({ place }: ActivityInboxItem) =>
         run(() =>
-          // The Chat sidebar's collections are live only there; when they are mounted its own
-          // action moves the badge at once, and otherwise (this page) the change is saved
-          // directly and the refresh brings the sidebar's badge along.
-          sidebar
-            ? sidebar.markUnread(
-                place.kind === "channel"
-                  ? { kind: "channel", channelId: place.conversationId }
-                  : { kind: "direct", agentId: place.agent.id },
-              )
-            : place.kind === "channel"
-              ? setChannelUnread({ data: { channelId: place.conversationId, unread: true } })
-              : setDirectUnread({ data: { agentId: place.agent.id, unread: true } }),
+          place.kind === "channel"
+            ? setChannelUnread({ data: { channelId: place.conversationId, unread: true } })
+            : setDirectUnread({ data: { agentId: place.agent.id, unread: true } }),
         ),
       unfollow: ({ place, thread }: ActivityInboxItem) => {
         if (!thread) return;
@@ -332,7 +318,7 @@ function useActivityItemActions({
       },
       done: (item: ActivityInboxItem) => {
         queryClient.setQueriesData<InfiniteData<ActivityInboxPage>>(
-          { queryKey: ACTIVITY_INBOX_QUERY_PREFIX },
+          { queryKey: ACTIVITY_INBOX_LISTS_KEY },
           (data) => data && withoutItem(data, item),
         );
         run(() =>
@@ -361,7 +347,6 @@ function useActivityItemActions({
     markChannelThreadRead,
     markDirectRead,
     markDirectThread,
-    sidebar,
     setChannelUnread,
     setDirectUnread,
     setThreadFollowed,
