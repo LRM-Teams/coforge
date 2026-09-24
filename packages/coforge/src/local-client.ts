@@ -1133,18 +1133,27 @@ export function connectLocal(
     if (!context || !/^sfp_[A-Za-z0-9_-]{43}$/.test(context))
       throw new Error("coforge agent context is invalid");
     if (!proxyUrl) throw new Error("coforge agent proxy is not configured");
-    const response = await fetch(proxyEndpoint(agentApiRoutes.proxy.tasks.path), {
-      method: agentApiRoutes.local.tasks.method,
-      headers: { authorization: `Bearer ${context}`, "content-type": "application/json" },
-      body: JSON.stringify(command),
-      signal: AbortSignal.timeout(10_000),
-    });
+    let response: Response;
+    try {
+      response = await fetch(proxyEndpoint(agentApiRoutes.proxy.tasks.path), {
+        method: agentApiRoutes.local.tasks.method,
+        headers: { authorization: `Bearer ${context}`, "content-type": "application/json" },
+        body: JSON.stringify(command),
+        signal: AbortSignal.timeout(10_000),
+      });
+    } catch {
+      throw proxyTransportFailure(command.operation, command.target);
+    }
     if (!response.ok) {
+      const errorBody = await readProxyErrorBody(response);
       if (command.freshnessContextMode === "withheld")
-        throw new Error(
-          `reviewer-isolation Task request failed (${response.status}); upstream detail withheld`,
-        );
-      throw new Error(`agent Task request failed (${response.status}): ${await response.text()}`);
+        throw new CliError({
+          code: response.status >= 500 ? "SERVER_5XX" : operationFailedCode(command.operation),
+          message: `Reviewer-isolation task ${command.operation} failed (HTTP ${response.status}); upstream error detail was withheld.`,
+          retryable: false,
+          proxy: { upstreamStatus: response.status },
+        });
+      throw proxyHttpFailure(command.operation, response.status, errorBody, command.target);
     }
     return (await response.json()) as TaskResult;
   }

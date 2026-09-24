@@ -3,6 +3,9 @@ import {
   REMINDER_SYNC_MESSAGE_TYPE,
   WORKSPACE_PROTOCOL_MAJOR,
   encodeReminderSync,
+  TASK_CLAIM_BLOCKED_ACTIONS,
+  type TaskClaimConflict,
+  type TaskClaimResult,
   type TaskCommand,
   type TaskConversationKind,
   type TaskHistoryChange,
@@ -517,6 +520,65 @@ async function indexedRequestId(requestId: string, index: number) {
     .map((value) => value.toString(16).padStart(2, "0"))
     .join("");
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
+/** Why a claim selector was refused, as its result row states it. */
+const CLAIM_REFUSAL = {
+  taskNotFound: "task not found",
+  messageNotFound: "message not found",
+  ambiguousMessage: "message id matches more than one message",
+  held: "already claimed",
+  changed: "the task changed while it was being claimed; read it again",
+} as const;
+
+/** What another member's hold on a Task leaves open. Illustrative, not a permission table. */
+const CLAIM_CONFLICT_UNBLOCKED_EXAMPLES = [
+  "replying in the task's thread",
+  "reading the task and its history",
+  "amending the task card",
+  "asking a person to reassign it",
+];
+
+/** A claim selector the board refused; `claim` turns it into that selector's result row. */
+class ClaimRefused extends Error {
+  constructor(
+    readonly reason: string,
+    readonly conflict?: TaskClaimConflict,
+  ) {
+    super(reason);
+  }
+}
+
+/** Another member holds `task`: who, since when, and as of which instant this was read. */
+function claimConflict(task: SelectedTask): TaskClaimConflict {
+  const owner = taskMember(task.workspaceId, task.owner!);
+  return {
+    kind: "claim_conflict",
+    conflictScope: "implementation_execution",
+    blockedActions: [...TASK_CLAIM_BLOCKED_ACTIONS],
+    unblockedActionExamples: CLAIM_CONFLICT_UNBLOCKED_EXAMPLES,
+    currentAssignee: {
+      type: owner.kind,
+      name: owner.handle,
+      ...(owner.deleted && { deleted: true }),
+    },
+    taskStatus: storedTaskStatus(task.status),
+    claimedAt: task.claimedAt?.toISOString() ?? null,
+    observedAt: new Date().toISOString(),
+  };
+}
+
+/**
+ * A person's claim either lands or fails as a whole, so the page that showed it can take it
+ * back: refuse a claim result in which no selector was claimed.
+ */
+export function refuseUnclaimed(result: TaskResult): void {
+  const claims = result.claims ?? [];
+  if (claims.some((claim) => claim.success)) return;
+  const notFound: string[] = [CLAIM_REFUSAL.taskNotFound, CLAIM_REFUSAL.messageNotFound];
+  throw new AppError(
+    claims.every((claim) => notFound.includes(claim.reason ?? "")) ? "NOT_FOUND" : "CONFLICT",
+  );
 }
 
 /** Canonical authorization and transaction seam for message-backed Tasks. */
@@ -1639,7 +1701,16 @@ export class TaskBoard {
         : undefined;
       let message: { id: string; body: string } | undefined;
       if (!existing && command.messageId) {
-        message = await this.findMessage(tx, conversationId, command.messageId);
+        message = await this.findMessage(tx, conversationId, command.messageId).catch(
+          (error: unknown) => {
+            if (!claim || !(error instanceof AppError)) throw error;
+            throw new ClaimRefused(
+              error.code === "CONFLICT"
+                ? CLAIM_REFUSAL.ambiguousMessage
+                : CLAIM_REFUSAL.messageNotFound,
+            );
+          },
+        );
         existing =
           (await tx.task.findUnique({
             where: { messageId: message.id },
@@ -1647,7 +1718,10 @@ export class TaskBoard {
           })) ?? undefined;
       }
       if (!existing) {
-        if (!message) throw new AppError("NOT_FOUND");
+        if (!message) {
+          if (claim) throw new ClaimRefused(CLAIM_REFUSAL.taskNotFound);
+          throw new AppError("NOT_FOUND");
+        }
         const allocated = await tx.$queryRaw<Array<{ number: number }>>`
           UPDATE "conversations"
           SET "nextTaskNumber" = "nextTaskNumber" + 1
@@ -1681,9 +1755,9 @@ export class TaskBoard {
       )
         return existing;
       if (existing.status === "done" || existing.status === "closed")
-        throw new AppError("CONFLICT");
+        throw new ClaimRefused(`task is ${existing.status}`);
       if (existing.ownerMemberId && existing.ownerMemberId !== member.id)
-        throw new AppError("CONFLICT");
+        throw new ClaimRefused(CLAIM_REFUSAL.held, claimConflict(existing));
       const { task: claimed } = await this.commitTaskChange(
         tx,
         member,
@@ -1720,22 +1794,9 @@ export class TaskBoard {
         (messageId) => ({ messageId }),
       ),
     ];
-    if (selectors.length === 1) {
-      const result = await this.convertOrClaim(
-        conversation,
-        member,
-        { ...command, number: selectors[0]!.number, messageId: selectors[0]!.messageId },
-        true,
-      );
-      const task = result.tasks[0]!;
-      return {
-        ...result,
-        claims: [{ number: task.number, messageId: task.messageId, success: true }],
-      };
-    }
-
+    // Every selector gets its own result row: a refused claim is an answer, not an error.
     const tasks: TaskView[] = [];
-    const claims: NonNullable<TaskResult["claims"]> = [];
+    const claims: TaskClaimResult[] = [];
     for (const selector of selectors) {
       try {
         const result = await this.convertOrClaim(
@@ -1753,17 +1814,19 @@ export class TaskBoard {
         );
         const task = result.tasks[0]!;
         tasks.push(task);
-        claims.push({
-          number: task.number,
-          messageId: task.messageId,
-          success: true,
-        });
+        claims.push({ number: task.number, messageId: task.messageId, success: true });
       } catch (error) {
-        claims.push({
-          ...selector,
-          success: false,
-          reason: error instanceof Error ? error.message : "claim failed",
-        });
+        if (error instanceof ClaimRefused)
+          claims.push({
+            ...selector,
+            success: false,
+            reason: error.reason,
+            ...(error.conflict && { conflict: error.conflict }),
+          });
+        // The guarded write lost a race with another change to the same Task.
+        else if (error instanceof AppError && error.code === "CONFLICT")
+          claims.push({ ...selector, success: false, reason: CLAIM_REFUSAL.changed });
+        else throw error;
       }
     }
     return { tasks, claims };

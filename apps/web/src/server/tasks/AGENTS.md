@@ -8,6 +8,11 @@ contract is `packages/coforge-sdk/src/internal/tasks.ts`.
   assignment, card amendments and history, resource receipts, and status
   writes. Agent Task RPC adapters under `server/agents/` call the same
   TaskBoard and never duplicate its business rules.
+- `claim` answers every selector with a result row and never throws for a
+  refused one: `reason` says why (not found, done, closed, held), and a Task
+  another member holds adds `conflict` (holder, `claimedAt`, `observedAt`),
+  read in the refusing transaction. Only the browser seam (`executeTask`
+  calling `refuseUnclaimed`) turns a claim that claimed nothing into an error.
 - Resource expiry follow-up uses the existing Reminder persistence and
   synchronization. Never add a second task scheduler.
 - TaskBoard creates the server-authored assignment Message and the assignee's
