@@ -1653,6 +1653,32 @@ test("Agent search HTTP GET request carries the request id", async () => {
   expect(capturedUrl?.searchParams.get("query")).toBe("hello");
 });
 
+test("Agent search HTTP GET request carries its time window", async () => {
+  let capturedUrl: URL | undefined;
+  const client = createAgentMessageHttpClient(async (input) => {
+    capturedUrl = input as URL;
+    return Response.json({ protocolMajor: 1, requestId: "request-search-2", results: [] });
+  });
+  await client.requestSearch!({
+    url: "https://server.example/api/agent/v1/messages",
+    agentApiKey: `sk_agent_${"a".repeat(43)}`,
+    daemonApiKey: "daemon-token",
+    request: {
+      protocolMajor: 1,
+      requestId: "request-search-2",
+      workspaceId: "workspace-a",
+      agentId: "agent-a",
+      operation: "search",
+      target: "",
+      query: "release",
+      after: "2026-09-01T00:00:00.000Z",
+      before: "2026-09-10T00:00:00.000Z",
+    },
+  });
+  expect(capturedUrl?.searchParams.get("after")).toBe("2026-09-01T00:00:00.000Z");
+  expect(capturedUrl?.searchParams.get("before")).toBe("2026-09-10T00:00:00.000Z");
+});
+
 test("Agent resolve HTTP GET request carries the request id", async () => {
   let capturedUrl: URL | undefined;
   const client = createAgentMessageHttpClient(async (input) => {

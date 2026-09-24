@@ -904,6 +904,8 @@ export const createAgentMessageHttpClient = (
         target: request.target,
         sender: request.sender,
         sort: request.sort,
+        before: request.before,
+        after: request.after,
         limit: request.limit,
         offset: request.offset,
       },
