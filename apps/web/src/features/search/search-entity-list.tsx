@@ -1,10 +1,11 @@
-import { Link, type LinkProps } from "@tanstack/react-router";
-import { useMemo } from "react";
+import { useMemo, type ReactNode } from "react";
+import { Link } from "@tanstack/react-router";
 import { Hash01 as Hash } from "@untitledui/icons";
 import type { AgentDisplaySnapshot } from "@lrm/coforge-sdk/internal";
 
 import { Badge } from "#src/components/base/badges/badges";
 import { AgentDisplayAvatar } from "#src/features/agents/agent-activity-avatar";
+import { agentDisplay } from "#src/features/agents/agent-activity-presentation";
 import { formatAgentProfileParam } from "#src/features/agents/profile-panel/profile-panel-search";
 import { useLiveAgents } from "#src/features/agents/workspace-agents-realtime";
 import { computerIcon } from "#src/features/computers/computer-identity";
@@ -12,20 +13,39 @@ import { conversationRoute } from "#src/features/conversations/last-conversation
 import { m } from "#src/paraglide/messages";
 import type { SearchEntity } from "./search-entities";
 
+const ROW_CLASS =
+  "flex min-w-0 items-center gap-3 rounded-lg px-2 py-1.5 outline-focus-ring transition-colors hover:bg-secondary focus-visible:outline-2 focus-visible:outline-offset-2";
+
 /**
- * Where an entity opens: a channel itself; the viewer's own Agent its direct messages (the Web
- * opens an Agent's DM only for its owner), any other Agent its profile; a Computer its page.
+ * An entity's row as a link to where it opens: a channel itself; the viewer's own Agent its
+ * direct messages (the Web opens an Agent's DM only for its owner), any other Agent its profile;
+ * a Computer its page. Each branch is its own `Link`, so the router checks every destination.
  */
-function entityLink(entity: SearchEntity): LinkProps {
+function EntityLink({ entity, children }: { entity: SearchEntity; children: ReactNode }) {
+  const shared = { "data-search-entity": `${entity.kind}:${entity.id}`, className: ROW_CLASS };
   switch (entity.kind) {
     case "channel":
-      return conversationRoute({ channelId: entity.id });
+      return (
+        <Link {...conversationRoute({ channelId: entity.id })} {...shared}>
+          {children}
+        </Link>
+      );
     case "computer":
-      return { to: "/computers/$computerId", params: { computerId: entity.id } };
+      return (
+        <Link to="/computers/$computerId" params={{ computerId: entity.id }} {...shared}>
+          {children}
+        </Link>
+      );
     case "agent":
-      return entity.ownedByCurrentUser
-        ? conversationRoute({ agentId: entity.id })
-        : { to: "/agents", search: { profile: formatAgentProfileParam(entity.id) } };
+      return entity.ownedByCurrentUser ? (
+        <Link {...conversationRoute({ agentId: entity.id })} {...shared}>
+          {children}
+        </Link>
+      ) : (
+        <Link to="/agents" search={{ profile: formatAgentProfileParam(entity.id) }} {...shared}>
+          {children}
+        </Link>
+      );
   }
 }
 
@@ -53,11 +73,7 @@ export function SearchEntityList({ entities }: { entities: readonly SearchEntity
       <ul className="flex flex-col gap-1">
         {entities.map((entity) => (
           <li key={`${entity.kind}:${entity.id}`}>
-            <Link
-              {...entityLink(entity)}
-              data-search-entity={`${entity.kind}:${entity.id}`}
-              className="flex min-w-0 items-center gap-3 rounded-lg px-2 py-1.5 outline-focus-ring transition-colors hover:bg-secondary focus-visible:outline-2 focus-visible:outline-offset-2"
-            >
+            <EntityLink entity={entity}>
               <EntityMark entity={entity} display={displays.get(entity.id)} />
               <span className="min-w-0 truncate text-sm font-semibold text-primary">
                 {entity.kind === "channel" ? `#${entity.name}` : entity.name}
@@ -73,7 +89,7 @@ export function SearchEntityList({ entities }: { entities: readonly SearchEntity
               <span className="min-w-0 truncate text-xs text-tertiary">
                 {entitySubtitle(entity)}
               </span>
-            </Link>
+            </EntityLink>
           </li>
         ))}
       </ul>
@@ -101,8 +117,20 @@ function EntityMark({
   display: AgentDisplaySnapshot | undefined;
 }) {
   if (entity.kind === "agent") {
+    // The row's own text names the Agent, so the avatar is hidden from screen readers; its live
+    // status, which the dot shows, is read out on its own.
     return (
-      <AgentDisplayAvatar name={entity.name} src={entity.avatarUrl} display={display} size="xs" />
+      <>
+        <span aria-hidden="true" className="shrink-0">
+          <AgentDisplayAvatar
+            name={entity.name}
+            src={entity.avatarUrl}
+            display={display}
+            size="xs"
+          />
+        </span>
+        <span className="sr-only">{agentDisplay(display).label}</span>
+      </>
     );
   }
   const Icon =

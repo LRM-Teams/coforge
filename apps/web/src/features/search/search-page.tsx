@@ -165,12 +165,15 @@ function SearchResults({
   onClear: () => void;
 }) {
   const search = useMessageSearch(workspaceId, query, filters, timeZone);
-  const entities = useSearchEntities(workspaceId, query);
+  const { entities, pending: entitiesPending } = useSearchEntities(workspaceId, query);
   const refreshing = search.isFetching && !search.isFetchingNextPage;
   const hits = search.data?.pages.flatMap((page) => page.results) ?? [];
   const terms = searchTerms(query);
 
-  if (hits.length === 0 && !search.isPending && !search.isError && entities.length === 0) {
+  // Nothing matched only once both the messages and the Workspace lists have loaded.
+  const nothingMatched =
+    hits.length === 0 && !search.isPending && !search.isError && !entitiesPending;
+  if (nothingMatched && entities.length === 0) {
     return (
       <div className="flex min-h-0 flex-1 items-start justify-center px-6 pt-16">
         <Empty>
@@ -198,7 +201,13 @@ function SearchResults({
   return (
     <div className="min-h-0 flex-1 overflow-y-auto" aria-busy={refreshing}>
       {entities.length > 0 && <SearchEntityList entities={entities} />}
-      <MessageResults search={search} hits={hits} terms={terms} />
+      <MessageResults
+        search={search}
+        hits={hits}
+        terms={terms}
+        clearLabel={query ? m.search_clear() : m.search_clear_filters()}
+        onClear={onClear}
+      />
     </div>
   );
 }
@@ -217,8 +226,11 @@ function useMessageSearch(
 }
 
 /** The channels, Computers and Agents the query names; none without a query. */
-function useSearchEntities(workspaceId: string, query: string): SearchEntity[] {
-  const directory = useQuery(searchDirectoryQuery(workspaceId)).data;
+function useSearchEntities(
+  workspaceId: string,
+  query: string,
+): { entities: SearchEntity[]; pending: boolean } {
+  const { data: directory, isPending } = useQuery(searchDirectoryQuery(workspaceId));
   // Built once per directory load; each committed query only filters it.
   const candidates = useMemo<SearchEntity[]>(
     () =>
@@ -237,7 +249,12 @@ function useSearchEntities(workspaceId: string, query: string): SearchEntity[] {
         : [],
     [directory],
   );
-  return useMemo(() => (query ? matchSearchEntities(candidates, query) : []), [candidates, query]);
+  const entities = useMemo(
+    () => (query ? matchSearchEntities(candidates, query) : []),
+    [candidates, query],
+  );
+  // A failed Workspace list only drops this optional section; it is not "no matches".
+  return { entities, pending: Boolean(query) && isPending };
 }
 
 /** The Messages section: loading, failure, its rows and Load more. */
@@ -245,10 +262,15 @@ function MessageResults({
   search,
   hits,
   terms,
+  clearLabel,
+  onClear,
 }: {
   search: ReturnType<typeof useMessageSearch>;
   hits: MessageSearchHit[];
   terms: string[];
+  /** The way out when no message matches: clear the query, or the filters without one. */
+  clearLabel: string;
+  onClear: () => void;
 }) {
   if (search.isPending) {
     return (
@@ -290,7 +312,14 @@ function MessageResults({
           </span>
         )}
       </div>
-      {hits.length === 0 && <p className="text-sm text-tertiary">{m.search_no_messages_match()}</p>}
+      {hits.length === 0 && (
+        <p className="flex flex-wrap items-center gap-x-2 text-sm text-tertiary">
+          {m.search_no_messages_match()}
+          <Button size="sm" color="link-gray" onClick={onClear}>
+            {clearLabel}
+          </Button>
+        </p>
+      )}
       {hits.length > 0 && (
         <ol className="flex flex-col gap-2">
           {hits.map((hit) => (
