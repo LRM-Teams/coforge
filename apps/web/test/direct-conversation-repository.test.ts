@@ -1212,16 +1212,18 @@ describe("PrismaDirectConversationRepository", () => {
           id: "conversation-1",
           workspaceId: "workspace-1",
           channelName: null,
-          members: [
-            {
-              id: "member-agent",
-              agentId: "agent-1",
-              userId: null,
-              agent: { name: "agent-1", description: "" },
-            },
-            { id: "member-user", agentId: null, userId: "user-1" },
-          ],
         }),
+      },
+      conversationMember: {
+        findMany: async () => [
+          {
+            id: "member-agent",
+            agentId: "agent-1",
+            userId: null,
+            agent: { name: "agent-1", description: "" },
+          },
+          { id: "member-user", agentId: null, userId: "user-1" },
+        ],
       },
       $transaction: async (fn: (tx: unknown) => unknown) => fn(tx),
     } as unknown as PrismaClient;
@@ -1279,16 +1281,18 @@ describe("PrismaDirectConversationRepository", () => {
           id: "conversation-1",
           workspaceId: "workspace-1",
           channelName: null,
-          members: [
-            {
-              id: "member-agent",
-              agentId: "agent-1",
-              userId: null,
-              agent: { name: "agent-1", description: "" },
-            },
-            { id: "member-user", agentId: null, userId: "user-1" },
-          ],
         }),
+      },
+      conversationMember: {
+        findMany: async () => [
+          {
+            id: "member-agent",
+            agentId: "agent-1",
+            userId: null,
+            agent: { name: "agent-1", description: "" },
+          },
+          { id: "member-user", agentId: null, userId: "user-1" },
+        ],
       },
       $transaction: async (fn: (tx: unknown) => unknown) => fn(tx),
     } as unknown as PrismaClient;
@@ -1430,16 +1434,18 @@ describe("PrismaDirectConversationRepository", () => {
           id: "conversation-1",
           workspaceId: "workspace-1",
           channelName: null,
-          members: [
-            {
-              id: "member-agent",
-              agentId: "agent-1",
-              userId: null,
-              agent: { name: "agent-1", description: "" },
-            },
-            { id: "member-user", agentId: null, userId: "user-2" },
-          ],
         }),
+      },
+      conversationMember: {
+        findMany: async () => [
+          {
+            id: "member-agent",
+            agentId: "agent-1",
+            userId: null,
+            agent: { name: "agent-1", description: "" },
+          },
+          { id: "member-user", agentId: null, userId: "user-2" },
+        ],
       },
       $transaction: async (fn: (tx: unknown) => unknown) => fn({}),
     } as unknown as PrismaClient;
@@ -1486,19 +1492,19 @@ describe("PrismaDirectConversationRepository", () => {
           id: "conversation-1",
           workspaceId: "workspace-1",
           channelName: null,
-          members: [
-            {
-              id: "member-agent",
-              agentId: "agent-1",
-              userId: null,
-              leftAt: new Date("2026-09-18T09:32:30Z"),
-              agent: { name: "agent-1", description: "" },
-            },
-            { id: "member-user", agentId: null, userId: "user-1", leftAt: null },
-          ],
         }),
       },
       conversationMember: {
+        findMany: async () => [
+          {
+            id: "member-agent",
+            agentId: "agent-1",
+            userId: null,
+            leftAt: new Date("2026-09-18T09:32:30Z"),
+            agent: { name: "agent-1", description: "" },
+          },
+          { id: "member-user", agentId: null, userId: "user-1", leftAt: null },
+        ],
         update: async ({ where, data }: { where: unknown; data: unknown }) => {
           memberUpdates.push({ where, data });
           return {};
@@ -1526,18 +1532,18 @@ describe("PrismaDirectConversationRepository", () => {
           workspaceId: "workspace-1",
           channelName: "team",
           archivedAt: null,
-          members: [
-            {
-              id: "member-agent",
-              agentId: "agent-1",
-              userId: null,
-              leftAt: new Date("2026-09-18T09:32:30Z"),
-              agent: { name: "agent-1", description: "" },
-            },
-          ],
         }),
       },
       conversationMember: {
+        findMany: async () => [
+          {
+            id: "member-agent",
+            agentId: "agent-1",
+            userId: null,
+            leftAt: new Date("2026-09-18T09:32:30Z"),
+            agent: { name: "agent-1", description: "" },
+          },
+        ],
         update: async (input: unknown) => {
           memberUpdates.push(input);
           return {};
@@ -1565,19 +1571,19 @@ describe("PrismaDirectConversationRepository", () => {
           id: "conversation-1",
           workspaceId: "workspace-1",
           channelName: null,
-          members: [
-            {
-              id: "member-agent",
-              agentId: "agent-1",
-              userId: null,
-              leftAt: new Date("2026-09-18T09:32:30Z"),
-              agent: { name: "agent-1", description: "" },
-            },
-            { id: "member-user", agentId: null, userId: "user-1", leftAt: null },
-          ],
         }),
       },
       conversationMember: {
+        findMany: async () => [
+          {
+            id: "member-agent",
+            agentId: "agent-1",
+            userId: null,
+            leftAt: new Date("2026-09-18T09:32:30Z"),
+            agent: { name: "agent-1", description: "" },
+          },
+          { id: "member-user", agentId: null, userId: "user-1", leftAt: null },
+        ],
         update: async (input: unknown) => {
           memberUpdates.push(input);
           return {};

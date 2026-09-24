@@ -1,4 +1,4 @@
-import { VISIBLE_CONVERSATION_WHERE } from "./active-member.server";
+import { ACTIVE_MEMBER_WHERE, VISIBLE_CONVERSATION_WHERE } from "./active-member.server";
 import {
   PG_INTEGER_MAX,
   resolveMentionTargets,
@@ -22,15 +22,59 @@ import {
 export const MAX_THREAD_REFERENCES = 20;
 
 /**
+ * A channel's mention targets for `storeMessageBody`: only its active members the given handles
+ * name (`user.username` or `agent.name`), so a send never reads the roster of #general, which
+ * holds the whole Workspace. Handles resolve to ids through their unique indexes first, so the
+ * member read is by id too, not a join tested against every member of the channel.
+ */
+export async function channelMentionTargets(
+  tx: Pick<Prisma.TransactionClient, "conversationMember" | "user" | "agent">,
+  scope: { workspaceId: string; conversationId: string },
+  handles: readonly string[],
+): Promise<MentionTarget[]> {
+  const [users, agents] = await Promise.all([
+    tx.user.findMany({
+      where: { username: { in: [...handles] } },
+      select: { id: true, username: true },
+    }),
+    tx.agent.findMany({
+      where: { workspaceId: scope.workspaceId, name: { in: [...handles] } },
+      select: { id: true, name: true },
+    }),
+  ]);
+  if (!users.length && !agents.length) return [];
+  const usernames = new Map(users.map((user) => [user.id, user.username]));
+  const agentNames = new Map(agents.map((agent) => [agent.id, agent.name]));
+  const members = await tx.conversationMember.findMany({
+    where: {
+      conversationId: scope.conversationId,
+      ...ACTIVE_MEMBER_WHERE,
+      OR: [{ userId: { in: [...usernames.keys()] } }, { agentId: { in: [...agentNames.keys()] } }],
+    },
+    select: { id: true, userId: true, agentId: true },
+  });
+  return members.map((member) =>
+    member.userId
+      ? { key: member.id, type: "user", id: member.userId, handle: usernames.get(member.userId)! }
+      : {
+          key: member.id,
+          type: "agent",
+          id: member.agentId!,
+          handle: agentNames.get(member.agentId!)!,
+        },
+  );
+}
+
+/**
  * The body a send stores, and the mentions it resolved: every reference the server can resolve
  * becomes its structured token, so no reader ever has to parse prose again. The body is read once
  * (`readMessageReferences`) and its candidates answered here:
  *
  * - `@handle` names one of the conversation's mention `targets` (a DM passes none, so its
  *   `@handle` stays text), with `bindings` — the CLI's `--mention` selectors — first. `targets`
- *   may instead load only the members the body's `@handle` candidates name, so a large channel's
- *   roster is never read to resolve a message that mentions a few members, or none (a caller
- *   with `bindings` passes the whole list, since a binding need not appear in the body);
+ *   may instead load only the members the body's `@handle` candidates and the bindings' names
+ *   name (`channelMentionTargets`), so a large channel's roster is never read to resolve a
+ *   message that mentions a few members, or none;
  * - `task #N`, or a bare `#N`, names a task of this conversation;
  * - `#name` names a channel of this Workspace; a bare `#N` names one only when no task has that
  *   number (see `readMessageReferences` for the full precedence). Every channel is public and readable by every
@@ -69,10 +113,14 @@ export async function storeMessageBody(
   const taskNumbers = references.candidates.taskNumbers.filter(
     (number) => number <= PG_INTEGER_MAX,
   );
+  // A binding need not appear in the body, so the loader is asked for its name as well.
+  const targetHandles = [
+    ...new Set([...handles, ...(mentionScope.bindings ?? []).map((binding) => binding.name)]),
+  ];
   const targets =
     typeof mentionScope.targets === "function"
-      ? handles.length
-        ? await mentionScope.targets(handles)
+      ? targetHandles.length
+        ? await mentionScope.targets(targetHandles)
         : []
       : mentionScope.targets;
   const mentions = resolveMentionTargets(handles, targets, mentionScope.bindings);
