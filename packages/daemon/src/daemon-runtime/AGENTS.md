@@ -31,6 +31,9 @@ Rules for one Workspace child's runtime in `src/daemon-runtime/`. They extend
 - `runtime.ts` routes thread targets to the existing Agent session and
   canonicalizes short channel/DM thread targets. Threads never create sessions
   or processes.
+- A delivery counts as consumed when its sequence is at or below its target's
+  frontier, or when a `read` or `search` already showed that message (kept in
+  memory per launch; an anchored read or a search never moves the frontier).
 - Never launch an exited Agent for a delivery it has already consumed or that
   would not wake a running Agent; ACK it instead.
 - A failed message-triggered launch starts the per-Agent wake cooldown

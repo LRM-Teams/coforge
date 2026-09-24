@@ -3674,6 +3674,10 @@ export class DaemonRuntime {
       },
       agentApiKey,
     );
+    // Whatever a read or search showed the Agent counts as seen, including what an anchored read
+    // or a search showed beyond the contiguous frontier, which neither of them moves.
+    if (result.accepted && (operation === "read" || operation === "search"))
+      this.#messageAttention.recordSeenMessages(agentId, result.messages);
     if (settlesAttention && result.accepted) {
       const visibleSequence = Math.max(
         ...result.messages

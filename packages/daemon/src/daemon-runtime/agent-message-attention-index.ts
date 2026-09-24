@@ -33,6 +33,8 @@ export type MessageAttention = Readonly<{
  * as new, which only costs one extra inbox notice.
  */
 const REMEMBERED_DELIVERIES = 4096;
+/** Out-of-order seen message ids remembered per Agent and target; the oldest go first. */
+const SEEN_MESSAGE_LIMIT = 1024;
 
 /** How many of the newest unreviewed deliveries per target the index keeps for a locally decided
  * freshness hold to show: exactly Raft's `DEFAULT_HELD_CONTEXT_LIMIT` (`HELD_CONTEXT_LIMIT` in
@@ -135,6 +137,10 @@ export class AgentMessageAttentionIndex {
   >();
   readonly #attention = new Map<string, Map<string, MessageAttention>>();
   readonly #modelSeen = new Map<string, Map<string, number>>();
+  /** Messages the Agent was shown one by one, per target, beyond its contiguous frontier: an
+   * anchored `read` or a `search` shows messages without moving `#modelSeen`. Volatile, bounded by
+   * `SEEN_MESSAGE_LIMIT` per target, and dropped with the Agent. */
+  readonly #seenMessageIds = new Map<string, Map<string, Set<string>>>();
   readonly #pendingSequences = new Map<string, Map<string, Set<number>>>();
   /** The newest unreviewed deliveries per Agent and target, with the moment the daemon learned
    * about each. Kept so a locally decided freshness hold can show the Agent the same bounded
@@ -226,7 +232,7 @@ export class AgentMessageAttentionIndex {
     }
     this.#remember(generation, message.deliveryId);
     const target = message.target;
-    if (this.modelSeenSequence(message.agentId, target) >= message.sequence) {
+    if (this.#consumed(message)) {
       await this.sendAck({
         ...message,
         method: AGENT_MESSAGE_ACK_METHOD,
@@ -312,7 +318,7 @@ export class AgentMessageAttentionIndex {
         continue;
       }
       this.#remember(generation, message.deliveryId);
-      if (this.modelSeenSequence(agentId, message.target) >= message.sequence) continue;
+      if (this.#consumed(message)) continue;
       this.#recordAttention(message);
       if (shouldWakeForDelivery(message)) announced.push(message);
     }
@@ -635,10 +641,7 @@ already have been read. A notice you have not acted on does not establish that t
    * durable cursor, so it throws for an Agent id that cursor cannot store. Lets the runtime drop a
    * stale delivery before it wakes an exited Agent for it. */
   hasConsumed(message: AgentMessageDelivery): boolean {
-    return (
-      hasDeliveryScope(message) &&
-      this.modelSeenSequence(message.agentId, message.target) >= message.sequence
-    );
+    return hasDeliveryScope(message) && this.#consumed(message);
   }
 
   /** Whether this well-formed delivery is one that never wakes the Agent (another Agent's channel
@@ -654,6 +657,31 @@ already have been read. A notice you have not acted on does not establish that t
       method: AGENT_MESSAGE_ACK_METHOD,
       requestId: message.requestId,
     });
+  }
+
+  /** Records messages the Agent was shown individually, so a later delivery of any of them is
+   * treated as already consumed even when the contiguous frontier has not reached it. */
+  recordSeenMessages(agentId: string, messages: readonly { target: string; id: string }[]): void {
+    for (const { target, id } of messages) {
+      if (!target || !id) continue;
+      const byTarget = this.#seenMessageIds.get(agentId) ?? new Map<string, Set<string>>();
+      const ids = byTarget.get(target) ?? new Set<string>();
+      ids.delete(id);
+      ids.add(id);
+      if (ids.size > SEEN_MESSAGE_LIMIT) ids.delete(ids.values().next().value!);
+      byTarget.set(target, ids);
+      this.#seenMessageIds.set(agentId, byTarget);
+    }
+  }
+
+  /** Whether the Agent has already been shown this delivery's message: at or below its target's
+   * contiguous frontier, or shown individually. */
+  #consumed(message: AgentMessageDelivery & { target: string }): boolean {
+    return (
+      this.modelSeenSequence(message.agentId, message.target) >= message.sequence ||
+      this.#seenMessageIds.get(message.agentId)?.get(message.target)?.has(message.messageId) ===
+        true
+    );
   }
 
   modelSeenSequence(agentId: string, target: string): number {
@@ -826,6 +854,7 @@ already have been read. A notice you have not acted on does not establish that t
     this.#generations.delete(agentId);
     this.#attention.delete(agentId);
     this.#modelSeen.delete(agentId);
+    this.#seenMessageIds.delete(agentId);
     this.#pendingSequences.delete(agentId);
     this.#pendingWindow.delete(agentId);
     this.#latestKnown.delete(agentId);

@@ -1654,6 +1654,82 @@ describe("DaemonRuntime", () => {
     },
   );
 
+  test.each(["read", "search"] as const)(
+    "a message the Agent was shown by `message %s` beyond its frontier is not announced again when delivered",
+    async (operation) => {
+      const credentials = new InMemoryDaemonCredentialStore();
+      await credentials.save(connection.workspaceId, connection.computerId, "token-a");
+      const notices: string[] = [];
+      const acknowledgements: string[] = [];
+      const runtime = new DaemonRuntime(
+        connection,
+        () => ({
+          provider: "pi",
+          createAgentSession: async () => ({
+            ...sessionSpy(),
+            notify: async (notice) => {
+              notices.push(notice);
+            },
+          }),
+        }),
+        credentials,
+        {
+          create: () => ({
+            async start() {},
+            async ready() {},
+            async stop() {},
+            async requestAgentApiKey() {
+              return `sk_agent_${"a".repeat(43)}`;
+            },
+            async revokeAgentApiKey() {},
+            async sendAgentDeliveryAck(ack) {
+              acknowledgements.push(ack.deliveryId);
+            },
+            agentMessage: async (request) => ({
+              protocolMajor: 1,
+              requestId: request.requestId,
+              accepted: true,
+              attentionCount: 0,
+              messages: [messageRecord(7, "@ada", "@ada")],
+            }),
+          }),
+        },
+      );
+      try {
+        await runtime.start(connection);
+        await runtime.startAgent("agent-a", config);
+        const context = runtime.issueAgentContext("agent-a");
+        // Message 7 is shown on its own: around an anchor, or as a search hit.
+        await runtime.agentMessage(
+          context,
+          operation === "read"
+            ? { requestId: "anchored", context, operation, target: "@ada", around: "12345678" }
+            : { requestId: "search", context, operation, query: "body" },
+          `sk_agent_${"a".repeat(43)}`,
+        );
+
+        await runtime.handleAgentMessage({
+          protocolMajor: 1,
+          requestId: "delivery-7",
+          messageId: "message-7",
+          deliveryId: "delivery-7",
+          sequence: 7,
+          workspaceId: connection.workspaceId,
+          conversationId: "conversation-a",
+          agentId: "agent-a",
+          body: "body-7",
+          method: "agent:v1:message:deliver",
+          target: "@ada",
+        });
+
+        expect(notices).toEqual([]);
+        expect(acknowledgements).toEqual(["delivery-7"]);
+      } finally {
+        await runtime.stop();
+      }
+    },
+  );
+
   test("uses the full target and short-read position when sending to a short thread target", async () => {
     const rootId = "12345678-1234-4234-8234-123456789abc";
     const fullTarget = `@ada:${rootId}`;
