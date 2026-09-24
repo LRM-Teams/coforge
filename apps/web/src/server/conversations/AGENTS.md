@@ -35,6 +35,9 @@ These rules apply to `src/server/conversations/`.
   around-window reads. They are scoped by `conversationId` for both direct
   conversations and public channels; this module owns Conversation-type
   visibility checks and bounded history mapping.
+  Its `browserMessageFields` and `mapBrowserMessage` are the one browser-facing
+  message shape: channel pages and updates, saved messages, search, and the
+  Activity inbox all select and render through them.
 - `message-search.server.ts` owns human message search: a Workspace member
   searches every channel (joined or not, archived too, never one hidden from the
   Workspace) and only their own direct conversations, the same rule as `ConversationHistory.authorize`. Its SQL lives in

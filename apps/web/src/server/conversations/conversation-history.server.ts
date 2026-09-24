@@ -34,7 +34,7 @@ export const browserMessageFields = {
   reactions: MESSAGE_REACTIONS_SELECT,
 } satisfies Prisma.MessageSelect;
 
-const browserRootMessageFields = {
+export const browserRootMessageFields = {
   ...browserMessageFields,
   replies: {
     orderBy: { sequence: "asc" as const },
