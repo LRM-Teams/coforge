@@ -51,7 +51,6 @@ type ActivityCandidate = {
   firstUnreadMessageId: string | null;
   mentioned: boolean;
   unreadMention: boolean;
-  replyCount: number;
   /** A mention the viewer was notified of from outside the channel, until they mark it Done. */
   mentionAction?: { resolutionId: string; threadRootId: string | null };
 };
@@ -244,8 +243,7 @@ export class ActivityInbox {
           unread."count" AS "unreadCount",
           unread."firstId" AS "firstUnreadMessageId",
           mention."any" AS "mentioned",
-          mention."unread" AS "unreadMention",
-          0 AS "replyCount"
+          mention."unread" AS "unreadMention"
         FROM ${conversationItemsSql(workspaceId, userId)}
         CROSS JOIN LATERAL (
           SELECT COUNT(*)::int AS "count",
@@ -279,18 +277,17 @@ export class ActivityInbox {
           replies."unread" AS "unreadCount",
           replies."firstUnreadId" AS "firstUnreadMessageId",
           mention."any" AS "mentioned",
-          mention."unread" AS "unreadMention",
-          replies."count" AS "replyCount"
+          mention."unread" AS "unreadMention"
         FROM ${threadItemsSql(workspaceId, userId)}
+        -- Only the replies past the read cursor: a thread's reply total is read for the page
+        -- it lands on (see hydrate), not for every thread the viewer ever followed.
         CROSS JOIN LATERAL (
-          SELECT
-            COUNT(*) FILTER (WHERE m."senderMemberId" IS NOT NULL)::int AS "count",
-            COUNT(*) FILTER (WHERE ${unreadReplySql})::int AS "unread",
-            (ARRAY_AGG(m."id" ORDER BY m."sequence") FILTER (WHERE ${unreadReplySql}))[1]
-              AS "firstUnreadId"
+          SELECT COUNT(*)::int AS "unread",
+            (ARRAY_AGG(m."id" ORDER BY m."sequence"))[1] AS "firstUnreadId"
           FROM "messages" m
           WHERE m."conversationId" = threads."conversationId"
             AND m."threadRootId" = threads."rootMessageId"
+            AND ${unreadReplySql}
         ) replies
         -- Driven from the thread's own replies past Done, each probing its mention by primary
         -- key: starting from the member's mentions would read all of them once per thread.
@@ -353,12 +350,12 @@ export class ActivityInbox {
       firstUnreadMessageId: row.targetReadAt ? null : row.messageId,
       mentioned: true,
       unreadMention: !row.targetReadAt,
-      replyCount: 0,
       mentionAction: { resolutionId: row.id, threadRootId: row.message.threadRootId },
     }));
   }
 
-  /** Loads the messages, Agents and tasks one page of items renders, in one query each. */
+  /** Loads the messages, Agents, tasks and thread reply totals one page of items renders, in one
+   * query each. */
   private async hydrate(workspaceId: string, page: readonly ActivityCandidate[]) {
     const messageIds = new Set<string>();
     const agentIds = new Set<string>();
@@ -371,7 +368,7 @@ export class ActivityInbox {
       }
       if (candidate.agentId) agentIds.add(candidate.agentId);
     }
-    const [messages, agents, tasks] = await Promise.all([
+    const [messages, agents, tasks, replyCounts] = await Promise.all([
       this.db.message.findMany({
         where: { id: { in: [...messageIds] }, workspaceId },
         select: browserMessageFields,
@@ -394,7 +391,14 @@ export class ActivityInbox {
           },
         },
       }),
+      // A reply total counts people's replies, read or not; a system notice is not a reply.
+      this.db.message.groupBy({
+        by: ["threadRootId"],
+        where: { workspaceId, threadRootId: { in: rootIds }, senderMemberId: { not: null } },
+        _count: { _all: true },
+      }),
     ]);
+    const replyCountByRoot = new Map(replyCounts.map((row) => [row.threadRootId, row._count._all]));
     const messageById = new Map(
       messages.map((message) => [message.id, mapBrowserMessage(message, workspaceId)]),
     );
@@ -447,7 +451,11 @@ export class ActivityInbox {
           // A channel thread is listed because the viewer follows it; a direct-message thread
           // has no follow switch.
           thread: root
-            ? { root, replyCount: candidate.replyCount, task: taskByRoot.get(root.id) ?? null }
+            ? {
+                root,
+                replyCount: replyCountByRoot.get(root.id) ?? 0,
+                task: taskByRoot.get(root.id) ?? null,
+              }
             : null,
           latest,
           latestSequence: candidate.latestSequence,
