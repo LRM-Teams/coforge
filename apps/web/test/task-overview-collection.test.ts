@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { QueryClient } from "@tanstack/react-query";
+import { notifyManager, QueryClient } from "@tanstack/react-query";
 import type { TaskCommand, TaskView } from "@lrm/coforge-sdk/internal";
 
 import {
@@ -151,6 +151,17 @@ test("an announced new Task asks for one read of the list; a deleted Task leaves
   expect(overview.tasks.has("message-1")).toBe(true);
 });
 
+/** Reads the list again and lets it reach the collection: Query hands a read over on a later
+ * tick, so its notifications are delivered at once for the read. */
+async function refetchNow(overview: { tasks: { utils: { refetch: () => Promise<unknown> } } }) {
+  notifyManager.setScheduler((callback) => callback());
+  try {
+    await overview.tasks.utils.refetch();
+  } finally {
+    notifyManager.setScheduler((callback) => setTimeout(callback, 0));
+  }
+}
+
 test("a read whose snapshot predates an announced change does not undo it", async () => {
   // The fake server keeps answering with the old list, as a read taken before the change would.
   const { overview } = await overviewWith(async () => ({ tasks: [] }));
@@ -158,9 +169,7 @@ test("a read whose snapshot predates an announced change does not undo it", asyn
     announced([task(1, { status: "done", revision: 3 })]),
     announced([], ["message-2"]),
   ]);
-  await overview.tasks.utils.refetch();
-  // Query hands the read to the collection on a later tick, not when the refetch promise settles.
-  await new Promise((resolve) => setTimeout(resolve, 20));
+  await refetchNow(overview);
   expect(overview.tasks.get("message-1")).toMatchObject({ status: "done", revision: 3 });
   expect(overview.tasks.has("message-2")).toBe(false);
 });
@@ -172,4 +181,14 @@ test("showing older finished Tasks reads more of them, and every later read keep
   // A later read, as a new Task or a refresh asks for, still lists the older ones.
   await queryClient.invalidateQueries({ queryKey: taskOverviewQuery("w").queryKey });
   expect(finishedReads).toEqual([50, 100, 100]);
+});
+
+test("a Task converted again from a deleted Task's message comes back", async () => {
+  const { overview } = await overviewWith(async () => ({ tasks: [] }));
+  overview.apply([announced([], ["message-2"])]);
+  expect(overview.tasks.has("message-2")).toBe(false);
+  // Its row is gone, so its new copy asks for a read, which no longer leaves it out.
+  expect(overview.apply([announced([task(2, { revision: 7 })])])).toBe(true);
+  await refetchNow(overview);
+  expect(overview.tasks.get("message-2")).toMatchObject({ revision: 7 });
 });
