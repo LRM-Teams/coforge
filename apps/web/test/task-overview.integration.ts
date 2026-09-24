@@ -3,7 +3,7 @@ import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "#src/generated/prisma/client";
 import { TaskBoard } from "#src/server/tasks/task-board.server";
 
-test("TaskBoard overview returns every visible Workspace task without leaking private conversations", async () => {
+test("TaskBoard overview returns every visible Workspace channel task and no direct-message task", async () => {
   const connectionString = Bun.env.TASK_TEST_DATABASE_URL ?? Bun.env.DATABASE_URL;
   if (!connectionString)
     throw new Error("TASK_TEST_DATABASE_URL or DATABASE_URL must point to local PostgreSQL");
@@ -100,10 +100,10 @@ test("TaskBoard overview returns every visible Workspace task without leaking pr
     ]);
 
     const result = await board.overview(workspace.id, alice!.id);
-    expect(result.tasks).toHaveLength(3);
+    // Direct-message Tasks stay on their conversation's Tasks tab, even the viewer's own.
+    expect(result.tasks).toHaveLength(2);
     expect(result.tasks.map(({ title }) => title).sort()).toEqual([
       "Joined public",
-      "Own direct",
       "Unjoined public",
     ]);
     expect(result.tasks.find(({ title }) => title === "Joined public")).toEqual({
@@ -122,21 +122,12 @@ test("TaskBoard overview returns every visible Workspace task without leaking pr
       },
       project: null,
     });
-    expect(result.tasks.find(({ title }) => title === "Own direct")).toEqual({
-      ...ownDmTask.tasks[0],
-      currentMemberId: expect.any(String),
-      source: { channelName: null, agentId: aliceAgent!.id, label: "Alice Agent" },
-      project: null,
-    });
-    const memberIds = await db.conversationMember.findMany({
-      where: { userId: alice!.id, conversationId: { in: [joined.id, ownDm.id] } },
-      select: { id: true, conversationId: true },
+    const joinedMember = await db.conversationMember.findFirst({
+      where: { userId: alice!.id, conversationId: joined.id },
+      select: { id: true },
     });
     expect(result.tasks.find(({ title }) => title === "Joined public")?.currentMemberId).toBe(
-      memberIds.find(({ conversationId }) => conversationId === joined.id)?.id,
-    );
-    expect(result.tasks.find(({ title }) => title === "Own direct")?.currentMemberId).toBe(
-      memberIds.find(({ conversationId }) => conversationId === ownDm.id)?.id,
+      joinedMember?.id,
     );
     expect(joinedTask.tasks[0]!.number).toBe(ownDmTask.tasks[0]!.number);
 
@@ -149,8 +140,9 @@ test("TaskBoard overview returns every visible Workspace task without leaking pr
 });
 
 /**
- * A Workspace with one channel (in a Project), the viewer's direct conversation with an Agent, a
- * channel the viewer has not joined, and a direct conversation the viewer is not part of. Each Task
+ * A Workspace with one channel (in a Project), a joined channel outside any Project, the viewer's
+ * direct conversation with an Agent, a channel the viewer has not joined, and a direct
+ * conversation the viewer is not part of. Each Task
  * is created through the board, then its status and last update are set as the case needs.
  */
 async function finishedWorkFixture() {
@@ -220,6 +212,8 @@ async function finishedWorkFixture() {
   await db.conversationMember.create({
     data: { conversationId: channel.id, workspaceId: workspace.id, userId: peer!.id },
   });
+  // A channel the viewer joined that belongs to no Project.
+  const plain = await conversation({ channelName: `fin-plain-${short}`, userId: viewer!.id });
   const unjoined = await conversation({ channelName: `fin-unjoined-${short}`, userId: peer!.id });
   const ownDm = await conversation({ userId: viewer!.id, agentId: viewerAgent.id });
   const otherDm = await conversation({ userId: peer!.id, agentId: peerAgent.id });
@@ -255,6 +249,7 @@ async function finishedWorkFixture() {
     workspace,
     project,
     channel,
+    plain,
     unjoined,
     ownDm,
     otherDm,
@@ -302,25 +297,19 @@ test("TaskBoard pages the viewer's finished Tasks newest first within the chosen
     const titles = (result: { tasks: { title: string }[] }) =>
       result.tasks.map(({ title }) => title);
 
-    expect(titles(await page("week"))).toEqual([
-      "Done today",
-      "Done in own DM",
-      "Done in unjoined channel",
-    ]);
+    // Direct-message Tasks, the viewer's own included, are not the Tasks page's.
+    expect(titles(await page("week"))).toEqual(["Done today", "Done in unjoined channel"]);
     expect(titles(await page("month"))).toEqual([
       "Done today",
-      "Done in own DM",
       "Done in unjoined channel",
       "Done ten days ago",
     ]);
 
     const first = await page("all", null, 2);
-    expect(titles(first)).toEqual(["Done today", "Done in own DM"]);
+    expect(titles(first)).toEqual(["Done today", "Done in unjoined channel"]);
     expect(first.nextCursor).toEqual(expect.any(String));
-    const second = await page("all", first.nextCursor, 2);
-    expect(titles(second)).toEqual(["Done in unjoined channel", "Done ten days ago"]);
-    const last = await page("all", second.nextCursor, 2);
-    expect(titles(last)).toEqual(["Done two months ago"]);
+    const last = await page("all", first.nextCursor, 2);
+    expect(titles(last)).toEqual(["Done ten days ago", "Done two months ago"]);
     expect(last.nextCursor).toBeNull();
 
     // A page row reads like an overview row, so the board renders both the same way.
@@ -347,7 +336,12 @@ test("TaskBoard filters a finished page by owner and Project like the Tasks page
       ownerUserId: f.peer.id,
     });
     await f.task(f.channel, f.viewer.id, "Nobody's in Launch", { status: "done", daysAgo: 1 });
-    await f.task(f.ownDm, f.viewer.id, "Viewer's without Project", {
+    await f.task(f.plain, f.viewer.id, "Viewer's without Project", {
+      status: "done",
+      ownerUserId: f.viewer.id,
+      daysAgo: 2,
+    });
+    await f.task(f.ownDm, f.viewer.id, "Viewer's in own DM", {
       status: "done",
       ownerUserId: f.viewer.id,
       daysAgo: 2,
@@ -390,7 +384,8 @@ test("TaskBoard summarizes the viewer's finished Tasks in the window by status, 
       daysAgo: 1,
     });
     await f.task(f.channel, f.viewer.id, "C", { status: "done", ownerUserId: f.peer.id });
-    await f.task(f.ownDm, f.viewer.id, "D", { status: "closed", daysAgo: 3 });
+    await f.task(f.plain, f.viewer.id, "D", { status: "closed", daysAgo: 3 });
+    await f.task(f.ownDm, f.viewer.id, "In own DM", { status: "done", ownerUserId: f.viewer.id });
     await f.task(f.channel, f.viewer.id, "Too old", { status: "done", daysAgo: 20 });
     await f.task(f.channel, f.viewer.id, "Open", { status: "todo" });
     await f.task(f.otherDm, f.peer.id, "Hidden", { status: "done" });
@@ -444,6 +439,8 @@ test("TaskBoard pages and summarizes one conversation's finished Tasks for the c
       ).tasks.map(({ title }) => title);
 
     expect(await titles(f.channel.id)).toEqual(["Channel done"]);
+    // A direct message keeps its own Tasks tab, though the Tasks page leaves it out.
+    expect(await titles(f.ownDm.id)).toEqual(["DM done"]);
     // A public channel reads to every Workspace member, joined or not, as its Task list does.
     expect(await titles(f.unjoined.id)).toEqual(["Unjoined done"]);
     const summary = await f.board.finishedSummary(scope(f.channel.id), { window: "week" });
@@ -460,7 +457,7 @@ test("TaskBoard pages and summarizes one conversation's finished Tasks for the c
   }
 });
 
-test("TaskBoard reads one Task as an overview row, finished or not, only where the viewer sees it", async () => {
+test("TaskBoard reads one Task as an overview row, finished or not, only in a channel the viewer sees", async () => {
   const f = await finishedWorkFixture();
   try {
     const done = await f.task(f.channel, f.viewer.id, "Done long ago", {
@@ -468,6 +465,7 @@ test("TaskBoard reads one Task as an overview row, finished or not, only where t
       daysAgo: 90,
     });
     const hidden = await f.task(f.otherDm, f.peer.id, "Someone else's", { status: "todo" });
+    const own = await f.task(f.ownDm, f.viewer.id, "In own DM", { status: "todo" });
     const scope = { workspaceId: f.workspace.id, userId: f.viewer.id };
 
     expect(
@@ -480,6 +478,9 @@ test("TaskBoard reads one Task as an overview row, finished or not, only where t
     });
     expect(
       await f.board.overviewTask(scope, { conversationId: f.otherDm.id, number: hidden.number }),
+    ).toBeNull();
+    expect(
+      await f.board.overviewTask(scope, { conversationId: f.ownDm.id, number: own.number }),
     ).toBeNull();
     expect(
       await f.board.overviewTask(scope, { conversationId: f.channel.id, number: 999 }),

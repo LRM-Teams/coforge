@@ -28,7 +28,7 @@ export type TaskBoardProps = {
   error?: string;
   /** Opens the Task's popup over the board. */
   onOpenTask: (number: number) => void;
-  /** Where a Task just created from the board is shown: its message in the chat. */
+  /** Where a single Task just created from the board is shown: its message in the chat. */
   onOpenMessage: (messageId: string) => void | Promise<void>;
   onCommand: (
     command: Omit<TaskCommand, "idempotencyKey" | "conversationId"> & { number: number },
@@ -36,7 +36,8 @@ export type TaskBoardProps = {
   conversationName?: string;
   /** Who the task popup names as assignees and offers to assign. */
   members?: readonly Mentionable[];
-  onCreateTask?: (title: string, idempotencyKey: string) => Promise<TaskView | void>;
+  /** Creates the Tasks together, in the given order. */
+  onCreateTask?: (titles: string[], idempotencyKey: string) => Promise<TaskView[]>;
   layout?: TaskLayout;
   onLayoutChange?: (layout: TaskLayout) => void;
   /** The conversation header (with its Chat / Tasks / Files tabs) the board sits under. */
@@ -125,9 +126,11 @@ export function TaskBoard({
         <CreateTaskDialog
           open={createOpen}
           onOpenChange={setCreateOpen}
-          onCreate={async (title, idempotencyKey) => {
-            const task = await onCreateTask(title, idempotencyKey);
-            if (task) await onOpenMessage(task.messageId);
+          onCreate={async (titles, idempotencyKey) => {
+            const tasks = await onCreateTask(titles, idempotencyKey);
+            // One new Task opens its message in the chat; several stay on the board, where they
+            // now show in To do.
+            if (tasks.length === 1) await onOpenMessage(tasks[0]!.messageId);
           }}
         />
       )}

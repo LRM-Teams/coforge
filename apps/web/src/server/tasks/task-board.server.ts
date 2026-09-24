@@ -225,30 +225,21 @@ function finishedFilterWhere({ owners = [], projects = [] }: FinishedTaskFilter)
   return where;
 }
 
-/**
- * The conversations whose Tasks the Workspace Tasks page shows the viewer: every visible channel
- * and the viewer's own direct conversations with an Agent.
- */
-function overviewConversationWhere(userId: string): Prisma.ConversationWhereInput {
-  return {
-    // Tasks in a channel hidden from the Workspace leave the overview until it is restored.
-    ...VISIBLE_CONVERSATION_WHERE,
-    OR: [
-      { channelName: { not: null } },
-      {
-        directKey: { not: null },
-        members: { some: { userId, ...ACTIVE_MEMBER_WHERE } },
-        AND: { members: { some: { agentId: { not: null }, ...ACTIVE_MEMBER_WHERE } } },
-      },
-    ],
-  };
-}
-
 /** Which conversations each kind an Agent's own Task list reads is. */
 const CONVERSATION_KIND_WHERE = {
   channel: { channelName: { not: null } },
   dm: { directKey: { not: null } },
 } satisfies Record<TaskConversationKind, Prisma.ConversationWhereInput>;
+
+/**
+ * The conversations whose Tasks the Workspace Tasks page shows: every visible channel. A direct
+ * message's Tasks, the viewer's own included, stay on that conversation's Tasks tab.
+ */
+const OVERVIEW_CONVERSATION_WHERE: Prisma.ConversationWhereInput = {
+  // Tasks in a channel hidden from the Workspace leave the overview until it is restored.
+  ...VISIBLE_CONVERSATION_WHERE,
+  ...CONVERSATION_KIND_WHERE.channel,
+};
 
 /** What an Agent's own Task list reads: every kind, archived channels included. */
 const AGENT_OWN_TASK_READ = {
@@ -417,7 +408,7 @@ export class TaskBoard {
         workspaceId,
         // Finished Tasks only grow; the board pages them through `finishedPage` instead.
         status: { in: UNFINISHED_TASK_STATUSES },
-        conversation: overviewConversationWhere(userId),
+        conversation: OVERVIEW_CONVERSATION_WHERE,
       },
       // Newest first: a group renders its first cards, and new work is what gets looked at.
       orderBy: [{ createdAt: "desc" }, { messageId: "asc" }],
@@ -441,7 +432,7 @@ export class TaskBoard {
         workspaceId,
         conversationId: ref.conversationId,
         number: ref.number,
-        conversation: overviewConversationWhere(userId),
+        conversation: OVERVIEW_CONVERSATION_WHERE,
       },
       select: overviewSelection(userId),
     });
@@ -563,7 +554,7 @@ export class TaskBoard {
     const { workspaceId, userId, conversationId } = scope;
     if (!conversationId) {
       await this.requireWorkspaceMember(workspaceId, userId);
-      return { workspaceId, conversation: overviewConversationWhere(userId) };
+      return { workspaceId, conversation: OVERVIEW_CONVERSATION_WHERE };
     }
     const conversation = await this.scope(
       { workspaceId, userId },

@@ -149,14 +149,14 @@ function ChannelPage() {
         onOpenMessage={openTaskThread}
         onCreateTask={
           conversation.senderMemberId
-            ? async (title, idempotencyKey) => {
-                const [task] = await taskView.command({
+            ? async (titles, idempotencyKey) => {
+                const tasks = await taskView.command({
                   operation: "create",
-                  title,
+                  titles,
                   idempotencyKey,
                 });
                 await page.invalidate();
-                return task;
+                return tasks;
               }
             : undefined
         }

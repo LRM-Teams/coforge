@@ -147,10 +147,10 @@ function DirectConversationPage() {
         error={taskView.error}
         onOpenTask={openTask}
         onOpenMessage={openTaskThread}
-        onCreateTask={async (title, idempotencyKey) => {
-          const [task] = await taskView.command({ operation: "create", title, idempotencyKey });
+        onCreateTask={async (titles, idempotencyKey) => {
+          const tasks = await taskView.command({ operation: "create", titles, idempotencyKey });
           await page.invalidate();
-          return task;
+          return tasks;
         }}
         onCommand={async (command) => {
           await taskView.command(command);
