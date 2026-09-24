@@ -2658,9 +2658,9 @@ export class DaemonRuntime {
       this.#runnerHold === undefined &&
       !this.#agentProcessManager.session(message.agentId) &&
       !this.#agentLaunches.has(message.agentId) &&
-      (await this.#messageAttention.acknowledgeIfSeen(message))
+      this.#messageAttention.hasConsumed(message)
     )
-      return;
+      return this.#messageAttention.acknowledge(message);
     const delivery = this.#enqueueAgentInput(message.agentId, (completion) => ({
       kind: "delivery",
       message,
