@@ -164,7 +164,9 @@ function MentionRow({
           <span className="truncate text-xs text-tertiary">{mention.description}</span>
         )}
       </span>
-      <span className="ml-auto shrink-0 text-xs text-quaternary">@{mention.handle}</span>
+      <span className="ml-auto max-w-[40%] min-w-0 truncate text-xs text-quaternary">
+        @{mention.handle}
+      </span>
     </>
   );
 }
