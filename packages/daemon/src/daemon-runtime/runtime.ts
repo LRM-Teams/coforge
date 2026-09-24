@@ -3674,9 +3674,10 @@ export class DaemonRuntime {
       },
       agentApiKey,
     );
-    // Whatever a read or search showed the Agent counts as seen, including what an anchored read
-    // or a search showed beyond the contiguous frontier, which neither of them moves.
-    if (result.accepted && (operation === "read" || operation === "search"))
+    // Whatever a read showed the Agent counts as seen, including what an anchored read showed
+    // beyond the contiguous frontier, which it does not move. A search does not: it shows a
+    // truncated preview without whether the message mentions the Agent.
+    if (result.accepted && operation === "read")
       this.#messageAttention.recordSeenMessages(agentId, result.messages);
     if (settlesAttention && result.accepted) {
       const visibleSequence = Math.max(
