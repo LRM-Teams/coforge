@@ -5,6 +5,7 @@ import { Monitor01 as Monitor } from "@untitledui/icons";
 import { useSubmitGuard } from "#src/hooks/use-submit-guard";
 import { localizeHref } from "#src/paraglide/runtime";
 import { Button } from "#src/components/base/buttons/button";
+import { Checkbox } from "#src/components/base/checkbox/checkbox";
 import { Dialog, Modal, ModalOverlay } from "#src/components/application/modals/modal";
 import { DialogHeader } from "#src/components/application/modals/dialog-header";
 import { Input } from "#src/components/base/input/input";
@@ -12,7 +13,7 @@ import { Select } from "#src/components/base/select/select";
 import { TextArea } from "#src/components/base/textarea/textarea";
 import { StatusDot } from "#src/components/ui/status-dot";
 import { m } from "#src/paraglide/messages";
-import { AGENT_VISIBILITY, type AgentVisibility } from "./agent-visibility";
+import { AGENT_VISIBILITY } from "./agent-visibility";
 import { agentCreateErrorMessage } from "./agent-form";
 import { AgentRuntimeFields, type RuntimeCatalog } from "./agent-runtime-fields";
 import type { CreateAgentInput } from "./agent.schemas";
@@ -60,7 +61,7 @@ export function AgentCreateDialog({
   const [submitting, guard] = useSubmitGuard();
   const [error, setError] = useState("");
   const [computerId, setComputerId] = useState(defaults?.computerId ?? computers[0]?.id ?? "");
-  const [visibility, setVisibility] = useState<AgentVisibility>(AGENT_VISIBILITY.PUBLIC);
+  const [isPrivate, setIsPrivate] = useState(false);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -85,10 +86,10 @@ export function AgentCreateDialog({
           apiKey: String(form.get("apiKey") ?? "").trim() || undefined,
           computerId: String(form.get("computerId") ?? ""),
           actionCardMessageId,
-          visibility,
+          visibility: isPrivate ? AGENT_VISIBILITY.PRIVATE : AGENT_VISIBILITY.PUBLIC,
         });
         formElement.reset();
-        setVisibility(AGENT_VISIBILITY.PUBLIC);
+        setIsPrivate(false);
         onOpenChange(false);
         onCreated?.(result);
       } catch (cause) {
@@ -187,28 +188,14 @@ export function AgentCreateDialog({
                       catalogs: await onLoadRuntimeCatalog(id),
                     })}
                   />
-                  <div className="grid gap-1.5 sm:col-span-2">
-                    <span className="text-sm font-medium text-secondary">
-                      {m.agent_form_visibility()}
-                    </span>
-                    <Select
-                      aria-label={m.agent_form_visibility()}
-                      isDisabled={visibilityLocked}
-                      selectedKey={visibility}
-                      onSelectionChange={(key) => setVisibility(key as AgentVisibility)}
-                    >
-                      <Select.Item
-                        id={AGENT_VISIBILITY.PUBLIC}
-                        label={m.agent_form_visibility_public()}
-                        supportingText={m.agent_form_visibility_public_hint()}
-                      />
-                      <Select.Item
-                        id={AGENT_VISIBILITY.PRIVATE}
-                        label={m.agent_form_visibility_private()}
-                        supportingText={m.agent_form_visibility_private_hint()}
-                      />
-                    </Select>
-                  </div>
+                  <Checkbox
+                    className="sm:col-span-2"
+                    label={m.agent_form_visibility_private()}
+                    hint={m.agent_form_visibility_private_hint()}
+                    isDisabled={visibilityLocked}
+                    isSelected={isPrivate}
+                    onChange={setIsPrivate}
+                  />
                   {/* A plain alert, not `HintText`: outside a field its "errorMessage" slot is not
                       one the enclosing Dialog offers, and rendering it crashes the page. */}
                   {error && (

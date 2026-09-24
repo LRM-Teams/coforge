@@ -528,22 +528,11 @@ export function AgentProfileTab({
 }
 
 /**
- * Visibility reads as a badge, same as Role; an authorized viewer (creator or
- * Workspace owner/admin) gets a pencil that swaps it for the Select — both directions have real
- * consequences, so picking an option still opens the container's confirmation dialog rather
- * than applying immediately.
+ * Visibility reads as a badge, same as Role; an authorized viewer (creator or Workspace
+ * owner/admin) also gets a "Make private"/"Make public" button next to it. Both directions have
+ * real consequences, so the button opens the container's confirmation dialog rather than
+ * applying immediately.
  */
-/** The visibility the Select's chosen key asks for, or `null` when it asks for the current one —
- * only a real change opens the confirmation dialog. Kept pure so the no-op rule is testable
- * without rendering the Select. */
-export function visibilityChangeTarget(
-  current: AgentVisibility,
-  key: string,
-): AgentVisibility | null {
-  const target = key === "private" ? AGENT_VISIBILITY.PRIVATE : AGENT_VISIBILITY.PUBLIC;
-  return target === current ? null : target;
-}
-
 function VisibilityField({
   visibility,
   onRequest,
@@ -551,43 +540,26 @@ function VisibilityField({
   visibility: AgentVisibility;
   onRequest?: (target: AgentVisibility) => void;
 }) {
-  const [editing, setEditing] = useState(false);
   const isPrivate = visibility === AGENT_VISIBILITY.PRIVATE;
   return (
     <div>
-      <div className="flex items-center gap-1.5">
-        <span className={SUBFIELD_LABEL_CLASS}>{m.agent_profile_visibility()}</span>
-        {onRequest && !editing && (
-          <ButtonUtility
-            size="xs"
-            color="tertiary"
-            icon={Edit01}
-            aria-label={m.agent_profile_edit_visibility()}
-            tooltip={m.agent_profile_edit_visibility()}
-            onClick={() => setEditing(true)}
-          />
-        )}
-      </div>
-      <div className="mt-1">
-        {editing && onRequest ? (
-          <Select
-            aria-label={m.agent_profile_edit_visibility()}
+      <p className={SUBFIELD_LABEL_CLASS}>{m.agent_profile_visibility()}</p>
+      <div className="mt-1 flex items-center gap-3">
+        <Badge color={isPrivate ? "gray" : "brand"} size="sm">
+          {isPrivate ? m.agent_visibility_label_private() : m.agent_visibility_label_public()}
+        </Badge>
+        {onRequest && (
+          <Button
             size="sm"
-            selectedKey={isPrivate ? "private" : "public"}
-            onSelectionChange={(key) => {
-              setEditing(false);
-              const target = visibilityChangeTarget(visibility, String(key));
-              if (target) onRequest(target);
-            }}
-            className="w-36"
+            color="link-gray"
+            onPress={() =>
+              onRequest(isPrivate ? AGENT_VISIBILITY.PUBLIC : AGENT_VISIBILITY.PRIVATE)
+            }
           >
-            <Select.Item id="public" label={m.agent_visibility_label_public()} />
-            <Select.Item id="private" label={m.agent_visibility_label_private()} />
-          </Select>
-        ) : (
-          <Badge color={isPrivate ? "gray" : "brand"} size="sm">
-            {isPrivate ? m.agent_visibility_label_private() : m.agent_visibility_label_public()}
-          </Badge>
+            {isPrivate
+              ? m.agent_visibility_confirm_public_submit()
+              : m.agent_visibility_confirm_private_submit()}
+          </Button>
         )}
       </div>
     </div>
