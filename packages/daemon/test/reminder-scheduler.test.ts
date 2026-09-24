@@ -831,13 +831,14 @@ test("a reminder that fired late says so and when it was due", () => {
   );
 });
 
-test("the wake learns whether the cloud fired the occurrence late", async () => {
+test("a wake on time is not late, even when the cloud calls the fire a catch-up", async () => {
   const clock = new Clock();
   const store = new MemoryStore();
-  const wakes: Array<{ catchup: boolean }> = [];
+  const wakes: Array<{ late: boolean }> = [];
   const scheduler = new ReminderScheduler(
     { workspaceId: "workspace-a", computerId: "computer-a" },
     store,
+    // The cloud marks any fire after the due instant as a catch-up, even by a millisecond.
     async (request) => ({ ...request, result: "accepted", fired: true, catchup: true }),
     async (_job, occurrence) => {
       wakes.push(occurrence);
@@ -848,5 +849,27 @@ test("the wake learns whether the cloud fired the occurrence late", async () => 
   await scheduler.apply(snapshot([job]));
   await clock.advance(1000);
   await scheduler.awaitIdle();
-  expect(wakes).toEqual([{ catchup: true }]);
+  expect(wakes).toEqual([{ late: false }]);
+});
+
+test("a wake more than a minute after the due time is late", async () => {
+  const clock = new Clock();
+  const store = new MemoryStore();
+  const wakes: Array<{ late: boolean }> = [];
+  const scheduler = new ReminderScheduler(
+    { workspaceId: "workspace-a", computerId: "computer-a" },
+    store,
+    async (request) => ({ ...request, result: "accepted", fired: true, catchup: true }),
+    async (_job, occurrence) => {
+      wakes.push(occurrence);
+      return true;
+    },
+    clock,
+  );
+  // The daemon was offline at the due time and learns about the reminder two hours later.
+  clock.time = Date.parse(job.fireAt) + 2 * 60 * 60_000;
+  await scheduler.apply(snapshot([job]));
+  await clock.advance(0);
+  await scheduler.awaitIdle();
+  expect(wakes).toEqual([{ late: true }]);
 });

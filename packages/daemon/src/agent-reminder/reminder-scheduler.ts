@@ -11,6 +11,8 @@ const logger = getLogger(["coforge", "daemon", "reminder"]);
 const MAX_TIMER_MS = 24 * 60 * 60_000;
 const RETRY_BUDGET_MS = 15 * 60_000;
 const MAX_ATTEMPTS = 8;
+/** How far past its due time a wake has to reach the Agent before the reminder is called late. */
+const LATE_AFTER_MS = 60_000;
 export const RETRY_EXHAUSTED_CODE = "REMINDER_DELIVERY_RETRY_EXHAUSTED";
 
 /** Projects canonical reminder text into the strict, bounded App Inbox preview. */
@@ -28,10 +30,11 @@ export function reminderAppInboxPreview(title: string): string {
   return preview;
 }
 
-/** The App Inbox summary of a due reminder. One the cloud fired late (the daemon was offline at its
- * time) says so and names when it was due, so the Agent can judge whether it still applies. */
-export function reminderAppInboxSummary(job: ReminderJob, catchup: boolean): string {
-  if (!catchup) return "Reminder due";
+/** The App Inbox summary of a due reminder. One that reached the Agent late (the daemon was offline
+ * at its time, or delivery kept failing) says so and names when it was due, so the Agent can judge
+ * whether it still applies. */
+export function reminderAppInboxSummary(job: ReminderJob, late: boolean): string {
+  if (!late) return "Reminder due";
   return `Overdue: was due ${new Date(job.fireAt).toISOString()}, delivered late`;
 }
 
@@ -122,7 +125,7 @@ export class ReminderScheduler {
     private readonly scope: { workspaceId: string; computerId: string },
     private readonly store: ReminderReceiptStore,
     private readonly fire: (request: ReminderFireRequest) => Promise<ReminderFireResponse>,
-    private readonly wake: (job: ReminderJob, occurrence: { catchup: boolean }) => Promise<boolean>,
+    private readonly wake: (job: ReminderJob, occurrence: { late: boolean }) => Promise<boolean>,
     private readonly clock: ReminderClock = defaultClock,
   ) {}
 
@@ -451,7 +454,10 @@ export class ReminderScheduler {
   async #runWake(key: string, receipt: ReminderReceipt, generation: number): Promise<void> {
     let accepted = false;
     try {
-      accepted = await this.wake(receipt.job, { catchup: receipt.serverCatchup === true });
+      // Measured here rather than taken from the cloud's `catchup`, which calls any fire after the
+      // due instant a catch-up, including an on-time one that merely took a round trip.
+      const late = this.clock.now() - Date.parse(receipt.job.fireAt) > LATE_AFTER_MS;
+      accepted = await this.wake(receipt.job, { late });
     } catch (error) {
       this.#lastFailures.set(key, error);
       logger.error("Reminder wake failed", {

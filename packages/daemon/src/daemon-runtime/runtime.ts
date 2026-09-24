@@ -632,7 +632,7 @@ export class DaemonRuntime {
         if (!this.#transport.fireReminder) throw new Error("reminder fire is unavailable");
         return this.#transport.fireReminder(request);
       },
-      (job, occurrence) => this.#acceptReminderDue(job, occurrence.catchup),
+      (job, occurrence) => this.#acceptReminderDue(job, occurrence.late),
     );
     const state = new AgentRuntimeState(
       // Control state lives only in this process: the server
@@ -4056,7 +4056,7 @@ export class DaemonRuntime {
     );
   }
 
-  async #acceptReminderDue(job: ReminderJob, catchup: boolean): Promise<boolean> {
+  async #acceptReminderDue(job: ReminderJob, late: boolean): Promise<boolean> {
     const item = await (
       await this.#appInbox(job.ownerAgentId)
     ).upsert({
@@ -4064,7 +4064,7 @@ export class DaemonRuntime {
       notificationClass: "due",
       sourceRef: { kind: "reminder", id: job.reminderId, revision: String(job.version) },
       title: reminderAppInboxPreview(job.title),
-      summary: reminderAppInboxSummary(job, catchup),
+      summary: reminderAppInboxSummary(job, late),
     });
     return this.#notifyAppItem(job.ownerAgentId, item.itemId);
   }

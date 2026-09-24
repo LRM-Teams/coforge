@@ -6888,6 +6888,84 @@ describe("DaemonRuntime", () => {
     }
   });
 
+  test("a reminder that reaches the Agent hours after its due time says it is overdue", async () => {
+    const stateDirectory = join(tempRoot, `coforge-reminder-late-${crypto.randomUUID()}`);
+    const credentials = new InMemoryDaemonCredentialStore();
+    await credentials.save(connection.workspaceId, connection.computerId, "token-a");
+    const notified = Promise.withResolvers<void>();
+    let receiveReminder!: (sync: import("@lrm/coforge-sdk/internal").ReminderSync) => void;
+    const dueAt = new Date(Date.now() - 2 * 60 * 60_000).toISOString();
+    const runtime = new DaemonRuntime(
+      connection,
+      () => ({
+        provider: "pi",
+        async createAgentSession() {
+          return { ...sessionSpy(), notify: async () => notified.resolve() };
+        },
+      }),
+      credentials,
+      {
+        create: () => ({
+          async start() {},
+          async ready() {},
+          async stop() {},
+          onReminderSync(callback) {
+            receiveReminder = callback;
+            return () => undefined;
+          },
+          async fireReminder(request) {
+            return { ...request, result: "accepted", fired: true, catchup: true } as const;
+          },
+          async requestAgentLaunchConfig() {
+            return agentLaunchConfig(`sk_agent_${"a".repeat(43)}`);
+          },
+          async revokeAgentApiKey() {},
+        }),
+      },
+      undefined,
+      emptyCodeAgentDiscovery,
+      stateDirectory,
+    );
+    try {
+      await runtime.start(connection);
+      await runtime.startAgent("agent-a", config);
+      // The Computer was asleep at the due time; the reminder only reaches the daemon now.
+      receiveReminder({
+        protocolMajor: 1,
+        requestId: "reminder-snapshot",
+        workspaceId: connection.workspaceId,
+        computerId: connection.computerId,
+        agentId: "agent-a",
+        operation: "snapshot",
+        messageType: "coforge.rpc.v1.ReminderSync",
+        jobs: [
+          {
+            reminderId: "123e4567-e89b-42d3-a456-426614174000",
+            ownerAgentId: "agent-a",
+            version: 1,
+            title: "Check the build",
+            target: "@frank",
+            messageId: "123e4567-e89b-42d3-a456-426614174001",
+            fireAt: dueAt,
+          },
+        ],
+      });
+      await notified.promise;
+
+      const context = runtime.issueAgentContext("agent-a");
+      const inbox = await runtime.inbox(context, {
+        requestId: "check-reminder",
+        context,
+        operation: "check",
+      });
+      const app = inbox.entries[0]?.kind === "app" ? inbox.entries[0].app : undefined;
+      expect(app?.summary).toBe(`Overdue: was due ${dueAt}, delivered late`);
+    } finally {
+      await runtime.stop();
+      await rm(stateDirectory, { recursive: true, force: true });
+    }
+  });
+
   test("projects a long multiline reminder title into the App Inbox without changing its occurrence", async () => {
     const stateDirectory = join(tempRoot, `coforge-reminder-preview-${crypto.randomUUID()}`);
     const credentials = new InMemoryDaemonCredentialStore();
@@ -6963,6 +7041,8 @@ describe("DaemonRuntime", () => {
       expect(app?.title).not.toMatch(/[\r\n\t]/);
       expect(app?.title).toStartWith("检查 ");
       expect(app?.title).toEndWith("😀");
+      // Due a second ago: on time, whatever the cloud calls the fire.
+      expect(app?.summary).toBe("Reminder due");
 
       const acknowledgement = await runtime.reminder(
         context,
