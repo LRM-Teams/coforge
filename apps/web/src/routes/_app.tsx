@@ -91,7 +91,7 @@ function AppLayout() {
               workspaceId={currentWorkspace?.id}
             />
             <AppShell
-              user={{ name: user.name, email: user.email, avatarUrl: user.avatarUrl }}
+              user={{ id: user.id, name: user.name, email: user.email, avatarUrl: user.avatarUrl }}
               workspaces={workspaces}
               currentWorkspace={currentWorkspace}
               recordsPreview={recordsPreview}

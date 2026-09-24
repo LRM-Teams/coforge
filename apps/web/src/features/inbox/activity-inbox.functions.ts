@@ -37,3 +37,11 @@ export const markActivityInboxRead = createServerFn({ method: "POST" })
       before: new Date(data.before),
     });
   });
+
+/** The viewer's unread-activity count for the nav rail's Activity dot. */
+export const loadActivityNavAttention = createServerFn({ method: "GET" })
+  .middleware([workspaceUserMiddleware])
+  .handler(async ({ context }) => {
+    const { db, workspaceId, user } = context;
+    return new ActivityInbox(db).navAttention(workspaceId, user.id);
+  });

@@ -42,11 +42,6 @@ import {
   setPublicChannelThreadFollowed,
 } from "#src/features/conversations/channels.functions";
 import {
-  decodeMessageAvailableEvent,
-  userConversationChannel,
-  workspaceConversationChannel,
-} from "#src/features/conversations/conversation-realtime";
-import {
   markDirectConversationRead,
   markDirectThreadRead,
 } from "#src/features/conversations/conversations.functions";
@@ -55,16 +50,12 @@ import {
   useRefreshSidebarLists,
   useSidebarActions,
 } from "#src/features/conversations/sidebar-lists";
-import { useRealtimeSubscription } from "#src/features/realtime/browser-realtime";
-import {
-  getUserConversationSubscriptionToken,
-  getWorkspaceConversationSubscriptionToken,
-} from "#src/features/realtime/realtime.functions";
 import { TASK_STATUS_COLOR } from "#src/features/tasks/task-workflow";
 import { cn } from "#src/lib/utils";
 import { m } from "#src/paraglide/messages";
 import type { ActivityInboxItem } from "#src/server/inbox/activity-inbox.server";
 import { markActivityInboxRead, markActivityItemDone } from "./activity-inbox.functions";
+import { useActivityInboxRealtime } from "./use-activity-inbox-realtime";
 import {
   ACTIVITY_INBOX_QUERY_PREFIX,
   activityInboxQuery,
@@ -73,9 +64,6 @@ import {
 import type { ActivityInboxFilter } from "./activity-inbox.schemas";
 
 const appRoute = getRouteApi("/_app");
-
-/** A burst of messages (an Agent posting several in a row) refreshes the list once. */
-const REFRESH_DELAY_MS = 300;
 
 /**
  * The Activity page: the viewer's channels, direct messages and followed threads with activity
@@ -253,52 +241,6 @@ function ActivityInboxLoadMore({
       ) : null}
     </div>
   );
-}
-
-/**
- * Refreshes the list when a message lands anywhere the viewer can see: the Workspace channel
- * carries every channel message and thread reply, the viewer's own channel their direct
- * messages. Both subscriptions share the Chat sidebar's, so this opens nothing new.
- */
-function useActivityInboxRealtime({
-  workspaceId,
-  userId,
-  onActivity,
-}: {
-  workspaceId: string;
-  userId: string;
-  onActivity: () => void;
-}) {
-  const getWorkspaceToken = useServerFn(getWorkspaceConversationSubscriptionToken);
-  const getUserToken = useServerFn(getUserConversationSubscriptionToken);
-  const onActivityRef = useRef(onActivity);
-  useEffect(() => {
-    onActivityRef.current = onActivity;
-  }, [onActivity]);
-  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  useEffect(() => () => clearTimeout(timer.current), []);
-
-  const onPublication = useCallback((publication: { data: unknown }) => {
-    try {
-      decodeMessageAvailableEvent(publication.data);
-    } catch {
-      // Not a message signal (the channels also carry other events).
-      return;
-    }
-    clearTimeout(timer.current);
-    timer.current = setTimeout(() => onActivityRef.current(), REFRESH_DELAY_MS);
-  }, []);
-
-  useRealtimeSubscription({
-    channel: workspaceId ? workspaceConversationChannel(workspaceId) : undefined,
-    getToken: workspaceId ? getWorkspaceToken : undefined,
-    onPublication,
-  });
-  useRealtimeSubscription({
-    channel: userConversationChannel(userId),
-    getToken: getUserToken,
-    onPublication,
-  });
 }
 
 type ActivityItemActions = ReturnType<typeof useActivityItemActions>;

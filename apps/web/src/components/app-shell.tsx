@@ -1,5 +1,6 @@
-import { useCallback, useEffect, type FC } from "react";
+import { useCallback, useEffect, type FC, type ReactNode } from "react";
 import { useRouter, useRouterState } from "@tanstack/react-router";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Activity,
   ChevronSelectorVertical,
@@ -27,6 +28,11 @@ import {
   recordsNavHref,
 } from "#src/features/records/records-last-path";
 import {
+  ACTIVITY_INBOX_QUERY_PREFIX,
+  activityNavAttentionQuery,
+} from "#src/features/inbox/activity-inbox-queries";
+import { useActivityInboxRealtime } from "#src/features/inbox/use-activity-inbox-realtime";
+import {
   WorkspaceSwitcher,
   type WorkspaceOption,
 } from "#src/features/workspaces/workspace-switcher";
@@ -35,14 +41,37 @@ import { m } from "#src/paraglide/messages";
 import { localizeHref } from "#src/paraglide/runtime";
 
 export type AppUser = {
+  id: string;
   name: string;
   email: string;
   avatarUrl?: string | null;
 };
 
+/** Whether the viewer has unread activity anywhere — the nav Activity dot. Shares the inbox's
+ * query prefix (an Activity page refresh also re-reads it) and re-reads on the same realtime
+ * message signals the Activity page listens to, so a new message moves it without navigation. */
+function useActivityAttention(user: AppUser, workspaceId?: string) {
+  const queryClient = useQueryClient();
+  const refresh = useCallback(
+    () =>
+      queryClient.invalidateQueries({
+        queryKey: [...ACTIVITY_INBOX_QUERY_PREFIX, "nav-attention"],
+      }),
+    [queryClient],
+  );
+  useActivityInboxRealtime({
+    workspaceId: workspaceId ?? "",
+    userId: user.id,
+    onActivity: refresh,
+  });
+  const query = useQuery(activityNavAttentionQuery());
+  return (query.data?.unread ?? 0) > 0;
+}
+
 function useNavItems(
   recordsPreview = false,
   workspaceId?: string,
+  activityDot?: ReactNode,
 ): (NavItemType & { icon: FC<{ className?: string }>; bareHref: string })[] {
   const recordsDot = recordsPreview ? (
     <span className="ml-auto size-1.5 shrink-0 rounded-full bg-brand-solid" />
@@ -66,6 +95,7 @@ function useNavItems(
       bareHref: "/activity",
       href: localizeHref("/activity"),
       icon: Activity,
+      badge: activityDot,
     },
     {
       label: m.projects_title(),
@@ -147,7 +177,14 @@ export function AppShell({
     const search = !searchStr ? "" : searchStr.startsWith("?") ? searchStr : `?${searchStr}`;
     rememberRecordsLastPath(workspaceId, `${pathname}${search}`);
   }, [workspaceId, pathname, searchStr]);
-  const navItems = useNavItems(recordsPreview, workspaceId);
+  const hasActivityAttention = useActivityAttention(user, workspaceId);
+  const navItems = useNavItems(
+    recordsPreview,
+    workspaceId,
+    hasActivityAttention ? (
+      <span className="ml-auto size-1.5 shrink-0 rounded-full bg-brand-solid" />
+    ) : undefined,
+  );
   const activeUrl = navItems.find(
     (item) => pathname === item.bareHref || pathname.startsWith(`${item.bareHref}/`),
   )?.href;

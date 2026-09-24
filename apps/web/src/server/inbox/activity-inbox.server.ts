@@ -132,6 +132,16 @@ export class ActivityInbox {
   }
 
   /**
+   * The viewer's total unread activity count, without listing items — what the nav rail's Activity
+   * dot reads. Same candidates the inbox lists, so Done and read move it exactly like the page.
+   */
+  async navAttention(workspaceId: string, userId: string) {
+    await this.authorize(workspaceId, userId);
+    const candidates = await this.candidates(workspaceId, userId);
+    return { unread: candidates.reduce((sum, candidate) => sum + candidate.unreadCount, 0) };
+  }
+
+  /**
    * Reads every joined conversation and every thread the inbox lists, through the newest message
    * posted at or before `before` (the list's `loadedAt`), in one transaction. Items stay listed;
    * only Done removes them.
