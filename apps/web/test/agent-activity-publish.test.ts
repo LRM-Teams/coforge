@@ -1,7 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import { decodeAgentActivity, encodeAgentActivity } from "@lrm/coforge-sdk/internal";
 
-import { handleAgentActivityPublication } from "#src/server/agents/agent-activity-publish.server";
+import {
+  handleAgentActivityPublication,
+  publicationAgentLookups,
+} from "#src/server/agents/agent-activity-publish.server";
+import type { PrismaClient } from "#src/generated/prisma/client";
 
 const activity = {
   protocolMajor: 1,
@@ -617,6 +621,96 @@ describe("Agent activity publication", () => {
           observed.push(value);
         },
       });
+      expect(await response.json()).toEqual({
+        error: { code: 403, message: "activity publication is not authorized" },
+      });
+      expect(observed).toHaveLength(0);
+    });
+  });
+
+  // Every daemon Activity frame (heartbeats and text fragments included) passes through here, so
+  // the Agent-side checks — Workspace, Computer, visibility and launch fence — must share one read
+  // of the Agent row per publication instead of each reading the row again.
+  describe("Agent lookups", () => {
+    function agentTable(row: Record<string, unknown> | null) {
+      const reads: unknown[] = [];
+      const db = {
+        agent: {
+          findUnique: async (query: unknown) => {
+            reads.push(query);
+            return row;
+          },
+        },
+      } as unknown as PrismaClient;
+      return { db, reads };
+    }
+
+    const storedAgent = {
+      workspaceId: "workspace-1",
+      computerId: "computer-1",
+      visibility: "public",
+      runtimeSession: {
+        computerId: "computer-1",
+        daemonInstanceId: "daemon-1",
+        launchId: "launch-1",
+      },
+    };
+
+    test("authorize, route and fence one publication from a single Agent read", async () => {
+      const { db, reads } = agentTable(storedAgent);
+      const fences: unknown[] = [];
+      const response = await handleAgentActivityPublication(request(), {
+        proxySecret: "test-secret",
+        computerBelongsToWorkspace: async () => true,
+        ...publicationAgentLookups(db),
+        observe: async () => {},
+        display: {
+          observeActivity: async (_activity, fence) => {
+            fences.push(fence);
+            return undefined;
+          },
+        },
+      });
+
+      expect((await response.json()).result.skip_history).toBe(true);
+      expect(fences).toEqual([{ daemonInstanceId: "daemon-1", launchId: "launch-1" }]);
+      expect(reads).toHaveLength(1);
+    });
+
+    test("route a private Agent's frame from the same read", async () => {
+      const { db, reads } = agentTable({ ...storedAgent, visibility: "private" });
+      const published: string[] = [];
+      const response = await handleAgentActivityPublication(request(), {
+        proxySecret: "test-secret",
+        computerBelongsToWorkspace: async () => true,
+        ...publicationAgentLookups(db),
+        observe: async () => {},
+        publish: async (channel) => {
+          published.push(channel);
+        },
+      });
+
+      expect((await response.json()).error.code).toBe(1000);
+      expect(published).toEqual(["agent:activity:workspace-1:agent-1"]);
+      expect(reads).toHaveLength(1);
+    });
+
+    test.each([
+      ["another Workspace", { ...storedAgent, workspaceId: "workspace-2" }],
+      ["another Computer", { ...storedAgent, computerId: "computer-2" }],
+      ["no row", null],
+    ])("reject an Agent with %s", async (_label, row) => {
+      const { db } = agentTable(row);
+      const observed: unknown[] = [];
+      const response = await handleAgentActivityPublication(request(), {
+        proxySecret: "test-secret",
+        computerBelongsToWorkspace: async () => true,
+        ...publicationAgentLookups(db),
+        observe: async (value) => {
+          observed.push(value);
+        },
+      });
+
       expect(await response.json()).toEqual({
         error: { code: 403, message: "activity publication is not authorized" },
       });
