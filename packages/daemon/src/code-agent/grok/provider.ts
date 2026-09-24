@@ -10,6 +10,8 @@ import { agentEnvironment } from "#src/code-agent/environment";
 import { discoverExternalCodeAgents } from "#src/code-agent/runtime-inventory";
 import { GrokTurnProcess, type GrokTurnResult } from "./turn-process";
 import { assertGrokVersionSupported } from "./version";
+import { readGrokUsage } from "./usage";
+import type { UsageSnapshot } from "@coforge/agent";
 
 /**
  * Grok Build (`grok`, xAI) is a per-turn provider, the same shape as OpenCode's (ADR 0058):
@@ -43,6 +45,13 @@ export class GrokProvider implements CodeAgentProvider {
         RUNTIME_PROVIDER.GROK,
       )
     )[0];
+  }
+
+  async readUsage(options: { workingDirectory: string; timeoutMs?: number }): Promise<UsageSnapshot | null> {
+    return readGrokUsage(options.workingDirectory, {
+      command: this.#command,
+      timeoutMs: options.timeoutMs,
+    });
   }
 
   async createAgentSession(options: AgentSessionOptions): Promise<AgentSession> {
