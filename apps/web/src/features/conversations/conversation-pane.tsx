@@ -537,9 +537,14 @@ export function ConversationPane({
     if (!anchor || !history) return;
     historyScrollAnchorRef.current = undefined;
     if (anchor.rowId) {
-      const row = history.querySelector<HTMLElement>(
-        `li[data-message-id="${CSS.escape(anchor.rowId)}"]`,
-      );
+      // A folded system group is one row for all its notices, and its row id is its first notice:
+      // a page that extends the group backwards gives it a new first notice. The group that still
+      // holds the anchored notice is the same row the reader was looking at. The row itself comes
+      // first: an open group also lists the notice its own row shows.
+      const id = CSS.escape(anchor.rowId);
+      const row =
+        history.querySelector<HTMLElement>(`li[data-message-id="${id}"]`) ??
+        history.querySelector<HTMLElement>(`li[data-system-group-members~="${id}"]`);
       if (row) {
         const containerTop = history.getBoundingClientRect().top;
         const delta = row.getBoundingClientRect().top - (containerTop + anchor.offset);
@@ -692,6 +697,10 @@ export function ConversationPane({
       // The first row that is not entirely above the container's top edge is the one the reader
       // is looking at; the ones before it are already scrolled off.
       if (rect.bottom <= containerTop) continue;
+      // An open system group's rows follow it in document order and anchor more precisely: a page
+      // that extends the group backwards grows it above them, so only they keep their place.
+      if (row.dataset.systemGroup !== undefined && row.querySelector("li[data-message-id]"))
+        continue;
       rowId = row.dataset.messageId;
       offset = rect.top - containerTop;
       break;
