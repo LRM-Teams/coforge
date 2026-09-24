@@ -72,7 +72,10 @@ These rules apply to `src/features/conversations/`.
   "+" the add view, both in place of the settings, with Back. The page and the
   panel's Members strip read one `channelMembersQueryKey` query; a write
   updates or invalidates it rather than keeping its own copy. Removing a
-  member confirms in a dialog: no toast, no browser `confirm()`.
+  member confirms in a dialog: no toast, no browser `confirm()`. The add
+  view's last row creates a public Agent (for a Workspace owner or admin, per
+  the server's `canCreateAgents`) and then adds it. A join that fails offers
+  a retry and disables the entry, so the Agent is not created twice.
 - The header gear opens `channel-settings-panel.tsx`, the one place for a
   channel's info (name, description), the viewer's preferences (pin, mute)
   and its actions (archive, leave, stopping every Agent in it and resuming

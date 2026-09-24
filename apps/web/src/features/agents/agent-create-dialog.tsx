@@ -7,7 +7,6 @@ import { localizeHref } from "#src/paraglide/runtime";
 import { Button } from "#src/components/base/buttons/button";
 import { Dialog, Modal, ModalOverlay } from "#src/components/application/modals/modal";
 import { DialogHeader } from "#src/components/application/modals/dialog-header";
-import { HintText } from "#src/components/base/input/hint-text";
 import { Input } from "#src/components/base/input/input";
 import { Select } from "#src/components/base/select/select";
 import { TextArea } from "#src/components/base/textarea/textarea";
@@ -28,7 +27,9 @@ export type AgentCreateComputerOption = {
 
 /** The Agent-create form, shared by the Members page ("New agent") and an `agent:create`
  * action card's commit button. `defaults` prefills the form;
- * `computerLocked` mirrors a card's `requiredComputer` by disabling the Computer selector. */
+ * `computerLocked` mirrors a card's `requiredComputer` by disabling the Computer selector;
+ * `visibilityLocked` keeps the Agent public, for a caller that adds it to a channel, and
+ * `joinsChannelName` says which channel that is. `nameNote` explains a prefilled name. */
 export function AgentCreateDialog({
   open,
   onOpenChange,
@@ -37,6 +38,9 @@ export function AgentCreateDialog({
   onLoadRuntimeCatalog,
   defaults,
   computerLocked = false,
+  visibilityLocked = false,
+  joinsChannelName,
+  nameNote,
   actionCardMessageId,
   onCreated,
 }: {
@@ -47,6 +51,9 @@ export function AgentCreateDialog({
   onLoadRuntimeCatalog: (computerId: string) => Promise<RuntimeCatalog[]>;
   defaults?: { name?: string; description?: string; computerId?: string };
   computerLocked?: boolean;
+  visibilityLocked?: boolean;
+  joinsChannelName?: string;
+  nameNote?: string;
   actionCardMessageId?: string;
   onCreated?: (result: { startPublished: boolean }) => void;
 }) {
@@ -109,6 +116,11 @@ export function AgentCreateDialog({
                   className="px-4 pt-4 sm:px-6 sm:pt-6"
                 />
                 <div className="grid gap-3 px-4 py-4 sm:grid-cols-2 sm:gap-4 sm:px-6 sm:py-6">
+                  {joinsChannelName && (
+                    <p className="text-sm text-secondary sm:col-span-2">
+                      {m.agent_form_joins_channel({ channel: joinsChannelName })}
+                    </p>
+                  )}
                   <Select
                     name="computerId"
                     isRequired
@@ -148,7 +160,11 @@ export function AgentCreateDialog({
                     defaultValue={defaults?.name}
                     pattern="[a-z0-9]+(?:-[a-z0-9]+)*"
                     placeholder="release-fix"
-                    hint={m.agent_form_username_hint()}
+                    hint={
+                      nameNote
+                        ? `${m.agent_form_username_hint()} ${nameNote}`
+                        : m.agent_form_username_hint()
+                    }
                     className="min-w-0 sm:col-span-2"
                   />
                   <TextArea
@@ -177,6 +193,7 @@ export function AgentCreateDialog({
                     </span>
                     <Select
                       aria-label={m.agent_form_visibility()}
+                      isDisabled={visibilityLocked}
                       selectedKey={visibility}
                       onSelectionChange={(key) => setVisibility(key as AgentVisibility)}
                     >
@@ -192,10 +209,12 @@ export function AgentCreateDialog({
                       />
                     </Select>
                   </div>
+                  {/* A plain alert, not `HintText`: outside a field its "errorMessage" slot is not
+                      one the enclosing Dialog offers, and rendering it crashes the page. */}
                   {error && (
-                    <HintText isInvalid role="alert" className="sm:col-span-2">
+                    <p role="alert" className="text-sm text-error-primary sm:col-span-2">
                       {error}
-                    </HintText>
+                    </p>
                   )}
                 </div>
                 <div className="grid grid-cols-2 gap-3 border-t border-secondary px-4 py-3 sm:flex sm:justify-end sm:px-6 sm:py-4">

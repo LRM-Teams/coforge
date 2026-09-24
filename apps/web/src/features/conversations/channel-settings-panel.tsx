@@ -154,6 +154,7 @@ export function ChannelSettingsPanel({
                   channelId={channelId}
                   channelName={conversation.name}
                   viewerHandle={conversation.viewerHandle}
+                  canCreateAgents={conversation.canCreateAgents}
                   view={membersView}
                   onViewChange={setMembersView}
                   onOpenAgentProfile={

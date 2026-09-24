@@ -16,7 +16,10 @@ import {
   canDeleteChannel,
   canHideGeneralChannel,
 } from "./channel-authority.server";
-import { assertCanManageWorkspaceSettings } from "#src/server/workspaces/member-role.server";
+import {
+  assertCanManageWorkspaceSettings,
+  canCreateAgents,
+} from "#src/server/workspaces/member-role.server";
 import { ACTIVE_AGENT_WHERE } from "#src/server/agents/active-agent.server";
 import { AgentInboxPurgePublisher } from "#src/server/agents/agent-inbox-purge.server";
 import { channelThreadRootWhere } from "#src/server/db/message-anchor.server";
@@ -1654,6 +1657,8 @@ export class PublicChannels {
       // Only a Workspace owner or admin hides #general (`setGeneralHidden`), whatever their role in it.
       canHideGeneral: canHideGeneralChannel(channel.channelName!, authority.serverRole),
       canDelete: canDeleteChannel(channel.channelName!, authority.serverRole),
+      // The add view's "Create a new Agent" (`ManageAgents.create`'s rule).
+      canCreateAgents: canCreateAgents(authority.serverRole),
       // Any member of a live channel stops its Agents (`ChannelAgentControl.stopAll`).
       canStopAgents: authority.isActiveMember && channel.archivedAt === null,
       // The viewer's conversation-level read cursor over top-level messages:

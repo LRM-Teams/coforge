@@ -46,6 +46,8 @@ export type ChannelConversationView = Omit<DirectConversationView, "agent" | "me
   canHideGeneral: boolean;
   /** Whether this viewer, a Workspace owner or admin, may delete this channel (never #general). */
   canDelete: boolean;
+  /** Whether this viewer, a Workspace owner or admin, may create an Agent while adding members. */
+  canCreateAgents: boolean;
   /** Whether this viewer, a member of this unarchived channel, may stop every Agent in it. */
   canStopAgents: boolean;
   followedThreadRootIds?: string[];
