@@ -14,7 +14,10 @@ import {
   resolveActorServerRole,
   resolveChannelAuthority,
 } from "./channel-authority.server";
-import { assertCanManageWorkspaceSettings } from "#src/server/workspaces/member-role.server";
+import {
+  assertCanManageWorkspaceSettings,
+  isElevatedServerRole,
+} from "#src/server/workspaces/member-role.server";
 import { ACTIVE_AGENT_WHERE } from "#src/server/agents/active-agent.server";
 import { AgentInboxPurgePublisher } from "#src/server/agents/agent-inbox-purge.server";
 import { channelThreadRootWhere } from "#src/server/db/message-anchor.server";
@@ -1552,6 +1555,9 @@ export class PublicChannels {
       muted: member?.channelMuted ?? false,
       pinned: Boolean(member?.pins.length),
       channelCapabilities: authority.capabilities,
+      // Only a Workspace owner or admin hides #general (`setGeneralHidden`), whatever their role in it.
+      canHideGeneral:
+        channel.channelName === "general" && isElevatedServerRole(authority.serverRole),
       // The viewer's conversation-level read cursor over top-level messages:
       // the client positions the initial view at the first unread message and draws the
       // divider there. Undefined for a non-member (nothing is "unread for them").

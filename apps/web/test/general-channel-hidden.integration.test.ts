@@ -156,7 +156,10 @@ test.skipIf(!connectionString)(
           ),
         );
 
-      // Only a Workspace owner or admin hides it.
+      // Only a Workspace owner or admin hides it, and only they are offered to.
+      expect((await channels.open(workspace.id, owner.id, general.id)).canHideGeneral).toBe(true);
+      expect((await channels.open(workspace.id, bob.id, general.id)).canHideGeneral).toBe(false);
+      expect((await channels.open(workspace.id, owner.id, team.id)).canHideGeneral).toBe(false);
       expect(await errorOf(channels.setGeneralHidden(workspace.id, bob.id, true))).toBe(
         "ACCESS_DENIED",
       );

@@ -43,6 +43,11 @@ import {
 import { isAppError } from "#src/lib/app-error";
 import type { TimeFormat } from "#src/lib/time-format";
 import { m } from "#src/paraglide/messages";
+import {
+  loadGeneralChannelHidden,
+  setGeneralChannelHidden,
+} from "#src/features/conversations/channels.functions";
+import { useRefreshSidebarChannels } from "#src/features/conversations/sidebar-lists";
 
 type Theme = "system" | "light" | "dark";
 
@@ -52,6 +57,7 @@ const settingsSections = [
   "account",
   "language-region",
   "members",
+  "system-channels",
   "preferences",
   "notifications",
   "integrations",
@@ -65,13 +71,15 @@ export const Route = createFileRoute("/_app/settings")({
     github: z.enum(["connected", "error", "wrong_account"]).optional().catch(undefined),
   }),
   loader: async () => {
-    const [preferences, members, incomingInvitations] = await Promise.all([
+    const [preferences, members, incomingInvitations, generalChannel] = await Promise.all([
       getUserPreferences(),
       loadWorkspaceMembers(),
       loadMyWorkspaceInvitations(),
+      loadGeneralChannelHidden(),
     ]);
     return {
       ...preferences,
+      generalChannelHidden: generalChannel?.hidden ?? null,
       members: {
         actorUserId: members.actorUserId,
         actorRole: members.actorRole,
@@ -103,6 +111,7 @@ function SettingsPage() {
     timeFormat: savedTimeFormat,
     conversationOpenMode: savedOpenMode,
     members,
+    generalChannelHidden,
   } = Route.useLoaderData();
   const { user: profile, notifications } = appRoute.useLoaderData();
   const [notificationPermission, setNotificationPermission] = useState<
@@ -115,6 +124,8 @@ function SettingsPage() {
   const subscribePush = useServerFn(subscribeBrowserPush);
   const sendTestNotification = useServerFn(sendTestBrowserNotification);
   const saveProfile = useServerFn(saveUserProfile);
+  const saveGeneralChannelHidden = useServerFn(setGeneralChannelHidden);
+  const refreshSidebarChannels = useRefreshSidebarChannels();
   const router = useRouter();
   const queryClient = useQueryClient();
   const toast = useAppToast();
@@ -183,6 +194,14 @@ function SettingsPage() {
     setTheme(nextTheme);
     localStorage.setItem("coforge-theme", nextTheme);
     applyTheme(nextTheme);
+  }
+
+  // Hiding #general changes the sidebar's channel list too; its realtime signal also refreshes
+  // other open pages.
+  async function changeGeneralChannelHidden(hidden: boolean) {
+    await saveGeneralChannelHidden({ data: { hidden } });
+    void refreshSidebarChannels();
+    await router.invalidate({ sync: true });
   }
 
   async function changeDateTime(input: { timeZone: string | null; timeFormat: TimeFormat | null }) {
@@ -322,6 +341,8 @@ function SettingsPage() {
       onBrowserNotificationsChange={changeBrowserNotifications}
       onEnableBrowserNotifications={enableBrowserNotifications}
       onTestBrowserNotification={testBrowserNotification}
+      generalChannelHidden={generalChannelHidden}
+      onGeneralChannelHiddenSave={changeGeneralChannelHidden}
     />
   );
 }

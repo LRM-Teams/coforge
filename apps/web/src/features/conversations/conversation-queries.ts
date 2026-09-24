@@ -8,6 +8,7 @@ import {
   type QueryClient,
 } from "@tanstack/react-query";
 
+import { isAppError } from "#src/lib/app-error";
 import { mergeMessages } from "./conversation-messages";
 import { createConversationReconciler } from "./conversation-reconciliation";
 import { useConversationRealtime } from "./conversation-realtime-client";
@@ -181,6 +182,12 @@ export async function ensureConversationWindow<
  * (polls, realtime, the user's own sends, an "around" jump) is written into the cache with
  * setQueryData, so every reader of the key sees the same conversation.
  */
+/** The conversation no longer exists for this viewer, such as a channel hidden from the
+ * Workspace: its page leaves for Chat instead of showing a load failure. */
+export function isConversationGone(error: unknown) {
+  return isAppError(error) && error.code === "NOT_FOUND";
+}
+
 export function useConversationQuery<M extends PageMessage, T extends ConversationPage<M>>({
   query,
   loadInitialPage,
@@ -195,8 +202,15 @@ export function useConversationQuery<M extends PageMessage, T extends Conversati
   onRealtime?: () => Promise<unknown>;
 }) {
   const queryClient = useQueryClient();
-  const { data, hasPreviousPage, hasNextPage, fetchPreviousPage, fetchNextPage } =
+  const { data, error, hasPreviousPage, hasNextPage, fetchPreviousPage, fetchNextPage } =
     useSuspenseInfiniteQuery(query);
+  // A refetch that finds the conversation gone (a channel hidden from the Workspace) keeps the
+  // stale pages; hand the error to the route's error view, which leaves for Chat. The cached
+  // pages and error go too, so opening it again later (after a restore) fetches afresh.
+  if (isConversationGone(error)) {
+    queryClient.removeQueries({ queryKey: query.queryKey, exact: true });
+    throw error;
+  }
   const latestPage = data.pages.at(-1)!;
   const conversationId = latestPage.conversationId;
 
@@ -331,8 +345,8 @@ export function useConversationQuery<M extends PageMessage, T extends Conversati
         }),
         queryClient.invalidateQueries({ queryKey: channelMembersQueryKey(conversationId) }),
       ]).catch(() => {}),
-    // The channel was renamed, described, archived or unarchived elsewhere: refetch the page,
-    // which carries those facts. Inert for DMs.
+    // The channel was renamed, described, archived, unarchived or hidden elsewhere: refetch the
+    // page, which carries those facts. Inert for DMs.
     () => void queryClient.invalidateQueries({ queryKey: query.queryKey }).catch(() => {}),
   );
 
