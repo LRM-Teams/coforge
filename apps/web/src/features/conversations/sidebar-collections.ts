@@ -162,8 +162,6 @@ export function createSidebar(
     }),
   );
 
-  const rowOf = (target: PinRef): SidebarFields | undefined =>
-    target.kind === "channel" ? channels.get(target.channelId) : directs.get(target.agentId);
   /** Changes one row on screen; a row that has left the list meanwhile is left alone. */
   const edit = (target: PinRef, change: (row: SidebarFields) => void) => {
     if (target.kind === "channel") {
@@ -182,8 +180,11 @@ export function createSidebar(
     for (const mutation of transaction.mutations) {
       try {
         write(mutation);
-      } catch {
-        // The row is no longer in the synced list: the next read shows the list as it is.
+      } catch (error) {
+        // The row is no longer in the synced list: the next read shows the list as it is. The
+        // error class is not exported by @tanstack/query-db-collection, so it is known by name.
+        if (!(error instanceof Error && error.name === "UpdateOperationItemNotFoundError"))
+          throw error;
       }
     }
   };
@@ -257,23 +258,29 @@ export function createSidebar(
         });
     },
     mutationFn: async (arrangement, { transaction }) => {
-      const save = arranging.then(() => api.arrange(arrangement));
-      arranging = save.catch(() => undefined);
-      await save;
+      await saveArrangement(arrangement);
       confirm(transaction);
     },
   });
+  function saveArrangement(arrangement: Arrangement) {
+    const save = arranging.then(() => api.arrange(arrangement));
+    arranging = save.catch(() => undefined);
+    return save;
+  }
 
-  const persisted = (transaction: Transaction) => transaction.isPersisted.promise.then(() => {});
+  /** Settles when the change is saved. A change with nothing to show first (the lists have not
+   * loaded on this page, the row has left them, or it already shows the change) makes an empty
+   * transaction, which TanStack DB never saves: that one goes straight to the server. */
+  const saved = (transaction: Transaction, save: () => Promise<unknown>) =>
+    (transaction.mutations.length > 0 ? transaction.isPersisted.promise : save()).then(() => {});
   const actions = {
-    setPinned: (target: PinRef, pinned: boolean) => persisted(pin({ target, pinned })),
-    // A row already showing unread has nothing to change on screen, but the mark is still saved.
+    setPinned: (target: PinRef, pinned: boolean) =>
+      saved(pin({ target, pinned }), () => api.pin(target, pinned)),
     markUnread: (target: PinRef) =>
-      (rowOf(target)?.unreadCount ?? 0) > 0
-        ? api.markUnread(target).then(() => reread(target))
-        : persisted(markUnreadAtOnce(target)),
-    close: (target: PinRef) => persisted(close(target)),
-    arrange: (arrangement: Arrangement) => persisted(arrange(arrangement)),
+      saved(markUnreadAtOnce(target), () => api.markUnread(target).then(() => reread(target))),
+    close: (target: PinRef) => saved(close(target), () => api.close(target)),
+    arrange: (arrangement: Arrangement) =>
+      saved(arrange(arrangement), () => saveArrangement(arrangement)),
   };
   return { channels, directs, actions };
 }
