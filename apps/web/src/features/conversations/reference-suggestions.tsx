@@ -63,11 +63,12 @@ export function ReferenceSuggestionList({
   // Keep the highlighted row visible while arrowing past the popup's own scroll window.
   useEffect(() => {
     const option = activeOptionRef.current;
-    // The first row of a titled group brings its title along.
+    // The first row of a titled group brings its title along: the title first, then the row, so
+    // a group taller than the list never pushes the row itself out of view.
     const group = option?.closest<HTMLElement>("[role=group]");
-    (group?.querySelector("[role=option]") === option ? group : option)?.scrollIntoView({
-      block: "nearest",
-    });
+    if (group?.querySelector("[role=option]") === option)
+      group?.firstElementChild?.scrollIntoView({ block: "nearest" });
+    option?.scrollIntoView({ block: "nearest" });
   }, [activeIndex]);
 
   const renderOption = ({ item, index }: { item: ReferenceSuggestion; index: number }) => {
