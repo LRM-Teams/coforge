@@ -1187,6 +1187,17 @@ export function RecordSidePanel({
                     (row.authorType === "user" && (row.body === "确认" || row.body === "不是"))
                   );
                 });
+              const offerResolved =
+                payload?.kind === "offer-send" &&
+                (!sendOfferActive ||
+                  (commentIndex >= 0 &&
+                    comments.slice(commentIndex + 1).some((row) => {
+                      const later = payloadOf(row);
+                      return (
+                        later?.kind === "offer-send" ||
+                        (row.authorType === "assistant" && row.body.includes("已取消本周周报"))
+                      );
+                    })));
               return (
                 <article key={item.id} className="space-y-2">
                   <div className="flex items-center gap-2">
@@ -1208,41 +1219,32 @@ export function RecordSidePanel({
                   {payload?.kind === "offer-send" ? (
                     <div className="space-y-3">
                       <AssistantAttachmentCard payload={payload} />
-                      {sendOfferActive &&
-                      !comments.slice(commentIndex + 1).some((row) => {
-                        const later = payloadOf(row);
-                        return (
-                          later?.kind === "offer-send" ||
-                          (row.authorType === "assistant" && row.body.includes("已取消本周周报"))
-                        );
-                      }) ? (
-                        <div className="space-y-2">
-                          <div className="flex flex-wrap gap-2">
-                            <Button
-                              size="sm"
-                              color="primary"
-                              className={RECORDS_PRIMARY_BUTTON_CLASSNAME}
-                              isDisabled={busy}
-                              onPress={() => onRequestSend?.()}
-                            >
-                              {m.records_assistant_confirm_send()}
-                            </Button>
-                            <Button
-                              size="sm"
-                              color="secondary"
-                              isDisabled={busy}
-                              onPress={() => void onDismissWeekSend()}
-                            >
-                              {m.records_assistant_cancel_week()}
-                            </Button>
-                          </div>
-                          {countdown ? (
-                            <p className="text-xs text-tertiary">
-                              {m.records_assistant_auto_send_in({ countdown })}
-                            </p>
-                          ) : null}
+                      <div className={`space-y-2 ${offerResolved ? "opacity-60" : ""}`}>
+                        <div className="flex flex-wrap gap-2">
+                          <Button
+                            size="sm"
+                            color="primary"
+                            className={RECORDS_PRIMARY_BUTTON_CLASSNAME}
+                            isDisabled={busy || offerResolved}
+                            onPress={() => onRequestSend?.()}
+                          >
+                            {m.records_assistant_confirm_send()}
+                          </Button>
+                          <Button
+                            size="sm"
+                            color="secondary"
+                            isDisabled={busy || offerResolved}
+                            onPress={() => void onDismissWeekSend()}
+                          >
+                            {m.records_assistant_cancel_week()}
+                          </Button>
                         </div>
-                      ) : null}
+                        {countdown && !offerResolved ? (
+                          <p className="text-xs text-tertiary">
+                            {m.records_assistant_auto_send_in({ countdown })}
+                          </p>
+                        ) : null}
+                      </div>
                     </div>
                   ) : null}
                   {payload?.kind === "offer-help-generate" && !generateHelpConsumed ? (
