@@ -3,6 +3,7 @@ import {
   conversationRealtimeChannel,
   userConversationChannel,
   workspaceConversationChannel,
+  type ChannelUpdatedEvent,
   type MessageAvailableEvent,
   type MemberChangedEvent,
 } from "#src/features/conversations/conversation-realtime";
@@ -60,6 +61,9 @@ export type ConversationRealtime = {
   messageAvailable(input: ConversationRealtimeMessage & { publicationId?: string }): Promise<void>;
   /** A push telling each named channel's open pages that its member list is stale. */
   memberChanged(input: { workspaceId: string; conversationIds: readonly string[] }): Promise<void>;
+  /** A push telling the Workspace's sidebars and the channel's open pages that its name,
+   * description or archived state changed. Optional: a port without it announces nothing. */
+  channelUpdated?(input: { workspaceId: string; conversationId: string }): Promise<void>;
 };
 
 export class CentrifugoConversationRealtime implements ConversationRealtime {
@@ -81,6 +85,23 @@ export class CentrifugoConversationRealtime implements ConversationRealtime {
         );
       }),
     );
+  }
+
+  async channelUpdated(input: { workspaceId: string; conversationId: string }) {
+    const event: ChannelUpdatedEvent = { type: "channel.updated.v1", ...input };
+    const idempotencyKey = crypto.randomUUID();
+    await Promise.all([
+      this.centrifugo.publishJson(
+        workspaceConversationChannel(input.workspaceId),
+        event,
+        idempotencyKey,
+      ),
+      this.centrifugo.publishJson(
+        conversationRealtimeChannel(input.conversationId),
+        event,
+        idempotencyKey,
+      ),
+    ]);
   }
 
   async messageAvailable(input: ConversationRealtimeMessage & { publicationId?: string }) {
@@ -140,6 +161,31 @@ export async function announceMemberChanged(
         event: "conversation_realtime:member_changed_failed",
         workspace_id: input.workspaceId,
         conversation_count: input.conversationIds.length,
+        error_type: error instanceof Error ? error.name : typeof error,
+      }),
+    );
+  }
+}
+
+/**
+ * Tells every open sidebar of the Workspace, and the channel's open pages, that the channel was
+ * renamed, described, archived or unarchived, once the write has committed — the way Slack sends
+ * `channel_rename`/`channel_archive` to every connection of a workspace and Discord sends
+ * `CHANNEL_UPDATE`. Best effort like `announceMemberChanged`: a page that misses it catches up on
+ * its next load or focus.
+ */
+export async function announceChannelUpdated(
+  realtime: Pick<ConversationRealtime, "channelUpdated"> | undefined,
+  input: { workspaceId: string; conversationId: string },
+): Promise<void> {
+  try {
+    const port = realtime ?? new CentrifugoConversationRealtime(createCentrifugoServerApi());
+    await port.channelUpdated?.(input);
+  } catch (error) {
+    console.warn(
+      JSON.stringify({
+        event: "conversation_realtime:channel_updated_failed",
+        workspace_id: input.workspaceId,
         error_type: error instanceof Error ? error.name : typeof error,
       }),
     );

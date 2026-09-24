@@ -354,5 +354,65 @@
   "conversation_saved_empty_title": "No saved messages yet",
   "conversation_saved_empty_description": "Save a message by selecting its bookmark icon.",
   "conversation_saved_copy_link": "Copy link",
-  "conversation_saved_link_copied": "Link copied"
+  "conversation_saved_link_copied": "Link copied",
+  "activity_inbox_active": [
+    {
+      "declarations": ["input count", "local countPlural = count: plural"],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=one": "{count} active",
+        "countPlural=other": "{count} active"
+      }
+    }
+  ],
+  "activity_inbox_unread": [
+    {
+      "declarations": ["input count", "local countPlural = count: plural"],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=one": "{count} unread",
+        "countPlural=other": "{count} unread"
+      }
+    }
+  ],
+  "activity_inbox_filter_label": "Filter Activity",
+  "activity_inbox_filter_all": "All",
+  "activity_inbox_filter_unread": "Unread",
+  "activity_inbox_filter_mentions": "Mentions",
+  "activity_inbox_mark_all_read": "Mark all read",
+  "activity_inbox_mark_read": "Mark as Read",
+  "activity_inbox_done": "Mark as Done",
+  "activity_inbox_menu_done": "Done",
+  "activity_inbox_menu_label": "Activity item actions",
+  "activity_inbox_action_error": "That change could not be saved. Try again.",
+  "activity_inbox_replies": [
+    {
+      "declarations": ["input count", "local countPlural = count: plural"],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=one": "{count} reply",
+        "countPlural=other": "{count} replies"
+      }
+    }
+  ],
+  "activity_inbox_new": [
+    {
+      "declarations": ["input count", "local countPlural = count: plural"],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=one": "{count} new",
+        "countPlural=other": "{count} new"
+      }
+    }
+  ],
+  "activity_inbox_mention_badge": "you",
+  "activity_inbox_system_sender": "System",
+  "activity_inbox_empty_title": "Activity is empty",
+  "activity_inbox_empty_description": "Channels, DMs, and followed threads stay here until they are done.",
+  "activity_inbox_empty_unread_title": "No unread chats",
+  "activity_inbox_empty_mentions_title": "No mentions yet",
+  "activity_inbox_empty_mentions_description": "Channels, DMs, and threads where someone @mentions you will appear here.",
+  "activity_inbox_load_error": "Activity could not be loaded.",
+  "activity_inbox_retry": "Try again",
+  "activity_inbox_loading_more": "Loading more…"
 }

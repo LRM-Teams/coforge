@@ -59,7 +59,7 @@ const TASK_MEMBER_SELECT = {
   userId: true,
   agentId: true,
   user: { select: { username: true, displayName: true, avatarObjectKey: true } },
-  agent: { select: { name: true, displayName: true } },
+  agent: { select: { name: true, displayName: true, deletedAt: true } },
 } satisfies Prisma.ConversationMemberSelect;
 
 const taskSelection = {
@@ -184,6 +184,9 @@ function taskMember(
       id: member.agentId!,
       name: member.agent.displayName || member.agent.name,
       handle: member.agent.name,
+      // A deleted Agent keeps the Tasks it holds so history stays readable; the marker says so
+      // rather than letting the card read as if the holder were still live.
+      deleted: member.agent.deletedAt !== null,
     };
   const user = member.user!;
   return {

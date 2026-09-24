@@ -173,6 +173,21 @@ export function useSidebarLists() {
   };
 }
 
+/**
+ * Re-reads the channel list, and only it, after something outside the sidebar changed a channel:
+ * a rename, description or archive (here or signalled from another page), or the viewer's own
+ * leave or mute. The collection follows the refetched Query data.
+ */
+export function useRefreshSidebarChannels() {
+  const queryClient = useQueryClient();
+  const workspaceId = useCurrentWorkspaceId() ?? "";
+  return useMemo(
+    () => () =>
+      queryClient.invalidateQueries({ queryKey: sidebarChannelsQuery(workspaceId).queryKey }),
+    [queryClient, workspaceId],
+  );
+}
+
 /** A sidebar row a change is about: a channel by id, a DM by its Agent. */
 export type SidebarTarget = { kind: "channel"; id: string } | { kind: "direct"; agentId: string };
 

@@ -99,6 +99,28 @@ describe("subscribeToConversationRealtime", () => {
     expect(reconciled).toBe(0);
   });
 
+  test("a rename or archive of this channel refreshes the open page, not its messages", () => {
+    const { client, publish } = fakeClient();
+    let channelUpdates = 0;
+    let reconciled = 0;
+    subscribeToConversationRealtime(client, {
+      conversationId: "conversation-a",
+      getToken: async () => "token",
+      reconcile: () => {
+        reconciled += 1;
+      },
+      onChannelUpdated: () => {
+        channelUpdates += 1;
+      },
+    });
+
+    publish({ type: "channel.updated.v1", conversationId: "conversation-a", workspaceId: "w" });
+    publish({ type: "channel.updated.v1", conversationId: "conversation-b", workspaceId: "w" });
+
+    expect(channelUpdates).toBe(1);
+    expect(reconciled).toBe(0);
+  });
+
   test("a subscribe that could not replay publications refreshes the member list as well as messages", () => {
     const { client, subscribed } = fakeClient();
     let memberChanges = 0;

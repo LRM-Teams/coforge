@@ -89,7 +89,9 @@ live in nested `AGENTS.md` files listed at the end.
   state unless the dialog must be deep-linkable or browser-history addressable.
 - When a mutation changes loader data, await it, then call
   `router.invalidate({ sync: true })` if the next UI step needs fresh data.
-  Chat sidebar changes are TanStack DB optimistic actions instead.
+  Chat sidebar changes are TanStack DB optimistic actions instead, and a
+  change made outside the sidebar re-reads its list (see
+  `src/features/conversations/AGENTS.md`).
 - Preserve TanStack Router inference. Do not add casts or unnecessary type
   annotations to route params, search, loader data, or navigation options.
 - Keep feature modules out of the shared layout unless they are genuinely
@@ -131,6 +133,7 @@ responsibility.
   message rendering, action cards, saved messages, and the sidebar lists.
 - `features/device-auth/` — device-code verification page.
 - `features/errors/` — page-level load-error view.
+- `features/inbox/` — the Activity page: conversations and threads not yet marked Done.
 - `features/install/` — Computer install command text.
 - `features/integrations/` — Settings → Integrations GitHub view and functions.
 - `features/landing/` — the public homepage.
@@ -160,6 +163,7 @@ responsibility.
 - `server/files/` — file storage, delivery, and uploaded-image validation.
 - `server/http/`, `server/install/`, `server/observability/` — public origin,
   install scripts, and tracing.
+- `server/inbox/` — the Activity inbox read model and its Done and read-all writes.
 - `server/integrations/` — GitHub connection, configuration, and webhooks.
 - `server/notifications/` — Web Push and in-page notification delivery.
 - `server/profiles/` — user avatars.

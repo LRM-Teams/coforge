@@ -5,7 +5,8 @@ export const conversationRealtimeChannel = (conversationId: string) => `chat:${c
  * versioned `message.available.v1` payloads as `chat:<conversationId>`, but
  * one subscription per open Workspace keeps the sidebar unread counts live
  * without holding a per-conversation subscription for every channel in the
- * list. Authorization mirrors the status/activity workspace channels: the
+ * list. It also carries `channel.updated.v1`, so the sidebar re-reads a renamed
+ * or archived channel. Authorization mirrors the status/activity workspace channels: the
  * subscription token is issued only to Workspace members.
  */
 export const workspaceConversationChannel = (workspaceId: string) =>
@@ -142,4 +143,35 @@ export function decodeMemberChangedEvent(value: unknown): MemberChangedEvent {
   )
     throw new Error("invalid conversation event");
   return { type, conversationId, ...(workspaceId ? { workspaceId } : {}) };
+}
+
+/**
+ * A channel's own facts changed: its name, description, or archived state. Published on the
+ * Workspace channel, so every member's sidebar re-reads its channel list, and on the channel's own
+ * conversation channel, so a page showing it refetches its header and composer state. Like the
+ * other signals it carries no payload beyond the ids; the client reloads what it shows.
+ */
+export type ChannelUpdatedEvent = {
+  type: "channel.updated.v1";
+  conversationId: string;
+  workspaceId: string;
+};
+
+export function decodeChannelUpdatedEvent(value: unknown): ChannelUpdatedEvent {
+  if (value instanceof Uint8Array)
+    return decodeChannelUpdatedEvent(JSON.parse(new TextDecoder().decode(value)) as unknown);
+  if (!value || typeof value !== "object" || Array.isArray(value))
+    throw new Error("invalid conversation event");
+  const type = Reflect.get(value, "type");
+  const conversationId = Reflect.get(value, "conversationId");
+  const workspaceId = Reflect.get(value, "workspaceId");
+  if (
+    type !== "channel.updated.v1" ||
+    typeof conversationId !== "string" ||
+    !conversationId ||
+    typeof workspaceId !== "string" ||
+    !workspaceId
+  )
+    throw new Error("invalid conversation event");
+  return { type, conversationId, workspaceId };
 }

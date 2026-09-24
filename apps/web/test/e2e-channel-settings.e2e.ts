@@ -73,7 +73,8 @@ test("the channel settings panel edits info, preferences, archive and membership
       where: { userId: DEV_BROWSER_USER.id },
     });
     const workspaceId = membership.workspaceId;
-    // Reset: the viewer created the channel (so is its admin), it is live, unpinned and unmuted.
+    // Reset: the viewer created the channel (so is its admin), it is live, unpinned and unmuted,
+    // and closed in their sidebar, so it is opened by URL and pinned from the panel alone.
     await db.conversation.deleteMany({
       where: { workspaceId, channelName: renamed, NOT: { id: channelId } },
     });
@@ -84,12 +85,13 @@ test("the channel settings panel edits info, preferences, archive and membership
     });
     await db.conversationMember.upsert({
       where: { conversationId_userId: { conversationId: channelId, userId: DEV_BROWSER_USER.id } },
-      update: { leftAt: null, channelRole: "admin", channelMuted: false, hiddenAt: null },
+      update: { leftAt: null, channelRole: "admin", channelMuted: false, hiddenAt: new Date() },
       create: {
         conversationId: channelId,
         workspaceId,
         userId: DEV_BROWSER_USER.id,
         channelRole: "admin",
+        hiddenAt: new Date(),
       },
     });
     await db.conversationPin.deleteMany({ where: { conversationId: channelId } });

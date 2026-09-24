@@ -34,9 +34,11 @@ export const AGENT_DELIVERY_MODE: Readonly<Record<RuntimeProvider, AgentDelivery
 /**
  * Daemon-owned per-Agent delivery queue. Decides, per Agent, whether a delivery must
  * be held rather than reaching `AgentSession.notify()` right now, and holds it until it can be
- * released. `daemon-runtime/agent-message-attention-index.ts` is the only caller that currently
- * consults it (via the `shouldHold`/`enqueue` seam passed into its constructor) and the only one
- * that flushes held deliveries (`flush`, reusing its own coalesced-notice wording).
+ * released. `daemon-runtime/agent-message-attention-index.ts` consults it (via the
+ * `shouldHold`/`enqueue` seam passed into its constructor) and is the only one that flushes held
+ * deliveries (`flush`, reusing its own coalesced-notice wording). `daemon-runtime/runtime.ts` also
+ * enqueues deliveries that wait for an exited Agent's next launch (a wake cooldown, a failed
+ * launch, a batched wake).
  *
  * This module also exposes the seams later PRs in the same series attach to, without
  * implementing their behavior: `hold`/`release` for an explicit pause (error backoff, the
@@ -99,11 +101,11 @@ export class AgentDeliveryQueue {
   }
 
   /**
-   * Records a delivery as held. The attention index is the only caller and already owns
-   * deliveryId dedupe for a *first* delivery (only a not-yet-notified resend of an
-   * already-accepted deliveryId — a distinct request, its own requestId — reaches this while
-   * held); every held request is flushed and ACKed once, so none is silently dropped even when
-   * its deliveryId repeats.
+   * Records a delivery as held. From the attention index, deliveryId dedupe has already happened
+   * for a *first* delivery (only a not-yet-notified resend of an already-accepted deliveryId — a
+   * distinct request, its own requestId — reaches this while held); the runtime's deliveries for
+   * an exited Agent are recorded by `flush` instead. Every held request is flushed and ACKed once,
+   * so none is silently dropped even when its deliveryId repeats.
    */
   enqueue(agentId: string, message: AgentMessageDelivery): void {
     const list = this.#held.get(agentId) ?? [];
