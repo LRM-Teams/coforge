@@ -3,6 +3,13 @@ import { useRouter } from "@tanstack/react-router";
 
 import { readLastSearch } from "./search-memory";
 
+/** The last page outside search, where Esc on the search page returns to. */
+let searchOrigin: string | undefined;
+
+export function lastPageBeforeSearch(): string | undefined {
+  return searchOrigin;
+}
+
 /** Asks an open search page to put the caret back in its box. */
 export const SEARCH_FOCUS_EVENT = "coforge:search-focus";
 
@@ -43,6 +50,16 @@ export function useSearchShortcutLabel(): string | undefined {
  */
 export function useSearchShortcut(workspaceId: string | undefined, userId: string) {
   const router = useRouter();
+  useEffect(() => {
+    // Remember each page outside search, so leaving search goes back to where it was opened
+    // from, whatever steps (filters, previews) were taken inside it.
+    const remember = () => {
+      const { pathname, href } = router.state.location;
+      if (pathname !== "/search") searchOrigin = href;
+    };
+    remember();
+    return router.subscribe("onResolved", remember);
+  }, [router]);
   useEffect(() => {
     if (!workspaceId) return;
     const onKeyDown = (event: KeyboardEvent) => {

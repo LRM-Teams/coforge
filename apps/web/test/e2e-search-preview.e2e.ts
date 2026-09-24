@@ -169,8 +169,16 @@ test("a result previews beside the list and opens on a double click", async () =
     await waitFor(`location.pathname === "/en/messages/channels/${channelA}"`);
     await browser("back");
     await waitFor(`document.querySelector('${row(inB.id)}') !== null`);
+    const usageKey = `coforge:search-usage:${workspaceId}:${DEV_BROWSER_USER.id}`;
+    const opensOfB = () =>
+      evaluate<number>(
+        `(JSON.parse(localStorage.getItem(${JSON.stringify(usageKey)}) ?? "{}")["channel:${channelB}"] ?? []).length`,
+      );
+    const opensBefore = await opensOfB();
     await browser("dblclick", row(inB.id));
     await waitFor(`location.pathname === "/en/messages/channels/${channelB}"`);
+    // A double click is one open, not two.
+    expect(await opensOfB()).toBe(opensBefore + 1);
 
     // A matching channel previews too, at its newest messages.
     await browser("open", `${origin}/en/search?q=e2e-preview-a`);
@@ -178,6 +186,33 @@ test("a result previews beside the list and opens on a double click", async () =
     await browser("click", `[data-search-entity="channel:${channelA}"]`);
     await waitFor(`${param("open")} === "channel:${channelA}" && ${param("msg")} === ""`);
     await waitFor(`document.querySelector('${PREVIEW}')?.textContent.includes("after 80")`);
+
+    // Esc with no preview leaves search for the page it was opened from, even after a filter
+    // change added a step of its own.
+    await browser("open", `${origin}/en/messages/channels/${channelB}`);
+    await waitFor(
+      `[...document.querySelectorAll("h1")].some((h) => h.textContent === "#e2e-preview-b")`,
+    );
+    await browser("click", 'aside a[href="/en/search"]');
+    await waitFor(`location.pathname === "/en/search"`);
+    await browser("fill", 'input[type="search"]', phrase);
+    await waitFor(`document.querySelector('${row(inA.id)}') !== null`);
+    // A filter change pushes a history step of its own.
+    await browser(
+      "eval",
+      `[...document.querySelectorAll('[aria-label="Search filters"] button')].find((button) => button.textContent.trim().startsWith("Time")).click()`,
+    );
+    await waitFor(
+      `[...document.querySelectorAll('[role="menuitemradio"]')].some((item) => item.textContent.includes("Last 7 days"))`,
+    );
+    await browser(
+      "eval",
+      `[...document.querySelectorAll('[role="menuitemradio"]')].find((item) => item.textContent.includes("Last 7 days")).click()`,
+    );
+    await waitFor(`${param("range")} === "7d"`);
+    await browser("eval", `document.activeElement?.blur()`);
+    await browser("press", "Escape");
+    await waitFor(`location.pathname === "/en/messages/channels/${channelB}"`);
 
     // On a phone there is no room beside the list: a click opens the conversation.
     await browser("set", "viewport", "390", "844");
