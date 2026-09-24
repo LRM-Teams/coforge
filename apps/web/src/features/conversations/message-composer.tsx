@@ -548,7 +548,11 @@ export function MessageComposer({
         aria-activedescendant={
           completion.open ? completion.optionId(completion.activeIndex) : undefined
         }
-        placeholder={m.conversation_message_placeholder()}
+        placeholder={
+          inThread
+            ? m.conversation_thread_message_placeholder()
+            : m.conversation_message_placeholder()
+        }
         className="max-h-40 min-h-10 w-full resize-none bg-transparent px-2 py-1 text-md leading-6 outline-none [field-sizing:content] placeholder:text-placeholder disabled:opacity-50"
       />
       {completion.open && completion.trigger && (

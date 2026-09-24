@@ -1,5 +1,5 @@
 import {
-  ProgressBar,
+  Button as AriaButton,
   Dialog as AriaDialog,
   DialogTrigger as AriaDialogTrigger,
   Heading,
@@ -7,11 +7,13 @@ import {
 } from "react-aria-components";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { Loading02, CpuChip01 as Cpu, XClose } from "@untitledui/icons";
+import { AlertCircle, XClose } from "@untitledui/icons";
 
 import { Button } from "#src/components/base/buttons/button";
 import { ButtonUtility } from "#src/components/base/buttons/button-utility";
 import { useAppToast } from "#src/components/ui/toast";
+import { Avatar } from "#src/components/base/avatar/avatar";
+import { avatarInitial, avatarToneClassName } from "#src/lib/avatar-tone";
 import { AgentDisplayAvatar } from "#src/features/agents/agent-activity-avatar";
 import { useLiveAgent } from "#src/features/agents/workspace-agents-realtime";
 import { cn } from "#src/lib/utils";
@@ -39,14 +41,16 @@ function useThreadFollowingAgents(channelId: string, threadRootId: string) {
   });
 }
 
-function LeadFollowingAgentAvatar({ agent }: { agent: FollowingAgent }) {
-  const live = useLiveAgent(agent.id);
+/** A face in the trigger's stack: no status dot, which the overlap would half cover; the
+ * popover's rows carry each Agent's status. */
+function FollowingAgentFace({ agent }: { agent: FollowingAgent }) {
   return (
-    <AgentDisplayAvatar
-      name={agent.displayName}
-      src={agent.avatarUrl}
-      display={live?.display}
+    <Avatar
       size="xs"
+      alt=""
+      src={agent.avatarUrl}
+      initials={avatarInitial(agent.displayName)}
+      contentClassName={avatarToneClassName(agent.displayName)}
     />
   );
 }
@@ -106,8 +110,8 @@ function FollowingAgentRow({
 }
 
 /**
- * Channel thread header control: the first following Agent's avatar plus a count, opening the
- * Agents currently following this Thread. A channel member can stop one Agent following; the
+ * Channel thread header control: the first three following Agents' avatars plus a count,
+ * opening the Agents currently following this Thread. Hidden until someone follows. A channel member can stop one Agent following; the
  * Agent stays in the channel.
  */
 export function ThreadFollowingAgents({
@@ -127,8 +131,6 @@ export function ThreadFollowingAgents({
   const agents = query.data?.agents ?? [];
   const canUnfollow = query.data?.canUnfollow ?? false;
   const count = agents.length;
-  const lead = agents[0];
-  const empty = !query.isPending && !query.isError && count === 0;
 
   async function unfollowAgent(agentId: string) {
     try {
@@ -143,16 +145,37 @@ export function ThreadFollowingAgents({
     }
   }
 
-  if (empty) return null;
+  // Shown once someone follows; an error still gets a trigger, so its message can be read.
+  if (!query.isError && count === 0) return null;
 
   return (
     <AriaDialogTrigger>
-      <ButtonUtility
-        icon={lead ? <LeadFollowingAgentAvatar agent={lead} /> : <Cpu data-icon />}
-        size="sm"
-        color="tertiary"
-        aria-label={m.conversation_thread_following_agents_count({ count })}
-      />
+      <AriaButton
+        aria-label={
+          query.isError
+            ? m.conversation_thread_following_agents_error()
+            : m.conversation_thread_following_agents_count({ count })
+        }
+        className="flex h-8 cursor-pointer items-center gap-1.5 rounded-md px-1.5 text-sm font-semibold text-tertiary outline-focus-ring hover:bg-primary_hover hover:text-secondary focus-visible:outline-2"
+      >
+        {query.isError ? (
+          <AlertCircle aria-hidden="true" className="size-4 text-fg-quaternary" />
+        ) : (
+          <>
+            <span aria-hidden="true" className="flex -space-x-1">
+              {/* The ring separates the overlapping faces, as an avatar group does. */}
+              {agents.slice(0, 3).map((agent) => (
+                <span key={agent.id} className="relative flex rounded-full ring-2 ring-bg-primary">
+                  <FollowingAgentFace agent={agent} />
+                </span>
+              ))}
+            </span>
+            <span aria-hidden="true" className="tabular-nums">
+              {count}
+            </span>
+          </>
+        )}
+      </AriaButton>
       <AriaPopover
         placement="bottom end"
         offset={8}
@@ -178,17 +201,7 @@ export function ThreadFollowingAgents({
                   {m.conversation_thread_following_agents()}
                 </Heading>
               </div>
-              {query.isPending ? (
-                <div role="status" className="flex h-14 items-center justify-center text-tertiary">
-                  <ProgressBar
-                    isIndeterminate
-                    aria-label={m.conversation_thread_following_agents()}
-                    className="inline-flex shrink-0 size-4"
-                  >
-                    <Loading02 aria-hidden className="size-full motion-safe:animate-spin" />
-                  </ProgressBar>
-                </div>
-              ) : query.isError ? (
+              {query.isError ? (
                 <p role="alert" className="px-3 py-3 text-sm text-error-primary">
                   {m.conversation_thread_following_agents_error()}
                 </p>

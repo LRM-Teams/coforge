@@ -289,29 +289,22 @@ export function ChannelConversation({
       tasks={tasks}
       onCreateTask={conversation.senderMemberId ? onCreateTask : undefined}
       onToggleReaction={conversation.senderMemberId ? onToggleReaction : undefined}
-      threadHeaderAction={(rootMessageId) => {
-        const followed = conversation.followedThreadRootIds?.includes(rootMessageId) ?? false;
-        return (
-          <div className="-mr-1.5 ml-auto flex shrink-0 items-center gap-1.5">
-            <ThreadFollowingAgents
-              channelId={conversation.conversationId}
-              threadRootId={rootMessageId}
-              onOpenAgentProfile={onOpenAgentProfile}
-            />
-            {conversation.senderMemberId && (
-              <ButtonUtility
-                icon={followed ? BellOff : Bell}
-                size="sm"
-                color="tertiary"
-                tooltip={
-                  followed ? m.conversation_thread_unfollow() : m.conversation_thread_follow()
-                }
-                onClick={() => void onThreadFollowedChange?.(rootMessageId, !followed)}
-              />
-            )}
-          </div>
-        );
-      }}
+      threadContext={`#${conversation.name}`}
+      threadHeaderAction={(rootMessageId) => (
+        <ThreadFollowingAgents
+          channelId={conversation.conversationId}
+          threadRootId={rootMessageId}
+          onOpenAgentProfile={onOpenAgentProfile}
+        />
+      )}
+      threadFollow={(rootMessageId) =>
+        conversation.senderMemberId
+          ? {
+              followed: conversation.followedThreadRootIds?.includes(rootMessageId) ?? false,
+              onChange: (followed) => void onThreadFollowedChange?.(rootMessageId, followed),
+            }
+          : undefined
+      }
       emptyState={{
         title: `#${conversation.name}`,
         description: conversation.senderMemberId ? m.channel_empty() : m.channel_empty_preview(),

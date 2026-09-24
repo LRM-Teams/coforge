@@ -17,6 +17,7 @@ import {
  */
 type ConversationThreadSearch = {
   threadRootId?: string;
+  message?: string;
   profile?: string;
   agentTab?: AgentProfileTab;
 };
@@ -82,7 +83,23 @@ export function useOpenConversationThread() {
       }),
     [router],
   );
-  return { searchThreadRootId, openThread, openThreadFromHash, closeThread };
+  /** Leaves a thread for its root in the conversation's stream: the pane closes and the root
+   * gets the same position jump a Saved card lands with (`useConversationPositionJump`). A
+   * history entry, so browser Back returns to the thread. */
+  const showThreadRoot = useCallback(
+    (threadRootId: string) =>
+      void router.navigate({
+        to: ".",
+        resetScroll: false,
+        hash: () => "",
+        search: (previous: ConversationThreadSearch) => ({
+          ...conversationSearchWithoutAgentProfile(conversationSearchWithoutThread(previous)),
+          message: threadRootId,
+        }),
+      }),
+    [router],
+  );
+  return { searchThreadRootId, openThread, openThreadFromHash, closeThread, showThreadRoot };
 }
 
 /**
