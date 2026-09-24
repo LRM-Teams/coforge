@@ -22,7 +22,27 @@ const KEYS = new Set([
   "wakeAccepted",
   "consumed",
   "terminal",
+  "retryExhausted",
 ]);
+const RETRY_EXHAUSTED_KEYS = new Set(["code", "stage", "attempts", "deadline", "exhaustedAt"]);
+
+/** An absent record is valid: only receipts whose retries ran out carry one. */
+function retryExhaustedIsValid(value: unknown): boolean {
+  if (value === undefined) return true;
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const record = value as Record<string, unknown>;
+  return (
+    Object.keys(record).every((key) => RETRY_EXHAUSTED_KEYS.has(key)) &&
+    record.code === "REMINDER_DELIVERY_RETRY_EXHAUSTED" &&
+    (record.stage === "fire" || record.stage === "wake") &&
+    Number.isSafeInteger(record.attempts) &&
+    (record.attempts as number) >= 0 &&
+    typeof record.deadline === "number" &&
+    Number.isFinite(record.deadline) &&
+    typeof record.exhaustedAt === "number" &&
+    Number.isFinite(record.exhaustedAt)
+  );
+}
 
 function receipt(value: unknown, workspaceId: string, computerId: string, agentId: string) {
   if (!value || typeof value !== "object" || Array.isArray(value))
@@ -57,7 +77,9 @@ function receipt(value: unknown, workspaceId: string, computerId: string, agentI
     (item.serverFired !== undefined && typeof item.serverFired !== "boolean") ||
     (item.serverCatchup !== undefined && typeof item.serverCatchup !== "boolean") ||
     (item.wakeAccepted === true && item.terminal !== true) ||
-    (item.consumed === true && item.terminal !== true)
+    (item.consumed === true && item.terminal !== true) ||
+    !retryExhaustedIsValid(item.retryExhausted) ||
+    (item.retryExhausted !== undefined && item.terminal !== true)
   )
     throw new Error("reminder receipts are corrupt");
   const validated = structuredClone(value) as ReminderReceipt;

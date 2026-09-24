@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { configure, reset, type LogRecord } from "@logtape/logtape";
 import type {
   ReminderFireRequest,
   ReminderFireResponse,
@@ -42,6 +43,27 @@ class Clock implements ReminderClock {
     await Promise.all(due.map(async () => {}));
   }
 }
+
+async function captureLogs(run: () => Promise<void>): Promise<LogRecord[]> {
+  const records: LogRecord[] = [];
+  await configure({
+    reset: true,
+    sinks: { capture: (record) => records.push(record) },
+    loggers: [
+      { category: ["coforge", "daemon"], lowestLevel: "info", sinks: ["capture"] },
+      { category: ["logtape", "meta"], lowestLevel: "error", sinks: ["capture"] },
+    ],
+  });
+  try {
+    await run();
+    return records;
+  } finally {
+    await reset();
+  }
+}
+
+const exhaustedLogs = (records: LogRecord[]) =>
+  records.filter((record) => record.properties.event === "reminder.retry_exhausted");
 
 const job: ReminderJob = {
   reminderId: "123e4567-e89b-42d3-a456-426614174000",
@@ -368,16 +390,28 @@ test("persistence failure is bounded and never sends an uncommitted occurrence",
     async () => true,
     clock,
   );
-  await scheduler.apply(snapshot([job]));
-  await clock.advance(1000);
-  await scheduler.awaitIdle();
-  for (let index = 0; index < 8; index++) {
-    await clock.advance(60_000);
+  const records = await captureLogs(async () => {
+    await scheduler.apply(snapshot([job]));
+    await clock.advance(1000);
     await scheduler.awaitIdle();
-  }
+    for (let index = 0; index < 8; index++) {
+      await clock.advance(60_000);
+      await scheduler.awaitIdle();
+    }
+  });
   expect(writes).toBe(8);
   expect(sends).toBe(0);
   expect(clock.timers).toHaveLength(0);
+  const exhausted = exhaustedLogs(records);
+  expect(exhausted).toHaveLength(1);
+  expect(exhausted[0]!.properties).toMatchObject({
+    outcome: "failed",
+    code: "REMINDER_DELIVERY_RETRY_EXHAUSTED",
+    reminder_id: job.reminderId,
+    stage: "persistence",
+    attempts: 8,
+    error_name: "Error",
+  });
 });
 
 test("a failed attempt write prevents fire until the durable retry", async () => {
@@ -475,7 +509,11 @@ test("a rejected wake waits for each backoff and exhausts the bounded attempt bu
     await scheduler.awaitIdle();
   }
   expect(wakes).toBe(7);
-  expect(store.receipts[0]).toMatchObject({ attempt: 8, terminal: true });
+  expect(store.receipts[0]).toMatchObject({
+    attempt: 8,
+    terminal: true,
+    retryExhausted: { stage: "wake", attempts: 8 },
+  });
   expect(clock.timers).toHaveLength(0);
 });
 
@@ -561,4 +599,175 @@ test("a receipt write drops consumed receipts whose re-fire fence expired", asyn
     "123e4567-e89b-42d3-a456-426614174102",
     job.reminderId,
   ]);
+});
+
+test("a fire request that keeps failing records why its retries ran out", async () => {
+  const clock = new Clock();
+  const store = new MemoryStore();
+  let fires = 0;
+  const scheduler = new ReminderScheduler(
+    { workspaceId: "workspace-a", computerId: "computer-a" },
+    store,
+    async () => {
+      fires++;
+      throw Object.assign(new Error("method not found"), { code: 104 });
+    },
+    async () => {
+      throw new Error("must not wake");
+    },
+    clock,
+  );
+  const records = await captureLogs(async () => {
+    await scheduler.apply(snapshot([job]));
+    await clock.advance(1000);
+    await scheduler.awaitIdle();
+    for (const delay of [1000, 2000, 4000, 8000, 16_000, 32_000, 60_000]) {
+      await clock.advance(delay);
+      await scheduler.awaitIdle();
+    }
+  });
+  expect(fires).toBe(8);
+  expect(store.receipts[0]).toMatchObject({
+    terminal: true,
+    wakeAccepted: false,
+    retryExhausted: {
+      code: "REMINDER_DELIVERY_RETRY_EXHAUSTED",
+      stage: "fire",
+      attempts: 8,
+      deadline: Date.parse("2026-09-08T12:15:01Z"),
+      exhaustedAt: Date.parse("2026-09-08T12:02:04Z"),
+    },
+  });
+  expect(store.receipts[0]?.serverResult).toBeUndefined();
+  expect(clock.timers).toHaveLength(0);
+  const exhausted = exhaustedLogs(records);
+  expect(exhausted).toHaveLength(1);
+  expect(exhausted[0]!.level).toBe("error");
+  expect(exhausted[0]!.properties).toMatchObject({
+    outcome: "failed",
+    code: "REMINDER_DELIVERY_RETRY_EXHAUSTED",
+    agent_id: "agent-a",
+    reminder_id: job.reminderId,
+    reminder_version: job.version,
+    stage: "fire",
+    attempts: 8,
+    retry_deadline: "2026-09-08T12:15:01.000Z",
+    error_code: "104",
+    error_name: "Error",
+  });
+});
+
+test("a wake that keeps failing after the cloud fired records the wake step and its error", async () => {
+  const clock = new Clock();
+  const store = new MemoryStore();
+  let wakes = 0;
+  const scheduler = new ReminderScheduler(
+    { workspaceId: "workspace-a", computerId: "computer-a" },
+    store,
+    async (request) => ({ ...request, result: "accepted", fired: true, catchup: false }),
+    async () => {
+      wakes++;
+      throw Object.assign(new TypeError("agent socket closed"), { code: "ECONNRESET" });
+    },
+    clock,
+  );
+  const records = await captureLogs(async () => {
+    await scheduler.apply(snapshot([job]));
+    await clock.advance(1000);
+    await scheduler.awaitIdle();
+    for (const delay of [2000, 4000, 8000, 16_000, 32_000, 60_000]) {
+      await clock.advance(delay);
+      await scheduler.awaitIdle();
+    }
+  });
+  expect(wakes).toBe(7);
+  expect(store.receipts[0]).toMatchObject({
+    serverResult: "accepted",
+    serverFired: true,
+    wakeAccepted: false,
+    terminal: true,
+    retryExhausted: {
+      code: "REMINDER_DELIVERY_RETRY_EXHAUSTED",
+      stage: "wake",
+      attempts: 8,
+      deadline: Date.parse("2026-09-08T12:15:01Z"),
+      exhaustedAt: Date.parse("2026-09-08T12:02:03Z"),
+    },
+  });
+  const exhausted = exhaustedLogs(records);
+  expect(exhausted).toHaveLength(1);
+  expect(exhausted[0]!.properties).toMatchObject({
+    stage: "wake",
+    attempts: 8,
+    error_code: "ECONNRESET",
+    error_name: "TypeError",
+  });
+});
+
+test("a fire the cloud accepts on the last attempt leaves no attempt to wake and says so", async () => {
+  const clock = new Clock();
+  const store = new MemoryStore();
+  let fires = 0;
+  let wakes = 0;
+  const scheduler = new ReminderScheduler(
+    { workspaceId: "workspace-a", computerId: "computer-a" },
+    store,
+    async (request) => {
+      fires++;
+      if (fires < 8) throw new Error("offline");
+      return { ...request, result: "accepted", fired: true, catchup: false };
+    },
+    async () => {
+      wakes++;
+      return true;
+    },
+    clock,
+  );
+  const records = await captureLogs(async () => {
+    await scheduler.apply(snapshot([job]));
+    await clock.advance(1000);
+    await scheduler.awaitIdle();
+    for (const delay of [1000, 2000, 4000, 8000, 16_000, 32_000, 60_000]) {
+      await clock.advance(delay);
+      await scheduler.awaitIdle();
+    }
+  });
+  expect(fires).toBe(8);
+  expect(wakes).toBe(0);
+  expect(store.receipts[0]).toMatchObject({
+    serverResult: "accepted",
+    serverFired: true,
+    wakeAccepted: false,
+    terminal: true,
+    retryExhausted: { stage: "wake", attempts: 8 },
+  });
+  const exhausted = exhaustedLogs(records);
+  expect(exhausted).toHaveLength(1);
+  expect(exhausted[0]!.properties).toMatchObject({ stage: "wake", attempts: 8 });
+  expect(exhausted[0]!.properties.error_code).toBeUndefined();
+});
+
+test("a delivered or declined occurrence ends without an exhausted record", async () => {
+  for (const [result, fired, wake] of [
+    ["accepted", true, true],
+    ["obsolete", false, false],
+  ] as const) {
+    const clock = new Clock();
+    const store = new MemoryStore();
+    const scheduler = new ReminderScheduler(
+      { workspaceId: "workspace-a", computerId: "computer-a" },
+      store,
+      async (request) => ({ ...request, result, fired, catchup: false }),
+      async () => wake,
+      clock,
+    );
+    const records = await captureLogs(async () => {
+      await scheduler.apply(snapshot([job]));
+      await clock.advance(1000);
+      await scheduler.awaitIdle();
+    });
+    expect(store.receipts[0]).toMatchObject({ serverResult: result, terminal: true });
+    expect(store.receipts[0]).not.toHaveProperty("retryExhausted");
+    expect(exhaustedLogs(records)).toHaveLength(0);
+  }
 });
