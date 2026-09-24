@@ -147,3 +147,17 @@ test("an announced new Task asks for one read of the list; a deleted Task leaves
   expect(overview.tasks.has("message-2")).toBe(false);
   expect(overview.tasks.has("message-1")).toBe(true);
 });
+
+test("a read whose snapshot predates an announced change does not undo it", async () => {
+  // The fake server keeps answering with the old list, as a read taken before the change would.
+  const { overview } = await overviewWith(async () => ({ tasks: [] }));
+  overview.apply([
+    announced([task(1, { status: "done", revision: 3 })]),
+    announced([], ["message-2"]),
+  ]);
+  await overview.tasks.utils.refetch();
+  // Query hands the read to the collection on a later tick, not when the refetch promise settles.
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  expect(overview.tasks.get("message-1")).toMatchObject({ status: "done", revision: 3 });
+  expect(overview.tasks.has("message-2")).toBe(false);
+});

@@ -119,9 +119,6 @@ function useTaskOverviewRealtime(
     () => ({
       pending: [] as TaskChangedEvent[],
       timer: undefined as ReturnType<typeof setTimeout> | undefined,
-      // Set while a read this hook asked for is in flight: its snapshot may predate them, so the
-      // changes applied meanwhile are applied again once it lands.
-      sinceRead: undefined as TaskChangedEvent[] | undefined,
     }),
     [overview],
   );
@@ -136,7 +133,6 @@ function useTaskOverviewRealtime(
       burst.timer = setTimeout(() => {
         burst.timer = undefined;
         const events = burst.pending.splice(0);
-        burst.sinceRead?.push(...events);
         let needsRead: boolean;
         try {
           needsRead = overview.apply(events);
@@ -144,15 +140,9 @@ function useTaskOverviewRealtime(
           // A change that cannot be applied is shown by a read of the list instead.
           needsRead = true;
         }
-        if (!needsRead || burst.sinceRead) return;
-        burst.sinceRead = [];
-        void queryClient
-          .invalidateQueries({ queryKey: taskOverviewQuery(workspaceId).queryKey })
-          .finally(() => {
-            const again = burst.sinceRead ?? [];
-            burst.sinceRead = undefined;
-            if (again.length > 0) overview.apply(again);
-          });
+        // The collection keeps each applied change over a read that predates it.
+        if (needsRead)
+          void queryClient.invalidateQueries({ queryKey: taskOverviewQuery(workspaceId).queryKey });
       }, APPLY_DELAY_MS);
     },
     [overview, workspaceId, queryClient, burst],
