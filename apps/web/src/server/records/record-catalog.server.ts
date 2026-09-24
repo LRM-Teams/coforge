@@ -2666,7 +2666,6 @@ export class RecordCatalog {
     subjectType: "report" | "cycle";
     subjectId: string;
     surface: "format" | "member-leader" | "member-assignee" | "plain";
-    formatCopy?: "preview" | "cancelled" | "ready";
     assistantSessionId: string;
     now?: Date;
   }) {

@@ -365,7 +365,6 @@ test("ensureAssistantIntro posts format offer-send when the send window is open"
     subjectId: formatRow.id,
     assistantSessionId: "session-1",
     surface: "format",
-    formatCopy: "preview",
     // Friday 14:30 Shanghai for a 15:00 send
     now: new Date("2026-09-04T06:30:00.000Z"),
   });
@@ -486,7 +485,6 @@ test("ensureAssistantIntro does not fan out offer-send when another session alre
     subjectId: formatRow.id,
     assistantSessionId: "session-2",
     surface: "format",
-    formatCopy: "preview",
     now: new Date("2026-09-04T06:30:00.000Z"),
   });
 
@@ -562,7 +560,6 @@ test("ensureAssistantIntro leaves a new session empty after this week's send was
     subjectId: formatRow.id,
     assistantSessionId: "session-new",
     surface: "format",
-    formatCopy: "cancelled",
     now: new Date("2026-09-04T06:30:00.000Z"),
   });
 

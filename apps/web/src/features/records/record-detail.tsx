@@ -662,9 +662,6 @@ function TemplateReportDetail({
     () => (sendWindow ? sendWindowEnd(sendWindow, sendArmed) : null),
     [sendWindow, sendArmed],
   );
-  const formatCopy: "preview" | "cancelled" | "ready" =
-    weekDismissed || formatCancelled ? "cancelled" : sendArmed ? "preview" : "ready";
-
   useEffect(() => {
     setCanSendAssignments(Boolean(report.canSendAssignments));
     setDirty(false);
@@ -1017,7 +1014,6 @@ function TemplateReportDetail({
         subjectType="report"
         subjectId={report.id}
         surface={formatSurface}
-        formatCopy={formatCopy}
         countdownUntil={countdownUntil}
         refreshToken={sideRefresh}
         open={sideOpen}

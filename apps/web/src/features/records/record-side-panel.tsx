@@ -138,7 +138,6 @@ export function RecordSidePanel({
   subjectType,
   subjectId,
   surface,
-  formatCopy,
   countdownUntil,
   refreshToken = 0,
   open,
@@ -154,7 +153,6 @@ export function RecordSidePanel({
   subjectType: "report" | "cycle";
   subjectId: string;
   surface: RecordSideSurface;
-  formatCopy?: "preview" | "cancelled" | "ready";
   /** End of the open send window; the panel renders the countdown itself. */
   countdownUntil?: Date | null;
   refreshToken?: number;
@@ -334,7 +332,7 @@ export function RecordSidePanel({
   async function loadThread(sessionId: string, legacyId: string | null) {
     const [rows, status, context, chat] = await Promise.all([
       ensureIntro({
-        data: { subjectType, subjectId, assistantSessionId: sessionId, surface, formatCopy },
+        data: { subjectType, subjectId, assistantSessionId: sessionId, surface },
       }),
       loadAssistantStatus().catch(() => null),
       loadAssistantContext({ data: { subjectType, subjectId } }).catch(() => null),
@@ -409,7 +407,6 @@ export function RecordSidePanel({
     subjectType,
     subjectId,
     surface,
-    formatCopy,
     ensureSessions,
     ensureIntro,
     loadAssistantContext,
