@@ -1655,7 +1655,7 @@ describe("DaemonRuntime", () => {
   );
 
   test.each(["read", "search"] as const)(
-    "a message the Agent was shown by `message %s` beyond its frontier is not announced again when delivered",
+    "a message shown by `message %s` beyond the frontier is announced again only if the Agent did not read it",
     async (operation) => {
       const credentials = new InMemoryDaemonCredentialStore();
       await credentials.save(connection.workspaceId, connection.computerId, "token-a");
@@ -1722,7 +1722,9 @@ describe("DaemonRuntime", () => {
           target: "@ada",
         });
 
-        expect(notices).toEqual([]);
+        // An anchored read showed message 7 in full; a search only previewed it, possibly truncated
+        // and without whether it mentions the Agent, so the delivery still wakes the Agent.
+        expect(notices).toHaveLength(operation === "read" ? 0 : 1);
         expect(acknowledgements).toEqual(["delivery-7"]);
       } finally {
         await runtime.stop();
