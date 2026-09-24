@@ -91,3 +91,20 @@ test("a Task for an Agent from the Tasks page goes to that Agent, whoever shares
   });
   expect(created.tasks[0]!.owner).toMatchObject({ kind: "agent", id: agent.id });
 });
+
+test("reassigning to a picked member binds by id too", async () => {
+  const task = (await create(`user:${person.id}`)).tasks[0]!;
+  const reassigned = await new TaskBoard(db).execute(
+    { workspaceId, userId: person.id },
+    {
+      operation: "assign",
+      idempotencyKey: crypto.randomUUID(),
+      conversationId: channelId,
+      number: task.number,
+      assignee: `agent:${agent.id}`,
+    },
+  );
+  expect(reassigned.tasks[0]!.owner).toMatchObject({ kind: "agent", id: agent.id });
+  // The receipt names the assignee as people read it, never the binding.
+  expect(reassigned.assignmentReceipt?.assignee).toBe(`@${twin}`);
+});
