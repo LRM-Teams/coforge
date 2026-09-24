@@ -44,6 +44,11 @@ These rules apply to `src/features/conversations/`.
   `useSavedEntries`/`useIsMessageSaved` and write through the context's
   `save`/`unsave`; never a module-level collection or `createCollection`
   singleton, which would share state across SSR requests.
+- A conversation's data and actions (messages kept live, its Tasks, send,
+  react, join, read and follow threads) come from `useChannelConversation` /
+  `useDirectConversation` (`use-conversation-data.ts`), shared by the
+  conversation routes and the Tasks page popup. Change a send or read path
+  there, not in a route.
 - Message index and around-window reads go through this feature's shared
   Server Function seam, scoped by `conversationId` for both direct
   conversations and channels.

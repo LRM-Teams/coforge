@@ -67,8 +67,8 @@ export function TaskDetailMenu({
 }: Omit<TaskDetailDialogProps, "open" | "onOpenChange" | "thread"> & {
   /** Board and list moves, listed under "Move to". */
   moves?: TaskControls["moves"];
-  /** Opens the caller's own Task popup for "View details" — a conversation's, which also shows
-   * the Task's thread. Without it the menu opens a popup of the Task alone. */
+  /** Opens the caller's own Task popup for "View details" — the conversation's, which also
+   * shows the Task's thread. Without it the menu opens a popup of the Task alone. */
   onOpenDetails?: () => void;
 }) {
   const [open, setOpen] = useState(false);

@@ -15,7 +15,9 @@ import {
   ThreadedConversation,
   type DirectConversationView,
   type OwnMessageIndexEntry,
+  type TaskPopupControls,
 } from "./direct-conversation";
+import type { ChannelSuggestion } from "./reference-completion";
 import { m } from "#src/paraglide/messages";
 import type { AgentProfileTab } from "#src/features/agents/profile-panel/profile-panel-search";
 
@@ -135,6 +137,8 @@ export function ChannelConversation({
   onAgentProfileTabChange,
   onCloseAgentProfile,
   tasksPane,
+  channels,
+  taskPopup,
 }: {
   conversation: ChannelConversationView;
   onSend: (
@@ -178,6 +182,10 @@ export function ChannelConversation({
   onCloseAgentProfile?: () => void;
   /** The channel's Tasks tab, shown in place of the message stream (see `ThreadedConversation`). */
   tasksPane?: ReactNode;
+  /** Every channel of the Workspace, where no messages layout supplies it (see `ThreadedConversation`). */
+  channels?: readonly ChannelSuggestion[];
+  /** Shows only the Task popup, opened and closed by a page other than the channel's own. */
+  taskPopup?: TaskPopupControls;
 }) {
   const [joining, setJoining] = useState(false);
   const [error, setError] = useState(false);
@@ -250,6 +258,8 @@ export function ChannelConversation({
       onAgentProfileTabChange={onAgentProfileTabChange}
       onCloseAgentProfile={onCloseAgentProfile}
       tasksPane={tasksPane}
+      channels={channels}
+      taskPopup={taskPopup}
       tasks={tasks}
       onCreateTask={conversation.senderMemberId ? onCreateTask : undefined}
       onToggleReaction={conversation.senderMemberId ? onToggleReaction : undefined}
@@ -289,7 +299,9 @@ export function ChannelConversation({
       readOnlyNotice={
         conversation.archived ? (
           <ArchivedChannelNotice
-            canUnarchive={conversation.channelCapabilities.unarchive}
+            // The Unarchive action opens the settings panel in the channel header, which the
+            // Task popup (`taskPopup`) does not show; there the notice stays, without the action.
+            canUnarchive={conversation.channelCapabilities.unarchive && !taskPopup}
             onOpenSettings={() => setSettingsOpen(true)}
           />
         ) : !conversation.senderMemberId ? (

@@ -17,7 +17,11 @@ import { m } from "#src/paraglide/messages";
 import { ConversationTaskTabs } from "#src/features/tasks/conversation-task-tabs";
 import { ConversationListButton } from "./conversation-navigation";
 import { ThreadedConversation } from "./threaded-conversation";
-import type { ConversationProps, DirectConversationView } from "./conversation-types";
+import type {
+  ConversationProps,
+  DirectConversationView,
+  ThreadedConversationProps,
+} from "./conversation-types";
 
 const appRoute = getRouteApi("/_app");
 
@@ -103,7 +107,9 @@ export function DirectConversationHeader({
   );
 }
 
-export function DirectConversation(props: ConversationProps) {
+export function DirectConversation(
+  props: ConversationProps & Pick<ThreadedConversationProps, "channels" | "taskPopup">,
+) {
   const { conversation } = props;
   // A deleted Agent's DM stays readable, but nothing new can be sent to it.
   const deleted = Boolean(conversation.agent.deletedAt);
@@ -180,5 +186,6 @@ export type {
   ConversationProps,
   DirectConversationView,
   OwnMessageIndexEntry,
+  TaskPopupControls,
   ThreadedConversationProps,
 } from "./conversation-types";

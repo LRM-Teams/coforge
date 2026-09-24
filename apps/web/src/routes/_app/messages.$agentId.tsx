@@ -12,11 +12,10 @@ import {
 } from "#src/features/conversations/conversation-pending";
 import { useLiveAgent } from "#src/features/agents/workspace-agents-realtime";
 import {
-  directConversationQuery,
-  directConversationUpdates,
   ensureConversationWindow,
-  useConversationQuery,
+  directConversationQuery,
 } from "#src/features/conversations/conversation-queries";
+import { useDirectConversation } from "#src/features/conversations/use-conversation-data";
 import {
   useConversationView,
   useShownConversationTab,
@@ -26,13 +25,6 @@ import { openTaskParamSchema } from "#src/features/conversations/conversation-th
 import { TaskBoard } from "#src/features/tasks/task-board";
 import { ConversationFilesPanel } from "#src/features/conversations/conversation-files";
 import { useTaskLayout } from "#src/features/tasks/task-workflow";
-import { useConversationTasks } from "#src/features/tasks/use-conversation-tasks";
-import {
-  loadOwnConversationMessages,
-  markDirectThreadRead,
-  sendDirectConversationMessage,
-  toggleDirectMessageReaction,
-} from "#src/features/conversations/conversations.functions";
 import {
   agentIdFromProfileParam,
   agentProfileParamSchema,
@@ -85,17 +77,8 @@ function DirectConversationPage() {
   const taskLayout = useTaskLayout(layout);
   const { openAgentProfile, setAgentProfileTab, closeAgentProfile } = useOpenAgentProfile();
   const profileAgentId = agentIdFromProfileParam(profile);
-  const send = useServerFn(sendDirectConversationMessage);
-  const toggleReaction = useServerFn(toggleDirectMessageReaction);
-  const markRead = useServerFn(markDirectThreadRead);
-  const loadOwnMessages = useServerFn(loadOwnConversationMessages);
-  const page = useConversationQuery({
-    ...directConversationQuery(agentId),
-    loadUpdates: directConversationUpdates(agentId),
-    onRealtime: () => taskView.refresh(),
-  });
+  const { page, taskView, conversationProps } = useDirectConversation(agentId);
   const { conversation } = page;
-  const taskView = useConversationTasks(conversation.conversationId);
   const { showChat, showTasks, showFiles, changeLayout, openTask, openTaskThread, openMessage } =
     useConversationView(page.ensureLoaded);
 
@@ -178,46 +161,12 @@ function DirectConversationPage() {
   return (
     <DirectConversation
       key={conversation.agent.id}
+      {...conversationProps}
       tasksPane={tasksPane}
-      conversation={conversation}
       agentStatus={agentStatus}
-      tasks={taskView.tasks}
       onShowTasks={showTasks}
       onShowFiles={showFiles}
-      onCreateTask={async (title, idempotencyKey, attachmentId) => {
-        await taskView.command({ operation: "create", title, idempotencyKey, attachmentId });
-        await page.invalidate();
-      }}
-      onSend={async (body, requestId, attachmentIds, threadRootId) => {
-        const message = await send({
-          data: { agentId, requestId, body, attachmentIds, threadRootId },
-        });
-        page.mergeUpdates([message]);
-        void page.reconciliation.reconcile().catch(() => {});
-        return message;
-      }}
-      onToggleReaction={(messageId, emoji, active) =>
-        page.toggleReaction(
-          messageId,
-          emoji,
-          conversation.viewerHandle ? `@${conversation.viewerHandle}` : undefined,
-          active,
-          () => toggleReaction({ data: { agentId, messageId, emoji, active } }),
-        )
-      }
-      onReadThread={(threadRootId, throughSequence) =>
-        markRead({ data: { agentId, threadRootId, throughSequence } })
-      }
-      onLoadOwnMessages={(beforeSequence) =>
-        loadOwnMessages({
-          data: { conversationId: conversation.conversationId, beforeSequence },
-        })
-      }
-      onLoadMessageAround={page.loadMessageAround}
-      onShowLatest={page.showLatest}
       onReadLatest={readLatest}
-      onLoadOlder={page.loadOlder}
-      onLoadNewer={page.loadNewer}
       onOpenAgentProfile={openAgentProfile}
       agentProfile={{ agentId: profileAgentId, tab: agentTab }}
       onAgentProfileTabChange={setAgentProfileTab}

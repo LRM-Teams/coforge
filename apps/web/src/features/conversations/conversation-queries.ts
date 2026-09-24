@@ -26,7 +26,11 @@ import {
   loadDirectConversation,
   loadDirectConversationUpdates,
 } from "./conversations.functions";
-import { loadPublicChannel, loadPublicChannelUpdates } from "./channels.functions";
+import {
+  listChannelNames,
+  loadPublicChannel,
+  loadPublicChannelUpdates,
+} from "./channels.functions";
 import { loadActionCardStates } from "./action-cards.functions";
 import { channelMembersQueryKey } from "./conversation-query-keys";
 import type { ActionCardView } from "./action-card";
@@ -110,6 +114,16 @@ export const conversationAroundQuery = (conversationId: string, messageId: strin
     queryKey: ["conversation", "around", conversationId, messageId],
     queryFn: () => loadConversationAround({ data: { conversationId, messageId } }),
     staleTime: 0,
+  });
+
+/** Every channel of the Workspace by id, closed ones included — what a body's channel links and
+ * the composer's `#` list read. Chat reads it from its layout loader; a page outside Chat that
+ * shows a conversation (the Tasks page's popup) reads it here. */
+export const channelNamesQuery = (workspaceId: string) =>
+  queryOptions({
+    queryKey: ["conversation", "channel-names", workspaceId],
+    queryFn: () => listChannelNames(),
+    staleTime: 60_000,
   });
 
 export const directConversationUpdates = (agentId: string) => (afterSequence: number) =>

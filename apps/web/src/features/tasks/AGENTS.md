@@ -17,5 +17,11 @@ These rules apply to `src/features/tasks/`.
   the server still authorizes each command.
 - The task popup (`task-detail-dialog.tsx`) offers only the status moves in
   `STATUS_TRANSITIONS` (`task-move.ts`); board drags keep every move the
-  server allows. Its thread comes from the conversation that opens it, so the
-  board and overview popups show no thread.
+  server allows. Its thread comes from the Task's conversation: a
+  conversation page renders it, and the `/tasks` popup
+  (`overview-task-popup.tsx`) renders that conversation's own popup through
+  `ThreadedConversation`'s `taskPopup` mode. Never build a second thread view
+  for a popup.
+- `/tasks` names its open popup as `task=<conversationId>:<number>`
+  (`task-overview-search.ts`); a conversation route's `task` is the bare
+  number. Opening pushes a history entry, closing replaces it.

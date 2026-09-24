@@ -10,12 +10,6 @@ import {
   ConversationPending,
 } from "#src/features/conversations/conversation-pending";
 import {
-  publicChannelQuery,
-  publicChannelUpdates,
-  ensureConversationWindow,
-  useConversationQuery,
-} from "#src/features/conversations/conversation-queries";
-import {
   useConversationView,
   useShownConversationTab,
 } from "#src/features/conversations/use-conversation-view";
@@ -24,16 +18,12 @@ import { openTaskParamSchema } from "#src/features/conversations/conversation-th
 import { TaskBoard } from "#src/features/tasks/task-board";
 import { ConversationFilesPanel } from "#src/features/conversations/conversation-files";
 import { useTaskLayout } from "#src/features/tasks/task-workflow";
-import { useConversationTasks } from "#src/features/tasks/use-conversation-tasks";
-import { loadOwnConversationMessages } from "#src/features/conversations/conversations.functions";
 import {
-  joinPublicChannel,
-  markPublicChannelRead,
-  markPublicChannelThreadRead,
-  setPublicChannelThreadFollowed,
-  sendPublicChannelMessage,
-  toggleChannelMessageReaction,
-} from "#src/features/conversations/channels.functions";
+  ensureConversationWindow,
+  publicChannelQuery,
+} from "#src/features/conversations/conversation-queries";
+import { useChannelConversation } from "#src/features/conversations/use-conversation-data";
+import { markPublicChannelRead } from "#src/features/conversations/channels.functions";
 import {
   agentIdFromProfileParam,
   agentProfileParamSchema,
@@ -49,9 +39,6 @@ import {
   persistReadCursor,
 } from "#src/features/conversations/conversation-unread";
 import { useEffect } from "react";
-import { useQueryClient } from "@tanstack/react-query";
-import { useRefreshSidebarChannels } from "#src/features/conversations/sidebar-lists";
-import { threadFollowingAgentsQueryPrefix } from "#src/features/conversations/conversation-query-keys";
 
 export const Route = createFileRoute("/_app/messages/channels/$channelId")({
   validateSearch: z.object({
@@ -84,39 +71,14 @@ function ChannelPage() {
   const { channelId } = Route.useParams();
   const { view: requestedView, layout, profile, agentTab } = Route.useSearch();
   const view = useShownConversationTab(requestedView);
-  const queryClient = useQueryClient();
   const taskLayout = useTaskLayout(layout);
   const { openAgentProfile, setAgentProfileTab, closeAgentProfile } = useOpenAgentProfile();
   const profileAgentId = agentIdFromProfileParam(profile);
-  const send = useServerFn(sendPublicChannelMessage);
-  const toggleReaction = useServerFn(toggleChannelMessageReaction);
-  const join = useServerFn(joinPublicChannel);
-  const markRead = useServerFn(markPublicChannelThreadRead);
-  const setThreadFollowed = useServerFn(setPublicChannelThreadFollowed);
-  const loadOwnMessages = useServerFn(loadOwnConversationMessages);
-  const page = useConversationQuery({
-    ...publicChannelQuery(channelId),
-    loadUpdates: publicChannelUpdates(channelId),
-    onRealtime: () =>
-      Promise.all([
-        taskView.refresh(),
-        queryClient.invalidateQueries({
-          queryKey: threadFollowingAgentsQueryPrefix(channelId),
-        }),
-      ]),
-  });
+  const { page, taskView, refreshChannelAndSidebar, conversationProps } =
+    useChannelConversation(channelId);
   const { conversation } = page;
-  const taskView = useConversationTasks(conversation.conversationId);
-  const {
-    router,
-    showChat,
-    showTasks,
-    showFiles,
-    changeLayout,
-    openTask,
-    openTaskThread,
-    openMessage,
-  } = useConversationView(page.ensureLoaded);
+  const { showChat, showTasks, showFiles, changeLayout, openTask, openTaskThread, openMessage } =
+    useConversationView(page.ensureLoaded);
 
   // Opening the channel is reading it — except in the `newest-unread` preference, which keeps
   // unseen messages unread until the latest is actually viewed: the badge clears immediately
@@ -144,19 +106,6 @@ function ChannelPage() {
     );
   };
 
-  // The settings panel writes the channel (name, description, archive), the viewer's own
-  // membership (leave) or mute itself; this re-reads the page and the sidebar's channel list.
-  const refreshSidebarChannels = useRefreshSidebarChannels();
-  const refreshChannelAndSidebar = async () => {
-    await Promise.all([page.invalidate(), refreshSidebarChannels()]);
-  };
-  const followThread = (threadRootId: string) =>
-    page.patch((current) => ({
-      ...current,
-      followedThreadRootIds: current.followedThreadRootIds.includes(threadRootId)
-        ? current.followedThreadRootIds
-        : [...current.followedThreadRootIds, threadRootId],
-    }));
   if (view === "files")
     return (
       <div className="flex min-h-0 flex-1 flex-col">
@@ -222,62 +171,11 @@ function ChannelPage() {
   return (
     <ChannelConversation
       key={channelId}
+      {...conversationProps}
       tasksPane={tasksPane}
-      conversation={conversation}
-      tasks={taskView.tasks}
       onShowTasks={showTasks}
       onShowFiles={showFiles}
-      onCreateTask={async (title, idempotencyKey, attachmentId) => {
-        await taskView.command({ operation: "create", title, idempotencyKey, attachmentId });
-        await page.invalidate();
-      }}
-      onSend={async (body, requestId, attachmentIds, threadRootId) => {
-        const message = await send({
-          data: { channelId, requestId, body, attachmentIds, threadRootId },
-        });
-        page.mergeUpdates([message]);
-        if (threadRootId) followThread(threadRootId);
-        void page.reconciliation.reconcile().catch(() => {});
-        return message;
-      }}
-      onToggleReaction={(messageId, emoji, active) =>
-        page.toggleReaction(
-          messageId,
-          emoji,
-          conversation.viewerHandle ? `@${conversation.viewerHandle}` : undefined,
-          active,
-          () => toggleReaction({ data: { channelId, messageId, emoji, active } }),
-        )
-      }
-      onJoin={async () => {
-        await join({ data: { channelId } });
-        await Promise.all([page.invalidate(), router.invalidate({ sync: true })]);
-      }}
-      onChanged={refreshChannelAndSidebar}
-      onReadThread={(threadRootId, throughSequence) =>
-        markRead({ data: { channelId, threadRootId, throughSequence } })
-      }
-      onThreadFollowedChange={async (threadRootId, followed) => {
-        await setThreadFollowed({ data: { channelId, threadRootId, followed } });
-        if (followed) followThread(threadRootId);
-        else
-          page.patch((current) => ({
-            ...current,
-            followedThreadRootIds: current.followedThreadRootIds.filter(
-              (id) => id !== threadRootId,
-            ),
-          }));
-      }}
-      onLoadOwnMessages={(beforeSequence) =>
-        loadOwnMessages({
-          data: { conversationId: conversation.conversationId, beforeSequence },
-        })
-      }
-      onLoadMessageAround={page.loadMessageAround}
-      onShowLatest={page.showLatest}
       onReadLatest={readLatest}
-      onLoadOlder={page.loadOlder}
-      onLoadNewer={page.loadNewer}
       onOpenAgentProfile={openAgentProfile}
       agentProfile={{ agentId: profileAgentId, tab: agentTab }}
       onAgentProfileTabChange={setAgentProfileTab}
