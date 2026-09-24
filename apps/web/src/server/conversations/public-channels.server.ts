@@ -1408,7 +1408,9 @@ export class PublicChannels {
       resolutionIds,
     );
     const results = new Map(refused.map((result) => [result.resolutionId, result]));
-    const byChannel = Map.groupBy(claimed, (claim) => claim.conversationId);
+    const byChannel = new Map<string, typeof claimed>();
+    for (const claim of claimed)
+      byChannel.set(claim.conversationId, [...(byChannel.get(claim.conversationId) ?? []), claim]);
     for (const [channelId, claims] of byChannel) {
       try {
         await this.addMembers(workspaceId, { userId }, channelId, {
