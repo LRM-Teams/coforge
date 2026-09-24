@@ -183,7 +183,47 @@ test("redacts upstream detail for a withheld reviewer-isolation Task failure", a
       expectedRevision: 1,
       freshnessContextMode: "withheld",
     } as never),
-  ).rejects.toThrow("reviewer-isolation Task request failed (400); upstream detail withheld");
+  ).rejects.toMatchObject({
+    code: "UPDATE_FAILED",
+    message:
+      "Reviewer-isolation task update failed (HTTP 400); upstream error detail was withheld.",
+  });
+});
+
+test("a refused Task write fails typed with its operation's code and the proxy's reason", async () => {
+  spyOn(globalThis, "fetch").mockResolvedValue(
+    Response.json(
+      {
+        error: "this agent is not allowed to do that",
+        code: "ACCESS_DENIED",
+        proxy: {
+          correlation_id: "correlation-1",
+          route_family: "agent-api/task",
+          failure_class: "upstream_http_response",
+          upstream_status: 403,
+        },
+      },
+      { status: 403 },
+    ),
+  );
+  const attempt = connectLocal(
+    "",
+    `sfp_${"a".repeat(43)}`,
+    proxyUrl(agentApiRoutes.local.messages),
+  ).task({
+    idempotencyKey: "request",
+    operation: "assign",
+    target: "#general",
+    number: 1,
+    assignee: "@ada",
+  });
+  await expect(attempt).rejects.toBeInstanceOf(CliError);
+  await expect(attempt).rejects.toMatchObject({
+    code: "ASSIGN_FAILED",
+    message: "this agent is not allowed to do that",
+    correlationId: "correlation-1",
+    proxy: { upstreamStatus: 403 },
+  });
 });
 
 test("downloads attachments through the daemon-local proxy", async () => {

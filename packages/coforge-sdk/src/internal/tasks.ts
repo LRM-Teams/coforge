@@ -51,11 +51,14 @@ export type TaskResourceReceipt = {
   tracking: string;
 };
 
+/** One claim selector's outcome. A refused claim is a result, not an error: `reason` says why,
+ * and `conflict` is set when another member holds the Task. */
 export type TaskClaimResult = {
   number?: number;
   messageId?: string;
   success: boolean;
   reason?: string;
+  conflict?: TaskClaimConflict;
 };
 
 /** One Task change as history records it: `payload` carries the facts its `eventType` names. */
@@ -170,17 +173,27 @@ export type TaskResult = {
   withheldMessageCount?: number;
   heldMessages?: AgentMessageRecord[];
   newMessageCount?: number;
-  claimConflict?: TaskClaimConflict;
 };
 
+/** What a claim refused a Task another member holds may and may not stop. */
+export const TASK_CLAIM_BLOCKED_ACTIONS = ["start_conflicting_execution"] as const;
+
+/**
+ * Another member holds the Task a claim named. The holder is read in the same transaction that
+ * refused the claim, and `observedAt` is when: a snapshot, not a ruling that stays true.
+ */
 export type TaskClaimConflict = {
   kind: "claim_conflict";
   conflictScope: "implementation_execution";
-  blockedActions: string[];
+  /** Every action this conflict blocks; an action not listed is not blocked by it. */
+  blockedActions: (typeof TASK_CLAIM_BLOCKED_ACTIONS)[number][];
+  /** Illustrative, not exhaustive, and never a permission table. */
   unblockedActionExamples: string[];
-  currentAssignee: { type: "user" | "agent"; name: string | null } | null;
+  /** The holder by handle; `deleted` marks a deleted Agent that still holds the Task. */
+  currentAssignee: { type: "user" | "agent"; name: string; deleted?: boolean };
   taskStatus: TaskStatus;
-  claimedAt: string;
+  /** When the holder claimed it; null when a person assigned it and it was not claimed since. */
+  claimedAt: string | null;
   observedAt: string;
 };
 

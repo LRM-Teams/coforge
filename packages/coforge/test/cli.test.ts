@@ -4,7 +4,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parseArgs, resolveReminderId, run } from "../index";
 import { CliError, renderCliErrorJson, renderCliErrorText } from "#src/cli-error";
-import { validateTaskRequest } from "@lrm/coforge-sdk/internal";
+import {
+  type TaskClaimResult,
+  type TaskCommand,
+  validateTaskRequest,
+} from "@lrm/coforge-sdk/internal";
 import {
   createAgentApiClient,
   createAgentApiRawClient,
@@ -1067,6 +1071,122 @@ test("Task update, assign, convert, amend and receipt name what is wrong with th
     ).toThrow("Usage:");
 });
 
+test("Task claim prints each selector's outcome, and fails typed with the rows when none was claimed", async () => {
+  const transport = (claims: TaskClaimResult[]) => ({
+    check: async () => ({ messages: [] }),
+    read: async () => ({}),
+    send: async () => ({}),
+    view: async () => ({ bytes: new Uint8Array() }),
+    task: async () => ({ tasks: [], claims }),
+  });
+  expect(
+    await run(
+      ["task", "claim", "--target", "#general", "--number", "4", "--number", "5"],
+      transport([
+        { number: 4, messageId: "4abcdef0-0000-0000-0000-000000000000", success: true },
+        { number: 5, success: false, reason: "task is done" },
+      ]),
+    ),
+  ).toStartWith(
+    "Claim results (1 claimed, 1 failed):\n#4 (msg:4abcdef0): claimed\n#5: FAILED — task is done.",
+  );
+  const refused = await run(
+    ["task", "claim", "--target", "#general", "--number", "5"],
+    transport([
+      {
+        number: 5,
+        success: false,
+        reason: "already claimed",
+        conflict: {
+          kind: "claim_conflict",
+          conflictScope: "implementation_execution",
+          blockedActions: ["start_conflicting_execution"],
+          unblockedActionExamples: ["reply in the task's thread"],
+          currentAssignee: { type: "user", name: "bob" },
+          taskStatus: "in_progress",
+          claimedAt: null,
+          observedAt: "2026-09-23T06:00:00.000Z",
+        },
+      },
+    ]),
+  ).catch((error: unknown) => error);
+  expect(refused).toBeInstanceOf(CliError);
+  expect(refused).toMatchObject({
+    code: "CLAIM_CONFLICT",
+    message: expect.stringContaining("Claim refused — #5 held by @bob."),
+    contextText: expect.stringContaining("#5: Claim failed — @bob currently holds"),
+  });
+});
+
+test("A refused Task delete names who may delete it", async () => {
+  const refused = await run(["task", "delete", "--target", "#general", "--number", "3"], {
+    check: async () => ({ messages: [] }),
+    read: async () => ({}),
+    send: async () => ({}),
+    view: async () => ({ bytes: new Uint8Array() }),
+    task: async () => {
+      throw new CliError({
+        code: "DELETE_FAILED",
+        message: "this agent is not allowed to do that",
+        retryable: false,
+        correlationId: "correlation-1",
+        proxy: { failureClass: "upstream_http_response", upstreamStatus: 403 },
+      });
+    },
+  }).catch((error: unknown) => error);
+  expect(refused).toMatchObject({
+    code: "DELETE_FAILED",
+    message: "this agent is not allowed to do that",
+    correlationId: "correlation-1",
+    suggestedNextAction:
+      "Only the task's creator or a Workspace owner or admin can delete a task; ask one of them, or close it instead.",
+  });
+});
+
+test("Task create sends every title and prints each new Task with its thread", async () => {
+  const calls: TaskCommand[] = [];
+  const output = await run(
+    ["task", "create", "--target", "@ada", "--title", "Draft", "--title", "Review"],
+    {
+      check: async () => ({ messages: [] }),
+      read: async () => ({}),
+      send: async () => ({}),
+      view: async () => ({ bytes: new Uint8Array() }),
+      task: async (command) => {
+        validateTaskRequest(command);
+        calls.push(command);
+        return {
+          tasks: (command.titles ?? []).map((title, index) => ({
+            messageId: `${index + 1}abcdef0-0000-0000-0000-000000000000`,
+            conversationId: "conversation",
+            number: index + 1,
+            title,
+            status: "todo" as const,
+            revision: 0,
+            ...taskStamps,
+            owner: null,
+            claimedAt: null,
+          })),
+        };
+      },
+    },
+  );
+  expect(calls).toEqual([
+    expect.objectContaining({ operation: "create", titles: ["Draft", "Review"] }),
+  ]);
+  expect(output).toBe(
+    [
+      "Created 2 task(s) in @ada:",
+      '#1 [todo] assignee=unassigned claimedAt=null msg=1abcdef0 "Draft"',
+      '#2 [todo] assignee=unassigned claimedAt=null msg=2abcdef0 "Review"',
+      "",
+      "To follow up in each task's thread:",
+      '#1 → coforge message send --target "@ada:1abcdef0"',
+      '#2 → coforge message send --target "@ada:2abcdef0"',
+    ].join("\n"),
+  );
+});
+
 test("Task command parsing covers lifecycle actions and explicit description clearing", () => {
   expect(
     parseArgs(["task", "assign", "--target", "#general", "--number", "2", "--assignee", "@ada"]),
@@ -1138,18 +1258,51 @@ test("Task receipt forwards all seven fields through the backend contract", asyn
   ];
   const base = ["task", "receipt", "--target", "#general", "--number", "7"];
   const calls: unknown[] = [];
-  await run([...base, ...flags.flatMap((flag, index) => [flag, ` ${values[index]} `])], {
-    check: async () => ({ messages: [] }),
-    read: async () => ({}),
-    send: async () => ({}),
-    view: async () => ({ bytes: new Uint8Array() }),
-    task: async (command) => {
-      validateTaskRequest(command);
-      calls.push(command);
-      return { tasks: [] };
+  const output = await run(
+    [...base, ...flags.flatMap((flag, index) => [flag, ` ${values[index]} `])],
+    {
+      check: async () => ({ messages: [] }),
+      read: async () => ({}),
+      send: async () => ({}),
+      view: async () => ({ bytes: new Uint8Array() }),
+      task: async (command) => {
+        validateTaskRequest(command);
+        calls.push(command);
+        return {
+          tasks: [
+            {
+              messageId: "7abcdef0-0000-0000-0000-000000000000",
+              conversationId: "conversation",
+              number: 7,
+              title: "Preview bucket",
+              status: "in_progress",
+              revision: 4,
+              ...taskStamps,
+              owner: null,
+              requiresResourceReceipt: true,
+              resourceReceiptRecordedAt: "2026-09-23T07:00:00.000Z",
+            },
+          ],
+          resourceFollowup: {
+            id: "0f1e2d3c-0000-0000-0000-000000000000",
+            ownerAgentId: "agent",
+            owner: "@ada",
+            fireAt: receipt.expiry,
+            messageId: "7abcdef0-0000-0000-0000-000000000000",
+            conversationId: "5a5a5a5a-0000-0000-0000-000000000000",
+          },
+        };
+      },
     },
-  });
+  );
   expect(calls).toEqual([expect.objectContaining({ operation: "receipt", number: 7, receipt })]);
+  expect(output).toBe(
+    [
+      "Resource receipt recorded for task #7 in #general.",
+      "Expiry follow-up 0f1e2d3c owned by @ada fires 2030-03-04T05:06:00.000Z.",
+      "Follow-up anchor: msg=7abcdef0 conversation=5a5a5a5a-0000-0000-0000-000000000000.",
+    ].join("\n"),
+  );
   for (const omitted of flags)
     expect(() =>
       parseArgs([
@@ -1181,7 +1334,7 @@ test("Task amendment rejects conflicting description options before dispatch", a
   }
 });
 
-test("Task update reads one revision then submits once and formats Thread-useful identity", async () => {
+test("Task update reads one revision then submits once and confirms the new status", async () => {
   const calls: any[] = [];
   const output = await run(
     ["task", "update", "--target", "#general", "--number", "2", "--status", "in_review"],
@@ -1217,7 +1370,7 @@ test("Task update reads one revision then submits once and formats Thread-useful
   );
   expect(calls).toHaveLength(2);
   expect(calls[1]).toMatchObject({ operation: "update", expectedRevision: 5 });
-  expect(output).toContain("#2 status=in_review owner=builder message=message-2");
+  expect(output).toBe("#2 moved to in_review.");
 });
 
 test("Task list prints a conversation's board and an Agent's own list", async () => {
@@ -1379,7 +1532,7 @@ test("Task unassign submits its own protocol operation with no assignee", async 
   expect(calls).toHaveLength(1);
   expect(calls[0]).toMatchObject({ operation: "unassign", number: 2 });
   expect(calls[0]).not.toHaveProperty("assignee");
-  expect(output).toContain("#2 status=in_progress owner=unclaimed message=message-2");
+  expect(output).toBe("#2 unassigned — now open.");
 });
 
 test("Agent channel mute and unmute change its own setting without sending a message", async () => {

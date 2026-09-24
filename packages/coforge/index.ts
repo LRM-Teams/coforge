@@ -82,7 +82,20 @@ import {
   withOutputMode,
 } from "#src/cli-error";
 import { attachmentMimeType, validateAttachmentUploadArgs } from "#src/attachment-upload";
-import { formatMyTaskList, formatTaskBoard } from "#src/task-format";
+import {
+  claimRefusal,
+  formatClaimResults,
+  formatMyTaskList,
+  formatResourceReceiptRecorded,
+  formatTaskAmended,
+  formatTaskAssigned,
+  formatTaskBoard,
+  formatTaskConverted,
+  formatTaskDeleted,
+  formatTaskStatusUpdated,
+  formatTaskUnclaimed,
+  formatTasksCreated,
+} from "#src/task-format";
 
 export { createAgentApiClient } from "@lrm/coforge-sdk/agent";
 
@@ -1196,20 +1209,28 @@ export async function run(args: readonly string[], transport: MessageTransport):
     }
     try {
       const result = await transport.task(command);
-      const reviewerIsolation = command.freshnessContextMode === "withheld";
-      if (command.operation === "history") return formatTaskHistory(result);
-      if (command.operation === "list")
-        return command.mine
-          ? formatMyTaskList(result, command.status)
-          : formatTaskBoard(command.target!, result, command.status);
-      if (command.operation === "receipt" && result.resourceFollowup)
-        return `${formatTasks(result, reviewerIsolation)}\nFollow-up reminder=${result.resourceFollowup.id} owner=${result.resourceFollowup.owner} fireAt=${result.resourceFollowup.fireAt}`;
-      return formatTasks(result, reviewerIsolation);
+      if (result.state === "held")
+        return formatHeldTaskRequest(result, command.freshnessContextMode === "withheld");
+      return formatTaskResult(command, result);
     } catch (error) {
-      if (command.freshnessContextMode === "withheld")
+      // Deleting is irreversible and a refusal is an authority fact, not a race: name who may.
+      if (
+        error instanceof CliError &&
+        command.operation === "delete" &&
+        error.proxy?.upstreamStatus === 403
+      )
+        throw new CliError({
+          code: error.code,
+          message: error.message,
+          retryable: error.retryable,
+          correlationId: error.correlationId,
+          proxy: error.proxy,
+          suggestedNextAction:
+            "Only the task's creator or a Workspace owner or admin can delete a task; ask one of them, or close it instead.",
+        });
+      // A typed failure is already redacted where it was raised; anything else may carry detail.
+      if (command.freshnessContextMode === "withheld" && !(error instanceof CliError))
         throw new Error("Reviewer-isolation Task request failed; upstream detail was withheld");
-      if (error instanceof Error && /revision|conflict|stale/i.test(error.message))
-        throw new Error("Task changed concurrently; read the Task list again before updating");
       throw error;
     }
   }
@@ -2517,22 +2538,55 @@ function validateTaskListScope(target: string | undefined, mine: boolean, status
   if (!mine && !target) throw invalidTaskArg("--target is required (or pass --mine)");
 }
 
-function formatTasks(result: TaskResult, reviewerIsolation = false): string {
-  if (result.state === "held") {
-    if (reviewerIsolation || result.freshnessContextMode === "withheld") {
-      const count = result.newMessageCount ?? result.withheldMessageCount ?? 0;
-      return `Reviewer-isolation freshness hold: ${count} newer ${count === 1 ? "message" : "messages"} withheld.`;
-    }
-    const messages = result.heldMessages?.map(formatMessage).join("\n");
-    return `Task request held.${messages ? ` Review newer messages:\n${messages}` : ""}`;
+/** A write the server held until the Agent has seen the conversation's newer messages. */
+function formatHeldTaskRequest(result: TaskResult, reviewerIsolation: boolean): string {
+  if (reviewerIsolation || result.freshnessContextMode === "withheld") {
+    const count = result.newMessageCount ?? result.withheldMessageCount ?? 0;
+    return `Reviewer-isolation freshness hold: ${count} newer ${count === 1 ? "message" : "messages"} withheld.`;
   }
-  if (!result.tasks.length) return "No tasks.";
-  return result.tasks
-    .map(
-      (task) =>
-        `#${task.number} status=${task.status} owner=${task.owner?.name ?? "unclaimed"}${task.owner?.deleted ? " [deleted]" : ""} message=${task.messageId} revision=${task.revision} ${task.title}`,
-    )
-    .join("\n");
+  const messages = result.heldMessages?.map(formatMessage).join("\n");
+  return `Task request held.${messages ? ` Review newer messages:\n${messages}` : ""}`;
+}
+
+/** What a `task` subcommand prints for the server's answer. */
+function formatTaskResult(command: TaskCommand, result: TaskResult): string {
+  const target = command.target!;
+  const task = result.tasks[0];
+  switch (command.operation) {
+    case "list":
+      return command.mine
+        ? formatMyTaskList(result, command.status)
+        : formatTaskBoard(target, result, command.status);
+    case "history":
+      return formatTaskHistory(result);
+    case "create":
+      return formatTasksCreated(target, result);
+    case "delete":
+      return formatTaskDeleted(command.number!);
+    case "receipt":
+      return formatResourceReceiptRecorded(target, result);
+    case "amend":
+      return formatTaskAmended(result);
+    case "claim": {
+      const refusal = claimRefusal(target, result);
+      if (refusal) throw refusal;
+      return formatClaimResults(target, result);
+    }
+  }
+  if (!task) throw new Error(`the server returned no task for task ${command.operation}`);
+  switch (command.operation) {
+    case "convert":
+      return formatTaskConverted(target, task);
+    case "unclaim":
+      return formatTaskUnclaimed(task);
+    case "assign":
+    case "unassign":
+      return formatTaskAssigned(task);
+    case "update":
+      return formatTaskStatusUpdated(task);
+    default:
+      throw new Error(`no output is defined for task ${command.operation}`);
+  }
 }
 
 function historyActor(event: TaskHistoryEvent): string {
