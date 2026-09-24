@@ -31,6 +31,12 @@ Rules for one Workspace child's runtime in `src/daemon-runtime/`. They extend
 - `runtime.ts` routes thread targets to the existing Agent session and
   canonicalizes short channel/DM thread targets. Threads never create sessions
   or processes.
+- Never launch an exited Agent for a delivery it has already consumed or that
+  would not wake a running Agent; ACK it instead.
+- A failed message-triggered launch starts the per-Agent wake cooldown
+  (`LaunchFailureBackoff`, no attempt cap). Deliveries in the cooldown wait
+  unacknowledged in `AgentDeliveryQueue`; the first launch after it presents
+  all of them in one notice and ACKs them only after that notice is accepted.
 - Thread follow state is cloud-persisted. The Daemon only forwards the Agent's
   explicit unfollow operation.
 

@@ -5,6 +5,7 @@ import {
   type ActionCardKind,
   type ResolvedActionCardPayload,
 } from "@lrm/coforge-sdk/agent";
+import { isChannelMessageTarget } from "@lrm/coforge-sdk/internal";
 import { AGENT_VISIBILITY } from "#src/features/agents/agent-visibility";
 import { ACTIVE_AGENT_WHERE } from "#src/server/agents/active-agent.server";
 import type { Prisma, PrismaClient } from "#src/generated/prisma/client";
@@ -579,6 +580,10 @@ export class ActionCards {
   private async resolveTarget(workspaceId: string, agentId: string, target: string) {
     const [parentTarget, anchor, extra] = target.split(":");
     if (!parentTarget || extra !== undefined) throw new AppError("INVALID_INPUT");
+    // A channel thread's anchor is eight hex characters or the whole id, as for `message send`;
+    // a shorter prefix that happens to be unique still names no thread.
+    if (parentTarget.startsWith("#") && anchor !== undefined && !isChannelMessageTarget(target))
+      throw new AppError("INVALID_INPUT");
     if (!this.conversations)
       throw new Error("ActionCards.prepare requires a conversations repository");
     const conversations = this.conversations;

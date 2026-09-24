@@ -86,7 +86,31 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
     [conversation.messages],
   );
   previousRepliesByRoot.current = repliesByRoot;
-  const repliesOf = (rootId: string) => repliesByRoot.get(rootId) ?? [];
+  // An open thread keeps its last-seen root and replies. The bounded window drops a root's page
+  // (and with it the root's replies, which ride on the same page) when the main stream is scrolled
+  // far enough; the thread pane then keeps showing the thread as it was, plus any reply that has
+  // arrived since, rather than going blank or reloading the stream around the root.
+  const threadSnapshots = useRef(
+    new Map<
+      string,
+      {
+        root: DirectConversationView["messages"][number];
+        replies: DirectConversationView["messages"];
+      }
+    >(),
+  );
+  const mainMessageIds = useMemo(
+    () => new Set(mainMessages.map((message) => message.id)),
+    [mainMessages],
+  );
+  /** A thread's replies: as loaded, and, while its root is not, those last seen before it went. */
+  const repliesOf = (rootId: string) => {
+    const loaded = repliesByRoot.get(rootId) ?? [];
+    const snapshot = mainMessageIds.has(rootId) ? undefined : threadSnapshots.current.get(rootId);
+    if (!snapshot) return loaded;
+    const seen = new Set(snapshot.replies.map((reply) => reply.id));
+    return [...snapshot.replies, ...loaded.filter((reply) => !seen.has(reply.id))];
+  };
   // A stored channel reference links to its channel, under its current name, only when the
   // Workspace has that channel: every channel by id, closed ones included, from the messages layout.
   const channelList = messagesRoute.useLoaderData({ select: (data) => data.channelNames });
@@ -173,6 +197,20 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
     searchThreadRootId,
     messages: conversation.messages,
   });
+  // Records each open thread's root and replies while they are loaded (see `threadSnapshots`).
+  useEffect(() => {
+    const snapshots = threadSnapshots.current;
+    for (const rootId of snapshots.keys())
+      if (!visited.includes(rootId)) snapshots.delete(rootId);
+    for (const rootId of visited) {
+      const root = mainMessages.find((message) => message.id === rootId);
+      if (root) snapshots.set(rootId, { root, replies: repliesByRoot.get(rootId) ?? [] });
+    }
+  }, [visited, mainMessages, repliesByRoot]);
+  /** A thread's root: as loaded, else as last seen while it was open (its replies: `repliesOf`). */
+  const threadRootOf = (rootId: string) =>
+    mainMessages.find((message) => message.id === rootId) ??
+    threadSnapshots.current.get(rootId)?.root;
 
   // The conversation's shared right-hand slot: Thread (`threadRootId` search) and the Agent
   // profile panel (`profile` search) are mutually exclusive. Their open hooks clear the other
@@ -199,7 +237,8 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
   // The thread in view is marked read: the task popup's when it is open, else the side pane's.
   const threadInView = openTaskRoot?.id ?? (detailVisible ? selected : undefined);
   const threadInViewSequence = threadInView ? (repliesOf(threadInView).at(-1)?.sequence ?? 0) : 0;
-  const { visited, windowRead, threadCursor, threadRootLoad, loadThreadRoot } = useConversationSync(
+  const { visited, windowRead, threadCursor, threadRootFailure, loadThreadRoot } =
+    useConversationSync(
     {
       conversation,
       searchThreadRootId,
@@ -213,15 +252,26 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
       closeThread,
     },
   );
-  // The selected thread's first message is not loaded: until its read settles the slot shows it
-  // loading; once settled without it, the thread is not there.
+  const selectedThreadKnown = selected !== undefined && threadRootOf(selected) !== undefined;
+  const attemptedRootLoad = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    if (!selected) {
+      attemptedRootLoad.current = undefined;
+      return;
+    }
+    if (selectedThreadKnown || attemptedRootLoad.current === selected) return;
+    attemptedRootLoad.current = selected;
+    void loadThreadRoot(selected);
+  }, [selected, selectedThreadKnown, loadThreadRoot]);
+  // The selected thread's first message has not been seen: the window around the root is read, as
+  // for any fresh open, and the thread slot says so while it is, and why if the read failed —
+  // instead of opening an empty pane. Only a read's failure is kept: a read that succeeded centres
+  // the window on the root, so until the root shows up it is loading.
   const selectedRootLoad: ThreadRootLoad | undefined =
-    selected && !mainMessages.some((message) => message.id === selected)
-      ? threadRootLoad?.rootId !== selected
-        ? { status: "loading" }
-        : threadRootLoad.load.status === "loaded"
-          ? { status: "missing" }
-          : threadRootLoad.load
+    selected && !selectedThreadKnown
+      ? threadRootFailure?.rootId === selected
+        ? threadRootFailure.load
+        : { status: "loading" }
       : undefined;
   // Row render props, memoized on the data they read so a memoized row re-renders when its own
   // thread or task changes and not on every pane render.
@@ -339,7 +389,7 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
       )}
       {/* Thread panes stay mounted under the profile so drafts and scroll survive. */}
       {visited.map((rootId) => {
-        const root = mainMessages.find((message) => message.id === rootId);
+        const root = threadRootOf(rootId);
         if (!root) return null;
         return (
           <section

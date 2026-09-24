@@ -35,8 +35,8 @@ type StoredAgentMessage = {
  * pending deliveries. Daemon pushes go through `encodeAgentDelivery` instead. Spread it into the
  * record.
  *
- * - `body` reads every stored token (`<@agent:…>`, `<@task:N>`, `<@channel:…>`) back as text, so
- *   none reaches an Agent.
+ * - `body` reads every stored token (`<@agent:…>`, `<@task:N>`, `<@channel:…>`, `<@thread:…>`)
+ *   back as text, so none reaches an Agent.
  * - An action card's current state is appended to the body, so an Agent never treats a card that
  *   has not been acted on as a committed resource.
  * - With a `readerAgentId`, `mentionsAgent: true` is present when the message personally mentions

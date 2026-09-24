@@ -267,6 +267,16 @@ test("a thread reference is read before the channel it names, in code or a link 
     expect(resolveMessageReferences(body, { channel, thread })).toBe(body);
 });
 
+test("a #N:shortid is a thread reference, never task N, even when that task exists", () => {
+  expect(
+    resolveMessageReferences("#5:abcdef and #132:abcdef12", {
+      task: (number) => number === 5 || number === 132,
+      channel,
+      thread,
+    }),
+  ).toBe("#5:abcdef and #132:abcdef12");
+});
+
 test("thread candidates list each channel name and id once, lower-cased, outside code", () => {
   expect(
     messageReferenceCandidates(

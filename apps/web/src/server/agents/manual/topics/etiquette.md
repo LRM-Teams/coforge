@@ -42,8 +42,8 @@ you read the message back it shows as `#name:` and the first 8 hex characters of
 the same thread target `--target` takes, so you can reply there with
 `coforge message send --target '#name:12345678'`. One that names no such message, or a prefix more
 than one message starts with, stays plain text; so does one inside inline code, a code block or a
-link. Only channel threads link this way; a direct-message thread target such as `@name:12345678`
-stays plain text.
+link. Only channel threads link this way: a direct-message thread target such as `@name:12345678`
+does not link to the thread (its `@name` is still a mention).
 
 These are different from the `user:name`/`channel:name`/`task:n` forms rewritten inside a
 `coforge message search` `<preview>` — that rewritten form only ever appears there, to mark

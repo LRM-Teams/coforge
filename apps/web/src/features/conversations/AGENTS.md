@@ -26,6 +26,11 @@ These rules apply to `src/features/conversations/`.
   coordinates thread/profile panes; `conversation-pane.tsx` renders one message
   stream; `use-conversation-sync.ts` owns browser-only deep-link and read-cursor
   synchronization.
+- The Saved list is a TanStack DB collection (`saved-messages-collection.ts`) on the
+  Chat layout's `DbClient`, seeded from the loader. Read it through
+  `useSavedEntries`/`useIsMessageSaved` and write through the context's
+  `save`/`unsave`; never a module-level collection or `createCollection`
+  singleton, which would share state across SSR requests.
 - Message index and around-window reads go through this feature's shared
   Server Function seam, scoped by `conversationId` for both direct
   conversations and channels.

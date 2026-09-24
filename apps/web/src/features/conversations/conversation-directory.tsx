@@ -1,7 +1,6 @@
 import { Bookmark, ChevronRight, Hash01 as Hash, Plus } from "@untitledui/icons";
 import { useEffect, useId, useMemo, useState, type ReactNode } from "react";
 import { Link, useRouter } from "@tanstack/react-router";
-import { useServerFn } from "@tanstack/react-start";
 import { DndContext } from "@dnd-kit/core";
 import { Link as AriaLink } from "react-aria-components";
 
@@ -15,11 +14,11 @@ import { m } from "#src/paraglide/messages";
 import {
   useChannelUnreadCounts,
   useCloseConversationList,
-  useSavedMessages,
+  useSavedEntries,
 } from "./conversation-navigation";
 import { ConversationRowMenu } from "./conversation-row-menu";
 import { conversationRowMenuEnabled, directRowPreference } from "./conversation-row-menu-model";
-import { arrangePinnedConversations } from "./conversation-pins.functions";
+import { useSidebarActions } from "./sidebar-lists";
 import { DirectoryDragRow, DirectoryDropList, useDirectoryDrag } from "./directory-drag";
 import {
   channelRowKey,
@@ -233,7 +232,7 @@ export function ConversationDirectory({
   onCreateChannel?: () => void;
 }) {
   const unreadCounts = useChannelUnreadCounts();
-  const savedCount = useSavedMessages()?.entries.length;
+  const savedCount = useSavedEntries()?.length;
   // Derived once per list change, not per render: the drag reads `base` and `natural` on every
   // pointer move.
   const { sortedChannels, directRows, base, natural } = useMemo(() => {
@@ -264,20 +263,17 @@ export function ConversationDirectory({
     };
     return { sortedChannels, directRows, base, natural };
   }, [channels, agents, directPreferences]);
-  const router = useRouter();
   const toast = useAppToast();
-  const arrangePins = useServerFn(arrangePinnedConversations);
+  const actions = useSidebarActions();
   const drag = useDirectoryDrag({
     layout: base,
     natural,
-    commit: async (change) => {
-      try {
-        await arrangePins({ data: change });
-        await router.invalidate({ sync: true });
-      } catch (cause) {
+    commit: (change) => {
+      const saved = actions?.arrange(change).isPersisted.promise ?? Promise.resolve();
+      return saved.catch((cause: unknown) => {
         console.error("pinned conversations could not be saved", cause);
         toast.error(m.conversation_menu_action_error());
-      }
+      });
     },
   });
   /** All groups start expanded so SSR and the first client render agree; the stored preference

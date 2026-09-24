@@ -60,17 +60,18 @@ export function useConversationSync({
     [onLoadMessageAround],
   );
 
-  const [threadRootLoad, setThreadRootLoad] = useState<
-    { rootId: string; load: ThreadRootLoad | { status: "loaded" } } | undefined
+  // Only a read's failure is kept: a read that succeeded centres the window on the root
+  // (`loadAround` answers NOT_FOUND otherwise), so until the root shows up it is loading.
+  const [threadRootFailure, setThreadRootFailure] = useState<
+    { rootId: string; load: Exclude<ThreadRootLoad, { status: "loading" }> } | undefined
   >();
   const loadThreadRoot = useCallback(
     async (rootId: string) => {
-      setThreadRootLoad({ rootId, load: { status: "loading" } });
+      setThreadRootFailure(undefined);
       try {
         await loadWindowAround(rootId);
-        setThreadRootLoad({ rootId, load: { status: "loaded" } });
       } catch (error) {
-        setThreadRootLoad({
+        setThreadRootFailure({
           rootId,
           load:
             isAppError(error) && error.code === "NOT_FOUND"
@@ -109,7 +110,9 @@ export function useConversationSync({
     if (attemptedTaskLoad.current === openTaskMessageId) return;
     if (conversation.messages.some((message) => message.id === openTaskMessageId)) return;
     attemptedTaskLoad.current = openTaskMessageId;
-    void loadWindowAround(openTaskMessageId);
+    // A failed read leaves the popup showing the task without its thread; the rejection is not
+    // left unhandled.
+    loadWindowAround(openTaskMessageId).catch(() => {});
   }, [openTaskMessageId, conversation.messages, loadWindowAround]);
 
   // Keep the selected thread mounted while the reader moves between threads. The task popup owns
@@ -158,7 +161,6 @@ export function useConversationSync({
   // Hash-only deep links (notifications) still land on `#message-<id>`. Promote
   // that into `threadRootId` search once, then leave the hash as a scroll target.
   const attemptedHashLoad = useRef<string | undefined>(undefined);
-  const attemptedSearchLoad = useRef<string | undefined>(undefined);
   useLayoutEffect(() => {
     if (searchThreadRootId) return;
     const hash = typeof window === "undefined" ? "" : window.location.hash;
@@ -172,18 +174,10 @@ export function useConversationSync({
     const messageId = messageIdFromHash(hash);
     if (!messageId || attemptedHashLoad.current === hash) return;
     attemptedHashLoad.current = hash;
-    void loadWindowAround(messageId);
+    // A failed read leaves the stream where it was, as a hash for a message that is gone does;
+    // the rejection is not left unhandled.
+    loadWindowAround(messageId).catch(() => {});
   }, [conversation.messages, searchThreadRootId, loadWindowAround]);
-  useEffect(() => {
-    if (!searchThreadRootId) {
-      attemptedSearchLoad.current = undefined;
-      return;
-    }
-    if (conversation.messages.some((message) => message.id === searchThreadRootId)) return;
-    if (attemptedSearchLoad.current === searchThreadRootId) return;
-    attemptedSearchLoad.current = searchThreadRootId;
-    void loadThreadRoot(searchThreadRootId);
-  }, [searchThreadRootId, conversation.messages, loadThreadRoot]);
 
-  return { visited, windowRead, threadCursor, threadRootLoad, loadThreadRoot };
+  return { visited, windowRead, threadCursor, threadRootFailure, loadThreadRoot };
 }
