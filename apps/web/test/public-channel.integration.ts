@@ -1120,6 +1120,7 @@ test("the sender adds a mentioned outsider to the channel once; another member's
       await db.workspace.delete({ where: { id: elsewhere.id } });
       await db.workspaceMembership.deleteMany({ where: { userId: { in: [dave.id, frank.id] } } });
       await db.conversationMember.deleteMany({ where: { userId: { in: [dave.id, frank.id] } } });
+      await db.user.deleteMany({ where: { id: { in: [dave.id, frank.id] } } });
     }
     // Acted on once; the send's own list no longer offers it.
     expect(
