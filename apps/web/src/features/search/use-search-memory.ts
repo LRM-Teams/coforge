@@ -12,49 +12,61 @@ import {
 } from "./search-memory";
 
 /**
- * The search page's remembered history and usage for one Workspace and viewer: read after mount
- * (the server render has no browser storage), kept in state, and written back on each change.
+ * The search page's remembered history and usage for one Workspace and viewer. Storage is the
+ * source of truth: every change reads it afresh before writing, so two open search tabs never
+ * overwrite each other, and a change made in another tab is picked up from its `storage` event.
+ * `loaded` is false until the first read after mount (the server render has no storage).
  */
 export function useSearchMemory(workspaceId: string, userId: string) {
-  const [history, setHistory] = useState<string[]>([]);
-  const [usage, setUsage] = useState<SearchUsage>({});
+  const [memory, setMemory] = useState<{
+    loaded: boolean;
+    history: string[];
+    usage: SearchUsage;
+  }>({ loaded: false, history: [], usage: {} });
 
-  useEffect(() => {
-    setHistory(readSearchHistory(workspaceId, userId));
-    setUsage(readSearchUsage(workspaceId, userId));
-  }, [workspaceId, userId]);
-
-  const saveHistory = useCallback(
-    (next: string[]) => {
-      setHistory(next);
-      writeSearchHistory(workspaceId, userId, next);
-    },
+  const reload = useCallback(
+    () =>
+      setMemory({
+        loaded: true,
+        history: readSearchHistory(workspaceId, userId),
+        usage: readSearchUsage(workspaceId, userId),
+      }),
     [workspaceId, userId],
   );
 
-  const saveUsage = useCallback(
-    (next: SearchUsage) => {
-      setUsage(next);
-      writeSearchUsage(workspaceId, userId, next);
+  useEffect(() => {
+    reload();
+    window.addEventListener("storage", reload);
+    return () => window.removeEventListener("storage", reload);
+  }, [reload]);
+
+  const updateHistory = useCallback(
+    (change: (history: string[]) => string[]) => {
+      writeSearchHistory(workspaceId, userId, change(readSearchHistory(workspaceId, userId)));
+      reload();
     },
-    [workspaceId, userId],
+    [workspaceId, userId, reload],
   );
 
   /** A result was opened: remember the search that found it and the place it opened. */
   const recordOpen = useCallback(
     (query: string, entity: SearchEntityKey | undefined) => {
-      if (query.trim()) saveHistory(withSearch(history, query));
-      if (entity) saveUsage(withOpen(usage, entity, Date.now()));
+      if (query.trim()) updateHistory((history) => withSearch(history, query));
+      if (entity) {
+        const usage = withOpen(readSearchUsage(workspaceId, userId), entity, Date.now());
+        writeSearchUsage(workspaceId, userId, usage);
+        reload();
+      }
     },
-    [history, usage, saveHistory, saveUsage],
+    [workspaceId, userId, updateHistory, reload],
   );
 
   const removeSearch = useCallback(
-    (query: string) => saveHistory(history.filter((entry) => entry !== query)),
-    [history, saveHistory],
+    (query: string) => updateHistory((history) => history.filter((entry) => entry !== query)),
+    [updateHistory],
   );
 
-  const clearHistory = useCallback(() => saveHistory([]), [saveHistory]);
+  const clearHistory = useCallback(() => updateHistory(() => []), [updateHistory]);
 
-  return { history, usage, recordOpen, removeSearch, clearHistory };
+  return { ...memory, recordOpen, removeSearch, clearHistory };
 }

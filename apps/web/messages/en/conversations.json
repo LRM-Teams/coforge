@@ -519,5 +519,6 @@
   "search_history_clear": "Clear",
   "search_history_remove": "Remove “{query}” from search history",
   "search_frequent_heading": "Frequently used",
-  "search_frequent_empty": "Channels and Agents you open from search appear here."
+  "search_frequent_empty": "Channels and Agents you open from search appear here.",
+  "search_frequent_failed": "Could not load your frequently used places."
 }

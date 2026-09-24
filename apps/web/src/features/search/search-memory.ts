@@ -28,6 +28,8 @@ const DAY_MS = 86_400_000;
 const USAGE_WINDOW_MS = 90 * DAY_MS;
 /** An open counts half as much after a week. */
 const HALF_LIFE_MS = 7 * DAY_MS;
+/** Opens stamped this far ahead still count: a clock that stepped back must not wipe them. */
+const FUTURE_TOLERANCE_MS = 5 * 60_000;
 
 export type SearchUsage = Record<string, number[]>;
 
@@ -110,23 +112,34 @@ export function withOpen(usage: SearchUsage, entity: SearchEntityKey, now: numbe
 
 /** The opens still inside the window, newest first. */
 function recentOpens(opens: readonly number[], now: number): number[] {
-  return opens.filter((open) => now - open <= USAGE_WINDOW_MS && open <= now);
+  return opens.filter((open) => now - open <= USAGE_WINDOW_MS && open - now <= FUTURE_TOLERANCE_MS);
+}
+
+/** A remembered key back as its place; `undefined` for a key this page never writes. */
+function parseEntityKey(key: string): RememberedEntity | undefined {
+  const colon = key.indexOf(":");
+  const kind = key.slice(0, colon);
+  const id = key.slice(colon + 1);
+  return colon > 0 && id && (kind === "channel" || kind === "agent") ? { kind, id } : undefined;
 }
 
 /**
  * The places opened most, weighing each open by its age (half as much after a week), best first;
- * ties go to the most recently opened. At most ten.
+ * ties go to the most recently opened. `usable` drops places that can no longer be shown (gone,
+ * or an archived channel) before the ten are picked, so they never take a slot.
  */
-export function frequentEntities(usage: SearchUsage, now: number): RememberedEntity[] {
+export function frequentEntities(
+  usage: SearchUsage,
+  now: number,
+  usable: (entity: RememberedEntity) => boolean,
+): RememberedEntity[] {
   return Object.entries(usage)
     .flatMap(([key, opens]) => {
-      const [kind, id] = key.split(":");
-      if ((kind !== "channel" && kind !== "agent") || !id) return [];
+      const entity = parseEntityKey(key);
+      if (!entity || !usable(entity)) return [];
       const recent = recentOpens(opens, now);
       const score = recent.reduce((sum, open) => sum + 2 ** (-(now - open) / HALF_LIFE_MS), 0);
-      return score > 0
-        ? [{ entity: { kind, id } as RememberedEntity, score, latest: recent[0]! }]
-        : [];
+      return score > 0 ? [{ entity, score, latest: recent[0]! }] : [];
     })
     .sort((left, right) => right.score - left.score || right.latest - left.latest)
     .slice(0, FREQUENT_LIMIT)
