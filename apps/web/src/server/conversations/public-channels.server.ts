@@ -677,7 +677,10 @@ export class PublicChannels {
           pinSortOrder: pin ? pin.sortOrder : null,
         };
       })
-      .filter((channel) => !channel.hidden)
+      .filter(
+        // A closed chat leaves the list unless it is pinned: Pinned keeps every pin.
+        (channel) => !channel.hidden || channel.pinned,
+      )
       .sort(
         // #general first, then by name. Pinned rows are ordered by `pinSortOrder` in the
         // sidebar's Pinned section, which merges them with pinned DMs.

@@ -114,36 +114,34 @@ export function ConversationRowMenu({
     }
   }
 
-  if (!enabled) return <li className="py-px">{children}</li>;
+  // The list item around the row belongs to the list (`DirectoryDragRow`).
+  if (!enabled) return children;
 
   return (
-    // No native text selection or iOS link callout competing with the menu a long-press opens.
-    <li className="py-px select-none [-webkit-touch-callout:none]">
-      <Dropdown.Root trigger="contextMenu" isOpen={open} onOpenChange={setOpen}>
-        {children}
-        <Dropdown.Popover placement="bottom start">
-          {/* Selecting an item must not close the menu: each mutation keeps it open until it
-              succeeds (`run` closes it), so a failure can be retried in place. */}
-          <Dropdown.Menu
-            aria-label={m.conversation_menu_label()}
-            onAction={handleAction}
-            shouldCloseOnSelect={false}
-          >
-            {items.map((item) => (
-              <Fragment key={item.id}>
-                {item.id === "close-chat" && <Dropdown.Separator />}
-                <Dropdown.Item
-                  id={item.id}
-                  icon={itemIcon(item.id)}
-                  label={itemLabel(item)}
-                  selectionIndicator="none"
-                  isDisabled={pending}
-                />
-              </Fragment>
-            ))}
-          </Dropdown.Menu>
-        </Dropdown.Popover>
-      </Dropdown.Root>
-    </li>
+    <Dropdown.Root trigger="contextMenu" isOpen={open} onOpenChange={setOpen}>
+      {children}
+      <Dropdown.Popover placement="bottom start">
+        {/* Selecting an item must not close the menu: each mutation keeps it open until it
+            succeeds (`run` closes it), so a failure can be retried in place. */}
+        <Dropdown.Menu
+          aria-label={m.conversation_menu_label()}
+          onAction={handleAction}
+          shouldCloseOnSelect={false}
+        >
+          {items.map((item) => (
+            <Fragment key={item.id}>
+              {item.id === "close-chat" && <Dropdown.Separator />}
+              <Dropdown.Item
+                id={item.id}
+                icon={itemIcon(item.id)}
+                label={itemLabel(item)}
+                selectionIndicator="none"
+                isDisabled={pending}
+              />
+            </Fragment>
+          ))}
+        </Dropdown.Menu>
+      </Dropdown.Popover>
+    </Dropdown.Root>
   );
 }

@@ -14,7 +14,11 @@ These rules apply to `src/features/conversations/`.
   (the remembered one while listed, else the first joined channel);
   `conversation-layout.tsx` only navigates there.
 - A pinned channel or DM appears only in the sidebar's Pinned section, which
-  `pinned-conversations.ts` builds by merging both kinds by pin order.
+  `pinned-conversations.ts` builds by merging both kinds by pin order; closing
+  a chat never takes it out of Pinned. The drop rules live in
+  `moveInDirectory`, and a drag commits the whole pin list through
+  `replacePinnedConversations`. Channels and Direct messages are not
+  reordered by hand.
 - Direct and channel views share the empty-state layout and compact thread
   prompt in `direct-conversation.tsx`. Each supplies its own identity, media,
   and copy, and keeps its composer or join action.
