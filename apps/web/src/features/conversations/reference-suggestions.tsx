@@ -62,6 +62,63 @@ export function ReferenceSuggestionList({
     activeOptionRef.current?.scrollIntoView({ block: "nearest" });
   }, [activeIndex]);
 
+  const renderOption = ({ item, index }: { item: ReferenceSuggestion; index: number }) => {
+    const active = index === activeIndex;
+    return (
+      <li
+        key={
+          item.kind === "mention"
+            ? `${item.mention.kind}:${item.mention.id}`
+            : `channel:${item.channel.id}`
+        }
+        ref={active ? activeOptionRef : undefined}
+        id={optionId(index)}
+        role="option"
+        aria-selected={active}
+        onPointerDown={(event) => {
+          // Keep the textarea focused; the choice itself commits on pointerup below.
+          event.preventDefault();
+          event.stopPropagation();
+        }}
+        onPointerUp={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          onChoose(item);
+        }}
+        onClick={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          onChoose(item);
+        }}
+        onMouseEnter={() => onHighlight(index)}
+        className={cx(
+          "flex min-h-9 cursor-pointer select-none items-center gap-2 px-3 py-1.5 pointer-coarse:min-h-11",
+          active && "bg-secondary",
+          // Someone outside the channel reads dimmed: mentioning them notifies no one by itself.
+          item.kind === "mention" && item.mention.outsider && "*:opacity-60",
+        )}
+      >
+        {item.kind === "mention" ? (
+          <MentionRow mention={item.mention} display={displayByAgentId.get(item.mention.id)} />
+        ) : (
+          <ChannelRow channel={item.channel} />
+        )}
+      </li>
+    );
+  };
+  // Members first, then the Workspace's people and Agents outside the channel; the two groups
+  // are named only when both are shown.
+  const rows = items.map((item, index) => ({ item, index }));
+  const outside = rows.filter(({ item }) => item.kind === "mention" && item.mention.outsider);
+  const inside = rows.filter(({ item }) => !(item.kind === "mention" && item.mention.outsider));
+  const groups =
+    outside.length && inside.length
+      ? [
+          { key: "inside", label: m.conversation_mention_group_in_channel(), rows: inside },
+          { key: "outside", label: m.conversation_mention_group_not_in_channel(), rows: outside },
+        ]
+      : [{ key: "all", label: undefined, rows }];
+
   return (
     <div
       role="listbox"
@@ -79,51 +136,24 @@ export function ReferenceSuggestionList({
         role="presentation"
         className="max-h-[min(16rem,40svh)] overscroll-contain overflow-y-auto py-1 [touch-action:pan-y]"
       >
-        {items.map((item, index) => {
-          const active = index === activeIndex;
-          return (
-            <li
-              key={
-                item.kind === "mention"
-                  ? `${item.mention.kind}:${item.mention.id}`
-                  : `channel:${item.channel.id}`
-              }
-              ref={active ? activeOptionRef : undefined}
-              id={optionId(index)}
-              role="option"
-              aria-selected={active}
-              onPointerDown={(event) => {
-                // Keep the textarea focused; the choice itself commits on pointerup below.
-                event.preventDefault();
-                event.stopPropagation();
-              }}
-              onPointerUp={(event) => {
-                event.preventDefault();
-                event.stopPropagation();
-                onChoose(item);
-              }}
-              onClick={(event) => {
-                event.preventDefault();
-                event.stopPropagation();
-                onChoose(item);
-              }}
-              onMouseEnter={() => onHighlight(index)}
-              className={cx(
-                "flex min-h-9 cursor-pointer select-none items-center gap-2 px-3 py-1.5 pointer-coarse:min-h-11",
-                active && "bg-secondary",
-              )}
-            >
-              {item.kind === "mention" ? (
-                <MentionRow
-                  mention={item.mention}
-                  display={displayByAgentId.get(item.mention.id)}
-                />
-              ) : (
-                <ChannelRow channel={item.channel} />
-              )}
+        {groups.map((group) =>
+          group.label ? (
+            <li key={group.key} role="group" aria-labelledby={`${id}-${group.key}`}>
+              <p
+                id={`${id}-${group.key}`}
+                className={cx(
+                  "px-3 pt-2 pb-1 text-xs font-semibold text-tertiary",
+                  group.key === "outside" && "mt-1 border-t border-secondary",
+                )}
+              >
+                {group.label}
+              </p>
+              <ul role="presentation">{group.rows.map(renderOption)}</ul>
             </li>
-          );
-        })}
+          ) : (
+            group.rows.map(renderOption)
+          ),
+        )}
       </ul>
     </div>
   );

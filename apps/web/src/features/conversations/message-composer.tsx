@@ -235,6 +235,7 @@ export function MessageComposer({
   threadRootId,
   inThread,
   mentionables,
+  mentionOutsiders,
   recentHandles,
   channels,
   quotedDraft,
@@ -251,6 +252,8 @@ export function MessageComposer({
   inThread: boolean;
   /** The conversation's @-completion candidates; absent or empty, `@` opens no popup. */
   mentionables?: readonly Mentionable[];
+  /** The channel's people and public Agents outside it, offered after the members. */
+  mentionOutsiders?: readonly Mentionable[];
   /** Handles that recently sent a message in this conversation, most-recent first (channels
    * only); ranks @-completion candidates ahead of alphabetical order. */
   recentHandles?: readonly string[];
@@ -289,6 +292,7 @@ export function MessageComposer({
   // @-member and #-channel completion: query tracking, popup state, and keyboard interaction.
   const completion = useReferenceCompletion({
     mentionables,
+    mentionOutsiders,
     recentHandles,
     channels,
     currentChannelId: conversationId,

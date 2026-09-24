@@ -1738,6 +1738,77 @@ export class PublicChannels {
       .sort((left, right) => left.handle.localeCompare(right.handle));
   }
 
+  /**
+   * The composer's other @-completion group for one channel: the Workspace's people and public
+   * Agents who are not active members, for the viewer to mention on purpose. Such a mention does
+   * not notify them; the send records it as the viewer's pending mention action. Never the viewer,
+   * a private Agent (it cannot join a channel) or a deleted one. People first, then Agents, each by
+   * handle; the composer ranks them against the query.
+   */
+  async mentionOutsiders(workspaceId: string, userId: string, channelId: string) {
+    await this.channel(workspaceId, userId, channelId);
+    const notMember = { conversationId: channelId, ...ACTIVE_MEMBER_WHERE };
+    const [memberships, agents] = await Promise.all([
+      this.db.workspaceMembership.findMany({
+        where: {
+          workspaceId,
+          userId: { not: userId },
+          user: { conversationMembers: { none: notMember } },
+        },
+        select: {
+          user: {
+            select: {
+              id: true,
+              username: true,
+              displayName: true,
+              description: true,
+              avatarObjectKey: true,
+            },
+          },
+        },
+        orderBy: { user: { username: "asc" } },
+      }),
+      this.db.agent.findMany({
+        where: {
+          workspaceId,
+          visibility: AGENT_VISIBILITY.PUBLIC,
+          ...ACTIVE_AGENT_WHERE,
+          conversations: { none: notMember },
+        },
+        select: {
+          id: true,
+          name: true,
+          displayName: true,
+          description: true,
+          avatarObjectKey: true,
+        },
+        orderBy: { name: "asc" },
+      }),
+    ]);
+    return [
+      ...memberships.map(({ user }) => ({
+        kind: "user" as const,
+        id: user.id,
+        handle: user.username,
+        label: user.displayName?.trim() || user.username,
+        description: user.description.trim(),
+        avatarUrl: workspaceUserAvatarUrl(workspaceId, user.id, user.avatarObjectKey),
+        mentionScore: 0,
+        outsider: true as const,
+      })),
+      ...agents.map((agent) => ({
+        kind: "agent" as const,
+        id: agent.id,
+        handle: agent.name,
+        label: agent.displayName?.trim() || agent.name,
+        description: agent.description.trim(),
+        avatarUrl: agentAvatarUrl(workspaceId, agent.id, agent.avatarObjectKey),
+        mentionScore: 0,
+        outsider: true as const,
+      })),
+    ];
+  }
+
   async updates(workspaceId: string, userId: string, channelId: string, afterSequence: number) {
     await this.channel(workspaceId, userId, channelId);
     const messages = await this.db.message.findMany({

@@ -28,6 +28,7 @@ function referenceText(item: ReferenceSuggestion): string {
  */
 export function useReferenceCompletion({
   mentionables,
+  mentionOutsiders,
   recentHandles,
   channels,
   currentChannelId,
@@ -36,6 +37,8 @@ export function useReferenceCompletion({
 }: {
   /** The conversation's @-completion candidates; empty/undefined keeps the `@` popup closed. */
   mentionables: readonly Mentionable[] | undefined;
+  /** Candidates outside the channel, ranked on their own and listed after the members. */
+  mentionOutsiders?: readonly Mentionable[];
   /** Handles that recently sent a message in this conversation, most-recent first; ranks
    * completion candidates ahead of alphabetical order within a match tier. */
   recentHandles?: readonly string[];
@@ -75,7 +78,10 @@ export function useReferenceCompletion({
   const items: ReferenceSuggestion[] = !query
     ? []
     : query.trigger === "@"
-      ? filterMentionables(mentionables ?? [], query.query, { recentHandles }).map((mention) => ({
+      ? [
+          ...filterMentionables(mentionables ?? [], query.query, { recentHandles }),
+          ...filterMentionables(mentionOutsiders ?? [], query.query, { recentHandles }),
+        ].map((mention) => ({
           kind: "mention",
           mention,
         }))

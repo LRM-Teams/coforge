@@ -65,6 +65,9 @@ export type Mentionable = {
    * conversation (see `mentionAffinityScores` on the server); 0 when the viewer never has.
    * Higher ranks first within a match tier. */
   mentionScore: number;
+  /** Not a member of the channel: offered in its own group, and a mention of them notifies no one
+   * until the sender acts on it. */
+  outsider?: true;
 };
 
 /**
