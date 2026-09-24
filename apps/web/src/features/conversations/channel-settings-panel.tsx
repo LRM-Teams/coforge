@@ -38,10 +38,10 @@ import {
   loadPublicChannelMembers,
   setPublicChannelArchived,
   setPublicChannelMuted,
+  setPublicConversationPinned,
   updatePublicChannelInfo,
 } from "./channels.functions";
 import { channelMembersQueryKey } from "./conversation-query-keys";
-import { useSidebarActions } from "./sidebar-lists";
 
 /** How many member avatars the strip shows before the "+N" tile. */
 const MEMBER_STRIP_LIMIT = 14;
@@ -473,8 +473,7 @@ function PreferencesSection({
   conversation: ChannelConversationView;
   onChanged: () => Promise<void>;
 }) {
-  // Pinning is a sidebar change: it goes through the sidebar's own optimistic action.
-  const sidebarActions = useSidebarActions();
+  const setPinned = useServerFn(setPublicConversationPinned);
   const setMuted = useServerFn(setPublicChannelMuted);
   const [pending, setPending] = useState<"pin" | "mute" | null>(null);
   const [error, setError] = useState("");
@@ -506,13 +505,7 @@ function PreferencesSection({
             isSelected={conversation.pinned}
             isDisabled={pending !== null}
             onChange={(pinned) =>
-              void change("pin", async () => {
-                const saving = sidebarActions?.setPinned({
-                  target: { kind: "channel", id: channelId },
-                  pinned,
-                });
-                await saving?.isPersisted.promise;
-              })
+              void change("pin", () => setPinned({ data: { channelId, pinned } }))
             }
           />
         </PreferenceRow>

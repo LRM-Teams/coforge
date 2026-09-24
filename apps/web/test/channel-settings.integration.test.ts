@@ -305,6 +305,14 @@ test.skipIf(!connectionString)(
       );
       await appErrorCode(channels.setArchived(workspace.id, { userId: bob.id }, team.id, true));
       expect(updated).toHaveLength(4);
+
+      // A write that changes nothing announces nothing either.
+      await channels.updateInfo(workspace.id, { userId: creator.id }, team.id, {
+        name: `renamed-${suffix}`,
+        description: "Now described",
+      });
+      await channels.setArchived(workspace.id, { userId: creator.id }, team.id, false);
+      expect(updated).toHaveLength(4);
     } finally {
       await teardown(db, workspace.id, [owner.id, creator.id, bob.id]);
     }

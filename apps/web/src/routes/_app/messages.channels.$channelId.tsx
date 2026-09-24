@@ -137,7 +137,7 @@ function ChannelPage() {
   // The settings panel writes the channel (name, description, archive), the viewer's own
   // membership (leave) or mute itself; this re-reads the page and the sidebar's channel list.
   const refreshSidebarChannels = useRefreshSidebarChannels();
-  const refreshChannel = async () => {
+  const refreshChannelAndSidebar = async () => {
     await Promise.all([page.invalidate(), refreshSidebarChannels()]);
   };
   const followThread = (threadRootId: string) =>
@@ -155,7 +155,7 @@ function ChannelPage() {
           active="files"
           onShowChat={showChat}
           onShowTasks={showTasks}
-          onChanged={refreshChannel}
+          onChanged={refreshChannelAndSidebar}
           onOpenAgentProfile={openAgentProfile}
         />
         <ConversationFilesPanel
@@ -175,7 +175,7 @@ function ChannelPage() {
             active="tasks"
             onShowChat={showChat}
             onShowFiles={showFiles}
-            onChanged={refreshChannel}
+            onChanged={refreshChannelAndSidebar}
             onOpenAgentProfile={openAgentProfile}
           />
         }
@@ -243,7 +243,7 @@ function ChannelPage() {
         await join({ data: { channelId } });
         await Promise.all([page.invalidate(), router.invalidate({ sync: true })]);
       }}
-      onChanged={refreshChannel}
+      onChanged={refreshChannelAndSidebar}
       onReadThread={(threadRootId, throughSequence) =>
         markRead({ data: { channelId, threadRootId, throughSequence } })
       }

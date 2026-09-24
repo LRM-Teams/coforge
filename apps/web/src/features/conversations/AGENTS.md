@@ -26,7 +26,8 @@ These rules apply to `src/features/conversations/`.
   `useSidebarActions` (optimistic: the row changes at once, a failed save
   rolls it back); never `router.invalidate` for a sidebar change. A change made
   outside the sidebar (a channel's rename or archive, here or signalled by
-  `channel.updated.v1`, or the viewer leaving or muting it) re-reads only the
+  `channel.updated.v1`, or the viewer leaving, muting or pinning it from the
+  settings panel) re-reads only the
   channel list through `useRefreshSidebarChannels`.
 - TanStack DB collections are client-only: create them through the
   per-`QueryClient` factory after hydration, never at module scope, and keep

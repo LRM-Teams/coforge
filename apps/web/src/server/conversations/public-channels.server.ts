@@ -805,6 +805,9 @@ export class PublicChannels {
     if (!authority.capabilities.update) throw new AppError("ACCESS_DENIED");
     if (channel.archivedAt) throw new AppError("CONFLICT");
     const rename = patch.name !== undefined && patch.name !== channel.channelName;
+    const redescribe = patch.description !== undefined && patch.description !== channel.description;
+    if (!rename && !redescribe)
+      return { id: channel.id, name: channel.channelName!, description: channel.description };
     if (rename) {
       if (channel.channelName === "general") throw new AppError("CONFLICT");
       if (!CHANNEL_NAME_PATTERN.test(patch.name!)) throw new AppError("INVALID_INPUT");
@@ -815,7 +818,7 @@ export class PublicChannels {
         where: { id: channel.id },
         data: {
           ...(rename ? { channelName: patch.name } : {}),
-          ...(patch.description !== undefined ? { description: patch.description } : {}),
+          ...(redescribe ? { description: patch.description } : {}),
         },
         select: { id: true, channelName: true, description: true },
       });
@@ -843,9 +846,11 @@ export class PublicChannels {
     const authority = await resolveChannelAuthority(this.db, workspaceId, actor, channel);
     if (!authority.capabilities[archived ? "archive" : "unarchive"])
       throw new AppError("ACCESS_DENIED");
+    // Already in the asked-for state: nothing to write or announce.
+    if ((channel.archivedAt !== null) === archived) return { id: channel.id, archived };
     await this.db.conversation.update({
       where: { id: channel.id },
-      data: { archivedAt: archived ? (channel.archivedAt ?? new Date()) : null },
+      data: { archivedAt: archived ? new Date() : null },
     });
     await announceChannelUpdated(this.realtime, { workspaceId, conversationId: channel.id });
     return { id: channel.id, archived };
@@ -854,7 +859,7 @@ export class PublicChannels {
   private async findChannelById(workspaceId: string, channelId: string) {
     const channel = await this.db.conversation.findFirst({
       where: { id: channelId, workspaceId, channelName: { not: null } },
-      select: { id: true, channelName: true, archivedAt: true },
+      select: { id: true, channelName: true, description: true, archivedAt: true },
     });
     if (!channel) throw new AppError("NOT_FOUND");
     return channel;
