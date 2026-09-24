@@ -24,8 +24,9 @@ import {
 import {
   agentReadableBody,
   MESSAGE_MENTIONS_SELECT,
-  mentionedNames,
+  type MessageMentionRef,
 } from "#src/server/conversations/mentions.server";
+import { storeMessageBody } from "#src/server/conversations/message-references.server";
 import { ACTIVE_MEMBER_WHERE } from "#src/server/conversations/active-member.server";
 import {
   agentMessageSender,
@@ -741,6 +742,7 @@ export class TaskBoard {
       conversationId: string;
       sequence: number;
       body: string;
+      mentions: readonly MessageMentionRef[];
       deliveries: Array<{
         deliveryId: string;
         agentId: string;
@@ -769,9 +771,8 @@ export class TaskBoard {
                     messageId: message.id,
                     deliveryId: delivery.deliveryId,
                     sequence: message.sequence,
-                    // A task's own message is its typed title, with no mention rows.
                     body: message.body,
-                    mentions: [],
+                    mentions: message.mentions,
                     target,
                     latestSenderKind: sender.kind,
                     latestSenderHandle: sender.handle,
@@ -863,26 +864,49 @@ export class TaskBoard {
       const firstTaskNumber = allocated[0]?.first;
       if (firstTaskNumber === undefined) throw new AppError("NOT_FOUND");
       const firstSequence = (lastMessage?.sequence ?? 0) + 1;
-      const names = mentionedNames(titles.join("\n"));
-      const recipients = member.userId
+      // A human's Task wakes the conversation's Agents: in a DM its Agent, in a channel every
+      // unmuted Agent plus each muted Agent the Task's own title mentions. An Agent's Task wakes
+      // nobody. Never deliver a Task to a deleted Agent.
+      const agentMembers = member.userId
         ? await tx.conversationMember.findMany({
-            where: scope.channel
+            where: {
+              conversationId: scope.conversationId,
+              agentId: { not: null },
+              ...ACTIVE_MEMBER_WHERE,
+              agent: ACTIVE_AGENT_WHERE,
+            },
+            select: { agentId: true, channelMuted: true },
+          })
+        : [];
+      // A title is a message like any other: its mentions, `task #N`s and `#channel`s are stored as
+      // tokens, resolved against the channel's active members (a DM keeps plain `@handle` text).
+      const mentionTargets = scope.channel
+        ? (
+            await tx.conversationMember.findMany({
+              where: { conversationId: scope.conversationId, ...ACTIVE_MEMBER_WHERE },
+              select: {
+                id: true,
+                userId: true,
+                agentId: true,
+                user: { select: { username: true } },
+                agent: { select: { name: true } },
+              },
+            })
+          ).map((target) =>
+            target.userId
               ? {
-                  conversationId: scope.conversationId,
-                  agentId: { not: null },
-                  // Never deliver a Task to a deleted Agent.
-                  ...ACTIVE_MEMBER_WHERE,
-                  agent: ACTIVE_AGENT_WHERE,
-                  OR: [{ channelMuted: false }, { agent: { name: { in: names } } }],
+                  key: target.id,
+                  type: "user" as const,
+                  id: target.userId,
+                  handle: target.user!.username,
                 }
               : {
-                  conversationId: scope.conversationId,
-                  agentId: { not: null },
-                  ...ACTIVE_MEMBER_WHERE,
-                  agent: ACTIVE_AGENT_WHERE,
+                  key: target.id,
+                  type: "agent" as const,
+                  id: target.agentId!,
+                  handle: target.agent!.name,
                 },
-            select: { agentId: true },
-          })
+          )
         : [];
       const assignee = command.assignee
         ? await this.memberByHandle(tx, scope.conversationId, scope.workspaceId, command.assignee)
@@ -895,13 +919,34 @@ export class TaskBoard {
       const sequences: number[] = [];
       for (const [index, title] of titles.entries()) {
         const sequence = firstSequence + index;
+        const stored = await storeMessageBody(tx, scope, title, { targets: mentionTargets });
+        const mentionedAgentIds = new Set(
+          stored.mentions
+            .filter((mention) => mention.type === "agent")
+            .map((mention) => mention.id),
+        );
+        const recipients = agentMembers.filter(
+          ({ agentId, channelMuted }) =>
+            !scope.channel || !channelMuted || mentionedAgentIds.has(agentId!),
+        );
         const message = await tx.message.create({
           data: {
             conversationId: scope.conversationId,
             workspaceId: scope.workspaceId,
             senderMemberId: member.id,
-            body: title,
+            body: stored.body,
             sequence,
+            mentions: stored.mentions.length
+              ? {
+                  create: stored.mentions.map((mention) => ({
+                    memberId: mention.key,
+                    workspaceId: scope.workspaceId,
+                    kind: mention.type,
+                    actorId: mention.id,
+                    handle: mention.handle,
+                  })),
+                }
+              : undefined,
             deliveries: {
               create: recipients.map(({ agentId }) => ({
                 workspaceId: scope.workspaceId,
@@ -914,7 +959,9 @@ export class TaskBoard {
               create: {
                 workspaceId: scope.workspaceId,
                 number: firstTaskNumber + index,
-                title,
+                // The Task's title is its message's stored body, as a converted Task's is; `view`
+                // reads its tokens back as text with the message's mention rows.
+                title: stored.body,
                 description: command.description,
                 createsResource: command.createsResource ?? false,
                 ownerMemberId: assignee?.id,
@@ -987,6 +1034,7 @@ export class TaskBoard {
           where: { id: { in: result.tasks.map((task) => task.messageId) } },
           include: {
             sender: MESSAGE_SENDER_SELECT,
+            mentions: MESSAGE_MENTIONS_SELECT,
             deliveries: { include: { agent: { select: { computerId: true } } } },
           },
         });
@@ -1138,6 +1186,7 @@ export class TaskBoard {
             },
           },
         },
+        mentions: MESSAGE_MENTIONS_SELECT,
         deliveries: { include: { agent: { select: { computerId: true } } } },
       },
     });

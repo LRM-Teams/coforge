@@ -1,9 +1,5 @@
 import type { Prisma } from "#src/generated/prisma/client";
-import { MENTION_PATTERN, readableBody } from "@lrm/coforge-sdk/internal";
-
-export function mentionedNames(body: string) {
-  return [...body.matchAll(MENTION_PATTERN)].map((match) => match[1]!);
-}
+import { readableBody } from "@lrm/coforge-sdk/internal";
 
 /** The mention-row projection every body reader needs to resolve embedded tokens. */
 export type MessageMentionRef = { kind: string; actorId: string; handle: string };

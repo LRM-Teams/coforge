@@ -2,18 +2,33 @@ import { expect, test } from "bun:test";
 import { Glob } from "bun";
 
 import { encodeAgentDelivery } from "#src/server/conversations/agent-delivery.server";
+import {
+  agentMessageView,
+  type AgentMessageViewMark,
+} from "#src/server/conversations/agent-message-view.server";
+import type { AgentMessageRepository } from "#src/server/agents/agent-messages.server";
+import type { PrismaDirectConversationRepository } from "#src/server/db/repositories/direct-conversation.repositories.server";
 import { decodeAgentMessageDelivery } from "@lrm/coforge-sdk/internal";
 
 const CHANNEL_ID = "33333333-3333-4333-8333-333333333333";
 const AGENT_ID = "22222222-2222-4222-8222-222222222222";
+const TOKENIZED = `<@agent:${AGENT_ID}> see <@task:7> in <@channel:${CHANNEL_ID}:product>`;
+const MENTIONS = [{ kind: "agent", actorId: AGENT_ID, handle: "helper" }];
+
+/** The `src/` files whose source contains `needle`, relative to `apps/web`. */
+async function filesContaining(needle: string) {
+  const files: string[] = [];
+  for await (const path of new Glob("src/**/*.{ts,tsx}").scan({ cwd: import.meta.dir + "/.." })) {
+    const source = await Bun.file(`${import.meta.dir}/../${path}`).text();
+    if (source.includes(needle)) files.push(path);
+  }
+  return files.sort();
+}
 
 test("every Agent delivery is encoded through the one function that makes its body readable", async () => {
-  const callers: string[] = [];
-  for await (const path of new Glob("src/**/*.ts").scan({ cwd: import.meta.dir + "/.." })) {
-    const source = await Bun.file(`${import.meta.dir}/../${path}`).text();
-    if (source.includes("encodeAgentMessageDelivery(")) callers.push(path);
-  }
-  expect(callers).toEqual(["src/server/conversations/agent-delivery.server.ts"]);
+  expect(await filesContaining("encodeAgentMessageDelivery(")).toEqual([
+    "src/server/conversations/agent-delivery.server.ts",
+  ]);
 });
 
 test("a delivery's body never carries a stored token", () => {
@@ -29,8 +44,76 @@ test("a delivery's body never carries a stored token", () => {
     latestSenderKind: "human",
     latestSenderHandle: "ada",
     latestSenderDescription: "",
-    body: `<@agent:${AGENT_ID}> see <@task:7> in <@channel:${CHANNEL_ID}:product>`,
-    mentions: [{ kind: "agent", actorId: AGENT_ID, handle: "helper" }],
+    body: TOKENIZED,
+    mentions: MENTIONS,
   });
   expect(decodeAgentMessageDelivery(payload).body).toBe("@helper see task #7 in #product");
 });
+
+/**
+ * Agent-facing message records are built only by `agentMessageView`: no serializer reads a stored
+ * body back itself. The daemon encoder, a Task's title (`view`, `quotedTask`) and the push preview
+ * are the other readers of stored bodies, each at its single call site.
+ */
+test("no Agent-facing serializer reads a stored body except through agentMessageView", async () => {
+  const callers = (await filesContaining("agentReadableBody(")).filter(
+    (path) => path !== "src/server/conversations/mentions.server.ts",
+  );
+  expect(callers).toEqual([
+    "src/server/conversations/agent-delivery.server.ts",
+    "src/server/conversations/agent-message-view.server.ts",
+    "src/server/notifications/prisma-web-push-subscriptions.server.ts",
+    "src/server/tasks/task-board.server.ts",
+    "src/server/tasks/task-notices.server.ts",
+  ]);
+  // The mark is named only where records are built and checked: a serializer cannot claim it by
+  // annotation without the repository's reads being the ones checked below.
+  expect(await filesContaining("AgentMessageViewMark")).toEqual([
+    "src/server/conversations/agent-message-view.server.ts",
+    "src/server/db/repositories/direct-conversation.repositories.server.ts",
+  ]);
+});
+
+test("the Agent projection reads every stored token back as text, and says when it mentions the reader", () => {
+  expect(agentMessageView({ body: TOKENIZED, mentions: MENTIONS })).toEqual({
+    body: "@helper see task #7 in #product",
+  });
+  expect(agentMessageView({ body: TOKENIZED, mentions: MENTIONS }, AGENT_ID)).toEqual({
+    body: "@helper see task #7 in #product",
+    mentionsAgent: true,
+  });
+  expect(agentMessageView({ body: TOKENIZED, mentions: MENTIONS }, "someone-else")).toEqual({
+    body: "@helper see task #7 in #product",
+  });
+  expect(
+    agentMessageView({ body: "create it", mentions: [], actionCard: { state: "pending" } }),
+  ).toEqual({ body: "create it [action card: pending]" });
+});
+
+/*
+ * Checked by the type checker (`bun run check` covers `test/`): every Agent-facing read of the
+ * repository, the Agent HTTP port's and the daemon recovery's alike, returns records built by
+ * spreading `agentMessageView` (they carry its `AgentMessageViewMark`). A serializer that fills
+ * `body` itself loses the mark, and `UnprojectedRead` names its method.
+ */
+type Repository = PrismaDirectConversationRepository;
+type AgentFacingRead =
+  | Extract<keyof AgentMessageRepository, keyof Repository>
+  | "readAgentRecoveryContext"
+  | "readPendingAgentDeliveries";
+type MessageOf<T> = T extends { messages: readonly (infer M)[] }
+  ? M
+  : T extends { resumeMessages: readonly (infer M)[] }
+    ? M
+    : T extends readonly (infer M)[]
+      ? M
+      : T;
+type UnprojectedRead = {
+  [K in AgentFacingRead]: MessageOf<Awaited<ReturnType<Repository[K]>>> extends { body: string }
+    ? keyof AgentMessageViewMark extends keyof MessageOf<Awaited<ReturnType<Repository[K]>>>
+      ? never
+      : K
+    : never;
+}[AgentFacingRead];
+type ExpectNone<T extends never> = T;
+export type EveryAgentReadIsProjected = ExpectNone<UnprojectedRead>;

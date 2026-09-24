@@ -9,13 +9,15 @@ import { messageAnchorWhere } from "#src/server/db/message-anchor.server";
 import { getAgentChannel, PublicChannels } from "#src/server/conversations/public-channels.server";
 import { ACTIVE_MEMBER_WHERE } from "#src/server/conversations/active-member.server";
 import {
-  agentReadableBody,
   BROWSER_MESSAGE_MENTIONS_SELECT,
   MESSAGE_MENTIONS_SELECT,
   browserMessageMention,
-  deliveryMentionsAgent,
-  mentionedNames,
+  type MessageMentionRef,
 } from "#src/server/conversations/mentions.server";
+import {
+  agentMessageView,
+  type AgentMessageViewMark,
+} from "#src/server/conversations/agent-message-view.server";
 import { AgentSendRejectedError } from "#src/server/conversations/agent-send-rejected-error.server";
 import { storeMessageBody } from "#src/server/conversations/message-references.server";
 import {
@@ -205,31 +207,27 @@ function toAgentMessage(
     task: Parameters<typeof messageTask>[0];
     attachments: AttachmentMetadata[];
     actionCard?: { state: string } | null;
-    mentions?: { kind: string; actorId: string; handle: string }[];
+    mentions?: MessageMentionRef[];
   },
   target: string,
   readerAgentId?: string,
 ) {
   const task = messageTask(row.task);
   const sender = agentMessageSender(row.sender);
-  // Agents read plain `@handle` text: the embedded-UUID token form is a storage/browser concern
-  // and never crosses onto the Agent channel.
-  const body = agentReadableBody(row.body, row.mentions ?? []);
-  const mentionsAgent = readerAgentId ? deliveryMentionsAgent(row.mentions, readerAgentId) : false;
   return {
     id: row.id,
     sequence: row.sequence,
     senderKind: sender.kind,
     senderHandle: sender.handle,
     senderDescription: sender.description,
-    // An Agent reads message text, not the browser card UI; append the card's current state so it
-    // never claims a resource exists before a human has actually committed the card.
-    body: row.actionCard ? `${body} [action card: ${row.actionCard.state}]` : body,
+    ...agentMessageView(
+      { body: row.body, mentions: row.mentions ?? [], actionCard: row.actionCard },
+      readerAgentId,
+    ),
     createdAt: row.createdAt,
     target,
     attachments: row.attachments,
     ...(task ? { task } : {}),
-    ...(mentionsAgent ? { mentionsAgent: true } : {}),
   };
 }
 
@@ -1593,7 +1591,7 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
   async readPendingAgentDeliveries(
     workspaceId: string,
     agentId: string,
-  ): Promise<PendingAgentDelivery[]> {
+  ): Promise<(PendingAgentDelivery & AgentMessageViewMark)[]> {
     const deliveries = await this.db.agentMessageDelivery.findMany({
       where: { workspaceId, agentId, receivedAt: null },
       orderBy: [{ createdAt: "asc" }, { deliveryId: "asc" }],
@@ -1642,10 +1640,7 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
         latestSenderKind: sender.kind,
         latestSenderHandle: sender.handle,
         latestSenderDescription: sender.description,
-        body: agentReadableBody(delivery.message.body, delivery.message.mentions),
-        ...(deliveryMentionsAgent(delivery.message.mentions, agentId)
-          ? { mentionsAgent: true }
-          : {}),
+        ...agentMessageView(delivery.message, agentId),
       };
     });
   }
@@ -1787,7 +1782,11 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
   async readAgentRecoveryContext(
     workspaceId: string,
     agentId: string,
-  ): Promise<AgentRecoveryContext> {
+  ): Promise<
+    AgentRecoveryContext & {
+      resumeMessages: (AgentRecoveryContext["resumeMessages"][number] & AgentMessageViewMark)[];
+    }
+  > {
     // One statement over every unread message the Agent owes attention to, ranked globally by
     // (conversation, thread root, sequence). Rows past the resume budget are kept only for the
     // first message of each target so unreadSummary stays complete without a second pass.
@@ -1807,7 +1806,8 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
       FROM ranked
       WHERE "globalRank" <= ${AGENT_RECOVERY_MESSAGE_LIMIT} OR "targetRank" = 1
       ORDER BY "globalRank"`;
-    const resumeMessages: AgentRecoveryContext["resumeMessages"] = [];
+    const resumeMessages: (AgentRecoveryContext["resumeMessages"][number] &
+      AgentMessageViewMark)[] = [];
     const unreadSummary: Record<string, number> = {};
     // The raw statement cannot join the mention rows, so translate embedded tokens in a second
     // pass; Agents only ever read plain `@handle` text.
@@ -1864,7 +1864,7 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
         latestSenderKind: sender.kind,
         latestSenderHandle: sender.handle,
         latestSenderDescription: sender.description,
-        body: agentReadableBody(row.body, mentionsByMessage.get(row.id) ?? []),
+        ...agentMessageView({ body: row.body, mentions: mentionsByMessage.get(row.id) ?? [] }),
       });
     }
     return { resumeMessages, unreadSummary };
@@ -2119,7 +2119,7 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
       sequence: number;
       sender: Parameters<typeof agentMessageSender>[0];
       body: string;
-      mentions: Parameters<typeof agentReadableBody>[1];
+      mentions: readonly MessageMentionRef[];
       createdAt: Date;
       attachments: { id: string; fileName: string; contentType: string; sizeBytes: number }[];
     },
@@ -2131,7 +2131,7 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
       senderKind: sender.kind,
       senderHandle: sender.handle,
       senderDescription: sender.description,
-      body: agentReadableBody(m.body, m.mentions),
+      ...agentMessageView(m),
       createdAt: m.createdAt,
       target: canonicalTarget,
       attachments: m.attachments,
@@ -2306,18 +2306,11 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
       );
       mentionedAgentIds.delete(agentId);
       if (conversation.channelName && root) {
-        const names = mentionedNames(body);
-        const mentioned = await tx.conversationMember.findMany({
-          where: {
-            conversationId,
-            OR: [{ user: { username: { in: names } } }, { agent: { name: { in: names } } }],
-            ...ACTIVE_MEMBER_WHERE,
-          },
-          select: { id: true },
-        });
+        // Everyone the reply mentions follows the thread: exactly the members its stored mention
+        // rows name (each mention's key is the member id), plus every `--mention` binding.
         const followerIds = new Set([
           sender.id,
-          ...mentioned.map(({ id }) => id),
+          ...stored.mentions.map((mention) => mention.key),
           ...mentionedMemberIds,
         ]);
         // Enroll the root author only for the first reply. An explicit unfollow is a durable

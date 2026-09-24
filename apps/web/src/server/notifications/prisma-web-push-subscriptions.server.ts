@@ -2,7 +2,6 @@ import type { PrismaClient } from "#src/generated/prisma/client";
 import {
   agentReadableBody,
   MESSAGE_MENTIONS_SELECT,
-  mentionedNames,
 } from "#src/server/conversations/mentions.server";
 import { ACTIVE_MEMBER_WHERE } from "#src/server/conversations/active-member.server";
 import { messageNotificationTag } from "./web-push-notifications.server";
@@ -24,7 +23,8 @@ type MessageContext = {
     threadRootId: string | null;
   };
   channelName: string | null;
-  names: string[];
+  /** The users the message's stored mention rows name; a mention pierces channel mute. */
+  mentionedUserIds: string[];
   title: string;
   body: string;
   url: string;
@@ -38,7 +38,7 @@ export class PrismaWebPushSubscriptionStore implements WebPushSubscriptionStore 
 
   /**
    * Everything about a message that does not depend on which recipient is asking: its title/body/
-   * url/conversationPath, and the ingredients (`channelName`, mention `names`) the shared
+   * url/conversationPath, and the ingredients (`channelName`, `mentionedUserIds`) the shared
    * recipient-eligibility where-clause needs. `notificationForMessage` and `notificationForRecipient`
    * both build on this single read so the recipient rule itself lives in exactly one place
    * (`recipientWhere`).
@@ -65,10 +65,15 @@ export class PrismaWebPushSubscriptionStore implements WebPushSubscriptionStore 
     });
     if (!message) return null;
     const channelName = message.conversation.channelName;
-    // Stored bodies carry mentions as embedded-UUID tokens; mention-pierce and the preview
-    // both work on the plain `@handle` form.
+    // Stored bodies carry mentions as embedded-UUID tokens; the preview reads them back as
+    // `@handle` text. Mention-pierce reads the stored mention rows themselves, the same rows the
+    // renderer chips, so an `@handle` in code or a link label pierces nothing.
     const readableBody = agentReadableBody(message.body, message.mentions);
-    const names = channelName ? mentionedNames(readableBody) : [];
+    const mentionedUserIds = channelName
+      ? message.mentions
+          .filter((mention) => mention.kind === "user")
+          .map((mention) => mention.actorId)
+      : [];
     const sender = message.sender
       ? `@${message.sender.agent?.name ?? message.sender.user?.username ?? "unknown"}`
       : "System";
@@ -93,7 +98,7 @@ export class PrismaWebPushSubscriptionStore implements WebPushSubscriptionStore 
         threadRootId: message.threadRootId,
       },
       channelName,
-      names,
+      mentionedUserIds,
       title: channelName ? `#${channelName}` : sender,
       body: channelName ? `${sender}: ${preview}` : preview,
       url,
@@ -107,7 +112,7 @@ export class PrismaWebPushSubscriptionStore implements WebPushSubscriptionStore 
    * every read. Passing `userId` narrows it to that one member, for `notificationForRecipient`.
    */
   private recipientWhere(context: MessageContext, userId?: string) {
-    const { message, channelName, names } = context;
+    const { message, channelName, mentionedUserIds } = context;
     return {
       conversationId: message.conversationId,
       ...(message.senderMemberId ? { id: { not: message.senderMemberId } } : {}),
@@ -117,7 +122,7 @@ export class PrismaWebPushSubscriptionStore implements WebPushSubscriptionStore 
         ? {
             OR: [
               { channelMuted: false },
-              { user: { username: { in: names } } },
+              { userId: { in: mentionedUserIds } },
               ...(message.threadRootId
                 ? [{ threadFollows: { some: { rootMessageId: message.threadRootId } } }]
                 : []),
