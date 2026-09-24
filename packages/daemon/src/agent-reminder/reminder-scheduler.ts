@@ -191,7 +191,7 @@ export class ReminderScheduler {
         logger.warn("Reminder receipts could not be read for an acknowledgement", {
           error,
           event: "reminder.ack_receipt_unreadable",
-          outcome: "degraded",
+          outcome: "failed",
           agent_id: agentId,
           reminder_id: reminderId,
           reminder_version: version,

@@ -897,6 +897,10 @@ test("an acknowledgement falls back to the daemon's own copy when the stored rec
   // The receipt file disappears while the daemon still holds the receipt in memory.
   store.receipts = [];
   expect(await scheduler.acknowledge("agent-a", job.reminderId, job.version)).toBe(true);
+  // The consumed copy is written back, so it keeps fencing the revision.
+  expect(store.receipts).toEqual([
+    expect.objectContaining({ reminderId: job.reminderId, version: job.version, consumed: true }),
+  ]);
 
   // The acknowledged revision is not woken again.
   await clock.advance(60_000);
