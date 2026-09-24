@@ -12,6 +12,9 @@ These rules apply to `src/server/conversations/`.
   thread root validation, target-scoped ranges, Agent read positions, Agent
   target-scoped reads, and eligible-notification recovery. The Agent HTTPS
   functions enforce the authenticated Agent identity before calling it.
+- `unresolved-mentions.server.ts` owns which `@handle`s of a sent message named
+  nobody the sender can see (no Workspace human, no visible Agent). It reads the
+  stored message, so a replay reports what the first send did.
 - `human-unread.server.ts` owns a person's unread rule and their read and Done
   cursor SQL. The sidebar badges and the Activity inbox (`server/inbox/`) both
   use it; do not write another unread predicate or cursor update.

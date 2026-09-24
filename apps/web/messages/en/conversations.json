@@ -479,5 +479,7 @@
   "search_sort_recent": "Recent",
   "search_clear_filters": "Clear all",
   "search_no_matching_messages": "No matching messages",
-  "search_try_different_filters": "Try a different set of filters."
+  "search_try_different_filters": "Try a different set of filters.",
+  "conversation_unresolved_mentions": "No one named {handles} was found, so nobody was notified. To notify someone, pick them from the @ list and mention them again.",
+  "conversation_unresolved_mentions_dismiss": "Dismiss"
 }
