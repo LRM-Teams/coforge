@@ -176,15 +176,38 @@ export class ReminderScheduler {
     });
   }
 
+  /**
+   * Acknowledges one exact revision the Agent was woken for. A receipt missing from the store, or
+   * a store that cannot be read, falls back to this daemon's own copy of the receipt; only a
+   * revision neither knows as delivered answers false. A failed write still fails.
+   */
   acknowledge(agentId: string, reminderId: string, version: number): Promise<boolean> {
     return this.#serial(agentId, async () => {
-      const receipts = await this.store.read(agentId);
-      const receipt = receipts.find((r) => r.reminderId === reminderId && r.version === version);
+      const key = this.#receiptKey(agentId, reminderId, version);
+      let receipts: ReminderReceipt[] | undefined;
+      try {
+        receipts = await this.store.read(agentId);
+      } catch (error) {
+        logger.warn("Reminder receipts could not be read for an acknowledgement", {
+          error,
+          event: "reminder.ack_receipt_unreadable",
+          outcome: "degraded",
+          agent_id: agentId,
+          reminder_id: reminderId,
+          reminder_version: version,
+        });
+      }
+      const stored = receipts?.find((r) => r.reminderId === reminderId && r.version === version);
+      const known = this.#receipts.get(key);
+      const receipt = stored ?? (known && structuredClone(known));
       if (!receipt || receipt.serverResult !== "accepted" || !receipt.serverFired) return false;
       receipt.consumed = true;
       receipt.terminal = true;
-      await this.store.write(agentId, this.#retained(receipts));
-      this.#receipts.set(this.#receiptKey(agentId, reminderId, version), receipt);
+      if (receipts) {
+        if (!stored) receipts.push(receipt);
+        await this.store.write(agentId, this.#retained(receipts));
+      }
+      this.#receipts.set(key, receipt);
       this.#cancelReceipt(agentId, reminderId, version);
       return true;
     });

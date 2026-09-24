@@ -873,3 +873,76 @@ test("a wake more than a minute after the due time is late", async () => {
   await scheduler.awaitIdle();
   expect(wakes).toEqual([{ late: true }]);
 });
+
+test("an acknowledgement falls back to the daemon's own copy when the stored receipt is gone", async () => {
+  const clock = new Clock();
+  const store = new MemoryStore();
+  let wakes = 0;
+  const scheduler = new ReminderScheduler(
+    { workspaceId: "workspace-a", computerId: "computer-a" },
+    store,
+    async (request) => ({ ...request, result: "accepted", fired: true, catchup: false }),
+    async () => {
+      wakes++;
+      // The Agent was shown the item but the wake is still retrying.
+      return false;
+    },
+    clock,
+  );
+  await scheduler.apply(snapshot([job]));
+  await clock.advance(1000);
+  await scheduler.awaitIdle();
+  expect(wakes).toBe(1);
+
+  // The receipt file disappears while the daemon still holds the receipt in memory.
+  store.receipts = [];
+  expect(await scheduler.acknowledge("agent-a", job.reminderId, job.version)).toBe(true);
+
+  // The acknowledged revision is not woken again.
+  await clock.advance(60_000);
+  await scheduler.awaitIdle();
+  expect(wakes).toBe(1);
+  expect(clock.timers).toHaveLength(0);
+});
+
+test("an acknowledgement whose receipt cannot be written fails instead of passing silently", async () => {
+  const clock = new Clock();
+  const store = new MemoryStore();
+  const scheduler = new ReminderScheduler(
+    { workspaceId: "workspace-a", computerId: "computer-a" },
+    store,
+    async (request) => ({ ...request, result: "accepted", fired: true, catchup: false }),
+    async () => true,
+    clock,
+  );
+  await scheduler.apply(snapshot([job]));
+  await clock.advance(1000);
+  await scheduler.awaitIdle();
+
+  store.write = async () => {
+    throw new Error("disk full");
+  };
+  await expect(scheduler.acknowledge("agent-a", job.reminderId, job.version)).rejects.toThrow(
+    "disk full",
+  );
+});
+
+test("an acknowledgement reads past an unreadable receipt file to the daemon's own copy", async () => {
+  const clock = new Clock();
+  const store = new MemoryStore();
+  const scheduler = new ReminderScheduler(
+    { workspaceId: "workspace-a", computerId: "computer-a" },
+    store,
+    async (request) => ({ ...request, result: "accepted", fired: true, catchup: false }),
+    async () => true,
+    clock,
+  );
+  await scheduler.apply(snapshot([job]));
+  await clock.advance(1000);
+  await scheduler.awaitIdle();
+
+  store.read = async () => {
+    throw new Error("reminder receipts are corrupt");
+  };
+  expect(await scheduler.acknowledge("agent-a", job.reminderId, job.version)).toBe(true);
+});

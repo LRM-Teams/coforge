@@ -7053,6 +7053,9 @@ describe("DaemonRuntime", () => {
       );
       if (damage === "deleted") await rm(receiptFile, { force: true });
       else await Bun.write(receiptFile, "{ not json");
+      // Nothing from the stopped daemon rewrote the file after the damage.
+      if (damage === "deleted") expect(await Bun.file(receiptFile).exists()).toBe(false);
+      else expect(await Bun.file(receiptFile).text()).toBe("{ not json");
 
       const second = createRuntime(() => {});
       try {
