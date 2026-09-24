@@ -203,3 +203,32 @@ export async function readAuthorizedAttachment(
     },
   };
 }
+
+/** Every stored file a conversation holds: its attachments' and upload sessions' object keys. A
+ * finished upload keeps its session row, so a key found in both is listed once. Read it before the
+ * conversation is deleted, then pass it to `removeAttachmentFiles` after the delete commits. */
+export async function conversationAttachmentKeys(
+  db: Pick<PrismaClient, "attachment" | "attachmentUploadSession">,
+  conversationId: string,
+): Promise<string[]> {
+  const [attachments, uploads] = await Promise.all([
+    db.attachment.findMany({ where: { conversationId }, select: { objectKey: true } }),
+    db.attachmentUploadSession.findMany({ where: { conversationId }, select: { objectKey: true } }),
+  ]);
+  return [...new Set([...attachments, ...uploads].map(({ objectKey }) => objectKey))];
+}
+
+/** Removes stored files whose rows are already gone. Best effort: a file left behind is never
+ * served again, since nothing references it. */
+export async function removeAttachmentFiles(
+  objectKeys: readonly string[],
+  storage: () => Promise<FileStorage> = getFileStorage,
+): Promise<void> {
+  if (objectKeys.length === 0) return;
+  try {
+    const files = await storage();
+    await Promise.allSettled(objectKeys.map((objectKey) => files.remove(objectKey)));
+  } catch {
+    /* best effort */
+  }
+}

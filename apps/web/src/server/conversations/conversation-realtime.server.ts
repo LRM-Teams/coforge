@@ -206,7 +206,7 @@ export async function announceMemberChanged(
 
 /**
  * Tells every open sidebar of the Workspace, and the channel's open pages, that the channel was
- * renamed, described, archived or unarchived, once the write has committed — the way Slack sends
+ * renamed, described, archived, unarchived or deleted, once the write has committed — the way Slack sends
  * `channel_rename`/`channel_archive` to every connection of a workspace and Discord sends
  * `CHANNEL_UPDATE`. Best effort like `announceMemberChanged`: a page that misses it catches up on
  * its next load or focus.
@@ -222,6 +222,34 @@ export async function announceChannelUpdated(
     console.warn(
       JSON.stringify({
         event: "conversation_realtime:channel_updated_failed",
+        workspace_id: input.workspaceId,
+        error_type: error instanceof Error ? error.name : typeof error,
+      }),
+    );
+  }
+}
+
+/**
+ * Tells the Workspace's open Tasks pages that a deleted channel's Tasks are gone
+ * (`task.changed.v1` with only `deleted`), once the delete has committed. Best effort like
+ * `announceChannelUpdated`: a page that misses it drops them on its next read.
+ */
+export async function announceChannelTasksDeleted(
+  realtime: Pick<ConversationRealtime, "taskChanged"> | undefined,
+  input: { workspaceId: string; conversationId: string; deleted: string[] },
+): Promise<void> {
+  if (input.deleted.length === 0) return;
+  try {
+    const port = realtime ?? new CentrifugoConversationRealtime(createCentrifugoServerApi());
+    await port.taskChanged?.({
+      ...input,
+      tasks: [],
+      publicationId: `${input.conversationId}:channel-deleted`,
+    });
+  } catch (error) {
+    console.warn(
+      JSON.stringify({
+        event: "conversation_realtime:channel_tasks_deleted_failed",
         workspace_id: input.workspaceId,
         error_type: error instanceof Error ? error.name : typeof error,
       }),

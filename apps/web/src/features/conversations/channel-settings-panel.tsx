@@ -10,6 +10,7 @@ import {
   LogOut01 as LogOut,
   RefreshCcw01 as Unarchive,
   Share04 as Share,
+  Trash01,
 } from "@untitledui/icons";
 
 import {
@@ -35,6 +36,7 @@ import { m } from "#src/paraglide/messages";
 import type { ChannelConversationView } from "./channel-conversation";
 import { ChannelMembersDialog } from "./channel-members-dialog";
 import {
+  deletePublicChannel,
   leavePublicChannel,
   loadPublicChannelMembers,
   setGeneralChannelHidden,
@@ -50,13 +52,13 @@ const MEMBER_STRIP_LIMIT = 14;
 const SAVED_NOTICE_MS = 1500;
 
 /** The channel actions that ask for confirmation first. */
-type ConfirmedAction = "archive" | "leave" | "hide-general";
+type ConfirmedAction = "archive" | "leave" | "hide-general" | "delete";
 
 /**
  * The channel header's details-and-settings slideout: identity, the Members strip, the Info form
  * (name and description, for channel admins), the viewer's own preferences (pin, mute), and the
- * channel actions (archive, leave; hiding #general for an owner or admin). Closing with unsaved
- * Info edits asks first.
+ * channel actions (archive, leave; hiding #general or deleting the channel for an owner or admin).
+ * Closing with unsaved Info edits asks first.
  */
 export function ChannelSettingsPanel({
   conversation,
@@ -143,7 +145,8 @@ export function ChannelSettingsPanel({
               {(capabilities.archive ||
                 capabilities.unarchive ||
                 capabilities.leave ||
-                conversation.canHideGeneral) && (
+                conversation.canHideGeneral ||
+                conversation.canDelete) && (
                 <ActionsSection
                   conversation={conversation}
                   onConfirm={setConfirming}
@@ -196,7 +199,8 @@ export function ChannelSettingsPanel({
         onDone={async () => {
           setConfirming(null);
           onOpenChange(false);
-          // After hiding #general the page's refetch answers NOT_FOUND, which leaves for Chat.
+          // After hiding #general or deleting the channel the page's refetch answers NOT_FOUND,
+          // which leaves for Chat.
           await onChanged();
         }}
       />
@@ -609,7 +613,7 @@ function ActionsSection({
             )
           : capabilities.archive && (
               <Button
-                color="secondary-destructive"
+                color="secondary"
                 iconLeading={Archive}
                 className="w-full"
                 onPress={() => onConfirm("archive")}
@@ -621,7 +625,7 @@ function ActionsSection({
             Settings → Members → System channels). */}
         {conversation.canHideGeneral && (
           <Button
-            color="secondary-destructive"
+            color="secondary"
             iconLeading={EyeOff}
             className="w-full"
             onPress={() => onConfirm("hide-general")}
@@ -631,12 +635,22 @@ function ActionsSection({
         )}
         {capabilities.leave && !conversation.archived && (
           <Button
-            color="secondary-destructive"
+            color="secondary"
             iconLeading={LogOut}
             className="w-full"
             onPress={() => onConfirm("leave")}
           >
             {m.channel_settings_leave()}
+          </Button>
+        )}
+        {conversation.canDelete && !conversation.archived && (
+          <Button
+            color="secondary-destructive"
+            iconLeading={Trash01}
+            className="w-full"
+            onPress={() => onConfirm("delete")}
+          >
+            {m.channel_settings_delete()}
           </Button>
         )}
       </div>
@@ -657,6 +671,10 @@ const CONFIRM_COPY: Record<
     confirm: () => string;
     pending: () => string;
     error: () => string;
+    /** Why the server refused the viewer (`ACCESS_DENIED`), when their role changed meanwhile. */
+    denied?: () => string;
+    /** Whether the action cannot be undone, which colours its confirm button red. */
+    permanent?: boolean;
   }
 > = {
   archive: {
@@ -665,6 +683,7 @@ const CONFIRM_COPY: Record<
     confirm: m.channel_settings_archive_action,
     pending: m.channel_settings_archiving,
     error: m.channel_settings_archive_error,
+    denied: m.channel_settings_access_denied,
   },
   leave: {
     title: m.channel_settings_leave,
@@ -679,11 +698,21 @@ const CONFIRM_COPY: Record<
     confirm: m.channel_settings_hide_general,
     pending: m.channel_settings_hiding_general,
     error: m.channel_settings_hide_general_error,
+    denied: m.channel_settings_hide_general_denied,
+  },
+  delete: {
+    title: m.channel_settings_delete,
+    body: (name) => m.channel_settings_delete_confirm({ name }),
+    confirm: m.channel_settings_delete_action,
+    pending: m.channel_settings_deleting,
+    error: m.channel_settings_delete_error,
+    denied: m.channel_settings_delete_denied,
+    permanent: true,
   },
 };
 
-/** Confirms archiving or leaving the channel, or hiding #general; the write runs here so its
- * error stays inline. */
+/** Confirms archiving, leaving or deleting the channel, or hiding #general; the write runs here
+ * so its error stays inline. */
 function ChannelActionConfirmDialog({
   kind,
   channelId,
@@ -700,10 +729,12 @@ function ChannelActionConfirmDialog({
   const setArchived = useServerFn(setPublicChannelArchived);
   const leave = useServerFn(leavePublicChannel);
   const setGeneralHidden = useServerFn(setGeneralChannelHidden);
+  const deleteChannel = useServerFn(deletePublicChannel);
   const writes: Record<ConfirmedAction, () => Promise<unknown>> = {
     archive: () => setArchived({ data: { channelId, archived: true } }),
     leave: () => leave({ data: { channelId } }),
     "hide-general": () => setGeneralHidden({ data: { hidden: true } }),
+    delete: () => deleteChannel({ data: { channelId } }),
   };
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -718,8 +749,12 @@ function ChannelActionConfirmDialog({
     try {
       await writes[lastKind.current]();
       await onDone();
-    } catch {
-      setError(copy.error());
+    } catch (cause) {
+      // Already gone (deleted or hidden by someone else): finishing leaves for Chat all the same.
+      if (isAppError(cause) && cause.code === "NOT_FOUND") await onDone();
+      else if (isAppError(cause) && cause.code === "ACCESS_DENIED" && copy.denied)
+        setError(copy.denied());
+      else setError(copy.error());
     } finally {
       setBusy(false);
     }
@@ -753,7 +788,7 @@ function ChannelActionConfirmDialog({
                   {m.channel_settings_cancel()}
                 </Button>
                 <Button
-                  color="primary-destructive"
+                  color={copy.permanent ? "primary-destructive" : "primary"}
                   isDisabled={busy}
                   isLoading={busy}
                   showTextWhileLoading

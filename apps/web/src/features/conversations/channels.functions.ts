@@ -265,6 +265,14 @@ export const setGeneralChannelHidden = createServerFn({ method: "POST" })
     return channels.setGeneralHidden(workspaceId, userId, data.hidden);
   });
 
+export const deletePublicChannel = createServerFn({ method: "POST" })
+  .middleware([workspaceUserMiddleware])
+  .validator(channelInput)
+  .handler(async ({ data, context }) => {
+    const { channels, workspaceId, userId } = channelScope(context);
+    return channels.deleteChannel(workspaceId, userId, data.channelId);
+  });
+
 export const setPublicChannelMuted = createServerFn({ method: "POST" })
   .middleware([workspaceUserMiddleware])
   .validator(channelInput.extend({ muted: z.boolean() }))

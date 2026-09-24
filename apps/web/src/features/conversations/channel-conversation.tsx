@@ -39,6 +39,8 @@ export type ChannelConversationView = Omit<DirectConversationView, "agent" | "me
   channelCapabilities: ChannelCapabilities;
   /** Whether this viewer, a Workspace owner or admin, may hide this channel (only #general). */
   canHideGeneral: boolean;
+  /** Whether this viewer, a Workspace owner or admin, may delete this channel (never #general). */
+  canDelete: boolean;
   followedThreadRootIds?: string[];
   messages: DirectConversationView["messages"];
 };

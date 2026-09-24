@@ -13,11 +13,10 @@ import {
   isChannelRole,
   resolveActorServerRole,
   resolveChannelAuthority,
+  canDeleteChannel,
+  canHideGeneralChannel,
 } from "./channel-authority.server";
-import {
-  assertCanManageWorkspaceSettings,
-  isElevatedServerRole,
-} from "#src/server/workspaces/member-role.server";
+import { assertCanManageWorkspaceSettings } from "#src/server/workspaces/member-role.server";
 import { ACTIVE_AGENT_WHERE } from "#src/server/agents/active-agent.server";
 import { AgentInboxPurgePublisher } from "#src/server/agents/agent-inbox-purge.server";
 import { channelThreadRootWhere } from "#src/server/db/message-anchor.server";
@@ -59,6 +58,7 @@ import {
 } from "./message-reactions.server";
 import { toggleUserMessageReaction } from "./user-message-reactions.server";
 import {
+  announceChannelTasksDeleted,
   announceChannelUpdated,
   announceMemberChanged,
   type ConversationRealtime,
@@ -67,6 +67,11 @@ import { AgentMessageValidationError } from "./agent-message-validation-error.se
 import { agentAvatarUrl } from "#src/server/agents/agent-avatar.server";
 import { workspaceUserAvatarUrl } from "#src/server/db/repositories/user-profile.repositories.server";
 import { attachmentView } from "#src/server/attachments/attachment-view.server";
+import { getFileStorage, type FileStorage } from "#src/server/files/file-storage.server";
+import {
+  conversationAttachmentKeys,
+  removeAttachmentFiles,
+} from "#src/server/attachments/attachment.server";
 import type { ActionCardView } from "./action-cards.server";
 import {
   agentVisibilityViewerForUser,
@@ -948,6 +953,75 @@ export class PublicChannels {
   }
 
   /**
+   * Deletes a channel for good: its messages, Tasks, files, memberships and everything else in it
+   * go, and Reminders aimed at it (or at its threads) are canceled. A Workspace owner or admin does
+   * this — not even the channel's own admin may — and `#general` is never deleted. Its Agents'
+   * daemons are told to drop what they hold for it before it goes (the purge resolves the channel
+   * by name); afterwards every open sidebar and page hears of it, and its stored files are removed,
+   * best effort.
+   */
+  async deleteChannel(
+    workspaceId: string,
+    userId: string,
+    channelId: string,
+    storage: () => Promise<FileStorage> = getFileStorage,
+  ) {
+    const [channel, serverRole] = await Promise.all([
+      this.findChannelById(workspaceId, channelId),
+      resolveActorServerRole(this.db, workspaceId, { userId }),
+    ]);
+    const name = channel.channelName!;
+    if (name === "general") throw new AppError("CONFLICT");
+    if (!canDeleteChannel(name, serverRole)) throw new AppError("ACCESS_DENIED");
+    const [agentMembers, tasks, objectKeys] = await Promise.all([
+      this.db.conversationMember.findMany({
+        where: { conversationId: channel.id, agentId: { not: null }, ...ACTIVE_MEMBER_WHERE },
+        select: { agentId: true },
+      }),
+      this.db.task.findMany({ where: { conversationId: channel.id }, select: { messageId: true } }),
+      conversationAttachmentKeys(this.db, channel.id),
+    ]);
+    await Promise.all(
+      agentMembers.map(({ agentId }) =>
+        this.inboxPurge.purge({
+          workspaceId,
+          agentId: agentId!,
+          conversationIds: [channel.id],
+          reason: "member_removed",
+        }),
+      ),
+    );
+    await this.db.$transaction([
+      // Holds off a concurrent send, Task write or join until the channel is gone, so none of
+      // them lands between the message delete and the channel delete.
+      lockConversation(this.db, channel.id),
+      this.db.reminder.updateMany({
+        where: {
+          workspaceId,
+          status: "scheduled",
+          OR: [{ target: `#${name}` }, { target: { startsWith: `#${name}:` } }],
+        },
+        data: { status: "canceled" },
+      }),
+      // Messages (and the Tasks that cascade with them) name their sender, owner and creator
+      // member with `onDelete: Restrict`, so they go before the channel, whose delete then
+      // cascades to its members and everything else.
+      this.db.message.deleteMany({ where: { conversationId: channel.id } }),
+      this.db.conversation.delete({ where: { id: channel.id } }),
+    ]);
+    await Promise.all([
+      announceChannelUpdated(this.realtime, { workspaceId, conversationId: channel.id }),
+      announceChannelTasksDeleted(this.realtime, {
+        workspaceId,
+        conversationId: channel.id,
+        deleted: tasks.map(({ messageId }) => messageId),
+      }),
+    ]);
+    await removeAttachmentFiles(objectKeys, storage);
+    return { id: channel.id, deleted: true as const };
+  }
+
+  /**
    * Archives or unarchives a channel. Needs the `archive`/`unarchive` capability, which
    * `#general` never grants. Members keep reading an archived channel, but nobody posts in it or
    * joins it until it is unarchived.
@@ -1556,8 +1630,8 @@ export class PublicChannels {
       pinned: Boolean(member?.pins.length),
       channelCapabilities: authority.capabilities,
       // Only a Workspace owner or admin hides #general (`setGeneralHidden`), whatever their role in it.
-      canHideGeneral:
-        channel.channelName === "general" && isElevatedServerRole(authority.serverRole),
+      canHideGeneral: canHideGeneralChannel(channel.channelName!, authority.serverRole),
+      canDelete: canDeleteChannel(channel.channelName!, authority.serverRole),
       // The viewer's conversation-level read cursor over top-level messages:
       // the client positions the initial view at the first unread message and draws the
       // divider there. Undefined for a non-member (nothing is "unread for them").
