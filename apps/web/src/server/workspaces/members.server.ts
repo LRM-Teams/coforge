@@ -164,7 +164,7 @@ export class WorkspaceMembers {
       }),
       this.db.agent.findMany({
         where: visibleAgents,
-        select: { id: true, name: true, displayName: true, avatarObjectKey: true },
+        select: { id: true, name: true, displayName: true, avatarObjectKey: true, ownerId: true },
         orderBy: [{ name: "asc" }, { id: "asc" }],
       }),
     ]);
@@ -180,6 +180,9 @@ export class WorkspaceMembers {
         handle: agent.name,
         name: agent.displayName.trim() || agent.name,
         avatarUrl: agentAvatarUrl(workspaceId, agent.id, agent.avatarObjectKey),
+        /** The Web opens an Agent's direct conversation only for its owner (`ownedConversations`
+         * in `features/conversations/conversations.functions.ts`). */
+        ownedByCurrentUser: agent.ownerId === userId,
       })),
     };
   }

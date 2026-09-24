@@ -105,6 +105,18 @@ export const readUsage = createServerFn({ method: "GET" })
     });
   });
 
+/** Every Computer connected to the Workspace, by identity only: what pickers and search name. */
+export const listComputerNames = createServerFn({ method: "GET" })
+  .middleware([workspaceUserMiddleware])
+  .handler(async ({ context: { db, workspaceId } }) => {
+    const connections = await db.workspaceComputer.findMany({
+      where: { workspaceId },
+      select: { computer: { select: { id: true, name: true, displayName: true, kind: true } } },
+      orderBy: { createdAt: "asc" },
+    });
+    return connections.map(({ computer }) => computer);
+  });
+
 export const listComputers = createServerFn({ method: "GET" })
   .middleware([workspaceUserMiddleware])
   .handler(async ({ context }) => {

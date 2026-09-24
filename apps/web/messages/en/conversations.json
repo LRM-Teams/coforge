@@ -501,5 +501,10 @@
   "conversation_pending_mention_channel_archived": "The channel is archived, so no one can be added.",
   "conversation_pending_mention_no_longer_pending": "This mention was already taken care of.",
   "conversation_pending_mention_expired": "This mention is more than 7 days old and can no longer be acted on.",
-  "conversation_pending_mention_unavailable": "This mention can no longer be acted on."
+  "conversation_pending_mention_unavailable": "This mention can no longer be acted on.",
+  "search_entities_heading": "In this Workspace",
+  "search_entity_channel": "Channel",
+  "search_entity_computer": "Computer",
+  "search_entity_agent": "Agent",
+  "search_no_messages_match": "No messages match."
 }

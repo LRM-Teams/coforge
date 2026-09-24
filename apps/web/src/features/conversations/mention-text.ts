@@ -8,6 +8,7 @@
  * Rendering is token-only by design (no legacy plain-`@handle` compatibility).
  */
 import { readableBody } from "@lrm/coforge-sdk/internal";
+import { nameMatchTier } from "#src/lib/name-match";
 
 /** One resolved mention row as the browser message view carries it. `handle` is stable identity;
  * `label` is the current profile display name (falling back to that handle). */
@@ -67,25 +68,8 @@ export type Mentionable = {
 };
 
 /**
- * The best match tier for one candidate against a lower-cased query, or `undefined` when it
- * does not match at all. Lower is a better match: 0 exact, 1 a handle/label prefix, 2 a later
- * label word's prefix (e.g. a surname), 3 any other substring hit. Matching reads the handle,
- * the full label, and each whitespace-separated label word, all case-insensitively.
- */
-function matchTier(item: Mentionable, lowerQuery: string): 0 | 1 | 2 | 3 | undefined {
-  const lowerHandle = item.handle.toLowerCase();
-  const lowerLabel = item.label.toLowerCase();
-  if (lowerHandle === lowerQuery || lowerLabel === lowerQuery) return 0;
-  if (lowerHandle.startsWith(lowerQuery) || lowerLabel.startsWith(lowerQuery)) return 1;
-  const laterWords = lowerLabel.split(/\s+/).filter(Boolean).slice(1);
-  if (laterWords.some((word) => word.startsWith(lowerQuery))) return 2;
-  if (lowerHandle.includes(lowerQuery) || lowerLabel.includes(lowerQuery)) return 3;
-  return undefined;
-}
-
-/**
  * Completion candidates for a query, ranked the way a fast channel-mention popup should read:
- * closer text matches first (see `matchTier`), then within a tier whoever the viewer has
+ * closer text matches first (see `nameMatchTier`), then within a tier whoever the viewer has
  * mentioned most (`item.mentionScore`, higher first), then whoever spoke most recently in this
  * conversation (`recentHandles`, most-recent first), then alphabetically by label and by
  * handle. The empty query matches everyone at the same tier, so score, recency, and alphabetical
@@ -106,7 +90,7 @@ export function filterMentionables(
 
   const ranked = mentionables
     .map((item) => {
-      const tier = matchTier(item, lowerQuery);
+      const tier = nameMatchTier(item.label, [item.handle], lowerQuery);
       if (tier === undefined) return undefined;
       return { item, tier, recency: recencyByHandle.get(item.handle.toLowerCase()) };
     })
