@@ -30,6 +30,8 @@ import { AgentChannelManagement } from "#src/server/conversations/agent-channel-
 import { TaskBoard } from "#src/server/tasks/task-board.server";
 import { arrangeConversationPins } from "#src/server/conversations/conversation-pins.server";
 import { isAppError } from "#src/lib/app-error";
+import { agentAvatarUrl } from "#src/server/agents/agent-avatar.server";
+import { workspaceUserAvatarUrl } from "#src/server/db/repositories/user-profile.repositories.server";
 import {
   MAX_THREAD_REFERENCES,
   storeMessageBody,
@@ -4653,6 +4655,178 @@ test("@-completion scores count only the viewer's own mentions in the channel, t
     await db.user.deleteMany({
       where: { id: { in: [alice!, bob!, carol!, dana!].map((user) => user.id) } },
     });
+    await db.$disconnect();
+    redis.close();
+  }
+});
+
+test("a channel page and its updates render each message row the same browser shape", async () => {
+  const connectionString = Bun.env.CHANNEL_TEST_DATABASE_URL;
+  if (!connectionString) throw new Error("CHANNEL_TEST_DATABASE_URL is required");
+  const db = new PrismaClient({ adapter: new PrismaPg({ connectionString }) });
+  const redis = new RedisClient(Bun.env.CHANNEL_TEST_REDIS_URL!);
+  const suffix = crypto.randomUUID().slice(0, 8);
+  const ada = await db.user.create({
+    data: {
+      username: `view-ada-${suffix}`,
+      displayName: "Ada Lovelace",
+      avatarObjectKey: `avatars/users/${suffix}/v1/avatar.webp`,
+    },
+  });
+  const workspace = await db.workspace.create({
+    data: { slug: `view-${suffix}`, name: "Views", members: { create: { userId: ada.id } } },
+  });
+  try {
+    const computer = await db.computer.create({
+      data: { ownerId: ada.id, machineId: crypto.randomUUID() },
+    });
+    const builder = await db.agent.create({
+      data: {
+        workspaceId: workspace.id,
+        ownerId: ada.id,
+        computerId: computer.id,
+        name: `builder-${suffix}`,
+        displayName: "Builder",
+        avatarObjectKey: `avatars/agents/${suffix}/v2/avatar.webp`,
+        runtimeConfig: {},
+      },
+    });
+    await enrollGeneral(db, workspace.id);
+    const channels = new PublicChannels(db, new RedisMessageRequestIdempotency(redis), {
+      publish: async () => {},
+      publishJson: async () => {},
+      broadcast: async () => {},
+    });
+    const general = (await channels.list(workspace.id, ada.id))[0]!;
+    const adaMember = await db.conversationMember.findFirstOrThrow({
+      where: { conversationId: general.id, userId: ada.id },
+    });
+    const builderMember = await db.conversationMember.findFirstOrThrow({
+      where: { conversationId: general.id, agentId: builder.id },
+    });
+    const at = (second: number) => new Date(Date.UTC(2026, 8, 24, 10, 0, second));
+    const inChannel = { conversationId: general.id, workspaceId: workspace.id };
+    const fromAda = await db.message.create({
+      data: {
+        ...inChannel,
+        senderMemberId: adaMember.id,
+        body: "a person",
+        sequence: 1,
+        createdAt: at(1),
+      },
+    });
+    const fromBuilder = await db.message.create({
+      data: {
+        ...inChannel,
+        senderMemberId: builderMember.id,
+        body: "an Agent",
+        sequence: 2,
+        createdAt: at(2),
+      },
+    });
+    const fromServer = await db.message.create({
+      data: {
+        ...inChannel,
+        senderMemberId: null,
+        body: "the server",
+        sequence: 3,
+        createdAt: at(3),
+      },
+    });
+    const reply = await db.message.create({
+      data: {
+        ...inChannel,
+        senderMemberId: builderMember.id,
+        threadRootId: fromAda.id,
+        body: "a reply",
+        sequence: 4,
+        createdAt: at(4),
+      },
+    });
+    const attachment = await db.attachment.create({
+      data: {
+        ...inChannel,
+        uploaderId: ada.id,
+        messageId: fromAda.id,
+        objectKey: `attachments/${suffix}/notes.txt`,
+        fileName: "notes.txt",
+        contentType: "text/plain",
+        sizeBytes: 12,
+      },
+    });
+    await db.messageReaction.create({
+      data: { ...inChannel, messageId: fromAda.id, memberId: builderMember.id, emoji: "👍" },
+    });
+    // A deleted Agent keeps its rows; the browser greys them out.
+    await db.agent.update({ where: { id: builder.id }, data: { deletedAt: at(5) } });
+
+    const adaAvatarUrl = workspaceUserAvatarUrl(workspace.id, ada.id, ada.avatarObjectKey);
+    const builderAvatarUrl = agentAvatarUrl(workspace.id, builder.id, builder.avatarObjectKey);
+    expect(adaAvatarUrl).not.toBeNull();
+    expect(builderAvatarUrl).not.toBeNull();
+    const asBuilder = {
+      senderMemberId: builderMember.id,
+      senderKind: "agent",
+      senderName: "Builder",
+      senderHandle: builder.name,
+      senderAgentId: builder.id,
+      senderDeleted: true,
+      senderAvatarUrl: builderAvatarUrl,
+      mentions: [],
+      attachments: [],
+    };
+    const expected = [
+      {
+        id: fromAda.id,
+        sequence: 1,
+        senderMemberId: adaMember.id,
+        senderKind: "user",
+        senderName: "Ada Lovelace",
+        senderHandle: ada.username,
+        senderDeleted: false,
+        senderAvatarUrl: adaAvatarUrl,
+        body: "a person",
+        createdAt: at(1),
+        mentions: [],
+        attachments: [
+          { id: attachment.id, fileName: "notes.txt", contentType: "text/plain", sizeBytes: 12 },
+        ],
+        reactions: [{ emoji: "👍", count: 1, reactors: [`@${builder.name}`] }],
+      },
+      { id: fromBuilder.id, sequence: 2, ...asBuilder, body: "an Agent", createdAt: at(2) },
+      {
+        id: fromServer.id,
+        sequence: 3,
+        senderMemberId: null,
+        senderKind: "system",
+        senderName: "System",
+        senderDeleted: false,
+        senderAvatarUrl: null,
+        body: "the server",
+        createdAt: at(3),
+        mentions: [],
+        attachments: [],
+      },
+      {
+        id: reply.id,
+        sequence: 4,
+        threadRootId: fromAda.id,
+        ...asBuilder,
+        body: "a reply",
+        createdAt: at(4),
+      },
+    ];
+
+    const opened = await channels.open(workspace.id, ada.id, general.id);
+    expect<unknown>(opened.messages).toEqual(expected);
+    expect<unknown>(await channels.updates(workspace.id, ada.id, general.id, 0)).toEqual(expected);
+    // Explicitly absent, not merely undefined-equal: these keys are never sent for these rows.
+    for (const message of opened.messages)
+      expect(JSON.stringify(message)).not.toContain("objectKey");
+  } finally {
+    await db.workspace.delete({ where: { id: workspace.id } });
+    await db.computer.deleteMany({ where: { ownerId: ada.id } });
+    await db.user.delete({ where: { id: ada.id } });
     await db.$disconnect();
     redis.close();
   }

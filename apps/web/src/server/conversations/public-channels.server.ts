@@ -6,6 +6,7 @@ import { CHANNEL_NAME_PATTERN } from "#src/features/conversations/conversation.s
 import { windowPageFlags } from "#src/lib/conversation-window";
 import { ACTIVE_MEMBER_WHERE, VISIBLE_CONVERSATION_WHERE } from "./active-member.server";
 import { HUMAN_UNREAD_MESSAGE_SQL } from "./human-unread.server";
+import { browserMessageFields, mapBrowserMessage } from "./conversation-history.server";
 import {
   channelActorMemberWhere,
   deriveChannelAdminBasis,
@@ -24,11 +25,7 @@ import { ACTIVE_AGENT_WHERE } from "#src/server/agents/active-agent.server";
 import { AgentInboxPurgePublisher } from "#src/server/agents/agent-inbox-purge.server";
 import { channelThreadRootWhere } from "#src/server/db/message-anchor.server";
 import { AGENT_VISIBILITY } from "#src/features/agents/agent-visibility";
-import {
-  agentMessageSender,
-  browserSenderHandle,
-  browserSenderName,
-} from "./sender-display.server";
+import { agentMessageSender } from "./sender-display.server";
 import type { MessageRequestIdempotency } from "./message-request-idempotency.server";
 import { getMessageRequestIdempotency } from "./redis-message-request-idempotency.server";
 import { encodeAgentDelivery } from "./agent-delivery.server";
@@ -50,18 +47,7 @@ import {
   releaseMentionActions,
   type MentionActionResult,
 } from "./pending-mention-actions.server";
-import {
-  BROWSER_MESSAGE_MENTIONS_SELECT,
-  browserMessageMention,
-  deliveryMentionsAgent,
-  mentionAffinityScores,
-  type BrowserMessageMentionRow,
-} from "./mentions.server";
-import {
-  MESSAGE_REACTIONS_SELECT,
-  reactionSummaries,
-  type MessageReactionRow,
-} from "./message-reactions.server";
+import { deliveryMentionsAgent, mentionAffinityScores } from "./mentions.server";
 import { toggleUserMessageReaction } from "./user-message-reactions.server";
 import {
   announceChannelTasksDeleted,
@@ -72,13 +58,11 @@ import {
 import { AgentMessageValidationError } from "./agent-message-validation-error.server";
 import { agentAvatarUrl } from "#src/server/agents/agent-avatar.server";
 import { workspaceUserAvatarUrl } from "#src/server/db/repositories/user-profile.repositories.server";
-import { attachmentView } from "#src/server/attachments/attachment-view.server";
 import { getFileStorage, type FileStorage } from "#src/server/files/file-storage.server";
 import {
   conversationAttachmentKeys,
   removeAttachmentFiles,
 } from "#src/server/attachments/attachment.server";
-import type { ActionCardView } from "./action-cards.server";
 import {
   agentVisibilityViewerForUser,
   canSeeAgent,
@@ -110,115 +94,6 @@ export async function softLeaveMember(
 }
 
 /** Enroll Workspace humans and Agents. Membership alone never creates attention. */
-/** Just the columns channelMessageView renders; the Agent row carries runtime JSON we never send. */
-
-const CHANNEL_MESSAGE_SELECT = {
-  id: true,
-  sequence: true,
-  threadRootId: true,
-  senderMemberId: true,
-  body: true,
-  createdAt: true,
-  sender: {
-    select: {
-      agentId: true,
-      agent: { select: { name: true, displayName: true, deletedAt: true, avatarObjectKey: true } },
-      user: {
-        select: {
-          id: true,
-          username: true,
-          displayName: true,
-          avatarObjectKey: true,
-        },
-      },
-    },
-  },
-  attachments: {
-    select: { id: true, fileName: true, contentType: true, sizeBytes: true, objectKey: true },
-    orderBy: { position: "asc" },
-  },
-  mentions: BROWSER_MESSAGE_MENTIONS_SELECT,
-  reactions: MESSAGE_REACTIONS_SELECT,
-} satisfies Prisma.MessageSelect;
-
-export type ChannelMessageRow = {
-  id: string;
-  sequence: number;
-  threadRootId: string | null;
-  senderMemberId: string | null;
-  body: string;
-  createdAt: Date;
-  sender: {
-    agentId: string | null;
-    agent: {
-      name: string;
-      displayName: string | null;
-      deletedAt: Date | null;
-      avatarObjectKey: string | null;
-    } | null;
-    user: {
-      id: string;
-      username: string;
-      displayName: string | null;
-      avatarObjectKey: string | null;
-    } | null;
-  } | null;
-  attachments: {
-    id: string;
-    fileName: string;
-    contentType: string;
-    sizeBytes: number;
-    objectKey: string;
-  }[];
-  /** Browser mention rows retain the immutable handle and resolve the current profile label. */
-  mentions: BrowserMessageMentionRow[];
-  reactions: MessageReactionRow[];
-};
-
-/** The browser-facing shape of one channel message, shared by page and update reads. The optional
- * `actionCard` field is attached by the caller (see `channels.functions.ts`,
- * `ActionCards.viewsFor`) in one batched lookup per page; this function never queries
- * `ActionCard` rows itself, to keep Prisma access for action cards in one place. Exported for a
- * pure unit test of this projection (no database needed). */
-export function channelMessageView(message: ChannelMessageRow, workspaceId: string) {
-  return {
-    id: message.id,
-    sequence: message.sequence,
-    threadRootId: message.threadRootId ?? undefined,
-    senderMemberId: message.senderMemberId,
-    senderKind: !message.sender
-      ? ("system" as const)
-      : message.sender.agentId
-        ? ("agent" as const)
-        : ("user" as const),
-    senderName: browserSenderName(message.sender),
-    /** The handle behind that name: what you type to mention this sender, and what the
-     * composer's recency ranking matches on. `undefined` for a server-authored message. */
-    senderHandle: browserSenderHandle(message.sender),
-    /** The Agent identity behind an agent-sent message, so the browser can open that Agent's
-     * profile panel from the row (message-row.tsx). `undefined` for a user or system message. */
-    senderAgentId: message.sender?.agentId ?? undefined,
-    /** True when the sending Agent has since been deleted: the row renders its sender
-     * greyed with a `DELETED` marker, and no longer opens that Agent's profile. */
-    senderDeleted: Boolean(message.sender?.agent?.deletedAt),
-    senderAvatarUrl: message.sender?.user
-      ? workspaceUserAvatarUrl(
-          workspaceId,
-          message.sender.user.id,
-          message.sender.user.avatarObjectKey,
-        )
-      : message.sender?.agentId && message.sender.agent
-        ? agentAvatarUrl(workspaceId, message.sender.agentId, message.sender.agent.avatarObjectKey)
-        : null,
-    body: message.body,
-    createdAt: message.createdAt,
-    mentions: message.mentions.map(browserMessageMention),
-    attachments: message.attachments.map((attachment) => attachmentView(attachment)),
-    reactions: reactionSummaries(message.reactions),
-    actionCard: undefined as ActionCardView | undefined,
-  };
-}
-
 /** Nested creation keeps a new Workspace's `#general` inside the Workspace creation write, with
  * its creator already in it. */
 export function generalChannelForCreator(userId: string) {
@@ -1618,8 +1493,8 @@ export class PublicChannels {
         orderBy: { sequence: forward ? ("asc" as const) : ("desc" as const) },
         take: limit + 1,
         select: {
-          ...CHANNEL_MESSAGE_SELECT,
-          replies: { orderBy: { sequence: "asc" }, select: CHANNEL_MESSAGE_SELECT },
+          ...browserMessageFields,
+          replies: { orderBy: { sequence: "asc" }, select: browserMessageFields },
         },
       }),
       // The composer's @-completion source: every other active member's public profile.
@@ -1724,7 +1599,7 @@ export class PublicChannels {
         .sort((left, right) => left.handle.localeCompare(right.handle)),
       hasOlder,
       hasNewer,
-      messages: pageMessages.map((message) => channelMessageView(message, workspaceId)),
+      messages: pageMessages.map((message) => mapBrowserMessage(message, workspaceId)),
     };
   }
 
@@ -1869,9 +1744,9 @@ export class PublicChannels {
       },
       orderBy: { sequence: "asc" },
       take: 100,
-      select: CHANNEL_MESSAGE_SELECT,
+      select: browserMessageFields,
     });
-    return messages.map((message) => channelMessageView(message, workspaceId));
+    return messages.map((message) => mapBrowserMessage(message, workspaceId));
   }
 
   async send(input: {
@@ -2055,7 +1930,7 @@ export class PublicChannels {
             ...message,
             target: `#${channel.channelName}${root ? `:${root.id}` : ""}`,
             // Never read back: only `saved.id` is used below (the post-transaction reload via
-            // CHANNEL_MESSAGE_SELECT is the real attachments source). Present only to satisfy
+            // browserMessageFields is the real attachments source). Present only to satisfy
             // the shared idempotency-cache value's "always present" contract.
             attachments: [] as {
               id: string;
@@ -2074,8 +1949,8 @@ export class PublicChannels {
         senderMemberId: member.id,
       },
       select: {
-        ...CHANNEL_MESSAGE_SELECT,
-        // Wider than CHANNEL_MESSAGE_SELECT's sender: this reload alone feeds
+        ...browserMessageFields,
+        // Wider than browserMessageFields' sender: this reload alone feeds
         // `agentMessageSender` below, which needs the sender's description too.
         sender: {
           select: {

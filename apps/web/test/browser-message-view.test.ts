@@ -1,13 +1,13 @@
 import { expect, test } from "bun:test";
 
 import {
-  channelMessageView,
-  type ChannelMessageRow,
-} from "#src/server/conversations/public-channels.server";
+  mapBrowserMessage,
+  type BrowserMessageRow,
+} from "#src/server/conversations/conversation-history.server";
 
 const WORKSPACE_ID = "11111111-2222-4333-8444-555555555555";
 
-function row(overrides: Partial<ChannelMessageRow>): ChannelMessageRow {
+function row(overrides: Partial<BrowserMessageRow>): BrowserMessageRow {
   return {
     id: "message-1",
     sequence: 1,
@@ -24,9 +24,10 @@ function row(overrides: Partial<ChannelMessageRow>): ChannelMessageRow {
 }
 
 test("an Agent-sent channel message carries senderAgentId", () => {
-  const view = channelMessageView(
+  const view = mapBrowserMessage(
     row({
       sender: {
+        userId: null,
         agentId: "agent-builder",
         agent: { name: "builder", displayName: "Builder", deletedAt: null, avatarObjectKey: null },
         user: null,
@@ -39,13 +40,13 @@ test("an Agent-sent channel message carries senderAgentId", () => {
 });
 
 test("a user-sent channel message has no senderAgentId", () => {
-  const view = channelMessageView(
+  const view = mapBrowserMessage(
     row({
       sender: {
+        userId: "user-1",
         agentId: null,
         agent: null,
         user: {
-          id: "user-1",
           username: "ada",
           displayName: "Ada Lovelace",
           avatarObjectKey: null,
@@ -59,7 +60,7 @@ test("a user-sent channel message has no senderAgentId", () => {
 });
 
 test("a channel mention exposes the current display label separately from its stable handle", () => {
-  const view = channelMessageView(
+  const view = mapBrowserMessage(
     row({
       mentions: [
         {
@@ -78,7 +79,7 @@ test("a channel mention exposes the current display label separately from its st
 });
 
 test("a system message (no sender) has no senderAgentId", () => {
-  const view = channelMessageView(row({ sender: null }), WORKSPACE_ID);
+  const view = mapBrowserMessage(row({ sender: null }), WORKSPACE_ID);
   expect(view.senderKind).toBe("system");
   expect(view.senderAgentId).toBeUndefined();
 });
@@ -87,13 +88,13 @@ test("a system message (no sender) has no senderAgentId", () => {
 // Agent-facing projection sends. Before this, a person read as "@ada" beside an Agent reading
 // as its display name, and the three browser projections each had their own rule.
 test("a person's message is attributed to their display name, not their @username", () => {
-  const view = channelMessageView(
+  const view = mapBrowserMessage(
     row({
       sender: {
+        userId: "user-1",
         agentId: null,
         agent: null,
         user: {
-          id: "user-1",
           username: "ada",
           displayName: "Ada Lovelace",
           avatarObjectKey: null,
@@ -106,13 +107,13 @@ test("a person's message is attributed to their display name, not their @usernam
 });
 
 test("a person with no display name falls back to their username, without an @", () => {
-  const view = channelMessageView(
+  const view = mapBrowserMessage(
     row({
       sender: {
+        userId: "user-1",
         agentId: null,
         agent: null,
         user: {
-          id: "user-1",
           username: "ada",
           displayName: null,
           avatarObjectKey: null,
@@ -125,13 +126,13 @@ test("a person with no display name falls back to their username, without an @",
 });
 
 test("a blank display name is treated as unset rather than shown as an empty name", () => {
-  const view = channelMessageView(
+  const view = mapBrowserMessage(
     row({
       sender: {
+        userId: "user-1",
         agentId: null,
         agent: null,
         user: {
-          id: "user-1",
           username: "ada",
           displayName: "   ",
           avatarObjectKey: null,
@@ -144,9 +145,10 @@ test("a blank display name is treated as unset rather than shown as an empty nam
 });
 
 test("an Agent's message is attributed to its display name, falling back to its handle", () => {
-  const named = channelMessageView(
+  const named = mapBrowserMessage(
     row({
       sender: {
+        userId: null,
         agentId: "agent-builder",
         agent: { name: "builder", displayName: "Builder", deletedAt: null, avatarObjectKey: null },
         user: null,
@@ -156,11 +158,12 @@ test("an Agent's message is attributed to its display name, falling back to its 
   );
   expect(named.senderName).toBe("Builder");
 
-  const unnamed = channelMessageView(
+  const unnamed = mapBrowserMessage(
     row({
       sender: {
+        userId: null,
         agentId: "agent-builder",
-        agent: { name: "builder", displayName: null, deletedAt: null, avatarObjectKey: null },
+        agent: { name: "builder", displayName: "", deletedAt: null, avatarObjectKey: null },
         user: null,
       },
     }),
@@ -170,5 +173,5 @@ test("an Agent's message is attributed to its display name, falling back to its 
 });
 
 test("a server-authored message stays attributed to System", () => {
-  expect(channelMessageView(row({ sender: null }), WORKSPACE_ID).senderName).toBe("System");
+  expect(mapBrowserMessage(row({ sender: null }), WORKSPACE_ID).senderName).toBe("System");
 });

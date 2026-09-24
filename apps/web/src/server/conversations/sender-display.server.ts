@@ -2,11 +2,11 @@ import { isValidMessageSender, type MessageSenderKind } from "@lrm/coforge-sdk/i
 import type { Prisma } from "#src/generated/prisma/client";
 
 /**
- * One rule for the name the browser shows as a message's sender, shared by the three browser
- * message projections (`public-channels.server.ts`, `conversation-history.server.ts`,
- * `direct-conversation.repositories.server.ts`) so they cannot drift apart again — before this
- * they had three different rules, and a person showed as `@username` next to an Agent showing
- * its display name.
+ * One rule for the name the browser shows as a message's sender, shared by the two browser
+ * message projections (`conversation-history.server.ts`, which public channels also map through,
+ * and `direct-conversation.repositories.server.ts`) so they cannot drift apart again — before
+ * this they had different rules, and a person showed as `@username` next to an Agent showing its
+ * display name.
  *
  * The browser shows the display name, like Slack: `@handle` is what you type, copy and see on a
  * profile, not the identity on every message row. The Agent-facing projection
