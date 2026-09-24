@@ -1738,7 +1738,9 @@ describe("PrismaDirectConversationRepository", () => {
     const statement = queries[0]!;
     expect(statement.sql).toContain('"directKey" IS NOT NULL');
     expect(statement.sql).toContain('"threadRootId" IS NULL');
-    expect(statement.sql).toContain('> cm."readThroughSequence"');
+    expect(statement.sql).toContain(
+      'm."sequence" > LEAST(cm."readThroughSequence", cm."unreadFromSequence" - 1)',
+    );
     // The badge key is the conversation's agent member row, never the viewer's own row.
     expect(statement.sql).toContain('am."agentId"');
     expect(statement.sql).not.toContain('cm."agentId"');

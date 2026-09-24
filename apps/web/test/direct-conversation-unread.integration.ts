@@ -142,3 +142,57 @@ test("a closed DM stays closed until the Agent posts a top-level message after t
     await db.$disconnect();
   }
 });
+
+test("a DM marked unread below its read cursor counts from the marker until a read clears it", async () => {
+  const connectionString = Bun.env.CHANNEL_TEST_DATABASE_URL;
+  if (!connectionString)
+    throw new Error("CHANNEL_TEST_DATABASE_URL must point to local PostgreSQL");
+  const db = new PrismaClient({ adapter: new PrismaPg({ connectionString }) });
+  const suffix = crypto.randomUUID();
+  const alice = await db.user.create({ data: { username: `alice-${suffix}` } });
+  const workspace = await db.workspace.create({
+    data: { slug: suffix, name: "DM marker", members: { create: [{ userId: alice.id }] } },
+  });
+  const agent = await db.agent.create({
+    data: {
+      workspaceId: workspace.id,
+      ownerId: alice.id,
+      name: `agent-${suffix}`,
+      displayName: "Agent",
+      runtimeConfig: {},
+    },
+  });
+  try {
+    const conversations = new PrismaDirectConversationRepository(db);
+    const conversation = await conversations.getOrCreateUserAgent(workspace.id, alice.id, agent.id);
+    const agentMessage = (body: string) =>
+      conversations.sendAgentMessage(conversation.id, agent.id, body);
+
+    await agentMessage("one");
+    await agentMessage("two");
+    await conversations.markReadForUser(workspace.id, alice.id, agent.id, 10_000);
+    expect(await conversations.unreadCountsForUser(workspace.id, alice.id)).toEqual([
+      { agentId: agent.id, unread: 0 },
+    ]);
+
+    // Marked unread: the newest message counts again although the cursor is past it.
+    await conversations.setUnreadForUser(workspace.id, alice.id, agent.id, true);
+    expect(await conversations.unreadCountsForUser(workspace.id, alice.id)).toEqual([
+      { agentId: agent.id, unread: 1 },
+    ]);
+    await agentMessage("three");
+    expect(await conversations.unreadCountsForUser(workspace.id, alice.id)).toEqual([
+      { agentId: agent.id, unread: 2 },
+    ]);
+
+    // Reading through the end clears the marker.
+    await conversations.markReadForUser(workspace.id, alice.id, agent.id, 10_000);
+    expect(await conversations.unreadCountsForUser(workspace.id, alice.id)).toEqual([
+      { agentId: agent.id, unread: 0 },
+    ]);
+  } finally {
+    await db.workspace.deleteMany({ where: { id: workspace.id } });
+    await db.user.deleteMany({ where: { id: alice.id } });
+    await db.$disconnect();
+  }
+});
