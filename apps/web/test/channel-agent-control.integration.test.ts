@@ -4,7 +4,7 @@ import { decodeAgentStopIntent } from "@lrm/coforge-sdk/internal";
 import { PrismaClient } from "#src/generated/prisma/client";
 import { isAppError } from "#src/lib/app-error";
 import { AgentControl } from "#src/server/agents/agent-control.server";
-import { ChannelAgentStop } from "#src/server/conversations/channel-agent-stop.server";
+import { ChannelAgentControl } from "#src/server/conversations/channel-agent-control.server";
 import { PublicChannels } from "#src/server/conversations/public-channels.server";
 import { PrismaAgentControlStore } from "#src/server/db/repositories/agent-control.repositories.server";
 import { PrismaWorkspaceCatalogStore } from "#src/server/workspaces/catalog.server";
@@ -149,7 +149,7 @@ test.skipIf(!connectionString)(
         },
         { timeoutMs: 60_000 },
       );
-      const stop = new ChannelAgentStop(db, control);
+      const stop = new ChannelAgentControl(db, control, { get: async () => true });
 
       // The panel offers the stop to the channel's members only.
       expect((await channels.open(workspace.id, member.id, team.id)).canStopAgents).toBe(true);

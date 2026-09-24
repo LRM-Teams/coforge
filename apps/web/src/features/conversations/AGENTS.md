@@ -69,11 +69,11 @@ These rules apply to `src/features/conversations/`.
   step: no toast, no browser `confirm()`.
 - The header gear opens `channel-settings-panel.tsx`, the one place for a
   channel's info (name, description), the viewer's preferences (pin, mute)
-  and its actions (archive, leave, stopping every Agent in it for any member of
-  a live channel; hiding `#general` or deleting the channel for a Workspace
-  owner or admin); each action confirms in a dialog, whose confirm button is
-  red only for a permanent action (delete). The members dialog only
-  manages members. Hiding `#general` and the way back (the System channels
+  and its actions (archive, leave, stopping every Agent in it and resuming
+  them with new guidance for any member of a live channel; hiding `#general`
+  or deleting the channel for a Workspace owner or admin); each action
+  confirms in a dialog, whose confirm button is red only for a permanent
+  action (delete). The members dialog only manages members. Hiding `#general` and the way back (the System channels
   section of Settings → Members) are for a Workspace owner or admin only; the
   server decides who that is, the client never re-derives it from a role.
 - A conversation that answers `NOT_FOUND` (such as a channel just hidden from

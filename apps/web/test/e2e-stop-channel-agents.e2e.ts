@@ -2,16 +2,20 @@ import { expect, test } from "bun:test";
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { PrismaPg } from "@prisma/adapter-pg";
+import { RedisClient } from "bun";
 import { PrismaClient } from "#src/generated/prisma/client";
+import { RedisComputerStatusCache } from "#src/server/centrifugo/computer-status.server";
 import { DEV_BROWSER_USER } from "#src/server/auth/dev-skip-auth.server";
 
 /**
- * Stopping every Agent in a channel in a real browser. A member opens the channel settings panel,
- * picks "Stop Agents" under Actions, and confirms; the dialog then says every Agent was stopped,
- * and each of the channel's Agents is stopped for good (it stays stopped until started again).
+ * Stopping and resuming every Agent in a channel in a real browser. A member opens the channel
+ * settings panel, picks "Stop Agents" under Actions, and confirms; the dialog then says every
+ * Agent was stopped, and each of the channel's Agents is stopped for good. The member then gives
+ * new guidance and picks "Resume all": the dialog closes and every Agent is started again.
  *
  * Opt-in like the other browser E2Es: real local Web + `agent-browser`, the dev user an owner of
- * its Workspace with a Computer attached (seed-dev). Each run seeds a fresh channel with two
+ * its Workspace with a Computer attached (seed-dev), whose status is marked online in Redis for the
+ * resume (a stopped Agent on an offline Computer stays stopped). Each run seeds a fresh channel with two
  * fresh Agents and removes them afterwards. Screenshots are written under
  * `.amp/e2e/stop-channel-agents/`.
  */
@@ -21,11 +25,13 @@ if (!origin || !["localhost", "127.0.0.1"].includes(new URL(origin).hostname))
 const browserPath = Bun.which("agent-browser");
 if (!browserPath) throw new Error("agent-browser is required");
 const databaseUrl = Bun.env.DATABASE_URL;
+const redisUrl = Bun.env.REDIS_URL;
+if (!redisUrl) throw new Error("REDIS_URL must name the local Redis the Web service uses");
 if (!databaseUrl || new URL(databaseUrl).hostname !== "127.0.0.1")
   throw new Error("DATABASE_URL must target local PostgreSQL");
 const artifacts = join(import.meta.dir, "../../../.amp/e2e/stop-channel-agents");
 
-test("a member stops every Agent in a channel from its settings panel", async () => {
+test("a member stops every Agent in a channel, then resumes them with new guidance", async () => {
   const db = new PrismaClient({ adapter: new PrismaPg({ connectionString: databaseUrl }) });
   const session = `stop-channel-agents-${process.pid}`;
   async function browser(...args: string[]) {
@@ -130,6 +136,26 @@ test("a member stops every Agent in a channel from its settings panel", async ()
       select: { stoppedAt: true },
     });
     expect(stopped.every(({ stoppedAt }) => stoppedAt !== null)).toBe(true);
+
+    await new RedisComputerStatusCache(new RedisClient(redisUrl)).put(
+      { workspaceId, computerId: attached.computerId },
+      true,
+    );
+    // "Resume all" waits for guidance.
+    const resumeDisabled = `${byText('[role="dialog"] button', "Resume all")}?.disabled`;
+    expect(await browser("eval", resumeDisabled)).toContain("true");
+    const guidanceBox = 'textarea[aria-label^="Provide new guidance"]';
+    await browser("click", guidanceBox);
+    await browser("type", guidanceBox, "Only touch the frontend from now on.");
+    await waitFor(`!(${resumeDisabled})`);
+    await browser("screenshot", join(artifacts, "guidance.png"));
+    await clickText('[role="dialog"] button', "Resume all");
+    await waitFor(`!document.body.textContent.includes("All Agents have been stopped.")`);
+    const resumed = await db.agent.findMany({
+      where: { id: { in: agentIds } },
+      select: { stoppedAt: true },
+    });
+    expect(resumed.every(({ stoppedAt }) => stoppedAt === null)).toBe(true);
   } finally {
     await db.conversation.deleteMany({ where: { id: channel.id } }).catch(() => {});
     await db.agent.deleteMany({ where: { id: { in: agentIds } } }).catch(() => {});
