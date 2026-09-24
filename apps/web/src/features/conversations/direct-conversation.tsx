@@ -8,7 +8,6 @@ import { useServerFn } from "@tanstack/react-start";
 import {
   Loading02,
   ArrowDown,
-  ArrowLeft,
   ChevronRight,
   MessageSquare01 as MessageSquare,
 } from "@untitledui/icons";
@@ -50,6 +49,7 @@ import {
 import { RelativeTime } from "#src/components/ui/relative-time";
 import { useAppToast } from "#src/components/ui/toast";
 import { MessageComposer } from "./message-composer";
+import { ThreadPaneHeader, type ThreadFollow } from "./thread-pane-header";
 import { makeReferenceBodyFormatter, type Mentionable } from "./mention-text";
 import type { ChannelSuggestion } from "./reference-completion";
 import type { ChipMention } from "./message-markdown";
@@ -226,8 +226,12 @@ export type ThreadedConversationProps = Omit<ConversationProps, "conversation" |
   readOnlyNotice?: React.ReactNode;
   emptyState: { title: string; description: string; media: React.ReactNode };
   threadHeaderAction?: (rootMessageId: string) => React.ReactNode;
+  /** The viewer's follow state for a thread, where following is offered (channels). */
+  threadFollow?: (rootMessageId: string) => ThreadFollow | undefined;
   /** `#channel` or the direct conversation's name, shown in the task popup's header. */
   conversationName: string;
+  /** Where this conversation's threads live, named in each thread's header. */
+  threadContext: string;
 };
 
 export function DirectConversationHeader({
@@ -337,10 +341,12 @@ export function DirectConversation(props: ConversationProps) {
           ]),
     [deleted, conversation.agent],
   );
+  const agentName = conversation.agent.displayName?.trim() || conversation.agent.name;
   return (
     <ThreadedConversation
       {...props}
-      conversationName={conversation.agent.displayName?.trim() || conversation.agent.name}
+      conversationName={agentName}
+      threadContext={`@${agentName}`}
       plainMentions={plainMentions}
       header={
         <DirectConversationHeader
@@ -394,6 +400,8 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
     onReadThread,
     header,
     threadHeaderAction,
+    threadFollow,
+    threadContext,
     agentProfile,
     onAgentProfileTabChange,
     onCloseAgentProfile,
@@ -406,7 +414,7 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
     ...conversationProps
   } = props;
   const detailVisible = useConversationDetailVisible();
-  const { searchThreadRootId, openThread, openThreadFromHash, closeThread } =
+  const { searchThreadRootId, openThread, openThreadFromHash, closeThread, showThreadRoot } =
     useOpenConversationThread();
   // The Saved view's `?message=` position jump reads its search state here, next to the
   // thread's — the wrapper owns the router so `ConversationPane` below stays hook-free.
@@ -685,12 +693,7 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
           (reply) => reply.senderKind !== "system",
         );
         if (!threadReplies.length) return null;
-        const label =
-          threadReplies.length === 1
-            ? m.conversation_thread_one_reply()
-            : m.conversation_thread_replies({
-                count: threadReplies.length,
-              });
+        const label = replyCountLabel(threadReplies.length);
         const unread = threadReplies.filter(
           (reply) =>
             reply.senderKind === "agent" && reply.sequence > (threadCursor(message.id) ?? 0),
@@ -774,6 +777,9 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
             <ConversationPane
               {...threadPaneProps(root)}
               onClose={closeThread}
+              threadContext={threadContext}
+              onViewInConversation={() => showThreadRoot(rootId)}
+              threadFollow={threadFollow?.(rootId)}
               emptyState={{
                 title: m.conversation_thread_empty_title(),
                 description: m.conversation_thread_empty(),
@@ -845,6 +851,11 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
   );
 }
 
+/** "1 reply" / "N replies", as the thread preview and the thread pane both count. */
+function replyCountLabel(count: number): string {
+  return count === 1 ? m.conversation_thread_one_reply() : m.conversation_thread_replies({ count });
+}
+
 /**
  * The own-messages index shows one derived filename per message, not the full attachment list.
  * With several attachments, this names the first (send order) and counts the rest, e.g.
@@ -869,6 +880,9 @@ export function ConversationPane({
   rootSlot,
   openAtTop,
   onClose,
+  threadContext,
+  onViewInConversation,
+  threadFollow,
   threadEntry,
   threadPreview,
   threadHeaderAction,
@@ -904,8 +918,15 @@ export function ConversationPane({
    * the task, not its latest reply. */
   openAtTop?: boolean;
   onClose?: () => void;
+  /** Where a thread lives, named after "Thread" in its header: `#channel` or `@name`. */
+  threadContext?: string;
+  /** Leaves the thread for its root message in the conversation's stream. */
+  onViewInConversation?: () => void;
+  /** The viewer's follow state for this thread, where following is offered (channels). */
+  threadFollow?: ThreadFollow;
   threadEntry?: (message: DirectConversationView["messages"][number]) => MessageThreadEntry;
   threadPreview?: (message: DirectConversationView["messages"][number]) => React.ReactNode;
+  /** Shown in the thread header before its actions menu (the Agents following the thread). */
   threadHeaderAction?: React.ReactNode;
   messageFooter?: (message: DirectConversationView["messages"][number]) => React.ReactNode;
   /** Plain-`@handle` display resolution for the stream (see `MessageBody`). Built by each
@@ -1115,6 +1136,10 @@ export function ConversationPane({
       ? true
       : windowAtLatest && (entry.state === "sending" || !loadedMessageIds.has(entry.messageId)),
   );
+  // The side pane's replies marker (the task popup puts the task in place of the root, so it has
+  // none). Pending replies count: the marker is there from the first send, not after it lands.
+  const threadMarker =
+    Boolean(root) && !rootSlot && conversation.messages.length + shownOutbox.length > 0;
   useEffect(() => {
     for (const entry of outboxEntries)
       if (entry.state === "delivered" && loadedMessageIds.has(entry.messageId))
@@ -1599,20 +1624,14 @@ export function ConversationPane({
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       {rootSlot ? null : root ? (
-        <header className="flex h-12 shrink-0 items-center gap-2 border-b border-secondary px-4 md:px-6">
-          {/* Borderless utility strip: the -ml-1.5 cancels the button's p-1.5 so the arrow glyph
-              itself lands on the pane gutter (docs/design/page-skeleton-and-density.md §8 optical alignment). */}
-          <ButtonUtility
-            icon={ArrowLeft}
-            size="sm"
-            color="tertiary"
-            className="-ml-1.5"
-            onClick={onClose}
-            aria-label={m.conversation_thread_back()}
-          />
-          <h2 className="text-base font-semibold">{m.conversation_thread()}</h2>
-          {threadHeaderAction}
-        </header>
+        <ThreadPaneHeader
+          context={threadContext}
+          onScrollToTop={() => historyRef.current?.scrollTo({ top: 0, behavior: "smooth" })}
+          onClose={onClose}
+          onViewInConversation={onViewInConversation}
+          follow={threadFollow}
+          action={threadHeaderAction}
+        />
       ) : (
         header
       )}
@@ -1630,12 +1649,15 @@ export function ConversationPane({
         >
           {rootSlot}
           {root && !rootSlot && (
-            <div aria-label={m.conversation_thread_root()} className="mt-4 bg-secondary">
+            <div
+              aria-label={m.conversation_thread_root()}
+              className="border-b border-secondary py-3"
+            >
               {/* The root is an ordinary message row so it keeps every message affordance
                   (hover toolbar on wide shells, tap action sheet below `lg`, reactions, action
                   cards, quote-selection) instead of being a bespoke display-only block. Only the
                   thread entry is held back: this pane already is that message's thread. The one-
-                  item list keeps the li valid; the band keeps the root visually distinct from its
+                  item list keeps the li valid; the rule under it separates the root from its
                   replies. */}
               <ol className="flex flex-col">
                 <MessageRow
@@ -1660,6 +1682,17 @@ export function ConversationPane({
                   onQuoteSelection={quoteSelection}
                 />
               </ol>
+            </div>
+          )}
+          {threadMarker && (
+            // Where the replies begin and how many there are; notices count, since they are
+            // replies in this thread too. The pane always holds the whole thread, so this is
+            // the top of the replies, never a load-older point.
+            <div className="px-4 pt-2 text-center text-sm text-tertiary md:px-6">
+              <p className="pb-1">{m.conversation_thread_beginning()}</p>
+              <p className="border-b border-secondary pb-2">
+                {replyCountLabel(conversation.messages.length + shownOutbox.length)}
+              </p>
             </div>
           )}
           {!root && conversation.hasOlder && onLoadOlder && (
@@ -1716,10 +1749,16 @@ export function ConversationPane({
             // Every loaded row is rendered, in normal flow. Nothing here computes a row's position
             // or its height, so no measurement can shift a row under the reader and no scroll
             // correction is needed while you read; the scrollbar is the real content height.
-            <ol ref={messageListRef} className="flex flex-col pt-6">
+            <ol
+              ref={messageListRef}
+              className={cn("flex flex-col", threadMarker ? "pt-2" : "pt-6")}
+            >
               {streamItems.map((item, index) => {
                 // The message just above this item: the previous item's last message.
                 const before = streamItems[index - 1];
+                // A thread's first reply opens under the replies marker, which stands in for the
+                // day divider there; later day changes in the thread still get theirs.
+                const opensThread = threadMarker && index === 0;
                 const previous =
                   before?.type === "systemGroup" ? before.messages.at(-1) : before?.message;
                 const first = item.type === "systemGroup" ? item.messages[0]! : item.message;
@@ -1738,6 +1777,7 @@ export function ConversationPane({
                       expanded={groupOpen}
                       onToggleExpanded={() => toggleSystemGroup(item.messages)}
                       dayChanged={
+                        !opensThread &&
                         groupsWithPrevious(first, previous, false, false, dateLocale).dayChanged
                       }
                       unreadStartsHere={unreadStartsHere}
@@ -1774,7 +1814,7 @@ export function ConversationPane({
                     key={message.id}
                     message={message}
                     own={own}
-                    dayChanged={dayChanged}
+                    dayChanged={dayChanged && !opensThread}
                     grouped={grouped}
                     unreadStartsHere={unreadStartsHere}
                     highlighted={message.id === jumpHighlightId}
