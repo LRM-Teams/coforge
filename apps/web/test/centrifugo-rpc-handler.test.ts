@@ -285,6 +285,7 @@ describe("CentrifugoRpcHandler", () => {
         },
         get: async () => "inactive",
         snapshot: async () => undefined,
+        snapshotMany: async () => [],
       },
       {
         publish: async (channel, data) => {
@@ -395,7 +396,12 @@ describe("CentrifugoRpcHandler", () => {
           visibility: "private",
         }),
       },
-      { put: async () => true, get: async () => "inactive", snapshot: async () => undefined },
+      {
+        put: async () => true,
+        get: async () => "inactive",
+        snapshot: async () => undefined,
+        snapshotMany: async () => [],
+      },
       { publish: async (channel) => void publications.push({ channel }) },
       () => 1_000,
       {
@@ -449,6 +455,7 @@ describe("CentrifugoRpcHandler", () => {
         },
         get: async () => "inactive",
         snapshot: async () => undefined,
+        snapshotMany: async () => [],
       },
       { publish: async (channel) => void publications.push({ channel }) },
     );
@@ -483,6 +490,7 @@ describe("CentrifugoRpcHandler", () => {
         put: async () => true,
         get: async () => "active",
         snapshot: async () => undefined,
+        snapshotMany: async () => [],
       },
       {
         publish: async () => {
@@ -539,6 +547,7 @@ describe("CentrifugoRpcHandler", () => {
         put: async () => false,
         get: async () => "active",
         snapshot: async () => undefined,
+        snapshotMany: async () => [],
       },
       {
         publish: async (...args) => {
