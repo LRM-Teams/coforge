@@ -45,8 +45,15 @@ export const searchPageSearchSchema = z.object({
   sort: z.literal("recent").optional().catch(undefined),
   // Set by "Search this channel": the filters wait for a query before searching.
   defer: z.literal("1").optional().catch(undefined),
+  // The result previewed beside the list: `channel:<id>` or `agent:<id>`, at message `msg`.
+  open: z
+    .string()
+    .regex(/^(channel|agent):[0-9a-f-]{36}$/)
+    .optional()
+    .catch(undefined),
+  msg: z.uuid().optional().catch(undefined),
 });
 
-/** The search Cmd/Ctrl+K reopens: the page's fields without the one-off `defer`. */
-export const lastSearchSchema = searchPageSearchSchema.omit({ defer: true });
+/** The search Cmd/Ctrl+K reopens: the page's query and filters, without a preview or `defer`. */
+export const lastSearchSchema = searchPageSearchSchema.omit({ defer: true, open: true, msg: true });
 export type LastSearch = z.output<typeof lastSearchSchema>;

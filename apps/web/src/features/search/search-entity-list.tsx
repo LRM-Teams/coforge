@@ -10,7 +10,9 @@ import { useAgentDisplays } from "#src/features/agents/workspace-agents-realtime
 import { computerIcon } from "#src/features/computers/computer-identity";
 import { conversationRoute } from "#src/features/conversations/last-conversation";
 import { m } from "#src/paraglide/messages";
+import { useResultClick } from "./search-click";
 import type { SearchEntity } from "./search-entities";
+import { isPreviewed, useSearchPreview } from "./search-preview-context";
 
 /** A compact row in the matches list. */
 export const ENTITY_ROW_CLASS =
@@ -37,9 +39,20 @@ export function SearchEntityRow({
   className: string;
   onOpen?: () => void;
 }) {
+  const { previewed, preview } = useSearchPreview();
+  // A channel or the viewer's own Agent (whose DM they can read) previews; others just open.
+  const target =
+    entity.kind === "channel" || (entity.kind === "agent" && entity.ownedByCurrentUser)
+      ? ({ kind: entity.kind, id: entity.id } as const)
+      : undefined;
+  const onClick = useResultClick({
+    onPreview: preview && target ? () => preview(target) : undefined,
+    onOpened: () => onOpen?.(),
+  });
   const props = {
-    className,
-    onClick: onOpen,
+    className: `${className} aria-[current=true]:bg-secondary`,
+    onClick,
+    "aria-current": target && isPreviewed(previewed, target) ? ("true" as const) : undefined,
     // A middle click opens a new tab without a click event; it is still an open.
     onAuxClick: (event: { button: number }) => event.button === 1 && onOpen?.(),
     "data-search-entity": `${entity.kind}:${entity.id}`,

@@ -602,5 +602,11 @@
   "search_frequent_failed": "Could not load your frequently used places.",
   "conversation_mention_group_in_channel": "In this channel",
   "conversation_mention_group_not_in_channel": "Not in this channel",
-  "search_this_channel": "Search this channel"
+  "search_this_channel": "Search this channel",
+  "search_preview": "Search preview",
+  "search_preview_open": "Open conversation",
+  "search_preview_close": "Close preview",
+  "search_preview_failed": "This conversation could not be loaded.",
+  "search_preview_empty": "No messages yet",
+  "search_preview_read_only": "Open the conversation to reply."
 }

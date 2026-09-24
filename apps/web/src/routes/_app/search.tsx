@@ -4,6 +4,7 @@ import { createFileRoute, getRouteApi, useNavigate } from "@tanstack/react-route
 import { parseScope, type SearchFilters } from "#src/features/search/search-filters";
 import { writeLastSearch } from "#src/features/search/search-memory";
 import { SearchPage } from "#src/features/search/search-page";
+import type { SearchPreviewTarget } from "#src/features/search/search-preview";
 import { searchPageSearchSchema } from "#src/features/search/search.schemas";
 
 const appRoute = getRouteApi("/_app");
@@ -14,7 +15,7 @@ export const Route = createFileRoute("/_app/search")({
 });
 
 function SearchRoute() {
-  const { q, senderId, scope, channelId, range, sort, defer } = Route.useSearch();
+  const { q, senderId, scope, channelId, range, sort, defer, open, msg } = Route.useSearch();
   const { currentWorkspace, timeZone, user } = appRoute.useLoaderData();
   const workspaceId = currentWorkspace?.id;
   // The search as the URL holds it becomes the last search, for Cmd/Ctrl+K to reopen.
@@ -51,6 +52,26 @@ function SearchRoute() {
       }),
     [navigate],
   );
+  // The preview lives in the URL, so a reload or a shared link reopens it; switching it replaces
+  // the entry rather than stacking history.
+  const preview = useMemo<SearchPreviewTarget | undefined>(() => {
+    const [kind, id] = open?.split(":") ?? [];
+    return (kind === "channel" || kind === "agent") && id
+      ? { kind, id, messageId: msg }
+      : undefined;
+  }, [open, msg]);
+  const onPreviewChange = useCallback(
+    (next: SearchPreviewTarget | undefined) =>
+      void navigate({
+        search: (previous) => ({
+          ...previous,
+          open: next ? `${next.kind}:${next.id}` : undefined,
+          msg: next?.messageId,
+        }),
+        replace: true,
+      }),
+    [navigate],
+  );
   if (!currentWorkspace) return null;
   return (
     <SearchPage
@@ -62,6 +83,8 @@ function SearchRoute() {
       filters={filters}
       onQueryChange={onQueryChange}
       onFiltersChange={onFiltersChange}
+      preview={preview}
+      onPreviewChange={onPreviewChange}
     />
   );
 }

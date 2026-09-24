@@ -144,9 +144,8 @@ test("the search page lists matching channels, Agents and Computers and opens th
       `channel:${channelId}`,
     ]);
     // No message matches, so the Messages section says so under the matches.
-    expect(await evaluate<string>(`document.querySelector("main").innerText`)).toContain(
-      "No messages match.",
-    );
+    // Wait for it: the matches can show before the message search has answered.
+    await waitFor(`document.querySelector("main").innerText.includes("No messages match.")`);
     const rows = await evaluate<string[]>(
       `[...document.querySelectorAll("[data-search-entity]")].map((row) => row.textContent)`,
     );
@@ -170,11 +169,12 @@ test("the search page lists matching channels, Agents and Computers and opens th
       `agent:${othersAgentId}`,
       `channel:${channelId}`,
     ]);
-    await browser("click", `[data-search-entity="channel:${channelId}"]`);
+    // A channel and the viewer's own Agent preview on a single click; a double click opens.
+    await browser("dblclick", `[data-search-entity="channel:${channelId}"]`);
     await waitFor(`location.pathname === "/en/messages/channels/${channelId}"`);
     await browser("back");
     await waitFor(`document.querySelector('[data-search-entity="agent:${agentId}"]') !== null`);
-    await browser("click", `[data-search-entity="agent:${agentId}"]`);
+    await browser("dblclick", `[data-search-entity="agent:${agentId}"]`);
     await waitFor(`location.pathname === "/en/messages/${agentId}"`);
     // Another member's Agent opens its profile instead.
     await browser("back");

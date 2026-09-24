@@ -581,5 +581,11 @@
   "search_frequent_failed": "无法加载常用列表。",
   "conversation_mention_group_in_channel": "在此频道中",
   "conversation_mention_group_not_in_channel": "不在此频道中",
-  "search_this_channel": "搜索此频道"
+  "search_this_channel": "搜索此频道",
+  "search_preview": "搜索预览",
+  "search_preview_open": "打开会话",
+  "search_preview_close": "关闭预览",
+  "search_preview_failed": "无法加载这个会话。",
+  "search_preview_empty": "还没有消息",
+  "search_preview_read_only": "打开会话后才能回复。"
 }
