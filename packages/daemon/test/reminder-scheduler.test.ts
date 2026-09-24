@@ -409,7 +409,7 @@ test("persistence failure is bounded and never sends an uncommitted occurrence",
     code: "REMINDER_DELIVERY_RETRY_EXHAUSTED",
     reminder_id: job.reminderId,
     stage: "persistence",
-    attempts: 8,
+    persistence_failures: 8,
     error_name: "Error",
   });
 });
@@ -714,7 +714,7 @@ test("a fire the cloud accepts on the last attempt leaves no attempt to wake and
     store,
     async (request) => {
       fires++;
-      if (fires < 8) throw new Error("offline");
+      if (fires < 8) throw Object.assign(new Error("offline"), { code: "EOFFLINE" });
       return { ...request, result: "accepted", fired: true, catchup: false };
     },
     async () => {
@@ -744,7 +744,55 @@ test("a fire the cloud accepts on the last attempt leaves no attempt to wake and
   const exhausted = exhaustedLogs(records);
   expect(exhausted).toHaveLength(1);
   expect(exhausted[0]!.properties).toMatchObject({ stage: "wake", attempts: 8 });
+  // The last attempt did not fail, so no earlier attempt's error is reported as the reason.
   expect(exhausted[0]!.properties.error_code).toBeUndefined();
+  expect(exhausted[0]!.properties.error_name).toBeUndefined();
+});
+
+test("a fire deferred to its deadline runs out of time before its attempts do", async () => {
+  const clock = new Clock();
+  const store = new MemoryStore();
+  let fires = 0;
+  const scheduler = new ReminderScheduler(
+    { workspaceId: "workspace-a", computerId: "computer-a" },
+    store,
+    async (request) => {
+      fires++;
+      // The cloud defers the fire by exactly the whole retry budget.
+      return {
+        ...request,
+        result: "premature",
+        fired: false,
+        catchup: false,
+        retryAfterMs: 15 * 60_000,
+      };
+    },
+    async () => {
+      throw new Error("must not wake");
+    },
+    clock,
+  );
+  const records = await captureLogs(async () => {
+    await scheduler.apply(snapshot([job]));
+    await clock.advance(1000);
+    await scheduler.awaitIdle();
+    await clock.advance(15 * 60_000);
+    await scheduler.awaitIdle();
+  });
+  expect(fires).toBe(1);
+  expect(store.receipts[0]).toMatchObject({
+    terminal: true,
+    retryExhausted: {
+      code: "REMINDER_DELIVERY_RETRY_EXHAUSTED",
+      stage: "fire",
+      attempts: 1,
+      deadline: Date.parse("2026-09-08T12:15:01Z"),
+      exhaustedAt: Date.parse("2026-09-08T12:15:01Z"),
+    },
+  });
+  const exhausted = exhaustedLogs(records);
+  expect(exhausted).toHaveLength(1);
+  expect(exhausted[0]!.properties).toMatchObject({ stage: "fire", attempts: 1 });
 });
 
 test("a delivered or declined occurrence ends without an exhausted record", async () => {

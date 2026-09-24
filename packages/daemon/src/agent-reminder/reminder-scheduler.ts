@@ -11,7 +11,7 @@ const logger = getLogger(["coforge", "daemon", "reminder"]);
 const MAX_TIMER_MS = 24 * 60 * 60_000;
 const RETRY_BUDGET_MS = 15 * 60_000;
 const MAX_ATTEMPTS = 8;
-const RETRY_EXHAUSTED_CODE = "REMINDER_DELIVERY_RETRY_EXHAUSTED";
+export const RETRY_EXHAUSTED_CODE = "REMINDER_DELIVERY_RETRY_EXHAUSTED";
 
 /** Projects canonical reminder text into the strict, bounded App Inbox preview. */
 export function reminderAppInboxPreview(title: string): string {
@@ -36,7 +36,7 @@ export type ReminderRetryStage = "fire" | "wake";
  * apart from one that ended because the Agent accepted the wake or the cloud declined the fire.
  */
 export type ReminderRetryExhausted = {
-  code: "REMINDER_DELIVERY_RETRY_EXHAUSTED";
+  code: typeof RETRY_EXHAUSTED_CODE;
   stage: ReminderRetryStage;
   attempts: number;
   /** The receipt's retry deadline, epoch milliseconds. */
@@ -327,7 +327,7 @@ export class ReminderScheduler {
       if (!this.#running) return false;
       if (failures >= MAX_ATTEMPTS || this.clock.now() >= receipt.deadline) {
         // The store is what keeps failing, so this outcome can only be logged, not recorded.
-        this.#logExhausted(receipt, "persistence", failures, error);
+        this.#logExhausted(receipt, "persistence", error, failures);
         return false;
       }
       receipt.nextAt = Math.min(receipt.deadline, this.clock.now() + this.#backoff(failures));
@@ -491,7 +491,7 @@ export class ReminderScheduler {
       deadline: receipt.deadline,
       exhaustedAt: this.clock.now(),
     };
-    this.#logExhausted(receipt, stage, receipt.attempt, this.#lastFailures.get(key));
+    this.#logExhausted(receipt, stage, this.#lastFailures.get(key));
     this.#lastFailures.delete(key);
     this.#track(this.#serial(receipt.agentId, () => this.#persistOrRetry(receipt, false)));
   }
@@ -499,8 +499,8 @@ export class ReminderScheduler {
   #logExhausted(
     receipt: ReminderReceipt,
     stage: ReminderRetryStage | "persistence",
-    attempts: number,
     lastFailure: unknown,
+    persistenceFailures?: number,
   ): void {
     const code = (lastFailure as { code?: unknown } | undefined)?.code;
     logger.error("Reminder delivery retries exhausted", {
@@ -512,7 +512,8 @@ export class ReminderScheduler {
       // `reminder_version`, not `version`, for the same reason as `reminder.fire_failed`.
       reminder_version: receipt.version,
       stage,
-      attempts,
+      attempts: receipt.attempt,
+      persistence_failures: persistenceFailures,
       retry_deadline: new Date(receipt.deadline).toISOString(),
       error_code: typeof code === "string" || typeof code === "number" ? String(code) : undefined,
       error_name: lastFailure instanceof Error ? lastFailure.name : undefined,
@@ -575,6 +576,8 @@ export class ReminderScheduler {
     if (existing?.consumed) {
       merged.consumed = true;
       merged.terminal = true;
+      // The Agent acknowledged it, so it was delivered, whatever this copy's retries concluded.
+      delete merged.retryExhausted;
     }
     if (index < 0) receipts.push(merged);
     else receipts[index] = merged;

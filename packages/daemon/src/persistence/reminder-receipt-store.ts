@@ -1,7 +1,11 @@
 import { chmod, mkdir, rename, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { encodeReminderFireRequest, encodeReminderSync } from "@lrm/coforge-sdk/internal";
-import type { ReminderReceipt, ReminderReceiptStore } from "#src/agent-reminder/reminder-scheduler";
+import {
+  RETRY_EXHAUSTED_CODE,
+  type ReminderReceipt,
+  type ReminderReceiptStore,
+} from "#src/agent-reminder/reminder-scheduler";
 
 const SAFE = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
 const KEYS = new Set([
@@ -33,7 +37,7 @@ function retryExhaustedIsValid(value: unknown): boolean {
   const record = value as Record<string, unknown>;
   return (
     Object.keys(record).every((key) => RETRY_EXHAUSTED_KEYS.has(key)) &&
-    record.code === "REMINDER_DELIVERY_RETRY_EXHAUSTED" &&
+    record.code === RETRY_EXHAUSTED_CODE &&
     (record.stage === "fire" || record.stage === "wake") &&
     Number.isSafeInteger(record.attempts) &&
     (record.attempts as number) >= 0 &&
