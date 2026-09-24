@@ -49,7 +49,8 @@ workspaceId]` Query its loader fills (`task-overview-collection.ts`,
   page does not list yet reads the list again.
 - The `/tasks` toolbar (`task-toolbar.tsx`) follows Linear: one "Filter"
   menu (owner, Project, status submenus) with a removable chip per filter in
-  use, and one "Display" popover (board or list, and which Task fields show).
+  use, and one "Display" popover (board or list, the finished-task window, and
+  which Task fields show).
   The shown fields are a per-device preference
   (`features/settings/task-display-fields.ts`, stored as the hidden fields)
   applied as classes on `<html>` by the boot script, so cards inside
@@ -64,4 +65,6 @@ workspaceId]` Query its loader fills (`task-overview-collection.ts`,
 - Board columns can be hidden from their "···" menu, as Linear allows; hidden
   ones are listed last (`HiddenColumn`), stay drop targets, and show again when
   pressed. Every column shows by default; the choice is per device
-  (`features/settings/task-hidden-columns.ts`).
+  (`features/settings/task-hidden-columns.ts`, on the shared
+  `device-preference.ts` store) and a boot-script class, so a hidden column
+  never flashes while hydrating and never reads its pages.

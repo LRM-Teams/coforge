@@ -1,13 +1,19 @@
 import { TASK_STATUSES, type TaskStatus } from "@lrm/coforge-sdk/internal";
-import { useCallback, useSyncExternalStore } from "react";
+import { useCallback } from "react";
+
+import { createDevicePreference } from "./device-preference";
 
 /**
- * The Tasks board's hidden columns: a per-device choice, as Linear lets a board hide any
- * column from its menu and lists the hidden ones last. Every column shows by default, and the
- * server render (which has no storage) shows every column.
+ * The Tasks board's hidden columns: a per-device choice, as Linear lets a board hide any column
+ * from its menu and lists the hidden ones last. Every column shows by default. The choice is
+ * also a class per hidden column on <html>, set by the boot script before the first paint, so a
+ * hidden column never shows and then collapses while the page hydrates.
  */
 const STORAGE_KEY = "coforge-task-hidden-columns";
 const NONE: ReadonlySet<TaskStatus> = new Set();
+
+/** The class on <html> naming a hidden column (see `HIDDEN_COLUMN_CLASS` in task-workflow). */
+export const taskColumnHiddenClass = (status: TaskStatus) => `task-column-hidden-${status}`;
 
 export function parseHiddenColumns(stored: string | null): ReadonlySet<TaskStatus> {
   const names = new Set(stored?.split(",") ?? []);
@@ -18,51 +24,34 @@ export function serializeHiddenColumns(hidden: ReadonlySet<TaskStatus>): string 
   return TASK_STATUSES.filter((status) => hidden.has(status)).join(",");
 }
 
-const listeners = new Set<() => void>();
-let cached: { stored: string | null; hidden: ReadonlySet<TaskStatus> } | undefined;
-// The choice when storage refuses it (private mode, quota): for this page only.
-let unstored: string | undefined;
+/** The boot script's part (in __root.tsx). */
+export const TASK_HIDDEN_COLUMNS_BOOT = `var taskColumns=localStorage.getItem("${STORAGE_KEY}");if(taskColumns){taskColumns.split(",").forEach(function(status){if(${JSON.stringify(TASK_STATUSES)}.indexOf(status)>=0){document.documentElement.classList.add("task-column-hidden-"+status)}})}`;
 
-function readStored(): string | null {
-  if (unstored !== undefined) return unstored;
-  try {
-    return localStorage.getItem(STORAGE_KEY);
-  } catch {
-    return null;
-  }
-}
+const preference = createDevicePreference({
+  key: STORAGE_KEY,
+  parse: parseHiddenColumns,
+  serialize: serializeHiddenColumns,
+  fallback: NONE,
+  apply: (hidden) => {
+    for (const status of TASK_STATUSES)
+      document.documentElement.classList.toggle(taskColumnHiddenClass(status), hidden.has(status));
+  },
+});
 
-function snapshot(): ReadonlySet<TaskStatus> {
-  const stored = readStored();
-  if (cached?.stored !== stored) cached = { stored, hidden: parseHiddenColumns(stored) };
-  return cached.hidden;
-}
-
-function subscribe(listener: () => void) {
-  listeners.add(listener);
-  const onStorage = (event: StorageEvent) => event.key === STORAGE_KEY && listener();
-  window.addEventListener("storage", onStorage);
-  return () => {
-    listeners.delete(listener);
-    window.removeEventListener("storage", onStorage);
-  };
-}
+/** Whether a column is hidden now; for effects, which must not wait for a render to know. */
+export const isTaskColumnHidden = (status: TaskStatus) => preference.read().has(status);
 
 /** The hidden columns, and how to hide or show one. */
 export function useTaskHiddenColumns() {
-  const hidden = useSyncExternalStore(subscribe, snapshot, () => NONE);
-  const setHidden = useCallback((status: TaskStatus, hide: boolean) => {
-    const next = new Set(snapshot());
-    if (hide) next.add(status);
-    else next.delete(status);
-    const stored = serializeHiddenColumns(next);
-    try {
-      localStorage.setItem(STORAGE_KEY, stored);
-      unstored = undefined;
-    } catch {
-      unstored = stored;
-    }
-    for (const listener of listeners) listener();
-  }, []);
+  const [hidden, setAll] = preference.useValue();
+  const setHidden = useCallback(
+    (status: TaskStatus, hide: boolean) => {
+      const next = new Set(preference.read());
+      if (hide) next.add(status);
+      else next.delete(status);
+      setAll(next);
+    },
+    [setAll],
+  );
   return [hidden, setHidden] as const;
 }
