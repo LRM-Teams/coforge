@@ -60,7 +60,10 @@ describe("ConversationHistory", () => {
         conversationId: "direct-conversation-1",
         threadRootId: null,
         sequence: { lt: 12 },
-        sender: { userId: "user-1" },
+        // The viewer's own member row, not a join through `sender.userId`: the filter is served
+        // by `messages(senderMemberId, threadRootId, sequence)` instead of walking the whole
+        // conversation's history backwards to find the viewer's few rows.
+        senderMemberId: "conversation-member-1",
       },
       orderBy: { sequence: "desc" },
       take: 3,
@@ -105,7 +108,7 @@ describe("ConversationHistory", () => {
       },
     } as unknown as PrismaClient;
 
-    await new ConversationHistory(db).listOwnMessages(
+    const page = await new ConversationHistory(db).listOwnMessages(
       "workspace-1",
       "user-1",
       "channel-conversation-1",
@@ -119,10 +122,41 @@ describe("ConversationHistory", () => {
         members: { where: { userId: "user-1" }, select: { id: true } },
       },
     });
+    // No member row means no message of theirs can exist here: nothing to scan.
+    expect(page).toEqual({ hasOlder: false, messages: [] });
+    expect(messageQueries).toEqual([]);
+  });
+
+  test("indexes a joined channel by the viewer's member row", async () => {
+    const messageQueries: object[] = [];
+    const db = {
+      workspaceMembership: { findUnique: async () => membership },
+      conversation: {
+        findFirst: async () => ({
+          directKey: null,
+          channelName: "general",
+          members: [{ id: "channel-member-1" }],
+        }),
+      },
+      message: {
+        findMany: async (input: object) => {
+          messageQueries.push(input);
+          return [];
+        },
+      },
+    } as unknown as PrismaClient;
+
+    await new ConversationHistory(db).listOwnMessages(
+      "workspace-1",
+      "user-1",
+      "channel-conversation-1",
+    );
+
     expect(messageQueries[0]).toMatchObject({
       where: {
         conversationId: "channel-conversation-1",
-        sender: { userId: "user-1" },
+        threadRootId: null,
+        senderMemberId: "channel-member-1",
       },
     });
   });
