@@ -36,7 +36,7 @@ Rules for one Workspace child's runtime in `src/daemon-runtime/`. They extend
 - A failed message-triggered launch starts the per-Agent wake cooldown
   (`LaunchFailureBackoff`, no attempt cap); any successful launch ends it.
   Deliveries that wait for the next launch (in the cooldown, in a failed
-  launch's input queue, or arriving while a batched launch is in flight) stay
+  launch's input queue, or arriving while a batched wake launch is in flight) stay
   unacknowledged in `AgentDeliveryQueue`. The next launch presents them in one
   notice, or a server recovery notice covers them, and they are ACKed only
   after that notice is accepted. `flush` gives them `receive`'s treatment

@@ -11,6 +11,7 @@ import {
   type ReminderClock,
   type ReminderReceipt,
   type ReminderReceiptStore,
+  reminderAppInboxSummary,
 } from "#src/agent-reminder/reminder-scheduler";
 
 class MemoryStore implements ReminderReceiptStore {
@@ -818,4 +819,34 @@ test("a delivered or declined occurrence ends without an exhausted record", asyn
     expect(store.receipts[0]).not.toHaveProperty("retryExhausted");
     expect(exhaustedLogs(records)).toHaveLength(0);
   }
+});
+
+test("a reminder that fired on time says it is due", () => {
+  expect(reminderAppInboxSummary(job, false)).toBe("Reminder due");
+});
+
+test("a reminder that fired late says so and when it was due", () => {
+  expect(reminderAppInboxSummary(job, true)).toBe(
+    "Overdue: was due 2026-09-08T12:00:01.000Z, delivered late",
+  );
+});
+
+test("the wake learns whether the cloud fired the occurrence late", async () => {
+  const clock = new Clock();
+  const store = new MemoryStore();
+  const wakes: Array<{ catchup: boolean }> = [];
+  const scheduler = new ReminderScheduler(
+    { workspaceId: "workspace-a", computerId: "computer-a" },
+    store,
+    async (request) => ({ ...request, result: "accepted", fired: true, catchup: true }),
+    async (_job, occurrence) => {
+      wakes.push(occurrence);
+      return true;
+    },
+    clock,
+  );
+  await scheduler.apply(snapshot([job]));
+  await clock.advance(1000);
+  await scheduler.awaitIdle();
+  expect(wakes).toEqual([{ catchup: true }]);
 });

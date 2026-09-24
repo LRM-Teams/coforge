@@ -140,7 +140,11 @@ import {
 } from "#src/code-agent/runtime-inventory";
 import { getLogger } from "@logtape/logtape";
 import { COFORGE_DAEMON_VERSION } from "#src/version";
-import { ReminderScheduler, reminderAppInboxPreview } from "#src/agent-reminder/reminder-scheduler";
+import {
+  ReminderScheduler,
+  reminderAppInboxPreview,
+  reminderAppInboxSummary,
+} from "#src/agent-reminder/reminder-scheduler";
 import { FileReminderReceiptStore } from "#src/persistence/reminder-receipt-store";
 import { diagnosticErrorCode } from "#src/platform/diagnostic-error-code";
 import type {
@@ -628,7 +632,7 @@ export class DaemonRuntime {
         if (!this.#transport.fireReminder) throw new Error("reminder fire is unavailable");
         return this.#transport.fireReminder(request);
       },
-      (job) => this.#acceptReminderDue(job),
+      (job, occurrence) => this.#acceptReminderDue(job, occurrence.catchup),
     );
     const state = new AgentRuntimeState(
       // Control state lives only in this process: the server
@@ -4052,7 +4056,7 @@ export class DaemonRuntime {
     );
   }
 
-  async #acceptReminderDue(job: ReminderJob): Promise<boolean> {
+  async #acceptReminderDue(job: ReminderJob, catchup: boolean): Promise<boolean> {
     const item = await (
       await this.#appInbox(job.ownerAgentId)
     ).upsert({
@@ -4060,7 +4064,7 @@ export class DaemonRuntime {
       notificationClass: "due",
       sourceRef: { kind: "reminder", id: job.reminderId, revision: String(job.version) },
       title: reminderAppInboxPreview(job.title),
-      summary: "Reminder due",
+      summary: reminderAppInboxSummary(job, catchup),
     });
     return this.#notifyAppItem(job.ownerAgentId, item.itemId);
   }
