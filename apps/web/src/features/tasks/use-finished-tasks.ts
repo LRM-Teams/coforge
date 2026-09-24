@@ -21,10 +21,28 @@ import {
 /** Every finished-work read of a Workspace, so one invalidation reads them all again. */
 export const finishedTasksKey = (workspaceId: string) => ["task", "finished", workspaceId] as const;
 
+/**
+ * How long a finished-work read stays fresh.
+ *
+ * Every real change to these rows arrives as a `task.changed.v1` publication and
+ * `use-task-overview` invalidates this whole key on it, so freshness does not depend on this
+ * number: an invalidation reads again whatever the age. What it suppresses is the redundant
+ * re-read of the *same* key — leaving the Tasks page and coming back, a re-render that remounts
+ * the panel — which otherwise re-runs the finished counts and refetches every opened page.
+ *
+ * `refetchOnReconnect: "always"` covers the one case the event cannot: a change published while
+ * realtime was disconnected, which would otherwise stay unseen until this window lapsed. It mirrors
+ * the realtime-backed activity queries' own choice, and it is deliberately *not* paired with a
+ * focus refetch, which the Tasks board is trying to stop paying.
+ */
+export const FINISHED_TASKS_STALE_MS = 60_000;
+
 export const finishedSummaryQuery = (workspaceId: string, window: FinishedWindow) =>
   queryOptions({
     queryKey: [...finishedTasksKey(workspaceId), "summary", window],
     queryFn: () => loadFinishedTaskSummary({ data: { window } }),
+    staleTime: FINISHED_TASKS_STALE_MS,
+    refetchOnReconnect: "always",
   });
 
 /** A finished group as the board shows it. */
@@ -123,6 +141,8 @@ function useFinishedColumn(
     initialPageParam: null as string | null,
     getNextPageParam: (last) => last.nextCursor,
     enabled: expanded,
+    staleTime: FINISHED_TASKS_STALE_MS,
+    refetchOnReconnect: "always",
   });
   const read = pages.data?.pages;
   const rows = useMemo(
