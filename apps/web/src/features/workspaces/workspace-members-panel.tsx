@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { useRouter } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import {
@@ -63,6 +63,9 @@ export function WorkspaceMembersPanel(props: {
   members: MemberRow[];
   pendingInvitations: InvitationRow[];
   incomingInvitations: IncomingInvitation[];
+  /** Workspace-wide channel settings, for an owner or admin; placed between the members and the
+   * pending invitations. */
+  systemChannels?: ReactNode;
 }) {
   const canManage = props.actorRole === "owner" || props.actorRole === "admin";
   const [inviteOpen, setInviteOpen] = useState(false);
@@ -234,6 +237,8 @@ export function WorkspaceMembersPanel(props: {
             })}
           </ul>
         </section>
+
+        {props.systemChannels}
 
         {canManage && (
           <section className="py-6">

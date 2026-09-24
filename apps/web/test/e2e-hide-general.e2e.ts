@@ -8,8 +8,9 @@ import { DEV_BROWSER_USER } from "#src/server/auth/dev-skip-auth.server";
 /**
  * Hiding #general in a real browser, as a Workspace owner. The channel settings panel's Actions
  * offer "Hide #general"; after its confirmation the viewer lands back in Chat and #general has
- * left the sidebar, and opening it by URL lands back in Chat too. Settings → System channels shows
- * "Hide #general channel" ticked; unticking it and saving brings #general back.
+ * left the sidebar, and opening it by URL lands back in Chat too. The System channels section of
+ * Settings → Members shows "Hide #general channel" ticked; unticking it and saving brings #general
+ * back.
  *
  * Opt-in like the other browser E2Es: real local Web + `agent-browser`, the dev user an owner of
  * its Workspace (seed-dev). #general is restored before and after. Screenshots are written under
@@ -25,7 +26,7 @@ if (!databaseUrl || new URL(databaseUrl).hostname !== "127.0.0.1")
   throw new Error("DATABASE_URL must target local PostgreSQL");
 const artifacts = join(import.meta.dir, "../../../.amp/e2e/hide-general");
 
-test("an owner hides #general from its panel and restores it from System channels", async () => {
+test("an owner hides #general from its panel and restores it from Settings → Members", async () => {
   const db = new PrismaClient({ adapter: new PrismaPg({ connectionString: databaseUrl }) });
   const session = `hide-general-${process.pid}`;
   async function browser(...args: string[]) {
@@ -112,8 +113,15 @@ test("an owner hides #general from its panel and restores it from System channel
     await browser("open", `${origin}/en/messages/channels/${general.id}`);
     await waitFor(`location.pathname !== "/en/messages/channels/${general.id}"`);
 
-    await browser("open", `${origin}/en/settings?section=system-channels`);
+    await browser("open", `${origin}/en/settings?section=members`);
     await waitFor(`document.body.textContent.includes("Hide #general channel")`, 60_000);
+    // System channels is a section of the Members page, not an entry of its own in the navigation.
+    const navEntries = await browser(
+      "eval",
+      `JSON.stringify([...document.querySelectorAll("nav button")].map((b) => b.textContent.trim()))`,
+    );
+    expect(navEntries).toContain("Members");
+    expect(navEntries).not.toContain("System channels");
     expect(
       await browser("eval", `document.querySelector('input[type="checkbox"]').checked`),
     ).toContain("true");

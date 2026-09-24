@@ -1,11 +1,10 @@
 import { useSubmitGuard } from "#src/hooks/use-submit-guard";
-import { useEffect, useRef, useState, type ChangeEvent } from "react";
+import { useEffect, useId, useRef, useState, type ChangeEvent } from "react";
 import {
   BellRinging01 as BellRing,
   Check,
   ChevronLeft,
   Clock as Clock3,
-  Hash01,
   Translate01 as Languages,
   LayoutLeft,
   MessageSquare01 as MessagesSquare,
@@ -51,7 +50,6 @@ type SettingsSection =
   | "account"
   | "language-region"
   | "members"
-  | "system-channels"
   | "preferences"
   | "notifications"
   | "integrations";
@@ -122,7 +120,7 @@ interface SettingsContentProps {
   onEnableBrowserNotifications: () => Promise<void>;
   onTestBrowserNotification: () => Promise<boolean>;
   /** Whether #general is hidden from the Workspace; `null` unless the viewer is an owner or admin,
-   * who alone get Settings → System channels. */
+   * who alone see the System channels section of Settings → Members. */
   generalChannelHidden: boolean | null;
   onGeneralChannelHiddenSave: (hidden: boolean) => Promise<void>;
 }
@@ -197,16 +195,12 @@ export function SettingsPending() {
 
 export function SettingsContent(props: SettingsContentProps) {
   const [internalSection, setInternalSection] = useState<SettingsSection>("account");
-  const requested = props.section ?? internalSection;
-  // System channels exists only for a Workspace owner or admin; anyone else asking gets Account.
-  const section =
-    requested === "system-channels" && props.generalChannelHidden === null ? "account" : requested;
+  const section = props.section ?? internalSection;
   const [showList, setShowList] = useState(props.section !== "integrations");
   const sectionLabels: Record<SettingsSection, string> = {
     account: m.settings_account(),
     "language-region": m.settings_language_region(),
     members: m.settings_members(),
-    "system-channels": m.settings_system_channels(),
     preferences: m.settings_preferences(),
     notifications: m.settings_notifications(),
     integrations: m.settings_integrations(),
@@ -269,15 +263,6 @@ export function SettingsContent(props: SettingsContentProps) {
               label={m.settings_members()}
               onClick={() => selectSection("members")}
             />
-            {/* Workspace-wide channel settings: present only for a Workspace owner or admin. */}
-            {props.generalChannelHidden !== null && (
-              <SettingsNavigationButton
-                active={section === "system-channels"}
-                icon={Hash01}
-                label={m.settings_system_channels()}
-                onClick={() => selectSection("system-channels")}
-              />
-            )}
           </SettingsNavigationGroup>
         </div>
       </nav>
@@ -314,11 +299,15 @@ export function SettingsContent(props: SettingsContentProps) {
                 members={props.members.members}
                 pendingInvitations={props.members.pendingInvitations}
                 incomingInvitations={props.members.incomingInvitations}
-              />
-            ) : section === "system-channels" && props.generalChannelHidden !== null ? (
-              <SystemChannelsSettings
-                hidden={props.generalChannelHidden}
-                onSave={props.onGeneralChannelHiddenSave}
+                systemChannels={
+                  // Workspace-wide channel settings: present only for a Workspace owner or admin.
+                  props.generalChannelHidden !== null && (
+                    <SystemChannelsSettings
+                      hidden={props.generalChannelHidden}
+                      onSave={props.onGeneralChannelHiddenSave}
+                    />
+                  )
+                }
               />
             ) : section === "preferences" ? (
               <Preferences {...props} />
@@ -1047,8 +1036,8 @@ function SaveErrorMessage({ error }: { error: SaveError }) {
   );
 }
 
-/** Settings → System channels: hiding #general from the whole Workspace, the only way back once
- * it is hidden. A checkbox and Save, so hiding it for everyone is a deliberate step. */
+/** Settings → Members → System channels: hiding #general from the whole Workspace, the only way
+ * back once it is hidden. A checkbox and Save, so hiding it for everyone is a deliberate step. */
 function SystemChannelsSettings({
   hidden,
   onSave,
@@ -1056,6 +1045,7 @@ function SystemChannelsSettings({
   hidden: boolean;
   onSave: (hidden: boolean) => Promise<void>;
 }) {
+  const headingId = useId();
   const [draft, setDraft] = useState(hidden);
   const [saving, guard] = useSubmitGuard();
   const [saveError, setSaveError] = useState<SaveError | null>(null);
@@ -1073,30 +1063,29 @@ function SystemChannelsSettings({
   }
 
   return (
-    <SettingsPage>
-      <SettingsGroup icon={Hash01} label={m.settings_system_channels()}>
-        <SettingsCard>
-          <SettingsField
-            inline
-            label={m.settings_system_channels_hide_general()}
-            description={m.settings_system_channels_hide_general_description()}
-          >
-            <Checkbox
-              size="md"
-              aria-label={m.settings_system_channels_hide_general()}
-              isSelected={draft}
-              isDisabled={saving}
-              onChange={setDraft}
-            />
-          </SettingsField>
-          <SettingsCardFooter error={saveError}>
-            <Button type="button" size="sm" isDisabled={saving || draft === hidden} onPress={save}>
-              {saving ? m.settings_group_saving() : m.settings_group_save()}
-            </Button>
-          </SettingsCardFooter>
-        </SettingsCard>
-      </SettingsGroup>
-    </SettingsPage>
+    <section aria-labelledby={headingId} className="flex flex-col gap-4 py-6">
+      <h2 id={headingId} className="text-lg font-semibold">
+        {m.settings_system_channels()}
+      </h2>
+      <SettingsField
+        inline
+        label={m.settings_system_channels_hide_general()}
+        description={m.settings_system_channels_hide_general_description()}
+      >
+        <Checkbox
+          size="md"
+          aria-label={m.settings_system_channels_hide_general()}
+          isSelected={draft}
+          isDisabled={saving}
+          onChange={setDraft}
+        />
+      </SettingsField>
+      <SettingsCardFooter error={saveError}>
+        <Button type="button" size="sm" isDisabled={saving || draft === hidden} onPress={save}>
+          {saving ? m.settings_group_saving() : m.settings_group_save()}
+        </Button>
+      </SettingsCardFooter>
+    </section>
   );
 }
 

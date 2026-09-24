@@ -57,7 +57,6 @@ const settingsSections = [
   "account",
   "language-region",
   "members",
-  "system-channels",
   "preferences",
   "notifications",
   "integrations",

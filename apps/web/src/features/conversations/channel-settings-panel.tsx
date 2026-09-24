@@ -618,7 +618,7 @@ function ActionsSection({
               </Button>
             )}
         {/* A Workspace owner or admin may hide #general from the whole Workspace (restored from
-            Settings → System channels). */}
+            Settings → Members → System channels). */}
         {conversation.canHideGeneral && (
           <Button
             color="secondary-destructive"
