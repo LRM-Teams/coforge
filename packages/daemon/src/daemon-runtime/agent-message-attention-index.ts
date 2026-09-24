@@ -613,6 +613,12 @@ already have been read. A notice you have not acted on does not establish that t
     );
   }
 
+  /** Whether this well-formed delivery is one that never wakes the Agent (another Agent's channel
+   * chatter that does not mention it), so an exited Agent need not be launched for it. */
+  isSilent(message: AgentMessageDelivery): boolean {
+    return hasDeliveryScope(message) && !shouldWakeForDelivery(message);
+  }
+
   /** ACKs a delivery without notifying the Agent: the caller has established it needs no attention. */
   acknowledge(message: AgentMessageDelivery): Promise<void> {
     return this.sendAck({

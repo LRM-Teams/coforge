@@ -36,10 +36,12 @@ import {
 import {
   AgentProcessManager,
   type CodeAgentProviderFactory,
+  type AgentRestartConfig,
   type AgentRuntime,
 } from "#src/agent-runtime/agent-process-manager";
 import { parseAssignedSkillPacks } from "#src/code-agent/assigned-skills";
 import { launchCategoryText, launchFailureTrace } from "#src/agent-runtime/launch-failure";
+import { LaunchFailureBackoff } from "#src/agent-runtime/launch-failure-backoff";
 import { agentRuntimeContextEnvironment } from "#src/code-agent/environment";
 import { toolActivity } from "#src/code-agent/tool-activity";
 export type DaemonConfig = {
@@ -476,6 +478,9 @@ export class DaemonRuntime {
   readonly #messageAttention: AgentMessageAttentionIndex;
   /** Busy-gated delivery holding for providers with no safe busy path. */
   readonly #deliveryQueue = new AgentDeliveryQueue();
+  /** Launch failures of message-triggered wakes, per Agent: while one owes a cooldown, a delivery
+   * does not launch the Agent again. No attempt cap; the cooldown stops growing at its ceiling. */
+  readonly #wakeLaunchFailures = new LaunchFailureBackoff();
   /** Per-Agent retryable-runtime-error bookkeeping: consecutive-failure delivery
    * backoff and the same-fingerprint repeat fence — see agent-runtime/runtime-error-recovery.ts. */
   readonly #runtimeErrorDeliveryBackoff = new RuntimeErrorDeliveryBackoff();
@@ -2652,15 +2657,37 @@ export class DaemonRuntime {
       throw new Error("unsupported agent protocol major");
     if (message.workspaceId !== this.#connection.workspaceId)
       throw new Error("agent message targets another Workspace");
-    // An exited Agent is not woken for a message it has already consumed: the delivery is
-    // acknowledged and dropped here, before any launch, rather than after one.
-    if (
+    const exited =
       this.#runnerHold === undefined &&
       !this.#agentProcessManager.session(message.agentId) &&
-      !this.#agentLaunches.has(message.agentId) &&
-      this.#messageAttention.hasConsumed(message)
-    )
+      !this.#agentLaunches.has(message.agentId);
+    // An exited Agent is not woken for a message it has already consumed: the delivery is
+    // acknowledged and dropped here, before any launch, rather than after one.
+    if (exited && this.#messageAttention.hasConsumed(message))
       return this.#messageAttention.acknowledge(message);
+    // Nor for a delivery that would not wake a running Agent either.
+    if (exited && this.#messageAttention.isSilent(message))
+      return this.#messageAttention.acknowledge(message);
+    // A wake launch failed moments ago, so launching again now would most likely fail the same
+    // way. The delivery waits, unacknowledged, for the first launch after the cooldown.
+    const wakeable = exited ? this.#agentProcessManager.restartConfig(message.agentId) : undefined;
+    if (wakeable && this.#wakeLaunchFailures.isBlocked(message.agentId)) {
+      this.#deliveryQueue.enqueue(message.agentId, message);
+      logger.info("Agent wake deferred by a launch-failure cooldown", {
+        event: "agent.wake.cooldown_deferred",
+        agent_id: message.agentId,
+        delivery_id: message.deliveryId,
+        until: new Date(this.#wakeLaunchFailures.blockedUntil(message.agentId)!).toISOString(),
+      });
+      return;
+    }
+    // Deliveries are already waiting for this Agent's next launch: this one joins them, so the
+    // launch presents all of them in a single notice instead of this one alone.
+    if (wakeable && this.#deliveryQueue.hasQueued(message.agentId)) {
+      this.#deliveryQueue.enqueue(message.agentId, message);
+      await this.#wakeAgent(message.agentId, wakeable);
+      return;
+    }
     const delivery = this.#enqueueAgentInput(message.agentId, (completion) => ({
       kind: "delivery",
       message,
@@ -2685,15 +2712,28 @@ export class DaemonRuntime {
       return delivery;
     }
     if (this.#agentLaunches.has(message.agentId)) return delivery;
-    const wakeable = this.#agentProcessManager.restartConfig(message.agentId);
-    if (!wakeable) {
+    const restart = this.#agentProcessManager.restartConfig(message.agentId);
+    if (!restart) {
       this.#closeAgentInputQueue(message.agentId, new Error("Agent is inactive"));
       return delivery;
     }
-    const launch = this.#startAgent(message.agentId, wakeable.config, undefined, {
-      sessionId: wakeable.sessionId,
-    });
+    const launch = this.#wakeAgent(message.agentId, restart);
+    // A failed launch keeps this delivery, unacknowledged, for the launch after the cooldown.
+    void launch.catch(() => this.#deliveryQueue.enqueue(message.agentId, message));
     await Promise.all([launch, delivery]);
+  }
+
+  /** Relaunches an exited Agent for a message and tracks the outcome for the wake cooldown. A
+   * successful launch presents whatever `AgentDeliveryQueue` holds for it as one notice. */
+  #wakeAgent(agentId: string, restart: AgentRestartConfig): Promise<AgentRuntime> {
+    const launch = this.#startAgent(agentId, restart.config, undefined, {
+      sessionId: restart.sessionId,
+    });
+    void launch.then(
+      () => this.#wakeLaunchFailures.reset(agentId),
+      () => this.#wakeLaunchFailures.recordFailure(agentId),
+    );
+    return launch;
   }
 
   stopAgent(agentId: string): Promise<void> {

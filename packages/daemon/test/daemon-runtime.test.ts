@@ -2993,6 +2993,170 @@ describe("DaemonRuntime", () => {
     }
   });
 
+  test("another Agent's channel chatter that does not mention an exited Agent is acknowledged without waking it", async () => {
+    const credentials = new InMemoryDaemonCredentialStore();
+    await credentials.save(connection.workspaceId, connection.computerId, "token-a");
+    const exits = new Set<() => void>();
+    const acknowledgements: string[] = [];
+    let launches = 0;
+    const runtime = new DaemonRuntime(
+      connection,
+      () => ({
+        provider: "pi",
+        createAgentSession: async () => {
+          launches++;
+          return {
+            ...sessionSpy(),
+            onExit(listener) {
+              exits.add(listener);
+              return () => exits.delete(listener);
+            },
+          };
+        },
+      }),
+      credentials,
+      {
+        create: () => ({
+          async start() {},
+          async ready() {},
+          sendAgentStatus() {},
+          async sendAgentDeliveryAck(ack) {
+            acknowledgements.push(ack.deliveryId);
+          },
+          async requestAgentApiKey() {
+            return `sk_agent_${"a".repeat(43)}`;
+          },
+          async revokeAgentApiKey() {},
+          async stop() {},
+        }),
+      },
+    );
+
+    try {
+      await runtime.start(connection);
+      await runtime.startAgent("agent-a", config);
+      for (const exit of exits) exit();
+
+      await runtime.handleAgentMessage({
+        protocolMajor: 1,
+        requestId: "message-request-chatter",
+        messageId: "message-chatter",
+        deliveryId: "delivery-chatter",
+        sequence: 1,
+        workspaceId: connection.workspaceId,
+        conversationId: "conversation-team",
+        agentId: "agent-a",
+        body: "status update",
+        method: "agent:v1:message:deliver",
+        target: "#team",
+        latestSenderKind: "agent",
+        latestSenderHandle: "builder",
+        mentionsAgent: false,
+      });
+
+      expect(acknowledgements).toEqual(["delivery-chatter"]);
+      expect(launches).toBe(1);
+      expect(runtime.agentProcessManager.session("agent-a")).toBeUndefined();
+    } finally {
+      await runtime.stop();
+    }
+  });
+
+  test("a message for an Agent whose wake launch just failed waits out the cooldown, then one launch carries every waiting message", async () => {
+    const credentials = new InMemoryDaemonCredentialStore();
+    await credentials.save(connection.workspaceId, connection.computerId, "token-a");
+    const exits = new Set<() => void>();
+    const notices: string[] = [];
+    const acknowledgements: string[] = [];
+    let allAcknowledged!: () => void;
+    const threeAcknowledged = new Promise<void>((resolve) => {
+      allAcknowledged = resolve;
+    });
+    let launchAttempts = 0;
+    let broken = false;
+    const runtime = new DaemonRuntime(
+      connection,
+      () => ({
+        provider: "pi",
+        createAgentSession: async () => {
+          launchAttempts++;
+          if (broken) throw new Error("pi: command not found");
+          return {
+            ...sessionSpy(),
+            notify: async (notice) => {
+              notices.push(notice);
+            },
+            onExit(listener) {
+              exits.add(listener);
+              return () => exits.delete(listener);
+            },
+          };
+        },
+      }),
+      credentials,
+      {
+        create: () => ({
+          async start() {},
+          async ready() {},
+          sendAgentStatus() {},
+          async sendAgentDeliveryAck(ack) {
+            acknowledgements.push(ack.deliveryId);
+            if (acknowledgements.length === 3) allAcknowledged();
+          },
+          async requestAgentApiKey() {
+            return `sk_agent_${"a".repeat(43)}`;
+          },
+          async revokeAgentApiKey() {},
+          async stop() {},
+        }),
+      },
+    );
+    const delivery = (sequence: number) => ({
+      protocolMajor: 1 as const,
+      requestId: `message-request-${sequence}`,
+      messageId: `message-${sequence}`,
+      deliveryId: `delivery-${sequence}`,
+      sequence,
+      workspaceId: connection.workspaceId,
+      conversationId: "conversation-1",
+      agentId: "agent-a",
+      body: `body ${sequence}`,
+      method: "agent:v1:message:deliver" as const,
+      target: "@agent",
+    });
+
+    try {
+      await runtime.start(connection);
+      await runtime.startAgent("agent-a", config);
+      for (const exit of exits) exit();
+      broken = true;
+
+      await expect(runtime.handleAgentMessage(delivery(1))).rejects.toThrow(
+        "pi: command not found",
+      );
+      expect(launchAttempts).toBe(2);
+
+      // Within the first failure's one-second cooldown: no launch, and no ACK either, so the
+      // server still holds the message as undelivered.
+      await runtime.handleAgentMessage(delivery(2));
+      expect(launchAttempts).toBe(2);
+      expect(acknowledgements).toEqual([]);
+
+      // The cooldown itself is under test, so it runs on the real clock.
+      await Bun.sleep(1_100);
+      broken = false;
+      await runtime.handleAgentMessage(delivery(3));
+      await threeAcknowledged;
+      expect(launchAttempts).toBe(3);
+      // One notice for everything that waited, ACKed only after it was accepted.
+      expect(notices).toHaveLength(1);
+      expect(notices[0]).toContain("@agent  new: 3 messages");
+      expect(acknowledgements).toEqual(["delivery-1", "delivery-2", "delivery-3"]);
+    } finally {
+      await runtime.stop();
+    }
+  });
+
   test("reports active Agents inactive before a graceful daemon shutdown", async () => {
     const credentials = new InMemoryDaemonCredentialStore();
     await credentials.save(connection.workspaceId, connection.computerId, "token-a");
