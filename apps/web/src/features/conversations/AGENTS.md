@@ -22,6 +22,11 @@ These rules apply to `src/features/conversations/`.
 - Direct and channel views share the empty-state layout and compact thread
   prompt in `direct-conversation.tsx`. Each supplies its own identity, media,
   and copy, and keeps its composer or join action.
+- The Saved list is a TanStack DB collection (`saved-messages-collection.ts`) on the
+  Chat layout's `DbClient`, seeded from the loader. Read it through
+  `useSavedEntries`/`useIsMessageSaved` and write through the context's
+  `save`/`unsave`; never a module-level collection or `createCollection`
+  singleton, which would share state across SSR requests.
 - Message index and around-window reads go through this feature's shared
   Server Function seam, scoped by `conversationId` for both direct
   conversations and channels.
