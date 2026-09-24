@@ -27,7 +27,10 @@ export const MAX_THREAD_REFERENCES = 20;
  * (`readMessageReferences`) and its candidates answered here:
  *
  * - `@handle` names one of the conversation's mention `targets` (a DM passes none, so its
- *   `@handle` stays text), with `bindings` — the CLI's `--mention` selectors — first;
+ *   `@handle` stays text), with `bindings` — the CLI's `--mention` selectors — first. `targets`
+ *   may instead load only the members the body's `@handle` candidates name, so a large channel's
+ *   roster is never read to resolve a message that mentions a few members, or none (a caller
+ *   with `bindings` passes the whole list, since a binding need not appear in the body);
  * - `task #N`, or a bare `#N`, names a task of this conversation;
  * - `#name` names a channel of this Workspace; a bare `#N` names one only when no task has that
  *   number (see `readMessageReferences` for the full precedence). Every channel is public and readable by every
@@ -48,7 +51,9 @@ export async function storeMessageBody(
   scope: { workspaceId: string; conversationId: string },
   body: string,
   mentionScope: {
-    targets: readonly MentionTarget[];
+    targets:
+      | readonly MentionTarget[]
+      | ((handles: readonly string[]) => Promise<readonly MentionTarget[]>);
     bindings?: readonly MentionSelectorInput[];
   },
 ): Promise<{ body: string; mentions: ResolvedMention[] }> {
@@ -64,7 +69,13 @@ export async function storeMessageBody(
   const taskNumbers = references.candidates.taskNumbers.filter(
     (number) => number <= PG_INTEGER_MAX,
   );
-  const mentions = resolveMentionTargets(handles, mentionScope.targets, mentionScope.bindings);
+  const targets =
+    typeof mentionScope.targets === "function"
+      ? handles.length
+        ? await mentionScope.targets(handles)
+        : []
+      : mentionScope.targets;
+  const mentions = resolveMentionTargets(handles, targets, mentionScope.bindings);
   const knownTasks = new Set(
     taskNumbers.length
       ? (
