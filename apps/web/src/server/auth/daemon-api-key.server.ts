@@ -14,15 +14,19 @@ export type DaemonApiKeyRecord = {
   computerId: string;
   ownerId: string;
   revokedAt: Date | null;
+  lastUsedAt?: Date | null;
 };
 
 export interface DaemonApiKeyRepository {
   replaceActive(record: DaemonApiKeyRecord): Promise<void>;
   findByHash(hash: string): Promise<DaemonApiKeyRecord | undefined>;
-  markUsed(id: string): Promise<void>;
+  markUsed(id: string, at: Date): Promise<void>;
 }
 
 const DAEMON_API_KEY = /^dk_[A-Za-z0-9_-]{43}$/;
+/** Every daemon RPC and Agent HTTP call verifies the key, so its last use is a coarse
+ * timestamp: writing it per request would serialize one Computer's traffic on its key row. */
+const LAST_USED_RESOLUTION_MS = 60_000;
 
 export function hashDaemonApiKey(value: string): string {
   return new Bun.CryptoHasher("sha256").update(value).digest("hex");
@@ -68,6 +72,7 @@ export function prepareDaemonApiKey({
 export async function verifyDaemonApiKey(
   apiKey: string,
   repository: DaemonApiKeyRepository,
+  now: Date = new Date(),
 ): Promise<DaemonApiKeyClaims> {
   if (!DAEMON_API_KEY.test(apiKey)) throw new Error("invalid Daemon API key");
   const actual = Buffer.from(hashDaemonApiKey(apiKey));
@@ -76,7 +81,8 @@ export async function verifyDaemonApiKey(
   const expected = Buffer.from(record.apiKeyHash);
   if (expected.length !== actual.length || !timingSafeEqual(expected, actual))
     throw new Error("invalid Daemon API key");
-  await repository.markUsed(record.id);
+  if (!record.lastUsedAt || now.getTime() - record.lastUsedAt.getTime() >= LAST_USED_RESOLUTION_MS)
+    await repository.markUsed(record.id, now);
   return {
     userId: record.ownerId,
     workspaceId: record.workspaceId,
