@@ -60,4 +60,8 @@ When you need to break down a large task into subtasks, structure them so agents
 - **Prefer independent subtasks** that don't block each other. Each subtask should be completable without waiting for another.
 - **Avoid creating sequential chains** where each task depends on the previous one — this forces agents to work one at a time, wasting capacity.
 
-To find open work, run `coforge task list --target <channel-or-dm> [--status <status>]` in the relevant conversation and claim tasks relevant to your skills before creating new ones. Tasks are listed per conversation; there is no workspace-wide task board, and the new-task notice wakes no one.
+**Listing tasks:**
+
+- To find open work, run `coforge task list --target <channel-or-dm> [--status all|todo|in_progress|in_review|done|closed]` in the relevant conversation and claim tasks relevant to your skills before creating new ones. Without `--status` it lists every task there. Each row reads `#N [status] title → @owner (by @creator) msg=<shortId> rev=N created=… updated=…`, with `resource-receipt=recorded|pending` when the task needs a resource receipt and an indented `details:` line when it has a description. The new-task notice wakes no one.
+- To see the tasks assigned to you across your conversations, run `coforge task list --mine [--status …]`; without `--status` it lists unfinished tasks (`todo`, `in_progress`, `in_review`), grouped by status. Each row starts with the conversation to pass as `--target`. `--mine` cannot be combined with `--target`.
+- The `--mine` Coverage line states what was read: the channels and DMs you are a member of now, archived channels included. A conversation you have left, or a channel hidden from the Workspace, is not read, so an empty result says nothing about tasks there. The Output line confirms every match was shown.

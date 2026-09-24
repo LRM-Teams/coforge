@@ -15,6 +15,8 @@ export type TaskMember = {
   handle: string;
   /** True when the named Agent has been deleted: the identity still reads, with its DELETED marker. */
   deleted?: boolean;
+  /** Set when the member has left the conversation; the Task still names them. */
+  left?: boolean;
   /** Where the browser reads a human's avatar; absent for an Agent. */
   avatarUrl?: string | null;
 };
@@ -28,8 +30,10 @@ export type TaskView = {
   status: TaskStatus;
   revision: number;
   owner: TaskMember | null;
-  /** Who created the Task; only the history read carries it. */
-  creator?: TaskMember;
+  creator: TaskMember;
+  createdAt: string;
+  updatedAt: string;
+  /** The conversation's target (`#channel` or `@user`); an Agent's own cross-conversation list sets it. */
   channelRef?: string;
   requiresResourceReceipt?: boolean;
   resourceReceiptRecordedAt?: string | null;
@@ -119,8 +123,32 @@ export type TaskCommand = {
   expectedRevision?: number;
 };
 
+/** The conversation kinds an Agent's own Task list reads: channels and direct messages. */
+export type TaskConversationKind = "channel" | "dm";
+
+/**
+ * What an Agent's own Task list covered. The server derives it from the query it ran, so the
+ * Agent can tell an empty list from a scope the list never looked at.
+ */
+export type TaskListCoverage = {
+  /** Always `incomplete`: conversations outside the covered scope are not checked. */
+  status: "incomplete";
+  visibleConversationKinds: TaskConversationKind[];
+  includesArchived: boolean;
+  /** The list makes no claim about Tasks in conversations it did not read. */
+  inaccessibleScope: "not_asserted";
+  reason: string;
+};
+
+/** An Agent's own Task list is never cut short: every covered match is returned. */
+export type TaskListPagination = { mode: "complete"; truncated: false };
+
 export type TaskResult = {
   tasks: TaskView[];
+  /** Set only on an Agent's own (`mine`) list. */
+  coverage?: TaskListCoverage;
+  /** Set only on an Agent's own (`mine`) list. */
+  pagination?: TaskListPagination;
   claims?: TaskClaimResult[];
   history?: TaskHistoryEvent[];
   assignmentReceipt?: {

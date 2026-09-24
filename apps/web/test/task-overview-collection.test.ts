@@ -21,6 +21,15 @@ const task = (number: number, fields: Partial<TaskView> = {}): TaskView => ({
   status: "todo",
   revision: 1,
   owner: null,
+  creator: {
+    memberId: "member-creator",
+    kind: "user",
+    id: "user-creator",
+    name: "Creator",
+    handle: "creator",
+  },
+  createdAt: "2026-09-24T08:00:00.000Z",
+  updatedAt: "2026-09-24T09:00:00.000Z",
   ...fields,
 });
 const viewer = {

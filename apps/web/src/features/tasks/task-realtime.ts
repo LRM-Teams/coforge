@@ -23,6 +23,7 @@ const member = z.object({
   name: z.string(),
   handle: z.string(),
   deleted: z.boolean().optional(),
+  left: z.boolean().optional(),
   avatarUrl: z.string().nullable().optional(),
 });
 
@@ -37,7 +38,9 @@ const taskView = z.looseObject({
   status: z.enum(TASK_STATUSES),
   revision: z.number().int(),
   owner: member.nullable(),
-  creator: member.optional(),
+  creator: member,
+  createdAt: z.string(),
+  updatedAt: z.string(),
   requiresResourceReceipt: z.boolean().optional(),
   resourceReceiptRecordedAt: z.string().nullable().optional(),
   claimedAt: z.string().nullable().optional(),

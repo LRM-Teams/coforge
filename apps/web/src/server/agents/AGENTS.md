@@ -27,8 +27,6 @@ these modules have their own rules in `src/server/centrifugo/AGENTS.md`.
   (`active-agent.server.ts`), and every mutation and control path calls
   `assertAgentLive`, so a deleted Agent answers the same `NOT_FOUND`
   everywhere.
-- `TaskView.owner` on the shared Task contract carries no delete marker.
-  Adding one is a wire-protocol change and needs approval.
 
 ## Visibility
 

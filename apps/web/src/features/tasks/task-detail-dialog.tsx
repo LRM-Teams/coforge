@@ -229,8 +229,7 @@ function TaskSection({
           number: task.number,
         },
       });
-      // The history read also carries the Task's creator, which list reads leave out.
-      return { events: result.history ?? [], creator: result.tasks[0]?.creator };
+      return result.history ?? [];
     },
     placeholderData: (previous) => previous,
   });
@@ -263,12 +262,12 @@ function TaskSection({
     }
   }
 
-  const creator = history.data?.creator;
+  const creator = task.creator;
   // History names its actor by handle and an assignee by User/Agent id: the conversation's
   // members first, then the Task's own owner and creator, who may have left the conversation.
   const people = [
     ...(members ?? []).map(({ kind, id, handle, label }) => ({ kind, id, handle, name: label })),
-    ...[task.owner, creator].filter((person) => person !== null && person !== undefined),
+    ...[task.owner, creator].filter((person) => person !== null),
   ];
   const unknown = m.tasks_history_unknown_member();
   const names: TimelineNames = {
@@ -309,11 +308,7 @@ function TaskSection({
           />
         </TaskField>
         <TaskField label={m.tasks_created_by()}>
-          {creator ? (
-            <TaskPerson person={creator} />
-          ) : (
-            history.isError && <span className="text-sm text-tertiary">—</span>
-          )}
+          <TaskPerson person={creator} />
         </TaskField>
       </dl>
       {error && (
@@ -333,7 +328,7 @@ function TaskSection({
           {m.tasks_history()}
         </Button>
         {historyOpen && (
-          <TaskHistory failed={history.isError} events={history.data?.events} names={names} />
+          <TaskHistory failed={history.isError} events={history.data} names={names} />
         )}
       </div>
     </section>
