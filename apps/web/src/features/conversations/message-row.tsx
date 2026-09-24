@@ -779,6 +779,7 @@ export const MessageRow = memo(function MessageRow({
         <div
           id={`message-${message.id}`}
           data-message="system"
+          data-scroll-anchor
           className={cn(
             "group/message flex scroll-m-6 items-baseline gap-2 px-4 py-1 text-xs text-tertiary transition-[background-color,box-shadow] duration-500 target:bg-tertiary target:ring-2 target:ring-brand/50 target:ring-offset-4 target:ring-offset-primary md:px-6",
             highlighted && "bg-tertiary ring-2 ring-brand/50 ring-offset-4 ring-offset-primary",
@@ -889,9 +890,11 @@ export const MessageRow = memo(function MessageRow({
           ) : (
             // `relative` anchors the reply-to-selection affordance to the body it was highlighted
             // out of; the gesture handlers live here rather than on the row so dragging from a
-            // message's text (its timestamp, say) cannot raise an offer for it.
+            // message's text (its timestamp, say) cannot raise an offer for it. It is also the text
+            // the scroll anchor holds in place across a load (`data-scroll-anchor`).
             <div
               ref={bodyRef}
+              data-scroll-anchor
               onMouseUp={readQuoteSelection}
               onKeyUp={readQuoteSelection}
               className={cn(

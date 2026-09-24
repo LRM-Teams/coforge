@@ -67,7 +67,8 @@ export function SystemMessageGroup({
     >
       {unreadStartsHere && <UnreadDivider />}
       {dayChanged && <DayDivider value={first.createdAt} locale={dateLocale} />}
-      <div className="flex justify-center px-4 py-1 md:px-6">
+      {/* The summary is what the reader sees of a folded group: the scroll anchor holds it. */}
+      <div data-scroll-anchor className="flex justify-center px-4 py-1 md:px-6">
         <Button
           color="link-gray"
           size="sm"
