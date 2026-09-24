@@ -301,8 +301,11 @@ function useInfoForm(conversation: ChannelConversationView, onChanged: () => Pro
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState("");
   const savedTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  // Compare normalized values on both sides. Channel values can carry incidental surrounding
+  // whitespace from older edits; that must not make a freshly opened form look dirty.
   const dirty =
-    name.trim() !== conversation.name || description.trim() !== conversation.description;
+    name.trim() !== conversation.name.trim() ||
+    description.trim() !== conversation.description.trim();
   const dirtyRef = useRef(dirty);
   dirtyRef.current = dirty;
 
