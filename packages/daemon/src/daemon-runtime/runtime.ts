@@ -4030,16 +4030,34 @@ export class DaemonRuntime {
   async reminder(context: string, request: LocalReminderRequest, agentApiKey: string) {
     const agentId = this.#authorizedAgent(context, agentApiKey);
     if (request.operation === "ack" || request.operation === "dismiss") {
-      const accepted = await this.#reminders.acknowledge(
-        agentId,
-        request.reminderId!,
-        request.revision!,
-      );
-      if (!accepted)
-        return { accepted: false, reason: "reminder receipt not found for exact revision" };
-      await (
-        await this.#appInbox(agentId)
-      ).remove(`reminder:${request.reminderId}:${request.revision}`);
+      const itemId = `reminder:${request.reminderId}:${request.revision}`;
+      const accepted = await this.#reminders
+        .acknowledge(agentId, request.reminderId!, request.revision!)
+        .catch((error: unknown) => {
+          logger.warn("Reminder receipts could not be read for an acknowledgement", {
+            event: "reminder.ack_receipt_unreadable",
+            agent_id: agentId,
+            reminder_id: request.reminderId,
+            error_code: error instanceof Error ? error.name : "UnknownError",
+          });
+          return false;
+        });
+      const inbox = await this.#appInbox(agentId);
+      if (!accepted) {
+        // The local receipt is gone (a lost or unreadable receipt file), but the Agent was shown
+        // this exact revision: its inbox item proves the delivery. Clear it rather than leave an
+        // item nothing can ever acknowledge; the cloud already refuses to fire this revision again.
+        if (!(await inbox.remove(itemId)))
+          return { accepted: false, reason: "reminder receipt not found for exact revision" };
+        logger.info("Reminder acknowledged from its inbox item without a local receipt", {
+          event: "reminder.ack_without_receipt",
+          agent_id: agentId,
+          reminder_id: request.reminderId,
+          reminder_version: request.revision,
+        });
+        return { accepted: true, reminderId: request.reminderId, revision: request.revision };
+      }
+      await inbox.remove(itemId);
       return { accepted: true, reminderId: request.reminderId, revision: request.revision };
     }
     if (!this.#transport.agentReminder) throw new Error("Agent reminder transport is unavailable");
