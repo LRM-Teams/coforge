@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import { homedir, tmpdir, userInfo } from "node:os";
 import { join } from "node:path";
 import { unlink } from "node:fs/promises";
@@ -195,7 +194,7 @@ export async function launchWindowsComputerUpgrade(
   const writeTaskXml = hooks.writeTaskXml ?? writeUtf16XmlFile;
   const removeTaskXml = hooks.removeTaskXml ?? removeFileQuietly;
   const taskName = computerUpgradeTaskName(requestId);
-  const xmlPath = join(tmpdir(), `coforge-upgrade-task-${randomUUID()}.xml`);
+  const xmlPath = join(tmpdir(), `coforge-upgrade-task-${crypto.randomUUID()}.xml`);
   try {
     await writeTaskXml(
       xmlPath,
