@@ -166,7 +166,7 @@ const TASK_METADATA_SELECT = {
     owner: {
       select: {
         user: { select: { username: true, displayName: true } },
-        agent: { select: { name: true, displayName: true } },
+        agent: { select: { name: true, displayName: true, deletedAt: true } },
       },
     },
   },
@@ -422,17 +422,27 @@ function messageTask(
     status: string;
     owner: {
       user: { username: string; displayName: string | null } | null;
-      agent: { name: string; displayName: string } | null;
+      agent: { name: string; displayName: string; deletedAt: Date | null } | null;
     } | null;
   } | null,
 ): MessageTaskMetadata | undefined {
   if (!task) return undefined;
-  const identity = task.owner?.agent ?? task.owner?.user;
-  const handle = task.owner?.agent ? `@${task.owner.agent.name}` : `@${task.owner?.user?.username}`;
+  const agent = task.owner?.agent;
+  const identity = agent ?? task.owner?.user;
+  const handle = agent ? agent.name : task.owner?.user?.username;
   return {
     number: task.number,
     status: taskStatus(task.status),
-    ...(identity ? { owner: { displayName: identity.displayName || handle, handle } } : {}),
+    ...(identity && handle
+      ? {
+          owner: {
+            displayName: identity.displayName || handle,
+            handle,
+            // A deleted Agent keeps the Task; the reading Agent must not take it for a live owner.
+            ...(agent?.deletedAt ? { deleted: true } : {}),
+          },
+        }
+      : {}),
   };
 }
 

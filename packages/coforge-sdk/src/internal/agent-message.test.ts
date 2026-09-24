@@ -255,6 +255,35 @@ test("round-trips daemon-local message attention summaries", () => {
   expect(decodeAgentMessageResponse(encodeAgentMessageResponse(response))).toEqual(response);
 });
 
+test("round-trips a message whose Task owner is a deleted Agent", () => {
+  const response = {
+    requestId: "request-read",
+    accepted: true,
+    attentionCount: 0,
+    summaries: [],
+    messages: [
+      {
+        id: "message-46",
+        sequence: 46,
+        senderKind: "human" as const,
+        senderHandle: "ada",
+        senderDescription: "",
+        target: "#general",
+        body: "Ship the login page",
+        createdAt: "2026-09-24T10:00:00Z",
+        attachments: [],
+        task: {
+          number: 46,
+          status: "in_progress" as const,
+          owner: { displayName: "Kiro", handle: "kiro", deleted: true },
+        },
+      },
+    ],
+    messageId: "",
+  };
+  expect(decodeAgentMessageResponse(encodeAgentMessageResponse(response))).toEqual(response);
+});
+
 test("round-trips an Agent Inbox held response", () => {
   const response = {
     requestId: "held",

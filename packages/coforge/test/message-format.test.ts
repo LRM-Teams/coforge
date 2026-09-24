@@ -83,6 +83,18 @@ test("formatMessageLine renders the shared bracket line with attachment and task
       " [task #12 status=in_progress owner=@ada]",
   );
 
+  const withDeletedOwner = message({
+    task: {
+      number: 46,
+      status: "in_progress",
+      owner: { displayName: "Kiro", handle: "kiro", deleted: true },
+    },
+  });
+  expect(formatMessageLine(withDeletedOwner)).toBe(
+    "[target=#general msg=aaaaaaaa time=2026-09-07 10:00:00Z type=human] @ada: hello there" +
+      " [task #46 status=in_progress owner=@kiro [deleted]]",
+  );
+
   const withTaskNoOwner = message({ task: { number: 3, status: "todo" } });
   expect(formatMessageLine(withTaskNoOwner)).toBe(
     "[target=#general msg=aaaaaaaa time=2026-09-07 10:00:00Z type=human] @ada: hello there" +

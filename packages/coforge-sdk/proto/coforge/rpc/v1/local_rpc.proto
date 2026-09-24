@@ -46,6 +46,8 @@ message LocalMessageTaskMetadata {
 message LocalMessageTaskOwner {
   string display_name = 1;
   string handle = 2;
+  // Present and true when the owner is an Agent that was deleted while still holding the Task.
+  optional bool deleted = 3;
 }
 
 message MessageAttentionSummary {
