@@ -1,4 +1,10 @@
-import type { TaskMember, TaskStatus, TaskView } from "@lrm/coforge-sdk/internal";
+import {
+  TASK_STATUSES,
+  type TaskConversationKind,
+  type TaskMember,
+  type TaskStatus,
+  type TaskView,
+} from "@lrm/coforge-sdk/internal";
 import type { Prisma } from "#src/generated/prisma/client";
 import { AppError } from "#src/lib/app-error";
 import {
@@ -47,6 +53,24 @@ export const taskSelection = {
 } satisfies Prisma.TaskSelect;
 
 export type SelectedTask = Prisma.TaskGetPayload<{ select: typeof taskSelection }>;
+
+/** The statuses a Task finishes in. The board counts and pages them apart from the work in flight. */
+export const FINISHED_TASK_STATUSES = ["done", "closed"] as const;
+export type FinishedTaskStatus = (typeof FINISHED_TASK_STATUSES)[number];
+/**
+ * The statuses of work in flight. Reads of unfinished Tasks match these rather than excluding the
+ * finished ones: PostgreSQL ranges an `IN` list over a Task index, but must read every finished
+ * Task in the Workspace to discard a `NOT IN`.
+ */
+export const UNFINISHED_TASK_STATUSES = TASK_STATUSES.filter(
+  (status) => !(FINISHED_TASK_STATUSES as readonly string[]).includes(status),
+);
+
+/** Which conversations each kind of Task conversation is. */
+export const CONVERSATION_KIND_WHERE = {
+  channel: { channelName: { not: null } },
+  dm: { directKey: { not: null } },
+} satisfies Record<TaskConversationKind, Prisma.ConversationWhereInput>;
 
 export function storedTaskStatus(value: string): TaskStatus {
   switch (value) {
