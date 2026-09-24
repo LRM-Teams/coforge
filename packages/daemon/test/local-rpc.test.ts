@@ -1,7 +1,6 @@
 import { afterEach, expect, test } from "bun:test";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { randomUUID } from "node:crypto";
 import {
   decodeLocalRpcResponse,
   decodeDaemonRuntimeConfigureResponse,
@@ -72,7 +71,7 @@ async function expectSocketClosedWithoutResponse(
 }
 
 test("daemon accepts a Computer handshake over its Unix socket", async () => {
-  const socketPath = join(tmpdir(), `coforge-${randomUUID()}.sock`);
+  const socketPath = join(tmpdir(), `coforge-${crypto.randomUUID()}.sock`);
   let configured = 0;
   let started = 0;
   const server = await startDaemonLocalRpcServer({
@@ -104,7 +103,7 @@ test("daemon accepts a Computer handshake over its Unix socket", async () => {
 });
 
 test("daemon stores configured connection metadata without its token", async () => {
-  const socketPath = join(tmpdir(), `coforge-${randomUUID()}.sock`);
+  const socketPath = join(tmpdir(), `coforge-${crypto.randomUUID()}.sock`);
   const saved: WorkspaceConfig[] = [];
   const server = await startDaemonLocalRpcServer({
     socketPath,
@@ -143,7 +142,7 @@ test("daemon stores configured connection metadata without its token", async () 
 });
 
 test("daemon rejects an invalid handshake credential", async () => {
-  const socketPath = join(tmpdir(), `coforge-${randomUUID()}.sock`);
+  const socketPath = join(tmpdir(), `coforge-${crypto.randomUUID()}.sock`);
   let registrations = 0;
   const server = await startDaemonLocalRpcServer({
     socketPath,
@@ -171,7 +170,7 @@ test("daemon rejects an invalid handshake credential", async () => {
 });
 
 test("daemon rejects missing or wrong request servers before credentials, persistence, or runtime changes", async () => {
-  const socketPath = join(tmpdir(), `coforge-${randomUUID()}.sock`);
+  const socketPath = join(tmpdir(), `coforge-${crypto.randomUUID()}.sock`);
   const calls: string[] = [];
   const server = await startDaemonLocalRpcServer({
     socketPath,
@@ -227,7 +226,7 @@ test("daemon rejects missing or wrong request servers before credentials, persis
         method: LOCAL_RPC_METHODS.CONFIGURE,
         payload: encodeDaemonRuntimeConfigureRequest({
           protocolMajor: 1,
-          requestId: randomUUID(),
+          requestId: crypto.randomUUID(),
           ...config,
           expectedServerUrl,
         }),
@@ -247,7 +246,7 @@ test("daemon rejects missing or wrong request servers before credentials, persis
             method,
             payload: encodeDaemonCommandRequest({
               protocolMajor: 1,
-              requestId: randomUUID(),
+              requestId: crypto.randomUUID(),
               expectedServerUrl,
             }),
           }),
@@ -260,7 +259,7 @@ test("daemon rejects missing or wrong request servers before credentials, persis
 });
 
 test("daemon processes requests on one socket in order", async () => {
-  const socketPath = join(tmpdir(), `coforge-${randomUUID()}.sock`);
+  const socketPath = join(tmpdir(), `coforge-${crypto.randomUUID()}.sock`);
   let releaseFirst!: () => void;
   const firstStarted = Promise.withResolvers<void>();
   const firstReleased = new Promise<void>((resolve) => {
@@ -339,7 +338,7 @@ test("daemon rotates a changed token before configuring and does not rewrite an 
   const credentials = new FakeCredentialStore();
   credentials.token = "old-token";
   let configured = 0;
-  const socketPath = join(tmpdir(), `coforge-${randomUUID()}.sock`);
+  const socketPath = join(tmpdir(), `coforge-${crypto.randomUUID()}.sock`);
   const server = await startDaemonLocalRpcServer({
     socketPath,
     serverUrl: launcherEnvironment.serverUrl,
@@ -368,7 +367,7 @@ test("daemon restores the old token when configuration persistence fails", async
   for (const failure of ["configure", "registry"] as const) {
     const credentials = new FakeCredentialStore();
     credentials.token = "old-token";
-    const socketPath = join(tmpdir(), `coforge-${randomUUID()}.sock`);
+    const socketPath = join(tmpdir(), `coforge-${crypto.randomUUID()}.sock`);
     let saves = 0;
     let clears = 0;
     const server = await startDaemonLocalRpcServer({
@@ -412,7 +411,7 @@ test("daemon restores the old token when configuration persistence fails", async
 
 test("daemon clears a first token when configuration fails", async () => {
   const credentials = new FakeCredentialStore();
-  const socketPath = join(tmpdir(), `coforge-${randomUUID()}.sock`);
+  const socketPath = join(tmpdir(), `coforge-${crypto.randomUUID()}.sock`);
   const server = await startDaemonLocalRpcServer({
     socketPath,
     serverUrl: launcherEnvironment.serverUrl,
@@ -439,7 +438,7 @@ test("daemon clears a first token when configuration fails", async () => {
 });
 
 test("launcher stops waiting when the daemon closes the socket during configuration", async () => {
-  const socketPath = join(tmpdir(), `coforge-${randomUUID()}.sock`);
+  const socketPath = join(tmpdir(), `coforge-${crypto.randomUUID()}.sock`);
   const server = await startDaemonLocalRpcServer({
     socketPath,
     serverUrl: launcherEnvironment.serverUrl,
@@ -470,7 +469,7 @@ test("launcher stops waiting when the daemon closes the socket during configurat
 });
 
 test("daemon:hold and daemon:release round-trip the busy set over the local socket", async () => {
-  const socketPath = join(tmpdir(), `coforge-${randomUUID()}.sock`);
+  const socketPath = join(tmpdir(), `coforge-${crypto.randomUUID()}.sock`);
   const holds: string[] = [];
   let releases = 0;
   servers.push(
@@ -533,7 +532,7 @@ test("daemon:hold and daemon:release round-trip the busy set over the local sock
 });
 
 test("a daemon that cannot hold answers accepted:false rather than blocking an upgrade", async () => {
-  const socketPath = join(tmpdir(), `coforge-${randomUUID()}.sock`);
+  const socketPath = join(tmpdir(), `coforge-${crypto.randomUUID()}.sock`);
   servers.push(
     await startDaemonLocalRpcServer({
       socketPath,
