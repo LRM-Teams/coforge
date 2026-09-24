@@ -163,7 +163,7 @@ test("the add view creates an Agent named by the search, and it joins the channe
     await chooseClaudeCode();
 
     // Creating it adds it to the channel and clears the search.
-    await clickText(`[role="dialog"] button`, "Create agent");
+    await clickText(`[role="dialog"] button`, "Create Agent");
     await waitFor(`${agentForm} === undefined`);
     await waitFor(`!${panelHas(`No matches for “${agentName}”`)}`);
     const created = await db.agent.findFirstOrThrow({ where: { workspaceId, name: agentName } });
@@ -183,7 +183,7 @@ test("the add view creates an Agent named by the search, and it joins the channe
     await clickText(`[role="dialog"] button`, `Create Agent “${agentName}”`);
     await waitFor(`${agentForm} !== undefined`);
     await chooseClaudeCode();
-    await clickText(`[role="dialog"] button`, "Create agent");
+    await clickText(`[role="dialog"] button`, "Create Agent");
     await waitFor(`${agentForm}?.querySelector('[role="alert"]')?.textContent.trim().length > 0`);
     expect(await evaluate<boolean>(`${panel} !== null`)).toBe(true);
     await browser("screenshot", join(artifacts, "refused.png"));
