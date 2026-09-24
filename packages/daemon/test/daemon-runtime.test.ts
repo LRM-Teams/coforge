@@ -3062,6 +3062,124 @@ describe("DaemonRuntime", () => {
     }
   });
 
+  test("messages that arrive while a wake launch is in flight join its single notice, even across a failed launch", async () => {
+    const credentials = new InMemoryDaemonCredentialStore();
+    await credentials.save(connection.workspaceId, connection.computerId, "token-a");
+    const exits = new Set<() => void>();
+    const events: string[] = [];
+    let allAcknowledged!: () => void;
+    const acknowledged = new Promise<void>((resolve) => {
+      allAcknowledged = resolve;
+    });
+    let launchAttempts = 0;
+    let failLaunch!: (error: Error) => void;
+    let wakeLaunchStarted!: () => void;
+    const wakeLaunching = new Promise<void>((resolve) => {
+      wakeLaunchStarted = resolve;
+    });
+    let retryLaunchStarted!: () => void;
+    const retryLaunching = new Promise<void>((resolve) => {
+      retryLaunchStarted = resolve;
+    });
+    const retryLaunch = Promise.withResolvers<void>();
+    const runtime = new DaemonRuntime(
+      connection,
+      () => ({
+        provider: "pi",
+        createAgentSession: async () => {
+          launchAttempts++;
+          // The second launch (the first wake) stays in flight until the test fails it.
+          if (launchAttempts === 2)
+            await new Promise<never>((_, reject) => {
+              failLaunch = reject;
+              wakeLaunchStarted();
+            });
+          if (launchAttempts === 3) {
+            retryLaunchStarted();
+            await retryLaunch.promise;
+          }
+          return {
+            ...sessionSpy(),
+            notify: async (notice) => {
+              events.push(`notice ${notice.match(/@agent {2}new: (\d+) messages?/)?.[1]}`);
+            },
+            onExit(listener) {
+              exits.add(listener);
+              return () => exits.delete(listener);
+            },
+          };
+        },
+      }),
+      credentials,
+      {
+        create: () => ({
+          async start() {},
+          async ready() {},
+          sendAgentStatus() {},
+          async sendAgentDeliveryAck(ack) {
+            events.push(`ack ${ack.deliveryId}`);
+            if (events.filter((event) => event.startsWith("ack")).length === 4) allAcknowledged();
+          },
+          async requestAgentApiKey() {
+            return `sk_agent_${"a".repeat(43)}`;
+          },
+          async revokeAgentApiKey() {},
+          async stop() {},
+        }),
+      },
+    );
+    const delivery = (sequence: number) => ({
+      protocolMajor: 1 as const,
+      requestId: `message-request-${sequence}`,
+      messageId: `message-${sequence}`,
+      deliveryId: `delivery-${sequence}`,
+      sequence,
+      workspaceId: connection.workspaceId,
+      conversationId: "conversation-1",
+      agentId: "agent-a",
+      body: `body ${sequence}`,
+      method: "agent:v1:message:deliver" as const,
+      target: "@agent",
+    });
+
+    try {
+      await runtime.start(connection);
+      await runtime.startAgent("agent-a", config);
+      for (const exit of [...exits]) exit();
+
+      const first = runtime.handleAgentMessage(delivery(1));
+      void first.catch(() => {});
+      await wakeLaunching;
+      // M2 arrives while that launch is still in flight, then the launch fails.
+      const second = runtime.handleAgentMessage(delivery(2));
+      void second.catch(() => {});
+      failLaunch(new Error("pi: command not found"));
+      await expect(first).rejects.toThrow("pi: command not found");
+      await second.catch(() => {});
+      expect(events).toEqual([]);
+
+      // The cooldown itself is under test, so it runs on the real clock.
+      await Bun.sleep(1_100);
+      const third = runtime.handleAgentMessage(delivery(3));
+      await retryLaunching;
+      // M4 arrives while the launch after the cooldown is still in flight, and that one succeeds.
+      await runtime.handleAgentMessage(delivery(4));
+      retryLaunch.resolve();
+      await third;
+      await acknowledged;
+      expect(launchAttempts).toBe(3);
+      expect(events).toEqual([
+        "notice 4",
+        "ack delivery-1",
+        "ack delivery-2",
+        "ack delivery-3",
+        "ack delivery-4",
+      ]);
+    } finally {
+      await runtime.stop();
+    }
+  });
+
   test("a successful Start clears the wake cooldown a failed wake launch left behind", async () => {
     const credentials = new InMemoryDaemonCredentialStore();
     await credentials.save(connection.workspaceId, connection.computerId, "token-a");

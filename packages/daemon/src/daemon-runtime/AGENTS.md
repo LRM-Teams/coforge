@@ -34,9 +34,13 @@ Rules for one Workspace child's runtime in `src/daemon-runtime/`. They extend
 - Never launch an exited Agent for a delivery it has already consumed or that
   would not wake a running Agent; ACK it instead.
 - A failed message-triggered launch starts the per-Agent wake cooldown
-  (`LaunchFailureBackoff`, no attempt cap). Deliveries in the cooldown wait
-  unacknowledged in `AgentDeliveryQueue`; the first launch after it presents
-  all of them in one notice and ACKs them only after that notice is accepted.
+  (`LaunchFailureBackoff`, no attempt cap); any successful launch ends it.
+  Deliveries that wait for the next launch (in the cooldown, in a failed
+  launch's input queue, or arriving while a batched launch is in flight) stay
+  unacknowledged in `AgentDeliveryQueue`. The next launch presents them in one
+  notice, or a server recovery notice covers them, and they are ACKed only
+  after that notice is accepted. `flush` records their attention as `receive`
+  would.
 - Thread follow state is cloud-persisted. The Daemon only forwards the Agent's
   explicit unfollow operation.
 
