@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useSyncExternalStore } from "react";
 import { useHydrated } from "@tanstack/react-router";
 
 import { Tooltip, TooltipTrigger } from "#src/components/base/tooltip/tooltip";
@@ -8,18 +8,38 @@ import { getLocale } from "#src/paraglide/runtime";
 
 import { useTimeFormat } from "#src/lib/time-format-context";
 
-/** The server and client cannot agree on `now`, locale or time zone before mount, so
- * `RelativeTime` renders its live value only after mount (`ClockTime` waits for hydration the same
- * way); the markup emitted before that carries just the ISO instant via `dateTime`, which hydrates
- * without a mismatch. */
-function useClientNow() {
-  const [now, setNow] = useState<Date | null>(null);
-  useEffect(() => {
-    setNow(new Date());
-    const timer = window.setInterval(() => setNow(new Date()), 60_000);
-    return () => window.clearInterval(timer);
-  }, []);
-  return now;
+/**
+ * One minute clock shared by every `RelativeTime` on the page: a single interval runs while at
+ * least one is mounted, instead of one per instance (a timeline renders hundreds).
+ */
+const minuteClock = (() => {
+  let now = Date.now();
+  let timer: ReturnType<typeof setInterval> | undefined;
+  const listeners = new Set<() => void>();
+  return {
+    subscribe(listener: () => void) {
+      listeners.add(listener);
+      if (listeners.size === 1) {
+        now = Date.now();
+        timer = setInterval(() => {
+          now = Date.now();
+          for (const notify of listeners) notify();
+        }, 60_000);
+      }
+      return () => {
+        listeners.delete(listener);
+        if (listeners.size === 0) clearInterval(timer);
+      };
+    },
+    snapshot: () => now,
+  };
+})();
+
+/** The shared minute clock's current time. The server and the hydrating client cannot agree on
+ * `now`, locale or time zone, so callers render time text only once `useHydrated()` is true; the
+ * markup before that carries just the ISO instant via `dateTime`. */
+function useMinuteClock() {
+  return useSyncExternalStore(minuteClock.subscribe, minuteClock.snapshot, minuteClock.snapshot);
 }
 
 export function RelativeTime({
@@ -46,14 +66,15 @@ export function RelativeTime({
    */
   plain?: boolean;
 }) {
-  const now = useClientNow();
+  const hydrated = useHydrated();
+  const now = useMinuteClock();
   const instant = new Date(value);
   const locale = getLocale();
   const timeFormat = useTimeFormat();
-  // Before mount the server and client cannot agree on locale or time zone, so
-  // render nothing visible yet; the dateTime attribute still carries the instant.
-  const exactTime = now ? formatDateForDisplay(instant, timeZone, locale, timeFormat) : "";
-  const relative = now ? formatRelativeTime(instant, now, locale) : "";
+  // Before hydration the server and client cannot agree on locale or time zone, so render
+  // nothing visible yet; the dateTime attribute still carries the instant.
+  const exactTime = hydrated ? formatDateForDisplay(instant, timeZone, locale, timeFormat) : "";
+  const relative = hydrated ? formatRelativeTime(instant, new Date(now), locale) : "";
   const timeElement = (
     <time
       dateTime={instant.toISOString()}
@@ -81,7 +102,7 @@ export function RelativeTime({
  * A fixed wall-clock time with seconds, in the viewer's hour cycle, for contexts that need an absolute timestamp
  * instead of `RelativeTime`'s "6h ago" text — the Activity timeline's clock column. Shares
  * `RelativeTime`'s exact-timestamp Tooltip wiring; an absolute time never changes, so it only
- * waits for hydration instead of ticking a per-instance clock (the timeline renders hundreds).
+ * waits for hydration and never subscribes to the minute clock.
  */
 export function ClockTime({
   value,
