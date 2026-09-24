@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 // Vite's `?raw` suffix imports the file's text content as the default export (see
 // node_modules/vite/client.d.ts's `declare module '*?raw'`). Verified to also work unmodified
 // under `bun test` (Bun's own bundler recognizes the same `?raw` suffix), so the same import
@@ -102,7 +101,7 @@ export const MANUAL_INDEX_TOPIC = "index";
 /** A stable content hash, sha256 hex truncated to 16 characters; changes only when the topic's
  * rendered content changes. */
 export function manualDocVersion(content: string): string {
-  return createHash("sha256").update(content, "utf8").digest("hex").slice(0, 16);
+  return new Bun.CryptoHasher("sha256").update(content).digest("hex").slice(0, 16);
 }
 
 /** The `index` topic: a generated markdown catalog, never hand-maintained separately from

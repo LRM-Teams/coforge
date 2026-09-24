@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import type { UsageSnapshot, UsageWindow } from "#src/code-agent/contract";
 import { UsageUnavailableError, UsageUnsupportedError } from "#src/code-agent/contract";
 import { agentEnvironment } from "#src/code-agent/environment";
@@ -174,7 +173,7 @@ function durationLabel(mins: number): string {
 
 /** Raft's `windowId`: `w<index>_<first 12 hex of sha256(label)>`, stable for a stable label. */
 function windowId(label: string, index: number): string {
-  return `w${index}_${createHash("sha256").update(label).digest("hex").slice(0, 12)}`;
+  return `w${index}_${new Bun.CryptoHasher("sha256").update(label).digest("hex").slice(0, 12)}`;
 }
 
 function toWindow(

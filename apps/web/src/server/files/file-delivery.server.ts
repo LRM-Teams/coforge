@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 
 import { readEnvSecret } from "./env-secret.server";
 
@@ -256,7 +255,7 @@ export class CdnTypeAFileDelivery implements FileDelivery {
     const rand = this.randomToken();
     const uid = "0";
     const sstring = `${uri}-${timestamp}-${rand}-${uid}-${this.config.key}`;
-    const md5hex = createHash("md5").update(sstring).digest("hex");
+    const md5hex = new Bun.CryptoHasher("md5").update(sstring).digest("hex");
     const authKey = `${timestamp}-${rand}-${uid}-${md5hex}`;
     return {
       url: `${this.config.baseUrl}${uri}?auth_key=${authKey}`,

@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
@@ -32,7 +31,7 @@ export class SystemdWorkspaceInstance {
       return { code: await process.exited, stdout: await new Response(process.stdout).text() };
     },
   ) {
-    const identity = createHash("sha256")
+    const identity = new Bun.CryptoHasher("sha256")
       .update(`${config.stateRoot}\0${config.workspaceId}`)
       .digest("hex")
       .slice(0, 24);
