@@ -191,3 +191,82 @@ test("the empty search page offers recent searches and frequently used places", 
     await db.$disconnect();
   }
 }, 240_000);
+
+test("frequently used shows ten usable places and keeps opens from a clock slightly ahead", async () => {
+  const db = new PrismaClient({ adapter: new PrismaPg({ connectionString: databaseUrl }) });
+  const session = `search-frequent-${process.pid}`;
+  async function browser(...args: string[]) {
+    const child = Bun.spawn([browserPath!, "--session", session, ...args], {
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const [stdout, stderr, code] = await Promise.all([
+      new Response(child.stdout).text(),
+      new Response(child.stderr).text(),
+      child.exited,
+    ]);
+    if (code !== 0) throw new Error(`Browser ${args[0]} failed: ${stderr}`);
+    return stdout;
+  }
+  async function evaluate<T>(expression: string): Promise<T> {
+    return JSON.parse(JSON.parse(await browser("eval", `JSON.stringify(${expression})`))) as T;
+  }
+  const waitFor = (condition: string) => browser("wait", "--fn", condition);
+
+  const ids = Array.from({ length: 11 }, (_, index) => seededUuid(`e2e-search-frequent:${index}`));
+  try {
+    const membership = await db.workspaceMembership.findFirstOrThrow({
+      where: { userId: DEV_BROWSER_USER.id },
+    });
+    const workspaceId = membership.workspaceId;
+    await db.conversation.deleteMany({ where: { id: { in: ids } } });
+    await db.conversation.createMany({
+      data: ids.map((id, index) => ({
+        id,
+        workspaceId,
+        channelName: `e2e-frequent-${index}`,
+        description: "",
+        // The most opened channel has since been archived.
+        archivedAt: index === 0 ? new Date() : null,
+      })),
+    });
+    // Channel 0 (archived) was opened most; channels 1–10 once each, newest first. Channel 1's
+    // open is stamped two minutes ahead, as a clock that later stepped back would leave it.
+    const now = Date.now();
+    const usage = Object.fromEntries(
+      ids.map((id, index) => [
+        `channel:${id}`,
+        index === 0
+          ? [now - 1000, now - 2000, now - 3000]
+          : [index === 1 ? now + 120_000 : now - index * 60_000],
+      ]),
+    );
+    const usageKey = `coforge:search-usage:${workspaceId}:${DEV_BROWSER_USER.id}`;
+
+    await browser("set", "viewport", "1440", "900");
+    await browser("open", `${origin}/en/search`);
+    await browser(
+      "eval",
+      `localStorage.clear(); localStorage.setItem(${JSON.stringify(usageKey)}, ${JSON.stringify(JSON.stringify(usage))})`,
+    );
+    await browser("open", `${origin}/en/search`);
+    // The archived channel is left out and the next place fills its slot: ten cards, 1–10.
+    await waitFor(`document.querySelectorAll(${JSON.stringify(FREQUENT)}).length === 10`);
+    const cards = await evaluate<string[]>(
+      `[...document.querySelectorAll(${JSON.stringify(FREQUENT)})].map((card) => card.dataset.searchEntity)`,
+    );
+    expect(cards).toEqual(ids.slice(1).map((id) => `channel:${id}`));
+
+    // Opening another place keeps the open stamped slightly ahead.
+    await browser("click", `${FREQUENT}[data-search-entity="channel:${ids[5]}"]`);
+    await waitFor(`location.pathname === "/en/messages/channels/${ids[5]}"`);
+    const stored = await evaluate<Record<string, number[]>>(
+      `JSON.parse(localStorage.getItem(${JSON.stringify(usageKey)}))`,
+    );
+    expect(stored[`channel:${ids[1]}`]).toEqual([now + 120_000]);
+  } finally {
+    await browser("close").catch(() => undefined);
+    await db.conversation.deleteMany({ where: { id: { in: ids } } }).catch(() => {});
+    await db.$disconnect();
+  }
+}, 240_000);

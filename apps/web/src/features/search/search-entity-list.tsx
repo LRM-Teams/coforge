@@ -40,6 +40,8 @@ export function SearchEntityRow({
   const props = {
     className,
     onClick: onOpen,
+    // A middle click opens a new tab without a click event; it is still an open.
+    onAuxClick: (event: { button: number }) => event.button === 1 && onOpen?.(),
     "data-search-entity": `${entity.kind}:${entity.id}`,
     children: <EntityContent entity={entity} display={display} />,
   };

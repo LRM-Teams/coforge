@@ -143,15 +143,24 @@ export function SearchPage({
       ) : (
         <SearchHome
           workspaceId={workspaceId}
+          loaded={memory.loaded}
           history={memory.history}
           usage={memory.usage}
           onSearch={(next) => {
             lastCommitted.current = next;
             setText(next);
             onQueryChange(next);
+            input.current?.focus();
           }}
-          onRemoveSearch={memory.removeSearch}
-          onClearHistory={memory.clearHistory}
+          onRemoveSearch={(entry) => {
+            memory.removeSearch(entry);
+            // The removed chip took focus with it; keep the keyboard in the search box.
+            input.current?.focus();
+          }}
+          onClearHistory={() => {
+            memory.clearHistory();
+            input.current?.focus();
+          }}
           onOpen={(entity) => memory.recordOpen("", searchEntityKey(entity))}
         />
       )}
@@ -405,6 +414,8 @@ function SearchResultRow({
         {...savedJumpTarget(conversation, message)}
         data-search-message-id={message.id}
         onClick={onOpen}
+        // A middle click opens a new tab without a click event; it is still an open.
+        onAuxClick={(event) => event.button === 1 && onOpen()}
         className="block rounded-xl border border-secondary bg-primary p-3 outline-focus-ring transition-colors hover:bg-secondary focus-visible:outline-2 focus-visible:outline-offset-2"
       >
         <div className="flex min-w-0 items-center gap-2 text-xs text-tertiary">

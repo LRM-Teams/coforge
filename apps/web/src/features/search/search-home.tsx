@@ -15,7 +15,7 @@ import { useAgentDisplays } from "#src/features/agents/workspace-agents-realtime
 import { m } from "#src/paraglide/messages";
 import type { SearchEntity } from "./search-entities";
 import { ENTITY_CARD_CLASS, SearchEntityRow } from "./search-entity-list";
-import { frequentEntities, type SearchUsage } from "./search-memory";
+import { frequentEntities, type RememberedEntity, type SearchUsage } from "./search-memory";
 import { searchDirectoryQuery } from "./search-queries";
 
 /**
@@ -24,6 +24,7 @@ import { searchDirectoryQuery } from "./search-queries";
  */
 export function SearchHome({
   workspaceId,
+  loaded,
   history,
   usage,
   onSearch,
@@ -32,6 +33,8 @@ export function SearchHome({
   onOpen,
 }: {
   workspaceId: string;
+  /** False until this browser's memory has been read after mount. */
+  loaded: boolean;
   history: readonly string[];
   usage: SearchUsage;
   onSearch: (query: string) => void;
@@ -42,7 +45,10 @@ export function SearchHome({
   const frequent = useFrequentEntities(workspaceId, usage);
   const displays = useAgentDisplays();
 
-  if (history.length === 0 && frequent.length === 0) {
+  // Still reading: not yet "nothing remembered", so no empty state.
+  if (!loaded || frequent.pending) return null;
+
+  if (history.length === 0 && frequent.entities.length === 0 && !frequent.failed) {
     return (
       <div className="flex min-h-0 flex-1 items-start justify-center px-6 pt-16">
         <Empty>
@@ -99,9 +105,13 @@ export function SearchHome({
         <h2 id="search-frequent-heading" className="text-sm font-semibold text-secondary">
           {m.search_frequent_heading()}
         </h2>
-        {frequent.length > 0 ? (
+        {frequent.failed ? (
+          <p role="alert" className="text-sm text-error-primary">
+            {m.search_frequent_failed()}
+          </p>
+        ) : frequent.entities.length > 0 ? (
           <ul className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-            {frequent.map((entity) => (
+            {frequent.entities.map((entity) => (
               <li key={`${entity.kind}:${entity.id}`}>
                 <SearchEntityRow
                   entity={entity}
@@ -126,19 +136,33 @@ export function SearchHome({
  * The remembered places, ranked, as the Workspace lists name them now. A place that is gone, or a
  * channel that has been archived, is left out.
  */
-function useFrequentEntities(workspaceId: string, usage: SearchUsage): SearchEntity[] {
-  const directory = useQuery(searchDirectoryQuery(workspaceId)).data;
-  return useMemo(() => {
+function useFrequentEntities(
+  workspaceId: string,
+  usage: SearchUsage,
+): { entities: SearchEntity[]; pending: boolean; failed: boolean } {
+  const { data: directory, isPending, isError } = useQuery(searchDirectoryQuery(workspaceId));
+  const entities = useMemo(() => {
     if (!directory) return [];
-    const channels = new Map(directory.channels.map((channel) => [channel.id, channel]));
+    const channels = new Map(
+      directory.channels
+        .filter((channel) => !channel.archived)
+        .map((channel) => [channel.id, channel]),
+    );
     const agents = new Map(directory.agents.map((agent) => [agent.id, agent]));
-    return frequentEntities(usage, Date.now()).flatMap(({ kind, id }): SearchEntity[] => {
-      if (kind === "channel") {
-        const channel = channels.get(id);
-        return channel && !channel.archived ? [{ kind: "channel", ...channel }] : [];
-      }
-      const agent = agents.get(id);
-      return agent ? [{ kind: "agent", ...agent }] : [];
-    });
+    const usable = ({ kind, id }: RememberedEntity) =>
+      kind === "channel" ? channels.has(id) : agents.has(id);
+    return frequentEntities(usage, Date.now(), usable).map(({ kind, id }): SearchEntity =>
+      kind === "channel"
+        ? { kind: "channel", ...channels.get(id)! }
+        : { kind: "agent", ...agents.get(id)! },
+    );
   }, [directory, usage]);
+  // With nothing remembered there is nothing to wait for.
+  const remembered = Object.keys(usage).length > 0;
+  // A failed refetch keeps the cards it already has; only a list never loaded is a failure.
+  return {
+    entities,
+    pending: remembered && isPending,
+    failed: remembered && isError && !directory,
+  };
 }

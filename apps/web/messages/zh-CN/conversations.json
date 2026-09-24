@@ -505,5 +505,6 @@
   "search_history_clear": "清除",
   "search_history_remove": "从搜索历史中移除“{query}”",
   "search_frequent_heading": "常用",
-  "search_frequent_empty": "你从搜索中打开过的频道和 Agent 会显示在这里。"
+  "search_frequent_empty": "你从搜索中打开过的频道和 Agent 会显示在这里。",
+  "search_frequent_failed": "无法加载常用列表。"
 }
