@@ -236,6 +236,10 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
       openThreadFromHash,
       closeThread,
     });
+  /** A thread's root: as loaded, else as last seen while it was open (its replies: `repliesOf`). */
+  const threadRootOf = (rootId: string) =>
+    mainMessages.find((message) => message.id === rootId) ??
+    threadSnapshots.current.get(rootId)?.root;
   const selectedThreadKnown = selected !== undefined && threadRootOf(selected) !== undefined;
   const attemptedRootLoad = useRef<string | undefined>(undefined);
   useEffect(() => {
@@ -280,10 +284,6 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
       if (root) snapshots.set(rootId, { root, replies: repliesByRoot.get(rootId) ?? [] });
     }
   }, [visited, mainMessages, repliesByRoot]);
-  /** A thread's root: as loaded, else as last seen while it was open (its replies: `repliesOf`). */
-  const threadRootOf = (rootId: string) =>
-    mainMessages.find((message) => message.id === rootId) ??
-    threadSnapshots.current.get(rootId)?.root;
   const threadPreview = useCallback(
     (message: DirectConversationView["messages"][number]) => {
       // System notices are stream bookkeeping, not a person replying: they belong to the full
