@@ -24,6 +24,9 @@ const HIDDEN_ON_OVERVIEW = {
   meta: "[.task-hide-number.task-hide-source.task-hide-owner_[data-task-overview]_&]:hidden",
 };
 
+const PROJECT_HIDDEN_KEEPS_TOOLS =
+  "[.task-hide-project_[data-task-overview]_&]:any-pointer-coarse:flex";
+
 /** Classes for the link or button a caller wraps around the title. */
 export const TASK_TITLE_CLASS =
   "block w-full rounded-sm text-left outline-none hover:underline hover:decoration-fg-quaternary hover:underline-offset-2 focus-visible:ring-2 focus-visible:ring-focus-ring";
@@ -156,6 +159,10 @@ export function TaskCard({
             // With a touch pointer the tools sit at this row's end, so it keeps room for them.
             tools && "any-pointer-coarse:pr-16",
             project || actions ? "flex" : "hidden any-pointer-coarse:flex",
+            // A row held only for a Project the viewer hid goes too, except where it holds the
+            // tools (a touch pointer).
+            project && !actions && HIDDEN_ON_OVERVIEW.project,
+            project && !actions && tools && PROJECT_HIDDEN_KEEPS_TOOLS,
           )}
         >
           {project ? (
