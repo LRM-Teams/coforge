@@ -213,15 +213,24 @@ export const listAgents = createServerFn({ method: "GET" })
   .handler(async ({ context: { user, db, workspaceId } }) => {
     const agents = await manageAgents(db).list({ userId: user.id, workspaceId });
     const statuses = getAgentStatusCache();
+    // One round trip for every Agent's status lease, not one per Agent: the list is the page's
+    // whole point and every row asks for the same kind of thing. Agents without a Computer have no
+    // lease to read, so they are not asked for and stay `undefined` exactly as before.
+    const scoped = agents.filter((agent) => agent.computerId);
+    const statusSnapshots = await statuses.snapshotMany(
+      scoped.map((agent) => ({
+        workspaceId,
+        computerId: agent.computerId as string,
+        agentId: agent.id,
+      })),
+    );
+    let snapshotIndex = 0;
+    const statusByAgentId = new Map(
+      scoped.map((agent) => [agent.id, statusSnapshots[snapshotIndex++]] as const),
+    );
     return Promise.all(
       agents.map(async (agent) => {
-        const status = agent.computerId
-          ? await statuses.snapshot({
-              workspaceId,
-              computerId: agent.computerId,
-              agentId: agent.id,
-            })
-          : undefined;
+        const status = statusByAgentId.get(agent.id);
         let displaySnapshot;
         if (agent.computerId) {
           try {
