@@ -88,7 +88,8 @@ export function MessageBody({
   );
   // The `span` override recognises the chips `rehypeReferenceChips` injects: an Agent mention chip
   // (`data-mention-agent-id`) and a task-reference chip (`data-task-reference-number`) become
-  // accessible buttons, and a channel-reference chip (`data-channel-id`) a link to the channel.
+  // accessible buttons, a channel-reference chip (`data-channel-id`) a link to the channel, and a
+  // thread-reference chip (`data-thread-root-id`) a link that opens the thread in its channel.
   // Every other span passes through.
   const components = useMemo<Components>(
     () => ({ ...MARKDOWN_COMPONENTS, span: chipSpan(onOpenAgentProfile, onOpenTask) }),
@@ -129,7 +130,9 @@ const MARKDOWN_COMPONENTS = {
  * `message-markdown.ts`); when the matching handler is provided each becomes a keyboard- and
  * pointer-accessible control. A channel-reference chip carries `data-channel-id` and becomes a
  * router link to that channel: it navigates, so it is a real link (open in a new tab, copy the
- * address) rather than a button. All other spans — including human mention chips and task chips
+ * address) rather than a button. A thread-reference chip carries `data-thread-channel-id` and
+ * `data-thread-root-id` and becomes a router link to that channel with the thread pane open
+ * (`?threadRootId=`), the same URL state the thread opener writes. All other spans — including human mention chips and task chips
  * whose task is gone — render unchanged.
  */
 function chipSpan(
@@ -154,6 +157,27 @@ function chipSpan(
           params={{ channelId }}
           className={className}
           data-channel-id={channelId}
+        >
+          {children}
+        </Link>
+      );
+    }
+    const threadChannelId = (props as Record<string, unknown>)["data-thread-channel-id"];
+    const threadRootId = (props as Record<string, unknown>)["data-thread-root-id"];
+    if (typeof threadChannelId === "string" && typeof threadRootId === "string") {
+      return (
+        // The data attributes stay on the anchor for the same reason as a channel link's: a copied
+        // selection reads the chip back as `#name:<8 hex>` (see `selection-copy.ts`).
+        <Link
+          to="/messages/channels/$channelId"
+          params={{ channelId: threadChannelId }}
+          search={{ threadRootId }}
+          // Opening a thread in the channel already on screen keeps the stream where it is, as
+          // the thread opener does.
+          resetScroll={false}
+          className={className}
+          data-thread-channel-id={threadChannelId}
+          data-thread-root-id={threadRootId}
         >
           {children}
         </Link>

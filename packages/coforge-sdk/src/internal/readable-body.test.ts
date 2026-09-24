@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { channelReferenceToken } from "./channel-references";
+import { channelReferenceToken, threadReferenceToken } from "./channel-references";
 import { mentionToken } from "./mentions";
 import { readableBody } from "./readable-body";
 import { taskReferenceToken } from "./task-references";
@@ -7,6 +7,7 @@ import { taskReferenceToken } from "./task-references";
 const ADA = "11111111-1111-4111-8111-111111111111";
 const GHOST = "99999999-9999-4999-8999-999999999999";
 const PRODUCT = "33333333-3333-4333-8333-333333333333";
+const ROOT = "abcdef12-3456-4789-8abc-def012345678";
 
 const mention = (type: "user" | "agent", id: string) =>
   type === "user" && id === ADA ? "ada" : undefined;
@@ -14,6 +15,14 @@ const mention = (type: "user" | "agent", id: string) =>
 test("every stored token reads back as the text a person writes", () => {
   const body = `${mentionToken("user", ADA)} see ${taskReferenceToken(7)} in ${channelReferenceToken(PRODUCT, "product")}`;
   expect(readableBody(body, { mention })).toBe("@ada see task #7 in #product");
+});
+
+test("a thread reference reads back as #name:<8 hex>, under the channel's current name when known", () => {
+  const body = `reply in ${threadReferenceToken(PRODUCT, ROOT, "product")}`;
+  expect(readableBody(body, { mention })).toBe("reply in #product:abcdef12");
+  expect(readableBody(body, { mention, channelName: () => "launch" })).toBe(
+    "reply in #launch:abcdef12",
+  );
 });
 
 test("a channel reads under its current name when known, else the name it was stored with", () => {

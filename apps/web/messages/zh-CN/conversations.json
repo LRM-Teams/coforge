@@ -173,6 +173,8 @@
   "conversation_thread_title_context": " — {name}",
   "conversation_thread_scroll_to_top": "滚动到第一条消息",
   "conversation_thread_close": "关闭讨论",
+  "conversation_thread_unavailable": "无法打开这个讨论，它的原始消息可能已被删除。",
+  "conversation_thread_load_error": "讨论加载失败，请重试。",
   "conversation_thread_actions": "讨论操作",
   "conversation_thread_view_in_channel": "在频道中查看",
   "conversation_thread_beginning": "回复的开头",

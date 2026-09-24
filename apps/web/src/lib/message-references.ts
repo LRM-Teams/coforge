@@ -8,7 +8,8 @@
  * Each prose `text` node is read left to right against one ordered set of alternatives:
  *
  * 1. a mention, `@handle` (`MENTION_PATTERN`);
- * 2. a thread reference, `#name:shortid` (`THREAD_REFERENCE_PATTERN`) — kept as text for now;
+ * 2. a thread reference, `#name:shortid` (`THREAD_REFERENCE_PATTERN`): one top-level message of
+ *    that channel, named by a unique 6–8 hex prefix of its id or by the whole id;
  * 3. a task reference, `task #N` (`TASK_REFERENCE_PATTERN`);
  * 4. a bare `#N` (`BARE_TASK_REFERENCE_PATTERN`): one of the conversation's tasks, otherwise a
  *    channel of that name;
@@ -24,6 +25,9 @@
  * channel reading needs the whole run written exactly: in `#5-\_b\_` the escapes rule out a
  * channel, but the `#5` is written exactly and is still the task.
  *
+ * An unresolved thread reference — no such channel, no such message, or a prefix two messages
+ * share — stays text as a whole: its `#name` is consumed with it and never read as a channel.
+ *
  * What resolves becomes its stored token, spliced into the body as written at the node's source
  * offsets (mapped back through the escaping), so every byte outside a replaced reference stays
  * identical. A match whose source is not exactly its text — an escaped `\#name`, a character
@@ -32,7 +36,8 @@
  *
  * A token already in the body is not special here: like a mention token, it is a claim that every
  * consumer checks against authoritative data (the renderer links a channel token only when the
- * viewer's channel list has its id, and chips a task token only for a task of the conversation).
+ * viewer's channel list has its id, opens a thread token's thread only under that same check, and
+ * chips a task token only for a task of the conversation).
  *
  * Resolution is two steps because the server's lookups are queries: `readMessageReferences` reads
  * the body once and lists its `candidates`, the caller looks those up, and `resolve` rewrites the
@@ -48,6 +53,7 @@ import {
   channelReferenceToken,
   mentionToken,
   taskReferenceToken,
+  threadReferenceToken,
 } from "@lrm/coforge-sdk/internal";
 import { decodeNamedCharacterReference } from "decode-named-character-reference";
 import type { Nodes, Text } from "mdast";
@@ -57,7 +63,8 @@ import { escapeLiteralHtml, parseMessageSyntax } from "./message-syntax";
 
 type Reference =
   | { kind: "mention"; handle: string }
-  | { kind: "thread" }
+  /** `name` is the channel name, `anchor` the message id or prefix, both lower-cased. */
+  | { kind: "thread"; name: string; anchor: string }
   | { kind: "task"; number: number }
   /** A bare `#N`: `name` is the whole `#name` run it starts, lower-cased, and `rest` what that run
    * holds after the number, as written (empty when the run is just the number). */
@@ -82,7 +89,15 @@ const ALTERNATIVES: readonly { pattern: RegExp; read: (match: RegExpExecArray) =
   },
   {
     pattern: THREAD_REFERENCE_PATTERN,
-    read: (match) => ({ reference: { kind: "thread" }, text: match[0] }),
+    // Channel names are stored lower-case and message ids are lower-case hex.
+    read: (match) => ({
+      reference: {
+        kind: "thread",
+        name: match[1]!.toLowerCase(),
+        anchor: match[2]!.toLowerCase(),
+      },
+      text: match[0],
+    }),
   },
   {
     pattern: TASK_REFERENCE_PATTERN,
@@ -154,6 +169,9 @@ type MessageReferenceCandidates = {
   /** Every `#name` that could be a channel's name (`CHANNEL_NAME_PATTERN`), lower-cased, for
    * checking against the Workspace's channels. */
   channelNames: string[];
+  /** Every `#name:shortid` whose name a channel could be called, both lower-cased, for finding the
+   * message among that channel's top-level messages. */
+  threads: { name: string; anchor: string }[];
 };
 
 /** How a caller answers the candidates. An absent lookup resolves nothing of its kind. */
@@ -161,6 +179,12 @@ export type MessageReferenceLookup = {
   mention?: (handle: string) => { type: "user" | "agent"; id: string } | undefined;
   task?: (number: number) => boolean;
   channel?: (name: string) => { id: string; name: string } | undefined;
+  /** The one top-level message of the channel called `name` that `anchor` (a 6–8 hex prefix of its
+   * id, or the whole id) names; `undefined` when there is none, or more than one. */
+  thread?: (
+    name: string,
+    anchor: string,
+  ) => { channelId: string; rootId: string; name: string } | undefined;
 };
 
 /** A body's references, read once: what they could mean, and the rewrite once they are answered. */
@@ -168,7 +192,8 @@ export type MessageReferences = {
   candidates: MessageReferenceCandidates;
   /**
    * The body with every reference `lookup` resolves rewritten into its stored token —
-   * `<@human|agent:uuid>`, `<@task:N>`, `<@channel:uuid:name>` — and every other byte as written.
+   * `<@human|agent:uuid>`, `<@task:N>`, `<@channel:uuid:name>`, `<@thread:uuid:uuid:name>` — and
+   * every other byte as written.
    */
   resolve: (lookup: MessageReferenceLookup) => string;
 };
@@ -179,6 +204,7 @@ export function readMessageReferences(body: string): MessageReferences {
   const handles = new Set<string>();
   const taskNumbers = new Set<number>();
   const channelNames = new Set<string>();
+  const threads = new Map<string, { name: string; anchor: string }>();
   for (const { reference } of references) {
     if (reference.kind === "mention") handles.add(reference.handle);
     else if (reference.kind === "task") taskNumbers.add(reference.number);
@@ -187,12 +213,18 @@ export function readMessageReferences(body: string): MessageReferences {
       if (CHANNEL_NAME_PATTERN.test(reference.name)) channelNames.add(reference.name);
     } else if (reference.kind === "channel" && CHANNEL_NAME_PATTERN.test(reference.name))
       channelNames.add(reference.name);
+    else if (reference.kind === "thread" && CHANNEL_NAME_PATTERN.test(reference.name))
+      threads.set(`${reference.name}:${reference.anchor}`, {
+        name: reference.name,
+        anchor: reference.anchor,
+      });
   }
   return {
     candidates: {
       handles: [...handles],
       taskNumbers: [...taskNumbers],
       channelNames: [...channelNames],
+      threads: [...threads.values()],
     },
     resolve: (lookup) => {
       if (references.length === 0) return body;
@@ -215,8 +247,10 @@ function tokenFor(reference: Reference, lookup: MessageReferenceLookup): string 
       const target = lookup.mention?.(reference.handle);
       return target && mentionToken(target.type, target.id);
     }
-    case "thread":
-      return undefined;
+    case "thread": {
+      const thread = lookup.thread?.(reference.name, reference.anchor);
+      return thread && threadReferenceToken(thread.channelId, thread.rootId, thread.name);
+    }
     case "task":
       return lookup.task?.(reference.number) ? taskReferenceToken(reference.number) : undefined;
     case "bareNumber": {

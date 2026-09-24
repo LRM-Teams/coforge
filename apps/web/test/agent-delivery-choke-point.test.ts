@@ -12,7 +12,9 @@ import { decodeAgentMessageDelivery } from "@lrm/coforge-sdk/internal";
 
 const CHANNEL_ID = "33333333-3333-4333-8333-333333333333";
 const AGENT_ID = "22222222-2222-4222-8222-222222222222";
-const TOKENIZED = `<@agent:${AGENT_ID}> see <@task:7> in <@channel:${CHANNEL_ID}:product>`;
+const ROOT_ID = "abcdef12-3456-4789-8abc-def012345678";
+const TOKENIZED = `<@agent:${AGENT_ID}> see <@task:7> in <@channel:${CHANNEL_ID}:product>, reply in <@thread:${CHANNEL_ID}:${ROOT_ID}:product>`;
+const READABLE = "@helper see task #7 in #product, reply in #product:abcdef12";
 const MENTIONS = [{ kind: "agent", actorId: AGENT_ID, handle: "helper" }];
 
 /** The `src/` files whose source contains `needle`, relative to `apps/web`. */
@@ -47,7 +49,7 @@ test("a delivery's body never carries a stored token", () => {
     body: TOKENIZED,
     mentions: MENTIONS,
   });
-  expect(decodeAgentMessageDelivery(payload).body).toBe("@helper see task #7 in #product");
+  expect(decodeAgentMessageDelivery(payload).body).toBe(READABLE);
 });
 
 /**
@@ -79,14 +81,14 @@ test("the Agent projection reads every stored token back as text, and says when 
     return { body: body as string, ...rest };
   };
   expect(view({ body: TOKENIZED, mentions: MENTIONS })).toEqual({
-    body: "@helper see task #7 in #product",
+    body: READABLE,
   });
   expect(view({ body: TOKENIZED, mentions: MENTIONS }, AGENT_ID)).toEqual({
-    body: "@helper see task #7 in #product",
+    body: READABLE,
     mentionsAgent: true,
   });
   expect(view({ body: TOKENIZED, mentions: MENTIONS }, "someone-else")).toEqual({
-    body: "@helper see task #7 in #product",
+    body: READABLE,
   });
   expect(view({ body: "create it", mentions: [], actionCard: { state: "pending" } })).toEqual({
     body: "create it [action card: pending]",

@@ -90,3 +90,36 @@ test("inside a link every token reads as its text, and inside code it stays as w
   const code = rendered(`\`<@task:7> <@channel:${PRODUCT}:product>\``);
   expect(code).toContain(`<code>&#x3C;@task:7> &#x3C;@channel:${PRODUCT}:product></code>`);
 });
+
+const ROOT = "abcdef12-3456-4789-8abc-def012345678";
+
+test("a thread token whose channel the Workspace has is a chip under the channel's current name", () => {
+  const html = rendered(`reply in <@thread:${PRODUCT}:${ROOT}:product>`);
+  expect(html).toContain(`data-thread-channel-id="${PRODUCT}"`);
+  expect(html).toContain(`data-thread-root-id="${ROOT}"`);
+  expect(html).toContain(">#launch:abcdef12<");
+  // Only the thread chip: the thread token is not also read as a channel.
+  expect(html).not.toContain("data-channel-id");
+});
+
+test("a thread token with a channel id the Workspace does not have is plain text, however it is spelled", () => {
+  for (const body of [
+    `<@thread:${FORGED}:${ROOT}:evil>`,
+    `&lt;@thread:${FORGED}:${ROOT}:evil>`,
+    `\\<@thread:${FORGED}:${ROOT}:evil>`,
+    `&#60;@thread:${FORGED}:${ROOT}:evil>`,
+    `_<@thread:${FORGED}:${ROOT}:evil> a@b.com_`,
+  ]) {
+    const html = rendered(body);
+    expect(html).not.toContain("data-thread-root-id");
+    expect(html).toContain("#evil:abcdef12");
+  }
+});
+
+test("inside a link a thread token reads as its text, and inside code it stays as written", () => {
+  const link = rendered(`[<@thread:${PRODUCT}:${ROOT}:product>](https://example.com)`);
+  expect(link).not.toContain("data-thread-root-id");
+  expect(link).toContain(">#launch:abcdef12</a>");
+  const code = rendered(`\`<@thread:${PRODUCT}:${ROOT}:product>\``);
+  expect(code).toContain(`<code>&#x3C;@thread:${PRODUCT}:${ROOT}:product></code>`);
+});

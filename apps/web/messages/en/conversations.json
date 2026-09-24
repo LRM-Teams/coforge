@@ -187,6 +187,8 @@
   "conversation_thread_title_context": " — {name}",
   "conversation_thread_scroll_to_top": "Scroll to the first message",
   "conversation_thread_close": "Close thread",
+  "conversation_thread_unavailable": "This thread can't be opened. Its first message may have been deleted.",
+  "conversation_thread_load_error": "The thread could not be loaded. Try again.",
   "conversation_thread_actions": "Thread actions",
   "conversation_thread_view_in_channel": "View in channel",
   "conversation_thread_beginning": "Beginning of replies",

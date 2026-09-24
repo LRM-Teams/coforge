@@ -293,13 +293,16 @@
   outline-offset: 2px;
 }
 
-/* Channel-reference chips. A `#product` naming a channel the viewer can open is a link to that
-   channel; it reads as a chip like the other references, so it drops the prose-link underline and
-   keeps the same hover affordance. The focus ring comes from the link rule above. */
-.message-markdown a.message-markdown-channel-reference {
+/* Channel- and thread-reference chips. A `#product` naming a channel the viewer can open is a link
+   to that channel, and a `#product:abcdef12` a link that opens that thread; each reads as a chip
+   like the other references, so it drops the prose-link underline and keeps the same hover
+   affordance. The focus ring comes from the link rule above. */
+.message-markdown a.message-markdown-channel-reference,
+.message-markdown a.message-markdown-thread-reference {
   text-decoration: none;
 }
 
-.message-markdown a.message-markdown-channel-reference:hover {
+.message-markdown a.message-markdown-channel-reference:hover,
+.message-markdown a.message-markdown-thread-reference:hover {
   filter: brightness(0.95);
 }
