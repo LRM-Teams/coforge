@@ -1,4 +1,5 @@
 import {
+  PG_INTEGER_MAX,
   resolveMentionTargets,
   type MentionSelectorInput,
   type MentionTarget,
@@ -6,10 +7,6 @@ import {
 } from "@lrm/coforge-sdk/internal";
 import type { Prisma } from "#src/generated/prisma/client";
 import { readMessageReferences } from "#src/lib/message-references";
-
-/** The largest task number there can be: `tasks.number` is a PostgreSQL `integer`. A larger
- * `#N` names no task, and is never sent to the query, which would reject it. */
-const TASK_NUMBER_MAX = 2_147_483_647;
 
 /**
  * The body a send stores, and the mentions it resolved: every reference the server can resolve
@@ -40,8 +37,10 @@ export async function storeMessageBody(
 ): Promise<{ body: string; mentions: ResolvedMention[] }> {
   const references = readMessageReferences(body);
   const { handles, channelNames } = references.candidates;
+  // A `#N` above the largest task number names no task, and is never sent to the query, which
+  // would reject it.
   const taskNumbers = references.candidates.taskNumbers.filter(
-    (number) => number <= TASK_NUMBER_MAX,
+    (number) => number <= PG_INTEGER_MAX,
   );
   const mentions = resolveMentionTargets(handles, mentionScope.targets, mentionScope.bindings);
   const knownTasks = new Set(

@@ -17,8 +17,9 @@ import "./message-markdown.css";
  * lists, strikethrough, autolinks, and single-newline breaks), so a body written as plain text keeps its
  * line structure. `rehype-sanitize` runs before the chip pass: message bodies are untrusted, and
  * `react-markdown`'s default schema already refuses raw HTML, `javascript:` URLs and disallowed
- * attributes. Chips are injected afterwards, in one pass over the stored `<@kind:…>` tokens, because
- * they are trusted, fixed markup (see `message-markdown.ts`).
+ * attributes. Chips are injected afterwards, in one pass over the stored `<@kind:…>` tokens and,
+ * when the view passes `plainMentions`, the plain `@handle`s that name a conversation member,
+ * because they are trusted, fixed markup (see `message-markdown.ts`).
  *
  * Deliberate scope boundaries:
  *

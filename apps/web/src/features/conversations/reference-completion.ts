@@ -84,7 +84,9 @@ export function filterChannelSuggestions(
 /**
  * Replace the in-progress token `[start, caret)` with `text` and a trailing space, and return the
  * new value and caret position (after the space, which keeps a completed reference from
- * re-opening the completion).
+ * re-opening the completion). When a space or tab already follows the token, that one is the
+ * trailing space: none is added, and the caret moves past it. A line break is not reused, so the
+ * caret stays on the reference's line.
  */
 export function insertReference(
   value: string,
@@ -92,7 +94,8 @@ export function insertReference(
   caret: number,
   text: string,
 ): { value: string; caret: number } {
-  const inserted = `${text} `;
-  const next = value.slice(0, start) + inserted + value.slice(caret);
-  return { value: next, caret: start + inserted.length };
+  const after = value.slice(caret);
+  const spaced = after.startsWith(" ") || after.startsWith("\t");
+  const next = value.slice(0, start) + text + (spaced ? "" : " ") + after;
+  return { value: next, caret: start + text.length + 1 };
 }

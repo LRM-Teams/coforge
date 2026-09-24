@@ -9,6 +9,7 @@ import {
   TASK_CHIP_LINK_CLASS,
   type ChipMention,
   mentionHandlesByToken,
+  patternAlternation,
   rehypeReferenceChips,
 } from "#src/features/conversations/message-markdown";
 import { escapeLiteralHtml } from "#src/lib/message-syntax";
@@ -500,4 +501,18 @@ test("a channel token inside code, and a plain #name anywhere, stay as written",
   const [code, prose] = tree.children[0]!.children;
   expect(code!.children).toEqual([text(CHANNEL_TOKEN)]);
   expect(prose).toEqual(text(" and #product"));
+});
+
+test("an alternation reads each match as its own pattern's groups, a `u` pattern included", () => {
+  const { pattern, read } = patternAlternation([
+    /<@x:(\d+)>/gi,
+    /(?<![\p{L}])@(\p{L}+)/gu,
+    /#([a-z]+)-(\d+)/g,
+  ]);
+  const reads = [..."ask @élodie about <@X:5> and #plan-2".matchAll(pattern)].map(read);
+  expect(reads).toEqual([
+    { index: 1, groups: ["élodie"] },
+    { index: 0, groups: ["5"] },
+    { index: 2, groups: ["plan", "2"] },
+  ]);
 });
