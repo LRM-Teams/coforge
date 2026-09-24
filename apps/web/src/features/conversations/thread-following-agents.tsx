@@ -1,5 +1,4 @@
 import {
-  Button as AriaButton,
   Dialog as AriaDialog,
   DialogTrigger as AriaDialogTrigger,
   Heading,
@@ -51,6 +50,8 @@ function FollowingAgentFace({ agent }: { agent: FollowingAgent }) {
       src={agent.avatarUrl}
       initials={avatarInitial(agent.displayName)}
       contentClassName={avatarToneClassName(agent.displayName)}
+      // The ring separates the overlapping faces, as an avatar group does.
+      className="ring-2 ring-bg-primary"
     />
   );
 }
@@ -111,8 +112,8 @@ function FollowingAgentRow({
 
 /**
  * Channel thread header control: the first three following Agents' avatars plus a count,
- * opening the Agents currently following this Thread. Hidden until someone follows. A channel member can stop one Agent following; the
- * Agent stays in the channel.
+ * opening the Agents currently following this Thread. Hidden until someone follows. A channel
+ * member can stop one Agent following; the Agent stays in the channel.
  */
 export function ThreadFollowingAgents({
   channelId,
@@ -145,29 +146,33 @@ export function ThreadFollowingAgents({
     }
   }
 
-  // Shown once someone follows; an error still gets a trigger, so its message can be read.
-  if (!query.isError && count === 0) return null;
+  // Only a load with nothing to show is a failure: a failed background refetch keeps the list
+  // it already has.
+  const failed = query.isError && !query.data;
+  // Shown once someone follows; a failure still gets a trigger, so its message can be read.
+  if (!failed && count === 0) return null;
 
   return (
     <AriaDialogTrigger>
-      <AriaButton
+      <Button
+        color="tertiary"
+        size="sm"
         aria-label={
-          query.isError
+          failed
             ? m.conversation_thread_following_agents_error()
             : m.conversation_thread_following_agents_count({ count })
         }
-        className="flex h-8 cursor-pointer items-center gap-1.5 rounded-md px-1.5 text-sm font-semibold text-tertiary outline-focus-ring hover:bg-primary_hover hover:text-secondary focus-visible:outline-2"
+        // Base Button wraps children in an inline `span[data-text]`; make it the flex row that
+        // holds the avatar stack and the count.
+        className="px-1.5 [&>[data-text]]:flex [&>[data-text]]:items-center [&>[data-text]]:gap-1.5"
       >
-        {query.isError ? (
+        {failed ? (
           <AlertCircle aria-hidden="true" className="size-4 text-fg-quaternary" />
         ) : (
           <>
             <span aria-hidden="true" className="flex -space-x-1">
-              {/* The ring separates the overlapping faces, as an avatar group does. */}
               {agents.slice(0, 3).map((agent) => (
-                <span key={agent.id} className="relative flex rounded-full ring-2 ring-bg-primary">
-                  <FollowingAgentFace agent={agent} />
-                </span>
+                <FollowingAgentFace key={agent.id} agent={agent} />
               ))}
             </span>
             <span aria-hidden="true" className="tabular-nums">
@@ -175,7 +180,7 @@ export function ThreadFollowingAgents({
             </span>
           </>
         )}
-      </AriaButton>
+      </Button>
       <AriaPopover
         placement="bottom end"
         offset={8}
@@ -201,7 +206,7 @@ export function ThreadFollowingAgents({
                   {m.conversation_thread_following_agents()}
                 </Heading>
               </div>
-              {query.isError ? (
+              {failed ? (
                 <p role="alert" className="px-3 py-3 text-sm text-error-primary">
                   {m.conversation_thread_following_agents_error()}
                 </p>
