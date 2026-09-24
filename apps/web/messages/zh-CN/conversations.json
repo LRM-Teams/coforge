@@ -480,5 +480,10 @@
   "conversation_pending_mention_channel_archived": "频道已归档，无法添加成员。",
   "conversation_pending_mention_no_longer_pending": "这个提及已经处理过了。",
   "conversation_pending_mention_expired": "这个提及已超过 7 天，无法再处理。",
-  "conversation_pending_mention_unavailable": "这个提及已无法处理。"
+  "conversation_pending_mention_unavailable": "这个提及已无法处理。",
+  "search_entities_heading": "工作区内",
+  "search_entity_channel": "频道",
+  "search_entity_computer": "电脑",
+  "search_entity_agent": "Agent",
+  "search_no_messages_match": "没有匹配的消息。"
 }

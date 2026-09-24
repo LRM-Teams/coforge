@@ -1,5 +1,6 @@
 import { infiniteQueryOptions, queryOptions } from "@tanstack/react-query";
 
+import { listComputerNames } from "#src/features/computers/computers.functions";
 import { listChannelNames } from "#src/features/conversations/channels.functions";
 import { loadWorkspaceDirectory } from "#src/features/workspaces/workspaces.functions";
 import { messageSearchParams, type SearchFilters } from "./search-filters";
@@ -60,18 +61,21 @@ export const messageSearchQuery = (
     staleTime: 60_000,
   });
 
-/** The people, Agents and channels the filters offer and name; channels in name order. */
+/** The people, Agents, channels and Computers the page offers and names; channels in name
+ * order. */
 export const searchDirectoryQuery = (workspaceId: string) =>
   queryOptions({
     queryKey: ["search-directory", workspaceId],
     queryFn: async () => {
-      const [directory, channels] = await Promise.all([
+      const [directory, channels, computers] = await Promise.all([
         loadWorkspaceDirectory(),
         listChannelNames(),
+        listComputerNames(),
       ]);
       return {
         ...directory,
         channels: [...channels].sort((a, b) => a.name.localeCompare(b.name)),
+        computers,
       };
     },
     staleTime: 5 * 60_000,
