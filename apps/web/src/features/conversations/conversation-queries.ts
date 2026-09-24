@@ -1,9 +1,11 @@
 import { useMemo, useRef } from "react";
 import {
   infiniteQueryOptions,
+  queryOptions,
   useQueryClient,
   useSuspenseInfiniteQuery,
   type InfiniteData,
+  type QueryClient,
 } from "@tanstack/react-query";
 
 import { mergeMessages } from "./conversation-messages";
@@ -101,6 +103,14 @@ export const publicChannelQuery = (channelId: string) =>
     beforeFirstMessage,
   );
 
+/** A bounded window around one message, kept in the same Query cache as the stream. */
+export const conversationAroundQuery = (conversationId: string, messageId: string) =>
+  queryOptions({
+    queryKey: ["conversation", "around", conversationId, messageId],
+    queryFn: () => loadConversationAround({ data: { conversationId, messageId } }),
+    staleTime: 0,
+  });
+
 export const directConversationUpdates = (agentId: string) => (afterSequence: number) =>
   loadDirectConversationUpdates({ data: { agentId, afterSequence } });
 
@@ -108,6 +118,47 @@ export const publicChannelUpdates = (channelId: string) => (afterSequence: numbe
   loadPublicChannelUpdates({ data: { channelId, afterSequence } });
 
 type Pages<T> = InfiniteData<T, ConversationWindowCursor>;
+
+/**
+ * Seed the route's infinite query and, when the URL names a message outside its first page,
+ * replace that page with the bounded around-window before the route renders. This keeps a
+ * position/thread deep link on the loader path; the browser-only hash fallback remains in
+ * `useConversationSync` because SSR has no hash to inspect.
+ */
+export async function ensureConversationWindow<
+  M extends PageMessage,
+  T extends ConversationPage<M>,
+>(
+  queryClient: QueryClient,
+  query: ReturnType<typeof conversationPages<M, T>>["query"],
+  targetMessageId?: string,
+): Promise<InfiniteData<T, ConversationWindowCursor>> {
+  const initial = await queryClient.ensureInfiniteQueryData(query);
+  const latest = initial.pages.at(-1);
+  if (
+    !targetMessageId ||
+    !latest ||
+    initial.pages.some((page) => page.messages.some((message) => message.id === targetMessageId))
+  )
+    return initial;
+
+  try {
+    const around = await queryClient.fetchQuery(
+      conversationAroundQuery(latest.conversationId, targetMessageId),
+    );
+    const window: InfiniteData<T, ConversationWindowCursor> = {
+      pages: [{ ...latest, ...around }],
+      pageParams: [undefined],
+    };
+    queryClient.setQueryData(query.queryKey, window);
+    return window;
+  } catch {
+    // A link can name a deleted or inaccessible message. Leave the normal client-side sync seam
+    // to render its inline missing/failed state instead of replacing the whole conversation with
+    // the route error boundary; the next effect will retry and surface the precise state.
+    return initial;
+  }
+}
 
 /**
  * A message route's conversation, read from the Query cache the loader populated.
@@ -265,7 +316,7 @@ export function useConversationQuery<M extends PageMessage, T extends Conversati
 
   /** Replace the loaded history with a window around one message. */
   const loadMessageAround = async (messageId: string) => {
-    const around = await loadConversationAround({ data: { conversationId, messageId } });
+    const around = await queryClient.fetchQuery(conversationAroundQuery(conversationId, messageId));
     setPages((pages) => ({
       pages: [{ ...pages.pages.at(-1)!, ...around }],
       pageParams: [undefined],

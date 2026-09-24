@@ -78,7 +78,7 @@ export const cancelActionCard = createServerFn({ method: "POST" })
 
 /** Refreshes just the pending cards currently shown in an open conversation: called on a
  * realtime signal for that conversation and on window focus (see `use-conversation-view.ts`'s
- * caller in `direct-conversation.tsx`/`channel-conversation.tsx`), instead of re-fetching the
+ * caller in `threaded-conversation.tsx`/`channel-conversation.tsx`), instead of re-fetching the
  * whole message page. */
 export const loadActionCardStates = createServerFn({ method: "GET" })
   .middleware([workspaceUserMiddleware])

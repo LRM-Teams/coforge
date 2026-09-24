@@ -19,7 +19,7 @@ import { join } from "node:path";
  */
 const REPO_ROOT = join(import.meta.dir, "..");
 const MESSAGE_ROW = join(REPO_ROOT, "src/features/conversations/message-row.tsx");
-const CONVERSATION_PANE = join(REPO_ROOT, "src/features/conversations/direct-conversation.tsx");
+const CONVERSATION_PANE = join(REPO_ROOT, "src/features/conversations/conversation-pane.tsx");
 
 test("the landed row wears exactly the classes the :target treatment uses", async () => {
   const source = await readFile(MESSAGE_ROW, "utf8");

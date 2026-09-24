@@ -18,7 +18,7 @@ type PreviewReply = {
 };
 
 /** The preview's reply selection, mirrored from `ThreadedConversationContent`'s
- * `threadPreview` (direct-conversation.tsx): the same filter, in the same place, so the test
+ * `threadPreview` (threaded-conversation.tsx): the same filter, in the same place, so the test
  * pins the rule the component must follow rather than the component itself (apps/web's suite
  * renders server-side; effects never run). If the component ever stops agreeing with this
  * table, the live behavior drifts and a reviewer should catch it in the diff. */
@@ -57,7 +57,7 @@ describe("the thread pane path stays unfiltered (#139's second rule)", () => {
     const { readFile } = await import("node:fs/promises");
     const { join } = await import("node:path");
     const source = await readFile(
-      join(import.meta.dir, "../src/features/conversations/direct-conversation.tsx"),
+      join(import.meta.dir, "../src/features/conversations/threaded-conversation.tsx"),
       "utf8",
     );
     // Exactly one system filter, and it is the preview's: a second occurrence would mean the
