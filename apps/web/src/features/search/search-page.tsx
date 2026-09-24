@@ -51,6 +51,7 @@ export function SearchPage({
   // The query this input last committed, so its own URL update never overwrites what has been
   // typed since; only a change from elsewhere (a link, Back) replaces the text.
   const lastCommitted = useRef(query);
+  const input = useRef<HTMLInputElement>(null);
   const committed = query.trim();
 
   useEffect(() => {
@@ -60,10 +61,13 @@ export function SearchPage({
   }, [query]);
 
   useEffect(() => {
-    if (composing || text === lastCommitted.current) return;
+    // Surrounding spaces never change the search, so they are not committed (and a space
+    // typed ahead of a word is not wiped by the URL coming back without it).
+    const next = text.trim();
+    if (composing || next === lastCommitted.current) return;
     const timer = setTimeout(() => {
-      lastCommitted.current = text;
-      onQueryChange(text);
+      lastCommitted.current = next;
+      onQueryChange(next);
     }, COMMIT_DELAY_MS);
     return () => clearTimeout(timer);
   }, [text, composing, onQueryChange]);
@@ -83,6 +87,7 @@ export function SearchPage({
           aria-label={m.search_title()}
           placeholder={m.search_placeholder()}
           maxLength={SEARCH_QUERY_MAX_LENGTH}
+          ref={input}
           autoFocus
           value={text}
           onChange={setText}
@@ -97,6 +102,8 @@ export function SearchPage({
             lastCommitted.current = "";
             setText("");
             onQueryChange("");
+            // The button goes away with the results; keep the keyboard in the search box.
+            input.current?.focus();
           }}
         />
       ) : (

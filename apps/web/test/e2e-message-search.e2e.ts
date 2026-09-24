@@ -141,6 +141,7 @@ test("the search page finds a message and opens it in its channel", async () => 
     await browser("eval", `${byText("button", "Clear search")}.click()`);
     await waitFor(`new URLSearchParams(location.search).get("q") === null`);
     await waitFor(`document.querySelector('input[type="search"]').value === ""`);
+    await waitFor(`document.activeElement?.type === "search"`);
     // An input method: nothing is searched while composing, and the text it produces is
     // searched once composition ends, even though its last input event came before that end.
     await browser(
