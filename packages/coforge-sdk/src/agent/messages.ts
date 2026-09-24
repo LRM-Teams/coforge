@@ -16,6 +16,10 @@ export type AgentMessagesSearchRequest = {
   target?: string;
   sender?: string;
   sort?: "relevance" | "recent";
+  /** Only messages sent before this ISO time. */
+  before?: string;
+  /** Only messages sent after this ISO time. */
+  after?: string;
   offset?: number;
   limit?: number;
 };

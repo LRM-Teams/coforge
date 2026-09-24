@@ -115,3 +115,43 @@ test("rejects an unsupported search query with 400", async () => {
   );
   expect(result.status).toBe(400);
 });
+
+test("search passes its time window through", async () => {
+  let received: unknown;
+  await handleAgentMessagesSearchGet(
+    request(
+      "?query=release&after=2026-09-01T00%3A00%3A00.000Z&before=2026-09-10T00%3A00%3A00.000Z",
+    ),
+    { workspaceId: "workspace-1", agentId: "agent-1" },
+    {
+      setAgentChannelMuted: async () => {},
+      setAgentThreadFollowed: async () => {},
+      searchMessages: async (...args) => {
+        received = args;
+        return [];
+      },
+    },
+  );
+  expect(received).toMatchObject([
+    "workspace-1",
+    "agent-1",
+    {
+      query: "release",
+      after: "2026-09-01T00:00:00.000Z",
+      before: "2026-09-10T00:00:00.000Z",
+    },
+  ]);
+});
+
+test("search rejects a time window that is not a date", async () => {
+  const result = await handleAgentMessagesSearchGet(
+    request("?query=release&after=last-week"),
+    { workspaceId: "workspace-1", agentId: "agent-1" },
+    {
+      setAgentChannelMuted: async () => {},
+      setAgentThreadFollowed: async () => {},
+      searchMessages: async () => [],
+    },
+  );
+  expect(result.status).toBe(400);
+});
