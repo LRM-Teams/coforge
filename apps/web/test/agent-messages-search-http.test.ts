@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { AGENT_MESSAGE_VALIDATION_MESSAGES } from "@lrm/coforge-sdk/internal";
 import { handleAgentMessagesSearchGet } from "#src/routes/api/agent/v1/messages_.search";
 
 const request = (search: string) =>
@@ -154,4 +155,9 @@ test("search rejects a time window that is not a date", async () => {
     },
   );
   expect(result.status).toBe(400);
+  // The Agent learns which bound was wrong and the form it takes: a validation message the
+  // daemon passes through unchanged.
+  const message = await result.text();
+  expect(message).toBe("search `after` must be an ISO time, such as 2026-09-01T00:00:00Z");
+  expect(AGENT_MESSAGE_VALIDATION_MESSAGES).toContain(message as never);
 });
