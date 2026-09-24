@@ -211,6 +211,7 @@ describe("PrismaDirectConversationRepository", () => {
       replies: undefined,
     });
     const db = {
+      threadRead: { findMany: async () => [] },
       conversation: {
         findUnique: async (input: object) => {
           queries.push(input);
@@ -220,7 +221,6 @@ describe("PrismaDirectConversationRepository", () => {
                 id: "user-member",
                 userId: "user-1",
                 agentId: null,
-                threadReads: [],
                 user: { username: "alice" },
                 agent: null,
               },
@@ -228,7 +228,6 @@ describe("PrismaDirectConversationRepository", () => {
                 id: "agent-member",
                 userId: null,
                 agentId: "agent-1",
-                threadReads: [],
                 user: null,
                 agent: { id: "agent-1", name: "helper", displayName: "Helper" },
               },
@@ -295,6 +294,7 @@ describe("PrismaDirectConversationRepository", () => {
     });
     const rowsFor = (messages: object[]) =>
       ({
+        threadRead: { findMany: async () => [] },
         conversation: {
           findUnique: async (input: object) => {
             queries.push(input);
@@ -304,7 +304,6 @@ describe("PrismaDirectConversationRepository", () => {
                   id: "user-member",
                   userId: "user-1",
                   agentId: null,
-                  threadReads: [],
                   user: {
                     id: "user-1",
                     username: "alice",
@@ -318,7 +317,6 @@ describe("PrismaDirectConversationRepository", () => {
                   id: "agent-member",
                   userId: null,
                   agentId: "agent-1",
-                  threadReads: [],
                   user: null,
                   agent: {
                     id: "agent-1",
@@ -396,6 +394,7 @@ describe("PrismaDirectConversationRepository", () => {
 
   test("the initial page is the live tail with nothing newer to fetch", async () => {
     const db = {
+      threadRead: { findMany: async () => [] },
       conversation: {
         findUnique: async () => ({
           members: [
@@ -403,7 +402,6 @@ describe("PrismaDirectConversationRepository", () => {
               id: "user-member",
               userId: "user-1",
               agentId: null,
-              threadReads: [],
               user: { username: "alice" },
               agent: null,
             },
@@ -411,7 +409,6 @@ describe("PrismaDirectConversationRepository", () => {
               id: "agent-member",
               userId: null,
               agentId: "agent-1",
-              threadReads: [],
               user: null,
               agent: { id: "agent-1", name: "helper", displayName: "Helper" },
             },
@@ -1682,6 +1679,7 @@ describe("PrismaDirectConversationRepository", () => {
   describe("openForUser reports dmWritable", () => {
     function fixture(options: { visibility: string; ownerId: string; viewerId: string }) {
       const db = {
+        threadRead: { findMany: async () => [] },
         conversation: {
           findUnique: async () => ({
             id: "conversation-1",
@@ -1693,7 +1691,6 @@ describe("PrismaDirectConversationRepository", () => {
                 userId: options.viewerId,
                 agentId: null,
                 readThroughSequence: 0,
-                threadReads: [],
                 user: { username: "viewer" },
               },
               {
@@ -1701,7 +1698,6 @@ describe("PrismaDirectConversationRepository", () => {
                 userId: null,
                 agentId: "agent-1",
                 readThroughSequence: 0,
-                threadReads: [],
                 agent: {
                   id: "agent-1",
                   name: "helper",

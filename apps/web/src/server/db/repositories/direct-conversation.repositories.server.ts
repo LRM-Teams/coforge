@@ -1403,9 +1403,6 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
             // The viewer's own conversation-level read cursor: the client positions the
             // initial view at the first unread message and draws the divider there.
             readThroughSequence: true,
-            threadReads: {
-              select: { rootMessageId: true, readThroughSequence: true },
-            },
             // The full public profile: the pane resolves stored `<@kind:uuid>` tokens (and offers
             // @-completion) from these rows, so a mention of the viewer — the row that used to be
             // missing — is resolvable without a second query.
@@ -1458,6 +1455,12 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
     const agentMember = row?.members.find((member) => member.agentId === agentId);
     if (!row || !sender || !agentMember?.agent)
       throw new Error("conversation scope is not authorized");
+    // Read by the viewer's own member row, not nested under every member: the Agent records a
+    // boundary for every thread it drains, which this open never returns.
+    const threadReads = await this.db.threadRead.findMany({
+      where: { memberId: sender.id },
+      select: { rootMessageId: true, readThroughSequence: true },
+    });
     const overflow = row.messages.length > limit;
     const { hasOlder, hasNewer } = windowPageFlags(
       forward ? "forward" : page.beforeSequence ? "backward" : "initial",
@@ -1477,7 +1480,7 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
       // message past this. Thread replies are positioned by their thread instead.
       readThroughSequence: sender.readThroughSequence,
       threadReadThrough: Object.fromEntries(
-        sender.threadReads.map((r) => [r.rootMessageId, r.readThroughSequence]),
+        threadReads.map((r) => [r.rootMessageId, r.readThroughSequence]),
       ),
       // Never `agentMember.agent` wholesale: `ownerId`/`visibility` are read above only to
       // compute `dmWritable` and must not reach the browser payload.
