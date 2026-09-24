@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { useInfiniteQuery } from "@tanstack/react-query";
+import { keepPreviousData, useInfiniteQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { MessageTextSquare01, SearchLg } from "@untitledui/icons";
 
@@ -24,6 +24,8 @@ import { searchTerms } from "#src/lib/search-terms";
 import { m } from "#src/paraglide/messages";
 import type { MessageSearchHit } from "#src/server/conversations/message-search.server";
 import { searchExcerpt } from "./search-excerpt";
+import { SearchFilterBar } from "./search-filter-bar";
+import { clearedFilters, hasActiveFilter, type SearchFilters } from "./search-filters";
 import { messageSearchQuery } from "./search-queries";
 import { SEARCH_QUERY_MAX_LENGTH } from "./search.schemas";
 
@@ -31,18 +33,25 @@ import { SEARCH_QUERY_MAX_LENGTH } from "./search.schemas";
 const COMMIT_DELAY_MS = 200;
 
 /**
- * The Workspace search page. The query lives in the URL (`?q=`), so a search can be shared,
- * reloaded, and returned to with Back; typing commits it after a short pause, and never while an
- * input method is still composing. Clicking a result opens its conversation at that message.
+ * The Workspace search page. The query and filters live in the URL, so a search can be shared,
+ * reloaded, and returned to with Back; typing commits the query after a short pause, and never
+ * while an input method is still composing. Filters search on their own, without a query.
+ * Clicking a result opens its conversation at that message.
  */
 export function SearchPage({
   workspaceId,
+  timeZone,
   query,
+  filters,
   onQueryChange,
+  onFiltersChange,
 }: {
   workspaceId: string;
+  timeZone: string | null;
   query: string;
+  filters: SearchFilters;
   onQueryChange: (query: string) => void;
+  onFiltersChange: (filters: SearchFilters) => void;
 }) {
   const [text, setText] = useState(query);
   // State, not a ref: ending a composition must re-run the commit effect even when the last
@@ -93,15 +102,29 @@ export function SearchPage({
           onChange={setText}
           className="w-full"
         />
+        <div className="mt-3">
+          <SearchFilterBar
+            workspaceId={workspaceId}
+            query={committed}
+            filters={filters}
+            onChange={onFiltersChange}
+          />
+        </div>
       </div>
-      {committed ? (
+      {committed || hasActiveFilter(filters) ? (
         <SearchResults
           workspaceId={workspaceId}
+          timeZone={timeZone}
           query={committed}
+          filters={filters}
           onClear={() => {
-            lastCommitted.current = "";
-            setText("");
-            onQueryChange("");
+            if (committed) {
+              lastCommitted.current = "";
+              setText("");
+              onQueryChange("");
+            } else {
+              onFiltersChange(clearedFilters(filters));
+            }
             // The button goes away with the results; keep the keyboard in the search box.
             input.current?.focus();
           }}
@@ -125,14 +148,24 @@ export function SearchPage({
 
 function SearchResults({
   workspaceId,
+  timeZone,
   query,
+  filters,
   onClear,
 }: {
   workspaceId: string;
+  timeZone: string | null;
   query: string;
+  filters: SearchFilters;
+  /** Clears the query, or the filters when there is no query. */
   onClear: () => void;
 }) {
-  const search = useInfiniteQuery(messageSearchQuery(workspaceId, { query }));
+  const search = useInfiniteQuery({
+    ...messageSearchQuery(workspaceId, query, filters, timeZone),
+    // A changed filter keeps the current rows on screen until the new ones arrive.
+    placeholderData: keepPreviousData,
+  });
+  const refreshing = search.isFetching && !search.isFetchingNextPage;
   const hits = search.data?.pages.flatMap((page) => page.results) ?? [];
   const terms = searchTerms(query);
 
@@ -170,12 +203,16 @@ function SearchResults({
             <EmptyMedia variant="icon">
               <SearchLg aria-hidden="true" />
             </EmptyMedia>
-            <EmptyTitle>{m.search_no_results_title({ query })}</EmptyTitle>
-            <EmptyDescription>{m.search_no_results_description()}</EmptyDescription>
+            <EmptyTitle>
+              {query ? m.search_no_results_title({ query }) : m.search_no_matching_messages()}
+            </EmptyTitle>
+            <EmptyDescription>
+              {query ? m.search_no_results_description() : m.search_try_different_filters()}
+            </EmptyDescription>
           </EmptyHeader>
           <EmptyContent>
             <Button size="sm" color="secondary" onClick={onClear}>
-              {m.search_clear()}
+              {query ? m.search_clear() : m.search_clear_filters()}
             </Button>
           </EmptyContent>
         </Empty>
@@ -184,7 +221,7 @@ function SearchResults({
   }
 
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto">
+    <div className="min-h-0 flex-1 overflow-y-auto" aria-busy={refreshing}>
       <section
         aria-labelledby="search-messages-heading"
         className="flex flex-col gap-2 p-4 sm:px-6"
@@ -238,6 +275,7 @@ function SearchResultRow({ hit, terms }: { hit: MessageSearchHit; terms: string[
     <li>
       <Link
         {...savedJumpTarget(conversation, message)}
+        data-search-message-id={message.id}
         className="block rounded-xl border border-secondary bg-primary p-3 outline-focus-ring transition-colors hover:bg-secondary focus-visible:outline-2 focus-visible:outline-offset-2"
       >
         <div className="flex min-w-0 items-center gap-2 text-xs text-tertiary">

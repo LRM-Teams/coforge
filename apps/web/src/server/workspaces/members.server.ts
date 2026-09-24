@@ -149,6 +149,41 @@ export class WorkspaceMembers {
     );
   }
 
+  /**
+   * Every human member and every Agent the viewer may see, in one compact list each: what a
+   * picker needs to offer and to name a chosen person. Unpaginated, like the other
+   * whole-Workspace pickers; the Members page keeps its paged reads.
+   */
+  async directory(workspaceId: string, userId: string) {
+    const { visibleAgents } = await this.viewer(workspaceId, userId);
+    const [people, agents] = await Promise.all([
+      this.db.user.findMany({
+        where: { memberships: { some: { workspaceId } } },
+        select: { id: true, username: true, displayName: true, avatarObjectKey: true },
+        orderBy: [{ username: "asc" }, { id: "asc" }],
+      }),
+      this.db.agent.findMany({
+        where: visibleAgents,
+        select: { id: true, name: true, displayName: true, avatarObjectKey: true },
+        orderBy: [{ name: "asc" }, { id: "asc" }],
+      }),
+    ]);
+    return {
+      people: people.map((person) => ({
+        id: person.id,
+        handle: person.username,
+        name: person.displayName?.trim() || person.username,
+        avatarUrl: workspaceUserAvatarUrl(workspaceId, person.id, person.avatarObjectKey),
+      })),
+      agents: agents.map((agent) => ({
+        id: agent.id,
+        handle: agent.name,
+        name: agent.displayName.trim() || agent.name,
+        avatarUrl: agentAvatarUrl(workspaceId, agent.id, agent.avatarObjectKey),
+      })),
+    };
+  }
+
   async peoplePage(workspaceId: string, userId: string, input: PeoplePageInput) {
     await this.viewer(workspaceId, userId);
     const query = input.query.trim();
