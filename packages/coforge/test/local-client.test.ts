@@ -1212,3 +1212,63 @@ test("never retries a non-send operation", async () => {
   ).rejects.toThrow("agent proxy request failed (network or timeout)");
   expect(fetch).toHaveBeenCalledTimes(1);
 });
+
+const MENTION_CONTEXT = `sfp_${"a".repeat(43)}`;
+const MENTION_ID = "22222222-2222-4222-8222-222222222222";
+
+test("mention pending GETs the pending list through the Proxy", async () => {
+  const body = { ok: true, pendingMentionActions: [] };
+  const fetch = spyOn(globalThis, "fetch").mockResolvedValue(Response.json(body));
+  const result = await connectLocal(
+    "",
+    MENTION_CONTEXT,
+    proxyUrl(agentApiRoutes.local.messages),
+  ).mentionPending();
+  expect(result).toEqual({ ok: true, pendingMentionActions: [] });
+  const [url, init] = fetch.mock.calls[0]!;
+  expect(url).toEqual(new URL(proxyUrl(agentApiRoutes.local.mentionActions.pending)));
+  expect(init?.method).toBe("GET");
+});
+
+test("mention add POSTs the action and its resolution ids through the Proxy", async () => {
+  const fetch = spyOn(globalThis, "fetch").mockResolvedValue(
+    Response.json({ ok: true, action: "add", results: [] }),
+  );
+  await connectLocal("", MENTION_CONTEXT, proxyUrl(agentApiRoutes.local.messages)).mentionExecute({
+    action: "add",
+    resolutionIds: [MENTION_ID],
+  });
+  const [url, init] = fetch.mock.calls[0]!;
+  expect(url).toEqual(new URL(proxyUrl(agentApiRoutes.local.mentionActions.execute)));
+  expect(init?.method).toBe("POST");
+  expect(JSON.parse(init!.body as string)).toEqual({ action: "add", resolutionIds: [MENTION_ID] });
+});
+
+test("a mention action server error is SERVER_5XX, and a refusal carries the server's text", async () => {
+  spyOn(globalThis, "fetch").mockResolvedValueOnce(
+    Response.json({ error: "upstream failed", code: "UPSTREAM_HTTP_ERROR" }, { status: 502 }),
+  );
+  const client = connectLocal("", MENTION_CONTEXT, proxyUrl(agentApiRoutes.local.messages));
+  const serverError = (await client
+    .mentionExecute({ action: "add", resolutionIds: [MENTION_ID] })
+    .catch((caught: unknown) => caught)) as CliError;
+  expect(serverError).toBeInstanceOf(CliError);
+  expect(serverError.code).toBe("SERVER_5XX");
+
+  spyOn(globalThis, "fetch").mockResolvedValueOnce(
+    Response.json(
+      { ok: false, errorCode: "invalid_request", error: 'action must be "add".' },
+      { status: 400 },
+    ),
+  );
+  const refusal = (await client
+    .mentionExecute({ action: "add", resolutionIds: [MENTION_ID] })
+    .catch((caught: unknown) => caught)) as CliError;
+  expect(refusal.code).toBe("MENTION_ACTION_FAILED");
+  expect(refusal.message).toBe('action must be "add".');
+
+  spyOn(globalThis, "fetch").mockResolvedValueOnce(new Response("bad request", { status: 400 }));
+  const pending = (await client.mentionPending().catch((caught: unknown) => caught)) as CliError;
+  expect(pending.code).toBe("MENTION_PENDING_FAILED");
+  expect(pending.message).toBe("bad request");
+});

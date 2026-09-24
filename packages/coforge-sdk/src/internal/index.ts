@@ -656,6 +656,8 @@ export type AgentMessageDelivery = {
   latestSenderDescription?: string;
   /** True when this delivery personally @mentioned the recipient Agent. */
   mentionsAgent?: boolean;
+  /** True when the recipient Agent was notified of this message without being a channel member. */
+  nonMemberMention?: boolean;
 };
 export type AgentMessageDeliveryAck = Omit<
   AgentMessageDelivery,

@@ -267,6 +267,8 @@ export type AgentMessageRecord = {
   task?: MessageTaskMetadata;
   /** True when this message personally @mentioned the reading Agent. */
   mentionsAgent?: boolean;
+  /** True when the reading Agent is not in the channel and was notified of this one message. */
+  nonMemberMention?: boolean;
 };
 export type MessageTaskMetadata = {
   number: number;
@@ -326,6 +328,20 @@ export function decodeLocalAttachments(values: readonly RawLocalAttachment[]): L
     sizeBytes: Number(value.sizeBytes),
   }));
 }
+/** One mention the sender's message did not deliver, as Raft 1.0.32 reports it. */
+export type AgentPendingMentionAction = {
+  resolutionId: string;
+  messageId: string;
+  targetType: "user" | "agent";
+  targetHandle: string;
+  targetAvatarUrl: string | null;
+  /** Why it was not delivered: the target was not in the conversation at send time. */
+  reason: "not_member";
+  /** What the sender may still do: `notify` and/or `add`. */
+  availableActions: string[];
+  /** ISO time after which the action can no longer be taken. */
+  expiresAt: string;
+};
 export type AgentMessageResponse = {
   requestId: string;
   accepted: boolean;
@@ -357,6 +373,10 @@ export type AgentMessageResponse = {
   hasMore?: boolean;
   /** `message send` only: pending messages a bypassed hold chose not to review; empty otherwise. */
   recentUnread?: AgentMessageRecord[];
+  /** `message send` only: mentions of people outside the channel, which notified no one. */
+  pendingMentionActions?: AgentPendingMentionAction[];
+  /** `message send` only: `@handle`s that name nobody the Agent can see. */
+  unresolvedMentionHandles?: string[];
 };
 export type MessageAttentionSummary = {
   target: string;

@@ -21,7 +21,8 @@ Agent messages never automatically notify other Agents, except that an Agent mes
 @mention them by their handle (for example `@helper`); plain text alone never reaches a specific
 Agent. An `@mention` only
 resolves — becomes a real, deliverable mention — in a public channel, and only for a person or
-Agent who is currently an active member of that exact channel.
+Agent who is currently an active member of that exact channel; a send reports every @mention it
+did not deliver (see `coforge manual get etiquette`).
 
 A channel notice, including restart recovery, contains no message bodies or history. Use
 `coforge message check` for pending messages or `coforge message read --target '#general'` to

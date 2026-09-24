@@ -33,12 +33,21 @@ import {
   type AgentProfileUpdateRequest,
   type AgentProfileUpdateResponse,
   type AgentUserInfoResponse,
+  type AgentMentionActionKind,
+  type AgentMentionExecuteRequest,
+  type AgentMentionExecuteResponse,
+  type AgentMentionPendingResponse,
   type GitHubCredentialResponse,
   type WorkspaceInfoRuntimeContext,
 } from "@lrm/coforge-sdk/agent";
 import { COFORGE_CLI_VERSION } from "#src/version";
 import { formatManualGet, formatManualSearchResults } from "#src/manual-format";
 import { formatProfile, formatUserInfo } from "#src/user-format";
+import {
+  formatMentionActionResults,
+  formatPendingMentionActions,
+  incompleteMentionActions,
+} from "#src/mention-format";
 import { parseActionCardInput, toActionCardAction } from "#src/action-prepare-input";
 import {
   formatAttachmentDownloadSuccess,
@@ -49,6 +58,10 @@ import {
   formatSearchResults,
   formatSendSuccess,
   formatTaskWorkflowHint,
+  formatUndeliveredMentions,
+  senderPendingMention,
+  senderUnresolvedMention,
+  type PendingMentionAction,
 } from "#src/message-format";
 import {
   formatChannelAddMember,
@@ -211,6 +224,14 @@ export type ProfileShowInvocation = {
   target?: string;
   json?: boolean;
 };
+export type MentionInvocation =
+  | { command: "mention-pending"; json?: boolean }
+  | {
+      command: "mention-action";
+      action: AgentMentionActionKind;
+      resolutionIds: string[];
+      json?: boolean;
+    };
 export type ProfileUpdateInvocation = {
   command: "profile-update";
   displayName?: string;
@@ -271,6 +292,10 @@ export type MessageTransport = {
   userInfo?(name: string): Promise<AgentUserInfoResponse>;
   profileShow?(target?: string): Promise<AgentProfileShowResponse>;
   profileUpdate?(input: AgentProfileUpdateRequest): Promise<AgentProfileUpdateResponse>;
+  /** The calling Agent's mentions that reached no one (`coforge mention pending`). */
+  mentionPending?(): Promise<AgentMentionPendingResponse>;
+  /** Acts on pending mentions by resolution id (`coforge mention notify|add`). */
+  mentionExecute?(request: AgentMentionExecuteRequest): Promise<AgentMentionExecuteResponse>;
 };
 
 /** Eight-hex-character prefix or a full UUID; the server stores ids lowercase. */
@@ -301,7 +326,8 @@ export function parseArgs(
   | VersionInvocation
   | UserInfoInvocation
   | ProfileShowInvocation
-  | ProfileUpdateInvocation {
+  | ProfileUpdateInvocation
+  | MentionInvocation {
   if (args[0] === "whoami") return parseWhoamiArgs(args.slice(1));
   if (args[0] === "version") return parseVersionArgs(args.slice(1));
   if (args[0] === "manual" && (args[1] === "get" || args[1] === "search"))
@@ -310,6 +336,7 @@ export function parseArgs(
   if (args[0] === "profile" && args[1] === "show") return parseProfileShowArgs(args.slice(2));
   if (args[0] === "profile" && args[1] === "update") return parseProfileUpdateArgs(args.slice(2));
   if (args[0] === "workspace" && args[1] === "info") return parseWorkspaceInfoArgs(args.slice(2));
+  if (args[0] === "mention") return parseMentionArgs(args.slice(1));
   if (args[0] === "reminder") return parseReminderArgs(args.slice(1));
   if (args[0] === "task") return parseTaskArgs(args.slice(1));
   if (args[0] === "weekly-report-collect") return parseWeeklyReportCollectArgs(args.slice(1));
@@ -598,7 +625,7 @@ export function parseArgs(
     }
   }
   throw new Error(
-    "Usage: coforge channel mute|unmute --target '#channel' | coforge channel info <target> | coforge channel members <target> | coforge channel join --target '#channel' | coforge channel leave --target '#channel' | coforge channel create --name <name> [--description <text>] [--json] | coforge channel update --target '#channel' [--name <name>] [--description <text>] [--json] | coforge channel lifecycle archive|unarchive --target '#channel' [--json] | coforge channel add-member --target '#channel' (--user @handle | --agent @handle) [--json] | coforge channel remove-member --target '#channel' (--user @handle | --agent @handle) [--json] | coforge thread unfollow --target '#channel:message-id' | coforge inbox check | coforge message check [--target @user|#channel] | coforge message search --query <text> [--target <target>] [--sender <handle>] [--sort relevance|recent] [--before <iso>] [--after <iso>] [--limit <n>] [--offset <n>] | coforge message read --target @user | coforge message send --target @user [--send-draft] [--anyway] [--reviewer-isolation] [--json] [--attachment-id <uuid>]... [--mention human:<uuid>:<handle>|agent:<uuid>:<handle>]... [--target-confirmed] | coforge message resolve <message-id> | coforge message react --message-id <id> --emoji <emoji> [--remove] | coforge task list (--target <target> | --mine) [--status all|todo|in_progress|in_review|done|closed] | coforge task create|convert|claim|unclaim|assign|unassign|update|amend|history|delete|receipt ... | coforge attachment view [--id] <id> --output <path> [--json] | coforge attachment upload --path <file> (--target <target>|--channel <target>) [--mime-type <type>] [--json] | coforge weekly-report context --subject-type report|cycle --subject-id <uuid> | coforge weekly-report list [--cycle-id <uuid>] [--cursor <uuid>] [--limit <n>] | coforge weekly-report read --report-id <uuid> --section <name> [--max-characters <n>] | coforge weekly-report-collect submit-pack|submit-empty|submit-failure --run-id <uuid> --request-id <uuid> [--markdown <path>] [--reason <text>] | coforge action prepare --target <target> | coforge manual get <topic> [--intent <text>] [--reason <text>] | coforge manual search \"<keywords>\" [--intent <text>] [--reason <text>] | coforge whoami [--json] | coforge version [--json] | coforge user info <name> [--json] | coforge profile show [<target>] [--json] | coforge profile update [--display-name <text>] [--description <text>] [--json]",
+    "Usage: coforge channel mute|unmute --target '#channel' | coforge channel info <target> | coforge channel members <target> | coforge channel join --target '#channel' | coforge channel leave --target '#channel' | coforge channel create --name <name> [--description <text>] [--json] | coforge channel update --target '#channel' [--name <name>] [--description <text>] [--json] | coforge channel lifecycle archive|unarchive --target '#channel' [--json] | coforge channel add-member --target '#channel' (--user @handle | --agent @handle) [--json] | coforge channel remove-member --target '#channel' (--user @handle | --agent @handle) [--json] | coforge thread unfollow --target '#channel:message-id' | coforge inbox check | coforge message check [--target @user|#channel] | coforge message search --query <text> [--target <target>] [--sender <handle>] [--sort relevance|recent] [--before <iso>] [--after <iso>] [--limit <n>] [--offset <n>] | coforge message read --target @user | coforge message send --target @user [--send-draft] [--anyway] [--reviewer-isolation] [--json] [--attachment-id <uuid>]... [--mention human:<uuid>:<handle>|agent:<uuid>:<handle>]... [--target-confirmed] | coforge message resolve <message-id> | coforge message react --message-id <id> --emoji <emoji> [--remove] | coforge task list (--target <target> | --mine) [--status all|todo|in_progress|in_review|done|closed] | coforge task create|convert|claim|unclaim|assign|unassign|update|amend|history|delete|receipt ... | coforge attachment view [--id] <id> --output <path> [--json] | coforge attachment upload --path <file> (--target <target>|--channel <target>) [--mime-type <type>] [--json] | coforge weekly-report context --subject-type report|cycle --subject-id <uuid> | coforge weekly-report list [--cycle-id <uuid>] [--cursor <uuid>] [--limit <n>] | coforge weekly-report read --report-id <uuid> --section <name> [--max-characters <n>] | coforge weekly-report-collect submit-pack|submit-empty|submit-failure --run-id <uuid> --request-id <uuid> [--markdown <path>] [--reason <text>] | coforge action prepare --target <target> | coforge manual get <topic> [--intent <text>] [--reason <text>] | coforge manual search \"<keywords>\" [--intent <text>] [--reason <text>] | coforge whoami [--json] | coforge version [--json] | coforge user info <name> [--json] | coforge profile show [<target>] [--json] | coforge profile update [--display-name <text>] [--description <text>]  [--json] | coforge mention pending [--json] | coforge mention notify <resolution-id>... [--json] | coforge mention add <resolution-id>... [--json]",
   );
 }
 
@@ -1006,6 +1033,37 @@ function parseProfileUpdateArgs(args: readonly string[]): ProfileUpdateInvocatio
   };
 }
 
+const MENTION_USAGE =
+  "Usage: coforge mention pending [--json] | coforge mention notify <resolution-id>... [--json] | coforge mention add <resolution-id>... [--json]";
+
+function parseMentionArgs(args: readonly string[]): MentionInvocation {
+  const [sub, ...rest] = args;
+  const json = rest.includes("--json");
+  const positionals = rest.filter((arg) => arg !== "--json");
+  if (positionals.some((arg) => arg.startsWith("--"))) throw new Error(MENTION_USAGE);
+  if (sub === "pending") {
+    if (positionals.length) throw new Error(MENTION_USAGE);
+    return { command: "mention-pending", ...(json ? { json: true } : {}) };
+  }
+  if (sub === "notify" || sub === "add") {
+    const resolutionIds = [...new Set(positionals.map((id) => id.trim()).filter(Boolean))];
+    if (!resolutionIds.length)
+      throw new CliError({
+        code: "INVALID_ARG",
+        message: "At least one resolution id is required.",
+        retryable: false,
+        outputMode: json ? "json" : "text",
+      });
+    return {
+      command: "mention-action",
+      action: sub,
+      resolutionIds,
+      ...(json ? { json: true } : {}),
+    };
+  }
+  throw new Error(MENTION_USAGE);
+}
+
 function parseActionPrepareArgs(args: readonly string[]): ActionPrepareInvocation {
   let target: string | undefined;
   for (let index = 0; index < args.length; index++) {
@@ -1075,6 +1133,38 @@ export async function run(args: readonly string[], transport: MessageTransport):
       description: invocation.description,
     });
     return invocation.json ? result : formatProfile(result);
+  }
+  if (invocation.command === "mention-pending") {
+    if (!transport.mentionPending) throw new Error("Mention transport is unavailable");
+    const outputMode = invocation.json ? "json" : "text";
+    const result = await transport.mentionPending().catch((error: unknown) => {
+      throw error instanceof CliError ? withOutputMode(error, outputMode) : error;
+    });
+    return invocation.json
+      ? { ok: true, pendingMentionActions: result.pendingMentionActions }
+      : formatPendingMentionActions(result.pendingMentionActions);
+  }
+  if (invocation.command === "mention-action") {
+    if (!transport.mentionExecute) throw new Error("Mention transport is unavailable");
+    const outputMode = invocation.json ? "json" : "text";
+    const { action, resolutionIds } = invocation;
+    const result = await transport
+      .mentionExecute({ action, resolutionIds })
+      .catch((error: unknown) => {
+        throw error instanceof CliError ? withOutputMode(error, outputMode) : error;
+      });
+    const incomplete = incompleteMentionActions(action, resolutionIds, result.results);
+    if (incomplete.length)
+      throw new CliError({
+        code: "MENTION_ACTION_FAILED",
+        message: `Mention ${action} did not complete for every requested target: ${incomplete.join(", ")}`,
+        retryable: false,
+        details: { action: result.action, results: result.results },
+        outputMode,
+      });
+    return invocation.json
+      ? { ok: true, action: result.action, results: result.results }
+      : formatMentionActionResults(result.action, result.results);
   }
   if (invocation.command === "workspace.info") {
     const client = createAgentApiClient(createMessageTransportAgentApiTransport(transport));
@@ -1296,14 +1386,23 @@ export async function run(args: readonly string[], transport: MessageTransport):
         ),
         outputMode,
       );
-    const sent = result as { messageId?: string; recentUnread?: AgentMessageRecord[] };
-    if (invocation.json)
+    const sent = result as {
+      messageId?: string;
+      recentUnread?: AgentMessageRecord[];
+      pendingMentionActions?: PendingMentionAction[];
+      unresolvedMentionHandles?: string[];
+    };
+    const undelivered = undeliveredMentionError(invocation.target, sent, outputMode);
+    if (invocation.json) {
+      if (undelivered) throw undelivered;
       return JSON.stringify({
         state: "sent",
         target: invocation.target,
         messageId: sent.messageId,
         recentUnread: sent.recentUnread ?? [],
       });
+    }
+    if (undelivered) throw undelivered;
     return formatSendSuccess(invocation.target, sent as { messageId: string }, sent.recentUnread);
   }
   if (command === "search") {
@@ -1572,6 +1671,68 @@ const HELD_SEND_NEXT_ACTION =
  * a typed error rather than a quiet success. Reviewer isolation keeps withholding message content;
  * the ordinary case keeps printing the existing rich held-context report (`formatHeldSend`).
  */
+/**
+ * A send whose message was queued but some of whose @mentions reached no one is a partial result:
+ * the message must not be sent again, and each mention has its own recovery. In text mode what was
+ * achieved goes to stdout (the undelivered mentions, then the queued line) before the error; with
+ * `--json` the whole partial result is the error's details.
+ */
+function undeliveredMentionError(
+  target: string,
+  sent: {
+    messageId?: string;
+    recentUnread?: AgentMessageRecord[];
+    pendingMentionActions?: PendingMentionAction[];
+    unresolvedMentionHandles?: string[];
+  },
+  outputMode: "text" | "json",
+): CliError | undefined {
+  const actions = sent.pendingMentionActions ?? [];
+  const unresolved = [...new Set(sent.unresolvedMentionHandles ?? [])];
+  const count = actions.length + unresolved.length;
+  if (count === 0) return undefined;
+  const recoveries = actions.flatMap(
+    (action) => senderPendingMention(action).recoveryCommand ?? [],
+  );
+  return new CliError({
+    code: "MENTION_DELIVERY_FAILED",
+    message: `Partial result for message ${sent.messageId}: message status=queued; ${count} @mention${count === 1 ? "" : "s"} status=not_queued.`,
+    retryable: false,
+    effect: "message_queued",
+    draftSaved: false,
+    outputMode,
+    stdoutText:
+      outputMode === "text"
+        ? `${formatUndeliveredMentions(actions, unresolved)}\n\n${formatSendSuccess(target, sent as { messageId: string }, sent.recentUnread, true)}`
+        : undefined,
+    details: {
+      result: {
+        ...sent,
+        state: "partial",
+        message: { status: "queued", id: sent.messageId },
+        pendingMentionActions: actions.map(senderPendingMention),
+        ...(unresolved.length
+          ? { unresolvedMentionWarnings: unresolved.map(senderUnresolvedMention) }
+          : {}),
+      },
+    },
+    suggestedNextAction: [
+      "The message is already queued.",
+      ...(recoveries.length
+        ? [
+            `Run only the per-token mention ${recoveries.length === 1 ? "recovery" : "recoveries"}: ${recoveries.map((command) => `\`${command}\``).join(", ")}.`,
+          ]
+        : []),
+      ...(unresolved.length
+        ? [
+            "If an unresolved token was literal prose, wrap it in code; otherwise verify the exact handle and send only a corrected follow-up mention.",
+          ]
+        : []),
+      "Do not resend the queued message.",
+    ].join(" "),
+  });
+}
+
 function heldSendCliError(
   target: string,
   result: HeldSendResult,

@@ -1,7 +1,7 @@
 # Action cards
 
-When a human should create a channel or Agent, or add members to a channel, do not create it
-yourself (you have no such CLI/API command) and do not claim it already exists. Post a typed
+When a human should create a channel or Agent, or add members to a channel, do not do it
+yourself and do not claim it already exists. Post a typed
 action card instead: `coforge action prepare --target <target>` with a JSON body on stdin, for
 example:
 

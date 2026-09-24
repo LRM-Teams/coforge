@@ -153,7 +153,7 @@ export const executeMentionActions = createServerFn({ method: "POST" })
   .middleware([workspaceUserMiddleware])
   .validator(
     z.object({
-      action: z.literal("add"),
+      action: z.enum(["notify", "add"]),
       resolutionIds: z.array(z.uuid()).min(1).max(20),
     }),
   )

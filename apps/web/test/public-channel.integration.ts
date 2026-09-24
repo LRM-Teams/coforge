@@ -34,6 +34,11 @@ import {
   MAX_THREAD_REFERENCES,
   storeMessageBody,
 } from "#src/server/conversations/message-references.server";
+import {
+  notifyAgentMentionTargets,
+  refuseAgentMentionAdds,
+  pendingMentionActionsForAgent,
+} from "#src/server/conversations/pending-mention-actions.server";
 
 /** Flattens every recipient's browser subscriptions, matching the earlier assertions this
  * suite made directly against `notificationForMessage`'s old flat `subscriptions` field. */
@@ -1057,8 +1062,8 @@ test("a channel @mention of someone outside the channel becomes the sender's pen
         action.availableActions,
       ]),
     ).toEqual([
-      ["user", bob.id, `pb${suffix}`, ["add"]],
-      ["agent", helper.id, "helper", ["add"]],
+      ["user", bob.id, `pb${suffix}`, ["notify", "add"]],
+      ["agent", helper.id, "helper", ["notify", "add"]],
     ]);
     expect(sent.unresolvedMentionHandles).toEqual(["ghost"]);
     for (const action of sent.pendingMentionActions) {
@@ -1075,6 +1080,241 @@ test("a channel @mention of someone outside the channel becomes the sender's pen
     await db.workspace.delete({ where: { id: workspace.id } });
     await db.computer.deleteMany({ where: { ownerId: bob.id } });
     await db.user.deleteMany({ where: { id: { in: [alice.id, bob.id, carol.id] } } });
+    await db.$disconnect();
+    redis.close();
+  }
+});
+
+test("an Agent's channel @mention of someone outside the channel becomes that Agent's pending mention action; a DM @handle never does", async () => {
+  const connectionString = Bun.env.CHANNEL_TEST_DATABASE_URL;
+  if (!connectionString) throw new Error("CHANNEL_TEST_DATABASE_URL is required");
+  const db = new PrismaClient({ adapter: new PrismaPg({ connectionString }) });
+  const redis = new RedisClient(Bun.env.CHANNEL_TEST_REDIS_URL!);
+  const suffix = crypto.randomUUID().slice(0, 8);
+  const alice = await db.user.create({ data: { username: `ga${suffix}` } });
+  const bob = await db.user.create({ data: { username: `gb${suffix}` } });
+  const workspace = await db.workspace.create({
+    data: {
+      slug: crypto.randomUUID(),
+      name: "Agent pending mentions",
+      members: { create: [{ userId: alice.id }, { userId: bob.id }] },
+    },
+  });
+  try {
+    const computer = await db.computer.create({
+      data: { ownerId: alice.id, machineId: crypto.randomUUID() },
+    });
+    const agent = (name: string) =>
+      db.agent.create({
+        data: {
+          workspaceId: workspace.id,
+          ownerId: alice.id,
+          computerId: computer.id,
+          name,
+          displayName: name,
+          runtimeConfig: {},
+        },
+      });
+    const scout = await agent("scout");
+    const helper = await agent("helper");
+    const channels = new PublicChannels(db, new RedisMessageRequestIdempotency(redis), {
+      publish: async () => {},
+      publishJson: async () => {},
+      broadcast: async () => {},
+    });
+    const triage = await channels.create(workspace.id, alice.id, `agentsend-${suffix}`);
+    await channels.addMembers(workspace.id, { userId: alice.id }, triage.id, {
+      userIds: [],
+      agentIds: [scout.id],
+    });
+    const repo = new PrismaDirectConversationRepository(db);
+    const sender = new SendDirectMessage(repo, new RedisMessageRequestIdempotency(redis), {
+      publish: async () => {},
+    });
+    const send = {
+      requestId: crypto.randomUUID(),
+      workspaceId: workspace.id,
+      agentId: scout.id,
+      target: `#agentsend-${suffix}`,
+      body: `@ga${suffix} @gb${suffix} @helper @ghost please look`,
+    };
+
+    const sent = await sender.executeFromAgent(send);
+    // alice is a member; bob and helper are outside the channel; ghost names nobody.
+    expect(
+      sent.pendingMentionActions.map((action) => [
+        action.targetType,
+        action.targetId,
+        action.targetHandle,
+      ]),
+    ).toEqual([
+      ["user", bob.id, `gb${suffix}`],
+      ["agent", helper.id, "helper"],
+    ]);
+    expect(sent.unresolvedMentionHandles).toEqual(["ghost"]);
+    // Every row offers Notify and Add; whether the sender may add is decided when it tries.
+    expect(sent.pendingMentionActions.map((action) => action.availableActions)).toEqual([
+      ["notify", "add"],
+      ["notify", "add"],
+    ]);
+    const replay = await sender.executeFromAgent(send);
+    expect(replay.pendingMentionActions.map((action) => action.resolutionId)).toEqual(
+      sent.pendingMentionActions.map((action) => action.resolutionId),
+    );
+
+    // The Agent lists what it may still act on, across its channels; adding is a human's call,
+    // notifying is not.
+    const pending = await pendingMentionActionsForAgent(db, workspace.id, scout.id);
+    expect(
+      pending.map((action) => [action.targetHandle, action.channelName, action.availableActions]),
+    ).toEqual([
+      [`gb${suffix}`, `agentsend-${suffix}`, ["notify", "add"]],
+      ["helper", `agentsend-${suffix}`, ["notify", "add"]],
+    ]);
+    const unknown = crypto.randomUUID();
+    expect(
+      (
+        await refuseAgentMentionAdds(db, workspace.id, scout.id, [
+          sent.pendingMentionActions[0]!.resolutionId,
+          unknown,
+        ])
+      ).map((result) => [result.resolutionId, result.status, result.reason]),
+    ).toEqual([
+      [
+        sent.pendingMentionActions[0]!.resolutionId,
+        "no_permission",
+        "add_requires_human_member_authority",
+      ],
+      [unknown, "not_found", undefined],
+    ]);
+    // Another Agent never sees or acts on these.
+    expect(await pendingMentionActionsForAgent(db, workspace.id, helper.id)).toEqual([]);
+    const notified = await notifyAgentMentionTargets(db, workspace.id, scout.id, [
+      sent.pendingMentionActions[0]!.resolutionId,
+    ]);
+    expect(notified.map((result) => [result.status, result.reason])).toEqual([
+      ["queued", undefined],
+    ]);
+    expect(
+      (await pendingMentionActionsForAgent(db, workspace.id, scout.id)).map(
+        (action) => action.availableActions,
+      ),
+    ).toEqual([["add"], ["notify", "add"]]);
+
+    const direct = await sender.executeFromAgent({
+      requestId: crypto.randomUUID(),
+      workspaceId: workspace.id,
+      agentId: scout.id,
+      target: `@ga${suffix}`,
+      body: `@gb${suffix} is not here`,
+    });
+    expect(direct.pendingMentionActions).toEqual([]);
+    expect(await db.pendingMentionAction.count({ where: { messageId: direct.id } })).toBe(0);
+  } finally {
+    await db.workspace.delete({ where: { id: workspace.id } });
+    await db.computer.deleteMany({ where: { ownerId: alice.id } });
+    await db.user.deleteMany({ where: { id: { in: [alice.id, bob.id] } } });
+    await db.$disconnect();
+    redis.close();
+  }
+});
+
+test("the sender notifies a mentioned outsider once: an Agent gets the message as a non-member delivery, a person is marked notified, and the mention stays addable", async () => {
+  const connectionString = Bun.env.CHANNEL_TEST_DATABASE_URL;
+  if (!connectionString) throw new Error("CHANNEL_TEST_DATABASE_URL is required");
+  const db = new PrismaClient({ adapter: new PrismaPg({ connectionString }) });
+  const redis = new RedisClient(Bun.env.CHANNEL_TEST_REDIS_URL!);
+  const suffix = crypto.randomUUID().slice(0, 8);
+  const alice = await db.user.create({ data: { username: `na${suffix}` } });
+  const bob = await db.user.create({ data: { username: `nb${suffix}` } });
+  const workspace = await db.workspace.create({
+    data: {
+      slug: crypto.randomUUID(),
+      name: "Mention notify",
+      members: { create: [{ userId: alice.id }, { userId: bob.id }] },
+    },
+  });
+  try {
+    const computer = await db.computer.create({
+      data: { ownerId: alice.id, machineId: crypto.randomUUID() },
+    });
+    const helper = await db.agent.create({
+      data: {
+        workspaceId: workspace.id,
+        ownerId: alice.id,
+        computerId: computer.id,
+        name: "helper",
+        displayName: "Helper",
+        runtimeConfig: {},
+      },
+    });
+    const published: { channel: string; data: unknown }[] = [];
+    const channels = new PublicChannels(db, new RedisMessageRequestIdempotency(redis), {
+      publish: async (channel: string, data: unknown) => {
+        published.push({ channel, data });
+      },
+      publishJson: async () => {},
+      broadcast: async () => {},
+    } as unknown as ConstructorParameters<typeof PublicChannels>[2]);
+    const triage = await channels.create(workspace.id, alice.id, `notify-${suffix}`);
+    const send = {
+      workspaceId: workspace.id,
+      userId: alice.id,
+      channelId: triage.id,
+      requestId: crypto.randomUUID(),
+      body: `@nb${suffix} and @helper, have a look`,
+    };
+    const sent = await channels.send(send);
+    const [forBob, forHelper] = sent.pendingMentionActions.map((action) => action.resolutionId);
+
+    const results = await channels.executeMentionActions(workspace.id, alice.id, "notify", [
+      forBob!,
+      forHelper!,
+    ]);
+    expect(results.map((result) => [result.targetType, result.status, result.reason])).toEqual([
+      ["user", "queued", undefined],
+      ["agent", "queued", undefined],
+    ]);
+    // The Agent gets this one message, marked as reaching it outside the channel.
+    const delivery = decodeAgentMessageDelivery(published.at(-1)!.data as Uint8Array);
+    expect([delivery.agentId, delivery.messageId, delivery.nonMemberMention]).toEqual([
+      helper.id,
+      sent.id,
+      true,
+    ]);
+    const repo = new PrismaDirectConversationRepository(db);
+    expect(
+      (await repo.readPendingAgentDeliveries(workspace.id, helper.id)).map((pending) => [
+        pending.messageId,
+        pending.nonMemberMention,
+      ]),
+    ).toEqual([[sent.id, true]]);
+    // Its `message check` reads the message once, marked as reaching it outside the channel.
+    const drained = await repo.drainAgentEvents(workspace.id, helper.id);
+    expect(
+      drained.messages.map((message) => [message.id, message.target, message.nonMemberMention]),
+    ).toEqual([[sent.id, `#notify-${suffix}`, true]]);
+    expect((await repo.drainAgentEvents(workspace.id, helper.id)).messages).toEqual([]);
+    // Notified once; still addable.
+    expect(
+      (
+        await channels.executeMentionActions(workspace.id, alice.id, "notify", [
+          forBob!,
+          forHelper!,
+        ])
+      ).map((result) => [result.status, result.reason]),
+    ).toEqual([
+      ["queued", "already_queued"],
+      ["queued", "already_queued"],
+    ]);
+    expect(await db.agentMessageDelivery.count({ where: { messageId: sent.id } })).toBe(1);
+    expect(
+      (await channels.send(send)).pendingMentionActions.map((action) => action.availableActions),
+    ).toEqual([["add"], ["add"]]);
+  } finally {
+    await db.workspace.delete({ where: { id: workspace.id } });
+    await db.computer.deleteMany({ where: { ownerId: alice.id } });
+    await db.user.deleteMany({ where: { id: { in: [alice.id, bob.id] } } });
     await db.$disconnect();
     redis.close();
   }

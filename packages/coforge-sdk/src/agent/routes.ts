@@ -24,6 +24,10 @@ export const agentApiRoutes = {
       method: "GET",
       path: (name: string) => `/api/agent/v1/users/${encodeURIComponent(name)}`,
     },
+    mentionActions: {
+      pending: { method: "GET", path: "/api/agent/v1/mention-actions/pending" },
+      execute: { method: "POST", path: "/api/agent/v1/mention-actions/execute" },
+    },
     profile: {
       get: { method: "GET", path: "/api/agent/v1/profile" },
       update: { method: "POST", path: "/api/agent/v1/profile" },
@@ -71,6 +75,10 @@ export const agentApiRoutes = {
     users: {
       method: "GET",
       path: (name: string) => `/api/agent/v1/users/${encodeURIComponent(name)}`,
+    },
+    mentionActions: {
+      pending: { method: "GET", path: "/api/agent/v1/mention-actions/pending" },
+      execute: { method: "POST", path: "/api/agent/v1/mention-actions/execute" },
     },
     profile: {
       get: { method: "GET", path: "/api/agent/v1/profile" },
@@ -197,6 +205,10 @@ export const agentApiRoutes = {
     users: {
       method: "GET",
       path: (name: string) => `/api/agent/v1/users/${encodeURIComponent(name)}`,
+    },
+    mentionActions: {
+      pending: { method: "GET", path: "/api/agent/v1/mention-actions/pending" },
+      execute: { method: "POST", path: "/api/agent/v1/mention-actions/execute" },
     },
     profile: {
       get: { method: "GET", path: "/api/agent/v1/profile" },

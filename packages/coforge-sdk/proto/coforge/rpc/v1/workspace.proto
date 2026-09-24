@@ -255,6 +255,9 @@ message AgentMessageDelivery {
   string latest_sender_description = 14;
   // Present when the sender knows whether this delivery personally @mentioned the recipient Agent.
   optional bool mentions_agent = 15;
+  // True when the recipient Agent is not a member of the channel and was notified of this one
+  // message by the mention's sender; it can read the message but cannot reply in that channel.
+  optional bool non_member_mention = 16;
 }
 
 message AgentMessageDeliveryAck {

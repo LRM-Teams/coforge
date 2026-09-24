@@ -39,7 +39,9 @@ import { storeMessageBody } from "./message-references.server";
 import { unresolvedMentionHandles } from "./unresolved-mentions.server";
 import {
   claimMentionActions,
+  notifyMentionTargets,
   pendingMentionActionsForMessage,
+  publishNonMemberDeliveries,
   recordPendingMentionActions,
   releaseMentionActions,
   type MentionActionResult,
@@ -1484,22 +1486,37 @@ export class PublicChannels {
   }
 
   /**
-   * The sender acts on mentions of their messages that did not reach their target: `add` makes
-   * each target a member of the channel it was mentioned in, under the sender's own authority to
-   * add members. Results come back in request order, one per distinct resolution id.
+   * The sender acts on mentions of their messages that did not reach their target: `notify` has
+   * each target read that one message (see `notifyMentionTargets`); `add` makes each target a
+   * member of the channel it was mentioned in, under the sender's own authority to add members.
+   * Results come back in request order, one per distinct resolution id.
    */
   async executeMentionActions(
     workspaceId: string,
     userId: string,
-    action: "add",
+    action: "notify" | "add",
     resolutionIds: readonly string[],
   ): Promise<MentionActionResult[]> {
     await this.authorize(workspaceId, userId);
+    if (action === "notify") {
+      const { results, deliveries } = await notifyMentionTargets(
+        this.db,
+        workspaceId,
+        { userId },
+        resolutionIds,
+      );
+      await publishNonMemberDeliveries(
+        this.db,
+        this.publisher ?? createCentrifugoServerApi(),
+        workspaceId,
+        deliveries,
+      );
+      return results;
+    }
     const { refused, claimed } = await claimMentionActions(
       this.db,
       workspaceId,
-      userId,
-      action,
+      { userId },
       resolutionIds,
     );
     const results = new Map(refused.map((result) => [result.resolutionId, result]));

@@ -6,6 +6,7 @@ import {
   type MessageSenderKind,
 } from "@lrm/coforge-sdk/internal";
 import { AgentMessageValidationError } from "#src/server/conversations/agent-message-validation-error.server";
+import type { PendingMentionActionView } from "#src/server/conversations/pending-mention-actions.server";
 
 export type AgentMessageRepository = {
   readPendingAgentContext?(
@@ -128,6 +129,11 @@ export type AgentSendMessageResult = {
   withheldMessageCount?: number;
   /** Only when a sent message bypassed a hold and `freshnessContextMode !== "withheld"`. */
   recentUnread?: readonly AgentMessageRecord[];
+  /** Sent only: mentions of people outside the channel that notified no one, for the Agent to
+   * act on (`coforge mention`). */
+  pendingMentionActions?: readonly PendingMentionActionView[];
+  /** Sent only: `@handle`s that name nobody the Agent can see. */
+  unresolvedMentionHandles?: readonly string[];
 };
 
 /** Raft 1.0.32 `apmHeldFreshnessAvailableActions("send")`. */
@@ -153,10 +159,18 @@ export async function executeAgentSendMessage(
       body: string;
       attachmentIds?: string[];
       mentions?: AgentMentionSelector[];
-    }): Promise<{ id: string }>;
+    }): Promise<{
+      id: string;
+      pendingMentionActions?: readonly PendingMentionActionView[];
+      unresolvedMentionHandles?: readonly string[];
+    }>;
   },
   input: AgentSendMessageInput,
-): Promise<{ messageId: string }> {
+): Promise<{
+  messageId: string;
+  pendingMentionActions: readonly PendingMentionActionView[];
+  unresolvedMentionHandles: readonly string[];
+}> {
   const message = await sender.executeFromAgent({
     requestId: input.idempotencyKey,
     workspaceId: input.workspaceId,
@@ -166,7 +180,11 @@ export async function executeAgentSendMessage(
     attachmentIds: input.attachmentIds,
     mentions: input.mentions,
   });
-  return { messageId: message.id };
+  return {
+    messageId: message.id,
+    pendingMentionActions: message.pendingMentionActions ?? [],
+    unresolvedMentionHandles: message.unresolvedMentionHandles ?? [],
+  };
 }
 
 export async function executeAgentSendMessageWithPolicy(
@@ -236,6 +254,8 @@ export async function executeAgentSendMessageWithPolicy(
       decision: "bypass",
       reason: "continue_anyway",
       messageId: sent.messageId,
+      pendingMentionActions: sent.pendingMentionActions,
+      unresolvedMentionHandles: sent.unresolvedMentionHandles,
       producerFactId: await freshnessDecisionFactId({
         agentId: input.agentId,
         decision: "bypass",
@@ -338,6 +358,8 @@ export async function executeAgentSendMessageWithPolicy(
     decision: "forward",
     reason: forwardReason,
     messageId: sent.messageId,
+    pendingMentionActions: sent.pendingMentionActions,
+    unresolvedMentionHandles: sent.unresolvedMentionHandles,
     producerFactId: await freshnessDecisionFactId({
       agentId: input.agentId,
       decision: "forward",

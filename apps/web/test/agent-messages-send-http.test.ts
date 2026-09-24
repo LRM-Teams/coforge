@@ -40,6 +40,59 @@ test("takes Raft's idempotencyKey as the request's key, with structured mentions
   expect(receivedMentions).toEqual(mentions);
 });
 
+test("a sent message reports the mentions it did not reach: pending actions and unresolved handles", async () => {
+  const result = await handleAgentMessagesPost(
+    request({
+      target: "#triage",
+      content: "@bob @ghost look",
+      idempotencyKey: "idem-m",
+      sendDraft: true,
+    }),
+    { workspaceId: "workspace-1", agentId: "agent-1" },
+    {
+      repository: {},
+      sender: {
+        executeFromAgent: async () => ({
+          id: "sent-m",
+          pendingMentionActions: [
+            {
+              resolutionId: "22222222-2222-4222-8222-222222222222",
+              messageId: "sent-m",
+              targetType: "user" as const,
+              targetId: "33333333-3333-4333-8333-333333333333",
+              targetHandle: "bob",
+              targetLabel: "Bob",
+              targetAvatarUrl: null,
+              channelName: "triage",
+              availableActions: [],
+              expiresAt: new Date("2026-10-01T00:00:00Z"),
+            },
+          ],
+          unresolvedMentionHandles: ["ghost"],
+        }),
+      },
+    },
+  );
+  expect(result.status).toBe(200);
+  expect(await result.json()).toMatchObject({
+    state: "sent",
+    messageId: "sent-m",
+    pendingMentionActions: [
+      {
+        resolutionId: "22222222-2222-4222-8222-222222222222",
+        messageId: "sent-m",
+        targetType: "user",
+        targetHandle: "bob",
+        targetAvatarUrl: null,
+        reason: "not_member",
+        availableActions: [],
+        expiresAt: "2026-10-01T00:00:00.000Z",
+      },
+    ],
+    unresolvedMentionHandles: ["ghost"],
+  });
+});
+
 test("tolerates Raft's declared `continue` field without inventing semantics for it", async () => {
   const result = await handleAgentMessagesPost(
     request({ target: "@ada", content: "hello", idempotencyKey: "idem-2", continue: true }),

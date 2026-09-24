@@ -3,6 +3,7 @@ import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "#src/generated/prisma/client";
 import { PrismaDirectConversationRepository } from "#src/server/db/repositories/direct-conversation.repositories.server";
 import { ActivityInbox, type ActivityInboxItem } from "#src/server/inbox/activity-inbox.server";
+import { PublicChannels } from "#src/server/conversations/public-channels.server";
 
 /**
  * The Activity inbox against PostgreSQL: which conversations and threads a person sees, their
@@ -610,5 +611,76 @@ test("a person can only read and change their own inbox in their own Workspace",
     await db.workspace.delete({ where: { id: other.id } });
   } finally {
     await cleanup(db, suffix);
+  }
+});
+
+test("a person notified of a mention outside their channels finds it in Activity, reads it like any item, and it leaves on Done", async () => {
+  const db = database();
+  const suffix = crypto.randomUUID().slice(0, 8);
+  const alice = await db.user.create({ data: { username: `ma-${suffix}`, displayName: "Alice" } });
+  const bob = await db.user.create({ data: { username: `mb-${suffix}`, displayName: "Bob" } });
+  const workspace = await db.workspace.create({
+    data: {
+      slug: `mention-inbox-${suffix}`,
+      name: "Mention inbox",
+      members: { create: [{ userId: alice.id }, { userId: bob.id }] },
+    },
+  });
+  try {
+    const channels = new PublicChannels(db, undefined, {
+      publish: async () => {},
+      publishJson: async () => {},
+      broadcast: async () => {},
+    });
+    const triage = await channels.create(workspace.id, alice.id, `triage-${suffix}`);
+    const sent = await channels.send({
+      workspaceId: workspace.id,
+      userId: alice.id,
+      channelId: triage.id,
+      requestId: crypto.randomUUID(),
+      body: `@mb-${suffix} can you look at this`,
+    });
+    const inbox = new ActivityInbox(db);
+    const mentionsOf = async () =>
+      (await inbox.list(workspace.id, bob.id, { filter: "mentions" })).items;
+    // Not notified yet: nothing reached Bob.
+    expect(await mentionsOf()).toEqual([]);
+
+    const resolutionId = sent.pendingMentionActions[0]!.resolutionId;
+    await channels.executeMentionActions(workspace.id, alice.id, "notify", [resolutionId]);
+    const [item] = await mentionsOf();
+    expect(item).toMatchObject({
+      key: `mention:${resolutionId}`,
+      place: { kind: "channel", conversationId: triage.id, channelName: `triage-${suffix}` },
+      mentionAction: { resolutionId },
+      thread: null,
+      unreadCount: 1,
+      mentioned: true,
+    });
+    expect(item!.latest.id).toBe(sent.id);
+    expect((await inbox.navAttention(workspace.id, bob.id)).unread).toBe(1);
+    // Alice's own inbox never lists what she sent.
+    expect(
+      (await inbox.list(workspace.id, alice.id, { filter: "all" })).items.some(
+        (entry) => entry.mentionAction,
+      ),
+    ).toBe(false);
+
+    // Read and unread like any item: it stays listed either way.
+    await inbox.setMentionRead(workspace.id, bob.id, resolutionId, true);
+    expect((await mentionsOf()).map((entry) => entry.unreadCount)).toEqual([0]);
+    expect((await inbox.navAttention(workspace.id, bob.id)).unread).toBe(0);
+    await inbox.setMentionRead(workspace.id, bob.id, resolutionId, false);
+    expect((await mentionsOf()).map((entry) => entry.unreadCount)).toEqual([1]);
+    // Mark all read reads it too.
+    await inbox.markAllRead(workspace.id, bob.id, { before: new Date() });
+    expect((await inbox.navAttention(workspace.id, bob.id)).unread).toBe(0);
+
+    await inbox.markDone(workspace.id, bob.id, { kind: "mention_action", resolutionId });
+    expect(await mentionsOf()).toEqual([]);
+  } finally {
+    await db.workspace.delete({ where: { id: workspace.id } });
+    await db.user.deleteMany({ where: { id: { in: [alice.id, bob.id] } } });
+    await db.$disconnect();
   }
 });

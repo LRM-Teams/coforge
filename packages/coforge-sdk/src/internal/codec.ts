@@ -1011,6 +1011,7 @@ export function encodeAgentMessageDelivery(value: AgentMessageDelivery): Uint8Ar
       latestSenderHandle: value.latestSenderHandle ?? "",
       latestSenderDescription: value.latestSenderDescription ?? "",
       mentionsAgent: value.mentionsAgent,
+      nonMemberMention: value.nonMemberMention,
     }),
   );
 }
@@ -1048,6 +1049,7 @@ export function decodeAgentMessageDelivery(bytes: Uint8Array): AgentMessageDeliv
         }
       : {}),
     ...(value.mentionsAgent !== undefined ? { mentionsAgent: value.mentionsAgent } : {}),
+    ...(value.nonMemberMention ? { nonMemberMention: true } : {}),
   };
 }
 export function encodeAgentMessageDeliveryAck(value: AgentMessageDeliveryAck): Uint8Array {

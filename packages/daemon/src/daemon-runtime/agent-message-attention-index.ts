@@ -293,7 +293,13 @@ export class AgentMessageAttentionIndex {
       ...(latestSender
         ? { latestSenderKind: latestSender.kind, latestSenderHandle: latestSender.handle }
         : {}),
-      flags: [isChannelMessageTarget(target) ? "channel" : target.includes(":") ? "thread" : "dm"],
+      flags: [
+        isChannelMessageTarget(target) ? "channel" : target.includes(":") ? "thread" : "dm",
+        // Reached the Agent from outside the channel: it can read the message, not reply there.
+        ...(message.nonMemberMention || previous?.flags.includes("non_member_mention")
+          ? ["non_member_mention"]
+          : []),
+      ],
     };
     byTarget.set(target, current);
     this.#attention.set(message.agentId, byTarget);

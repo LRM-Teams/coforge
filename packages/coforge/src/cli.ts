@@ -51,8 +51,10 @@ export async function runAgentCli(args: readonly string[]): Promise<void> {
     if (typeof result === "string") console.log(result);
     else if (result !== undefined) console.log(JSON.stringify(result));
   } catch (error) {
-    if (error instanceof CliError) console.error(renderCliError(error));
-    else console.error(error instanceof Error ? error.message : String(error));
+    if (error instanceof CliError) {
+      if (error.stdoutText) console.log(error.stdoutText);
+      console.error(renderCliError(error));
+    } else console.error(error instanceof Error ? error.message : String(error));
     process.exitCode = 1;
   }
 }

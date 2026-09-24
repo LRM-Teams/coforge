@@ -80,3 +80,12 @@ test("builds resolve and reaction routes for the messages resource", () => {
   expect(agentApiRoutes.cloud.messages.reactions.add).toEqual({ method: "POST" });
   expect(agentApiRoutes.cloud.messages.reactions.remove).toEqual({ method: "DELETE" });
 });
+
+test("exposes the mention action routes identically to the Proxy, the local client, and the cloud", () => {
+  const pending = { method: "GET", path: "/api/agent/v1/mention-actions/pending" } as const;
+  const execute = { method: "POST", path: "/api/agent/v1/mention-actions/execute" } as const;
+  for (const surface of [agentApiRoutes.proxy, agentApiRoutes.local, agentApiRoutes.cloud]) {
+    expect(surface.mentionActions.pending).toEqual(pending);
+    expect(surface.mentionActions.execute).toEqual(execute);
+  }
+});

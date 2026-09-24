@@ -54,7 +54,11 @@ import { cn } from "#src/lib/utils";
 import { DeletedAgentBadge } from "#src/features/agents/deleted-agent";
 import { m } from "#src/paraglide/messages";
 import type { ActivityInboxItem } from "#src/server/inbox/activity-inbox.server";
-import { markActivityInboxRead, markActivityItemDone } from "./activity-inbox.functions";
+import {
+  markActivityInboxRead,
+  markActivityItemDone,
+  setActivityMentionRead,
+} from "./activity-inbox.functions";
 import { useActivityInboxRealtime } from "./use-activity-inbox-realtime";
 import {
   ACTIVITY_INBOX_LISTS_KEY,
@@ -268,6 +272,7 @@ function useActivityItemActions({
   const setDirectUnread = useServerFn(setDirectConversationUnread);
   const setThreadFollowed = useServerFn(setPublicChannelThreadFollowed);
   const markDone = useServerFn(markActivityItemDone);
+  const setMentionRead = useServerFn(setActivityMentionRead);
 
   return useMemo(() => {
     function run(action: () => Promise<unknown>) {
@@ -280,7 +285,15 @@ function useActivityItemActions({
         .finally(onChanged);
     }
 
-    function read({ place, thread, latestSequence: throughSequence }: ActivityInboxItem) {
+    function read({
+      place,
+      thread,
+      latestSequence: throughSequence,
+      mentionAction,
+    }: ActivityInboxItem) {
+      // A mention the viewer was notified of keeps its own read state: they are not in the channel.
+      if (mentionAction)
+        return setMentionRead({ data: { resolutionId: mentionAction.resolutionId, read: true } });
       if (thread) {
         const threadRootId = thread.root.id;
         return place.kind === "channel"
@@ -298,11 +311,13 @@ function useActivityItemActions({
       read: (item: ActivityInboxItem) => run(() => read(item)),
       // Saved directly: the sidebar's optimistic lists are synced only on the Chat page, and the
       // refresh afterwards brings the sidebar's badge along.
-      unread: ({ place }: ActivityInboxItem) =>
+      unread: ({ place, mentionAction }: ActivityInboxItem) =>
         run(() =>
-          place.kind === "channel"
-            ? setChannelUnread({ data: { channelId: place.conversationId, unread: true } })
-            : setDirectUnread({ data: { agentId: place.agent.id, unread: true } }),
+          mentionAction
+            ? setMentionRead({ data: { resolutionId: mentionAction.resolutionId, read: false } })
+            : place.kind === "channel"
+              ? setChannelUnread({ data: { channelId: place.conversationId, unread: true } })
+              : setDirectUnread({ data: { agentId: place.agent.id, unread: true } }),
         ),
       unfollow: ({ place, thread }: ActivityInboxItem) => {
         if (!thread) return;
@@ -323,18 +338,20 @@ function useActivityItemActions({
         );
         run(() =>
           markDone({
-            data: item.thread
-              ? {
-                  kind: "thread",
-                  conversationId: item.place.conversationId,
-                  rootMessageId: item.thread.root.id,
-                  throughSequence: item.latestSequence,
-                }
-              : {
-                  kind: "conversation",
-                  conversationId: item.place.conversationId,
-                  throughSequence: item.latestSequence,
-                },
+            data: item.mentionAction
+              ? { kind: "mention_action", resolutionId: item.mentionAction.resolutionId }
+              : item.thread
+                ? {
+                    kind: "thread",
+                    conversationId: item.place.conversationId,
+                    rootMessageId: item.thread.root.id,
+                    throughSequence: item.latestSequence,
+                  }
+                : {
+                    kind: "conversation",
+                    conversationId: item.place.conversationId,
+                    throughSequence: item.latestSequence,
+                  },
           }),
         );
       },
@@ -351,6 +368,7 @@ function useActivityItemActions({
     setDirectUnread,
     setThreadFollowed,
     markDone,
+    setMentionRead,
   ]);
 }
 
@@ -374,7 +392,8 @@ function withoutItem(
 /**
  * Where a card goes. A thread opens in its pane beside its root, scrolled to the first unread
  * reply; a conversation opens at its first unread message, or its newest one when everything is
- * read.
+ * read. A mention the viewer was notified of opens at that message, in its thread when it is a
+ * reply.
  */
 function openTarget({
   place,
@@ -382,7 +401,17 @@ function openTarget({
   unreadCount,
   firstUnreadMessageId,
   latest,
+  mentionAction,
 }: ActivityInboxItem) {
+  if (mentionAction)
+    return {
+      to: "/messages/channels/$channelId" as const,
+      params: { channelId: place.conversationId },
+      search: mentionAction.threadRootId
+        ? { threadRootId: mentionAction.threadRootId, message: mentionAction.threadRootId }
+        : { message: latest.id },
+      hash: mentionAction.threadRootId ? `message-${latest.id}` : undefined,
+    };
   const unreadAnchor = unreadCount > 0 ? firstUnreadMessageId : null;
   const search = thread
     ? { threadRootId: thread.root.id, message: thread.root.id }

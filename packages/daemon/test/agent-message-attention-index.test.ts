@@ -95,6 +95,28 @@ test("server-authored assignment attention preserves system identity", async () 
   expect(notices[0]).not.toContain("private body");
 });
 
+test("an Agent-authored message the Agent was notified of from outside the channel wakes it and is flagged", async () => {
+  const notices: string[] = [];
+  const shared = session((notice) => {
+    notices.push(notice);
+  });
+  const index = new AgentMessageAttentionIndex(
+    "workspace-1",
+    { session: () => shared },
+    async () => {},
+  );
+  await index.receive({
+    ...delivery("channel", "agent", "scout"),
+    target: "#triage",
+    mentionsAgent: true,
+    nonMemberMention: true,
+  });
+  expect(index.check("agent-1")).toEqual([
+    expect.objectContaining({ target: "#triage", flags: ["channel", "non_member_mention"] }),
+  ]);
+  expect(notices).toHaveLength(1);
+});
+
 test("channel delivery and restart recovery notify the same session without injecting history", async () => {
   const notices: string[] = [];
   const shared = session((notice) => {

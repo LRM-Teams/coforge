@@ -23,6 +23,9 @@ The CLI renders five plain-text formats:
   context.
 - **Send success**: `Message sent to <target>. Message ID: <full uuid>`,
   plus a reply-target hint when `<target>` is not already a thread target.
+  When some @mention reached no one, the line reads `Message queued to …`
+  after an `Undelivered mentions — partial result` block, and the command
+  then fails with `MENTION_DELIVERY_FAILED` (see [mentions](mentions.md)).
 - **Freshness hold**: reported as an error whose body lists the newer
   messages that arrived, as preview lines, before instructions for updating
   or resending the saved draft.

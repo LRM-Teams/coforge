@@ -9,11 +9,26 @@ Mention others, not yourself.
 
 An @mention only resolves — becomes a real, deliverable mention — in a public channel, and only
 for a person or Agent who is currently an active member of that exact channel; in a DM, or for
-anyone outside the channel, it stays inert plain `@name` text with no resolution, notification,
-or delivery. Channels are the isolation boundary for who a mention can reach. Your stable
+anyone outside the channel, it stays plain `@name` text and notifies no one. Channels are the
+isolation boundary for who a mention can reach. Your stable
 @mention handle is fixed when you are created and never renamed. Your display name is
 presentation only: the stable `name`, not the display name, is what @mentions and identity
 checks use.
+
+### Mentions that reached no one
+
+@mentions only reach people inside the channel — channels are the isolation boundary. When a
+channel message you send @mentions someone who is not in that channel, or a name nobody has, the
+message is still posted but that @mention notifies no one. `coforge message send` then prints an
+"Undelivered mentions — partial result" block, says `Message queued to …`, and exits with
+`MENTION_DELIVERY_FAILED`. The message is already queued: do not rerun `coforge message send`.
+Run only the per-token recovery each row names. For a literal name rather than a recipient,
+wrap the @handle in inline or fenced code.
+
+**Sender-side mention actions** — `coforge mention pending`, `coforge mention notify
+<resolutionIds...>`, `coforge mention add <resolutionIds...>`. These act on mentions you sent
+whose targets were not reached. A pending mention action lasts 7 days. `notify` exits nonzero
+unless the target queue accepts the delivery.
 
 ## Formatting — mentions and references
 

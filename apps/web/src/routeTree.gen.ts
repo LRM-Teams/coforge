@@ -86,6 +86,8 @@ import { Route as ApiAgentV1AttachmentsAttachmentIdRouteImport } from './routes/
 import { Route as ApiAgentV1AttachmentsCapabilitiesRouteImport } from './routes/api/agent/v1/attachments/capabilities'
 import { Route as ApiAgentV1ChannelsChannelRouteImport } from './routes/api/agent/v1/channels_.$channel'
 import { Route as ApiAgentV1ManualSearchRouteImport } from './routes/api/agent/v1/manual_.search'
+import { Route as ApiAgentV1MentionActionsExecuteRouteImport } from './routes/api/agent/v1/mention-actions_.execute'
+import { Route as ApiAgentV1MentionActionsPendingRouteImport } from './routes/api/agent/v1/mention-actions_.pending'
 import { Route as ApiAgentV1MessagesSearchRouteImport } from './routes/api/agent/v1/messages_.search'
 import { Route as ApiAgentV1UsersNameRouteImport } from './routes/api/agent/v1/users/$name'
 import { Route as ApiProjectsProjectIdRawSplatRouteImport } from './routes/api/projects.$projectId.raw.$'
@@ -510,6 +512,18 @@ const ApiAgentV1ManualSearchRoute = ApiAgentV1ManualSearchRouteImport.update({
   path: '/api/agent/v1/manual/search',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiAgentV1MentionActionsExecuteRoute =
+  ApiAgentV1MentionActionsExecuteRouteImport.update({
+    id: '/api/agent/v1/mention-actions_/execute',
+    path: '/api/agent/v1/mention-actions/execute',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const ApiAgentV1MentionActionsPendingRoute =
+  ApiAgentV1MentionActionsPendingRouteImport.update({
+    id: '/api/agent/v1/mention-actions_/pending',
+    path: '/api/agent/v1/mention-actions/pending',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const ApiAgentV1MessagesSearchRoute =
   ApiAgentV1MessagesSearchRouteImport.update({
     id: '/api/agent/v1/messages_/search',
@@ -681,6 +695,8 @@ export interface FileRoutesByFullPath {
   '/api/agent/v1/attachments/capabilities': typeof ApiAgentV1AttachmentsCapabilitiesRoute
   '/api/agent/v1/channels/$channel': typeof ApiAgentV1ChannelsChannelRouteWithChildren
   '/api/agent/v1/manual/search': typeof ApiAgentV1ManualSearchRoute
+  '/api/agent/v1/mention-actions/execute': typeof ApiAgentV1MentionActionsExecuteRoute
+  '/api/agent/v1/mention-actions/pending': typeof ApiAgentV1MentionActionsPendingRoute
   '/api/agent/v1/messages/search': typeof ApiAgentV1MessagesSearchRoute
   '/api/agent/v1/users/$name': typeof ApiAgentV1UsersNameRoute
   '/api/projects/$projectId/raw/$': typeof ApiProjectsProjectIdRawSplatRoute
@@ -772,6 +788,8 @@ export interface FileRoutesByTo {
   '/api/agent/v1/attachments/capabilities': typeof ApiAgentV1AttachmentsCapabilitiesRoute
   '/api/agent/v1/channels/$channel': typeof ApiAgentV1ChannelsChannelRouteWithChildren
   '/api/agent/v1/manual/search': typeof ApiAgentV1ManualSearchRoute
+  '/api/agent/v1/mention-actions/execute': typeof ApiAgentV1MentionActionsExecuteRoute
+  '/api/agent/v1/mention-actions/pending': typeof ApiAgentV1MentionActionsPendingRoute
   '/api/agent/v1/messages/search': typeof ApiAgentV1MessagesSearchRoute
   '/api/agent/v1/users/$name': typeof ApiAgentV1UsersNameRoute
   '/api/projects/$projectId/raw/$': typeof ApiProjectsProjectIdRawSplatRoute
@@ -868,6 +886,8 @@ export interface FileRoutesById {
   '/api/agent/v1/attachments/capabilities': typeof ApiAgentV1AttachmentsCapabilitiesRoute
   '/api/agent/v1/channels_/$channel': typeof ApiAgentV1ChannelsChannelRouteWithChildren
   '/api/agent/v1/manual_/search': typeof ApiAgentV1ManualSearchRoute
+  '/api/agent/v1/mention-actions_/execute': typeof ApiAgentV1MentionActionsExecuteRoute
+  '/api/agent/v1/mention-actions_/pending': typeof ApiAgentV1MentionActionsPendingRoute
   '/api/agent/v1/messages_/search': typeof ApiAgentV1MessagesSearchRoute
   '/api/agent/v1/users/$name': typeof ApiAgentV1UsersNameRoute
   '/api/projects/$projectId/raw/$': typeof ApiProjectsProjectIdRawSplatRoute
@@ -964,6 +984,8 @@ export interface FileRouteTypes {
     | '/api/agent/v1/attachments/capabilities'
     | '/api/agent/v1/channels/$channel'
     | '/api/agent/v1/manual/search'
+    | '/api/agent/v1/mention-actions/execute'
+    | '/api/agent/v1/mention-actions/pending'
     | '/api/agent/v1/messages/search'
     | '/api/agent/v1/users/$name'
     | '/api/projects/$projectId/raw/$'
@@ -1055,6 +1077,8 @@ export interface FileRouteTypes {
     | '/api/agent/v1/attachments/capabilities'
     | '/api/agent/v1/channels/$channel'
     | '/api/agent/v1/manual/search'
+    | '/api/agent/v1/mention-actions/execute'
+    | '/api/agent/v1/mention-actions/pending'
     | '/api/agent/v1/messages/search'
     | '/api/agent/v1/users/$name'
     | '/api/projects/$projectId/raw/$'
@@ -1150,6 +1174,8 @@ export interface FileRouteTypes {
     | '/api/agent/v1/attachments/capabilities'
     | '/api/agent/v1/channels_/$channel'
     | '/api/agent/v1/manual_/search'
+    | '/api/agent/v1/mention-actions_/execute'
+    | '/api/agent/v1/mention-actions_/pending'
     | '/api/agent/v1/messages_/search'
     | '/api/agent/v1/users/$name'
     | '/api/projects/$projectId/raw/$'
@@ -1220,6 +1246,8 @@ export interface RootRouteChildren {
   ApiAgentV1AttachmentsCapabilitiesRoute: typeof ApiAgentV1AttachmentsCapabilitiesRoute
   ApiAgentV1ChannelsChannelRoute: typeof ApiAgentV1ChannelsChannelRouteWithChildren
   ApiAgentV1ManualSearchRoute: typeof ApiAgentV1ManualSearchRoute
+  ApiAgentV1MentionActionsExecuteRoute: typeof ApiAgentV1MentionActionsExecuteRoute
+  ApiAgentV1MentionActionsPendingRoute: typeof ApiAgentV1MentionActionsPendingRoute
   ApiAgentV1MessagesSearchRoute: typeof ApiAgentV1MessagesSearchRoute
   ApiAgentV1UsersNameRoute: typeof ApiAgentV1UsersNameRoute
   ApiProjectsProjectIdRawSplatRoute: typeof ApiProjectsProjectIdRawSplatRoute
@@ -1773,6 +1801,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiAgentV1ManualSearchRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/agent/v1/mention-actions_/execute': {
+      id: '/api/agent/v1/mention-actions_/execute'
+      path: '/api/agent/v1/mention-actions/execute'
+      fullPath: '/api/agent/v1/mention-actions/execute'
+      preLoaderRoute: typeof ApiAgentV1MentionActionsExecuteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/agent/v1/mention-actions_/pending': {
+      id: '/api/agent/v1/mention-actions_/pending'
+      path: '/api/agent/v1/mention-actions/pending'
+      fullPath: '/api/agent/v1/mention-actions/pending'
+      preLoaderRoute: typeof ApiAgentV1MentionActionsPendingRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/agent/v1/messages_/search': {
       id: '/api/agent/v1/messages_/search'
       path: '/api/agent/v1/messages/search'
@@ -2096,6 +2138,8 @@ const rootRouteChildren: RootRouteChildren = {
     ApiAgentV1AttachmentsCapabilitiesRoute,
   ApiAgentV1ChannelsChannelRoute: ApiAgentV1ChannelsChannelRouteWithChildren,
   ApiAgentV1ManualSearchRoute: ApiAgentV1ManualSearchRoute,
+  ApiAgentV1MentionActionsExecuteRoute: ApiAgentV1MentionActionsExecuteRoute,
+  ApiAgentV1MentionActionsPendingRoute: ApiAgentV1MentionActionsPendingRoute,
   ApiAgentV1MessagesSearchRoute: ApiAgentV1MessagesSearchRoute,
   ApiAgentV1UsersNameRoute: ApiAgentV1UsersNameRoute,
   ApiProjectsProjectIdRawSplatRoute: ApiProjectsProjectIdRawSplatRoute,
