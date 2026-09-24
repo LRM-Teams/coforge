@@ -146,8 +146,12 @@ export const listComputers = createServerFn({ method: "GET" })
       }),
       visibility.list({ workspaceId, userId: user.id }),
     ]);
+    // One round trip for every Computer's online lease, not one per Computer.
+    const statuses = await computerStatus.getMany(
+      connections.map(({ computer }) => ({ workspaceId, computerId: computer.id })),
+    );
     return Promise.all(
-      connections.map(async ({ computer, createdAt }) => {
+      connections.map(async ({ computer, createdAt }, index) => {
         const computerRuntimes = runtimes.filter((runtime) => runtime.computerId === computer.id);
         return {
           id: computer.id,
@@ -168,10 +172,7 @@ export const listComputers = createServerFn({ method: "GET" })
           },
           connectedAt: createdAt,
           ownedByCurrentUser: computer.ownerId === user.id,
-          online: await computerStatus.get({
-            workspaceId,
-            computerId: computer.id,
-          }),
+          online: statuses[index] ?? false,
           runtimes: computerRuntimes.map(({ ownerId: _ownerId, ...runtime }) => runtime),
         };
       }),
