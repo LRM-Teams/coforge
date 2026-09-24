@@ -75,6 +75,7 @@
   "agent_form_submitting": "正在创建…",
   "agent_form_required_error": "名称和描述为必填项。",
   "agent_form_server_error": "无法创建智能体，请重试。",
+  "agent_form_name_taken": "已有智能体使用这个用户名，请换一个。",
   "agent_detail_tabs": "智能体详情",
   "agent_profile_tab": "资料",
   "agent_activity_tab": "活动",

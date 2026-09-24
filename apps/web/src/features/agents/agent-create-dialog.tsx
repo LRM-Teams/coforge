@@ -14,6 +14,7 @@ import { TextArea } from "#src/components/base/textarea/textarea";
 import { StatusDot } from "#src/components/ui/status-dot";
 import { m } from "#src/paraglide/messages";
 import { AGENT_VISIBILITY, type AgentVisibility } from "./agent-visibility";
+import { agentCreateErrorMessage } from "./agent-form";
 import { AgentRuntimeFields, type RuntimeCatalog } from "./agent-runtime-fields";
 import type { CreateAgentInput } from "./agent.schemas";
 
@@ -83,8 +84,8 @@ export function AgentCreateDialog({
         setVisibility(AGENT_VISIBILITY.PUBLIC);
         onOpenChange(false);
         onCreated?.(result);
-      } catch {
-        setError(m.agent_form_server_error());
+      } catch (cause) {
+        setError(agentCreateErrorMessage(cause));
       }
     });
   }

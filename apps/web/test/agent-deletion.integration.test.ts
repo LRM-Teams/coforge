@@ -223,7 +223,7 @@ test.skipIf(!connectionString)(
         where: { id: agent.id },
         select: { name: true, deletedAt: true },
       });
-      expect(deletedRow!.name).toBe(`${agent.name}-deleted-${agent.id}`);
+      expect(deletedRow!.name).toMatch(new RegExp(`^${agent.name}-deleted-[0-9a-f]{12}$`));
       expect(deletedRow!.deletedAt).not.toBeNull();
 
       // A plain member may not delete, even though they are a Workspace member.
@@ -259,6 +259,117 @@ test.skipIf(!connectionString)(
       );
     } finally {
       await teardown(db, workspace.id, [owner.id, member.id]);
+    }
+  },
+);
+
+test.skipIf(!connectionString)(
+  "a deleted Agent with a maximum-length name stays readable to other Agents after its name is reused",
+  async () => {
+    const { db, workspace, owner, agent: reader } = await setup();
+    const runtimeConfig = {
+      runtime: "pi",
+      provider: { kind: "default" },
+      model: "",
+      modelProvider: "",
+      reasoning: "",
+    } as const;
+    try {
+      const agents = new PrismaAgentRepository(db);
+      // The longest username the create form accepts (`AGENT_NAME_MAX_LENGTH`).
+      const longName = `long-${crypto.randomUUID().replaceAll("-", "")}`.padEnd(60, "x");
+      expect(longName).toHaveLength(60);
+      const doomed = await agents.create({
+        workspaceId: workspace.id,
+        name: longName,
+        displayName: "Long",
+        ownerId: owner.id,
+        runtimeConfig,
+      });
+      // A #general message from the long-named Agent, delivered to the reader Agent.
+      const general = await db.conversation.findFirstOrThrow({
+        where: { workspaceId: workspace.id, channelName: "general" },
+        select: { id: true },
+      });
+      const senderMember = await db.conversationMember.findUniqueOrThrow({
+        where: { conversationId_agentId: { conversationId: general.id, agentId: doomed.id } },
+        select: { id: true },
+      });
+      const message = await db.message.create({
+        data: {
+          conversationId: general.id,
+          workspaceId: workspace.id,
+          senderMemberId: senderMember.id,
+          body: "Before I go.",
+          sequence: 1,
+        },
+      });
+      await db.agentMessageDelivery.create({
+        data: {
+          messageId: message.id,
+          workspaceId: workspace.id,
+          conversationId: general.id,
+          agentId: reader.id,
+          sequence: 1,
+        },
+      });
+
+      await deletionFor(db, []).delete(
+        { userId: owner.id, workspaceId: workspace.id, role: "owner" },
+        doomed.id,
+      );
+      await agents.create({
+        workspaceId: workspace.id,
+        name: longName,
+        displayName: "Long again",
+        ownerId: owner.id,
+        runtimeConfig,
+      });
+
+      // The reader still sees the deleted Agent's message, under a handle distinct from the
+      // name the new Agent now holds.
+      const context = await new PrismaDirectConversationRepository(db).readRecentAgentContext(
+        workspace.id,
+        reader.id,
+        "#general",
+        10,
+      );
+      const read = context.find((row) => row.id === message.id);
+      expect(read).toBeDefined();
+      expect(read!.senderKind).toBe("agent");
+      expect(read!.senderHandle).not.toBe(longName);
+    } finally {
+      await teardown(db, workspace.id, [owner.id]);
+    }
+  },
+);
+
+test.skipIf(!connectionString)(
+  "creating an Agent with a live Agent's name is refused as a taken name",
+  async () => {
+    const { db, workspace, owner, agent } = await setup();
+    try {
+      await expect(
+        Promise.resolve(
+          new PrismaAgentRepository(db).create({
+            workspaceId: workspace.id,
+            name: agent.name,
+            displayName: "Twin",
+            ownerId: owner.id,
+            runtimeConfig: {
+              runtime: "pi",
+              provider: { kind: "default" },
+              model: "",
+              modelProvider: "",
+              reasoning: "",
+            },
+          }),
+        ),
+      ).rejects.toMatchObject({ code: "INVALID_INPUT", errorId: "agent-name-taken" });
+      // The live holder keeps its name.
+      expect((await db.agent.findUniqueOrThrow({ where: { id: agent.id } })).name).toBe(agent.name);
+    } finally {
+      await teardown(db, workspace.id, [owner.id]);
     }
   },
 );
