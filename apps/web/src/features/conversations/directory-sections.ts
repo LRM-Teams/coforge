@@ -1,10 +1,11 @@
 /**
- * Per-device collapse state for the Chat sidebar's CHANNELS / DIRECT MESSAGES groups.
+ * Per-device collapse state for the Chat sidebar's PINNED / CHANNELS / DIRECT MESSAGES groups.
  * Read only after mount (see `conversation-directory.tsx`) so SSR markup never depends on it —
  * same reasoning as `layout-storage.ts`, where touching `localStorage` during Nitro's
  * `renderToReadableStream` throws.
  */
-export type DirectorySectionId = "channels" | "agents";
+const DIRECTORY_SECTION_IDS = ["pinned", "channels", "agents"] as const;
+export type DirectorySectionId = (typeof DIRECTORY_SECTION_IDS)[number];
 
 const STORAGE_KEY = "coforge-chat-sections-collapsed";
 
@@ -15,7 +16,7 @@ export function readCollapsedSections(): DirectorySectionId[] {
     if (!raw) return [];
     const parsed: unknown = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
-    return parsed.filter((id): id is DirectorySectionId => id === "channels" || id === "agents");
+    return parsed.filter((id): id is DirectorySectionId => DIRECTORY_SECTION_IDS.includes(id));
   } catch {
     return [];
   }

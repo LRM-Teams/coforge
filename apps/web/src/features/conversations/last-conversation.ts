@@ -57,7 +57,8 @@ export function rememberedConversation(workspaceId: string): ConversationTarget 
 
 type ListedChannel = { id: string; joined: boolean; archived: boolean };
 
-/** The first channel the viewer has joined, in sidebar order: the top of the CHANNELS group. */
+/** The first channel the viewer has joined, in the channel list's order (#general first). Pins do
+ * not reorder that list: pinned rows are gathered in the sidebar's own Pinned section. */
 export function firstJoinedChannel(channels: readonly ListedChannel[]): string | undefined {
   return channels.find((channel) => channel.joined && !channel.archived)?.id;
 }

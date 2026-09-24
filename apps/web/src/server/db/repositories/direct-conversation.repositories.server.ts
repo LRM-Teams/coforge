@@ -1,4 +1,5 @@
 import { lockConversation } from "#src/server/conversations/conversation-lock.server";
+import { setConversationPin } from "#src/server/conversations/conversation-pins.server";
 import type { MessageSenderKind, MessageTaskMetadata, TaskStatus } from "@lrm/coforge-sdk/internal";
 import { Prisma, type PrismaClient } from "#src/generated/prisma/client";
 import { AppError } from "#src/lib/app-error";
@@ -1012,17 +1013,12 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
     );
     await this.db.$transaction(async (tx) => {
       await lockConversation(tx, conversationId);
-      const where = { conversationId, memberId };
-      if (!pinned) {
-        await tx.conversationPin.deleteMany({ where });
-        return;
-      }
-      const order = sortOrder ?? (await tx.conversationPin.count({ where: { memberId } }));
-      await tx.conversationPin.upsert({
-        where: { conversationId_memberId: where },
-        create: { conversationId, memberId, workspaceId, sortOrder: order },
-        update: { sortOrder: order },
-      });
+      await setConversationPin(
+        tx,
+        { workspaceId, userId, conversationId, memberId },
+        pinned,
+        sortOrder,
+      );
     });
     return { pinned };
   }
@@ -1126,16 +1122,19 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
           )
       `,
     ]);
+    const pinned = pins
+      .flatMap((pin) =>
+        pin.conversation.members.map((m) => ({ agentId: m.agentId!, sortOrder: pin.sortOrder })),
+      )
+      .sort((left, right) => left.sortOrder - right.sortOrder);
+    const pinnedAgentIds = new Set(pinned.map((pin) => pin.agentId));
     return {
       conversations: conversations.flatMap((row) =>
         row.conversation.members.map((member) => member.agentId!),
       ),
-      pinned: pins
-        .flatMap((pin) =>
-          pin.conversation.members.map((m) => ({ agentId: m.agentId!, sortOrder: pin.sortOrder })),
-        )
-        .sort((left, right) => left.sortOrder - right.sortOrder),
-      hidden: hidden.map((row) => row.agentId),
+      pinned,
+      // A closed DM stays listed while it is pinned, the way a closed channel does.
+      hidden: hidden.map((row) => row.agentId).filter((agentId) => !pinnedAgentIds.has(agentId)),
     };
   }
 

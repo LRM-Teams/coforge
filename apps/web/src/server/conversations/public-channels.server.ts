@@ -1,4 +1,5 @@
 import { lockConversation } from "./conversation-lock.server";
+import { setConversationPin } from "./conversation-pins.server";
 import type { Prisma, PrismaClient } from "#src/generated/prisma/client";
 import { AppError } from "#src/lib/app-error";
 import { windowPageFlags } from "#src/lib/conversation-window";
@@ -335,9 +336,9 @@ export class PublicChannels {
     return { muted };
   }
 
-  /** Pins this conversation for this member only, appending it after the member's other pins
-   * unless a caller supplies an order. Unpinning removes the row rather than zeroing it, so
-   * membership and pin state stay independent of archive/leave (see `ConversationPin`). */
+  /** Pins this conversation for this member only (see `setConversationPin` for the order).
+   * Unpinning removes the row rather than zeroing it, so membership and pin state stay
+   * independent of archive/leave (see `ConversationPin`). */
   async setUserPinned(
     workspaceId: string,
     userId: string,
@@ -353,24 +354,12 @@ export class PublicChannels {
         select: { id: true },
       });
       if (!member) throw new AppError("ACCESS_DENIED");
-      const where = { conversationId: channel.id, memberId: member.id };
-      if (!pinned) {
-        await tx.conversationPin.deleteMany({ where });
-        return;
-      }
-      const key = { conversationId_memberId: where };
-      const order =
-        sortOrder ?? (await tx.conversationPin.count({ where: { memberId: member.id } }));
-      await tx.conversationPin.upsert({
-        where: key,
-        create: {
-          conversationId: channel.id,
-          memberId: member.id,
-          workspaceId,
-          sortOrder: order,
-        },
-        update: { sortOrder: order },
-      });
+      await setConversationPin(
+        tx,
+        { workspaceId, userId, conversationId: channel.id, memberId: member.id },
+        pinned,
+        sortOrder,
+      );
     });
     return { pinned };
   }
@@ -688,12 +677,14 @@ export class PublicChannels {
           pinSortOrder: pin ? pin.sortOrder : null,
         };
       })
-      .filter((channel) => !channel.hidden)
-      .sort((a, b) =>
-        // Pinned conversations sit above the rest, in the order the member arranged them (#121).
-        a.pinned || b.pinned
-          ? Number(b.pinned) - Number(a.pinned) || (a.pinSortOrder ?? 0) - (b.pinSortOrder ?? 0)
-          : Number(b.name === "general") - Number(a.name === "general"),
+      .filter(
+        // A closed chat leaves the list unless it is pinned: Pinned keeps every pin.
+        (channel) => !channel.hidden || channel.pinned,
+      )
+      .sort(
+        // #general first, then by name. Pinned rows are ordered by `pinSortOrder` in the
+        // sidebar's Pinned section, which merges them with pinned DMs.
+        (a, b) => Number(b.name === "general") - Number(a.name === "general"),
       );
   }
 

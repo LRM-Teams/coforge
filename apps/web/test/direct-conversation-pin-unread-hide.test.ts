@@ -57,7 +57,13 @@ function fixture(options: { exists?: boolean } = {}) {
           sortOrder: pin.sortOrder,
           conversation: { members: [{ agentId: AGENT_ID }] },
         })),
-      count: async () => pins.length,
+      // The next order is one past the highest among the user's pins; which pins count as "the
+      // user's" is a relation filter that runs against PostgreSQL in the integration suite.
+      aggregate: async () => ({
+        _max: { sortOrder: pins.length ? Math.max(...pins.map((pin) => pin.sortOrder)) : null },
+      }),
+      findUnique: async ({ where }: { where: { conversationId_memberId: { memberId: string } } }) =>
+        pins.find((pin) => pin.memberId === where.conversationId_memberId.memberId) ?? null,
       deleteMany: async ({ where }: { where: { memberId: string } }) => {
         for (let index = pins.length - 1; index >= 0; index -= 1)
           if (pins[index]!.memberId === where.memberId) pins.splice(index, 1);
@@ -84,7 +90,14 @@ function fixture(options: { exists?: boolean } = {}) {
     $transaction: async (run: (tx: unknown) => Promise<unknown>) => run(db),
     // The closed-DM query (the only raw read these tests reach): the SQL itself, including the
     // "a newer Agent message reopens it" rule, runs against PostgreSQL in the integration suite.
-    $queryRaw: async () => (exists && member.hiddenAt !== null ? [{ agentId: AGENT_ID }] : []),
+    $queryRaw: async (sql: TemplateStringsArray) =>
+      // The per-member pin lock finds the Workspace membership; the other raw read is the closed-DM
+      // query.
+      sql.join("").includes("workspace_memberships")
+        ? [{ locked: 1 }]
+        : exists && member.hiddenAt !== null
+          ? [{ agentId: AGENT_ID }]
+          : [],
   } as unknown as PrismaClient;
   return {
     repository: new PrismaDirectConversationRepository(db),
@@ -159,9 +172,17 @@ test("preferences report existing DMs, pins in order, and closed DMs", async () 
   await repository.setPinnedForUser(WORKSPACE_ID, USER_ID, AGENT_ID, true, 3);
   await repository.setHiddenForUser(WORKSPACE_ID, USER_ID, AGENT_ID, true);
 
+  // Closed while pinned: the DM stays listed (in Pinned), so it is not reported closed.
   expect(await repository.preferencesForUser(WORKSPACE_ID, USER_ID)).toEqual({
     conversations: [AGENT_ID],
     pinned: [{ agentId: AGENT_ID, sortOrder: 3 }],
+    hidden: [],
+  });
+
+  await repository.setPinnedForUser(WORKSPACE_ID, USER_ID, AGENT_ID, false);
+  expect(await repository.preferencesForUser(WORKSPACE_ID, USER_ID)).toEqual({
+    conversations: [AGENT_ID],
+    pinned: [],
     hidden: [AGENT_ID],
   });
 
