@@ -17,7 +17,11 @@ import {
 } from "#src/features/realtime/realtime.functions";
 import { decodeTaskChangedEvent } from "./task-realtime";
 import { executeTask } from "./tasks.functions";
-import { applyTaskChanges, type TaskChanges } from "./conversation-task-changes";
+import {
+  applyTaskChanges,
+  createTaskChangeBurst,
+  type TaskChanges,
+} from "./conversation-task-changes";
 import { finishedTasksScopeKey } from "./use-finished-tasks";
 import { m } from "#src/paraglide/messages";
 
@@ -25,9 +29,6 @@ const appRoute = getRouteApi("/_app");
 
 /** The empty list while the Tasks load: one array, so what is memoized on `tasks` keeps. */
 const NO_TASKS: TaskView[] = [];
-
-/** How long announcements gather before they apply together. */
-const APPLY_DELAY_MS = 100;
 
 /**
  * The Tasks of one conversation: read once, then kept live by the Task write's own announcement
@@ -75,7 +76,13 @@ export function useConversationTasks(conversationId: string) {
     (changes: readonly TaskChanges[]) => {
       let finishedChanged = false;
       queryClient.setQueryData<TaskView[]>(queryKey, (current) => {
-        const result = applyTaskChanges(current ?? NO_TASKS, changes);
+        // Before the first read there is no list to change: the read brings every Task. Whether
+        // Done or Closed changed is unknown, so their reads (if any) go again.
+        if (current === undefined) {
+          finishedChanged = true;
+          return undefined;
+        }
+        const result = applyTaskChanges(current, changes);
         finishedChanged = result.finishedChanged;
         return result.tasks;
       });
@@ -87,30 +94,22 @@ export function useConversationTasks(conversationId: string) {
     [queryClient, queryKey, workspaceId, conversationId],
   );
   // Announcements arriving together (an Agent working through several Tasks) apply in one write,
-  // as on the Tasks page. One buffer per conversation.
-  const burst = useMemo(
-    () => ({
-      conversationId,
-      pending: [] as TaskChanges[],
-      timer: undefined as ReturnType<typeof setTimeout> | undefined,
-    }),
-    [conversationId],
-  );
-  useEffect(() => () => clearTimeout(burst.timer), [burst]);
-  const onTaskChanged = useCallback(
-    (publication: { data: unknown }) => {
-      const event = decodeTaskChangedEvent(publication.data);
-      // Another conversation's Task, or a publication that is not a Task change at all.
-      if (!event || event.conversationId !== burst.conversationId) return;
-      burst.pending.push(event);
-      if (burst.timer !== undefined) return;
-      burst.timer = setTimeout(() => {
-        burst.timer = undefined;
-        apply(burst.pending.splice(0));
-      }, APPLY_DELAY_MS);
-    },
-    [burst, apply],
-  );
+  // as on the Tasks page. One burst per conversation and `apply`; its cleanup applies whatever is
+  // still gathering, so an unmount or a re-run effect drops nothing.
+  const burst = useRef<ReturnType<typeof createTaskChangeBurst>>(undefined);
+  useEffect(() => {
+    const current = createTaskChangeBurst(conversationId, apply);
+    burst.current = current;
+    return () => {
+      current.flush();
+      if (burst.current === current) burst.current = undefined;
+    };
+  }, [conversationId, apply]);
+  const onTaskChanged = useCallback((publication: { data: unknown }) => {
+    // A publication that is not a Task change at all; the burst drops other conversations'.
+    const event = decodeTaskChangedEvent(publication.data);
+    if (event) burst.current?.push(event);
+  }, []);
   useRealtimeSubscription({
     channel: workspaceId ? workspaceConversationChannel(workspaceId) : undefined,
     getToken: getWorkspaceToken,

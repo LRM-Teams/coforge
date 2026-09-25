@@ -34,3 +34,42 @@ export function applyTaskChanges(current: readonly TaskView[], bursts: readonly 
   // Map keeps first-insertion order: held Tasks where they were, new ones after them.
   return { tasks: [...byId.values()], finishedChanged };
 }
+
+type Timers = {
+  set: (run: () => void, ms: number) => unknown;
+  clear: (handle: never) => void;
+};
+
+/** How long announcements gather before they apply together. */
+const APPLY_DELAY_MS = 100;
+
+/**
+ * Gathers one conversation's announced Task changes (announcements for other conversations are
+ * dropped) and applies them together once `APPLY_DELAY_MS` has passed since the first. `flush`
+ * applies what is pending at once and leaves the burst ready for more: an effect cleanup calls it,
+ * so nothing is lost on unmount, and a re-run effect (StrictMode, Activity) keeps working.
+ */
+export function createTaskChangeBurst(
+  conversationId: string,
+  apply: (changes: readonly TaskChanges[]) => void,
+  timers: Timers = { set: setTimeout, clear: clearTimeout },
+) {
+  let pending: TaskChanges[] = [];
+  let timer: unknown;
+  const flush = () => {
+    if (timer !== undefined) timers.clear(timer as never);
+    timer = undefined;
+    if (pending.length === 0) return;
+    const changes = pending;
+    pending = [];
+    apply(changes);
+  };
+  return {
+    push(event: TaskChanges & { conversationId: string }) {
+      if (event.conversationId !== conversationId) return;
+      pending.push(event);
+      timer ??= timers.set(flush, APPLY_DELAY_MS);
+    },
+    flush,
+  };
+}

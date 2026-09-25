@@ -26,14 +26,15 @@ These rules apply to `src/features/tasks/`.
   The choice is not persisted.
 - Every group renders its first 50 cards and adds 50 per "Show more"; never
   render a whole status at once. A paged group (Done and Closed on either
-  board)
-  renders every card it has read, since each read is at most 50, and keeps
-  its own footer instead.
+  board) renders every card it has read, since each read is at most 50, and
+  keeps its own footer instead.
 - Done and Closed come from `useFinishedTasks`, scoped to the Workspace page
   or one conversation: exact server counts for the `completed` window (`week`
   when absent, `month`, `all`) under the owner and Project picks, and
-  50-per-page reads with "Load more". Both routes preload the counts, so a
-  board never shows empty before them. A board holds a finished Task itself
+  50-per-page reads with "Load more". Both routes read the counts before a
+  board first shows. On a tab switch or window change (`cause: "stay"`) a
+  conversation route only starts that read, so the page never waits on it,
+  and the board waits for it (`pending`) before it may show empty. A board holds a finished Task itself
   only once it showed it unfinished (moved there since). `/tasks` holds only
   unfinished Tasks in its collection, reads Done and Closed again after every
   Task command and `task.changed.v1` burst, and fetches a `task` it has not
