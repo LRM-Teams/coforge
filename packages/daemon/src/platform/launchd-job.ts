@@ -4,6 +4,7 @@ import { getLogger } from "@logtape/logtape";
 
 import type { NativeProcessIdentity } from "#src/supervisor/workspace-instance";
 import { nativeCommandDiagnostic, type NativeCommandResult } from "./native-command";
+import { escapePlistValue } from "./xml-escape";
 
 /**
  * Native launchd access. Injectable so job lifecycle is testable without
@@ -189,29 +190,21 @@ const nativeLaunchd: LaunchdJobPlatform = {
   run: launchctlCommand,
 };
 
-function xml(value: string): string {
-  // XML 1.0 disallows these control characters, including NUL.
-  // oxlint-disable-next-line no-control-regex
-  if (/[\x00-\x08\x0b\x0c\x0e-\x1f]/.test(value)) throw new Error("invalid plist value");
-  return value
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&apos;");
-}
 export function jobPlist(config: LaunchdJobConfig): string {
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
-<key>Label</key><string>${xml(config.label)}</string>
-<key>ProgramArguments</key><array>${config.command.map((arg) => `<string>${xml(arg)}</string>`).join("")}</array>
+<key>Label</key><string>${escapePlistValue(config.label)}</string>
+<key>ProgramArguments</key><array>${config.command.map((arg) => `<string>${escapePlistValue(arg)}</string>`).join("")}</array>
 <key>EnvironmentVariables</key><dict>${Object.entries(config.environment ?? {})
-    .map(([key, value]) => `<key>${xml(key)}</key><string>${xml(value)}</string>`)
+    .map(
+      ([key, value]) =>
+        `<key>${escapePlistValue(key)}</key><string>${escapePlistValue(value)}</string>`,
+    )
     .join("")}</dict>
 <key>RunAtLoad</key><true/>
 ${config.restartOnFailure ? "<key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>" : ""}
-${config.logPath ? `<key>StandardOutPath</key><string>${xml(config.logPath)}</string>\n<key>StandardErrorPath</key><string>${xml(config.logPath)}</string>` : ""}
+${config.logPath ? `<key>StandardOutPath</key><string>${escapePlistValue(config.logPath)}</string>\n<key>StandardErrorPath</key><string>${escapePlistValue(config.logPath)}</string>` : ""}
 <key>AbandonProcessGroup</key><false/>
 <key>ExitTimeOut</key><integer>2</integer>
 </dict></plist>\n`;

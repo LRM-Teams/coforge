@@ -4,6 +4,7 @@ import { unlink } from "node:fs/promises";
 import { homedir, tmpdir, userInfo } from "node:os";
 import { join } from "node:path";
 import type { ManagedRuntimeIdentity } from "@lrm/coforge-sdk/internal";
+import { escapeXmlText } from "#src/platform/xml-escape";
 
 type CommandRunner = (command: string[]) => Promise<number>;
 type TaskXmlWriter = (path: string, content: string) => Promise<void>;
@@ -41,12 +42,12 @@ export function windowsDaemonTaskXml(input: WindowsDaemonTaskXmlInput): string {
   <Triggers>
     <LogonTrigger>
       <Enabled>true</Enabled>
-      <UserId>${xml(input.userId)}</UserId>
+      <UserId>${escapeXmlText(input.userId)}</UserId>
     </LogonTrigger>
   </Triggers>
   <Principals>
     <Principal id="Author">
-      <UserId>${xml(input.userId)}</UserId>
+      <UserId>${escapeXmlText(input.userId)}</UserId>
       <LogonType>InteractiveToken</LogonType>
       <RunLevel>LeastPrivilege</RunLevel>
     </Principal>
@@ -72,8 +73,8 @@ export function windowsDaemonTaskXml(input: WindowsDaemonTaskXmlInput): string {
   </Settings>
   <Actions Context="Author">
     <Exec>
-      <Command>${xml(exec.command)}</Command>
-      <Arguments>${xml(exec.arguments)}</Arguments>
+      <Command>${escapeXmlText(exec.command)}</Command>
+      <Arguments>${escapeXmlText(exec.arguments)}</Arguments>
     </Exec>
   </Actions>
 </Task>
@@ -226,12 +227,4 @@ async function removeFileQuietly(path: string): Promise<void> {
 
 function quoteCmdPath(path: string): string {
   return `"${path.replaceAll('"', '""')}"`;
-}
-
-function xml(value: string): string {
-  return value
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;");
 }

@@ -2,6 +2,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import type { ManagedRuntimeIdentity } from "@lrm/coforge-sdk/internal";
 import { nativeCommandDiagnostic, type NativeCommandResult } from "#src/platform/native-command";
+import { escapeXmlText } from "#src/platform/xml-escape";
 import { LocalDaemonLauncher } from "./launcher";
 import type { DaemonLauncher, DaemonWorkspaceConfig, LocalDaemonConnection } from "./launcher";
 
@@ -217,11 +218,11 @@ export function launchdPlist(input: {
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-  <key>Label</key><string>${xml(input.label)}</string>
-  ${input.daemonConnectionEndpoint ? `<key>EnvironmentVariables</key><dict><key>COFORGE_DAEMON_CONNECTION_ENDPOINT</key><string>${xml(input.daemonConnectionEndpoint)}</string></dict>` : ""}
+  <key>Label</key><string>${escapeXmlText(input.label)}</string>
+  ${input.daemonConnectionEndpoint ? `<key>EnvironmentVariables</key><dict><key>COFORGE_DAEMON_CONNECTION_ENDPOINT</key><string>${escapeXmlText(input.daemonConnectionEndpoint)}</string></dict>` : ""}
   <key>ProgramArguments</key>
-  <array><string>${xml(input.executablePath)}</string><string>__daemon</string><string>--socket</string><string>${xml(input.socketPath)}</string>${input.stateDirectory ? `<string>--state-directory</string><string>${xml(input.stateDirectory)}</string>` : ""}</array>
-  ${input.stateDirectory ? `<key>StandardOutPath</key><string>${xml(join(input.stateDirectory, "daemon.log"))}</string>\n  <key>StandardErrorPath</key><string>${xml(join(input.stateDirectory, "daemon.log"))}</string>` : ""}
+  <array><string>${escapeXmlText(input.executablePath)}</string><string>__daemon</string><string>--socket</string><string>${escapeXmlText(input.socketPath)}</string>${input.stateDirectory ? `<string>--state-directory</string><string>${escapeXmlText(input.stateDirectory)}</string>` : ""}</array>
+  ${input.stateDirectory ? `<key>StandardOutPath</key><string>${escapeXmlText(join(input.stateDirectory, "daemon.log"))}</string>\n  <key>StandardErrorPath</key><string>${escapeXmlText(join(input.stateDirectory, "daemon.log"))}</string>` : ""}
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
   <key>ProcessType</key><string>Background</string>
@@ -242,12 +243,4 @@ async function runCommand(command: string[]): Promise<NativeCommandResult> {
   });
   const [code, stderr] = await Promise.all([process.exited, new Response(process.stderr).text()]);
   return { code, stdout: "", stderr };
-}
-
-function xml(value: string): string {
-  return value
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;");
 }
