@@ -55,12 +55,11 @@ export const Route = createFileRoute("/_app/messages/channels/$channelId")({
     ({
       message: search.message,
       threadRootId: search.threadRootId,
-      // The Tasks tab's finished counts arrive with the page, as on the Tasks page, so it never
-      // shows empty before them.
+      // The Tasks tab's finished-work window, whose counts the loader reads.
       tasks: search.view === "tasks" ? (search.completed ?? "week") : undefined,
     }) as const,
   remountDeps: ({ params }) => params.channelId,
-  loader: async ({ context, params, deps, parentMatchPromise }) => {
+  loader: async ({ context, params, deps, parentMatchPromise, cause }) => {
     const window = await ensureConversationWindow(
       context.queryClient,
       publicChannelQuery(params.channelId).query,
@@ -68,10 +67,20 @@ export const Route = createFileRoute("/_app/messages/channels/$channelId")({
     );
     const conversationId = window.pages.at(-1)?.conversationId;
     if (deps.tasks && conversationId) {
-      const workspaceId = (await parentMatchPromise).loaderData?.workspaceId ?? "";
-      await context.queryClient.ensureQueryData(
-        finishedSummaryQuery({ workspaceId, conversationId }, deps.tasks),
+      const completedWindow = deps.tasks;
+      const summary = parentMatchPromise.then(({ loaderData }) =>
+        context.queryClient.ensureQueryData(
+          finishedSummaryQuery(
+            { workspaceId: loaderData?.workspaceId ?? "", conversationId },
+            completedWindow,
+          ),
+        ),
       );
+      // Opening the page waits for the counts. Switching to the Tasks tab or changing the window
+      // (`stay`) only starts the read: the board waits for it itself (`finished.pending`), so the
+      // conversation stays on screen instead of giving way to its loading page.
+      if (cause === "stay") void summary.catch(() => undefined);
+      else await summary;
     }
     return window;
   },
