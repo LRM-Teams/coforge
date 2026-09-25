@@ -31,18 +31,22 @@ These rules apply to `src/features/tasks/`.
 - Done and Closed come from `useFinishedTasks`, scoped to the Workspace page
   or one conversation: exact server counts for the `completed` window (`week`
   when absent, `month`, `all`) under the owner and Project picks, and
-  50-per-page reads with "Load more". Both routes read the counts before a
-  board first shows. On a tab switch or window change (`cause: "stay"`) a
-  conversation route only starts that read, so the page never waits on it,
-  and the board waits for it (`pending`) before it may show empty. A board holds a finished Task itself
-  only once it showed it unfinished (moved there since). `/tasks` holds only
+  50-per-page reads with "Load more". `/tasks` reads the counts before its
+  board shows. A conversation route waits for them only on `cause: "enter"`
+  (a first load, or arriving from the other conversation route); on `stay`
+  (switching to the Tasks tab, changing the window, or opening another
+  conversation of the same kind) it only starts the read, and the board
+  waits for it (`pending`) before it may show empty. A board holds a
+  finished Task itself only once it showed it unfinished (moved there
+  since). `/tasks` holds only
   unfinished Tasks in its collection, reads Done and Closed again after every
   Task command and `task.changed.v1` burst, and fetches a `task` it has not
   read alone (`loadOverviewTask`). A conversation's own list still reads every
   Task; the tab keeps the unfinished ones. Its commands and announced changes
-  go through `applyTaskChanges` (`conversation-task-changes.ts`): announcements
+  go through `writeTaskChanges` (`conversation-task-changes.ts`): announcements
   apply once per burst, and Done and Closed are read again only when a burst
-  or command changed them, never for the echo of a change already held.
+  or command changed them, never for the echo of a change already held. A
+  change before the list's first read has answered restarts that read.
 - Cards and list rows carry no status select: the column or group is the
   status. Moves go through drag or the card menu's "Move to" section, which
   both offer every move `getTaskMoveCommand` allows.

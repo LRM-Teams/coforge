@@ -1,9 +1,11 @@
 import { expect, test } from "bun:test";
 import type { TaskView } from "@lrm/coforge-sdk/internal";
+import { QueryClient, QueryObserver } from "@tanstack/react-query";
 
 import {
   applyTaskChanges,
   createTaskChangeBurst,
+  writeTaskChanges,
   type TaskChanges,
 } from "#src/features/tasks/conversation-task-changes";
 
@@ -167,4 +169,60 @@ test("flushing applies what is pending at once, and the burst keeps working afte
   expect(timers.pending).toBe(1);
   timers.fire();
   expect(applied).toEqual([[1], [2]]);
+});
+
+test("a change announced while the first list read is in flight reads the list again", async () => {
+  // That read may have started before the change; its answer must not be the one kept.
+  const queryClient = new QueryClient();
+  const list = ["conversation", "tasks", "conversation-1"] as const;
+  const finished = ["task", "finished", "workspace-1", "conversation-1"] as const;
+  const answers: ((tasks: TaskView[]) => void)[] = [];
+  const observer = new QueryObserver<TaskView[]>(queryClient, {
+    queryKey: list,
+    queryFn: () => new Promise<TaskView[]>((resolve) => answers.push(resolve)),
+  });
+  const unsubscribe = observer.subscribe(() => {});
+  try {
+    expect(answers).toHaveLength(1);
+    await writeTaskChanges(queryClient, { list, finished }, [
+      { tasks: [task(1, { status: "in_progress", revision: 2 })], deleted: [] },
+    ]);
+    expect(answers).toHaveLength(2);
+    answers[0]!([task(1)]);
+    answers[1]!([task(1, { status: "in_progress", revision: 2 })]);
+    const read = await observer.refetch({ cancelRefetch: false });
+    expect(read.data?.map(({ status }) => status)).toEqual(["in_progress"]);
+    expect(queryClient.getQueryState(finished)).toBeUndefined();
+  } finally {
+    unsubscribe();
+    queryClient.clear();
+  }
+});
+
+test("a change to a list already read writes it in place and reads nothing again", async () => {
+  const queryClient = new QueryClient();
+  const list = ["conversation", "tasks", "conversation-1"] as const;
+  const finished = ["task", "finished", "workspace-1", "conversation-1"] as const;
+  queryClient.setQueryData(list, [task(1), task(2, { status: "done" })]);
+  let finishedReads = 0;
+  const observer = new QueryObserver(queryClient, {
+    queryKey: finished,
+    queryFn: async () => (finishedReads += 1),
+  });
+  const unsubscribe = observer.subscribe(() => {});
+  try {
+    const before = finishedReads;
+    await writeTaskChanges(queryClient, { list, finished }, [
+      { tasks: [task(1, { status: "in_progress", revision: 2 })], deleted: [] },
+    ]);
+    expect(queryClient.getQueryData<TaskView[]>(list)?.map(({ status }) => status)).toEqual([
+      "in_progress",
+      "done",
+    ]);
+    expect(queryClient.getQueryState(list)?.isInvalidated).toBe(false);
+    expect(finishedReads).toBe(before);
+  } finally {
+    unsubscribe();
+    queryClient.clear();
+  }
 });
