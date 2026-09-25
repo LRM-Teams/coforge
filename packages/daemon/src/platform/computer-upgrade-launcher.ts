@@ -1,9 +1,14 @@
-import { homedir, tmpdir, userInfo } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
-import { unlink } from "node:fs/promises";
 import { RFC_UUID_PATTERN } from "@lrm/coforge-sdk/internal";
 import { LaunchdJob, type LaunchdJobPlatform } from "./launchd-job";
 import { escapeXmlText } from "./xml-escape";
+import {
+  removeFileQuietly,
+  runSchtasks,
+  windowsTaskUserId,
+  writeUtf16XmlFile,
+} from "./windows-scheduled-task";
 
 export function computerUpgradeCommand(
   platform: NodeJS.Platform,
@@ -199,7 +204,7 @@ export async function launchWindowsComputerUpgrade(
     await writeTaskXml(
       xmlPath,
       windowsUpgradeTaskXml({
-        userId: hooks.userId ?? windowsUpgradeTaskUserId(),
+        userId: hooks.userId ?? windowsTaskUserId(),
         action,
       }),
     );
@@ -219,28 +224,6 @@ export function quoteWindowsTaskAction(action: string[]): string {
   const quotedExe = `"${executable!.replaceAll('"', '""')}"`;
   if (args.length === 0) return quotedExe;
   return `${quotedExe} ${args.map((arg) => arg.replaceAll('"', '""')).join(" ")}`;
-}
-
-async function writeUtf16XmlFile(path: string, content: string): Promise<void> {
-  await Bun.write(path, Buffer.from(`\uFEFF${content}`, "utf16le"));
-}
-
-async function removeFileQuietly(path: string): Promise<void> {
-  try {
-    await unlink(path);
-  } catch {
-    // already gone
-  }
-}
-
-function windowsUpgradeTaskUserId(
-  environment: NodeJS.ProcessEnv = process.env,
-  username: string = userInfo().username,
-): string {
-  const domain = environment.USERDOMAIN?.trim();
-  const envUser = environment.USERNAME?.trim();
-  if (domain && envUser) return `${domain}\\${envUser}`;
-  return username;
 }
 
 /**
@@ -284,9 +267,4 @@ export async function deleteWindowsComputerUpgradeTask(
     "/F",
   ]);
   if (code !== 0) throw new Error("could not remove the Computer upgrade Scheduled Task");
-}
-
-async function runSchtasks(command: string[]): Promise<number> {
-  const child = Bun.spawn(command, { stdin: "ignore", stdout: "ignore", stderr: "ignore" });
-  return await child.exited;
 }

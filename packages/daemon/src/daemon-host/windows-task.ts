@@ -1,10 +1,15 @@
 import { LocalDaemonLauncher, type LocalDaemonLauncherOptions } from "./launcher";
 import type { DaemonLauncher, DaemonWorkspaceConfig } from "./launcher";
-import { unlink } from "node:fs/promises";
-import { homedir, tmpdir, userInfo } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ManagedRuntimeIdentity } from "@lrm/coforge-sdk/internal";
 import { escapeXmlText } from "#src/platform/xml-escape";
+import {
+  removeFileQuietly,
+  runSchtasks,
+  windowsTaskUserId,
+  writeUtf16XmlFile,
+} from "#src/platform/windows-scheduled-task";
 
 type CommandRunner = (command: string[]) => Promise<number>;
 type TaskXmlWriter = (path: string, content: string) => Promise<void>;
@@ -81,17 +86,6 @@ export function windowsDaemonTaskXml(input: WindowsDaemonTaskXmlInput): string {
 `;
 }
 
-/** Resolves `DOMAIN\\user` for Task Scheduler principals; falls back to the OS username. */
-export function windowsTaskUserId(
-  environment: NodeJS.ProcessEnv = process.env,
-  username: string = userInfo().username,
-): string {
-  const domain = environment.USERDOMAIN?.trim();
-  const envUser = environment.USERNAME?.trim();
-  if (domain && envUser) return `${domain}\\${envUser}`;
-  return username;
-}
-
 export class WindowsUserDaemonHost implements DaemonLauncher {
   readonly #taskName: string;
   readonly #run: CommandRunner;
@@ -115,7 +109,7 @@ export class WindowsUserDaemonHost implements DaemonLauncher {
     timeoutMilliseconds?: number;
   }) {
     this.#taskName = options.taskName ?? "CoForge Daemon";
-    this.#run = options.run ?? runCommand;
+    this.#run = options.run ?? runSchtasks;
     this.#writeTaskXml = options.writeTaskXml ?? writeUtf16XmlFile;
     this.#removeTaskXml = options.removeTaskXml ?? removeFileQuietly;
     this.#xml = windowsDaemonTaskXml({
@@ -204,24 +198,6 @@ export class WindowsUserDaemonHost implements DaemonLauncher {
     } finally {
       await this.#removeTaskXml(xmlPath);
     }
-  }
-}
-
-async function runCommand(command: string[]): Promise<number> {
-  const child = Bun.spawn(command, { stdin: "ignore", stdout: "ignore", stderr: "ignore" });
-  return await child.exited;
-}
-
-async function writeUtf16XmlFile(path: string, content: string): Promise<void> {
-  // schtasks /Create /XML requires UTF-16; the BOM lets it detect the encoding.
-  await Bun.write(path, Buffer.from(`\uFEFF${content}`, "utf16le"));
-}
-
-async function removeFileQuietly(path: string): Promise<void> {
-  try {
-    await unlink(path);
-  } catch {
-    // already gone
   }
 }
 
