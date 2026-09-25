@@ -8,6 +8,7 @@ import {
 } from "#src/features/agents/agent-status-realtime";
 import { AGENT_VISIBILITY } from "#src/features/agents/agent-visibility";
 import type { CentrifugoRpcMethod } from "./rpc-handler.server";
+import { rejectNonDaemonPrincipal } from "./daemon-principal.server";
 
 /**
  * Fire-and-forget from the daemon's side (never awaited or retried there), gated exactly like
@@ -33,13 +34,8 @@ export function createAgentContextUsageMethod(
   agentVisibility: (workspaceId: string, agentId: string) => Promise<string | undefined>,
 ): CentrifugoRpcMethod {
   return async (payload, metadata) => {
-    if (
-      !metadata.principal.userId ||
-      !metadata.principal.workspaceId ||
-      !metadata.principal.computerId
-    )
-      return { code: 401, message: "daemon authentication required" };
-    if (metadata.principal.agentId) return { code: 403, message: "daemon authentication required" };
+    const rejection = rejectNonDaemonPrincipal(metadata.principal);
+    if (rejection) return rejection;
     let message: AgentContextUsage | undefined;
     try {
       message = decodeAgentContextUsage(payload);
