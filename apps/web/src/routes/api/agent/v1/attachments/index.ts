@@ -3,6 +3,7 @@ import { agentAuthMiddleware } from "#src/server/agents/agent-http-middleware.se
 import { storeAgentAttachment } from "#src/server/attachments/attachment.server";
 import { PrismaDirectConversationRepository } from "#src/server/db/repositories/direct-conversation.repositories.server";
 import { isAppError } from "#src/lib/app-error";
+import { targetResolutionStatus } from "#src/server/agents/agent-target-status.server";
 
 /** RFC 6838 `type/subtype`, case-insensitively; matches the parameter-free form the Agent sends. */
 const MIME_TYPE_PATTERN = /^[a-z0-9][a-z0-9!#$&^_.+-]*\/[a-z0-9][a-z0-9!#$&^_.+-]*$/i;
@@ -32,21 +33,6 @@ function isUploadFile(value: unknown): value is File {
     typeof Reflect.get(value, "size") === "number" &&
     typeof Reflect.get(value, "arrayBuffer") === "function"
   );
-}
-
-/**
- * Maps a target-resolution failure to the Agent API's status contract. `resolveAgentTarget`
- * (and the private helpers it calls) throws `AppError("INVALID_INPUT")` for a malformed
- * `#channel`, `AppError("ACCESS_DENIED")` for a channel the Agent is not a member of, and a
- * plain `Error` (`"invalid message target"`, `"target user not found"`,
- * `"conversation scope is not authorized"`) for the `@user` grammar and DM authorization.
- */
-function targetResolutionStatus(error: unknown): number {
-  if (isAppError(error)) return error.code === "ACCESS_DENIED" ? 403 : 400;
-  if (error instanceof Error && error.message === "invalid message target") return 400;
-  // "target user not found" / "conversation scope is not authorized": an unknown target or one
-  // the Agent cannot reach reads the same to the caller as "not a member".
-  return 403;
 }
 
 /** Multipart upload handling; extracted from the route so it can be tested with fakes. */
