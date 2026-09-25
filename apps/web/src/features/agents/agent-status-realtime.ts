@@ -6,6 +6,7 @@ import {
   useRealtimeSubscriptions,
 } from "#src/features/realtime/browser-realtime";
 import { AGENT_VISIBILITY } from "./agent-visibility";
+import { ACTIVITY_PROBE_TIMEOUT_MS } from "./activity-probe-timeout";
 
 export type AgentStatusEvent = {
   agentId: string;
@@ -66,11 +67,6 @@ export function isAgentVisibilityChangedEvent(
     typeof Reflect.get(value as object, "agentId") === "string"
   );
 }
-
-// Must match ACTIVITY_PROBE_TIMEOUT_MS in
-// `server/agents/agent-activity-sweep.server.ts`. Duplicated here rather than
-// imported because browser code cannot import a `.server.ts` module.
-export const ACTIVITY_PROBE_TIMEOUT_MS = 5_000;
 
 export function encodeAgentStatusEvent(event: AgentStatusEvent): Uint8Array {
   return new TextEncoder().encode(JSON.stringify(event));

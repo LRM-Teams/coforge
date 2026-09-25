@@ -6,6 +6,7 @@ import {
   agentStatusChannelForAgent,
 } from "#src/features/agents/agent-status-realtime";
 import { AGENT_VISIBILITY } from "#src/features/agents/agent-visibility";
+import { ACTIVITY_PROBE_TIMEOUT_MS } from "#src/features/agents/activity-probe-timeout";
 import {
   createCentrifugoServerApi,
   daemonControlChannel,
@@ -16,8 +17,6 @@ import { getDatabaseClient } from "#src/server/db/client.server";
 
 /** How often `AgentActivitySweep.tick()` looks for stale busy leases. */
 export const ACTIVITY_SWEEP_INTERVAL_MS = 5_000;
-/** How long a liveness probe waits for the daemon's reply before the sweep synthesises `online`. */
-export const ACTIVITY_PROBE_TIMEOUT_MS = 5_000;
 /** Bounds one tick's Redis and Centrifugo-publish cost regardless of fleet size. */
 const SWEEP_BATCH_LIMIT = 200;
 /** Shorter than the 5s interval on purpose, so a slow tick cannot overlap the next one. */

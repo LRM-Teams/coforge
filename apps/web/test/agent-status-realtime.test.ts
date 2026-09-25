@@ -1,7 +1,6 @@
 import { expect, test } from "bun:test";
 
 const {
-  ACTIVITY_PROBE_TIMEOUT_MS,
   agentStatusChannel,
   agentStatusChannelForAgent,
   applyAgentDisplaySnapshot,
@@ -13,6 +12,7 @@ const {
   mergeExtraAgents,
   nextDisplayRefreshDelayMs,
 } = await import("#src/features/agents/agent-status-realtime");
+import { ACTIVITY_PROBE_TIMEOUT_MS } from "#src/features/agents/activity-probe-timeout";
 import type { AgentStatusEvent, AgentStatusView } from "#src/features/agents/agent-status-realtime";
 import { parseAgentDisplaySnapshot, type AgentDisplaySnapshot } from "@lrm/coforge-sdk/internal";
 
