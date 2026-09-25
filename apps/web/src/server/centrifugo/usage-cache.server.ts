@@ -1,5 +1,14 @@
 import { RedisClient } from "bun";
 import type { RuntimeProvider } from "@lrm/coforge-sdk/internal";
+import {
+  SCAN_RESULT_STALE_AFTER_MS,
+  SCAN_RESULT_TTL_SECONDS,
+  SCAN_TTL_SECONDS,
+  readScanResult,
+  redisUrlFor,
+  scanResultKeys,
+  type ScanResultRedisPort,
+} from "./scan-result-cache.server";
 
 export type UsageCacheKey = {
   workspaceId: string;
@@ -59,11 +68,10 @@ export type UsageReadResult = {
   pendingScanId?: string;
 };
 
-/** A result older than this no longer represents "now" closely enough to show without a note. */
-export const USAGE_STALE_AFTER_MS = 30 * 60 * 1000;
-
-const RESULT_TTL_SECONDS = "86400";
-const SCAN_TTL_SECONDS = "60";
+/** A result older than this no longer represents "now" closely enough to show without a note. The
+ * rule is the shared scan/result one the Agent-context report applies too
+ * (`SCAN_RESULT_STALE_AFTER_MS`); it keeps this name for this cache's readers. */
+export const USAGE_STALE_AFTER_MS = SCAN_RESULT_STALE_AFTER_MS;
 
 /**
  * Write the result and clear the in-flight scan in one round trip. They are one fact — the scan is
@@ -83,78 +91,52 @@ export interface UsageCache {
   read(key: UsageCacheKey): Promise<UsageReadResult>;
 }
 
+/** This cache writes its result and clears the scan in one round trip, so its port also carries
+ * `eval`. */
+type UsageCacheRedis = ScanResultRedisPort & {
+  eval(
+    script: string,
+    numberOfKeys: number,
+    ...keysAndArgs: Array<string | number>
+  ): Promise<unknown>;
+};
+
 export class RedisUsageCache implements UsageCache {
   constructor(
-    private readonly redis: {
-      set(key: string, value: string, ex: "EX", seconds: string): Promise<unknown>;
-      get(key: string): Promise<string | null>;
-      del(...keys: string[]): Promise<number>;
-      eval(
-        script: string,
-        numberOfKeys: number,
-        ...keysAndArgs: Array<string | number>
-      ): Promise<unknown>;
-    },
-    private readonly resultTtlSeconds = RESULT_TTL_SECONDS,
+    private readonly redis: UsageCacheRedis,
+    private readonly resultTtlSeconds = SCAN_RESULT_TTL_SECONDS,
     private readonly scanTtlSeconds = SCAN_TTL_SECONDS,
     private readonly now: () => number = Date.now,
   ) {}
 
   async putScan(record: UsageScanRecord) {
-    await this.redis.set(this.scanKey(record), JSON.stringify(record), "EX", this.scanTtlSeconds);
+    const keys = scanResultKeys(this.scopeKey(record));
+    await this.redis.set(keys.scan, JSON.stringify(record), "EX", this.scanTtlSeconds);
   }
 
   async putResult(record: UsageResultRecord) {
+    const keys = scanResultKeys(this.scopeKey(record));
     // This scan is no longer in flight; clear it in the same transaction, so its own 60s TTL never
     // has to expire first before a later read stops reporting it as pending.
     await this.redis.eval(
       PUT_RESULT,
       2,
-      this.resultKey(record),
-      this.scanKey(record),
+      keys.result,
+      keys.scan,
       JSON.stringify(record),
       this.resultTtlSeconds,
     );
   }
 
   async read(key: UsageCacheKey): Promise<UsageReadResult> {
-    const [resultValue, scanValue] = await Promise.all([
-      this.redis.get(this.resultKey(key)),
-      this.redis.get(this.scanKey(key)),
-    ]);
-    const result = this.parseResult(resultValue);
-    const scan = this.parseScan(scanValue);
-    const pendingScanId = scan?.status === "pending" ? scan.scanId : undefined;
-    if (!result) return { state: "missing", pendingScanId };
-    const age = this.now() - Date.parse(result.collectedAt);
-    const state = Number.isFinite(age) && age <= USAGE_STALE_AFTER_MS ? "fresh" : "stale";
-    return { state, result, pendingScanId };
+    return readScanResult<UsageResultRecord>(
+      this.redis,
+      scanResultKeys(this.scopeKey(key)),
+      USAGE_STALE_AFTER_MS,
+      this.now(),
+    );
   }
 
-  private parseResult(value: string | null): UsageResultRecord | undefined {
-    if (!value) return undefined;
-    try {
-      return JSON.parse(value) as UsageResultRecord;
-    } catch {
-      return undefined;
-    }
-  }
-
-  private parseScan(value: string | null): UsageScanRecord | undefined {
-    if (!value) return undefined;
-    try {
-      return JSON.parse(value) as UsageScanRecord;
-    } catch {
-      return undefined;
-    }
-  }
-
-  private resultKey(key: UsageCacheKey) {
-    return `${this.scopeKey(key)}:result`;
-  }
-  private scanKey(key: UsageCacheKey) {
-    return `${this.scopeKey(key)}:scan`;
-  }
   private scopeKey(key: UsageCacheKey) {
     return `coforge:workspace:${encodeURIComponent(key.workspaceId)}:computer:${encodeURIComponent(key.computerId)}:usage:v2:${encodeURIComponent(key.provider)}`;
   }
@@ -162,10 +144,6 @@ export class RedisUsageCache implements UsageCache {
 
 let singleton: RedisUsageCache | undefined;
 export function getUsageCache() {
-  singleton ??= (() => {
-    const url = Bun.env.REDIS_URL;
-    if (!url) throw new Error("REDIS_URL is required for usage cache");
-    return new RedisUsageCache(new RedisClient(url));
-  })();
+  singleton ??= new RedisUsageCache(new RedisClient(redisUrlFor("usage cache")));
   return singleton;
 }
