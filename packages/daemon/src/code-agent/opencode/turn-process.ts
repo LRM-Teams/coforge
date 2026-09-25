@@ -5,7 +5,8 @@ import {
   type OwnedProcessTree,
   type ProcessTreeSpawner,
 } from "#src/platform/process-tree";
-import { AgentProcessCleanupError } from "#src/code-agent/contract";
+import { cleanupOwnedTree } from "#src/code-agent/process-tree-cleanup";
+import { readStderrTail } from "#src/code-agent/stderr-tail";
 
 const logger = getLogger(["coforge", "daemon", "code-agent", "opencode"]);
 
@@ -18,8 +19,6 @@ export type OpenCodeTurnResult = Readonly<{
    * explain it. */
   stderrTail: string;
 }>;
-
-const STDERR_TAIL_BYTES = 4_096;
 
 /**
  * One `opencode run --format json` turn: a single child process with the prompt as its last argv
@@ -128,44 +127,11 @@ export class OpenCodeTurnProcess {
   }
 
   async #readStderr(): Promise<void> {
-    const decoder = new TextDecoder();
-    for await (const chunk of this.#child.stderr) {
-      this.#stderrTail = (this.#stderrTail + decoder.decode(chunk, { stream: true })).slice(
-        -STDERR_TAIL_BYTES,
-      );
-    }
+    this.#stderrTail = await readStderrTail(this.#child.stderr);
   }
 
   async #cleanupTree(): Promise<void> {
-    try {
-      await this.#tree.terminate(false);
-    } catch {
-      // A bounded tree check below determines whether cleanup was successful.
-    }
-    let treeExited: boolean;
-    try {
-      treeExited = await this.#tree.waitForExit(1_000);
-    } catch {
-      throw new AgentProcessCleanupError();
-    }
-    if (!treeExited) {
-      try {
-        await this.#tree.terminate(true);
-      } catch {
-        // A bounded tree check below determines whether cleanup was successful.
-      }
-      try {
-        treeExited = await this.#tree.waitForExit(1_000);
-      } catch {
-        throw new AgentProcessCleanupError();
-      }
-    }
-    if (!treeExited) throw new AgentProcessCleanupError();
-    try {
-      this.#child.stdin.end();
-    } catch {
-      // An exited child may have already closed stdin.
-    }
+    await cleanupOwnedTree(this.#tree, this.#child);
     await this.exited;
   }
 }

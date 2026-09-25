@@ -4,7 +4,7 @@ import {
   type OwnedProcessTree,
   type ProcessTreeSpawner,
 } from "#src/platform/process-tree";
-import { AgentProcessCleanupError } from "./contract";
+import { cleanupOwnedTree } from "./process-tree-cleanup";
 import { getLogger } from "@logtape/logtape";
 
 const logger = getLogger(["coforge", "daemon", "code-agent", "jsonl"]);
@@ -302,35 +302,7 @@ export class JsonlProcess {
   }
 
   async #cleanupTree(): Promise<void> {
-    try {
-      await this.#tree.terminate(false);
-    } catch {
-      // A bounded tree check below determines whether cleanup was successful.
-    }
-    let treeExited: boolean;
-    try {
-      treeExited = await this.#tree.waitForExit(1_000);
-    } catch {
-      throw new AgentProcessCleanupError();
-    }
-    if (!treeExited) {
-      try {
-        await this.#tree.terminate(true);
-      } catch {
-        // A bounded tree check below determines whether cleanup was successful.
-      }
-      try {
-        treeExited = await this.#tree.waitForExit(1_000);
-      } catch {
-        throw new AgentProcessCleanupError();
-      }
-    }
-    if (!treeExited) throw new AgentProcessCleanupError();
-    try {
-      this.#child.stdin.end();
-    } catch {
-      // An exited child may have already closed stdin.
-    }
+    await cleanupOwnedTree(this.#tree, this.#child);
     await this.#child.exited;
     // Close means tree cleanup AND drained diagnostics, so adapters can decide
     // whether a failed native resume is eligible for a fresh launch.
