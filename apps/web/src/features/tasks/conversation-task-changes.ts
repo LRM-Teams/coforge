@@ -43,8 +43,9 @@ export function applyTaskChanges(current: readonly TaskView[], bursts: readonly 
  * started before the change, so it is cancelled and starts again, bringing every Task; whether
  * Done or Closed changed is unknown, so their reads (if any) go again too. A read in flight with no
  * data yet is only joined, never restarted, by an invalidation (TanStack Query's `cancelRefetch`
- * applies once there is data), hence the explicit cancel first. Resolves once the reads are
- * asked for again, not when they answer.
+ * applies once there is data), hence the explicit cancel first. That restart needs the list's
+ * observer (`useConversationTasks`) mounted: a first read with none (`fetchQuery`) would only be
+ * cancelled. Resolves once the reads are asked for again, not when they answer.
  */
 export async function writeTaskChanges(
   queryClient: QueryClient,

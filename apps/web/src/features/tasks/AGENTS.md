@@ -33,15 +33,14 @@ These rules apply to `src/features/tasks/`.
   when absent, `month`, `all`) under the owner and Project picks, and
   50-per-page reads with "Load more". `/tasks` reads the counts before its
   board shows. A conversation route waits for them only on `cause: "enter"`
-  (a first load, or arriving from the other conversation route); on `stay`
+  (arriving from any other route, including a first load); on `stay`
   (switching to the Tasks tab, changing the window, or opening another
   conversation of the same kind) it only starts the read, and the board
   waits for it (`pending`) before it may show empty. A board holds a
   finished Task itself only once it showed it unfinished (moved there
-  since). `/tasks` holds only
-  unfinished Tasks in its collection, reads Done and Closed again after every
-  Task command and `task.changed.v1` burst, and fetches a `task` it has not
-  read alone (`loadOverviewTask`). A conversation's own list still reads every
+  since). `/tasks` holds only unfinished Tasks in its collection, reads Done
+  and Closed again after every Task command and `task.changed.v1` burst, and
+  fetches a `task` it has not read alone (`loadOverviewTask`). A conversation's own list still reads every
   Task; the tab keeps the unfinished ones. Its commands and announced changes
   go through `writeTaskChanges` (`conversation-task-changes.ts`): announcements
   apply once per burst, and Done and Closed are read again only when a burst

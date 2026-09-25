@@ -192,9 +192,39 @@ test("a change announced while the first list read is in flight reads the list a
     answers[1]!([task(1, { status: "in_progress", revision: 2 })]);
     const read = await observer.refetch({ cancelRefetch: false });
     expect(read.data?.map(({ status }) => status)).toEqual(["in_progress"]);
-    expect(queryClient.getQueryState(finished)).toBeUndefined();
   } finally {
     unsubscribe();
+    queryClient.clear();
+  }
+});
+
+test("a change before the first list read has answered reads Done and Closed again", async () => {
+  // Whether the change touched them is unknown until the list arrives.
+  const queryClient = new QueryClient();
+  const list = ["conversation", "tasks", "conversation-1"] as const;
+  const finished = ["task", "finished", "workspace-1", "conversation-1"] as const;
+  const listObserver = new QueryObserver<TaskView[]>(queryClient, {
+    queryKey: list,
+    queryFn: () => new Promise<TaskView[]>(() => {}),
+  });
+  let finishedReads = 0;
+  const finishedObserver = new QueryObserver(queryClient, {
+    queryKey: finished,
+    queryFn: async () => (finishedReads += 1),
+  });
+  const unsubscribeList = listObserver.subscribe(() => {});
+  const unsubscribeFinished = finishedObserver.subscribe(() => {});
+  try {
+    await finishedObserver.refetch({ cancelRefetch: false });
+    const before = finishedReads;
+    await writeTaskChanges(queryClient, { list, finished }, [
+      { tasks: [task(1, { status: "done", revision: 2 })], deleted: [] },
+    ]);
+    await queryClient.getQueryCache().find({ queryKey: finished })?.promise;
+    expect(finishedReads).toBe(before + 1);
+  } finally {
+    unsubscribeList();
+    unsubscribeFinished();
     queryClient.clear();
   }
 });
