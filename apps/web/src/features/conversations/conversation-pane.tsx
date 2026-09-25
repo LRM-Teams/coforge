@@ -18,6 +18,7 @@ import { m } from "#src/paraglide/messages";
 import { getLocale } from "#src/paraglide/runtime";
 import { useLiveAgents } from "#src/features/agents/workspace-agents-realtime";
 
+import { attachmentFileNameSummary } from "./attachment-file-name";
 import { useConversationOpenMode, useSavedMessages } from "./conversation-navigation";
 import { conversationOpenPosition, unreadBoundary } from "./conversation-open-position";
 import { latestTopLevelSequence } from "./conversation-unread";
@@ -57,19 +58,6 @@ const JUMP_HIGHLIGHT_MS = 2500;
 
 /** The gap left above a row the pane scrolls to (`applyOpenPosition`). */
 const ROW_TOP_GAP_PX = 12;
-
-/**
- * The own-messages index shows one derived filename per message, not the full attachment list.
- * With several attachments, this names the first (send order) and counts the rest, e.g.
- * `photo.png (+2 more)`. Mirrors `attachmentFileNameSummary` in
- * `conversation-history.server.ts` (duplicated rather than imported: that module is
- * server-only and this component renders in the browser).
- */
-function attachmentFileNameSummary(attachments: { fileName: string }[]): string | undefined {
-  const [first, ...rest] = attachments;
-  if (!first) return undefined;
-  return rest.length ? `${first.fileName} (+${rest.length} more)` : first.fileName;
-}
 
 export function ConversationPane({
   conversation,
