@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { create, toBinary } from "@bufbuild/protobuf";
+import { parseReminderRecurrence } from "#src/internal/reminder";
 import { AgentReminderOperationRequestSchema } from "#src/internal/gen/coforge/rpc/v1/reminder_pb";
 import {
   REMINDER_SYNC_MESSAGE_TYPE,
@@ -385,4 +386,27 @@ test("validateAgentReminderOperationRequest applies the codec's rules to plain J
     validateAgentReminderOperationRequest({ ...request, operation: "explode" }),
   ).toThrow();
   expect(() => validateAgentReminderOperationRequest(null)).toThrow();
+});
+
+test("parseReminderRecurrence is exactly as strict as RECURRENCE", () => {
+  // Same rejections the validator makes: zero/negative-free counts, real clock hours, known weekday tokens.
+  for (const invalid of [
+    "every:0m",
+    "every:01h",
+    "daily@24:00",
+    "daily@99:99",
+    "weekly:monday@09:00",
+    "weekly:mon,fri@9:00",
+  ])
+    expect(parseReminderRecurrence(invalid)).toBeUndefined();
+  const cases: Array<[string, ReturnType<typeof parseReminderRecurrence>]> = [
+    ["every:1h", { kind: "every", count: 1, unit: "h" }],
+    ["every:15m", { kind: "every", count: 15, unit: "m" }],
+    ["every:2d", { kind: "every", count: 2, unit: "d" }],
+    ["daily@00:00", { kind: "daily", hour: 0, minute: 0 }],
+    ["daily@23:59", { kind: "daily", hour: 23, minute: 59 }],
+    ["weekly:mon@09:30", { kind: "weekly", weekdays: ["mon"], hour: 9, minute: 30 }],
+    ["weekly:mon,fri@22:05", { kind: "weekly", weekdays: ["mon", "fri"], hour: 22, minute: 5 }],
+  ];
+  for (const [value, parsed] of cases) expect(parseReminderRecurrence(value)).toEqual(parsed);
 });
