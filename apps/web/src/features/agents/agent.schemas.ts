@@ -7,6 +7,10 @@ import {
 } from "@lrm/coforge-sdk/internal";
 import { AGENT_VISIBILITY, AGENT_VISIBILITY_VALUES } from "./agent-visibility";
 
+/** The Agent self-description cap, shared by the edit-form schema and the server's
+ * self-service profile check so the two never disagree. */
+export const AGENT_PROFILE_DESCRIPTION_MAX_LENGTH = 500;
+
 export const KEYED_MODEL_PROVIDERS = new Set([
   "deepseek",
   "minimax",
@@ -61,7 +65,7 @@ const displayNameSchema = z.preprocess(
 );
 
 const agentInputShape = {
-  description: z.string().trim().max(500).default(""),
+  description: z.string().trim().max(AGENT_PROFILE_DESCRIPTION_MAX_LENGTH).default(""),
   provider: z.enum(RUNTIME_PROVIDER_VALUES),
   model: z.string().trim().max(200).optional(),
   modelProvider: z.string().trim().max(100).optional(),

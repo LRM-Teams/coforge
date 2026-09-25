@@ -18,9 +18,10 @@ import {
   type AgentVisibilityViewer,
 } from "./agent-visibility.server";
 
-/** Same cap as `agentInputShape.description` (`agent.schemas.ts`), reused here so an Agent's
- * self-service profile description and its owner's full Agent-edit form never disagree. */
-export const AGENT_PROFILE_DESCRIPTION_MAX_LENGTH = 500;
+// Same cap as `agentInputShape.description`; imported, not redefined, so the self-service
+// profile check and the full Agent-edit form schema are the one fact.
+import { AGENT_PROFILE_DESCRIPTION_MAX_LENGTH } from "#src/features/agents/agent.schemas";
+export { AGENT_PROFILE_DESCRIPTION_MAX_LENGTH };
 
 export type AgentProfileErrorBody =
   | { ok: false; errorCode: "user_not_found"; error: string }
