@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { MIME_TYPE_PATTERN } from "@lrm/coforge-sdk/internal";
 import { agentAuthMiddleware } from "#src/server/agents/agent-http-middleware.server";
 import {
   createAttachmentUploadSession,
@@ -9,8 +10,6 @@ import { getFileStorage } from "#src/server/files/file-storage.server";
 import { PrismaDirectConversationRepository } from "#src/server/db/repositories/direct-conversation.repositories.server";
 import { targetResolutionStatus } from "#src/server/agents/agent-target-status.server";
 
-/** RFC 6838 `type/subtype`, case-insensitively; matches the multipart upload route's pattern. */
-const MIME_TYPE_PATTERN = /^[a-z0-9][a-z0-9!#$&^_.+-]*\/[a-z0-9][a-z0-9!#$&^_.+-]*$/i;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export type AttachmentUploadSessionCreatePrincipal = { workspaceId: string; agentId: string };
