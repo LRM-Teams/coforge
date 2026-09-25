@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { AGENT_NAME_PATTERN } from "#src/internal/agent-name";
 import { CHANNEL_NAME_PATTERN } from "#src/internal/channel-references";
 
 /**
@@ -28,9 +29,6 @@ export const draftHintSchema = z
   .describe(
     "Why the agent prepared this for you. Shows below the form on the card; not the action itself.",
   );
-
-/** CoForge Agent name rule (see `apps/web/src/features/agents/agent.schemas.ts`). */
-const AGENT_NAME_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
 /** Strips one leading `#` before validating against the channel name rule. */
 const channelNameSchema = z

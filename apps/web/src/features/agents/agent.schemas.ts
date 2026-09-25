@@ -1,5 +1,7 @@
 import { z } from "zod";
 import {
+  AGENT_NAME_MAX_LENGTH,
+  AGENT_NAME_PATTERN,
   RUNTIME_PROVIDER,
   RUNTIME_PROVIDER_USES_EXTERNAL_CLI,
   RUNTIME_PROVIDER_VALUES,
@@ -45,15 +47,13 @@ const apiKeySchema = z.preprocess(
   z.string().trim().min(8).max(4096).optional(),
 );
 
-// The @mention username: fixed at creation (Raft 1.0.32 alignment), never renamed afterward.
-export const AGENT_NAME_MAX_LENGTH = 60;
+// The @mention username: fixed at creation (Raft 1.0.32 alignment), never renamed afterward. The
+// bound and its grammar are the SDK's one definition (`@lrm/coforge-sdk/internal`, where the
+// sender-handle bound reads the same value); re-exported here because the web modules that build a
+// freed name from it import it from this file.
+export { AGENT_NAME_MAX_LENGTH };
 
-const nameSchema = z
-  .string()
-  .trim()
-  .min(1)
-  .max(AGENT_NAME_MAX_LENGTH)
-  .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/);
+const nameSchema = z.string().trim().min(1).max(AGENT_NAME_MAX_LENGTH).regex(AGENT_NAME_PATTERN);
 
 export const AGENT_DISPLAY_NAME_MAX_LENGTH = 80;
 

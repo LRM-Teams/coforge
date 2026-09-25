@@ -1,4 +1,5 @@
 import { codePointLength } from "./truncate";
+import { AGENT_NAME_MAX_LENGTH } from "./agent-name";
 import { MENTION_HANDLE_PATTERN } from "./mentions";
 
 /**
@@ -17,13 +18,11 @@ export function isMessageSenderKind(value: unknown): value is MessageSenderKind 
 
 /**
  * The longest public handle a sender can have. An Agent's name is the longer of the two identities
- * that reach this field (`AGENT_NAME_MAX_LENGTH`, `apps/web/src/features/agents/agent.schemas.ts`);
- * a human's username is bounded well below it by the username grammar in
- * `apps/web/src/server/auth/user-identity.repository.server.ts`. The bound is restated here rather
- * than imported because this package must not depend on the Web app; a change to either identity
- * schema has to be reflected here in the same change.
+ * that reach this field, and the SDK owns that bound (`AGENT_NAME_MAX_LENGTH`, `./agent-name`), so
+ * this is that value rather than a hand-copied 60; a human's username is bounded well below it by
+ * the username grammar in `apps/web/src/server/auth/user-identity.repository.server.ts`.
  */
-const SENDER_HANDLE_MAX_LENGTH = 60;
+const SENDER_HANDLE_MAX_LENGTH = AGENT_NAME_MAX_LENGTH;
 
 /**
  * An internal id is never a public handle. Hex and hyphens are ordinary handle characters, so a

@@ -919,6 +919,7 @@ export * from "./task-codec";
 export * from "./channel-command";
 export * from "./agent-display";
 export * from "./message-sender";
+export * from "./agent-name";
 export * from "./codec";
 export * from "./validation";
 export * from "./weekly-report";
