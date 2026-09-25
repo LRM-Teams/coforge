@@ -2,7 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdir, mkdtemp, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { acquireProcessLock } from "#src/platform/process-lock";
+import { acquireProcessLock, isLockContention } from "#src/platform/process-lock";
 
 const fixture = new URL("fixtures/process-lock-child.ts", import.meta.url).pathname;
 const roots: string[] = [];
@@ -81,6 +81,44 @@ test("spawned child does not retain its parent's lock", async () => {
   const lock = acquireProcessLock(path);
   lock.release();
   process.kill(childPid, "SIGKILL");
+});
+
+test("a contended lock reads as lock contention", async () => {
+  const path = await lockPath();
+  const owner = contender(path);
+  expect(await line(owner)).toBe("ready");
+  owner.stdin.write("go\n");
+  expect(await line(owner)).toBe("acquired");
+
+  // The predicate the failure diagnosis leans on: this is "someone else has it", not "it is broken".
+  let refusal: unknown;
+  try {
+    acquireProcessLock(path);
+  } catch (error) {
+    refusal = error;
+  }
+  expect(refusal).toBeDefined();
+  expect(isLockContention(refusal)).toBe(true);
+
+  // A lock path that cannot be a database at all is not contention: it needs its own diagnosis
+  // ("something else is running" must not swallow "the lock file is unusable").
+  let unusable: unknown;
+  try {
+    acquireProcessLock(dirname(path)); // a directory as the lock database
+  } catch (error) {
+    unusable = error;
+  }
+  expect(unusable).toBeDefined();
+  expect(isLockContention(unusable)).toBe(false);
+
+  // And the shape itself: only a code-bearing SQLITE_BUSY/SQLITE_LOCKED object counts.
+  expect(isLockContention(new Error("boom"))).toBe(false);
+  expect(isLockContention(null)).toBe(false);
+  expect(isLockContention("SQLITE_BUSY")).toBe(false);
+  expect(isLockContention({ code: "SQLITE_CORRUPT" })).toBe(false);
+  expect(isLockContention({ code: "SQLITE_LOCKED" })).toBe(true);
+
+  owner.stdin.write("release\n");
 });
 
 test("clean and startup-failure paths release the lock", async () => {

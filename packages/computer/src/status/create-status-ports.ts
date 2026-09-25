@@ -3,6 +3,7 @@ import { join, posix, win32 } from "node:path";
 import {
   acquireProcessLock,
   FileBindingStore,
+  isLockContention,
   LocalDaemonLauncher,
   resolveDaemonExecutablePath,
   workspaceHealthJournalPath,
@@ -142,7 +143,7 @@ export function createStatusPorts(input: CreateStatusPortsInput): StatusPorts {
         lock.release();
         return "free";
       } catch (error) {
-        return isSqliteLockContention(error) ? "held" : "unknown";
+        return isLockContention(error) ? "held" : "unknown";
       }
     },
     async readSupervisorLockOwner(): Promise<number | null> {
@@ -219,15 +220,6 @@ async function locateBinaryOnPath(
     }
   }
   return null;
-}
-
-function isSqliteLockContention(error: unknown): boolean {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    "code" in error &&
-    (error.code === "SQLITE_BUSY" || error.code === "SQLITE_LOCKED")
-  );
 }
 
 /** Best-effort liveness check for a Windows PID via `tasklist` (no mutation). */
