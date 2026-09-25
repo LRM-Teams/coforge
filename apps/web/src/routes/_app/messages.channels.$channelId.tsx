@@ -76,9 +76,11 @@ export const Route = createFileRoute("/_app/messages/channels/$channelId")({
           ),
         ),
       );
-      // Opening the page waits for the counts. Switching to the Tasks tab or changing the window
-      // (`stay`) only starts the read: the board waits for it itself (`finished.pending`), so the
-      // conversation stays on screen instead of giving way to its loading page.
+      // Arriving from another kind of page (`enter`: a first load, or from a channel to a direct
+      // message and back) waits for the counts. Staying on this kind of page (`stay`: switching to
+      // the Tasks tab, changing the window, or opening another conversation of the same kind) only
+      // starts the read: the board shows its loading state until the counts arrive
+      // (`finished.pending`), so the page never gives way to its loading page for them.
       if (cause === "stay") void summary.catch(() => undefined);
       else await summary;
     }

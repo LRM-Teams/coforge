@@ -18,8 +18,9 @@ import {
 import { decodeTaskChangedEvent } from "./task-realtime";
 import { executeTask } from "./tasks.functions";
 import {
-  applyTaskChanges,
+  browserTimers,
   createTaskChangeBurst,
+  writeTaskChanges,
   type TaskChanges,
 } from "./conversation-task-changes";
 import { finishedTasksScopeKey } from "./use-finished-tasks";
@@ -70,27 +71,13 @@ export function useConversationTasks(conversationId: string) {
   const workspaceId = useCurrentWorkspaceId() ?? "";
   const getWorkspaceToken = useServerFn(getWorkspaceConversationSubscriptionToken);
   const getUserToken = useServerFn(getUserConversationSubscriptionToken);
-  /** Writes changes into the cached list in one write, and reads the Tasks tab's Done and Closed
-   * again (counted and paged by the server) only when they changed. */
   const apply = useCallback(
-    (changes: readonly TaskChanges[]) => {
-      let finishedChanged = false;
-      queryClient.setQueryData<TaskView[]>(queryKey, (current) => {
-        // Before the first read there is no list to change: the read brings every Task. Whether
-        // Done or Closed changed is unknown, so their reads (if any) go again.
-        if (current === undefined) {
-          finishedChanged = true;
-          return undefined;
-        }
-        const result = applyTaskChanges(current, changes);
-        finishedChanged = result.finishedChanged;
-        return result.tasks;
-      });
-      if (finishedChanged)
-        void queryClient.invalidateQueries({
-          queryKey: finishedTasksScopeKey({ workspaceId, conversationId }),
-        });
-    },
+    (changes: readonly TaskChanges[]) =>
+      writeTaskChanges(
+        queryClient,
+        { list: queryKey, finished: finishedTasksScopeKey({ workspaceId, conversationId }) },
+        changes,
+      ),
     [queryClient, queryKey, workspaceId, conversationId],
   );
   // Announcements arriving together (an Agent working through several Tasks) apply in one write,
@@ -98,7 +85,7 @@ export function useConversationTasks(conversationId: string) {
   // still gathering, so an unmount or a re-run effect drops nothing.
   const burst = useRef<ReturnType<typeof createTaskChangeBurst>>(undefined);
   useEffect(() => {
-    const current = createTaskChangeBurst(conversationId, apply);
+    const current = createTaskChangeBurst(conversationId, apply, browserTimers);
     burst.current = current;
     return () => {
       current.flush();

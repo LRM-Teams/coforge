@@ -1,4 +1,5 @@
 import type { TaskView } from "@lrm/coforge-sdk/internal";
+import type { QueryClient, QueryKey } from "@tanstack/react-query";
 
 import { isFinishedStatus } from "./finished-tasks";
 
@@ -35,9 +36,42 @@ export function applyTaskChanges(current: readonly TaskView[], bursts: readonly 
   return { tasks: [...byId.values()], finishedChanged };
 }
 
-type Timers = {
-  set: (run: () => void, ms: number) => unknown;
-  clear: (handle: never) => void;
+/**
+ * Writes changes into a conversation's cached Task list in one write, and reads the Tasks tab's
+ * Done and Closed again (counted and paged by the server, under `finished`) only when they
+ * changed. Before the first read has answered there is no list to change: that read may have
+ * started before the change, so it is cancelled and starts again, bringing every Task; whether
+ * Done or Closed changed is unknown, so their reads (if any) go again too. A read in flight with no
+ * data yet is only joined, never restarted, by an invalidation (TanStack Query's `cancelRefetch`
+ * applies once there is data), hence the explicit cancel first. Resolves once the reads are
+ * asked for again, not when they answer.
+ */
+export async function writeTaskChanges(
+  queryClient: QueryClient,
+  keys: { list: QueryKey; finished: QueryKey },
+  changes: readonly TaskChanges[],
+) {
+  const current = queryClient.getQueryData<TaskView[]>(keys.list);
+  if (current === undefined) {
+    await queryClient.cancelQueries({ queryKey: keys.list });
+    void queryClient.invalidateQueries({ queryKey: keys.list });
+    void queryClient.invalidateQueries({ queryKey: keys.finished });
+    return;
+  }
+  const result = applyTaskChanges(current, changes);
+  queryClient.setQueryData<TaskView[]>(keys.list, result.tasks);
+  if (result.finishedChanged) void queryClient.invalidateQueries({ queryKey: keys.finished });
+}
+
+type Timers<Handle> = {
+  set: (run: () => void, ms: number) => Handle;
+  clear: (handle: Handle) => void;
+};
+
+/** The browser's own timers, which a burst uses outside tests. */
+export const browserTimers: Timers<ReturnType<typeof setTimeout>> = {
+  set: (run, ms) => setTimeout(run, ms),
+  clear: (handle) => clearTimeout(handle),
 };
 
 /** How long announcements gather before they apply together. */
@@ -49,15 +83,15 @@ const APPLY_DELAY_MS = 100;
  * applies what is pending at once and leaves the burst ready for more: an effect cleanup calls it,
  * so nothing is lost on unmount, and a re-run effect (StrictMode, Activity) keeps working.
  */
-export function createTaskChangeBurst(
+export function createTaskChangeBurst<Handle>(
   conversationId: string,
   apply: (changes: readonly TaskChanges[]) => void,
-  timers: Timers = { set: setTimeout, clear: clearTimeout },
+  timers: Timers<Handle>,
 ) {
   let pending: TaskChanges[] = [];
-  let timer: unknown;
+  let timer: Handle | undefined;
   const flush = () => {
-    if (timer !== undefined) timers.clear(timer as never);
+    if (timer !== undefined) timers.clear(timer);
     timer = undefined;
     if (pending.length === 0) return;
     const changes = pending;
