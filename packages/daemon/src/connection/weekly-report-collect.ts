@@ -1,3 +1,5 @@
+import { RFC_UUID_PATTERN } from "@lrm/coforge-sdk/internal";
+
 /** Local proxy / CLI body for Collect Run pack submit (ADR 0032 HTTPS return path). */
 export type WeeklyReportCollectCommand = {
   requestId: string;
@@ -24,14 +26,13 @@ export type WeeklyReportCollectResult = {
   waveExhausted?: boolean;
 };
 
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-
 /** Validates the Agent HTTPS / proxy collect body before forwarding to cloud. */
 export function validateWeeklyReportCollectCommand(
   payload: Record<string, unknown>,
 ): WeeklyReportCollectCommand | null {
-  if (typeof payload.requestId !== "string" || !UUID.test(payload.requestId)) return null;
-  if (typeof payload.runId !== "string" || !UUID.test(payload.runId)) return null;
+  if (typeof payload.requestId !== "string" || !RFC_UUID_PATTERN.test(payload.requestId))
+    return null;
+  if (typeof payload.runId !== "string" || !RFC_UUID_PATTERN.test(payload.runId)) return null;
   if (payload.outcome !== "ready" && payload.outcome !== "empty" && payload.outcome !== "failed")
     return null;
   if (
@@ -58,7 +59,8 @@ export function validateWeeklyReportCollectCommand(
 export function validateWeeklyReportCollectFailRunningCommand(
   payload: Record<string, unknown>,
 ): WeeklyReportCollectFailRunningCommand | null {
-  if (typeof payload.requestId !== "string" || !UUID.test(payload.requestId)) return null;
+  if (typeof payload.requestId !== "string" || !RFC_UUID_PATTERN.test(payload.requestId))
+    return null;
   if (payload.failRunningSlots !== true) return null;
   if (typeof payload.failureReason !== "string" || payload.failureReason.length === 0) return null;
   if (payload.failureReason.length > 2000) return null;
