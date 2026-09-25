@@ -1,4 +1,4 @@
-import { TASK_STATUSES, type TaskStatus, type TaskView } from "@lrm/coforge-sdk/internal";
+import { TASK_STATUSES, type TaskView } from "@lrm/coforge-sdk/internal";
 
 import { useMemo, useState, type ReactNode } from "react";
 import { Button as AriaButton } from "react-aria-components";
@@ -11,13 +11,14 @@ import { useTaskHiddenColumns } from "#src/features/settings/task-hidden-columns
 import { cn } from "#src/lib/utils";
 import { m } from "#src/paraglide/messages";
 import { CreateTaskDialog } from "./create-task-dialog";
-import type { FinishedStatus, FinishedWindow } from "./finished-tasks";
+import { isFinishedStatus, type FinishedStatus, type FinishedWindow } from "./finished-tasks";
 import { TASK_TITLE_CLASS, TaskCard } from "./task-card";
 import { TaskDetailMenu } from "./task-detail-dialog";
-import { taskMatches, type FilterableTask, type TaskFilter } from "./task-filters";
+import { taskMatches, type FilterableTask } from "./task-filters";
+import type { TaskBoardView } from "./task-board-search";
 import type { OverviewTaskCommand } from "./task-overview-collection";
 import { TaskToolbar } from "./task-toolbar";
-import { statusLabel, TaskWorkflow, type TaskControls, type TaskLayout } from "./task-workflow";
+import { statusLabel, TaskWorkflow, type TaskControls } from "./task-workflow";
 import { TaskCardSkeleton } from "./tasks-pending";
 import type { FinishedColumn, FinishedTasks } from "./use-finished-tasks";
 
@@ -27,9 +28,6 @@ export type BoardTask = TaskView &
     /** The conversation it lives in (`#channel`), on the Workspace Tasks page. */
     source?: { label: string };
   };
-
-/** A Task command as a board issues it: the conversation comes from the Task. */
-export type BoardTaskCommand = OverviewTaskCommand;
 
 /** What only a conversation's Tasks tab has. */
 export type ConversationBoard = {
@@ -48,8 +46,6 @@ export type ConversationBoard = {
 };
 
 const FINISHED: readonly FinishedStatus[] = ["done", "closed"];
-const isFinished = (status: TaskStatus): status is FinishedStatus =>
-  status === "done" || status === "closed";
 
 /**
  * The Task board: the Workspace Tasks page, or one conversation's Tasks tab when `conversation` is
@@ -60,14 +56,7 @@ const isFinished = (status: TaskStatus): status is FinishedStatus =>
 export function TaskBoard<T extends BoardTask>({
   tasks,
   finished,
-  completedWindow,
-  status,
-  filter,
-  layout,
-  onStatusChange,
-  onFilterChange,
-  onWindowChange,
-  onLayoutChange,
+  view,
   onOpenTask,
   renderTitle,
   onCommand,
@@ -77,27 +66,22 @@ export function TaskBoard<T extends BoardTask>({
   tasks: readonly T[];
   /** Done and Closed, counted and paged by the server. */
   finished: FinishedTasks<T>;
-  completedWindow: FinishedWindow;
-  status?: TaskStatus;
-  filter: TaskFilter;
-  layout: TaskLayout;
-  onStatusChange: (status?: TaskStatus) => void;
-  onFilterChange: (filter: TaskFilter) => void;
-  onWindowChange: (completedWindow: FinishedWindow) => void;
-  onLayoutChange: (layout: TaskLayout) => void;
+  /** The board's view from the address (`useTaskBoardSearch`). */
+  view: TaskBoardView;
   /** Opens a Task's popup over the board. */
   onOpenTask: (task: T) => void;
   /** Wraps a card's title in the surface's own link; a button that opens the popup otherwise. */
   renderTitle?: (task: T, title: ReactNode) => ReactNode;
   /** Absent where the viewer may not change Tasks: no drag, no menu. */
-  onCommand?: (task: T, command: BoardTaskCommand) => Promise<void>;
+  onCommand?: (task: T, command: OverviewTaskCommand) => Promise<void>;
   conversation?: ConversationBoard;
 }) {
+  const { status, filter, layout, completedWindow, changeWindow: onWindowChange } = view;
   const [hiddenColumns, setColumnHidden] = useTaskHiddenColumns();
   const [createOpen, setCreateOpen] = useState(false);
   const filtered = status !== undefined || filter.owners.length > 0 || filter.projects.length > 0;
   const { done, closed } = finished.columns;
-  const unfinished = useMemo(() => tasks.filter((task) => !isFinished(task.status)), [tasks]);
+  const unfinished = useMemo(() => tasks.filter((task) => !isFinishedStatus(task.status)), [tasks]);
   const visible = useMemo(
     () =>
       [...unfinished, ...done.rows, ...closed.rows].filter(
@@ -111,7 +95,8 @@ export function TaskBoard<T extends BoardTask>({
     (sum, value) => sum + finished.columns[value].count,
     0,
   );
-  const loading = conversation?.loading && tasks.length === 0;
+  // Until the list and the finished counts arrive, the board cannot tell it is empty.
+  const loading = (conversation?.loading && tasks.length === 0) || finished.pending;
   const empty = !loading && visible.length === 0 && finishedShown === 0;
   const paged = useMemo(() => {
     const group = (column: FinishedColumn<T>) => ({
@@ -147,9 +132,9 @@ export function TaskBoard<T extends BoardTask>({
         filter={filter}
         status={status}
         layout={layout}
-        onFilterChange={onFilterChange}
-        onStatusChange={onStatusChange}
-        onLayoutChange={onLayoutChange}
+        onFilterChange={view.changeFilter}
+        onStatusChange={view.changeStatus}
+        onLayoutChange={view.changeLayout}
         completedWindow={completedWindow}
         onWindowChange={onWindowChange}
         conversation={Boolean(conversation)}
@@ -312,7 +297,7 @@ function BoardTaskCard<T extends BoardTask>({
   list: boolean;
   onOpenDetails: () => void;
   renderTitle?: (task: T, title: ReactNode) => ReactNode;
-  onCommand?: (command: BoardTaskCommand) => Promise<void>;
+  onCommand?: (command: OverviewTaskCommand) => Promise<void>;
   conversation?: ConversationBoard;
 }) {
   return (

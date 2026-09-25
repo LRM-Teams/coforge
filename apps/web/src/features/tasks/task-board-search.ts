@@ -8,28 +8,34 @@ import { filterParam, parseFilterParam, type TaskFilter } from "./task-filters";
 import { useTaskLayout, type TaskLayout } from "./task-workflow";
 
 /**
- * A Task board's view in the address, the same on the Tasks page and a conversation's Tasks tab:
- * one status, the layout, the owner and Project picks (comma-separated User or Agent ids and
- * Project ids, `none` for nobody / no Project) and how far back Done and Closed reach (a week when
- * absent). Routes spread it into their `validateSearch`.
+ * A conversation's Task board view in the address: one status, the layout, the owner picks
+ * (comma-separated User or Agent ids, `none` for nobody) and how far back Done and Closed reach
+ * (a week when absent). Routes spread it into their `validateSearch`.
  */
-export const taskBoardSearchShape = {
+export const conversationTaskBoardSearchShape = {
   status: z.enum(TASK_STATUSES).optional().catch(undefined),
   layout: z.enum(["board", "list"]).optional().catch(undefined),
   owners: z.string().optional().catch(undefined),
-  projects: z.string().optional().catch(undefined),
   completed: z.enum(["month", "all"]).optional().catch(undefined),
 };
 
-type TaskBoardSearch = {
-  status?: TaskStatus;
-  layout?: TaskLayout;
-  owners?: string;
-  projects?: string;
-  completed?: "month" | "all";
+/** The Tasks page's board view: a conversation's, plus the Project picks (Project ids, `none` for
+ * no Project), since the page mixes Projects. */
+export const taskBoardSearchShape = {
+  ...conversationTaskBoardSearchShape,
+  projects: z.string().optional().catch(undefined),
 };
 
-/** The board's view read from the address, and changes written back to it. */
+type TaskBoardSearch = z.infer<z.ZodObject<typeof taskBoardSearchShape>>;
+
+/** A board's view as the board reads it, and how it changes it. */
+export type TaskBoardView = ReturnType<typeof useTaskBoardSearch>;
+
+/**
+ * The board's view read from the address, and changes written back to it. Shared by the Tasks
+ * page and both conversation routes, so it navigates relative to the current route (`to: "."`)
+ * rather than through one route's typed API; each route validates the result.
+ */
 export function useTaskBoardSearch(search: TaskBoardSearch) {
   const router = useRouter();
   const layout = useTaskLayout(search.layout);

@@ -7,6 +7,7 @@ import {
 } from "@tanstack/query-db-collection";
 import type { TaskCommand, TaskResult, TaskStatus, TaskView } from "@lrm/coforge-sdk/internal";
 
+import { isFinishedStatus } from "./finished-tasks";
 import type { TaskChangedEvent } from "./task-realtime";
 import { executeTask, loadTaskOverview } from "./tasks.functions";
 
@@ -42,8 +43,6 @@ export const taskOverviewQuery = (
     queryKey: taskOverviewQueryKey(workspaceId),
     queryFn: () => api.load(),
   });
-
-const isFinished = (status: TaskStatus) => status === "done" || status === "closed";
 
 /** The status a command moves its Task to, when it moves it: shown before the server answers. */
 function statusAfter(command: OverviewTaskCommand): TaskStatus | undefined {
@@ -96,7 +95,7 @@ export function createTaskOverview(
     // page fields.
     for (const view of result.tasks) {
       if (!tasks.has(view.messageId)) {
-        if (view.messageId === row.messageId && !isFinished(view.status))
+        if (view.messageId === row.messageId && !isFinishedStatus(view.status))
           tasks.utils.writeInsert({ ...row, ...view });
         continue;
       }
@@ -160,7 +159,7 @@ export function createTaskOverview(
       if (deleted.has(view.messageId)) continue;
       const row = tasks.get(view.messageId);
       // A finished Task the rows do not hold stays out: Done and Closed are read on their own.
-      if (!row) needsRead ||= !isFinished(view.status);
+      if (!row) needsRead ||= !isFinishedStatus(view.status);
       else if (view.revision > row.revision) updates.push(view);
     }
     for (const view of newest.values())

@@ -14,26 +14,34 @@ These rules apply to `src/features/tasks/`.
   a conversation (`ConversationTaskBoard`) creates Tasks. Cards carry no
   Claim or Unclaim button: moving an unowned To do Task to In progress claims
   it (`getTaskMoveCommand`).
-- Both routes spread `taskBoardSearchShape` (`task-board-search.ts`) into
-  their validated search and read it with `useTaskBoardSearch`: `status`,
-  `layout`, `owners`, `projects`, `completed`. A status or layout change is a
-  history entry; picks and the window replace the address in place.
+- `/tasks` spreads `taskBoardSearchShape` and the conversation routes
+  `conversationTaskBoardSearchShape` (`task-board-search.ts`, without
+  `projects`) into their validated search, read with `useTaskBoardSearch`:
+  `status`, `layout`, `owners`, `projects`, `completed`. A status or layout
+  change is a history entry; picks and the window replace the address in
+  place. Hidden columns and Display fields are one device preference shared
+  by both boards.
 - Every status group starts expanded, and any group can be collapsed from
   its header. A collapsed group renders no cards but stays a drop target.
   The choice is not persisted.
 - Every group renders its first 50 cards and adds 50 per "Show more"; never
-  render a whole status at once. A paged group (Done and Closed on `/tasks`)
+  render a whole status at once. A paged group (Done and Closed on either
+  board)
   renders every card it has read, since each read is at most 50, and keeps
   its own footer instead.
 - Done and Closed come from `useFinishedTasks`, scoped to the Workspace page
   or one conversation: exact server counts for the `completed` window (`week`
   when absent, `month`, `all`) under the owner and Project picks, and
-  50-per-page reads with "Load more", read again after every Task command and
-  `task.changed.v1`. A board holds a finished Task itself only once it showed
-  it unfinished (moved there since). `/tasks` holds only unfinished Tasks in
-  its collection, and a `task` the page has not read is fetched alone
-  (`loadOverviewTask`). A conversation's own list still reads every Task; the
-  tab keeps the unfinished ones.
+  50-per-page reads with "Load more". Both routes preload the counts, so a
+  board never shows empty before them. A board holds a finished Task itself
+  only once it showed it unfinished (moved there since). `/tasks` holds only
+  unfinished Tasks in its collection, reads Done and Closed again after every
+  Task command and `task.changed.v1` burst, and fetches a `task` it has not
+  read alone (`loadOverviewTask`). A conversation's own list still reads every
+  Task; the tab keeps the unfinished ones. Its commands and announced changes
+  go through `applyTaskChanges` (`conversation-task-changes.ts`): announcements
+  apply once per burst, and Done and Closed are read again only when a burst
+  or command changed them, never for the echo of a change already held.
 - Cards and list rows carry no status select: the column or group is the
   status. Moves go through drag or the card menu's "Move to" section, which
   both offer every move `getTaskMoveCommand` allows.

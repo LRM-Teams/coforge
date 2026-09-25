@@ -77,6 +77,8 @@ export type FinishedTasks<T extends TaskView = OverviewTaskRow> = {
   groups: readonly FinishedGroup[];
   /** Reads the counts and every opened page again, after a Task changed. */
   refresh: () => void;
+  /** The counts have not arrived yet, so the groups' sizes are unknown. */
+  pending: boolean;
 };
 
 /**
@@ -111,9 +113,10 @@ export function useFinishedTasks<T extends TaskView>({
       }),
     [queryClient, workspaceId, conversationId],
   );
+  const pending = summary.isPending;
   return useMemo(
-    () => ({ columns: { done, closed }, groups, refresh }),
-    [done, closed, groups, refresh],
+    () => ({ columns: { done, closed }, groups, refresh, pending }),
+    [done, closed, groups, refresh, pending],
   );
 }
 

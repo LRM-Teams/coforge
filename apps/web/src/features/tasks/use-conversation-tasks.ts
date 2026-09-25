@@ -17,23 +17,17 @@ import {
 } from "#src/features/realtime/realtime.functions";
 import { decodeTaskChangedEvent } from "./task-realtime";
 import { executeTask } from "./tasks.functions";
+import { applyTaskChanges, type TaskChanges } from "./conversation-task-changes";
 import { finishedTasksScopeKey } from "./use-finished-tasks";
 import { m } from "#src/paraglide/messages";
 
 const appRoute = getRouteApi("/_app");
 
-export function mergeTaskChanges(current: TaskView[], changes: TaskView[]) {
-  const changed = new Map(changes.map((task) => [task.messageId, task]));
-  const merged = current.map((task) => {
-    const replacement = changed.get(task.messageId);
-    return replacement && replacement.revision >= task.revision ? replacement : task;
-  });
-  const known = new Set(current.map((task) => task.messageId));
-  return [...merged, ...changes.filter((task) => !known.has(task.messageId))];
-}
-
 /** The empty list while the Tasks load: one array, so what is memoized on `tasks` keeps. */
 const NO_TASKS: TaskView[] = [];
+
+/** How long announcements gather before they apply together. */
+const APPLY_DELAY_MS = 100;
 
 /**
  * The Tasks of one conversation: read once, then kept live by the Task write's own announcement
@@ -75,24 +69,47 @@ export function useConversationTasks(conversationId: string) {
   const workspaceId = useCurrentWorkspaceId() ?? "";
   const getWorkspaceToken = useServerFn(getWorkspaceConversationSubscriptionToken);
   const getUserToken = useServerFn(getUserConversationSubscriptionToken);
+  /** Writes changes into the cached list in one write, and reads the Tasks tab's Done and Closed
+   * again (counted and paged by the server) only when they changed. */
+  const apply = useCallback(
+    (changes: readonly TaskChanges[]) => {
+      let finishedChanged = false;
+      queryClient.setQueryData<TaskView[]>(queryKey, (current) => {
+        const result = applyTaskChanges(current ?? NO_TASKS, changes);
+        finishedChanged = result.finishedChanged;
+        return result.tasks;
+      });
+      if (finishedChanged)
+        void queryClient.invalidateQueries({
+          queryKey: finishedTasksScopeKey({ workspaceId, conversationId }),
+        });
+    },
+    [queryClient, queryKey, workspaceId, conversationId],
+  );
+  // Announcements arriving together (an Agent working through several Tasks) apply in one write,
+  // as on the Tasks page. One buffer per conversation.
+  const burst = useMemo(
+    () => ({
+      conversationId,
+      pending: [] as TaskChanges[],
+      timer: undefined as ReturnType<typeof setTimeout> | undefined,
+    }),
+    [conversationId],
+  );
+  useEffect(() => () => clearTimeout(burst.timer), [burst]);
   const onTaskChanged = useCallback(
     (publication: { data: unknown }) => {
       const event = decodeTaskChangedEvent(publication.data);
       // Another conversation's Task, or a publication that is not a Task change at all.
-      if (!event || event.conversationId !== conversationId) return;
-      queryClient.setQueryData<TaskView[]>(["conversation", "tasks", conversationId], (current) =>
-        mergeTaskChanges(
-          (current ?? NO_TASKS).filter((task) => !event.deleted.includes(task.messageId)),
-          event.tasks,
-        ),
-      );
-      // The Tasks tab's Done and Closed are counted and paged by the server: a change may move a
-      // Task into or out of them.
-      void queryClient.invalidateQueries({
-        queryKey: finishedTasksScopeKey({ workspaceId: event.workspaceId, conversationId }),
-      });
+      if (!event || event.conversationId !== burst.conversationId) return;
+      burst.pending.push(event);
+      if (burst.timer !== undefined) return;
+      burst.timer = setTimeout(() => {
+        burst.timer = undefined;
+        apply(burst.pending.splice(0));
+      }, APPLY_DELAY_MS);
     },
-    [conversationId, queryClient],
+    [burst, apply],
   );
   useRealtimeSubscription({
     channel: workspaceId ? workspaceConversationChannel(workspaceId) : undefined,
@@ -133,11 +150,16 @@ export function useConversationTasks(conversationId: string) {
         });
         // A list read that started before this command must not overwrite its result.
         await queryClient.cancelQueries({ queryKey });
-        queryClient.setQueryData<TaskView[]>(queryKey, (current = []) =>
-          input.operation === "delete" && input.number
-            ? current.filter((task) => task.number !== input.number)
-            : mergeTaskChanges(current, result.tasks),
-        );
+        const deleted =
+          input.operation === "delete"
+            ? (queryClient
+                .getQueryData<TaskView[]>(queryKey)
+                ?.filter((task) => task.number === input.number)
+                .map((task) => task.messageId) ?? [])
+            : [];
+        // Its announcement, arriving after, then finds these copies already held and reads
+        // nothing again.
+        apply([{ tasks: result.tasks, deleted }]);
         return result.tasks;
       } catch (cause) {
         setMutationError(m.tasks_mutation_error());
@@ -146,7 +168,7 @@ export function useConversationTasks(conversationId: string) {
         throw cause;
       }
     },
-    [execute, conversationId, queryClient, queryKey],
+    [execute, conversationId, queryClient, queryKey, apply],
   );
 
   return {
