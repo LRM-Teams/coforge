@@ -923,3 +923,4 @@ export * from "./task-references";
 export * from "./channel-references";
 export * from "./readable-body";
 export * from "./tool-display";
+export * from "./attachment-limits";

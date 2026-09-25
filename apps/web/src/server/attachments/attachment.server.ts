@@ -10,7 +10,9 @@ import {
   VISIBLE_CONVERSATION_WHERE,
 } from "#src/server/conversations/active-member.server";
 
-export const ATTACHMENT_MAX_BYTES = 10 * 1024 * 1024;
+import { ATTACHMENT_MAX_BYTES } from "@lrm/coforge-sdk/internal";
+
+export { ATTACHMENT_MAX_BYTES };
 export const ATTACHMENT_SESSION_SECONDS = 900;
 /** `COFORGE_ATTACHMENT_DIRECT_UPLOAD_THRESHOLD_BYTES` default: 1 MiB. */
 export const ATTACHMENT_DIRECT_UPLOAD_THRESHOLD_DEFAULT_BYTES = 1024 * 1024;

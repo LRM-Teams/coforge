@@ -15,6 +15,7 @@ import {
   type WorkspaceInfoRequest,
   type WorkspaceInfoResponse,
   type WeeklyReportCommand,
+  ATTACHMENT_MAX_BYTES,
 } from "@lrm/coforge-sdk/internal";
 import {
   actionCardActionSchema,
@@ -189,9 +190,10 @@ const MESSAGE_ID_ANCHOR =
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const LOCAL_ATTACHMENT_ROUTE_PREFIX = agentApiRoutes.local.attachments.path("");
 const LOCAL_ATTACHMENT_UPLOAD_PATH = agentApiRoutes.local.attachments.upload.path;
-// Mirrors `apps/web`'s `ATTACHMENT_MAX_BYTES` (10 MiB) plus slack for multipart framing
-// overhead (boundary markers, field headers); the daemon package cannot import from `apps/web`.
-const ATTACHMENT_UPLOAD_MAX_BYTES = 10 * 1024 * 1024 + 64 * 1024;
+// The cloud rejects attachments above `ATTACHMENT_MAX_BYTES`; the local upload hop allows that
+// plus slack for multipart framing overhead (boundary markers, field headers), so a file the
+// cloud accepts is never refused here. The base number is the SDK's shared fact, not a copy.
+const ATTACHMENT_UPLOAD_MAX_BYTES = ATTACHMENT_MAX_BYTES + 64 * 1024;
 // The four presigned-direct-upload session routes are plain JSON, so they reuse the
 // JSON body path below rather than the multipart forwarding above. `create` is a fixed path;
 // `complete`/`cancel`/`get` share a `/:uploadId[/complete]` prefix.
