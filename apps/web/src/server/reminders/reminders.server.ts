@@ -111,16 +111,57 @@ function validTimezone(zone: string) {
   }
 }
 
-const parts = (formatter: Intl.DateTimeFormat, instant: Date) =>
-  Object.fromEntries(
-    formatter
-      .formatToParts(instant)
-      .filter((part) => part.type !== "literal")
-      .map((part) => [part.type, part.value.toLowerCase()]),
-  );
+/** The local fields a recurrence match reads. The minute-by-minute scan reads them thousands of
+ * times per call, so they are collected in one pass over `formatToParts` with no intermediate parts
+ * array, filtered array, mapped array or lookup object per iteration. */
+type LocalMinute = {
+  weekday: string;
+  year: string;
+  month: string;
+  day: string;
+  hour: string;
+  minute: string;
+};
 
-const localMinuteKey = (value: Record<string, string>) =>
+const localMinute = (formatter: Intl.DateTimeFormat, instant: Date): LocalMinute => {
+  const local: LocalMinute = { weekday: "", year: "", month: "", day: "", hour: "", minute: "" };
+  for (const part of formatter.formatToParts(instant)) {
+    const value = part.value.toLowerCase();
+    if (part.type === "weekday") local.weekday = value;
+    else if (part.type === "year") local.year = value;
+    else if (part.type === "month") local.month = value;
+    else if (part.type === "day") local.day = value;
+    else if (part.type === "hour") local.hour = value;
+    else if (part.type === "minute") local.minute = value;
+  }
+  return local;
+};
+
+const localMinuteKey = (value: LocalMinute) =>
   `${value.year}-${value.month}-${value.day}-${value.hour}-${value.minute}`;
+
+/** The scan's per-minute test: does this instant's local wall clock match the recurrence's fixed
+ * hour, minute and (for a weekly recurrence) weekday? `probe` asks `formatToParts` for only those
+ * fields — the date fields the key needs are read with the full formatter on the rare minute that
+ * matches — so each of the horizon's thousands of probes formats fewer parts. */
+const matchesLocalMinute = (
+  probe: Intl.DateTimeFormat,
+  instant: Date,
+  hour: string | undefined,
+  minute: string | undefined,
+  weekdays: readonly string[] | undefined,
+): boolean => {
+  let hourMatches = false;
+  let minuteMatches = false;
+  let weekdayMatches = weekdays === undefined;
+  for (const part of probe.formatToParts(instant)) {
+    if (part.type === "hour") hourMatches = hour !== undefined && part.value === hour;
+    else if (part.type === "minute") minuteMatches = minute !== undefined && part.value === minute;
+    else if (part.type === "weekday" && weekdays)
+      weekdayMatches = weekdays.includes(part.value.toLowerCase());
+  }
+  return hourMatches && minuteMatches && weekdayMatches;
+};
 
 /** First matching real instant means overlap chooses the first occurrence; gaps have no match. */
 export function nextOccurrence(repeat: string, timezone: string, due: Date, now: Date): Date {
@@ -142,6 +183,15 @@ export function nextOccurrence(repeat: string, timezone: string, due: Date, now:
       ? String(recurrence.minute).padStart(2, "0")
       : undefined;
   const weekdays = recurrence?.kind === "weekly" ? recurrence.weekdays : undefined;
+  // The scan walks a multi-day horizon a minute at a time, so its probe asks for the three fields
+  // the test reads and nothing else; the full formatter runs on a matching minute only.
+  const probe = new Intl.DateTimeFormat("en-CA", {
+    timeZone: timezone,
+    ...(weekdays ? { weekday: "short" as const } : {}),
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  });
   const formatter = new Intl.DateTimeFormat("en-CA", {
     timeZone: timezone,
     weekday: "short",
@@ -157,22 +207,17 @@ export function nextOccurrence(repeat: string, timezone: string, due: Date, now:
     time <= now.getTime() + (recurrence?.kind === "weekly" ? 15 : 9) * 86_400_000;
     time += 60_000
   ) {
-    const local = parts(formatter, new Date(time));
-    if (
-      local.hour === hour &&
-      local.minute === minute &&
-      (!weekdays || weekdays.includes(local.weekday!))
-    ) {
-      const key = localMinuteKey(local);
-      let duplicate = false;
-      for (let earlier = time - 60_000; earlier >= time - 3 * 3_600_000; earlier -= 60_000)
-        if (localMinuteKey(parts(formatter, new Date(earlier))) === key) {
-          duplicate = true;
-          break;
-        }
-      if (duplicate) continue;
-      return new Date(time);
-    }
+    if (!matchesLocalMinute(probe, new Date(time), hour, minute, weekdays)) continue;
+    const local = localMinute(formatter, new Date(time));
+    const key = localMinuteKey(local);
+    let duplicate = false;
+    for (let earlier = time - 60_000; earlier >= time - 3 * 3_600_000; earlier -= 60_000)
+      if (localMinuteKey(localMinute(formatter, new Date(earlier))) === key) {
+        duplicate = true;
+        break;
+      }
+    if (duplicate) continue;
+    return new Date(time);
   }
   throw new Error("No valid recurring occurrence found");
 }
