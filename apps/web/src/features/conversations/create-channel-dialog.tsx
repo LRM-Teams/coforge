@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
+import { CHANNEL_NAME_PATTERN } from "@lrm/coforge-sdk/internal";
 import { XClose } from "@untitledui/icons";
 import { Heading, Text } from "react-aria-components";
 import { Dialog, Modal, ModalOverlay } from "#src/components/application/modals/modal";
@@ -176,7 +177,7 @@ export function CreateChannelDialog({
                 )}
                 <Button
                   type="submit"
-                  isDisabled={saving || !/^[a-z0-9][a-z0-9_-]{0,31}$/.test(name.trim())}
+                  isDisabled={saving || !CHANNEL_NAME_PATTERN.test(name.trim())}
                   className="mt-4 w-full"
                 >
                   {m.channel_create()}

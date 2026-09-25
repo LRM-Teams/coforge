@@ -1,3 +1,4 @@
+import { CHANNEL_NAME_PATTERN } from "@lrm/coforge-sdk/internal";
 import type { Conversation, PrismaClient } from "#src/generated/prisma/client";
 import { isAppError } from "#src/lib/app-error";
 import { ACTIVE_MEMBER_WHERE } from "./active-member.server";
@@ -25,7 +26,6 @@ import { PrismaDirectConversationRepository } from "#src/server/db/repositories/
 import { AgentInboxPurgePublisher } from "#src/server/agents/agent-inbox-purge.server";
 import { isUniqueViolation } from "#src/server/db/unique-violation.server";
 
-const CHANNEL_NAME = /^[a-z0-9][a-z0-9_-]{0,31}$/;
 const CHANNEL_TARGET = /^#[a-z0-9][a-z0-9_-]{0,31}$/;
 const USER_TARGET = /^@[a-z0-9][a-z0-9_-]{0,31}$/;
 const MEMBER_HANDLE = /^@[a-z0-9][a-z0-9_-]{0,31}$/;
@@ -661,7 +661,7 @@ export class AgentChannelManagement {
 
   private normalizeChannelName(rawName: string): string {
     const name = rawName.startsWith("#") ? rawName.slice(1) : rawName;
-    if (!CHANNEL_NAME.test(name))
+    if (!CHANNEL_NAME_PATTERN.test(name))
       throw new AgentChannelManagementError(400, "invalid channel name");
     return name;
   }

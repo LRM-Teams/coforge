@@ -1,5 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
+import { CHANNEL_NAME_PATTERN } from "@lrm/coforge-sdk/internal";
 import {
   workspaceUserMiddleware,
   type WorkspaceUserContext,
@@ -12,11 +13,7 @@ import { getComputerStatusCache } from "#src/server/centrifugo/computer-status.s
 import { userAgentControl } from "#src/server/agents/user-agent-control.server";
 import { attachActionCardViews } from "#src/server/conversations/action-cards.server";
 import { attachmentView } from "#src/server/attachments/attachment-view.server";
-import {
-  CHANNEL_NAME_PATTERN,
-  attachmentIdsSchema,
-  conversationPageInputSchema,
-} from "./conversation.schemas";
+import { attachmentIdsSchema, conversationPageInputSchema } from "./conversation.schemas";
 import { CentrifugoConversationRealtime } from "#src/server/conversations/conversation-realtime.server";
 import { createCentrifugoServerApi } from "#src/server/centrifugo/server-api.server";
 import { bestEffortMessageNotifier } from "#src/server/notifications/web-push-composition.server";

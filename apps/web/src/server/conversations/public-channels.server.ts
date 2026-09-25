@@ -2,7 +2,7 @@ import { lockConversation } from "./conversation-lock.server";
 import { lockMemberPins, setConversationPin } from "./conversation-pins.server";
 import type { Prisma, PrismaClient } from "#src/generated/prisma/client";
 import { AppError, isAppError } from "#src/lib/app-error";
-import { CHANNEL_NAME_PATTERN } from "#src/features/conversations/conversation.schemas";
+import { CHANNEL_NAME_PATTERN } from "@lrm/coforge-sdk/internal";
 import { windowPageFlags } from "#src/lib/conversation-window";
 import { ACTIVE_MEMBER_WHERE, VISIBLE_CONVERSATION_WHERE } from "./active-member.server";
 import { HUMAN_UNREAD_MESSAGE_SQL } from "./human-unread.server";
