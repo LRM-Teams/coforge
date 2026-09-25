@@ -261,7 +261,12 @@ export function AgentsContent({
           />
         </div>
       )}
-      <TabPanel id={memberType} className="min-h-0 flex-1 overflow-y-auto px-4 pb-8 sm:px-6">
+      {/* `relative` makes the list the containing block of the cards' absolutely positioned
+          `sr-only` labels; without it they escape this scroll box and stretch the document. */}
+      <TabPanel
+        id={memberType}
+        className="relative min-h-0 flex-1 overflow-y-auto px-4 pb-8 sm:px-6"
+      >
         {deferredStart && (
           <p
             role="status"
