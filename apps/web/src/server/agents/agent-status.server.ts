@@ -1,4 +1,5 @@
 import { RedisClient } from "bun";
+import { redisUrlFor } from "#src/server/redis-url.server";
 import type { AgentStatus } from "@lrm/coforge-sdk/internal";
 
 const ACTIVE_TTL_SECONDS = "90";
@@ -160,8 +161,7 @@ export class RedisAgentStatusCache implements AgentStatusCache {
 let singleton: RedisAgentStatusCache | undefined;
 
 export function getAgentStatusCache(): AgentStatusCache {
-  const redisUrl = process.env.REDIS_URL;
-  if (!redisUrl) throw new Error("REDIS_URL is required for Agent status");
+  const redisUrl = redisUrlFor("Agent status");
   singleton ??= new RedisAgentStatusCache(new RedisClient(redisUrl));
   return singleton;
 }

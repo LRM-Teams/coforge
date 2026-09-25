@@ -5,10 +5,10 @@ import {
   SCAN_RESULT_TTL_SECONDS,
   SCAN_TTL_SECONDS,
   readScanResult,
-  redisUrlFor,
   scanResultKeys,
   type ScanResultRedisPort,
 } from "./scan-result-cache.server";
+import { redisUrlFor } from "#src/server/redis-url.server";
 
 export type UsageCacheKey = {
   workspaceId: string;

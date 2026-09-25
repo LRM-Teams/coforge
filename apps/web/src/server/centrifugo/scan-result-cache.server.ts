@@ -69,10 +69,3 @@ function parseJson<T>(value: string | null): T | undefined {
     return undefined;
   }
 }
-
-/** The one Redis URL rule, so a cache that cannot reach Redis names the feature that needed it. */
-export function redisUrlFor(feature: string): string {
-  const url = Bun.env.REDIS_URL;
-  if (!url) throw new Error(`REDIS_URL is required for ${feature}`);
-  return url;
-}

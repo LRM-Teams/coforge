@@ -1,4 +1,5 @@
 import { RedisClient } from "bun";
+import { redisUrlFor } from "#src/server/redis-url.server";
 import {
   decodeAgentWorkspaceFileReadResult,
   decodeAgentWorkspaceFilesListResult,
@@ -99,21 +100,19 @@ export class RedisAgentWorkspaceFileReadResults implements AgentWorkspaceFileRea
 let listSingleton: RedisAgentWorkspaceFilesListResults | undefined;
 let readSingleton: RedisAgentWorkspaceFileReadResults | undefined;
 
-function requiredRedisUrl() {
-  const url = Bun.env.REDIS_URL;
-  if (!url) throw new Error("REDIS_URL is required for Workspace Files queries");
-  return url;
-}
-
 export function getAgentWorkspaceFilesListResults() {
   if (!listSingleton)
-    listSingleton = new RedisAgentWorkspaceFilesListResults(new RedisClient(requiredRedisUrl()));
+    listSingleton = new RedisAgentWorkspaceFilesListResults(
+      new RedisClient(redisUrlFor("Workspace Files queries")),
+    );
   return listSingleton;
 }
 
 export function getAgentWorkspaceFileReadResults() {
   if (!readSingleton)
-    readSingleton = new RedisAgentWorkspaceFileReadResults(new RedisClient(requiredRedisUrl()));
+    readSingleton = new RedisAgentWorkspaceFileReadResults(
+      new RedisClient(redisUrlFor("Workspace Files queries")),
+    );
   return readSingleton;
 }
 

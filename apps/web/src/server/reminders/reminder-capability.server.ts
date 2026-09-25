@@ -1,4 +1,5 @@
 import { RedisClient } from "bun";
+import { redisUrlFor } from "#src/server/redis-url.server";
 import { REMINDER_CAPABILITY } from "@lrm/coforge-sdk/internal";
 import type { ReminderCapabilityLease } from "./reminders.server";
 
@@ -34,12 +35,7 @@ export class RedisReminderCapabilityLease implements ReminderCapabilityLease {
 let lease: RedisReminderCapabilityLease | undefined;
 export function getReminderCapabilityLease() {
   lease ??= new RedisReminderCapabilityLease(
-    new RedisClient(
-      Bun.env.REDIS_URL ??
-        (() => {
-          throw new Error("REDIS_URL is required for reminder capability leases");
-        })(),
-    ),
+    new RedisClient(redisUrlFor("reminder capability leases")),
   );
   return lease;
 }
