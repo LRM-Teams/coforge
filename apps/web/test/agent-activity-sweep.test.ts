@@ -3,8 +3,8 @@ import { RedisClient } from "bun";
 import type { AgentActivity, AgentStatus } from "@lrm/coforge-sdk/internal";
 import { decodeAgentActivityProbe } from "@lrm/coforge-sdk/internal";
 import { RedisAgentDisplay } from "#src/server/agents/agent-display.server";
+import { ACTIVITY_PROBE_TIMEOUT_MS } from "#src/features/agents/activity-probe-timeout";
 import {
-  ACTIVITY_PROBE_TIMEOUT_MS,
   AgentActivitySweep,
   RedisAgentActivitySweepLock,
   type AgentActivitySweepLock,
