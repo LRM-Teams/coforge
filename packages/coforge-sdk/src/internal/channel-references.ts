@@ -11,7 +11,9 @@
  * (`[a-z0-9][a-z0-9_-]*`) never contains `:`.
  */
 
-const UUID = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
+import { UUID_LIKE_SOURCE } from "./uuid";
+
+const UUID = UUID_LIKE_SOURCE;
 
 /**
  * The prose form of a channel reference: `#` and a run of letters in any script, digits, `_` and

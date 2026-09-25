@@ -19,3 +19,9 @@ export const RFC_UUID_SOURCE =
   "[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}";
 
 export const RFC_UUID_PATTERN = new RegExp(`^${RFC_UUID_SOURCE}$`, "i");
+
+/** The permissive shape: four groups of hex — "is this value shaped like a UUID", whatever minted
+ * it. Ids CoForge itself mints satisfy the RFC rule above; these looser checks accept ids from
+ * earlier versions or foreign minting that happen to be shaped like a UUID. Anchoring, casing and
+ * flags stay the caller's: some sites need the source inside a larger pattern. */
+export const UUID_LIKE_SOURCE = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
