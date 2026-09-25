@@ -1,4 +1,5 @@
 import { RedisClient } from "bun";
+import { redisUrlFor } from "#src/server/redis-url.server";
 import type { AgentActivity, AgentContextUsage, AgentStatus } from "@lrm/coforge-sdk/internal";
 import {
   AGENT_ACTIVITY_DETAIL_KIND,
@@ -599,8 +600,7 @@ export class RedisAgentDisplay implements AgentDisplay {
 let singleton: RedisAgentDisplay | undefined;
 
 export function getAgentDisplay(): AgentDisplay {
-  const redisUrl = process.env.REDIS_URL;
-  if (!redisUrl) throw new Error("REDIS_URL is required for Agent display");
+  const redisUrl = redisUrlFor("Agent display");
   singleton ??= new RedisAgentDisplay(new RedisClient(redisUrl));
   return singleton;
 }

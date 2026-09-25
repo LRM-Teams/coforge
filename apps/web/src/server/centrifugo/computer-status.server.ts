@@ -1,4 +1,5 @@
 import { RedisClient } from "bun";
+import { redisUrlFor } from "#src/server/redis-url.server";
 
 const COMPUTER_STATUS_TTL_SECONDS = "90";
 export const COMPUTER_STATUS_LEASE_MS = Number(COMPUTER_STATUS_TTL_SECONDS) * 1_000;
@@ -45,10 +46,6 @@ export class RedisComputerStatusCache implements ComputerStatusCache {
 let singleton: RedisComputerStatusCache | undefined;
 
 export function getComputerStatusCache() {
-  singleton ??= (() => {
-    const url = Bun.env.REDIS_URL;
-    if (!url) throw new Error("REDIS_URL is required for Computer status");
-    return new RedisComputerStatusCache(new RedisClient(url));
-  })();
+  singleton ??= new RedisComputerStatusCache(new RedisClient(redisUrlFor("Computer status")));
   return singleton;
 }

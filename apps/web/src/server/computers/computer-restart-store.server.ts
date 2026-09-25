@@ -1,4 +1,5 @@
 import { RedisClient } from "bun";
+import { redisUrlFor } from "#src/server/redis-url.server";
 import type { ComputerRestartStatus } from "#src/features/computers/computer.schemas";
 
 const RESTART_TIMEOUT_MS = 60_000;
@@ -197,8 +198,7 @@ export class RedisComputerRestartStore implements ComputerRestartStore {
 
 let singleton: ComputerRestartStore | undefined;
 export function getComputerRestartStore() {
-  const url = Bun.env.REDIS_URL;
-  if (!url) throw new Error("REDIS_URL is required for Computer restart status");
+  const url = redisUrlFor("Computer restart status");
   singleton ??= new RedisComputerRestartStore(new RedisClient(url));
   return singleton;
 }

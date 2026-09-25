@@ -1,4 +1,5 @@
 import { RedisClient } from "bun";
+import { redisUrlFor } from "#src/server/redis-url.server";
 import { encodeAgentActivityProbe } from "@lrm/coforge-sdk/internal";
 
 import {
@@ -162,8 +163,7 @@ export class AgentActivitySweep {
 let singleton: AgentActivitySweep | undefined;
 
 function getAgentActivitySweep(): AgentActivitySweep {
-  const redisUrl = process.env.REDIS_URL;
-  if (!redisUrl) throw new Error("REDIS_URL is required for the Agent activity sweep");
+  const redisUrl = redisUrlFor("the Agent activity sweep");
   singleton ??= new AgentActivitySweep(
     getAgentDisplay(),
     createCentrifugoServerApi(),

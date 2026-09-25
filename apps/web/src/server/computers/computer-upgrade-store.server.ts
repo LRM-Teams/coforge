@@ -1,4 +1,5 @@
 import { RedisClient } from "bun";
+import { redisUrlFor } from "#src/server/redis-url.server";
 import { sanitizeUpgradeErrorText } from "@lrm/coforge-sdk/internal";
 import { AppError } from "#src/lib/app-error";
 
@@ -348,8 +349,7 @@ function requestId(result: ReportedComputerUpgradeResult): string {
 
 let singleton: RedisComputerUpgradeStore | undefined;
 export function getComputerUpgradeStore() {
-  const url = Bun.env.REDIS_URL;
-  if (!url) throw new Error("REDIS_URL is required for Computer upgrade status");
+  const url = redisUrlFor("Computer upgrade status");
   singleton ??= new RedisComputerUpgradeStore(new RedisClient(url));
   return singleton;
 }

@@ -1,4 +1,5 @@
 import { RedisClient } from "bun";
+import { redisUrlFor } from "#src/server/redis-url.server";
 import {
   decodeAgentSkillsListResult,
   encodeAgentSkillsListResult,
@@ -55,9 +56,7 @@ export class RedisAgentSkillsResults implements AgentSkillsResults {
 let singleton: RedisAgentSkillsResults | undefined;
 export function getAgentSkillsResults() {
   if (!singleton) {
-    const url = Bun.env.REDIS_URL;
-    if (!url) throw new Error("REDIS_URL is required for Skills queries");
-    singleton = new RedisAgentSkillsResults(new RedisClient(url));
+    singleton = new RedisAgentSkillsResults(new RedisClient(redisUrlFor("Skills queries")));
   }
   return singleton;
 }
