@@ -7,13 +7,13 @@ import type {
 import { getLogger } from "@logtape/logtape";
 import {
   AGENT_MESSAGE_ACK_METHOD,
+  HELD_CONTEXT_LIMIT,
   isChannelMessageTarget,
   isValidMessageSender,
   renderMessageSender,
 } from "@lrm/coforge-sdk/internal";
 import type { AgentProcessManager } from "#src/agent-runtime/agent-process-manager";
 import type { AgentConsumedSeqPort } from "#src/persistence/agent-consumed-seq-store";
-import { HELD_CONTEXT_LIMIT } from "./agent-inbox-freshness";
 
 const logger = getLogger(["coforge", "daemon", "message-attention"]);
 
@@ -38,7 +38,7 @@ const SEEN_MESSAGE_LIMIT = 1024;
 
 /** How many of the newest unreviewed deliveries per target the index keeps for a locally decided
  * freshness hold to show: exactly Raft's `DEFAULT_HELD_CONTEXT_LIMIT` (`HELD_CONTEXT_LIMIT` in
- * `agent-inbox-freshness.ts`), because the hold shows the newest that many and no more — and
+ * the SDK's `freshness-decision.ts`), because the hold shows the newest that many and no more — and
  * anything older is consumed by the same frontier anyway. No invented slack. */
 const PENDING_WINDOW_LIMIT = HELD_CONTEXT_LIMIT;
 

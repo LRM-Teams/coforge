@@ -107,6 +107,7 @@ import {
   type AgentContextScanResponse,
   AGENT_CONTEXT_SCAN_STATUS,
   freshnessDecisionFactId,
+  HELD_CONTEXT_LIMIT,
 } from "@lrm/coforge-sdk/internal";
 import { agentWorkspaceDirectory } from "#src/agent-runtime/agent-workspace-path";
 import { memoryIndexReminder } from "#src/agent-runtime/agent-memory-seed";
@@ -122,11 +123,7 @@ import {
 import { AgentMessageAttentionIndex } from "./agent-message-attention-index";
 import { AgentDeliveryQueue } from "./agent-delivery-queue";
 import { AgentInboxStateMachine } from "./agent-inbox-state-machine";
-import {
-  HELD_CONTEXT_LIMIT,
-  locallyHeldSend,
-  planAgentInboxFreshness,
-} from "./agent-inbox-freshness";
+import { locallyHeldSend, planAgentInboxFreshness } from "./agent-inbox-freshness";
 import { heldFreshnessActivity, heldFreshnessMessageCount } from "./agent-inbox-freshness-activity";
 import { AgentConsumedSeqStore } from "#src/persistence/agent-consumed-seq-store";
 import { AgentMessageDraftStore } from "#src/persistence/agent-message-draft-store";

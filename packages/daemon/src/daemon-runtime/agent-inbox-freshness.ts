@@ -75,9 +75,6 @@ export function planAgentInboxFreshness(input: AgentInboxFreshnessInput): AgentI
   };
 }
 
-/** Raft 1.0.32 `DEFAULT_HELD_CONTEXT_LIMIT`: how many newer messages a held notice shows. */
-export const HELD_CONTEXT_LIMIT = 3;
-
 /** Raft 1.0.32 `apmHeldFreshnessAvailableActions("send")`: the same list the server puts on a held
  * response it decided (`agent-messages.server.ts`'s `HELD_SEND_AVAILABLE_ACTIONS`). Kept here as
  * well because a locally held send never reaches that code path; a shared home is worth doing
