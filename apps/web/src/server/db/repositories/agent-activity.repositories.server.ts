@@ -7,6 +7,7 @@ import {
   agentVisibilityViewerForUser,
   visibleAgentWhere,
 } from "#src/server/agents/agent-visibility.server";
+import { AGENT_ACTIVITY_WINDOW } from "#src/features/agents/agent-activity-window";
 
 export type TrustedAgentActivity = AgentActivity & { computerId: string };
 
@@ -41,9 +42,6 @@ function activityKind(activity: { detailKind: string; level: string }) {
 }
 
 export class AgentActivityRepository {
-  // Mirrors the client-side cap in mergeAgentActivity (apps/web/src/features/agents/agent-activity.ts).
-  static readonly HISTORY_LIMIT = 500;
-
   constructor(private readonly db: PrismaClient) {}
 
   async listForMember(workspaceId: string, userId: string) {
@@ -215,7 +213,7 @@ export class AgentActivityRepository {
     const rows = await this.db.agentActivity.findMany({
       where: { workspaceId, agentId },
       orderBy: [{ occurredAt: "desc" }, { clientSeq: "desc" }, { createdAt: "desc" }],
-      take: AgentActivityRepository.HISTORY_LIMIT,
+      take: AGENT_ACTIVITY_WINDOW,
     });
     return rows.map(
       ({

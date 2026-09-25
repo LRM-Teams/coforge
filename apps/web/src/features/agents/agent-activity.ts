@@ -6,6 +6,8 @@ import {
   WORKSPACE_PROTOCOL_MAJOR,
 } from "@lrm/coforge-sdk/internal";
 
+import { AGENT_ACTIVITY_WINDOW } from "./agent-activity-window";
+
 export type ActivityEntry = {
   id?: string;
   launchId: string;
@@ -126,10 +128,6 @@ export function decodeActivityObservation(
   }
 }
 
-/** The client keeps up to this many activity frames per Agent (mirrors the server's history
- * cap in `AgentActivityRepository.list`). */
-const ACTIVITY_WINDOW = 500;
-
 export function mergeAgentActivity(current: ActivityEntry[], incoming: ActivityEntry[]) {
   const entries = new Map<string, ActivityEntry>();
   for (const entry of [...current, ...incoming]) {
@@ -141,7 +139,7 @@ export function mergeAgentActivity(current: ActivityEntry[], incoming: ActivityE
     if (entries.get(key)?.id && !entry.id) continue;
     entries.set(key, entry);
   }
-  return orderActivity([...entries.values()]).slice(0, ACTIVITY_WINDOW);
+  return orderActivity([...entries.values()]).slice(0, AGENT_ACTIVITY_WINDOW);
 }
 
 function orderActivity<T extends ActivityEntry>(activity: T[]): T[] {

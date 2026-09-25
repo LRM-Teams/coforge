@@ -142,8 +142,9 @@ these modules have their own rules in `src/server/centrifugo/AGENTS.md`.
   Daemon-supplied classification.
 - Persist every Activity frame except busy heartbeats, liveness-probe replies,
   and `runtime_progress`. Never blank `detail` before persisting.
-- `AgentActivityRepository.HISTORY_LIMIT` matches the browser's Activity
-  window; change them together.
+- The Activity history cap is the shared `AGENT_ACTIVITY_WINDOW`
+  (`features/agents/agent-activity-window.ts`); the browser timeline keeps the
+  same number.
 
 ## Skills, context, and reminders
 
