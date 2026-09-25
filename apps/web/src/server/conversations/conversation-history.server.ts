@@ -7,6 +7,7 @@ import { workspaceUserAvatarUrl } from "#src/server/db/repositories/user-profile
 import { BROWSER_MESSAGE_MENTIONS_SELECT, browserMessageMention } from "./mentions.server";
 import { MESSAGE_REACTIONS_SELECT, reactionSummaries } from "./message-reactions.server";
 import { browserSenderHandle, browserSenderName } from "./sender-display.server";
+import { attachmentFileNameSummary } from "#src/features/conversations/attachment-file-name";
 import type { ActionCardView } from "./action-cards.server";
 
 /** Exported so projections that must render exactly like the message stream (the Saved list,
@@ -88,18 +89,6 @@ export function mapBrowserMessage(message: BrowserMessageRow, workspaceId: strin
     // batched lookup per page; this function never queries `ActionCard` rows itself.
     actionCard: undefined as ActionCardView | undefined,
   };
-}
-
-/**
- * The own-messages index shows one derived filename per message, not a full attachment list
- * (it is a lightweight jump index, not the message itself). With several attachments, this
- * names the first (send order) and counts the rest, e.g. `photo.png (+2 more)`, rather than
- * picking one arbitrarily or silently dropping the count.
- */
-function attachmentFileNameSummary(attachments: { fileName: string }[]): string | undefined {
-  const [first, ...rest] = attachments;
-  if (!first) return undefined;
-  return rest.length ? `${first.fileName} (+${rest.length} more)` : first.fileName;
 }
 
 /** Bounded browser history reads shared by direct conversations and public channels. */
