@@ -50,7 +50,9 @@ export function SearchEntityRow({
     onOpened: () => onOpen?.(),
   });
   const props = {
-    className: `${className} aria-[current=true]:bg-secondary`,
+    // `relative` keeps an Agent's `sr-only` status text inside its row. Unpositioned, it escaped
+    // the page's scroll box and stretched the document.
+    className: `relative ${className} aria-[current=true]:bg-secondary`,
     onClick,
     "aria-current": target && isPreviewed(previewed, target) ? ("true" as const) : undefined,
     // A middle click opens a new tab without a click event; it is still an open.
