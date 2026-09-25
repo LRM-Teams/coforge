@@ -243,6 +243,55 @@ export async function resolveChannelThreadRoot(
   return rows[0];
 }
 
+/**
+ * The Agents a sent channel message wakes, the same for a person's post and an Agent's. (A Task
+ * and an action card keep their own rules: `server/tasks/task-board.server.ts` and
+ * `action-cards.server.ts`.)
+ *
+ * Directed delivery: a message that @mentions at least one Agent wakes exactly those Agents (a
+ * mention pierces mute), and no others. Mentioning only humans never narrows Agent delivery.
+ *
+ * Without an Agent mention the audience depends on what the message *is*: a top-level message
+ * belongs to the channel, so every unmuted Agent member receives it; a reply belongs to its
+ * thread, so it reaches the thread's **followers** — whoever replied, everyone a reply mentioned,
+ * and the thread's root author. Reaching the whole channel from inside a thread meant a human
+ * replying to one Agent woke every unmuted Agent in it (reported 2026-09-21). A root author who
+ * explicitly unfollowed stays out, which is why this reads follows and not authorship.
+ *
+ * An Agent sender never wakes itself. Read after the send enrolls its thread followers.
+ */
+export async function channelAgentRecipients(
+  tx: Prisma.TransactionClient,
+  message: {
+    conversationId: string;
+    threadRootId: string | undefined;
+    mentions: readonly { type: string; id: string }[];
+    senderAgentId?: string;
+  },
+): Promise<string[]> {
+  const mentioned = message.mentions
+    .filter((mention) => mention.type === "agent")
+    .map((mention) => mention.id);
+  // A member's Agent is always in the conversation's Workspace (both foreign keys carry it), so
+  // no Agent join is needed here.
+  const ids = mentioned.length
+    ? mentioned
+    : (
+        await tx.conversationMember.findMany({
+          where: {
+            conversationId: message.conversationId,
+            agentId: { not: null },
+            ...ACTIVE_MEMBER_WHERE,
+            ...(message.threadRootId
+              ? { threadFollows: { some: { rootMessageId: message.threadRootId } } }
+              : { channelMuted: false }),
+          },
+          select: { agentId: true },
+        })
+      ).map(({ agentId }) => agentId!);
+  return [...new Set(ids)].filter((id) => id !== message.senderAgentId);
+}
+
 /** Workspace-visible history with per-Agent notification preferences. */
 export class PublicChannels {
   private readonly inboxPurge: Pick<AgentInboxPurgePublisher, "purge">;
@@ -1853,35 +1902,11 @@ export class PublicChannels {
               skipDuplicates: true,
             });
           }
-          // Directed delivery: a message that @mentions at least one Agent wakes exactly those
-          // Agents (a mention pierces mute), and no others. Mentioning only humans never narrows
-          // Agent delivery.
-          //
-          // Without an Agent mention the audience depends on what the message *is*: a top-level
-          // message belongs to the channel, so every unmuted Agent member receives it; a reply
-          // belongs to its thread, so it reaches the thread's **followers** — the set the block
-          // above enrolls: whoever replies, everyone the reply mentions, and the thread's root
-          // author. Reaching the whole channel from inside a thread meant a human replying to one
-          // Agent woke every unmuted Agent in it (reported 2026-09-21). A root author who explicitly
-          // unfollowed stays out, which is why this reads follows and not authorship.
-          const mentionedAgentIds = stored.mentions
-            .filter((mention) => mention.type === "agent")
-            .map((mention) => mention.id);
-          const recipients =
-            mentionedAgentIds.length > 0
-              ? mentionedAgentIds.map((agentId) => ({ agentId }))
-              : await tx.conversationMember.findMany({
-                  where: {
-                    conversationId: channelId,
-                    agentId: { not: null },
-                    agent: { workspaceId },
-                    ...ACTIVE_MEMBER_WHERE,
-                    ...(root
-                      ? { threadFollows: { some: { rootMessageId: root.id } } }
-                      : { channelMuted: false }),
-                  },
-                  select: { agentId: true },
-                });
+          const recipients = await channelAgentRecipients(tx, {
+            conversationId: channelId,
+            threadRootId: root?.id,
+            mentions: stored.mentions,
+          });
           const sequence = (latest?.sequence ?? 0) + 1;
           const message = await tx.message.create({
             data: {
@@ -1903,10 +1928,10 @@ export class PublicChannels {
                   }
                 : undefined,
               deliveries: {
-                create: recipients.map(({ agentId }) => ({
+                create: recipients.map((agentId) => ({
                   workspaceId,
                   conversationId: channelId,
-                  agentId: agentId!,
+                  agentId,
                   sequence,
                 })),
               },

@@ -3162,11 +3162,12 @@ describe("DaemonRuntime", () => {
     }
   });
 
-  test("another Agent's channel chatter that does not mention an exited Agent is acknowledged without waking it", async () => {
+  test("another Agent's channel chatter that does not mention an exited Agent wakes it like a person's", async () => {
     const credentials = new InMemoryDaemonCredentialStore();
     await credentials.save(connection.workspaceId, connection.computerId, "token-a");
     const exits = new Set<() => void>();
     const acknowledgements: string[] = [];
+    const notices: string[] = [];
     let launches = 0;
     const runtime = new DaemonRuntime(
       connection,
@@ -3176,6 +3177,9 @@ describe("DaemonRuntime", () => {
           launches++;
           return {
             ...sessionSpy(),
+            notify: async (notice) => {
+              notices.push(notice);
+            },
             onExit(listener) {
               exits.add(listener);
               return () => exits.delete(listener);
@@ -3224,8 +3228,9 @@ describe("DaemonRuntime", () => {
       });
 
       expect(acknowledgements).toEqual(["delivery-chatter"]);
-      expect(launches).toBe(1);
-      expect(runtime.agentProcessManager.session("agent-a")).toBeUndefined();
+      expect(launches).toBe(2);
+      expect(notices).toHaveLength(1);
+      expect(notices[0]).toContain("#team  new: 1 message · latest sender @builder");
     } finally {
       await runtime.stop();
     }

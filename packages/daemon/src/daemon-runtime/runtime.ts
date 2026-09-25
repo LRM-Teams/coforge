@@ -2724,9 +2724,6 @@ export class DaemonRuntime {
     // acknowledged and dropped here, before any launch, rather than after one.
     if (exited && this.#messageAttention.hasConsumed(message))
       return this.#messageAttention.acknowledge(message);
-    // Nor for a delivery that would not wake a running Agent either.
-    if (exited && this.#messageAttention.isSilent(message))
-      return this.#messageAttention.acknowledge(message);
     // A wake launch failed moments ago, so launching again now would most likely fail the same
     // way. The delivery waits, acknowledged as the daemon keeps it, for the first launch after the
     // cooldown.
