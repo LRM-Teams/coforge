@@ -36,6 +36,10 @@ export const THREAD_REFERENCE_PATTERN = new RegExp(
 /**
  * CoForge's channel-name grammar: what a channel can be called. A `#name` outside it can never name
  * a channel.
+ *
+ * The one definition: the web's create/rename validation (`public-channels.server.ts`), its channel
+ * dialogs and action-card commits, and the Agent-facing action cards all validate against it, so a
+ * grammar change cannot miss a site.
  */
 export const CHANNEL_NAME_PATTERN = /^[a-z0-9][a-z0-9_-]{0,31}$/;
 

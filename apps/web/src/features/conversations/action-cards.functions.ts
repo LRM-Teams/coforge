@@ -1,5 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
+import { CHANNEL_NAME_PATTERN } from "@lrm/coforge-sdk/internal";
 
 import { workspaceUserMiddleware } from "#src/features/auth/function-auth";
 import { ActionCards } from "#src/server/conversations/action-cards.server";
@@ -23,10 +24,7 @@ function actionCards(db: ConstructorParameters<typeof ActionCards>[0]) {
 const messageIdInput = z.object({ messageId: z.uuid() });
 
 const commitChannelCreateInput = messageIdInput.extend({
-  name: z
-    .string()
-    .trim()
-    .regex(/^[a-z0-9][a-z0-9_-]{0,31}$/),
+  name: z.string().trim().regex(CHANNEL_NAME_PATTERN),
   projectId: z.uuid().optional(),
   memberUserIds: z.array(z.uuid()).default([]),
   memberAgentIds: z.array(z.uuid()).default([]),

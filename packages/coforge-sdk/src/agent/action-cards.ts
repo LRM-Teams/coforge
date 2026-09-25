@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { CHANNEL_NAME_PATTERN } from "#src/internal/channel-references";
+
 /**
  * Agent-prepared action card contract, mirroring Raft Computer 1.0.32's
  * `packages/shared/src/actionCards.ts` (`raft action prepare`; see
@@ -27,8 +29,6 @@ export const draftHintSchema = z
     "Why the agent prepared this for you. Shows below the form on the card; not the action itself.",
   );
 
-/** CoForge public-channel name rule (see `public-channels.server.ts#create`). */
-const CHANNEL_NAME_PATTERN = /^[a-z0-9][a-z0-9_-]{0,31}$/;
 /** CoForge Agent name rule (see `apps/web/src/features/agents/agent.schemas.ts`). */
 const AGENT_NAME_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
