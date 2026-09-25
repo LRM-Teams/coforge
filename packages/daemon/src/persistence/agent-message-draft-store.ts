@@ -2,6 +2,7 @@ import { chmod, lstat, mkdir, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir, userInfo } from "node:os";
 import { dirname, join } from "node:path";
 import type { LocalMentionSelector } from "@lrm/coforge-sdk/internal";
+import { escapePathIdentity } from "./path-scope";
 
 export const AGENT_MESSAGE_DRAFT_TTL_MS = 10 * 60 * 1_000;
 
@@ -245,5 +246,5 @@ function isMentionSelector(value: unknown): value is LocalMentionSelector {
 
 function encodeIdentity(identity: string): string {
   if (!identity) throw new Error("Agent message draft identity is required");
-  return encodeURIComponent(identity).replaceAll(".", "%2E");
+  return escapePathIdentity(identity);
 }

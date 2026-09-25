@@ -10,12 +10,9 @@ import {
 import { tmpdir, userInfo } from "node:os";
 import { dirname, join } from "node:path";
 import { getLogger } from "@logtape/logtape";
+import { escapePathIdentity, isSafePathScope } from "./path-scope";
 
 const logger = getLogger(["coforge", "daemon", "consumed-seqs"]);
-
-/** The same scope guard the reminder receipts use: an Agent id is a path segment, so it is matched
- * against the id grammar before it can become one. */
-const SAFE = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
 
 /** One Agent's consumed cursor for one target — Raft's `targets[target]` record verbatim (1.0.32
  * bundle 752736-752751): `seq` is the frontier the Agent has consumed (monotonic, never lower),
@@ -83,7 +80,7 @@ export class AgentConsumedSeqStore implements AgentConsumedSeqPort {
   }
 
   #path(agentId: string): string {
-    if (!SAFE.test(agentId)) throw new Error("invalid consumed-sequence Agent scope");
+    if (!isSafePathScope(agentId)) throw new Error("invalid consumed-sequence Agent scope");
     return join(
       this.#root,
       `coforge-cli-consumed-seq-${encodeIdentity(String(process.geteuid?.() ?? userInfo().username))}`,
@@ -203,10 +200,10 @@ export class AgentConsumedSeqStore implements AgentConsumedSeqPort {
   }
 }
 
-/** The same identity escaping the draft store uses: an Agent id is never a raw path segment. */
+/** This store's identity escaping; an empty identity is its own error. */
 function encodeIdentity(identity: string): string {
   if (!identity) throw new Error("consumed-sequence identity is required");
-  return encodeURIComponent(identity).replaceAll(".", "%2E");
+  return escapePathIdentity(identity);
 }
 
 type MutableState = { targets: Record<string, AgentConsumedSeqEntry>; nextReadOrder: number };
