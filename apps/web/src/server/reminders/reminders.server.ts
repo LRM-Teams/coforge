@@ -1,4 +1,5 @@
 import {
+  parseReminderRecurrence,
   REMINDER_SYNC_MESSAGE_TYPE,
   decodeAgentReminderOperationRequest,
   encodeAgentReminderOperationRequest,
@@ -123,20 +124,24 @@ const localMinuteKey = (value: Record<string, string>) =>
 
 /** First matching real instant means overlap chooses the first occurrence; gaps have no match. */
 export function nextOccurrence(repeat: string, timezone: string, due: Date, now: Date): Date {
-  const interval = /^every:(\d+)([mhd])$/.exec(repeat);
-  if (interval) {
-    const unit = { m: 60_000, h: 3_600_000, d: 86_400_000 }[interval[2]!]!;
-    const period = Number(interval[1]) * unit;
+  const recurrence = parseReminderRecurrence(repeat);
+  if (recurrence?.kind === "every") {
+    const unit = { m: 60_000, h: 3_600_000, d: 86_400_000 }[recurrence.unit];
+    const period = recurrence.count * unit;
     return new Date(
       due.getTime() +
         Math.max(1, Math.floor((now.getTime() - due.getTime()) / period) + 1) * period,
     );
   }
-  const daily = /^daily@(\d\d):(\d\d)$/.exec(repeat);
-  const weekly = /^weekly:([a-z,]+)@(\d\d):(\d\d)$/.exec(repeat);
-  const weekdays = weekly?.[1]!.split(",");
-  const hour = daily?.[1] ?? weekly?.[2];
-  const minute = daily?.[2] ?? weekly?.[3];
+  const hour =
+    recurrence?.kind === "daily" || recurrence?.kind === "weekly"
+      ? String(recurrence.hour).padStart(2, "0")
+      : undefined;
+  const minute =
+    recurrence?.kind === "daily" || recurrence?.kind === "weekly"
+      ? String(recurrence.minute).padStart(2, "0")
+      : undefined;
+  const weekdays = recurrence?.kind === "weekly" ? recurrence.weekdays : undefined;
   const formatter = new Intl.DateTimeFormat("en-CA", {
     timeZone: timezone,
     weekday: "short",
@@ -149,7 +154,7 @@ export function nextOccurrence(repeat: string, timezone: string, due: Date, now:
   });
   for (
     let time = Math.floor(now.getTime() / 60_000) * 60_000 + 60_000;
-    time <= now.getTime() + (weekly ? 15 : 9) * 86_400_000;
+    time <= now.getTime() + (recurrence?.kind === "weekly" ? 15 : 9) * 86_400_000;
     time += 60_000
   ) {
     const local = parts(formatter, new Date(time));
