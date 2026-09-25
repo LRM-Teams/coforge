@@ -6,8 +6,8 @@ import {
   type ReminderReceipt,
   type ReminderReceiptStore,
 } from "#src/agent-reminder/reminder-scheduler";
+import { isSafePathScope } from "./path-scope";
 
-const SAFE = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
 const KEYS = new Set([
   "workspaceId",
   "computerId",
@@ -120,11 +120,11 @@ export class FileReminderReceiptStore implements ReminderReceiptStore {
     private readonly workspaceId: string,
     private readonly computerId: string,
   ) {
-    if (!stateDirectory || !SAFE.test(workspaceId) || !SAFE.test(computerId))
+    if (!stateDirectory || !isSafePathScope(workspaceId) || !isSafePathScope(computerId))
       throw new Error("invalid reminder receipt scope");
   }
   #path(agentId: string) {
-    if (!SAFE.test(agentId)) throw new Error("invalid reminder receipt Agent scope");
+    if (!isSafePathScope(agentId)) throw new Error("invalid reminder receipt Agent scope");
     return join(
       this.stateDirectory,
       "reminder-receipts",
