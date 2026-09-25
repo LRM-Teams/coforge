@@ -1,5 +1,5 @@
 import { TASK_STATUSES, type TaskStatus } from "@lrm/coforge-sdk/internal";
-import { useMemo } from "react";
+import { useMemo, type ReactNode } from "react";
 import { Columns03, FilterLines, List, Sliders04 } from "@untitledui/icons";
 import {
   Dialog as AriaDialog,
@@ -39,7 +39,7 @@ import type { FinishedWindow } from "./finished-tasks";
 const ALL_STATUSES = "all";
 
 /**
- * The Tasks page's toolbar: "Filter" (owner, Project and status, each a submenu of choices with
+ * A Task board's toolbar: "Filter" (owner, Project and status, each a submenu of choices with
  * how many Tasks each has) followed by one removable chip per filter in use, and "Display" on
  * the right (board or list, and which parts of a Task show).
  */
@@ -53,6 +53,8 @@ export function TaskToolbar({
   onLayoutChange,
   completedWindow,
   onWindowChange,
+  conversation = false,
+  action,
 }: {
   tasks: readonly FilterableTask[];
   filter: TaskFilter;
@@ -64,6 +66,10 @@ export function TaskToolbar({
   /** How far back Done and Closed reach; Display offers it, as Linear's completed issues do. */
   completedWindow: FinishedWindow;
   onWindowChange: (completedWindow: FinishedWindow) => void;
+  /** One conversation's board: every Task shares its source and Project, so neither is offered. */
+  conversation?: boolean;
+  /** The board's own button (a conversation's "Create task"), before Display. */
+  action?: ReactNode;
 }) {
   // Counted over every Task, so the numbers hold still while picking.
   const owners = useMemo(
@@ -99,13 +105,14 @@ export function TaskToolbar({
       }),
       remove: () => onFilterChange({ ...filter, owners: [] }),
     },
-    filter.projects.length > 0 && {
-      id: "projects",
-      label: m.tasks_filter_project_is({
-        names: namesLabel(labelsOf(projects, filter.projects, m.tasks_overview_no_project())),
-      }),
-      remove: () => onFilterChange({ ...filter, projects: [] }),
-    },
+    !conversation &&
+      filter.projects.length > 0 && {
+        id: "projects",
+        label: m.tasks_filter_project_is({
+          names: namesLabel(labelsOf(projects, filter.projects, m.tasks_overview_no_project())),
+        }),
+        remove: () => onFilterChange({ ...filter, projects: [] }),
+      },
     status && {
       id: "status",
       label: m.tasks_filter_status_is({ name: statusLabel(status) }),
@@ -128,12 +135,14 @@ export function TaskToolbar({
                 picked={filter.owners}
                 onChange={(picked) => onFilterChange({ ...filter, owners: picked })}
               />
-              <FilterSubmenu
-                name={m.tasks_overview_project()}
-                options={projects}
-                picked={filter.projects}
-                onChange={(picked) => onFilterChange({ ...filter, projects: picked })}
-              />
+              {!conversation && (
+                <FilterSubmenu
+                  name={m.tasks_overview_project()}
+                  options={projects}
+                  picked={filter.projects}
+                  onChange={(picked) => onFilterChange({ ...filter, projects: picked })}
+                />
+              )}
               <SubmenuTrigger>
                 <Dropdown.Item label={m.tasks_overview_status()} />
                 <Dropdown.Popover placement="end top" className="w-52">
@@ -179,12 +188,16 @@ export function TaskToolbar({
           </TagGroup>
         }
       </div>
-      <DisplayMenu
-        layout={layout}
-        onLayoutChange={onLayoutChange}
-        completedWindow={completedWindow}
-        onWindowChange={onWindowChange}
-      />
+      <div className="flex shrink-0 items-center gap-2">
+        {action}
+        <DisplayMenu
+          layout={layout}
+          onLayoutChange={onLayoutChange}
+          completedWindow={completedWindow}
+          onWindowChange={onWindowChange}
+          fields={conversation ? CONVERSATION_FIELDS : TASK_DISPLAY_FIELDS}
+        />
+      </div>
     </div>
   );
 }
@@ -244,6 +257,9 @@ function FilterSubmenu({
   );
 }
 
+/** A conversation's board has no source or Project to show. */
+const CONVERSATION_FIELDS: readonly TaskDisplayField[] = ["number", "owner"];
+
 const FIELD_LABEL: Record<TaskDisplayField, () => string> = {
   number: () => m.tasks_field_number(),
   source: () => m.tasks_field_source(),
@@ -256,11 +272,13 @@ function DisplayMenu({
   onLayoutChange,
   completedWindow,
   onWindowChange,
+  fields: shownFields,
 }: {
   layout: TaskLayout;
   onLayoutChange: (layout: TaskLayout) => void;
   completedWindow: FinishedWindow;
   onWindowChange: (completedWindow: FinishedWindow) => void;
+  fields: readonly TaskDisplayField[];
 }) {
   const [fields, setFields] = useTaskDisplayFields();
   return (
@@ -325,7 +343,7 @@ function DisplayMenu({
           {/* One switch per field: on or off at a glance. */}
           <div className="flex flex-col gap-2.5 border-t border-secondary pt-3">
             <p className="text-xs font-medium text-tertiary">{m.tasks_display_fields()}</p>
-            {TASK_DISPLAY_FIELDS.map((field) => (
+            {shownFields.map((field) => (
               <Toggle
                 key={field}
                 size="sm"

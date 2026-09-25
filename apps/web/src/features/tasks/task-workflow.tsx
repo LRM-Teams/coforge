@@ -11,18 +11,10 @@ import {
   type DragEndEvent,
 } from "@dnd-kit/core";
 import { useHydrated } from "@tanstack/react-router";
-import {
-  ChevronDown,
-  Columns03 as Columns3,
-  DotsGrid as GripVertical,
-  DotsHorizontal,
-  EyeOff,
-  List,
-} from "@untitledui/icons";
+import { ChevronDown, DotsGrid as GripVertical, DotsHorizontal, EyeOff } from "@untitledui/icons";
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import { Button as AriaButton, Disclosure, DisclosurePanel, Heading } from "react-aria-components";
 
-import { ButtonGroup, ButtonGroupItem } from "#src/components/base/button-group/button-group";
 import { Button } from "#src/components/base/buttons/button";
 import { ButtonUtility } from "#src/components/base/buttons/button-utility";
 import { Dropdown } from "#src/components/base/dropdown/dropdown";
@@ -62,34 +54,6 @@ export function useTaskLayout(layout: TaskLayout | undefined): TaskLayout {
   const hydrated = useHydrated();
   const desktop = useBreakpoint("md");
   return layout ?? (!hydrated || desktop ? "board" : "list");
-}
-
-export function TaskLayoutToggle({
-  layout,
-  onChange,
-}: {
-  layout: TaskLayout;
-  onChange: (layout: TaskLayout) => void;
-}) {
-  return (
-    <ButtonGroup
-      aria-label={m.tasks_layout()}
-      size="sm"
-      selectedKeys={[layout]}
-      disallowEmptySelection
-      onSelectionChange={(keys) => {
-        const next = [...keys][0];
-        if (next === "board" || next === "list") onChange(next);
-      }}
-    >
-      <ButtonGroupItem id="board" iconLeading={Columns3}>
-        {m.tasks_layout_board()}
-      </ButtonGroupItem>
-      <ButtonGroupItem id="list" iconLeading={List}>
-        {m.tasks_layout_list()}
-      </ButtonGroupItem>
-    </ButtonGroup>
-  );
 }
 
 export function TaskWorkflow<T extends TaskView>({

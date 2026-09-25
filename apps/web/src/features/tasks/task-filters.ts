@@ -1,7 +1,7 @@
 import type { TaskMember } from "@lrm/coforge-sdk/internal";
 
 /**
- * The Tasks page's owner and Project filters, applied to the rows the page shows. Each takes
+ * A Task board's owner and Project filters, applied to the rows the board shows. Each takes
  * several picks; a Task matches when its owner is one of the picked owners and its Project one of
  * the picked Projects, and an empty pick keeps every Task. Owners are picked by User or Agent id,
  * Projects by id; the two constants below stand for "nobody" and "no Project".
@@ -11,7 +11,8 @@ export const NO_PROJECT = "none";
 
 export type FilterableTask = {
   owner: TaskMember | null;
-  project: { id: string; name: string } | null;
+  /** The Project the Task's conversation belongs to; absent on a one-conversation board. */
+  project?: { id: string; name: string } | null;
   /** The viewer's membership in the Task's conversation: an owner with it is the viewer. */
   currentMemberId?: string | null;
   /** How many Tasks this entry stands for: a counted group of finished Tasks; one when absent. */

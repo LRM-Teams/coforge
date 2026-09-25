@@ -9,23 +9,23 @@ import { TaskStatusIcon } from "./task-status-icon";
 import type { TaskControls } from "./task-workflow";
 
 /**
- * Parts the viewer hid on the Tasks page (Display → Show): the stored choice is a class on
- * <html> (`features/settings/task-display-fields.ts`), and only a card inside the overview
- * (`data-task-overview`) follows it, so other surfaces always show every part. CSS alone, so a
+ * Parts the viewer hid on a Task board (Display → Show): the stored choice is a class on
+ * <html> (`features/settings/task-display-fields.ts`), and only a card inside a board
+ * (`data-task-board`) follows it, so other surfaces always show every part. CSS alone, so a
  * change never re-renders the cards. A separator hides with whatever it would separate from.
  */
-const HIDDEN_ON_OVERVIEW = {
-  number: "[.task-hide-number_[data-task-overview]_&]:hidden",
-  source: "[.task-hide-source_[data-task-overview]_&]:hidden",
-  project: "[.task-hide-project_[data-task-overview]_&]:hidden",
-  owner: "[.task-hide-owner_[data-task-overview]_&]:hidden",
-  sourceDot: "[.task-hide-number_[data-task-overview]_&]:hidden",
+const HIDDEN_ON_BOARD = {
+  number: "[.task-hide-number_[data-task-board]_&]:hidden",
+  source: "[.task-hide-source_[data-task-board]_&]:hidden",
+  project: "[.task-hide-project_[data-task-board]_&]:hidden",
+  owner: "[.task-hide-owner_[data-task-board]_&]:hidden",
+  sourceDot: "[.task-hide-number_[data-task-board]_&]:hidden",
   // A card's top line (number, source, owner) goes once all of it is hidden.
-  meta: "[.task-hide-number.task-hide-source.task-hide-owner_[data-task-overview]_&]:hidden",
+  meta: "[.task-hide-number.task-hide-source.task-hide-owner_[data-task-board]_&]:hidden",
 };
 
 const PROJECT_HIDDEN_KEEPS_TOOLS =
-  "[.task-hide-project_[data-task-overview]_&]:any-pointer-coarse:flex";
+  "[.task-hide-project_[data-task-board]_&]:any-pointer-coarse:flex";
 
 /** Classes for the link or button a caller wraps around the title. */
 export const TASK_TITLE_CLASS =
@@ -56,8 +56,8 @@ function ProjectPill({ name, className }: { name: string; className?: string }) 
 
 /**
  * One task on the board (a card) or in the list (a row), laid out as Linear lays out issues. The
- * caller supplies what differs per surface: the clickable title, where the task lives, its menu
- * and any claim actions.
+ * caller supplies what differs per surface: the clickable title, where the task lives and its
+ * menu.
  */
 export function TaskCard({
   task,
@@ -66,7 +66,6 @@ export function TaskCard({
   project,
   controls,
   menu,
-  actions,
   list,
 }: {
   task: TaskView;
@@ -79,7 +78,6 @@ export function TaskCard({
   project?: string;
   controls: TaskControls;
   menu?: ReactNode;
-  actions?: ReactNode;
   list: boolean;
 }) {
   const tools = (controls.handle || menu) && (
@@ -93,10 +91,7 @@ export function TaskCard({
     return (
       <article className="relative flex min-h-10 items-center gap-3 px-4 py-1.5 transition-colors hover:bg-primary_hover">
         <span
-          className={cn(
-            "w-9 shrink-0 text-xs text-tertiary tabular-nums",
-            HIDDEN_ON_OVERVIEW.number,
-          )}
+          className={cn("w-9 shrink-0 text-xs text-tertiary tabular-nums", HIDDEN_ON_BOARD.number)}
         >
           #{task.number}
         </span>
@@ -105,20 +100,19 @@ export function TaskCard({
           {renderTitle(<span className="line-clamp-1">{task.title}</span>)}
         </h3>
         {source && (
-          <Pill className={cn("hidden sm:inline-flex", HIDDEN_ON_OVERVIEW.source)}>
+          <Pill className={cn("hidden sm:inline-flex", HIDDEN_ON_BOARD.source)}>
             <span className="truncate">{source}</span>
           </Pill>
         )}
         {project && (
           <ProjectPill
             name={project}
-            className={cn("hidden sm:inline-flex", HIDDEN_ON_OVERVIEW.project)}
+            className={cn("hidden sm:inline-flex", HIDDEN_ON_BOARD.project)}
           />
         )}
-        <span className={HIDDEN_ON_OVERVIEW.owner}>
+        <span className={HIDDEN_ON_BOARD.owner}>
           <TaskOwnerAvatar owner={task.owner} />
         </span>
-        {actions && <div className="flex shrink-0">{actions}</div>}
         {tools}
       </article>
     );
@@ -128,19 +122,19 @@ export function TaskCard({
       <div
         className={cn(
           "flex h-6 items-center justify-between gap-2 text-xs text-tertiary tabular-nums",
-          HIDDEN_ON_OVERVIEW.meta,
+          HIDDEN_ON_BOARD.meta,
         )}
       >
         <span className="min-w-0 truncate">
-          <span className={HIDDEN_ON_OVERVIEW.number}>#{task.number}</span>
+          <span className={HIDDEN_ON_BOARD.number}>#{task.number}</span>
           {source && (
-            <span className={HIDDEN_ON_OVERVIEW.source}>
-              <span className={HIDDEN_ON_OVERVIEW.sourceDot}> · </span>
+            <span className={HIDDEN_ON_BOARD.source}>
+              <span className={HIDDEN_ON_BOARD.sourceDot}> · </span>
               {source}
             </span>
           )}
         </span>
-        <span className={HIDDEN_ON_OVERVIEW.owner}>
+        <span className={HIDDEN_ON_BOARD.owner}>
           <TaskOwnerAvatar owner={task.owner} />
         </span>
       </div>
@@ -152,25 +146,20 @@ export function TaskCard({
           {task.description}
         </p>
       )}
-      {(project || actions || tools) && (
+      {(project || tools) && (
         <div
           className={cn(
             "mt-3 min-h-7 items-center justify-between gap-2",
             // With a touch pointer the tools sit at this row's end, so it keeps room for them.
             tools && "any-pointer-coarse:pr-16",
-            project || actions ? "flex" : "hidden any-pointer-coarse:flex",
+            project ? "flex" : "hidden any-pointer-coarse:flex",
             // A row held only for a Project the viewer hid goes too, except where it holds the
             // tools (a touch pointer).
-            project && !actions && HIDDEN_ON_OVERVIEW.project,
-            project && !actions && tools && PROJECT_HIDDEN_KEEPS_TOOLS,
+            project && HIDDEN_ON_BOARD.project,
+            project && tools && PROJECT_HIDDEN_KEEPS_TOOLS,
           )}
         >
-          {project ? (
-            <ProjectPill name={project} className={HIDDEN_ON_OVERVIEW.project} />
-          ) : (
-            <span />
-          )}
-          {actions && <div className="flex shrink-0 items-center gap-1">{actions}</div>}
+          {project ? <ProjectPill name={project} className={HIDDEN_ON_BOARD.project} /> : <span />}
         </div>
       )}
       {tools && (
