@@ -1,5 +1,14 @@
 import { RedisClient } from "bun";
 import type { RuntimeProvider } from "@lrm/coforge-sdk/internal";
+import {
+  SCAN_RESULT_STALE_AFTER_MS,
+  SCAN_RESULT_TTL_SECONDS,
+  SCAN_TTL_SECONDS,
+  readScanResult,
+  redisUrlFor,
+  scanResultKeys,
+  type ScanResultRedisPort,
+} from "./scan-result-cache.server";
 
 export type AgentContextCacheKey = {
   workspaceId: string;
@@ -51,12 +60,10 @@ export type AgentContextReadResult = {
   pendingScanId?: string;
 };
 
-/** A result older than this no longer represents "now" closely enough to show without a note —
- * the same staleness rule the runtime usage cache applies. */
-export const AGENT_CONTEXT_STALE_AFTER_MS = 30 * 60 * 1000;
-
-const RESULT_TTL_SECONDS = "86400";
-const SCAN_TTL_SECONDS = "60";
+/** A result older than this no longer represents "now" closely enough to show without a note. The
+ * rule is the shared scan/result one the runtime usage cache applies too
+ * (`SCAN_RESULT_STALE_AFTER_MS`); it keeps this name for this cache's readers. */
+export const AGENT_CONTEXT_STALE_AFTER_MS = SCAN_RESULT_STALE_AFTER_MS;
 
 export interface AgentContextCache {
   putScan(record: AgentContextScanRecord): Promise<void>;
@@ -66,70 +73,34 @@ export interface AgentContextCache {
 
 export class RedisAgentContextCache implements AgentContextCache {
   constructor(
-    private readonly redis: {
-      set(key: string, value: string, ex: "EX", seconds: string): Promise<unknown>;
-      get(key: string): Promise<string | null>;
-      del(...keys: string[]): Promise<number>;
-    },
-    private readonly resultTtlSeconds = RESULT_TTL_SECONDS,
+    private readonly redis: ScanResultRedisPort,
+    private readonly resultTtlSeconds = SCAN_RESULT_TTL_SECONDS,
     private readonly scanTtlSeconds = SCAN_TTL_SECONDS,
     private readonly now: () => number = Date.now,
   ) {}
 
   async putScan(record: AgentContextScanRecord) {
-    await this.redis.set(this.scanKey(record), JSON.stringify(record), "EX", this.scanTtlSeconds);
+    const keys = scanResultKeys(this.scopeKey(record));
+    await this.redis.set(keys.scan, JSON.stringify(record), "EX", this.scanTtlSeconds);
   }
 
   async putResult(record: AgentContextResultRecord) {
-    await this.redis.set(
-      this.resultKey(record),
-      JSON.stringify(record),
-      "EX",
-      this.resultTtlSeconds,
-    );
+    const keys = scanResultKeys(this.scopeKey(record));
+    await this.redis.set(keys.result, JSON.stringify(record), "EX", this.resultTtlSeconds);
     // This scan is no longer in flight; clear it so its own 60s TTL never has to expire first
     // before a later read stops reporting it as pending.
-    await this.redis.del(this.scanKey(record));
+    await this.redis.del(keys.scan);
   }
 
   async read(key: AgentContextCacheKey): Promise<AgentContextReadResult> {
-    const [resultValue, scanValue] = await Promise.all([
-      this.redis.get(this.resultKey(key)),
-      this.redis.get(this.scanKey(key)),
-    ]);
-    const result = this.parseResult(resultValue);
-    const scan = this.parseScan(scanValue);
-    const pendingScanId = scan?.status === "pending" ? scan.scanId : undefined;
-    if (!result) return { state: "missing", pendingScanId };
-    const age = this.now() - Date.parse(result.collectedAt);
-    const state = Number.isFinite(age) && age <= AGENT_CONTEXT_STALE_AFTER_MS ? "fresh" : "stale";
-    return { state, result, pendingScanId };
+    return readScanResult<AgentContextResultRecord>(
+      this.redis,
+      scanResultKeys(this.scopeKey(key)),
+      AGENT_CONTEXT_STALE_AFTER_MS,
+      this.now(),
+    );
   }
 
-  private parseResult(value: string | null): AgentContextResultRecord | undefined {
-    if (!value) return undefined;
-    try {
-      return JSON.parse(value) as AgentContextResultRecord;
-    } catch {
-      return undefined;
-    }
-  }
-
-  private parseScan(value: string | null): AgentContextScanRecord | undefined {
-    if (!value) return undefined;
-    try {
-      return JSON.parse(value) as AgentContextScanRecord;
-    } catch {
-      return undefined;
-    }
-  }
-
-  private resultKey(key: AgentContextCacheKey) {
-    return `${this.scopeKey(key)}:result`;
-  }
-  private scanKey(key: AgentContextCacheKey) {
-    return `${this.scopeKey(key)}:scan`;
-  }
   private scopeKey(key: AgentContextCacheKey) {
     return `coforge:workspace:${encodeURIComponent(key.workspaceId)}:computer:${encodeURIComponent(key.computerId)}:agent:${encodeURIComponent(key.agentId)}:context-report:v1`;
   }
@@ -137,10 +108,6 @@ export class RedisAgentContextCache implements AgentContextCache {
 
 let singleton: RedisAgentContextCache | undefined;
 export function getAgentContextCache() {
-  singleton ??= (() => {
-    const url = Bun.env.REDIS_URL;
-    if (!url) throw new Error("REDIS_URL is required for Agent context cache");
-    return new RedisAgentContextCache(new RedisClient(url));
-  })();
+  singleton ??= new RedisAgentContextCache(new RedisClient(redisUrlFor("Agent context cache")));
   return singleton;
 }
