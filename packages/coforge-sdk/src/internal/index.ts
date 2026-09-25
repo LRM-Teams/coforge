@@ -921,6 +921,7 @@ export * from "./agent-display";
 export * from "./message-sender";
 export * from "./agent-name";
 export * from "./workspace-slug";
+export * from "./uuid";
 export * from "./codec";
 export * from "./validation";
 export * from "./weekly-report";

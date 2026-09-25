@@ -2,16 +2,15 @@ import { readdir } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { getLogger } from "@logtape/logtape";
+import { RFC_UUID_SOURCE } from "@lrm/coforge-sdk/internal";
 import { LaunchdJob, launchdJobs, type LaunchdJobPlatform } from "./launchd-job";
 import {
   computerUpgradeTaskName,
   type WindowsUpgradeTaskRunner,
 } from "./computer-upgrade-launcher";
 
-const UPGRADE_JOB_LABEL =
-  /^cn\.coforge\.upgrade\.([0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})$/i;
-const UPGRADE_RESULT_FILE =
-  /^([0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\.result\.json$/i;
+const UPGRADE_JOB_LABEL = new RegExp(`^cn\\.coforge\\.upgrade\\.(${RFC_UUID_SOURCE})$`, "i");
+const UPGRADE_RESULT_FILE = new RegExp(`^(${RFC_UUID_SOURCE})\\.result\\.json$`, "i");
 
 export type SweepLeftoverComputerUpgradeJobsOptions = {
   platform: NodeJS.Platform;

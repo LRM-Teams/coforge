@@ -1,7 +1,6 @@
+import { RFC_UUID_PATTERN } from "@lrm/coforge-sdk/internal";
 import type { PrismaClient } from "#src/generated/prisma/client";
 import { AppError } from "#src/lib/app-error";
-
-const SUBJECT_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export type WeeklyReportSubjectType = "report" | "cycle";
 
@@ -22,7 +21,7 @@ export async function ensureWeeklyReportAssistantRuntimeSession(
   if (input.subjectType !== "report" && input.subjectType !== "cycle") {
     throw new AppError("INVALID_INPUT");
   }
-  if (!SUBJECT_ID.test(input.subjectId)) throw new AppError("INVALID_INPUT");
+  if (!RFC_UUID_PATTERN.test(input.subjectId)) throw new AppError("INVALID_INPUT");
 
   return db.$transaction(async (tx) => {
     const existing = await tx.weeklyReportAssistantRuntimeSession.findUnique({

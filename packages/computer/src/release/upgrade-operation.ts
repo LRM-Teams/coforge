@@ -1,3 +1,5 @@
+import { RFC_UUID_PATTERN } from "@lrm/coforge-sdk/internal";
+
 /**
  * One Computer upgrade or rollback, identified once at the process boundary and carried
  * explicitly from there. Every process that takes part in an operation - the CLI, the
@@ -22,11 +24,8 @@ export type UpgradeOperation = {
   localDirectory?: string;
 };
 
-export const UPGRADE_REQUEST_ID =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-
 export function assertUpgradeRequestId(value: unknown): asserts value is string {
-  if (typeof value !== "string" || !UPGRADE_REQUEST_ID.test(value))
+  if (typeof value !== "string" || !RFC_UUID_PATTERN.test(value))
     throw new Error("upgrade operation requires a valid UUID request ID");
 }
 

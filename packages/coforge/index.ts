@@ -5,6 +5,7 @@ import {
   isValidReactionEmoji,
   mentionsInContent,
   parseMentionSelector,
+  RFC_UUID_PATTERN,
   type AgentMessageRecord,
   type AgentReminderOperationResponse,
   type ChannelCommand,
@@ -2125,9 +2126,6 @@ function formatReminderResponse(
   return `Accepted reminder ${operation} request.`;
 }
 
-const WEEKLY_REPORT_UUID =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-
 function parseWeeklyReportCollectArgs(args: readonly string[]): WeeklyReportCollectInvocation {
   const operation = args[0];
   if (operation !== "submit-pack" && operation !== "submit-empty" && operation !== "submit-failure")
@@ -2142,12 +2140,7 @@ function parseWeeklyReportCollectArgs(args: readonly string[]): WeeklyReportColl
   }
   const runId = values.get("--run-id");
   const requestId = values.get("--request-id");
-  if (
-    !runId ||
-    !WEEKLY_REPORT_UUID.test(runId) ||
-    !requestId ||
-    !WEEKLY_REPORT_UUID.test(requestId)
-  )
+  if (!runId || !RFC_UUID_PATTERN.test(runId) || !requestId || !RFC_UUID_PATTERN.test(requestId))
     throw new Error("Usage:");
   if (operation === "submit-pack") {
     const markdownPath = values.get("--markdown");
@@ -2192,9 +2185,9 @@ function parseWeeklyReportKeyPointsArgs(args: readonly string[]): WeeklyReportKe
   const markdownPath = values.get("--markdown");
   if (
     !reportId ||
-    !WEEKLY_REPORT_UUID.test(reportId) ||
+    !RFC_UUID_PATTERN.test(reportId) ||
     !requestId ||
-    !WEEKLY_REPORT_UUID.test(requestId) ||
+    !RFC_UUID_PATTERN.test(requestId) ||
     !markdownPath ||
     values.size !== 3
   )
@@ -2227,7 +2220,7 @@ function parseWeeklyReportArgs(args: readonly string[]): WeeklyReportInvocation 
         subjectType as (typeof WEEKLY_REPORT_SUBJECT_TYPES)[number],
       ) ||
       !subjectId ||
-      !WEEKLY_REPORT_UUID.test(subjectId)
+      !RFC_UUID_PATTERN.test(subjectId)
     )
       throw new Error("Usage:");
     return {
@@ -2247,8 +2240,8 @@ function parseWeeklyReportArgs(args: readonly string[]): WeeklyReportInvocation 
       if (name !== "--cycle-id" && name !== "--cursor" && name !== "--limit")
         throw new Error("Usage:");
     }
-    if (cycleId && !WEEKLY_REPORT_UUID.test(cycleId)) throw new Error("Usage:");
-    if (cursor && !WEEKLY_REPORT_UUID.test(cursor)) throw new Error("Usage:");
+    if (cycleId && !RFC_UUID_PATTERN.test(cycleId)) throw new Error("Usage:");
+    if (cursor && !RFC_UUID_PATTERN.test(cursor)) throw new Error("Usage:");
     let limit: number | undefined;
     if (limitValue) {
       limit = Number(limitValue);
@@ -2271,7 +2264,7 @@ function parseWeeklyReportArgs(args: readonly string[]): WeeklyReportInvocation 
     if (name !== "--report-id" && name !== "--section" && name !== "--max-characters")
       throw new Error("Usage:");
   }
-  if (!reportId || !WEEKLY_REPORT_UUID.test(reportId) || !section) throw new Error("Usage:");
+  if (!reportId || !RFC_UUID_PATTERN.test(reportId) || !section) throw new Error("Usage:");
   let maxCharacters: number | undefined;
   if (maxCharactersValue) {
     maxCharacters = Number(maxCharactersValue);

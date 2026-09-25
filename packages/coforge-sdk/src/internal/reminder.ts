@@ -1,4 +1,5 @@
 import { LEGACY_RPC_METHOD_NAMES, RPC_METHODS } from "./rpc-methods";
+import { RFC_UUID_PATTERN } from "./uuid";
 import { create, fromBinary, toBinary } from "@bufbuild/protobuf";
 import {
   AgentReminderOperationRequestSchema,
@@ -27,7 +28,6 @@ const ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
  * protobuf encoder used to cover for this by refusing an absent field, and the JSON path does not.
  */
 const isId = (value: unknown): boolean => typeof value === "string" && ID.test(value);
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const PREFIX = /^[0-9a-f]{8}$/i;
 const USERNAME = "[a-z0-9](?:[a-z0-9_-]{1,30}[a-z0-9])?";
 const HEX = "[0-9a-fA-F]";
@@ -166,9 +166,9 @@ export type LocalReminderRequest = ReminderOperationFields & {
   revision?: number;
 };
 
-export const isReminderId = (value: string): boolean => UUID.test(value);
+export const isReminderId = (value: string): boolean => RFC_UUID_PATTERN.test(value);
 export const isReminderMessageAnchor = (value: string): boolean =>
-  UUID.test(value) || PREFIX.test(value);
+  RFC_UUID_PATTERN.test(value) || PREFIX.test(value);
 /** A `list` status filter: a duplicate-free, comma-separated subset of the three statuses. */
 export function isValidReminderStatusFilter(value: string): boolean {
   const parts = value.split(",").map((part) => part.trim());

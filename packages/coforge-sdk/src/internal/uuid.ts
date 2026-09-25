@@ -1,0 +1,21 @@
+/**
+ * CoForge's UUID: the RFC 9562 shape with its version and variant nibbles checked — a `1`-`8`
+ * version digit and the `8`/`9`/`a`/`b` variant — rather than four unspecified groups of hex.
+ *
+ * The one definition, because a dozen decoders and key matchers ask the same question about ids
+ * CoForge itself mints: the SDK's reminder-id and weekly-report wire checks, the daemon's app-inbox
+ * source refs, collect/KeyPoint commands, upgrade launcher and upgrade-job sweep, the Web app's
+ * weekly-report session subject and notification target, the Computer's upgrade request, and the
+ * CLI's report collector.
+ *
+ * `RFC_UUID_SOURCE` is the unanchored source for the places that need the shape *inside* a larger
+ * pattern; everything else uses the anchored `RFC_UUID_PATTERN`.
+ *
+ * Not the same question as the permissive `[0-9a-f]{8}-…` checks a few wire paths make — "is this
+ * value shaped like a UUID", whatever minted it. Those are deliberately looser and stay where they
+ * are.
+ */
+export const RFC_UUID_SOURCE =
+  "[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}";
+
+export const RFC_UUID_PATTERN = new RegExp(`^${RFC_UUID_SOURCE}$`, "i");

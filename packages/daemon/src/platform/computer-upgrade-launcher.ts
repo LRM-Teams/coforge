@@ -1,9 +1,8 @@
 import { homedir, tmpdir, userInfo } from "node:os";
 import { join } from "node:path";
 import { unlink } from "node:fs/promises";
+import { RFC_UUID_PATTERN } from "@lrm/coforge-sdk/internal";
 import { LaunchdJob, type LaunchdJobPlatform } from "./launchd-job";
-
-const REQUEST_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export function computerUpgradeCommand(
   platform: NodeJS.Platform,
@@ -11,7 +10,7 @@ export function computerUpgradeCommand(
   requestId: string,
   expectedVersion: string,
 ): string[] {
-  if (!REQUEST_ID.test(requestId)) throw new Error("invalid Computer upgrade request ID");
+  if (!RFC_UUID_PATTERN.test(requestId)) throw new Error("invalid Computer upgrade request ID");
   if (!expectedVersion) throw new Error("missing expected Computer release version");
   const action = [
     executablePath,
@@ -39,13 +38,13 @@ export function computerUpgradeCommand(
 }
 
 export function computerUpgradeJobLabel(requestId: string): string {
-  if (!REQUEST_ID.test(requestId)) throw new Error("invalid Computer upgrade request ID");
+  if (!RFC_UUID_PATTERN.test(requestId)) throw new Error("invalid Computer upgrade request ID");
   return `cn.coforge.upgrade.${requestId}`;
 }
 
 /** User-level Scheduled Task name for a Windows one-shot remote upgrade. */
 export function computerUpgradeTaskName(requestId: string): string {
-  if (!REQUEST_ID.test(requestId)) throw new Error("invalid Computer upgrade request ID");
+  if (!RFC_UUID_PATTERN.test(requestId)) throw new Error("invalid Computer upgrade request ID");
   return `CoForge Upgrade ${requestId}`;
 }
 
