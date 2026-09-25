@@ -7,6 +7,8 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 
+import type { TaskView } from "@lrm/coforge-sdk/internal";
+
 import type { OverviewTaskRow } from "./task-overview-collection";
 import type { TaskFilter } from "./task-filters";
 import { loadFinishedTaskSummary, loadFinishedTasks } from "./tasks.functions";
@@ -21,11 +23,19 @@ import {
 /** Every finished-work read of a Workspace, so one invalidation reads them all again. */
 export const finishedTasksKey = (workspaceId: string) => ["task", "finished", workspaceId] as const;
 
+/** Where a board reads finished Tasks: the Workspace Tasks page, or one conversation's Tasks tab. */
+export type FinishedTasksScope = { workspaceId: string; conversationId?: string };
+
+/** One board's finished-work reads, under its Workspace's key; its `refresh` reads them again. */
+export const finishedTasksScopeKey = ({ workspaceId, conversationId }: FinishedTasksScope) =>
+  [...finishedTasksKey(workspaceId), conversationId ?? "workspace"] as const;
+
 /**
  * How long a finished-work read stays fresh.
  *
- * Every real change to these rows arrives as a `task.changed.v1` publication and
- * `use-task-overview` invalidates this whole key on it, so freshness does not depend on this
+ * Every real change to these rows arrives as a `task.changed.v1` publication, on which
+ * `use-task-overview` (the Tasks page) and `use-conversation-tasks` (a conversation's Tasks tab)
+ * invalidate their reads, so freshness does not depend on this
  * number: an invalidation reads again whatever the age. What it suppresses is the redundant
  * re-read of the *same* key — leaving the Tasks page and coming back, a re-render that remounts
  * the panel — which otherwise re-runs the finished counts and refetches every opened page.
@@ -37,17 +47,18 @@ export const finishedTasksKey = (workspaceId: string) => ["task", "finished", wo
  */
 export const FINISHED_TASKS_STALE_MS = 60_000;
 
-export const finishedSummaryQuery = (workspaceId: string, window: FinishedWindow) =>
+export const finishedSummaryQuery = (scope: FinishedTasksScope, window: FinishedWindow) =>
   queryOptions({
-    queryKey: [...finishedTasksKey(workspaceId), "summary", window],
-    queryFn: () => loadFinishedTaskSummary({ data: { window } }),
+    queryKey: [...finishedTasksScopeKey(scope), "summary", window],
+    queryFn: () =>
+      loadFinishedTaskSummary({ data: { window, conversationId: scope.conversationId } }),
     staleTime: FINISHED_TASKS_STALE_MS,
     refetchOnReconnect: "always",
   });
 
 /** A finished group as the board shows it. */
-export type FinishedColumn = {
-  rows: OverviewTaskRow[];
+export type FinishedColumn<T extends TaskView = OverviewTaskRow> = {
+  rows: T[];
   /** Every Task in the group under the current picks, not only the loaded ones. */
   count: number;
   hasMore: boolean;
@@ -60,8 +71,8 @@ export type FinishedColumn = {
   onExpandedChange: (expanded: boolean) => void;
 };
 
-export type FinishedTasks = {
-  columns: Record<FinishedStatus, FinishedColumn>;
+export type FinishedTasks<T extends TaskView = OverviewTaskRow> = {
+  columns: Record<FinishedStatus, FinishedColumn<T>>;
   /** The counted groups, for the owner and Project choices. */
   groups: readonly FinishedGroup[];
   /** Reads the counts and every opened page again, after a Task changed. */
@@ -69,32 +80,36 @@ export type FinishedTasks = {
 };
 
 /**
- * Done and Closed for the Tasks page: counts for the window, and the pages of each group the
- * viewer has opened, merged with the Tasks the page itself moved into that status.
+ * Done and Closed for a board: counts for the window, and the pages of each group the viewer has
+ * opened, merged with the Tasks the board itself holds in that status (moved there since).
  */
-export function useFinishedTasks({
-  workspaceId,
+export function useFinishedTasks<T extends TaskView>({
+  scope,
   window,
   filter,
   onPage,
 }: {
-  workspaceId: string;
+  scope: FinishedTasksScope;
   window: FinishedWindow;
   filter: TaskFilter;
-  onPage: readonly OverviewTaskRow[];
-}): FinishedTasks {
+  onPage: readonly T[];
+}): FinishedTasks<T | OverviewTaskRow> {
   const queryClient = useQueryClient();
   const summary = useQuery({
-    ...finishedSummaryQuery(workspaceId, window),
+    ...finishedSummaryQuery(scope, window),
     // Another window keeps the old counts on screen until its own arrive.
     placeholderData: keepPreviousData,
   });
   const groups = useMemo(() => summary.data?.groups ?? [], [summary.data]);
-  const done = useFinishedColumn("done", { workspaceId, window, filter, onPage, groups });
-  const closed = useFinishedColumn("closed", { workspaceId, window, filter, onPage, groups });
+  const done = useFinishedColumn("done", { scope, window, filter, onPage, groups });
+  const closed = useFinishedColumn("closed", { scope, window, filter, onPage, groups });
+  const { workspaceId, conversationId } = scope;
   const refresh = useCallback(
-    () => void queryClient.invalidateQueries({ queryKey: finishedTasksKey(workspaceId) }),
-    [queryClient, workspaceId],
+    () =>
+      void queryClient.invalidateQueries({
+        queryKey: finishedTasksScopeKey({ workspaceId, conversationId }),
+      }),
+    [queryClient, workspaceId, conversationId],
   );
   return useMemo(
     () => ({ columns: { done, closed }, groups, refresh }),
@@ -102,26 +117,26 @@ export function useFinishedTasks({
   );
 }
 
-function useFinishedColumn(
+function useFinishedColumn<T extends TaskView>(
   status: FinishedStatus,
   {
-    workspaceId,
+    scope,
     window,
     filter,
     onPage,
     groups,
   }: {
-    workspaceId: string;
+    scope: FinishedTasksScope;
     window: FinishedWindow;
     filter: TaskFilter;
-    onPage: readonly OverviewTaskRow[];
+    onPage: readonly T[];
     groups: readonly FinishedGroup[];
   },
-): FinishedColumn {
+): FinishedColumn<T | OverviewTaskRow> {
   const [expanded, setExpanded] = useState(false);
   const pages = useInfiniteQuery({
     queryKey: [
-      ...finishedTasksKey(workspaceId),
+      ...finishedTasksScopeKey(scope),
       "page",
       status,
       window,
@@ -131,6 +146,7 @@ function useFinishedColumn(
     queryFn: ({ pageParam }) =>
       loadFinishedTasks({
         data: {
+          conversationId: scope.conversationId,
           status,
           window,
           cursor: pageParam,
@@ -147,7 +163,7 @@ function useFinishedColumn(
   const read = pages.data?.pages;
   const rows = useMemo(
     () =>
-      finishedRows(
+      finishedRows<T | OverviewTaskRow>(
         status,
         onPage,
         (read ?? []).flatMap((page) => page.tasks),

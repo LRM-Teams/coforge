@@ -6,10 +6,8 @@ import { conversationSearchWithoutThread } from "./conversation-thread-search";
 import { useOpenConversationTask } from "./open-conversation-thread";
 import { CONVERSATION_TABS, type ConversationTab } from "./conversation-tabs";
 
-type TaskLayout = "board" | "list";
 type ConversationSearch = {
   view?: ConversationTab;
-  layout?: TaskLayout;
   threadRootId?: string;
 };
 
@@ -38,7 +36,7 @@ export function useShownConversationTab(view: ConversationTab | undefined): Conv
 
 /**
  * The chat/tasks view switch shared by conversation pages. Both routes keep
- * `view`, `layout`, `threadRootId` and `task` in their search params and jump to a
+ * `view`, the Task board's view, `threadRootId` and `task` in their search params and jump to a
  * message by hash (scroll target only). A Task card opens the Task's popup over the Tasks tab
  * (`openTask`); only a Task just created from the board lands on its message in the chat.
  */
@@ -54,7 +52,6 @@ export function useConversationView(ensureLoaded: (messageId: string) => Promise
   const showChat = () => void update({ view: "chat" });
   const showTasks = () => void update({ view: "tasks" });
   const showFiles = () => void update({ view: "files" });
-  const changeLayout = (layout: TaskLayout) => void update({ layout });
   const openTaskThread = async (messageId: string) => {
     await ensureLoaded(messageId);
     await update({ view: "chat", threadRootId: messageId }, `message-${messageId}`);
@@ -78,7 +75,6 @@ export function useConversationView(ensureLoaded: (messageId: string) => Promise
     showChat,
     showTasks,
     showFiles,
-    changeLayout,
     openTask,
     openTaskThread,
     openMessage,

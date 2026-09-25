@@ -22,9 +22,9 @@ import {
 } from "#src/features/conversations/use-conversation-view";
 import { CONVERSATION_TABS } from "#src/features/conversations/conversation-tabs";
 import { openTaskParamSchema } from "#src/features/conversations/conversation-thread-search";
-import { TaskBoard } from "#src/features/tasks/task-board";
+import { ConversationTaskBoard } from "#src/features/tasks/conversation-task-board";
+import { taskBoardSearchShape } from "#src/features/tasks/task-board-search";
 import { ConversationFilesPanel } from "#src/features/conversations/conversation-files";
-import { useTaskLayout } from "#src/features/tasks/task-workflow";
 import {
   agentIdFromProfileParam,
   agentProfileParamSchema,
@@ -45,7 +45,7 @@ import { useEffect } from "react";
 export const Route = createFileRoute("/_app/messages/$agentId")({
   validateSearch: z.object({
     view: z.enum(CONVERSATION_TABS).optional().catch(undefined),
-    layout: z.enum(["board", "list"]).optional().catch(undefined),
+    ...taskBoardSearchShape,
     message: z.uuid().optional().catch(undefined),
     threadRootId: z.uuid().optional().catch(undefined),
     task: openTaskParamSchema,
@@ -72,14 +72,13 @@ export const Route = createFileRoute("/_app/messages/$agentId")({
 function DirectConversationPage() {
   const { agentId } = Route.useParams();
   const agentStatus = useLiveAgent(agentId)?.status.value;
-  const { view: requestedView, layout, profile, agentTab } = Route.useSearch();
+  const { view: requestedView, profile, agentTab, ...search } = Route.useSearch();
   const view = useShownConversationTab(requestedView);
-  const taskLayout = useTaskLayout(layout);
   const { openAgentProfile, setAgentProfileTab, closeAgentProfile } = useOpenAgentProfile();
   const profileAgentId = agentIdFromProfileParam(profile);
   const { page, taskView, conversationProps } = useDirectConversation(agentId);
   const { conversation } = page;
-  const { showChat, showTasks, showFiles, changeLayout, openTask, openTaskThread, openMessage } =
+  const { showChat, showTasks, showFiles, openTask, openTaskThread, openMessage } =
     useConversationView(page.ensureLoaded);
 
   // Opening the DM is reading it — except in the `newest-unread` preference, which keeps
@@ -126,7 +125,8 @@ function DirectConversationPage() {
   // conversation's Task popup over the board.
   const tasksPane =
     view === "tasks" ? (
-      <TaskBoard
+      <ConversationTaskBoard
+        conversationId={conversation.conversationId}
         header={
           <DirectConversationHeader
             conversation={conversation}
@@ -136,24 +136,18 @@ function DirectConversationPage() {
             onOpenAgentProfile={openAgentProfile}
           />
         }
-        layout={taskLayout}
-        onLayoutChange={changeLayout}
-        tasks={taskView.tasks}
-        conversationName={conversation.agent.displayName}
+        search={search}
+        taskView={taskView}
+        name={conversation.agent.displayName}
         members={conversation.mentionables}
         currentMemberId={conversation.senderMemberId}
         canMutate
-        loading={taskView.loading}
-        error={taskView.error}
         onOpenTask={openTask}
         onOpenMessage={openTaskThread}
         onCreateTask={async (titles, idempotencyKey) => {
           const tasks = await taskView.command({ operation: "create", titles, idempotencyKey });
           await page.invalidate();
           return tasks;
-        }}
-        onCommand={async (command) => {
-          await taskView.command(command);
         }}
       />
     ) : undefined;

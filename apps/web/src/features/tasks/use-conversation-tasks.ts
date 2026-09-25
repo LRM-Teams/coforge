@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { TaskCommand, TaskView } from "@lrm/coforge-sdk/internal";
 import { queryOptions, useQuery, useQueryClient } from "@tanstack/react-query";
 import { getRouteApi } from "@tanstack/react-router";
@@ -17,6 +17,7 @@ import {
 } from "#src/features/realtime/realtime.functions";
 import { decodeTaskChangedEvent } from "./task-realtime";
 import { executeTask } from "./tasks.functions";
+import { finishedTasksScopeKey } from "./use-finished-tasks";
 import { m } from "#src/paraglide/messages";
 
 const appRoute = getRouteApi("/_app");
@@ -57,11 +58,13 @@ export const conversationTasksQuery = (conversationId: string) =>
     refetchOnWindowFocus: true,
   });
 
+export type ConversationTasks = ReturnType<typeof useConversationTasks>;
+
 export function useConversationTasks(conversationId: string) {
   const queryClient = useQueryClient();
   const execute = useServerFn(executeTask);
   const query = useQuery(conversationTasksQuery(conversationId));
-  const queryKey = conversationTasksQuery(conversationId).queryKey;
+  const queryKey = useMemo(() => conversationTasksQuery(conversationId).queryKey, [conversationId]);
   // Kept live by `task.changed.v1` (see `task-realtime.ts`): the event carries this conversation's
   // new Task copies and the ids it deleted, so a Task change writes the cached list instead of
   // making its readers read it again. Everything else a conversation publishes — every message —
@@ -83,6 +86,11 @@ export function useConversationTasks(conversationId: string) {
           event.tasks,
         ),
       );
+      // The Tasks tab's Done and Closed are counted and paged by the server: a change may move a
+      // Task into or out of them.
+      void queryClient.invalidateQueries({
+        queryKey: finishedTasksScopeKey({ workspaceId: event.workspaceId, conversationId }),
+      });
     },
     [conversationId, queryClient],
   );
@@ -110,33 +118,36 @@ export function useConversationTasks(conversationId: string) {
     holdErrorRef.current = false;
   }, [conversationId]);
 
-  const command = async (
-    input: Omit<TaskCommand, "idempotencyKey" | "conversationId"> & { idempotencyKey?: string },
-  ) => {
-    setMutationError("");
-    try {
-      const result = await execute({
-        data: {
-          ...input,
-          idempotencyKey: input.idempotencyKey ?? crypto.randomUUID(),
-          conversationId,
-        },
-      });
-      // A list read that started before this command must not overwrite its result.
-      await queryClient.cancelQueries({ queryKey });
-      queryClient.setQueryData<TaskView[]>(queryKey, (current = []) =>
-        input.operation === "delete" && input.number
-          ? current.filter((task) => task.number !== input.number)
-          : mergeTaskChanges(current, result.tasks),
-      );
-      return result.tasks;
-    } catch (cause) {
-      setMutationError(m.tasks_mutation_error());
-      holdErrorRef.current = true;
-      await queryClient.refetchQueries({ queryKey });
-      throw cause;
-    }
-  };
+  const command = useCallback(
+    async (
+      input: Omit<TaskCommand, "idempotencyKey" | "conversationId"> & { idempotencyKey?: string },
+    ) => {
+      setMutationError("");
+      try {
+        const result = await execute({
+          data: {
+            ...input,
+            idempotencyKey: input.idempotencyKey ?? crypto.randomUUID(),
+            conversationId,
+          },
+        });
+        // A list read that started before this command must not overwrite its result.
+        await queryClient.cancelQueries({ queryKey });
+        queryClient.setQueryData<TaskView[]>(queryKey, (current = []) =>
+          input.operation === "delete" && input.number
+            ? current.filter((task) => task.number !== input.number)
+            : mergeTaskChanges(current, result.tasks),
+        );
+        return result.tasks;
+      } catch (cause) {
+        setMutationError(m.tasks_mutation_error());
+        holdErrorRef.current = true;
+        await queryClient.refetchQueries({ queryKey });
+        throw cause;
+      }
+    },
+    [execute, conversationId, queryClient, queryKey],
+  );
 
   return {
     tasks: query.data ?? NO_TASKS,

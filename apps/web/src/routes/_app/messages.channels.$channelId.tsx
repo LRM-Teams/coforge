@@ -15,9 +15,9 @@ import {
 } from "#src/features/conversations/use-conversation-view";
 import { CONVERSATION_TABS } from "#src/features/conversations/conversation-tabs";
 import { openTaskParamSchema } from "#src/features/conversations/conversation-thread-search";
-import { TaskBoard } from "#src/features/tasks/task-board";
+import { ConversationTaskBoard } from "#src/features/tasks/conversation-task-board";
+import { taskBoardSearchShape } from "#src/features/tasks/task-board-search";
 import { ConversationFilesPanel } from "#src/features/conversations/conversation-files";
-import { useTaskLayout } from "#src/features/tasks/task-workflow";
 import {
   ensureConversationWindow,
   publicChannelQuery,
@@ -43,7 +43,7 @@ import { useEffect } from "react";
 export const Route = createFileRoute("/_app/messages/channels/$channelId")({
   validateSearch: z.object({
     view: z.enum(CONVERSATION_TABS).optional().catch(undefined),
-    layout: z.enum(["board", "list"]).optional().catch(undefined),
+    ...taskBoardSearchShape,
     message: z.uuid().optional().catch(undefined),
     threadRootId: z.uuid().optional().catch(undefined),
     task: openTaskParamSchema,
@@ -69,15 +69,14 @@ export const Route = createFileRoute("/_app/messages/channels/$channelId")({
 
 function ChannelPage() {
   const { channelId } = Route.useParams();
-  const { view: requestedView, layout, profile, agentTab } = Route.useSearch();
+  const { view: requestedView, profile, agentTab, ...search } = Route.useSearch();
   const view = useShownConversationTab(requestedView);
-  const taskLayout = useTaskLayout(layout);
   const { openAgentProfile, setAgentProfileTab, closeAgentProfile } = useOpenAgentProfile();
   const profileAgentId = agentIdFromProfileParam(profile);
   const { page, taskView, refreshChannelAndSidebar, conversationProps } =
     useChannelConversation(channelId);
   const { conversation } = page;
-  const { showChat, showTasks, showFiles, changeLayout, openTask, openTaskThread, openMessage } =
+  const { showChat, showTasks, showFiles, openTask, openTaskThread, openMessage } =
     useConversationView(page.ensureLoaded);
 
   // Opening the channel is reading it — except in the `newest-unread` preference, which keeps
@@ -126,7 +125,8 @@ function ChannelPage() {
   // conversation's Task popup over the board.
   const tasksPane =
     view === "tasks" ? (
-      <TaskBoard
+      <ConversationTaskBoard
+        conversationId={conversation.conversationId}
         header={
           <ChannelConversationHeader
             conversation={conversation}
@@ -136,15 +136,12 @@ function ChannelPage() {
             onChanged={refreshChannelAndSidebar}
           />
         }
-        layout={taskLayout}
-        onLayoutChange={changeLayout}
-        tasks={taskView.tasks}
-        conversationName={`#${conversation.name}`}
+        search={search}
+        taskView={taskView}
+        name={`#${conversation.name}`}
         members={conversation.mentionables}
         currentMemberId={conversation.senderMemberId}
         canMutate={Boolean(conversation.senderMemberId)}
-        loading={taskView.loading}
-        error={taskView.error}
         onOpenTask={openTask}
         onOpenMessage={openTaskThread}
         onCreateTask={
@@ -160,9 +157,6 @@ function ChannelPage() {
               }
             : undefined
         }
-        onCommand={async (command) => {
-          await taskView.command(command);
-        }}
       />
     ) : undefined;
   return (

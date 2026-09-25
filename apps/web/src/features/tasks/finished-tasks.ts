@@ -1,17 +1,17 @@
 import { taskMatches, type TaskFilter } from "./task-filters";
 import type { loadFinishedTaskSummary } from "./tasks.functions";
 
-// Done and Closed on the Tasks page: counted and paged by the server (`finishedSummary`,
-// `finishedPage`), apart from the unfinished Tasks the page holds in full.
+// Done and Closed on a Task board: counted and paged by the server (`finishedSummary`,
+// `finishedPage`), apart from the unfinished Tasks the board holds in full.
 
 export type FinishedStatus = "done" | "closed";
-/** How far back the page reads finished Tasks; the `completed` search param, week when absent. */
+/** How far back a board reads finished Tasks; the `completed` search param, week when absent. */
 export type FinishedWindow = "week" | "month" | "all";
 export type FinishedGroup = Awaited<ReturnType<typeof loadFinishedTaskSummary>>["groups"][number];
 
 /**
- * A finished group's rows: the Tasks the page itself holds in that status (moved there since the
- * pages were read), then the read pages. A Task appears once, and the page's own copy wins, so a
+ * A finished group's rows: the Tasks the board itself holds in that status (moved there since the
+ * pages were read), then the read pages. A Task appears once, and the board's own copy wins, so a
  * Task moved out of the group leaves it before the pages are read again.
  */
 export function finishedRows<T extends { messageId: string; status: string }>(
