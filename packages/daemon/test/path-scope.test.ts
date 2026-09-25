@@ -19,9 +19,11 @@ test("a separator, a dot, a leading hyphen or a control character is refused as 
   expect(isSafePathScope("")).toBe(false);
 });
 
-test("the grammar is an id of one to 128 alphanumeric or underscore/hyphen characters", () => {
+test("the grammar is 1 to 128 characters: alphanumerics first, underscore/hyphen after", () => {
   expect(isSafePathScope("a")).toBe(true);
-  expect(isSafePathScope("_-0")).toBe(true);
+  expect(isSafePathScope("a_-0")).toBe(true);
+  expect(isSafePathScope("_-0")).toBe(false);
+  expect(isSafePathScope("-a")).toBe(false);
   expect(isSafePathScope("A".repeat(128))).toBe(true);
   expect(isSafePathScope("A".repeat(129))).toBe(false);
 });
