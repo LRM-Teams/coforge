@@ -28,7 +28,10 @@ afterEach(() => {
 
 const SCOPE = { workspaceId: "workspace-1" } as const;
 
-test("the finished reads carry the freshness contract on both the summary and the pages", () => {
+test("the summary read carries the freshness contract", () => {
+  // The page reads declare the same window and reconnect policy inline in
+  // `useFinishedColumn`; pinning them needs that builder exported, which is a
+  // larger move than this test wants to make.
   const summary = finishedSummaryQuery(SCOPE, "week");
   expect(summary.staleTime).toBe(FINISHED_TASKS_STALE_MS);
   expect(summary.refetchOnReconnect).toBe("always");
