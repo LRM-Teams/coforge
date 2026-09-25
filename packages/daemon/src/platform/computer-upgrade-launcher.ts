@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { unlink } from "node:fs/promises";
 import { RFC_UUID_PATTERN } from "@lrm/coforge-sdk/internal";
 import { LaunchdJob, type LaunchdJobPlatform } from "./launchd-job";
+import { escapeXmlText } from "./xml-escape";
 
 export function computerUpgradeCommand(
   platform: NodeJS.Platform,
@@ -143,7 +144,7 @@ export function windowsUpgradeTaskXml(input: WindowsUpgradeTaskXmlInput): string
   </Triggers>
   <Principals>
     <Principal id="Author">
-      <UserId>${xml(input.userId)}</UserId>
+      <UserId>${escapeXmlText(input.userId)}</UserId>
       <LogonType>InteractiveToken</LogonType>
       <RunLevel>LeastPrivilege</RunLevel>
     </Principal>
@@ -162,8 +163,8 @@ export function windowsUpgradeTaskXml(input: WindowsUpgradeTaskXmlInput): string
   </Settings>
   <Actions Context="Author">
     <Exec>
-      <Command>${xml(executable!)}</Command>
-      <Arguments>${xml(args.join(" "))}</Arguments>
+      <Command>${escapeXmlText(executable!)}</Command>
+      <Arguments>${escapeXmlText(args.join(" "))}</Arguments>
     </Exec>
   </Actions>
 </Task>
@@ -240,14 +241,6 @@ function windowsUpgradeTaskUserId(
   const envUser = environment.USERNAME?.trim();
   if (domain && envUser) return `${domain}\\${envUser}`;
   return username;
-}
-
-function xml(value: string): string {
-  return value
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;");
 }
 
 /**
