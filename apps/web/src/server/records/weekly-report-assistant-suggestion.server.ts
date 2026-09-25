@@ -1,9 +1,9 @@
-import { UUID_LIKE_SOURCE } from "@lrm/coforge-sdk/internal";
+import { UUID_LIKE_PATTERN } from "@lrm/coforge-sdk/internal";
 import type { ReportContent } from "#src/features/records/records-content";
 
 const OPEN = "[weekly-report-suggestion]";
 const CLOSE = "[/weekly-report-suggestion]";
-const UUID_RE = new RegExp(`^${UUID_LIKE_SOURCE}$`, "i");
+const UUID_RE = UUID_LIKE_PATTERN;
 
 /**
  * Real envelopes put JSON right after the open tag. Prose that merely mentions

@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import type { AgentHistoryResponse, AgentSendResponse, AgentMessage } from "@lrm/coforge-sdk/agent";
-import { UUID_LIKE_SOURCE, isValidMentionSelectorArray } from "@lrm/coforge-sdk/internal";
+import { UUID_LIKE_PATTERN, isValidMentionSelectorArray } from "@lrm/coforge-sdk/internal";
 import { agentAuthMiddleware } from "#src/server/agents/agent-http-middleware.server";
 import { PrismaDirectConversationRepository } from "#src/server/db/repositories/direct-conversation.repositories.server";
 import {
@@ -123,7 +123,7 @@ function mapSendResult(idempotencyKey: string, result: AgentSendMessageResult) {
   return response;
 }
 
-const UUID_PATTERN = new RegExp(`^${UUID_LIKE_SOURCE}$`, "i");
+const UUID_PATTERN = UUID_LIKE_PATTERN;
 const ATTACHMENT_IDS_MAX_LENGTH = 10;
 
 /** Shape-only validation for `attachmentIds`: an array of at most 10 unique UUIDs. Deeper

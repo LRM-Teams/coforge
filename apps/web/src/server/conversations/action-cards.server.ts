@@ -6,7 +6,7 @@ import {
   type ActionCardKind,
   type ResolvedActionCardPayload,
 } from "@lrm/coforge-sdk/agent";
-import { UUID_LIKE_SOURCE, isChannelMessageTarget } from "@lrm/coforge-sdk/internal";
+import { UUID_LIKE_PATTERN, isChannelMessageTarget } from "@lrm/coforge-sdk/internal";
 import { AGENT_VISIBILITY } from "#src/features/agents/agent-visibility";
 import { ACTIVE_AGENT_WHERE } from "#src/server/agents/active-agent.server";
 import type { Prisma, PrismaClient } from "#src/generated/prisma/client";
@@ -24,7 +24,7 @@ import { messageSignalScope, type ConversationRealtime } from "./conversation-re
 import { isAdminLike } from "#src/server/workspaces/member-role.server";
 import { workspaceMemberRole } from "#src/server/workspaces/members.server";
 
-const UUID_PATTERN = new RegExp(`^${UUID_LIKE_SOURCE}$`, "i");
+const UUID_PATTERN = UUID_LIKE_PATTERN;
 
 export type ActionCardPrepareResult = { messageId: string; metadata: { kind: "action-card" } };
 
