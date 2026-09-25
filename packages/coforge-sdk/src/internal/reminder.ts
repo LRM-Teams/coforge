@@ -43,6 +43,37 @@ const RECURRENCE =
 const OPERATIONS = ["schedule", "list", "update", "snooze", "cancel", "log"] as const;
 const REMINDER_STATUSES = ["scheduled", "fired", "canceled"] as const;
 
+/** One parsed recurrence spelling of the canonical `RECURRENCE` grammar. */
+export type ReminderRecurrence =
+  | { kind: "every"; count: number; unit: "m" | "h" | "d" }
+  | { kind: "daily"; hour: number; minute: number }
+  | { kind: "weekly"; weekdays: string[]; hour: number; minute: number };
+
+/** Parse a recurrence string against the canonical grammar, or `undefined` when it does not
+ * match. Consumers of a validated reminder repeat — the cloud's `nextOccurrence` — parse through
+ * here so the grammar lives in one file next to the `RECURRENCE` regex that validates it, and a
+ * grammar change cannot leave a downstream parser behind. */
+export function parseReminderRecurrence(value: string): ReminderRecurrence | undefined {
+  const interval = /^every:(\d+)([mhd])$/.exec(value);
+  if (interval)
+    return {
+      kind: "every",
+      count: Number(interval[1]),
+      unit: interval[2] as "m" | "h" | "d",
+    };
+  const daily = /^daily@(\d\d):(\d\d)$/.exec(value);
+  if (daily) return { kind: "daily", hour: Number(daily[1]), minute: Number(daily[2]) };
+  const weekly = /^weekly:([a-z,]+)@(\d\d):(\d\d)$/.exec(value);
+  if (weekly)
+    return {
+      kind: "weekly",
+      weekdays: weekly[1]!.split(","),
+      hour: Number(weekly[2]),
+      minute: Number(weekly[3]),
+    };
+  return undefined;
+}
+
 export type ReminderOperation = (typeof OPERATIONS)[number];
 export type ReminderStatus = (typeof REMINDER_STATUSES)[number];
 export type ReminderScope = {
