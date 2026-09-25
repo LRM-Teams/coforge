@@ -160,14 +160,7 @@ function TasksPage() {
       <TaskBoard
         tasks={tasks}
         finished={finished}
-        completedWindow={view.completedWindow}
-        onWindowChange={view.changeWindow}
-        status={view.status}
-        filter={view.filter}
-        onFilterChange={view.changeFilter}
-        layout={view.layout}
-        onStatusChange={view.changeStatus}
-        onLayoutChange={view.changeLayout}
+        view={view}
         onOpenTask={openPopup}
         renderTitle={renderTaskTitle}
         onCommand={command}

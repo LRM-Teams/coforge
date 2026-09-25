@@ -5,6 +5,9 @@ import type { loadFinishedTaskSummary } from "./tasks.functions";
 // `finishedPage`), apart from the unfinished Tasks the board holds in full.
 
 export type FinishedStatus = "done" | "closed";
+
+export const isFinishedStatus = (status: string): status is FinishedStatus =>
+  status === "done" || status === "closed";
 /** How far back a board reads finished Tasks; the `completed` search param, week when absent. */
 export type FinishedWindow = "week" | "month" | "all";
 export type FinishedGroup = Awaited<ReturnType<typeof loadFinishedTaskSummary>>["groups"][number];

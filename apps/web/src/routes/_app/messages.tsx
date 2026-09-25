@@ -17,8 +17,10 @@ export const Route = createFileRoute("/_app/messages")({
     // the client hydrates; after hydration they back the sidebar's collections
     // (`sidebar-collections.ts`). A navigation or an invalidation (joining, leaving, closing a
     // chat) reads them afresh; a hover preload reuses what is cached.
-    const sidebarLists = parentMatchPromise.then(async (parent) => {
-      const workspaceId = parent.loaderData?.currentWorkspace?.id ?? "";
+    const workspaceId = parentMatchPromise.then(
+      (parent) => parent.loaderData?.currentWorkspace?.id ?? "",
+    );
+    const sidebarLists = workspaceId.then(async (workspaceId) => {
       const staleTime = cause === "preload" ? ("static" as const) : 0;
       // A first load has no DM rows to keep, so each of its reads falls back on its own; a later
       // one that fails keeps the rows the sidebar has.
@@ -33,15 +35,18 @@ export const Route = createFileRoute("/_app/messages")({
         firstLoad ? directs : directs.catch(() => undefined),
       ]);
     });
-    const [channelNames, projects, saved] = await Promise.all([
+    const [channelNames, projects, saved, , currentWorkspaceId] = await Promise.all([
       listChannelNames(),
       listProjects(),
       // Saved (#127) tolerates a failed read: the chat page stays up and simply starts from an
       // empty saved list.
       listSavedMessages().catch(() => []),
       sidebarLists,
+      workspaceId,
     ]);
     return {
+      // Keys the conversation pages' Workspace-scoped reads (a Tasks tab's finished counts).
+      workspaceId: currentWorkspaceId,
       // Every channel by id, closed ones included: the authority a body's channel links check.
       channelNames,
       projects,

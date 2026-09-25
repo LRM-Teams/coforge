@@ -23,7 +23,8 @@ import {
 import { CONVERSATION_TABS } from "#src/features/conversations/conversation-tabs";
 import { openTaskParamSchema } from "#src/features/conversations/conversation-thread-search";
 import { ConversationTaskBoard } from "#src/features/tasks/conversation-task-board";
-import { taskBoardSearchShape } from "#src/features/tasks/task-board-search";
+import { conversationTaskBoardSearchShape } from "#src/features/tasks/task-board-search";
+import { finishedSummaryQuery } from "#src/features/tasks/use-finished-tasks";
 import { ConversationFilesPanel } from "#src/features/conversations/conversation-files";
 import {
   agentIdFromProfileParam,
@@ -45,7 +46,7 @@ import { useEffect } from "react";
 export const Route = createFileRoute("/_app/messages/$agentId")({
   validateSearch: z.object({
     view: z.enum(CONVERSATION_TABS).optional().catch(undefined),
-    ...taskBoardSearchShape,
+    ...conversationTaskBoardSearchShape,
     message: z.uuid().optional().catch(undefined),
     threadRootId: z.uuid().optional().catch(undefined),
     task: openTaskParamSchema,
@@ -56,14 +57,26 @@ export const Route = createFileRoute("/_app/messages/$agentId")({
     ({
       message: search.message,
       threadRootId: search.threadRootId,
+      // The Tasks tab's finished counts arrive with the page, as on the Tasks page, so it never
+      // shows empty before them.
+      tasks: search.view === "tasks" ? (search.completed ?? "week") : undefined,
     }) as const,
   remountDeps: ({ params }) => params.agentId,
-  loader: ({ context, params, deps }) =>
-    ensureConversationWindow(
+  loader: async ({ context, params, deps, parentMatchPromise }) => {
+    const window = await ensureConversationWindow(
       context.queryClient,
       directConversationQuery(params.agentId).query,
       deps.threadRootId ?? deps.message,
-    ),
+    );
+    const conversationId = window.pages.at(-1)?.conversationId;
+    if (deps.tasks && conversationId) {
+      const workspaceId = (await parentMatchPromise).loaderData?.workspaceId ?? "";
+      await context.queryClient.ensureQueryData(
+        finishedSummaryQuery({ workspaceId, conversationId }, deps.tasks),
+      );
+    }
+    return window;
+  },
   pendingComponent: ConversationPending,
   errorComponent: ConversationLoadError,
   component: DirectConversationPage,
