@@ -7,6 +7,7 @@ import {
   type ProviderDiscoveryOptions,
 } from "#src/code-agent/contract";
 import { agentEnvironment } from "#src/code-agent/environment";
+import { exitFailureMessage } from "#src/code-agent/exit-failure-message";
 import { discoverExternalCodeAgents } from "#src/code-agent/runtime-inventory";
 import { GrokTurnProcess, type GrokTurnResult } from "./turn-process";
 import { assertGrokVersionSupported } from "./version";
@@ -395,15 +396,4 @@ class GrokAgentSession implements AgentSession {
     for (const listener of this.#exitListeners) listener();
     this.#exitListeners.clear();
   }
-}
-
-function exitFailureMessage(result: GrokTurnResult): string {
-  const summary =
-    result.exitCode === null ? "terminated by signal" : `exit code ${result.exitCode}`;
-  const stderrLines = result.stderrTail
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean);
-  // Raw facts only: the daemon core redacts and caps runtime error text before it becomes Activity.
-  return stderrLines.length ? `${summary} | stderr: ${stderrLines.join(" | ")}` : summary;
 }

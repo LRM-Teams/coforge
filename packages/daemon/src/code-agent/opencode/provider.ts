@@ -6,6 +6,7 @@ import {
   type ProviderDiscoveryOptions,
 } from "#src/code-agent/contract";
 import { agentEnvironment } from "#src/code-agent/environment";
+import { exitFailureMessage } from "#src/code-agent/exit-failure-message";
 import { asRecord, eventTime } from "#src/code-agent/json-record";
 import { discoverExternalCodeAgents } from "#src/code-agent/runtime-inventory";
 import { discoverOpenCodeCatalog } from "./catalog";
@@ -437,15 +438,4 @@ function openCodeErrorMessage(record: Readonly<Record<string, unknown>>): string
   if (kind) return `${kind}${status || ""}`.trim();
   if (typeof error?.name === "string" && error.name.trim()) return error.name.trim();
   return "Execution failed";
-}
-
-function exitFailureMessage(result: OpenCodeTurnResult): string {
-  const summary =
-    result.exitCode === null ? "terminated by signal" : `exit code ${result.exitCode}`;
-  const stderrLines = result.stderrTail
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean);
-  // Raw facts only: the daemon core redacts and caps runtime error text before it becomes Activity.
-  return stderrLines.length ? `${summary} | stderr: ${stderrLines.join(" | ")}` : summary;
 }
