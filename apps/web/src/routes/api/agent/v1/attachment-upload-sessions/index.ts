@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { MIME_TYPE_PATTERN } from "@lrm/coforge-sdk/internal";
+import { errorResponse } from "#src/server/agents/agent-http-error.server";
 import { agentAuthMiddleware } from "#src/server/agents/agent-http-middleware.server";
 import {
   createAttachmentUploadSession,
@@ -30,10 +31,6 @@ export type AttachmentUploadSessionCreateDependencies = {
     clientRequestId: string;
   }): Promise<AttachmentUploadSessionCreated>;
 };
-
-function errorResponse(code: string, message: string, status: number, retryable: boolean) {
-  return Response.json({ error: message, code, retryable }, { status });
-}
 
 export async function handleAttachmentUploadSessionCreate(
   request: Request,
