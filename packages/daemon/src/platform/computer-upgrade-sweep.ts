@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { getLogger } from "@logtape/logtape";
 import { RFC_UUID_SOURCE } from "@lrm/coforge-sdk/internal";
 import { LaunchdJob, launchdJobs, type LaunchdJobPlatform } from "./launchd-job";
+import { runSchtasks } from "./windows-scheduled-task";
 import {
   computerUpgradeTaskName,
   type WindowsUpgradeTaskRunner,
@@ -89,7 +90,7 @@ async function sweepDarwin(options: SweepLeftoverComputerUpgradeJobsOptions): Pr
 async function sweepWindows(options: SweepLeftoverComputerUpgradeJobsOptions): Promise<void> {
   const home = options.homeDirectory ?? homedir();
   const logger = getLogger(["coforge", "daemon", "supervisor"]);
-  const run = options.windowsTaskRunner ?? defaultSchtasks;
+  const run = options.windowsTaskRunner ?? runSchtasks;
   const requestIds =
     (await options.listCompletedRequestIds?.()) ??
     (await listCompletedUpgradeRequestIds(home, options.resultExists));
@@ -133,9 +134,4 @@ async function listCompletedUpgradeRequestIds(
     ids.push(requestId);
   }
   return ids;
-}
-
-async function defaultSchtasks(command: string[]): Promise<number> {
-  const child = Bun.spawn(command, { stdin: "ignore", stdout: "ignore", stderr: "ignore" });
-  return await child.exited;
 }
