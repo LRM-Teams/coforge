@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { MIME_TYPE_PATTERN } from "@lrm/coforge-sdk/internal";
 import { agentAuthMiddleware } from "#src/server/agents/agent-http-middleware.server";
 import { storeAgentAttachment } from "#src/server/attachments/attachment.server";
+import { isFile } from "#src/server/attachments/upload-file.server";
 import { PrismaDirectConversationRepository } from "#src/server/db/repositories/direct-conversation.repositories.server";
 import { isAppError } from "#src/lib/app-error";
 import { targetResolutionStatus } from "#src/server/agents/agent-target-status.server";
@@ -23,16 +24,6 @@ export type AgentAttachmentUploadDependencies = {
   }): Promise<{ id: string; fileName: string; contentType: string; sizeBytes: number }>;
 };
 
-function isUploadFile(value: unknown): value is File {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    typeof Reflect.get(value, "name") === "string" &&
-    typeof Reflect.get(value, "size") === "number" &&
-    typeof Reflect.get(value, "arrayBuffer") === "function"
-  );
-}
-
 /** Multipart upload handling; extracted from the route so it can be tested with fakes. */
 export async function handleAgentAttachmentUpload(
   request: Request,
@@ -48,7 +39,7 @@ export async function handleAgentAttachmentUpload(
   const file = form.get("file");
   const target = form.get("target");
   const mimeTypeField = form.get("mimeType");
-  if (!isUploadFile(file)) return Response.json({ error: "file is required" }, { status: 400 });
+  if (!isFile(file)) return Response.json({ error: "file is required" }, { status: 400 });
   if (typeof target !== "string" || target.length === 0)
     return Response.json({ error: "target is required" }, { status: 400 });
   if (mimeTypeField !== null && typeof mimeTypeField !== "string")

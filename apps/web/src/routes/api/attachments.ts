@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { PrismaClient } from "#src/generated/prisma/client";
 import { requireBrowserUser } from "#src/server/auth/require-user.server";
 import { storeAttachment } from "#src/server/attachments/attachment.server";
+import { isFile } from "#src/server/attachments/upload-file.server";
 import { getDatabaseClient } from "#src/server/db/client.server";
 import { toPublicServerError } from "#src/server/errors/public-error.server";
 import { AppError, isAppError, type AppErrorCode } from "#src/lib/app-error";
@@ -71,16 +72,6 @@ export async function handleAttachmentUpload(
       },
     );
   }
-}
-
-function isFile(value: unknown): value is File {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    typeof Reflect.get(value, "name") === "string" &&
-    typeof Reflect.get(value, "size") === "number" &&
-    typeof Reflect.get(value, "arrayBuffer") === "function"
-  );
 }
 
 function statusForErrorCode(code: AppErrorCode): number {
