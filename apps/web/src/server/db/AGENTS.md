@@ -21,3 +21,8 @@ These rules apply to `src/server/db/`.
   It finds the DM through `PrismaDirectConversationRepository` and never
   creates one; that repository keeps the DM's messages and read cursors and
   forwards its preference methods here.
+- `agent-target-context.repositories.server.ts` owns the reads an Agent send
+  is checked against for one resolved target: pending attention above a
+  boundary, its count from the same scope, and first-touch recent context. It
+  takes a target `PrismaDirectConversationRepository` already resolved; that
+  repository keeps resolution and the Agent read-position advance.

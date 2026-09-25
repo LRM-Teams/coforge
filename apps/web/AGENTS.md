@@ -155,7 +155,7 @@ responsibility.
 - `server/computers/` — Computer registration, metadata, restart and upgrade
   operations, and runtime visibility.
 - `server/conversations/` — public channels, channel authority, stopping and resuming a channel's Agents, direct messages, history, message search, action cards, reactions, and conversation realtime.
-- `server/db/` — the Prisma client, repositories (a DM's list preferences apart from its messages; the Agent attention rule in `agent-attention`), and the shared unique-violation check.
+- `server/db/` — the Prisma client, repositories (a DM's list preferences apart from its messages; the Agent attention rule in `agent-attention`; an Agent target's send context window in `agent-target-context`), and the shared unique-violation check.
 - `server/errors/` — public error mapping and request error handling.
 - `server/files/` — file storage, delivery, and uploaded-image validation.
 - `server/http/`, `server/install/`, `server/observability/` — public origin,

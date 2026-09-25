@@ -38,6 +38,7 @@ import {
 import { agentAvatarUrl } from "#src/server/agents/agent-avatar.server";
 import { workspaceUserAvatarUrl } from "./user-profile.repositories.server";
 import { PrismaDirectConversationPreferences } from "./direct-conversation-preferences.repositories.server";
+import { PrismaAgentTargetContext } from "./agent-target-context.repositories.server";
 import { attachmentView } from "#src/server/attachments/attachment-view.server";
 import {
   browserMessageFields,
@@ -48,12 +49,8 @@ import { windowPageFlags } from "#src/lib/conversation-window";
 import { channelTarget } from "#src/server/conversations/agent-delivery.server";
 import { isUniqueViolation } from "#src/server/db/unique-violation.server";
 import {
-  agentAttentionDeliveryWhere,
-  agentAttentionMessageWhere,
   NOTIFIED_AGENT_WHERE,
-  readsAgentDeliveries,
   unreadAgentMessagesFragment,
-  type AgentAttentionScope,
 } from "#src/server/db/repositories/agent-attention.repositories.server";
 
 /** The three Agent-visible sender facts, spread onto every Agent-facing message shape
@@ -579,7 +576,7 @@ export const buildUserAgentConversationCreateInput = (
   }) satisfies Prisma.ConversationCreateInput;
 
 /** An Agent-facing target (`#channel` or `@user`, optionally `:root`) resolved by `resolveAgentTarget`. */
-type ResolvedAgentTarget = {
+export type ResolvedAgentTarget = {
   conversationId: string;
   threadRootId: string | null;
   canonicalTarget: string;
@@ -588,9 +585,11 @@ type ResolvedAgentTarget = {
 
 export class PrismaDirectConversationRepository implements DirectConversationRepository {
   private readonly preferences: PrismaDirectConversationPreferences;
+  private readonly targetContext: PrismaAgentTargetContext;
 
   constructor(private readonly db: PrismaClient) {
     this.preferences = new PrismaDirectConversationPreferences(db, this);
+    this.targetContext = new PrismaAgentTargetContext(db);
   }
 
   async userIdForUsername(target: string) {
@@ -1890,10 +1889,10 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
       advanceReadThrough: (seenUpToSequence: number) =>
         this.#advanceAgentReadThrough(workspaceId, agentId, resolved, seenUpToSequence),
       readPending: (afterSequence?: number) =>
-        this.#readPendingAgentContext(agentId, resolved, afterSequence),
+        this.targetContext.readPending(agentId, resolved, afterSequence),
       countPending: (afterSequence?: number) =>
-        this.#countPendingAgentContext(agentId, resolved, afterSequence),
-      readRecent: (limit: number) => this.#readRecentAgentContext(agentId, resolved, limit),
+        this.targetContext.countPending(agentId, resolved, afterSequence),
+      readRecent: (limit: number) => this.targetContext.readRecent(agentId, resolved, limit),
     };
   }
 
@@ -1949,166 +1948,31 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
     return bounded;
   }
 
-  /**
-   * The pending-agent-context scope of a resolved target (conversation/thread and unread boundary)
-   * shared by the pending read and its count, so a bounded read and its unbounded count cannot
-   * drift apart.
-   */
-  private async pendingAgentContextScope(
-    agentId: string,
-    { conversationId, threadRootId, canonicalTarget, isChannel }: ResolvedAgentTarget,
-    afterSequence?: number,
-  ) {
-    const agentMember = await this.db.conversationMember.findUnique({
-      where: { conversationId_agentId: { conversationId, agentId } },
-      select: { id: true },
-    });
-    const latestAgentMessage =
-      afterSequence === undefined && agentMember
-        ? await this.db.message.findFirst({
-            where: {
-              conversationId,
-              threadRootId,
-              senderMemberId: agentMember.id,
-            },
-            orderBy: { sequence: "desc" },
-            select: { sequence: true },
-          })
-        : undefined;
-    return {
-      canonicalTarget,
-      scope: {
-        agentId,
-        conversationId,
-        threadRootId,
-        isChannel,
-        afterSequence: afterSequence ?? latestAgentMessage?.sequence ?? 0,
-      } satisfies AgentAttentionScope,
-    };
-  }
-
   async readPendingAgentContext(
     workspaceId: string,
     agentId: string,
     target: string,
     afterSequence?: number,
   ) {
-    return this.#readPendingAgentContext(
+    return this.targetContext.readPending(
       agentId,
       await this.resolveAgentTarget(workspaceId, agentId, target),
       afterSequence,
     );
   }
 
-  async #readPendingAgentContext(
-    agentId: string,
-    resolved: ResolvedAgentTarget,
-    afterSequence?: number,
-  ) {
-    const { canonicalTarget, scope } = await this.pendingAgentContextScope(
-      agentId,
-      resolved,
-      afterSequence,
-    );
-    const rows = await this.#newestAgentAttention(scope, 3);
-    return rows.reverse().map((m) => this.#agentContextRecord(m, canonicalTarget));
-  }
-
-  /**
-   * The target's most recent messages, ignoring the Agent's own read boundary or own messages: the
-   * source of Raft's first-touch `syncing_hold` (`target_first_touch_recent_context`). Own messages
-   * are not context to review, so they are excluded.
-   */
+  /** The target's most recent messages for a first touch; see `PrismaAgentTargetContext.readRecent`. */
   async readRecentAgentContext(
     workspaceId: string,
     agentId: string,
     target: string,
     limit: number,
   ) {
-    return this.#readRecentAgentContext(
+    return this.targetContext.readRecent(
       agentId,
       await this.resolveAgentTarget(workspaceId, agentId, target),
       limit,
     );
-  }
-
-  async #readRecentAgentContext(
-    agentId: string,
-    { conversationId, threadRootId, canonicalTarget, isChannel }: ResolvedAgentTarget,
-    limit: number,
-  ) {
-    const agentMember = await this.db.conversationMember.findUnique({
-      where: { conversationId_agentId: { conversationId, agentId } },
-      select: { id: true },
-    });
-    const rows = await this.#newestAgentAttention(
-      { agentId, conversationId, threadRootId, isChannel, excludeSenderMemberId: agentMember?.id },
-      limit,
-    );
-    return rows.reverse().map((m) => this.#agentContextRecord(m, canonicalTarget));
-  }
-
-  /**
-   * The `take` newest messages of one target that the Agent owes attention to, newest first. A
-   * channel message counts only with the Agent's delivery row, so a channel's top level reads the
-   * Agent's deliveries in that conversation (`agentId, conversationId, sequence` index) instead of
-   * walking the channel's history and probing every message for a delivery. A thread (channel or
-   * direct) and a direct message keep the message-side rule, whose range is the thread or
-   * conversation itself: the delivery index cannot narrow to one thread, so a thread read there
-   * would walk every delivery the Agent has in the channel.
-   */
-  async #newestAgentAttention(scope: AgentAttentionScope, take: number) {
-    const include = {
-      sender: MESSAGE_SENDER_SELECT,
-      attachments: { orderBy: { position: "asc" } },
-      mentions: MESSAGE_MENTIONS_SELECT,
-    } satisfies Prisma.MessageInclude;
-    if (!readsAgentDeliveries(scope))
-      return this.db.message.findMany({
-        where: agentAttentionMessageWhere(scope),
-        orderBy: { sequence: "desc" },
-        take,
-        include,
-      });
-    const delivered = await this.db.agentMessageDelivery.findMany({
-      where: agentAttentionDeliveryWhere(scope),
-      orderBy: { sequence: "desc" },
-      take,
-      select: { messageId: true },
-    });
-    if (!delivered.length) return [];
-    return this.db.message.findMany({
-      where: { id: { in: delivered.map((row) => row.messageId) } },
-      orderBy: { sequence: "desc" },
-      include,
-    });
-  }
-
-  /** One row of the Agent-facing context window, shared by the pending and recent readers so both
-   * surfaces cannot drift apart. */
-  #agentContextRecord<
-    Row extends {
-      id: string;
-      sequence: number;
-      sender: Parameters<typeof agentMessageSender>[0];
-      body: string;
-      mentions: readonly MessageMentionRef[];
-      createdAt: Date;
-      attachments: { id: string; fileName: string; contentType: string; sizeBytes: number }[];
-    },
-  >(m: Row, canonicalTarget: string) {
-    const sender = agentMessageSender(m.sender);
-    return {
-      id: m.id,
-      sequence: m.sequence,
-      senderKind: sender.kind,
-      senderHandle: sender.handle,
-      senderDescription: sender.description,
-      ...agentMessageView(m),
-      createdAt: m.createdAt,
-      target: canonicalTarget,
-      attachments: m.attachments,
-    };
   }
 
   /** Count of the same pending-agent-context scope `readPendingAgentContext` reads, unbounded by its 3-row window. */
@@ -2118,22 +1982,11 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
     target: string,
     afterSequence?: number,
   ) {
-    return this.#countPendingAgentContext(
+    return this.targetContext.countPending(
       agentId,
       await this.resolveAgentTarget(workspaceId, agentId, target),
       afterSequence,
     );
-  }
-
-  async #countPendingAgentContext(
-    agentId: string,
-    resolved: ResolvedAgentTarget,
-    afterSequence?: number,
-  ) {
-    const { scope } = await this.pendingAgentContextScope(agentId, resolved, afterSequence);
-    return readsAgentDeliveries(scope)
-      ? this.db.agentMessageDelivery.count({ where: agentAttentionDeliveryWhere(scope) })
-      : this.db.message.count({ where: agentAttentionMessageWhere(scope) });
   }
 
   /**
