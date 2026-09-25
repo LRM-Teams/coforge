@@ -1,4 +1,5 @@
 import {
+  HELD_CONTEXT_LIMIT,
   freshnessDecisionFactId,
   isChannelMessageTarget,
   isChannelTarget,
@@ -129,9 +130,6 @@ export type AgentSendMessageResult = {
 
 /** Raft 1.0.32 `apmHeldFreshnessAvailableActions("send")`. */
 const HELD_SEND_AVAILABLE_ACTIONS = ["check_messages", "send_draft", "send_anyway"] as const;
-
-/** Raft 1.0.32 `DEFAULT_HELD_CONTEXT_LIMIT`. */
-const HELD_CONTEXT_LIMIT = 3;
 
 /** Raft 1.0.32's `stableNormalizeApmHeldFreshness` and
  * `buildApmFreshnessDecisionProducerFactId` now live in the SDK
