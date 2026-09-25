@@ -8,6 +8,7 @@ import type { AgentSessionReceiver } from "#src/server/agents/agent-session.serv
 import type { AgentSessions } from "#src/server/agents/agent-sessions.server";
 import type { CentrifugoRpcMethod } from "./rpc-handler.server";
 import { rejectionReason } from "./rejection-reason.server";
+import { rejectNonDaemonPrincipal } from "./daemon-principal.server";
 
 /** Every fixed message this handler's collaborators throw for a rejected snapshot: the shared
  * `requireCurrentAgentScope`, `AgentSessionReceiver`, and `AgentSessions`. Mirrors the same
@@ -28,13 +29,8 @@ export function createAgentSessionMethod(
   receiver?: AgentSessionReceiver,
 ): CentrifugoRpcMethod {
   return async (payload, metadata) => {
-    if (
-      !metadata.principal.userId ||
-      !metadata.principal.workspaceId ||
-      !metadata.principal.computerId
-    )
-      return { code: 401, message: "daemon authentication required" };
-    if (metadata.principal.agentId) return { code: 403, message: "daemon authentication required" };
+    const rejection = rejectNonDaemonPrincipal(metadata.principal);
+    if (rejection) return rejection;
     let report: AgentSessionReport | undefined;
     try {
       report = decodeAgentSessionReport(payload);
@@ -109,13 +105,8 @@ export function createAgentSessionInvalidateMethod(
   receiver: Pick<AgentSessionReceiver, "invalidate">,
 ): CentrifugoRpcMethod {
   return async (payload, metadata) => {
-    if (
-      !metadata.principal.userId ||
-      !metadata.principal.workspaceId ||
-      !metadata.principal.computerId
-    )
-      return { code: 401, message: "daemon authentication required" };
-    if (metadata.principal.agentId) return { code: 403, message: "daemon authentication required" };
+    const rejection = rejectNonDaemonPrincipal(metadata.principal);
+    if (rejection) return rejection;
     let message: AgentSessionInvalidate | undefined;
     try {
       message = decodeAgentSessionInvalidate(payload);
