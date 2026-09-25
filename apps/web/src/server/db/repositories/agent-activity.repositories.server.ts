@@ -3,6 +3,7 @@ import { parseActivityEntries, type AgentActivity } from "@lrm/coforge-sdk/inter
 import type { PrismaClient } from "#src/generated/prisma/client";
 import { activityKindForObservation } from "#src/server/agents/agent-display.server";
 import { ACTIVE_AGENT_WHERE } from "#src/server/agents/active-agent.server";
+import { ACTIVITY_HISTORY_LIMIT } from "#src/features/agents/activity-history-limit";
 import {
   agentVisibilityViewerForUser,
   visibleAgentWhere,
@@ -41,8 +42,7 @@ function activityKind(activity: { detailKind: string; level: string }) {
 }
 
 export class AgentActivityRepository {
-  // Mirrors the client-side cap in mergeAgentActivity (apps/web/src/features/agents/agent-activity.ts).
-  static readonly HISTORY_LIMIT = 500;
+  static readonly HISTORY_LIMIT = ACTIVITY_HISTORY_LIMIT;
 
   constructor(private readonly db: PrismaClient) {}
 

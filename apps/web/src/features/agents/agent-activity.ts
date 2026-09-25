@@ -1,4 +1,5 @@
 import type { ActivityTrajectoryEntry } from "@lrm/coforge-sdk/internal";
+import { ACTIVITY_HISTORY_LIMIT } from "./activity-history-limit";
 import type { AgentActivityKind } from "@lrm/coforge-sdk/internal";
 import {
   AGENT_ACTIVITY_DETAIL_KIND,
@@ -126,10 +127,6 @@ export function decodeActivityObservation(
   }
 }
 
-/** The client keeps up to this many activity frames per Agent (mirrors the server's history
- * cap in `AgentActivityRepository.list`). */
-const ACTIVITY_WINDOW = 500;
-
 export function mergeAgentActivity(current: ActivityEntry[], incoming: ActivityEntry[]) {
   const entries = new Map<string, ActivityEntry>();
   for (const entry of [...current, ...incoming]) {
@@ -141,7 +138,7 @@ export function mergeAgentActivity(current: ActivityEntry[], incoming: ActivityE
     if (entries.get(key)?.id && !entry.id) continue;
     entries.set(key, entry);
   }
-  return orderActivity([...entries.values()]).slice(0, ACTIVITY_WINDOW);
+  return orderActivity([...entries.values()]).slice(0, ACTIVITY_HISTORY_LIMIT);
 }
 
 function orderActivity<T extends ActivityEntry>(activity: T[]): T[] {

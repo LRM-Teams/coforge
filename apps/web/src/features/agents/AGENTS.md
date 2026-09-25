@@ -22,8 +22,9 @@ These rules apply to `src/features/agents/`.
   it; it refetches when the tab becomes visible or the network returns.
   History and live entries deduplicate by launch ID and client sequence.
   Timeline history never changes the display snapshot.
-- The client Activity window in `agent-activity.ts` matches the server's
-  `AgentActivityRepository.HISTORY_LIMIT`; change them together.
+- The client Activity window and the server's `AgentActivityRepository.HISTORY_LIMIT`
+  are the one shared constant (`activity-history-limit.ts`); changing the number
+  changes both.
 
 ## Activity display
 
