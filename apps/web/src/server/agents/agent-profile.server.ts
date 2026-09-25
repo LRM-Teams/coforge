@@ -21,7 +21,6 @@ import {
 // Same cap as `agentInputShape.description`; imported, not redefined, so the self-service
 // profile check and the full Agent-edit form schema are the one fact.
 import { AGENT_PROFILE_DESCRIPTION_MAX_LENGTH } from "#src/features/agents/agent.schemas";
-export { AGENT_PROFILE_DESCRIPTION_MAX_LENGTH };
 
 export type AgentProfileErrorBody =
   | { ok: false; errorCode: "user_not_found"; error: string }
