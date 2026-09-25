@@ -825,6 +825,87 @@ test("a channel @mention persists as a token and wakes only the mentioned Agent,
   }
 });
 
+test("an Agent's channel message reaches other Agents without an @mention: unmuted members at the top level, followers in a thread, never the sender", async () => {
+  const connectionString = Bun.env.CHANNEL_TEST_DATABASE_URL;
+  if (!connectionString) throw new Error("CHANNEL_TEST_DATABASE_URL is required");
+  const db = new PrismaClient({ adapter: new PrismaPg({ connectionString }) });
+  const redis = new RedisClient(Bun.env.CHANNEL_TEST_REDIS_URL!);
+  const user = await db.user.create({
+    data: { username: `u${crypto.randomUUID().slice(0, 8)}` },
+  });
+  const workspace = await db.workspace.create({
+    data: {
+      slug: crypto.randomUUID(),
+      name: "Agent chatter",
+      members: { create: { userId: user.id } },
+    },
+  });
+  try {
+    const computer = await db.computer.create({
+      data: { ownerId: user.id, machineId: crypto.randomUUID() },
+    });
+    const agent = (name: string) =>
+      db.agent.create({
+        data: {
+          workspaceId: workspace.id,
+          ownerId: user.id,
+          computerId: computer.id,
+          name,
+          displayName: name,
+          runtimeConfig: {},
+        },
+      });
+    const helper = await agent("helper");
+    const scout = await agent("scout");
+    // Muted in #general like every Agent joining it, so it never hears the unaddressed chatter.
+    await agent("quiet");
+    await enrollGeneral(db, workspace.id);
+    const channels = new PublicChannels(db, new RedisMessageRequestIdempotency(redis), {
+      publish: async () => {},
+      publishJson: async () => {},
+      broadcast: async () => {},
+    });
+    const general = (await channels.list(workspace.id, user.id))[0]!;
+    await channels.setAgentMuted(workspace.id, helper.id, "#general", false);
+    await channels.setAgentMuted(workspace.id, scout.id, "#general", false);
+    const repo = new PrismaDirectConversationRepository(db);
+    const recipients = (message: { deliveries: { agentId: string }[] }) =>
+      message.deliveries.map((delivery) => delivery.agentId).sort();
+
+    // A top-level post belongs to the channel: every unmuted Agent member but the sender.
+    const status = await repo.sendAgentMessage(general.id, helper.id, "Build is green.");
+    expect(recipients(status)).toEqual([scout.id]);
+    expect(
+      (await repo.readPendingAgentDeliveries(workspace.id, scout.id)).map((row) => [
+        row.messageId,
+        row.latestSenderKind,
+      ]),
+    ).toEqual([[status.id, "agent"]]);
+
+    // A thread reply belongs to its thread: only the followers, never the sender.
+    const root = await channels.send({
+      workspaceId: workspace.id,
+      userId: user.id,
+      channelId: general.id,
+      requestId: crypto.randomUUID(),
+      body: "Who takes the release notes?",
+    });
+    const thread = root.id.slice(0, 8);
+    const first = await repo.sendAgentMessage(general.id, helper.id, "I can.", [], thread);
+    expect(recipients(first)).toEqual([]);
+    const second = await repo.sendAgentMessage(general.id, scout.id, "Me too.", [], thread);
+    expect(recipients(second)).toEqual([helper.id]);
+    const third = await repo.sendAgentMessage(general.id, helper.id, "Split it then.", [], thread);
+    expect(recipients(third)).toEqual([scout.id]);
+  } finally {
+    await db.workspace.delete({ where: { id: workspace.id } });
+    await db.computer.deleteMany({ where: { ownerId: user.id } });
+    await db.user.delete({ where: { id: user.id } });
+    await db.$disconnect();
+    redis.close();
+  }
+});
+
 test("a channel send reads only the members its @handles name, however large the channel", async () => {
   const connectionString = Bun.env.CHANNEL_TEST_DATABASE_URL;
   if (!connectionString) throw new Error("CHANNEL_TEST_DATABASE_URL is required");

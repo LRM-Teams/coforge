@@ -5,7 +5,11 @@ import { AppError, isAppError } from "#src/lib/app-error";
 import { canDirectMessageAgent } from "#src/server/agents/agent-visibility.server";
 import { AgentMessageValidationError } from "#src/server/conversations/agent-message-validation-error.server";
 import { messageAnchorWhere, messageIdMatchesAnchor } from "#src/server/db/message-anchor.server";
-import { getAgentChannel, PublicChannels } from "#src/server/conversations/public-channels.server";
+import {
+  channelAgentRecipients,
+  getAgentChannel,
+  PublicChannels,
+} from "#src/server/conversations/public-channels.server";
 import {
   ACTIVE_MEMBER_WHERE,
   VISIBLE_CONVERSATION_WHERE,
@@ -2324,12 +2328,6 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
           bindings: mentions ?? [],
         },
       );
-      // Other Agents this channel message wakes: every resolved Agent mention. An Agent message
-      // without an Agent mention never notifies another Agent, and an Agent never wakes itself.
-      const mentionedAgentIds = new Set(
-        stored.mentions.filter((mention) => mention.type === "agent").map((mention) => mention.id),
-      );
-      mentionedAgentIds.delete(agentId);
       if (conversation.channelName && root) {
         // Everyone the reply mentions follows the thread: exactly the members its stored mention
         // rows name (each mention's key is the member id), plus every `--mention` binding.
@@ -2355,6 +2353,15 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
           skipDuplicates: true,
         });
       }
+      // A DM wakes no Agent: its only Agent is the sender.
+      const recipients = conversation.channelName
+        ? await channelAgentRecipients(tx, {
+            conversationId,
+            threadRootId: root?.id,
+            mentions: stored.mentions,
+            senderAgentId: agentId,
+          })
+        : [];
       const created = await tx.message.create({
         data: {
           conversationId,
@@ -2374,16 +2381,14 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
                 })),
               }
             : undefined,
-          deliveries: mentionedAgentIds.size
-            ? {
-                create: [...mentionedAgentIds].map((wakeAgentId) => ({
-                  workspaceId: conversation.workspaceId,
-                  conversationId,
-                  agentId: wakeAgentId,
-                  sequence,
-                })),
-              }
-            : undefined,
+          deliveries: {
+            create: recipients.map((wakeAgentId) => ({
+              workspaceId: conversation.workspaceId,
+              conversationId,
+              agentId: wakeAgentId,
+              sequence,
+            })),
+          },
         },
         select: {
           id: true,

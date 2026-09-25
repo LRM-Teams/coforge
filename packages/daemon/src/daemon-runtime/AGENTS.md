@@ -46,15 +46,15 @@ Rules for one Workspace child's runtime in `src/daemon-runtime/`. They extend
   pending attention of channels the Agent can no longer read, threads
   included; what it drops is ACKed, so a later rejoin does not replay it on
   `ready` (a Start still surfaces it as unread from the read boundary).
-- Never launch an exited Agent for a delivery it has already consumed or that
-  would not wake a running Agent; ACK it instead.
+- Never launch an exited Agent for a delivery it has already consumed; ACK it
+  instead.
 - A failed message-triggered launch starts the per-Agent wake cooldown
   (`LaunchFailureBackoff`, no attempt cap); any successful launch ends it.
   Deliveries that wait for the next launch (in the cooldown, in a failed
   launch's input queue, or arriving while a batched wake launch is in flight)
   wait in `AgentDeliveryQueue`, already ACKed. The next launch presents them in
   one notice, or a server recovery notice covers them. `flush` gives them
-  `receive`'s treatment (consumed, silent, malformed). An explicit Stop, or a
+  `receive`'s treatment (consumed, malformed). An explicit Stop, or a
   launch abandoned because its recovery notice was rejected, discards them;
   the next Start recovers them from the cloud read boundary.
 - Thread follow state is cloud-persisted. The Daemon only forwards the Agent's

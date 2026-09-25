@@ -150,7 +150,7 @@ export class SendDirectMessage {
   }
 
   /**
-   * Push a committed channel Message to every other Agent it @mentions. Best effort: attention
+   * Push a committed channel Message to every Agent it was delivered to. Best effort: attention
    * is volatile, the canonical Message/read boundary recovers a missed publication, and a
    * publish failure must not reject a send the database already accepted.
    */

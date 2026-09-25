@@ -47,19 +47,6 @@ const PENDING_WINDOW_LIMIT = HELD_CONTEXT_LIMIT;
 const INBOX_DRAIN_HINT =
   "Drain each listed target with `coforge message check --target <target>`, or inspect with `coforge message read --target <target>`. Either may return nothing, because a message can already have been read.";
 
-/**
- * Agent-authored parent-channel chatter should not wake other Agents unless it personally
- * @mentions them. Human ordinary channel messages still wake every delivered Agent so each can
- * decide whether to participate.
- */
-function shouldWakeForDelivery(message: AgentMessageDelivery): boolean {
-  const target = message.target ?? "";
-  if (!isChannelMessageTarget(target)) return true;
-  if (target.includes(":")) return true;
-  if (message.latestSenderKind === "system") return true;
-  return !(message.latestSenderKind === "agent" && message.mentionsAgent === false);
-}
-
 /** One unreviewed delivery plus the moment this daemon learned about it. Deliveries carry no
  * message timestamp of their own (only the server knows when a message was written), so the
  * arrival time is what a locally built preview can honestly show. */
@@ -247,15 +234,6 @@ export class AgentMessageAttentionIndex {
       return;
     }
     const current = this.#recordAttention(message);
-    if (!shouldWakeForDelivery(message)) {
-      generation.notified.add(message.deliveryId);
-      await this.sendAck({
-        ...message,
-        method: AGENT_MESSAGE_ACK_METHOD,
-        requestId: message.requestId,
-      });
-      return;
-    }
     if (this.hold.shouldHold(message.agentId)) {
       this.hold.enqueue(message.agentId, message);
       // Held for a later notice: the daemon has it, so it is acknowledged now.
@@ -314,9 +292,9 @@ export class AgentMessageAttentionIndex {
    * caller, right after `AgentDeliveryQueue.idle`/`release` hands back what it drained. A delivery
    * held by `receive` already passed its checks and has its attention recorded. One the runtime
    * queued before the Agent's process existed (a wake cooldown, a batched wake) gets `receive`'s
-   * treatment here: an already-consumed one is not announced, one that never wakes the Agent is
-   * recorded but not announced, and a malformed one is skipped. Every delivery was acknowledged
-   * when the daemon took it into the queue, so this only presents them.
+   * treatment here: an already-consumed one is not announced and a malformed one is skipped.
+   * Every delivery was acknowledged when the daemon took it into the queue, so this only
+   * presents them.
    */
   async flush(agentId: string, held: readonly AgentMessageDelivery[]): Promise<void> {
     if (!held.length) return;
@@ -333,7 +311,7 @@ export class AgentMessageAttentionIndex {
       this.#remember(generation, message.deliveryId);
       if (this.#consumed(message)) continue;
       this.#recordAttention(message);
-      if (shouldWakeForDelivery(message)) announced.push(message);
+      announced.push(message);
     }
     // One notice for the whole coalesced batch, carrying the batch itself: the queue is per Agent,
     // so a batch legitimately spans channels, DMs and threads, and each target needs its own line.
@@ -651,12 +629,6 @@ ${INBOX_DRAIN_HINT}]`,
    * stale delivery before it wakes an exited Agent for it. */
   hasConsumed(message: AgentMessageDelivery): boolean {
     return hasDeliveryScope(message) && this.#consumed(message);
-  }
-
-  /** Whether this well-formed delivery is one that never wakes the Agent (another Agent's channel
-   * chatter that does not mention it), so an exited Agent need not be launched for it. */
-  isSilent(message: AgentMessageDelivery): boolean {
-    return hasDeliveryScope(message) && !shouldWakeForDelivery(message);
   }
 
   /**
