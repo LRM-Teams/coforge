@@ -1,6 +1,7 @@
 import {
   decodeLocalReminderRequest,
   encodeLocalReminderRequest,
+  UUID_LIKE_PATTERN,
   isReminderId,
   isValidReactionEmoji,
   mentionsInContent,
@@ -317,7 +318,7 @@ export type MessageTransport = {
 const MESSAGE_ANCHOR_PATTERN =
   /^[0-9a-f]{8}$|^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /** A full UUID; `--attachment-id` never accepts an eight-hex short form. */
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const UUID_PATTERN = UUID_LIKE_PATTERN;
 
 export function parseArgs(
   args: readonly string[],

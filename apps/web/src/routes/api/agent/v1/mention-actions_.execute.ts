@@ -5,6 +5,7 @@ import {
   type AgentMentionActionErrorResponse,
   type AgentMentionExecuteResponse,
 } from "@lrm/coforge-sdk/agent";
+import { UUID_LIKE_PATTERN } from "@lrm/coforge-sdk/internal";
 import { agentAuthMiddleware } from "#src/server/agents/agent-http-middleware.server";
 import {
   notifyAgentMentionTargets,
@@ -12,7 +13,7 @@ import {
   type MentionActionResult,
 } from "#src/server/conversations/pending-mention-actions.server";
 
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const UUID = UUID_LIKE_PATTERN;
 
 function invalidRequest(error: string): Response {
   const body: AgentMentionActionErrorResponse = { ok: false, errorCode: "invalid_request", error };

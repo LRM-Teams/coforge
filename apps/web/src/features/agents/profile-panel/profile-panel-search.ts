@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { UUID_LIKE_SOURCE } from "@lrm/coforge-sdk/internal";
 
 /**
  * The Agent profile panel's URL state, shared by the Members directory (`agents.index.tsx`) and
@@ -9,7 +10,7 @@ import { z } from "zod";
  */
 
 const AGENT_PROFILE_PREFIX = "agent:";
-const UUID_SOURCE = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
+const UUID_SOURCE = UUID_LIKE_SOURCE;
 const UUID_PATTERN = new RegExp(`^${UUID_SOURCE}$`, "i");
 const AGENT_PROFILE_PATTERN = new RegExp(`^${AGENT_PROFILE_PREFIX}${UUID_SOURCE}$`, "i");
 

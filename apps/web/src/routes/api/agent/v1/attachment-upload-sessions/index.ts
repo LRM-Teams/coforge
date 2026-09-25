@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { MIME_TYPE_PATTERN } from "@lrm/coforge-sdk/internal";
+import { UUID_LIKE_PATTERN, MIME_TYPE_PATTERN } from "@lrm/coforge-sdk/internal";
 import { errorResponse } from "#src/server/agents/agent-http-error.server";
 import { agentAuthMiddleware } from "#src/server/agents/agent-http-middleware.server";
 import {
@@ -11,7 +11,7 @@ import { getFileStorage } from "#src/server/files/file-storage.server";
 import { PrismaDirectConversationRepository } from "#src/server/db/repositories/direct-conversation.repositories.server";
 import { targetResolutionStatus } from "#src/server/agents/agent-target-status.server";
 
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const UUID_PATTERN = UUID_LIKE_PATTERN;
 
 export type AttachmentUploadSessionCreatePrincipal = { workspaceId: string; agentId: string };
 
