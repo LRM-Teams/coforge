@@ -8,8 +8,9 @@ import appCss from "#src/styles.css?url";
 
 import { TASK_DISPLAY_FIELDS_BOOT } from "#src/features/settings/task-display-fields";
 import { RAIL_LABELS_BOOT } from "#src/features/settings/rail-labels";
+import { MESSAGE_WIDTH_BOOT } from "#src/features/settings/message-width";
 import { TASK_HIDDEN_COLUMNS_BOOT } from "#src/features/settings/task-hidden-columns";
-const themeScript = `try{var theme=localStorage.getItem("coforge-theme");if(theme==="dark"||((!theme||theme==="system")&&matchMedia("(prefers-color-scheme: dark)").matches)){document.documentElement.classList.add("dark-mode")}${RAIL_LABELS_BOOT}if(localStorage.getItem("coforge-message-width")==="full"){document.documentElement.classList.add("message-full-width")}var textSizePercents={sm:"90%",lg:"110%",xl:"125%",xxl:"140%"};var textSize=localStorage.getItem("coforge-text-size");if(textSize&&textSizePercents[textSize]){document.documentElement.style.fontSize=textSizePercents[textSize]}${TASK_DISPLAY_FIELDS_BOOT}${TASK_HIDDEN_COLUMNS_BOOT}}catch{}`;
+const themeScript = `try{var theme=localStorage.getItem("coforge-theme");if(theme==="dark"||((!theme||theme==="system")&&matchMedia("(prefers-color-scheme: dark)").matches)){document.documentElement.classList.add("dark-mode")}${RAIL_LABELS_BOOT}${MESSAGE_WIDTH_BOOT}var textSizePercents={sm:"90%",lg:"110%",xl:"125%",xxl:"140%"};var textSize=localStorage.getItem("coforge-text-size");if(textSize&&textSizePercents[textSize]){document.documentElement.style.fontSize=textSizePercents[textSize]}${TASK_DISPLAY_FIELDS_BOOT}${TASK_HIDDEN_COLUMNS_BOOT}}catch{}`;
 
 export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()({
   head: () => ({
