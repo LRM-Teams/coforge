@@ -1,6 +1,7 @@
 /** Session recall for Records sidebar section/week expand state (leave 周报 and return without a full-open tree). */
 
 import { currentIsoWeek } from "./records-content";
+import { browserSessionStorage, type BrowserSessionStorage } from "./browser-session-storage";
 
 export type RecordsSidebarSectionId = "favorites" | "myReports" | "members" | "notes";
 
@@ -25,19 +26,8 @@ const SECTION_MIGRATE_ORDER: readonly RecordsSidebarSectionId[] = [
   "notes",
 ];
 
-type ExpandStorage = Pick<Storage, "getItem" | "setItem">;
-
 function storageKey(workspaceKey: string) {
   return `${STORAGE_PREFIX}${workspaceKey}`;
-}
-
-function browserSessionStorage(): ExpandStorage | undefined {
-  try {
-    if (typeof sessionStorage === "undefined") return undefined;
-    return sessionStorage;
-  } catch {
-    return undefined;
-  }
 }
 
 function isSectionId(value: unknown): value is RecordsSidebarSectionId {
@@ -83,7 +73,7 @@ export function sanitizeRecordsSidebarExpand(
 export function rememberRecordsSidebarExpand(
   workspaceKey: string,
   snapshot: RecordsSidebarExpandSnapshot,
-  storage: ExpandStorage | undefined = browserSessionStorage(),
+  storage: BrowserSessionStorage | undefined = browserSessionStorage(),
 ): void {
   if (!workspaceKey || !storage) return;
   try {
@@ -95,7 +85,7 @@ export function rememberRecordsSidebarExpand(
 
 export function recallRecordsSidebarExpand(
   workspaceKey: string,
-  storage: ExpandStorage | undefined = browserSessionStorage(),
+  storage: BrowserSessionStorage | undefined = browserSessionStorage(),
 ): RecordsSidebarExpandSnapshot | undefined {
   if (!workspaceKey || !storage) return undefined;
   try {
