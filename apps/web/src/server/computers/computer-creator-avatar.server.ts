@@ -75,7 +75,7 @@ export async function handleComputerCreatorAvatar(
         "Content-Type": avatar.contentType,
         "Content-Disposition": "inline",
         "X-Content-Type-Options": "nosniff",
-        "Cache-Control": "no-store",
+        "cache-control": "no-store",
       },
     });
   } catch (error) {
@@ -88,6 +88,6 @@ export async function handleComputerCreatorAvatar(
           : code === "INVALID_INPUT"
             ? 400
             : 503;
-    return Response.json({ code }, { status, headers: { "Cache-Control": "no-store" } });
+    return Response.json({ code }, { status, headers: { "cache-control": "no-store" } });
   }
 }

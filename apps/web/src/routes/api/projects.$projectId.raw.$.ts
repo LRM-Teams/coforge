@@ -35,7 +35,7 @@ export const Route = createFileRoute("/api/projects/$projectId/raw/$")({
             { code: error.code },
             {
               status: error.code === "ACCESS_DENIED" ? 401 : error.code === "NOT_FOUND" ? 404 : 503,
-              headers: { "Cache-Control": "no-store" },
+              headers: { "cache-control": "no-store" },
             },
           );
         }
