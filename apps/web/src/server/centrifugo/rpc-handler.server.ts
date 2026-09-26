@@ -3,6 +3,7 @@ import {
   decodeComputerRegisterRequest,
   encodeComputerRegisterResponse,
 } from "@lrm/coforge-sdk/internal";
+import { isRecord } from "@lrm/coforge-sdk/internal";
 import { ComputerRegistrationError } from "#src/server/computers/registration.server";
 import {
   handleRequestError,
@@ -852,9 +853,7 @@ function usageWindow(value: unknown): UsageSnapshot["primary"] | undefined {
 }
 
 function record(value: unknown): Record<string, unknown> | undefined {
-  return value !== null && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : undefined;
+  return isRecord(value) ? value : undefined;
 }
 
 function usageStatus(

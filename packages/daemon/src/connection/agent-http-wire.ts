@@ -1,6 +1,6 @@
 import { agentApiRoutes } from "@lrm/coforge-sdk/agent";
 import type { AgentManualErrorCode, AgentMentionActionErrorCode } from "@lrm/coforge-sdk/agent";
-import type { ChannelOperation } from "@lrm/coforge-sdk/internal";
+import { isRecord, type ChannelOperation } from "@lrm/coforge-sdk/internal";
 import { AgentMessageRequestError } from "./agent-message-request-error";
 import { AgentManualRequestError } from "./agent-manual-request-error";
 import { AgentMentionActionRequestError } from "./agent-mention-action-request-error";
@@ -128,9 +128,7 @@ export async function readAgentResponseJson<Result>(
   return data as Result;
 }
 
-export function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
-}
+export { isRecord };
 
 /** GETs `url` with the request's defined `keys` copied into the query string. */
 export async function getAgentJson<Result>(
