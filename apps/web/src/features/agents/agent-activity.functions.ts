@@ -1,5 +1,5 @@
 import { createServerFn } from "@tanstack/react-start";
-import { setResponseHeader } from "@tanstack/react-start/server";
+import { declareNoStore } from "./no-store-response.server";
 import { workspaceUserMiddleware } from "#src/features/auth/function-auth";
 import { AgentActivityRepository } from "#src/server/db/repositories/agent-activity.repositories.server";
 import { agentIdSchema } from "./agent.schemas";
@@ -13,7 +13,7 @@ export const getWorkspaceActivity = createServerFn({ method: "GET" })
   .middleware([workspaceUserMiddleware])
   .handler(async ({ context }) => {
     const { user, db, workspaceId } = context;
-    setResponseHeader("cache-control", "no-store");
+    declareNoStore();
     const agents = await new AgentActivityRepository(db).listForMember(workspaceId, user.id);
     return {
       workspaceId,
@@ -44,6 +44,6 @@ export const getAgentActivityFeed = createServerFn({ method: "GET" })
     // tab), so the same visibility check applies here too.
     const viewer = await agentVisibilityViewerForUser(db, workspaceId, user.id);
     assertAgentVisible(viewer, agent);
-    setResponseHeader("cache-control", "no-store");
+    declareNoStore();
     return new AgentActivityRepository(db).list(workspaceId, agentId);
   });

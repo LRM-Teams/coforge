@@ -1,5 +1,5 @@
 import { createServerFn } from "@tanstack/react-start";
-import { setResponseHeader } from "@tanstack/react-start/server";
+import { declareNoStore } from "./no-store-response.server";
 import { z } from "zod";
 import { agentIdSchema } from "./agent.schemas";
 import { workspaceUserMiddleware } from "#src/features/auth/function-auth";
@@ -17,7 +17,7 @@ export const listAgentReminders = createServerFn({ method: "GET" })
   .middleware([workspaceUserMiddleware])
   .validator(listSchema)
   .handler(async ({ context: { user, db, workspaceId }, data }) => {
-    setResponseHeader("cache-control", "no-store");
+    declareNoStore();
     return new AgentRemindersQuery(prismaAgentReminderReadStore(db)).list(
       { userId: user.id, workspaceId },
       data,

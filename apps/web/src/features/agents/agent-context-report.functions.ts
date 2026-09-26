@@ -1,5 +1,5 @@
 import { createServerFn } from "@tanstack/react-start";
-import { setResponseHeader } from "@tanstack/react-start/server";
+import { declareNoStore } from "./no-store-response.server";
 import { agentIdSchema } from "./agent.schemas";
 import { AppError } from "#src/lib/app-error";
 import { workspaceUserMiddleware } from "#src/features/auth/function-auth";
@@ -19,7 +19,7 @@ export const getAgentContextReport = createServerFn({ method: "GET" })
   .middleware([workspaceUserMiddleware])
   .validator(agentIdSchema)
   .handler(async ({ data: agentId, context }) => {
-    setResponseHeader("cache-control", "no-store");
+    declareNoStore();
     const { user, db, workspaceId } = context;
     const read = await readAgentContextReport(db, { userId: user.id, workspaceId }, agentId);
     if (read.status === "unavailable") throw new AppError("AGENT_CONTEXT_UNAVAILABLE");

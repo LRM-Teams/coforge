@@ -1,5 +1,5 @@
 import { createServerFn } from "@tanstack/react-start";
-import { setResponseHeader } from "@tanstack/react-start/server";
+import { declareNoStore } from "./no-store-response.server";
 import { z } from "zod";
 import { workspaceUserMiddleware } from "#src/features/auth/function-auth";
 import { userAgentControl } from "#src/server/agents/user-agent-control.server";
@@ -16,7 +16,7 @@ export const executeAgentControl = createServerFn({ method: "POST" })
   .middleware([workspaceUserMiddleware])
   .validator(executeInput)
   .handler(async ({ data, context: { user, db, workspaceId } }) => {
-    setResponseHeader("cache-control", "no-store");
+    declareNoStore();
     const result = await userAgentControl(db).execute({ ...data, userId: user.id, workspaceId });
     if (result.phase === "failed") throw new Error("Agent control failed");
   });

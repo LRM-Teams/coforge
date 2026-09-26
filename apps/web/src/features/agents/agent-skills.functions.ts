@@ -1,5 +1,5 @@
 import { createServerFn } from "@tanstack/react-start";
-import { setResponseHeader } from "@tanstack/react-start/server";
+import { declareNoStore } from "./no-store-response.server";
 import { encodeAgentSkillsListRequest } from "@lrm/coforge-sdk/internal";
 import { agentIdSchema } from "./agent.schemas";
 import { workspaceUserMiddleware } from "#src/features/auth/function-auth";
@@ -18,7 +18,7 @@ export const getAgentSkills = createServerFn({ method: "POST" })
   .middleware([workspaceUserMiddleware])
   .validator(agentIdSchema)
   .handler(async ({ data: agentId, context }) => {
-    setResponseHeader("cache-control", "no-store");
+    declareNoStore();
     const { user, db, workspaceId } = context;
     const query = new AgentSkillsQuery({
       findOwned: (viewer, id) => findOwnedSkillsAssignment(db, viewer, id),
