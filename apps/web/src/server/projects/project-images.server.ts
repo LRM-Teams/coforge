@@ -4,7 +4,9 @@ import type { FileStorage } from "#src/server/files/file-storage.server";
 import {
   PROFILE_IMAGE_STYLES,
   publicImageUrl,
+  publicImageUrlOrFallback,
   type PublicImageUrlResolver,
+  versionedImagePath,
 } from "#src/server/files/public-image-delivery.server";
 import { getPublicImageStorage } from "#src/server/files/public-image-storage.server";
 import { validateImage } from "#src/server/files/image-upload.server";
@@ -19,10 +21,11 @@ export function projectIconUrl(
   objectKey: string | null,
   publicUrl: PublicImageUrlResolver = publicImageUrl,
 ) {
-  if (!objectKey) return null;
-  return (
-    publicUrl(objectKey, PROFILE_IMAGE_STYLES.icon) ??
-    `/api/projects/${projectId}/icon?v=${encodeURIComponent(objectKey.split("/").at(-2)!)}`
+  return publicImageUrlOrFallback(
+    objectKey,
+    PROFILE_IMAGE_STYLES.icon,
+    (key) => versionedImagePath(`/api/projects/${projectId}/icon`, key),
+    publicUrl,
   );
 }
 

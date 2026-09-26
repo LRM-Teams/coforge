@@ -197,9 +197,10 @@ export type PublicImageUrlResolver = (objectKey: string, style: ProfileImageStyl
  * image to point at.
  *
  * `fallback` is a function because the route is built from the object key (it carries the object
- * id as `?v=`), so it must not be built when there is no key to build it from. Five image URLs
- * used to spell this rule out — four avatars plus the Computer creator's avatar — each with its own
- * doc paragraph saying the same thing.
+ * id as `?v=`), so it must not be built when there is no key to build it from. Six image URLs used
+ * to spell this rule out — four avatars, the Computer creator's avatar and a project icon — each
+ * with its own doc paragraph saying the same thing. The census said five until the project icon was
+ * folded in; it had been the sixth all along, which is the kind of counting this rule punishes.
  */
 export function publicImageUrlOrFallback(
   objectKey: string | null,
