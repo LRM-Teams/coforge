@@ -11,6 +11,7 @@ import { messageAnchorWhere } from "#src/server/db/message-anchor.server";
 import { Prisma, type PrismaClient } from "#src/generated/prisma/client";
 import {
   MAX_ACTIVE_REMINDERS,
+  DEFAULT_REMINDER_TIMEZONE,
   ReminderRefusal,
   nextOccurrence,
   type ReminderRepository,
@@ -335,7 +336,7 @@ export class PrismaReminderRepository implements ReminderRepository {
         }
         const zone =
           request.repeat && request.repeat !== "none"
-            ? (request.timezone ?? existing.timezone ?? "Asia/Shanghai")
+            ? (request.timezone ?? existing.timezone ?? DEFAULT_REMINDER_TIMEZONE)
             : request.timezone;
         const patch: Partial<
           Pick<StoredReminder, "title" | "fireAt" | "repeat" | "timezone" | "status">
