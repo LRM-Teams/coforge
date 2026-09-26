@@ -1,3 +1,4 @@
+import { browserLocalStorage } from "#src/features/browser-local-storage";
 import { lastSearchSchema, type LastSearch } from "./search.schemas";
 
 /**
@@ -70,7 +71,7 @@ function usageKey(workspaceId: string, userId: string) {
 
 function read<T>(key: string, valid: (value: unknown) => value is T, fallback: T): T {
   try {
-    const raw = typeof localStorage === "undefined" ? null : localStorage.getItem(key);
+    const raw = browserLocalStorage()?.getItem(key) ?? null;
     const value: unknown = raw ? JSON.parse(raw) : fallback;
     return valid(value) ? value : fallback;
   } catch {
@@ -80,7 +81,7 @@ function read<T>(key: string, valid: (value: unknown) => value is T, fallback: T
 
 function write(key: string, value: unknown) {
   try {
-    if (typeof localStorage !== "undefined") localStorage.setItem(key, JSON.stringify(value));
+    browserLocalStorage()?.setItem(key, JSON.stringify(value));
   } catch {
     // Storage is full or blocked: the page just remembers less.
   }

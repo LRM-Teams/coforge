@@ -8,6 +8,8 @@
  * `localStorage`, so only the text body is remembered.
  */
 
+import { browserLocalStorage } from "#src/features/browser-local-storage";
+
 const DRAFT_KEY_PREFIX = "coforge.composer-draft:";
 
 /** Storage key for one composer: the main pane, or one thread pane. */
@@ -17,17 +19,9 @@ export function composerDraftKey(conversationId: string, threadRootId?: string):
     : `${DRAFT_KEY_PREFIX}${conversationId}`;
 }
 
-function deviceStorage(): Storage | null {
-  try {
-    return typeof localStorage === "undefined" ? null : localStorage;
-  } catch {
-    return null;
-  }
-}
-
 /** The saved draft text, or `""` when none exists or storage is unavailable. */
 export function readComposerDraft(key: string): string {
-  const storage = deviceStorage();
+  const storage = browserLocalStorage();
   if (!storage) return "";
   try {
     return storage.getItem(key) ?? "";
@@ -38,7 +32,7 @@ export function readComposerDraft(key: string): string {
 
 /** Saves a draft; a blank body removes the entry so dead chats leave no clutter. */
 export function writeComposerDraft(key: string, body: string): void {
-  const storage = deviceStorage();
+  const storage = browserLocalStorage();
   if (!storage) return;
   try {
     if (body) storage.setItem(key, body);
@@ -50,7 +44,7 @@ export function writeComposerDraft(key: string, body: string): void {
 
 /** Drops the saved draft, e.g. after its message was sent. */
 export function clearComposerDraft(key: string): void {
-  const storage = deviceStorage();
+  const storage = browserLocalStorage();
   if (!storage) return;
   try {
     storage.removeItem(key);
