@@ -4,7 +4,7 @@ import {
   PROFILE_IMAGE_STYLES,
   publicImageUrl,
   publicImageUrlOrFallback,
-  publicImageVersion,
+  versionedImagePath,
   type PublicImageUrlResolver,
 } from "#src/server/files/public-image-delivery.server";
 
@@ -53,7 +53,7 @@ export function avatarUrl(
   return publicImageUrlOrFallback(
     objectKey,
     PROFILE_IMAGE_STYLES.avatar,
-    (key) => `/api/me/avatar?v=${encodeURIComponent(publicImageVersion(key))}`,
+    (key) => versionedImagePath(`/api/me/avatar`, key),
     publicUrl,
   );
 }
@@ -67,8 +67,7 @@ export function workspaceUserAvatarUrl(
   return publicImageUrlOrFallback(
     objectKey,
     PROFILE_IMAGE_STYLES.avatar,
-    (key) =>
-      `/api/workspaces/${workspaceId}/users/${userId}/avatar?v=${encodeURIComponent(publicImageVersion(key))}`,
+    (key) => versionedImagePath(`/api/workspaces/${workspaceId}/users/${userId}/avatar`, key),
     publicUrl,
   );
 }
