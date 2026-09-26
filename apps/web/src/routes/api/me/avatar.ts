@@ -11,7 +11,7 @@ import {
   removeUserAvatar,
   storeUserAvatar,
 } from "#src/server/profiles/user-avatar.server";
-import { IMMUTABLE_IMAGE_CACHE_CONTROL } from "#src/server/http/cache-control.server";
+import { avatarImageHeaders } from "#src/server/http/avatar-image-headers.server";
 
 const imageUploadSchema = z.object({ file: z.custom<File>(isFile) });
 
@@ -72,13 +72,7 @@ export async function handleAvatarDownload(
     const { user, db } = await authenticate(request, dependencies);
     const avatar = await dependencies.read(db, user.id);
     return new Response(avatar.body, {
-      headers: {
-        "Content-Type": avatar.contentType,
-        "Content-Disposition": "inline",
-        "X-Content-Type-Options": "nosniff",
-        "cache-control": IMMUTABLE_IMAGE_CACHE_CONTROL,
-        Vary: "Cookie",
-      },
+      headers: avatarImageHeaders(avatar.contentType),
     });
   } catch (error) {
     return avatarError(error);

@@ -5,7 +5,7 @@ import { AppError, isAppError } from "#src/lib/app-error";
 import { AgentAvatars } from "#src/server/agents/agent-avatar.server";
 import { optionalBrowserUser } from "#src/server/auth/require-user.server";
 import { requireDatabaseClient } from "#src/server/db/client.server";
-import { IMMUTABLE_IMAGE_CACHE_CONTROL } from "#src/server/http/cache-control.server";
+import { avatarImageHeaders } from "#src/server/http/avatar-image-headers.server";
 
 const ids = z.object({ workspaceId: z.uuid(), agentId: z.uuid() });
 
@@ -23,13 +23,7 @@ export const Route = createFileRoute("/api/workspaces/$workspaceId/agents/$agent
             params.agentId,
           );
           return new Response(image.body, {
-            headers: {
-              "Content-Type": image.contentType,
-              "Content-Disposition": "inline",
-              "X-Content-Type-Options": "nosniff",
-              "cache-control": IMMUTABLE_IMAGE_CACHE_CONTROL,
-              Vary: "Cookie",
-            },
+            headers: avatarImageHeaders(image.contentType),
           });
         } catch (error) {
           if (!isAppError(error)) throw error;
