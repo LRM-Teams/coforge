@@ -1,3 +1,5 @@
+import { WEEKLY_REPORT_SCHEDULE_TIME_ZONE } from "./weekly-report-schedule-due";
+
 /** Weekly-report body: named display pages with one rich-text document per page. */
 
 export type ReportTab = {
@@ -537,13 +539,13 @@ export function memberReportTitle(displayName: string, year: number, week: numbe
 }
 
 /**
- * Submitted-at stamp for the member-report header (WR-35 / M1):
- * `YYYY.MM.DD HH:mm:ss` in Asia/Shanghai.
+ * Submitted-at stamp for the member-report header (WR-35 / M1): `YYYY.MM.DD HH:mm:ss` on the same
+ * clock the weekly send schedule runs on, so a reported stamp and a scheduled send never disagree.
  */
 export function formatWeeklyReportCompletedAt(value: string | Date): string {
   const date = value instanceof Date ? value : new Date(value);
   const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: "Asia/Shanghai",
+    timeZone: WEEKLY_REPORT_SCHEDULE_TIME_ZONE,
     year: "numeric",
     month: "2-digit",
     day: "2-digit",

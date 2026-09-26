@@ -1,4 +1,5 @@
-/** Fixed schedule clock for MVP periodic weekly-report send. */
+/** Fixed schedule clock for MVP periodic weekly-report send. The weekly-report stamps render
+ * on the same clock, so the two never disagree. */
 export const WEEKLY_REPORT_SCHEDULE_TIME_ZONE = "Asia/Shanghai";
 
 const WEEKDAY_SHORT_TO_ISO: Record<string, number> = {
