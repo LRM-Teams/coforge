@@ -1,6 +1,6 @@
 import type { PrismaClient } from "#src/generated/prisma/client";
 import {
-  parseRuntimeProvider,
+  requireRuntimeProvider,
   type CodeAgentModelCatalog,
   type RuntimeMetadata,
   type RuntimeProvider,
@@ -23,9 +23,7 @@ const runtimeShape = {
 } as const;
 
 function runtimeProvider(value: string): RuntimeProvider {
-  const provider = parseRuntimeProvider(value);
-  if (!provider) throw new Error("Computer runtime has an invalid provider");
-  return provider;
+  return requireRuntimeProvider(value, "Computer runtime has an invalid provider");
 }
 
 function mapRuntime(runtime: {

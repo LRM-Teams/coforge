@@ -2,7 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import {
   encodeDaemonRuntimeProviderModelRefreshRequest,
   isValidReleaseVersion,
-  parseRuntimeProvider,
+  requireRuntimeProvider,
   WORKSPACE_PROTOCOL_MAJOR,
   type CodeAgentModelMetadata,
   type RuntimeProvider,
@@ -398,7 +398,5 @@ function modelMetadata(value: unknown): CodeAgentModelMetadata[] | undefined {
 }
 
 function runtimeProvider(value: string): RuntimeProvider {
-  const provider = parseRuntimeProvider(value);
-  if (!provider) throw new Error("Computer reported an unknown runtime provider");
-  return provider;
+  return requireRuntimeProvider(value, "Computer reported an unknown runtime provider");
 }
