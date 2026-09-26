@@ -19,7 +19,7 @@ export const getAgentContextReport = createServerFn({ method: "GET" })
   .middleware([workspaceUserMiddleware])
   .validator(agentIdSchema)
   .handler(async ({ data: agentId, context }) => {
-    setResponseHeader("Cache-Control", "no-store");
+    setResponseHeader("cache-control", "no-store");
     const { user, db, workspaceId } = context;
     const read = await readAgentContextReport(db, { userId: user.id, workspaceId }, agentId);
     if (read.status === "unavailable") throw new AppError("AGENT_CONTEXT_UNAVAILABLE");

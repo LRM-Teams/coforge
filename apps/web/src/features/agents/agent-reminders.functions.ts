@@ -17,7 +17,7 @@ export const listAgentReminders = createServerFn({ method: "GET" })
   .middleware([workspaceUserMiddleware])
   .validator(listSchema)
   .handler(async ({ context: { user, db, workspaceId }, data }) => {
-    setResponseHeader("Cache-Control", "no-store");
+    setResponseHeader("cache-control", "no-store");
     return new AgentRemindersQuery(prismaAgentReminderReadStore(db)).list(
       { userId: user.id, workspaceId },
       data,
