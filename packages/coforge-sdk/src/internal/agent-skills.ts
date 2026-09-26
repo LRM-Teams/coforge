@@ -1,4 +1,5 @@
 import { RPC_METHODS } from "./rpc-methods";
+import { boundedPayload } from "./codec";
 import { create, fromBinary, toBinary } from "@bufbuild/protobuf";
 import {
   AgentSkillsListRequestSchema,
@@ -122,8 +123,7 @@ function scope(
   };
 }
 function bounded(bytes: Uint8Array) {
-  if (bytes.length > MAX_BYTES) throw new Error("Skills payload too large");
-  return bytes;
+  return boundedPayload(bytes, MAX_BYTES, "Skills");
 }
 export function encodeAgentSkillsListRequest(value: AgentSkillsListRequest): Uint8Array {
   return toBinary(

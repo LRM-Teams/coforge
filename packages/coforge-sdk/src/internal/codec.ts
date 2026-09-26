@@ -1402,3 +1402,14 @@ export function decodeComputerRegisterResponse(bytes: Uint8Array): ComputerRegis
 export function encodeComputerRegisterResponse(value: ComputerRegisterResponse): Uint8Array {
   return toBinary(ComputerRegisterResponseSchema, create(ComputerRegisterResponseSchema, value));
 }
+
+/**
+ * Refuses a wire payload over the limit its message type allows. Each codec module keeps its own
+ * limit and label — the lifecycle, skills and reminder messages are capped differently (32 KiB,
+ * 1 MiB, 64 KiB) — but the check and its wording are one rule, and both the encode and the decode
+ * path go through it, so a peer cannot make us parse an oversized frame.
+ */
+export function boundedPayload(bytes: Uint8Array, maxBytes: number, label: string): Uint8Array {
+  if (bytes.length > maxBytes) throw new Error(`${label} payload too large`);
+  return bytes;
+}
