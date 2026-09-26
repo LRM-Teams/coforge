@@ -8,6 +8,12 @@ const FULL_WIDTH_CLASS = "message-full-width";
  *  up; full-width messages drop the room. Below `md` the rows' own gutter is enough. */
 export const MESSAGE_COLUMN_CLASS = "md:px-[min(6.5rem,10%)] [.message-full-width_&]:px-0";
 
+/** The boot half of the same rule: `__root.tsx` runs this before paint so SSR markup never depends
+ * on the class. Built from the key, the stored value and the class above, like
+ * `RAIL_LABELS_BOOT`, so the script and `readMessageFullWidth` cannot disagree about what "full"
+ * is stored as. */
+export const MESSAGE_WIDTH_BOOT = `if(localStorage.getItem("${STORAGE_KEY}")==="full"){document.documentElement.classList.add("${FULL_WIDTH_CLASS}")}`;
+
 /** Per-device preference: full-width messages. Applied as a class on <html> (also by the boot
  *  script in __root.tsx) so SSR markup never depends on it. */
 export function readMessageFullWidth(): boolean {

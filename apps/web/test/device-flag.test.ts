@@ -6,6 +6,7 @@ import {
   writeDeviceFlag,
 } from "#src/features/settings/device-flag";
 import { RAIL_LABELS_BOOT } from "#src/features/settings/rail-labels";
+import { MESSAGE_WIDTH_BOOT } from "#src/features/settings/message-width";
 
 const original = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
 
@@ -69,4 +70,10 @@ test("the rail-labels boot fragment agrees with the module about the hidden valu
   expect(RAIL_LABELS_BOOT).toContain("coforge-rail-labels");
   expect(RAIL_LABELS_BOOT).toContain(`"${DEVICE_FLAG_HIDDEN}"`);
   expect(RAIL_LABELS_BOOT).toContain("rail-labels-hidden");
+});
+
+test("the message-width boot fragment carries the same key, stored value and class the reader uses", () => {
+  expect(MESSAGE_WIDTH_BOOT).toBe(
+    'if(localStorage.getItem("coforge-message-width")==="full"){document.documentElement.classList.add("message-full-width")}',
+  );
 });
