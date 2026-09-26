@@ -18,7 +18,7 @@ export const getAgentSkills = createServerFn({ method: "POST" })
   .middleware([workspaceUserMiddleware])
   .validator(agentIdSchema)
   .handler(async ({ data: agentId, context }) => {
-    setResponseHeader("Cache-Control", "no-store");
+    setResponseHeader("cache-control", "no-store");
     const { user, db, workspaceId } = context;
     const query = new AgentSkillsQuery({
       findOwned: (viewer, id) => findOwnedSkillsAssignment(db, viewer, id),
