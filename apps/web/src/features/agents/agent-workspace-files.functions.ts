@@ -1,5 +1,5 @@
 import { createServerFn } from "@tanstack/react-start";
-import { setResponseHeader } from "@tanstack/react-start/server";
+import { declareNoStore } from "./no-store-response.server";
 import {
   encodeAgentWorkspaceFileReadRequest,
   encodeAgentWorkspaceFilesListRequest,
@@ -46,7 +46,7 @@ export const listAgentWorkspaceFiles = createServerFn({ method: "POST" })
   .middleware([workspaceUserMiddleware])
   .validator(listAgentWorkspaceFilesInputSchema)
   .handler(async ({ data, context }) => {
-    setResponseHeader("cache-control", "no-store");
+    declareNoStore();
     const { user, db, workspaceId } = context;
     return buildQuery(db).list(
       { userId: user.id, workspaceId },
@@ -60,7 +60,7 @@ export const readAgentWorkspaceFile = createServerFn({ method: "POST" })
   .middleware([workspaceUserMiddleware])
   .validator(readAgentWorkspaceFileInputSchema)
   .handler(async ({ data, context }) => {
-    setResponseHeader("cache-control", "no-store");
+    declareNoStore();
     const { user, db, workspaceId } = context;
     return buildQuery(db).read({ userId: user.id, workspaceId }, data.agentId, data.path);
   });
