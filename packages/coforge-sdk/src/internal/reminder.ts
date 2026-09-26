@@ -1,4 +1,5 @@
 import { LEGACY_RPC_METHOD_NAMES, RPC_METHODS } from "./rpc-methods";
+import { boundedPayload } from "./codec";
 import { RFC_UUID_PATTERN } from "./uuid";
 import { create, fromBinary, toBinary } from "@bufbuild/protobuf";
 import {
@@ -177,8 +178,7 @@ export function isValidReminderStatusFilter(value: string): boolean {
 }
 
 function bounded(bytes: Uint8Array) {
-  if (bytes.length > MAX_BYTES) throw new Error("Reminder payload too large");
-  return bytes;
+  return boundedPayload(bytes, MAX_BYTES, "Reminder");
 }
 function positive(value: number | undefined, field: string): number | undefined {
   if (value !== undefined && (!Number.isSafeInteger(value) || value < 1 || value > 0xffffffff))

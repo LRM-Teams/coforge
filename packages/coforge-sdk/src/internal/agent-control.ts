@@ -1,4 +1,5 @@
 import { RPC_METHODS } from "./rpc-methods";
+import { boundedPayload } from "./codec";
 import { create, fromBinary, toBinary } from "@bufbuild/protobuf";
 import {
   AgentWorkspaceResetRequestSchema,
@@ -50,8 +51,7 @@ export type AgentSessionSnapshot = AgentControlScope & {
 };
 
 function bounded(bytes: Uint8Array): Uint8Array {
-  if (bytes.length > MAX_BYTES) throw new Error("Agent lifecycle payload too large");
-  return bytes;
+  return boundedPayload(bytes, MAX_BYTES, "Agent lifecycle");
 }
 
 function provider(value: string): RuntimeProvider {
