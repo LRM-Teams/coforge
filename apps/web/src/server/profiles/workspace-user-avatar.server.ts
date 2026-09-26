@@ -3,7 +3,7 @@ import { AppError, isAppError } from "#src/lib/app-error";
 import { optionalBrowserUser } from "#src/server/auth/require-user.server";
 import { getDatabaseClient } from "#src/server/db/client.server";
 import { readUserAvatar } from "./user-avatar.server";
-import { IMMUTABLE_IMAGE_CACHE_CONTROL } from "#src/server/http/cache-control.server";
+import { avatarImageHeaders } from "#src/server/http/avatar-image-headers.server";
 
 export async function handleWorkspaceUserAvatar(
   request: Request,
@@ -34,13 +34,7 @@ export async function handleWorkspaceUserAvatar(
     if (!visible) throw new AppError("NOT_FOUND");
     const avatar = await (dependencies.read ?? readUserAvatar)(db, userId);
     return new Response(avatar.body, {
-      headers: {
-        "Content-Type": avatar.contentType,
-        "Content-Disposition": "inline",
-        "X-Content-Type-Options": "nosniff",
-        "cache-control": IMMUTABLE_IMAGE_CACHE_CONTROL,
-        Vary: "Cookie",
-      },
+      headers: avatarImageHeaders(avatar.contentType),
     });
   } catch (error) {
     if (!isAppError(error)) throw error;
