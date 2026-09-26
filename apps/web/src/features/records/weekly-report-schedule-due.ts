@@ -12,12 +12,33 @@ const WEEKDAY_SHORT_TO_ISO: Record<string, number> = {
   Sun: 7,
 };
 
+/**
+ * Building an `Intl.DateTimeFormat` costs far more than using it, and these two readers are asked
+ * once per recurrence probe and once per report stamp. The options are fixed, so only the timezone
+ * varies: one formatter per timezone, kept for the process's life.
+ */
+const WEEKDAY_AND_TIME_FORMATTERS = new Map<string, Intl.DateTimeFormat>();
+const CALENDAR_DATE_FORMATTERS = new Map<string, Intl.DateTimeFormat>();
+
+function cachedFormatter(
+  cache: Map<string, Intl.DateTimeFormat>,
+  timeZone: string,
+  locale: string,
+  options: Intl.DateTimeFormatOptions,
+): Intl.DateTimeFormat {
+  let formatter = cache.get(timeZone);
+  if (!formatter) {
+    formatter = new Intl.DateTimeFormat(locale, { ...options, timeZone });
+    cache.set(timeZone, formatter);
+  }
+  return formatter;
+}
+
 export function zonedWeekdayAndTime(
   now: Date,
   timeZone: string = WEEKLY_REPORT_SCHEDULE_TIME_ZONE,
 ): { weekday: number; time: string } {
-  const parts = new Intl.DateTimeFormat("en-GB", {
-    timeZone,
+  const parts = cachedFormatter(WEEKDAY_AND_TIME_FORMATTERS, timeZone, "en-GB", {
     weekday: "short",
     hour: "2-digit",
     minute: "2-digit",
@@ -38,8 +59,7 @@ export function zonedCalendarDate(
   now: Date,
   timeZone: string = WEEKLY_REPORT_SCHEDULE_TIME_ZONE,
 ): Date {
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone,
+  const parts = cachedFormatter(CALENDAR_DATE_FORMATTERS, timeZone, "en-CA", {
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
