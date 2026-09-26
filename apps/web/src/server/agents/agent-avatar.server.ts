@@ -6,7 +6,7 @@ import {
   PROFILE_IMAGE_STYLES,
   publicImageUrl,
   publicImageUrlOrFallback,
-  publicImageVersion,
+  versionedImagePath,
   type PublicImageUrlResolver,
 } from "#src/server/files/public-image-delivery.server";
 import { getPublicImageStorage } from "#src/server/files/public-image-storage.server";
@@ -28,8 +28,7 @@ export function agentAvatarUrl(
   return publicImageUrlOrFallback(
     objectKey,
     PROFILE_IMAGE_STYLES.avatar,
-    (key) =>
-      `/api/workspaces/${workspaceId}/agents/${agentId}/avatar?v=${encodeURIComponent(publicImageVersion(key))}`,
+    (key) => versionedImagePath(`/api/workspaces/${workspaceId}/agents/${agentId}/avatar`, key),
     publicUrl,
   );
 }

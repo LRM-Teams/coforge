@@ -219,3 +219,15 @@ export function publicImageUrlOrFallback(
 export function publicImageVersion(objectKey: string): string {
   return objectKey.split("/").at(-2) ?? "current";
 }
+
+/**
+ * A backend image route's URL, versioned: the route the caller names, plus the object's version
+ * token, URL-encoded. Every route that serves a profile image answers `cache-control: private,
+ * max-age=31536000, immutable` — see cache-control.server.ts — and that is only safe because a new
+ * upload lands on a new URL, which is the token written here. Three builders used to spell the whole
+ * expression out at the call site, encoding included, and a fourth (the Computer creator's avatar)
+ * spells out none of it because its route does not accept a token at all.
+ */
+export function versionedImagePath(path: string, objectKey: string): string {
+  return `${path}?v=${encodeURIComponent(publicImageVersion(objectKey))}`;
+}
