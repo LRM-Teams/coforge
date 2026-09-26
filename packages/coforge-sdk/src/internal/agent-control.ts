@@ -4,7 +4,7 @@ import {
   AgentWorkspaceResetRequestSchema,
   AgentControlResultSchema,
 } from "#src/internal/gen/coforge/rpc/v1/agent_control_pb";
-import { parseRuntimeProvider, type RuntimeProvider } from "./index";
+import { requireRuntimeProvider, type RuntimeProvider } from "./index";
 
 export const AGENT_WORKSPACE_RESET_METHOD = RPC_METHODS.agentWorkspaceReset;
 export const AGENT_CONTROL_RESULT_METHOD = RPC_METHODS.agentControlResult;
@@ -55,9 +55,7 @@ function bounded(bytes: Uint8Array): Uint8Array {
 }
 
 function provider(value: string): RuntimeProvider {
-  const parsed = parseRuntimeProvider(value);
-  if (parsed === undefined) throw new Error("Invalid Agent lifecycle provider");
-  return parsed;
+  return requireRuntimeProvider(value, "Invalid Agent lifecycle provider");
 }
 
 function scope(value: AgentControlScope): AgentControlScope {

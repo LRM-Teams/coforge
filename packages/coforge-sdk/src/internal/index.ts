@@ -294,6 +294,21 @@ export const RUNTIME_PROVIDER_VALUES = Object.values(RUNTIME_PROVIDER) as [
 ];
 const RUNTIME_PROVIDERS: ReadonlySet<string> = new Set(RUNTIME_PROVIDER_VALUES);
 /** The RuntimeProvider a persisted or user-supplied value names, or undefined. */
+/**
+ * `parseRuntimeProvider`, but an unknown value is an error rather than an absence. The callers read
+ * a runtime provider that the daemon or the database already stored, so an unrecognized one means
+ * the stored data and this build disagree — not that the caller should fall back to a default.
+ *
+ * Three copies of the two-line check lived in this file's Agent lifecycle codec, Web's Computer
+ * runtimes repository and Web's Computer server functions. Each passes its own message, because
+ * those messages name the surface that failed.
+ */
+export function requireRuntimeProvider(value: unknown, message: string): RuntimeProvider {
+  const provider = parseRuntimeProvider(value);
+  if (provider === undefined) throw new Error(message);
+  return provider;
+}
+
 export function parseRuntimeProvider(value: unknown): RuntimeProvider | undefined {
   return typeof value === "string" && RUNTIME_PROVIDERS.has(value)
     ? (value as RuntimeProvider)
