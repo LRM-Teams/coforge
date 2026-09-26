@@ -321,7 +321,7 @@ test("attachment responses render safe images inline and everything else as a do
   const png = attachmentResponseHeaders({ fileName: 'shot".png', contentType: "image/png" }, false);
   expect(png["Content-Type"]).toBe("image/png");
   expect(png["Content-Disposition"]).toBe('inline; filename="shot_.png"');
-  expect(png["Cache-Control"]).toBe("private, no-store");
+  expect(png["cache-control"]).toBe("private, no-store");
 
   const forced = attachmentResponseHeaders(
     { fileName: "shot.png", contentType: "image/png" },

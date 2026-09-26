@@ -10,6 +10,7 @@ import { readAuthorizedAttachment } from "#src/server/attachments/attachment.ser
 import { getDatabaseClient } from "#src/server/db/client.server";
 import { getFileDelivery, type FileDelivery } from "#src/server/files/file-delivery.server";
 import type { StoredFile } from "#src/server/files/file-storage.server";
+import { PRIVATE_NO_STORE } from "#src/server/http/cache-control.server";
 
 export const Route = createFileRoute("/api/attachments/$attachmentId")({
   server: {
@@ -89,7 +90,7 @@ function signedRedirect(dependencies: AttachmentDownloadDependencies, objectKey:
       status: 302,
       headers: {
         Location: url,
-        "Cache-Control": "private, no-store",
+        "cache-control": PRIVATE_NO_STORE,
         "X-Content-Type-Options": "nosniff",
       },
     });

@@ -4,6 +4,7 @@ import { AppError, isAppError } from "#src/lib/app-error";
 import { optionalBrowserUser } from "#src/server/auth/require-user.server";
 import { requireDatabaseClient } from "#src/server/db/client.server";
 import { ProjectFiles } from "#src/server/projects/project-files.server";
+import { PRIVATE_NO_STORE } from "#src/server/http/cache-control.server";
 
 /** Streams one repository file as a download, read with the requesting User's GitHub token. */
 export const Route = createFileRoute("/api/projects/$projectId/raw/$")({
@@ -25,7 +26,7 @@ export const Route = createFileRoute("/api/projects/$projectId/raw/$")({
               "Content-Type": "application/octet-stream",
               "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(file.name)}`,
               "X-Content-Type-Options": "nosniff",
-              "Cache-Control": "private, no-store",
+              "cache-control": PRIVATE_NO_STORE,
               Vary: "Cookie",
             },
           });
