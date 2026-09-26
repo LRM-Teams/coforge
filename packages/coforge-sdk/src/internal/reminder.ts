@@ -542,3 +542,11 @@ export function decodeLocalReminderRequest(bytes: Uint8Array): LocalReminderRequ
   const v = fromBinary(LocalReminderRequestSchema, bounded(bytes));
   return local(optional(v) as LocalReminderRequest);
 }
+
+/**
+ * The timezone a repeating reminder takes when the caller names none. A product default rather than
+ * an implementation detail: the CLI applies it locally while validating a request, and the server
+ * applies it when the reminder is written, so both edges have to agree — otherwise the same command
+ * would be accepted as one clock and stored as another.
+ */
+export const DEFAULT_REMINDER_TIMEZONE = "Asia/Shanghai";

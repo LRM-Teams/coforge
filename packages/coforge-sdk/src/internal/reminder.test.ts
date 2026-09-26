@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { create, toBinary } from "@bufbuild/protobuf";
-import { parseReminderRecurrence } from "#src/internal/reminder";
+import { DEFAULT_REMINDER_TIMEZONE, parseReminderRecurrence } from "#src/internal/reminder";
 import { AgentReminderOperationRequestSchema } from "#src/internal/gen/coforge/rpc/v1/reminder_pb";
 import {
   REMINDER_SYNC_MESSAGE_TYPE,
@@ -409,4 +409,10 @@ test("parseReminderRecurrence is exactly as strict as RECURRENCE", () => {
     ["weekly:mon,fri@22:05", { kind: "weekly", weekdays: ["mon", "fri"], hour: 22, minute: 5 }],
   ];
   for (const [value, parsed] of cases) expect(parseReminderRecurrence(value)).toEqual(parsed);
+});
+
+test("the shared default reminder timezone is the product's civil clock", () => {
+  // Both edges apply it — the CLI while validating, the server while writing — so the value is
+  // pinned here rather than in either of them.
+  expect(DEFAULT_REMINDER_TIMEZONE).toBe("Asia/Shanghai");
 });
