@@ -1,15 +1,19 @@
-import type { AgentStartIntent, AgentStopIntent } from "@lrm/coforge-sdk/internal";
+import {
+  AGENT_ENVIRONMENT_MAX_NAME_LENGTH,
+  AGENT_ENVIRONMENT_MAX_SERIALIZED_LENGTH,
+  AGENT_ENVIRONMENT_MAX_VALUE_LENGTH,
+  AGENT_ENVIRONMENT_MAX_VARIABLES,
+  AGENT_ENVIRONMENT_NAME_PATTERN,
+  isReservedAgentEnvironmentName,
+  type AgentStartIntent,
+  type AgentStopIntent,
+} from "@lrm/coforge-sdk/internal";
 import type { AgentRecord } from "#src/server/db/repositories/agent.repositories.server";
 import type { AgentRuntimeConfig, EncryptedAgentEnvironment } from "./agent-runtime-config.server";
 import type { AgentRuntimeLock } from "./agent-runtime-lock.server";
 import { assertAgentLive } from "./active-agent.server";
 import { agentStartIntent, agentStopIntent } from "./manage-agents.server";
 
-const MAX_VARIABLES = 64;
-const MAX_NAME_LENGTH = 128;
-const MAX_VALUE_LENGTH = 32_768;
-const MAX_SERIALIZED_LENGTH = 131_072;
-const NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const KEY_ID = "v1";
 const NONCE_BYTES = 12;
 const AAD_PREFIX = "coforge.agent-environment.v1";
@@ -156,19 +160,26 @@ export function validateAgentEnvironment(input: unknown): Record<string, string>
   if (!input || typeof input !== "object" || Array.isArray(input))
     throw new Error("Agent environment must be a variable map");
   const entries = Object.entries(input);
-  if (entries.length > MAX_VARIABLES) throw new Error("Agent environment has too many variables");
+  if (entries.length > AGENT_ENVIRONMENT_MAX_VARIABLES)
+    throw new Error("Agent environment has too many variables");
   const envVars: Record<string, string> = Object.create(null);
   for (const [name, value] of entries) {
-    const upper = name.toUpperCase();
-    if (!NAME.test(name) || name.length > MAX_NAME_LENGTH)
+    if (
+      !AGENT_ENVIRONMENT_NAME_PATTERN.test(name) ||
+      name.length > AGENT_ENVIRONMENT_MAX_NAME_LENGTH
+    )
       throw new Error("Agent environment contains an invalid variable name");
-    if (upper === "PATH" || upper.startsWith("COFORGE_"))
+    if (isReservedAgentEnvironmentName(name))
       throw new Error("Agent environment contains a reserved variable name");
-    if (typeof value !== "string" || value.includes("\0") || value.length > MAX_VALUE_LENGTH)
+    if (
+      typeof value !== "string" ||
+      value.includes("\0") ||
+      value.length > AGENT_ENVIRONMENT_MAX_VALUE_LENGTH
+    )
       throw new Error("Agent environment contains an invalid variable value");
     envVars[name] = value;
   }
-  if (JSON.stringify(envVars).length > MAX_SERIALIZED_LENGTH)
+  if (JSON.stringify(envVars).length > AGENT_ENVIRONMENT_MAX_SERIALIZED_LENGTH)
     throw new Error("Agent environment is too large");
   return envVars;
 }
