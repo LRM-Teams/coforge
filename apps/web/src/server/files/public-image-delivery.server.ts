@@ -190,3 +190,32 @@ export function publicImageUrl(
 
 /** Resolves one object key to its public URL, or `null`; the seam callers inject in tests. */
 export type PublicImageUrlResolver = (objectKey: string, style: ProfileImageStyle) => string | null;
+
+/**
+ * The public URL for one image, or this deployment's own authenticated route for it: the CDN when
+ * there is one, the route otherwise. `null` when there is no object key, because then there is no
+ * image to point at.
+ *
+ * `fallback` is a function because the route is built from the object key (it carries the object
+ * id as `?v=`), so it must not be built when there is no key to build it from. Five image URLs
+ * used to spell this rule out — four avatars plus the Computer creator's avatar — each with its own
+ * doc paragraph saying the same thing.
+ */
+export function publicImageUrlOrFallback(
+  objectKey: string | null,
+  style: ProfileImageStyle,
+  fallback: (objectKey: string) => string,
+  publicUrl: PublicImageUrlResolver = publicImageUrl,
+): string | null {
+  if (!objectKey) return null;
+  return publicUrl(objectKey, style) ?? fallback(objectKey);
+}
+
+/**
+ * The `?v=` an image route versions by: the object key's parent segment. The bytes behind one image
+ * id never change, so the segment identifies the stored version; `current` stands in when the key
+ * has no parent.
+ */
+export function publicImageVersion(objectKey: string): string {
+  return objectKey.split("/").at(-2) ?? "current";
+}

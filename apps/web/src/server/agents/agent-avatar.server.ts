@@ -5,6 +5,8 @@ import type { FileStorage } from "#src/server/files/file-storage.server";
 import {
   PROFILE_IMAGE_STYLES,
   publicImageUrl,
+  publicImageUrlOrFallback,
+  publicImageVersion,
   type PublicImageUrlResolver,
 } from "#src/server/files/public-image-delivery.server";
 import { getPublicImageStorage } from "#src/server/files/public-image-storage.server";
@@ -23,11 +25,12 @@ export function agentAvatarUrl(
   objectKey: string | null,
   publicUrl: PublicImageUrlResolver = publicImageUrl,
 ) {
-  if (!objectKey) return null;
-  const version = objectKey.split("/").at(-2) ?? "current";
-  return (
-    publicUrl(objectKey, PROFILE_IMAGE_STYLES.avatar) ??
-    `/api/workspaces/${workspaceId}/agents/${agentId}/avatar?v=${encodeURIComponent(version)}`
+  return publicImageUrlOrFallback(
+    objectKey,
+    PROFILE_IMAGE_STYLES.avatar,
+    (key) =>
+      `/api/workspaces/${workspaceId}/agents/${agentId}/avatar?v=${encodeURIComponent(publicImageVersion(key))}`,
+    publicUrl,
   );
 }
 
