@@ -1,4 +1,5 @@
 import {
+  DEFAULT_REMINDER_TIMEZONE,
   parseReminderRecurrence,
   REMINDER_SYNC_MESSAGE_TYPE,
   decodeAgentReminderOperationRequest,
@@ -16,7 +17,7 @@ import {
 
 export const MAX_ACTIVE_REMINDERS = 50;
 export const MAX_REMINDER_LOG_EVENTS = 100;
-export const DEFAULT_REMINDER_TIMEZONE = "Asia/Shanghai";
+export { DEFAULT_REMINDER_TIMEZONE };
 
 /** Why the reminder domain refused a command, named once so both callers can report it. */
 export type ReminderRefusalCode =
