@@ -36,7 +36,7 @@ export const Route = createFileRoute("/api/workspaces/$workspaceId/agents/$agent
             error.code === "ACCESS_DENIED" ? 401 : error.code === "NOT_FOUND" ? 404 : 503;
           return Response.json(
             { code: error.code },
-            { status, headers: { "Cache-Control": "no-store" } },
+            { status, headers: { "cache-control": "no-store" } },
           );
         }
       },

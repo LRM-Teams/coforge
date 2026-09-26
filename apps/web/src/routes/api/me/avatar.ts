@@ -56,7 +56,7 @@ export async function handleAvatarUpload(
     const input = imageUploadSchema.safeParse({ file: form.get("file") });
     if (!input.success) throw new AppError("INVALID_INPUT");
     return Response.json(await dependencies.store(db, { userId: user.id, file: input.data.file }), {
-      headers: { "Cache-Control": "no-store" },
+      headers: { "cache-control": "no-store" },
     });
   } catch (error) {
     return avatarError(error);
@@ -93,7 +93,7 @@ export async function handleAvatarDelete(
     await dependencies.remove(db, user.id);
     return new Response(null, {
       status: 204,
-      headers: { "Cache-Control": "no-store" },
+      headers: { "cache-control": "no-store" },
     });
   } catch (error) {
     return avatarError(error);
@@ -117,5 +117,5 @@ function avatarError(error: unknown) {
         : error.code === "NOT_FOUND"
           ? 404
           : 503;
-  return Response.json({ code: error.code }, { status, headers: { "Cache-Control": "no-store" } });
+  return Response.json({ code: error.code }, { status, headers: { "cache-control": "no-store" } });
 }
