@@ -16,6 +16,7 @@ import {
   type WorkspaceInfoResponse,
   type WeeklyReportCommand,
   ATTACHMENT_MAX_BYTES,
+  isRecord,
 } from "@lrm/coforge-sdk/internal";
 import {
   actionCardActionSchema,
@@ -315,10 +316,6 @@ async function readJsonBody(
   } catch {
     return badRequest();
   }
-}
-
-function isJsonObject(value: unknown): value is JsonObject {
-  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
 /** Matches one fixed pathname; such a route has no path param. */
@@ -903,7 +900,7 @@ export function startAgentProxy(input: {
           if (body instanceof Response) return body;
           payload = body.payload;
           if (route.body === "json-object") {
-            if (!isJsonObject(payload)) return badRequest();
+            if (!isRecord(payload)) return badRequest();
             fields = payload;
             redact = fields.freshnessContextMode === "withheld";
           }
