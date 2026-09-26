@@ -1,21 +1,15 @@
+import { readDeviceFlag, writeDeviceFlag } from "./device-flag";
+
 const STORAGE_KEY = "coforge-live-agent-activity";
 const CHANGE_EVENT = "coforge-live-agent-activity-change";
 
 /** Per-device preference: the chat-list activity strip. On unless this device stored "hide". */
 export function readLiveAgentActivity(): boolean {
-  try {
-    return localStorage.getItem(STORAGE_KEY) !== "hide";
-  } catch {
-    return true;
-  }
+  return readDeviceFlag(STORAGE_KEY);
 }
 
 export function writeLiveAgentActivity(show: boolean) {
-  try {
-    localStorage.setItem(STORAGE_KEY, show ? "show" : "hide");
-  } catch {
-    // Private mode or blocked storage: the current page still follows `show`.
-  }
+  writeDeviceFlag(STORAGE_KEY, show);
   window.dispatchEvent(new Event(CHANGE_EVENT));
 }
 
