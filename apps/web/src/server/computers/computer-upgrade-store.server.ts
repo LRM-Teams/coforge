@@ -2,6 +2,7 @@ import { RedisClient } from "bun";
 import { redisUrlFor } from "#src/server/redis-url.server";
 import { sanitizeUpgradeErrorText } from "@lrm/coforge-sdk/internal";
 import { AppError } from "#src/lib/app-error";
+import { workspaceRedisKey } from "#src/server/redis-keys.server";
 
 export type ComputerUpgradeStatus =
   | { requestId: string; status: "accepted"; expectedVersion: string; expiresAt: string }
@@ -332,7 +333,12 @@ export class RedisComputerUpgradeStore {
     }
   }
   private scope(scope: Scope) {
-    return `coforge:workspace:${encodeURIComponent(scope.workspaceId)}:computer:${encodeURIComponent(scope.computerId)}:upgrade:v1`;
+    return workspaceRedisKey({
+      workspaceId: scope.workspaceId,
+      computerId: scope.computerId,
+      name: "upgrade",
+      version: "v1",
+    });
   }
   private identityKey(scope: Scope) {
     return `${this.scope(scope)}:identity`;

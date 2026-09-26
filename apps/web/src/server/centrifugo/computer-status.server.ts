@@ -1,5 +1,6 @@
 import { RedisClient } from "bun";
 import { redisUrlFor } from "#src/server/redis-url.server";
+import { workspaceRedisKey } from "#src/server/redis-keys.server";
 
 const COMPUTER_STATUS_TTL_SECONDS = "90";
 export const COMPUTER_STATUS_LEASE_MS = Number(COMPUTER_STATUS_TTL_SECONDS) * 1_000;
@@ -39,7 +40,12 @@ export class RedisComputerStatusCache implements ComputerStatusCache {
   }
 
   private key(scope: ComputerStatusScope) {
-    return `coforge:workspace:${encodeURIComponent(scope.workspaceId)}:computer:${encodeURIComponent(scope.computerId)}:status:v1`;
+    return workspaceRedisKey({
+      workspaceId: scope.workspaceId,
+      computerId: scope.computerId,
+      name: "status",
+      version: "v1",
+    });
   }
 }
 

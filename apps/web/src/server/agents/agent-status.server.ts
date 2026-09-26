@@ -1,6 +1,7 @@
 import { RedisClient } from "bun";
 import { redisUrlFor } from "#src/server/redis-url.server";
 import type { AgentStatus } from "@lrm/coforge-sdk/internal";
+import { workspaceRedisKey } from "#src/server/redis-keys.server";
 
 const ACTIVE_TTL_SECONDS = "90";
 export const AGENT_STATUS_LEASE_MS = Number(ACTIVE_TTL_SECONDS) * 1_000;
@@ -153,8 +154,13 @@ export class RedisAgentStatusCache implements AgentStatusCache {
   }
 
   private key(scope: AgentStatusScope): string {
-    const segment = (value: string) => encodeURIComponent(value);
-    return `coforge:workspace:${segment(scope.workspaceId)}:computer:${segment(scope.computerId)}:agent:${segment(scope.agentId)}:status:v2`;
+    return workspaceRedisKey({
+      workspaceId: scope.workspaceId,
+      computerId: scope.computerId,
+      agentId: scope.agentId,
+      name: "status",
+      version: "v2",
+    });
   }
 }
 

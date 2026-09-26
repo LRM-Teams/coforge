@@ -1,6 +1,7 @@
 import { RedisClient } from "bun";
 import { redisUrlFor } from "#src/server/redis-url.server";
 import type { ComputerRestartStatus } from "#src/features/computers/computer.schemas";
+import { workspaceRedisKey } from "#src/server/redis-keys.server";
 
 const RESTART_TIMEOUT_MS = 60_000;
 const RESTART_TTL_SECONDS = 5 * 60;
@@ -192,7 +193,12 @@ export class RedisComputerRestartStore implements ComputerRestartStore {
     return `${this.scopeKey(scope)}:request:${encodeURIComponent(requestId)}`;
   }
   private scopeKey(scope: Scope) {
-    return `coforge:workspace:${encodeURIComponent(scope.workspaceId)}:computer:${encodeURIComponent(scope.computerId)}:restart:v1`;
+    return workspaceRedisKey({
+      workspaceId: scope.workspaceId,
+      computerId: scope.computerId,
+      name: "restart",
+      version: "v1",
+    });
   }
 }
 
