@@ -6,6 +6,7 @@
  * the `profile` and `user info` routes.
  */
 
+import { isRecord } from "../internal";
 import type { AgentPendingMentionAction } from "#src/internal/local-daemon";
 
 /** One of the sender's still-pending mentions, with the channel it was sent in (by name). */
@@ -65,10 +66,6 @@ export type AgentMentionActionErrorResponse = {
   errorCode: AgentMentionActionErrorCode;
   error: string;
 };
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
-}
 
 function isOptionalString(value: unknown): boolean {
   return value === undefined || typeof value === "string";

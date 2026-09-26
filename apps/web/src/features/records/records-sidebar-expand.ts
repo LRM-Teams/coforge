@@ -1,5 +1,6 @@
 /** Session recall for Records sidebar section/week expand state (leave 周报 and return without a full-open tree). */
 
+import { isRecord } from "@lrm/coforge-sdk/internal";
 import { currentIsoWeek } from "./records-content";
 import { browserSessionStorage, type BrowserSessionStorage } from "./browser-session-storage";
 
@@ -55,7 +56,7 @@ export function sanitizeRecordsSidebarExpand(
   const activeSection = migrateActiveSection(row);
   const weeks: Record<string, boolean> = {};
   const weeksRaw = row.weeks;
-  if (weeksRaw && typeof weeksRaw === "object" && !Array.isArray(weeksRaw)) {
+  if (isRecord(weeksRaw)) {
     for (const [key, open] of Object.entries(weeksRaw)) {
       if (
         typeof key === "string" &&

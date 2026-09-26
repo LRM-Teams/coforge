@@ -1,3 +1,4 @@
+import { isRecord } from "@lrm/coforge-sdk/internal";
 import {
   verifyDaemonApiKey,
   type DaemonApiKeyRepository,
@@ -15,8 +16,7 @@ function daemonApiKeyFromConnectData(data: unknown): unknown {
       return undefined;
     }
   }
-  if (data && typeof data === "object" && !Array.isArray(data))
-    return Reflect.get(data, "daemonApiKey");
+  if (isRecord(data)) return Reflect.get(data, "daemonApiKey");
   return undefined;
 }
 

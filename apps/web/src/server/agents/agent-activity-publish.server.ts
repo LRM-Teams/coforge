@@ -1,3 +1,4 @@
+import { isRecord } from "@lrm/coforge-sdk/internal";
 import { AGENT_ACTIVITY_DETAIL_KIND } from "@lrm/coforge-sdk/internal";
 import { decodeAgentActivity, encodeAgentActivity } from "@lrm/coforge-sdk/internal";
 
@@ -241,7 +242,7 @@ export function publicationAgentLookups(db: PrismaClient): PublicationAgentLooku
       const agent = await read(agentId);
       if (agent?.workspaceId === workspaceId && agent.computerId === computerId) {
         const session = agent.runtimeSession;
-        if (session && typeof session === "object" && !Array.isArray(session)) {
+        if (isRecord(session)) {
           const daemonInstanceId = Reflect.get(session, "daemonInstanceId");
           const launchId = Reflect.get(session, "launchId");
           const sessionComputerId = Reflect.get(session, "computerId");
