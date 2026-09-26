@@ -108,6 +108,7 @@ import {
   AGENT_CONTEXT_SCAN_STATUS,
   freshnessDecisionFactId,
   HELD_CONTEXT_LIMIT,
+  UUID_LIKE_SOURCE,
 } from "@lrm/coforge-sdk/internal";
 import { agentWorkspaceDirectory } from "#src/agent-runtime/agent-workspace-path";
 import { memoryIndexReminder } from "#src/agent-runtime/agent-memory-seed";
@@ -201,8 +202,9 @@ export type RecoveredUpgradeResult = {
   /** See `UPGRADE_ERROR_CODE`. */
   errorCode?: string;
 };
-const FULL_THREAD_TARGET =
-  /^((?:@[^:]+)|(?:#[a-z0-9][a-z0-9_-]{0,31})):([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/;
+const FULL_THREAD_TARGET = new RegExp(
+  `^((?:@[^:]+)|(?:#[a-z0-9][a-z0-9_-]{0,31})):(${UUID_LIKE_SOURCE})$`,
+);
 const SHORT_THREAD_TARGET = /^((?:@[^:]+)|(?:#[a-z0-9][a-z0-9_-]{0,31})):([0-9a-f]{8})$/;
 const NOT_RUNNING = "daemon runtime is not running";
 const CLEANUP_UNCONFIRMED =

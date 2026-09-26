@@ -12,6 +12,7 @@ import {
   type TaskPrincipal,
   type TaskResult,
   type TaskView,
+  UUID_LIKE_SOURCE,
 } from "@lrm/coforge-sdk/internal";
 import { encodeAgentDelivery } from "#src/server/conversations/agent-delivery.server";
 import { ACTIVE_AGENT_WHERE } from "#src/server/agents/active-agent.server";
@@ -168,8 +169,7 @@ function agentOwnTaskScope(agentId: string): {
 /** A task status as stored; a value outside the known set is corrupt data, not user input. */
 const handleName = (handle: string) => handle.replace(/^@/, "");
 /** An assignee picked by id: `user:<uuid>` or `agent:<uuid>`. */
-const BOUND_ASSIGNEE =
-  /^(user|agent):([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/;
+const BOUND_ASSIGNEE = new RegExp(`^(user|agent):(${UUID_LIKE_SOURCE})$`, "i");
 
 async function indexedRequestId(requestId: string, index: number) {
   if (index === 0) return requestId;

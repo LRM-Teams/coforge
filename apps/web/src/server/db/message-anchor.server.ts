@@ -1,8 +1,8 @@
+import { UUID_LIKE_SOURCE } from "@lrm/coforge-sdk/internal";
 import { AppError } from "#src/lib/app-error";
 
 /** What an anchor may be: six to eight hex characters, or a whole UUID, in any case. */
-const MESSAGE_ANCHOR =
-  /^(?:[0-9a-f]{6,8}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i;
+const MESSAGE_ANCHOR = new RegExp(`^(?:[0-9a-f]{6,8}|${UUID_LIKE_SOURCE})$`, "i");
 
 /**
  * How a Message is addressed by a short anchor. `Message.id` is a native `uuid` column, so a

@@ -1,5 +1,10 @@
 import { lockConversation } from "#src/server/conversations/conversation-lock.server";
-import type { MessageSenderKind, MessageTaskMetadata, TaskStatus } from "@lrm/coforge-sdk/internal";
+import {
+  UUID_LIKE_SOURCE,
+  type MessageSenderKind,
+  type MessageTaskMetadata,
+  type TaskStatus,
+} from "@lrm/coforge-sdk/internal";
 import { Prisma, type PrismaClient } from "#src/generated/prisma/client";
 import { AppError, isAppError } from "#src/lib/app-error";
 import { canDirectMessageAgent } from "#src/server/agents/agent-visibility.server";
@@ -148,8 +153,7 @@ type AgentFacing<T extends { body: string }> = Omit<T, "body"> & { body: AgentRe
 const AGENT_RECOVERY_MESSAGE_LIMIT = 100;
 const PUBLIC_USERNAME_TARGET = /^@[a-z0-9](?:[a-z0-9_-]{1,30}[a-z0-9])?$/;
 /** Eight-hex-character prefix or a full UUID; both address a Message. */
-const MESSAGE_ANCHOR =
-  /^(?:[0-9a-f]{8}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/;
+const MESSAGE_ANCHOR = new RegExp(`^(?:[0-9a-f]{8}|${UUID_LIKE_SOURCE})$`);
 
 const TASK_METADATA_SELECT = {
   select: {

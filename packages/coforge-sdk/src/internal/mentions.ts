@@ -6,9 +6,11 @@
  * which imports `MENTION_PATTERN` from here rather than keeping its own copy).
  */
 
+import { UUID_LIKE_PATTERN, UUID_LIKE_SOURCE } from "./uuid";
+
 export type MentionSelectorInput = { type: "user" | "agent"; id: string; name: string };
 
-const ACTOR_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const ACTOR_UUID = UUID_LIKE_PATTERN;
 /** The server's mention-handle grammar. */
 export const MENTION_HANDLE_PATTERN = /^[a-z0-9][a-z0-9_-]*$/;
 export const MENTION_HANDLE_MAX_LENGTH = 128;
@@ -79,8 +81,7 @@ export function mentionsInContent(body: string): Set<string> {
  * valid input at every send edge; only resolved mentions are rewritten to this form at
  * persistence time, and every Agent-facing read path translates tokens back to `@handle`.
  */
-export const MENTION_TOKEN_PATTERN =
-  /<@(human|agent):([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})>/gi;
+export const MENTION_TOKEN_PATTERN = new RegExp(`<@(human|agent):(${UUID_LIKE_SOURCE})>`, "gi");
 
 /** The stored-body token for one resolved mention: `<@human:uuid>` or `<@agent:uuid>`. */
 export function mentionToken(type: "user" | "agent", id: string): string {

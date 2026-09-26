@@ -1,6 +1,7 @@
 import { codePointLength } from "./truncate";
 import { AGENT_NAME_MAX_LENGTH } from "./agent-name";
 import { MENTION_HANDLE_PATTERN } from "./mentions";
+import { UUID_LIKE_PATTERN } from "./uuid";
 
 /**
  * A message's sender is a kind, a handle and a description — not one fused string.
@@ -30,7 +31,7 @@ const SENDER_HANDLE_MAX_LENGTH = AGENT_NAME_MAX_LENGTH;
  * reaching an Agent as a sender has to name the id shape rather than rely on a length bound to
  * exclude it by accident.
  */
-const ACTOR_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const ACTOR_ID = UUID_LIKE_PATTERN;
 
 /**
  * The public handle grammar, reusing the one definition of CoForge's handle character class
