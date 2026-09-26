@@ -9,6 +9,7 @@ import {
   type ScanResultRedisPort,
 } from "./scan-result-cache.server";
 import { redisUrlFor } from "#src/server/redis-url.server";
+import { workspaceRedisKey } from "#src/server/redis-keys.server";
 
 export type UsageCacheKey = {
   workspaceId: string;
@@ -138,7 +139,12 @@ export class RedisUsageCache implements UsageCache {
   }
 
   private scopeKey(key: UsageCacheKey) {
-    return `coforge:workspace:${encodeURIComponent(key.workspaceId)}:computer:${encodeURIComponent(key.computerId)}:usage:v2:${encodeURIComponent(key.provider)}`;
+    return `${workspaceRedisKey({
+      workspaceId: key.workspaceId,
+      computerId: key.computerId,
+      name: "usage",
+      version: "v2",
+    })}:${encodeURIComponent(key.provider)}`;
   }
 }
 

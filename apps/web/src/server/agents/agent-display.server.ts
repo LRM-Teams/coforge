@@ -8,6 +8,7 @@ import {
   type AgentDisplaySnapshot,
 } from "@lrm/coforge-sdk/internal";
 import { AGENT_STATUS_LEASE_MS } from "./agent-status.server";
+import { workspaceRedisKey } from "#src/server/redis-keys.server";
 
 // 90s: 1.5x the daemon's 60s busy heartbeat (ACTIVITY_HEARTBEAT_MS), the same
 // margin AGENT_STATUS_LEASE_MS keeps over AGENT_STATUS_REFRESH_MS. A silent
@@ -592,8 +593,13 @@ export class RedisAgentDisplay implements AgentDisplay {
   }
 
   private keyPrefix(scope: Scope) {
-    const segment = (value: string) => encodeURIComponent(value);
-    return `coforge:workspace:${segment(scope.workspaceId)}:computer:${segment(scope.computerId)}:agent:${segment(scope.agentId)}:display:v1`;
+    return workspaceRedisKey({
+      workspaceId: scope.workspaceId,
+      computerId: scope.computerId,
+      agentId: scope.agentId,
+      name: "display",
+      version: "v1",
+    });
   }
 }
 
