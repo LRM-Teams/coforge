@@ -1,5 +1,5 @@
 import { createServerFn } from "@tanstack/react-start";
-import { declareNoStore } from "./no-store-response.server";
+import { declareNoStore } from "#src/features/no-store-response.server";
 import {
   encodeAgentWorkspaceFileReadRequest,
   encodeAgentWorkspaceFilesListRequest,

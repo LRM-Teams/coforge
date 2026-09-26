@@ -1,5 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { getRequest, setResponseHeader } from "@tanstack/react-start/server";
+import { declareNoStore } from "#src/features/no-store-response.server";
+
 import { z } from "zod";
 import { AppError } from "#src/lib/app-error";
 import { authMiddleware } from "#src/features/auth/function-auth";
@@ -18,7 +20,7 @@ async function requiredGitHub() {
 export const getGitHubConnection = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
   .handler(async ({ context }) => {
-    setResponseHeader("cache-control", "no-store");
+    declareNoStore();
     const userId = context.user.id;
     const github = await configuredGitHub();
     if (!github) return { status: "unconfigured" as const, login: null, installUrl: null };
