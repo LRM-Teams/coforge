@@ -17,6 +17,8 @@ import {
   type WeeklyReportCommand,
   ATTACHMENT_MAX_BYTES,
   isRecord,
+  UUID_LIKE_PATTERN,
+  UUID_LIKE_SOURCE,
 } from "@lrm/coforge-sdk/internal";
 import {
   actionCardActionSchema,
@@ -186,9 +188,8 @@ export type AgentProxyRuntime = {
 };
 
 const LOCAL_PROXY_TOKEN = /^sfp_[A-Za-z0-9_-]{43}$/;
-const MESSAGE_ID_ANCHOR =
-  /^[0-9a-f]{8}$|^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const MESSAGE_ID_ANCHOR = new RegExp(`^(?:[0-9a-f]{8}|${UUID_LIKE_SOURCE})$`, "i");
+const UUID = UUID_LIKE_PATTERN;
 const LOCAL_ATTACHMENT_ROUTE_PREFIX = agentApiRoutes.local.attachments.path("");
 const LOCAL_ATTACHMENT_UPLOAD_PATH = agentApiRoutes.local.attachments.upload.path;
 // The cloud rejects attachments above `ATTACHMENT_MAX_BYTES`; the local upload hop allows that

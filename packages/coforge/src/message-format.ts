@@ -1,4 +1,8 @@
-import { renderMessageSender, type AgentMessageRecord } from "@lrm/coforge-sdk/internal";
+import {
+  renderMessageSender,
+  UUID_LIKE_PATTERN,
+  type AgentMessageRecord,
+} from "@lrm/coforge-sdk/internal";
 
 /** The sender exactly as an Agent-visible message line shows it:
  * `system` for a system message, `@handle — description` when a description exists, `@handle`
@@ -400,7 +404,7 @@ export type PendingMentionAction = {
   expiresAt?: string;
 };
 
-const PENDING_MENTION_ACTION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const PENDING_MENTION_ACTION_ID = UUID_LIKE_PATTERN;
 
 /** An `@handle` exactly as it was written in the message. */
 export function authoredMentionToken(handle: string): string {
