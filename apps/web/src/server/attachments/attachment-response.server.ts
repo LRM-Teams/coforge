@@ -1,3 +1,5 @@
+import { PRIVATE_NO_STORE } from "#src/server/http/cache-control.server";
+
 /** Image types the browser may render inline from `/api/attachments/:id`. Everything else is
  * delivered as an opaque download so a stored HTML/SVG/PDF can never execute in the app origin. */
 const INLINE_IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
@@ -38,6 +40,6 @@ export function attachmentResponseHeaders(
     "Content-Type": inline ? attachment.contentType : "application/octet-stream",
     "Content-Disposition": `${inline ? "inline" : "attachment"}; filename="${fileName}"`,
     "X-Content-Type-Options": "nosniff",
-    "Cache-Control": "private, no-store",
+    "cache-control": PRIVATE_NO_STORE,
   };
 }

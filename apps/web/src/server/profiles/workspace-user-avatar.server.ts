@@ -3,6 +3,7 @@ import { AppError, isAppError } from "#src/lib/app-error";
 import { optionalBrowserUser } from "#src/server/auth/require-user.server";
 import { getDatabaseClient } from "#src/server/db/client.server";
 import { readUserAvatar } from "./user-avatar.server";
+import { IMMUTABLE_IMAGE_CACHE_CONTROL } from "#src/server/http/cache-control.server";
 
 export async function handleWorkspaceUserAvatar(
   request: Request,
@@ -37,7 +38,7 @@ export async function handleWorkspaceUserAvatar(
         "Content-Type": avatar.contentType,
         "Content-Disposition": "inline",
         "X-Content-Type-Options": "nosniff",
-        "Cache-Control": "private, max-age=31536000, immutable",
+        "cache-control": IMMUTABLE_IMAGE_CACHE_CONTROL,
         Vary: "Cookie",
       },
     });

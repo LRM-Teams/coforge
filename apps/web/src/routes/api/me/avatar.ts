@@ -11,6 +11,7 @@ import {
   removeUserAvatar,
   storeUserAvatar,
 } from "#src/server/profiles/user-avatar.server";
+import { IMMUTABLE_IMAGE_CACHE_CONTROL } from "#src/server/http/cache-control.server";
 
 const imageUploadSchema = z.object({ file: z.custom<File>(isFile) });
 
@@ -75,7 +76,7 @@ export async function handleAvatarDownload(
         "Content-Type": avatar.contentType,
         "Content-Disposition": "inline",
         "X-Content-Type-Options": "nosniff",
-        "Cache-Control": "private, max-age=31536000, immutable",
+        "cache-control": IMMUTABLE_IMAGE_CACHE_CONTROL,
         Vary: "Cookie",
       },
     });
