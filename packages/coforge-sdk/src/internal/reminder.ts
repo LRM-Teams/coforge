@@ -1,4 +1,5 @@
 import { LEGACY_RPC_METHOD_NAMES, RPC_METHODS } from "./rpc-methods";
+import { isScopeId } from "./scope-id";
 import { boundedPayload } from "./codec";
 import { RFC_UUID_PATTERN } from "./uuid";
 import { create, fromBinary, toBinary } from "@bufbuild/protobuf";
@@ -22,13 +23,6 @@ export const REMINDER_SYNC_MESSAGE_TYPE = "coforge.rpc.v1.ReminderSync" as const
 export const REMINDER_CAPABILITY = "reminder:v1" as const;
 
 const MAX_BYTES = 65_536;
-const ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
-/**
- * `ID.test(value)` is not a type check: a missing id stringifies to `"undefined"` (or `"null"`),
- * which the pattern happily matches. Every scope id is therefore checked as a string first — the
- * protobuf encoder used to cover for this by refusing an absent field, and the JSON path does not.
- */
-const isId = (value: unknown): boolean => typeof value === "string" && ID.test(value);
 const PREFIX = /^[0-9a-f]{8}$/i;
 const USERNAME = "[a-z0-9](?:[a-z0-9_-]{1,30}[a-z0-9])?";
 const HEX = "[0-9a-fA-F]";
@@ -197,7 +191,7 @@ function instant(value: string | undefined, field: string): string | undefined {
 function scope<T extends ReminderScope>(value: T): T {
   if (
     value.protocolMajor !== 1 ||
-    [value.requestId, value.workspaceId, value.computerId, value.agentId].some((v) => !isId(v))
+    [value.requestId, value.workspaceId, value.computerId, value.agentId].some((v) => !isScopeId(v))
   )
     throw new Error("invalid reminder scope");
   return value;
@@ -329,7 +323,7 @@ function summary(value: ReminderSummaryRecord): ReminderSummaryRecord {
   fields(value, true);
   if (
     !isReminderId(value.reminderId) ||
-    !isId(value.ownerAgentId) ||
+    !isScopeId(value.ownerAgentId) ||
     !positive(value.version, "reminder version") ||
     !value.title ||
     !value.target ||
@@ -344,8 +338,8 @@ function summary(value: ReminderSummaryRecord): ReminderSummaryRecord {
 }
 function event(value: ReminderLogEvent): ReminderLogEvent {
   if (
-    !isId(value.eventId) ||
-    !ID.test(value.type) ||
+    !isScopeId(value.eventId) ||
+    !isScopeId(value.type) ||
     !instant(value.time, "reminder event time") ||
     (value.nextFireAt !== undefined && !instant(value.nextFireAt, "next reminder fire time"))
   )
@@ -382,7 +376,7 @@ function job(value: ReminderJob): ReminderJob {
   fields(value, true);
   if (
     !isReminderId(value.reminderId) ||
-    !isId(value.ownerAgentId) ||
+    !isScopeId(value.ownerAgentId) ||
     !positive(value.version, "reminder version") ||
     !value.title ||
     !value.target ||
@@ -497,7 +491,7 @@ export function decodeReminderSnapshotRequest(bytes: Uint8Array): ReminderSnapsh
 
 function local(value: LocalReminderRequest): LocalReminderRequest {
   if (
-    !ID.test(value.requestId) ||
+    !isScopeId(value.requestId) ||
     !value.context ||
     ![...OPERATIONS, "ack", "dismiss"].includes(value.operation)
   )

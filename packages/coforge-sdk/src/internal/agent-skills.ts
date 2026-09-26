@@ -1,4 +1,5 @@
 import { RPC_METHODS } from "./rpc-methods";
+import { isScopeId } from "./scope-id";
 import { boundedPayload } from "./codec";
 import { create, fromBinary, toBinary } from "@bufbuild/protobuf";
 import {
@@ -49,7 +50,7 @@ function request(value: {
   if (
     value.protocolMajor !== 1 ||
     [value.requestId, value.workspaceId, value.computerId, value.agentId].some(
-      (id) => !/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(id),
+      (id) => !isScopeId(id),
     )
   )
     throw new Error("Invalid Skills request scope");
