@@ -6,6 +6,7 @@ import { getDatabaseClient } from "#src/server/db/client.server";
 import {
   PROFILE_IMAGE_STYLES,
   publicImageUrl,
+  publicImageUrlOrFallback,
   type PublicImageUrlResolver,
 } from "#src/server/files/public-image-delivery.server";
 import { readUserAvatar } from "#src/server/profiles/user-avatar.server";
@@ -21,10 +22,11 @@ export function computerCreatorAvatarUrl(
   objectKey: string | null,
   publicUrl: PublicImageUrlResolver = publicImageUrl,
 ) {
-  if (!objectKey) return null;
-  return (
-    publicUrl(objectKey, PROFILE_IMAGE_STYLES.avatar) ??
-    `/api/computers/${computerId}/creator-avatar?workspaceId=${workspaceId}`
+  return publicImageUrlOrFallback(
+    objectKey,
+    PROFILE_IMAGE_STYLES.avatar,
+    () => `/api/computers/${computerId}/creator-avatar?workspaceId=${workspaceId}`,
+    publicUrl,
   );
 }
 

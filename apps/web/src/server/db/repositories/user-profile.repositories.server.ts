@@ -3,6 +3,8 @@ import { AppError } from "#src/lib/app-error";
 import {
   PROFILE_IMAGE_STYLES,
   publicImageUrl,
+  publicImageUrlOrFallback,
+  publicImageVersion,
   type PublicImageUrlResolver,
 } from "#src/server/files/public-image-delivery.server";
 
@@ -48,11 +50,11 @@ export function avatarUrl(
   objectKey: string | null,
   publicUrl: PublicImageUrlResolver = publicImageUrl,
 ) {
-  if (!objectKey) return null;
-  const version = objectKey.split("/").at(-2);
-  return (
-    publicUrl(objectKey, PROFILE_IMAGE_STYLES.avatar) ??
-    `/api/me/avatar?v=${encodeURIComponent(version ?? "current")}`
+  return publicImageUrlOrFallback(
+    objectKey,
+    PROFILE_IMAGE_STYLES.avatar,
+    (key) => `/api/me/avatar?v=${encodeURIComponent(publicImageVersion(key))}`,
+    publicUrl,
   );
 }
 
@@ -62,10 +64,11 @@ export function workspaceUserAvatarUrl(
   objectKey: string | null,
   publicUrl: PublicImageUrlResolver = publicImageUrl,
 ) {
-  if (!objectKey) return null;
-  const version = objectKey.split("/").at(-2) ?? "current";
-  return (
-    publicUrl(objectKey, PROFILE_IMAGE_STYLES.avatar) ??
-    `/api/workspaces/${workspaceId}/users/${userId}/avatar?v=${encodeURIComponent(version)}`
+  return publicImageUrlOrFallback(
+    objectKey,
+    PROFILE_IMAGE_STYLES.avatar,
+    (key) =>
+      `/api/workspaces/${workspaceId}/users/${userId}/avatar?v=${encodeURIComponent(publicImageVersion(key))}`,
+    publicUrl,
   );
 }
