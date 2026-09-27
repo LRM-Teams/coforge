@@ -14,6 +14,7 @@ import {
   type ReminderSummaryRecord,
   type ReminderSync,
 } from "@lrm/coforge-sdk/internal";
+import { dateTimeFormat } from "#src/lib/dates";
 
 export const MAX_ACTIVE_REMINDERS = 50;
 export const MAX_REMINDER_LOG_EVENTS = 100;
@@ -185,15 +186,17 @@ export function nextOccurrence(repeat: string, timezone: string, due: Date, now:
       : undefined;
   const weekdays = recurrence?.kind === "weekly" ? recurrence.weekdays : undefined;
   // The scan walks a multi-day horizon a minute at a time, so its probe asks for the three fields
-  // the test reads and nothing else; the full formatter runs on a matching minute only.
-  const probe = new Intl.DateTimeFormat("en-CA", {
+  // the test reads and nothing else; the full formatter runs on a matching minute only. Both come
+  // from the process-wide cache in `lib/dates.ts` — they used to be built on every call, and this
+  // function runs once per recurrence probe.
+  const probe = dateTimeFormat("en-CA", {
     timeZone: timezone,
     ...(weekdays ? { weekday: "short" as const } : {}),
     hour: "2-digit",
     minute: "2-digit",
     hourCycle: "h23",
   });
-  const formatter = new Intl.DateTimeFormat("en-CA", {
+  const formatter = dateTimeFormat("en-CA", {
     timeZone: timezone,
     weekday: "short",
     year: "numeric",
