@@ -69,18 +69,10 @@ export const RPC_METHODS = {
 } as const;
 
 /**
- * Pre-convention spellings still accepted during an upgrade window, and nothing else: a name only
- * belongs here while an installed Computer still sends it and the cloud must answer. The two
- * reminder callbacks were written as `reminder:v1:*`, which made `reminder` a *scope* — the
- * convention has it as a domain, and `agent:v1:reminder:deliver` shows the intended shape, so they
- * are now `agent:v1:reminder:*`. An installed Computer keeps firing because the cloud answers both
- * spellings; the names retire after the release that sends the new ones has spread.
- *
- * TODO(legacy-reminder-rpc): delete this map, the aliases in the cloud's RPC composition, and the
- * now-unused `reminder` entry in the Centrifugo RPC namespaces once no supported Computer sends
- * `reminder:v1:fire` / `reminder:v1:snapshot`.
+ * The pre-convention `reminder:v1:*` spellings for the two reminder callbacks were retired: the
+ * rename to `agent:v1:reminder:*` shipped before 0.1.0, the only Computer that still sent the old
+ * names was a dev box on a pre-release daemon, and the release freeze kept the window open past its
+ * purpose. The window is now closed on the boss's call — a Computer sending `reminder:v1:*` today is
+ * unsupported, and Centrifugo's `104 method not found` (the namespace is gone from its config) is the
+ * answer it sees.
  */
-export const LEGACY_RPC_METHOD_NAMES = {
-  reminderFire: "reminder:v1:fire",
-  reminderSnapshot: "reminder:v1:snapshot",
-} as const satisfies Partial<Record<keyof typeof RPC_METHODS, string>>;
