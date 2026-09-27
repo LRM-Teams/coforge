@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { AGENT_NAME_PATTERN } from "#src/internal/agent-name";
+import { AGENT_NAME_MAX_LENGTH, AGENT_NAME_PATTERN } from "#src/internal/agent-name";
 import { CHANNEL_NAME_PATTERN } from "#src/internal/channel-references";
 
 /**
@@ -58,7 +58,7 @@ export type ChannelCreateAction = z.infer<typeof channelCreateActionSchema>;
 
 export const agentCreateActionSchema = z.object({
   type: z.literal("agent:create"),
-  name: z.string().trim().min(1).max(64).regex(AGENT_NAME_PATTERN),
+  name: z.string().trim().min(1).max(AGENT_NAME_MAX_LENGTH).regex(AGENT_NAME_PATTERN),
   description: z.string().trim().max(500).optional(),
   /**
    * Optional computer placement contract. Runtime / model / reasoning effort
