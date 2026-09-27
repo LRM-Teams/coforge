@@ -109,6 +109,7 @@ These instructions apply to the entire repository.
 - Frank's explicit approval remains required for the decision gates above and for changes to architecture, database schema, wire protocol, licensing, security boundaries, or other decisions with broad or difficult-to-reverse impact.
 - Keep each branch and CR focused on one concern. Preserve unrelated work and coordinate in `#coforge` before touching files another contributor has claimed.
 - Before requesting final review, fetch and rebase the branch onto the latest `origin/main`. Never force-push `main` or another contributor's branch.
+- Read code where it is committed — `git show origin/main:<path>`, or a fresh worktree created at `origin/main` — rather than from a long-lived checkout. Such a tree can be days behind, and everything read from it answers for the code of that day: against one, a search reported a mechanism as absent from the repository and a function looked like an untransformed second copy, when in both cases the commit that had changed it was already on `main`. Two agents reached those two conclusions from the same stale checkout within a day of each other.
 - Use concise English Conventional Commit messages: `<type>(optional-scope): imperative summary` (for example, `docs: refine delivery guarantees`).
 - Use the repository owner's GitHub identity for commits: `me-frankan <me.frankan@gmail.com>`. Never commit with an Agent name or Agent email.
 - Respect ownership claimed in `#coforge`. Coordinate before editing another agent's active files or changing a shared contract.
@@ -132,6 +133,7 @@ These instructions apply to the entire repository.
 - Use `mise` as the repository's development tool and version manager.
 - Treat `mise.toml` as the source of truth for tool versions once present. Run `mise install`, then prefer `mise run <task>` or `mise exec -- <command>` over unpinned global tools.
 - Run `mise run test`, `mise run check`, and `mise run build` before submitting a change; CI runs them in that order.
+- Reach the formatter through `mise run check` or the workspace's own script; never invoke a formatter binary directly. A default-config run does not read this repository's settings and rewrites files nobody touched — one `oxfmt` run over a directory reformatted 49 unrelated files, including a generated route tree.
 - Before adding, changing, or removing a mise task, read and follow
   [the mise task policy](docs/agents/mise-tasks.md).
 - Keep mise as the small, stable repository command surface: add a task only
