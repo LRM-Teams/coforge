@@ -88,9 +88,3 @@ rpc:
       proxy_enabled: true
     - name: daemon
       proxy_enabled: true
-    # Only for the pre-convention `reminder:v1:*` spellings an installed Computer still sends — the
-    # callbacks themselves are `agent:v1:reminder:fire` / `agent:v1:reminder:snapshot`, since
-    # `reminder` is a domain in the naming convention, not a scope.
-    # TODO(legacy-reminder-rpc): delete this entry with the legacy aliases in `rpc-methods.ts`.
-    - name: reminder
-      proxy_enabled: true

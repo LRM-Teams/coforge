@@ -9,8 +9,6 @@ import {
   AGENT_CONTROL_RESULT_METHOD,
   REMINDER_FIRE_METHOD,
   REMINDER_SNAPSHOT_METHOD,
-  LEGACY_REMINDER_FIRE_METHOD,
-  LEGACY_REMINDER_SNAPSHOT_METHOD,
 } from "@lrm/coforge-sdk/internal";
 import { ACTIVE_AGENT_WHERE } from "#src/server/agents/active-agent.server";
 import { createAgentSkillsListResultMethod } from "./agent-skills-cache.server";
@@ -113,8 +111,6 @@ export function reminderCallbackMethods(
   return {
     [REMINDER_FIRE_METHOD]: fire,
     [REMINDER_SNAPSHOT_METHOD]: snapshot,
-    [LEGACY_REMINDER_FIRE_METHOD]: fire,
-    [LEGACY_REMINDER_SNAPSHOT_METHOD]: snapshot,
   };
 }
 
