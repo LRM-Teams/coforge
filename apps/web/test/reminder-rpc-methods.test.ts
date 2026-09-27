@@ -6,10 +6,9 @@ const noop: CentrifugoRpcMethod = () => new Uint8Array();
 const other: CentrifugoRpcMethod = () => new Uint8Array();
 
 /**
- * A renamed RPC method is answered under both spellings for the length of an upgrade window: the
- * cloud deploys before the Computers upgrade, so the side that has not changed yet is the one the
- * other must still answer. If only one name were registered, an installed Computer's reminder would
- * fail exactly the way it did before `reminder` was routable at all — silently, after its retries.
+ * The reminder callbacks register under their current names only: the upgrade window that also
+ * answered the pre-convention `reminder:v1:*` spellings closed with 0.1.0, so an unsupported
+ * Computer sending the old names sees Centrifugo's `104` rather than a silent miss.
  */
 describe("reminderCallbackMethods", () => {
   const methods = reminderCallbackMethods(noop, other);
@@ -19,17 +18,10 @@ describe("reminderCallbackMethods", () => {
     expect(methods["agent:v1:reminder:snapshot"]).toBe(other);
   });
 
-  test("answers the pre-convention spellings an installed Computer sends", () => {
-    expect(methods["reminder:v1:fire"]).toBe(noop);
-    expect(methods["reminder:v1:snapshot"]).toBe(other);
-  });
-
-  test("registers four distinct keys, so neither pair can silently replace the other", () => {
+  test("registers exactly the two names, so no legacy spelling lingers", () => {
     expect(Object.keys(methods).sort()).toEqual([
       "agent:v1:reminder:fire",
       "agent:v1:reminder:snapshot",
-      "reminder:v1:fire",
-      "reminder:v1:snapshot",
     ]);
   });
 });

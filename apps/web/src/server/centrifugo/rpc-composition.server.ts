@@ -97,12 +97,11 @@ const unavailable: CentrifugoRpcError = {
 };
 
 /**
- * The reminder callbacks a Computer calls back on, registered under both their current names and the
- * pre-convention spellings an installed Computer still sends.
+ * The reminder callbacks a Computer calls back on, under their current names.
  *
- * A rename of an RPC method cannot be atomic: the cloud deploys before the Computers upgrade, so
- * whichever side changes first the other is still on the old name. Answering both keeps a reminder
- * firing throughout the window; the legacy keys go when the map in the SDK's `rpc-methods.ts` goes.
+ * The upgrade window that also answered the pre-convention `reminder:v1:*` spellings is closed: the
+ * rename to `agent:v1:reminder:*` shipped before 0.1.0, and no supported Computer sends the old
+ * names. A Computer that does is unsupported and sees Centrifugo's `104`, not a silent miss.
  */
 export function reminderCallbackMethods(
   fire: CentrifugoRpcMethod,
