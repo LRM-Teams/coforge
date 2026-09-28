@@ -1,6 +1,11 @@
 import { useCallback, useEffect, useMemo } from "react";
 import { createFileRoute, getRouteApi, useNavigate } from "@tanstack/react-router";
 
+import {
+  conversationSearchWithoutAgentProfile,
+  conversationSearchWithoutTask,
+  conversationSearchWithoutThread,
+} from "#src/features/conversations/conversation-thread-search";
 import { parseScope, type SearchFilters } from "#src/features/search/search-filters";
 import { writeLastSearch } from "#src/features/search/search-memory";
 import { SearchPage } from "#src/features/search/search-page";
@@ -53,7 +58,8 @@ function SearchRoute() {
     [navigate],
   );
   // The preview lives in the URL, so a reload or a shared link reopens it; switching it replaces
-  // the entry rather than stacking history.
+  // the entry rather than stacking history. The previous conversation's thread, Task popup and
+  // Agent profile close with it.
   const preview = useMemo<SearchPreviewTarget | undefined>(() => {
     const [kind, id] = open?.split(":") ?? [];
     return (kind === "channel" || kind === "agent") && id
@@ -64,7 +70,9 @@ function SearchRoute() {
     (next: SearchPreviewTarget | undefined) =>
       void navigate({
         search: (previous) => ({
-          ...previous,
+          ...conversationSearchWithoutAgentProfile(
+            conversationSearchWithoutTask(conversationSearchWithoutThread(previous)),
+          ),
           open: next ? `${next.kind}:${next.id}` : undefined,
           msg: next?.messageId,
         }),

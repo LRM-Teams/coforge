@@ -21,17 +21,12 @@ import {
   useShownConversationTab,
 } from "#src/features/conversations/use-conversation-view";
 import { CONVERSATION_TABS } from "#src/features/conversations/conversation-tabs";
-import { openTaskParamSchema } from "#src/features/conversations/conversation-thread-search";
+import { conversationOpenSearchShape } from "#src/features/conversations/conversation-thread-search";
 import { ConversationTaskBoard } from "#src/features/tasks/conversation-task-board";
 import { conversationTaskBoardSearchShape } from "#src/features/tasks/task-board-search";
 import { finishedSummaryQuery } from "#src/features/tasks/use-finished-tasks";
 import { ConversationFilesPanel } from "#src/features/conversations/conversation-files";
-import {
-  agentIdFromProfileParam,
-  agentProfileParamSchema,
-  agentProfileTabParamSchema,
-} from "#src/features/agents/profile-panel/profile-panel-search";
-import { useOpenAgentProfile } from "#src/features/agents/profile-panel/open-agent-profile";
+import { useConversationAgentProfile } from "#src/features/agents/profile-panel/open-agent-profile";
 import {
   useConversationReadRequiresScroll,
   useMarkConversationSeen,
@@ -48,10 +43,7 @@ export const Route = createFileRoute("/_app/messages/$agentId")({
     view: z.enum(CONVERSATION_TABS).optional().catch(undefined),
     ...conversationTaskBoardSearchShape,
     message: z.uuid().optional().catch(undefined),
-    threadRootId: z.uuid().optional().catch(undefined),
-    task: openTaskParamSchema,
-    profile: agentProfileParamSchema,
-    agentTab: agentProfileTabParamSchema,
+    ...conversationOpenSearchShape,
   }),
   loaderDeps: ({ search }) =>
     ({
@@ -98,8 +90,7 @@ function DirectConversationPage() {
   const agentStatus = useLiveAgent(agentId)?.status.value;
   const { view: requestedView, profile, agentTab, ...search } = Route.useSearch();
   const view = useShownConversationTab(requestedView);
-  const { openAgentProfile, setAgentProfileTab, closeAgentProfile } = useOpenAgentProfile();
-  const profileAgentId = agentIdFromProfileParam(profile);
+  const agentProfile = useConversationAgentProfile({ profile, agentTab });
   const { page, taskView, conversationProps } = useDirectConversation(agentId);
   const { conversation } = page;
   const { showChat, showTasks, showFiles, openTask, openTaskThread, openMessage } =
@@ -137,7 +128,7 @@ function DirectConversationPage() {
           active="files"
           onShowChat={showChat}
           onShowTasks={showTasks}
-          onOpenAgentProfile={openAgentProfile}
+          onOpenAgentProfile={agentProfile.onOpenAgentProfile}
         />
         <ConversationFilesPanel
           conversationId={conversation.conversationId}
@@ -157,7 +148,7 @@ function DirectConversationPage() {
             active="tasks"
             onShowChat={showChat}
             onShowFiles={showFiles}
-            onOpenAgentProfile={openAgentProfile}
+            onOpenAgentProfile={agentProfile.onOpenAgentProfile}
           />
         }
         search={search}
@@ -184,10 +175,7 @@ function DirectConversationPage() {
       onShowTasks={showTasks}
       onShowFiles={showFiles}
       onReadLatest={readLatest}
-      onOpenAgentProfile={openAgentProfile}
-      agentProfile={{ agentId: profileAgentId, tab: agentTab }}
-      onAgentProfileTabChange={setAgentProfileTab}
-      onCloseAgentProfile={closeAgentProfile}
+      {...agentProfile}
     />
   );
 }
