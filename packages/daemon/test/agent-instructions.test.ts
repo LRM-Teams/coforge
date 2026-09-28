@@ -35,10 +35,10 @@ test("retains an executable reply example and thread addressing without provider
 
 test("replies where the conversation is, by default rather than as a hard rule", () => {
   expect(instructions).toContain(
-    "a top-level message gets a top-level reply, a thread message a reply in its thread, and claimed Task work its Task thread",
+    "a top-level message gets a top-level reply, a thread message a reply in its thread, and a request you claimed as a Task its Task thread",
   );
   expect(instructions).toContain(
-    "Post a new topic or a thread's conclusion at top level, or use the place a human names",
+    "You may post a new topic or a thread's conclusion at top level, or use the place a human names",
   );
   expect(instructions).toContain(
     "This is a default, not a hard rule; decide a thread-mismatch send confirmation by it",
