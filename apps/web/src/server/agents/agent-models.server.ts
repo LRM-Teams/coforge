@@ -6,8 +6,9 @@ import { visibleAgentWhere, type AgentVisibilityViewer } from "./agent-visibilit
 /**
  * The configured model of every live Agent in the Workspace that `viewer` may see, by Agent id,
  * for the model shown beside an Agent's name in chat. Wider than `listAgents` (the viewer's own
- * roster): a channel shows messages from other members' public Agents too. An Agent left on its
- * runtime's default model, or whose stored config cannot be read, has no entry.
+ * roster): a channel shows messages from other members' public Agents too. Every such Agent has an
+ * entry, so the browser can tell an Agent it has not heard of (read again) from one left on its
+ * runtime's default model, or whose stored config cannot be read (`""`, nothing to show).
  */
 export async function listVisibleAgentModels(
   db: Pick<PrismaClient, "agent">,
@@ -20,13 +21,11 @@ export async function listVisibleAgentModels(
   });
   const models: Record<string, string> = {};
   for (const row of rows) {
-    let model: string;
     try {
-      model = parseAgentRuntimeConfig(row.runtimeConfig).model.trim();
+      models[row.id] = parseAgentRuntimeConfig(row.runtimeConfig).model.trim();
     } catch {
-      continue;
+      models[row.id] = "";
     }
-    if (model) models[row.id] = model;
   }
   return models;
 }

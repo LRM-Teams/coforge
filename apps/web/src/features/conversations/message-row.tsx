@@ -883,7 +883,7 @@ export const MessageRow = memo(function MessageRow({
                 </span>
               )}
               {message.senderKind === "agent" && message.senderAgentId && !deleted && (
-                <AgentModelLabel agentId={message.senderAgentId} />
+                <AgentModelLabel agentId={message.senderAgentId} seenAt={message.createdAt} />
               )}
               {deleted && <DeletedAgentBadge />}
               <time

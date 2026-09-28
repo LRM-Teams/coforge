@@ -1,33 +1,48 @@
 import { ClientOnly } from "@tanstack/react-router";
 
-import { Tooltip } from "#src/components/base/tooltip/tooltip";
-import { useAgentModelName } from "#src/features/settings/agent-model-name";
+import { Tooltip, TooltipTrigger } from "#src/components/base/tooltip/tooltip";
+import { useShowAgentModel } from "#src/features/settings/show-agent-model";
 import { useAgentModel } from "./agent-models";
+import { useCurrentWorkspaceId } from "./workspace-agents-realtime";
 
-/** An Agent's configured model beside its name in chat (Settings → Show agent model). Draws
- * nothing while the setting is off, before the models load, or for an Agent on its runtime's
- * default model. The full id is in the tooltip when a long one is cut. */
-export function AgentModelLabel({ agentId }: { agentId: string }) {
+/** An Agent's configured model beside its name in chat (Settings → Show agent model). The model
+ * comes from a React Query read and the setting from a device preference, so a server render has
+ * neither: inside `ClientOnly` the row renders exactly as it did before this label existed, which
+ * is also what the message row's static-render tests check. */
+export function AgentModelLabel({ agentId, seenAt }: { agentId: string; seenAt: Date | string }) {
   return (
     <ClientOnly>
-      <AgentModelLabelContent agentId={agentId} />
+      <AgentModelLabelContent agentId={agentId} seenAt={seenAt} />
     </ClientOnly>
   );
 }
 
-/**
- * The label's body, inside a `ClientOnly` boundary. The model comes from a React Query read and
- * the visibility from a device preference, so a server render has neither: outside the client the
- * row must render exactly as it did before this label existed — which is also what the message
- * row's static-render tests check.
- */
-function AgentModelLabelContent({ agentId }: { agentId: string }) {
-  const [show] = useAgentModelName();
-  const model = useAgentModel(agentId, show);
-  if (!show || !model) return null;
+/** Nothing is read while the setting is off or outside a Workspace: the model query lives in
+ * `AgentModelText`, so a row without the label never subscribes to it. */
+function AgentModelLabelContent({ agentId, seenAt }: { agentId: string; seenAt: Date | string }) {
+  const [show] = useShowAgentModel();
+  const workspaceId = useCurrentWorkspaceId();
+  if (!show || !workspaceId) return null;
+  return <AgentModelText agentId={agentId} workspaceId={workspaceId} seenAt={seenAt} />;
+}
+
+/** The model itself; a long id is cut, and the full one is in the tooltip on hover or focus. */
+function AgentModelText({
+  agentId,
+  workspaceId,
+  seenAt,
+}: {
+  agentId: string;
+  workspaceId: string;
+  seenAt: Date | string;
+}) {
+  const model = useAgentModel(workspaceId, agentId, seenAt);
+  if (!model) return null;
   return (
     <Tooltip title={model}>
-      <span className="max-w-48 min-w-0 shrink truncate text-xs text-tertiary">{model}</span>
+      <TooltipTrigger className="max-w-48 min-w-0 shrink cursor-default truncate rounded-sm text-xs text-tertiary outline-focus-ring focus-visible:outline-2">
+        {model}
+      </TooltipTrigger>
     </Tooltip>
   );
 }

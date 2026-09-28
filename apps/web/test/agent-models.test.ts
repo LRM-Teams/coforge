@@ -50,14 +50,26 @@ describe("listVisibleAgentModels", () => {
     });
   });
 
-  test("leaves out an Agent on its runtime's default model or with an unreadable config", async () => {
+  test("lists an Agent on its runtime's default model, or with an unreadable config, with no model", async () => {
     const { db } = fakeDb([
       { id: "agent-default", runtimeConfig: config("") },
-      { id: "agent-broken", runtimeConfig: { runtime: "claude" } },
+      { id: "agent-broken", runtimeConfig: { runtime: "claude-code" } },
       { id: "agent-set", runtimeConfig: config("claude-sonnet-5") },
     ]);
     expect(await listVisibleAgentModels(db, WORKSPACE_ID, member)).toEqual({
+      "agent-default": "",
+      "agent-broken": "",
       "agent-set": "claude-sonnet-5",
     });
+  });
+
+  test("an owner or admin reads every live Agent in the Workspace", async () => {
+    const { db, calls } = fakeDb([]);
+    await listVisibleAgentModels(db, WORKSPACE_ID, {
+      kind: "user",
+      userId: "user-admin",
+      role: "admin",
+    });
+    expect(calls[0]?.where).toEqual({ workspaceId: WORKSPACE_ID, deletedAt: null });
   });
 });

@@ -11,6 +11,12 @@ These rules apply to `src/features/agents/`.
   `usePrefetchAgentActivityFeed`) and never
   open connections or subscribe themselves. The conversations feature does not
   own Agent state.
+- The model beside an Agent's name in chat (`agent-models.ts`, Settings → Show
+  agent model) is one query per Workspace over every Agent the viewer may see
+  (`listVisibleAgentModels`, scoped by `visibleAgentWhere`), wider than
+  `listAgents`. A row reads its own Agent with `select` and never receives the
+  map. The query is read again on focus and reconnect, when an unknown Agent
+  newer than the list appears, and after a runtime save or a visibility change.
 - `agent-status-realtime.ts` consumes backend display snapshots from the
   initial server response and the realtime status channel and accepts newer
   revisions. At display expiry it refreshes from the backend and retries on

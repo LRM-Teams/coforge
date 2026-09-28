@@ -41,7 +41,7 @@ import {
   type MessageFontSize,
 } from "#src/features/settings/message-font-size";
 import { MessageFontSizePreview } from "#src/features/settings/message-font-size-preview";
-import { useAgentModelName } from "#src/features/settings/agent-model-name";
+import { useShowAgentModel } from "#src/features/settings/show-agent-model";
 import {
   isConversationOpenMode,
   type ConversationOpenMode,
@@ -677,7 +677,7 @@ function Preferences({
   };
   const savedOnDevice = m.preferences_saved_on_device();
   const [messageFontSize, setMessageFontSize] = useMessageFontSize();
-  const [showAgentModel, setShowAgentModel] = useAgentModelName();
+  const [showAgentModel, setShowAgentModel] = useShowAgentModel();
   const messageFontSizeLabels: Record<MessageFontSize, string> = {
     sm: m.preferences_message_font_size_small(),
     md: m.preferences_message_font_size_medium(),
@@ -795,19 +795,6 @@ function Preferences({
         <SettingsCard>
           <SettingsField
             inline
-            label={m.preferences_hide_empty_sidebar_sections()}
-            description={m.preferences_hide_empty_sidebar_sections_description()}
-            note={savedOnDevice}
-          >
-            <Toggle
-              size="md"
-              aria-label={m.preferences_hide_empty_sidebar_sections()}
-              isSelected={hideEmptySidebarSections}
-              onChange={onHideEmptySidebarSectionsChange}
-            />
-          </SettingsField>
-          <SettingsField
-            inline
             label={m.preferences_show_agent_model()}
             description={m.preferences_show_agent_model_description()}
             note={savedOnDevice}
@@ -817,6 +804,21 @@ function Preferences({
               aria-label={m.preferences_show_agent_model()}
               isSelected={showAgentModel}
               onChange={setShowAgentModel}
+            />
+          </SettingsField>
+        </SettingsCard>
+        <SettingsCard>
+          <SettingsField
+            inline
+            label={m.preferences_hide_empty_sidebar_sections()}
+            description={m.preferences_hide_empty_sidebar_sections_description()}
+            note={savedOnDevice}
+          >
+            <Toggle
+              size="md"
+              aria-label={m.preferences_hide_empty_sidebar_sections()}
+              isSelected={hideEmptySidebarSections}
+              onChange={onHideEmptySidebarSectionsChange}
             />
           </SettingsField>
         </SettingsCard>

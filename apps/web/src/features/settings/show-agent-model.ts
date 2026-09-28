@@ -10,4 +10,4 @@ const preference = createDevicePreference<boolean>({
   fallback: true,
 });
 
-export const useAgentModelName = preference.useValue;
+export const useShowAgentModel = preference.useValue;
