@@ -44,7 +44,7 @@ describe("listVisibleAgentModels", () => {
       { id: "agent-a", runtimeConfig: config("claude-opus-5-5") },
       { id: "agent-b", runtimeConfig: config("gpt-5.5") },
     ]);
-    expect(await listVisibleAgentModels(db, WORKSPACE_ID, member)).toEqual({
+    expect((await listVisibleAgentModels(db, WORKSPACE_ID, member)).models).toEqual({
       "agent-a": "claude-opus-5-5",
       "agent-b": "gpt-5.5",
     });
@@ -56,11 +56,31 @@ describe("listVisibleAgentModels", () => {
       { id: "agent-broken", runtimeConfig: { runtime: "claude-code" } },
       { id: "agent-set", runtimeConfig: config("claude-sonnet-5") },
     ]);
-    expect(await listVisibleAgentModels(db, WORKSPACE_ID, member)).toEqual({
+    expect((await listVisibleAgentModels(db, WORKSPACE_ID, member)).models).toEqual({
       "agent-default": "",
       "agent-broken": "",
       "agent-set": "claude-sonnet-5",
     });
+  });
+
+  test("stamps the list with the server's own read time, the clock message times come from", async () => {
+    const { db } = fakeDb([]);
+    const list = await listVisibleAgentModels(db, WORKSPACE_ID, member, () => 1_700_000_000_000);
+    expect(list.readAt).toBe(1_700_000_000_000);
+  });
+
+  test("takes the read time before reading, so the list covers everything before it", async () => {
+    let clock = 1_000;
+    const db = {
+      agent: {
+        findMany: async () => {
+          clock = 2_000;
+          return [];
+        },
+      },
+    } as unknown as Pick<PrismaClient, "agent">;
+    const list = await listVisibleAgentModels(db, WORKSPACE_ID, member, () => clock);
+    expect(list.readAt).toBe(1_000);
   });
 
   test("an owner or admin reads every live Agent in the Workspace", async () => {
