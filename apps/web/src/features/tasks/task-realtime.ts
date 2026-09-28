@@ -5,7 +5,8 @@ import { z } from "zod";
  * A Task write's announcement: the new copy of each Task it changed and the ids of those it
  * deleted, so an open Tasks page updates those rows without reading its list again. It rides the
  * conversation signal channels: a channel's Tasks on the Workspace channel (every member sees
- * them on the Tasks page), a direct message's only on its human viewer's own channel.
+ * them on the Tasks page), a direct message's only on its people's own channels (a User–Agent
+ * one's human viewer, or each member of one between people).
  */
 export type TaskChangedEvent = {
   type: "task.changed.v1";

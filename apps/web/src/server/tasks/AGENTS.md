@@ -33,9 +33,10 @@ contract is `packages/coforge-sdk/src/internal/tasks.ts`.
 - Every Task write also announces the new copies of the Tasks it changed, or
   the ids it deleted, as `task.changed.v1` (`ConversationRealtime.taskChanged`),
   routed like its conversation's messages by `messageSignalScope`: a channel's
-  to the Workspace channel, a direct message's to its human viewer only, and
-  nowhere when it lacks one human and one Agent (`conversationSignalScopes`
-  never falls back to the Workspace for Task content). Its publication key
+  to the Workspace channel, a User–Agent direct message's to its human viewer
+  only, one between people to each member, and nowhere for any other direct
+  conversation (`conversationSignalScopes` never falls back to the Workspace for
+  Task content). Its publication key
   differs from the message signal's on the same channel, which Centrifugo would
   drop as a duplicate. The
   browser and Agent task routes both give TaskBoard the realtime port; the Agent

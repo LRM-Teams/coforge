@@ -12,8 +12,10 @@ erDiagram
 
 ## `conversation` (DirectConversation only)
 
-One row represents a User↔Agent direct conversation. `directKey` is unique per
-workspace and derived from the two stable subject UUIDs in lexical order.
+One row represents a direct conversation: User↔Agent, or between two Workspace
+members (or one member with themself, keyed `user:<a>|user:<a>` with one member
+row). `directKey` is unique per workspace and derived from the two stable
+subject UUIDs in lexical order.
 
 For a direct conversation, the service derives `direct_key` from the two
 normalized subjects in stable lexical order. A suitable input is
@@ -26,8 +28,10 @@ Group conversations have a null `direct_key`.
 ## `conversation_member`
 
 A subject is either a User or an Agent through real nullable foreign keys, with a
-database XOR check. The MVP creates exactly two members and validates both
-workspace membership and Agent ownership before creation.
+database XOR check. A direct conversation gets one member row per distinct
+participant: two (a User and an Agent, or two Users), or one for a member's
+conversation with themself. Workspace membership, and for an Agent its
+ownership rules, are checked before creation.
 
 The database also carries `workspaceId` on the member and enforces composite
 foreign keys to `(Conversation.id, Conversation.workspaceId)` and
@@ -43,7 +47,8 @@ requires them.
 
 Application invariants:
 
-- a direct conversation must have exactly two members, one User and one Agent;
+- a direct conversation's members are exactly the participants its `directKey`
+  names: one User and one Agent, two Users, or one User with themself;
 - only conversation members may send new messages;
 - member subjects must belong to the same workspace as the conversation;
 - group conversations are not implemented in this MVP.

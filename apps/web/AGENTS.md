@@ -148,7 +148,7 @@ responsibility.
 - `features/workspaces/` — Workspace switcher and creation, member directory reads, member presence (`presence:workspace:<workspace_id>`), invitations, human roles, and the last page `/` returns to.
 - `server/agents/` — Agent lifecycle, control, sessions, display reduction,
   visibility, deletion, and the Agent HTTPS API.
-- `server/attachments/` — attachment upload sessions and delivery.
+- `server/attachments/` — attachment upload sessions, claiming a sender's uploads for a new message, and delivery.
 - `server/auth/` — login, sessions, device auth, API keys, and auth guards.
 - `server/centrifugo/` — Centrifugo proxies, RPC receivers, and short-lived
   result caches.
