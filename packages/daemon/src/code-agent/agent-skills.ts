@@ -8,7 +8,8 @@ import {
 } from "@lrm/coforge-sdk/internal";
 import { agentEnvironment } from "./environment";
 
-type Root = { path: string; label: string; legacy?: "commands" | "pi" };
+export type AgentSkillScanRoot = { path: string; label: string; legacy?: "commands" | "pi" };
+type Root = AgentSkillScanRoot;
 const MAX_FILE_BYTES = 262_144;
 
 /** Directory observation only. Does not load/execute resources or alter a session. */
@@ -99,16 +100,35 @@ export async function listAgentSkills(options: {
     }
   }
   const deadline = Date.now() + 3_000;
-  return {
-    global:
-      options.provider === RUNTIME_PROVIDER.COFORGE || !home
-        ? { status: "unsupported", entries: [], directories: [] }
-        : await scan(globals, deadline),
-    workspace: await scan(locals, deadline),
-  };
+  if (options.provider === RUNTIME_PROVIDER.COFORGE || !home) {
+    return {
+      global: { status: "unsupported", entries: [], directories: [] },
+      workspace: await scan(locals, deadline),
+    };
+  }
+  return scanAgentSkillScopes(globals, locals, deadline);
 }
 
-async function scan(roots: Root[], deadline: number): Promise<AgentSkillsScope> {
+export async function scanAgentSkillScopes(
+  globalRoots: readonly AgentSkillScanRoot[],
+  workspaceRoots: readonly AgentSkillScanRoot[],
+  deadline: number,
+  scanner: (
+    roots: readonly AgentSkillScanRoot[],
+    deadline: number,
+  ) => Promise<AgentSkillsScope> = scan,
+): Promise<{ global: AgentSkillsScope; workspace: AgentSkillsScope }> {
+  const [global, workspace] = await Promise.all([
+    scanner(globalRoots, deadline),
+    scanner(workspaceRoots, deadline),
+  ]);
+  return { global, workspace };
+}
+
+async function scan(
+  roots: readonly AgentSkillScanRoot[],
+  deadline: number,
+): Promise<AgentSkillsScope> {
   const result: AgentSkillsScope = { status: "ok", entries: [], directories: [] };
   let visited = 0;
   for (const root of roots) {

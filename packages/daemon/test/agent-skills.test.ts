@@ -3,10 +3,39 @@ import { realpathSync } from "node:fs";
 import { mkdtemp, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { listAgentSkills } from "#src/code-agent/agent-skills";
+import { listAgentSkills, scanAgentSkillScopes } from "#src/code-agent/agent-skills";
 
 // macOS tmpdir lives under /var, a symlink; listAgentSkills rejects linked roots.
 const tempRoot = realpathSync(tmpdir());
+
+test("scans global and workspace skill scopes concurrently while preserving scope results", async () => {
+  const globalRoots = [{ path: "/global", label: "global" }];
+  const workspaceRoots = [{ path: "/workspace", label: "workspace" }];
+  const started: string[] = [];
+  let release!: () => void;
+  const allStarted = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+
+  const scan = async (roots: readonly { label: string }[]) => {
+    started.push(roots[0]!.label);
+    if (started.length === 2) release();
+    await allStarted;
+    return {
+      status: "ok" as const,
+      entries: [],
+      directories: [],
+    };
+  };
+
+  await expect(
+    scanAgentSkillScopes(globalRoots, workspaceRoots, Date.now() + 1_000, scan),
+  ).resolves.toEqual({
+    global: { status: "ok", entries: [], directories: [] },
+    workspace: { status: "ok", entries: [], directories: [] },
+  });
+  expect(started).toEqual(["global", "workspace"]);
+}, 3_000);
 
 test("Skills metadata distinguishes native global and workspace roots and rereads on request", async () => {
   const root = await mkdtemp(join(tempRoot, "coforge-skills-"));
