@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import type { PrismaClient } from "#src/generated/prisma/client";
+import { currentIsoWeek } from "#src/features/records/records-content";
 import { RecordCatalog } from "#src/server/records/record-catalog.server";
 
 test("sendWeeklyAssignments creates a new parent and unread assignments for recipients", async () => {
@@ -97,6 +98,99 @@ test("sendWeeklyAssignments creates a new parent and unread assignments for reci
       assignment: { unread: true },
     },
   });
+});
+
+test("sendFormatTemplateFromSideChat resends after this week was cancelled", async () => {
+  const now = new Date("2026-09-28T12:00:00+08:00");
+  const { year, week } = currentIsoWeek(now);
+  const comments: Array<Record<string, unknown>> = [];
+  let sourceContent: Record<string, unknown> = {
+    tabs: { Summary: { markdown: "# Outline" } },
+    schedule: { cancelledYear: year, cancelledWeek: week, dismissSend: true },
+  };
+  const created: Array<Record<string, unknown>> = [];
+  const db = {
+    workspaceMembership: {
+      findUnique: async () => ({ role: "owner" }),
+      findMany: async () => [{ userId: "leader" }, { userId: "member-a" }],
+    },
+    weeklyReport: {
+      findFirst: async (query: { where?: { id?: string; submissions?: unknown } }) => {
+        if (query.where?.submissions) return null;
+        if (query.where?.id === "format-1") {
+          return { id: "format-1", settingsId: "settings-1", content: sourceContent };
+        }
+        return null;
+      },
+      update: async (query: { data: { content: Record<string, unknown> } }) => {
+        sourceContent = query.data.content;
+        return {};
+      },
+      create: async (query: { data: Record<string, unknown> }) => {
+        created.push(query.data);
+        return { id: "created-1", title: query.data.title };
+      },
+      createMany: async (query: { data: Array<Record<string, unknown>> }) => {
+        created.push(...query.data);
+        return { count: query.data.length };
+      },
+    },
+    weeklyReportCycle: {
+      findUnique: async () => ({
+        id: "cycle-1",
+        year,
+        week,
+        title: `${year} W${week} 工作周报`,
+      }),
+    },
+    weeklyReportTemplate: {
+      findFirst: async () => ({
+        id: "settings-1",
+        allMembers: false,
+        recipients: [{ userId: "member-a" }],
+      }),
+    },
+    user: {
+      findMany: async () => [{ id: "member-a", displayName: "Alice", username: "alice" }],
+    },
+    recordComment: {
+      create: async (query: { data: Record<string, unknown> }) => {
+        const row = {
+          id: `comment-${comments.length + 1}`,
+          createdAt: now,
+          authorUser: null,
+          payload: null,
+          ...query.data,
+        };
+        comments.push(row);
+        return row;
+      },
+      findMany: async () => comments,
+    },
+  } as unknown as PrismaClient;
+
+  const rows = await new RecordCatalog(db).sendFormatTemplateFromSideChat({
+    workspaceId: "workspace-1",
+    userId: "leader",
+    subjectType: "report",
+    subjectId: "format-1",
+    body: "我刚才取消了本周的周报发送，我需要重新发送",
+    assistantSessionId: "session-1",
+    now,
+  });
+
+  expect(rows?.map((row) => row.body)).toEqual([
+    "我刚才取消了本周的周报发送，我需要重新发送",
+    `已重新发送 ${year} W${week} 工作周报，共 1 位成员。`,
+  ]);
+  expect(sourceContent.schedule).toBeUndefined();
+  const parent = created[0];
+  if (!parent) throw new Error("expected a parent template");
+  expect(parent).toMatchObject({
+    kind: "template",
+    content: { tabs: { Summary: { markdown: "# Outline" } } },
+  });
+  expect((parent.content as { schedule?: unknown }).schedule).toBeUndefined();
 });
 
 test("sendWeeklyAssignments does not post a #general notice", async () => {

@@ -133,6 +133,34 @@ export function looksLikeCollectAgainRequest(body: string): boolean {
 }
 
 /** User asks to synthesize the member report from ready collect packs. */
+/**
+ * Leader asks, on a weekly-report template, to send or resend this week's template.
+ * Exact short commands, or a sentence that both asks to send again and names the weekly report.
+ */
+export function looksLikeFormatTemplateSendRequest(body: string): boolean {
+  const text = body.trim();
+  if (!text) return false;
+  if (
+    /^(重新发送|再发送|再发一次|重新发一次|重新发一遍|再发一遍|发送周报|发送模板|发送周报模板|重新发送周报|重新发送模板|重新发送本周周报|帮我发送|帮我重新发送)[!！。.?？]*$/i.test(
+      text,
+    )
+  ) {
+    return true;
+  }
+  const asksAgain = /(重新发送|再发送|再发一次|需要重新发送)/.test(text);
+  const namesReport = /(周报模板|本周周报|这周周报|本周的周报|周报发送)/.test(text);
+  if (asksAgain && namesReport) return true;
+  if (/发送周报模板/.test(text)) return true;
+  return /取消了.{0,24}(周报)?发送/.test(text) && asksAgain;
+}
+
+export function shouldUseFormatTemplateSendPath(
+  surface: RecordSideChatSurface,
+  body: string,
+): boolean {
+  return surface === "format" && looksLikeFormatTemplateSendRequest(body);
+}
+
 export function looksLikeSynthesizeWeeklyReportRequest(body: string): boolean {
   const text = body.trim();
   if (!text) return false;

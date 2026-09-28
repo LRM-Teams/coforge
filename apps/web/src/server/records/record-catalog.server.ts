@@ -1,5 +1,5 @@
 import type { Prisma, PrismaClient } from "#src/generated/prisma/client";
-import { AppError } from "#src/lib/app-error";
+import { AppError, isAppError } from "#src/lib/app-error";
 import { workspaceUserAvatarUrl } from "#src/server/db/repositories/user-profile.repositories.server";
 import {
   currentIsoWeek,
@@ -7,6 +7,7 @@ import {
   isAssignmentUnread,
   isAutoSendCancelled,
   isWeekSendDismissed,
+  withoutWeekSendDismissed,
   isValidTemplateName,
   isValidIsoWeekNumber,
   isHourlySendTime,
@@ -21,6 +22,7 @@ import {
 } from "#src/features/records/records-content";
 import {
   looksLikeCollectAgainRequest,
+  looksLikeFormatTemplateSendRequest,
   looksLikeMemberGenerateOfferAccept,
   looksLikeMemberReportRuleIntent,
   looksLikeSynthesizeWeeklyReportRequest,
@@ -3024,6 +3026,118 @@ export class RecordCatalog {
     });
   }
 
+  /**
+   * Send (or resend) the owned weekly-report template from side chat.
+   * Clears this week's cancel stamp first, so a dismissed week can go out again.
+   * Returns null when the subject is not that user's live template.
+   */
+  async sendFormatTemplateFromSideChat(input: {
+    workspaceId: string;
+    userId: string;
+    subjectType: "report" | "cycle";
+    subjectId: string;
+    body: string;
+    assistantSessionId: string;
+    now?: Date;
+  }) {
+    if (input.subjectType !== "report" || !looksLikeFormatTemplateSendRequest(input.body)) {
+      return null;
+    }
+    const report = await this.db.weeklyReport.findFirst({
+      where: {
+        id: input.subjectId,
+        workspaceId: input.workspaceId,
+        kind: "template",
+        authorId: input.userId,
+      },
+      select: { id: true, content: true, settingsId: true },
+    });
+    if (!report) return null;
+
+    await this.addUserComment({
+      workspaceId: input.workspaceId,
+      userId: input.userId,
+      subjectType: "report",
+      subjectId: input.subjectId,
+      body: input.body,
+      assistantSessionId: input.assistantSessionId,
+    });
+
+    const now = input.now ?? new Date();
+    const { year, week } = currentIsoWeek(now);
+    const sourceContent = asReportContent(report.content);
+    const cleared = withoutWeekSendDismissed(sourceContent, year, week);
+    const alreadySent = Boolean(
+      report.settingsId &&
+      (await this.db.weeklyReport.findFirst({
+        where: {
+          workspaceId: input.workspaceId,
+          authorId: input.userId,
+          kind: "template",
+          settingsId: report.settingsId,
+          cycle: { year, week },
+          submissions: { some: { kind: "member" } },
+        },
+        select: { id: true },
+      })),
+    );
+
+    if (alreadySent) {
+      if (isAutoSendCancelled(sourceContent, year, week)) {
+        await this.db.weeklyReport.update({
+          where: { id: report.id },
+          data: { content: cleared as unknown as Prisma.InputJsonValue },
+        });
+      }
+      await this.writeAssistantComment({
+        workspaceId: input.workspaceId,
+        subjectType: "report",
+        subjectId: input.subjectId,
+        assistantSessionId: input.assistantSessionId,
+        body: "本周周报模板已经发送过了。",
+      });
+      return this.listComments({
+        workspaceId: input.workspaceId,
+        userId: input.userId,
+        subjectType: "report",
+        subjectId: input.subjectId,
+        assistantSessionId: input.assistantSessionId,
+      });
+    }
+
+    try {
+      const sent = await this.sendWeeklyAssignments({
+        workspaceId: input.workspaceId,
+        userId: input.userId,
+        sourceReportId: report.id,
+        content: cleared,
+        now,
+      });
+      await this.writeAssistantComment({
+        workspaceId: input.workspaceId,
+        subjectType: "report",
+        subjectId: input.subjectId,
+        assistantSessionId: input.assistantSessionId,
+        body: `已重新发送 ${sent.title}，共 ${sent.assignmentCount} 位成员。`,
+      });
+    } catch (error) {
+      await this.writeAssistantComment({
+        workspaceId: input.workspaceId,
+        subjectType: "report",
+        subjectId: input.subjectId,
+        assistantSessionId: input.assistantSessionId,
+        body: formatTemplateSendFailure(error),
+      });
+    }
+    return this.listComments({
+      workspaceId: input.workspaceId,
+      userId: input.userId,
+      subjectType: "report",
+      subjectId: input.subjectId,
+      assistantSessionId: input.assistantSessionId,
+    });
+  }
+
   async postSideChat(input: {
     workspaceId: string;
     userId: string;
@@ -3032,6 +3146,8 @@ export class RecordCatalog {
     body: string;
     assistantSessionId: string;
   }) {
+    const sent = await this.sendFormatTemplateFromSideChat(input);
+    if (sent) return sent;
     await this.addUserComment(input);
     if (input.subjectType === "report" && looksLikeMemberGenerateOfferAccept(input.body)) {
       const assignment = await this.db.weeklyReport.findFirst({
@@ -3417,6 +3533,18 @@ export class RecordCatalog {
     const created = await this.db.recordComment.create({ data });
     return { id: created.id, createdAt: created.createdAt.toISOString() };
   }
+}
+
+function formatTemplateSendFailure(error: unknown): string {
+  if (!isAppError(error)) return "发送周报模板失败，请稍后重试。";
+  if (error.errorId === "weekly-send-no-settings") {
+    return "还没有可用的发送设置，请先配置收件人。";
+  }
+  if (error.errorId === "weekly-send-no-recipients") {
+    return "没有可发送的收件人，请先配置收件人。";
+  }
+  if (error.code === "NOT_FOUND") return "找不到可发送的周报模板。";
+  return "发送周报模板失败，请稍后重试。";
 }
 
 /** ISO (year, week) pairs that intersect the given calendar month. */

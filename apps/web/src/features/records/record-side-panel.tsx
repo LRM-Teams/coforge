@@ -69,6 +69,7 @@ import {
 import {
   looksLikeMemberGenerateOfferAccept,
   looksLikeTeamKeyPointReorganizeRequest,
+  shouldUseFormatTemplateSendPath,
   shouldUseMemberReportRulePath,
   looksLikeSynthesizeWeeklyReportRequest,
   parseRecordAssistantPayload,
@@ -605,7 +606,6 @@ export function RecordSidePanel({
     if (busy) return;
     if (appliedSuggestionIds.includes(messageId)) return;
     if (suggestion.type === "send-prompt") {
-      markSuggestionApplied(messageId);
       onRequestSend?.();
       return;
     }
@@ -724,6 +724,9 @@ export function RecordSidePanel({
         session.draft = "";
         setDraft("");
         setComments(rows);
+        if (shouldUseFormatTemplateSendPath(surface, body)) {
+          await router.invalidate({ sync: true });
+        }
         if (looksLikeSynthesizeWeeklyReportRequest(body)) {
           void loadThread(activeSessionId, legacySessionId);
         }
@@ -753,6 +756,9 @@ export function RecordSidePanel({
         setComments(result.comments);
         const ensured = await ensureSessions({ data: { subjectType, subjectId } });
         setChatSessions(ensured.sessions);
+        if (shouldUseFormatTemplateSendPath(surface, body)) {
+          await router.invalidate({ sync: true });
+        }
         return;
       }
 
@@ -1230,25 +1236,11 @@ export function RecordSidePanel({
                     <div className="space-y-3">
                       <AssistantAttachmentCard payload={payload} />
                       <div className={`space-y-2 ${offerResolved ? "opacity-60" : ""}`}>
-                        <div className="flex flex-wrap gap-2">
-                          <Button
-                            size="sm"
-                            color="primary"
-                            className={RECORDS_PRIMARY_BUTTON_CLASSNAME}
-                            isDisabled={busy || offerResolved}
-                            onPress={() => onRequestSend?.()}
-                          >
-                            {m.records_assistant_confirm_send()}
-                          </Button>
-                          <Button
-                            size="sm"
-                            color="secondary"
-                            isDisabled={busy || offerResolved}
-                            onPress={() => void onDismissWeekSend()}
-                          >
-                            {m.records_assistant_cancel_week()}
-                          </Button>
-                        </div>
+                        <FormatSendActions
+                          disabled={busy || offerResolved}
+                          onSend={() => onRequestSend?.()}
+                          onCancel={() => void onDismissWeekSend()}
+                        />
                         {countdown && !offerResolved ? (
                           <p className="text-xs text-tertiary">
                             {m.records_assistant_auto_send_in({ countdown })}
@@ -1330,9 +1322,7 @@ export function RecordSidePanel({
             const suggestion = message.suggestion ?? null;
             const showSuggestion =
               suggestion !== null &&
-              (suggestion.type === "body-edit" ||
-                suggestion.type === "key-point-edit" ||
-                suggestion.type === "send-prompt");
+              (suggestion.type === "body-edit" || suggestion.type === "key-point-edit");
             const suggestionApplied = appliedSuggestionIds.includes(message.id);
             const suggestionDismissed = dismissedSuggestionIds.includes(message.id);
             const suggestionFrozen = suggestionApplied || suggestionDismissed;
@@ -1352,6 +1342,16 @@ export function RecordSidePanel({
                   </span>
                 </div>
                 <p className="whitespace-pre-wrap text-sm leading-6 text-primary">{message.body}</p>
+                {suggestion?.type === "send-prompt" && !suggestionFrozen ? (
+                  <FormatSendActions
+                    disabled={busy}
+                    onSend={() => void confirmSuggestion(message.id, suggestion)}
+                    onCancel={() => {
+                      void onIgnoreSuggestion(message.id, suggestion);
+                      void onDismissWeekSend();
+                    }}
+                  />
+                ) : null}
                 {showSuggestion ? (
                   <div
                     className={`space-y-2 rounded-lg border p-3 ${
@@ -1370,25 +1370,19 @@ export function RecordSidePanel({
                         {m.records_assistant_suggestion_inserted()}
                       </p>
                     ) : null}
-                    {suggestion.type === "send-prompt" ? (
-                      <p className="text-sm text-secondary">{m.records_assistant_confirm_send()}</p>
-                    ) : (
-                      <>
-                        <p className="text-sm font-medium text-primary">{suggestion.summary}</p>
-                        {preview ? (
-                          <div className="space-y-1">
-                            <p className="text-xs font-medium text-tertiary">
-                              {suggestion.type === "key-point-edit"
-                                ? m.records_key_points_suggestion_preview()
-                                : m.records_assistant_suggestion_preview()}
-                            </p>
-                            <pre className="max-h-80 overflow-auto whitespace-pre-wrap rounded-md bg-primary p-2 text-xs leading-5 text-secondary">
-                              {preview}
-                            </pre>
-                          </div>
-                        ) : null}
-                      </>
-                    )}
+                    <p className="text-sm font-medium text-primary">{suggestion.summary}</p>
+                    {preview ? (
+                      <div className="space-y-1">
+                        <p className="text-xs font-medium text-tertiary">
+                          {suggestion.type === "key-point-edit"
+                            ? m.records_key_points_suggestion_preview()
+                            : m.records_assistant_suggestion_preview()}
+                        </p>
+                        <pre className="max-h-80 overflow-auto whitespace-pre-wrap rounded-md bg-primary p-2 text-xs leading-5 text-secondary">
+                          {preview}
+                        </pre>
+                      </div>
+                    ) : null}
                     {!suggestionFrozen ? (
                       <div className="flex flex-wrap gap-2">
                         <Button
@@ -1398,11 +1392,9 @@ export function RecordSidePanel({
                           isDisabled={busy}
                           onPress={() => void confirmSuggestion(message.id, suggestion)}
                         >
-                          {suggestion.type === "send-prompt"
-                            ? m.records_assistant_confirm_send()
-                            : suggestion.type === "key-point-edit"
-                              ? m.records_key_points_insert()
-                              : m.records_assistant_confirm_write()}
+                          {suggestion.type === "key-point-edit"
+                            ? m.records_key_points_insert()
+                            : m.records_assistant_confirm_write()}
                         </Button>
                         <Button
                           size="sm"
@@ -1543,6 +1535,33 @@ export function RecordSidePanel({
         </ModalOverlay>
       ) : null}
     </aside>
+  );
+}
+
+function FormatSendActions({
+  disabled,
+  onSend,
+  onCancel,
+}: {
+  disabled: boolean;
+  onSend: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <div className="flex flex-wrap gap-2">
+      <Button
+        size="sm"
+        color="primary"
+        className={RECORDS_PRIMARY_BUTTON_CLASSNAME}
+        isDisabled={disabled}
+        onPress={onSend}
+      >
+        {m.records_assistant_confirm_send()}
+      </Button>
+      <Button size="sm" color="secondary" isDisabled={disabled} onPress={onCancel}>
+        {m.records_assistant_cancel_week()}
+      </Button>
+    </div>
   );
 }
 

@@ -54,6 +54,7 @@ import {
   isValidTemplateName,
   isWeekSendDismissed,
   normalizeReportContent,
+  withoutWeekSendDismissed,
   reportContentToMarkdown,
   withAssignmentUnread,
   withAutoSendCancelled,
@@ -751,12 +752,25 @@ function TemplateReportDetail({
   }
 
   async function onSendAssignments() {
-    if (sending || !canSendAssignments || hasUnsavedEdits) return;
+    if (sending || hasUnsavedEdits) return;
+    if (sendSchedule?.alreadySent) {
+      setSendError(m.records_report_send_assignments_error());
+      setConfirmOpen(false);
+      return;
+    }
+    const week = currentIsoWeek(zonedCalendarDate(new Date()));
+    const draft = withoutWeekSendDismissed(
+      normalizeReportContent(contentRef.current),
+      week.year,
+      week.week,
+    );
+    setContent(draft);
+    contentRef.current = draft;
+    writeReportDraft(report.id, draft);
     setSending(true);
     setSendError(null);
     try {
       await waitForReportSave(report.id);
-      const draft = contentRef.current;
       try {
         await persist(draft);
       } catch {
@@ -922,7 +936,13 @@ function TemplateReportDetail({
                       size="sm"
                       color="primary"
                       className={RECORDS_PRIMARY_BUTTON_CLASSNAME}
-                      isDisabled={saving || sending || !canSendAssignments || hasUnsavedEdits}
+                      isDisabled={
+                        saving ||
+                        sending ||
+                        hasUnsavedEdits ||
+                        Boolean(sendSchedule?.alreadySent) ||
+                        (!canSendAssignments && !weekDismissed)
+                      }
                       onPress={() => setConfirmOpen(true)}
                     >
                       {m.records_report_send()}
