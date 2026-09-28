@@ -1,7 +1,10 @@
 import { createContext, useContext, useEffect, useMemo, type ReactNode } from "react";
+import { createStore, useSelector, type Store } from "@tanstack/react-store";
 import { usePrefetchQuery, useQuery, useQueryClient, skipToken } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import type { AgentDisplaySnapshot } from "@lrm/coforge-sdk/internal";
+
+import { useSyncedStore } from "#src/hooks/use-synced-store";
 
 import {
   listAgents,
@@ -42,8 +45,10 @@ export type LiveAgent = {
 };
 
 // Both contexts are module-private: everything outside reads them through the
-// hooks below, so a consumer can never reach in and subscribe on its own.
-const LiveAgentsContext = createContext<LiveAgent[]>([]);
+// hooks below, so a consumer can never reach in and subscribe on its own. The live Agents are a
+// TanStack Store rather than a context value, so a reader of one Agent (a message's avatar) is
+// told when that Agent changes and not when any other does.
+const LiveAgentStoreContext = createContext<Store<LiveAgent[]>>(createStore<LiveAgent[]>([]));
 const WorkspaceIdContext = createContext<string | undefined>(undefined);
 
 const visiblePrivateAgentIdsKey = (workspaceId: string | undefined) =>
@@ -167,11 +172,18 @@ export function WorkspaceAgentsProvider({
     );
   }, [visibleAgents, workspaceId, queryClient]);
 
+  const liveAgents = useSyncedStore(visibleAgents);
+
   return (
-    <LiveAgentsContext value={visibleAgents}>
+    <LiveAgentStoreContext value={liveAgents}>
       <WorkspaceIdContext value={workspaceId}>{children}</WorkspaceIdContext>
-    </LiveAgentsContext>
+    </LiveAgentStoreContext>
   );
+}
+
+/** Whether an Agent is in the viewer's own roster, not an `isExtra` placeholder. */
+function inRoster(agent: { isExtra?: true }) {
+  return !agent.isExtra;
 }
 
 /** The live Agent list (with realtime status), for the sidebar's Direct message section. */
@@ -180,10 +192,10 @@ export function WorkspaceAgentsProvider({
  * `useLiveAgent(id)` can serve live status/Activity for an Agent outside the viewer's own
  * roster. */
 export function useLiveAgents(): LiveAgent[] {
-  const agents = useContext(LiveAgentsContext);
-  // One list per context value, not per call: consumers memoize on it (the message rows' Agent
-  // status lookup), and a fresh array on every render would invalidate all of them.
-  return useMemo(() => agents.filter((agent) => !agent.isExtra), [agents]);
+  const agents = useSelector(useContext(LiveAgentStoreContext), (state) => state);
+  // One list per store value, not per call: consumers memoize on it, and a fresh array on every
+  // render would invalidate all of them.
+  return useMemo(() => agents.filter(inRoster), [agents]);
 }
 
 /** Each live Agent's latest display by id, for avatars' status dots. */
@@ -199,7 +211,28 @@ export function useCurrentWorkspaceId(): string | undefined {
 
 /** One Agent's live status and display snapshot, for pages open on that Agent. */
 export function useLiveAgent(agentId: string): LiveAgent | undefined {
-  return useContext(LiveAgentsContext).find((agent) => agent.id === agentId);
+  return useSelector(useContext(LiveAgentStoreContext), (agents) =>
+    agents.find((agent) => agent.id === agentId),
+  );
+}
+
+/** One live Agent's display, or nothing for an Agent not in the viewer's roster (an `isExtra`
+ * placeholder, as `useLiveAgents` leaves out) or not live here. */
+export function liveAgentDisplay(
+  agents: readonly { id: string; display?: AgentDisplaySnapshot; isExtra?: true }[],
+  agentId: string,
+): AgentDisplaySnapshot | undefined {
+  return agents.find((agent) => agent.id === agentId && inRoster(agent))?.display;
+}
+
+/**
+ * One Agent's display, for its avatar's status dot: repaints when that Agent's display changes
+ * and not on another Agent's change or on a status lease refresh.
+ */
+export function useLiveAgentDisplay(agentId: string): AgentDisplaySnapshot | undefined {
+  return useSelector(useContext(LiveAgentStoreContext), (agents) =>
+    liveAgentDisplay(agents, agentId),
+  );
 }
 
 /** One Agent's recent activity (≤5, newest first), for its avatar popover. */

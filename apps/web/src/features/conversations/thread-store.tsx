@@ -1,5 +1,7 @@
-import { useLayoutEffect, useMemo, type ReactNode } from "react";
-import { createStoreContext, useCreateStore, useSelector, type Store } from "@tanstack/react-store";
+import { useMemo, type ReactNode } from "react";
+import { createStoreContext, useSelector, type Store } from "@tanstack/react-store";
+
+import { useSyncedStore } from "#src/hooks/use-synced-store";
 
 import type { DirectConversationView } from "./conversation-types";
 
@@ -56,16 +58,9 @@ export function unreadAgentReplies(
 
 const { StoreProvider, useStoreContext } = createStoreContext<{ threads: Store<ThreadState> }>();
 
-/**
- * The conversation's thread store, created from what its owner knows on the first render (so no
- * summary ever renders from an empty store) and kept in step with it before paint.
- */
+/** The conversation's thread store, following what its owner knows (`useSyncedStore`). */
 export function useConversationThreadStore(state: ThreadState): Store<ThreadState> {
-  const threads = useCreateStore(state);
-  useLayoutEffect(() => {
-    threads.setState(() => state);
-  }, [threads, state]);
-  return threads;
+  return useSyncedStore(state);
 }
 
 /** Gives the thread summaries below it their conversation's thread store. */

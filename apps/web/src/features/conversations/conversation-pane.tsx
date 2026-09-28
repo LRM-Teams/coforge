@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useLatestCallback } from "#src/hooks/use-latest-callback";
 import { ProgressBar } from "react-aria-components";
+import { useHydrated } from "@tanstack/react-router";
 import { ArrowDown, Loading02 } from "@untitledui/icons";
 
 import { useStateWithRef } from "#src/hooks/use-state-with-ref";
@@ -16,7 +17,6 @@ import {
 import { cn } from "#src/lib/utils";
 import { m } from "#src/paraglide/messages";
 import { getLocale } from "#src/paraglide/runtime";
-import { useLiveAgents } from "#src/features/agents/workspace-agents-realtime";
 
 import { attachmentFileNameSummary } from "./attachment-file-name";
 import { useConversationOpenMode, useSavedMessages } from "./conversation-host";
@@ -137,8 +137,10 @@ export function ConversationPane({
       conversation.mentionables?.filter((mention) => mention.handle !== conversation.viewerHandle),
     [conversation.mentionables, conversation.viewerHandle],
   );
-  const [dateLocale, setDateLocale] = useState<string>();
-  useEffect(() => setDateLocale(getLocale()), []);
+  // Day labels follow the viewer's locale once hydrated; the pane mounts after hydration
+  // (`ThreadedConversation` is client-only), so its first render already has it.
+  const hydrated = useHydrated();
+  const dateLocale = hydrated ? getLocale() : undefined;
   const toast = useAppToast();
   const [newMessageCount, setNewMessageCount] = useState(0);
   // Reply-to-selection: the row hands over a finished quote, the composer puts it in the draft.
@@ -353,17 +355,6 @@ export function ConversationPane({
   const formatIndexBody = useMemo(
     () => makeReferenceBodyFormatter(conversation.mentionables ?? [], channelNames),
     [conversation.mentionables, channelNames],
-  );
-  // Agent presence for the stream's avatars: one lookup built from the app shell's single
-  // subscription, rather than each row subscribing for itself.
-  const liveAgents = useLiveAgents();
-  const agentDisplayById = useMemo(
-    () => new Map(liveAgents.map((agent) => [agent.id, agent.display])),
-    [liveAgents],
-  );
-  const agentDisplayFor = useCallback(
-    (agentId: string) => agentDisplayById.get(agentId),
-    [agentDisplayById],
   );
   /** Message ids whose very long body the reader has opened in full. Kept here rather than in the
    * row: a row is skipped and laid out again as it leaves and re-enters the viewport, and an
@@ -864,7 +855,6 @@ export function ConversationPane({
                     expanded={expandedMessages.has(root.id)}
                     onToggleExpanded={toggleExpandedMessage}
                     collapsible={collapsible}
-                    agentDisplay={agentDisplayFor}
                     dateLocale={dateLocale}
                     onToggleReaction={toggleReaction}
                     onToggleSave={onToggleSave}
@@ -1016,7 +1006,6 @@ export function ConversationPane({
                       expanded={expandedMessages.has(message.id)}
                       onToggleExpanded={toggleExpandedMessage}
                       collapsible={collapsible}
-                      agentDisplay={agentDisplayFor}
                       dateLocale={dateLocale}
                       onOpenThread={openThread}
                       showsTask={!root}
