@@ -9,8 +9,8 @@ import {
   publicChannelQuery,
 } from "./conversation-queries";
 
-/** Which conversation a page shows: a channel, or the direct conversation with an Agent. */
-export type ConversationPageTarget = { kind: "channel" | "agent"; id: string };
+/** Which conversation a page shows, by its id: a channel or a direct conversation. */
+export type ConversationPageTarget = { kind: "channel" | "dm"; id: string };
 
 /**
  * What a conversation page's loader depends on, from its host's address: the message it lands on

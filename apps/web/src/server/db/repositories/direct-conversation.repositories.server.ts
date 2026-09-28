@@ -1,4 +1,5 @@
 import { lockConversation } from "#src/server/conversations/conversation-lock.server";
+import { agentDirectKey } from "#src/features/conversations/direct-key";
 import {
   UUID_LIKE_SOURCE,
   type MessageSenderKind,
@@ -562,8 +563,6 @@ export type DirectConversationRepository = {
   }>;
 };
 
-const keyFor = (userId: string, agentId: string) => `agent:${agentId}|user:${userId}`;
-
 export const buildUserAgentConversationCreateInput = (
   workspaceId: string,
   userId: string,
@@ -571,7 +570,7 @@ export const buildUserAgentConversationCreateInput = (
 ) =>
   ({
     workspace: { connect: { id: workspaceId } },
-    directKey: keyFor(userId, agentId),
+    directKey: agentDirectKey(userId, agentId),
     members: {
       create: [
         {
@@ -883,7 +882,7 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
   /**
    * The browser's own emoji reaction in this user's DM with one Agent. Read-only
    * conversation lookup: reacting must never start a DM as a side effect. Scope
-   * authorization stays with the caller (`ownedConversations` in the function layer).
+   * authorization stays with the caller (`DirectConversations.authorize`).
    */
   async setUserMessageReaction(
     workspaceId: string,
@@ -923,7 +922,7 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
 
   async getOrCreateUserAgent(workspaceId: string, userId: string, agentId: string) {
     // Deliberately *not* filtered by `ACTIVE_AGENT_WHERE`: a deleted Agent's direct conversation
-    // stays readable (history is kept), and `ownedConversations` decides per operation
+    // stays readable (history is kept), and `DirectConversations.authorize` decides per operation
     // whether reading or writing is allowed. `DirectConversations.open` refuses to start one with
     // a deleted Agent.
     const agent = await this.db.agent.findFirst({
@@ -931,7 +930,9 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
       select: { id: true, ownerId: true, visibility: true },
     });
     if (!agent) throw new Error("conversation scope is not authorized");
-    const where = { workspaceId_directKey: { workspaceId, directKey: keyFor(userId, agentId) } };
+    const where = {
+      workspaceId_directKey: { workspaceId, directKey: agentDirectKey(userId, agentId) },
+    };
     const existing = await this.db.conversation.findUnique({ where, select: { id: true } });
     if (existing) return existing;
     // A brand-new DM with a private Agent may only ever be started by its own creator:
@@ -956,7 +957,7 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
    * inspecting who could message in it. */
   async findUserAgentConversation(workspaceId: string, userId: string, agentId: string) {
     return this.db.conversation.findUnique({
-      where: { workspaceId_directKey: { workspaceId, directKey: keyFor(userId, agentId) } },
+      where: { workspaceId_directKey: { workspaceId, directKey: agentDirectKey(userId, agentId) } },
       select: { id: true },
     });
   }

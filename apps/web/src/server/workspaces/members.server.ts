@@ -195,8 +195,8 @@ export class WorkspaceMembers {
         handle: agent.name,
         name: agent.displayName.trim() || agent.name,
         avatarUrl: agentAvatarUrl(workspaceId, agent.id, agent.avatarObjectKey),
-        /** The Web opens an Agent's direct conversation only for its owner (`ownedConversations`
-         * in `features/conversations/conversations.functions.ts`). */
+        /** The Web opens an Agent's direct conversation only for its owner
+         * (`DirectConversations.authorize`). */
         ownedByCurrentUser: agent.ownerId === userId,
         /** The viewer's direct conversation with this Agent (`dm/<id>`), once there is one. */
         dmId: dmByAgent.get(agent.id) ?? null,

@@ -42,11 +42,15 @@ export function SearchEntityRow({
 }) {
   const { previewed, preview } = useSearchPreview();
   const workspaceSlug = useWorkspaceSlug();
-  // A channel or the viewer's own Agent (whose DM they can read) previews; others just open.
+  // The viewer's DM with their own Agent, once there is one.
+  const dmId = entity.kind === "agent" && entity.ownedByCurrentUser ? entity.dmId : null;
+  // A channel or that DM previews; others just open.
   const target =
-    entity.kind === "channel" || (entity.kind === "agent" && entity.ownedByCurrentUser)
-      ? ({ kind: entity.kind, id: entity.id } as const)
-      : undefined;
+    entity.kind === "channel"
+      ? ({ kind: "channel", id: entity.id } as const)
+      : dmId
+        ? ({ kind: "dm", id: dmId } as const)
+        : undefined;
   const onClick = useResultClick({
     onPreview: preview && target ? () => preview(target) : undefined,
     onOpened: () => onOpen?.(),
@@ -75,8 +79,8 @@ export function SearchEntityRow({
       );
     case "agent":
       // Opens the viewer's DM with the Agent when there is one, as in Chat; else its profile.
-      return entity.ownedByCurrentUser && entity.dmId ? (
-        <Link {...conversationRoute({ dmId: entity.dmId }, workspaceSlug)} {...props} />
+      return dmId ? (
+        <Link {...conversationRoute({ dmId }, workspaceSlug)} {...props} />
       ) : (
         <Link
           to="/w/$workspaceSlug/members"

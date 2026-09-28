@@ -25,8 +25,8 @@ export const ACTIVE_AGENT_WHERE = { deletedAt: null } satisfies Prisma.AgentWher
  * generic 500 or an authorization-shaped error.
  *
  * Callers are the paths that could otherwise start or rewrite a deleted Agent: `AgentControl`
- * (execute/publishStart/recover), `ManageAgents.update`, `AgentEnvironment.save` and
- * `ChangeAgentRuntimeCredential`. `deletedAt` is optional so both the raw Prisma row and the
+ * (execute/publishStart/recover), `ManageAgents.update`, `AgentEnvironment.save`,
+ * `ChangeAgentRuntimeCredential`, and `DirectConversations.authorize` for a send. `deletedAt` is optional so both the raw Prisma row and the
  * `AgentRecord` projection (where absence means "not deleted") satisfy it.
  */
 export function assertAgentLive(agent: { deletedAt?: Date | null }): void {

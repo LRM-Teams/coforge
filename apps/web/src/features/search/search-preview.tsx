@@ -9,14 +9,15 @@ import { ConversationHostProvider } from "#src/features/conversations/conversati
 import { savedMessagesQuery } from "#src/features/conversations/conversation-queries";
 import { listSavedMessages } from "#src/features/conversations/saved-messages.functions";
 import { ConversationPage } from "#src/features/conversations/conversation-page";
+import type { ConversationPageTarget } from "#src/features/conversations/conversation-page-loader";
 import { m } from "#src/paraglide/messages";
-import type { RememberedEntity } from "./search-memory";
 import { searchDirectoryQuery } from "./search-queries";
 
 const searchRoute = getRouteApi("/w/$workspaceSlug/search");
 
-/** What the preview shows: a channel or an Agent's direct conversation, optionally at a message. */
-export type SearchPreviewTarget = RememberedEntity & {
+/** What the preview shows: a channel or a direct conversation, by its id, optionally at a
+ * message. */
+export type SearchPreviewTarget = ConversationPageTarget & {
   messageId?: string;
   /** A thread reply's root and the reply itself: the preview opens that thread at the reply. */
   threadRootId?: string;

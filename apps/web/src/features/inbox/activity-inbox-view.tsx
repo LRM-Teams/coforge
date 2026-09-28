@@ -357,11 +357,13 @@ function useActivityItemActions({
           ? markChannelThreadRead({
               data: { channelId: place.conversationId, threadRootId, throughSequence },
             })
-          : markDirectThread({ data: { agentId: place.agent.id, threadRootId, throughSequence } });
+          : markDirectThread({
+              data: { conversationId: place.conversationId, threadRootId, throughSequence },
+            });
       }
       return place.kind === "channel"
         ? markChannelRead({ data: { channelId: place.conversationId, throughSequence } })
-        : markDirectRead({ data: { agentId: place.agent.id, throughSequence } });
+        : markDirectRead({ data: { conversationId: place.conversationId, throughSequence } });
     }
 
     return {

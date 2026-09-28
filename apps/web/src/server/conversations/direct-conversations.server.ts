@@ -1,8 +1,8 @@
 import type { PrismaClient } from "#src/generated/prisma/client";
 import { AppError } from "#src/lib/app-error";
-import { ACTIVE_AGENT_WHERE } from "#src/server/agents/active-agent.server";
+import { ACTIVE_AGENT_WHERE, assertAgentLive } from "#src/server/agents/active-agent.server";
 import {
-  agentOfDirectKey,
+  agentDirectKey,
   isPeopleDirectKey,
   peopleDirectKeyPair,
 } from "#src/features/conversations/direct-key";
@@ -16,7 +16,7 @@ export type DirectConversationTarget =
 
 /**
  * A viewer's direct conversations addressed by id, the way their pages are (`dm/<id>`): opening
- * one with an Agent or a member, and reading back who a conversation is with.
+ * one with an Agent or a member, and deciding who may use a conversation id and who it is with.
  */
 export class DirectConversations {
   constructor(private readonly db: PrismaClient) {}
@@ -43,11 +43,16 @@ export class DirectConversations {
     return { conversationId: conversation.id };
   }
 
-  /** Who a direct conversation of the viewer's is with; NOT_FOUND for anything else. */
-  async target(
+  /**
+   * Who a direct conversation of the viewer's is with, once the viewer may use it: a DM with an
+   * Agent is its creator's alone, and one with a deleted Agent stays readable but takes no new
+   * message (`canSend`). `NOT_FOUND` for anything that is not the viewer's direct conversation.
+   */
+  async authorize(
     workspaceId: string,
     viewerId: string,
     conversationId: string,
+    { canSend = false }: { canSend?: boolean } = {},
   ): Promise<DirectConversationTarget> {
     const conversation = await this.db.conversation.findFirst({
       where: {
@@ -56,15 +61,25 @@ export class DirectConversations {
         directKey: { not: null },
         members: { some: { userId: viewerId } },
       },
-      select: { directKey: true },
+      select: {
+        directKey: true,
+        members: {
+          where: { agentId: { not: null } },
+          select: { agent: { select: { id: true, ownerId: true, deletedAt: true } } },
+        },
+      },
     });
-    const directKey = conversation?.directKey ?? null;
-    if (directKey && isPeopleDirectKey(directKey)) {
-      const [first, second] = peopleDirectKeyPair(directKey);
+    if (!conversation?.directKey) throw new AppError("NOT_FOUND");
+    if (isPeopleDirectKey(conversation.directKey)) {
+      const [first, second] = peopleDirectKeyPair(conversation.directKey);
       return { kind: "people", peerUserId: first === viewerId ? second : first };
     }
-    const agentId = agentOfDirectKey(directKey);
-    if (!agentId) throw new AppError("NOT_FOUND");
-    return { kind: "agent", agentId };
+    const agent = conversation.members[0]?.agent;
+    if (!agent) throw new AppError("NOT_FOUND");
+    // Only the creator's own DM with it: a member row in another member's DM grants nothing.
+    if (agent.ownerId !== viewerId || conversation.directKey !== agentDirectKey(viewerId, agent.id))
+      throw new AppError("ACCESS_DENIED");
+    if (canSend) assertAgentLive(agent);
+    return { kind: "agent", agentId: agent.id };
   }
 }

@@ -98,10 +98,10 @@ function conversationPages<M extends PageMessage, T extends ConversationPage<M>>
   return { query, loadInitialPage };
 }
 
-export const directConversationQuery = (agentId: string) =>
+export const directConversationQuery = (conversationId: string) =>
   conversationPages(
-    ["conversation", "direct", agentId],
-    (page) => loadDirectConversation({ data: { agentId, ...page } }),
+    ["conversation", "direct", conversationId],
+    (page) => loadDirectConversation({ data: { conversationId, ...page } }),
     beforeFirstRoot,
   );
 
@@ -146,8 +146,8 @@ export const channelNamesQuery = (workspaceId: string) =>
     staleTime: 60_000,
   });
 
-export const directConversationUpdates = (agentId: string) => (afterSequence: number) =>
-  loadDirectConversationUpdates({ data: { agentId, afterSequence } });
+export const directConversationUpdates = (conversationId: string) => (afterSequence: number) =>
+  loadDirectConversationUpdates({ data: { conversationId, afterSequence } });
 
 export const publicChannelUpdates = (channelId: string) => (afterSequence: number) =>
   loadPublicChannelUpdates({ data: { channelId, afterSequence } });

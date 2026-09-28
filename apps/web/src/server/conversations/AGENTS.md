@@ -13,8 +13,10 @@ These rules apply to `src/server/conversations/`.
   too. A Task and an action card keep their own rules.
 - `DirectConversations` (`direct-conversations.server.ts`) owns opening the
   viewer's direct conversation by who it is with (only their own live Agent,
-  or a Workspace member) and naming who a conversation id is with. The
-  `dm/$dmId` page and every "Message" button go through it.
+  or a Workspace member) and `authorize`: who may use a conversation id and
+  who it is with. A DM with an Agent is its creator's alone, and a deleted
+  Agent's DM is read-only. Every DM page Server Function takes the
+  conversation id and authorizes through it; do not key a new one by Agent.
 - `UserDirectConversations` (`user-direct-conversations.server.ts`) owns
   direct conversations between Workspace members (and a member with
   themself): one per pair and sending in it. It never delivers to an
