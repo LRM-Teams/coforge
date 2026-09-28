@@ -702,6 +702,25 @@ export class TaskBoard {
       where: { messageId: before.messageId },
       select: taskSelection,
     });
+    if (before.owner?.agentId && before.ownerMemberId !== task.ownerMemberId) {
+      await tx.taskExecutionSession.updateMany({
+        where: {
+          taskMessageId: task.messageId,
+          agentId: before.owner.agentId,
+          status: { in: ["starting", "running", "waiting"] },
+        },
+        data: { status: "cancelled", finishedAt: new Date() },
+      });
+    }
+    if (task.status === "done" || task.status === "closed") {
+      await tx.taskExecutionSession.updateMany({
+        where: {
+          taskMessageId: task.messageId,
+          status: { in: ["starting", "running", "waiting"] },
+        },
+        data: { status: "completed", finishedAt: new Date() },
+      });
+    }
     if (task.owner?.agentId && task.ownerMemberId !== before.ownerMemberId) {
       await this.ensureTaskExecutionSession(tx, task, task.owner.agentId);
     }
@@ -722,19 +741,37 @@ export class TaskBoard {
    * follow-up delivery phase; keeping creation under the Task write lock prevents duplicate
    * execution sessions when two claim/assign requests race. */
   private async ensureTaskExecutionSession(tx: Transaction, task: SelectedTask, agentId: string) {
-    const session = await tx.taskExecutionSession.upsert({
+    const existing = await tx.taskExecutionSession.findUnique({
       where: { taskMessageId_agentId: { taskMessageId: task.messageId, agentId } },
-      create: {
-        taskMessageId: task.messageId,
-        conversationId: task.conversationId,
-        workspaceId: task.workspaceId,
-        agentId,
-        status: "starting",
-        attempt: 1,
-      },
-      update: {},
-      select: { id: true },
+      select: { id: true, status: true },
     });
+    const session = existing
+      ? await tx.taskExecutionSession.update({
+          where: { id: existing.id },
+          data:
+            existing.status === "completed" ||
+            existing.status === "failed" ||
+            existing.status === "cancelled"
+              ? {
+                  status: "starting",
+                  attempt: { increment: 1 },
+                  finishedAt: null,
+                  lastError: null,
+                }
+              : {},
+          select: { id: true },
+        })
+      : await tx.taskExecutionSession.create({
+          data: {
+            taskMessageId: task.messageId,
+            conversationId: task.conversationId,
+            workspaceId: task.workspaceId,
+            agentId,
+            status: "starting",
+            attempt: 1,
+          },
+          select: { id: true },
+        });
     await tx.agentMessageDelivery.updateMany({
       where: { messageId: task.messageId, agentId },
       data: { taskExecutionSessionId: session.id },
