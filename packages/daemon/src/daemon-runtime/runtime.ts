@@ -116,6 +116,7 @@ import { memoryIndexReminder } from "#src/agent-runtime/agent-memory-seed";
 import { AgentControl } from "#src/agent-runtime/agent-control";
 import { AgentSessions } from "#src/agent-runtime/agent-session";
 import { AgentRuntimeState } from "#src/agent-runtime/agent-runtime-state";
+import { ContextHandoffCoordinator } from "#src/agent-runtime/context-handoff";
 import { MemoryAgentRuntimeStateStore } from "#src/persistence/memory-agent-runtime-state-store";
 import { listAgentSkills } from "#src/code-agent/agent-skills";
 import {
@@ -530,6 +531,8 @@ export class DaemonRuntime {
   /** The last (usedTokens, windowTokens) reading sent per Agent, so an unchanged
    * reading is not re-sent. Forgotten on launch end/dispose, alongside `#compactionTracker`. */
   readonly #lastContextUsage = new Map<string, { usedTokens: number; windowTokens: number }>();
+  /** One early handoff request per native session; reset when a new launch starts. */
+  readonly #contextHandoffs = new Map<string, ContextHandoffCoordinator>();
   readonly #agentProxy?: AgentProxy;
   readonly #activityHeartbeatTimers = new Map<string, ReturnType<typeof setTimeout>>();
   readonly #lastBusyActivity = new Map<
@@ -1849,6 +1852,7 @@ export class DaemonRuntime {
     this.#compactionTracker.dispose(agentId);
     this.#runtimeProgress.dispose(agentId);
     this.#lastContextUsage.delete(agentId);
+    this.#contextHandoffs.delete(agentId);
     this.#revokeLocalLaunch(agentId);
     try {
       await this.#releaseAgentRuntime(agentId);
@@ -1971,6 +1975,7 @@ export class DaemonRuntime {
     // #deliveryQueue.shouldHold on every delivery for this Agent from now on.
     this.#deliveryQueue.setProvider(agentId, config.provider);
     this.#lastContextUsage.delete(agentId);
+    this.#contextHandoffs.delete(agentId);
     // AgentControl's fresh retry after a kiro/pi AgentSessionRecoveryError: the invalidate was
     // already reported before this launch (see `invalidateSession` above); narrate the cold
     // start here, where the real launch's ActivityLaunch now exists. `invalidateReason` is
@@ -2132,6 +2137,7 @@ export class DaemonRuntime {
         this.#compactionTracker.dispose(agentId);
         this.#runtimeProgress.dispose(agentId);
         this.#lastContextUsage.delete(agentId);
+        this.#contextHandoffs.delete(agentId);
         this.#collectSkillAgents.delete(agentId);
         if (this.#currentActivityLaunches.get(agentId) !== launch) return;
         this.#messageAttention.clearAgent(agentId);
@@ -2346,6 +2352,22 @@ export class DaemonRuntime {
         event.usedTokens,
         event.windowTokens,
       );
+      let handoff = this.#contextHandoffs.get(agentId);
+      if (!handoff) {
+        handoff = new ContextHandoffCoordinator((prompt) => {
+          const session = this.#agentProcessManager.session(agentId);
+          if (!session?.notify) return;
+          void session.notify(prompt).catch((error: unknown) => {
+            logger.warning("Context handoff request was not accepted", {
+              event: "agent.context_handoff.request_failed",
+              agent_id: agentId,
+              error_code: error instanceof Error ? error.name : "UnknownError",
+            });
+          });
+        });
+        this.#contextHandoffs.set(agentId, handoff);
+      }
+      handoff.observe(event.usedTokens, event.windowTokens);
       return;
     }
     if (event.type === "activity" || event.type === "tool-start") {
