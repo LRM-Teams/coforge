@@ -29,9 +29,10 @@ These rules also cover `src/server/records/`.
   (`currentIsoWeek(zonedCalendarDate(now))`), not the live format document's
   possibly stale `cycle`. Stamp dismiss with that calendar week.
 - Format offer-send (发送 / 取消本周周报) is posted once per report for the
-  current ISO week into the session that loads first; do not fan the card out
-  to every new or idle side-panel session (`hasCurrentWeekOfferSend`). Other
-  sessions stay empty — do not stuff a ready/cancelled tip into them.
+  current ISO week into the session that loads first. Earlier weeks' cards stay
+  in that thread as history. Do not fan the current week's card out to every
+  new or idle side-panel session (`hasCurrentWeekOfferSend`). Other sessions
+  stay empty — do not stuff a ready/cancelled tip into them.
 - Side-chat greetings (hi / 你好 / …) are not platform rule replies; route them
   through the weekly-report Agent like ordinary turns.
 - Live format documents rebase onto the current ISO week when reused or when

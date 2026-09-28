@@ -60,6 +60,7 @@ import {
   ensureRecordAssistantIntro,
   ensureWeeklyReportAssistantChatSessions,
   dismissWeeklyFormatSend,
+  loadWeeklyTemplateForReport,
   loadWeeklyReportAssistantContext,
   loadWeeklyReportAssistantMessages,
   loadWeeklyReportAssistantStatus,
@@ -87,8 +88,14 @@ import {
   type RecordSideSurface,
 } from "./record-side-panel-pin";
 import { resolveAwaitingAssistantResume } from "./record-side-panel-awaiting";
+import { loadWorkspaceMembers } from "#src/features/workspaces/members.functions";
 import { WeeklyReportCollectPlanCard } from "./weekly-report-collect-plan-card";
 import { WeeklyReportCollectRunCard } from "./weekly-report-collect-run-card";
+import {
+  WeeklyTemplateDetailDialog,
+  type WeeklyTemplateDetail,
+} from "./weekly-template-detail-dialog";
+import type { TemplateMemberOption } from "./weekly-template-members";
 
 type CommentRow = Awaited<ReturnType<typeof ensureRecordAssistantIntro>>[number];
 type ChatSessionRow = Awaited<
@@ -187,6 +194,8 @@ export function RecordSidePanel({
   const confirmIntent = useServerFn(confirmMemberReportIntent);
   const declineIntent = useServerFn(declineMemberReportIntent);
   const dismissWeekSend = useServerFn(dismissWeeklyFormatSend);
+  const loadTemplateForReport = useServerFn(loadWeeklyTemplateForReport);
+  const loadMembers = useServerFn(loadWorkspaceMembers);
   const loadAssistantContext = useServerFn(loadWeeklyReportAssistantContext);
   const loadAssistantStatus = useServerFn(loadWeeklyReportAssistantStatus);
   const loadAssistantMessages = useServerFn(loadWeeklyReportAssistantMessages);
@@ -199,6 +208,8 @@ export function RecordSidePanel({
   const sessionKey = weeklyReportAssistantSubjectKey(subjectType, subjectId);
   const session = sessionStore.get(sessionKey);
   const [pinned, setPinned] = useState(() => readSidePanelPinned(subjectType, subjectId, surface));
+  const [templateDetail, setTemplateDetail] = useState<WeeklyTemplateDetail | null>(null);
+  const [templateMembers, setTemplateMembers] = useState<TemplateMemberOption[]>([]);
   const [renameOpen, setRenameOpen] = useState(false);
   const [renameDraft, setRenameDraft] = useState("");
   const [chatSessions, setChatSessions] = useState<ChatSessionRow[]>([]);
@@ -569,6 +580,24 @@ export function RecordSidePanel({
       onWeekSendDismissed?.();
     } catch {
       setError(m.records_weekly_ai_request_failed());
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function openTemplateDetail() {
+    if (busy || subjectType !== "report") return;
+    setBusy(true);
+    setError(null);
+    try {
+      const [template, directory] = await Promise.all([
+        loadTemplateForReport({ data: { reportId: subjectId } }),
+        loadMembers(),
+      ]);
+      setTemplateMembers(directory.members);
+      setTemplateDetail(template);
+    } catch {
+      setError(m.records_template_detail_failed());
     } finally {
       setBusy(false);
     }
@@ -1237,7 +1266,11 @@ export function RecordSidePanel({
                   </p>
                   {payload?.kind === "offer-send" ? (
                     <div className="space-y-3">
-                      <AssistantAttachmentCard payload={payload} />
+                      <AssistantAttachmentCard
+                        payload={payload}
+                        disabled={busy}
+                        onOpen={() => void openTemplateDetail()}
+                      />
                       <div className={`space-y-2 ${offerResolved ? "opacity-60" : ""}`}>
                         <FormatSendActions
                           disabled={busy || offerResolved}
@@ -1537,6 +1570,12 @@ export function RecordSidePanel({
           </Modal>
         </ModalOverlay>
       ) : null}
+
+      <WeeklyTemplateDetailDialog
+        template={templateDetail}
+        members={templateMembers}
+        onClose={() => setTemplateDetail(null)}
+      />
     </aside>
   );
 }
@@ -1570,8 +1609,12 @@ function FormatSendActions({
 
 function AssistantAttachmentCard({
   payload,
+  disabled,
+  onOpen,
 }: {
   payload: Extract<RecordAssistantPayload, { kind: "offer-send" }>;
+  disabled: boolean;
+  onOpen: () => void;
 }) {
   const title =
     payload.weekTitle?.trim() ||
@@ -1591,8 +1634,16 @@ function AssistantAttachmentCard({
       : Math.max(0, recipients.length - shown.length);
 
   return (
-    <div className="overflow-hidden rounded-xl bg-gradient-to-br from-secondary via-secondary/40 to-primary p-3">
-      <div className="flex items-start gap-3">
+    <Button
+      size="sm"
+      color="tertiary"
+      noTextPadding
+      isDisabled={disabled}
+      aria-label={`${m.records_template_open_detail()}: ${title}`}
+      onPress={onOpen}
+      className="h-auto w-full items-start justify-start whitespace-normal rounded-xl bg-gradient-to-br from-secondary via-secondary/40 to-primary p-3 text-left font-normal hover:bg-primary_hover"
+    >
+      <div className="flex w-full items-start gap-3">
         <div className="flex size-10 shrink-0 items-center justify-center rounded-full bg-tertiary text-fg-secondary">
           <LinkIcon className="size-4" />
         </div>
@@ -1625,6 +1676,6 @@ function AssistantAttachmentCard({
           ) : null}
         </div>
       </div>
-    </div>
+    </Button>
   );
 }
