@@ -2354,6 +2354,16 @@ export class DaemonRuntime {
       let handoff = this.#contextHandoffs.get(agentId);
       if (!handoff) {
         handoff = new ContextHandoffCoordinator((prompt) => {
+          this.#emitAgentActivity(
+            agentId,
+            launch,
+            this.#activity(
+              agentId,
+              AGENT_ACTIVITY_DETAIL_KIND.SYSTEM_MESSAGE,
+              "info",
+              "Context usage reached 80%; preparing handoff.",
+            ),
+          );
           const session = this.#agentProcessManager.session(agentId);
           if (!session?.notify) return;
           void session.notify(prompt).catch((error: unknown) => {
