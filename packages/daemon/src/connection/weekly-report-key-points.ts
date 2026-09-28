@@ -1,4 +1,4 @@
-import { RFC_UUID_PATTERN } from "@lrm/coforge-sdk/internal";
+import { RFC_UUID_PATTERN, WEEKLY_REPORT_MARKDOWN_MAX_CHARS } from "@lrm/coforge-sdk/internal";
 
 /** Local proxy / CLI body for personal key-point extraction write-back. */
 export type WeeklyReportKeyPointsCommand = {
@@ -23,7 +23,7 @@ export function validateWeeklyReportKeyPointsCommand(
   if (
     typeof payload.markdown !== "string" ||
     payload.markdown.trim().length === 0 ||
-    payload.markdown.length > 500_000
+    payload.markdown.length > WEEKLY_REPORT_MARKDOWN_MAX_CHARS
   )
     return null;
   return {
