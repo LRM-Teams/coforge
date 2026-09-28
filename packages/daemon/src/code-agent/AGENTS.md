@@ -36,9 +36,9 @@ Rules for the provider seam and adapters in `src/code-agent/`. They extend
   communication, on-demand context recovery, safety, and help. The fixed
   prompt budget is 3KB excluding dynamic identity data. Ordinary questions and untracked DM work need no Task or per-turn memory bookkeeping.
   An inbox notice lists targets — `check --target` those and reply; do not
-  read MEMORY.md first. Replies stay where the message is (top level or its
-  thread) unless the topic changes or a human asks; the thread-mismatch send
-  confirmation defers to that rule. Before implementing shared channel work, claim the original top-level message
+  read MEMORY.md first. Replies default to where the conversation is (top
+  level, its thread, or a claimed Task's thread); the thread-mismatch send
+  confirmation defers to that default. Before implementing shared channel work, claim the original top-level message
   or existing Task. Only the successful claimant implements; peers may analyze
   or review in its thread.
   Feature workflows come from event output and the Manual, not the standing
