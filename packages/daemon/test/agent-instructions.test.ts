@@ -33,16 +33,17 @@ test("retains an executable reply example and thread addressing without provider
   expect(instructions).not.toContain("Bash tool");
 });
 
-test("replies stay where the message is unless the topic changes or a human asks", () => {
+test("replies where the conversation is, by default rather than as a hard rule", () => {
   expect(instructions).toContain(
-    "answer a top-level message at top level and a thread message in its thread",
+    "a top-level message gets a top-level reply, a thread message a reply in its thread, and a request you claimed as a Task its Task thread",
   );
   expect(instructions).toContain(
-    "Start a thread or move to top level only for a new topic or when a human asks",
+    "You may post a new topic or a thread's conclusion at top level, or use the place a human names",
   );
   expect(instructions).toContain(
-    "If a send asks you to confirm a possible thread mismatch, choose the target by this rule",
+    "This is a default, not a hard rule; decide a thread-mismatch send confirmation by it",
   );
+  expect(instructions).not.toContain("Start a thread or move to top level only for a new topic");
 });
 
 test("preserves privacy, credential handling and uncertain-send safety", () => {
