@@ -33,6 +33,7 @@ import { Toggle } from "#src/components/base/toggle/toggle";
 import { Select } from "#src/components/base/select/select";
 import { Tooltip, TooltipTrigger } from "#src/components/base/tooltip/tooltip";
 import { Skeleton } from "#src/components/ui/skeleton";
+import { useAppToast } from "#src/components/ui/toast";
 import { avatarInitial, avatarToneClassName } from "#src/lib/avatar-tone";
 import { isAppError } from "#src/lib/app-error";
 import { AgentProfilePanel } from "#src/features/agents/profile-panel/agent-profile-panel";
@@ -311,6 +312,7 @@ function CoordinatorSection({
   conversation: ChannelConversationView;
   onChanged: () => Promise<void>;
 }) {
+  const toast = useAppToast();
   const setCoordinator = useServerFn(setPublicChannelCoordinator);
   const [saving, setSaving] = useState(false);
   const agents = (conversation.mentionables ?? []).filter(
@@ -328,23 +330,25 @@ function CoordinatorSection({
         },
       });
       await onChanged();
+    } catch {
+      toast.error(m.channel_settings_coordinator_error());
     } finally {
       setSaving(false);
     }
   }
 
   return (
-    <PanelSection title="Coordination mode">
+    <PanelSection title={m.channel_settings_coordinator_title()}>
       <Select
-        label="Coordinator Agent"
-        hint="New top-level requests go to this Agent first."
+        label={m.channel_settings_coordinator_label()}
+        hint={m.channel_settings_coordinator_hint()}
         selectedKey={selected}
         isDisabled={saving}
         onSelectionChange={(key) => {
           if (key !== null) void change(String(key));
         }}
       >
-        <Select.Item id="none" label="No coordinator" />
+        <Select.Item id="none" label={m.channel_settings_coordinator_none()} />
         {agents.map((agent) => (
           <Select.Item key={agent.id} id={agent.id} label={agent.label} />
         ))}
