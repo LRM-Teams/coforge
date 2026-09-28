@@ -8,6 +8,7 @@ const instructions = buildCoforgeAgentInstructions({ agentWorkspaceDirectory: di
 test("ordinary requests do not require task creation or per-turn memory bookkeeping", () => {
   expect(instructions).toContain("Do ordinary work directly");
   expect(instructions).toContain("complex, coordinated, or already-shared Tasks");
+  expect(instructions).toContain("coordinate in its thread instead of creating a duplicate");
   expect(instructions).toContain("If a claim fails, do not start conflicting execution");
   expect(instructions).toContain("when this request lacks context");
   expect(instructions).not.toContain("## Startup sequence");
