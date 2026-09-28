@@ -68,9 +68,11 @@ These rules apply to `src/features/conversations/`.
   `useDirectConversation` (`use-conversation-data.ts`), shared by the
   conversation pages and the Tasks page popup. Change a send or read path
   there, not in a route.
-- `channel-conversation-page.tsx` / `direct-conversation-page.tsx` are a
-  conversation as Chat opens it (tabs, Task board, files, reading). The Chat
-  routes and the search preview both render them, so the two never differ;
+- `conversation-page.tsx` (`ConversationPage`) is a conversation as Chat
+  opens it (tabs, Task board, files, reading), one page for channels and
+  direct messages: each kind supplies only its data, header, conversation and
+  read cursor. The Chat routes and the search preview both render it, so the
+  two never differ;
   a host only reads its params and loads through `loadConversationPage`
   (`conversation-page-loader.ts`). Their address state is
   `conversationPageSearchShape`, which every host's `validateSearch` spreads.

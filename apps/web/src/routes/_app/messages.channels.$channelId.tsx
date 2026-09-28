@@ -9,7 +9,7 @@ import {
   conversationPageLoaderDeps,
   loadConversationPage,
 } from "#src/features/conversations/conversation-page-loader";
-import { ChannelConversationPage } from "#src/features/conversations/channel-conversation-page";
+import { ConversationPage } from "#src/features/conversations/conversation-page";
 
 export const Route = createFileRoute("/_app/messages/channels/$channelId")({
   validateSearch: z.object({
@@ -30,5 +30,7 @@ export const Route = createFileRoute("/_app/messages/channels/$channelId")({
 
 function ChannelConversationRoute() {
   const { channelId } = Route.useParams();
-  return <ChannelConversationPage channelId={channelId} search={Route.useSearch()} />;
+  return (
+    <ConversationPage target={{ kind: "channel", id: channelId }} search={Route.useSearch()} />
+  );
 }
