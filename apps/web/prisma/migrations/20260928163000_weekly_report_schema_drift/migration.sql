@@ -37,4 +37,3 @@ ALTER INDEX "weekly_report_collector_bindings_collectorAgentId_workspaceId_k" RE
 
 -- RenameIndex
 ALTER INDEX "weekly_report_collector_bindings_workspaceId_userId_computerId_" RENAME TO "weekly_report_collector_bindings_workspaceId_userId_compute_key";
-
