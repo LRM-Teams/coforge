@@ -123,7 +123,8 @@ test("a result previews beside the list and opens on a double click", async () =
     const inA = await db.message.findFirstOrThrow({
       where: { conversationId: channelA, body: `${phrase} in a` },
     });
-    // A reply in the match's thread matches too.
+    // A reply in the match's thread matches too, with enough replies after it that landing on it
+    // is not the pane's default.
     const inThread = await db.message.create({
       data: {
         conversationId: channelA,
@@ -133,6 +134,16 @@ test("a result previews beside the list and opens on a double click", async () =
         threadRootId: inA.id,
         sequence: bodies.length + 1,
       },
+    });
+    await db.message.createMany({
+      data: Array.from({ length: 40 }, (_, index) => ({
+        conversationId: channelA,
+        workspaceId,
+        senderMemberId: memberA!.id,
+        body: `thread reply ${index + 1}`,
+        threadRootId: inA.id,
+        sequence: bodies.length + 2 + index,
+      })),
     });
     const inB = await db.message.create({
       data: {
@@ -255,17 +266,24 @@ test("a result previews beside the list and opens on a double click", async () =
     await waitFor(`${param("open")} === "" && document.querySelector('${PREVIEW}') === null`);
     expect(await evaluate<string>(param("q"))).toBe(phrase);
 
-    // A thread reply previews with its thread open, and a double click opens it in Chat the same way.
+    // A thread reply previews with its thread open at that reply, and a double click opens it in
+    // Chat the same way, as Activity opens a thread.
+    const replyOnScreen = `(() => {
+      const pane = [...document.querySelectorAll('section[aria-label="Thread"]')].find((section) => !section.hidden);
+      const reply = pane?.querySelector('li[data-message-id="${inThread.id}"]');
+      if (!reply) return false;
+      const rect = reply.getBoundingClientRect();
+      return rect.top >= 48 && rect.bottom <= innerHeight;
+    })()`;
     await browser("click", row(inThread.id));
     await waitFor(`${param("threadRootId")} === "${inA.id}"`);
-    await waitFor(
-      `[...document.querySelectorAll('${PREVIEW} section[aria-label="Thread"]')].some((pane) => !pane.hidden && pane.textContent.includes(${JSON.stringify(`${phrase} in a thread`)}))`,
-    );
+    await waitFor(replyOnScreen);
     await browser("screenshot", join(artifacts, "thread-hit.png"));
     await browser("dblclick", row(inThread.id));
     await waitFor(
       `location.pathname === "/en/messages/channels/${channelA}" && ${param("threadRootId")} === "${inA.id}"`,
     );
+    await waitFor(replyOnScreen);
     await browser("back");
     await waitFor(`document.querySelector('${row(inB.id)}') !== null`);
 
@@ -334,6 +352,20 @@ test("a result previews beside the list and opens on a double click", async () =
     await waitFor(`document.querySelector('${PREVIEW}') === null`);
     await browser("press", "Escape");
     await waitFor(`location.pathname === "/en/messages/channels/${channelB}"`);
+
+    // Chat opened at a message lands on it even with unread messages above it (the viewer's default
+    // "first unread" open mode does not take over a jump).
+    await db.conversationMember.update({
+      where: { id: memberA!.id },
+      data: { readThroughSequence: 0 },
+    });
+    await browser("open", `${origin}/en/messages/channels/${channelA}?message=${inA.id}`);
+    await waitFor(`(() => {
+      const row = document.querySelector('main li[data-message-id="${inA.id}"]');
+      if (!row) return false;
+      const rect = row.getBoundingClientRect();
+      return rect.top >= 48 && rect.bottom <= innerHeight;
+    })()`);
 
     // On a phone there is no room beside the list: a click opens the conversation.
     await browser("set", "viewport", "390", "844");

@@ -469,7 +469,7 @@ function MessageResults({
 
 /**
  * Where a result opens in Chat: its conversation at the row that shows the message, and for a
- * thread reply its thread open too, the way Chat opens a thread from Activity.
+ * thread reply its thread open at the reply, the way Chat opens a thread from Activity.
  */
 function messageOpenTarget(
   conversation: MessageSearchHit["conversation"],
@@ -477,7 +477,11 @@ function messageOpenTarget(
 ) {
   const target = savedJumpTarget(conversation, message);
   return message.threadRootId && "search" in target
-    ? { ...target, search: conversationSearchWithThread(target.search, message.threadRootId) }
+    ? {
+        ...target,
+        search: conversationSearchWithThread(target.search, message.threadRootId),
+        hash: `message-${message.id}`,
+      }
     : target;
 }
 

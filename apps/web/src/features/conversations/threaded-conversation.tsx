@@ -17,7 +17,7 @@ import { TaskDetailDialog } from "#src/features/tasks/task-detail-dialog";
 
 import { ConversationPane } from "./conversation-pane";
 import { useConversationDetailVisible } from "./conversation-navigation";
-import { useConversationChannels } from "./conversation-viewer";
+import { useConversationHostChannels } from "./conversation-host";
 import { useConversationSync } from "./use-conversation-sync";
 import {
   useConversationPositionJump,
@@ -121,7 +121,7 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
   };
   // A stored channel reference links to its channel, under its current name, only when the
   // Workspace has that channel: every channel by id, closed ones included, from the hosting page.
-  const hostChannels = useConversationChannels();
+  const hostChannels = useConversationHostChannels();
   const channelList = channels ?? hostChannels ?? NO_CHANNELS;
   const channelNames = useMemo(
     () => new Map(channelList.map((channel) => [channel.id, channel.name])),

@@ -45,12 +45,12 @@ const SavedMessagesContext = createContext<SavedMessagesState | null>(null);
 const ChannelsContext = createContext<readonly ChannelSuggestion[] | undefined>(undefined);
 
 /**
- * What a conversation reads about its viewer wherever it is shown (Chat, the search preview): the
- * "When I view a conversation" open mode, the Saved list, and the Workspace's channels (every
+ * What a conversation reads from the page hosting it (Chat, the search preview): the viewer's
+ * "When I view a conversation" open mode and Saved list, and the Workspace's channels (every
  * channel by id, closed ones included: the authority a body's channel links check), each seeded
  * by the hosting page's loader. The sidebar's unread badges stay Chat's own.
  */
-export function ConversationViewerProvider({
+export function ConversationHostProvider({
   saved,
   channels,
   children,
@@ -105,7 +105,7 @@ export function useConversationReadRequiresScroll(): boolean {
 }
 
 /** The Workspace's channels from the hosting page; undefined outside a conversation host. */
-export function useConversationChannels(): readonly ChannelSuggestion[] | undefined {
+export function useConversationHostChannels(): readonly ChannelSuggestion[] | undefined {
   return useContext(ChannelsContext);
 }
 

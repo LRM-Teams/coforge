@@ -6,7 +6,7 @@ import { useLiveAgent } from "#src/features/agents/workspace-agents-realtime";
 import { ConversationTaskBoard } from "#src/features/tasks/conversation-task-board";
 import { ConversationFilesPanel } from "./conversation-files";
 import { useMarkConversationSeen } from "./conversation-navigation";
-import { useConversationReadRequiresScroll } from "./conversation-viewer";
+import { useConversationReadRequiresScroll } from "./conversation-host";
 import type { ConversationPageSearch } from "./conversation-page-search";
 import { latestTopLevelSequence, persistReadCursor } from "./conversation-unread";
 import { markDirectConversationRead } from "./conversations.functions";

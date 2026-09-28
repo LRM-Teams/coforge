@@ -25,10 +25,10 @@ export const Route = createFileRoute("/_app/messages/channels/$channelId")({
     }),
   pendingComponent: ConversationPending,
   errorComponent: ConversationLoadError,
-  component: ChannelPage,
+  component: ChannelConversationRoute,
 });
 
-function ChannelPage() {
+function ChannelConversationRoute() {
   const { channelId } = Route.useParams();
   return <ChannelConversationPage channelId={channelId} search={Route.useSearch()} />;
 }

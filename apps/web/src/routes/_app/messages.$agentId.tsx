@@ -25,10 +25,10 @@ export const Route = createFileRoute("/_app/messages/$agentId")({
     }),
   pendingComponent: ConversationPending,
   errorComponent: ConversationLoadError,
-  component: DirectPage,
+  component: DirectConversationRoute,
 });
 
-function DirectPage() {
+function DirectConversationRoute() {
   const { agentId } = Route.useParams();
   return <DirectConversationPage agentId={agentId} search={Route.useSearch()} />;
 }

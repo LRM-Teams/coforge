@@ -5,14 +5,15 @@ import {
   conversationPageLoaderDeps,
   loadConversationPage,
 } from "#src/features/conversations/conversation-page-loader";
-import { savedMessagesQueryKey } from "#src/features/conversations/saved-messages-collection";
-import { listSavedMessages } from "#src/features/conversations/saved-messages.functions";
 import { parseScope, type SearchFilters } from "#src/features/search/search-filters";
 import { writeLastSearch } from "#src/features/search/search-memory";
 import { SearchPage } from "#src/features/search/search-page";
 import type { SearchPreviewTarget } from "#src/features/search/search-preview";
-import { searchPreviewTarget } from "#src/features/search/search-preview-context";
-import { lastSearchSchema, searchPageSearchSchema } from "#src/features/search/search.schemas";
+import {
+  searchPreviewOpenParam,
+  searchPreviewTarget,
+} from "#src/features/search/search-preview-context";
+import { searchPageSearchSchema, searchQuerySchema } from "#src/features/search/search.schemas";
 
 const appRoute = getRouteApi("/_app");
 
@@ -26,25 +27,16 @@ export const Route = createFileRoute("/_app/search")({
   }),
   loader: async ({ context: { queryClient }, parentMatchPromise, deps, cause }) => {
     const target = searchPreviewTarget(deps.open);
-    if (!target) return [];
-    const workspaceId = () =>
-      parentMatchPromise.then((parent) => parent.loaderData?.currentWorkspace?.id ?? "");
-    // The previewed conversation opens as Chat opens it (its window, its Tasks counts), with the
-    // viewer's Saved stars. A failed read is left to the preview, which says so; search stays up.
-    const [saved] = await Promise.all([
-      workspaceId()
-        .then((workspaceId) =>
-          queryClient.ensureQueryData({
-            queryKey: savedMessagesQueryKey(workspaceId),
-            queryFn: () => listSavedMessages(),
-          }),
-        )
-        .catch(() => []),
-      loadConversationPage(queryClient, target, deps, { cause, workspaceId }).catch(
-        () => undefined,
-      ),
-    ]);
-    return saved;
+    if (!target) return;
+    // The previewed conversation opens as Chat opens it: its window and Tasks counts are read
+    // first on arrival. Switching the preview while on search only starts the reads, so the
+    // preview shows its loading state at once. A failed read is left to the preview, which says so.
+    const page = loadConversationPage(queryClient, target, deps, {
+      cause,
+      workspaceId: () =>
+        parentMatchPromise.then((parent) => parent.loaderData?.currentWorkspace?.id ?? ""),
+    }).catch(() => undefined);
+    if (cause !== "stay") await page;
   },
   component: SearchRoute,
 });
@@ -96,12 +88,12 @@ function SearchRoute() {
     (next: SearchPreviewTarget | undefined) =>
       void navigate({
         search: (previous) => ({
-          ...lastSearchSchema.parse(previous),
-          defer: previous.defer,
-          open: next ? `${next.kind}:${next.id}` : undefined,
+          ...searchQuerySchema.parse(previous),
+          open: next ? searchPreviewOpenParam(next) : undefined,
           msg: next?.messageId,
           threadRootId: next?.threadRootId,
         }),
+        hash: next?.threadReplyId ? `message-${next.threadReplyId}` : undefined,
         replace: true,
       }),
     [navigate],

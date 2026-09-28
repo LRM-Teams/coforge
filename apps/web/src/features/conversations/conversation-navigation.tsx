@@ -18,7 +18,7 @@ import { LiveAgentActivityBar } from "./live-agent-activity-bar";
 import { m } from "#src/paraglide/messages";
 import { cx } from "#src/utils/cx";
 import { createPublicChannel } from "./channels.functions";
-import { ConversationViewerProvider } from "./conversation-viewer";
+import { ConversationHostProvider } from "./conversation-host";
 import {
   useCurrentWorkspaceId,
   useLiveAgents,
@@ -173,7 +173,7 @@ export function ConversationNavigation({ children }: { children: ReactNode }) {
         detailVisible: desktop || !showList,
       }}
     >
-      <ConversationViewerProvider saved={saved} channels={channelNames}>
+      <ConversationHostProvider saved={saved} channels={channelNames}>
         <UnreadContext value={controls}>
           <main className="flex h-svh min-w-0 flex-col bg-primary lg:flex-row">
             <section
@@ -221,7 +221,7 @@ export function ConversationNavigation({ children }: { children: ReactNode }) {
             />
           )}
         </UnreadContext>
-      </ConversationViewerProvider>
+      </ConversationHostProvider>
     </ConversationListContext>
   );
 }

@@ -57,13 +57,17 @@ export const searchPageSearchSchema = z.object({
   ...conversationPageSearchShape,
 });
 
-/** The search Cmd/Ctrl+K reopens: the page's query and filters, nothing of a preview. */
-export const lastSearchSchema = searchPageSearchSchema.pick({
+/** The search itself: its query, filters and `defer`, nothing of a preview. */
+export const searchQuerySchema = searchPageSearchSchema.pick({
   q: true,
   senderId: true,
   scope: true,
   channelId: true,
   range: true,
   sort: true,
+  defer: true,
 });
+
+/** The search Cmd/Ctrl+K reopens: the query and filters, without `defer`. */
+export const lastSearchSchema = searchQuerySchema.omit({ defer: true });
 export type LastSearch = z.output<typeof lastSearchSchema>;

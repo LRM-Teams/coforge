@@ -7,7 +7,7 @@ import { markPublicChannelRead } from "./channels.functions";
 import { ChannelConversation, ChannelConversationHeader } from "./channel-conversation";
 import { ConversationFilesPanel } from "./conversation-files";
 import { useMarkConversationSeen } from "./conversation-navigation";
-import { useConversationReadRequiresScroll } from "./conversation-viewer";
+import { useConversationReadRequiresScroll } from "./conversation-host";
 import type { ConversationPageSearch } from "./conversation-page-search";
 import { latestTopLevelSequence, persistReadCursor } from "./conversation-unread";
 import { useChannelConversation } from "./use-conversation-data";

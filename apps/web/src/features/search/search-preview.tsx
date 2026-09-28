@@ -6,7 +6,9 @@ import { Skeleton } from "#src/components/ui/skeleton";
 import { useCurrentWorkspaceId } from "#src/features/agents/workspace-agents-realtime";
 import { ChannelConversationPage } from "#src/features/conversations/channel-conversation-page";
 import { pickConversationPageSearch } from "#src/features/conversations/conversation-page-search";
-import { ConversationViewerProvider } from "#src/features/conversations/conversation-viewer";
+import { ConversationHostProvider } from "#src/features/conversations/conversation-host";
+import { savedMessagesQueryKey } from "#src/features/conversations/saved-messages-collection";
+import { listSavedMessages } from "#src/features/conversations/saved-messages.functions";
 import { DirectConversationPage } from "#src/features/conversations/direct-conversation-page";
 import { m } from "#src/paraglide/messages";
 import type { RememberedEntity } from "./search-memory";
@@ -17,8 +19,9 @@ const searchRoute = getRouteApi("/_app/search");
 /** What the preview shows: a channel or an Agent's direct conversation, optionally at a message. */
 export type SearchPreviewTarget = RememberedEntity & {
   messageId?: string;
-  /** A thread reply's root: the preview opens that thread. */
+  /** A thread reply's root and the reply itself: the preview opens that thread at the reply. */
   threadRootId?: string;
+  threadReplyId?: string;
 };
 
 /**
@@ -64,8 +67,8 @@ export const SearchPreview = memo(function SearchPreview({
 
 /**
  * The conversation page itself, under what Chat's layout gives it and the search page supplies:
- * the viewer's Saved list (read by the route's loader), the Workspace's channels (the search page
- * has already read them) and the page's own address state out of the search URL.
+ * the viewer's Saved list, the Workspace's channels (the search page has already read them) and the
+ * page's own address state out of the search URL.
  */
 function PreviewPage({ target }: { target: SearchPreviewTarget }) {
   const workspaceId = useCurrentWorkspaceId() ?? "";
@@ -73,7 +76,11 @@ function PreviewPage({ target }: { target: SearchPreviewTarget }) {
     ...searchDirectoryQuery(workspaceId),
     select: (directory) => directory.channels,
   }).data;
-  const saved = searchRoute.useLoaderData();
+  // The viewer's Saved stars, as Chat shows them; a failed read leaves none, as in Chat.
+  const saved = useSuspenseQuery({
+    queryKey: savedMessagesQueryKey(workspaceId),
+    queryFn: () => listSavedMessages().catch(() => []),
+  }).data;
   // Only the page's own fields, shared structurally: typing a query does not re-render the page.
   const search = searchRoute.useSearch({
     select: pickConversationPageSearch,
@@ -81,13 +88,13 @@ function PreviewPage({ target }: { target: SearchPreviewTarget }) {
   });
   const jumpMessage = target.messageId;
   return (
-    <ConversationViewerProvider saved={saved} channels={channels}>
+    <ConversationHostProvider saved={saved} channels={channels}>
       {target.kind === "channel" ? (
         <ChannelConversationPage channelId={target.id} search={search} jumpMessage={jumpMessage} />
       ) : (
         <DirectConversationPage agentId={target.id} search={search} jumpMessage={jumpMessage} />
       )}
-    </ConversationViewerProvider>
+    </ConversationHostProvider>
   );
 }
 

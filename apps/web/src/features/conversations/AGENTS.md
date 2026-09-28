@@ -55,7 +55,7 @@ These rules apply to `src/features/conversations/`.
   coordinates thread/profile panes; `conversation-pane.tsx` renders one message
   stream; `use-conversation-sync.ts` owns browser-only deep-link and read-cursor
   synchronization.
-- `conversation-viewer.tsx` is what a conversation reads from the page hosting
+- `conversation-host.tsx` is what a conversation reads from the page hosting
   it (Chat, the search preview): the viewer's open mode, the Workspace's
   channels and the Saved list, a TanStack DB collection
   (`saved-messages-collection.ts`) on the provider's `DbClient`, seeded from

@@ -24,15 +24,28 @@ export const conversationPageSearchShape = {
 
 export type ConversationPageSearch = z.output<z.ZodObject<typeof conversationPageSearchShape>>;
 
-const PAGE_SEARCH_KEYS = Object.keys(
-  conversationPageSearchShape,
-) as (keyof ConversationPageSearch)[];
-
-/** Only a conversation page's own fields out of a host's address. */
-export function pickConversationPageSearch(
-  search: Partial<Record<keyof ConversationPageSearch, unknown>>,
-): ConversationPageSearch {
-  return Object.fromEntries(
-    PAGE_SEARCH_KEYS.map((key) => [key, search[key]]),
-  ) as ConversationPageSearch;
+/** Only a conversation page's own fields out of a host's address (a `useSearch` select). */
+export function pickConversationPageSearch({
+  view,
+  status,
+  layout,
+  owners,
+  completed,
+  threadRootId,
+  task,
+  profile,
+  agentTab,
+}: ConversationPageSearch): ConversationPageSearch {
+  // `satisfies` names every field of the shape: one added there must be picked here too.
+  return {
+    view,
+    status,
+    layout,
+    owners,
+    completed,
+    threadRootId,
+    task,
+    profile,
+    agentTab,
+  } satisfies Record<keyof ConversationPageSearch, unknown>;
 }
