@@ -38,6 +38,7 @@ export type ChannelConversationView = Omit<DirectConversationView, "agent" | "me
     githubFullName: string | null;
     githubHtmlUrl: string | null;
   };
+  coordinatorAgent?: { id: string; name: string; displayName: string };
   muted: boolean;
   pinned: boolean;
   /** What this viewer may change from the settings panel. */

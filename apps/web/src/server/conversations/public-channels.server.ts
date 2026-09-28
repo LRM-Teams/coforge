@@ -274,21 +274,44 @@ export async function channelAgentRecipients(
     .map((mention) => mention.id);
   // A member's Agent is always in the conversation's Workspace (both foreign keys carry it), so
   // no Agent join is needed here.
+  const coordinator =
+    !mentioned.length && !message.threadRootId
+      ? await tx.conversation.findFirst({
+          where: {
+            id: message.conversationId,
+            coordinatorAgentId: { not: null },
+            coordinatorAgent: ACTIVE_AGENT_WHERE,
+          },
+          select: { coordinatorAgentId: true },
+        })
+      : null;
+  const activeCoordinator = coordinator?.coordinatorAgentId
+    ? await tx.conversationMember.findFirst({
+        where: {
+          conversationId: message.conversationId,
+          agentId: coordinator.coordinatorAgentId,
+          ...ACTIVE_MEMBER_WHERE,
+        },
+        select: { agentId: true },
+      })
+    : null;
   const ids = mentioned.length
     ? mentioned
-    : (
-        await tx.conversationMember.findMany({
-          where: {
-            conversationId: message.conversationId,
-            agentId: { not: null },
-            ...ACTIVE_MEMBER_WHERE,
-            ...(message.threadRootId
-              ? { threadFollows: { some: { rootMessageId: message.threadRootId } } }
-              : { channelMuted: false }),
-          },
-          select: { agentId: true },
-        })
-      ).map(({ agentId }) => agentId!);
+    : activeCoordinator?.agentId
+      ? [activeCoordinator.agentId]
+      : (
+          await tx.conversationMember.findMany({
+            where: {
+              conversationId: message.conversationId,
+              agentId: { not: null },
+              ...ACTIVE_MEMBER_WHERE,
+              ...(message.threadRootId
+                ? { threadFollows: { some: { rootMessageId: message.threadRootId } } }
+                : { channelMuted: false }),
+            },
+            select: { agentId: true },
+          })
+        ).map(({ agentId }) => agentId!);
   return [...new Set(ids)].filter((id) => id !== message.senderAgentId);
 }
 
@@ -320,6 +343,38 @@ export class PublicChannels {
       });
     });
     return { muted };
+  }
+
+  /** Routes new, unmentioned top-level channel messages to one Agent first. */
+  async setCoordinator(
+    workspaceId: string,
+    userId: string,
+    channelId: string,
+    coordinatorAgentId: string | null,
+  ) {
+    const channel = await this.channel(workspaceId, userId, channelId);
+    const authority = await resolveChannelAuthority(this.db, workspaceId, { userId }, channel);
+    if (!authority.capabilities.update) throw new AppError("ACCESS_DENIED");
+    if (coordinatorAgentId) {
+      const member = await this.db.conversationMember.findFirst({
+        where: {
+          conversationId: channel.id,
+          agentId: coordinatorAgentId,
+          ...ACTIVE_MEMBER_WHERE,
+          agent: { ...ACTIVE_AGENT_WHERE, workspaceId },
+        },
+        select: { agentId: true },
+      });
+      if (!member) throw new AppError("NOT_FOUND");
+    }
+    await this.db.$transaction(async (tx) => {
+      await lockConversation(tx, channel.id);
+      await tx.conversation.update({
+        where: { id: channel.id },
+        data: { coordinatorAgentId },
+      });
+    });
+    return { coordinatorAgentId };
   }
 
   async setAgentThreadFollowed(
@@ -1025,6 +1080,7 @@ export class PublicChannels {
         project: {
           select: { id: true, name: true, slug: true, githubFullName: true, githubHtmlUrl: true },
         },
+        coordinatorAgent: { select: { id: true, name: true, displayName: true } },
       },
     });
     if (!channel) throw new AppError("NOT_FOUND");
@@ -1580,6 +1636,11 @@ export class PublicChannels {
       resolveChannelAuthority(this.db, workspaceId, { userId }, channel),
     ]);
     const mentionScores = mentionAffinityScores(viewerRecentMentions);
+    const activeCoordinator =
+      channel.coordinatorAgent &&
+      mentionRows.some((row) => row.agent?.id === channel.coordinatorAgent?.id)
+        ? channel.coordinatorAgent
+        : undefined;
     const overflow = messages.length > limit;
     const { hasOlder, hasNewer } = windowPageFlags(
       forward ? "forward" : page.beforeSequence ? "backward" : "initial",
@@ -1598,6 +1659,7 @@ export class PublicChannels {
       description: channel.description,
       archived: channel.archivedAt !== null,
       project: channel.project ?? undefined,
+      coordinatorAgent: activeCoordinator,
       senderMemberId: member?.id ?? "",
       viewerHandle: member?.user?.username,
       muted: member?.channelMuted ?? false,

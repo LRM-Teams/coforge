@@ -879,6 +879,17 @@ export class TaskBoard {
             select: { agentId: true, channelMuted: true },
           })
         : [];
+      const coordinator =
+        member.userId && scope.channel
+          ? await tx.conversation.findFirst({
+              where: {
+                id: scope.conversationId,
+                coordinatorAgentId: { not: null },
+                coordinatorAgent: ACTIVE_AGENT_WHERE,
+              },
+              select: { coordinatorAgentId: true },
+            })
+          : null;
       // A title is a message like any other: its mentions, `task #N`s and `#channel`s are stored as
       // tokens, resolved against the channel's active members (a DM keeps plain `@handle` text).
       const mentionTargets = scope.channel
@@ -925,9 +936,12 @@ export class TaskBoard {
             .filter((mention) => mention.type === "agent")
             .map((mention) => mention.id),
         );
-        const recipients = agentMembers.filter(
-          ({ agentId, channelMuted }) =>
-            !scope.channel || !channelMuted || mentionedAgentIds.has(agentId!),
+        const recipients = agentMembers.filter(({ agentId, channelMuted }) =>
+          mentionedAgentIds.size
+            ? mentionedAgentIds.has(agentId!)
+            : coordinator?.coordinatorAgentId
+              ? agentId === coordinator.coordinatorAgentId
+              : !scope.channel || !channelMuted,
         );
         const message = await tx.message.create({
           data: {
