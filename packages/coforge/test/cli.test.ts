@@ -25,8 +25,7 @@ test("Agent API client requests workspace info through its route contract", asyn
         ok: true,
         status: 200,
         data: {
-          protocolMajor: 1,
-          requestId: "r",
+          idempotencyKey: "r",
           workspace: { id: "w", name: "Acme", slug: "acme" },
           humans: [],
           agents: [],
@@ -80,7 +79,6 @@ test("workspace info parses validated sections and formats a mocked summary", as
     send: async () => undefined,
     view: async () => ({ bytes: new Uint8Array() }),
     workspaceInfo: async () => ({
-      protocolMajor: 1,
       idempotencyKey: "r",
       workspace: { id: "w", name: "Acme", slug: "acme" },
       humans: [],
@@ -115,7 +113,6 @@ const FULL_RUNTIME_CONTEXT = {
   computerVersion: "0.1.0-dev.40",
 };
 const WORKSPACE_INFO_BASE = {
-  protocolMajor: 1,
   idempotencyKey: "r",
   workspace: { id: "w", name: "Acme", slug: "acme" },
   humans: [],
@@ -285,8 +282,7 @@ test("parses recurring reminders with an explicit default timezone and dispatche
       reminder: async (request) => {
         calls.push(request);
         return {
-          protocolMajor: 1,
-          requestId: "request",
+          idempotencyKey: "request",
           workspaceId: "workspace",
           computerId: "computer",
           agentId: "agent",
@@ -524,8 +520,7 @@ test("resolveReminderId matches a dash-stripped id prefix, and rejects zero or m
     title: "Second",
   };
   const scopeFields = {
-    protocolMajor: 1,
-    requestId: "r",
+    idempotencyKey: "r",
     workspaceId: "w",
     computerId: "c",
     agentId: "agent",
@@ -558,8 +553,7 @@ test("resolveReminderId matches a dash-stripped id prefix, and rejects zero or m
 test("resolveReminderId scopes the lookup to scheduled/fired for cancel/snooze, and names that scope in NOT_FOUND", async () => {
   const calls: unknown[] = [];
   const scopeFields = {
-    protocolMajor: 1,
-    requestId: "r",
+    idempotencyKey: "r",
     workspaceId: "w",
     computerId: "c",
     agentId: "agent",
@@ -587,8 +581,7 @@ test("run resolves a short --id prefix by listing reminders before dispatching t
     view: async () => ({ bytes: new Uint8Array() }),
   };
   const scopeFields = {
-    protocolMajor: 1,
-    requestId: "r",
+    idempotencyKey: "r",
     workspaceId: "w",
     computerId: "c",
     agentId: "agent",
@@ -635,8 +628,7 @@ test("run resolves a short --id prefix unscoped (across every status) for update
     view: async () => ({ bytes: new Uint8Array() }),
   };
   const scopeFields = {
-    protocolMajor: 1,
-    requestId: "r",
+    idempotencyKey: "r",
     workspaceId: "w",
     computerId: "c",
     agentId: "agent",
@@ -696,8 +688,7 @@ test("run rejects a short --id prefix that matches no reminder or more than one"
     view: async () => ({ bytes: new Uint8Array() }),
   };
   const scopeFields = {
-    protocolMajor: 1,
-    requestId: "r",
+    idempotencyKey: "r",
     workspaceId: "w",
     computerId: "c",
     agentId: "agent",
@@ -744,8 +735,7 @@ test("formats usable reminder lists, empty logs, and receipt acknowledgements", 
   const output = await run(["reminder", "list", "--all"], {
     ...base,
     reminder: async () => ({
-      protocolMajor: 1,
-      requestId: "request",
+      idempotencyKey: "request",
       workspaceId: "workspace",
       computerId: "computer",
       agentId: "agent",
@@ -774,8 +764,7 @@ test("formats usable reminder lists, empty logs, and receipt acknowledgements", 
     await run(["reminder", "log", "--id", reminderId], {
       ...base,
       reminder: async () => ({
-        protocolMajor: 1,
-        requestId: "request",
+        idempotencyKey: "request",
         workspaceId: "workspace",
         computerId: "computer",
         agentId: "agent",
@@ -1659,8 +1648,7 @@ test("channel management commands parse into a channel operation and dispatch th
     channel: async (command) => {
       calls.push(command);
       return {
-        protocolMajor: 1,
-        requestId: "r-1",
+        idempotencyKey: "r-1",
         target: "#engineering",
         joined: true,
         alreadyJoined: false,
@@ -1740,7 +1728,7 @@ test("--private and --public are rejected as unsupported, not silently ignored",
 });
 
 test("channel management --json prints the raw response for every subcommand", async () => {
-  const rawResponse = { protocolMajor: 1, requestId: "r-2", target: "#eng", archived: true };
+  const rawResponse = { idempotencyKey: "r-2", target: "#eng", archived: true };
   const result = await run(["channel", "lifecycle", "archive", "--target", "#eng", "--json"], {
     check: async () => ({ messages: [] }),
     read: async () => undefined,
@@ -2971,7 +2959,7 @@ test("weekly-report-collect CLI parses submit-pack and dispatches the transport"
       "submit-pack",
       "--run-id",
       "22222222-2222-4222-8222-222222222222",
-      "--request-id",
+      "--idempotency-key",
       "11111111-1111-4111-8111-111111111111",
       "--markdown",
       packPath,
@@ -2980,7 +2968,7 @@ test("weekly-report-collect CLI parses submit-pack and dispatches the transport"
       command: "weekly-report-collect",
       markdownPath: packPath,
       collect: {
-        requestId: "11111111-1111-4111-8111-111111111111",
+        idempotencyKey: "11111111-1111-4111-8111-111111111111",
         runId: "22222222-2222-4222-8222-222222222222",
         outcome: "ready",
       },
@@ -2992,7 +2980,7 @@ test("weekly-report-collect CLI parses submit-pack and dispatches the transport"
         "submit-empty",
         "--run-id",
         "22222222-2222-4222-8222-222222222222",
-        "--request-id",
+        "--idempotency-key",
         "11111111-1111-4111-8111-111111111111",
       ],
       {
@@ -3011,7 +2999,7 @@ test("weekly-report-collect CLI parses submit-pack and dispatches the transport"
         weeklyReportCollect: async (command) => {
           calls.push(command);
           return {
-            requestId: command.requestId,
+            idempotencyKey: command.idempotencyKey,
             runId: command.runId,
             status: "collecting",
             allTerminal: true,
@@ -3022,7 +3010,7 @@ test("weekly-report-collect CLI parses submit-pack and dispatches the transport"
     );
     expect(calls).toEqual([
       {
-        requestId: "11111111-1111-4111-8111-111111111111",
+        idempotencyKey: "11111111-1111-4111-8111-111111111111",
         runId: "22222222-2222-4222-8222-222222222222",
         outcome: "empty",
       },
@@ -3070,8 +3058,7 @@ test("weekly-report CLI parses bounded reads and dispatches the transport", asyn
     weeklyReport: async (command) => {
       calls.push(command);
       return {
-        protocolMajor: 1,
-        requestId: "request",
+        idempotencyKey: "request",
         operation: "list",
         result: { reports: [], nextCursor: null },
       };
@@ -3079,8 +3066,7 @@ test("weekly-report CLI parses bounded reads and dispatches the transport", asyn
   });
   expect(calls).toEqual([{ operation: "list", limit: 2 }]);
   expect(output).toEqual({
-    protocolMajor: 1,
-    requestId: "request",
+    idempotencyKey: "request",
     operation: "list",
     result: { reports: [], nextCursor: null },
   });

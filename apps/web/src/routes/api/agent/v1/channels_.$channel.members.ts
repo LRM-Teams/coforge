@@ -22,7 +22,7 @@ export async function handleAgentChannelMembersGet(
   const idempotencyKey = idempotencyKeyFromQuery(request);
   try {
     const roster = await repository.members(principal.workspaceId, principal.agentId, channel);
-    return Response.json({ protocolMajor: 1, idempotencyKey, ...roster });
+    return Response.json({ idempotencyKey, ...roster });
   } catch (error) {
     return channelManagementErrorResponse(error, "channel members failed");
   }
@@ -58,7 +58,7 @@ export async function handleAgentChannelMembersPost(
       channel,
       input,
     );
-    return Response.json({ protocolMajor: 1, idempotencyKey, ...result });
+    return Response.json({ idempotencyKey, ...result });
   } catch (error) {
     return channelManagementErrorResponse(error, "channel add-member failed");
   }
@@ -81,7 +81,7 @@ export async function handleAgentChannelMembersDelete(
       channel,
       input,
     );
-    return Response.json({ protocolMajor: 1, idempotencyKey, ...result });
+    return Response.json({ idempotencyKey, ...result });
   } catch (error) {
     return channelManagementErrorResponse(error, "channel remove-member failed");
   }

@@ -214,10 +214,9 @@ export type AgentContextUsage = {
 };
 export const WORKSPACE_PROTOCOL_MAJOR = COMPUTER_REGISTER_PROTOCOL_MAJOR;
 export type Workspace = { id: string; slug: string; name: string };
-export type WorkspaceInfoRequest = { protocolMajor: number; requestId: string };
+export type WorkspaceInfoRequest = { idempotencyKey: string };
 export type WorkspaceInfoResponse = {
-  protocolMajor: number;
-  requestId: string;
+  idempotencyKey: string;
   workspace: Workspace;
   humans: { id: string; name: string; displayName: string; role: string }[];
   agents: {
@@ -737,8 +736,7 @@ export type AgentStatus = {
   observedAtMs: number;
 };
 export type AgentMessageRequest = {
-  protocolMajor: number;
-  requestId: string;
+  idempotencyKey: string;
   agentId: string;
   workspaceId: string;
   fromSequence?: number;

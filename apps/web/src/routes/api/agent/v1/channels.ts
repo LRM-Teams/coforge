@@ -30,7 +30,7 @@ export async function handleAgentChannelsPost(
       body.name,
       body.description as string | undefined,
     );
-    return Response.json({ protocolMajor: 1, idempotencyKey, ...result });
+    return Response.json({ idempotencyKey, ...result });
   } catch (error) {
     return channelManagementErrorResponse(error, "channel create failed");
   }

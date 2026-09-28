@@ -62,7 +62,6 @@ test("POST /channels creates a channel and echoes the caller's idempotencyKey", 
   expect(calls).toEqual([["workspace-1", "agent-1", "#eng", "Eng"]]);
   expect(result.status).toBe(200);
   expect(await result.json()).toEqual({
-    protocolMajor: 1,
     idempotencyKey: "r-1",
     target: "#eng",
     channel: { id: "id-1", name: "#eng", description: "Eng" },
@@ -140,7 +139,6 @@ test("GET /channels/:channel returns the info envelope", async () => {
   );
   expect(result.status).toBe(200);
   expect(await result.json()).toMatchObject({
-    protocolMajor: 1,
     idempotencyKey: "r-2",
     channel: { name: "#eng" },
   });

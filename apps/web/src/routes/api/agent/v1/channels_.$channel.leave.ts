@@ -22,7 +22,7 @@ export async function handleAgentChannelLeavePost(
   const idempotencyKey = idempotencyKeyFrom(body);
   try {
     const result = await repository.leave(principal.workspaceId, principal.agentId, channel);
-    return Response.json({ protocolMajor: 1, idempotencyKey, ...result });
+    return Response.json({ idempotencyKey, ...result });
   } catch (error) {
     return channelManagementErrorResponse(error, "channel leave failed");
   }

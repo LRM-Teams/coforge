@@ -92,8 +92,7 @@ test("Agent reminder RPC requires the authenticated Agent's exact operation scop
     },
   } as unknown as Reminders);
   const request = {
-    protocolMajor: 1,
-    requestId: "request",
+    idempotencyKey: "request",
     workspaceId: "workspace-a",
     computerId: "computer-a",
     agentId: "agent-b",
@@ -163,8 +162,7 @@ test("schedule persists before best-effort publication and defaults recurring ti
   );
   const response = await reminders.execute(
     {
-      protocolMajor: 1,
-      requestId: "request",
+      idempotencyKey: "request",
       workspaceId: "workspace",
       computerId: "computer",
       agentId: "agent",
@@ -191,18 +189,17 @@ test("list forwards the status filter, or its absence, straight to the repositor
   } as unknown as ReminderRepository;
   const reminders = new Reminders(repository, { supports: async () => true }, async () => {});
   const base = {
-    protocolMajor: 1 as const,
     workspaceId: "workspace",
     computerId: "computer",
     agentId: "agent",
     operation: "list" as const,
   };
-  await reminders.execute({ ...base, requestId: "list-default" }, "owner");
+  await reminders.execute({ ...base, idempotencyKey: "list-default" }, "owner");
   await reminders.execute(
-    { ...base, requestId: "list-status", status: "scheduled,fired" },
+    { ...base, idempotencyKey: "list-status", status: "scheduled,fired" },
     "owner",
   );
-  await reminders.execute({ ...base, requestId: "list-all", all: true }, "owner");
+  await reminders.execute({ ...base, idempotencyKey: "list-all", all: true }, "owner");
   expect(calls).toEqual([
     { status: undefined, all: undefined },
     { status: "scheduled,fired", all: undefined },
@@ -210,7 +207,7 @@ test("list forwards the status filter, or its absence, straight to the repositor
   ]);
   await expect(
     reminders.execute(
-      { ...base, requestId: "list-invalid", status: "scheduled,scheduled" },
+      { ...base, idempotencyKey: "list-invalid", status: "scheduled,scheduled" },
       "owner",
     ),
   ).rejects.toThrow("invalid reminder status");
@@ -276,8 +273,7 @@ test("update and snooze publish encodable upserts without operation-only fields"
   for (const operation of ["update", "snooze"] as const)
     await reminders.execute(
       {
-        protocolMajor: 1,
-        requestId: `${operation}-request`,
+        idempotencyKey: `${operation}-request`,
         workspaceId: "workspace",
         computerId: "computer",
         agentId: "agent",
@@ -318,7 +314,6 @@ test("update accepts delaySeconds alone, and still rejects it together with fire
   } as unknown as ReminderRepository;
   const reminders = new Reminders(repository, { supports: async () => true }, async () => {});
   const base = {
-    protocolMajor: 1 as const,
     workspaceId: "workspace",
     computerId: "computer",
     agentId: "agent",
@@ -326,7 +321,7 @@ test("update accepts delaySeconds alone, and still rejects it together with fire
     reminderId: current.reminderId,
   };
   const response = await reminders.execute(
-    { ...base, requestId: "update-delay-seconds", delaySeconds: 3600 },
+    { ...base, idempotencyKey: "update-delay-seconds", delaySeconds: 3600 },
     "owner",
   );
   expect(response.reminders[0]).toMatchObject({ version: 2, fireAt: "2026-01-02T02:00:00.000Z" });
@@ -334,7 +329,7 @@ test("update accepts delaySeconds alone, and still rejects it together with fire
     reminders.execute(
       {
         ...base,
-        requestId: "update-delay-seconds-and-fire-at",
+        idempotencyKey: "update-delay-seconds-and-fire-at",
         delaySeconds: 3600,
         fireAt: "2026-01-02T03:00:00.000Z",
       },

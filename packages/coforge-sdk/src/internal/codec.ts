@@ -1150,7 +1150,7 @@ export function validateAgentMessageRequest(request: AgentMessageRequest): Agent
   if (request.seenUpToSeq !== undefined && request.operation !== "send")
     throw new Error("Agent message seen-up-to sequence is only valid for send");
   if (
-    !request.requestId ||
+    !request.idempotencyKey ||
     !request.agentId ||
     !AGENT_MESSAGE_OPERATIONS.includes(request.operation) ||
     (!TARGETLESS_AGENT_MESSAGE_OPERATIONS.includes(request.operation) && !request.target) ||

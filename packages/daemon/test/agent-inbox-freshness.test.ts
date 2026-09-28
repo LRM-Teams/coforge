@@ -87,7 +87,7 @@ test("a locally held send is transport-shaped, counted, and carries the window i
   });
   if (plan.decision !== "local_hold") throw new Error("expected a hold");
   const shown = [heldMessage(5), heldMessage(6)];
-  const held = locallyHeldSend(plan, { requestId: "send-1", draftReholdCount: 0 }, shown);
+  const held = locallyHeldSend(plan, { idempotencyKey: "send-1", draftReholdCount: 0 }, shown);
   expect(held.state).toBe("held");
   expect(held.decision).toBe("local_hold");
   expect(held.reason).toBe("exact_target_pending");
@@ -105,7 +105,7 @@ test("a locally held send is transport-shaped, counted, and carries the window i
 test("a hold with nothing left to show is honest: the count stands, the window is empty", () => {
   const plan = planAgentInboxFreshness({ ...base, pendingMessageCount: 2, latestSequence: 4 });
   if (plan.decision !== "local_hold") throw new Error("expected a hold");
-  const held = locallyHeldSend(plan, { requestId: "send-1", draftReholdCount: 0 });
+  const held = locallyHeldSend(plan, { idempotencyKey: "send-1", draftReholdCount: 0 });
   expect(held.messages).toEqual([]);
   expect(held.shownMessageCount).toBe(0);
   expect(held.omittedMessageCount).toBe(2);
@@ -115,10 +115,12 @@ test("a draft that has already been held once is told it may be forced with --an
   const plan = planAgentInboxFreshness({ ...base, pendingMessageCount: 1, latestSequence: 2 });
   if (plan.decision !== "local_hold") throw new Error("expected a hold");
   expect(
-    locallyHeldSend(plan, { requestId: "send-1", draftReholdCount: 0 }).continueAnywaySuggested,
+    locallyHeldSend(plan, { idempotencyKey: "send-1", draftReholdCount: 0 })
+      .continueAnywaySuggested,
   ).toBe(false);
   expect(
-    locallyHeldSend(plan, { requestId: "send-2", draftReholdCount: 1 }).continueAnywaySuggested,
+    locallyHeldSend(plan, { idempotencyKey: "send-2", draftReholdCount: 1 })
+      .continueAnywaySuggested,
   ).toBe(true);
 });
 
@@ -127,7 +129,7 @@ test("a withheld send keeps its mode so the caller reports a withheld count, not
   if (plan.decision !== "local_hold") throw new Error("expected a hold");
   expect(
     locallyHeldSend(plan, {
-      requestId: "send-3",
+      idempotencyKey: "send-3",
       draftReholdCount: 0,
       freshnessContextMode: "withheld",
     }).freshnessContextMode,

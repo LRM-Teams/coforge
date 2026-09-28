@@ -6,7 +6,6 @@ import {
   isValidReactionEmoji,
   validateTaskRequest,
   validateWeeklyReportRequest,
-  WEEKLY_REPORT_PROTOCOL_MAJOR,
   type ChannelCommand,
   type LocalAgentMessageRequest,
   type LocalInboxRequest,
@@ -414,8 +413,8 @@ function parseProfileUpdateFields(fields: JsonObject): AgentProfileUpdateRequest
 
 function parseChannelCommand(payload: JsonObject): ChannelCommand | Response {
   if (
-    typeof payload.requestId !== "string" ||
-    payload.requestId.length === 0 ||
+    typeof payload.idempotencyKey !== "string" ||
+    payload.idempotencyKey.length === 0 ||
     !isChannelOperation(payload.operation) ||
     (payload.target !== undefined && typeof payload.target !== "string") ||
     (payload.name !== undefined && typeof payload.name !== "string") ||
@@ -432,7 +431,7 @@ function parseChannelCommand(payload: JsonObject): ChannelCommand | Response {
   )
     return badRequest();
   return {
-    requestId: payload.requestId,
+    idempotencyKey: payload.idempotencyKey,
     operation: payload.operation,
     target: payload.target,
     name: payload.name,
@@ -466,8 +465,9 @@ function parseInboxRequest(
   payload: JsonObject,
   binding: TokenBinding,
 ): LocalInboxRequest | Response {
-  if (typeof payload.requestId !== "string" || payload.operation !== "check") return badRequest();
-  return { requestId: payload.requestId, context: binding.context, operation: "check" };
+  if (typeof payload.idempotencyKey !== "string" || payload.operation !== "check")
+    return badRequest();
+  return { idempotencyKey: payload.idempotencyKey, context: binding.context, operation: "check" };
 }
 
 function parseMessageRequest(
@@ -475,8 +475,8 @@ function parseMessageRequest(
   binding: TokenBinding,
 ): LocalAgentMessageRequest | Response {
   if (
-    typeof payload.requestId !== "string" ||
-    payload.requestId.length === 0 ||
+    typeof payload.idempotencyKey !== "string" ||
+    payload.idempotencyKey.length === 0 ||
     ![
       "check",
       "read",
@@ -534,7 +534,7 @@ function parseMessageRequest(
   )
     return badRequest();
   return {
-    requestId: payload.requestId,
+    idempotencyKey: payload.idempotencyKey,
     operation: payload.operation as LocalAgentMessageRequest["operation"],
     target: typeof payload.target === "string" ? payload.target : undefined,
     content: typeof payload.content === "string" ? payload.content : undefined,
@@ -579,7 +579,7 @@ const ROUTE_TABLE: readonly ProxyRoute[] = [
     match: exactPath(LOCAL_PROXY_ROUTES.workspace.path),
     body: "none",
     handler: "workspaceInfo",
-    parse: () => ({ requestId: crypto.randomUUID(), protocolMajor: 1 }),
+    parse: () => ({ idempotencyKey: crypto.randomUUID() }),
   }),
   defineRoute({
     family: "agent-api/manual-get",
@@ -770,8 +770,7 @@ const ROUTE_TABLE: readonly ProxyRoute[] = [
       const command = fields as WeeklyReportCommand;
       validateWeeklyReportRequest({
         ...command,
-        protocolMajor: WEEKLY_REPORT_PROTOCOL_MAJOR,
-        requestId: "local",
+        idempotencyKey: "local",
         workspaceId: "local",
         agentId: binding.agentId,
       });

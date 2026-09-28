@@ -43,8 +43,7 @@ const summary = (row: ReminderRow): StoredReminder => ({
 
 function encodeStored(scope: Scope, requestId: string, value: StoredReminder) {
   return encodeAgentReminderOperationResponse({
-    protocolMajor: 1,
-    requestId,
+    idempotencyKey: requestId,
     workspaceId: scope.workspaceId,
     computerId: scope.computerId,
     agentId: scope.agentId,

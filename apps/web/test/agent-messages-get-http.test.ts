@@ -50,7 +50,6 @@ test("read forwards the sequence window to the repository and returns the canoni
   expect(result.status).toBe(200);
   const body = await result.json();
   expect(body).toEqual({
-    protocolMajor: 1,
     idempotencyKey: "request-1",
     messages: [
       {

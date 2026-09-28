@@ -929,8 +929,7 @@ export class DaemonConnection implements DaemonConnectionClient {
       const url = this.#serverEndpoint("Agent message HTTP", agentApiRoutes.cloud.events.path);
       const events = await requestEvents({ url, ...this.#agentKeys(agentApiKey), request });
       return {
-        protocolMajor: events.protocolMajor,
-        requestId: events.idempotencyKey,
+        idempotencyKey: events.idempotencyKey,
         accepted: true,
         attentionCount: events.events.length,
         messages: events.events,
@@ -952,8 +951,7 @@ export class DaemonConnection implements DaemonConnectionClient {
         request: { ...request, muted },
       });
       return {
-        protocolMajor: result.protocolMajor,
-        requestId: result.idempotencyKey,
+        idempotencyKey: result.idempotencyKey,
         accepted: true,
         attentionCount: 0,
         messages: [],
@@ -969,8 +967,7 @@ export class DaemonConnection implements DaemonConnectionClient {
       );
       const result = await requestThreadUnfollow({ url, ...this.#agentKeys(agentApiKey), request });
       return {
-        protocolMajor: result.protocolMajor,
-        requestId: result.idempotencyKey,
+        idempotencyKey: result.idempotencyKey,
         accepted: true,
         attentionCount: 0,
         messages: [],
@@ -1196,13 +1193,7 @@ export class DaemonConnection implements DaemonConnectionClient {
       daemonApiKey: this.#token,
       request,
     });
-    for (const field of [
-      "requestId",
-      "workspaceId",
-      "computerId",
-      "agentId",
-      "protocolMajor",
-    ] as const)
+    for (const field of ["idempotencyKey", "workspaceId", "computerId", "agentId"] as const)
       if (response[field] !== request[field])
         throw new Error("uncorrelated Agent reminder response");
     return response;

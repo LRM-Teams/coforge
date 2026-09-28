@@ -1,4 +1,3 @@
-import { WORKSPACE_PROTOCOL_MAJOR } from "@lrm/coforge-sdk/internal";
 import type { AgentMessageTransportResponse } from "#src/connection/agent-http-clients";
 
 /**
@@ -94,7 +93,7 @@ export const HELD_SEND_AVAILABLE_ACTIONS = ["check_messages", "send_draft", "sen
 export function locallyHeldSend(
   plan: Extract<AgentInboxFreshnessPlan, { decision: "local_hold" }>,
   input: {
-    requestId: string;
+    idempotencyKey: string;
     draftReholdCount: number;
     freshnessContextMode?: "inline" | "withheld";
   },
@@ -105,8 +104,7 @@ export function locallyHeldSend(
   window: readonly AgentMessageTransportResponse["messages"][number][] = [],
 ): AgentMessageTransportResponse {
   return {
-    protocolMajor: WORKSPACE_PROTOCOL_MAJOR,
-    requestId: input.requestId,
+    idempotencyKey: input.idempotencyKey,
     accepted: false,
     attentionCount: plan.newMessageCount,
     // The window rides `messages`, the field the daemon's response envelope already carries the

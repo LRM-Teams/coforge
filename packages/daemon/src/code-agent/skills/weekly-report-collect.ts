@@ -68,9 +68,9 @@ Build a Markdown **采集包** with Highlights, Repos / Work groups, and short d
 Prefer the Agent CLI (Credential Proxy injects the API key):
 
 \`\`\`
-coforge weekly-report-collect submit-pack --run-id <uuid> --request-id <uuid> --markdown <file>
-coforge weekly-report-collect submit-empty --run-id <uuid> --request-id <uuid>
-coforge weekly-report-collect submit-failure --run-id <uuid> --request-id <uuid> --reason <text>
+coforge weekly-report-collect submit-pack --run-id <uuid> --idempotency-key <uuid> --markdown <file>
+coforge weekly-report-collect submit-empty --run-id <uuid> --idempotency-key <uuid>
+coforge weekly-report-collect submit-failure --run-id <uuid> --idempotency-key <uuid> --reason <text>
 \`\`\`
 
 Or POST the same JSON to the Credential Proxy route:
@@ -81,7 +81,7 @@ JSON body:
 
 \`\`\`json
 {
-  "requestId": "<uuid>",
+  "idempotencyKey": "<uuid>",
   "runId": "<from wake>",
   "outcome": "ready",
   "packMarkdown": "<markdown>"

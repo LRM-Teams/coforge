@@ -86,8 +86,7 @@ export const createAgentReminderMethod =
     } catch (error) {
       if (request)
         return encodeAgentReminderOperationResponse({
-          protocolMajor: 1,
-          requestId: request.requestId,
+          idempotencyKey: request.idempotencyKey,
           workspaceId: request.workspaceId,
           computerId: request.computerId,
           agentId: request.agentId,

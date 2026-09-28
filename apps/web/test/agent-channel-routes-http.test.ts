@@ -28,7 +28,6 @@ test("mute forwards the decoded channel target and returns the accepted envelope
   expect(calls).toEqual([["workspace-1", "agent-1", "#general", true]]);
   expect(result.status).toBe(200);
   expect(await result.json()).toEqual({
-    protocolMajor: 1,
     idempotencyKey: "r-1",
     target: "#general",
     muted: true,
@@ -110,7 +109,6 @@ test("unmute forwards muted=false for the decoded channel target", async () => {
   expect(calls).toEqual([["workspace-1", "agent-1", "#general", false]]);
   expect(result.status).toBe(200);
   expect(await result.json()).toEqual({
-    protocolMajor: 1,
     idempotencyKey: "r-2",
     target: "#general",
     muted: false,
@@ -145,7 +143,6 @@ test("unfollow forwards the decoded channel thread target", async () => {
   expect(calls).toEqual([["workspace-1", "agent-1", target, false]]);
   expect(result.status).toBe(200);
   expect(await result.json()).toEqual({
-    protocolMajor: 1,
     idempotencyKey: "r-3",
     target,
     followed: false,

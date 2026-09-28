@@ -25,6 +25,13 @@ const scope = {
   computerId: "computer-1",
   agentId: "agent-1",
 };
+/** The same identity as the Agent HTTP operation carries it: its key is `idempotencyKey`. */
+const operationScope = {
+  idempotencyKey: "request-1",
+  workspaceId: "workspace-1",
+  computerId: "computer-1",
+  agentId: "agent-1",
+};
 const reminderId = "018f47ac-7c56-7abc-8def-0123456789ab";
 const fullTitle =
   "准备发布提醒：请核对 multilingual release notes、回滚步骤与负责人。\n\t第二行保留原始缩进，包含 العربية و日本語；第三部分继续记录完整提醒正文，不应截断为 Inbox preview。\r\n最后确认所有检查均已完成。";
@@ -33,7 +40,7 @@ test("preserves full multiline reminder titles across protocol seams", () => {
   expect(fullTitle.length).toBeGreaterThan(120);
 
   const schedule = {
-    ...scope,
+    ...operationScope,
     operation: "schedule" as const,
     title: fullTitle,
     target: "#general",
@@ -45,7 +52,7 @@ test("preserves full multiline reminder titles across protocol seams", () => {
   ).toEqual(schedule);
 
   const update = {
-    ...scope,
+    ...operationScope,
     operation: "update" as const,
     reminderId,
     title: fullTitle,
@@ -72,7 +79,7 @@ test("preserves full multiline reminder titles across protocol seams", () => {
   expect(decodeReminderSync(encodeReminderSync(sync))).toEqual(sync);
 
   const response = {
-    ...scope,
+    ...operationScope,
     accepted: true,
     reminders: [
       {
@@ -90,7 +97,7 @@ test("preserves full multiline reminder titles across protocol seams", () => {
 
 test("round-trips and validates cloud reminder operations", () => {
   const request = {
-    ...scope,
+    ...operationScope,
     operation: "schedule" as const,
     title: "Review",
     target: "#general",
@@ -109,14 +116,16 @@ test("round-trips and validates cloud reminder operations", () => {
     encodeAgentReminderOperationRequest({ ...request, fireAt: "2026-09-08T10:00:00Z" }),
   ).toThrow();
   expect(() => encodeAgentReminderOperationRequest({ ...request, messageId: "dead" })).toThrow();
-  expect(() => encodeAgentReminderOperationRequest({ ...scope, operation: "cancel" })).toThrow();
+  expect(() =>
+    encodeAgentReminderOperationRequest({ ...operationScope, operation: "cancel" }),
+  ).toThrow();
   expect(isReminderMessageAnchor(reminderId)).toBe(true);
   expect(isReminderMessageAnchor("deadbeef")).toBe(true);
 });
 
 test("accepts established targets, bounded recurrence, and explicit instants", () => {
   const request = {
-    ...scope,
+    ...operationScope,
     operation: "schedule" as const,
     title: "Review",
     target: `@frank:${reminderId}`,
@@ -158,7 +167,7 @@ test("accepts established targets, bounded recurrence, and explicit instants", (
 
 test("enforces operation-specific reminder fields", () => {
   const schedule = {
-    ...scope,
+    ...operationScope,
     operation: "schedule" as const,
     title: "Review",
     target: "@frank",
@@ -171,7 +180,7 @@ test("enforces operation-specific reminder fields", () => {
   expect(() => encodeAgentReminderOperationRequest({ ...schedule, status: "scheduled" })).toThrow();
   expect(() =>
     encodeAgentReminderOperationRequest({
-      ...scope,
+      ...operationScope,
       operation: "update",
       reminderId,
       repeat: "none",
@@ -179,14 +188,14 @@ test("enforces operation-specific reminder fields", () => {
   ).not.toThrow();
   expect(() =>
     encodeAgentReminderOperationRequest({
-      ...scope,
+      ...operationScope,
       operation: "update",
       reminderId,
       target: "@frank",
     }),
   ).toThrow();
   const updateByDelay = {
-    ...scope,
+    ...operationScope,
     operation: "update" as const,
     reminderId,
     delaySeconds: 600,
@@ -201,44 +210,57 @@ test("enforces operation-specific reminder fields", () => {
     }),
   ).toThrow();
   expect(() =>
-    encodeAgentReminderOperationRequest({ ...scope, operation: "cancel", reminderId, title: "No" }),
+    encodeAgentReminderOperationRequest({
+      ...operationScope,
+      operation: "cancel",
+      reminderId,
+      title: "No",
+    }),
   ).toThrow();
   expect(() =>
     encodeAgentReminderOperationRequest({
-      ...scope,
+      ...operationScope,
       operation: "list",
       status: "scheduled",
       all: true,
     }),
   ).not.toThrow();
   expect(() =>
-    encodeAgentReminderOperationRequest({ ...scope, operation: "list", status: "scheduled,fired" }),
+    encodeAgentReminderOperationRequest({
+      ...operationScope,
+      operation: "list",
+      status: "scheduled,fired",
+    }),
   ).not.toThrow();
   expect(() =>
     encodeAgentReminderOperationRequest({
-      ...scope,
+      ...operationScope,
       operation: "list",
       status: "scheduled,fired,canceled",
     }),
   ).not.toThrow();
   expect(() =>
     encodeAgentReminderOperationRequest({
-      ...scope,
+      ...operationScope,
       operation: "list",
       status: "scheduled,scheduled",
     }),
   ).toThrow();
   expect(() =>
-    encodeAgentReminderOperationRequest({ ...scope, operation: "list", status: "scheduled,bogus" }),
+    encodeAgentReminderOperationRequest({
+      ...operationScope,
+      operation: "list",
+      status: "scheduled,bogus",
+    }),
   ).toThrow();
   expect(() =>
-    encodeAgentReminderOperationRequest({ ...scope, operation: "list", status: "" }),
+    encodeAgentReminderOperationRequest({ ...operationScope, operation: "list", status: "" }),
   ).toThrow();
   expect(isValidReminderStatusFilter("scheduled,fired")).toBe(true);
   expect(isValidReminderStatusFilter("scheduled, fired")).toBe(true);
   expect(isValidReminderStatusFilter("scheduled,scheduled")).toBe(false);
   expect(isValidReminderStatusFilter("scheduled,bogus")).toBe(false);
-  const commaList = { ...scope, operation: "list" as const, status: "scheduled,fired" };
+  const commaList = { ...operationScope, operation: "list" as const, status: "scheduled,fired" };
   expect(
     decodeAgentReminderOperationRequest(encodeAgentReminderOperationRequest(commaList)),
   ).toEqual(commaList);
@@ -330,7 +352,7 @@ test("requires coherent fire response results", () => {
 test("canonical responses and local receipts reject non-canonical business data", () => {
   expect(() =>
     encodeAgentReminderOperationResponse({
-      ...scope,
+      ...operationScope,
       accepted: true,
       reminders: [
         {
@@ -350,7 +372,7 @@ test("canonical responses and local receipts reject non-canonical business data"
   ).toThrow();
   expect(() =>
     encodeLocalReminderRequest({
-      requestId: "request-1",
+      idempotencyKey: "request-1",
       context: "agent",
       operation: "ack",
       reminderId,
@@ -364,8 +386,7 @@ test("validateAgentReminderOperationRequest applies the codec's rules to plain J
   // The HTTP contract: same rules as the codec, no protobuf. A route that encodes to bytes only to
   // decode them back speaks the wrong shape for an HTTP handler.
   const request = {
-    protocolMajor: 1,
-    requestId: "11111111-1111-4111-8111-111111111111",
+    idempotencyKey: "11111111-1111-4111-8111-111111111111",
     workspaceId: "22222222-2222-4222-8222-222222222222",
     computerId: "33333333-3333-4333-8333-333333333333",
     agentId: "44444444-4444-4444-8444-444444444444",
@@ -377,8 +398,8 @@ test("validateAgentReminderOperationRequest applies the codec's rules to plain J
   // A scope id is an opaque token, not a UUID — but it has to *be* one. `RegExp.test(undefined)`
   // stringifies to "undefined" and matches the pattern, so an absent id is the case worth pinning:
   // the protobuf encoder refused it by field type, and the JSON path has to refuse it on its own.
-  const { requestId: _requestId, ...withoutRequestId } = request;
-  expect(() => validateAgentReminderOperationRequest(withoutRequestId)).toThrow();
+  const { idempotencyKey: _idempotencyKey, ...withoutIdempotencyKey } = request;
+  expect(() => validateAgentReminderOperationRequest(withoutIdempotencyKey)).toThrow();
   expect(() =>
     validateAgentReminderOperationRequest({ ...request, workspaceId: undefined }),
   ).toThrow();

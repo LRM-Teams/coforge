@@ -8,12 +8,12 @@
 constraint for send idempotency. `sequence` is assigned atomically within the
 owning conversation and is unique with `conversationId`.
 
-Agent→Web send retries carry a stable `request_id`. For the MVP, Web keeps the
+Agent→Web send retries carry a stable `idempotencyKey`. For the MVP, Web keeps the
 request result in bounded, expiring Redis idempotency state and returns that
 same result when the same authorized sender retries the request. Redis loss may
-lose this short-term deduplication state; PostgreSQL does not persist
-`request_id`, and this decision does not add a Prisma model, column, migration,
-or unique constraint for request idempotency.
+lose this short-term deduplication state; PostgreSQL persists no idempotency
+key, and this decision does not add a Prisma model, column, migration, or
+unique constraint for request idempotency.
 
 The MVP stores `workspaceId` on each message solely to support composite foreign
 keys: both its conversation and its sender member must have that workspace and

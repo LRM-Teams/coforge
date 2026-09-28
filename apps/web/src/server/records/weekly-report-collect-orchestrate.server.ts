@@ -62,9 +62,9 @@ export function buildCollectorWakeBody(input: {
     "scanPaths:",
     paths,
     "",
-    "完成后调用：coforge weekly-report-collect submit-pack --run-id <runId> --request-id <uuid> --markdown <file>",
-    "无证据：coforge weekly-report-collect submit-empty --run-id <runId> --request-id <uuid>",
-    "失败：coforge weekly-report-collect submit-failure --run-id <runId> --request-id <uuid> --reason <text>",
+    "完成后调用：coforge weekly-report-collect submit-pack --run-id <runId> --idempotency-key <uuid> --markdown <file>",
+    "无证据：coforge weekly-report-collect submit-empty --run-id <runId> --idempotency-key <uuid>",
+    "失败：coforge weekly-report-collect submit-failure --run-id <runId> --idempotency-key <uuid> --reason <text>",
   ].join("\n");
 }
 
