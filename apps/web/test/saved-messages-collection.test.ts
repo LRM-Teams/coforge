@@ -2,8 +2,10 @@ import { describe, expect, jest, test } from "bun:test";
 import { DbClient } from "@tanstack/react-db";
 import { QueryClient } from "@tanstack/react-query";
 import {
+  cachedSavedMessagesStore,
   materializeSavedMessages,
   optimisticSavedEntry,
+  savedMessagesQueryKey,
   savedMessagesStore,
   saveMessageOptimistically,
   unsaveMessageOptimistically,
@@ -48,6 +50,7 @@ function setup(initial: SavedEntry[]) {
   });
   return {
     collection,
+    queryClient,
     calls,
     setServerList: (list: SavedEntry[]) => (serverList = list),
     release: () => pending.release(),
@@ -63,25 +66,37 @@ describe("saved messages collection", () => {
     expect(collection.has("m2")).toBe(false);
   });
 
-  test("stays whole on the app's DbClient while no page shows it", async () => {
-    // The collection lives as long as the app's one DbClient: a page that comes back to it, even
-    // long after the last one left, finds the list, not a garbage-collected empty collection.
+  test("shows the cached list while its collection is not synced, even after GC emptied it", async () => {
+    // A page that comes back long after the last one left finds the collection garbage-collected
+    // (TanStack DB's default); until it syncs again the store reads the cached list, not nothing.
     jest.useFakeTimers();
     try {
-      const { collection } = setup([entry("m1")]);
-      const store = savedMessagesStore(collection);
+      const { collection, queryClient } = setup([entry("m1")]);
+      const key = savedMessagesQueryKey("workspace-1");
+      const store = savedMessagesStore(collection, () => queryClient.getQueryData(key) ?? []);
       const unsubscribe = store.subscribe(() => {});
       unsubscribe();
-      // The collection's GC timer is armed from a microtask, and its cleanup runs from an idle
-      // callback once the timer fires.
+      // The GC timer is armed from a microtask; its cleanup runs from an idle callback.
       await Promise.resolve();
       jest.advanceTimersByTime(60 * 60_000);
       jest.advanceTimersByTime(60_000);
       await Promise.resolve();
-      expect(collection.has("m1")).toBe(true);
+      expect(collection.has("m1")).toBe(false);
+      // GC removed the collection's Query too; the next page's loader reads the list again.
+      expect(queryClient.getQueryData(key)).toBeUndefined();
+      queryClient.setQueryData(key, [entry("m1")]);
+      expect(store.has("m1")).toBe(true);
+      expect(store.entries().map((saved) => saved.message.id)).toEqual(["m1"]);
     } finally {
       jest.useRealTimers();
     }
+  });
+
+  test("a list store serves the cached list before the page is hydrated", () => {
+    const store = cachedSavedMessagesStore([entry("m1"), entry("m2", new Date(1))]);
+    expect(store.has("m1")).toBe(true);
+    expect(store.has("m3")).toBe(false);
+    expect(store.entries().map((saved) => saved.message.id)).toEqual(["m2", "m1"]);
   });
 
   test("a save shows at once and persists through the save call", async () => {

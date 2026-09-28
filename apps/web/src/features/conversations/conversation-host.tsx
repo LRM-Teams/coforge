@@ -1,7 +1,7 @@
 import { createContext, useContext, useMemo, useSyncExternalStore, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useDbClient } from "@tanstack/react-db";
-import { getRouteApi } from "@tanstack/react-router";
+import { getRouteApi, useHydrated } from "@tanstack/react-router";
 
 import { useCurrentWorkspaceId } from "#src/features/agents/workspace-agents-realtime";
 import {
@@ -13,6 +13,7 @@ import { savedMessagesQuery } from "./conversation-queries";
 import type { ChannelSuggestion } from "./reference-completion";
 import { listSavedMessages, saveMessage, unsaveMessage } from "./saved-messages.functions";
 import {
+  cachedSavedMessagesStore,
   materializeSavedMessages,
   savedMessagesStore,
   type SavedEntry,
@@ -50,22 +51,28 @@ export function ConversationHostProvider({
 }) {
   const { conversationOpenMode: savedOpenMode } = appRoute.useLoaderData();
   const workspaceId = useCurrentWorkspaceId() ?? "";
-  // Saved (#127): one collection on the app's `DbClient` (`DbClient.collection` keeps one per id),
-  // so every host shares it. It starts from the list the host's loader read into the Query cache,
-  // follows that Query afterwards, and a toggle changes it at once and persists in the background.
+  // Saved (#127): TanStack DB collections are client-side only, so the server and the hydrating
+  // render read the list the host's loader put in the Query cache. After hydration it is one
+  // collection on the app's `DbClient` (`DbClient.collection` keeps one per id), shared by every
+  // host: it starts from that list, follows its Query, and a toggle changes it at once and persists
+  // in the background.
   const dbClient = useDbClient();
   const queryClient = useQueryClient();
+  const hydrated = useHydrated();
   const savedMessages = useMemo<SavedMessagesState>(() => {
-    const seed = queryClient.getQueryData(savedMessagesQuery(workspaceId).queryKey) ?? [];
-    const store = savedMessagesStore(
-      materializeSavedMessages(dbClient, workspaceId, seed, {
-        list: () => listSavedMessages(),
-        save: (target) => saveMessage({ data: target }),
-        unsave: (target) => unsaveMessage({ data: target }),
-      }),
-    );
+    const cached = () => queryClient.getQueryData(savedMessagesQuery(workspaceId).queryKey) ?? [];
+    const store = hydrated
+      ? savedMessagesStore(
+          materializeSavedMessages(dbClient, workspaceId, cached(), {
+            list: () => listSavedMessages(),
+            save: (target) => saveMessage({ data: target }),
+            unsave: (target) => unsaveMessage({ data: target }),
+          }),
+          cached,
+        )
+      : cachedSavedMessagesStore(cached());
     return { store, save: store.save, unsave: store.unsave };
-  }, [dbClient, queryClient, workspaceId]);
+  }, [hydrated, dbClient, queryClient, workspaceId]);
   return (
     <OpenModeContext value={conversationOpenMode(savedOpenMode)}>
       <SavedMessagesContext value={savedMessages}>
