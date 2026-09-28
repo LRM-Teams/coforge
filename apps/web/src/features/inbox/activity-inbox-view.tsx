@@ -118,7 +118,11 @@ export function ActivityInboxView({
 
   // A failed change is shown in the toolbar with its retry until it succeeds or is dismissed.
   const [failure, setFailure] = useState<{ retry: () => void } | null>(null);
-  const actions = useActivityItemActions({ onChanged: refresh, onFailure: setFailure });
+  const actions = useActivityItemActions({
+    workspaceId,
+    onChanged: refresh,
+    onFailure: setFailure,
+  });
 
   // Reads only what the list showed: the server's own clock at the time it read the list.
   const loadedAt = firstPage?.loadedAt;
@@ -142,8 +146,8 @@ export function ActivityInboxView({
             filter={filter}
             onFilterChange={onFilterChange}
             counts={{
-              unread: firstPage?.unreadItemCount ?? 0,
-              mentions: firstPage?.unreadMentionItemCount ?? 0,
+              unread: firstPage?.unreadItemCount,
+              mentions: firstPage?.unreadMentionItemCount,
             }}
           />
         }
@@ -215,7 +219,7 @@ function ActivityInboxTabs({
 }: {
   filter: ActivityInboxFilter;
   onFilterChange: (filter: ActivityInboxFilter) => void;
-  counts: { unread: number; mentions: number };
+  counts: Partial<Record<ActivityInboxFilter, number>>;
 }) {
   return (
     <Tabs
@@ -231,7 +235,7 @@ function ActivityInboxTabs({
           <Tab key={tab.id} id={tab.id} icon={tab.icon}>
             {/* The official `badge` prop hides below `md`; the count must show on phones too. */}
             {({ isSelected, isHovered }) => {
-              const count = tab.id === "all" ? 0 : counts[tab.id];
+              const count = counts[tab.id] ?? 0;
               return (
                 <>
                   {tab.label()}
@@ -307,9 +311,11 @@ type ActivityItemActions = ReturnType<typeof useActivityItemActions>;
  * re-render only when their own item changes.
  */
 function useActivityItemActions({
+  workspaceId,
   onChanged,
   onFailure,
 }: {
+  workspaceId: string;
   onChanged: () => Promise<void>;
   onFailure: (failure: { retry: () => void } | null) => void;
 }) {
@@ -383,7 +389,8 @@ function useActivityItemActions({
       },
       done: (item: ActivityInboxItem) => {
         queryClient.setQueriesData<InfiniteData<ActivityInboxPage>>(
-          { queryKey: ACTIVITY_INBOX_LISTS_KEY },
+          // Every view of this Workspace: the counts cover them all.
+          { queryKey: [...ACTIVITY_INBOX_LISTS_KEY, workspaceId] },
           (data) => data && withoutItem(data, item),
         );
         run(() =>
@@ -408,6 +415,7 @@ function useActivityItemActions({
     };
   }, [
     queryClient,
+    workspaceId,
     onChanged,
     onFailure,
     markChannelRead,
@@ -423,8 +431,8 @@ function useActivityItemActions({
 }
 
 /**
- * A cached view without one item, until the refetch lands. The tab counts cover every view, so
- * each cached view drops the item from them, whether or not it lists the item.
+ * A cached view of the item's Workspace without the item, until the refetch lands. The tab counts
+ * cover every view, so each view drops the item from them, whether or not it lists the item.
  */
 function withoutItem(
   data: InfiniteData<ActivityInboxPage>,
@@ -733,7 +741,7 @@ export function ActivityInboxPending() {
       className="flex h-full min-h-0 flex-col"
     >
       {/* The tabs' place, so the list does not move when the page lands. */}
-      <PageHeader heading={m.navigation_activity()} tabs={<Skeleton className="mb-3 h-5 w-64" />} />
+      <PageHeader heading={m.navigation_activity()} tabs={<Skeleton className="mb-3 h-6 w-64" />} />
       <ol className="flex flex-col gap-2 p-4 sm:px-6">
         {[0, 1, 2, 3].map((row) => (
           <li key={row} className="rounded-xl border border-secondary p-3">

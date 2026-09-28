@@ -242,6 +242,8 @@ test("the Activity page lists, filters, marks Done and opens inbox items", async
       return true;
     })()`);
     await browser("wait", "--fn", `${seededCards}.length === 1`);
+    // Done took an unread card away, and the Unread count with it.
+    await browser("wait", "--fn", `${tabCounts}.Unread === ${counts.Unread - 1}`);
     await browser("reload");
     await browser("wait", "--fn", `${seededCards}.length === 1 && ${hydrated}`);
     expect((await evaluate<string[]>(seededCards))[0]).toContain("E2E activity root");
@@ -257,6 +259,12 @@ test("the Activity page lists, filters, marks Done and opens inbox items", async
     await browser("wait", "--fn", `${seededCards}.length === 1 && ${hydrated}`);
     // Opening the thread read it: its card stays, without the unread badge.
     expect((await evaluate<string[]>(seededCards))[0]).not.toContain("1 new");
+    // On a phone the tabs take their own row under the title.
+    expect(
+      await evaluate<boolean>(
+        `document.querySelector('[role="tablist"]').getBoundingClientRect().top >= document.querySelector("h1").getBoundingClientRect().bottom`,
+      ),
+    ).toBe(true);
     await browser("screenshot", join(artifacts, "phone.png"));
   } finally {
     await browser("close").catch(() => undefined);
