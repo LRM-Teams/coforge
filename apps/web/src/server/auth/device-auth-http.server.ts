@@ -1,12 +1,6 @@
-import { getDatabaseClient } from "#src/server/db/client.server";
-import { PrismaDeviceAuthorizationStore } from "#src/server/db/repositories/device-auth.repositories.server";
 import { publicOrigin } from "#src/server/http/public-origin.server";
-import {
-  authorizeDevice,
-  DEVICE_CLIENT_ID,
-  pollDeviceToken,
-  type DeviceAuthorizationStore,
-} from "./device-auth.server";
+import { deviceAuthorizationStore } from "./device-auth-store.server";
+import { authorizeDevice, DEVICE_CLIENT_ID, pollDeviceToken } from "./device-auth.server";
 import { e2eDevice, e2eToken, oauthDiscovery as e2eDiscovery } from "./e2e-device-auth.server";
 
 /**
@@ -24,11 +18,6 @@ const NO_STORE = { "cache-control": "no-store" } as const;
 
 function unavailable(): Response {
   return Response.json({ error: "temporarily_unavailable" }, { status: 503, headers: NO_STORE });
-}
-
-function store(): DeviceAuthorizationStore | undefined {
-  const db = getDatabaseClient();
-  return db ? new PrismaDeviceAuthorizationStore(db) : undefined;
 }
 
 /** RFC 8414 discovery. `coforge_workspaces_endpoint` is a CoForge extension the Computer reads to
@@ -59,7 +48,7 @@ export async function deviceAuthorizationRequest(
   const body = new URLSearchParams(await request.text());
   if (body.get("client_id") !== DEVICE_CLIENT_ID)
     return Response.json({ error: "invalid_client" }, { status: 400, headers: NO_STORE });
-  const deviceStore = store();
+  const deviceStore = deviceAuthorizationStore();
   if (!deviceStore) return unavailable();
   const result = await authorizeDevice({ store: deviceStore, origin: publicOrigin(request) });
   return Response.json(
@@ -88,7 +77,7 @@ export async function deviceTokenRequest(
   const deviceCode = body.get("device_code");
   if (!deviceCode)
     return Response.json({ error: "invalid_request" }, { status: 400, headers: NO_STORE });
-  const deviceStore = store();
+  const deviceStore = deviceAuthorizationStore();
   if (!deviceStore) return unavailable();
 
   const outcome = await pollDeviceToken({ store: deviceStore, deviceCode, environment });
