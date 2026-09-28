@@ -247,6 +247,7 @@ model Agent {
   owner                     User                       @relation(fields: [ownerId], references: [id])
   computer                  Computer?                  @relation(fields: [computerId], references: [id], onDelete: SetNull)
   conversations             ConversationMember[]
+  coordinatedConversations Conversation[]         @relation("ConversationCoordinator")
   pendingMentionActions     PendingMentionAction[]
   deliveries                AgentMessageDelivery[]
   apiKeys                   AgentApiKey[]
@@ -666,6 +667,7 @@ model Conversation {
   id             String                 @id @default(uuid()) @db.Uuid
   workspaceId    String                 @db.Uuid
   projectId      String?                @db.Uuid
+  coordinatorAgentId String?             @db.Uuid
   directKey      String?
   channelName    String?
   description    String                 @default("")
@@ -688,12 +690,14 @@ model Conversation {
   savedMessages  SavedMessage[]
   pins           ConversationPin[]
   project        Project?               @relation("ProjectConversations", fields: [projectId], references: [id], onDelete: SetNull)
+  coordinatorAgent Agent?               @relation("ConversationCoordinator", fields: [coordinatorAgentId, workspaceId], references: [id, workspaceId], onDelete: NoAction)
 
   @@unique([workspaceId, directKey])
   @@unique([workspaceId, channelName])
   @@unique([id, workspaceId])
   @@index([workspaceId])
   @@index([projectId])
+  @@index([coordinatorAgentId])
   @@map("conversations")
 }
 

@@ -191,6 +191,19 @@ test("A create receipt lists each new Task, the assignment receipt and each thre
   );
 });
 
+test("A duplicate create reports the existing Task instead of inviting duplicate work", () => {
+  expect(
+    formatTasksCreated("#general", { state: "held", tasks: [task(8, { title: "Fix login" })] }),
+  ).toBe(
+    [
+      "Existing task found in #general; no duplicate was created:",
+      '#8 [todo] assignee=unassigned claimedAt=null msg=8abcdef0 "Fix login"',
+      "Claim or coordinate in this task's thread before starting work:",
+      '#8 → coforge message send --target "#general:8abcdef0"',
+    ].join("\n"),
+  );
+});
+
 test("A converted message names its new Task and the thread to follow up in", () => {
   expect(formatTaskConverted("@ada", task(5, { title: "Fix login" }))).toBe(
     [

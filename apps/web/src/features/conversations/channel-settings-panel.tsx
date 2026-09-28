@@ -30,6 +30,7 @@ import { ButtonUtility } from "#src/components/base/buttons/button-utility";
 import { Input } from "#src/components/base/input/input";
 import { TextArea } from "#src/components/base/textarea/textarea";
 import { Toggle } from "#src/components/base/toggle/toggle";
+import { Select } from "#src/components/base/select/select";
 import { Tooltip, TooltipTrigger } from "#src/components/base/tooltip/tooltip";
 import { Skeleton } from "#src/components/ui/skeleton";
 import { avatarInitial, avatarToneClassName } from "#src/lib/avatar-tone";
@@ -48,6 +49,7 @@ import {
   leavePublicChannel,
   setGeneralChannelHidden,
   setPublicChannelArchived,
+  setPublicChannelCoordinator,
   setPublicChannelCollapseLongMessages,
   setPublicChannelMuted,
   setPublicConversationPinned,
@@ -233,6 +235,9 @@ export function ChannelSettingsPanel({
                         {conversation.project && <ProjectField project={conversation.project} />}
                       </PanelSection>
                     )}
+                    {capabilities.update && (
+                      <CoordinatorSection conversation={conversation} onChanged={onChanged} />
+                    )}
                     {isMember && (
                       <PreferencesSection conversation={conversation} onChanged={onChanged} />
                     )}
@@ -296,6 +301,55 @@ export function ChannelSettingsPanel({
         }}
       />
     </>
+  );
+}
+
+function CoordinatorSection({
+  conversation,
+  onChanged,
+}: {
+  conversation: ChannelConversationView;
+  onChanged: () => Promise<void>;
+}) {
+  const setCoordinator = useServerFn(setPublicChannelCoordinator);
+  const [saving, setSaving] = useState(false);
+  const agents = (conversation.mentionables ?? []).filter(
+    (entry) => entry.kind === "agent" && !entry.outsider,
+  );
+  const selected = conversation.coordinatorAgent?.id ?? "none";
+
+  async function change(value: string) {
+    setSaving(true);
+    try {
+      await setCoordinator({
+        data: {
+          channelId: conversation.conversationId,
+          coordinatorAgentId: value === "none" ? null : value,
+        },
+      });
+      await onChanged();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <PanelSection title="Coordination mode">
+      <Select
+        label="Coordinator Agent"
+        hint="New top-level requests go to this Agent first."
+        selectedKey={selected}
+        isDisabled={saving}
+        onSelectionChange={(key) => {
+          if (key !== null) void change(String(key));
+        }}
+      >
+        <Select.Item id="none" label="No coordinator" />
+        {agents.map((agent) => (
+          <Select.Item key={agent.id} id={agent.id} label={agent.label} />
+        ))}
+      </Select>
+    </PanelSection>
   );
 }
 

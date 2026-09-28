@@ -179,7 +179,7 @@ export class ActionCards {
       return message;
     });
 
-    // Agent-originated messages never wake other Agents; only the browser realtime publish.
+    // A card waits for a person to commit it, so it wakes no Agent; only the browser realtime publish.
     try {
       await this.realtime?.messageAvailable({
         conversationId: target.conversationId,

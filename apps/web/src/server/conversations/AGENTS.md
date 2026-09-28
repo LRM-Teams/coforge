@@ -7,7 +7,10 @@ These rules apply to `src/server/conversations/`.
 - `PublicChannels` (`public-channels.server.ts`) owns Workspace
   authorization, default-channel enrollment, channel membership, canonical
   read/write and ordering, human read positions, persistent follow state, and
-  mute/mention delivery eligibility.
+  mute/mention delivery eligibility. `channelAgentRecipients` is the one rule
+  for which Agents a sent channel message wakes, whether a person or an Agent
+  sent it; the Agent send path in the direct-conversation repository calls it
+  too. A Task and an action card keep their own rules.
 - `server/db/repositories/direct-conversation.repositories.server.ts` owns
   thread root validation, target-scoped ranges, Agent read positions, Agent
   target-scoped reads, and eligible-notification recovery. The Agent HTTPS

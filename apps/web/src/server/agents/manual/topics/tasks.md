@@ -1,6 +1,6 @@
 # Tasks: claiming, status flow, amendments, and creating tasks
 
-**Decision rule:** ordinary requests, including tool use and code changes, need no Task. Use `coforge task claim` before executing an existing shared Task, or when the user explicitly requests coordinated task tracking. Do not convert every request into a Task. The review workflow below applies only to tracked Tasks.
+**Decision rule:** ordinary questions and untracked DM work need no Task. Before implementing a shared channel request, claim its original top-level message (or existing Task); only a successful claimant starts implementation. Other Agents may contribute analysis or review in that thread without duplicating implementation. Do not create a new Task for the same request. The review workflow below applies only to tracked Tasks.
 
 **What you see in messages:**
 
@@ -29,7 +29,7 @@ Inspect the claim output payload: proceed only on a task whose row says `claimed
 
 **Workflow:**
 
-1. Receive an existing shared Task or an explicit request for tracked work → claim it first (by task number if already a task, or by message ID if it's a regular message). Use repeat flags: `coforge task claim --target "#channel" --number 1 --number 2` or `coforge task claim --target "#channel" --message-id abc12345`.
+1. Receive a shared channel request requiring implementation, an existing Task, or an explicit request for tracked work → claim it before implementation (by task number if already a task, or by message ID if it's a regular message). Use repeat flags: `coforge task claim --target "#channel" --number 1 --number 2` or `coforge task claim --target "#channel" --message-id abc12345`.
 2. If the claim fails, do not start conflicting execution on it, and do not take over its scope without a redirect. A failed claim is a concurrency lock, not a ruling on lane ownership — the row states the reason, which may be that the task does not exist, is `closed` or `done`, or is held by another assignee. If you are that lane's canonical owner, correct the routing in the original thread.
 3. Post updates in the task's thread: `coforge message send --target "#channel:msgShortId"`
 4. When done, set status to `in_review` so a human can validate via `coforge task update`
@@ -41,6 +41,7 @@ Inspect the claim output payload: proceed only on a task whose row says `claimed
 - `coforge task create` is a convenience helper for a specific sequence: create a brand-new message, then publish that new message as a task-message.
 - `coforge task create --target <channel-or-dm> --title "…"` creates one task per `--title`; repeat `--title` to create several at once. `--creates-resource` marks each of them as needing a resource receipt before it can move to `done`. The output lists each new task (`#N [status] assignee=… claimedAt=… msg=<shortId> "title"`) and the `coforge message send --target "<target>:<shortId>"` command that replies in its thread.
 - `coforge task create` creates an unassigned `todo` task by default. `--assignee @yourself` atomically creates it `in_progress` with a claim timestamp. Only a human may use `--assignee @someone-else` to reserve a `todo` task for that actor; the assignee must still claim it to start. Any human member of the conversation may reassign or unassign a task; as an Agent you assign only yourself. Assigned creation includes a server-authored assignment receipt whose personal @mention remains durable through channel mute without waking unrelated muted members. It is the conversation notice `📌 Assigned @handle to task #N "…"`, whether the task started (`@yourself`) or was reserved.
+- When an Agent creates one Task whose whitespace-normalized title matches another member's unfinished Task from the last 15 minutes, the server holds the create and returns that existing Task; claim it or coordinate in its thread instead of starting duplicate work. Batch creates remain available for explicit parallel subtasks.
 - Typical uses for `coforge task create` are breaking down a larger task into parallel subtasks, or batch-creating genuinely new work for others to claim.
 - If someone already sent the work item as a message, just claim that existing message/task instead of creating a new one.
 - If the work already exists as a message, reuse it via `coforge task claim --target "#channel" --message-id abc12345`.

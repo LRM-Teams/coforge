@@ -194,6 +194,13 @@ const CLAIM_REFUSAL = {
   changed: "the task changed while it was being claimed; read it again",
 } as const;
 
+/** A short duplicate window catches concurrent Agent work without banning legitimate repeated work. */
+const DUPLICATE_TASK_WINDOW_MS = 15 * 60 * 1000;
+
+function normalizeTaskTitle(title: string): string {
+  return title.trim().replace(/\s+/g, " ");
+}
+
 /** What another member's hold on a Task leaves open. Illustrative, not a permission table. */
 const CLAIM_CONFLICT_UNBLOCKED_EXAMPLES = [
   "replying in the task's thread",
@@ -804,6 +811,33 @@ export class TaskBoard {
           started: assigned?.memberId === member.id,
         };
       }
+      // A repeated single create is a likely race. A batch is an explicit decomposition request;
+      // holding the whole batch because one title matches would discard its genuinely new tasks.
+      if (principal.agentId && titles.length === 1) {
+        const duplicateCandidates = await tx.task.findMany({
+          where: {
+            conversationId: scope.conversationId,
+            creatorMemberId: { not: member.id },
+            status: { in: UNFINISHED_TASK_STATUSES },
+            createdAt: { gte: new Date(Date.now() - DUPLICATE_TASK_WINDOW_MS) },
+          },
+          orderBy: { createdAt: "asc" },
+          select: taskSelection,
+        });
+        const duplicate = duplicateCandidates.find(
+          (candidate) => normalizeTaskTitle(candidate.title) === normalizeTaskTitle(titles[0]!),
+        );
+        if (duplicate)
+          return {
+            tasks: [duplicate],
+            created: false,
+            held: true,
+            sequences: [] as number[],
+            receipt: null,
+            assigneeHandle: null,
+            started: false,
+          };
+      }
       if (command.attachmentId) {
         if (!principal.userId) throw new AppError("ACCESS_DENIED");
         const attachment = await tx.attachment.findFirst({
@@ -845,6 +879,17 @@ export class TaskBoard {
             select: { agentId: true, channelMuted: true },
           })
         : [];
+      const coordinator =
+        member.userId && scope.channel
+          ? await tx.conversation.findFirst({
+              where: {
+                id: scope.conversationId,
+                coordinatorAgentId: { not: null },
+                coordinatorAgent: ACTIVE_AGENT_WHERE,
+              },
+              select: { coordinatorAgentId: true },
+            })
+          : null;
       // A title is a message like any other: its mentions, `task #N`s and `#channel`s are stored as
       // tokens, resolved against the channel's active members (a DM keeps plain `@handle` text).
       const mentionTargets = scope.channel
@@ -891,9 +936,12 @@ export class TaskBoard {
             .filter((mention) => mention.type === "agent")
             .map((mention) => mention.id),
         );
-        const recipients = agentMembers.filter(
-          ({ agentId, channelMuted }) =>
-            !scope.channel || !channelMuted || mentionedAgentIds.has(agentId!),
+        const recipients = agentMembers.filter(({ agentId, channelMuted }) =>
+          mentionedAgentIds.size
+            ? mentionedAgentIds.has(agentId!)
+            : coordinator?.coordinatorAgentId
+              ? agentId === coordinator.coordinatorAgentId
+              : !scope.channel || !channelMuted,
         );
         const message = await tx.message.create({
           data: {
@@ -1039,6 +1087,7 @@ export class TaskBoard {
     const { receipt } = result;
     return {
       tasks: result.tasks.map(taskView),
+      ...(result.held ? { state: "held" as const } : {}),
       ...(receipt && {
         assignmentReceipt: {
           messageId: receipt.id,
