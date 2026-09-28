@@ -10,7 +10,7 @@ import { readCodexUsage } from "./usage";
 import { agentEnvironment } from "#src/code-agent/environment";
 import { JsonlProcess, JsonlRequestError } from "#src/code-agent/jsonl-process";
 import { COFORGE_DAEMON_VERSION } from "#src/version";
-import { RUNTIME_PROVIDER } from "@lrm/coforge-sdk/internal";
+import { RUNTIME_PROVIDER, utf8Encoder } from "@lrm/coforge-sdk/internal";
 import { getLogger } from "@logtape/logtape";
 import {
   discoverCodexCatalog,
@@ -150,7 +150,7 @@ export class CodexProvider implements CodeAgentProvider {
         event: "codex.instructions.injected",
         agent_id: options.agentId,
         runtime_id: options.runtimeId,
-        instruction_bytes: new TextEncoder().encode(options.instructions).byteLength,
+        instruction_bytes: utf8Encoder.encode(options.instructions).byteLength,
         outcome: "ok",
       });
       return new CodexAgentSession(
@@ -251,7 +251,7 @@ class CodexAgentSession implements AgentSession {
       event: "codex.wakeup.accepted",
       agent_id: this.#agentId,
       runtime_id: this.#runtimeId,
-      notice_bytes: new TextEncoder().encode(notice).byteLength,
+      notice_bytes: utf8Encoder.encode(notice).byteLength,
       outcome: "ok",
     });
   }
@@ -403,7 +403,7 @@ class CodexAgentSession implements AgentSession {
       this.#commandOutputBytes.set(
         params.itemId,
         (this.#commandOutputBytes.get(params.itemId) ?? 0) +
-          new TextEncoder().encode(params.delta).byteLength,
+          utf8Encoder.encode(params.delta).byteLength,
       );
       this.#emit({
         type: "tool-output",

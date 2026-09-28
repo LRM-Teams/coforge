@@ -1,5 +1,6 @@
 import type { AgentRuntimeConfig, EncryptedRuntimeApiKey } from "./agent-runtime-config.server";
 
+import { utf8Encoder, utf8Decoder } from "@lrm/coforge-sdk/internal";
 const API_KEY_MIN_LENGTH = 8;
 const API_KEY_MAX_LENGTH = 4096;
 const ENCRYPTION_KEY_BYTES = 32;
@@ -73,7 +74,7 @@ export class AgentRuntimeCredentials {
           additionalData: associatedData(agentId, providerId),
         },
         await this.#key(["encrypt"]),
-        new TextEncoder().encode(apiKey),
+        utf8Encoder.encode(apiKey),
       ),
     );
     return {
@@ -188,7 +189,7 @@ async function decryptApiKey(
     key,
     Buffer.from(encrypted.ciphertext, "base64"),
   );
-  return new TextDecoder().decode(plaintext);
+  return utf8Decoder.decode(plaintext);
 }
 
 function validateApiKey(value: string) {
@@ -199,7 +200,7 @@ function validateApiKey(value: string) {
 }
 
 function associatedData(agentId: string, providerId: string) {
-  return new TextEncoder().encode(`${agentId}\0${providerId}`);
+  return utf8Encoder.encode(`${agentId}\0${providerId}`);
 }
 
 function summary(provider: AgentRuntimeConfig["provider"]): AgentRuntimeCredentialSummary | null {

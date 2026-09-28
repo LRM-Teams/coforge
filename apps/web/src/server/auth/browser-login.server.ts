@@ -1,3 +1,4 @@
+import { utf8Encoder, utf8Decoder } from "@lrm/coforge-sdk/internal";
 export type BrowserUser = {
   id: string;
   email: string;
@@ -261,7 +262,7 @@ export function createAuthingExchanger(config: AuthingConfig): TokenExchanger {
 }
 
 function sign(payload: object, secret: string): string {
-  const body = toBase64Url(new TextEncoder().encode(JSON.stringify(payload)));
+  const body = toBase64Url(utf8Encoder.encode(JSON.stringify(payload)));
   return `${body}.${hmacSha256(secret, body)}`;
 }
 
@@ -270,7 +271,7 @@ function readSigned<T>(value: string | null, secret: string): T | null {
   const [body, signature] = value.split(".");
   if (!body || !signature || hmacSha256(secret, body) !== signature) return null;
   try {
-    return JSON.parse(new TextDecoder().decode(fromBase64Url(body))) as T;
+    return JSON.parse(utf8Decoder.decode(fromBase64Url(body))) as T;
   } catch {
     return null;
   }

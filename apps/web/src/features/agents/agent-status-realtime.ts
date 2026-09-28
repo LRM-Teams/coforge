@@ -1,5 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import { parseAgentDisplaySnapshot, type AgentDisplaySnapshot } from "@lrm/coforge-sdk/internal";
+import {
+  parseAgentDisplaySnapshot,
+  type AgentDisplaySnapshot,
+  utf8Encoder,
+  utf8Decoder,
+} from "@lrm/coforge-sdk/internal";
 
 import {
   useRealtimeSubscription,
@@ -69,12 +74,12 @@ export function isAgentVisibilityChangedEvent(
 }
 
 export function encodeAgentStatusEvent(event: AgentStatusEvent): Uint8Array {
-  return new TextEncoder().encode(JSON.stringify(event));
+  return utf8Encoder.encode(JSON.stringify(event));
 }
 
 export function decodeAgentStatusEvent(data: unknown): AgentStatusEvent {
   const value =
-    data instanceof Uint8Array ? (JSON.parse(new TextDecoder().decode(data)) as unknown) : data;
+    data instanceof Uint8Array ? (JSON.parse(utf8Decoder.decode(data)) as unknown) : data;
   if (!value || typeof value !== "object" || Array.isArray(value))
     throw new Error("invalid Agent status event");
   const agentId = Reflect.get(value, "agentId");
@@ -373,7 +378,7 @@ export function useAgentStatuses<T extends StatusTrackedAgent>({
   const handleStatusPublication = (data: unknown) => {
     try {
       const value =
-        data instanceof Uint8Array ? (JSON.parse(new TextDecoder().decode(data)) as unknown) : data;
+        data instanceof Uint8Array ? (JSON.parse(utf8Decoder.decode(data)) as unknown) : data;
       if (isAgentVisibilityChangedEvent(value)) {
         // Refetch immediately rather than waiting for the next scheduled refresh —
         // `mergeAgentStatusSnapshot` already drops any Agent absent from the fresh list, and

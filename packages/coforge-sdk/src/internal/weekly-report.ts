@@ -1,5 +1,6 @@
 import { RPC_METHODS } from "./rpc-methods";
 import { RFC_UUID_PATTERN } from "./uuid";
+import { utf8Encoder, utf8Decoder } from "./text-codec";
 /** Agent HTTPS weekly-report reads. Authorization is the assistant owner User. */
 export const AGENT_WEEKLY_REPORT_METHOD = RPC_METHODS.agentWeeklyReport;
 export const WEEKLY_REPORT_PROTOCOL_MAJOR = 1 as const;
@@ -121,12 +122,12 @@ export function validateWeeklyReportRequest(value: unknown): WeeklyReportRequest
 }
 
 export function encodeWeeklyReportRequest(request: WeeklyReportRequest): Uint8Array {
-  return new TextEncoder().encode(JSON.stringify(validateWeeklyReportRequest(request)));
+  return utf8Encoder.encode(JSON.stringify(validateWeeklyReportRequest(request)));
 }
 
 export function decodeWeeklyReportRequest(bytes: Uint8Array): WeeklyReportRequest {
   try {
-    return validateWeeklyReportRequest(JSON.parse(new TextDecoder().decode(bytes)));
+    return validateWeeklyReportRequest(JSON.parse(utf8Decoder.decode(bytes)));
   } catch {
     throw new Error("invalid weekly-report request");
   }
@@ -139,7 +140,7 @@ export function encodeWeeklyReportResponse(response: WeeklyReportResponse): Uint
     !["context", "list", "read"].includes(response.operation)
   )
     throw new Error("invalid weekly-report response");
-  return new TextEncoder().encode(
+  return utf8Encoder.encode(
     JSON.stringify({
       protocolMajor: WEEKLY_REPORT_PROTOCOL_MAJOR,
       requestId: response.requestId,
@@ -152,7 +153,7 @@ export function encodeWeeklyReportResponse(response: WeeklyReportResponse): Uint
 export function decodeWeeklyReportResponse(bytes: Uint8Array): WeeklyReportResponse {
   let value: unknown;
   try {
-    value = JSON.parse(new TextDecoder().decode(bytes));
+    value = JSON.parse(utf8Decoder.decode(bytes));
   } catch {
     throw new Error("invalid weekly-report response");
   }

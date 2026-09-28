@@ -2,6 +2,8 @@
 import {
   decodeComputerRegisterRequest,
   encodeComputerRegisterResponse,
+  utf8Encoder,
+  utf8Decoder,
 } from "@lrm/coforge-sdk/internal";
 import { isRecord } from "@lrm/coforge-sdk/internal";
 import { ComputerRegistrationError } from "#src/server/computers/registration.server";
@@ -418,7 +420,7 @@ export function createDaemonConnectionStatusMethod(
   upgrades?: Pick<RedisComputerUpgradeStore, "touchIdentity">,
 ): CentrifugoRpcMethod {
   return async (payload, metadata) => {
-    const request = JSON.parse(new TextDecoder().decode(payload)) as {
+    const request = JSON.parse(utf8Decoder.decode(payload)) as {
       workspaceId?: string;
       computerId?: string;
       online?: boolean;
@@ -598,7 +600,7 @@ function decodeAgentContextReport(
   if (bytes.byteLength > 65_536) return undefined;
   let value: unknown;
   try {
-    value = JSON.parse(new TextDecoder().decode(bytes));
+    value = JSON.parse(utf8Decoder.decode(bytes));
   } catch {
     return undefined;
   }
@@ -721,7 +723,7 @@ function decodeUsageSnapshot(
   if (bytes.byteLength > 16_384) return undefined;
   let value: unknown;
   try {
-    value = JSON.parse(new TextDecoder().decode(bytes));
+    value = JSON.parse(utf8Decoder.decode(bytes));
   } catch {
     return undefined;
   }
@@ -1019,7 +1021,7 @@ function decodePayload(request: CentrifugoRpcRequest) {
   }
   if (Object.prototype.hasOwnProperty.call(request, "data")) {
     try {
-      return new TextEncoder().encode(JSON.stringify(request.data));
+      return utf8Encoder.encode(JSON.stringify(request.data));
     } catch {
       return undefined;
     }

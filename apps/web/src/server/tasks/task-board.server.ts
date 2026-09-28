@@ -13,6 +13,7 @@ import {
   type TaskResult,
   type TaskView,
   UUID_LIKE_SOURCE,
+  utf8Encoder,
 } from "@lrm/coforge-sdk/internal";
 import { encodeAgentDelivery } from "#src/server/conversations/agent-delivery.server";
 import { ACTIVE_AGENT_WHERE } from "#src/server/agents/active-agent.server";
@@ -174,7 +175,7 @@ const BOUND_ASSIGNEE = new RegExp(`^(user|agent):(${UUID_LIKE_SOURCE})$`, "i");
 async function indexedRequestId(requestId: string, index: number) {
   if (index === 0) return requestId;
   const bytes = new Uint8Array(
-    await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`${requestId}:${index}`)),
+    await crypto.subtle.digest("SHA-256", utf8Encoder.encode(`${requestId}:${index}`)),
   );
   bytes[6] = (bytes[6]! & 0x0f) | 0x40;
   bytes[8] = (bytes[8]! & 0x3f) | 0x80;

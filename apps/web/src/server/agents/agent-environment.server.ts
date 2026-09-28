@@ -7,6 +7,8 @@ import {
   isReservedAgentEnvironmentName,
   type AgentStartIntent,
   type AgentStopIntent,
+  utf8Encoder,
+  utf8Decoder,
 } from "@lrm/coforge-sdk/internal";
 import type { AgentRecord } from "#src/server/db/repositories/agent.repositories.server";
 import type { AgentRuntimeConfig, EncryptedAgentEnvironment } from "./agent-runtime-config.server";
@@ -119,7 +121,7 @@ export class AgentEnvironment {
     const ciphertext = await crypto.subtle.encrypt(
       { name: "AES-GCM", iv: nonce, additionalData: aad(agentId) },
       await this.#key(["encrypt"]),
-      new TextEncoder().encode(JSON.stringify(envVars)),
+      utf8Encoder.encode(JSON.stringify(envVars)),
     );
     return {
       keyId: KEY_ID,
@@ -150,7 +152,7 @@ export async function decryptAgentEnvironment(
       await crypto.subtle.importKey("raw", encryptionKey, "AES-GCM", false, ["decrypt"]),
       Buffer.from(encrypted.ciphertext, "base64"),
     );
-    return validateAgentEnvironment(JSON.parse(new TextDecoder().decode(plaintext)));
+    return validateAgentEnvironment(JSON.parse(utf8Decoder.decode(plaintext)));
   } catch {
     throw new Error("Agent environment could not be decrypted");
   }
@@ -185,5 +187,5 @@ export function validateAgentEnvironment(input: unknown): Record<string, string>
 }
 
 function aad(agentId: string) {
-  return new TextEncoder().encode(`${AAD_PREFIX}\0${agentId}`);
+  return utf8Encoder.encode(`${AAD_PREFIX}\0${agentId}`);
 }

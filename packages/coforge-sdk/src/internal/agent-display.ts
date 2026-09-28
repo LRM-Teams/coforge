@@ -1,5 +1,6 @@
 import { parseActivityEntries, type ActivityTrajectoryEntry } from "./activity-entries";
 
+import { utf8Decoder } from "./text-codec";
 export type AgentActivityKind = "online" | "working" | "thinking" | "error" | "offline";
 
 /** Cloud-authored display projection, separate from Daemon process/Activity facts. */
@@ -35,7 +36,7 @@ const activityKinds = new Set<AgentActivityKind>([
 /** Parses the cloud-authored browser display protocol at its public boundary. */
 export function parseAgentDisplaySnapshot(data: unknown): AgentDisplaySnapshot {
   const value =
-    data instanceof Uint8Array ? (JSON.parse(new TextDecoder().decode(data)) as unknown) : data;
+    data instanceof Uint8Array ? (JSON.parse(utf8Decoder.decode(data)) as unknown) : data;
   if (!value || typeof value !== "object" || Array.isArray(value))
     throw new Error("invalid Agent display snapshot");
   const item = value as Record<string, unknown>;
