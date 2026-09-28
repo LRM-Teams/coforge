@@ -24,8 +24,8 @@ import type { ReferenceSuggestion } from "./use-reference-completion";
  * dimmed.
  * An Agent's avatar carries the same online/working/thinking/error/offline dot the sidebar and
  * conversation header use, so you can see whether an Agent is around before mentioning it; the
- * snapshot comes from the app shell's one subscription through `useLiveAgents`. People have no
- * presence in the product, so a person's avatar stays plain.
+ * snapshot comes from the app shell's one subscription through `useLiveAgents`. A person's
+ * avatar stays plain here (people's presence is drawn on the Members page).
  * Pointer selection keeps the textarea focused with `pointerdown` (prevented) and commits on
  * `pointerup`. Committing on pointerup — rather than pointerdown or the synthesized click —
  * is what makes taps work everywhere: canceling pointerdown suppresses the compatibility

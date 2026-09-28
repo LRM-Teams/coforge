@@ -7,6 +7,7 @@ import {
   issueConversationRealtimeToken,
   issueUserConversationSubscriptionToken,
   issueWorkspaceConversationSubscriptionToken,
+  issueWorkspacePresenceSubscriptionToken,
 } from "#src/server/auth/browser-realtime-token.server";
 import { workspaceUserMiddleware } from "#src/features/auth/function-auth";
 import {
@@ -67,4 +68,12 @@ export const getUserConversationSubscriptionToken = createServerFn({ method: "GE
   .middleware([workspaceUserMiddleware])
   .handler(async ({ context }) => {
     return issueUserConversationSubscriptionToken({ userId: context.user.id });
+  });
+
+/** Subscription token for the Workspace presence channel. */
+export const getWorkspacePresenceSubscriptionToken = createServerFn({ method: "GET" })
+  .middleware([workspaceUserMiddleware])
+  .handler(async ({ context }) => {
+    const { user, workspaceId } = context;
+    return issueWorkspacePresenceSubscriptionToken({ userId: user.id, workspaceId });
   });

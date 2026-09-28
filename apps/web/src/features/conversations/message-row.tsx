@@ -611,8 +611,8 @@ export const MessageRow = memo(function MessageRow({
   // An Agent's avatar in the stream carries the same online/working/thinking/error/offline dot the
   // sidebar, conversation header and @-mention popup use, so you can tell whether the Agent that
   // wrote a message is around right now without opening its profile. The snapshot comes from the
-  // app shell's one subscription, looked up by the conversation and passed in. A person has no
-  // presence in the product, so a person's avatar stays plain; a deleted Agent shows no dot
+  // app shell's one subscription, looked up by the conversation and passed in. A person's avatar
+  // stays plain here (people's presence is drawn on the Members page); a deleted Agent shows no dot
   // either (`AgentDisplayAvatar` greys it and drops the dot) — a deletion is not a presence state.
   const avatar =
     message.senderKind === "agent" && message.senderAgentId ? (

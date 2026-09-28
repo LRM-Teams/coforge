@@ -41,6 +41,8 @@
   "member_created_agents": "创建过的智能体",
   "member_created_agents_count": "创建了 {count} 个智能体",
   "member_invite_humans": "邀请协作者",
+  "member_online": "在线",
+  "member_offline": "离线",
   "member_filter_empty_description": "换个筛选条件试试，或清除筛选查看全部智能体。",
   "member_clear_filters": "清除搜索和筛选",
   "member_directory_load_error": "成员加载失败。",

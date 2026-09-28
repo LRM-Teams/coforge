@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
-import { Centrifuge, type Subscription } from "centrifuge/build/protobuf";
+import { Centrifuge, type ClientInfo, type Subscription } from "centrifuge/build/protobuf";
 
 /** The one realtime subscription type for the shared Workspace connection. */
 export type BrowserRealtimeSubscription = Subscription;
@@ -49,6 +49,9 @@ export function useBrowserRealtime() {
 
 export type RealtimePublication = { channel: string; data: unknown };
 
+/** Who joined or left a channel with presence on: the connection's client id and its user. */
+export type RealtimeClient = Pick<ClientInfo, "client" | "user">;
+
 /**
  * Subscribes one authorized channel on the shared Workspace connection.
  *
@@ -68,14 +71,16 @@ export type RealtimeSubscriptionError = {
  * the same channel, and more than one feature legitimately subscribes to the same `chat:user:`
  * channel (the sidebar's unread badges and in-page notifications). The first
  * caller creates and subscribes it; the last caller's cleanup unsubscribes and removes it. Each
- * caller's own `onPublication`/`onSubscribed`/`onError` still only ever sees its own latest
- * closure, exactly as before sharing.
+ * caller's own `onPublication`/`onSubscribed`/`onJoin`/`onLeave`/`onError` still only ever sees
+ * its own latest closure, exactly as before sharing.
  */
 type SharedSubscriptionEntry = {
   subscription: Subscription;
   refCount: number;
   publicationHandlers: Set<(publication: RealtimePublication) => void>;
   subscribedHandlers: Set<() => void>;
+  joinHandlers: Set<(client: RealtimeClient) => void>;
+  leaveHandlers: Set<(client: RealtimeClient) => void>;
   errorHandlers: Set<(error: RealtimeSubscriptionError) => void>;
 };
 
@@ -96,12 +101,21 @@ function acquireSharedSubscription(
     const subscription = client.newSubscription(channel, getToken ? { getToken } : undefined);
     const publicationHandlers = new Set<(publication: RealtimePublication) => void>();
     const subscribedHandlers = new Set<() => void>();
+    const joinHandlers = new Set<(client: RealtimeClient) => void>();
+    const leaveHandlers = new Set<(client: RealtimeClient) => void>();
     const errorHandlers = new Set<(error: RealtimeSubscriptionError) => void>();
     subscription.on("subscribed", () => {
       for (const handler of subscribedHandlers) handler();
     });
     subscription.on("publication", (publication) => {
       for (const handler of publicationHandlers) handler(publication);
+    });
+    // Delivered only on a channel whose namespace pushes join/leave (`force_push_join_leave`).
+    subscription.on("join", ({ info }) => {
+      for (const handler of joinHandlers) handler(info);
+    });
+    subscription.on("leave", ({ info }) => {
+      for (const handler of leaveHandlers) handler(info);
     });
     // A rejected or dropped subscription (e.g. Centrifugo's 103: permission
     // denied when no valid subscription token is presented) otherwise fails
@@ -119,7 +133,15 @@ function acquireSharedSubscription(
       for (const handler of errorHandlers)
         handler({ channel, code: event.code, message: event.reason });
     });
-    entry = { subscription, refCount: 0, publicationHandlers, subscribedHandlers, errorHandlers };
+    entry = {
+      subscription,
+      refCount: 0,
+      publicationHandlers,
+      subscribedHandlers,
+      joinHandlers,
+      leaveHandlers,
+      errorHandlers,
+    };
     byChannel.set(channel, entry);
     subscription.subscribe();
   }
@@ -143,24 +165,44 @@ export function useRealtimeSubscription({
   getToken,
   onSubscribed,
   onPublication,
+  onJoin,
+  onLeave,
   onConnected,
   onError,
 }: {
   channel?: string;
   getToken?: () => Promise<string>;
   onSubscribed?: () => void;
-  onPublication: (publication: RealtimePublication) => void;
+  onPublication?: (publication: RealtimePublication) => void;
+  onJoin?: (client: RealtimeClient) => void;
+  onLeave?: (client: RealtimeClient) => void;
   onConnected?: () => void;
   onError?: (error: RealtimeSubscriptionError) => void;
 }) {
   const client = useBrowserRealtime();
-  const handlers = useRef({ channel, onSubscribed, onPublication, onConnected, onError });
+  const handlers = useRef({
+    channel,
+    onSubscribed,
+    onPublication,
+    onJoin,
+    onLeave,
+    onConnected,
+    onError,
+  });
 
   // Install the latest callbacks only after commit, so a superseded channel is
   // unsubscribed before its handlers are replaced and can never dispatch into
   // the new channel's scope.
   useEffect(() => {
-    handlers.current = { channel, onSubscribed, onPublication, onConnected, onError };
+    handlers.current = {
+      channel,
+      onSubscribed,
+      onPublication,
+      onJoin,
+      onLeave,
+      onConnected,
+      onError,
+    };
   });
 
   useEffect(() => {
@@ -168,11 +210,15 @@ export function useRealtimeSubscription({
     const current = () => (handlers.current.channel === channel ? handlers.current : undefined);
     const entry = acquireSharedSubscription(client, channel, getToken);
     const onPublicationHandler = (publication: RealtimePublication) =>
-      current()?.onPublication(publication);
+      current()?.onPublication?.(publication);
     const onSubscribedHandler = () => current()?.onSubscribed?.();
+    const onJoinHandler = (joined: RealtimeClient) => current()?.onJoin?.(joined);
+    const onLeaveHandler = (left: RealtimeClient) => current()?.onLeave?.(left);
     const onErrorHandler = (error: RealtimeSubscriptionError) => current()?.onError?.(error);
     entry.publicationHandlers.add(onPublicationHandler);
     entry.subscribedHandlers.add(onSubscribedHandler);
+    entry.joinHandlers.add(onJoinHandler);
+    entry.leaveHandlers.add(onLeaveHandler);
     entry.errorHandlers.add(onErrorHandler);
     // A caller joining an already-subscribed shared channel missed its "subscribed" event.
     if (entry.subscription.state === "subscribed") onSubscribedHandler();
@@ -182,6 +228,8 @@ export function useRealtimeSubscription({
       client.off("connected", connected);
       entry.publicationHandlers.delete(onPublicationHandler);
       entry.subscribedHandlers.delete(onSubscribedHandler);
+      entry.joinHandlers.delete(onJoinHandler);
+      entry.leaveHandlers.delete(onLeaveHandler);
       entry.errorHandlers.delete(onErrorHandler);
       releaseSharedSubscription(client, channel);
     };

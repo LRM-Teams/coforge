@@ -13,6 +13,7 @@ import {
   userConversationChannel,
   workspaceConversationChannel,
 } from "#src/features/conversations/conversation-realtime";
+import { workspacePresenceChannel } from "#src/features/workspaces/presence-channel";
 
 async function browserRealtimeSigner(
   environment: Record<string, string | undefined>,
@@ -113,6 +114,18 @@ export async function issueWorkspaceConversationSubscriptionToken(
   return browserRealtimeSigner(
     environment,
     { channel: workspaceConversationChannel(input.workspaceId) },
+    input.userId,
+  );
+}
+
+/** The Workspace presence channel (`presence-channel.ts`). */
+export async function issueWorkspacePresenceSubscriptionToken(
+  input: { userId: string; workspaceId: string },
+  environment: Record<string, string | undefined> = process.env,
+): Promise<string> {
+  return browserRealtimeSigner(
+    environment,
+    { channel: workspacePresenceChannel(input.workspaceId) },
     input.userId,
   );
 }
