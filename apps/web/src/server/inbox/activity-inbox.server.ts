@@ -82,13 +82,9 @@ export class ActivityInbox {
         : options.filter === "unread"
           ? { withUnread: true, withMention: false }
           : { withUnread: false, withMention: false };
-    const [all, unreadTotal] = await Promise.all([
+    const [all, itemCounts] = await Promise.all([
       this.candidates(workspaceId, userId, context),
-      // The page's total is this same number unless a mention filter narrows the list; the mention
-      // path sums the per-candidate values it already read.
-      options.filter === "mentions"
-        ? Promise.resolve(undefined)
-        : this.unreadTotal(workspaceId, userId),
+      this.itemCounts(workspaceId, userId),
     ]);
     const candidates = all.filter((candidate) =>
       options.filter === "unread"
@@ -111,9 +107,7 @@ export class ActivityInbox {
         // other filters did not, and the page reads its own rows through the same query.
         fillContext: options.filter !== "mentions",
       }),
-      totalCount: candidates.length,
-      totalUnreadCount:
-        unreadTotal ?? candidates.reduce((sum, candidate) => sum + candidate.unreadCount, 0),
+      ...itemCounts,
       /** Where the next page starts in the list, or null on the last page. */
       nextOffset: end < candidates.length ? end : null,
       /** When this list was read: Mark all read reads through it, and no further. */
@@ -176,9 +170,8 @@ export class ActivityInbox {
   /**
    * The viewer's total unread activity, in one statement: the same three terms the inbox lists —
    * joined conversations, followed threads and notified mentions — each counted from the item's own
-   * read boundary up. Every online viewer re-reads this on each Workspace message, and the page's
-   * total is this same number whenever no mention filter narrows the list, so both share the SQL
-   * rather than one of them re-deriving it a row at a time.
+   * read boundary up. Every online viewer re-reads this on each Workspace message, so it counts in
+   * one statement rather than listing the items.
    */
   private async unreadTotal(workspaceId: string, userId: string): Promise<number> {
     const [{ unread }] = await this.db.$queryRaw<[{ unread: number }]>`
@@ -206,6 +199,48 @@ export class ActivityInbox {
           AND pma."targetReadAt" IS NULL
       ))::int AS "unread"`;
     return unread;
+  }
+
+  /**
+   * How many listed items have something unread, and how many an unread mention, whatever the
+   * filter: what the Unread and Mentions tabs show. Items, not messages, so each number is how many
+   * cards that tab lists unread. One statement over the same item queries and per-candidate
+   * laterals the list reads, so a count cannot disagree with the cards it counts.
+   */
+  private async itemCounts(workspaceId: string, userId: string) {
+    const [counts] = await this.db.$queryRaw<
+      [{ unreadItemCount: number; unreadMentionItemCount: number }]
+    >`
+      WITH conversation_items AS (
+        SELECT unread."count" > 0 AS "unread", mention."unread" AS "unreadMention"
+        FROM ${conversationItemsSql(workspaceId, userId)}
+        ${conversationUnreadLateral}
+        ${conversationMentionLateral}
+        WHERE ${CONVERSATION_ITEM_LISTED_SQL}
+      ), thread_items AS (
+        SELECT replies."unread" > 0 AS "unread", mention."unread" AS "unreadMention"
+        FROM ${threadItemsSql(workspaceId, userId)}
+        ${threadUnreadLateral}
+        ${threadMentionLateral}
+        WHERE ${THREAD_ITEM_LISTED_SQL}
+      ), items AS (
+        SELECT * FROM conversation_items
+        UNION ALL
+        SELECT * FROM thread_items
+        UNION ALL
+        -- A notified mention is one item, unread and an unread mention until the viewer reads it.
+        SELECT pma."targetReadAt" IS NULL, pma."targetReadAt" IS NULL
+        FROM "pending_mention_actions" pma
+        JOIN "conversations" pc ON pc."id" = pma."conversationId"
+         AND pc."archivedAt" IS NULL AND pc."hiddenFromWorkspaceAt" IS NULL
+        WHERE pma."workspaceId" = ${workspaceId}::uuid AND pma."targetUserId" = ${userId}::uuid
+          AND pma."notifiedAt" IS NOT NULL AND pma."dismissedAt" IS NULL
+      )
+      SELECT
+        (COUNT(*) FILTER (WHERE "unread"))::int AS "unreadItemCount",
+        (COUNT(*) FILTER (WHERE "unreadMention"))::int AS "unreadMentionItemCount"
+      FROM items`;
+    return counts;
   }
 
   /** Reads or unreads a mention the viewer was notified of; it stays listed until Done. */

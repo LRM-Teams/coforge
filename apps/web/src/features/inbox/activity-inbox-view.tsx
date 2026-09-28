@@ -14,14 +14,15 @@ import {
   Check,
   CheckDone01,
   Hash02,
+  Inbox01,
   Mail01,
   MessageTextSquare01,
 } from "@untitledui/icons";
 import { Link as AriaLink } from "react-aria-components";
 
+import { Tab, TabList, Tabs } from "#src/components/application/tabs/tabs";
 import { Avatar } from "#src/components/base/avatar/avatar";
 import { Badge } from "#src/components/base/badges/badges";
-import { ButtonGroup, ButtonGroupItem } from "#src/components/base/button-group/button-group";
 import { Button } from "#src/components/base/buttons/button";
 import { ButtonUtility } from "#src/components/base/buttons/button-utility";
 import { Dropdown } from "#src/components/base/dropdown/dropdown";
@@ -136,38 +137,23 @@ export function ActivityInboxView({
     <div className="flex h-full min-h-0 flex-col">
       <PageHeader
         heading={m.navigation_activity()}
-        meta={
-          totals ? (
-            <span className="shrink-0 truncate text-sm text-tertiary">
-              {m.activity_inbox_active({ count: totals.totalCount })}
-              {totals.totalUnreadCount > 0 &&
-                ` · ${m.activity_inbox_unread({ count: totals.totalUnreadCount })}`}
-            </span>
-          ) : undefined
+        tabs={
+          <ActivityInboxTabs
+            filter={filter}
+            onFilterChange={onFilterChange}
+            unreadCount={totals?.unreadItemCount ?? 0}
+            mentionCount={totals?.unreadMentionItemCount ?? 0}
+          />
+        }
+        actions={
+          totals &&
+          totals.unreadItemCount > 0 && (
+            <Button size="sm" color="secondary" iconLeading={CheckDone01} onClick={readAll}>
+              {m.activity_inbox_mark_all_read()}
+            </Button>
+          )
         }
       />
-      <div className="flex h-11 shrink-0 items-center justify-between gap-3 border-b border-secondary px-4 sm:px-6">
-        <ButtonGroup
-          aria-label={m.activity_inbox_filter_label()}
-          size="sm"
-          selectionMode="single"
-          disallowEmptySelection
-          selectedKeys={[filter]}
-          onSelectionChange={(keys) => {
-            const [next] = [...keys];
-            if (next === "all" || next === "unread" || next === "mentions") onFilterChange(next);
-          }}
-        >
-          <ButtonGroupItem id="all">{m.activity_inbox_filter_all()}</ButtonGroupItem>
-          <ButtonGroupItem id="unread">{m.activity_inbox_filter_unread()}</ButtonGroupItem>
-          <ButtonGroupItem id="mentions">{m.activity_inbox_filter_mentions()}</ButtonGroupItem>
-        </ButtonGroup>
-        {totals && totals.totalUnreadCount > 0 && (
-          <Button size="sm" color="secondary" iconLeading={CheckDone01} onClick={readAll}>
-            {m.activity_inbox_mark_all_read()}
-          </Button>
-        )}
-      </div>
       {failure && (
         <div
           role="alert"
@@ -202,6 +188,72 @@ export function ActivityInboxView({
         />
       </div>
     </div>
+  );
+}
+
+const FILTER_TABS: ReadonlyArray<{
+  id: ActivityInboxFilter;
+  icon: typeof Inbox01;
+  label: () => string;
+}> = [
+  { id: "all", icon: Inbox01, label: () => m.activity_inbox_filter_all() },
+  { id: "unread", icon: Mail01, label: () => m.activity_inbox_filter_unread() },
+  { id: "mentions", icon: AtSign, label: () => m.activity_inbox_filter_mentions() },
+];
+
+/**
+ * All / Unread / Mentions as the Chat header's icon + label underline tabs. Unread and Mentions
+ * carry how many cards have something unread and an unread mention; the numbers are the same
+ * whichever tab is showing, and a zero shows nothing.
+ */
+function ActivityInboxTabs({
+  filter,
+  onFilterChange,
+  unreadCount,
+  mentionCount,
+}: {
+  filter: ActivityInboxFilter;
+  onFilterChange: (filter: ActivityInboxFilter) => void;
+  unreadCount: number;
+  mentionCount: number;
+}) {
+  const counts: Record<ActivityInboxFilter, number> = {
+    all: 0,
+    unread: unreadCount,
+    mentions: mentionCount,
+  };
+  return (
+    <Tabs
+      selectedKey={filter}
+      onSelectionChange={(key) => {
+        const next = FILTER_TABS.find((tab) => tab.id === key);
+        if (next) onFilterChange(next.id);
+      }}
+      className="w-max shrink-0"
+    >
+      <TabList type="underline" size="md" aria-label={m.activity_inbox_filter_label()}>
+        {FILTER_TABS.map((tab) => (
+          <Tab key={tab.id} id={tab.id} icon={tab.icon}>
+            {/* The official `badge` prop hides below `md`; the count must show on phones too. */}
+            {({ isSelected, isHovered }) => (
+              <>
+                {tab.label()}
+                {counts[tab.id] > 0 && (
+                  <Badge
+                    type="pill-color"
+                    size="sm"
+                    color={isSelected || isHovered ? "brand" : "gray"}
+                    className="transition-inherit-all"
+                  >
+                    {counts[tab.id] > 99 ? "99+" : counts[tab.id]}
+                  </Badge>
+                )}
+              </>
+            )}
+          </Tab>
+        ))}
+      </TabList>
+    </Tabs>
   );
 }
 
@@ -372,19 +424,24 @@ function useActivityItemActions({
   ]);
 }
 
-/** A cached view with one item removed and its totals adjusted, until the refetch lands. */
+/**
+ * A cached view without one item, until the refetch lands. The tab counts cover every view, so
+ * each cached view drops the item from them, whether or not it lists the item.
+ */
 function withoutItem(
   data: InfiniteData<ActivityInboxPage>,
   item: ActivityInboxItem,
 ): InfiniteData<ActivityInboxPage> {
-  if (!data.pages.some((page) => page.items.some((entry) => entry.key === item.key))) return data;
   return {
     ...data,
     pages: data.pages.map((page) => ({
       ...page,
       items: page.items.filter((entry) => entry.key !== item.key),
-      totalCount: Math.max(0, page.totalCount - 1),
-      totalUnreadCount: Math.max(0, page.totalUnreadCount - item.unreadCount),
+      unreadItemCount: Math.max(0, page.unreadItemCount - (item.unreadCount > 0 ? 1 : 0)),
+      unreadMentionItemCount: Math.max(
+        0,
+        page.unreadMentionItemCount - (item.unreadMention ? 1 : 0),
+      ),
     })),
   };
 }
@@ -677,7 +734,8 @@ export function ActivityInboxPending() {
       aria-label={m.activity_inbox_loading()}
       className="flex h-full min-h-0 flex-col"
     >
-      <PageHeader heading={m.navigation_activity()} />
+      {/* The tabs' place, so the list does not move when the page lands. */}
+      <PageHeader heading={m.navigation_activity()} tabs={<Skeleton className="mb-3 h-5 w-64" />} />
       <ol className="flex flex-col gap-2 p-4 sm:px-6">
         {[0, 1, 2, 3].map((row) => (
           <li key={row} className="rounded-xl border border-secondary p-3">
