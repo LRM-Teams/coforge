@@ -78,7 +78,7 @@ export type AgentAttachmentUploadSessionCreateRequest = {
   fileName: string;
   contentType: string;
   sizeBytes: number;
-  clientRequestId: string;
+  idempotencyKey: string;
 };
 
 export type AgentAttachmentUploadSessionCreateResponse = {

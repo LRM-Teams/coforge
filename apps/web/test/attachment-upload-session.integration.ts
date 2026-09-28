@@ -85,7 +85,7 @@ afterAll(async () => {
 
 test("persists a created session with its reserved object key, then completes it into a real Attachment row", async () => {
   const { storage, objects } = fakeStorage();
-  const clientRequestId = crypto.randomUUID();
+  const idempotencyKey = crypto.randomUUID();
   const created = await createAttachmentUploadSession(db, storage, {
     agentId: fixture.agentId,
     workspaceId: fixture.workspaceId,
@@ -93,7 +93,7 @@ test("persists a created session with its reserved object key, then completes it
     fileName: "note.txt",
     contentType: "text/plain",
     sizeBytes: 5,
-    clientRequestId,
+    idempotencyKey,
   });
   const objectKey = `workspaces/${fixture.workspaceId}/attachments/${created.attachmentId}/original`;
   const persisted = await db.attachmentUploadSession.findUnique({
@@ -116,8 +116,8 @@ test("persists a created session with its reserved object key, then completes it
   expect(attachment?.conversationId).toBe(fixture.conversationId);
 });
 
-test("enforces the (agentId, clientRequestId) unique constraint at the database level", async () => {
-  const clientRequestId = crypto.randomUUID();
+test("enforces the (agentId, idempotencyKey) unique constraint at the database level", async () => {
+  const idempotencyKey = crypto.randomUUID();
   await db.attachmentUploadSession.create({
     data: {
       workspaceId: fixture.workspaceId,
@@ -128,7 +128,7 @@ test("enforces the (agentId, clientRequestId) unique constraint at the database 
       fileName: "a.txt",
       contentType: "text/plain",
       sizeBytes: 1,
-      clientRequestId,
+      idempotencyKey,
       expiresAt: new Date(Date.now() + 60_000),
     },
   });
@@ -147,7 +147,7 @@ test("enforces the (agentId, clientRequestId) unique constraint at the database 
           fileName: "b.txt",
           contentType: "text/plain",
           sizeBytes: 1,
-          clientRequestId,
+          idempotencyKey,
           expiresAt: new Date(Date.now() + 60_000),
         },
       }))(),
@@ -196,7 +196,7 @@ test("cascades delete when the owning workspace is removed", async () => {
     fileName: "note.txt",
     contentType: "text/plain",
     sizeBytes: 5,
-    clientRequestId: crypto.randomUUID(),
+    idempotencyKey: crypto.randomUUID(),
   });
   await db.workspace.delete({ where: { id: workspace.id } });
   expect(
@@ -213,7 +213,7 @@ test("cancel removes a pending session's object and is idempotent once terminal"
     fileName: "note.txt",
     contentType: "text/plain",
     sizeBytes: 5,
-    clientRequestId: crypto.randomUUID(),
+    idempotencyKey: crypto.randomUUID(),
   });
   const objectKey = `workspaces/${fixture.workspaceId}/attachments/${created.attachmentId}/original`;
   objects.set(objectKey, { sizeBytes: 5, contentType: "text/plain" });

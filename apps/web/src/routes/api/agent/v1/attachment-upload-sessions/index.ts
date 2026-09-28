@@ -28,7 +28,7 @@ export type AttachmentUploadSessionCreateDependencies = {
     fileName: string;
     contentType: string;
     sizeBytes: number;
-    clientRequestId: string;
+    idempotencyKey: string;
   }): Promise<AttachmentUploadSessionCreated>;
 };
 
@@ -50,7 +50,7 @@ export async function handleAttachmentUploadSessionCreate(
       400,
       false,
     );
-  const { target, fileName, contentType, sizeBytes, clientRequestId } = body as Record<
+  const { target, fileName, contentType, sizeBytes, idempotencyKey } = body as Record<
     string,
     unknown
   >;
@@ -72,8 +72,8 @@ export async function handleAttachmentUploadSessionCreate(
       400,
       false,
     );
-  if (typeof clientRequestId !== "string" || !UUID_PATTERN.test(clientRequestId))
-    return errorResponse("UPLOAD_INVALID_REQUEST", "clientRequestId must be a UUID", 400, false);
+  if (typeof idempotencyKey !== "string" || !UUID_PATTERN.test(idempotencyKey))
+    return errorResponse("UPLOAD_INVALID_REQUEST", "idempotencyKey must be a UUID", 400, false);
 
   // The attachment belongs to the conversation, not a message; strip any `:root` thread suffix
   // rather than resolving it, exactly as the multipart upload route already does.
@@ -103,7 +103,7 @@ export async function handleAttachmentUploadSessionCreate(
       fileName,
       contentType,
       sizeBytes,
-      clientRequestId,
+      idempotencyKey,
     });
     return Response.json(session, { status: 201 });
   } catch (error) {
