@@ -1,4 +1,4 @@
-import { TASK_STATUSES, type TaskView } from "@lrm/coforge-sdk/internal";
+import { TASK_STATUSES, type TaskView, utf8Decoder } from "@lrm/coforge-sdk/internal";
 import { z } from "zod";
 
 /**
@@ -59,7 +59,7 @@ export function decodeTaskChangedEvent(value: unknown): TaskChangedEvent | undef
   let data = value;
   if (value instanceof Uint8Array) {
     try {
-      data = JSON.parse(new TextDecoder().decode(value)) as unknown;
+      data = JSON.parse(utf8Decoder.decode(value)) as unknown;
     } catch {
       return undefined;
     }

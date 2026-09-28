@@ -122,6 +122,7 @@ import {
   AGENT_ENVIRONMENT_MAX_VARIABLES,
   AGENT_ENVIRONMENT_NAME_PATTERN,
   isReservedAgentEnvironmentName,
+  utf8Encoder,
 } from "@lrm/coforge-sdk/internal";
 import { isAgentApiKey } from "#src/credentials/agent-api-key";
 import type { AgentRuntimeProviderConfig } from "#src/code-agent/contract";
@@ -502,7 +503,7 @@ export class DaemonConnection implements DaemonConnectionClient {
     const client = this.clientFactory(
       this.endpoint,
       "",
-      new TextEncoder().encode(JSON.stringify({ daemonApiKey: _token })),
+      utf8Encoder.encode(JSON.stringify({ daemonApiKey: _token })),
     );
     this.#client = client;
     const daemonChannel = `daemon:${config.workspaceId}:${config.computerId}`;
@@ -787,7 +788,7 @@ export class DaemonConnection implements DaemonConnectionClient {
     void client
       .rpc(
         DAEMON_CONNECTION_STATUS_METHOD,
-        new TextEncoder().encode(
+        utf8Encoder.encode(
           JSON.stringify({
             workspaceId: config.workspaceId,
             computerId: config.computerId,
@@ -819,7 +820,7 @@ export class DaemonConnection implements DaemonConnectionClient {
       void client
         .rpc(
           DAEMON_CONNECTION_STATUS_METHOD,
-          new TextEncoder().encode(JSON.stringify({ ...config, online: true })),
+          utf8Encoder.encode(JSON.stringify({ ...config, online: true })),
         )
         .then(() => {
           // An answered round trip is the only inbound traffic a Workspace with nothing to say

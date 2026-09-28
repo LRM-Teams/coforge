@@ -3,6 +3,7 @@ import type { Prisma, PrismaClient } from "#src/generated/prisma/client";
 import { AppError, isAppError } from "#src/lib/app-error";
 import { gitObjectIdSchema } from "#src/lib/git-object-id";
 
+import { utf8Encoder, utf8Decoder } from "@lrm/coforge-sdk/internal";
 export type GitHubConfig = {
   appId: number;
   clientId: string;
@@ -1385,10 +1386,10 @@ export class GitHubConnection {
       {
         name: "AES-GCM",
         iv,
-        additionalData: new TextEncoder().encode(`${this.config.clientId}:${userId}:${purpose}`),
+        additionalData: utf8Encoder.encode(`${this.config.clientId}:${userId}:${purpose}`),
       },
       await this.key(),
-      new TextEncoder().encode(value),
+      utf8Encoder.encode(value),
     );
     return `v1.${Buffer.from(iv).toString("base64url")}.${Buffer.from(encrypted).toString("base64url")}`;
   }
@@ -1401,12 +1402,12 @@ export class GitHubConnection {
       {
         name: "AES-GCM",
         iv: Buffer.from(nonce, "base64url"),
-        additionalData: new TextEncoder().encode(`${this.config.clientId}:${userId}:${purpose}`),
+        additionalData: utf8Encoder.encode(`${this.config.clientId}:${userId}:${purpose}`),
       },
       await this.key(),
       Buffer.from(ciphertext, "base64url"),
     );
-    return new TextDecoder().decode(plaintext);
+    return utf8Decoder.decode(plaintext);
   }
 
   private key() {

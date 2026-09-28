@@ -19,6 +19,7 @@ import {
   isRecord,
   UUID_LIKE_PATTERN,
   UUID_LIKE_SOURCE,
+  utf8Encoder,
 } from "@lrm/coforge-sdk/internal";
 import {
   actionCardActionSchema,
@@ -311,7 +312,7 @@ async function readJsonBody(
 ): Promise<{ payload: unknown } | Response> {
   if (contentLengthRejected(request, maxBytes, false)) return payloadTooLarge();
   const raw = await request.text();
-  if (new TextEncoder().encode(raw).byteLength > maxBytes) return payloadTooLarge();
+  if (utf8Encoder.encode(raw).byteLength > maxBytes) return payloadTooLarge();
   try {
     return { payload: JSON.parse(raw) };
   } catch {

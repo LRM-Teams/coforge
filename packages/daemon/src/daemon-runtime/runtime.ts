@@ -109,6 +109,7 @@ import {
   freshnessDecisionFactId,
   HELD_CONTEXT_LIMIT,
   UUID_LIKE_SOURCE,
+  utf8Encoder,
 } from "@lrm/coforge-sdk/internal";
 import { agentWorkspaceDirectory } from "#src/agent-runtime/agent-workspace-path";
 import { memoryIndexReminder } from "#src/agent-runtime/agent-memory-seed";
@@ -751,7 +752,7 @@ export class DaemonRuntime {
       requestId: "",
       accepted: Boolean(snapshot),
       status,
-      ...(snapshot ? { snapshotJson: new TextEncoder().encode(JSON.stringify(snapshot)) } : {}),
+      ...(snapshot ? { snapshotJson: utf8Encoder.encode(JSON.stringify(snapshot)) } : {}),
       ...(message ? { message } : {}),
     });
     // The one place a scan result gets its `collectedAt`: a fresh reading is stamped "now"; an
@@ -857,7 +858,7 @@ export class DaemonRuntime {
             launch.launchId,
             sessionId,
             AGENT_CONTEXT_SCAN_STATUS.AVAILABLE,
-            new TextEncoder().encode(JSON.stringify(report)),
+            utf8Encoder.encode(JSON.stringify(report)),
           )
         : result(launch.launchId, sessionId, AGENT_CONTEXT_SCAN_STATUS.UNPARSED);
     } catch (error) {

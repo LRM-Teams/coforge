@@ -950,3 +950,4 @@ export * from "./mime-type";
 export * from "./json-record";
 export * from "./agent-environment";
 export * from "./error-code";
+export * from "./text-codec";

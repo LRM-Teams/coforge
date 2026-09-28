@@ -1,3 +1,4 @@
+import { utf8Encoder } from "./text-codec";
 /**
  * Raft 1.0.32's freshness-decision producer fact id (`buildApmFreshnessDecisionProducerFactId`,
  * bundle 812372; `stableNormalizeApmHeldFreshness`, 812465).
@@ -66,7 +67,7 @@ export async function freshnessDecisionFactId(input: FreshnessDecisionFactInput)
   };
   const digest = await crypto.subtle.digest(
     "SHA-256",
-    new TextEncoder().encode(JSON.stringify(stableNormalizeFreshnessFact(stableInput))),
+    utf8Encoder.encode(JSON.stringify(stableNormalizeFreshnessFact(stableInput))),
   );
   return `freshness_decision_fact:${toHex(new Uint8Array(digest))}`;
 }
