@@ -1,5 +1,5 @@
 name: Publish Computer (staging)
-run-name: Publish Computer ${{ inputs.version || format('0.1.0-dev.{0}', github.run_number) }} to staging
+run-name: Publish Computer ${{ inputs.version || format('0.1.1-dev.{0}', github.run_number) }} to staging
 
 # Publishing a local Computer distribution is manual, never automatic on a push to main - see
 # docs/release/github-actions.md: a client release leaves a persistent
@@ -10,8 +10,8 @@ on:
     inputs:
       version:
         description: >-
-          Release version to publish (e.g. 0.1.0). Leave empty to auto-generate a
-          0.1.0-dev.<run number> version for this run.
+          Release version to publish (e.g. 0.1.1). Leave empty to auto-generate a
+          0.1.1-dev.<run number> version for this run.
         required: false
         type: string
 
@@ -79,7 +79,7 @@ jobs:
           if [ -z "$version" ]; then
             # Manual staging builds use the target release plus a unique workflow run number.
             # Source identity remains in the manifest's commit field.
-            version="0.1.0-dev.${RUN_NUMBER}"
+            version="0.1.1-dev.${RUN_NUMBER}"
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
 

@@ -71,13 +71,13 @@ client release leaves a persistent artifact set behind, and at the current user
 count a build per merge is waste. Adding a trigger later is one line.
 
 Routine staging publications use `<target-version>-dev.<workflow-run-number>`;
-the current target is `0.1.0`, so leaving the workflow's version input empty
-generates versions such as `0.1.0-dev.9` and `0.1.0-dev.10`. Run numbers may
+the current target is `0.1.1`, so leaving the workflow's version input empty
+generates versions such as `0.1.1-dev.82` and `0.1.1-dev.83`. Run numbers may
 have gaps and are not reset when the target version changes. Update the
 workflow's default target when preparing the next release line. The source SHA
 and build time remain in the manifest rather than the version string. There
 is no nightly schedule or date-based version convention. Use only two routine
-forms: staging builds such as `0.1.0-dev.9` and stable versions such as `0.1.0`,
+forms: staging builds such as `0.1.1-dev.82` and stable versions such as `0.1.1`,
 selected through the explicit version input. No beta or release-candidate
 stage is required. Previously published versions, including historical `rc`
 versions, remain immutable and available by exact version; the next successful
