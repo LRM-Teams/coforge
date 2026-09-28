@@ -8,7 +8,7 @@ import {
   type AgentVisibilityViewer,
 } from "#src/server/agents/agent-visibility.server";
 import { workspaceUserAvatarUrl } from "#src/server/db/repositories/user-profile.repositories.server";
-import { MEMBER_PAGE_MAX } from "#src/features/workspaces/member-directory";
+import { CREATED_AGENT_FACES, MEMBER_PAGE_MAX } from "#src/features/workspaces/member-directory";
 
 /** The actor's Workspace role; ACCESS_DENIED when the user is not a member. */
 export async function workspaceMemberRole(
@@ -188,7 +188,7 @@ export class WorkspaceMembers {
   }
 
   async peoplePage(workspaceId: string, userId: string, input: PeoplePageInput) {
-    await this.viewer(workspaceId, userId);
+    const { visibleAgents } = await this.viewer(workspaceId, userId);
     const query = input.query.trim();
     const limit = Math.min(Math.max(input.limit, 1), MEMBER_PAGE_MAX);
     const people = await this.db.user.findMany({
@@ -202,6 +202,13 @@ export class WorkspaceMembers {
         displayName: true,
         description: true,
         avatarObjectKey: true,
+        // Visible Agents this person created. One list feeds the count and the faces: Prisma
+        // pushes neither a nested `take` nor a page-scoped filtered `_count` into SQL.
+        agents: {
+          where: visibleAgents,
+          select: { id: true, name: true, displayName: true, avatarObjectKey: true },
+          orderBy: [{ name: "asc" }, { id: "asc" }],
+        },
       },
       orderBy: [{ username: "asc" }, { id: "asc" }],
       ...(input.cursor ? { cursor: { id: input.cursor }, skip: 1 } : {}),
@@ -214,6 +221,14 @@ export class WorkspaceMembers {
         displayName: person.displayName?.trim() || person.username,
         description: person.description,
         avatarUrl: workspaceUserAvatarUrl(workspaceId, person.id, person.avatarObjectKey),
+        createdAgents: {
+          total: person.agents.length,
+          items: person.agents.slice(0, CREATED_AGENT_FACES).map((agent) => ({
+            id: agent.id,
+            displayName: agent.displayName.trim() || agent.name,
+            avatarUrl: agentAvatarUrl(workspaceId, agent.id, agent.avatarObjectKey),
+          })),
+        },
       })),
       limit,
     );

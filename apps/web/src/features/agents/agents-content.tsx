@@ -44,7 +44,7 @@ import { conversationLayoutStorage } from "#src/features/conversations/layout-st
 import type { AgentStatusView } from "./agent-status-realtime";
 import type { AgentDisplaySnapshot } from "@lrm/coforge-sdk/internal";
 
-import { AgentDisplayAvatar } from "./agent-activity-avatar";
+import { AgentDisplayAvatar, AgentStackFace } from "./agent-activity-avatar";
 import { AgentCreateDialog } from "./agent-create-dialog";
 import { AgentDeleteDialog } from "./agent-delete-dialog";
 import type { RuntimeCatalog } from "./agent-runtime-fields";
@@ -226,7 +226,7 @@ export function AgentsContent({
                   iconLeading={UsersPlus}
                   onPress={() => setInviteOpen(true)}
                 >
-                  {m.workspace_invite_button()}
+                  {m.member_invite_humans()}
                 </Button>
               )}
         </div>
@@ -472,6 +472,8 @@ const CARD_CLASS =
   "flex min-w-0 flex-col gap-2.5 rounded-xl bg-primary p-4 shadow-xs ring-1 ring-secondary outline-focus-ring ring-inset data-focus-visible:outline-2 data-focus-visible:outline-offset-2";
 
 function PersonCard({ person }: { person: DirectoryPerson }) {
+  const { total, items } = person.createdAgents;
+  const more = total - items.length;
   return (
     <GridListItem id={person.id} textValue={person.displayName} className={CARD_CLASS}>
       <Avatar
@@ -485,10 +487,24 @@ function PersonCard({ person }: { person: DirectoryPerson }) {
         <h2 className="truncate text-md font-semibold text-primary">{person.displayName}</h2>
         <p className="truncate text-sm text-tertiary">@{person.name}</p>
       </div>
-      {person.description && (
-        <p className="line-clamp-2 text-sm leading-5 break-words text-secondary">
-          {person.description}
-        </p>
+      {/* Fixed two-line slot, as on Agent cards, so a row's footers line up. */}
+      <p className="line-clamp-2 min-h-10 text-sm leading-5 break-words text-secondary">
+        {person.description}
+      </p>
+      {total > 0 && (
+        <div className="mt-auto flex justify-end pt-1">
+          <Tooltip title={m.member_created_agents()} arrow>
+            <TooltipTrigger className="flex cursor-default items-center -space-x-1.5 rounded-full outline-focus-ring focus-visible:outline-2">
+              <span className="sr-only">{m.member_created_agents_count({ count: total })}</span>
+              {items.map((agent) => (
+                <AgentStackFace key={agent.id} agent={agent} />
+              ))}
+              {more > 0 && (
+                <Avatar size="xs" alt="" initials={`+${more}`} className="ring-2 ring-bg-primary" />
+              )}
+            </TooltipTrigger>
+          </Tooltip>
+        </div>
       )}
     </GridListItem>
   );

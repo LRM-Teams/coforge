@@ -155,3 +155,75 @@ test("pages the Workspace directory with owner and search filters", async () => 
     await db.$disconnect();
   }
 });
+
+test("each person carries the Agents they created that the viewer can see", async () => {
+  const connectionString = Bun.env.CHANNEL_TEST_DATABASE_URL;
+  if (!connectionString)
+    throw new Error("CHANNEL_TEST_DATABASE_URL must point to local PostgreSQL");
+
+  const db = new PrismaClient({ adapter: new PrismaPg({ connectionString }) });
+  const suffix = crypto.randomUUID();
+  const usernames = ["viewer", "creator"].map((name) => `created-${name}-${suffix}`);
+  const slugs = [`created-${suffix}`, `created-other-${suffix}`];
+  try {
+    const [viewer, creator] = await Promise.all(
+      usernames.map((username) => db.user.create({ data: { username } })),
+    );
+    const [workspace, otherWorkspace] = await Promise.all(
+      slugs.map((slug) =>
+        db.workspace.create({
+          data: {
+            slug,
+            name: slug,
+            members: { create: [{ userId: viewer!.id }, { userId: creator!.id }] },
+          },
+        }),
+      ),
+    );
+    const agent = (name: string, extra: object = {}) =>
+      db.agent.create({
+        data: {
+          workspaceId: workspace!.id,
+          ownerId: creator!.id,
+          name,
+          displayName: name.toUpperCase(),
+          runtimeConfig: {},
+          ...extra,
+        },
+      });
+    // Six public Agents, created out of name order; a private one the viewer may not see,
+    // a deleted one, and one in another Workspace are not counted.
+    for (const name of ["foxtrot", "alpha", "echo", "charlie", "bravo", "delta"]) await agent(name);
+    await agent("hidden", { visibility: "private" });
+    await agent("gone", { deletedAt: new Date() });
+    await db.agent.create({
+      data: {
+        workspaceId: otherWorkspace!.id,
+        ownerId: creator!.id,
+        name: "elsewhere",
+        displayName: "Elsewhere",
+        runtimeConfig: {},
+      },
+    });
+
+    const people = await new WorkspaceMembers(db).peoplePage(workspace!.id, viewer!.id, {
+      query: "",
+      limit: 24,
+    });
+    const byName = new Map(people.items.map((person) => [person.name, person]));
+    const created = byName.get(usernames[1]!)!.createdAgents;
+    expect(created.total).toBe(6);
+    // The card shows a few faces and a "+N" for the rest, in the directory's name order.
+    expect(created.items.map((item) => item.displayName)).toEqual([
+      "ALPHA",
+      "BRAVO",
+      "CHARLIE",
+      "DELTA",
+    ]);
+    expect(byName.get(usernames[0]!)!.createdAgents).toEqual({ total: 0, items: [] });
+  } finally {
+    await db.workspace.deleteMany({ where: { slug: { in: slugs } } });
+    await db.user.deleteMany({ where: { username: { in: usernames } } });
+    await db.$disconnect();
+  }
+});

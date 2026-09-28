@@ -11,9 +11,7 @@ import { AlertCircle, XClose } from "@untitledui/icons";
 import { Button } from "#src/components/base/buttons/button";
 import { ButtonUtility } from "#src/components/base/buttons/button-utility";
 import { useAppToast } from "#src/components/ui/toast";
-import { Avatar } from "#src/components/base/avatar/avatar";
-import { avatarInitial, avatarToneClassName } from "#src/lib/avatar-tone";
-import { AgentDisplayAvatar } from "#src/features/agents/agent-activity-avatar";
+import { AgentDisplayAvatar, AgentStackFace } from "#src/features/agents/agent-activity-avatar";
 import { useLiveAgent } from "#src/features/agents/workspace-agents-realtime";
 import { cn } from "#src/lib/utils";
 import { m } from "#src/paraglide/messages";
@@ -38,22 +36,6 @@ function useThreadFollowingAgents(channelId: string, threadRootId: string) {
     staleTime: 15_000,
     refetchOnWindowFocus: true,
   });
-}
-
-/** A face in the trigger's stack: no status dot, which the overlap would half cover; the
- * popover's rows carry each Agent's status. */
-function FollowingAgentFace({ agent }: { agent: FollowingAgent }) {
-  return (
-    <Avatar
-      size="xs"
-      alt=""
-      src={agent.avatarUrl}
-      initials={avatarInitial(agent.displayName)}
-      contentClassName={avatarToneClassName(agent.displayName)}
-      // The ring separates the overlapping faces, as an avatar group does.
-      className="ring-2 ring-bg-primary"
-    />
-  );
 }
 
 function FollowingAgentRow({
@@ -172,7 +154,8 @@ export function ThreadFollowingAgents({
           <>
             <span aria-hidden="true" className="flex -space-x-1">
               {agents.slice(0, 3).map((agent) => (
-                <FollowingAgentFace key={agent.id} agent={agent} />
+                // The popover's rows carry each Agent's status.
+                <AgentStackFace key={agent.id} agent={agent} />
               ))}
             </span>
             <span aria-hidden="true" className="tabular-nums">
