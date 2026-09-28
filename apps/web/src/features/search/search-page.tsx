@@ -103,7 +103,7 @@ export function SearchPage({
   // typed since; only a change from elsewhere (a link, Back) replaces the text.
   const lastCommitted = useRef(query);
   const input = useRef<HTMLInputElement>(null);
-  const previewSection = useRef<HTMLDivElement>(null);
+  const previewSection = useRef<HTMLElement>(null);
   const committed = query.trim();
 
   useEffect(() => {
@@ -242,9 +242,11 @@ export function SearchPage({
           )}
         </div>
         {showPreview && preview && (
-          <div ref={previewSection} className="flex min-h-0 min-w-0 flex-1">
-            <SearchPreview key={`${preview.kind}:${preview.id}`} target={preview} />
-          </div>
+          <SearchPreview
+            key={`${preview.kind}:${preview.id}`}
+            ref={previewSection}
+            target={preview}
+          />
         )}
       </main>
     </SearchPreviewContext.Provider>

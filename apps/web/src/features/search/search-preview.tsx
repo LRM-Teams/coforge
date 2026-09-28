@@ -1,16 +1,14 @@
-import { Suspense, useState } from "react";
-import { usePrefetchQuery, useSuspenseQuery } from "@tanstack/react-query";
+import { memo, Suspense, useState, type Ref } from "react";
+import { useSuspenseQuery } from "@tanstack/react-query";
 import { CatchBoundary, ClientOnly, getRouteApi } from "@tanstack/react-router";
 
 import { Skeleton } from "#src/components/ui/skeleton";
-import { useOpenAgentProfile } from "#src/features/agents/profile-panel/open-agent-profile";
-import { agentIdFromProfileParam } from "#src/features/agents/profile-panel/profile-panel-search";
+import { useConversationAgentProfile } from "#src/features/agents/profile-panel/open-agent-profile";
 import {
   useCurrentWorkspaceId,
   useLiveAgent,
 } from "#src/features/agents/workspace-agents-realtime";
 import { ChannelConversation } from "#src/features/conversations/channel-conversation";
-import { channelNamesQuery } from "#src/features/conversations/conversation-queries";
 import { DirectConversation } from "#src/features/conversations/direct-conversation";
 import {
   useChannelConversation,
@@ -18,6 +16,7 @@ import {
 } from "#src/features/conversations/use-conversation-data";
 import { m } from "#src/paraglide/messages";
 import type { RememberedEntity } from "./search-memory";
+import { searchDirectoryQuery } from "./search-queries";
 
 const searchRoute = getRouteApi("/_app/search");
 
@@ -28,15 +27,19 @@ export type SearchPreviewTarget = RememberedEntity & { messageId?: string };
  * A result's conversation beside the search results: the conversation itself, as its page shows
  * it (its header, the stream positioned at the message, the composer, threads, reactions and the
  * Agent profile), without the Chat / Tasks / Files tabs. Previewing is not reading: nothing is
- * marked read.
+ * marked read. Memoized: typing in the search box re-renders the page, not the conversation.
  */
-export function SearchPreview({ target }: { target: SearchPreviewTarget }) {
-  const workspaceId = useCurrentWorkspaceId() ?? "";
-  // Read alongside the conversation rather than after it: both hold the preview back.
-  usePrefetchQuery(channelNamesQuery(workspaceId));
+export const SearchPreview = memo(function SearchPreview({
+  target,
+  ref,
+}: {
+  target: SearchPreviewTarget;
+  ref?: Ref<HTMLElement>;
+}) {
   const [failed, setFailed] = useState(false);
   return (
     <section
+      ref={ref}
       aria-label={m.search_preview()}
       className="flex min-h-0 min-w-0 flex-1 flex-col border-l border-secondary bg-primary"
     >
@@ -53,9 +56,9 @@ export function SearchPreview({ target }: { target: SearchPreviewTarget }) {
           >
             <Suspense fallback={<PreviewSkeleton />}>
               {target.kind === "channel" ? (
-                <ChannelPreview channelId={target.id} />
+                <ChannelPreview channelId={target.id} jumpMessage={target.messageId} />
               ) : (
-                <DirectPreview agentId={target.id} />
+                <DirectPreview agentId={target.id} jumpMessage={target.messageId} />
               )}
             </Suspense>
           </CatchBoundary>
@@ -63,35 +66,40 @@ export function SearchPreview({ target }: { target: SearchPreviewTarget }) {
       )}
     </section>
   );
-}
+});
 
-function ChannelPreview({ channelId }: { channelId: string }) {
+function ChannelPreview({ channelId, jumpMessage }: { channelId: string; jumpMessage?: string }) {
   const { conversationProps } = useChannelConversation(channelId);
   const place = usePreviewPlace();
-  return <ChannelConversation {...conversationProps} {...place} />;
+  return <ChannelConversation {...conversationProps} {...place} jumpMessage={jumpMessage} />;
 }
 
-function DirectPreview({ agentId }: { agentId: string }) {
+function DirectPreview({ agentId, jumpMessage }: { agentId: string; jumpMessage?: string }) {
   const { conversationProps } = useDirectConversation(agentId);
   const agentStatus = useLiveAgent(agentId)?.status.value;
   const place = usePreviewPlace();
-  return <DirectConversation {...conversationProps} agentStatus={agentStatus} {...place} />;
+  return (
+    <DirectConversation
+      {...conversationProps}
+      {...place}
+      agentStatus={agentStatus}
+      jumpMessage={jumpMessage}
+    />
+  );
 }
 
 /** What the messages layout gives a conversation page and the search page supplies itself: the
- * Workspace's channels (for references) and the Agent profile panel, kept in the search URL. */
+ * Workspace's channels (for references; the search page has already read them) and the Agent
+ * profile panel, kept in the search URL. */
 function usePreviewPlace() {
   const workspaceId = useCurrentWorkspaceId() ?? "";
-  const channels = useSuspenseQuery(channelNamesQuery(workspaceId)).data;
-  const { profile, agentTab } = searchRoute.useSearch();
-  const { openAgentProfile, setAgentProfileTab, closeAgentProfile } = useOpenAgentProfile();
-  return {
-    channels,
-    onOpenAgentProfile: openAgentProfile,
-    agentProfile: { agentId: agentIdFromProfileParam(profile), tab: agentTab },
-    onAgentProfileTabChange: setAgentProfileTab,
-    onCloseAgentProfile: closeAgentProfile,
-  };
+  const channels = useSuspenseQuery({
+    ...searchDirectoryQuery(workspaceId),
+    select: (directory) => directory.channels,
+  }).data;
+  const profile = searchRoute.useSearch({ select: (search) => search.profile });
+  const agentTab = searchRoute.useSearch({ select: (search) => search.agentTab });
+  return { channels, ...useConversationAgentProfile({ profile, agentTab }) };
 }
 
 /** Message-shaped placeholders while the conversation loads. */

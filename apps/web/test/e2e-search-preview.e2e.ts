@@ -143,13 +143,11 @@ test("a result previews beside the list and opens on a double click", async () =
     await waitFor(`document.querySelector('${PREVIEW} li[data-message-id="${inA.id}"]') !== null`);
     await waitFor(`document.querySelector('${PREVIEW} textarea:not([disabled])') !== null`);
     const preview = await evaluate<{
-      composer: boolean;
       listed: boolean;
       current: string | null;
       headerBottoms: number[];
     }>(
       `({
-        composer: document.querySelector('${PREVIEW} textarea') !== null,
         listed: document.querySelector('${row(inB.id)}') !== null,
         current: document.querySelector('${row(inA.id)}').getAttribute("aria-current"),
         // The search header and the conversation's header end on one line.
@@ -159,9 +157,10 @@ test("a result previews beside the list and opens on a double click", async () =
         ].map((header) => Math.round(header.getBoundingClientRect().bottom)),
       })`,
     );
-    expect(preview.composer).toBe(true);
-    expect(preview.listed).toBe(true);
-    expect(preview.current).toBe("true");
+    expect({ listed: preview.listed, current: preview.current }).toEqual({
+      listed: true,
+      current: "true",
+    });
     expect(preview.headerBottoms[1]).toBe(preview.headerBottoms[0]!);
     await browser("screenshot", join(artifacts, "preview.png"));
 
@@ -182,9 +181,24 @@ test("a result previews beside the list and opens on a double click", async () =
     await browser("press", "Escape");
     expect(await evaluate<string>(param("open"))).toBe(`channel:${channelA}`);
 
-    // Another result switches the preview; a reload keeps it.
+    // A thread opens inside the preview (here on the reply just sent), kept in the search URL like
+    // the conversation's own page.
+    await browser(
+      "eval",
+      `document.querySelector('${PREVIEW} li[data-message-id="${saved!.id}"] [aria-label^="Reply in thread"]').click()`,
+    );
+    await waitFor(
+      `${param("threadRootId")} === "${saved!.id}" && location.pathname === "/en/search"`,
+    );
+    await waitFor(
+      `[...document.querySelectorAll('${PREVIEW} section[aria-label="Thread"]')].some((pane) => !pane.hidden)`,
+    );
+    await browser("screenshot", join(artifacts, "thread.png"));
+
+    // Another result switches the preview, and the thread goes with the old one; a reload keeps
+    // the preview.
     await browser("click", row(inB.id));
-    await waitFor(`${param("open")} === "channel:${channelB}"`);
+    await waitFor(`${param("open")} === "channel:${channelB}" && ${param("threadRootId")} === ""`);
     await waitFor(`document.querySelector('${PREVIEW} li[data-message-id="${inB.id}"]') !== null`);
     await browser("reload");
     await waitFor(`document.querySelector('${PREVIEW} li[data-message-id="${inB.id}"]') !== null`);
@@ -249,8 +263,7 @@ test("a result previews beside the list and opens on a double click", async () =
     await browser("fill", 'input[type="search"]', phrase);
     await waitFor(`document.querySelector('${row(inA.id)}') !== null`);
     await browser("click", row(inA.id));
-    // The preview has landed on the message (its one-shot jump is consumed).
-    await waitFor(`document.querySelector('${PREVIEW}') !== null && ${param("message")} === ""`);
+    await waitFor(`document.querySelector('${PREVIEW}') !== null`);
     await browser("dblclick", row(inA.id));
     await waitFor(`location.pathname === "/en/messages/channels/${channelA}"`);
     await browser("back");

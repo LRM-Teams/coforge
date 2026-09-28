@@ -169,6 +169,7 @@ export function ChannelConversation({
   tasksPane,
   channels,
   taskPopup,
+  jumpMessage,
 }: {
   conversation: ChannelConversationView;
   onSend: (
@@ -216,6 +217,8 @@ export function ChannelConversation({
   channels?: readonly ChannelSuggestion[];
   /** Shows only the Task popup, opened and closed by a page other than the channel's own. */
   taskPopup?: TaskPopupControls;
+  /** The message the stream lands on, kept by the host (see `ThreadedConversation`). */
+  jumpMessage?: string;
 }) {
   const [joining, setJoining] = useState(false);
   const [error, setError] = useState(false);
@@ -301,6 +304,7 @@ export function ChannelConversation({
       tasksPane={tasksPane}
       channels={channels}
       taskPopup={taskPopup}
+      jumpMessage={jumpMessage}
       tasks={tasks}
       onCreateTask={conversation.senderMemberId ? onCreateTask : undefined}
       onToggleReaction={conversation.senderMemberId ? onToggleReaction : undefined}

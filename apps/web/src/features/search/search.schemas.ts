@@ -1,10 +1,6 @@
 import { z } from "zod";
 
-import {
-  agentProfileParamSchema,
-  agentProfileTabParamSchema,
-} from "#src/features/agents/profile-panel/profile-panel-search";
-import { openTaskParamSchema } from "#src/features/conversations/conversation-thread-search";
+import { conversationPanesSearchShape } from "#src/features/conversations/conversation-thread-search";
 import { SEARCH_RANGES } from "./search-filters";
 
 /** Longest query the search box sends; longer text is cut, never rejected. */
@@ -57,24 +53,17 @@ export const searchPageSearchSchema = z.object({
     .optional()
     .catch(undefined),
   msg: z.uuid().optional().catch(undefined),
-  // The previewed conversation's own state, as its page keeps it: the one-shot jump to `message`,
-  // an open thread, Task popup or Agent profile.
-  message: z.uuid().optional().catch(undefined),
-  threadRootId: z.uuid().optional().catch(undefined),
-  task: openTaskParamSchema,
-  profile: agentProfileParamSchema,
-  agentTab: agentProfileTabParamSchema,
+  // The previewed conversation's open thread, Task popup or Agent profile, as its page keeps them.
+  ...conversationPanesSearchShape,
 });
 
-/** The search Cmd/Ctrl+K reopens: the page's query and filters, without a preview or `defer`. */
-export const lastSearchSchema = searchPageSearchSchema.omit({
-  defer: true,
-  open: true,
-  msg: true,
-  message: true,
-  threadRootId: true,
-  task: true,
-  profile: true,
-  agentTab: true,
+/** The search Cmd/Ctrl+K reopens: the page's query and filters, nothing of a preview. */
+export const lastSearchSchema = searchPageSearchSchema.pick({
+  q: true,
+  senderId: true,
+  scope: true,
+  channelId: true,
+  range: true,
+  sort: true,
 });
 export type LastSearch = z.output<typeof lastSearchSchema>;

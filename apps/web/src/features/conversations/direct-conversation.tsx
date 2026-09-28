@@ -115,7 +115,8 @@ export function DirectConversationHeader({
 }
 
 export function DirectConversation(
-  props: ConversationProps & Pick<ThreadedConversationProps, "channels" | "taskPopup">,
+  props: ConversationProps &
+    Pick<ThreadedConversationProps, "channels" | "taskPopup" | "jumpMessage">,
 ) {
   const { conversation } = props;
   // A deleted Agent's DM stays readable, but nothing new can be sent to it.

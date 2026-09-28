@@ -148,6 +148,9 @@ export type ThreadedConversationProps = Omit<ConversationProps, "conversation" |
    * conversation's own — the Tasks page — which opens and closes it through these controls
    * instead of the conversation's `task` search param. */
   taskPopup?: TaskPopupControls;
+  /** The message the stream lands on, for a host that keeps it itself (the search preview's
+   * previewed result) instead of the conversation's one-shot `message` search param. */
+  jumpMessage?: string;
 };
 
 /** Which Task's popup is open, and how to open another or close it. */

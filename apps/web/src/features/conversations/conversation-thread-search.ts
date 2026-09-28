@@ -1,5 +1,10 @@
 import { z } from "zod";
 
+import {
+  agentProfileParamSchema,
+  agentProfileTabParamSchema,
+} from "#src/features/agents/profile-panel/profile-panel-search";
+
 /**
  * Conversation thread selection as URL search state.
  *
@@ -79,6 +84,27 @@ export function conversationSearchWithoutAgentProfile<
 >(previous: T): Omit<T, "profile" | "agentTab"> {
   const { profile: _profile, agentTab: _agentTab, ...rest } = previous;
   return rest;
+}
+
+/**
+ * The panes a conversation keeps in the address wherever it is shown: an open thread, Task popup
+ * or Agent profile. The conversation routes and the search page spread it into their
+ * `validateSearch`.
+ */
+export const conversationPanesSearchShape = {
+  threadRootId: z.uuid().optional().catch(undefined),
+  task: openTaskParamSchema,
+  profile: agentProfileParamSchema,
+  agentTab: agentProfileTabParamSchema,
+};
+
+/** Drops every pane of `conversationPanesSearchShape`, for when another conversation shows. */
+export function conversationSearchWithoutPanes<
+  T extends { threadRootId?: string; task?: unknown; profile?: string; agentTab?: unknown },
+>(previous: T) {
+  return conversationSearchWithoutAgentProfile(
+    conversationSearchWithoutTask(conversationSearchWithoutThread(previous)),
+  );
 }
 
 /** The pane's consume decision for `?message=<uuid>` — see `positionJumpDecision`. */
