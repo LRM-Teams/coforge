@@ -21,6 +21,7 @@ import { PrismaChangeAgentVisibilityStore } from "#src/server/db/repositories/ag
 import { setAgentRole } from "#src/server/agents/agent-role.server";
 import { AppError } from "#src/lib/app-error";
 import { ACTIVE_AGENT_WHERE } from "#src/server/agents/active-agent.server";
+import { listVisibleAgentModels } from "#src/server/agents/agent-models.server";
 import { AgentAvatars, agentAvatarUrl } from "#src/server/agents/agent-avatar.server";
 import { isAdminLike, type WorkspaceMemberRole } from "#src/server/workspaces/member-role.server";
 import { requireDatabaseClient } from "#src/server/db/client.server";
@@ -341,6 +342,15 @@ export const getAgentStatusSubscriptionTokenForAgent = createServerFn({ method: 
       workspaceId,
       agentId: data.agentId,
     });
+  });
+
+/** The configured model of every Agent the viewer may see in the Workspace, by Agent id, for the
+ * model shown beside an Agent's name in chat (Settings → Show agent model). */
+export const listAgentModels = createServerFn({ method: "GET" })
+  .middleware([workspaceUserMiddleware])
+  .handler(async ({ context: { user, workspaceId, db } }) => {
+    const viewer = await agentVisibilityViewerForUser(db, workspaceId, user.id);
+    return listVisibleAgentModels(db, workspaceId, viewer);
   });
 
 /**

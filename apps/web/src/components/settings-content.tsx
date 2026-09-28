@@ -41,6 +41,7 @@ import {
   type MessageFontSize,
 } from "#src/features/settings/message-font-size";
 import { MessageFontSizePreview } from "#src/features/settings/message-font-size-preview";
+import { useShowAgentModel } from "#src/features/settings/show-agent-model";
 import {
   isConversationOpenMode,
   type ConversationOpenMode,
@@ -676,6 +677,7 @@ function Preferences({
   };
   const savedOnDevice = m.preferences_saved_on_device();
   const [messageFontSize, setMessageFontSize] = useMessageFontSize();
+  const [showAgentModel, setShowAgentModel] = useShowAgentModel();
   const messageFontSizeLabels: Record<MessageFontSize, string> = {
     sm: m.preferences_message_font_size_small(),
     md: m.preferences_message_font_size_medium(),
@@ -787,6 +789,21 @@ function Preferences({
               aria-label={m.preferences_live_agent_activity()}
               isSelected={liveAgentActivity}
               onChange={onLiveAgentActivityChange}
+            />
+          </SettingsField>
+        </SettingsCard>
+        <SettingsCard>
+          <SettingsField
+            inline
+            label={m.preferences_show_agent_model()}
+            description={m.preferences_show_agent_model_description()}
+            note={savedOnDevice}
+          >
+            <Toggle
+              size="md"
+              aria-label={m.preferences_show_agent_model()}
+              isSelected={showAgentModel}
+              onChange={setShowAgentModel}
             />
           </SettingsField>
         </SettingsCard>

@@ -62,6 +62,8 @@ import { AgentDeleteDialog } from "#src/features/agents/agent-delete-dialog";
 import { AgentVisibilityConfirmDialog } from "#src/features/agents/agent-visibility-confirm-dialog";
 import type { AgentVisibility } from "#src/features/agents/agent-visibility";
 import { useAppToast } from "#src/components/ui/toast";
+import { agentModelsQueryKey } from "#src/features/agents/agent-models";
+import { useCurrentWorkspaceId } from "#src/features/agents/workspace-agents-realtime";
 import { AgentProfileHeader } from "./agent-profile-header";
 import { AgentProfileTabs, useAgentProfileTabOrder } from "./agent-profile-tabs";
 import { AgentProfileTab } from "./agent-profile-tab";
@@ -175,6 +177,7 @@ export function AgentProfilePanel({
   // Shared by the RUNTIME CONFIG section's masked chips (`agent-profile-tab.tsx`) and the
   // Runtime config dialog's Advanced disclosure — one owner-only load, not two.
   const queryClient = useQueryClient();
+  const workspaceId = useCurrentWorkspaceId();
   const envQuery = useQuery(agentEnvironmentQuery(agentId, Boolean(profile?.ownedByCurrentUser)));
   const saveEnvironment = useServerFn(saveAgentEnvironment);
   const environmentState: AgentEnvironmentState | undefined = profile?.ownedByCurrentUser
@@ -265,6 +268,7 @@ export function AgentProfilePanel({
         await Promise.all([
           invalidate(),
           queryClient.invalidateQueries({ queryKey: agentEnvironmentKey(profile.id) }),
+          queryClient.invalidateQueries({ queryKey: agentModelsQueryKey(workspaceId) }),
           queryClient.invalidateQueries({
             queryKey: ["agent-runtime-computers", profile.id, profile.computerId ?? "none"],
           }),

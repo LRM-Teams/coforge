@@ -27,6 +27,7 @@ import {
   ModalOverlay,
 } from "#src/components/application/modals/modal";
 import { AgentDisplayAvatar } from "#src/features/agents/agent-activity-avatar";
+import { AgentModelLabel } from "#src/features/agents/agent-model-label";
 import { avatarInitial, avatarToneClassName } from "#src/lib/avatar-tone";
 import { DELETED_AGENT_AVATAR_CLASS, DeletedAgentBadge } from "#src/features/agents/deleted-agent";
 import { useBreakpoint } from "#src/hooks/use-breakpoint";
@@ -880,6 +881,9 @@ export const MessageRow = memo(function MessageRow({
                 <span className="min-w-0 truncate text-sm font-semibold text-primary">
                   {displayName}
                 </span>
+              )}
+              {message.senderKind === "agent" && message.senderAgentId && !deleted && (
+                <AgentModelLabel agentId={message.senderAgentId} seenAt={message.createdAt} />
               )}
               {deleted && <DeletedAgentBadge />}
               <time

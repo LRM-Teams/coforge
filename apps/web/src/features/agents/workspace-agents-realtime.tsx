@@ -19,6 +19,7 @@ import {
   workspaceActivityQuery,
   type RecentActivityByAgent,
 } from "./agent-activity-queries";
+import { agentModelsQueryKey } from "./agent-models";
 
 const EMPTY_ACTIVITY: ActivityEntry[] = [];
 
@@ -118,8 +119,11 @@ export function WorkspaceAgentsProvider({
     getConnectionToken: getStatusToken,
     extraAgents,
     onVisibilityChangedEvent: workspaceId
-      ? () =>
-          void queryClient.invalidateQueries({ queryKey: visiblePrivateAgentIdsKey(workspaceId) })
+      ? () => {
+          void queryClient.invalidateQueries({ queryKey: visiblePrivateAgentIdsKey(workspaceId) });
+          // A model label follows the Agent's visibility too (`agent-models.ts`).
+          void queryClient.invalidateQueries({ queryKey: agentModelsQueryKey(workspaceId) });
+        }
       : undefined,
     getPrivateAgentStatusToken: workspaceId
       ? (agentId) => getPrivateStatusToken({ data: { agentId } })
