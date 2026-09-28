@@ -12,7 +12,7 @@
 
 ## 密度
 
-- 正文字号 `text-sm`（14px），`text-md`（16px）只用于对话正文和空状态标题。`text-xs` 只用于时间戳和徽章。
+- 正文字号 `text-sm`（14px），`text-md`（16px）只用于空状态标题。对话消息正文跟随设置 → Message font size（12/14/16px，默认 14px，见 `message-markdown.css`）。`text-xs` 只用于时间戳和徽章。
 - 列表行高 40 到 48px，字段行高 44px，表格行高 44px。
 - section 之间 `border-secondary`，section 内边距 `py-6 px-8`。
 - 页面能一屏看完的，不要让它两屏。

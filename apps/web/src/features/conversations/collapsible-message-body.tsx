@@ -5,7 +5,7 @@ import { Button } from "#src/components/base/buttons/button";
 import { cn } from "#src/lib/utils";
 import { m } from "#src/paraglide/messages";
 import {
-  COLLAPSED_MESSAGE_MAX_HEIGHT_REM,
+  COLLAPSED_MESSAGE_MAX_HEIGHT,
   overflowsCollapsedMessage,
 } from "./collapsed-message-height";
 import { MessageBody } from "./message-body";
@@ -59,17 +59,17 @@ export function CollapsibleMessageBody({
     // `overflow-hidden` is applied only once we know it overflows, so measuring the clamp would
     // never see an overflow in the first place. `scrollHeight` is the full content height in both
     // states, which also keeps the control visible while expanded — the reader needs the way back.
-    // The collapsed height is rem, so it is resolved against the root font size at measure time.
+    // The collapsed height is thirteen of the body's own lines, read at measure time.
     const measure = () =>
       setOverflowing(
         overflowsCollapsedMessage(
           content.scrollHeight,
-          Number.parseFloat(getComputedStyle(document.documentElement).fontSize),
+          Number.parseFloat(getComputedStyle(content).lineHeight),
         ),
       );
     measure();
     // The clamped height depends on the width, which changes with the window, the sidebar and the
-    // thread panel, and on the text size, which also resizes the body. The control renders *below* the clamped box, so this cannot feed back into its
+    // thread panel, and on the text and message font sizes, which also resize the body. The control renders *below* the clamped box, so this cannot feed back into its
     // own measurement.
     const observer = new ResizeObserver(measure);
     observer.observe(content);
@@ -94,11 +94,14 @@ export function CollapsibleMessageBody({
         inert={collapsed}
         // `overflow-hidden` only while collapsed: a code block or table inside the body keeps its
         // own horizontal scrolling when the body is open.
+        // `message-text` is what Settings → Message font size scales (`message-markdown.css`): the
+        // body only, so the Show more control below keeps the UI size.
         className={cn(
+          "message-text text-md",
           collapsed &&
             "overflow-hidden [mask-image:linear-gradient(to_bottom,black_calc(100%-2.5rem),transparent)]",
         )}
-        style={collapsed ? { maxHeight: `${COLLAPSED_MESSAGE_MAX_HEIGHT_REM}rem` } : undefined}
+        style={collapsed ? { maxHeight: COLLAPSED_MESSAGE_MAX_HEIGHT } : undefined}
       >
         <MessageBody body={body} mentions={mentions} {...bodyProps} />
       </div>

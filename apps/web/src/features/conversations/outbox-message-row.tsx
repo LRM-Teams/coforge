@@ -128,7 +128,7 @@ export function OutboxMessageRow({
               {sendingLabel}
             </p>
           )}
-          <div className="min-w-0 text-md leading-6 text-quaternary [overflow-wrap:anywhere]">
+          <div className="message-text min-w-0 text-md text-quaternary [overflow-wrap:anywhere]">
             <MessageBody
               body={entry.body}
               plainMentions={plainMentions}
