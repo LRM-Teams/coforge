@@ -212,6 +212,9 @@ export function ConversationPane({
     { rowId?: string; offset: number; height: number; top: number } | undefined
   >(undefined);
   const pendingMessageIdRef = useRef<string | undefined>(undefined);
+  /** How the pending message is scrolled to: at once when it is where the conversation opens (a
+   * paging scroll anchor would otherwise cut a smooth scroll short), smoothly within it. */
+  const pendingMessageBehaviorRef = useRef<ScrollBehavior>("smooth");
   // The row a position jump just landed on, highlighted for a moment: `?message=` deliberately
   // carries no hash (#713), so the landed row has no `:target` to take the anchor highlight from
   // (message-row.tsx renders both treatments with the same classes).
@@ -446,11 +449,16 @@ export function ConversationPane({
       // card) still wins over both: the anchor and jump effects land there instead.
       // Only an actual open positions on unread. Reaching the latest again later in the same
       // conversation (`followingLatest`) keeps following it.
-      const openMessageId =
-        firstRender || changedConversation
-          ? conversationOpenPosition(openMode, firstUnread)
-          : undefined;
-      if (openMessageId && !window.location.hash && !jumpMessage) {
+      const opening = firstRender || changedConversation;
+      // An open with a jump target is the jump effect's to position, like a hash is the anchor
+      // effect's: neither the open position nor following the latest may scroll over it (a
+      // follow-the-latest scroll a frame later would cut the jump's smooth scroll short).
+      if (opening && jumpMessage && !window.location.hash) {
+        setFollowingLatest(false);
+        return undefined;
+      }
+      const openMessageId = opening ? conversationOpenPosition(openMode, firstUnread) : undefined;
+      if (openMessageId && !window.location.hash) {
         if (conversation.messages.some((message) => message.id === openMessageId)) {
           setFollowingLatest(false);
           pendingOpenMessageIdRef.current = openMessageId;
@@ -585,6 +593,7 @@ export function ConversationPane({
           if (revealSystemMessageRef.current(messageId)) {
             setFollowingLatest(false);
             pendingMessageIdRef.current = messageId;
+            pendingMessageBehaviorRef.current = "instant";
           }
           return;
         }
@@ -609,7 +618,7 @@ export function ConversationPane({
       return;
     }
     pendingMessageIdRef.current = undefined;
-    message.scrollIntoView({ block: "center", behavior: "smooth" });
+    message.scrollIntoView({ block: "center", behavior: pendingMessageBehaviorRef.current });
     flashMessageRow(messageId);
   }, [conversation.messages, openedSystemMessages, flashMessageRow]);
 
@@ -749,9 +758,12 @@ export function ConversationPane({
     scrollToLatest("smooth");
   }
 
-  async function showMessage(messageId: string) {
+  /** Scrolls to a message, loading the window around it first: smoothly within the conversation,
+   * at once (`instant`) where the conversation opens on it. */
+  async function showMessage(messageId: string, behavior: ScrollBehavior = "smooth") {
     const loaded = conversation.messages.some((message) => message.id === messageId);
     setFollowingLatest(false);
+    pendingMessageBehaviorRef.current = behavior;
     if (!loaded) {
       if (!onLoadMessageAround) return;
       pendingMessageIdRef.current = messageId;
@@ -767,9 +779,7 @@ export function ConversationPane({
       pendingMessageIdRef.current = messageId;
       return;
     }
-    document
-      .getElementById(`message-${messageId}`)
-      ?.scrollIntoView({ block: "center", behavior: "smooth" });
+    document.getElementById(`message-${messageId}`)?.scrollIntoView({ block: "center", behavior });
     flashMessageRow(messageId);
   }
 
@@ -800,7 +810,8 @@ export function ConversationPane({
     }
     if (decision.action === "ignore") return;
     attemptedJumpRef.current = decision.id;
-    if (decision.action === "show") void showMessageRef.current(decision.id);
+    // The conversation opens on the jump target: land there at once, as a hash deep link does.
+    if (decision.action === "show") void showMessageRef.current(decision.id, "instant");
     onJumpMessageConsumed?.();
   }, [jumpMessage, onJumpMessageConsumed]);
 
