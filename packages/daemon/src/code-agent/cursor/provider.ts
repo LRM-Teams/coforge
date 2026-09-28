@@ -251,6 +251,18 @@ class CursorAgentSession implements AgentSession {
       this.#emit({ type: "compaction-finished", occurredAt: eventTime(record) });
       return;
     }
+    // Current Cursor CLI versions emit reasoning as top-level `thinking` delta frames (rather
+    // than assistant content blocks). Forward those deltas so the daemon's activity trajectory
+    // can show Thinking/Thinking finished while a turn is running.
+    if (
+      record.type === "thinking" &&
+      record.subtype === "delta" &&
+      typeof record.text === "string" &&
+      record.text
+    ) {
+      this.#emit({ type: "thinking-delta", text: record.text });
+      return;
+    }
     if (record.type === "assistant") {
       this.#handleAssistant(record);
       return;

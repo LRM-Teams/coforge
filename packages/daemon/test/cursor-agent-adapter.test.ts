@@ -266,6 +266,33 @@ test("thinking/text/tool_use content blocks in an assistant message map to their
   }
 });
 
+test("top-level Cursor thinking frames map to thinking activity events", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "cursor-top-level-thinking-"));
+  try {
+    const session = await provider().createAgentSession({
+      agentWorkspaceDirectory: directory,
+      instructions: INSTRUCTIONS,
+      sessionId: "existing-session",
+      environment: { COFORGE_CURSOR_MODE: "top-level-thinking" },
+    });
+    const events: AgentRuntimeEvent[] = [];
+    session.subscribe((event) => events.push(event));
+    try {
+      await session.sendMessage("go");
+      await nthCompleted(session, 1);
+      expect(
+        events.some(
+          (event) => event.type === "thinking-delta" && event.text === "thinking from cursor",
+        ),
+      ).toBe(true);
+    } finally {
+      await session.dispose();
+    }
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("system status:compacting and compact_boundary map to compaction events", async () => {
   const directory = await mkdtemp(join(tmpdir(), "cursor-compacting-"));
   try {
@@ -391,7 +418,7 @@ test.each([
     "unknown-id-requested",
   ],
 ] as const)(
-  "measured real frames beyond system/init, assistant, and result are ignored: %s",
+  "measured real Cursor thinking frames map to activity while unrelated frames stay ignored: %s",
   async (_name, fixtureFile, startingSessionId) => {
     const directory = await mkdtemp(join(tmpdir(), "cursor-replay-"));
     try {
@@ -410,19 +437,14 @@ test.each([
       try {
         await session.sendMessage("go");
         await nthCompleted(session, 1);
-        // The real `thinking`, `tool_call`, `connection`, and `retry` frames these captures
-        // contain, and the `user` echo of the prompt, produce nothing: only identity from
-        // `system/init`, the two `assistant` text blocks, and the terminal `completed` remain.
+        // Top-level thinking deltas are real provider progress and must reach the activity
+        // trajectory. Tool/connection/retry frames and the user echo remain internal.
         const contentEvents = events.filter((event) => event.type !== "session");
-        expect(contentEvents.map((event) => event.type)).toEqual([
-          "text-delta",
-          "text-delta",
-          "completed",
-        ]);
-        expect(contentEvents[contentEvents.length - 1]).toEqual({
-          type: "completed",
-          status: "completed",
-        });
+        expect(
+          contentEvents.filter((event) => event.type === "thinking-delta").length,
+        ).toBeGreaterThan(0);
+        expect(contentEvents.filter((event) => event.type === "text-delta")).toHaveLength(2);
+        expect(contentEvents.at(-1)).toEqual({ type: "completed", status: "completed" });
       } finally {
         await session.dispose();
       }
