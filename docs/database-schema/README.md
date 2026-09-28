@@ -4,10 +4,10 @@ Status: approved setup identity schema plus approved DirectConversation MVP slic
 
 Database: PostgreSQL 16+
 
-This schema currently models only User↔Agent direct messages. Group chat is
-explicitly deferred and has no database kind, role, or broadcast fields. It
-intentionally keeps Agent execution
-`run`/`event` data out of the messaging core.
+Direct conversations are User↔Agent or between Workspace members (a member may
+keep one with themself). Group direct messages are explicitly deferred and have
+no database kind, role, or broadcast fields. The schema intentionally keeps
+Agent execution `run`/`event` data out of the messaging core.
 
 ## Contents
 

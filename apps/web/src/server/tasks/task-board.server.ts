@@ -518,9 +518,11 @@ export class TaskBoard {
         },
       });
       if (!conversation) throw new AppError("NOT_FOUND");
+      // A direct conversation's Tasks belong to the people its key names, not to whoever holds
+      // a member row.
       if (
         conversation.directKey !== null &&
-        !conversation.directKey.split(":").includes(principal.userId)
+        !conversation.directKey.split(/[|:]/).includes(principal.userId)
       )
         throw new AppError("ACCESS_DENIED");
       return {
@@ -1996,6 +1998,8 @@ export class TaskBoard {
         deleted: change.deleted ?? [],
         userId: scope.userId,
         agentId: scope.agentId,
+        directUserIds: scope.directUserIds,
+        directPair: scope.directPair,
         publicationId: change.publicationId,
       });
     } catch {

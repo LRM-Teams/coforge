@@ -9,6 +9,7 @@ import {
   type MemberChangedEvent,
 } from "#src/features/conversations/conversation-realtime";
 import type { TaskChangedEvent } from "#src/features/tasks/task-realtime";
+import { isPeopleDirectKey, peopleDirectKeyPair } from "#src/features/conversations/direct-key";
 import {
   createCentrifugoServerApi,
   type CentrifugoServerApi,
@@ -26,6 +27,12 @@ export type ConversationRealtimeMessage = {
   userId?: string;
   /** Present only for a direct message: the Agent badge this event bumps. */
   agentId?: string;
+  /** Present only for a direct conversation between people: its members, each of whom gets the
+   * event on their own signal channel, keyed by the other (`MessageAvailableEvent.peerUserId`). */
+  directUserIds?: readonly string[];
+  /** With `directUserIds`: the two people its key names, so a member's peer stays the other
+   * even after the other's member row is gone. */
+  directPair?: readonly [string, string];
   /** Present only for a person's send: its idempotency key, so the sender's page can match the
    * pending copy it shows to this message (see `MessageAvailableEvent.requestId`). */
   requestId?: string;
@@ -33,13 +40,19 @@ export type ConversationRealtimeMessage = {
 
 /**
  * The realtime fan-out scope for one conversation's messages. A channel message goes
- * to the Workspace signal channel; a direct message goes only to its human viewer's own channel,
- * naming the Agent badge it belongs to, so DM metadata never reaches the Workspace. A direct
- * conversation that does not have exactly one human and one Agent (unreachable through the
- * supported create path) falls back to the Workspace channel rather than silently publishing
- * nowhere.
+ * to the Workspace signal channel; a direct message goes only to its people's own channels — a
+ * User–Agent one to its human viewer, naming the Agent badge, one between people to each member —
+ * so DM metadata never reaches the Workspace. A direct conversation that is neither (unreachable
+ * through the supported create paths) falls back to the Workspace channel rather than silently
+ * publishing nowhere.
  */
-export type MessageSignalScope = { workspaceId?: string; userId?: string; agentId?: string };
+export type MessageSignalScope = {
+  workspaceId?: string;
+  userId?: string;
+  agentId?: string;
+  directUserIds?: readonly string[];
+  directPair?: readonly [string, string];
+};
 
 export async function messageSignalScope(
   db: PrismaClient,
@@ -52,7 +65,7 @@ export async function messageSignalScope(
 /**
  * Where a conversation's signals go, read once: `message` as `messageSignalScope` says, and `task`
  * for its Task announcements, which carry Task content and so never take the Workspace fallback:
- * a direct conversation without exactly one human and one Agent announces its Tasks nowhere.
+ * a direct conversation that is neither User–Agent nor between people announces its Tasks nowhere.
  */
 export async function conversationSignalScopes(
   db: PrismaClient,
@@ -63,6 +76,7 @@ export async function conversationSignalScopes(
     where: { id: conversationId },
     select: {
       channelName: true,
+      directKey: true,
       // Only a direct message's members name where it goes; a channel's roster (all of
       // `#general`) is never read.
       members: {
@@ -73,6 +87,20 @@ export async function conversationSignalScopes(
   });
   if (!conversation) return { message: { workspaceId } };
   if (conversation.channelName !== null) return { message: { workspaceId }, task: { workspaceId } };
+  // The key says what kind of direct conversation it is (`user:<a>|user:<b>` between people);
+  // its remaining member rows say who still gets its signals.
+  if (conversation.directKey && isPeopleDirectKey(conversation.directKey)) {
+    const directUserIds = conversation.members.flatMap((member) =>
+      member.userId ? [member.userId] : [],
+    );
+    const directPair = peopleDirectKeyPair(conversation.directKey);
+    return directUserIds.length
+      ? {
+          message: { directUserIds, directPair },
+          task: { workspaceId, directUserIds, directPair },
+        }
+      : { message: {} };
+  }
   const userId = conversation.members.find((member) => member.userId)?.userId;
   const agentId = conversation.members.find((member) => member.agentId)?.agentId;
   return userId && agentId
@@ -80,11 +108,14 @@ export async function conversationSignalScopes(
     : { message: { workspaceId } };
 }
 
-/** A Task write's announcement (`TaskChangedEvent`) with where it goes: a direct message's to
- * its human viewer (`userId` and `agentId`, from `messageSignalScope`), a channel's to the
+/** A Task write's announcement (`TaskChangedEvent`) with where it goes, from
+ * `conversationSignalScopes`: a User–Agent direct message's to its human viewer (`userId` and
+ * `agentId`), one between people's to each member (`directUserIds`), a channel's to the
  * Workspace. `publicationId` makes a retried write's announcement a duplicate. */
 export type TaskChangedSignal = Omit<TaskChangedEvent, "type"> &
-  Pick<MessageSignalScope, "userId" | "agentId"> & { publicationId: string };
+  Pick<MessageSignalScope, "userId" | "agentId" | "directUserIds" | "directPair"> & {
+    publicationId: string;
+  };
 
 export type ConversationRealtime = {
   messageAvailable(input: ConversationRealtimeMessage & { publicationId?: string }): Promise<void>;
@@ -147,8 +178,23 @@ export class CentrifugoConversationRealtime implements ConversationRealtime {
     await this.centrifugo.publishJson(userConversationChannel(input.userId), event);
   }
 
-  async taskChanged({ publicationId, userId, agentId, ...announced }: TaskChangedSignal) {
-    const event: TaskChangedEvent = { type: "task.changed.v1", ...announced };
+  async taskChanged(signal: TaskChangedSignal) {
+    const { publicationId, userId, agentId, directUserIds, ...announced } = signal;
+    const event: TaskChangedEvent = {
+      type: "task.changed.v1",
+      workspaceId: announced.workspaceId,
+      conversationId: announced.conversationId,
+      tasks: announced.tasks,
+      deleted: announced.deleted,
+    };
+    if (directUserIds) {
+      await Promise.all(
+        directUserIds.map((memberId) =>
+          this.centrifugo.publishJson(userConversationChannel(memberId), event, publicationId),
+        ),
+      );
+      return;
+    }
     await this.centrifugo.publishJson(
       userId && agentId
         ? userConversationChannel(userId)
@@ -159,12 +205,33 @@ export class CentrifugoConversationRealtime implements ConversationRealtime {
   }
 
   async messageAvailable(input: ConversationRealtimeMessage & { publicationId?: string }) {
-    const { publicationId, ...message } = input;
+    const { publicationId, directUserIds, directPair, ...message } = input;
     const event: MessageAvailableEvent = {
       type: "message.available.v1",
       ...message,
     };
     const idempotencyKey = publicationId ?? input.messageId;
+    if (directUserIds) {
+      // Each member's badge is keyed by the other person (themself, in their own conversation).
+      await Promise.all([
+        this.centrifugo.publishJson(
+          conversationRealtimeChannel(input.conversationId),
+          event,
+          idempotencyKey,
+        ),
+        ...directUserIds.map((memberId) =>
+          this.centrifugo.publishJson(
+            userConversationChannel(memberId),
+            {
+              ...event,
+              peerUserId: directPair?.find((other) => other !== memberId) ?? memberId,
+            } satisfies MessageAvailableEvent,
+            idempotencyKey,
+          ),
+        ),
+      ]);
+      return;
+    }
     // The per-conversation channel drives the open conversation's reconciliation. The workspace
     // channel drives the sidebar's unread counts for every channel; a direct message instead
     // goes to its viewer's own channel, so DM metadata never reaches the whole Workspace and the

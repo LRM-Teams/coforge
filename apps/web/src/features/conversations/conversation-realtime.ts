@@ -37,6 +37,12 @@ export type MessageAvailableEvent = {
    */
   agentId?: string;
   /**
+   * Set only on a member's own signal channel for a direct conversation between people: the
+   * other member, whose sidebar badge this event bumps (the member themself in their own
+   * conversation).
+   */
+  peerUserId?: string;
+  /**
    * Set only for a message a person sent from the browser: the send's idempotency key
    * (`requestId`). The sender's own page shows the message greyed the moment it is submitted and
    * uses this to replace that pending copy with the real message, even when this signal outruns
@@ -57,6 +63,7 @@ export function decodeMessageAvailableEvent(value: unknown): MessageAvailableEve
   const workspaceId = Reflect.get(value, "workspaceId");
   const threadRootId = Reflect.get(value, "threadRootId");
   const agentId = Reflect.get(value, "agentId");
+  const peerUserId = Reflect.get(value, "peerUserId");
   const requestId = Reflect.get(value, "requestId");
   if (
     type !== "message.available.v1" ||
@@ -69,6 +76,7 @@ export function decodeMessageAvailableEvent(value: unknown): MessageAvailableEve
     (workspaceId !== undefined && (typeof workspaceId !== "string" || !workspaceId)) ||
     (threadRootId !== undefined && (typeof threadRootId !== "string" || !threadRootId)) ||
     (agentId !== undefined && (typeof agentId !== "string" || !agentId)) ||
+    (peerUserId !== undefined && (typeof peerUserId !== "string" || !peerUserId)) ||
     (requestId !== undefined && (typeof requestId !== "string" || !requestId))
   )
     throw new Error("invalid conversation event");
@@ -80,6 +88,7 @@ export function decodeMessageAvailableEvent(value: unknown): MessageAvailableEve
     ...(workspaceId ? { workspaceId } : {}),
     ...(threadRootId ? { threadRootId } : {}),
     ...(agentId ? { agentId } : {}),
+    ...(peerUserId ? { peerUserId } : {}),
     ...(requestId ? { requestId } : {}),
   };
 }
