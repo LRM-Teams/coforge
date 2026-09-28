@@ -49,8 +49,12 @@ type ActivityCandidate = {
   latestAt: Date;
   unreadCount: number;
   firstUnreadMessageId: string | null;
-  mentioned: boolean;
   unreadMention: boolean;
+  /**
+   * The first message past Done that mentions the viewer, read or not: the item is listed under
+   * Mentions and opens there. Null when nothing past Done mentions them.
+   */
+  firstMentionMessageId: string | null;
   /** A mention the viewer was notified of from outside the channel, until they mark it Done. */
   mentionAction?: { resolutionId: string; threadRootId: string | null };
 };
@@ -79,7 +83,7 @@ export class ActivityInbox {
       options.filter === "unread"
         ? candidate.unreadCount > 0
         : options.filter === "mentions"
-          ? candidate.mentioned
+          ? candidate.firstMentionMessageId !== null
           : true,
     );
     candidates.sort(
@@ -257,8 +261,8 @@ export class ActivityInbox {
           latest."createdAt" AS "latestAt",
           unread."count" AS "unreadCount",
           unread."firstId" AS "firstUnreadMessageId",
-          mention."any" AS "mentioned",
-          mention."unread" AS "unreadMention"
+          mention."unread" AS "unreadMention",
+          mention."firstId" AS "firstMentionMessageId"
         FROM ${conversationItemsSql(workspaceId, userId)}
         ${conversationUnreadLateral}
         ${conversationMentionLateral}
@@ -276,8 +280,8 @@ export class ActivityInbox {
           latest."createdAt" AS "latestAt",
           replies."unread" AS "unreadCount",
           replies."firstUnreadId" AS "firstUnreadMessageId",
-          mention."any" AS "mentioned",
-          mention."unread" AS "unreadMention"
+          mention."unread" AS "unreadMention",
+          mention."firstId" AS "firstMentionMessageId"
         FROM ${threadItemsSql(workspaceId, userId)}
         ${threadUnreadLateral}
         ${threadMentionLateral}
@@ -328,8 +332,8 @@ export class ActivityInbox {
       latestAt: row.notifiedAt!,
       unreadCount: row.targetReadAt ? 0 : 1,
       firstUnreadMessageId: row.targetReadAt ? null : row.messageId,
-      mentioned: true,
       unreadMention: !row.targetReadAt,
+      firstMentionMessageId: row.messageId,
       mentionAction: { resolutionId: row.id, threadRootId: row.message.threadRootId },
     }));
   }
@@ -441,8 +445,8 @@ export class ActivityInbox {
           latestSequence: candidate.latestSequence,
           unreadCount: candidate.unreadCount,
           firstUnreadMessageId: candidate.firstUnreadMessageId,
-          mentioned: candidate.mentioned,
           unreadMention: candidate.unreadMention,
+          firstMentionMessageId: candidate.firstMentionMessageId,
           mentionAction: candidate.mentionAction ?? null,
         },
       ];
@@ -470,8 +474,8 @@ const conversationUnreadLateral = Prisma.sql`CROSS JOIN LATERAL (
 ) unread`;
 
 const conversationMentionLateral = Prisma.sql`CROSS JOIN LATERAL (
-  SELECT COUNT(*) > 0 AS "any",
-    COALESCE(BOOL_OR(${HUMAN_UNREAD_MESSAGE_SQL}), FALSE) AS "unread"
+  SELECT COALESCE(BOOL_OR(${HUMAN_UNREAD_MESSAGE_SQL}), FALSE) AS "unread",
+    (ARRAY_AGG(m."id" ORDER BY m."sequence"))[1] AS "firstId"
   FROM "message_mentions" mm
   JOIN "messages" m ON m."id" = mm."messageId" AND m."conversationId" = mm."conversationId"
   WHERE mm."memberId" = cm."id"
@@ -489,7 +493,8 @@ const threadUnreadLateral = Prisma.sql`CROSS JOIN LATERAL (
 ) replies`;
 
 const threadMentionLateral = Prisma.sql`CROSS JOIN LATERAL (
-  SELECT COUNT(*) > 0 AS "any", COALESCE(BOOL_OR(${unreadReplySql}), FALSE) AS "unread"
+  SELECT COALESCE(BOOL_OR(${unreadReplySql}), FALSE) AS "unread",
+    (ARRAY_AGG(m."id" ORDER BY m."sequence"))[1] AS "firstId"
   FROM "messages" m
   JOIN "message_mentions" mm
     ON mm."messageId" = m."id"

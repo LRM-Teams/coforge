@@ -454,14 +454,21 @@ function withoutItem(
 }
 
 /**
- * Where a card goes. A thread opens in its pane beside its root, scrolled to the first unread
- * reply; a conversation opens at its first unread message, or its newest one when everything is
- * read. A mention the viewer was notified of opens at that message, in its thread when it is a
- * reply.
+ * Where a card goes. A mention the viewer was notified of opens at that message, in its thread
+ * when it is a reply. Any other item that mentions the viewer opens at its first mention, read or
+ * not; otherwise a thread opens in its pane beside its root, scrolled to the first unread reply,
+ * and a conversation opens at its first unread message, or its newest one when everything is read.
  */
 function openTarget(
   workspaceSlug: string,
-  { place, thread, unreadCount, firstUnreadMessageId, latest, mentionAction }: ActivityInboxItem,
+  {
+    place,
+    thread,
+    firstUnreadMessageId,
+    firstMentionMessageId,
+    latest,
+    mentionAction,
+  }: ActivityInboxItem,
 ) {
   if (mentionAction)
     return {
@@ -472,11 +479,11 @@ function openTarget(
         : { message: latest.id },
       hash: mentionAction.threadRootId ? `message-${latest.id}` : undefined,
     };
-  const unreadAnchor = unreadCount > 0 ? firstUnreadMessageId : null;
+  const anchor = firstMentionMessageId ?? firstUnreadMessageId;
   const search = thread
     ? { threadRootId: thread.root.id, message: thread.root.id }
-    : { message: unreadAnchor ?? latest.id };
-  const hash = thread && unreadAnchor ? `message-${unreadAnchor}` : undefined;
+    : { message: anchor ?? latest.id };
+  const hash = thread && anchor ? `message-${anchor}` : undefined;
   return place.kind === "channel"
     ? {
         to: "/w/$workspaceSlug/channel/$channelId" as const,
