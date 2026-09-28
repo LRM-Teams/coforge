@@ -33,6 +33,18 @@ test("retains an executable reply example and thread addressing without provider
   expect(instructions).not.toContain("Bash tool");
 });
 
+test("replies stay where the message is unless the topic changes or a human asks", () => {
+  expect(instructions).toContain(
+    "answer a top-level message at top level and a thread message in its thread",
+  );
+  expect(instructions).toContain(
+    "Start a thread or move to top level only for a new topic or when a human asks",
+  );
+  expect(instructions).toContain(
+    "If a send asks you to confirm a possible thread mismatch, choose the target by this rule",
+  );
+});
+
 test("preserves privacy, credential handling and uncertain-send safety", () => {
   expect(instructions).toContain(
     "Never disclose private DM contents or secrets to a public channel",

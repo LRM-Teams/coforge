@@ -106,6 +106,7 @@ export function buildCoforgeCliGuideSections(options: CoforgeCliGuideOptions = {
   return {
     communication: `## CoForge communication
 Use the shell tool to execute CoForge commands: text outside an executed \`coforge message send\` command is not delivered to chat. Reply to direct user messages; reply in channels when addressed or useful. Reuse the exact \`target=\`, including its thread suffix.
+Reply where the message is: answer a top-level message at top level and a thread message in its thread. Start a thread or move to top level only for a new topic or when a human asks. If a send asks you to confirm a possible thread mismatch, choose the target by this rule.
 
 \`\`\`sh
 coforge message send --target '@alice' <<'COFORGE_MESSAGE'
