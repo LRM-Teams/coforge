@@ -151,8 +151,9 @@ export class AgentMessageAttentionIndex {
    * makes a thread count as reply context. Persisted apart from the frontier as `reviewedSeq`. */
   readonly #reviewedSequence = new Map<string, Map<string, number>>();
   readonly #readContextCounters = new Map<string, number>();
-  /** Raft's `consumed-seqs.json`: the durable copy of `#modelSeen` (the `seq` frontier) and
-   * `#readContext` (the `readOrder` each target was last reviewed at). */
+  /** Raft's `consumed-seqs.json`: the durable copy of `#modelSeen` (the `seq` frontier),
+   * `#readContext` (the `readOrder` each target was last reviewed at) and `#reviewedSequence`
+   * (`reviewedSeq`). */
   readonly #consumedSeqs?: AgentConsumedSeqPort;
   /** Agents whose durable cursor has already been folded into the maps above. Raft reads the file
    * on every lookup; reading it once per Agent per daemon life is the same answer, minus the

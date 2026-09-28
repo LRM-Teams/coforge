@@ -63,6 +63,20 @@ test("a lower sequence never lowers a cursor, and only a read takes a new read o
   expect(store.read("agent-1").nextReadOrder).toBe(2);
 });
 
+test("what a review showed never goes down, and consuming keeps it", () => {
+  const store = new AgentConsumedSeqStore(temporaryStateDirectory());
+
+  store.recordConsumedRead("agent-1", "#general:abcd1234", 6);
+  store.recordConsumedRead("agent-1", "#general:abcd1234", 2);
+  store.recordConsumedSeqs("agent-1", { "#general:abcd1234": 8 });
+
+  expect(store.read("agent-1").targets["#general:abcd1234"]).toEqual({
+    seq: 8,
+    readOrder: 2,
+    reviewedSeq: 6,
+  });
+});
+
 test("recomputes nextReadOrder from the orders the file holds, never trusting the stored one", async () => {
   const stateDirectory = temporaryStateDirectory();
   const path = storePath(stateDirectory);
