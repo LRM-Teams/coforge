@@ -103,6 +103,7 @@ const SIDE_PANEL_WIDTH_STORAGE_KEY = "coforge.records.side-panel-width";
 const appRoute = getRouteApi("/_app");
 const DEFAULT_SIDE_PANEL_WIDTH = 384;
 const MIN_SIDE_PANEL_WIDTH = 280;
+const SIDE_PANEL_WIDTH_TRANSITION = "width 220ms cubic-bezier(0.32, 0.72, 0, 1)";
 
 function readStoredSidePanelWidth(): number {
   if (typeof window === "undefined") return DEFAULT_SIDE_PANEL_WIDTH;
@@ -237,6 +238,7 @@ export function RecordSidePanel({
   const [panelWidth, setPanelWidth] = useState(DEFAULT_SIDE_PANEL_WIDTH);
   panelWidthRef.current = panelWidth;
   const [displayWidth, setDisplayWidth] = useState(() => (open ? DEFAULT_SIDE_PANEL_WIDTH : 0));
+  const [resizing, setResizing] = useState(false);
   const wasOpenRef = useRef(open);
 
   useEffect(() => {
@@ -279,13 +281,26 @@ export function RecordSidePanel({
     return () => window.removeEventListener("resize", clampToParent);
   }, []);
 
+  function commitPanelWidth(width: number) {
+    panelWidthRef.current = width;
+    setPanelWidth(width);
+    setDisplayWidth(width);
+  }
+
   function onPanelResizePointerDown(event: PointerEvent<HTMLDivElement>) {
     if (event.button !== 0) return;
     event.preventDefault();
     panelDragRef.current = { startX: event.clientX, startWidth: panelWidthRef.current };
-    event.currentTarget.setPointerCapture(event.pointerId);
     document.body.style.cursor = "col-resize";
     document.body.style.userSelect = "none";
+    // Drop the open/close ease before the first move, so a move in this frame cannot restart it.
+    if (asideRef.current) asideRef.current.style.transition = "none";
+    setResizing(true);
+    try {
+      event.currentTarget.setPointerCapture(event.pointerId);
+    } catch {
+      // Pointer capture is best-effort; the move handler still tracks clientX.
+    }
   }
 
   function onPanelResizePointerMove(event: PointerEvent<HTMLDivElement>) {
@@ -293,9 +308,9 @@ export function RecordSidePanel({
     if (!drag) return;
     const parent = asideRef.current?.parentElement;
     const max = parent ? Math.floor(parent.clientWidth / 2) : Math.floor(window.innerWidth / 2);
-    // Dragging the left edge leftward widens the panel.
+    // Dragging the left edge leftward widens the panel. Integer pixels keep the pinned right edge still.
     const next = drag.startWidth + (drag.startX - event.clientX);
-    setPanelWidth(Math.min(Math.max(next, MIN_SIDE_PANEL_WIDTH), max));
+    commitPanelWidth(Math.round(Math.min(Math.max(next, MIN_SIDE_PANEL_WIDTH), max)));
   }
 
   function onPanelResizePointerUp(event: PointerEvent<HTMLDivElement>) {
@@ -308,6 +323,7 @@ export function RecordSidePanel({
     }
     document.body.style.cursor = "";
     document.body.style.userSelect = "";
+    setResizing(false);
     writeStoredSidePanelWidth(panelWidthRef.current);
   }
 
@@ -939,7 +955,7 @@ export function RecordSidePanel({
       ref={asideRef}
       style={{
         width: displayWidth,
-        transition: "width 220ms cubic-bezier(0.32, 0.72, 0, 1)",
+        transition: resizing ? "none" : SIDE_PANEL_WIDTH_TRANSITION,
       }}
       aria-hidden={!open}
       className={cx(
