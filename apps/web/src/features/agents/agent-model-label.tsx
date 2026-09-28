@@ -40,7 +40,7 @@ function AgentModelText({
   if (!model) return null;
   return (
     <Tooltip title={model}>
-      <TooltipTrigger className="max-w-48 min-w-0 shrink cursor-default truncate rounded-sm text-xs text-tertiary outline-focus-ring focus-visible:outline-2">
+      <TooltipTrigger className="max-w-48 min-w-0 shrink-[8] cursor-default truncate rounded-sm text-xs text-tertiary outline-focus-ring focus-visible:outline-2">
         {model}
       </TooltipTrigger>
     </Tooltip>
