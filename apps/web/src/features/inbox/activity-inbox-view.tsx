@@ -102,7 +102,7 @@ export function ActivityInboxView({
       .flatMap((page) => page.items)
       .filter((item) => !seen.has(item.key) && seen.add(item.key));
   }, [query.data]);
-  const totals = query.data?.pages[0];
+  const firstPage = query.data?.pages[0];
 
   const refreshList = useCallback(
     () => queryClient.invalidateQueries({ queryKey: ACTIVITY_INBOX_QUERY_PREFIX }),
@@ -121,7 +121,7 @@ export function ActivityInboxView({
   const actions = useActivityItemActions({ onChanged: refresh, onFailure: setFailure });
 
   // Reads only what the list showed: the server's own clock at the time it read the list.
-  const loadedAt = totals?.loadedAt;
+  const loadedAt = firstPage?.loadedAt;
   const readAll = useCallback(() => {
     if (loadedAt === undefined) return;
     const run = () => {
@@ -141,13 +141,15 @@ export function ActivityInboxView({
           <ActivityInboxTabs
             filter={filter}
             onFilterChange={onFilterChange}
-            unreadCount={totals?.unreadItemCount ?? 0}
-            mentionCount={totals?.unreadMentionItemCount ?? 0}
+            counts={{
+              unread: firstPage?.unreadItemCount ?? 0,
+              mentions: firstPage?.unreadMentionItemCount ?? 0,
+            }}
           />
         }
         actions={
-          totals &&
-          totals.unreadItemCount > 0 && (
+          firstPage &&
+          firstPage.unreadItemCount > 0 && (
             <Button size="sm" color="secondary" iconLeading={CheckDone01} onClick={readAll}>
               {m.activity_inbox_mark_all_read()}
             </Button>
@@ -209,19 +211,12 @@ const FILTER_TABS: ReadonlyArray<{
 function ActivityInboxTabs({
   filter,
   onFilterChange,
-  unreadCount,
-  mentionCount,
+  counts,
 }: {
   filter: ActivityInboxFilter;
   onFilterChange: (filter: ActivityInboxFilter) => void;
-  unreadCount: number;
-  mentionCount: number;
+  counts: { unread: number; mentions: number };
 }) {
-  const counts: Record<ActivityInboxFilter, number> = {
-    all: 0,
-    unread: unreadCount,
-    mentions: mentionCount,
-  };
   return (
     <Tabs
       selectedKey={filter}
@@ -235,21 +230,24 @@ function ActivityInboxTabs({
         {FILTER_TABS.map((tab) => (
           <Tab key={tab.id} id={tab.id} icon={tab.icon}>
             {/* The official `badge` prop hides below `md`; the count must show on phones too. */}
-            {({ isSelected, isHovered }) => (
-              <>
-                {tab.label()}
-                {counts[tab.id] > 0 && (
-                  <Badge
-                    type="pill-color"
-                    size="sm"
-                    color={isSelected || isHovered ? "brand" : "gray"}
-                    className="transition-inherit-all"
-                  >
-                    {counts[tab.id] > 99 ? "99+" : counts[tab.id]}
-                  </Badge>
-                )}
-              </>
-            )}
+            {({ isSelected, isHovered }) => {
+              const count = tab.id === "all" ? 0 : counts[tab.id];
+              return (
+                <>
+                  {tab.label()}
+                  {count > 0 && (
+                    <Badge
+                      type="pill-color"
+                      size="sm"
+                      color={isSelected || isHovered ? "brand" : "gray"}
+                      className="transition-inherit-all"
+                    >
+                      {count > 99 ? "99+" : count}
+                    </Badge>
+                  )}
+                </>
+              );
+            }}
           </Tab>
         ))}
       </TabList>

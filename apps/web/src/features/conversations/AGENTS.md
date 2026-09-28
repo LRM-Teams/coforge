@@ -39,8 +39,8 @@ These rules apply to `src/features/conversations/`.
 - Direct and channel views share the empty-state layout and compact thread
   prompt in `direct-conversation.tsx`. Each supplies its own identity, media,
   and copy, and keeps its composer or join action.
-- `conversation-header.tsx` is the one header row both DM and channel headers
-  fill (identity, centered Chat/Tasks/Files tabs, actions); give it slots rather
+- DM and channel headers fill the shared `components/layout/tabbed-header.tsx`
+  row (identity, centered Chat/Tasks/Files tabs, actions); give it slots rather
   than laying out a second tab row.
 - The main stream's side room (and its "Full-width messages" device setting)
   is `MESSAGE_COLUMN_CLASS` in `features/settings/message-width.ts`; history

@@ -16,7 +16,7 @@ import {
 import { avatarInitial, avatarToneClassName } from "#src/lib/avatar-tone";
 import { m } from "#src/paraglide/messages";
 import { ConversationTaskTabs } from "#src/features/tasks/conversation-task-tabs";
-import { ConversationHeader } from "./conversation-header";
+import { TabbedHeader } from "#src/components/layout/tabbed-header";
 import { ConversationListButton } from "./conversation-navigation";
 import { ThreadedConversation } from "./threaded-conversation";
 import type {
@@ -53,7 +53,7 @@ export function DirectConversationHeader({
   const openProfile =
     onOpenAgentProfile && !deleted ? () => onOpenAgentProfile(conversation.agent.id) : undefined;
   return (
-    <ConversationHeader
+    <TabbedHeader
       identity={
         <>
           <ConversationListButton />
