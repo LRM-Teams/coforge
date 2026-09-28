@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { PrismaClient } from "#src/generated/prisma/client";
 import { AppError, isAppError } from "#src/lib/app-error";
 import { optionalBrowserUser } from "#src/server/auth/require-user.server";
-import { avatarImageHeaders } from "#src/server/http/avatar-image-headers.server";
+import { privateImageHeaders } from "#src/server/http/image-headers.server";
 import { getDatabaseClient } from "#src/server/db/client.server";
 import {
   PROFILE_IMAGE_STYLES,
@@ -76,7 +76,7 @@ export async function handleComputerCreatorAvatar(
     if (!connection) throw new AppError("NOT_FOUND");
     const avatar = await deps.read(db, connection.computer.ownerId);
     return new Response(avatar.body, {
-      headers: avatarImageHeaders(avatar.contentType),
+      headers: privateImageHeaders(avatar.contentType),
     });
   } catch (error) {
     const code = isAppError(error) ? error.code : "INTERNAL_ERROR";
