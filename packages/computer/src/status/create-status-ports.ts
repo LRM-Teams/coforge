@@ -90,10 +90,8 @@ export function createStatusPorts(input: CreateStatusPortsInput): StatusPorts {
       return probeWindowsCoordinator(coordinatorLabel, {
         resolvePid: async () => {
           try {
-            const text = (await readFile(supervisorLockOwnerPath, "utf8")).trim();
-            const pid = Number(text);
-            if (!Number.isInteger(pid) || pid <= 0) return null;
-            return (await windowsPidIsAlive(pid)) ? pid : null;
+            const pid = await readSupervisorLockOwner(supervisorLockOwnerPath);
+            return pid !== null && (await windowsPidIsAlive(pid)) ? pid : null;
           } catch {
             return null;
           }
@@ -147,13 +145,7 @@ export function createStatusPorts(input: CreateStatusPortsInput): StatusPorts {
       }
     },
     async readSupervisorLockOwner(): Promise<number | null> {
-      try {
-        const text = (await readFile(supervisorLockOwnerPath, "utf8")).trim();
-        const pid = Number(text);
-        return Number.isInteger(pid) && pid > 0 ? pid : null;
-      } catch {
-        return null;
-      }
+      return readSupervisorLockOwner(supervisorLockOwnerPath);
     },
     listLeftoverUpgradeJobs:
       input.platform === "darwin"
@@ -170,6 +162,16 @@ export function createStatusPorts(input: CreateStatusPortsInput): StatusPorts {
       }
     },
   };
+}
+
+async function readSupervisorLockOwner(path: string): Promise<number | null> {
+  try {
+    const text = (await readFile(path, "utf8")).trim();
+    const pid = Number(text);
+    return Number.isInteger(pid) && pid > 0 ? pid : null;
+  } catch {
+    return null;
+  }
 }
 
 async function readActiveInstall(path: string): Promise<ActiveInstallRead> {
