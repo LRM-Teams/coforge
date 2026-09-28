@@ -765,13 +765,13 @@ export function connectLocal(
       throw new Error("coforge agent context is invalid");
     if (!proxyUrl) throw new Error("coforge agent proxy is not configured");
     const endpoint = new URL(proxyUrl);
-    // The GET attachment-download forwarding (`agent-proxy.ts`) treats any segment after the
-    // attachment route prefix as an opaque attachment id and reaches the identical cloud URL
-    // unchanged. "capabilities" is itself a literal cloud sub-route registered ahead of
-    // `$attachmentId`, so this coincidentally-shaped request reaches it without any daemon
-    // change. Covered by a `local-client.test.ts` case; if a future daemon route ordering
-    // change breaks this, add explicit forwarding in `agent-proxy.ts` instead of relying on it.
-    endpoint.pathname = agentApiRoutes.local.attachments.path("capabilities");
+    // `capabilities` is a declared sub-route of the attachment route, served by Web ahead of the id
+    // route. The request still rides the download forwarding (`agent-proxy.ts`), which treats any
+    // segment after the attachment prefix as an opaque attachment id and reaches the identical
+    // cloud URL — which is why this needs no route of its own in the Daemon. Covered by a
+    // `local-client.test.ts` case; if a future daemon route-ordering change breaks it, add explicit
+    // forwarding there.
+    endpoint.pathname = agentApiRoutes.local.attachments.capabilities.path;
     endpoint.search = "";
     let response: Response;
     try {

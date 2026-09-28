@@ -10,6 +10,9 @@ export const agentApiRoutes = {
     // (`coforge version`).
     version: { method: "GET", path: "/api/agent/v1/version" },
     messages: { method: "POST", path: "/api/agent/v1/messages" },
+    // Local-only, like `version`: `DaemonRuntime.inbox()` assembles the answer from the Agent's own
+    // state (message attention plus the app inbox) and never forwards it to Web/backend. It also
+    // takes no key argument, unlike the runtime methods that do reach Web.
     inbox: { method: "POST", path: "/api/agent/v1/inbox" },
     reminders: { method: "POST", path: "/api/agent/v1/reminders" },
     tasks: { method: "POST", path: "/api/agent/v1/tasks" },
@@ -38,6 +41,7 @@ export const agentApiRoutes = {
       method: "POST",
       path: "/api/agent/v1/messages",
     },
+    // Local-only, like `version`; see the same entry under `proxy`.
     inbox: { method: "POST", path: "/api/agent/v1/inbox" },
     reminders: { method: "POST", path: "/api/agent/v1/reminders" },
     tasks: { method: "POST", path: "/api/agent/v1/tasks" },
@@ -50,6 +54,10 @@ export const agentApiRoutes = {
     channels: { method: "POST", path: "/api/agent/v1/channels" },
     attachments: {
       method: "GET",
+      /** Served by Web ahead of the id route: what a client may upload, and whether it uploads
+       * directly. It was reachable before this declaration only because the proxy forwards any
+       * segment after the attachment prefix as an opaque id. */
+      capabilities: { method: "GET", path: "/api/agent/v1/attachments/capabilities" },
       path: (attachmentId: string) =>
         `/api/agent/v1/attachments/${encodeURIComponent(attachmentId)}`,
       upload: { method: "POST", path: "/api/agent/v1/attachments" },
@@ -180,6 +188,8 @@ export const agentApiRoutes = {
     attachments: {
       method: "GET",
       collectionPath: "/api/agent/v1/attachments",
+      /** Served by Web ahead of the id route; see the same entry under `proxy`. */
+      capabilities: { method: "GET", path: "/api/agent/v1/attachments/capabilities" },
       path: (attachmentId: string) =>
         `/api/agent/v1/attachments/${encodeURIComponent(attachmentId)}`,
       upload: { method: "POST", path: "/api/agent/v1/attachments" },
