@@ -15,9 +15,9 @@ export const agentModelsQueryKey = (workspaceId: string | undefined) =>
  * see), read again whenever the page regains focus or the network reconnects; each caller
  * selects only its own Agent, so a change re-renders the rows of that Agent alone.
  *
- * `seenAt` is when this Agent was last seen acting (its message's time). An Agent the list does
- * not have, seen after the list was read, was created since: the list is read again, once —
- * a list read after `seenAt` that still lacks it is not read again for it.
+ * `seenAt` is when this Agent was last seen acting (its message's time, the server's clock). An
+ * Agent the list does not have, seen after the server read the list, was created since: the list
+ * is read again, once — a list read after `seenAt` that still lacks it is not read again for it.
  */
 export function useAgentModel(
   workspaceId: string,
@@ -27,7 +27,10 @@ export function useAgentModel(
   const load = useServerFn(listAgentModels);
   const queryClient = useQueryClient();
   const queryKey = agentModelsQueryKey(workspaceId);
-  const select = useCallback((models: Record<string, string>) => models[agentId], [agentId]);
+  const select = useCallback(
+    (list: { models: Record<string, string> }) => list.models[agentId],
+    [agentId],
+  );
   const { data: model, isSuccess } = useQuery({
     queryKey,
     queryFn: () => load(),
@@ -39,9 +42,12 @@ export function useAgentModel(
   const seenAtMs = new Date(seenAt).getTime();
   useEffect(() => {
     if (!unknown) return;
-    const readAt = queryClient.getQueryState(agentModelsQueryKey(workspaceId))?.dataUpdatedAt ?? 0;
+    const key = agentModelsQueryKey(workspaceId);
+    // The list's own server read time, not the browser clock: message times are the server's.
+    const readAt = queryClient.getQueryData<{ readAt: number }>(key)?.readAt ?? 0;
+    // Several new rows can ask in one commit; the first read serves them all.
     if (seenAtMs > readAt)
-      void queryClient.invalidateQueries({ queryKey: agentModelsQueryKey(workspaceId) });
+      void queryClient.invalidateQueries({ queryKey: key }, { cancelRefetch: false });
   }, [unknown, seenAtMs, queryClient, workspaceId]);
   return model;
 }

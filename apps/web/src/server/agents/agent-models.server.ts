@@ -9,12 +9,15 @@ import { visibleAgentWhere, type AgentVisibilityViewer } from "./agent-visibilit
  * roster): a channel shows messages from other members' public Agents too. Every such Agent has an
  * entry, so the browser can tell an Agent it has not heard of (read again) from one left on its
  * runtime's default model, or whose stored config cannot be read (`""`, nothing to show).
+ * `readAt` is the server's clock, the one message times come from, so the browser compares a
+ * message with the list without trusting its own clock.
  */
 export async function listVisibleAgentModels(
   db: Pick<PrismaClient, "agent">,
   workspaceId: string,
   viewer: AgentVisibilityViewer,
-): Promise<Record<string, string>> {
+  now: () => number = Date.now,
+): Promise<{ readAt: number; models: Record<string, string> }> {
   const rows = await db.agent.findMany({
     where: { workspaceId, ...ACTIVE_AGENT_WHERE, ...visibleAgentWhere(viewer) },
     select: { id: true, runtimeConfig: true },
@@ -27,5 +30,5 @@ export async function listVisibleAgentModels(
       models[row.id] = "";
     }
   }
-  return models;
+  return { readAt: now(), models };
 }
