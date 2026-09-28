@@ -68,7 +68,9 @@ test("the settings panel shows a channel's members as a page, adds and removes o
 
   const membership = await db.workspaceMembership.findFirstOrThrow({
     where: { userId: DEV_BROWSER_USER.id, role: "owner" },
+    include: { workspace: { select: { slug: true } } },
   });
+  const workspacePath = `/en/w/${membership.workspace.slug}`;
   const workspaceId = membership.workspaceId;
   const attached = await db.workspaceComputer.findFirstOrThrow({
     where: { workspaceId, computer: { ownerId: DEV_BROWSER_USER.id } },
@@ -110,7 +112,7 @@ test("the settings panel shows a channel's members as a page, adds and removes o
     await mkdir(artifacts, { recursive: true });
 
     await browser("set", "viewport", "1440", "900");
-    await browser("open", `${origin}/en/messages/channels/${channel.id}`);
+    await browser("open", `${origin}${workspacePath}/channel/${channel.id}`);
     await waitFor(
       `document.querySelector('[aria-label="Channel details and settings"]') !== null`,
       60_000,

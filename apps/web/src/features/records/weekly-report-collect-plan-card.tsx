@@ -9,6 +9,7 @@ import { Checkbox } from "#src/components/base/checkbox/checkbox";
 import { Input } from "#src/components/base/input/input";
 import { Select } from "#src/components/base/select/select";
 import { formatAgentProfileParam } from "#src/features/agents/profile-panel/profile-panel-search";
+import { useWorkspaceSlug } from "#src/features/workspaces/workspace-route";
 import { m } from "#src/paraglide/messages";
 import {
   collectPathLines,
@@ -46,6 +47,7 @@ export function WeeklyReportCollectPlanCard(props: {
   const ensure = useServerFn(ensureWeeklyReportCollector);
   const submit = useServerFn(submitWeeklyReportCollectPlan);
   const navigate = useNavigate();
+  const workspaceSlug = useWorkspaceSlug();
   const [slots, setSlots] = useState<SlotRow[]>([]);
   const [windowKind, setWindowKind] = useState<CollectWindowKind>("week");
   const [optionId, setOptionId] = useState(`${props.year}-W${props.week}`);
@@ -99,7 +101,8 @@ export function WeeklyReportCollectPlanCard(props: {
       // New collectors start unconfigured; open Agent edit so the User can pick runtime.
       if (binding.collectorAgentId) {
         void navigate({
-          to: "/agents",
+          to: "/w/$workspaceSlug/members",
+          params: { workspaceSlug },
           search: {
             profile: formatAgentProfileParam(binding.collectorAgentId),
             agentTab: "profile",
@@ -275,7 +278,8 @@ export function WeeklyReportCollectPlanCard(props: {
                     ) : null}
                     {slot.collectorAgentId ? (
                       <Link
-                        to="/agents"
+                        to="/w/$workspaceSlug/members"
+                        params={{ workspaceSlug }}
                         search={{
                           profile: formatAgentProfileParam(slot.collectorAgentId),
                           agentTab: "profile",

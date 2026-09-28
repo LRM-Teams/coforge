@@ -1,14 +1,12 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
-import { createWorkspaceInputSchema, selectWorkspaceInputSchema } from "./workspace.schemas";
+import { createWorkspaceInputSchema } from "./workspace.schemas";
 
-import { AppError } from "#src/lib/app-error";
 import { authMiddleware, workspaceUserMiddleware } from "#src/features/auth/function-auth";
 import { requireDatabaseClient } from "#src/server/db/client.server";
 import {
   PrismaWorkspaceCatalogStore,
   WorkspaceCatalog,
-  pickWorkspace,
 } from "#src/server/workspaces/catalog.server";
 import {
   preferredWorkspaceSlugFromRequest,
@@ -22,12 +20,23 @@ function catalog() {
   return new WorkspaceCatalog(new PrismaWorkspaceCatalogStore(db));
 }
 
+/** Succeeds when the Workspace the page URL names is one of the User's; NOT_FOUND otherwise. */
+export const openWorkspace = createServerFn({ method: "GET" })
+  .middleware([workspaceUserMiddleware])
+  .handler(() => null);
+
+/**
+ * The User's Workspaces and the one the page URL names (NOT_FOUND when it is not theirs). Opening a
+ * Workspace also remembers it, so the bare app root (`/`) returns to it.
+ */
 export const loadWorkspaceSwitcher = createServerFn({ method: "GET" })
-  .middleware([authMiddleware])
+  .middleware([workspaceUserMiddleware])
   .handler(async ({ context }) => {
-    const user = context.user;
+    const { user, workspaceId } = context;
     const workspaces = await catalog().listForUser(user.id);
-    const current = pickWorkspace(workspaces, preferredWorkspaceSlugFromRequest());
+    const current = workspaces.find((workspace) => workspace.id === workspaceId)!;
+    if (preferredWorkspaceSlugFromRequest() !== current.slug)
+      writePreferredWorkspaceSlug(current.slug);
     return { workspaces, current };
   });
 
@@ -82,17 +91,6 @@ export const loadWorkspaceDirectory = createServerFn({ method: "GET" })
   });
 
 export type WorkspaceDirectory = Awaited<ReturnType<typeof loadWorkspaceDirectory>>;
-
-export const selectWorkspace = createServerFn({ method: "POST" })
-  .middleware([authMiddleware])
-  .validator(selectWorkspaceInputSchema)
-  .handler(async ({ data, context }) => {
-    const user = context.user;
-    const selected = await catalog().selectForUser(user.id, data.slug);
-    if (!selected || selected.slug !== data.slug) throw new AppError("ACCESS_DENIED");
-    writePreferredWorkspaceSlug(selected.slug);
-    return selected;
-  });
 
 export const createWorkspace = createServerFn({ method: "POST" })
   .middleware([authMiddleware])

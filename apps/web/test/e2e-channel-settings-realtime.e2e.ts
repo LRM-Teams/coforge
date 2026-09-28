@@ -86,7 +86,9 @@ test("another open tab follows a channel's rename, description and archive live"
   try {
     const membership = await db.workspaceMembership.findFirstOrThrow({
       where: { userId: DEV_BROWSER_USER.id },
+      include: { workspace: { select: { slug: true } } },
     });
+    const workspacePath = `/en/w/${membership.workspace.slug}`;
     const workspaceId = membership.workspaceId;
     await db.conversation.deleteMany({
       where: { workspaceId, channelName: renamed, NOT: { id: channelId } },
@@ -107,7 +109,7 @@ test("another open tab follows a channel's rename, description and archive live"
       },
     });
     await mkdir(artifacts, { recursive: true });
-    const url = `${origin}/en/messages/channels/${channelId}`;
+    const url = `${origin}${workspacePath}/channel/${channelId}`;
     for (const browser of [editor, watcher]) {
       await browser.run("set", "viewport", "1440", "900");
       await browser.run("open", url);

@@ -23,7 +23,7 @@ These rules apply to `src/features/conversations/`.
   Channels and Direct messages are not reordered by hand.
 - The sidebar's channel and DM lists live in `sidebar-collections.ts`
   (collections and changes, tested without React) and `sidebar-lists.ts`
-  (hooks): the `/messages` loader fetches them into the TanStack Query cache
+  (hooks): the chat layout's (`_chat`) loader fetches them into the TanStack Query cache
   (the server render reads it), and after hydration the same Query keys back
   TanStack DB collections. Read them with `useSidebarLists` and change them
   only through `useSidebarActions` (optimistic: the row changes at once, a
@@ -46,7 +46,7 @@ These rules apply to `src/features/conversations/`.
   Tasks or threads: a change to one Task or thread would re-render every row.
 - TanStack DB collections are client-only: create them through the
   per-`QueryClient` factory after hydration, never at module scope, and keep
-  `/messages` server-rendered.
+  the chat pages server-rendered.
 - Direct and channel views share the empty-state layout and compact thread
   prompt in `direct-conversation.tsx`. Each supplies its own identity, media,
   and copy, and keeps its composer or join action.

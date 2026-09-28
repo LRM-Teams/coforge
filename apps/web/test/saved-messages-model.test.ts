@@ -27,26 +27,26 @@ const channelConversation = {
 
 test("a saved channel message jumps to its channel at its own position (search param, no hash)", () => {
   expect(
-    savedJumpTarget(channelConversation, {
+    savedJumpTarget("acme", channelConversation, {
       id: "33333333-3333-4333-8333-333333333333",
       threadRootId: undefined,
     }),
   ).toEqual({
-    to: "/messages/channels/$channelId",
-    params: { channelId: "22222222-2222-4222-8222-222222222222" },
+    to: "/w/$workspaceSlug/channel/$channelId",
+    params: { workspaceSlug: "acme", channelId: "22222222-2222-4222-8222-222222222222" },
     search: { message: "33333333-3333-4333-8333-333333333333" },
   });
 });
 
 test("a saved thread reply anchors to its root's row — the stream position, never the thread pane", () => {
   expect(
-    savedJumpTarget(channelConversation, {
+    savedJumpTarget("acme", channelConversation, {
       id: "33333333-3333-4333-8333-333333333333",
       threadRootId: "99999999-9999-4999-8999-999999999999",
     }),
   ).toEqual({
-    to: "/messages/channels/$channelId",
-    params: { channelId: "22222222-2222-4222-8222-222222222222" },
+    to: "/w/$workspaceSlug/channel/$channelId",
+    params: { workspaceSlug: "acme", channelId: "22222222-2222-4222-8222-222222222222" },
     search: { message: "99999999-9999-4999-8999-999999999999" },
   });
 });
@@ -54,6 +54,7 @@ test("a saved thread reply anchors to its root's row — the stream position, ne
 test("a saved direct message parses the Agent id out of its directKey for the DM route", () => {
   expect(
     savedJumpTarget(
+      "acme",
       {
         id: "44444444-4444-4444-8444-444444444444",
         channelName: null,
@@ -62,8 +63,8 @@ test("a saved direct message parses the Agent id out of its directKey for the DM
       { id: "33333333-3333-4333-8333-333333333333", threadRootId: undefined },
     ),
   ).toEqual({
-    to: "/messages/$agentId",
-    params: { agentId: "a-9" },
+    to: "/w/$workspaceSlug/messages/$agentId",
+    params: { workspaceSlug: "acme", agentId: "a-9" },
     search: { message: "33333333-3333-4333-8333-333333333333" },
   });
   expect(agentIdFromDirectKey("agent:a-9|user:u-1")).toBe("a-9");
@@ -73,6 +74,7 @@ test("a malformed directKey degrades to the conversation list instead of a broke
   expect(agentIdFromDirectKey("not-a-key")).toBeNull();
   expect(
     savedJumpTarget(
+      "acme",
       {
         id: "44444444-4444-4444-8444-444444444444",
         channelName: null,
@@ -80,5 +82,5 @@ test("a malformed directKey degrades to the conversation list instead of a broke
       },
       { id: "33333333-3333-4333-8333-333333333333", threadRootId: undefined },
     ),
-  ).toEqual({ to: "/messages" });
+  ).toEqual({ to: "/w/$workspaceSlug", params: { workspaceSlug: "acme" } });
 });

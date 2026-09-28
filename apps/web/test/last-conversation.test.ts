@@ -41,25 +41,25 @@ describe("the conversation Chat reopens", () => {
   });
 
   test("is the channel, direct message, or Saved view opened last in this Workspace", () => {
-    rememberConversation("w1", "/messages/channels/c2");
+    rememberConversation("w1", "/w/acme/channel/c2");
     expect(rememberedConversation("w1")).toEqual({ channelId: "c2" });
-    rememberConversation("w1", "/messages/a1");
+    rememberConversation("w1", "/w/acme/messages/a1");
     expect(rememberedConversation("w1")).toEqual({ agentId: "a1" });
-    rememberConversation("w1", "/messages/saved");
+    rememberConversation("w1", "/w/acme/saved");
     expect(rememberedConversation("w1")).toEqual({ view: "saved" });
   });
 
   test("is kept per Workspace", () => {
-    rememberConversation("w1", "/messages/channels/c1");
-    rememberConversation("w2", "/messages/channels/c2");
+    rememberConversation("w1", "/w/acme/channel/c1");
+    rememberConversation("w2", "/w/other/channel/c2");
     expect(rememberedConversation("w1")).toEqual({ channelId: "c1" });
     expect(rememberedConversation("w2")).toEqual({ channelId: "c2" });
   });
 
   test("ignores pages that are not a conversation", () => {
-    rememberConversation("w1", "/messages/channels/c1");
-    rememberConversation("w1", "/messages");
-    rememberConversation("w1", "/agents/a1");
+    rememberConversation("w1", "/w/acme/channel/c1");
+    rememberConversation("w1", "/w/acme");
+    rememberConversation("w1", "/w/acme/agent/a1");
     expect(rememberedConversation("w1")).toEqual({ channelId: "c1" });
   });
 
@@ -72,7 +72,7 @@ describe("the conversation Chat reopens", () => {
     expect(rememberedConversation("w1")).toBeUndefined();
     // A private window or SSR can have no localStorage at all.
     Reflect.deleteProperty(globalThis, "localStorage");
-    rememberConversation("w1", "/messages/channels/c1");
+    rememberConversation("w1", "/w/acme/channel/c1");
     expect(rememberedConversation("w1")).toBeUndefined();
   });
 });

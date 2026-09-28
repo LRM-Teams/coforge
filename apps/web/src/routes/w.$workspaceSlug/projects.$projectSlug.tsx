@@ -4,7 +4,7 @@ import { ProjectsPending } from "#src/features/projects/projects-content";
 import { ProjectDetail } from "#src/features/projects/project-detail";
 import { getProject, getProjectRepository } from "#src/features/projects/projects.functions";
 
-export const Route = createFileRoute("/_app/projects/$projectSlug")({
+export const Route = createFileRoute("/w/$workspaceSlug/projects/$projectSlug")({
   loader: async ({ params }) => {
     const project = await getProject({ data: { slug: params.projectSlug } });
     if (!project) throw notFound();

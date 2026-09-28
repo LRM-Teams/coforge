@@ -15,6 +15,7 @@ test("installed Computer creates an Agent through Web and persists its real repl
   const registration = await Bun.file(registrationPath).json();
   expect(registration.workspace_slug).toBe(Bun.env.COFORGE_E2E_WORKSPACE_SLUG);
   expect(typeof registration.computer_id).toBe("string");
+  const workspacePath = `/en/w/${registration.workspace_slug}`;
   const browserPath = Bun.which("agent-browser");
   if (!browserPath) throw new Error("agent-browser is required");
   const name = `native-${Date.now()}`;
@@ -57,7 +58,7 @@ test("installed Computer creates an Agent through Web and persists its real repl
   }
   try {
     console.log("native_browser:computer_online");
-    await browser("open", `${origin}/en/computers/${registration.computer_id}`);
+    await browser("open", `${origin}${workspacePath}/computer/${registration.computer_id}`);
     await browser("set", "viewport", "1280", "720", "2");
     await browser("wait", "--text", "Online");
     const inventory = await browser("snapshot", "-i");
@@ -102,7 +103,7 @@ test("installed Computer creates an Agent through Web and persists its real repl
       ),
     );
     const agentId = new URL(agentPath, origin).pathname.split("/").at(-1)!;
-    await browser("click", `a[href="/en/messages/${agentId}"]`);
+    await browser("click", `a[href="${workspacePath}/messages/${agentId}"]`);
     await browser("wait", "--url", `**/messages/${agentId}`);
     await browser(
       "wait",
@@ -350,7 +351,7 @@ test("installed Computer creates an Agent through Web and persists its real repl
     await controlComputer("stop");
     // Stop awaits the native Workspace process shutdown. The Web Online badge
     // is a leased loader snapshot, not evidence of whether that process stopped.
-    await browser("open", `${origin}/en/messages/${agentId}?view=tasks`);
+    await browser("open", `${origin}${workspacePath}/messages/${agentId}?view=tasks`);
     await click("button", "Create task");
     const offlineTitle = `OFFLINE_${crypto.randomUUID()}: Create offline-result.txt containing recovered task, then submit this task for review.`;
     await browser("find", "role", "textbox", "fill", "--name", "Task 1", "--exact", offlineTitle);

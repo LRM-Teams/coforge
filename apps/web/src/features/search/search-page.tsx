@@ -20,6 +20,7 @@ import { RelativeTime } from "#src/components/ui/relative-time";
 import { Skeleton } from "#src/components/ui/skeleton";
 import { conversationSearchWithThread } from "#src/features/conversations/conversation-thread-search";
 import { savedJumpTarget } from "#src/features/conversations/saved-messages-model";
+import { useWorkspaceSlug } from "#src/features/workspaces/workspace-route";
 import { useBreakpoint } from "#src/hooks/use-breakpoint";
 import { computerLabel } from "#src/features/computers/computer-identity";
 import { messagePlainText } from "#src/features/conversations/selection-copy";
@@ -88,6 +89,7 @@ export function SearchPage({
 }) {
   const memory = useSearchMemory(workspaceId, viewerId);
   const router = useRouter();
+  const workspaceSlug = useWorkspaceSlug();
   // A preview needs room beside the list; below `md` a click opens the conversation instead.
   const wide = useBreakpoint("md");
   const showPreview = Boolean(preview && wide);
@@ -154,7 +156,8 @@ export function SearchPage({
     if (target instanceof HTMLInputElement && target.value) return;
     const origin = lastPageBeforeSearch();
     if (origin) void router.navigate({ href: origin, replace: true });
-    else void router.navigate({ to: "/messages", replace: true });
+    else
+      void router.navigate({ to: "/w/$workspaceSlug", params: { workspaceSlug }, replace: true });
   });
   useEffect(() => {
     window.addEventListener("keydown", onEscape);
@@ -472,10 +475,11 @@ function MessageResults({
  * thread reply its thread open at the reply, the way Chat opens a thread from Activity.
  */
 function messageOpenTarget(
+  workspaceSlug: string,
   conversation: MessageSearchHit["conversation"],
   message: MessageSearchHit["message"],
 ) {
-  const target = savedJumpTarget(conversation, message);
+  const target = savedJumpTarget(workspaceSlug, conversation, message);
   return message.threadRootId && "search" in target
     ? {
         ...target,
@@ -506,6 +510,7 @@ function SearchResultRow({
 }) {
   const { conversation, message } = hit;
   const { previewed, preview } = useSearchPreview();
+  const workspaceSlug = useWorkspaceSlug();
   const place = conversation.channelName
     ? `#${conversation.channelName}`
     : `@${conversation.directAgent?.displayName ?? message.senderName}`;
@@ -521,7 +526,7 @@ function SearchResultRow({
   return (
     <li>
       <Link
-        {...messageOpenTarget(conversation, message)}
+        {...messageOpenTarget(workspaceSlug, conversation, message)}
         data-search-message-id={message.id}
         aria-current={target && isPreviewed(previewed, target) ? "true" : undefined}
         onClick={onClick}

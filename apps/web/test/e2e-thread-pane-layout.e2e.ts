@@ -55,7 +55,9 @@ test("the thread pane shows its title, actions, replies marker and thread compos
   try {
     const membership = await db.workspaceMembership.findFirstOrThrow({
       where: { userId: DEV_BROWSER_USER.id },
+      include: { workspace: { select: { slug: true } } },
     });
+    const workspacePath = `/en/w/${membership.workspace.slug}`;
     const viewer = await db.conversationMember.findFirstOrThrow({
       where: {
         userId: DEV_BROWSER_USER.id,
@@ -103,7 +105,7 @@ test("the thread pane shows its title, actions, replies marker and thread compos
       sequence += 1;
     }
     await mkdir(artifacts, { recursive: true });
-    const threadUrl = `${origin}/en/messages/channels/${channel.id}?threadRootId=${rootId}`;
+    const threadUrl = `${origin}${workspacePath}/channel/${channel.id}?threadRootId=${rootId}`;
 
     await browser("set", "viewport", "1440", "900");
     await browser("open", threadUrl);

@@ -1,6 +1,7 @@
-import { useCallback } from "react";
-import { Outlet, createFileRoute, useRouter } from "@tanstack/react-router";
+import { useCallback, useEffect } from "react";
+import { Outlet, createFileRoute, notFound, useNavigate } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
+import type { QueryClient } from "@tanstack/react-query";
 
 import { AppShell } from "#src/components/app-shell";
 import { TimeFormatProvider } from "#src/lib/time-format-context";
@@ -8,8 +9,10 @@ import { getUserProfile } from "#src/features/profiles/profile.functions";
 import {
   createWorkspace,
   loadWorkspaceSwitcher,
-  selectWorkspace,
+  openWorkspace,
 } from "#src/features/workspaces/workspaces.functions";
+import { isAppError } from "#src/lib/app-error";
+import { isValidWorkspaceSlug } from "#src/features/workspaces/workspace-slug";
 import { loadRecordsNavAttention } from "#src/features/records/records.functions";
 import { BrowserRealtimeProvider } from "#src/features/realtime/browser-realtime";
 import { getBrowserRealtimeConnectionToken } from "#src/features/realtime/realtime.functions";
@@ -25,8 +28,29 @@ import { PanelTabOrderProvider } from "#src/features/panel-tabs/panel-tab-order-
 import { useLastLocationMemory } from "#src/features/workspaces/use-last-location-memory";
 import { useSearchShortcut } from "#src/features/search/search-shortcut";
 
-export const Route = createFileRoute("/_app")({
+/** The Workspace each QueryClient (one per browser app, one per server request) last showed. */
+const shownWorkspace = new WeakMap<QueryClient, string>();
+
+export const Route = createFileRoute("/w/$workspaceSlug")({
   staleTime: Infinity,
+  beforeLoad: async ({ params, context, preload }) => {
+    // A malformed slug names no Workspace; server calls would fall back to the remembered one.
+    if (!isValidWorkspaceSlug(params.workspaceSlug)) throw notFound();
+    // A preload runs while the browser URL still names the Workspace on screen: it must neither
+    // check the target Workspace against that one nor clear what is on screen.
+    if (preload) return;
+    const shown = shownWorkspace.get(context.queryClient);
+    if (shown === params.workspaceSlug) return;
+    // Runs before any page loader: a Workspace the User is not in is a page that does not exist
+    // for them. Checked once per Workspace entered; every server call re-checks it anyway.
+    await openWorkspace().catch((error: unknown) => {
+      if (isAppError(error) && error.code === "NOT_FOUND") throw notFound();
+      throw error;
+    });
+    // Query keys are not scoped by Workspace, so moving to another one starts from an empty cache.
+    if (shown) context.queryClient.clear();
+    shownWorkspace.set(context.queryClient, params.workspaceSlug);
+  },
   loader: async () => {
     const [user, switcher, notifications, agents, preferences, tabOrders, recordsNav] =
       await Promise.all([
@@ -65,22 +89,27 @@ function AppLayout() {
     timeFormat,
     tabOrders,
   } = Route.useLoaderData();
-  useLastLocationMemory(currentWorkspace?.slug);
-  useSearchShortcut(currentWorkspace?.id, user.id);
+  const { queryClient } = Route.useRouteContext();
+  // Hydration does not re-run `beforeLoad`, so the browser learns here which Workspace the server
+  // rendered; otherwise the first switch away would keep this Workspace's cache.
+  useEffect(() => {
+    shownWorkspace.set(queryClient, currentWorkspace.slug);
+  }, [queryClient, currentWorkspace.slug]);
+  useLastLocationMemory();
+  useSearchShortcut(currentWorkspace.id, user.id);
   const getRealtimeToken = useServerFn(getBrowserRealtimeConnectionToken);
   const getConnectionToken = useCallback(() => getRealtimeToken(), [getRealtimeToken]);
-  const router = useRouter();
-  const select = useServerFn(selectWorkspace);
+  const navigate = useNavigate();
   const create = useServerFn(createWorkspace);
   return (
     <TimeFormatProvider timeFormat={timeFormat}>
       <BrowserRealtimeProvider
-        workspaceId={currentWorkspace?.id}
+        workspaceId={currentWorkspace.id}
         getConnectionToken={getConnectionToken}
       >
-        <WorkspacePresenceProvider workspaceId={currentWorkspace?.id}>
-          <WorkspaceAgentsProvider workspaceId={currentWorkspace?.id} agents={agents}>
-            <PanelTabOrderProvider workspaceId={currentWorkspace?.id} orders={tabOrders}>
+        <WorkspacePresenceProvider workspaceId={currentWorkspace.id}>
+          <WorkspaceAgentsProvider workspaceId={currentWorkspace.id} agents={agents}>
+            <PanelTabOrderProvider workspaceId={currentWorkspace.id} orders={tabOrders}>
               {/* The server prunes dead web-push subscriptions (404/410), and nothing else ever
             re-registers them — without this the phone stays silent until a manual toggle. */}
               <BrowserPushLifecycle
@@ -92,7 +121,7 @@ function AppLayout() {
               <InPageNotifications
                 enabled={notifications.enabled}
                 viewerId={user.id}
-                workspaceId={currentWorkspace?.id}
+                workspaceId={currentWorkspace.id}
               />
               <AppShell
                 user={{
@@ -105,12 +134,14 @@ function AppLayout() {
                 currentWorkspace={currentWorkspace}
                 recordsPreview={recordsPreview}
                 onSelectWorkspace={async (slug) => {
-                  await select({ data: { slug } });
-                  await router.invalidate({ sync: true });
+                  await navigate({ to: "/w/$workspaceSlug", params: { workspaceSlug: slug } });
                 }}
                 onCreateWorkspace={async (input) => {
-                  await create({ data: input });
-                  await router.invalidate({ sync: true });
+                  const workspace = await create({ data: input });
+                  await navigate({
+                    to: "/w/$workspaceSlug",
+                    params: { workspaceSlug: workspace.slug },
+                  });
                 }}
               >
                 <Outlet />

@@ -10,9 +10,9 @@ import { PageLoadError } from "#src/features/errors/page-load-error";
 import { getInstallOrigin } from "#src/features/install/install.functions";
 import { getUserPreferences } from "#src/features/settings/settings.functions";
 
-const appRoute = getRouteApi("/_app");
+const appRoute = getRouteApi("/w/$workspaceSlug");
 
-export const Route = createFileRoute("/_app/computers")({
+export const Route = createFileRoute("/w/$workspaceSlug/_computers")({
   loader: async () => {
     const [computers, preferences, installOrigin] = await Promise.all([
       listComputers(),
@@ -35,7 +35,7 @@ function ComputersPage() {
   const { data: latestComputerVersion } = useQuery(latestComputerVersionQuery());
   const { currentWorkspace } = appRoute.useLoaderData();
   const params = useParams({
-    from: "/_app/computers/$computerId",
+    from: "/w/$workspaceSlug/_computers/computer/$computerId",
     shouldThrow: false,
   });
   const [addComputerOpen, setAddComputerOpen] = useState(false);

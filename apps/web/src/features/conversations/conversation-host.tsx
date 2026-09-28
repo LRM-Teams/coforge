@@ -19,7 +19,7 @@ import {
   type SavedMessagesStore,
 } from "./saved-messages-collection";
 
-const appRoute = getRouteApi("/_app");
+const appRoute = getRouteApi("/w/$workspaceSlug");
 
 /** The viewer's Saved list (#127), one TanStack DB collection behind the row stars, the sidebar
  * entry, and the Saved view (`saved-messages-collection.ts`). Saves and unsaves show at once and

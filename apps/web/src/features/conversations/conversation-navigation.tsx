@@ -23,12 +23,14 @@ import {
   useCurrentWorkspaceId,
   useLiveAgents,
 } from "#src/features/agents/workspace-agents-realtime";
+import { useWorkspaceSlug } from "#src/features/workspaces/workspace-route";
 import { CreateChannelDialog } from "./create-channel-dialog";
 import { rememberConversation } from "./last-conversation";
 import { useChannelUnread } from "./conversation-unread";
 import { useRefreshSidebarChannels, useSidebarLists } from "./sidebar-lists";
+import { workspacePath } from "#src/features/workspaces/workspace-url";
 
-const messagesRoute = getRouteApi("/_app/messages");
+const messagesRoute = getRouteApi("/w/$workspaceSlug/_chat");
 const ConversationListContext = createContext<{
   showList: () => void;
   /** Hides the list and reveals the detail pane. Called when a directory row is chosen, so a tap
@@ -75,15 +77,25 @@ export function ConversationNavigation({ children }: { children: ReactNode }) {
   const { channels, directs, viewerId, readAt } = useSidebarLists();
   const agents = useLiveAgents();
   const workspaceId = useCurrentWorkspaceId();
+  const workspaceSlug = useWorkspaceSlug();
   const desktop = useBreakpoint("lg");
   const router = useRouter();
   const pathname = useRouterState({ select: (state) => state.location.pathname });
   const [browsing, setBrowsing] = useState(false);
   const [creating, setCreating] = useState(false);
   const create = useServerFn(createPublicChannel);
-  const channel = useParams({ from: "/_app/messages/channels/$channelId", shouldThrow: false });
-  const agent = useParams({ from: "/_app/messages/$agentId", shouldThrow: false });
-  const showList = browsing || pathname === "/messages" || pathname === "/messages/";
+  const channel = useParams({
+    from: "/w/$workspaceSlug/_chat/channel/$channelId",
+    shouldThrow: false,
+  });
+  const agent = useParams({
+    from: "/w/$workspaceSlug/_chat/messages/$agentId",
+    shouldThrow: false,
+  });
+  const showList =
+    browsing ||
+    pathname === workspacePath(workspaceSlug) ||
+    pathname === workspacePath(workspaceSlug, "/");
   useEffect(() => {
     // Leaving the conversation list is a path change (tapping a row). Loader
     // re-resolves (`invalidate`, hash replace) must not bounce the user back
@@ -97,15 +109,16 @@ export function ConversationNavigation({ children }: { children: ReactNode }) {
     });
   }, [router]);
 
-  // The conversation this is becomes the one Chat reopens in this Workspace. Only a conversation
-  // the user moved to counts: a Workspace switch keeps the URL, and recording it then would file the
-  // old Workspace's conversation under the new one.
+  // The conversation this is becomes the one Chat reopens in this Workspace. While a move to another
+  // Workspace is pending the URL already names it but the Workspace in hand is still the old one:
+  // only a path inside the Workspace in hand is filed under its id.
   const rememberedPath = useRef<string | undefined>(undefined);
   useEffect(() => {
     if (!workspaceId || pathname === rememberedPath.current) return;
+    if (!pathname.startsWith(workspacePath(workspaceSlug, "/"))) return;
     rememberedPath.current = pathname;
     rememberConversation(workspaceId, pathname);
-  }, [workspaceId, pathname]);
+  }, [workspaceId, workspaceSlug, pathname]);
 
   const visibleChannels = useMemo(() => channels.filter((listed) => !listed.archived), [channels]);
   const hiddenAgentIds = useMemo(() => new Set(directs.hiddenAgentIds), [directs]);
@@ -190,7 +203,7 @@ export function ConversationNavigation({ children }: { children: ReactNode }) {
                   directRows={directs.byAgent}
                   selectedChannelId={channel?.channelId}
                   selectedAgentId={agent?.agentId}
-                  selectedSaved={pathname === "/messages/saved"}
+                  selectedSaved={pathname === workspacePath(workspaceSlug, "/saved")}
                   onCreateChannel={() => setCreating(true)}
                 />
               </div>
@@ -214,8 +227,8 @@ export function ConversationNavigation({ children }: { children: ReactNode }) {
                 const result = await create({ data: { name, projectId } });
                 await router.invalidate({ sync: true });
                 await router.navigate({
-                  to: "/messages/channels/$channelId",
-                  params: { channelId: result.id },
+                  to: "/w/$workspaceSlug/channel/$channelId",
+                  params: { workspaceSlug, channelId: result.id },
                 });
               }}
             />

@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "@tanstack/react-router";
 
+import { useWorkspaceSlug } from "#src/features/workspaces/workspace-route";
+import { splitWorkspacePath } from "#src/features/workspaces/workspace-url";
 import { readLastSearch } from "./search-memory";
 
 /**
@@ -11,6 +13,11 @@ import { readLastSearch } from "./search-memory";
 const searchOrigins = new Map<string, string>();
 let currentSearchOrigin: string | undefined;
 let lastPageOutsideSearch: string | undefined;
+
+/** Whether a de-localized pathname is a Workspace's search page (`/w/<slug>/search`). */
+function isSearchPath(pathname: string | undefined): boolean {
+  return pathname !== undefined && splitWorkspacePath(pathname)?.rest === "/search";
+}
 
 /** The page search was opened from, where Esc on the search page returns to. */
 export function lastPageBeforeSearch(): string | undefined {
@@ -57,6 +64,7 @@ export function useSearchShortcutLabel(): string | undefined {
  */
 export function useSearchShortcut(workspaceId: string | undefined, userId: string) {
   const router = useRouter();
+  const workspaceSlug = useWorkspaceSlug();
   useEffect(() => {
     // Remember where each search entry was opened from, so leaving search goes back there
     // whatever steps (filters, previews, a visit to a result and Back) were taken since.
@@ -64,12 +72,12 @@ export function useSearchShortcut(workspaceId: string | undefined, userId: strin
     const remember = () => {
       const { pathname, href, state } = router.state.location;
       const key = (state as { __TSR_key?: string }).__TSR_key;
-      if (pathname !== "/search") {
+      if (!isSearchPath(pathname)) {
         lastPageOutsideSearch = href;
       } else {
         const known = key ? searchOrigins.get(key) : undefined;
         currentSearchOrigin =
-          known ?? (previousPath === "/search" ? currentSearchOrigin : lastPageOutsideSearch);
+          known ?? (isSearchPath(previousPath) ? currentSearchOrigin : lastPageOutsideSearch);
         if (key && currentSearchOrigin) searchOrigins.set(key, currentSearchOrigin);
       }
       previousPath = pathname;
@@ -82,13 +90,17 @@ export function useSearchShortcut(workspaceId: string | undefined, userId: strin
     const onKeyDown = (event: KeyboardEvent) => {
       if (!isSearchShortcut(event)) return;
       event.preventDefault();
-      if (router.state.location.pathname === "/search") {
+      if (isSearchPath(router.state.location.pathname)) {
         document.dispatchEvent(new Event(SEARCH_FOCUS_EVENT));
         return;
       }
-      void router.navigate({ to: "/search", search: readLastSearch(workspaceId, userId) });
+      void router.navigate({
+        to: "/w/$workspaceSlug/search",
+        params: { workspaceSlug },
+        search: readLastSearch(workspaceId, userId),
+      });
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [workspaceId, userId, router]);
+  }, [workspaceId, workspaceSlug, userId, router]);
 }

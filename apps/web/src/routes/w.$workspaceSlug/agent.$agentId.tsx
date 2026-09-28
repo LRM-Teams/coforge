@@ -6,23 +6,18 @@ import {
   formatAgentProfileParam,
 } from "#src/features/agents/profile-panel/profile-panel-search";
 
-const legacyDetailTabSchema = z
-  .enum(["profile", "activity", "reminders", "workspace"])
-  .optional()
-  .catch(undefined);
-
-export const Route = createFileRoute("/_app/agents/$agentId")({
+export const Route = createFileRoute("/w/$workspaceSlug/agent/$agentId")({
   validateSearch: z.object({
     agentTab: agentProfileTabParamSchema,
-    tab: legacyDetailTabSchema,
   }),
   beforeLoad: ({ params, search }) => {
     throw redirect({
-      to: "/agents",
+      to: "/w/$workspaceSlug/members",
+      params: { workspaceSlug: params.workspaceSlug },
       replace: true,
       search: {
         profile: formatAgentProfileParam(params.agentId),
-        agentTab: search.agentTab ?? search.tab,
+        agentTab: search.agentTab,
       },
     });
   },

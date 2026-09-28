@@ -2,7 +2,7 @@ import { createFileRoute, notFound, redirect } from "@tanstack/react-router";
 
 import { PageLoadError } from "#src/features/errors/page-load-error";
 
-export const Route = createFileRoute("/_app/records/weeks/$year/$week")({
+export const Route = createFileRoute("/w/$workspaceSlug/records/weeks/$year/$week")({
   ssr: "data-only",
   staleTime: 0,
   errorComponent: PageLoadError,
@@ -26,8 +26,8 @@ export const Route = createFileRoute("/_app/records/weeks/$year/$week")({
     const recordId = memberWeek.submissions[0]?.id ?? memberWeek.overviewReportId;
     if (!recordId) throw notFound();
     throw redirect({
-      to: "/records/$recordId",
-      params: { recordId },
+      to: "/w/$workspaceSlug/records/$recordId",
+      params: { workspaceSlug: params.workspaceSlug, recordId },
       search: { tab: "weekly" },
     });
   },

@@ -8,6 +8,7 @@ import { Button } from "#src/components/base/buttons/button";
 import { ButtonUtility } from "#src/components/base/buttons/button-utility";
 import { FeaturedIcon } from "#src/components/foundations/featured-icon/featured-icon";
 import { m } from "#src/paraglide/messages";
+import { useWorkspaceSlug } from "#src/features/workspaces/workspace-route";
 import type { KeyPointExtractionMeta } from "./records-content";
 import { KeyPointExtractionPanel } from "./key-point-extraction-panel";
 import { RECORDS_PRIMARY_BUTTON_CLASSNAME } from "./records-primary-button";
@@ -33,6 +34,7 @@ export function TeamKeyPointSection({
   busy?: boolean;
   onStart: () => void;
 }) {
+  const workspaceSlug = useWorkspaceSlug();
   const [confirmOpen, setConfirmOpen] = useState(false);
   // Stale persisted none-submitted failures stay invisible; waiting copy replaces them.
   const panelExtraction = isNoneSubmittedKeyPointFailure(extraction) ? undefined : extraction;
@@ -64,12 +66,13 @@ export function TeamKeyPointSection({
         </div>
         <div className="flex flex-wrap items-center gap-3">
           <Link
-            to="/records/settings"
+            to="/w/$workspaceSlug/records/settings"
+            params={{ workspaceSlug }}
             search={{
               tab: "weekly",
               section: "key_points",
               slot: "team",
-              returnTo: `/records/${overviewReportId}`,
+              returnTo: `/w/${workspaceSlug}/records/${overviewReportId}`,
             }}
             className="text-sm font-medium text-brand-secondary hover:underline"
           >

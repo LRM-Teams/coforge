@@ -42,6 +42,7 @@ test("real Kiro v3 reads and replies through Web, Centrifugo and Daemon", async 
   const redis = new Bun.RedisClient(process.env.REDIS_URL!);
   const root = await mkdtemp(join(tmpdir(), "coforge-kiro-e2e-"));
   const workspaceId = "10000000-0000-4000-8000-000000000001";
+  const workspaceSlug = "e2e-workspace";
   let runtime: DaemonRuntime | undefined;
   let launchError: unknown;
   const proxy = startAgentProxy({
@@ -60,7 +61,7 @@ test("real Kiro v3 reads and replies through Web, Centrifugo and Daemon", async 
       {
         protocolMajor: 1,
         requestId: crypto.randomUUID(),
-        workspaceSlug: "e2e-workspace",
+        workspaceSlug,
         name: `kiro-${crypto.randomUUID().slice(0, 8)}`,
         displayName: "Kiro native E2E",
         machineId: crypto.randomUUID(),
@@ -179,7 +180,9 @@ test("real Kiro v3 reads and replies through Web, Centrifugo and Daemon", async 
           where: { agentId: created.agent.id, receivedAt: { not: null } },
         })),
     );
-    const page = await fetch(`http://127.0.0.1:8789/messages/${created.agent.id}`);
+    const page = await fetch(
+      `http://127.0.0.1:8789/w/${workspaceSlug}/messages/${created.agent.id}`,
+    );
     expect(page.status).toBe(200);
     expect(await page.text()).toContain(marker);
     const usageKey = {
@@ -204,7 +207,7 @@ test("real Kiro v3 reads and replies through Web, Centrifugo and Daemon", async 
     expect(resetsAt).toBeDefined();
     expect(Date.parse(resetsAt ?? "")).toBeGreaterThan(Date.now());
     console.log(
-      `Verified native Kiro reply, delivery ACK and account usage scan; review /messages/${created.agent.id}`,
+      `Verified native Kiro reply, delivery ACK and account usage scan; review /w/${workspaceSlug}/messages/${created.agent.id}`,
     );
   } finally {
     await runtime?.stop();

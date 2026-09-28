@@ -7,7 +7,7 @@ import { loadRecordSubject } from "#src/features/records/records.functions";
 import { latestWeeklyLanding } from "#src/features/records/records-sidebar";
 import { isAppError } from "#src/lib/app-error";
 
-export const Route = createFileRoute("/_app/records/")({
+export const Route = createFileRoute("/w/$workspaceSlug/records/")({
   ssr: "data-only",
   staleTime: 0,
   errorComponent: PageLoadError,

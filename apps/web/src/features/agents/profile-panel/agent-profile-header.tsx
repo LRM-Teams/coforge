@@ -14,7 +14,9 @@ import type { AgentRuntimeControls } from "#src/features/agents/agent-runtime-co
 import { useAgentRecentActivity } from "#src/features/agents/workspace-agents-realtime";
 import { m } from "#src/paraglide/messages";
 import { localizeHref } from "#src/paraglide/runtime";
+import { useWorkspaceSlug } from "#src/features/workspaces/workspace-route";
 import type { AgentDisplaySnapshot } from "@lrm/coforge-sdk/internal";
+import { workspacePath } from "#src/features/workspaces/workspace-url";
 
 /**
  * The panel's first band (48px, the same height as Thread's header): the Agent's identity on the
@@ -46,6 +48,7 @@ export function AgentProfileHeader({
   back?: { label: string; onPress: () => void };
 }) {
   const activity = useAgentRecentActivity(agent.id);
+  const workspaceSlug = useWorkspaceSlug();
   // The live status line, from the same source the avatar's own label uses.
   const statusLabel = agentDisplay(display).label;
   return (
@@ -89,7 +92,7 @@ export function AgentProfileHeader({
         icon={MessageSquare}
         size="sm"
         tooltip={m.agent_profile_panel_message()}
-        href={localizeHref(`/messages/${agent.id}`)}
+        href={localizeHref(workspacePath(workspaceSlug, `/messages/${agent.id}`))}
       />
       <ButtonUtility
         icon={controls.isOnline ? Stop : Play}

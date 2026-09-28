@@ -12,7 +12,7 @@ export type KeyPointSlotSearch = "team" | "personal";
 
 export { sanitizeRecordsReturnTo };
 
-export const Route = createFileRoute("/_app/records/settings")({
+export const Route = createFileRoute("/w/$workspaceSlug/records/settings")({
   validateSearch: (
     search: Record<string, unknown>,
   ): {

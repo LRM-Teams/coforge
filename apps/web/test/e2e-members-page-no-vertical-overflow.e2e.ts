@@ -56,7 +56,13 @@ test("Members never scrolls the document, with or without an Agent's profile ope
 
   try {
     await browser("set", "viewport", "1280", "480");
-    await browser("open", `${origin}/en/agents?memberType=agent&owner=all`);
+    // The app root opens the dev user's Workspace, whose pages live under `/en/w/<slug>`.
+    await browser("open", `${origin}/en`);
+    await browser("wait", "--fn", `location.pathname.startsWith("/en/w/")`);
+    const workspacePath: string = JSON.parse(
+      await browser("eval", `location.pathname.split("/").slice(0, 4).join("/")`),
+    );
+    await browser("open", `${origin}${workspacePath}/members?memberType=agent&owner=all`);
     await browser("wait", "--fn", cards);
     await expectOnlyTheListScrolls();
 

@@ -84,7 +84,9 @@ test("a result previews beside the list and opens on a double click", async () =
   try {
     const membership = await db.workspaceMembership.findFirstOrThrow({
       where: { userId: DEV_BROWSER_USER.id },
+      include: { workspace: { select: { slug: true } } },
     });
+    const workspacePath = `/en/w/${membership.workspace.slug}`;
     const workspaceId = membership.workspaceId;
     await db.conversation.deleteMany({ where: { id: { in: [channelA, channelB] } } });
     await db.conversation.deleteMany({
@@ -158,11 +160,11 @@ test("a result previews beside the list and opens on a double click", async () =
     await browser("set", "viewport", "1440", "900");
 
     // A single click previews the result beside the list, at the message, with its composer.
-    await browser("open", `${origin}/en/search?q=${encodeURIComponent(phrase)}`);
+    await browser("open", `${origin}${workspacePath}/search?q=${encodeURIComponent(phrase)}`);
     await waitFor(`document.querySelector('${row(inA.id)}') !== null`);
     await browser("click", row(inA.id));
     await waitFor(
-      `${param("open")} === "channel:${channelA}" && ${param("msg")} === "${inA.id}" && location.pathname === "/en/search"`,
+      `${param("open")} === "channel:${channelA}" && ${param("msg")} === "${inA.id}" && location.pathname === "${workspacePath}/search"`,
     );
     await waitFor(`document.querySelector('${PREVIEW} li[data-message-id="${inA.id}"]') !== null`);
     await waitFor(`document.querySelector('${PREVIEW} textarea:not([disabled])') !== null`);
@@ -209,7 +211,7 @@ test("a result previews beside the list and opens on a double click", async () =
       `[...document.querySelectorAll('${PREVIEW} [role="tab"]')].find((tab) => tab.textContent.trim() === "Tasks").click()`,
     );
     await waitFor(
-      `${param("view")} === "tasks" && location.pathname === "/en/search" && [...document.querySelectorAll('${PREVIEW} button')].some((button) => button.textContent.trim() === "Create task")`,
+      `${param("view")} === "tasks" && location.pathname === "${workspacePath}/search" && [...document.querySelectorAll('${PREVIEW} button')].some((button) => button.textContent.trim() === "Create task")`,
     );
     await browser("screenshot", join(artifacts, "tasks.png"));
     await browser(
@@ -229,7 +231,7 @@ test("a result previews beside the list and opens on a double click", async () =
     );
     const saved = await db.message.findFirst({ where: { conversationId: channelA, body: reply } });
     expect(saved).not.toBeNull();
-    expect(await evaluate<string>(`location.pathname`)).toBe("/en/search");
+    expect(await evaluate<string>(`location.pathname`)).toBe(`${workspacePath}/search`);
     await browser("screenshot", join(artifacts, "replied.png"));
 
     // Esc in the conversation (its composer) belongs to the conversation: the preview stays.
@@ -244,7 +246,7 @@ test("a result previews beside the list and opens on a double click", async () =
       `document.querySelector('${PREVIEW} li[data-message-id="${saved!.id}"] [aria-label^="Reply in thread"]').click()`,
     );
     await waitFor(
-      `${param("threadRootId")} === "${saved!.id}" && location.pathname === "/en/search"`,
+      `${param("threadRootId")} === "${saved!.id}" && location.pathname === "${workspacePath}/search"`,
     );
     await waitFor(
       `[...document.querySelectorAll('${PREVIEW} section[aria-label="Thread"]')].some((pane) => !pane.hidden)`,
@@ -281,7 +283,7 @@ test("a result previews beside the list and opens on a double click", async () =
     await browser("screenshot", join(artifacts, "thread-hit.png"));
     await browser("dblclick", row(inThread.id));
     await waitFor(
-      `location.pathname === "/en/messages/channels/${channelA}" && ${param("threadRootId")} === "${inA.id}"`,
+      `location.pathname === "${workspacePath}/channel/${channelA}" && ${param("threadRootId")} === "${inA.id}"`,
     );
     await waitFor(replyOnScreen);
     await browser("back");
@@ -303,7 +305,7 @@ test("a result previews beside the list and opens on a double click", async () =
     await waitFor(`${saveButton(PREVIEW, "Remove from Saved")} !== null`);
     const opensBefore = await opensOfB();
     await browser("dblclick", row(inB.id));
-    await waitFor(`location.pathname === "/en/messages/channels/${channelB}"`);
+    await waitFor(`location.pathname === "${workspacePath}/channel/${channelB}"`);
     // A double click is one open, not two.
     expect(await opensOfB()).toBe(opensBefore + 1);
     await waitFor(`${saveButton("main", "Remove from Saved")} !== null`);
@@ -335,7 +337,7 @@ test("a result previews beside the list and opens on a double click", async () =
     await waitFor(`location.pathname === "/en/search"`);
 
     // A matching channel previews too, at its newest messages.
-    await browser("open", `${origin}/en/search?q=e2e-preview-a`);
+    await browser("open", `${origin}${workspacePath}/search?q=e2e-preview-a`);
     await waitFor(`document.querySelector('[data-search-entity="channel:${channelA}"]') !== null`);
     await browser("click", `[data-search-entity="channel:${channelA}"]`);
     await waitFor(`${param("open")} === "channel:${channelA}" && ${param("msg")} === ""`);
@@ -343,12 +345,12 @@ test("a result previews beside the list and opens on a double click", async () =
 
     // Esc with no preview leaves search for the page it was opened from, even after a filter
     // change added a step of its own.
-    await browser("open", `${origin}/en/messages/channels/${channelB}`);
+    await browser("open", `${origin}${workspacePath}/channel/${channelB}`);
     await waitFor(
       `[...document.querySelectorAll("h1")].some((h) => h.textContent === "#e2e-preview-b")`,
     );
-    await browser("click", 'aside a[href="/en/search"]');
-    await waitFor(`location.pathname === "/en/search"`);
+    await browser("click", `aside a[href="${workspacePath}/search"]`);
+    await waitFor(`location.pathname === "${workspacePath}/search"`);
     await browser("fill", 'input[type="search"]', phrase);
     await waitFor(`document.querySelector('${row(inA.id)}') !== null`);
     // A filter change pushes a history step of its own.
@@ -366,27 +368,27 @@ test("a result previews beside the list and opens on a double click", async () =
     await waitFor(`${param("range")} === "7d"`);
     await browser("eval", `document.activeElement?.blur()`);
     await browser("press", "Escape");
-    await waitFor(`location.pathname === "/en/messages/channels/${channelB}"`);
+    await waitFor(`location.pathname === "${workspacePath}/channel/${channelB}"`);
 
     // Opening a result and coming Back keeps where search was opened from: Esc closes the
     // preview, then returns to that page, not to the conversation just visited.
-    await browser("click", 'aside a[href="/en/search"]');
-    await waitFor(`location.pathname === "/en/search"`);
+    await browser("click", `aside a[href="${workspacePath}/search"]`);
+    await waitFor(`location.pathname === "${workspacePath}/search"`);
     await browser("fill", 'input[type="search"]', phrase);
     await waitFor(`document.querySelector('${row(inA.id)}') !== null`);
     await browser("click", row(inA.id));
     await waitFor(`document.querySelector('${PREVIEW}') !== null`);
     await browser("dblclick", row(inA.id));
-    await waitFor(`location.pathname === "/en/messages/channels/${channelA}"`);
+    await waitFor(`location.pathname === "${workspacePath}/channel/${channelA}"`);
     await browser("back");
     await waitFor(
-      `location.pathname === "/en/search" && document.querySelector('${PREVIEW}') !== null`,
+      `location.pathname === "${workspacePath}/search" && document.querySelector('${PREVIEW}') !== null`,
     );
     await browser("eval", `document.activeElement?.blur()`);
     await browser("press", "Escape");
     await waitFor(`document.querySelector('${PREVIEW}') === null`);
     await browser("press", "Escape");
-    await waitFor(`location.pathname === "/en/messages/channels/${channelB}"`);
+    await waitFor(`location.pathname === "${workspacePath}/channel/${channelB}"`);
 
     // Chat opened at a message lands on it even with unread messages above it (the viewer's default
     // "first unread" open mode does not take over a jump).
@@ -394,7 +396,7 @@ test("a result previews beside the list and opens on a double click", async () =
       where: { id: memberA!.id },
       data: { readThroughSequence: 0 },
     });
-    await browser("open", `${origin}/en/messages/channels/${channelA}?message=${inA.id}`);
+    await browser("open", `${origin}${workspacePath}/channel/${channelA}?message=${inA.id}`);
     await waitFor(`(() => {
       const row = document.querySelector('main li[data-message-id="${inA.id}"]');
       if (!row) return false;
@@ -404,10 +406,10 @@ test("a result previews beside the list and opens on a double click", async () =
 
     // On a phone there is no room beside the list: a click opens the conversation.
     await browser("set", "viewport", "390", "844");
-    await browser("open", `${origin}/en/search?q=${encodeURIComponent(phrase)}`);
+    await browser("open", `${origin}${workspacePath}/search?q=${encodeURIComponent(phrase)}`);
     await waitFor(`document.querySelector('${row(inA.id)}') !== null`);
     await browser("click", row(inA.id));
-    await waitFor(`location.pathname === "/en/messages/channels/${channelA}"`);
+    await waitFor(`location.pathname === "${workspacePath}/channel/${channelA}"`);
   } finally {
     await browser("close").catch(() => undefined);
     await db.conversation

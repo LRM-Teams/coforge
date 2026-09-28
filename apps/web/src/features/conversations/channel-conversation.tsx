@@ -26,6 +26,7 @@ import {
 import type { ChannelSuggestion } from "./reference-completion";
 import { m } from "#src/paraglide/messages";
 import type { AgentProfileTab } from "#src/features/agents/profile-panel/profile-panel-search";
+import { useWorkspaceSlug } from "#src/features/workspaces/workspace-route";
 
 export type ChannelConversationView = Omit<DirectConversationView, "agent" | "messages"> & {
   name: string;
@@ -78,6 +79,7 @@ export function ChannelConversationHeader({
 }) {
   const [ownSettingsOpen, setOwnSettingsOpen] = useState(false);
   const navigate = useNavigate();
+  const workspaceSlug = useWorkspaceSlug();
   const settingsOpen = controlledSettingsOpen ?? ownSettingsOpen;
   const setSettingsOpen = onSettingsOpenChange ?? setOwnSettingsOpen;
   return (
@@ -107,7 +109,8 @@ export function ChannelConversationHeader({
               tooltip={m.search_this_channel()}
               onClick={() =>
                 void navigate({
-                  to: "/search",
+                  to: "/w/$workspaceSlug/search",
+                  params: { workspaceSlug },
                   search: { channelId: conversation.conversationId, defer: "1" },
                 })
               }

@@ -26,7 +26,7 @@ import {
 import { finishedTasksScopeKey } from "./use-finished-tasks";
 import { m } from "#src/paraglide/messages";
 
-const appRoute = getRouteApi("/_app");
+const appRoute = getRouteApi("/w/$workspaceSlug");
 
 /** The empty list while the Tasks load: one array, so what is memoized on `tasks` keeps. */
 const NO_TASKS: TaskView[] = [];

@@ -74,7 +74,7 @@ export function WeeklyReportSettings({
   returnTo?: string;
 }) {
   const router = useRouter();
-  const navigate = useNavigate({ from: "/records/settings" });
+  const navigate = useNavigate({ from: "/w/$workspaceSlug/records/settings" });
   const create = useServerFn(createWeeklyTemplate);
   const update = useServerFn(updateWeeklyTemplate);
   const apply = useServerFn(applyWeeklyTemplate);

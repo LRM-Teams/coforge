@@ -13,10 +13,12 @@ import { Select } from "#src/components/base/select/select";
 import { TextArea } from "#src/components/base/textarea/textarea";
 import { StatusDot } from "#src/components/ui/status-dot";
 import { m } from "#src/paraglide/messages";
+import { useWorkspaceSlug } from "#src/features/workspaces/workspace-route";
 import { AGENT_VISIBILITY } from "./agent-visibility";
 import { agentCreateErrorMessage } from "./agent-form";
 import { AgentRuntimeFields, type RuntimeCatalog } from "./agent-runtime-fields";
 import type { CreateAgentInput } from "./agent.schemas";
+import { workspacePath } from "#src/features/workspaces/workspace-url";
 
 export type AgentCreateComputerOption = {
   id: string;
@@ -59,6 +61,7 @@ export function AgentCreateDialog({
   onCreated?: (result: { startPublished: boolean }) => void;
 }) {
   const [submitting, guard] = useSubmitGuard();
+  const workspaceSlug = useWorkspaceSlug();
   const [error, setError] = useState("");
   const [computerId, setComputerId] = useState(defaults?.computerId ?? computers[0]?.id ?? "");
   const [isPrivate, setIsPrivate] = useState(false);
@@ -235,7 +238,10 @@ export function AgentCreateDialog({
                   <Button color="secondary" onPress={() => onOpenChange(false)}>
                     {m.controls_cancel()}
                   </Button>
-                  <Button href={localizeHref("/computers")} onPress={() => onOpenChange(false)}>
+                  <Button
+                    href={localizeHref(workspacePath(workspaceSlug, "/computers"))}
+                    onPress={() => onOpenChange(false)}
+                  >
                     {m.agent_connect_computer()}
                   </Button>
                 </div>

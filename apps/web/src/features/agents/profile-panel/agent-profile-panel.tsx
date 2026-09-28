@@ -80,7 +80,7 @@ import {
   useInvalidateAgentProfile,
 } from "./agent-profile-queries";
 
-const appRoute = getRouteApi("/_app");
+const appRoute = getRouteApi("/w/$workspaceSlug");
 
 /**
  * An Agent's profile: the conversation's right-hand slot content when it is the visible panel,

@@ -101,7 +101,9 @@ test("the add view creates an Agent named by the search, and it joins the channe
 
   const membership = await db.workspaceMembership.findFirstOrThrow({
     where: { userId: DEV_BROWSER_USER.id, role: "owner" },
+    include: { workspace: { select: { slug: true } } },
   });
+  const workspacePath = `/en/w/${membership.workspace.slug}`;
   const workspaceId = membership.workspaceId;
   const channel = await db.conversation.create({
     data: { workspaceId, channelName: `e2e-create-agent-${process.pid}`, description: "" },
@@ -119,7 +121,7 @@ test("the add view creates an Agent named by the search, and it joins the channe
     await mkdir(artifacts, { recursive: true });
 
     await browser("set", "viewport", "1440", "900");
-    await browser("open", `${origin}/en/messages/channels/${channel.id}`);
+    await browser("open", `${origin}${workspacePath}/channel/${channel.id}`);
     await waitFor(
       `document.querySelector('[aria-label="Channel details and settings"]') !== null`,
       60_000,
@@ -196,7 +198,7 @@ test("the add view creates an Agent named by the search, and it joins the channe
       where: { workspaceId_userId: { workspaceId, userId: DEV_BROWSER_USER.id } },
       data: { role: "member" },
     });
-    await browser("open", `${origin}/en/messages/channels/${channel.id}`);
+    await browser("open", `${origin}${workspacePath}/channel/${channel.id}`);
     await openPanel();
     await waitFor(`${panel}?.querySelector('[aria-label="Add members"]') != null`);
     await browser("eval", `${panel}.querySelector('[aria-label="Add members"]').click()`);

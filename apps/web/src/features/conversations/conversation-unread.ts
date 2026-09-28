@@ -186,7 +186,7 @@ export type UnreadState = {
 /**
  * The Chat page's two signal subscriptions and its unread-count state. Renders nothing: the
  * directory reads `counts`, the conversation routes call `clear`, and every loader refresh
- * flows through `replace`. Both subscriptions ride the `_app` layout's one Centrifuge
+ * flows through `replace`. Both subscriptions ride the Workspace layout's one Centrifuge
  * connection; neither opens a WebSocket of its own.
  */
 export function useChannelUnread({

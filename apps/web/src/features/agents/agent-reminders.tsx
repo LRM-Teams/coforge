@@ -4,6 +4,7 @@ import { Link } from "@tanstack/react-router";
 import { Button } from "#src/components/base/buttons/button";
 import { RelativeTime } from "#src/components/ui/relative-time";
 import { m } from "#src/paraglide/messages";
+import { useWorkspaceSlug } from "#src/features/workspaces/workspace-route";
 import type { AgentReminderListItem } from "#src/server/agents/agent-reminders.server";
 
 type ListResult = Awaited<
@@ -213,11 +214,12 @@ function AnchorLink({
 }) {
   className ??=
     "min-w-0 rounded-sm outline-none hover:underline focus-visible:ring-2 focus-visible:ring-brand";
+  const workspaceSlug = useWorkspaceSlug();
   return anchor.kind === "channel" ? (
     <Link
       className={className}
-      to="/messages/channels/$channelId"
-      params={{ channelId: anchor.channelId }}
+      to="/w/$workspaceSlug/channel/$channelId"
+      params={{ workspaceSlug, channelId: anchor.channelId }}
       search={{
         view: "chat",
         message: anchor.messageId,
@@ -230,8 +232,8 @@ function AnchorLink({
   ) : (
     <Link
       className={className}
-      to="/messages/$agentId"
-      params={{ agentId: anchor.agentId }}
+      to="/w/$workspaceSlug/messages/$agentId"
+      params={{ workspaceSlug, agentId: anchor.agentId }}
       search={{
         view: "chat",
         message: anchor.messageId,

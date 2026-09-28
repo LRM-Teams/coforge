@@ -80,7 +80,9 @@ test("the shortcut reopens the last search and a channel searches itself", async
   try {
     const membership = await db.workspaceMembership.findFirstOrThrow({
       where: { userId: DEV_BROWSER_USER.id },
+      include: { workspace: { select: { slug: true } } },
     });
+    const workspacePath = `/en/w/${membership.workspace.slug}`;
     const workspaceId = membership.workspaceId;
     await db.conversation.deleteMany({ where: { id: { in: [channelA, channelB] } } });
     await db.conversation.deleteMany({
@@ -120,20 +122,23 @@ test("the shortcut reopens the last search and a channel searches itself", async
     await browser("set", "viewport", "1440", "900");
 
     // A search with a filter becomes the last search.
-    await browser("open", `${origin}/en/search`);
+    await browser("open", `${origin}${workspacePath}/search`);
     await browser("eval", "localStorage.clear()");
-    await browser("open", `${origin}/en/search?q=${encodeURIComponent(phrase)}&range=7d`);
+    await browser(
+      "open",
+      `${origin}${workspacePath}/search?q=${encodeURIComponent(phrase)}&range=7d`,
+    );
     await waitFor(`document.querySelectorAll("main ol li").length === 2`);
     // The box shows the shortcut.
     expect(await evaluate<string>(`document.querySelector("main").innerText`)).toContain("⌘K");
 
     // From another page, the shortcut reopens it.
-    await browser("open", `${origin}/en/messages/channels/${channelA}`);
+    await browser("open", `${origin}${workspacePath}/channel/${channelA}`);
     await waitFor(
       `[...document.querySelectorAll("h1")].some((h) => h.textContent === "#e2e-shortcut-a")`,
     );
     await browser("press", "Meta+k");
-    await waitFor(`location.pathname === "/en/search"`);
+    await waitFor(`location.pathname === "${workspacePath}/search"`);
     await waitFor(`${param("q")} === ${JSON.stringify(phrase)} && ${param("range")} === "7d"`);
     await waitFor(`${box}.value === ${JSON.stringify(phrase)}`);
     // The reopened text is selected, ready to be typed over.
@@ -154,23 +159,25 @@ test("the shortcut reopens the last search and a channel searches itself", async
       "eval",
       `localStorage.setItem(${JSON.stringify(workspaceKey)}, JSON.stringify({ q: "kept", range: "forever", extra: "x" }))`,
     );
-    await browser("open", `${origin}/en/messages/channels/${channelA}`);
+    await browser("open", `${origin}${workspacePath}/channel/${channelA}`);
     await waitFor(
       `[...document.querySelectorAll("h1")].some((h) => h.textContent === "#e2e-shortcut-a")`,
     );
     await browser("press", "Meta+k");
-    await waitFor(`location.pathname === "/en/search" && ${param("q")} === "kept"`);
+    await waitFor(`location.pathname === "${workspacePath}/search" && ${param("q")} === "kept"`);
     expect(await evaluate<string>("location.search")).toBe("?q=kept");
 
     // The rail's Search starts fresh.
-    await browser("click", 'aside a[href="/en/search"]');
+    await browser("click", `aside a[href="${workspacePath}/search"]`);
     await waitFor(`location.search === "" && ${box}.value === ""`);
 
     // A channel's "Search this channel" limits search to it and waits for a query.
-    await browser("open", `${origin}/en/messages/channels/${channelA}`);
+    await browser("open", `${origin}${workspacePath}/channel/${channelA}`);
     await waitFor(`document.querySelector('[aria-label="Search this channel"]') !== null`);
     await browser("click", '[aria-label="Search this channel"]');
-    await waitFor(`location.pathname === "/en/search" && ${param("channelId")} === "${channelA}"`);
+    await waitFor(
+      `location.pathname === "${workspacePath}/search" && ${param("channelId")} === "${channelA}"`,
+    );
     await waitFor(
       `[...document.querySelectorAll('[aria-label="Search filters"] button')].some((button) => button.textContent.includes("#e2e-shortcut-a"))`,
     );

@@ -2073,7 +2073,13 @@ export class RecordCatalog {
 
     const report = await this.db.weeklyReport.findFirst({
       where: { id: input.reportId, workspaceId: input.workspaceId },
-      select: { id: true, authorId: true, content: true, kind: true },
+      select: {
+        id: true,
+        authorId: true,
+        content: true,
+        kind: true,
+        workspace: { select: { slug: true } },
+      },
     });
     if (!report) throw new AppError("NOT_FOUND");
     if (
@@ -2106,7 +2112,7 @@ export class RecordCatalog {
               workspaceId: input.workspaceId,
               overviewReportId: report.id,
             }),
-            report.id,
+            { workspaceSlug: report.workspace.slug, overviewReportId: report.id },
           )
         : markdown;
     const next = await writeKeyPointExtraction(this.db, {

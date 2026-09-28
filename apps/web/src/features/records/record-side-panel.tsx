@@ -39,6 +39,7 @@ import { TextArea } from "#src/components/base/textarea/textarea";
 import { avatarInitial, avatarToneClassName } from "#src/lib/avatar-tone";
 import { m } from "#src/paraglide/messages";
 import { formatAgentProfileParam } from "#src/features/agents/profile-panel/profile-panel-search";
+import { useWorkspaceSlug } from "#src/features/workspaces/workspace-route";
 import { cx } from "#src/utils/cx";
 import { shouldSendOnEnter } from "#src/features/conversations/composer-behavior";
 import { useConversationRealtime } from "#src/features/conversations/conversation-realtime-client";
@@ -101,7 +102,7 @@ function payloadOf(comment: CommentRow): RecordAssistantPayload | null {
 }
 
 const SIDE_PANEL_WIDTH_STORAGE_KEY = "coforge.records.side-panel-width";
-const appRoute = getRouteApi("/_app");
+const appRoute = getRouteApi("/w/$workspaceSlug");
 const DEFAULT_SIDE_PANEL_WIDTH = 384;
 const MIN_SIDE_PANEL_WIDTH = 280;
 const SIDE_PANEL_WIDTH_TRANSITION = "width 220ms cubic-bezier(0.32, 0.72, 0, 1)";
@@ -172,6 +173,7 @@ export function RecordSidePanel({
   onRestartKeyPointExtraction?: () => void;
 }) {
   const router = useRouter();
+  const workspaceSlug = useWorkspaceSlug();
   const { user: viewer } = appRoute.useLoaderData();
   const viewerName = viewer.name?.trim() || viewer.username?.trim() || m.records_side_chat_user();
   const countdown = useSendWindowCountdown(countdownUntil);
@@ -1116,7 +1118,8 @@ export function RecordSidePanel({
               </div>
               <div className="flex flex-wrap items-center gap-2">
                 <Link
-                  to="/agents"
+                  to="/w/$workspaceSlug/members"
+                  params={{ workspaceSlug }}
                   search={{
                     profile: formatAgentProfileParam(assistantStatus.agentId),
                     agentTab: "profile",

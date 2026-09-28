@@ -1,3 +1,5 @@
+import { splitWorkspacePath } from "#src/features/workspaces/workspace-url";
+
 /**
  * Which conversation Chat opens when the URL names none: the channel, direct message, or Saved
  * view the user opened last in the Workspace (kept per device in `localStorage`, read only after
@@ -10,26 +12,32 @@ const STORAGE_PREFIX = "coforge-last-conversation:";
 /** A conversation the Chat detail pane can show. */
 export type ConversationTarget = { channelId: string } | { agentId: string } | { view: "saved" };
 
-/** The route a conversation target opens, spreadable into `Link` or `navigate`. */
-export function conversationRoute(target: ConversationTarget) {
+/** The route a conversation target opens in the Workspace `workspaceSlug` names, spreadable into
+ * `Link` or `navigate`. */
+export function conversationRoute(target: ConversationTarget, workspaceSlug: string) {
   if ("channelId" in target) {
     return {
-      to: "/messages/channels/$channelId",
-      params: { channelId: target.channelId },
+      to: "/w/$workspaceSlug/channel/$channelId",
+      params: { workspaceSlug, channelId: target.channelId },
     } as const;
   }
   if ("agentId" in target) {
-    return { to: "/messages/$agentId", params: { agentId: target.agentId } } as const;
+    return {
+      to: "/w/$workspaceSlug/messages/$agentId",
+      params: { workspaceSlug, agentId: target.agentId },
+    } as const;
   }
-  return { to: "/messages/saved" } as const;
+  return { to: "/w/$workspaceSlug/saved", params: { workspaceSlug } } as const;
 }
 
-/** The conversation a de-localized pathname opens, if it is one. */
+/** The conversation a de-localized pathname (`/w/<slug>/…`) opens, if it is one. */
 export function conversationAt(pathname: string): ConversationTarget | undefined {
-  if (pathname === "/messages/saved") return { view: "saved" };
-  const channel = /^\/messages\/channels\/([^/]+)$/.exec(pathname);
+  const rest = splitWorkspacePath(pathname)?.rest;
+  if (rest === undefined) return undefined;
+  if (rest === "/saved") return { view: "saved" };
+  const channel = /^\/channel\/([^/]+)$/.exec(rest);
   if (channel) return { channelId: channel[1]! };
-  const direct = /^\/messages\/([^/]+)$/.exec(pathname);
+  const direct = /^\/messages\/([^/]+)$/.exec(rest);
   if (direct) return { agentId: direct[1]! };
   return undefined;
 }

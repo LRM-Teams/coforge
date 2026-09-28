@@ -17,7 +17,7 @@ import type { ChipMention } from "./message-markdown";
 import { MessageBody } from "./message-body";
 import { canEditUnsent, failureAnnounced, failureNeedsAnnouncing } from "./use-message-outbox";
 
-const appRoute = getRouteApi("/_app");
+const appRoute = getRouteApi("/w/$workspaceSlug");
 
 /** How long a send may stay unconfirmed before its row also says "Sending…". Shorter sends just
  * show greyed, so a normal send never flashes a label; a longer one says plainly that it has not

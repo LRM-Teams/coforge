@@ -239,7 +239,7 @@ test("Workspace humans enrolled in general see one general channel; outsiders ca
     ]);
     // The target names the Chat tab: a member's own tab order can put another tab first.
     expect(mentionNotification?.url).toBe(
-      `/notifications/open?workspace=${workspace.slug}&target=${encodeURIComponent(`/messages/channels/${engineering.id}?view=chat#message-${mutedMention.id}`)}`,
+      `/notifications/open?workspace=${workspace.slug}&target=${encodeURIComponent(`/w/${workspace.slug}/channel/${engineering.id}?view=chat#message-${mutedMention.id}`)}`,
     );
     // An explicit @mention pierces the mute for notificationForRecipient too, with the same
     // title/body/url/tag/conversationPath the push payload carries.
@@ -248,7 +248,7 @@ test("Workspace humans enrolled in general see one general channel; outsiders ca
       body: mentionNotification!.body,
       url: mentionNotification!.url,
       tag: `message:${mutedMention.id}`,
-      conversationPath: `/messages/channels/${engineering.id}`,
+      conversationPath: `/w/${workspace.slug}/channel/${engineering.id}`,
     });
     expect(await pushSubscriptions.notificationForRecipient(mutedMention.id, alice.id)).toBeNull();
     await channels.setUserMuted(workspace.id, bob.id, engineering.id, false);
@@ -4241,7 +4241,7 @@ test("a channel member without a browser push subscription is still a notificati
       body: notification!.body,
       url: notification!.url,
       tag: `message:${message.id}`,
-      conversationPath: `/messages/channels/${room.id}`,
+      conversationPath: `/w/${workspace.slug}/channel/${room.id}`,
     });
   } finally {
     await db.workspace.deleteMany({ where: { id: workspace.id } });

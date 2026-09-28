@@ -39,6 +39,7 @@ import {
 } from "#src/components/ui/empty";
 import { cn } from "#src/lib/utils";
 import { m } from "#src/paraglide/messages";
+import { useWorkspaceSlug } from "#src/features/workspaces/workspace-route";
 import { InviteMemberDialog } from "#src/features/workspaces/invite-member-dialog";
 import { useMemberOnline } from "#src/features/workspaces/member-presence";
 import { conversationLayoutStorage } from "#src/features/conversations/layout-storage";
@@ -62,6 +63,7 @@ import {
   formatAgentProfileParam,
   type AgentProfileTab,
 } from "#src/features/agents/profile-panel/profile-panel-search";
+import { workspacePath } from "#src/features/workspaces/workspace-url";
 
 type ComputerOption = {
   id: string;
@@ -71,7 +73,7 @@ type ComputerOption = {
   runtimes: { provider: string }[];
 };
 
-const appRoute = getRouteApi("/_app");
+const appRoute = getRouteApi("/w/$workspaceSlug");
 
 export type AgentView = {
   id: string;
@@ -536,10 +538,12 @@ function AgentCard({
   onDelete?: () => void;
 }) {
   const navigate = useNavigate();
+  const workspaceSlug = useWorkspaceSlug();
   // Editing happens in the profile panel's Profile tab.
   const openProfileToEdit = () =>
     void navigate({
-      to: "/agents",
+      to: "/w/$workspaceSlug/members",
+      params: { workspaceSlug },
       resetScroll: false,
       search: (previous) => ({
         ...previous,
@@ -573,7 +577,11 @@ function AgentCard({
         )}
         <div className="flex min-h-9 shrink-0 items-center gap-1">
           {ownedAgent && (
-            <Button size="sm" color="secondary" href={localizeHref(`/messages/${member.id}`)}>
+            <Button
+              size="sm"
+              color="secondary"
+              href={localizeHref(workspacePath(workspaceSlug, `/messages/${member.id}`))}
+            >
               {m.agent_private_chat()}
             </Button>
           )}
@@ -616,7 +624,8 @@ function AgentCard({
         <div className="flex min-w-0 items-center justify-between gap-3">
           <h2 className="min-w-0 truncate text-md font-semibold text-primary">
             <Link
-              to="/agents"
+              to="/w/$workspaceSlug/members"
+              params={{ workspaceSlug }}
               resetScroll={false}
               search={(previous) => ({
                 ...previous,

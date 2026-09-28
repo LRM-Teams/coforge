@@ -68,7 +68,9 @@ test("the Tasks page shows channel Tasks only, and a channel's Tasks tab creates
   const created = [`First new ${suffix}`, `Second new ${suffix}`];
   const membership = await db.workspaceMembership.findFirstOrThrow({
     where: { userId: DEV_BROWSER_USER.id },
+    include: { workspace: { select: { slug: true } } },
   });
+  const workspacePath = `/en/w/${membership.workspace.slug}`;
   const workspaceId = membership.workspaceId;
   const channel = await db.conversation.create({
     data: {
@@ -119,7 +121,7 @@ test("the Tasks page shows channel Tasks only, and a channel's Tasks tab creates
     await browser("set", "viewport", "1440", "900");
 
     // The Tasks page: the channel's Task, not the direct message's, and no "+" to create one.
-    await browser("open", `${origin}/en/tasks`);
+    await browser("open", `${origin}${workspacePath}/tasks`);
     await waitFor(bodyHas(channelTitle), 60_000);
     expect(await browser("eval", bodyHas(directTitle))).toContain("false");
     expect(
@@ -131,7 +133,7 @@ test("the Tasks page shows channel Tasks only, and a channel's Tasks tab creates
     await browser("screenshot", join(artifacts, "tasks-page.png"));
 
     // The channel's Tasks tab creates them. A click before hydration opens nothing: retry.
-    await browser("open", `${origin}/en/messages/channels/${channel.id}?view=tasks`);
+    await browser("open", `${origin}${workspacePath}/channel/${channel.id}?view=tasks`);
     await waitFor(bodyHas(channelTitle), 60_000);
     for (let attempt = 0; ; attempt += 1) {
       await browser("eval", `${byText("button", "Create task")}?.click()`);

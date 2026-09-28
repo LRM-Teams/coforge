@@ -64,7 +64,9 @@ test("a phone viewport never scrolls the message stream sideways, even with long
   try {
     const membership = await db.workspaceMembership.findFirstOrThrow({
       where: { userId: DEV_BROWSER_USER.id },
+      include: { workspace: { select: { slug: true } } },
     });
+    const workspacePath = `/en/w/${membership.workspace.slug}`;
     const channel = await db.conversation.findFirstOrThrow({
       where: { workspaceId: membership.workspaceId, channelName: { not: null }, archivedAt: null },
       orderBy: { createdAt: "asc" },
@@ -92,9 +94,9 @@ test("a phone viewport never scrolls the message stream sideways, even with long
       sequence += 1;
     }
 
-    await browser("open", `${origin}/en/messages/channels/${channel.channelName}`);
+    await browser("open", `${origin}${workspacePath}/channel/${channel.channelName}`);
     await browser("set", "viewport", "390", "844", "3");
-    await browser("wait", "--url", `**/messages/channels/${channel.channelName}`);
+    await browser("wait", "--url", `**/channel/${channel.channelName}`);
     await browser("wait", "--fn", `document.querySelector('[data-message="system"]') !== null`);
     // Every notice is one clipped line: an unclipped one (the regression) wraps or grows tall.
     await browser(

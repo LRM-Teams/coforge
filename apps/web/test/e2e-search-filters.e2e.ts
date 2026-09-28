@@ -110,7 +110,9 @@ test("search filters narrow results, survive a reload, and clear together", asyn
   try {
     const membership = await db.workspaceMembership.findFirstOrThrow({
       where: { userId: DEV_BROWSER_USER.id },
+      include: { workspace: { select: { slug: true } } },
     });
+    const workspacePath = `/en/w/${membership.workspace.slug}`;
     const workspaceId = membership.workspaceId;
     await db.conversation.deleteMany({ where: { id: { in: [channelA, channelB] } } });
     await db.conversation.deleteMany({
@@ -196,7 +198,7 @@ test("search filters narrow results, survive a reload, and clear together", asyn
     await mkdir(artifacts, { recursive: true });
 
     await browser("set", "viewport", "1440", "900");
-    await browser("open", `${origin}/en/search?q=${encodeURIComponent(phrase)}`);
+    await browser("open", `${origin}${workspacePath}/search?q=${encodeURIComponent(phrase)}`);
     await waitForResults(3);
     // Sorting applies to a query; the chip starts on Relevant, which ranks the long newest last.
     expect(await evaluate<boolean>(`${chip("Sort")}.disabled`)).toBe(false);
@@ -229,7 +231,7 @@ test("search filters narrow results, survive a reload, and clear together", asyn
     // An Agent sender contradicts a Humans-only scope, so that part of the scope goes.
     await browser(
       "open",
-      `${origin}/en/search?q=${encodeURIComponent(phrase)}&scope=mentioned,humans`,
+      `${origin}${workspacePath}/search?q=${encodeURIComponent(phrase)}&scope=mentioned,humans`,
     );
     await waitForResults(0);
     await pick("From", "Search Bot");
@@ -244,7 +246,7 @@ test("search filters narrow results, survive a reload, and clear together", asyn
     const unknownSender = seededUuid("e2e-search-filters:unknown-sender");
     await browser(
       "open",
-      `${origin}/en/search?q=${encodeURIComponent(phrase)}&senderId=${unknownSender}`,
+      `${origin}${workspacePath}/search?q=${encodeURIComponent(phrase)}&senderId=${unknownSender}`,
     );
     await waitForResults(0);
     await pick("Scope", "Humans");

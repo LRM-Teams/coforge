@@ -25,7 +25,7 @@ import type {
   ThreadedConversationProps,
 } from "./conversation-types";
 
-const appRoute = getRouteApi("/_app");
+const appRoute = getRouteApi("/w/$workspaceSlug");
 
 /** The direct-message header: identity, live Agent presence, and the conversation tabs. */
 export function DirectConversationHeader({

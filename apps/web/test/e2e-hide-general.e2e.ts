@@ -65,7 +65,9 @@ test("an owner hides #general from its panel and restores it from Settings → M
 
   const membership = await db.workspaceMembership.findFirstOrThrow({
     where: { userId: DEV_BROWSER_USER.id, role: "owner" },
+    include: { workspace: { select: { slug: true } } },
   });
+  const workspacePath = `/en/w/${membership.workspace.slug}`;
   const general = await db.conversation.findUniqueOrThrow({
     where: {
       workspaceId_channelName: { workspaceId: membership.workspaceId, channelName: "general" },
@@ -77,7 +79,7 @@ test("an owner hides #general from its panel and restores it from Settings → M
     await restore();
     await mkdir(artifacts, { recursive: true });
     await browser("set", "viewport", "1440", "900");
-    await browser("open", `${origin}/en/messages/channels/${general.id}`);
+    await browser("open", `${origin}${workspacePath}/channel/${general.id}`);
     await waitFor(
       `document.querySelector('[aria-label="Channel details and settings"]') !== null`,
       60_000,
@@ -101,7 +103,7 @@ test("an owner hides #general from its panel and restores it from Settings → M
       "eval",
       `[...document.querySelectorAll('[role="dialog"] button')].filter((b) => b.textContent.trim() === "Hide #general").at(-1).click()`,
     );
-    await waitFor(`location.pathname !== "/en/messages/channels/${general.id}"`);
+    await waitFor(`location.pathname !== "${workspacePath}/channel/${general.id}"`);
     await waitFor(`!${sidebarHasGeneral}`);
     expect(
       (await db.conversation.findUniqueOrThrow({ where: { id: general.id } }))
@@ -110,10 +112,10 @@ test("an owner hides #general from its panel and restores it from Settings → M
     await browser("screenshot", join(artifacts, "hidden.png"));
 
     // Opening it by URL while hidden also lands back in Chat.
-    await browser("open", `${origin}/en/messages/channels/${general.id}`);
-    await waitFor(`location.pathname !== "/en/messages/channels/${general.id}"`);
+    await browser("open", `${origin}${workspacePath}/channel/${general.id}`);
+    await waitFor(`location.pathname !== "${workspacePath}/channel/${general.id}"`);
 
-    await browser("open", `${origin}/en/settings?section=members`);
+    await browser("open", `${origin}${workspacePath}/settings?section=members`);
     await waitFor(`document.body.textContent.includes("Hide #general channel")`, 60_000);
     // System channels is a section of the Members page, not an entry of its own in the navigation.
     const navEntries = await browser(
@@ -137,14 +139,14 @@ test("an owner hides #general from its panel and restores it from Settings → M
         .hiddenFromWorkspaceAt,
     ).toBeNull();
 
-    await browser("open", `${origin}/en/messages`);
+    await browser("open", `${origin}${workspacePath}`);
     await waitFor(sidebarHasGeneral);
     // Opening it within the app after the restore shows it, rather than bouncing back to Chat.
     await browser(
       "eval",
       `[...document.querySelectorAll("a")].find((link) => link.textContent.trim() === "general").click()`,
     );
-    await waitFor(`location.pathname === "/en/messages/channels/${general.id}"`);
+    await waitFor(`location.pathname === "${workspacePath}/channel/${general.id}"`);
     await waitFor(
       `[...document.querySelectorAll("header h1")].some((h1) => h1.textContent === "#general")`,
       30_000,

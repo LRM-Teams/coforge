@@ -2,8 +2,8 @@
 
 These rules apply to `src/features/realtime/`.
 
-- The `_app` layout owns one Centrifuge connection for the selected
-  Workspace. Feature modules may subscribe to authorized channels but must not
+- The Workspace layout (`w.$workspaceSlug.tsx`) owns one Centrifuge
+  connection for the Workspace the page URL names. Feature modules may subscribe to authorized channels but must not
   create additional browser WebSocket connections.
 - Subscribe through `useRealtimeSubscription` from `browser-realtime.tsx`; it
   owns the client type. A channel with a narrower server-issued grant supplies

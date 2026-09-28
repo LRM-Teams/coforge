@@ -5,7 +5,7 @@ import { ProjectSettingsPage } from "#src/features/projects/project-settings";
 import { getProject } from "#src/features/projects/projects.functions";
 import { m } from "#src/paraglide/messages";
 
-export const Route = createFileRoute("/_app/projects/$projectSlug_/settings")({
+export const Route = createFileRoute("/w/$workspaceSlug/projects/$projectSlug_/settings")({
   loader: async ({ params }) => {
     const project = await getProject({ data: { slug: params.projectSlug } });
     if (!project) throw notFound();
