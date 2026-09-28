@@ -18,6 +18,7 @@ import { Avatar } from "#src/components/base/avatar/avatar";
 import { Button } from "#src/components/base/buttons/button";
 import { Tooltip, TooltipTrigger } from "#src/components/base/tooltip/tooltip";
 import { useAppToast } from "#src/components/ui/toast";
+import { LoadingIndicator } from "#src/components/ui/loading-indicator";
 import { ButtonUtility } from "#src/components/base/buttons/button-utility";
 import {
   Dialog,
@@ -259,8 +260,10 @@ export function AttachmentCard({ attachment }: { attachment: MessageView["attach
   // it streams as octet-stream, which <img> refuses): drop to the plain file row below rather
   // than leaving a broken thumbnail behind.
   const [imgBroken, setImgBroken] = useState(false);
+  const [imgLoaded, setImgLoaded] = useState(false);
   const previewSrc = !previewFailed && attachment.previewUrl ? attachment.previewUrl : href;
   const handlePreviewError = () => {
+    setImgLoaded(false);
     if (previewFailed || !attachment.previewUrl) setImgBroken(true);
     else setPreviewFailed(true);
   };
@@ -298,9 +301,18 @@ export function AttachmentCard({ attachment }: { attachment: MessageView["attach
             // a card-sized box while the image loads.
             className="grid h-auto min-h-16 min-w-16 place-items-center overflow-hidden rounded-lg p-0 ring-1 ring-secondary ring-inset hover:bg-transparent"
           >
+            {!imgLoaded && (
+              <span className="pointer-events-none absolute inset-0 grid place-items-center">
+                <LoadingIndicator
+                  label={m.conversation_attachment_preview_loading()}
+                  className="size-5 text-tertiary"
+                />
+              </span>
+            )}
             <img
               src={previewSrc}
               onError={handlePreviewError}
+              onLoad={() => setImgLoaded(true)}
               alt={attachment.fileName}
               loading="lazy"
               className="block max-h-80 max-w-full object-contain"
