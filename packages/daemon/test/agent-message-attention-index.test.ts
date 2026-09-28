@@ -696,10 +696,8 @@ test("latestThreadReadUnderParent finds the most recently read thread rooted und
     async () => {},
   );
   expect(index.latestThreadReadUnderParent("agent-1", "#general")).toBeUndefined();
-  for (const thread of ["#general:11111111", "#other:22222222", "#general:33333333"]) {
-    index.recordReadContext("agent-1", thread);
-    index.recordModelSeen("agent-1", thread, 1);
-  }
+  for (const thread of ["#general:11111111", "#other:22222222", "#general:33333333"])
+    index.recordReadContext("agent-1", thread, 1);
   const latest = index.latestThreadReadUnderParent("agent-1", "#general");
   expect(latest?.target).toBe("#general:33333333");
   // A read of the parent target itself is not a thread read under it.
@@ -709,18 +707,19 @@ test("latestThreadReadUnderParent finds the most recently read thread rooted und
   );
 });
 
-test("a thread counts as read context only once the Agent has consumed a message in it", () => {
+test("a thread counts as read context only once a read of it has shown a message", () => {
   const index = new AgentMessageAttentionIndex(
     "workspace-1",
     { session: () => session() },
     async () => {},
   );
-  // A read of a thread that returned nothing orders the thread but consumes nothing in it.
+  // A read of a thread that returned nothing orders the thread but showed nothing in it, and
+  // messages a check consumed there do not change that.
   index.recordReadContext("agent-1", "#general:11111111");
+  index.recordModelSeen("agent-1", "#general:11111111", 5);
   expect(index.latestThreadReadUnderParent("agent-1", "#general")).toBeUndefined();
 
-  index.recordReadContext("agent-1", "#general:22222222");
-  index.recordModelSeen("agent-1", "#general:22222222", 4);
+  index.recordReadContext("agent-1", "#general:22222222", 4);
   index.recordReadContext("agent-1", "#general:11111111");
   expect(index.latestThreadReadUnderParent("agent-1", "#general")?.target).toBe(
     "#general:22222222",

@@ -43,10 +43,11 @@ saved mentions.
 
 A top-level send can be refused when the Agent's most recently read context
 in that conversation was actually a thread rooted under it — a likely
-reply-to-the-wrong-place mistake the guard catches once. Only a `message read`
-without `--around` counts as reading a target, and a thread counts only once
-the Agent has consumed a message in it; a `check` consumes messages without
-counting as a read, so checking the parent does not clear the guard. The refusal saves
+reply-to-the-wrong-place mistake the guard catches once. A `message read` other
+than `--around`, and a send held for newer messages, count as reading a target;
+a thread counts only once such a read has shown the Agent a message in it. A
+`check` consumes messages without counting as a read, so checking the parent
+does not clear the guard. The refusal saves
 the message (body, attachments, and mentions) as the local draft for that
 target, the same way a freshness hold does, and names two ways to proceed:
 send to the named thread target instead, or confirm the saved top-level
