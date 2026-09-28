@@ -63,6 +63,43 @@ function asStringArray(value: unknown): string[] {
     : [];
 }
 
+function templateListItem(template: {
+  id: string;
+  name: string;
+  frequency: string;
+  sendTime: string;
+  sendWeekday: number;
+  dimensions: unknown;
+  mainTitles: unknown;
+  allMembers: boolean;
+  applied: boolean;
+  scheduleEnabled: boolean;
+  updatedAt: Date;
+  recipients: Array<{
+    user: { id: string; username: string; displayName: string | null };
+  }>;
+}) {
+  return {
+    id: template.id,
+    name: template.name,
+    frequency: template.frequency,
+    sendTime: template.sendTime,
+    sendWeekday: template.sendWeekday,
+    dimensions: asStringArray(template.dimensions),
+    mainTitles: asStringArray(template.mainTitles),
+    sections: parseTemplateSections(template.dimensions),
+    allMembers: template.allMembers,
+    active: template.applied,
+    scheduleEnabled: template.scheduleEnabled,
+    updatedAt: template.updatedAt.toISOString(),
+    recipients: template.recipients.map((row) => ({
+      userId: row.user.id,
+      username: row.user.username,
+      displayName: row.user.displayName ?? row.user.username,
+    })),
+  };
+}
+
 async function requireMembership(db: Db, workspaceId: string, userId: string) {
   const row = await db.workspaceMembership.findUnique({
     where: { workspaceId_userId: { workspaceId, userId } },
@@ -2191,25 +2228,36 @@ export class RecordCatalog {
         },
       },
     });
-    return templates.map((template) => ({
-      id: template.id,
-      name: template.name,
-      frequency: template.frequency,
-      sendTime: template.sendTime,
-      sendWeekday: template.sendWeekday,
-      dimensions: asStringArray(template.dimensions),
-      mainTitles: asStringArray(template.mainTitles),
-      sections: parseTemplateSections(template.dimensions),
-      allMembers: template.allMembers,
-      active: template.applied,
-      scheduleEnabled: template.scheduleEnabled,
-      updatedAt: template.updatedAt.toISOString(),
-      recipients: template.recipients.map((row) => ({
-        userId: row.user.id,
-        username: row.user.username,
-        displayName: row.user.displayName ?? row.user.username,
-      })),
-    }));
+    return templates.map((template) => templateListItem(template));
+  }
+
+  /** Settings row behind a viewer's own format, for the template-detail dialog. */
+  async loadTemplateForReport(input: { workspaceId: string; userId: string; reportId: string }) {
+    await requireMembership(this.db, input.workspaceId, input.userId);
+    const report = await this.db.weeklyReport.findFirst({
+      where: {
+        id: input.reportId,
+        workspaceId: input.workspaceId,
+        authorId: input.userId,
+        kind: "template",
+      },
+      select: { settingsId: true },
+    });
+    if (!report?.settingsId) throw new AppError("NOT_FOUND");
+    const template = await this.db.weeklyReportTemplate.findFirst({
+      where: {
+        id: report.settingsId,
+        workspaceId: input.workspaceId,
+        ownerId: input.userId,
+      },
+      include: {
+        recipients: {
+          include: { user: { select: { id: true, username: true, displayName: true } } },
+        },
+      },
+    });
+    if (!template) throw new AppError("NOT_FOUND");
+    return templateListItem(template);
   }
 
   /**
@@ -2739,10 +2787,10 @@ export class RecordCatalog {
   }
 
   /**
-   * When the live format enters a sendable window, post the T2 offer-send card
-   * once per report for the current ISO week (the open session that loads first).
-   * Other sessions must not grow their own send/cancel buttons — leave those
-   * threads empty rather than stuffing a ready/cancelled tip.
+   * When the live format enters a sendable window, post one offer-send card for
+   * the current ISO week. Earlier weeks' cards stay in the thread as history.
+   * Another session that already has this week's card does not grow its own
+   * send/cancel buttons.
    */
   private async ensureFormatSendOfferIntro(input: {
     workspaceId: string;
@@ -2752,10 +2800,12 @@ export class RecordCatalog {
     existing: Awaited<ReturnType<RecordCatalog["listComments"]>>;
     now?: Date;
   }) {
-    const hasOfferSend = input.existing.some(
-      (row) => parseRecordAssistantPayload(row.payload)?.kind === "offer-send",
-    );
-    if (hasOfferSend) return input.existing;
+    const { year, week } = currentIsoWeek(zonedCalendarDate(input.now ?? new Date()));
+    const sessionHasCurrentWeek = input.existing.some((row) => {
+      const payload = parseRecordAssistantPayload(row.payload);
+      return payload?.kind === "offer-send" && payload.year === year && payload.week === week;
+    });
+    if (sessionHasCurrentWeek) return input.existing;
 
     if (
       await this.hasCurrentWeekOfferSend({

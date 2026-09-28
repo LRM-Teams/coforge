@@ -381,6 +381,17 @@ export const loadWeeklyTemplates = createServerFn({ method: "GET" })
     return recordCatalog(db).listTemplates({ workspaceId, userId: user.id });
   });
 
+export const loadWeeklyTemplateForReport = createServerFn({ method: "GET" })
+  .middleware([workspaceUserMiddleware])
+  .validator(z.object({ reportId: z.string().uuid() }))
+  .handler(async ({ data, context: { user, db, workspaceId } }) => {
+    return recordCatalog(db).loadTemplateForReport({
+      workspaceId,
+      userId: user.id,
+      reportId: data.reportId,
+    });
+  });
+
 export const loadKeyPointPrompts = createServerFn({ method: "GET" })
   .middleware([workspaceUserMiddleware])
   .handler(async ({ context: { user, db, workspaceId } }) => {
