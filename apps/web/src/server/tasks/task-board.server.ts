@@ -194,6 +194,13 @@ const CLAIM_REFUSAL = {
   changed: "the task changed while it was being claimed; read it again",
 } as const;
 
+/** A short duplicate window catches concurrent Agent work without banning legitimate repeated work. */
+const DUPLICATE_TASK_WINDOW_MS = 15 * 60 * 1000;
+
+function normalizeTaskTitle(title: string): string {
+  return title.trim().replace(/\s+/g, " ").toLowerCase();
+}
+
 /** What another member's hold on a Task leaves open. Illustrative, not a permission table. */
 const CLAIM_CONFLICT_UNBLOCKED_EXAMPLES = [
   "replying in the task's thread",
@@ -804,6 +811,31 @@ export class TaskBoard {
           started: assigned?.memberId === member.id,
         };
       }
+      if (principal.agentId) {
+        const duplicateCandidates = await tx.task.findMany({
+          where: {
+            conversationId: scope.conversationId,
+            creatorMemberId: { not: member.id },
+            status: { in: UNFINISHED_TASK_STATUSES },
+            createdAt: { gte: new Date(Date.now() - DUPLICATE_TASK_WINDOW_MS) },
+          },
+          orderBy: { createdAt: "asc" },
+          select: taskSelection,
+        });
+        const duplicate = duplicateCandidates.find((candidate) =>
+          titles.some((title) => normalizeTaskTitle(candidate.title) === normalizeTaskTitle(title)),
+        );
+        if (duplicate)
+          return {
+            tasks: [duplicate],
+            created: false,
+            held: true,
+            sequences: [] as number[],
+            receipt: null,
+            assigneeHandle: null,
+            started: false,
+          };
+      }
       if (command.attachmentId) {
         if (!principal.userId) throw new AppError("ACCESS_DENIED");
         const attachment = await tx.attachment.findFirst({
@@ -1039,6 +1071,7 @@ export class TaskBoard {
     const { receipt } = result;
     return {
       tasks: result.tasks.map(taskView),
+      ...(result.held ? { state: "held" as const } : {}),
       ...(receipt && {
         assignmentReceipt: {
           messageId: receipt.id,
