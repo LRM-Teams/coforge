@@ -35,6 +35,7 @@ model Workspace {
   attachments            Attachment[]
   attachmentUploadSessions AttachmentUploadSession[]
   tasks                  Task[]
+  taskExecutionSessions  TaskExecutionSession[]
   actionCards            ActionCard[]
   weeklyReportCycles     WeeklyReportCycle[]
   weeklyReports          WeeklyReport[]
@@ -248,6 +249,7 @@ model Agent {
   computer                  Computer?                  @relation(fields: [computerId], references: [id], onDelete: SetNull)
   conversations             ConversationMember[]
   coordinatedConversations Conversation[]         @relation("ConversationCoordinator")
+  taskExecutionSessions    TaskExecutionSession[]
   pendingMentionActions     PendingMentionAction[]
   deliveries                AgentMessageDelivery[]
   apiKeys                   AgentApiKey[]
@@ -836,6 +838,7 @@ model Task {
   owner                        ConversationMember? @relation("TaskOwner", fields: [ownerMemberId, conversationId, workspaceId], references: [id, conversationId, workspaceId], onDelete: Restrict)
   creator                      ConversationMember  @relation("TaskCreator", fields: [creatorMemberId, conversationId, workspaceId], references: [id, conversationId, workspaceId], onDelete: Restrict)
   history                      TaskHistoryEvent[]
+  executionSessions            TaskExecutionSession[]
 
   @@unique([conversationId, number])
   @@unique([messageId, conversationId])
@@ -847,6 +850,33 @@ model Task {
   /// Workspace holds.
   @@index([ownerMemberId, status])
   @@map("tasks")
+}
+
+/// Disposable runtime context for one Agent's attempt at one Task. The Agent identity and
+/// permissions remain on `Agent`; this record only fences Task execution and retries.
+model TaskExecutionSession {
+  id             String    @id @default(uuid()) @db.Uuid
+  taskMessageId  String    @db.Uuid
+  conversationId String    @db.Uuid
+  workspaceId    String    @db.Uuid
+  agentId        String    @db.Uuid
+  nativeSessionId String?
+  status         String    @default("starting")
+  attempt        Int       @default(1)
+  requestId      String?   @db.Uuid
+  launchId       String?
+  lastError      String?
+  createdAt      DateTime  @default(now())
+  startedAt      DateTime?
+  finishedAt     DateTime?
+  task           Task      @relation(fields: [taskMessageId, conversationId], references: [messageId, conversationId], onDelete: Cascade)
+  agent          Agent     @relation(fields: [agentId, workspaceId], references: [id, workspaceId], onDelete: Cascade)
+  workspace      Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([taskMessageId, agentId])
+  @@index([agentId, status])
+  @@index([workspaceId, status, createdAt])
+  @@map("task_execution_sessions")
 }
 
 model TaskHistoryEvent {
@@ -1111,6 +1141,7 @@ model AgentMessageDelivery {
   workspaceId    String       @db.Uuid
   conversationId String       @db.Uuid
   agentId        String       @db.Uuid
+  taskExecutionSessionId String? @db.Uuid
   sequence       Int
   receivedAt     DateTime?
   createdAt      DateTime     @default(now())

@@ -260,6 +260,8 @@ message AgentMessageDelivery {
   // True when the recipient Agent is not a member of the channel and was notified of this one
   // message by the mention's sender; it can read the message but cannot reply in that channel.
   optional bool non_member_mention = 16;
+  // Present when this delivery starts an isolated Task execution session.
+  string task_execution_session_id = 17;
 }
 
 message AgentMessageDeliveryAck {
