@@ -2082,6 +2082,41 @@ describe("DaemonRuntime", () => {
       }
     });
 
+    test("a paged thread read that returned messages counts", async () => {
+      const { harness, sends, run, sendTopLevel } = await guardHarness(() => [3]);
+      try {
+        await run({
+          idempotencyKey: "read-thread-after",
+          operation: "read",
+          target: threadTarget,
+          after: "message-1",
+        });
+        const asked = await sendTopLevel();
+        expect(asked).toBeInstanceOf(AgentPreflightError);
+        expect((asked as AgentPreflightError).code).toBe(
+          "THREAD_CONTEXT_TARGET_CONFIRMATION_REQUIRED",
+        );
+        expect(sends).toEqual([]);
+      } finally {
+        await harness.runtime.stop();
+      }
+    });
+
+    test("thread messages a check drained do not make a later empty thread read count", async () => {
+      const { harness, sends, run, sendTopLevel } = await guardHarness((request) =>
+        request.operation === "check" ? [5] : [],
+      );
+      try {
+        await run({ idempotencyKey: "check-thread", operation: "check", target: threadTarget });
+        await run({ idempotencyKey: "read-empty-thread", operation: "read", target: threadTarget });
+        const result = await sendTopLevel();
+        expect(result).not.toBeInstanceOf(AgentPreflightError);
+        expect(sends).toHaveLength(1);
+      } finally {
+        await harness.runtime.stop();
+      }
+    });
+
     test("checking the parent after reading a thread still asks, until the parent is read", async () => {
       const { harness, sends, run, sendTopLevel } = await guardHarness((request) =>
         request.target === threadTarget ? [3] : [9],
@@ -8617,7 +8652,7 @@ test("a locally held send shows the unreviewed window, and a resend after it goe
     // The notice carries what the daemon still holds for this target (Raft's bounded window).
     expect(held.messages.map((message) => message.sequence)).toEqual([1, 2]);
     expect(calls.filter((call) => call.operation === "send")).toHaveLength(0);
-    // Showing that window counts as reviewing it (Raft's `recordConsumedSeqs`), so the Agent's own
+    // Showing that window counts as consuming it (Raft's `recordConsumedSeqs`), so the Agent's own
     // resend is no longer held by those messages: it reaches the transport and goes through.
     const resent = await harness.runtime.agentMessage(
       harness.context,

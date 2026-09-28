@@ -28,18 +28,19 @@ export type AgentConsumedSeqState = Readonly<{
 }>;
 
 /**
- * The port the attention index persists through. Raft's own function names, because they are also
- * the two mechanisms that matter: `recordConsumedSeqs` (a consumed frontier — a held notice's
- * `seenUpToSeq`) and `recordConsumedRead` (a review of a target, which is what orders targets
- * against each other).
+ * The port the attention index persists through, under Raft's function names for the two
+ * mechanisms that matter: `recordConsumedSeqs` (a consumed frontier — what a check, a read or a held
+ * notice showed the Agent) and `recordConsumedRead` (a review of a target, which is what orders
+ * targets against each other).
  */
 export type AgentConsumedSeqPort = Readonly<{
   /** Raft's `readState`: never throws, and a missing or unreadable file is an empty state. */
   read(agentId: string): AgentConsumedSeqState;
-  /** Moves each target's consumed `seq` frontier and leaves its `readOrder` alone. Raft's
-   * `recordConsumedSeqs` also takes a new order, but Raft calls it only for a held send, which the
-   * daemon orders separately through `recordConsumedRead`; the daemon also records `check` pages
-   * here, and Raft's `check` orders nothing (1.0.38 writes only exact seqs). */
+  /** Moves each target's consumed `seq` frontier and leaves its `readOrder` alone: consuming
+   * messages is not reviewing a target. The daemon records `check` pages here, and a check must not
+   * order anything; a held send takes its order separately through `recordConsumedRead`. (Raft's
+   * `recordConsumedSeqs` takes an order, but Raft calls it only for a held send; Raft 1.0.32's
+   * `check` records nothing.) */
   recordConsumedSeqs(agentId: string, entries: Readonly<Record<string, number>>): void;
   /** Raft's `recordConsumedRead(agentId, target, sequence)`; answers the `readOrder` it assigned. */
   recordConsumedRead(agentId: string, target: string, sequence?: number): number | undefined;

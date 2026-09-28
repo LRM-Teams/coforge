@@ -3401,8 +3401,8 @@ export class DaemonRuntime {
       if (message.sequence > current) maxSequenceByTarget.set(message.target, message.sequence);
     }
     for (const [target, sequence] of maxSequenceByTarget) {
-      // A check consumes what it returned without reviewing the target: like Raft's `check`, it
-      // moves no read order, so it never outranks a thread the Agent read.
+      // A check consumes what it returned without reviewing the target, so it takes no read order
+      // and never outranks a thread the Agent read (Raft's `check` records none either).
       this.#messageAttention.recordModelSeen(agentId, target, sequence);
     }
     logger.info("Agent checked pending messages", {
@@ -3623,8 +3623,8 @@ export class DaemonRuntime {
     );
     if (consumedBoundary > 0) {
       this.#messageAttention.recordModelSeen(agentId, target, consumedBoundary);
-      // The held-context read inside `send`: the Agent just consumed these messages for `target`.
-      this.#messageAttention.recordReadContext(agentId, target);
+      // The held-context read inside `send`: the Agent just reviewed these messages for `target`.
+      this.#messageAttention.recordReadContext(agentId, target, consumedBoundary);
     }
     const recentUnread = contextWasWithheld
       ? []
@@ -3774,22 +3774,23 @@ export class DaemonRuntime {
     // truncated preview without whether the message mentions the Agent.
     if (result.accepted && operation === "read")
       this.#messageAttention.recordSeenMessages(agentId, result.messages);
+    // The newest message a successful read showed for `target` itself; one pass, no copies.
+    let visibleSequence = 0;
+    if (operation === "read" && result.accepted)
+      for (const message of result.messages)
+        if (message.target === target && message.sequence > visibleSequence)
+          visibleSequence = message.sequence;
     if (settlesAttention && result.accepted) {
-      const visibleSequence = Math.max(
-        ...result.messages
-          .filter((message) => message.target === target)
-          .map(({ sequence }) => sequence),
-        0,
-      );
       if (visibleSequence > 0)
         this.#messageAttention.recordModelSeen(agentId, target, visibleSequence);
       else if (result.messages.length === 0 && attentionUpperBound !== undefined)
         this.#messageAttention.clearThrough(agentId, target, attentionUpperBound);
     }
-    // The `--target-confirmed` guard's read-context tracking: a successful `read` reviews
-    // `target`. An `--around` read only looks something up, so, as in Raft, it orders nothing.
+    // The thread-mismatch guard's read context: a successful `read` reviews `target`, including a
+    // paged one, and remembers the newest message it showed. An `--around` read only looks
+    // something up, so it orders nothing (Raft's `read --around` records no order either).
     if (operation === "read" && target && result.accepted && !request.around)
-      this.#messageAttention.recordReadContext(agentId, target);
+      this.#messageAttention.recordReadContext(agentId, target, visibleSequence);
     return {
       idempotencyKey: request.idempotencyKey,
       accepted: result.accepted,

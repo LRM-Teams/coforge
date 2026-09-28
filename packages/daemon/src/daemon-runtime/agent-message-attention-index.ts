@@ -146,6 +146,10 @@ export class AgentMessageAttentionIndex {
    * here for this target at all", which its freshness decision needs. */
   readonly #latestKnown = new Map<string, Map<string, number>>();
   readonly #readContext = new Map<string, Map<string, number>>();
+  /** The newest sequence a review (`recordReadContext`) of each target returned. Unlike
+   * `#modelSeen`, a `check` never moves it: it answers "has a read shown the Agent anything here",
+   * which is what makes a thread count as reply context. */
+  readonly #readSequence = new Map<string, Map<string, number>>();
   readonly #readContextCounters = new Map<string, number>();
   /** Raft's `consumed-seqs.json`: the durable copy of `#modelSeen` (the `seq` frontier) and
    * `#readContext` (the `readOrder` each target was last reviewed at). */
@@ -739,9 +743,8 @@ ${INBOX_DRAIN_HINT}]`,
     byTarget.set(target, Math.max(byTarget.get(target) ?? 0, sequence));
     this.#modelSeen.set(agentId, byTarget);
     // The Agent has consumed this frontier, so it survives the process: the same cursor that
-    // decides the next hold and the `seenUpToSeq` a fresh send inherits. It orders nothing — only a
-    // review (`recordReadContext`) does, which is why a `check` page, like Raft's, moves no
-    // `readOrder`.
+    // decides the next hold and the `seenUpToSeq` a fresh send inherits. Consuming is not reviewing:
+    // a `check` page lands here and orders nothing; only `recordReadContext` takes a read order.
     this.#consumedSeqs?.recordConsumedSeqs(agentId, { [target]: sequence });
 
     // The window the Agent has now been shown (or the boundary it reported) is reviewed: drop what
@@ -764,15 +767,20 @@ ${INBOX_DRAIN_HINT}]`,
   }
 
   /**
-   * Records that the Agent just consumed messages for `target` (a `read`, a `check`/events drain
-   * page, or the held-context read inside `send`), under a per-Agent monotonically increasing
-   * counter. Volatile, like `modelSeen`; used only by the `--target-confirmed` guard to compare how
-   * recently a thread was read against how recently its parent target was read.
+   * Records that the Agent just reviewed `target` (a `read` other than `--around`, or the context a
+   * held `send` presented), under a per-Agent monotonically increasing read order, and the newest
+   * `sequence` that review showed, if any. Used only by the thread-mismatch send guard, to compare
+   * how recently a thread was read against how recently its parent target was read.
    */
-  recordReadContext(agentId: string, target: string): void {
+  recordReadContext(agentId: string, target: string, sequence?: number): void {
     this.#hydrate(agentId);
-    // Raft's `recordConsumedRead`: reviewing a target is what orders it against every other target,
-    // which is the comparison the thread-target guard makes (`parentReadOrder >= thread.readOrder`).
+    if (sequence !== undefined && Number.isInteger(sequence) && sequence > 0) {
+      const sequences = this.#readSequence.get(agentId) ?? new Map<string, number>();
+      sequences.set(target, Math.max(sequences.get(target) ?? 0, sequence));
+      this.#readSequence.set(agentId, sequences);
+    }
+    // Reviewing a target is what orders it against every other target, which is the comparison
+    // the thread-mismatch guard makes (Raft's `recordConsumedRead`).
     // With a durable cursor present the file hands out the order, so this process's orders continue
     // the ones a previous process handed out; without one this counter is the only home, as before.
     const persisted = this.#consumedSeqs?.recordConsumedRead(agentId, target);
@@ -792,10 +800,10 @@ ${INBOX_DRAIN_HINT}]`,
     return this.#readContext.get(agentId)?.get(target);
   }
 
-  /** The most recently read thread target rooted under `parentTarget` in which the Agent has
-   * consumed at least one message, or `undefined` if none. Raft's
-   * `getMostRecentConsumedThreadForParent` skips a record with no `seq`: a thread read that returned
-   * nothing gave the Agent no thread context to reply to. */
+  /** The most recently read thread target rooted under `parentTarget` whose reads have shown the
+   * Agent at least one message, or `undefined` if none. A thread read that returned nothing gave the
+   * Agent no thread context to reply to (Raft's `getMostRecentConsumedThreadForParent` likewise
+   * skips a record without a `seq`). */
   latestThreadReadUnderParent(
     agentId: string,
     parentTarget: string,
@@ -805,11 +813,11 @@ ${INBOX_DRAIN_HINT}]`,
     if (!byTarget) return undefined;
     const prefix = `${parentTarget}:`;
     let latest: { target: string; order: number } | undefined;
-    const consumed = this.#modelSeen.get(agentId);
+    const shown = this.#readSequence.get(agentId);
     for (const [target, order] of byTarget)
       if (
         target.startsWith(prefix) &&
-        (consumed?.get(target) ?? 0) > 0 &&
+        (shown?.get(target) ?? 0) > 0 &&
         (!latest || order > latest.order)
       )
         latest = { target, order };
@@ -828,6 +836,7 @@ ${INBOX_DRAIN_HINT}]`,
     const state = store.read(agentId);
     const modelSeen = this.#modelSeen.get(agentId) ?? new Map<string, number>();
     const readContext = this.#readContext.get(agentId) ?? new Map<string, number>();
+    const readSequence = this.#readSequence.get(agentId) ?? new Map<string, number>();
     for (const [target, entry] of Object.entries(state.targets)) {
       const seq = entry.seq;
       if (typeof seq === "number" && seq > 0)
@@ -835,9 +844,14 @@ ${INBOX_DRAIN_HINT}]`,
       const order = entry.readOrder;
       if (typeof order === "number" && order > 0)
         readContext.set(target, Math.max(readContext.get(target) ?? 0, order));
+      // The file keeps one `seq` per target, so after a restart a reviewed target with a consumed
+      // frontier counts as having shown something, even when a `check` rather than a read moved it.
+      if (typeof seq === "number" && seq > 0 && typeof order === "number" && order > 0)
+        readSequence.set(target, Math.max(readSequence.get(target) ?? 0, seq));
     }
     if (modelSeen.size > 0) this.#modelSeen.set(agentId, modelSeen);
     if (readContext.size > 0) this.#readContext.set(agentId, readContext);
+    if (readSequence.size > 0) this.#readSequence.set(agentId, readSequence);
     this.#readContextCounters.set(
       agentId,
       Math.max(this.#readContextCounters.get(agentId) ?? 0, state.nextReadOrder - 1),
@@ -849,6 +863,7 @@ ${INBOX_DRAIN_HINT}]`,
     this.#generations.delete(agentId);
     this.#attention.delete(agentId);
     this.#modelSeen.delete(agentId);
+    this.#readSequence.delete(agentId);
     this.#seenMessageIds.delete(agentId);
     this.#pendingSequences.delete(agentId);
     this.#pendingWindow.delete(agentId);
