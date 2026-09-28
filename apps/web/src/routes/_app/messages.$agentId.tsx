@@ -9,7 +9,7 @@ import {
   conversationPageLoaderDeps,
   loadConversationPage,
 } from "#src/features/conversations/conversation-page-loader";
-import { DirectConversationPage } from "#src/features/conversations/direct-conversation-page";
+import { ConversationPage } from "#src/features/conversations/conversation-page";
 
 export const Route = createFileRoute("/_app/messages/$agentId")({
   validateSearch: z.object({
@@ -30,5 +30,5 @@ export const Route = createFileRoute("/_app/messages/$agentId")({
 
 function DirectConversationRoute() {
   const { agentId } = Route.useParams();
-  return <DirectConversationPage agentId={agentId} search={Route.useSearch()} />;
+  return <ConversationPage target={{ kind: "agent", id: agentId }} search={Route.useSearch()} />;
 }

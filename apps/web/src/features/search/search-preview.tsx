@@ -4,12 +4,11 @@ import { CatchBoundary, ClientOnly, getRouteApi } from "@tanstack/react-router";
 
 import { Skeleton } from "#src/components/ui/skeleton";
 import { useCurrentWorkspaceId } from "#src/features/agents/workspace-agents-realtime";
-import { ChannelConversationPage } from "#src/features/conversations/channel-conversation-page";
 import { pickConversationPageSearch } from "#src/features/conversations/conversation-page-search";
 import { ConversationHostProvider } from "#src/features/conversations/conversation-host";
 import { savedMessagesQueryKey } from "#src/features/conversations/saved-messages-collection";
 import { listSavedMessages } from "#src/features/conversations/saved-messages.functions";
-import { DirectConversationPage } from "#src/features/conversations/direct-conversation-page";
+import { ConversationPage } from "#src/features/conversations/conversation-page";
 import { m } from "#src/paraglide/messages";
 import type { RememberedEntity } from "./search-memory";
 import { searchDirectoryQuery } from "./search-queries";
@@ -26,9 +25,9 @@ export type SearchPreviewTarget = RememberedEntity & {
 
 /**
  * A result's conversation beside the search results, exactly as Chat opens it: the same page
- * (`ChannelConversationPage` / `DirectConversationPage`) with its tabs, stream positioned at the
- * message, composer, threads, Task board and files, and reading it as Chat does. Memoized: typing
- * in the search box re-renders the search page, not the conversation.
+ * (`ConversationPage`) with its tabs, stream positioned at the message, composer, threads, Task
+ * board and files, and reading it as Chat does. Memoized: typing in the search box re-renders the
+ * search page, not the conversation.
  */
 export const SearchPreview = memo(function SearchPreview({
   target,
@@ -86,14 +85,13 @@ function PreviewPage({ target }: { target: SearchPreviewTarget }) {
     select: pickConversationPageSearch,
     structuralSharing: true,
   });
-  const jumpMessage = target.messageId;
   return (
     <ConversationHostProvider saved={saved} channels={channels}>
-      {target.kind === "channel" ? (
-        <ChannelConversationPage channelId={target.id} search={search} jumpMessage={jumpMessage} />
-      ) : (
-        <DirectConversationPage agentId={target.id} search={search} jumpMessage={jumpMessage} />
-      )}
+      <ConversationPage
+        target={{ kind: target.kind, id: target.id }}
+        search={search}
+        jumpMessage={target.messageId}
+      />
     </ConversationHostProvider>
   );
 }
