@@ -198,7 +198,7 @@ const CLAIM_REFUSAL = {
 const DUPLICATE_TASK_WINDOW_MS = 15 * 60 * 1000;
 
 function normalizeTaskTitle(title: string): string {
-  return title.trim().replace(/\s+/g, " ").toLowerCase();
+  return title.trim().replace(/\s+/g, " ");
 }
 
 /** What another member's hold on a Task leaves open. Illustrative, not a permission table. */
@@ -811,7 +811,9 @@ export class TaskBoard {
           started: assigned?.memberId === member.id,
         };
       }
-      if (principal.agentId) {
+      // A repeated single create is a likely race. A batch is an explicit decomposition request;
+      // holding the whole batch because one title matches would discard its genuinely new tasks.
+      if (principal.agentId && titles.length === 1) {
         const duplicateCandidates = await tx.task.findMany({
           where: {
             conversationId: scope.conversationId,
@@ -822,8 +824,8 @@ export class TaskBoard {
           orderBy: { createdAt: "asc" },
           select: taskSelection,
         });
-        const duplicate = duplicateCandidates.find((candidate) =>
-          titles.some((title) => normalizeTaskTitle(candidate.title) === normalizeTaskTitle(title)),
+        const duplicate = duplicateCandidates.find(
+          (candidate) => normalizeTaskTitle(candidate.title) === normalizeTaskTitle(titles[0]!),
         );
         if (duplicate)
           return {
