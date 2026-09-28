@@ -1,16 +1,20 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { Edit01 as Edit, Settings01 as Settings } from "@untitledui/icons";
 
 import { Button } from "#src/components/base/buttons/button";
+import { ButtonUtility } from "#src/components/base/buttons/button-utility";
 import { Checkbox } from "#src/components/base/checkbox/checkbox";
 import { Input } from "#src/components/base/input/input";
 import { Select } from "#src/components/base/select/select";
-import { TextArea } from "#src/components/base/textarea/textarea";
 import { formatAgentProfileParam } from "#src/features/agents/profile-panel/profile-panel-search";
 import { m } from "#src/paraglide/messages";
-import { defaultCollectScanPath } from "./collect-scan-path";
+import {
+  collectPathLines,
+  defaultCollectScanPath,
+  removeCollectPathLine,
+} from "./collect-scan-path";
 import {
   defaultCustomRangeEndingToday,
   listCollectWindowOptions,
@@ -49,7 +53,8 @@ export function WeeklyReportCollectPlanCard(props: {
   const [customStart, setCustomStart] = useState(customDefault.startDate);
   const [customEnd, setCustomEnd] = useState(customDefault.endDate);
   const [selected, setSelected] = useState<string[]>([]);
-  const [pathsByComputer, setPathsByComputer] = useState<Record<string, string>>({});
+  const [pathsByComputer, setPathsByComputer] = useState<Record<string, string[]>>({});
+  const [pathFocus, setPathFocus] = useState<{ computerId: string; index: number } | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -61,7 +66,10 @@ export function WeeklyReportCollectPlanCard(props: {
       setSelected(rows.filter((row) => row.ready).map((row) => row.computerId));
       setPathsByComputer(
         Object.fromEntries(
-          rows.map((row) => [row.computerId, defaultCollectScanPath(row.platform)]),
+          rows.map((row) => [
+            row.computerId,
+            collectPathLines(defaultCollectScanPath(row.platform)),
+          ]),
         ),
       );
     });
@@ -111,8 +119,7 @@ export function WeeklyReportCollectPlanCard(props: {
       .map((computerId) => {
         const slot = slots.find((row) => row.computerId === computerId);
         if (!slot?.ready) return null;
-        const scanPaths = (pathsByComputer[computerId] ?? "")
-          .split("\n")
+        const scanPaths = (pathsByComputer[computerId] ?? [])
           .map((line) => line.trim())
           .filter(Boolean);
         return { computerId, scanPaths };
@@ -146,99 +153,113 @@ export function WeeklyReportCollectPlanCard(props: {
     }
   }
 
+  function updatePathLine(computerId: string, index: number, next: string) {
+    setPathsByComputer((prev) => {
+      const lines = [...(prev[computerId] ?? [""])];
+      lines[index] = next;
+      return { ...prev, [computerId]: lines };
+    });
+  }
+
+  function addPathLine(computerId: string) {
+    const nextIndex = (pathsByComputer[computerId] ?? [""]).length;
+    setPathsByComputer((prev) => ({
+      ...prev,
+      [computerId]: [...(prev[computerId] ?? [""]), ""],
+    }));
+    setPathFocus({ computerId, index: nextIndex });
+  }
+
+  function removePathLine(computerId: string, index: number) {
+    setPathsByComputer((prev) => ({
+      ...prev,
+      [computerId]: removeCollectPathLine(prev[computerId] ?? [""], index),
+    }));
+    setPathFocus({ computerId, index: Math.max(0, index - 1) });
+  }
+
   return (
-    <div className="space-y-3 rounded-xl border border-secondary bg-secondary p-3">
-      <div className="space-y-1.5">
-        <p className="text-xs font-medium text-tertiary">{m.records_collect_plan_window()}</p>
-        <Select
-          aria-label={m.records_collect_plan_window()}
-          size="sm"
-          selectedKey={windowKind}
-          onSelectionChange={(key) => {
-            if (typeof key === "string") setWindowKind(key as CollectWindowKind);
-          }}
-          isDisabled={busy || props.disabled}
-        >
-          {WINDOW_KINDS.map((kind) => (
-            <Select.Item
-              key={kind}
-              id={kind}
-              label={
-                kind === "week"
-                  ? m.records_collect_window_week()
-                  : kind === "month"
-                    ? m.records_collect_window_month()
-                    : kind === "quarter"
-                      ? m.records_collect_window_quarter()
-                      : kind === "year"
-                        ? m.records_collect_window_year()
-                        : m.records_collect_window_custom()
-              }
-            />
-          ))}
-        </Select>
-        {windowKind === "custom" ? (
-          <div className="grid grid-cols-2 gap-2">
-            <Input
-              type="date"
-              size="sm"
-              aria-label={m.records_collect_plan_start_date()}
-              value={customStart}
-              onChange={setCustomStart}
-              isDisabled={busy || props.disabled}
-            />
-            <Input
-              type="date"
-              size="sm"
-              aria-label={m.records_collect_plan_end_date()}
-              value={customEnd}
-              onChange={setCustomEnd}
-              isDisabled={busy || props.disabled}
-            />
-          </div>
-        ) : (
+    <div className="rounded-xl border border-secondary bg-primary p-4">
+      <div className="grid grid-cols-[4.5rem_minmax(0,1fr)] items-start gap-x-3 gap-y-4">
+        <p className="pt-2 text-sm text-tertiary">{m.records_collect_plan_window()}</p>
+        <div className="space-y-2">
           <Select
-            aria-label={m.records_collect_plan_range()}
+            aria-label={m.records_collect_plan_window()}
             size="sm"
-            selectedKey={selectedOption?.id}
+            selectedKey={windowKind}
             onSelectionChange={(key) => {
-              if (typeof key === "string") setOptionId(key);
+              if (typeof key === "string") setWindowKind(key as CollectWindowKind);
             }}
             isDisabled={busy || props.disabled}
           >
-            {options.map((option) => (
-              <Select.Item key={option.id} id={option.id} label={option.label} />
+            {WINDOW_KINDS.map((kind) => (
+              <Select.Item
+                key={kind}
+                id={kind}
+                label={
+                  kind === "week"
+                    ? m.records_collect_window_week()
+                    : kind === "month"
+                      ? m.records_collect_window_month()
+                      : kind === "quarter"
+                        ? m.records_collect_window_quarter()
+                        : kind === "year"
+                          ? m.records_collect_window_year()
+                          : m.records_collect_window_custom()
+                }
+              />
             ))}
           </Select>
-        )}
-      </div>
+          {windowKind === "custom" ? (
+            <div className="grid grid-cols-2 gap-2">
+              <Input
+                type="date"
+                size="sm"
+                aria-label={m.records_collect_plan_start_date()}
+                value={customStart}
+                onChange={setCustomStart}
+                isDisabled={busy || props.disabled}
+              />
+              <Input
+                type="date"
+                size="sm"
+                aria-label={m.records_collect_plan_end_date()}
+                value={customEnd}
+                onChange={setCustomEnd}
+                isDisabled={busy || props.disabled}
+              />
+            </div>
+          ) : (
+            <Select
+              aria-label={m.records_collect_plan_range()}
+              size="sm"
+              selectedKey={selectedOption?.id}
+              onSelectionChange={(key) => {
+                if (typeof key === "string") setOptionId(key);
+              }}
+              isDisabled={busy || props.disabled}
+            >
+              {options.map((option) => (
+                <Select.Item key={option.id} id={option.id} label={option.label} />
+              ))}
+            </Select>
+          )}
+        </div>
 
-      <div className="space-y-2">
-        <p className="text-xs font-medium text-tertiary">{m.records_collect_plan_computers()}</p>
-        {slots.length === 0 ? (
-          <p className="text-sm text-tertiary">{m.records_collect_plan_no_owned()}</p>
-        ) : (
-          slots.map((slot) => {
-            const checked = selected.includes(slot.computerId);
-            return (
-              <div
-                key={slot.computerId}
-                className="flex items-center gap-2 rounded-lg border border-secondary bg-primary p-2"
-              >
-                <Checkbox
-                  className={COLLECT_PLAN_CHECKBOX_CLASSNAME}
-                  isSelected={checked}
-                  isDisabled={busy || props.disabled || !slot.ready}
-                  onChange={(next) => {
-                    setSelected((prev) =>
-                      next
-                        ? [...new Set([...prev, slot.computerId])]
-                        : prev.filter((id) => id !== slot.computerId),
-                    );
-                  }}
-                />
-                <div className="min-w-0 flex-1 space-y-1">
-                  <div className="flex items-center gap-2">
+        <p className="pt-3 text-sm text-tertiary">{m.records_collect_plan_computers()}</p>
+        <div className="space-y-2">
+          {slots.length === 0 ? (
+            <p className="text-sm text-tertiary">{m.records_collect_plan_no_owned()}</p>
+          ) : (
+            slots.map((slot) => {
+              const checked = selected.includes(slot.computerId);
+              const lines = pathsByComputer[slot.computerId] ?? [""];
+              return (
+                <div
+                  key={slot.computerId}
+                  className={`rounded-xl border border-secondary p-3 ${checked ? "bg-secondary" : "bg-primary"}`}
+                >
+                  <div className="flex items-center gap-2 pl-6">
                     <span className="min-w-0 flex-1 truncate text-sm font-medium text-primary">
                       {slot.displayName}
                     </span>
@@ -266,47 +287,114 @@ export function WeeklyReportCollectPlanCard(props: {
                       </Link>
                     ) : null}
                   </div>
-                  <div className="flex items-start gap-2">
-                    <TextArea
-                      size="sm"
-                      className="min-w-0 flex-1"
-                      textAreaClassName="min-h-12 font-mono text-xs"
-                      value={pathsByComputer[slot.computerId] ?? ""}
-                      onChange={(value) =>
-                        setPathsByComputer((prev) => ({
-                          ...prev,
-                          [slot.computerId]: value,
-                        }))
-                      }
-                      isDisabled={busy || props.disabled}
-                      aria-label={m.records_collect_plan_paths()}
+                  <div className="mt-2 flex items-center gap-2">
+                    <Checkbox
+                      className={`${COLLECT_PLAN_CHECKBOX_CLASSNAME} self-center`}
+                      isSelected={checked}
+                      isDisabled={busy || props.disabled || !slot.ready}
+                      onChange={(next) => {
+                        setSelected((prev) =>
+                          next
+                            ? [...new Set([...prev, slot.computerId])]
+                            : prev.filter((id) => id !== slot.computerId),
+                        );
+                      }}
                     />
-                    <Edit className="mt-1 size-4 shrink-0 text-tertiary" aria-hidden />
+                    <div className="min-w-0 flex-1 rounded-lg border border-secondary bg-primary px-3 py-1.5">
+                      {lines.map((line, index) => (
+                        <CollectPathRow
+                          key={`${slot.computerId}-${index}`}
+                          value={line}
+                          disabled={busy || props.disabled}
+                          canRemove={lines.length > 1}
+                          autoFocus={
+                            pathFocus?.computerId === slot.computerId && pathFocus.index === index
+                          }
+                          onChange={(next) => updatePathLine(slot.computerId, index, next)}
+                          onAdd={() => addPathLine(slot.computerId)}
+                          onRemove={() => removePathLine(slot.computerId, index)}
+                          onFocused={() => setPathFocus(null)}
+                        />
+                      ))}
+                    </div>
                   </div>
                   {!slot.ready ? (
-                    <p className="text-xs text-warning-primary">
+                    <p className="mt-1 pl-6 text-xs text-warning-primary">
                       {m.records_collect_plan_not_ready()}
                     </p>
                   ) : null}
                 </div>
-              </div>
-            );
-          })
-        )}
+              );
+            })
+          )}
+        </div>
       </div>
 
-      {error ? <p className="text-sm text-error-primary">{error}</p> : null}
+      {error ? <p className="mt-3 text-sm text-error-primary">{error}</p> : null}
 
-      <Button
-        size="sm"
-        color="primary"
-        className={`w-full ${RECORDS_PRIMARY_BUTTON_CLASSNAME}`}
-        isDisabled={busy || props.disabled}
-        isLoading={busy}
-        onPress={() => void onSubmit()}
-      >
-        {m.records_collect_plan_submit()}
-      </Button>
+      <div className="mt-4 flex justify-center">
+        <Button
+          size="md"
+          color="primary"
+          className={`px-8 ${RECORDS_PRIMARY_BUTTON_CLASSNAME}`}
+          isDisabled={busy || props.disabled}
+          isLoading={busy}
+          onPress={() => void onSubmit()}
+        >
+          {m.records_collect_plan_submit()}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function CollectPathRow(props: {
+  value: string;
+  disabled?: boolean;
+  canRemove: boolean;
+  autoFocus: boolean;
+  onChange: (value: string) => void;
+  onAdd: () => void;
+  onRemove: () => void;
+  onFocused: () => void;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (!props.autoFocus) return;
+    inputRef.current?.focus();
+    props.onFocused();
+  }, [props.autoFocus, props.onFocused]);
+  return (
+    <div className="flex items-center gap-2 py-1">
+      <input
+        ref={inputRef}
+        value={props.value}
+        disabled={props.disabled}
+        aria-label={m.records_collect_plan_paths()}
+        onChange={(event) => props.onChange(event.target.value)}
+        onKeyDown={(event) => {
+          if (props.disabled || event.nativeEvent.isComposing) return;
+          if (event.key === "Enter") {
+            event.preventDefault();
+            props.onAdd();
+            return;
+          }
+          if (event.key === "Backspace" && props.value === "" && props.canRemove) {
+            event.preventDefault();
+            props.onRemove();
+          }
+        }}
+        className="min-w-0 flex-1 bg-transparent font-mono text-sm text-tertiary outline-none disabled:opacity-60"
+      />
+      <ButtonUtility
+        type="button"
+        size="xs"
+        color="tertiary"
+        icon={Edit}
+        aria-label={m.records_collect_plan_paths()}
+        isDisabled={props.disabled}
+        onClick={() => inputRef.current?.focus()}
+      />
     </div>
   );
 }
