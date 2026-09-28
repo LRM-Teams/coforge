@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { WEEKLY_REPORT_MARKDOWN_MAX_CHARS } from "@lrm/coforge-sdk/internal";
 import { z } from "zod";
 
 import { agentAuthMiddleware } from "#src/server/agents/agent-http-middleware.server";
@@ -12,7 +13,7 @@ const slotReportSchema = z.object({
   idempotencyKey: z.string().uuid(),
   runId: z.string().uuid(),
   outcome: z.enum(["ready", "empty", "failed"]),
-  packMarkdown: z.string().max(500_000).optional(),
+  packMarkdown: z.string().max(WEEKLY_REPORT_MARKDOWN_MAX_CHARS).optional(),
   failureReason: z.string().max(2000).optional(),
 });
 

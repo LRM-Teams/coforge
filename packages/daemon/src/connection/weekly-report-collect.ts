@@ -1,4 +1,4 @@
-import { RFC_UUID_PATTERN } from "@lrm/coforge-sdk/internal";
+import { RFC_UUID_PATTERN, WEEKLY_REPORT_MARKDOWN_MAX_CHARS } from "@lrm/coforge-sdk/internal";
 
 /** Local proxy / CLI body for Collect Run pack submit (ADR 0032 HTTPS return path). */
 export type WeeklyReportCollectCommand = {
@@ -37,7 +37,8 @@ export function validateWeeklyReportCollectCommand(
     return null;
   if (
     payload.packMarkdown !== undefined &&
-    (typeof payload.packMarkdown !== "string" || payload.packMarkdown.length > 500_000)
+    (typeof payload.packMarkdown !== "string" ||
+      payload.packMarkdown.length > WEEKLY_REPORT_MARKDOWN_MAX_CHARS)
   )
     return null;
   if (

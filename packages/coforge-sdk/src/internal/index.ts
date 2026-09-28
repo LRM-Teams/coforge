@@ -937,6 +937,7 @@ export * from "./message-sender";
 export * from "./agent-name";
 export * from "./workspace-slug";
 export * from "./uuid";
+export * from "./weekly-report-limits";
 export * from "./codec";
 export * from "./validation";
 export * from "./weekly-report";

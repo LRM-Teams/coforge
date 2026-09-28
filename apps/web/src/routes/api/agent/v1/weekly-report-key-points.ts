@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { WEEKLY_REPORT_MARKDOWN_MAX_CHARS } from "@lrm/coforge-sdk/internal";
 import { z } from "zod";
 
 import { agentAuthMiddleware } from "#src/server/agents/agent-http-middleware.server";
@@ -8,7 +9,7 @@ import { applyKeyPointExtractionWriteBack } from "#src/server/records/weekly-rep
 const bodySchema = z.object({
   idempotencyKey: z.string().uuid(),
   reportId: z.string().uuid(),
-  markdown: z.string().min(1).max(500_000),
+  markdown: z.string().min(1).max(WEEKLY_REPORT_MARKDOWN_MAX_CHARS),
 });
 
 export type WeeklyReportKeyPointsPrincipal = { workspaceId: string; agentId?: string };

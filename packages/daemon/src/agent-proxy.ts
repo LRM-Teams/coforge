@@ -206,7 +206,8 @@ const UPLOAD_SESSION_COMPLETE_SUFFIX = "/complete";
 const LOCAL_PROXY_ROUTES = agentApiRoutes.proxy;
 const LOCAL_USER_ROUTE_PREFIX = LOCAL_PROXY_ROUTES.users.path("");
 const MAX_BODY_BYTES = 64 * 1024;
-/** Matches apps/web weekly-report-collect packMarkdown max (500_000) plus JSON framing. */
+/** Covers `WEEKLY_REPORT_MARKDOWN_MAX_CHARS` plus JSON framing. A byte budget, so it is not the
+ * same number as that character cap — see `internal/weekly-report-limits.ts`. */
 const WEEKLY_REPORT_COLLECT_MAX_BODY_BYTES = 512 * 1024;
 const logger = getLogger(["coforge", "daemon", "agent-proxy"]);
 
