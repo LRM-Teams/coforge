@@ -1,7 +1,11 @@
 import { useCallback, useEffect, useMemo } from "react";
 import { createFileRoute, getRouteApi, useNavigate } from "@tanstack/react-router";
 
-import { conversationSearchWithoutPanes } from "#src/features/conversations/conversation-thread-search";
+import {
+  conversationSearchWithoutAgentProfile,
+  conversationSearchWithoutTask,
+  conversationSearchWithoutThread,
+} from "#src/features/conversations/conversation-thread-search";
 import { parseScope, type SearchFilters } from "#src/features/search/search-filters";
 import { writeLastSearch } from "#src/features/search/search-memory";
 import { SearchPage } from "#src/features/search/search-page";
@@ -66,7 +70,9 @@ function SearchRoute() {
     (next: SearchPreviewTarget | undefined) =>
       void navigate({
         search: (previous) => ({
-          ...conversationSearchWithoutPanes(previous),
+          ...conversationSearchWithoutAgentProfile(
+            conversationSearchWithoutTask(conversationSearchWithoutThread(previous)),
+          ),
           open: next ? `${next.kind}:${next.id}` : undefined,
           msg: next?.messageId,
         }),

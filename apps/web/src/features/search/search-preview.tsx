@@ -26,8 +26,8 @@ export type SearchPreviewTarget = RememberedEntity & { messageId?: string };
 /**
  * A result's conversation beside the search results: the conversation itself, as its page shows
  * it (its header, the stream positioned at the message, the composer, threads, reactions and the
- * Agent profile), without the Chat / Tasks / Files tabs. Previewing is not reading: nothing is
- * marked read. Memoized: typing in the search box re-renders the page, not the conversation.
+ * Agent profile), without the Chat / Tasks / Files tabs. Previewing is not reading: the stream is
+ * not marked read, though a thread opened in the preview is, as in Chat. Memoized: typing in the search box re-renders the page, not the conversation.
  */
 export const SearchPreview = memo(function SearchPreview({
   target,
@@ -70,28 +70,28 @@ export const SearchPreview = memo(function SearchPreview({
 
 function ChannelPreview({ channelId, jumpMessage }: { channelId: string; jumpMessage?: string }) {
   const { conversationProps } = useChannelConversation(channelId);
-  const place = usePreviewPlace();
-  return <ChannelConversation {...conversationProps} {...place} jumpMessage={jumpMessage} />;
+  const previewProps = usePreviewConversationProps();
+  return <ChannelConversation {...conversationProps} {...previewProps} jumpMessage={jumpMessage} />;
 }
 
 function DirectPreview({ agentId, jumpMessage }: { agentId: string; jumpMessage?: string }) {
   const { conversationProps } = useDirectConversation(agentId);
   const agentStatus = useLiveAgent(agentId)?.status.value;
-  const place = usePreviewPlace();
+  const previewProps = usePreviewConversationProps();
   return (
     <DirectConversation
       {...conversationProps}
-      {...place}
+      {...previewProps}
       agentStatus={agentStatus}
       jumpMessage={jumpMessage}
     />
   );
 }
 
-/** What the messages layout gives a conversation page and the search page supplies itself: the
+/** The props a conversation page gets from the messages layout, which the preview supplies itself: the
  * Workspace's channels (for references; the search page has already read them) and the Agent
  * profile panel, kept in the search URL. */
-function usePreviewPlace() {
+function usePreviewConversationProps() {
   const workspaceId = useCurrentWorkspaceId() ?? "";
   const channels = useSuspenseQuery({
     ...searchDirectoryQuery(workspaceId),

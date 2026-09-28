@@ -14,7 +14,7 @@ import {
   useShownConversationTab,
 } from "#src/features/conversations/use-conversation-view";
 import { CONVERSATION_TABS } from "#src/features/conversations/conversation-tabs";
-import { conversationPanesSearchShape } from "#src/features/conversations/conversation-thread-search";
+import { conversationOpenSearchShape } from "#src/features/conversations/conversation-thread-search";
 import { ConversationTaskBoard } from "#src/features/tasks/conversation-task-board";
 import { conversationTaskBoardSearchShape } from "#src/features/tasks/task-board-search";
 import { finishedSummaryQuery } from "#src/features/tasks/use-finished-tasks";
@@ -41,7 +41,7 @@ export const Route = createFileRoute("/_app/messages/channels/$channelId")({
     view: z.enum(CONVERSATION_TABS).optional().catch(undefined),
     ...conversationTaskBoardSearchShape,
     message: z.uuid().optional().catch(undefined),
-    ...conversationPanesSearchShape,
+    ...conversationOpenSearchShape,
   }),
   loaderDeps: ({ search }) =>
     ({

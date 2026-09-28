@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { conversationPanesSearchShape } from "#src/features/conversations/conversation-thread-search";
+import { conversationOpenSearchShape } from "#src/features/conversations/conversation-thread-search";
 import { SEARCH_RANGES } from "./search-filters";
 
 /** Longest query the search box sends; longer text is cut, never rejected. */
@@ -54,7 +54,7 @@ export const searchPageSearchSchema = z.object({
     .catch(undefined),
   msg: z.uuid().optional().catch(undefined),
   // The previewed conversation's open thread, Task popup or Agent profile, as its page keeps them.
-  ...conversationPanesSearchShape,
+  ...conversationOpenSearchShape,
 });
 
 /** The search Cmd/Ctrl+K reopens: the page's query and filters, nothing of a preview. */

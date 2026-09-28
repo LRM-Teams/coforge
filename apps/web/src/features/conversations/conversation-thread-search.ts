@@ -87,25 +87,16 @@ export function conversationSearchWithoutAgentProfile<
 }
 
 /**
- * The panes a conversation keeps in the address wherever it is shown: an open thread, Task popup
- * or Agent profile. The conversation routes and the search page spread it into their
+ * What a conversation has open in the address, wherever it is shown: its thread, Task popup or
+ * Agent profile. The conversation routes and the search page spread it into their
  * `validateSearch`.
  */
-export const conversationPanesSearchShape = {
+export const conversationOpenSearchShape = {
   threadRootId: z.uuid().optional().catch(undefined),
   task: openTaskParamSchema,
   profile: agentProfileParamSchema,
   agentTab: agentProfileTabParamSchema,
 };
-
-/** Drops every pane of `conversationPanesSearchShape`, for when another conversation shows. */
-export function conversationSearchWithoutPanes<
-  T extends { threadRootId?: string; task?: unknown; profile?: string; agentTab?: unknown },
->(previous: T) {
-  return conversationSearchWithoutAgentProfile(
-    conversationSearchWithoutTask(conversationSearchWithoutThread(previous)),
-  );
-}
 
 /** The pane's consume decision for `?message=<uuid>` — see `positionJumpDecision`. */
 export type PositionJumpDecision =
