@@ -18,7 +18,7 @@ import { Avatar } from "#src/components/base/avatar/avatar";
 import { Button } from "#src/components/base/buttons/button";
 import { Tooltip, TooltipTrigger } from "#src/components/base/tooltip/tooltip";
 import { useAppToast } from "#src/components/ui/toast";
-import { LoadingIndicator } from "#src/components/ui/loading-indicator";
+import { Skeleton } from "#src/components/ui/skeleton";
 import { ButtonUtility } from "#src/components/base/buttons/button-utility";
 import {
   Dialog,
@@ -302,12 +302,7 @@ export function AttachmentCard({ attachment }: { attachment: MessageView["attach
             className="grid h-auto min-h-16 min-w-16 place-items-center overflow-hidden rounded-lg p-0 ring-1 ring-secondary ring-inset hover:bg-transparent"
           >
             {!imgLoaded && (
-              <span className="pointer-events-none absolute inset-0 grid place-items-center">
-                <LoadingIndicator
-                  label={m.conversation_attachment_preview_loading()}
-                  className="size-5 text-tertiary"
-                />
-              </span>
+              <Skeleton className="pointer-events-none absolute inset-0 rounded-lg bg-secondary/70" />
             )}
             <img
               src={previewSrc}
