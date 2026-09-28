@@ -17,7 +17,15 @@ const logger = getLogger(["coforge", "daemon", "consumed-seqs"]);
 /** One Agent's consumed cursor for one target — Raft's `targets[target]` record verbatim (1.0.32
  * bundle 752736-752751): `seq` is the frontier the Agent has consumed (monotonic, never lower),
  * `readOrder` is when that target was last reviewed, ordered against every other target's. */
-export type AgentConsumedSeqEntry = Readonly<{ seq?: number; readOrder?: number }>;
+/** `seq` is the consumed frontier, `readOrder` when the target was last reviewed, and `reviewedSeq`
+ * the newest message a review showed. `reviewedSeq` is CoForge's own addition: Raft folds it into
+ * `seq`, but a paged read must not move the frontier a hold is decided from, and a `check` moves
+ * that frontier without reviewing anything. */
+export type AgentConsumedSeqEntry = Readonly<{
+  seq?: number;
+  readOrder?: number;
+  reviewedSeq?: number;
+}>;
 
 /** Raft's `consumed-seqs.json` shape verbatim: a `targets` map plus the next `readOrder` to hand
  * out. `nextReadOrder` is never trusted as a starting point on read — `read` recomputes it from the
@@ -42,7 +50,9 @@ export type AgentConsumedSeqPort = Readonly<{
    * `recordConsumedSeqs` takes an order, but Raft calls it only for a held send; Raft 1.0.32's
    * `check` records nothing.) */
   recordConsumedSeqs(agentId: string, entries: Readonly<Record<string, number>>): void;
-  /** Raft's `recordConsumedRead(agentId, target, sequence)`; answers the `readOrder` it assigned. */
+  /** A review of `target`: takes the next `readOrder` and raises `reviewedSeq` to `sequence`, leaving
+   * the consumed `seq` alone (Raft's `recordConsumedRead`, which raises `seq` instead). Answers the
+   * `readOrder` it assigned. */
   recordConsumedRead(agentId: string, target: string, sequence?: number): number | undefined;
 }>;
 
@@ -139,14 +149,15 @@ export class AgentConsumedSeqStore implements AgentConsumedSeqPort {
     if (target.length === 0) return undefined;
     const state = mutableState(this.read(agentId));
     const prior = state.targets[target] ?? {};
-    const nextSeq = positiveFiniteNumber(sequence);
+    const reviewed = positiveFiniteNumber(sequence);
+    const priorReviewed = positiveFiniteNumber(prior.reviewedSeq);
     state.targets[target] = {
-      seq:
-        nextSeq !== undefined &&
-        (positiveFiniteNumber(prior.seq) === undefined || nextSeq > prior.seq!)
-          ? nextSeq
-          : prior.seq,
+      ...prior,
       readOrder: state.nextReadOrder,
+      reviewedSeq:
+        reviewed !== undefined && (priorReviewed === undefined || reviewed > priorReviewed)
+          ? reviewed
+          : priorReviewed,
     };
     state.nextReadOrder += 1;
     this.#write(agentId, state);
@@ -211,11 +222,14 @@ function normalizeState(value: unknown): AgentConsumedSeqState {
     for (const [target, entry] of Object.entries(raw.targets as Record<string, unknown>)) {
       if (target.length === 0 || !entry || typeof entry !== "object" || Array.isArray(entry))
         continue;
-      const record = entry as { seq?: unknown; readOrder?: unknown };
+      const record = entry as { seq?: unknown; readOrder?: unknown; reviewedSeq?: unknown };
       const seq = positiveFiniteNumber(record.seq);
       const readOrder = positiveFiniteNumber(record.readOrder);
       if (seq === undefined && readOrder === undefined) continue;
-      targets[target] = { seq, readOrder };
+      // A shown message without a review order is not a review; drop it with the order.
+      const reviewedSeq =
+        readOrder === undefined ? undefined : positiveFiniteNumber(record.reviewedSeq);
+      targets[target] = { seq, readOrder, reviewedSeq };
       // Only a real order counts. Raft falls back to `seq` for files written before `readOrder`
       // existed; this file never had that shape, and a frontier recorded without a review
       // (`recordConsumedSeqs`) must not push the order counter up to its sequence.

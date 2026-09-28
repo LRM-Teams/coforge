@@ -146,10 +146,10 @@ export class AgentMessageAttentionIndex {
    * here for this target at all", which its freshness decision needs. */
   readonly #latestKnown = new Map<string, Map<string, number>>();
   readonly #readContext = new Map<string, Map<string, number>>();
-  /** The newest sequence a review (`recordReadContext`) of each target returned. Unlike
-   * `#modelSeen`, a `check` never moves it: it answers "has a read shown the Agent anything here",
-   * which is what makes a thread count as reply context. */
-  readonly #readSequence = new Map<string, Map<string, number>>();
+  /** The newest message a review (`recordReadContext`) of each target showed. Unlike `#modelSeen`,
+   * a `check` never moves it: it answers "has a review shown the Agent anything here", which is what
+   * makes a thread count as reply context. Persisted apart from the frontier as `reviewedSeq`. */
+  readonly #reviewedSequence = new Map<string, Map<string, number>>();
   readonly #readContextCounters = new Map<string, number>();
   /** Raft's `consumed-seqs.json`: the durable copy of `#modelSeen` (the `seq` frontier) and
    * `#readContext` (the `readOrder` each target was last reviewed at). */
@@ -775,15 +775,15 @@ ${INBOX_DRAIN_HINT}]`,
   recordReadContext(agentId: string, target: string, sequence?: number): void {
     this.#hydrate(agentId);
     if (sequence !== undefined && Number.isInteger(sequence) && sequence > 0) {
-      const sequences = this.#readSequence.get(agentId) ?? new Map<string, number>();
-      sequences.set(target, Math.max(sequences.get(target) ?? 0, sequence));
-      this.#readSequence.set(agentId, sequences);
+      const reviewed = this.#reviewedSequence.get(agentId) ?? new Map<string, number>();
+      reviewed.set(target, Math.max(reviewed.get(target) ?? 0, sequence));
+      this.#reviewedSequence.set(agentId, reviewed);
     }
     // Reviewing a target is what orders it against every other target, which is the comparison
     // the thread-mismatch guard makes (Raft's `recordConsumedRead`).
     // With a durable cursor present the file hands out the order, so this process's orders continue
     // the ones a previous process handed out; without one this counter is the only home, as before.
-    const persisted = this.#consumedSeqs?.recordConsumedRead(agentId, target);
+    const persisted = this.#consumedSeqs?.recordConsumedRead(agentId, target, sequence);
     const order = persisted ?? (this.#readContextCounters.get(agentId) ?? 0) + 1;
     this.#readContextCounters.set(
       agentId,
@@ -813,11 +813,11 @@ ${INBOX_DRAIN_HINT}]`,
     if (!byTarget) return undefined;
     const prefix = `${parentTarget}:`;
     let latest: { target: string; order: number } | undefined;
-    const shown = this.#readSequence.get(agentId);
+    const reviewed = this.#reviewedSequence.get(agentId);
     for (const [target, order] of byTarget)
       if (
         target.startsWith(prefix) &&
-        (shown?.get(target) ?? 0) > 0 &&
+        (reviewed?.get(target) ?? 0) > 0 &&
         (!latest || order > latest.order)
       )
         latest = { target, order };
@@ -836,7 +836,7 @@ ${INBOX_DRAIN_HINT}]`,
     const state = store.read(agentId);
     const modelSeen = this.#modelSeen.get(agentId) ?? new Map<string, number>();
     const readContext = this.#readContext.get(agentId) ?? new Map<string, number>();
-    const readSequence = this.#readSequence.get(agentId) ?? new Map<string, number>();
+    const reviewedSequence = this.#reviewedSequence.get(agentId) ?? new Map<string, number>();
     for (const [target, entry] of Object.entries(state.targets)) {
       const seq = entry.seq;
       if (typeof seq === "number" && seq > 0)
@@ -844,14 +844,13 @@ ${INBOX_DRAIN_HINT}]`,
       const order = entry.readOrder;
       if (typeof order === "number" && order > 0)
         readContext.set(target, Math.max(readContext.get(target) ?? 0, order));
-      // The file keeps one `seq` per target, so after a restart a reviewed target with a consumed
-      // frontier counts as having shown something, even when a `check` rather than a read moved it.
-      if (typeof seq === "number" && seq > 0 && typeof order === "number" && order > 0)
-        readSequence.set(target, Math.max(readSequence.get(target) ?? 0, seq));
+      const reviewed = entry.reviewedSeq;
+      if (typeof reviewed === "number" && reviewed > 0)
+        reviewedSequence.set(target, Math.max(reviewedSequence.get(target) ?? 0, reviewed));
     }
     if (modelSeen.size > 0) this.#modelSeen.set(agentId, modelSeen);
     if (readContext.size > 0) this.#readContext.set(agentId, readContext);
-    if (readSequence.size > 0) this.#readSequence.set(agentId, readSequence);
+    if (reviewedSequence.size > 0) this.#reviewedSequence.set(agentId, reviewedSequence);
     this.#readContextCounters.set(
       agentId,
       Math.max(this.#readContextCounters.get(agentId) ?? 0, state.nextReadOrder - 1),
@@ -863,7 +862,7 @@ ${INBOX_DRAIN_HINT}]`,
     this.#generations.delete(agentId);
     this.#attention.delete(agentId);
     this.#modelSeen.delete(agentId);
-    this.#readSequence.delete(agentId);
+    this.#reviewedSequence.delete(agentId);
     this.#seenMessageIds.delete(agentId);
     this.#pendingSequences.delete(agentId);
     this.#pendingWindow.delete(agentId);

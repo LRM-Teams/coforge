@@ -3624,7 +3624,9 @@ export class DaemonRuntime {
     if (consumedBoundary > 0) {
       this.#messageAttention.recordModelSeen(agentId, target, consumedBoundary);
       // The held-context read inside `send`: the Agent just reviewed these messages for `target`.
-      this.#messageAttention.recordReadContext(agentId, target, consumedBoundary);
+      // A withheld context was never presented, so it reviews nothing (Raft records none either).
+      if (!contextWasWithheld)
+        this.#messageAttention.recordReadContext(agentId, target, consumedBoundary);
     }
     const recentUnread = contextWasWithheld
       ? []
@@ -3776,7 +3778,7 @@ export class DaemonRuntime {
       this.#messageAttention.recordSeenMessages(agentId, result.messages);
     // The newest message a successful read showed for `target` itself; one pass, no copies.
     let visibleSequence = 0;
-    if (operation === "read" && result.accepted)
+    if (operation === "read" && result.accepted && !request.around)
       for (const message of result.messages)
         if (message.target === target && message.sequence > visibleSequence)
           visibleSequence = message.sequence;
