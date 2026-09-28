@@ -3401,8 +3401,9 @@ export class DaemonRuntime {
       if (message.sequence > current) maxSequenceByTarget.set(message.target, message.sequence);
     }
     for (const [target, sequence] of maxSequenceByTarget) {
+      // A check consumes what it returned without reviewing the target: like Raft's `check`, it
+      // moves no read order, so it never outranks a thread the Agent read.
       this.#messageAttention.recordModelSeen(agentId, target, sequence);
-      this.#messageAttention.recordReadContext(agentId, target);
     }
     logger.info("Agent checked pending messages", {
       event: "agent.message.checked",
@@ -3785,9 +3786,9 @@ export class DaemonRuntime {
       else if (result.messages.length === 0 && attentionUpperBound !== undefined)
         this.#messageAttention.clearThrough(agentId, target, attentionUpperBound);
     }
-    // The `--target-confirmed` guard's read-context tracking: any successful `read` (anchored or
-    // not) counts as the Agent having consumed messages for `target`.
-    if (operation === "read" && target && result.accepted)
+    // The `--target-confirmed` guard's read-context tracking: a successful `read` reviews
+    // `target`. An `--around` read only looks something up, so, as in Raft, it orders nothing.
+    if (operation === "read" && target && result.accepted && !request.around)
       this.#messageAttention.recordReadContext(agentId, target);
     return {
       idempotencyKey: request.idempotencyKey,

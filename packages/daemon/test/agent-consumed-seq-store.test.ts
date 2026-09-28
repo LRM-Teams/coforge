@@ -40,17 +40,17 @@ test("persists the consumed cursor in Raft's consumed-seqs shape", async () => {
 
   // Raft's `consumed-seqs.json`: `targets` keyed by target, each entry carrying `seq` (the consumed
   // frontier) and `readOrder` (when the target was reviewed, ordered against every other target),
-  // plus the next `readOrder` to hand out.
+  // plus the next `readOrder` to hand out. Consuming a frontier reviews nothing, so it takes no order.
   expect(JSON.parse(await readFile(storePath(stateDirectory), "utf8"))).toEqual({
     targets: {
-      "@ada": { seq: 7, readOrder: 1 },
-      "#general:abcd1234": { readOrder: 2 },
+      "@ada": { seq: 7 },
+      "#general:abcd1234": { readOrder: 1 },
     },
-    nextReadOrder: 3,
+    nextReadOrder: 2,
   });
 });
 
-test("a lower sequence never lowers a cursor, and every record takes a new read order", async () => {
+test("a lower sequence never lowers a cursor, and only a read takes a new read order", async () => {
   const stateDirectory = temporaryStateDirectory();
   const store = new AgentConsumedSeqStore(stateDirectory);
 
@@ -58,8 +58,8 @@ test("a lower sequence never lowers a cursor, and every record takes a new read 
   store.recordConsumedSeqs("agent-1", { "@ada": 4 });
   store.recordConsumedRead("agent-1", "@ada", 5);
 
-  expect(store.read("agent-1").targets["@ada"]).toEqual({ seq: 9, readOrder: 3 });
-  expect(store.read("agent-1").nextReadOrder).toBe(4);
+  expect(store.read("agent-1").targets["@ada"]).toEqual({ seq: 9, readOrder: 1 });
+  expect(store.read("agent-1").nextReadOrder).toBe(2);
 });
 
 test("recomputes nextReadOrder from the orders the file holds, never trusting the stored one", async () => {
