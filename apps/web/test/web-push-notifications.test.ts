@@ -163,7 +163,7 @@ describe("WebPushNotifications", () => {
       message: {
         title: "@helper",
         body: "Ready",
-        url: "/w/acme/messages/agent-a",
+        url: "/w/acme/dm/dm-a",
         workspaceId: "workspace-a",
         recipients: [
           { userId: "alice", subscriptions: [first] },
@@ -197,7 +197,7 @@ describe("WebPushNotifications", () => {
       message: {
         title: "@helper",
         body: "Ready",
-        url: "/w/acme/messages/agent-a",
+        url: "/w/acme/dm/dm-a",
         workspaceId: "workspace-a",
         recipients: [{ userId: "alice", subscriptions: [first] }],
       },

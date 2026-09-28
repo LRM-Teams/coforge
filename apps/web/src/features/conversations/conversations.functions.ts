@@ -17,6 +17,7 @@ import {
 } from "./conversation.schemas";
 import { createCentrifugoServerApi } from "#src/server/centrifugo/server-api.server";
 import { SendDirectMessage } from "#src/server/conversations/direct-message.server";
+import { DirectConversations } from "#src/server/conversations/direct-conversations.server";
 import { CentrifugoConversationRealtime } from "#src/server/conversations/conversation-realtime.server";
 import { ConversationHistory } from "#src/server/conversations/conversation-history.server";
 import { attachActionCardViews } from "#src/server/conversations/action-cards.server";
@@ -47,6 +48,26 @@ async function ownedConversations(
   if (!agent) throw new Error("conversation scope is not authorized");
   return new PrismaDirectConversationRepository(db);
 }
+
+/** The viewer's direct conversation with an Agent or a member, started on first open. */
+export const openDirectConversation = createServerFn({ method: "POST" })
+  .middleware([workspaceUserMiddleware])
+  .validator(z.union([z.object({ agentId: z.uuid() }), z.object({ userId: z.uuid() })]))
+  .handler(({ data, context }) =>
+    new DirectConversations(context.db).open(context.workspaceId, context.user.id, data),
+  );
+
+/** Who a direct conversation of the viewer's (`dm/<id>`) is with. */
+export const loadDirectConversationTarget = createServerFn({ method: "GET" })
+  .middleware([workspaceUserMiddleware])
+  .validator(z.object({ conversationId: z.uuid() }))
+  .handler(({ data, context }) =>
+    new DirectConversations(context.db).target(
+      context.workspaceId,
+      context.user.id,
+      data.conversationId,
+    ),
+  );
 
 export const loadDirectConversation = createServerFn({ method: "GET" })
   .middleware([workspaceUserMiddleware])
@@ -191,9 +212,8 @@ export const setDirectConversationHidden = createServerFn({ method: "POST" })
   });
 
 /**
- * The sidebar's DM preferences, keyed by Agent id: which of the viewer's DMs are pinned (with their
- * order) and which are closed. DM rows come from the live Agent list rather than a server list, so
- * this is what lets the sidebar order and filter them the way the channel list does for channels.
+ * The sidebar's DM preferences, keyed by Agent id: the viewer's existing DMs (the sidebar lists
+ * only these), which are pinned (with their order) and which are closed.
  */
 export const loadDirectConversationPreferences = createServerFn({ method: "GET" })
   .middleware([workspaceUserMiddleware])

@@ -44,7 +44,7 @@ export type RecipientNotification = {
   body: string;
   url: string;
   tag: string;
-  /** The un-anchored target (`/w/<slug>/channel/<id>` or `/w/<slug>/messages/<agentId>`), so the
+  /** The un-anchored target (`/w/<slug>/channel/<id>` or `/w/<slug>/dm/<id>`), so the
    * browser can compare it against the page it is already looking at before showing an OS
    * notification. */
   conversationPath: string;

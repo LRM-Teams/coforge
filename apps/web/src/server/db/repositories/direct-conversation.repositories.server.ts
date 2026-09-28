@@ -924,8 +924,8 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
   async getOrCreateUserAgent(workspaceId: string, userId: string, agentId: string) {
     // Deliberately *not* filtered by `ACTIVE_AGENT_WHERE`: a deleted Agent's direct conversation
     // stays readable (history is kept), and `ownedConversations` decides per operation
-    // whether reading or writing is allowed. Starting a new conversation with a deleted Agent is
-    // unreachable anyway — the DM list and profile affordances no longer offer one.
+    // whether reading or writing is allowed. `DirectConversations.open` refuses to start one with
+    // a deleted Agent.
     const agent = await this.db.agent.findFirst({
       where: { id: agentId, workspaceId, workspace: { members: { some: { userId } } } },
       select: { id: true, ownerId: true, visibility: true },

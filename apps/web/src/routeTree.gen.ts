@@ -86,7 +86,7 @@ import { Route as ApiAgentV1MessagesSearchRouteImport } from './routes/api/agent
 import { Route as ApiAgentV1UsersNameRouteImport } from './routes/api/agent/v1/users/$name'
 import { Route as ApiProjectsProjectIdRawSplatRouteImport } from './routes/api/projects.$projectId.raw.$'
 import { Route as WWorkspaceSlugChatChannelChannelIdRouteImport } from './routes/w.$workspaceSlug/_chat.channel.$channelId'
-import { Route as WWorkspaceSlugChatMessagesAgentIdRouteImport } from './routes/w.$workspaceSlug/_chat.messages.$agentId'
+import { Route as WWorkspaceSlugChatDmDmIdRouteImport } from './routes/w.$workspaceSlug/_chat.dm.$dmId'
 import { Route as WWorkspaceSlugComputersComputerComputerIdRouteImport } from './routes/w.$workspaceSlug/_computers.computer.$computerId'
 import { Route as WWorkspaceSlugProjectsProjectSlugSettingsRouteImport } from './routes/w.$workspaceSlug/projects.$projectSlug_.settings'
 import { Route as ApiAgentV1AttachmentUploadSessionsUploadIdCompleteRouteImport } from './routes/api/agent/v1/attachment-upload-sessions/$uploadId.complete'
@@ -521,10 +521,10 @@ const WWorkspaceSlugChatChannelChannelIdRoute =
     path: '/channel/$channelId',
     getParentRoute: () => WWorkspaceSlugChatRoute,
   } as any)
-const WWorkspaceSlugChatMessagesAgentIdRoute =
-  WWorkspaceSlugChatMessagesAgentIdRouteImport.update({
-    id: '/messages/$agentId',
-    path: '/messages/$agentId',
+const WWorkspaceSlugChatDmDmIdRoute =
+  WWorkspaceSlugChatDmDmIdRouteImport.update({
+    id: '/dm/$dmId',
+    path: '/dm/$dmId',
     getParentRoute: () => WWorkspaceSlugChatRoute,
   } as any)
 const WWorkspaceSlugComputersComputerComputerIdRoute =
@@ -704,7 +704,7 @@ export interface FileRoutesByFullPath {
   '/api/agent/v1/users/$name': typeof ApiAgentV1UsersNameRoute
   '/api/projects/$projectId/raw/$': typeof ApiProjectsProjectIdRawSplatRoute
   '/w/$workspaceSlug/channel/$channelId': typeof WWorkspaceSlugChatChannelChannelIdRoute
-  '/w/$workspaceSlug/messages/$agentId': typeof WWorkspaceSlugChatMessagesAgentIdRoute
+  '/w/$workspaceSlug/dm/$dmId': typeof WWorkspaceSlugChatDmDmIdRoute
   '/w/$workspaceSlug/computer/$computerId': typeof WWorkspaceSlugComputersComputerComputerIdRoute
   '/w/$workspaceSlug/projects/$projectSlug/settings': typeof WWorkspaceSlugProjectsProjectSlugSettingsRoute
   '/api/agent/v1/attachment-upload-sessions/': typeof ApiAgentV1AttachmentUploadSessionsIndexRoute
@@ -797,7 +797,7 @@ export interface FileRoutesByTo {
   '/api/agent/v1/users/$name': typeof ApiAgentV1UsersNameRoute
   '/api/projects/$projectId/raw/$': typeof ApiProjectsProjectIdRawSplatRoute
   '/w/$workspaceSlug/channel/$channelId': typeof WWorkspaceSlugChatChannelChannelIdRoute
-  '/w/$workspaceSlug/messages/$agentId': typeof WWorkspaceSlugChatMessagesAgentIdRoute
+  '/w/$workspaceSlug/dm/$dmId': typeof WWorkspaceSlugChatDmDmIdRoute
   '/w/$workspaceSlug/computer/$computerId': typeof WWorkspaceSlugComputersComputerComputerIdRoute
   '/w/$workspaceSlug/projects/$projectSlug/settings': typeof WWorkspaceSlugProjectsProjectSlugSettingsRoute
   '/api/agent/v1/attachment-upload-sessions': typeof ApiAgentV1AttachmentUploadSessionsIndexRoute
@@ -895,7 +895,7 @@ export interface FileRoutesById {
   '/api/agent/v1/users/$name': typeof ApiAgentV1UsersNameRoute
   '/api/projects/$projectId/raw/$': typeof ApiProjectsProjectIdRawSplatRoute
   '/w/$workspaceSlug/_chat/channel/$channelId': typeof WWorkspaceSlugChatChannelChannelIdRoute
-  '/w/$workspaceSlug/_chat/messages/$agentId': typeof WWorkspaceSlugChatMessagesAgentIdRoute
+  '/w/$workspaceSlug/_chat/dm/$dmId': typeof WWorkspaceSlugChatDmDmIdRoute
   '/w/$workspaceSlug/_computers/computer/$computerId': typeof WWorkspaceSlugComputersComputerComputerIdRoute
   '/w/$workspaceSlug/projects/$projectSlug_/settings': typeof WWorkspaceSlugProjectsProjectSlugSettingsRoute
   '/api/agent/v1/attachment-upload-sessions/': typeof ApiAgentV1AttachmentUploadSessionsIndexRoute
@@ -992,7 +992,7 @@ export interface FileRouteTypes {
     | '/api/agent/v1/users/$name'
     | '/api/projects/$projectId/raw/$'
     | '/w/$workspaceSlug/channel/$channelId'
-    | '/w/$workspaceSlug/messages/$agentId'
+    | '/w/$workspaceSlug/dm/$dmId'
     | '/w/$workspaceSlug/computer/$computerId'
     | '/w/$workspaceSlug/projects/$projectSlug/settings'
     | '/api/agent/v1/attachment-upload-sessions/'
@@ -1085,7 +1085,7 @@ export interface FileRouteTypes {
     | '/api/agent/v1/users/$name'
     | '/api/projects/$projectId/raw/$'
     | '/w/$workspaceSlug/channel/$channelId'
-    | '/w/$workspaceSlug/messages/$agentId'
+    | '/w/$workspaceSlug/dm/$dmId'
     | '/w/$workspaceSlug/computer/$computerId'
     | '/w/$workspaceSlug/projects/$projectSlug/settings'
     | '/api/agent/v1/attachment-upload-sessions'
@@ -1182,7 +1182,7 @@ export interface FileRouteTypes {
     | '/api/agent/v1/users/$name'
     | '/api/projects/$projectId/raw/$'
     | '/w/$workspaceSlug/_chat/channel/$channelId'
-    | '/w/$workspaceSlug/_chat/messages/$agentId'
+    | '/w/$workspaceSlug/_chat/dm/$dmId'
     | '/w/$workspaceSlug/_computers/computer/$computerId'
     | '/w/$workspaceSlug/projects/$projectSlug_/settings'
     | '/api/agent/v1/attachment-upload-sessions/'
@@ -1809,11 +1809,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof WWorkspaceSlugChatChannelChannelIdRouteImport
       parentRoute: typeof WWorkspaceSlugChatRoute
     }
-    '/w/$workspaceSlug/_chat/messages/$agentId': {
-      id: '/w/$workspaceSlug/_chat/messages/$agentId'
-      path: '/messages/$agentId'
-      fullPath: '/w/$workspaceSlug/messages/$agentId'
-      preLoaderRoute: typeof WWorkspaceSlugChatMessagesAgentIdRouteImport
+    '/w/$workspaceSlug/_chat/dm/$dmId': {
+      id: '/w/$workspaceSlug/_chat/dm/$dmId'
+      path: '/dm/$dmId'
+      fullPath: '/w/$workspaceSlug/dm/$dmId'
+      preLoaderRoute: typeof WWorkspaceSlugChatDmDmIdRouteImport
       parentRoute: typeof WWorkspaceSlugChatRoute
     }
     '/w/$workspaceSlug/_computers/computer/$computerId': {
@@ -1964,7 +1964,7 @@ interface WWorkspaceSlugChatRouteChildren {
   WWorkspaceSlugChatSavedRoute: typeof WWorkspaceSlugChatSavedRoute
   WWorkspaceSlugChatIndexRoute: typeof WWorkspaceSlugChatIndexRoute
   WWorkspaceSlugChatChannelChannelIdRoute: typeof WWorkspaceSlugChatChannelChannelIdRoute
-  WWorkspaceSlugChatMessagesAgentIdRoute: typeof WWorkspaceSlugChatMessagesAgentIdRoute
+  WWorkspaceSlugChatDmDmIdRoute: typeof WWorkspaceSlugChatDmDmIdRoute
 }
 
 const WWorkspaceSlugChatRouteChildren: WWorkspaceSlugChatRouteChildren = {
@@ -1972,8 +1972,7 @@ const WWorkspaceSlugChatRouteChildren: WWorkspaceSlugChatRouteChildren = {
   WWorkspaceSlugChatIndexRoute: WWorkspaceSlugChatIndexRoute,
   WWorkspaceSlugChatChannelChannelIdRoute:
     WWorkspaceSlugChatChannelChannelIdRoute,
-  WWorkspaceSlugChatMessagesAgentIdRoute:
-    WWorkspaceSlugChatMessagesAgentIdRoute,
+  WWorkspaceSlugChatDmDmIdRoute: WWorkspaceSlugChatDmDmIdRoute,
 }
 
 const WWorkspaceSlugChatRouteWithChildren =

@@ -330,28 +330,33 @@ describe("persistReadCursor", () => {
 });
 
 test("a new top-level message in a chat the sidebar is not showing is activity in a closed chat", () => {
-  const listed = {
-    conversations: new Set(["channel-1"]),
-    hiddenAgentIds: new Set(["agent-closed"]),
-  };
+  // The listed chats: channels and the DMs the sidebar shows, by conversation id.
+  const listed = new Set(["channel-1", "dm-listed"]);
   const message = { conversationId: "channel-2", sequence: 5 };
 
-  // A channel missing from the list (the viewer closed it) and a closed DM both count.
+  // A channel missing from the list (the viewer closed it), a closed DM, and a DM that started
+  // after the sidebar read its list all count.
   expect(activityInClosedConversation(message, listed)).toBe(true);
   expect(
     activityInClosedConversation(
-      { ...message, conversationId: "dm-1", agentId: "agent-closed" },
+      { ...message, conversationId: "dm-closed", agentId: "agent-closed" },
+      listed,
+    ),
+  ).toBe(true);
+  expect(
+    activityInClosedConversation(
+      { ...message, conversationId: "dm-new", agentId: "agent-new" },
       listed,
     ),
   ).toBe(true);
 
-  // Listed chats, open DMs and thread replies do not: nothing new would appear in the list.
+  // Listed chats and thread replies do not: nothing new would appear in the list.
   expect(activityInClosedConversation({ ...message, conversationId: "channel-1" }, listed)).toBe(
     false,
   );
   expect(
     activityInClosedConversation(
-      { ...message, conversationId: "dm-2", agentId: "agent-open" },
+      { ...message, conversationId: "dm-listed", agentId: "agent-open" },
       listed,
     ),
   ).toBe(false);

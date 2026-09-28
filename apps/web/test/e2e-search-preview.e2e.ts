@@ -322,7 +322,9 @@ test("a result previews beside the list and opens on a double click", async () =
       data: { messageId: inB.id, conversationId: channelB, workspaceId, memberId: memberB!.id },
     });
     await browser("click", `aside a[href="${workspacePath}"]`);
-    await waitFor(`location.pathname.startsWith("${workspacePath}")`);
+    await waitFor(
+      `document.querySelector('a[href="${workspacePath}/channel/${channelB}"]') !== null`,
+    );
     await browser(
       "eval",
       `document.querySelector('a[href="${workspacePath}/channel/${channelB}"]').click()`,

@@ -4,8 +4,8 @@ import { isAppError } from "#src/lib/app-error";
 import { PrismaDirectConversationRepository } from "#src/server/db/repositories/direct-conversation.repositories.server";
 
 /**
- * The DM half of P2b (#125). The sidebar's DM rows come from the live Agent list rather than a
- * server list, so what it needs here is preferences keyed by **agentId**; and because a preference
+ * The DM half of P2b (#125). The sidebar lists the viewer's existing DMs with live Agents, and
+ * its preferences are keyed by **agentId**; and because a preference
  * must never have the side effect of starting a conversation, every mutation resolves the viewer's
  * DM through a lookup and answers `NOT_FOUND` when there is none.
  */
@@ -45,7 +45,7 @@ function fixture(options: { exists?: boolean } = {}) {
       findFirst: async () => (exists ? { id: member.id } : null),
       // `preferencesForUser` reads the existing DMs here; the closed ones come from `$queryRaw`.
       findMany: async () =>
-        exists ? [{ conversation: { members: [{ agentId: AGENT_ID }] } }] : [],
+        exists ? [{ conversation: { id: CONVERSATION_ID, members: [{ agentId: AGENT_ID }] } }] : [],
       updateMany: async ({ data }: { data: Partial<typeof member> }) => {
         Object.assign(member, data);
         return { count: 1 };
@@ -173,7 +173,7 @@ test("preferences report existing DMs, pins in order, and closed DMs", async () 
   await repository.setHiddenForUser(WORKSPACE_ID, USER_ID, AGENT_ID, true);
 
   expect(await repository.preferencesForUser(WORKSPACE_ID, USER_ID)).toEqual({
-    conversations: [AGENT_ID],
+    conversations: [{ agentId: AGENT_ID, conversationId: CONVERSATION_ID }],
     pinned: [{ agentId: AGENT_ID, sortOrder: 3 }],
     hidden: [AGENT_ID],
   });

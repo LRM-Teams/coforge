@@ -5,12 +5,14 @@ import { join } from "node:path";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "#src/generated/prisma/client";
 import { DEV_BROWSER_USER } from "#src/server/auth/dev-skip-auth.server";
+import { DirectConversations } from "#src/server/conversations/direct-conversations.server";
 
 /**
  * Channels, Agents and Computers matching the query, closest match first, listed above the
  * messages. A leading `#`
  * keeps only channels and a leading `@` only Agents. A channel opens itself, the viewer's own
- * Agent opens its direct messages, another member's Agent its profile, and a Computer its page.
+ * Agent opens their direct conversation with it once there is one, another member's Agent its
+ * profile, and a Computer its page.
  *
  * Opt-in like the other browser E2Es: real local Web + `agent-browser`. Seeds are deterministic
  * and reset on every run; the Computer is seed-dev's "Mac Studio". Screenshots are written under
@@ -134,6 +136,12 @@ test("the search page lists matching channels, Agents and Computers and opens th
         },
       },
     });
+    // The viewer already has a DM with their own Agent, so opening the Agent lands on it.
+    const { conversationId: dmId } = await new DirectConversations(db).open(
+      workspaceId,
+      DEV_BROWSER_USER.id,
+      { agentId },
+    );
     const computer = await db.computer.findFirstOrThrow({
       where: { name: "mac-studio-01", workspaces: { some: { workspaceId } } },
     });
@@ -166,8 +174,8 @@ test("the search page lists matching channels, Agents and Computers and opens th
     // A Computer matches by its name.
     await searchFor("mac studio", [`computer:${computer.id}`]);
 
-    // Opening: a channel opens itself, the viewer's own Agent its direct messages, a Computer
-    // its page.
+    // Opening: a channel opens itself, the viewer's own Agent their DM with it, a Computer its
+    // page.
     await searchFor("lighthouse", [
       `agent:${agentId}`,
       `agent:${othersAgentId}`,
@@ -179,7 +187,7 @@ test("the search page lists matching channels, Agents and Computers and opens th
     await browser("back");
     await waitFor(`document.querySelector('[data-search-entity="agent:${agentId}"]') !== null`);
     await browser("dblclick", `[data-search-entity="agent:${agentId}"]`);
-    await waitFor(`location.pathname === "${workspacePath}/messages/${agentId}"`);
+    await waitFor(`location.pathname === "${workspacePath}/dm/${dmId}"`);
     // Another member's Agent opens its profile instead.
     await browser("back");
     await waitFor(

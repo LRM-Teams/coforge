@@ -599,7 +599,7 @@ test("Agent runtime, status, Message Inbox, and App Inbox cross the real system"
     );
 
     const page = await fetch(
-      `http://127.0.0.1:8789/w/${workspaceSlug}/messages/${created.agent.id}`,
+      `http://127.0.0.1:8789/w/${workspaceSlug}/dm/${opened.conversationId}`,
     );
     expect(page.status).toBe(200);
     const html = await page.text();

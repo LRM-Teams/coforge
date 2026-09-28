@@ -25,6 +25,53 @@ type UserDirectMessageInput = {
   threadRootId?: string;
 };
 
+/** Opens the viewer's direct conversation with `peerUserId`, starting it on first open. */
+export async function openPeopleDirectConversation(
+  db: PrismaClient,
+  workspaceId: string,
+  viewerId: string,
+  peerUserId: string,
+) {
+  // One member row each; a member's conversation with themself has one.
+  const userIds = [...new Set([viewerId, peerUserId])];
+  const directKey = peopleDirectKey(viewerId, peerUserId);
+  const members = await db.workspaceMembership.count({
+    where: { workspaceId, userId: { in: userIds } },
+  });
+  if (members !== userIds.length) throw new AppError("ACCESS_DENIED");
+  const where = { workspaceId_directKey: { workspaceId, directKey } };
+  const existing = await db.conversation.findUnique({ where, select: { id: true } });
+  if (existing) {
+    // Leaving the Workspace deletes a member's rows; coming back restores them.
+    await db.conversationMember.createMany({
+      data: userIds.map((userId) => ({ conversationId: existing.id, workspaceId, userId })),
+      skipDuplicates: true,
+    });
+    return { conversationId: existing.id };
+  }
+  try {
+    const created = await db.conversation.create({
+      data: {
+        workspace: { connect: { id: workspaceId } },
+        directKey,
+        members: {
+          create: userIds.map((userId) => ({
+            workspace: { connect: { id: workspaceId } },
+            user: { connect: { id: userId } },
+          })),
+        },
+      },
+      select: { id: true },
+    });
+    return { conversationId: created.id };
+  } catch (error) {
+    // A concurrent first open won the insert; reuse its conversation.
+    if (!isUniqueViolation(error)) throw error;
+    const raced = await db.conversation.findUniqueOrThrow({ where, select: { id: true } });
+    return { conversationId: raced.id };
+  }
+}
+
 /**
  * A direct conversation between Workspace members: one per pair, whoever opens it, and one a
  * member keeps with themself. No Agent is ever a member, so nothing in it is delivered to one.
@@ -38,45 +85,8 @@ export class UserDirectConversations {
   ) {}
 
   /** Opens the viewer's direct conversation with `peerUserId`, starting it on first open. */
-  async open(workspaceId: string, viewerId: string, peerUserId: string) {
-    // One member row each; a member's conversation with themself has one.
-    const userIds = [...new Set([viewerId, peerUserId])];
-    const directKey = peopleDirectKey(viewerId, peerUserId);
-    const members = await this.db.workspaceMembership.count({
-      where: { workspaceId, userId: { in: userIds } },
-    });
-    if (members !== userIds.length) throw new AppError("ACCESS_DENIED");
-    const where = { workspaceId_directKey: { workspaceId, directKey } };
-    const existing = await this.db.conversation.findUnique({ where, select: { id: true } });
-    if (existing) {
-      // Leaving the Workspace deletes a member's rows; coming back restores them.
-      await this.db.conversationMember.createMany({
-        data: userIds.map((userId) => ({ conversationId: existing.id, workspaceId, userId })),
-        skipDuplicates: true,
-      });
-      return { conversationId: existing.id };
-    }
-    try {
-      const created = await this.db.conversation.create({
-        data: {
-          workspace: { connect: { id: workspaceId } },
-          directKey,
-          members: {
-            create: userIds.map((userId) => ({
-              workspace: { connect: { id: workspaceId } },
-              user: { connect: { id: userId } },
-            })),
-          },
-        },
-        select: { id: true },
-      });
-      return { conversationId: created.id };
-    } catch (error) {
-      // A concurrent first open won the insert; reuse its conversation.
-      if (!isUniqueViolation(error)) throw error;
-      const raced = await this.db.conversation.findUniqueOrThrow({ where, select: { id: true } });
-      return { conversationId: raced.id };
-    }
+  open(workspaceId: string, viewerId: string, peerUserId: string) {
+    return openPeopleDirectConversation(this.db, workspaceId, viewerId, peerUserId);
   }
 
   /**

@@ -181,7 +181,7 @@ test("real Kiro v3 reads and replies through Web, Centrifugo and Daemon", async 
         })),
     );
     const page = await fetch(
-      `http://127.0.0.1:8789/w/${workspaceSlug}/messages/${created.agent.id}`,
+      `http://127.0.0.1:8789/w/${workspaceSlug}/dm/${opened.conversationId}`,
     );
     expect(page.status).toBe(200);
     expect(await page.text()).toContain(marker);
@@ -207,7 +207,7 @@ test("real Kiro v3 reads and replies through Web, Centrifugo and Daemon", async 
     expect(resetsAt).toBeDefined();
     expect(Date.parse(resetsAt ?? "")).toBeGreaterThan(Date.now());
     console.log(
-      `Verified native Kiro reply, delivery ACK and account usage scan; review /w/${workspaceSlug}/messages/${created.agent.id}`,
+      `Verified native Kiro reply, delivery ACK and account usage scan; review /w/${workspaceSlug}/dm/${opened.conversationId}`,
     );
   } finally {
     await runtime?.stop();

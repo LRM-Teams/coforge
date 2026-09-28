@@ -53,14 +53,7 @@ export class PrismaWebPushSubscriptionStore implements WebPushSubscriptionStore 
         },
         mentions: MESSAGE_MENTIONS_SELECT,
         conversation: {
-          include: {
-            workspace: { select: { slug: true } },
-            members: {
-              where: { agentId: { not: null } },
-              select: { agentId: true },
-              take: 1,
-            },
-          },
+          include: { workspace: { select: { slug: true } } },
         },
       },
     });
@@ -78,16 +71,15 @@ export class PrismaWebPushSubscriptionStore implements WebPushSubscriptionStore 
     const sender = message.sender
       ? `@${message.sender.agent?.name ?? message.sender.user?.username ?? "unknown"}`
       : "System";
-    const agentId = message.conversation.members[0]?.agentId;
-    if (!channelName && !agentId) return null;
     const preview =
       readableBody.length > MESSAGE_PREVIEW_LENGTH
         ? `${readableBody.slice(0, MESSAGE_PREVIEW_LENGTH - 1)}…`
         : readableBody;
     const workspaceSlug = message.conversation.workspace.slug;
-    const conversationPath = channelName
-      ? workspacePath(workspaceSlug, `/channel/${message.conversationId}`)
-      : workspacePath(workspaceSlug, `/messages/${agentId}`);
+    const conversationPath = workspacePath(
+      workspaceSlug,
+      `/${channelName ? "channel" : "dm"}/${message.conversationId}`,
+    );
     // The message lives in the Chat tab; the server rendering the target never sees the hash.
     const anchoredTarget = `${conversationPath}?view=chat#message-${message.id}`;
     const url = `/notifications/open?workspace=${encodeURIComponent(workspaceSlug)}&target=${encodeURIComponent(anchoredTarget)}`;

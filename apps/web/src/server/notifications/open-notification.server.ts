@@ -2,10 +2,10 @@ import { RFC_UUID_SOURCE } from "@lrm/coforge-sdk/internal";
 import { serializeWorkspaceCookie } from "#src/server/workspaces/selection.server";
 import { splitWorkspacePath } from "#src/features/workspaces/workspace-url";
 
-/** A conversation under `/w/<slug>` (`/channel/<id>` or `/messages/<agentId>`), optionally
- * anchored at a message. */
+/** A conversation under `/w/<slug>` (`/channel/<id>` or `/dm/<id>`), optionally anchored at a
+ * message. */
 const MESSAGE_TARGET = new RegExp(
-  `^/(?:channel|messages)/${RFC_UUID_SOURCE}(?:\\?view=chat#message-${RFC_UUID_SOURCE})?$`,
+  `^/(?:channel|dm)/${RFC_UUID_SOURCE}(?:\\?view=chat#message-${RFC_UUID_SOURCE})?$`,
   "i",
 );
 

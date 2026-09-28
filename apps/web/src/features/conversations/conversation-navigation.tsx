@@ -7,7 +7,13 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { getRouteApi, useParams, useRouter, useRouterState } from "@tanstack/react-router";
+import {
+  getRouteApi,
+  useParams,
+  useRouter,
+  useRouterState,
+  useMatch,
+} from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { ArrowLeft } from "@untitledui/icons";
 import { ButtonUtility } from "#src/components/base/buttons/button-utility";
@@ -28,6 +34,7 @@ import { CreateChannelDialog } from "./create-channel-dialog";
 import { rememberConversation } from "./last-conversation";
 import { useChannelUnread } from "./conversation-unread";
 import { useRefreshSidebarChannels, useSidebarLists } from "./sidebar-lists";
+import { listedDirectIds } from "./sidebar-rows";
 import { workspacePath } from "#src/features/workspaces/workspace-url";
 
 const messagesRoute = getRouteApi("/w/$workspaceSlug/_chat");
@@ -88,9 +95,12 @@ export function ConversationNavigation({ children }: { children: ReactNode }) {
     from: "/w/$workspaceSlug/_chat/channel/$channelId",
     shouldThrow: false,
   });
-  const agent = useParams({
-    from: "/w/$workspaceSlug/_chat/messages/$agentId",
+  const openDm = useParams({ from: "/w/$workspaceSlug/_chat/dm/$dmId", shouldThrow: false });
+  // The open DM's Agent (its realtime events name the Agent), as its page resolved it.
+  const openAgentId = useMatch({
+    from: "/w/$workspaceSlug/_chat/dm/$dmId",
     shouldThrow: false,
+    select: (match) => match.loaderData?.agentId,
   });
   const showList =
     browsing ||
@@ -121,7 +131,10 @@ export function ConversationNavigation({ children }: { children: ReactNode }) {
   }, [workspaceId, workspaceSlug, pathname]);
 
   const visibleChannels = useMemo(() => channels.filter((listed) => !listed.archived), [channels]);
-  const hiddenAgentIds = useMemo(() => new Set(directs.hiddenAgentIds), [directs]);
+  const listedConversationIds = useMemo(
+    () => new Set([...visibleChannels.map((row) => row.id), ...listedDirectIds(directs, agents)]),
+    [visibleChannels, directs, agents],
+  );
   const closedChatRefresh = useRef<"idle" | "running" | "queued">("idle");
   const refreshChannels = useRefreshSidebarChannels();
   const unread = useChannelUnread({
@@ -130,8 +143,8 @@ export function ConversationNavigation({ children }: { children: ReactNode }) {
     channels: visibleChannels,
     openConversationId: channel?.channelId,
     // The open DM's own events must not bump its badge: they are being read right now.
-    openAgentId: agent?.agentId,
-    hiddenAgentIds,
+    openAgentId,
+    listedConversationIds,
     onClosedConversationActivity: () => {
       // One refresh at a time: a burst of messages needs a single re-read of the list. A message
       // that lands mid-refresh may have missed that read, so it queues exactly one more.
@@ -202,12 +215,12 @@ export function ConversationNavigation({ children }: { children: ReactNode }) {
                   agents={agents}
                   directRows={directs.byAgent}
                   selectedChannelId={channel?.channelId}
-                  selectedAgentId={agent?.agentId}
+                  selectedDmId={openDm?.dmId}
                   selectedSaved={pathname === workspacePath(workspaceSlug, "/saved")}
                   onCreateChannel={() => setCreating(true)}
                 />
               </div>
-              <LiveAgentActivityBar agents={agents} />
+              <LiveAgentActivityBar agents={agents} directRows={directs.byAgent} />
             </section>
             <div
               className={cx(

@@ -326,6 +326,7 @@ export function AgentProfilePanel({
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-col">
       <AgentProfileHeader
+        canMessage={Boolean(profile?.ownedByCurrentUser)}
         agent={{
           id: agentId,
           name: profile?.name ?? liveAgent?.name ?? "",

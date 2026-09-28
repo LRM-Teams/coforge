@@ -212,18 +212,18 @@ export function ConversationDirectory({
   agents,
   directRows: directRowsByAgent,
   selectedChannelId,
-  selectedAgentId,
+  selectedDmId,
   selectedSaved,
   onCreateChannel,
 }: {
   channels: DirectoryChannel[];
   agents: LiveAgent[];
-  /** The viewer's own DM rows by Agent (P2b, #708): which Agent rows are conversations, which are
-   * pinned (and in what order), and which are closed. DM rows come from the Agent list, so this is
-   * the only thing that can tell them apart. */
+  /** The viewer's own DM rows by Agent (P2b, #708): which Agents they have a conversation with (and
+   * its id), which are pinned (and in what order), and which are closed. */
   directRows: ReadonlyMap<string, DirectRow>;
   selectedChannelId?: string;
-  selectedAgentId?: string;
+  /** The open direct message, by conversation id (from the URL, so it highlights at once). */
+  selectedDmId?: string;
   /** The Saved view is open — its sidebar entry renders as the current row. */
   selectedSaved?: boolean;
   /** Opens the create-channel flow from the "+" next to the CHANNELS caption. */
@@ -237,12 +237,14 @@ export function ConversationDirectory({
     const sortedChannels = [...channels].sort((left, right) =>
       left.joined === right.joined ? 0 : left.joined ? -1 : 1,
     );
-    /** DM rows in the Agent list's own order; a closed one is left out of its section by the
-     * split. */
-    const directRows = agents.map((agent) => ({
-      agent,
-      preference: directRowPreference(directRowsByAgent.get(agent.id)),
-    }));
+    /** DM rows in the Agent list's own order, one per existing conversation (an Agent the viewer
+     * never wrote to has none, as in Raft); a closed one is left out of its section by the split. */
+    const directRows = agents.flatMap((agent) => {
+      const row = directRowsByAgent.get(agent.id);
+      return row?.conversationId
+        ? [{ agent, conversationId: row.conversationId, preference: directRowPreference(row) }]
+        : [];
+    });
     const sections = splitPinnedConversations(sortedChannels, directRows);
     const base: DirectoryLayout = {
       pinned: sections.pinned.map((entry) =>
@@ -309,7 +311,7 @@ export function ConversationDirectory({
       </ConversationRowMenu>
     );
   };
-  const directRow = ({ agent, preference }: (typeof directRows)[number]) => (
+  const directRow = ({ agent, conversationId, preference }: (typeof directRows)[number]) => (
     <ConversationRowMenu
       target={{
         kind: "direct",
@@ -319,8 +321,8 @@ export function ConversationDirectory({
       }}
     >
       <ConversationRow
-        target={{ agentId: agent.id }}
-        current={agent.id === selectedAgentId}
+        target={{ dmId: conversationId }}
+        current={conversationId === selectedDmId}
         unreadCount={unreadCounts[agent.id]}
         label={agent.displayName}
         icon={
