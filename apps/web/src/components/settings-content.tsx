@@ -35,6 +35,13 @@ import { WorkspaceMembersPanel } from "#src/features/workspaces/workspace-member
 import { GitHubSettings } from "#src/features/integrations/github-settings";
 import { TEXT_SIZE_OPTIONS, type TextSizeValue } from "#src/features/settings/text-size";
 import {
+  MESSAGE_FONT_SIZES,
+  parseMessageFontSize,
+  useMessageFontSize,
+  type MessageFontSize,
+} from "#src/features/settings/message-font-size";
+import { MessageFontSizePreview } from "#src/features/settings/message-font-size-preview";
+import {
   isConversationOpenMode,
   type ConversationOpenMode,
 } from "#src/features/settings/conversation-open-mode";
@@ -642,6 +649,7 @@ function ProfileValue({
 }
 
 function Preferences({
+  profile,
   theme,
   onThemeChange,
   railLabels,
@@ -663,6 +671,12 @@ function Preferences({
     xxl: m.preferences_text_size_huge(),
   };
   const savedOnDevice = m.preferences_saved_on_device();
+  const [messageFontSize, setMessageFontSize] = useMessageFontSize();
+  const messageFontSizeLabels: Record<MessageFontSize, string> = {
+    sm: m.preferences_message_font_size_small(),
+    md: m.preferences_message_font_size_medium(),
+    lg: m.preferences_message_font_size_large(),
+  };
 
   return (
     <SettingsPage>
@@ -724,23 +738,38 @@ function Preferences({
             </Select>
           </SettingsField>
         </SettingsCard>
-      </SettingsGroup>
-
-      <SettingsGroup icon={LayoutLeft} label={m.preferences_sidebar()}>
         <SettingsCard>
           <SettingsField
-            inline
-            label={m.preferences_rail_labels()}
-            description={m.preferences_rail_labels_description()}
+            label={m.preferences_message_font_size()}
+            description={m.preferences_message_font_size_description()}
             note={savedOnDevice}
           >
-            <Toggle
-              size="md"
-              aria-label={m.preferences_rail_labels()}
-              isSelected={railLabels}
-              onChange={onRailLabelsChange}
-            />
+            <ButtonGroup
+              aria-label={m.preferences_message_font_size()}
+              size="sm"
+              selectedKeys={[messageFontSize]}
+              disallowEmptySelection
+              onSelectionChange={(keys) => {
+                const next = [...keys][0];
+                if (next !== undefined) setMessageFontSize(parseMessageFontSize(String(next)));
+              }}
+            >
+              {MESSAGE_FONT_SIZES.map((size) => (
+                <ButtonGroupItem key={size} id={size}>
+                  {messageFontSizeLabels[size]}
+                </ButtonGroupItem>
+              ))}
+            </ButtonGroup>
           </SettingsField>
+          <div className="flex flex-col gap-2">
+            <p className="text-xs font-semibold tracking-wide text-tertiary uppercase">
+              {m.preferences_preview()}
+            </p>
+            <MessageFontSizePreview
+              senderName={profile.name || profile.username}
+              senderAvatarUrl={profile.avatarUrl}
+            />
+          </div>
         </SettingsCard>
         <SettingsCard>
           <SettingsField
@@ -762,6 +791,21 @@ function Preferences({
       <SettingsGroup icon={MessagesSquare} label={m.preferences_conversations()}>
         <SettingsCard>
           <SettingsField
+            inline
+            label={m.preferences_message_full_width()}
+            description={m.preferences_message_full_width_description()}
+            note={savedOnDevice}
+          >
+            <Toggle
+              size="md"
+              aria-label={m.preferences_message_full_width()}
+              isSelected={messageFullWidth}
+              onChange={onMessageFullWidthChange}
+            />
+          </SettingsField>
+        </SettingsCard>
+        <SettingsCard>
+          <SettingsField
             label={m.preferences_conversation_open_mode()}
             description={m.preferences_conversation_open_mode_description()}
           >
@@ -780,18 +824,21 @@ function Preferences({
             </Select>
           </SettingsField>
         </SettingsCard>
+      </SettingsGroup>
+
+      <SettingsGroup icon={LayoutLeft} label={m.preferences_sidebar()}>
         <SettingsCard>
           <SettingsField
             inline
-            label={m.preferences_message_full_width()}
-            description={m.preferences_message_full_width_description()}
+            label={m.preferences_rail_labels()}
+            description={m.preferences_rail_labels_description()}
             note={savedOnDevice}
           >
             <Toggle
               size="md"
-              aria-label={m.preferences_message_full_width()}
-              isSelected={messageFullWidth}
-              onChange={onMessageFullWidthChange}
+              aria-label={m.preferences_rail_labels()}
+              isSelected={railLabels}
+              onChange={onRailLabelsChange}
             />
           </SettingsField>
         </SettingsCard>

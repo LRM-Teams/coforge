@@ -3,17 +3,17 @@ import { describe, expect, test } from "bun:test";
 import { collapsedMessageHeightPx, overflowsCollapsedMessage } from "./collapsed-message-height";
 
 describe("collapsed message height", () => {
-  test("is thirteen 24px lines at the default text size", () => {
-    expect(collapsedMessageHeightPx(16)).toBe(312);
+  test("is thirteen lines of the body's line height at the default message font size", () => {
+    expect(collapsedMessageHeightPx(21)).toBe(273);
   });
 
-  test("grows with the root font size so a larger Text size keeps thirteen lines", () => {
-    expect(collapsedMessageHeightPx(20)).toBe(390);
+  test("grows with the line height so a larger Message font size or Text size keeps thirteen lines", () => {
+    expect(collapsedMessageHeightPx(24)).toBe(312);
   });
 
-  test("a body collapses only when it is taller than the collapsed height at the current text size", () => {
-    expect(overflowsCollapsedMessage(340, 16)).toBe(true);
-    expect(overflowsCollapsedMessage(340, 20)).toBe(false);
-    expect(overflowsCollapsedMessage(313, 16)).toBe(false);
+  test("a body collapses only when it is taller than thirteen of its own lines", () => {
+    expect(overflowsCollapsedMessage(300, 21)).toBe(true);
+    expect(overflowsCollapsedMessage(300, 24)).toBe(false);
+    expect(overflowsCollapsedMessage(274, 21)).toBe(false);
   });
 });
