@@ -45,8 +45,9 @@ export const MENTION_CHIP_AGENT_CLASS = "message-markdown-mention-agent";
 
 /**
  * Task-reference chip classes. A `task #68` reference the server stored as a `<@task:68>` token
- * renders with the same soft fill as a mention chip so a reference reads as a reference; the
- * `-link` variant marks the one the renderer turns into a control (see `message-body.tsx`).
+ * renders with the same soft fill as a mention chip so a reference reads as a reference, until the
+ * renderer knows the task's status and draws its status badge instead; the `-link` variant marks
+ * the one the renderer turns into a control (see `message-body.tsx`).
  */
 const TASK_CHIP_BASE = "message-markdown-task-reference rounded-sm px-0.5 font-medium";
 export const TASK_CHIP_CLASS = `${TASK_CHIP_BASE} bg-brand-primary text-brand-secondary`;
