@@ -23,7 +23,7 @@
  * instead export a long-term `ALIBABA_CLOUD_ACCESS_KEY_ID`/`ALIBABA_CLOUD_ACCESS_KEY_SECRET` pair.
  * No long-term AccessKey is stored for CI.
  */
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { appendFile, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -315,6 +315,24 @@ export async function assertVersionIsUnpublished(
   }
 }
 
+/** How many dev numbers a release line may use before the probe gives up rather than spin. */
+const MAX_DEV_NUMBER = 500;
+
+/**
+ * The version a staging build of `line` publishes as: `<line>-dev.<N>` for the smallest N, from 1,
+ * whose manifest the feed does not have. Each release line counts its own dev builds, as semver
+ * pre-releases do (`1.0.0-beta.2 < 1.0.0-beta.11`); a number already published is skipped, and a
+ * number left half-uploaded by a failed publish (no manifest) is reused, as a rerun would. The
+ * staging workflow's `release-staging` concurrency group keeps two publishes from probing at once.
+ */
+export async function nextDevVersion(line: string, options: { client: OSS }): Promise<string> {
+  for (let number = 1; number <= MAX_DEV_NUMBER; number += 1) {
+    const version = `${line}-dev.${number}`;
+    if (!(await objectExists(options.client, manifestObjectKey(version)))) return version;
+  }
+  throw new Error(`Release line ${line} has no unused dev number up to ${MAX_DEV_NUMBER}`);
+}
+
 export interface UploadOptions {
   client: OSS;
   connection: OssConnection;
@@ -561,7 +579,10 @@ export const DEFAULT_TARGETS: ReleaseTarget[] = [
 export type CompileFn = typeof compileTargetArtifacts;
 
 export interface PublishOptions {
-  version: string;
+  /** The exact version to publish. Exactly one of `version` and `line` is set. */
+  version?: string;
+  /** A release line such as `0.1.1`: publish its next unused dev build (`nextDevVersion`). */
+  line?: string;
   commit: string;
   feedUrl: string;
   targets: ReleaseTarget[];
@@ -628,6 +649,13 @@ export async function runPublish(
     ...deps.connection,
   };
   const client = options.dryRun ? null : await createOssClient(connection, deps.credentials);
+  // The version is compiled into both roles, so a line's dev number is settled before compiling.
+  if (options.version && options.line)
+    throw new Error("a publish takes a version or a line, not both");
+  const version =
+    options.version ??
+    (client && options.line ? await nextDevVersion(options.line, { client }) : undefined);
+  if (!version) throw new Error("a publish needs a --version, or a --line and feed access");
 
   const workDirectory = await mkdtemp(join(tmpdir(), "coforge-release-publish-"));
   try {
@@ -637,7 +665,7 @@ export async function runPublish(
       log(`compiling ${target}...`);
       artifacts[target] = await compile({
         target,
-        version: options.version,
+        version,
         feedUrl: options.feedUrl,
         outputDirectory: join(workDirectory, "compile", target),
       });
@@ -647,7 +675,7 @@ export async function runPublish(
     const photonWasm = await resolvePhotonWasm();
 
     const inputs: ReleaseInputs = {
-      version: options.version,
+      version,
       commit: options.commit,
       buildDate: new Date().toISOString(),
       photonWasm,
@@ -694,6 +722,9 @@ export async function runPublish(
 
 interface ParsedArgs {
   version?: string;
+  line?: string;
+  activate?: boolean;
+  allowExisting?: boolean;
   commit?: string;
   feedUrl?: string;
   targets?: string;
@@ -725,6 +756,9 @@ function parseArgv(argv: string[]): ParsedArgs {
         break;
       case "--version":
         result.version = requireValue(argv, (index += 1), flag);
+        break;
+      case "--line":
+        result.line = requireValue(argv, (index += 1), flag);
         break;
       case "--commit":
         result.commit = requireValue(argv, (index += 1), flag);
@@ -774,13 +808,29 @@ async function currentGitCommit(): Promise<string> {
   return sha;
 }
 
+/** A release line: the `major.minor.patch` its dev builds are pre-releases of. */
+const RELEASE_LINE = /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/;
+
 export type CliDependencies = Omit<PublishDependencies, "log">;
 
 export async function runCli(argv: string[], deps: CliDependencies = {}): Promise<number> {
   try {
     const args = parseArgv(argv);
-    if (!args.version) throw new Error("--version is required");
-    if (!isValidReleaseVersion(args.version)) {
+    if (args.version && args.line) throw new Error("pass either --version or --line, not both");
+    if (args.line) {
+      if (!RELEASE_LINE.test(args.line))
+        throw new Error(`--line must be a release line such as 0.1.1: ${args.line}`);
+      if (args.dryRun)
+        throw new Error("--line reads the feed to pick a dev number; a --dry-run needs --version");
+      // Each job of a split publication would otherwise pick a dev number of its own.
+      for (const [flag, set] of [
+        ["--no-activate", args.activate === false],
+        ["--allow-existing", args.allowExisting === true],
+      ] as const)
+        if (set)
+          throw new Error(`a split publication names its version: use --version with ${flag}`);
+    } else if (!args.version) throw new Error("--version or --line is required");
+    else if (!isValidReleaseVersion(args.version)) {
       throw new Error(`--version must be a valid version string: ${args.version}`);
     }
     if (!args.feedUrl) throw new Error("--feed-url is required");
@@ -790,6 +840,7 @@ export async function runCli(argv: string[], deps: CliDependencies = {}): Promis
     const commit = args.commit ?? (await currentGitCommit());
     const options: PublishOptions = {
       version: args.version,
+      line: args.line,
       commit,
       feedUrl: args.feedUrl,
       targets: parseTargets(args.targets),
@@ -800,7 +851,11 @@ export async function runCli(argv: string[], deps: CliDependencies = {}): Promis
     };
     // console.log/console.error, not the injected `deps`, are the actual "script stdout/stderr":
     // this is what publish.test.ts's credential-leak test captures and asserts against.
-    await runPublish(options, { ...deps, log: (line) => console.log(line) });
+    const outcome = await runPublish(options, { ...deps, log: (line) => console.log(line) });
+    // A GitHub Actions step reads the published version from its outputs file; with --line it is
+    // known only now.
+    if (process.env.GITHUB_OUTPUT)
+      await appendFile(process.env.GITHUB_OUTPUT, `version=${outcome.version}\n`);
     return 0;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
