@@ -505,6 +505,18 @@ export function withAutoSendCancelled(
   );
 }
 
+/** Drop this ISO week's cancel/dismiss stamp so the template can be sent again. */
+export function withoutWeekSendDismissed(
+  content: ReportContent,
+  year: number,
+  week: number,
+): ReportContent {
+  const normalized = normalizeReportContent(content);
+  if (!isAutoSendCancelled(normalized, year, week)) return normalized;
+  const { schedule: _schedule, ...rest } = normalized;
+  return rest;
+}
+
 /** Cancel auto-send and block manual send for this ISO week. */
 export function withWeekSendDismissed(
   content: ReportContent,
