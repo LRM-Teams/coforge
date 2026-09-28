@@ -78,7 +78,16 @@ test.skipIf(process.platform !== "darwin")(
       // by launchd, not an explicit Coordinator restart operation.
       await client.control("start", "a");
       const peer = (await client.control("snapshot"))[0]!;
-      const peerAgent = await Bun.file(join(root, "workspaces", "YQ", "native-ready.json")).json();
+      // `start` returns once A's local RPC answers, which is before A rewrites native-ready.json
+      // (see the B recovery loop below); until then the file still names the Agent `stop` ended.
+      const aReadyPath = join(root, "workspaces", "YQ", "native-ready.json");
+      const peerDeadline = Date.now() + 30_000;
+      let peerAgent = await Bun.file(aReadyPath).json();
+      while (peerAgent.workspacePid !== peer.processId) {
+        if (Date.now() >= peerDeadline) throw new Error("Workspace A did not report readiness");
+        await Bun.sleep(25);
+        peerAgent = await Bun.file(aReadyPath).json();
+      }
       process.kill(b.processId, "SIGKILL");
       const replacementClient = new LocalDaemonLauncher({
         executablePath: executable,
