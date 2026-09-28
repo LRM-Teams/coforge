@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 import type { AgentDisplaySnapshot } from "@lrm/coforge-sdk/internal";
 import { FileIcon as FileTypeIcon } from "@untitledui/file-icons";
 import {
@@ -8,7 +8,6 @@ import {
   Copy01,
   CornerUpLeft,
   Download01,
-  MessageSquare01 as MessageSquare,
   XClose,
 } from "@untitledui/icons";
 import { Modal as AriaModal, ModalOverlay as AriaModalOverlay } from "react-aria-components";
@@ -42,7 +41,7 @@ import { CollapsibleMessageBody } from "./collapsible-message-body";
 import type { ChipMention } from "./message-markdown";
 import { formatSelectionQuote, selectionAffordancePlacement } from "./message-quote";
 import { MessageReactionPicker, QUICK_REACTION_EMOJIS } from "./message-reaction-picker";
-import { UnreadDot } from "./conversation-directory";
+import { ThreadPreview, ThreadSheetEntry, ThreadToolbarEntry } from "./thread-summary";
 import {
   copyFragmentMarkdown,
   copyFragmentStyled,
@@ -98,14 +97,6 @@ export type MessageView = {
    * Replaces the plain-text draft hint line with the interactive card; the
    * underlying `body` stays available to assistive technology. */
   actionCard?: ActionCardView;
-};
-
-/** A row's entry into the message's thread: the viewer's unread reply count and the action
- * that opens the thread. The conversation supplies the facts; the row owns presentation —
- * a hover-toolbar button on desktop, a row in the tap action sheet on touch devices. */
-export type MessageThreadEntry = {
-  unread: number;
-  open: () => void;
 };
 
 export const GROUPING_WINDOW_MS = 5 * 60 * 1000;
@@ -533,8 +524,7 @@ export const MessageRow = memo(function MessageRow({
   unreadStartsHere,
   highlighted,
   dateLocale,
-  threadEntry,
-  threadPreview,
+  onOpenThread,
   onToggleReaction,
   onToggleSave,
   onOpenAgentProfile,
@@ -566,8 +556,9 @@ export const MessageRow = memo(function MessageRow({
    * (#713) and the pane highlights the row by id instead — same classes, either way. */
   highlighted?: boolean;
   dateLocale?: string;
-  threadEntry?: (message: MessageView) => MessageThreadEntry;
-  threadPreview?: (message: MessageView) => ReactNode;
+  /** Opens a root's thread. Present, the row offers its thread (the toolbar and sheet entries,
+   * and the preview card), each reading its own root's thread summary (`thread-summary.tsx`). */
+  onOpenThread?: (rootId: string) => void;
   /** Shows the Task the message became under it (`MessageTask`): the conversation's own stream
    * does, a thread pane (whose root the Task popup already shows) does not. */
   showsTask?: boolean;
@@ -818,13 +809,6 @@ export const MessageRow = memo(function MessageRow({
       </li>
     );
   }
-  const thread = threadEntry?.(message);
-  // The badge already shows the count visually, so it stays out of the tooltip; screen readers
-  // still get it through the accessible name.
-  const threadLabel = m.conversation_thread_reply();
-  const threadAccessibleLabel = thread?.unread
-    ? `${threadLabel} · ${m.conversation_thread_unread({ count: thread.unread })}`
-    : threadLabel;
   // #544's whole-message copy (the IM-standard "Copy text", the only copy path for a collapsed,
   // unselectable body) rides the action strip on desktop and the tap action sheet on the mobile
   // shell; the sheet therefore also opens for a message with no thread and no reactions.
@@ -1012,9 +996,9 @@ export const MessageRow = memo(function MessageRow({
             </div>
           )}
           {showsTask && <MessageTask messageId={message.id} />}
-          {threadPreview?.(message)}
+          {onOpenThread && <ThreadPreview rootId={message.id} onOpen={onOpenThread} />}
         </div>
-        {(threadEntry || onToggleReaction || onToggleSave || copyable) && (
+        {(onOpenThread || onToggleReaction || onToggleSave || copyable) && (
           /* Hidden until revealed: hover/focus in the wide desktop shell (`lg` and up, with
              a hover-capable fine pointer). An unread-thread badge stays inside this bar, but
              does not force it open: the thread preview already exposes the unread count, so
@@ -1033,24 +1017,7 @@ export const MessageRow = memo(function MessageRow({
               "lg:[@media(hover:hover)_and_(pointer:fine)]:group-hover/message:pointer-events-auto lg:[@media(hover:hover)_and_(pointer:fine)]:group-hover/message:opacity-100",
             )}
           >
-            {thread && (
-              <span className="relative inline-flex">
-                <ButtonUtility
-                  icon={MessageSquare}
-                  size="xs"
-                  color="tertiary"
-                  tooltip={threadLabel}
-                  aria-label={threadAccessibleLabel}
-                  onClick={thread.open}
-                  className="p-1 *:data-icon:size-3.5"
-                />
-                {thread.unread > 0 && (
-                  <span className="absolute -top-1 -right-1">
-                    <UnreadDot />
-                  </span>
-                )}
-              </span>
-            )}
+            {onOpenThread && <ThreadToolbarEntry rootId={message.id} onOpen={onOpenThread} />}
             {onToggleReaction && (
               <MessageReactionPicker
                 onPick={(emoji) => onToggleReaction(message.id, emoji, true)}
@@ -1086,7 +1053,7 @@ export const MessageRow = memo(function MessageRow({
             />
           </div>
         )}
-        {sheetActions && (thread || onToggleReaction || onToggleSave || copyable) && (
+        {sheetActions && (onOpenThread || onToggleReaction || onToggleSave || copyable) && (
           /* The mobile-shell counterpart of the hover toolbar: a bottom action sheet in the
              Slack/Discord mobile layout — the quoted message card, a quick-reaction row,
              then full-width actions (thread row, whole-message copy last) — opened by a tap
@@ -1187,27 +1154,19 @@ export const MessageRow = memo(function MessageRow({
                       {saveSaved ? m.conversation_unsave() : m.conversation_save()}
                     </Button>
                   )}
-                  {(onToggleReaction || onToggleSave) && (copyable || thread) && (
+                  {(onToggleReaction || onToggleSave) && (copyable || onOpenThread) && (
                     <div aria-hidden="true" className="mx-1 mt-1 mb-1 h-px bg-secondary" />
                   )}
-                  {thread && (
-                    <Button
-                      color="tertiary"
-                      size="md"
-                      noTextPadding
-                      iconLeading={MessageSquare}
-                      iconTrailing={thread.unread > 0 ? <UnreadDot /> : undefined}
-                      aria-label={threadAccessibleLabel}
-                      onPress={() => {
+                  {onOpenThread && (
+                    <ThreadSheetEntry
+                      rootId={message.id}
+                      onOpen={(rootId) => {
                         setActionsOpen(false);
-                        thread.open();
+                        onOpenThread(rootId);
                       }}
-                      className="w-full justify-start rounded-lg py-3 *:data-icon:size-5 [&>[data-text]]:flex-1 [&>[data-text]]:text-left"
-                    >
-                      {threadLabel}
-                    </Button>
+                    />
                   )}
-                  {copyable && thread && (
+                  {copyable && onOpenThread && (
                     <div aria-hidden="true" className="mx-1 my-1 h-px bg-secondary" />
                   )}
                   {copyable && (

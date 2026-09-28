@@ -5,6 +5,7 @@ import { messageIdFromHash, threadRootFromMessageAnchor } from "./conversation-t
 import { isAppError } from "#src/lib/app-error";
 import type { ThreadRootLoad } from "./thread-root-state";
 import type { DirectConversationView } from "./conversation-types";
+import { threadReadThrough } from "./thread-store";
 
 type ConversationSyncView = Pick<
   DirectConversationView,
@@ -84,19 +85,13 @@ export function useConversationSync({
   );
 
   const [readThrough, setReadThrough] = useState<Record<string, number>>({});
-  /**
-   * This thread's read cursor: the persisted `thread_reads` row, raised by any mark-read this
-   * visit has already performed. `undefined` means the viewer has never read this thread, which
-   * reads as "nothing to catch up on" rather than "every reply is unread" — opening a long
-   * thread for the first time should not bury the conversation that was just clicked into.
-   */
+  // This thread's read cursor (`threadReadThrough`): the stored one, raised by this visit's reads.
   const threadCursor = useCallback(
-    (rootMessageId: string) => {
-      const local = readThrough[rootMessageId];
-      const persisted = conversation.threadReadThrough?.[rootMessageId];
-      if (local === undefined && persisted === undefined) return undefined;
-      return Math.max(local ?? 0, persisted ?? 0);
-    },
+    (rootMessageId: string) =>
+      threadReadThrough(
+        { persistedReads: conversation.threadReadThrough, localReads: readThrough },
+        rootMessageId,
+      ),
     [readThrough, conversation.threadReadThrough],
   );
 
@@ -179,5 +174,5 @@ export function useConversationSync({
     loadWindowAround(messageId).catch(() => {});
   }, [conversation.messages, searchThreadRootId, loadWindowAround]);
 
-  return { visited, windowRead, threadCursor, threadRootFailure, loadThreadRoot };
+  return { visited, windowRead, readThrough, threadCursor, threadRootFailure, loadThreadRoot };
 }
