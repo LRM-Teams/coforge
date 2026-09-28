@@ -1,10 +1,16 @@
 import { expect, test } from "bun:test";
-import type { PrismaClient } from "../generated/client";
-import { AgentActivityRepository } from "../src/server/db/repositories/agent-activity.repositories.server";
+import type { PrismaClient } from "#src/generated/prisma/client";
+import { AgentActivityRepository } from "#src/server/db/repositories/agent-activity.repositories.server";
 
 test("chat activity history uses a compact parameterized member-scoped query", async () => {
   let query: unknown[] = [];
   const db = {
+    workspaceMembership: { findUnique: async () => ({ role: "member" }) },
+    agent: {
+      // The viewer's own visible-Agent ids are read once, through the shared
+      // `visibleAgentWhere` seam, and passed into the CTE's WHERE — never re-derived in SQL.
+      findMany: async () => [{ id: "agent-1" }, { id: "agent-empty" }],
+    },
     $queryRaw: async (...input: unknown[]) => {
       query = input;
       return [
@@ -55,12 +61,13 @@ test("chat activity history uses a compact parameterized member-scoped query", a
     },
     { id: "agent-empty", activity: [] },
   ]);
-  // Two WHERE clauses now also exclude the popover-hidden status kinds (ADR 0021, amended):
+  // Two WHERE clauses now also exclude the popover-hidden status kinds:
   // tool_end, thinking_end, compaction_finished, review_finished, once per CTE.
   const excludedKinds = ["tool_end", "thinking_end", "compaction_finished", "review_finished"];
   expect(query.slice(1)).toEqual([
     "workspace-1",
     "user-1",
+    ["agent-1", "agent-empty"],
     "workspace-1",
     ...excludedKinds,
     "workspace-1",
@@ -69,9 +76,25 @@ test("chat activity history uses a compact parameterized member-scoped query", a
   const sql = String.raw({ raw: query[0] as string[] });
   expect(sql).toContain("ROW_NUMBER() OVER");
   expect(sql).toContain('agent."workspaceId" = ');
+  expect(sql).toContain('agent."id" = ANY(');
   expect(sql).toContain('activity."detailKind" NOT IN');
   expect(sql).not.toContain("workspace-1");
   expect(sql).not.toContain("runtime_config");
   expect(sql).not.toContain('activity."message"');
   expect(sql).toContain('compact."detail"');
+});
+
+test("chat activity history never runs the compact query when the viewer can see no Agent", async () => {
+  let queried = false;
+  const db = {
+    workspaceMembership: { findUnique: async () => ({ role: "member" }) },
+    agent: { findMany: async () => [] },
+    $queryRaw: async () => {
+      queried = true;
+      return [];
+    },
+  } as unknown as PrismaClient;
+
+  expect(await new AgentActivityRepository(db).listForMember("workspace-1", "user-1")).toEqual([]);
+  expect(queried).toBe(false);
 });

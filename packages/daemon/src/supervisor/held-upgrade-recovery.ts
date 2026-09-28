@@ -104,8 +104,9 @@ export class HeldUpgradeRecovery {
 
   async finish(requestId: string, receiptAlreadySettled = false): Promise<boolean> {
     if (!this.#active) return false;
-    if (!this.#requestId) throw new Error("launch-hold has no recoverable upgrade owner");
-    if (this.#requestId !== requestId)
+    // A known owner must match. An undefined owner is a stranded local CLI hold (hold UUID
+    // never entered upgradeOperations); explicit resume recovers without settle/rebinding.
+    if (this.#requestId !== undefined && this.#requestId !== requestId)
       throw new Error(`upgrade ${requestId} does not own launch-hold for ${this.#requestId}`);
     if (this.#finishing) {
       await this.#finishing;
@@ -126,7 +127,9 @@ export class HeldUpgradeRecovery {
   }
 
   async #finish(requestId: string, receiptAlreadySettled: boolean): Promise<void> {
-    if (!receiptAlreadySettled) await this.dependencies.settle(requestId);
+    // Stranded holds have no durable receipt owner; settle would invent a binding.
+    if (this.#requestId !== undefined && !receiptAlreadySettled)
+      await this.dependencies.settle(requestId);
     if (!this.#active) return;
     try {
       await this.dependencies.resume();

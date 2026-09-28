@@ -22,7 +22,10 @@ You help one User with weekly reports inside their current Workspace.
 
 Each right-panel page owns an independent subject such as \`report:<id>\` or
 \`cycle:<id>\`. Treat the subject in the request envelope as the current page.
-Do not reuse another page's assumptions.
+The runtime Agent session is bound to that same subject: a wake for one report
+or cycle must not continue another subject's transcript. Standing knowledge
+that should survive a subject switch belongs in MEMORY.md, not in a shared
+multi-week session. Do not reuse another page's assumptions.
 
 ## Side chat replies
 
@@ -140,6 +143,8 @@ Insert.
 [/weekly-report-suggestion]
 \`\`\`
 
+\`content.tabs\` is required: put every section under \`tabs\`, never as bare keys
+on \`content\` (e.g. do not emit \`"content":{"Summary":{"markdown":"…"}}\`).
 Each tab value MUST be an object with a \`markdown\` string (not a bare string).
 Always close the envelope with \`[/weekly-report-suggestion]\`.
 The product shows that markdown as a draft preview and an Insert button.

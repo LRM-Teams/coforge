@@ -36,13 +36,24 @@ export const CONVERSATION_WINDOW_PAGE_SIZE = 20;
  * `undefined` is the initial (uncursored) fetch, which lands on the newest page. */
 export type ConversationWindowCursor = { before?: number; after?: number } | undefined;
 
-type Sequenced = { sequence: number };
+type Sequenced = { sequence: number; threadRootId?: string };
 
-/** The newest sequence in a page: the cursor a forward fetch continues from. Pages are delivered
- * oldest-first, so the last message carries it — including a thread reply, whose sequence is newer
- * than its root and newer than every top-level message before it. */
-export function newestSequence(messages: readonly Sequenced[]): number | undefined {
-  return messages.at(-1)?.sequence;
+/**
+ * The newest **top-level** sequence in a page: the cursor a forward fetch continues from.
+ *
+ * The server pages by roots (`threadRootId: null`) while a page also carries each root's replies,
+ * so the page's last message can be a reply. A reply's sequence is newer than its root's and can be
+ * newer than the next root this page did not fetch — a cursor taken from it (the last message,
+ * whatever it is) would ask for `sequence > replySequence` and **skip every root in between**,
+ * leaving a hole in the stream (old and new messages adjacent, the middle gone). Scan back to the
+ * newest root instead. Pages are delivered oldest-first, so the newest root is the last root.
+ */
+export function newestRootSequence(messages: readonly Sequenced[]): number | undefined {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index]!;
+    if (!message.threadRootId) return message.sequence;
+  }
+  return undefined;
 }
 
 /** The backward page to fetch when paging up into history, or `undefined` at the start of it. */

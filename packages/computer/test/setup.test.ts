@@ -1,9 +1,9 @@
 import { expect, test } from "bun:test";
 
-import { ComputerSetup, type ComputerSetupOptions } from "../src/setup/computer-setup";
-import type { AccessibleWorkspace, Credential } from "../src/login";
-import { CliError } from "../src/errors";
-import { createWorkspaceLookup } from "../src/workspace/lookup";
+import { ComputerSetup, type ComputerSetupOptions } from "#src/setup/computer-setup";
+import type { AccessibleWorkspace, Credential } from "#src/login";
+import { CliError } from "#src/errors";
+import { createWorkspaceLookup } from "#src/workspace/lookup";
 
 const credential: Credential = { accessToken: "access-secret", tokenType: "Bearer" };
 const workspaces: AccessibleWorkspace[] = [

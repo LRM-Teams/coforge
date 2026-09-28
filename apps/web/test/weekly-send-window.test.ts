@@ -4,15 +4,20 @@ import {
   currentWeekTemplateTitle,
   formatChipLabel,
   formatSendWindowCountdown,
+  formatOfferSendWeekTitle,
   isInWeeklySendWindow,
   isWeeklySendArmed,
   pickPinnedWeekTemplate,
   splitWeeklyTemplateRoles,
   weeklySendWindow,
-} from "../src/features/records/weekly-send-window";
+} from "#src/features/records/weekly-send-window";
 
 test("currentWeekTemplateTitle uses year and week", () => {
   expect(currentWeekTemplateTitle(2026, 36)).toBe("2026 W36 模板");
+});
+
+test("formatOfferSendWeekTitle uses Mon-Fri civil range", () => {
+  expect(formatOfferSendWeekTitle(2026, 36)).toBe("2026 W36 (08.31-09.04)");
 });
 
 test("formatChipLabel is year and week, and names only when chips would collide", () => {

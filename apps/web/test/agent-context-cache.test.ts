@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import {
   RedisAgentContextCache,
   AGENT_CONTEXT_STALE_AFTER_MS,
-} from "../src/server/centrifugo/agent-context-cache.server";
+} from "#src/server/centrifugo/agent-context-cache.server";
 
 function fakeRedis() {
   const values = new Map<string, string>();

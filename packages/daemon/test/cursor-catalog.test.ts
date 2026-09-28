@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { discoverCursorCatalog, parseCursorModelList } from "../src/code-agent/cursor/catalog";
+import { discoverCursorCatalog, parseCursorModelList } from "#src/code-agent/cursor/catalog";
 
 const FIXTURE = new URL("./fixtures/cursor-agent-fixture.ts", import.meta.url).pathname;
 const MODELS_FIXTURE_PATH = new URL("./fixtures/cursor-models.txt", import.meta.url).pathname;

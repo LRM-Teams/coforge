@@ -1,3 +1,5 @@
+import { RFC_UUID_PATTERN } from "@lrm/coforge-sdk/internal";
+
 /** Local proxy / CLI body for personal key-point extraction write-back. */
 export type WeeklyReportKeyPointsCommand = {
   requestId: string;
@@ -11,14 +13,13 @@ export type WeeklyReportKeyPointsResult = {
   status: string;
 };
 
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-
 /** Validates the Agent HTTPS / proxy key-points body before forwarding to cloud. */
 export function validateWeeklyReportKeyPointsCommand(
   payload: Record<string, unknown>,
 ): WeeklyReportKeyPointsCommand | null {
-  if (typeof payload.requestId !== "string" || !UUID.test(payload.requestId)) return null;
-  if (typeof payload.reportId !== "string" || !UUID.test(payload.reportId)) return null;
+  if (typeof payload.requestId !== "string" || !RFC_UUID_PATTERN.test(payload.requestId))
+    return null;
+  if (typeof payload.reportId !== "string" || !RFC_UUID_PATTERN.test(payload.reportId)) return null;
   if (
     typeof payload.markdown !== "string" ||
     payload.markdown.trim().length === 0 ||

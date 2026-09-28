@@ -86,7 +86,12 @@ export function resolveDaemonSocketPath(input: {
   platform: NodeJS.Platform;
   stateDirectory: string;
 }): string {
-  if (input.platform === "win32") return "\\\\.\\pipe\\coforge-daemon";
+  // Bun on Windows listens on AF_UNIX file sockets (`unix:`), not `\\.\pipe\…`.
+  // Keep the Coordinator socket under the Daemon state directory on every platform
+  // so local RPC prep (mkdir/rm/chmod) stays path-based and Computer/Daemon agree.
+  if (input.platform === "win32") {
+    return win32.join(input.stateDirectory, "daemon.sock");
+  }
   if (input.platform === "linux" || input.platform === "darwin") {
     return posix.join(input.stateDirectory, "daemon.sock");
   }

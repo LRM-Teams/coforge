@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import type { HeldBusyAgent } from "@lrm/coforge-sdk/internal";
-import { MachineSupervisor, type ManagedBinding } from "../src/supervisor/machine-supervisor";
-import type { RunnerHoldSnapshot } from "../src/supervisor/runner-hold";
+import { MachineSupervisor, type ManagedBinding } from "#src/supervisor/machine-supervisor";
+import type { RunnerHoldSnapshot } from "#src/supervisor/runner-hold";
 
 /** A virtual clock: `sleep` advances `now` instantly, so the bound costs no wall time. */
 function clock() {

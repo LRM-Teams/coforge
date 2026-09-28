@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { Pool } from "pg";
 import { PrismaPg } from "@prisma/adapter-pg";
-import { PrismaClient } from "../generated/client";
+import { PrismaClient } from "#src/generated/prisma/client";
 import { PrismaWorkspaceMemoryCitationStore } from "../src/server/db/repositories/workspace-memory-citation.repositories.server";
 import { WorkspaceMemoryCitationKindError } from "../src/server/db/repositories/workspace-memory-errors.server";
 import {

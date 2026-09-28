@@ -1,8 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 
-import { getDatabaseClient } from "@/server/db/client.server";
-import { recordCatalog } from "@/server/records/record-catalog.server";
-import { tryCreateWeeklyAssignmentDelivery } from "@/server/records/weekly-assignment-delivery-composition.server";
+import { getDatabaseClient } from "#src/server/db/client.server";
+import { recordCatalog } from "#src/server/records/record-catalog.server";
 
 /**
  * External cron tick for periodic weekly-report send.
@@ -21,10 +20,7 @@ export const Route = createFileRoute("/api/internal/weekly-report-schedule")({
         if (!db) {
           return Response.json({ error: "database unavailable" }, { status: 503 });
         }
-        const result = await recordCatalog(
-          db,
-          tryCreateWeeklyAssignmentDelivery(db),
-        ).runDueScheduledWeeklyAssignments();
+        const result = await recordCatalog(db).runDueScheduledWeeklyAssignments();
         return Response.json(result);
       },
     },

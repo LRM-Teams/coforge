@@ -1,8 +1,6 @@
 import { stat } from "node:fs/promises";
+import { MIME_TYPE_PATTERN } from "@lrm/coforge-sdk/internal";
 import { CliError } from "./cli-error";
-
-/** RFC 6838 `type/subtype`, case-insensitively; matches what the Agent HTTP route accepts. */
-const MIME_TYPE_PATTERN = /^[a-z0-9][a-z0-9!#$&^_.+-]*\/[a-z0-9][a-z0-9!#$&^_.+-]*$/i;
 
 const EXTENSION_MIME_TYPES: Readonly<Record<string, string>> = {
   ".jpg": "image/jpeg",

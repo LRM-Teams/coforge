@@ -26,8 +26,8 @@ import {
   type Ref,
 } from "react";
 import { Maximize02 as Maximize2 } from "@untitledui/icons";
-import { ButtonUtility } from "@/components/base/buttons/button-utility";
-import { Dialog, Modal, ModalOverlay } from "@/components/application/modals/modal";
+import { ButtonUtility } from "#src/components/base/buttons/button-utility";
+import { Dialog, Modal, ModalOverlay } from "#src/components/application/modals/modal";
 import { useT } from "./i18n";
 import { normalizeMermaidChart, sanitizeMermaidSvg } from "./normalize-mermaid-chart";
 

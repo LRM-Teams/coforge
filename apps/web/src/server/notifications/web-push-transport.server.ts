@@ -1,7 +1,7 @@
 import webPush from "web-push";
 
 import { assertVapidKeyPair } from "./vapid-key-pair.server";
-import { createWebPushEgressAgent } from "./web-push-egress.server";
+import { resolvePinnedWebPushTarget, sendPinnedWebPushRequest } from "./web-push-egress.server";
 import {
   WebPushDeliveryError,
   type StoredWebPushSubscription,
@@ -62,38 +62,44 @@ export function createWebPushRequestDetails(
       urgency: "normal",
       contentEncoding: "aes128gcm",
       vapidDetails: config,
-      timeout: 10_000,
     },
   );
 }
 
+const DEFAULT_TIMEOUT_MS = 10_000;
+
+export type WebPushTransportDependencies = {
+  timeoutMs?: number;
+  resolveTarget?: typeof resolvePinnedWebPushTarget;
+  sendRequest?: typeof sendPinnedWebPushRequest;
+};
+
 export class WebPushLibraryTransport implements WebPushTransport {
-  constructor(private readonly config: WebPushConfig) {}
+  private readonly timeoutMs: number;
+  private readonly resolveTarget: typeof resolvePinnedWebPushTarget;
+  private readonly sendRequest: typeof sendPinnedWebPushRequest;
+
+  constructor(
+    private readonly config: WebPushConfig,
+    dependencies: WebPushTransportDependencies = {},
+  ) {
+    this.timeoutMs = dependencies.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+    this.resolveTarget = dependencies.resolveTarget ?? resolvePinnedWebPushTarget;
+    this.sendRequest = dependencies.sendRequest ?? sendPinnedWebPushRequest;
+  }
 
   async send(subscription: StoredWebPushSubscription, payload: WebPushPayload) {
     try {
-      const agent = await createWebPushEgressAgent(subscription.endpoint);
-      await webPush.sendNotification(
-        {
-          endpoint: subscription.endpoint,
-          keys: { p256dh: subscription.p256dh, auth: subscription.auth },
-        },
-        JSON.stringify(payload),
-        {
-          TTL: 60 * 60,
-          urgency: "normal",
-          contentEncoding: "aes128gcm",
-          vapidDetails: this.config,
-          timeout: 10_000,
-          agent,
-        },
-      );
+      const requestDetails = createWebPushRequestDetails(this.config, subscription, payload);
+      const target = await this.resolveTarget(subscription.endpoint);
+      const response = await this.sendRequest(requestDetails, target, this.timeoutMs);
+      // Mirrors web-push 3.6.7's own success range (web-push-lib.js `sendNotification`).
+      if (response.statusCode < 200 || response.statusCode > 299) {
+        throw new WebPushDeliveryError(response.statusCode);
+      }
     } catch (error) {
-      const statusCode =
-        typeof error === "object" && error && "statusCode" in error
-          ? Number(error.statusCode)
-          : undefined;
-      throw new WebPushDeliveryError(statusCode);
+      if (error instanceof WebPushDeliveryError) throw error;
+      throw new WebPushDeliveryError(undefined);
     }
   }
 }

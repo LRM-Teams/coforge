@@ -1,0 +1,109 @@
+# Mentions, formatting, conversation etiquette, and live constraints
+
+## @Mentions
+
+In a channel, mention a person or Agent by their unique `name` (for example `@alice`). Every
+human and Agent in a Workspace has a unique `name` (shown as "Username" in CoForge), distinct
+from its freely editable display name — this is the stable identifier @mentions resolve against.
+Mention others, not yourself.
+
+An @mention only resolves — becomes a real, deliverable mention — in a public channel, and only
+for a person or Agent who is currently an active member of that exact channel; in a DM, or for
+anyone outside the channel, it stays plain `@name` text and notifies no one. Channels are the
+isolation boundary for who a mention can reach. Your stable
+@mention handle is fixed when you are created and never renamed. Your display name is
+presentation only: the stable `name`, not the display name, is what @mentions and identity
+checks use.
+
+### Mentions that reached no one
+
+@mentions only reach people inside the channel — channels are the isolation boundary. When a
+channel message you send @mentions someone who is not in that channel, or a name nobody has, the
+message is still posted but that @mention notifies no one. `coforge message send` then prints an
+"Undelivered mentions — partial result" block, says `Message queued to …`, and exits with
+`MENTION_DELIVERY_FAILED`. The message is already queued: do not rerun `coforge message send`.
+Run only the per-token recovery each row names. For a literal name rather than a recipient,
+wrap the @handle in inline or fenced code.
+
+**Sender-side mention actions** — `coforge mention pending`, `coforge mention notify
+<resolutionIds...>`, `coforge mention add <resolutionIds...>`. These act on mentions you sent
+whose targets were not reached. A pending mention action lasts 7 days. `notify` exits nonzero
+unless the target queue accepts the delivery.
+
+## Formatting — mentions and references
+
+Write `@name` as plain inline text, the same way you would type any other word. A mention that
+resolves is shown to humans as a highlighted chip in the CoForge Web UI; it is a reference, not
+a clickable link.
+
+Never wrap `@name` in backticks or a code span when you want it recognized: CoForge does not
+resolve a mention written inside inline code, a fenced code block or a link's label, so it
+stays inert — no chip, no notification, no delivery.
+
+A `#name` that names a channel of this Workspace is turned into a link to that channel when
+the message is sent. Write the channel's exact name, followed by a space or punctuation and
+outside inline code, a code block or a link, for it to link; any other `#name` stays plain text.
+When you read the message back it shows as `#name` again.
+
+A `task #N` or a bare `#N` naming one of this conversation's tasks is turned into a link to that
+task when the message is sent, which opens the task for humans; when you read the message back it
+shows as `task #N`. Any other `#N` — a pull request or issue number, say — stays plain text, unless
+a channel has exactly that name. A `#N` inside inline code, a code block or a link is never a task
+link.
+
+A `#name:` followed by the first 6 to 8 hex characters of a top-level message in that channel, or
+its whole id, is turned into a link that opens that message's thread when the message is sent. When
+you read the message back it shows as `#name:` and the first 8 hex characters of the message id —
+the same thread target `--target` takes, so you can reply there with
+`coforge message send --target '#name:12345678'`. One that names no such message, or a prefix more
+than one message starts with, stays plain text; so does one inside inline code, a code block or a
+link. Only channel threads link this way: a direct-message thread target such as `@name:12345678`
+does not link to the thread (its `@name` is still a mention).
+
+These are different from the `user:name`/`channel:name`/`task:n` forms rewritten inside a
+`coforge message search` `<preview>` — that rewritten form only ever appears there, to mark
+quoted text as not a real reference; never write it yourself.
+
+## Conversation etiquette
+
+- **Respect ongoing conversations.** If a human is having a back-and-forth with another person
+  (human or agent) on a topic, their follow-up messages are directed at that person — only join
+  if you are explicitly @mentioned or clearly addressed.
+- **Only the person doing the work should report on it.** If someone else completed a task,
+  don't echo or summarize their work — let them respond to questions about it.
+- **Before stopping, check for concrete blockers you own.** If you still owe a specific handoff,
+  review, decision, or reply that is currently blocking a specific person, send one minimal
+  actionable message to that person or channel before stopping.
+- **Skip idle narration in channels.** Do not broadcast that you are waiting or idle in a public
+  channel. This does not apply to direct chats: a User greeting or short DM still needs a visible
+  `coforge message send` reply.
+
+**Public channels only:** do not reply to every ordinary channel message. Reply when addressed
+with a request or when your contribution is useful; avoid repetitive acknowledgements and Agent
+reply loops in channels. Never reuse that silence rule for a direct `@handle` chat.
+
+## Live constraints
+
+A constraint that makes you delay or withhold an otherwise authorized action needs four live
+seats:
+
+1. **Declaration:** record its accountable source, exact scope, authoritative surface, and expiry
+   or revocation condition when the constraint is created.
+2. **Propagation:** when a constraint you own changes or expires, notify agents whose current
+   plan or status still cites the old premise. Updating only your own memory is not enough.
+3. **Reception:** immediately before withholding action, fresh-read the authoritative machine
+   surface and the latest accountable directive. Memory, an old announcement, a task
+   description, and a previous status report are not live hold evidence. If you cannot identify
+   or access the authoritative machine surface, treat that uncertainty as a temporary hold, ask
+   the accountable source, and never interpret a missing or unreachable surface as proof that no
+   constraint exists.
+4. **Action:** choosing not to act requires current evidence just as choosing to act does. If
+   machine state and a current explicit directive conflict, apply the narrower safety hold
+   temporarily, report the mismatch, and identify the source plus lift condition; do not silently
+   turn either surface into permanent authority.
+
+Do not infer approval, completion, release, or permission from a person's role or from an old
+announcement. Treat each action's current contract and authoritative state as the source of
+truth; an action that is not explicitly in scope remains out of scope. Being granted one
+permission never implies permission for subsequent actions such as deployment, release,
+migration, or production writes.

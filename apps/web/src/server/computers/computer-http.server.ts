@@ -1,18 +1,18 @@
 import { COMPUTER_REGISTER_METHOD, WORKSPACE_GET_METHOD } from "@lrm/coforge-sdk/internal";
 
-import { principalFromAuthorizationHeader } from "../auth/computer-access-token.server";
+import { principalFromAuthorizationHeader } from "#src/server/auth/computer-access-token.server";
 import {
   CentrifugoRpcAuthenticationError,
   CentrifugoRpcHandler,
   createComputerRegistrationMethod,
   createWorkspaceGetMethod,
-} from "../centrifugo/rpc-handler.server";
-import { getDatabaseClient } from "../db/client.server";
+} from "#src/server/centrifugo/rpc-handler.server";
+import { getDatabaseClient } from "#src/server/db/client.server";
 import {
   PrismaComputerRegistrationRepository,
   PrismaWorkspaceAccess,
-} from "../db/repositories/setup.repositories.server";
-import { WorkspaceQueryUseCase } from "../workspaces/query.server";
+} from "#src/server/db/repositories/setup.repositories.server";
+import { WorkspaceQueryUseCase } from "#src/server/workspaces/query.server";
 import { ComputerRegistrar } from "./registration.server";
 
 type Dependencies = {

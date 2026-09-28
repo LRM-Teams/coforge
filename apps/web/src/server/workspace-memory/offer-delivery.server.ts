@@ -1,4 +1,4 @@
-import type { PrismaClient } from "../../../generated/client";
+import type { PrismaClient } from "#src/generated/prisma/client";
 import { PrismaDirectConversationRepository } from "../db/repositories/direct-conversation.repositories.server";
 
 export type MemoryOfferPublisher = {

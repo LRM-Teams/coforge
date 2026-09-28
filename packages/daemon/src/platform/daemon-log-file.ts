@@ -1,4 +1,5 @@
 import { constants } from "node:fs";
+import { hasErrorCode } from "@lrm/coforge-sdk/internal";
 import { chmod, lstat, mkdir, open } from "node:fs/promises";
 import { join, parse, relative, resolve, sep } from "node:path";
 
@@ -65,5 +66,5 @@ async function ensureDirectory(path: string): Promise<void> {
 }
 
 function isMissingPathError(error: unknown): boolean {
-  return Boolean(error && typeof error === "object" && "code" in error && error.code === "ENOENT");
+  return hasErrorCode(error, "ENOENT");
 }

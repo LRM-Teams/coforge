@@ -21,8 +21,6 @@
   "content_archived_agents": "归档智能体",
   "filters_mine": "我的",
   "filters_all": "全部",
-  "filters_computer": "电脑",
-  "filters_search": "搜索成员",
   "login_title": "登录 CoForge",
   "login_description": "使用邮箱验证码进入 CoForge。",
   "login_action": "继续",
@@ -47,5 +45,6 @@
   "app_load_error_description": "服务可能暂时不可用，请稍后重试。",
   "error_reference": "错误编号：{errorId}",
   "navigation_open_menu": "打开菜单",
-  "navigation_close_menu": "关闭菜单"
+  "navigation_close_menu": "关闭菜单",
+  "navigation_activity": "动态"
 }

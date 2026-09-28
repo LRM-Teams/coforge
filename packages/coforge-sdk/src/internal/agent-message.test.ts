@@ -25,6 +25,18 @@ test("accepts the targetless events-drain check operation", () => {
   expect(validateAgentMessageRequest(request)).toBe(request);
 });
 
+test("accepts a targeted events-drain check operation", () => {
+  const request = {
+    protocolMajor: 1,
+    requestId: "request-check-target",
+    workspaceId: "workspace-a",
+    agentId: "agent-a",
+    operation: "check" as const,
+    target: "@ada",
+  };
+  expect(validateAgentMessageRequest(request)).toBe(request);
+});
+
 test.each(["mute", "unmute"] as const)("accepts Agent channel %s", (operation) => {
   const request = {
     protocolMajor: 1,
@@ -167,6 +179,27 @@ test("round-trips an Agent direct message delivery", () => {
   expect(decodeAgentMessageDelivery(encodeAgentMessageDelivery(delivery))).toEqual(delivery);
 });
 
+test("round-trips mentionsAgent on an Agent delivery", () => {
+  for (const mentionsAgent of [true, false] as const) {
+    const delivery = {
+      protocolMajor: 1,
+      requestId: `request-mention-${mentionsAgent}`,
+      messageId: `message-mention-${mentionsAgent}`,
+      deliveryId: `delivery-mention-${mentionsAgent}`,
+      sequence: 3,
+      workspaceId: "workspace-a",
+      conversationId: "conversation-a",
+      agentId: "agent-a",
+      body: "please look",
+      method: AGENT_MESSAGE_METHOD,
+      target: "#general",
+      mentionsAgent,
+    } as const;
+
+    expect(decodeAgentMessageDelivery(encodeAgentMessageDelivery(delivery))).toEqual(delivery);
+  }
+});
+
 test("accepts a trusted model-seen sequence on send", () => {
   const request = {
     protocolMajor: 1,
@@ -229,6 +262,35 @@ test("round-trips daemon-local message attention summaries", () => {
       },
     ],
     messages: [],
+    messageId: "",
+  };
+  expect(decodeAgentMessageResponse(encodeAgentMessageResponse(response))).toEqual(response);
+});
+
+test("round-trips a message whose Task owner is a deleted Agent", () => {
+  const response = {
+    requestId: "request-read",
+    accepted: true,
+    attentionCount: 0,
+    summaries: [],
+    messages: [
+      {
+        id: "message-46",
+        sequence: 46,
+        senderKind: "human" as const,
+        senderHandle: "ada",
+        senderDescription: "",
+        target: "#general",
+        body: "Ship the login page",
+        createdAt: "2026-09-24T10:00:00Z",
+        attachments: [],
+        task: {
+          number: 46,
+          status: "in_progress" as const,
+          owner: { displayName: "Kiro", handle: "kiro", deleted: true },
+        },
+      },
+    ],
     messageId: "",
   };
   expect(decodeAgentMessageResponse(encodeAgentMessageResponse(response))).toEqual(response);

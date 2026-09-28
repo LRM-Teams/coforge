@@ -22,14 +22,17 @@ import type {
   AgentWorkspaceFilesListResult,
 } from "@lrm/coforge-sdk/internal";
 
-import { Button } from "@/components/base/buttons/button";
-import { ButtonUtility } from "@/components/base/buttons/button-utility";
-import { useResizeObserver } from "@/hooks/use-resize-observer";
-import { copyText } from "@/features/records/report-editor/lib/clipboard";
-import { ProjectFileView, ProjectFileViewSkeleton } from "@/features/projects/project-file-view";
-import { m } from "@/paraglide/messages";
-import { cn } from "@/lib/utils";
+import { Button } from "#src/components/base/buttons/button";
+import { ButtonUtility } from "#src/components/base/buttons/button-utility";
+import { useResizeObserver } from "#src/hooks/use-resize-observer";
+import { copyText } from "#src/features/records/report-editor/lib/clipboard";
+import { ProjectFileView, ProjectFileViewSkeleton } from "#src/features/projects/project-file-view";
+import { Attachment } from "#src/features/records/report-editor/attachment";
+import { workspaceImageSource } from "./agent-workspace-image";
+import { m } from "#src/paraglide/messages";
+import { cn } from "#src/lib/utils";
 import { SECTION_CAPTION_CLASS } from "./inline-edit-field";
+import { PanelMessage } from "./panel-message";
 
 /** The container width, in CSS px, at and above which the tree and the open file split
  * side-by-side (the wide Members-page pane). Below it, the file replaces the tree and a
@@ -101,7 +104,7 @@ function joinPath(dirPath: string, name: string): string {
 /**
  * The Agent profile panel's Workspace tab: a lazy directory tree of the Agent's working directory
  * on its Computer, plus a read-only file viewer. Owner-only (gated by the caller via
- * `resolveAgentProfileTab`/`showWorkspaceTab`), matching the same publish/poll/timeout data shape
+ * `visibleAgentProfileTabs`), matching the same publish/poll/timeout data shape
  * as Skills, but with two operations (list, read) instead of one.
  */
 export function AgentWorkspaceTab({
@@ -231,8 +234,8 @@ export function AgentWorkspaceTab({
   const narrowShowingFile = !showSplit && selected !== undefined;
 
   return (
-    <div ref={containerRef} className="flex h-full min-h-0 flex-col">
-      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-secondary px-5 py-3">
+    <div ref={containerRef} className="flex h-full min-h-0 flex-1 flex-col overflow-hidden">
+      <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-secondary px-5 py-3">
         <span className="min-w-0 truncate font-mono text-xs text-tertiary">{rootPath ?? " "}</span>
         {rootPath && (
           <ButtonUtility
@@ -246,7 +249,7 @@ export function AgentWorkspaceTab({
       </div>
 
       {!showSplit && (
-        <div className="flex items-center justify-between gap-2 border-b border-secondary px-5 py-2.5">
+        <div className="flex shrink-0 items-center justify-between gap-2 border-b border-secondary px-5 py-2.5">
           <p className={SECTION_CAPTION_CLASS}>{m.agent_workspace_section()}</p>
           <HiddenAndRefreshButtons
             includeHidden={includeHidden}
@@ -258,7 +261,7 @@ export function AgentWorkspaceTab({
 
       {narrowShowingFile ? (
         <div className="flex min-h-0 flex-1 flex-col">
-          <div className="flex items-center gap-1.5 border-b border-secondary px-3 py-2">
+          <div className="flex shrink-0 items-center gap-1.5 border-b border-secondary px-3 py-2">
             <ButtonUtility
               icon={ArrowLeft}
               size="xs"
@@ -268,20 +271,20 @@ export function AgentWorkspaceTab({
             />
             <span className="min-w-0 truncate font-mono text-xs text-tertiary">{selected}</span>
           </div>
-          <div className="min-h-0 flex-1">
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
             <FilePane state={fileState} onRetry={() => selected && loadFile(selected)} />
           </div>
         </div>
       ) : (
-        <div className="flex min-h-0 flex-1">
+        <div className="flex min-h-0 flex-1 overflow-hidden">
           <div
             className={cn(
-              "min-h-0 overflow-y-auto",
-              showSplit ? "w-72 shrink-0 border-r border-secondary" : "flex-1",
+              "flex min-h-0 flex-col",
+              showSplit ? "w-72 shrink-0 border-r border-secondary" : "min-h-0 flex-1",
             )}
           >
             {showSplit && (
-              <div className="flex items-center justify-between gap-2 px-3 pt-3 pb-2">
+              <div className="flex shrink-0 items-center justify-between gap-2 px-3 pt-3 pb-2">
                 <p className={SECTION_CAPTION_CLASS}>{m.agent_workspace_section()}</p>
                 <HiddenAndRefreshButtons
                   includeHidden={includeHidden}
@@ -290,18 +293,20 @@ export function AgentWorkspaceTab({
                 />
               </div>
             )}
-            <TreeRoot
-              state={rootState}
-              cache={cacheRef.current}
-              expanded={expanded}
-              selected={selected}
-              onExpandedChange={applyExpanded}
-              onSelectFile={selectFile}
-              onRetry={() => loadDir("", includeHidden)}
-            />
+            <div className="min-h-0 flex-1 overflow-y-auto">
+              <TreeRoot
+                state={rootState}
+                cache={cacheRef.current}
+                expanded={expanded}
+                selected={selected}
+                onExpandedChange={applyExpanded}
+                onSelectFile={selectFile}
+                onRetry={() => loadDir("", includeHidden)}
+              />
+            </div>
           </div>
           {showSplit && (
-            <div className="min-h-0 flex-1">
+            <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
               {selected ? (
                 <FilePane state={fileState} onRetry={() => selected && loadFile(selected)} />
               ) : (
@@ -380,12 +385,12 @@ function TreeRoot({
       </div>
     );
   }
-  if (state.status === "offline") return <TreeMessage text={m.agent_workspace_offline()} />;
+  if (state.status === "offline") return <PanelMessage text={m.agent_workspace_offline()} />;
   if (state.status === "timeout")
-    return <TreeMessage text={m.agent_workspace_timeout()} onRetry={onRetry} />;
+    return <PanelMessage text={m.agent_workspace_timeout()} onRetry={onRetry} />;
   if (state.status !== "ready")
-    return <TreeMessage text={m.agent_workspace_unavailable()} onRetry={onRetry} />;
-  if (state.entries.length === 0) return <TreeMessage text={m.agent_workspace_empty()} />;
+    return <PanelMessage text={m.agent_workspace_unavailable()} onRetry={onRetry} />;
+  if (state.entries.length === 0) return <PanelMessage text={m.agent_workspace_empty()} />;
 
   return (
     <WorkspaceTree
@@ -564,19 +569,6 @@ function WorkspaceTree({
   );
 }
 
-function TreeMessage({ text, onRetry }: { text: string; onRetry?: () => void }) {
-  return (
-    <div className="flex flex-col items-center gap-3 px-4 py-10 text-center">
-      <p className="text-sm text-tertiary">{text}</p>
-      {onRetry && (
-        <Button size="sm" color="secondary" onPress={onRetry}>
-          {m.agent_workspace_retry()}
-        </Button>
-      )}
-    </div>
-  );
-}
-
 function FilePane({ state, onRetry }: { state: FileState | undefined; onRetry: () => void }) {
   if (!state || state.status === "loading") {
     const name = state?.path.split("/").pop() ?? "";
@@ -584,7 +576,12 @@ function FilePane({ state, onRetry }: { state: FileState | undefined; onRetry: (
   }
   const name = state.path.split("/").pop() ?? state.path;
 
-  if (state.status === "ready")
+  if (state.status === "ready") {
+    // An image read carries its bytes rather than text (the daemon sniffs the format), so it goes
+    // to the existing image renderer: ProjectFileView is a text viewer and would show the data URL
+    // as source. Everything else — text, and any read without an image payload — stays with it.
+    const imageSource = workspaceImageSource(state.result);
+    if (imageSource) return <WorkspaceImagePreview name={name} url={imageSource} />;
     return (
       <ProjectFileView
         key={state.path}
@@ -595,12 +592,23 @@ function FilePane({ state, onRetry }: { state: FileState | undefined; onRetry: (
         githubUrl={undefined}
       />
     );
+  }
   if (state.status === "offline") return <EmptyFileState text={m.agent_workspace_offline()} />;
   if (state.status === "timeout")
     return <EmptyFileState text={m.agent_workspace_timeout()} onRetry={onRetry} />;
   if (state.status === "binary") return <EmptyFileState text={m.agent_workspace_binary()} />;
   if (state.status === "too_large") return <EmptyFileState text={m.agent_workspace_too_large()} />;
   return <EmptyFileState text={m.agent_workspace_file_error()} onRetry={onRetry} />;
+}
+
+function WorkspaceImagePreview({ name, url }: { name: string; url: string }) {
+  return (
+    // The image is sized by the pane, not by the file: `overflow-auto` keeps a tall screenshot
+    // scrollable instead of letting it push the tree and header out of view.
+    <div className="min-h-0 flex-1 overflow-auto p-4">
+      <Attachment attachment={{ kind: "url", url, filename: name, forceKind: "image" }} />
+    </div>
+  );
 }
 
 function EmptyFileState({ text, onRetry }: { text: string; onRetry?: () => void }) {

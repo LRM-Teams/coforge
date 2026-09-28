@@ -4,9 +4,9 @@ import {
   AgentEnvironment,
   decryptAgentEnvironment,
   validateAgentEnvironment,
-} from "../src/server/agents/agent-environment.server";
-import { publicAgentRuntimeConfig } from "../src/server/agents/agent-runtime-config.server";
-import type { AgentRecord } from "../src/server/db/repositories/agent.repositories.server";
+} from "#src/server/agents/agent-environment.server";
+import { publicAgentRuntimeConfig } from "#src/server/agents/agent-runtime-config.server";
+import type { AgentRecord } from "#src/server/db/repositories/agent.repositories.server";
 
 const principal = { workspaceId: "workspace-1", userId: "owner-1" };
 function fixture(
@@ -181,7 +181,7 @@ test("invalid maps fail before stop and never echo values", async () => {
   ).toHaveLength(64);
 });
 
-test("a stopped Agent saves the environment without the stop -> ... -> start dance (ADR 0038)", async () => {
+test("a stopped Agent saves the environment without the stop -> ... -> start dance", async () => {
   const f = fixture({ stopped: true });
   expect(await f.environment.save(principal, "agent-1", { TOKEN: "secret" })).toEqual({
     restart: "deferred",

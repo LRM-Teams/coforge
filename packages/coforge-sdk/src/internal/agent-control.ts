@@ -1,10 +1,12 @@
 import { RPC_METHODS } from "./rpc-methods";
+import { isScopeId } from "./scope-id";
+import { boundedPayload } from "./codec";
 import { create, fromBinary, toBinary } from "@bufbuild/protobuf";
 import {
   AgentWorkspaceResetRequestSchema,
   AgentControlResultSchema,
-} from "./gen/coforge/rpc/v1/agent_control_pb";
-import { parseRuntimeProvider, type RuntimeProvider } from "./index";
+} from "#src/internal/gen/coforge/rpc/v1/agent_control_pb";
+import { requireRuntimeProvider, type RuntimeProvider } from "./index";
 
 export const AGENT_WORKSPACE_RESET_METHOD = RPC_METHODS.agentWorkspaceReset;
 export const AGENT_CONTROL_RESULT_METHOD = RPC_METHODS.agentControlResult;
@@ -13,7 +15,6 @@ const WORKSPACE_RESET_TYPE = "coforge.rpc.v1.AgentWorkspaceResetRequest";
 const RESULT_TYPE = "coforge.rpc.v1.AgentControlResult";
 const MAX_BYTES = 32_768;
 const MAX_COUNTER = 2 ** 31 - 1;
-const SCOPE_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
 const SESSION_ID = /^[A-Za-z0-9._-]{0,128}$/;
 const ERROR_CODE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$/;
 
@@ -50,14 +51,11 @@ export type AgentSessionSnapshot = AgentControlScope & {
 };
 
 function bounded(bytes: Uint8Array): Uint8Array {
-  if (bytes.length > MAX_BYTES) throw new Error("Agent lifecycle payload too large");
-  return bytes;
+  return boundedPayload(bytes, MAX_BYTES, "Agent lifecycle");
 }
 
 function provider(value: string): RuntimeProvider {
-  const parsed = parseRuntimeProvider(value);
-  if (parsed === undefined) throw new Error("Invalid Agent lifecycle provider");
-  return parsed;
+  return requireRuntimeProvider(value, "Invalid Agent lifecycle provider");
 }
 
 function scope(value: AgentControlScope): AgentControlScope {
@@ -67,7 +65,7 @@ function scope(value: AgentControlScope): AgentControlScope {
     value.epoch < 1 ||
     value.epoch > MAX_COUNTER ||
     [value.requestId, value.workspaceId, value.computerId, value.agentId].some(
-      (id) => !SCOPE_ID.test(id),
+      (id) => !isScopeId(id),
     )
   )
     throw new Error("Invalid Agent lifecycle scope");
@@ -127,7 +125,7 @@ function checkedResult(value: AgentControlResult): AgentControlResult {
   const checkedScope = scope(value);
   if (!["stopped", "workspace-reset", "started", "failed"].includes(value.phase))
     throw new Error("Invalid Agent lifecycle phase");
-  if (value.launchId !== undefined && !SCOPE_ID.test(value.launchId))
+  if (value.launchId !== undefined && !isScopeId(value.launchId))
     throw new Error("Invalid Agent lifecycle launch ID");
   if (value.errorCode !== undefined && !ERROR_CODE.test(value.errorCode))
     throw new Error("Invalid Agent lifecycle error code");
@@ -164,8 +162,8 @@ export function decodeAgentControlResult(bytes: Uint8Array): AgentControlResult 
 
 export function validateAgentSessionSnapshot(value: AgentSessionSnapshot): AgentSessionSnapshot {
   const checkedScope = scope(value);
-  if (!SCOPE_ID.test(value.launchId)) throw new Error("Invalid Agent lifecycle launch ID");
-  if (value.daemonInstanceId !== undefined && !SCOPE_ID.test(value.daemonInstanceId))
+  if (!isScopeId(value.launchId)) throw new Error("Invalid Agent lifecycle launch ID");
+  if (value.daemonInstanceId !== undefined && !isScopeId(value.daemonInstanceId))
     throw new Error("Invalid Agent lifecycle daemon instance ID");
   return {
     ...checkedScope,

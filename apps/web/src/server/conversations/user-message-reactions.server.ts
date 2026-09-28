@@ -1,6 +1,6 @@
 import { isValidReactionEmoji } from "@lrm/coforge-sdk/internal";
-import type { PrismaClient } from "../../../generated/client";
-import { AppError } from "../../lib/app-error";
+import type { PrismaClient } from "#src/generated/prisma/client";
+import { AppError } from "#src/lib/app-error";
 import { ACTIVE_MEMBER_WHERE } from "./active-member.server";
 import {
   MESSAGE_REACTIONS_SELECT,

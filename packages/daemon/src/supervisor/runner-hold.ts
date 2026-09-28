@@ -5,8 +5,7 @@ import type { HeldBusyAgent } from "@lrm/coforge-sdk/internal";
  * How long a lifecycle operation lets in-flight Agent work finish after the runner hold is
  * engaged. Past this bound the operation stops the daemon regardless: an Agent that will not
  * finish must not be able to pin a machine on an old version, or to block a restart. Without the
- * hold the effective grace period is the ~2s SIGTERM/SIGKILL ladder in `DaemonRuntime.stop()`
- * (ADR 0020 for upgrade, ADR 0021 for restart).
+ * hold the effective grace period is the ~2s SIGTERM/SIGKILL ladder in `DaemonRuntime.stop()`.
  */
 export const RUNNER_HOLD_MS = 30_000;
 
@@ -19,7 +18,7 @@ export const RUNNER_HOLD_POLL_MS = 250;
  * cleared: racing against a bare `Bun.sleep` leaves the losing sleep pending, which keeps the
  * event loop - and so the process - alive for the full timeout after the caller has moved on. An
  * upgrade's last hold lands just before the stop, so that pending sleep made the Coordinator
- * outlive its own shutdown by exactly launchd's 5 s SIGKILL window (ADR 0032).
+ * outlive its own shutdown by exactly launchd's 5 s SIGKILL window.
  */
 export async function answeredWithin<T>(
   answer: Promise<T>,
@@ -56,7 +55,7 @@ export type RunnerHoldOptions = {
   /**
    * Where this module's own two log lines go, and what prefixes their event names. Each caller
    * owns a different pair: the Computer upgrade keeps `coforge.computer.upgrade` and `upgrade:`
-   * so ADR 0020's log contract is unchanged, while the Coordinator's restart uses
+   * so its existing log contract is unchanged, while the Coordinator's restart uses
    * `coforge.daemon.supervisor` and `restart:`. The defaults are the Coordinator's, because that
    * is the process this module lives in.
    */

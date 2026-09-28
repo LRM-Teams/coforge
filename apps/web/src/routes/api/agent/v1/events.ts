@@ -1,11 +1,11 @@
 import { createFileRoute } from "@tanstack/react-router";
 import type { AgentEventsResponse } from "@lrm/coforge-sdk/agent";
-import { agentAuthMiddleware } from "#/server/agents/agent-http.middleware";
-import { PrismaDirectConversationRepository } from "#/server/db/repositories/direct-conversation.repositories.server";
+import { agentAuthMiddleware } from "#src/server/agents/agent-http-middleware.server";
+import { PrismaDirectConversationRepository } from "#src/server/db/repositories/direct-conversation.repositories.server";
 import {
   drainAgentEvents,
   type AgentMessageRepository,
-} from "#/server/agents/agent-messages.service";
+} from "#src/server/agents/agent-messages.server";
 
 export type AgentEventsGetPrincipal = { workspaceId: string; agentId: string };
 
@@ -15,15 +15,16 @@ export async function handleAgentEventsGet(
   repository: AgentMessageRepository,
 ): Promise<Response> {
   const query = new URL(request.url).searchParams;
-  const requestId = query.get("requestId") || crypto.randomUUID();
+  const idempotencyKey = query.get("idempotencyKey") || crypto.randomUUID();
   const scope = { workspaceId: principal.workspaceId, agentId: principal.agentId };
   try {
     const limit = query.has("limit") ? Number(query.get("limit")) : undefined;
     if (limit !== undefined && !Number.isInteger(limit)) throw new Error("invalid events limit");
-    const result = await drainAgentEvents(repository, scope, limit);
+    const target = query.get("target") || undefined;
+    const result = await drainAgentEvents(repository, scope, limit, target);
     const response: AgentEventsResponse = {
       protocolMajor: 1,
-      requestId,
+      idempotencyKey,
       events: result.messages,
       hasMore: result.hasMore,
     };

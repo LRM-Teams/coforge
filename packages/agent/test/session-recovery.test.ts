@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { mkdtemp, rm, writeFile, chmod, rename } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createSession } from "../src/runner";
+import { createSession } from "#src/runner";
 
 test("CoForge reopens the same Agent transcript and isolates explicit and other Agent sessions", async () => {
   const cwd = await mkdtemp(join(tmpdir(), "coforge-session-"));

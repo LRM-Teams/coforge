@@ -1,22 +1,31 @@
-import type { Conversation, PrismaClient } from "../../../generated/client";
-import { isAppError } from "../../lib/app-error";
+import { CHANNEL_NAME_PATTERN } from "@lrm/coforge-sdk/internal";
+import type { Conversation, PrismaClient } from "#src/generated/prisma/client";
+import { isAppError } from "#src/lib/app-error";
 import { ACTIVE_MEMBER_WHERE } from "./active-member.server";
+import { ACTIVE_AGENT_WHERE } from "#src/server/agents/active-agent.server";
+import { AGENT_VISIBILITY } from "#src/features/agents/agent-visibility";
+import {
+  agentVisibilityViewerForActor,
+  canSeeAgent,
+} from "#src/server/agents/agent-visibility.server";
 import {
   AgentChannelManagementError,
   channelAuthorityDeniedError,
 } from "./agent-channel-management-error.server";
 import { PublicChannels } from "./public-channels.server";
+import { announceMemberChanged, type ConversationRealtime } from "./conversation-realtime.server";
 import {
   hasChannelAdminAuthority,
   resolveChannelAuthority,
   type ChannelAdminBasis,
   type ChannelCapabilities,
 } from "./channel-authority.server";
-import { resolveAgentChannelStatus } from "../agents/agent-channel-status.server";
-import { getAgentDisplay, type AgentDisplay } from "../agents/agent-display.server";
-import { PrismaDirectConversationRepository } from "../db/repositories/direct-conversation.repositories.server";
+import { resolveAgentChannelStatuses } from "#src/server/agents/agent-channel-status.server";
+import { getAgentDisplay, type AgentDisplay } from "#src/server/agents/agent-display.server";
+import { PrismaDirectConversationRepository } from "#src/server/db/repositories/direct-conversation.repositories.server";
+import { AgentInboxPurgePublisher } from "#src/server/agents/agent-inbox-purge.server";
+import { isUniqueViolation } from "#src/server/db/unique-violation.server";
 
-const CHANNEL_NAME = /^[a-z0-9][a-z0-9_-]{0,31}$/;
 const CHANNEL_TARGET = /^#[a-z0-9][a-z0-9_-]{0,31}$/;
 const USER_TARGET = /^@[a-z0-9][a-z0-9_-]{0,31}$/;
 const MEMBER_HANDLE = /^@[a-z0-9][a-z0-9_-]{0,31}$/;
@@ -34,11 +43,11 @@ export type AgentChannelInfo = {
    * "each part only when present". */
   channelRole?: string;
   /** Present only when the acting Agent has channel-admin authority on this channel — either
-   * basis (ADR 0030). */
+   * basis. */
   channelAdminBasis?: ChannelAdminBasis;
   /** Every capability name; only the ones this Agent may currently invoke are `true`. */
   channelCapabilities: ChannelCapabilities;
-  /** Present only when this channel is a Project discussion group (ADR 0026) for a Project the
+  /** Present only when this channel is a Project discussion group for a Project the
    * Agent's own Workspace owns. Field names and source match `workspace info --projects`
    * (`WorkspaceInfoProject` in `@lrm/coforge-sdk`), so an Agent can match the two surfaces up. */
   project?: {
@@ -98,15 +107,22 @@ export type AgentChannelManagementRepository = Pick<
  */
 export class AgentChannelManagement {
   private readonly channels: PublicChannels;
+  private readonly inboxPurge: Pick<AgentInboxPurgePublisher, "purge">;
 
   constructor(
     private readonly db: PrismaClient,
-    private readonly display?: Pick<AgentDisplay, "snapshot">,
+    private readonly display?: Pick<AgentDisplay, "snapshot" | "snapshotMany">,
     channels?: PublicChannels,
+    // The whole port, not just `memberChanged`: it is also the default `PublicChannels`'.
+    private readonly realtime?: ConversationRealtime,
+    inboxPurge?: Pick<AgentInboxPurgePublisher, "purge">,
   ) {
+    this.inboxPurge = inboxPurge ?? new AgentInboxPurgePublisher(db);
     // Reused (not reimplemented) so the human "Members" dialog and the Agent CLI's
-    // `channel members`/`add-member` cannot drift (ADR 0024/0025).
-    this.channels = channels ?? new PublicChannels(db);
+    // `channel members`/`add-member` cannot drift.
+    this.channels =
+      channels ??
+      new PublicChannels(db, undefined, undefined, undefined, realtime, this.inboxPurge);
   }
 
   async info(workspaceId: string, agentId: string, target: string): Promise<AgentChannelInfo> {
@@ -141,6 +157,7 @@ export class AgentChannelManagement {
     const channelName = this.parseChannelTarget(target);
     const channel = await this.findChannel(workspaceId, channelName);
     if (channel.archivedAt) throw new AgentChannelManagementError(409, "channel is archived");
+    await this.assertCallerNotPrivate(workspaceId, agentId, "join");
     const existing = await this.db.conversationMember.findFirst({
       where: { conversationId: channel.id, agentId, ...ACTIVE_MEMBER_WHERE },
       select: { id: true },
@@ -150,18 +167,30 @@ export class AgentChannelManagement {
       create: { conversationId: channel.id, workspaceId, agentId },
       update: { leftAt: null },
     });
+    if (!existing)
+      await announceMemberChanged(this.realtime, { workspaceId, conversationIds: [channel.id] });
     return { target: `#${channel.channelName}`, joined: true, alreadyJoined: Boolean(existing) };
   }
 
   async leave(workspaceId: string, agentId: string, target: string) {
     const channelName = this.parseChannelTarget(target);
+    // Looked up first: a #general hidden from the Workspace is an unknown channel, not a refusal.
+    const channel = await this.findChannel(workspaceId, channelName);
     if (channelName === "general")
       throw new AgentChannelManagementError(400, "cannot leave #general");
-    const channel = await this.findChannel(workspaceId, channelName);
     const result = await this.db.conversationMember.updateMany({
       where: { conversationId: channel.id, agentId, ...ACTIVE_MEMBER_WHERE },
       data: { leftAt: new Date() },
     });
+    if (result.count > 0) {
+      await announceMemberChanged(this.realtime, { workspaceId, conversationIds: [channel.id] });
+      await this.inboxPurge.purge({
+        workspaceId,
+        agentId,
+        conversationIds: [channel.id],
+        reason: "left",
+      });
+    }
     return { target: `#${channel.channelName}`, joined: false, wasMember: result.count > 0 };
   }
 
@@ -171,7 +200,7 @@ export class AgentChannelManagement {
     rawName: string,
     description: string | undefined,
   ) {
-    // Slack's default (ADR 0025): any Agent that belongs to the Workspace may create a
+    // Slack's default: any Agent that belongs to the Workspace may create a
     // channel, the same as `PublicChannels.create` for humans — no admin gate.
     const agent = await this.db.agent.findFirst({
       where: { id: agentId, workspaceId },
@@ -179,16 +208,16 @@ export class AgentChannelManagement {
     });
     if (!agent)
       throw new AgentChannelManagementError(403, "this Agent does not belong to the Workspace");
+    await this.assertCallerNotPrivate(workspaceId, agentId, "create");
     const name = this.normalizeChannelName(rawName);
-    if (name === "general")
-      throw new AgentChannelManagementError(409, "general is reserved for automatic enrollment");
+    if (name === "general") throw new AgentChannelManagementError(409, "general is reserved");
     try {
       const channel = await this.db.conversation.create({
         data: {
           workspaceId,
           channelName: name,
           description: description ?? "",
-          // The creator becomes the channel's first admin (ADR 0030), same as a human creator.
+          // The creator becomes the channel's first admin, same as a human creator.
           members: { create: { agentId, channelRole: "admin" } },
         },
       });
@@ -201,7 +230,7 @@ export class AgentChannelManagement {
         },
       };
     } catch (error) {
-      if (error instanceof Error && "code" in error && error.code === "P2002")
+      if (isUniqueViolation(error))
         throw new AgentChannelManagementError(409, "channel name is already in use");
       throw error;
     }
@@ -217,52 +246,55 @@ export class AgentChannelManagement {
       throw new AgentChannelManagementError(400, "update requires --name or --description");
     const channelName = this.parseChannelTarget(target);
     const channel = await this.findChannel(workspaceId, channelName);
-    // Channel-aware authority (ADR 0030): the acting Agent's own server role (owner/admin) or
-    // its `channelRole` on THIS channel (admin) — replaces ADR 0024's channel-blind
-    // `agentHasAdminAuthority`.
+    // Authority before the input is judged, so an Agent without it learns nothing else.
     if (!(await hasChannelAdminAuthority(this.db, workspaceId, { agentId }, channel)))
       throw channelAuthorityDeniedError("update");
-    let nextName = channel.channelName!;
+    if (channel.archivedAt) throw new AgentChannelManagementError(409, "channel is archived");
+    let nextName: string | undefined;
     if (patch.name !== undefined) {
       if (channelName === "general")
         throw new AgentChannelManagementError(400, "cannot rename #general");
       nextName = this.normalizeChannelName(patch.name);
-      if (nextName === "general")
-        throw new AgentChannelManagementError(409, "general is reserved for automatic enrollment");
+      if (nextName === "general") throw new AgentChannelManagementError(409, "general is reserved");
     }
+    // Shared with the human settings panel, which applies the same authority and archive rules.
     try {
-      const updated = await this.db.conversation.update({
-        where: { id: channel.id },
-        data: {
-          ...(patch.name !== undefined ? { channelName: nextName } : {}),
-          ...(patch.description !== undefined ? { description: patch.description } : {}),
-        },
+      await this.channels.updateInfo(workspaceId, { agentId }, channel.id, {
+        name: nextName,
+        description: patch.description,
       });
-      return this.channelInfo(workspaceId, updated, agentId);
     } catch (error) {
-      if (error instanceof Error && "code" in error && error.code === "P2002")
+      if (isAppError(error) && error.code === "ACCESS_DENIED")
+        throw channelAuthorityDeniedError("update");
+      if (isAppError(error) && error.code === "CONFLICT")
         throw new AgentChannelManagementError(409, "channel name is already in use");
       throw error;
     }
+    return this.channelInfo(
+      workspaceId,
+      await this.findChannel(workspaceId, nextName ?? channelName),
+      agentId,
+    );
   }
 
   async setArchived(workspaceId: string, agentId: string, target: string, archived: boolean) {
     const operation = archived ? "archive" : "unarchive";
     const channelName = this.parseChannelTarget(target);
+    const channel = await this.findChannel(workspaceId, channelName);
     if (channelName === "general")
       throw new AgentChannelManagementError(400, `cannot ${operation} #general`);
-    const channel = await this.findChannel(workspaceId, channelName);
-    if (!(await hasChannelAdminAuthority(this.db, workspaceId, { agentId }, channel)))
-      throw channelAuthorityDeniedError(operation);
-    await this.db.conversation.update({
-      where: { id: channel.id },
-      data: { archivedAt: archived ? new Date() : null },
-    });
+    try {
+      await this.channels.setArchived(workspaceId, { agentId }, channel.id, archived);
+    } catch (error) {
+      if (isAppError(error) && error.code === "ACCESS_DENIED")
+        throw channelAuthorityDeniedError(operation);
+      throw error;
+    }
     return { target: `#${channel.channelName}`, archived };
   }
 
   /**
-   * Slack rule (ADR 0025): the acting Agent must itself be an active member of the target
+   * Slack rule: the acting Agent must itself be an active member of the target
    * channel — enforced inside `PublicChannels.addMembers`, not re-implemented here. This method
    * only resolves the `@handle` to an id (so a genuinely unknown handle is a 404, distinct from
    * a real Workspace member/Agent the actor isn't allowed to add-through) and reshapes the
@@ -288,10 +320,31 @@ export class AgentChannelManagement {
       userId = user.id;
     } else {
       const agentRow = await this.db.agent.findFirst({
-        where: { workspaceId, name: handle },
-        select: { id: true },
+        where: { workspaceId, name: handle, ...ACTIVE_AGENT_WHERE },
+        select: { id: true, ownerId: true, visibility: true },
       });
       if (!agentRow) throw new AgentChannelManagementError(404, `member not found: @${handle}`);
+      // A private Agent the calling Agent cannot see answers the stable
+      // `agent_not_visible` outcome with an explanation, distinct from a genuinely nonexistent
+      // handle's plain "member not found" — the same distinction `user info`/`profile show`
+      // make. A private Agent the caller CAN see (its own creator, or an owner/admin) still
+      // cannot be added to any channel; `PublicChannels.addMembers` below is the unconditional
+      // enforcement, but rejecting it here with a clear reason avoids a confusing generic error
+      // for a target the caller already knows exists.
+      const viewer = await agentVisibilityViewerForActor(this.db, workspaceId, {
+        agentId: callingAgentId,
+      });
+      if (!canSeeAgent(viewer, agentRow))
+        throw new AgentChannelManagementError(
+          404,
+          `@${handle} is not visible to you.`,
+          "agent_not_visible",
+        );
+      if (agentRow.visibility !== AGENT_VISIBILITY.PUBLIC)
+        throw new AgentChannelManagementError(
+          400,
+          `@${handle} is private and cannot be added to a channel`,
+        );
       resolvedAgentId = agentRow.id;
     }
     let alreadyMember = false;
@@ -316,6 +369,8 @@ export class AgentChannelManagement {
         );
       if (isAppError(error) && (error.code === "INVALID_INPUT" || error.code === "NOT_FOUND"))
         throw new AgentChannelManagementError(404, `member not found: @${handle}`);
+      if (isAppError(error) && error.code === "CONFLICT")
+        throw new AgentChannelManagementError(409, "channel is archived");
       throw error;
     }
     return {
@@ -334,10 +389,11 @@ export class AgentChannelManagement {
   ) {
     const channelName = this.parseChannelTarget(target);
     const { kind, handle } = this.parseMemberInput(input);
+    const channel = await this.findChannel(workspaceId, channelName);
     if (channelName === "general")
       throw new AgentChannelManagementError(400, "cannot remove a member from #general");
-    const channel = await this.findChannel(workspaceId, channelName);
     let wasMember: boolean;
+    let removedAgentId: string | undefined;
     if (kind === "agent") {
       const agentRow = await this.db.agent.findFirst({
         where: { workspaceId, name: handle },
@@ -360,6 +416,7 @@ export class AgentChannelManagement {
         data: { leftAt: new Date() },
       });
       wasMember = result.count > 0;
+      if (wasMember) removedAgentId = agentRow.id;
     } else {
       if (
         !(await hasChannelAdminAuthority(
@@ -378,14 +435,40 @@ export class AgentChannelManagement {
       });
       wasMember = result.count > 0;
     }
+    if (wasMember)
+      await announceMemberChanged(this.realtime, { workspaceId, conversationIds: [channel.id] });
+    if (removedAgentId)
+      await this.inboxPurge.purge({
+        workspaceId,
+        agentId: removedAgentId,
+        conversationIds: [channel.id],
+        reason: "member_removed",
+      });
     return { target: `#${channel.channelName}`, removed: true as const, wasMember };
+  }
+
+  /** A private Agent can neither join nor create a channel — the acting Agent's OWN
+   * visibility, independent of any target. Reused by `join()` and `create()`. */
+  private async assertCallerNotPrivate(
+    workspaceId: string,
+    agentId: string,
+    operation: "join" | "create",
+  ): Promise<void> {
+    const agent = await this.db.agent.findFirst({
+      where: { id: agentId, workspaceId, ...ACTIVE_AGENT_WHERE },
+      select: { visibility: true },
+    });
+    if (!agent || agent.visibility !== AGENT_VISIBILITY.PUBLIC)
+      throw new AgentChannelManagementError(403, `a private Agent cannot ${operation} a channel`);
   }
 
   private async findChannel(workspaceId: string, channelName: string): Promise<Conversation> {
     const channel = await this.db.conversation.findUnique({
       where: { workspaceId_channelName: { workspaceId, channelName } },
     });
-    if (!channel) throw new AgentChannelManagementError(404, "channel not found");
+    // A channel hidden from the Workspace is an unknown channel to an Agent.
+    if (!channel || channel.hiddenFromWorkspaceAt)
+      throw new AgentChannelManagementError(404, "channel not found");
     return channel;
   }
 
@@ -503,7 +586,7 @@ export class AgentChannelManagement {
   /**
    * Reshapes `PublicChannels.members`' (or the DM roster's) raw membership facts into the
    * Agent-facing response: role/self tags plus each Agent's live status
-   * (`resolveAgentChannelStatus`). The only Agent-specific glue here is `self` and `status`/
+   * (`resolveAgentChannelStatuses`). The only Agent-specific glue here is `self` and `status`/
    * `activity`/`activityDetail` — membership, roles, and authority all come from the shared data.
    */
   private async shapeAgentRoster(
@@ -530,23 +613,20 @@ export class AgentChannelManagement {
       }>;
     },
   ): Promise<AgentChannelRoster> {
-    const display = this.resolvedDisplay();
-    const agents = await Promise.all(
-      raw.agents.map(async (agent) => ({
-        name: agent.name,
-        displayName: agent.displayName,
-        description: agent.description,
-        serverRole: agent.serverRole,
-        channelRole: agent.channelRole,
-        channelAdminBasis: agent.channelAdminBasis,
-        self: agent.id === callingAgentId,
-        ...(await resolveAgentChannelStatus(display, {
-          workspaceId,
-          computerId: agent.computerId,
-          agentId: agent.id,
-        })),
-      })),
+    const statuses = await resolveAgentChannelStatuses(
+      this.resolvedDisplay(),
+      raw.agents.map((agent) => ({ workspaceId, computerId: agent.computerId, agentId: agent.id })),
     );
+    const agents = raw.agents.map((agent, index) => ({
+      name: agent.name,
+      displayName: agent.displayName,
+      description: agent.description,
+      serverRole: agent.serverRole,
+      channelRole: agent.channelRole,
+      channelAdminBasis: agent.channelAdminBasis,
+      self: agent.id === callingAgentId,
+      ...statuses[index],
+    }));
     return {
       target,
       agents: agents.sort((left, right) => left.name.localeCompare(right.name)),
@@ -562,10 +642,15 @@ export class AgentChannelManagement {
   }
 
   /** Deferred: constructing the real `AgentDisplay` throws when `REDIS_URL` is unset, and that
-   * failure must be caught per-Agent (as "unknown") by `resolveAgentChannelStatus`, not thrown
+   * failure must be caught per-Agent (as "unknown") by `resolveAgentChannelStatuses`, not thrown
    * out of the whole roster read. */
-  private resolvedDisplay(): Pick<AgentDisplay, "snapshot"> {
-    return this.display ?? { snapshot: (scope) => getAgentDisplay().snapshot(scope) };
+  private resolvedDisplay(): Pick<AgentDisplay, "snapshot" | "snapshotMany"> {
+    return (
+      this.display ?? {
+        snapshot: (scope) => getAgentDisplay().snapshot(scope),
+        snapshotMany: (scopes) => getAgentDisplay().snapshotMany(scopes),
+      }
+    );
   }
 
   private parseChannelTarget(target: string): string {
@@ -576,7 +661,7 @@ export class AgentChannelManagement {
 
   private normalizeChannelName(rawName: string): string {
     const name = rawName.startsWith("#") ? rawName.slice(1) : rawName;
-    if (!CHANNEL_NAME.test(name))
+    if (!CHANNEL_NAME_PATTERN.test(name))
       throw new AgentChannelManagementError(400, "invalid channel name");
     return name;
   }

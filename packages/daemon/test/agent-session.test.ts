@@ -1,10 +1,7 @@
 import { expect, test } from "bun:test";
 import type { AgentSessionSnapshot } from "@lrm/coforge-sdk/internal";
-import { AgentSessions } from "../src/agent-runtime/agent-session";
-import {
-  AgentRuntimeState,
-  type AgentRuntimeRecord,
-} from "../src/agent-runtime/agent-runtime-state";
+import { AgentSessions } from "#src/agent-runtime/agent-session";
+import { AgentRuntimeState, type AgentRuntimeRecord } from "#src/agent-runtime/agent-runtime-state";
 
 test("Session reporting persists before sending and replays the same snapshot after reconnect", async () => {
   let record: AgentRuntimeRecord = {

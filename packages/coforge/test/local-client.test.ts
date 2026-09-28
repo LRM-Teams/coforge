@@ -3,8 +3,8 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { agentApiRoutes } from "@lrm/coforge-sdk/agent";
-import { connectLocal } from "../src/local-client";
-import { CliError } from "../src/cli-error";
+import { connectLocal } from "#src/local-client";
+import { CliError } from "#src/cli-error";
 
 const proxyUrl = (route: { path: string } | string) =>
   `http://proxy.test${typeof route === "string" ? route : route.path}`;
@@ -183,7 +183,47 @@ test("redacts upstream detail for a withheld reviewer-isolation Task failure", a
       expectedRevision: 1,
       freshnessContextMode: "withheld",
     } as never),
-  ).rejects.toThrow("reviewer-isolation Task request failed (400); upstream detail withheld");
+  ).rejects.toMatchObject({
+    code: "UPDATE_FAILED",
+    message:
+      "Reviewer-isolation task update failed (HTTP 400); upstream error detail was withheld.",
+  });
+});
+
+test("a refused Task write fails typed with its operation's code and the proxy's reason", async () => {
+  spyOn(globalThis, "fetch").mockResolvedValue(
+    Response.json(
+      {
+        error: "this agent is not allowed to do that",
+        code: "ACCESS_DENIED",
+        proxy: {
+          correlation_id: "correlation-1",
+          route_family: "agent-api/task",
+          failure_class: "upstream_http_response",
+          upstream_status: 403,
+        },
+      },
+      { status: 403 },
+    ),
+  );
+  const attempt = connectLocal(
+    "",
+    `sfp_${"a".repeat(43)}`,
+    proxyUrl(agentApiRoutes.local.messages),
+  ).task({
+    idempotencyKey: "request",
+    operation: "assign",
+    target: "#general",
+    number: 1,
+    assignee: "@ada",
+  });
+  await expect(attempt).rejects.toBeInstanceOf(CliError);
+  await expect(attempt).rejects.toMatchObject({
+    code: "ASSIGN_FAILED",
+    message: "this agent is not allowed to do that",
+    correlationId: "correlation-1",
+    proxy: { upstreamStatus: 403 },
+  });
 });
 
 test("downloads attachments through the daemon-local proxy", async () => {
@@ -1018,6 +1058,27 @@ test("channel: a 404 from a target operation becomes CliError NOT_FOUND with a f
   expect(cliError.retryable).toBe(false);
 });
 
+test("channel: an agent_not_visible JSON envelope becomes CliError AGENT_NOT_VISIBLE, never the fixed Channel-not-found text", async () => {
+  spyOn(globalThis, "fetch").mockResolvedValue(
+    Response.json(
+      { ok: false, errorCode: "agent_not_visible", error: "@ghost is not visible to you." },
+      { status: 404 },
+    ),
+  );
+  const error = await connectLocal(
+    "",
+    `sfp_${"a".repeat(43)}`,
+    proxyUrl(agentApiRoutes.local.channels),
+  )
+    .channel({ operation: "add-member", target: "#eng", agent: "@ghost" })
+    .catch((caught: unknown) => caught);
+  expect(error).toBeInstanceOf(CliError);
+  const cliError = error as CliError;
+  expect(cliError.code).toBe("AGENT_NOT_VISIBLE");
+  expect(cliError.message).toBe("@ghost is not visible to you.");
+  expect(cliError.retryable).toBe(false);
+});
+
 test("channel: a 404 from info/members (no single-channel target operation) is not remapped to NOT_FOUND", async () => {
   spyOn(globalThis, "fetch").mockResolvedValue(new Response("channel not found", { status: 404 }));
   const error = await connectLocal(
@@ -1190,4 +1251,64 @@ test("never retries a non-send operation", async () => {
     connectLocal("", `sfp_${"a".repeat(43)}`, proxyUrl(agentApiRoutes.local.messages)).check(),
   ).rejects.toThrow("agent proxy request failed (network or timeout)");
   expect(fetch).toHaveBeenCalledTimes(1);
+});
+
+const MENTION_CONTEXT = `sfp_${"a".repeat(43)}`;
+const MENTION_ID = "22222222-2222-4222-8222-222222222222";
+
+test("mention pending GETs the pending list through the Proxy", async () => {
+  const body = { ok: true, pendingMentionActions: [] };
+  const fetch = spyOn(globalThis, "fetch").mockResolvedValue(Response.json(body));
+  const result = await connectLocal(
+    "",
+    MENTION_CONTEXT,
+    proxyUrl(agentApiRoutes.local.messages),
+  ).mentionPending();
+  expect(result).toEqual({ ok: true, pendingMentionActions: [] });
+  const [url, init] = fetch.mock.calls[0]!;
+  expect(url).toEqual(new URL(proxyUrl(agentApiRoutes.local.mentionActions.pending)));
+  expect(init?.method).toBe("GET");
+});
+
+test("mention add POSTs the action and its resolution ids through the Proxy", async () => {
+  const fetch = spyOn(globalThis, "fetch").mockResolvedValue(
+    Response.json({ ok: true, action: "add", results: [] }),
+  );
+  await connectLocal("", MENTION_CONTEXT, proxyUrl(agentApiRoutes.local.messages)).mentionExecute({
+    action: "add",
+    resolutionIds: [MENTION_ID],
+  });
+  const [url, init] = fetch.mock.calls[0]!;
+  expect(url).toEqual(new URL(proxyUrl(agentApiRoutes.local.mentionActions.execute)));
+  expect(init?.method).toBe("POST");
+  expect(JSON.parse(init!.body as string)).toEqual({ action: "add", resolutionIds: [MENTION_ID] });
+});
+
+test("a mention action server error is SERVER_5XX, and a refusal carries the server's text", async () => {
+  spyOn(globalThis, "fetch").mockResolvedValueOnce(
+    Response.json({ error: "upstream failed", code: "UPSTREAM_HTTP_ERROR" }, { status: 502 }),
+  );
+  const client = connectLocal("", MENTION_CONTEXT, proxyUrl(agentApiRoutes.local.messages));
+  const serverError = (await client
+    .mentionExecute({ action: "add", resolutionIds: [MENTION_ID] })
+    .catch((caught: unknown) => caught)) as CliError;
+  expect(serverError).toBeInstanceOf(CliError);
+  expect(serverError.code).toBe("SERVER_5XX");
+
+  spyOn(globalThis, "fetch").mockResolvedValueOnce(
+    Response.json(
+      { ok: false, errorCode: "invalid_request", error: 'action must be "add".' },
+      { status: 400 },
+    ),
+  );
+  const refusal = (await client
+    .mentionExecute({ action: "add", resolutionIds: [MENTION_ID] })
+    .catch((caught: unknown) => caught)) as CliError;
+  expect(refusal.code).toBe("MENTION_ACTION_FAILED");
+  expect(refusal.message).toBe('action must be "add".');
+
+  spyOn(globalThis, "fetch").mockResolvedValueOnce(new Response("bad request", { status: 400 }));
+  const pending = (await client.mentionPending().catch((caught: unknown) => caught)) as CliError;
+  expect(pending.code).toBe("MENTION_PENDING_FAILED");
+  expect(pending.message).toBe("bad request");
 });

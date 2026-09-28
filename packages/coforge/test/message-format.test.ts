@@ -9,7 +9,7 @@ import {
   formatUtcTimestamp,
   neutralizeReferenceLiterals,
   renderSearchPreview,
-} from "../src/message-format";
+} from "#src/message-format";
 
 function message(overrides: Partial<AgentMessageRecord> = {}): AgentMessageRecord {
   return {
@@ -29,6 +29,14 @@ function message(overrides: Partial<AgentMessageRecord> = {}): AgentMessageRecor
 test("formatUtcTimestamp renders ISO input as UTC YYYY-MM-DD HH:MM:SSZ", () => {
   expect(formatUtcTimestamp("2026-09-07T10:05:09Z")).toBe("2026-09-07 10:05:09Z");
   expect(formatUtcTimestamp("2026-01-02T00:00:00.500Z")).toBe("2026-01-02 00:00:00Z");
+});
+
+test("a message the Agent was notified of from outside the channel reads whole and says it cannot reply there", () => {
+  const long = "x".repeat(250);
+  expect(formatMessageLine(message({ body: long, nonMemberMention: true }))).toBe(
+    `[target=#general msg=aaaaaaaa time=2026-09-07 10:00:00Z type=human] @ada: ${long}\n` +
+      "[CoForge notice: You were notified as a non-member, so you cannot reply in that channel. If no reply is needed, no action is required. Otherwise, DM the person who mentioned you or join the channel to participate.]",
+  );
 });
 
 test("formatMessageLine renders the shared bracket line with attachment and task suffixes", () => {
@@ -83,11 +91,51 @@ test("formatMessageLine renders the shared bracket line with attachment and task
       " [task #12 status=in_progress owner=@ada]",
   );
 
+  const withDeletedOwner = message({
+    task: {
+      number: 46,
+      status: "in_progress",
+      owner: { displayName: "Kiro", handle: "kiro", deleted: true },
+    },
+  });
+  expect(formatMessageLine(withDeletedOwner)).toBe(
+    "[target=#general msg=aaaaaaaa time=2026-09-07 10:00:00Z type=human] @ada: hello there" +
+      " [task #46 status=in_progress owner=@kiro [deleted]]",
+  );
+
   const withTaskNoOwner = message({ task: { number: 3, status: "todo" } });
   expect(formatMessageLine(withTaskNoOwner)).toBe(
     "[target=#general msg=aaaaaaaa time=2026-09-07 10:00:00Z type=human] @ada: hello there" +
       " [task #3 status=todo]",
   );
+});
+
+test("formatMessageLine summarizes a long plain-channel body and keeps DM/thread text intact", () => {
+  const longBody = `${"频道闲聊。".repeat(80)}结尾`;
+  const channel = message({
+    id: "bbbbbbbb-0000-4000-8000-000000000002",
+    target: "#general",
+    body: longBody,
+  });
+  const rendered = formatMessageLine(channel);
+  expect(rendered).toContain("…(+");
+  expect(rendered).toContain('read: coforge message read --target "#general" --around bbbbbbbb');
+  expect(rendered).not.toContain("结尾");
+  expect(Array.from(rendered.slice(rendered.indexOf("@ada: ") + 6).split("…")[0]!).length).toBe(
+    200,
+  );
+
+  const dm = message({ target: "@ada", body: longBody });
+  expect(formatMessageLine(dm)).toContain("结尾");
+  expect(formatMessageLine(dm)).not.toContain("…(+");
+
+  const thread = message({ target: "#general:aaaaaaaa", body: longBody });
+  expect(formatMessageLine(thread)).toContain("结尾");
+  expect(formatMessageLine(thread)).not.toContain("…(+");
+
+  const mentioned = message({ target: "#general", body: longBody, mentionsAgent: true });
+  expect(formatMessageLine(mentioned)).toContain("结尾");
+  expect(formatMessageLine(mentioned)).not.toContain("…(+");
 });
 
 test("formatMessageLine renders an Agent sender with its description and a system sender plainly", () => {
@@ -115,10 +163,10 @@ test("formatMessageLine renders an Agent sender with its description and a syste
     senderKind: "system",
     senderHandle: "",
     senderDescription: "",
-    body: "@scout was assigned task #12.",
+    body: '📌 Assigned @scout to task #12 "Fix the login bug"',
   });
   expect(formatMessageLine(fromSystem)).toBe(
-    "[target=#general msg=aaaaaaaa time=2026-09-07 10:00:00Z type=system] system: @scout was assigned task #12.",
+    '[target=#general msg=aaaaaaaa time=2026-09-07 10:00:00Z type=system] system: 📌 Assigned @scout to task #12 "Fix the login bug"',
   );
 });
 
@@ -360,4 +408,26 @@ test("formatHeldSend collapses newlines and runs of whitespace in the preview", 
     ],
   });
   expect(output).toContain("  │ @ada 09:00  line one line two");
+});
+
+test("tracked Tasks carry one workflow pointer per window, not per message", () => {
+  const ordinary = message();
+  const first = message({
+    id: "bbbbbbbb-0000-4000-8000-000000000002",
+    task: { number: 7, status: "todo" },
+  });
+  const second = message({
+    id: "cccccccc-0000-4000-8000-000000000003",
+    task: { number: 8, status: "in_progress" },
+  });
+
+  expect(formatMessageLine(ordinary)).not.toContain("coforge manual get tasks");
+  expect(formatMessageLine(first)).not.toContain("coforge manual get tasks");
+  expect(formatReadWindow("#general", { messages: [ordinary] })).not.toContain(
+    "coforge manual get tasks",
+  );
+
+  const window = formatReadWindow("#general", { messages: [first, second] });
+  expect(window).toContain("Tracked Tasks: coforge manual get tasks");
+  expect(window.split("coforge manual get tasks")).toHaveLength(2);
 });

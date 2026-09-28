@@ -2,8 +2,8 @@ import { expect, test } from "bun:test";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { computerLogPath } from "../src/logging/computer-logger";
-import { followComputerLogs } from "../src/logging/computer-logs";
+import { computerLogPath } from "#src/logging/computer-logger";
+import { followComputerLogs } from "#src/logging/computer-logs";
 
 test("Computer logs prints rotated files and follows new active records", async () => {
   const directory = join(tmpdir(), `coforge-computer-logs-${crypto.randomUUID()}`);

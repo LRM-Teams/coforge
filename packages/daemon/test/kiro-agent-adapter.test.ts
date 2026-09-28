@@ -3,8 +3,8 @@ import { realpathSync } from "node:fs";
 import { mkdtemp, readdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { KiroProvider } from "../src/code-agent/kiro/provider";
-import type { AgentRuntimeEvent, AgentSession } from "../src/code-agent/contract";
+import { KiroProvider } from "#src/code-agent/kiro/provider";
+import type { AgentRuntimeEvent, AgentSession } from "#src/code-agent/contract";
 
 // macOS tmpdir lives under /var, a symlink; the Kiro provider rejects a linked
 // agent profile directory (comparing realpath to the literal resolved path).
@@ -63,7 +63,7 @@ test.each(["--missing-config", "--invalid-model", "--closed-config"])(
   },
 );
 
-test("Kiro launch is rejected before any workspace side effect when the resolved CLI is below the ADR 0010 baseline", async () => {
+test("Kiro launch is rejected before any workspace side effect when the resolved CLI is below the compatibility baseline", async () => {
   const cwd = await mkdtemp(join(tempRoot, "kiro-version-gate-reject-"));
   try {
     await expect(
@@ -351,14 +351,14 @@ test("Kiro steers busy input through _session/steer instead of replacing the run
       events.some((event) => event.type === "error" && event.message === "provider unavailable"),
     ).toBe(true);
 
-    // ADR 0048: busy (this turn is still open) steers through the ACP `_session/steer`
+    // Busy (this turn is still open) steers through the ACP `_session/steer`
     // extension instead of replacing the turn with a new session/prompt. Injected before
     // clearing means the model actually read it — no fallback event.
     await session.notify!("steer-inject-then-clear STEER-MARKER-A");
     expect(events.filter((event) => event.type === "notice-undelivered")).toEqual([]);
 
     // Cleared without ever being injected means Kiro's own buffer discarded it before the
-    // model read it - the daemon core must redeliver it once idle (runtime.ts, ADR 0048).
+    // model read it - the daemon core must redeliver it once idle (runtime.ts).
     // `notify` resolves on Kiro's `_session/steer` answer; `steering_cleared` is a separate
     // notification that can arrive after it, so wait on the event itself.
     const undelivered = Promise.withResolvers<void>();

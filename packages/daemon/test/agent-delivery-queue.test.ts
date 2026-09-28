@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import type { AgentMessageDelivery } from "@lrm/coforge-sdk/internal";
-import { AgentDeliveryQueue } from "../src/daemon-runtime/agent-delivery-queue";
+import { AgentDeliveryQueue } from "#src/daemon-runtime/agent-delivery-queue";
 
 const delivery = (id: string): AgentMessageDelivery => ({
   protocolMajor: 1,
@@ -17,7 +17,7 @@ const delivery = (id: string): AgentMessageDelivery => ({
 });
 
 test("a queue_until_idle mode only holds while busy", () => {
-  // No RuntimeProvider maps to queue_until_idle today (ADR 0048: Kiro moved to steer once its
+  // No RuntimeProvider maps to queue_until_idle today (Kiro moved to steer once its
   // own _session/steer extension was wired in); setMode exercises the mode directly, since
   // setProvider alone cannot reach it any more.
   const queue = new AgentDeliveryQueue();
@@ -156,4 +156,22 @@ test("per-Agent state is independent", () => {
   queue.enqueue("agent-1", delivery("one"));
   expect(queue.shouldHold("agent-2")).toBe(false);
   expect(queue.hasQueued("agent-2")).toBe(false);
+});
+
+test("discarding conversations removes only their held deliveries", () => {
+  const queue = new AgentDeliveryQueue();
+  const held = (id: string, conversationId: string) => ({ ...delivery(id), conversationId });
+  queue.enqueue("agent-1", held("team-1", "conversation-team"));
+  queue.enqueue("agent-1", held("dm-1", "conversation-dm"));
+  queue.enqueue("agent-1", held("team-2", "conversation-team"));
+
+  const dropped = queue.discardConversations("agent-1", new Set(["conversation-team"]));
+
+  expect(dropped.map((message) => message.deliveryId)).toEqual([
+    "delivery-team-1",
+    "delivery-team-2",
+  ]);
+  expect(queue.pending("agent-1").map((message) => message.deliveryId)).toEqual(["delivery-dm-1"]);
+  expect(queue.discardConversations("agent-1", new Set(["conversation-dm"]))).toHaveLength(1);
+  expect(queue.hasQueued("agent-1")).toBe(false);
 });

@@ -1,9 +1,15 @@
 import { afterAll, expect, mock, test } from "bun:test";
 
 const displaySnapshots = new Map<string, string>();
-mock.module("../src/server/agents/agent-display.server", () => ({
-  getAgentDisplay: () => ({
-    snapshot: async (scope: { workspaceId: string; computerId: string; agentId: string }) => {
+// How many batched display reads the profile's Agent list needed; one per list, not per Agent.
+let displayBatchReads = 0;
+mock.module("#src/server/agents/agent-display.server", () => ({
+  getAgentDisplay: () => {
+    const snapshotFor = async (scope: {
+      workspaceId: string;
+      computerId: string;
+      agentId: string;
+    }) => {
       const activityKind = displaySnapshots.get(scope.agentId);
       if (!activityKind) throw new Error("no snapshot");
       return {
@@ -18,12 +24,22 @@ mock.module("../src/server/agents/agent-display.server", () => ({
         entries: [],
         expiresAt: null,
       };
-    },
-  }),
+    };
+    return {
+      snapshot: snapshotFor,
+      // The batched reader the Agent lists use: one call, the same per-scope answer, in order.
+      snapshotMany: async (
+        scopes: Array<{ workspaceId: string; computerId: string; agentId: string }>,
+      ) => {
+        displayBatchReads += 1;
+        return Promise.all(scopes.map(snapshotFor));
+      },
+    };
+  },
 }));
 
-const { resolveAgentProfileShow, resolveAgentProfileUpdate } =
-  await import("../src/server/agents/agent-profile.server");
+const { createdAgentsFor, resolveAgentProfileShow, resolveAgentProfileUpdate } =
+  await import("#src/server/agents/agent-profile.server");
 
 afterAll(() => {
   mock.restore();
@@ -42,6 +58,7 @@ const AGENT_SCOUT = {
   computerId: "computer-1",
   stoppedAt: null as Date | null,
   ownerId: "user-alice",
+  visibility: "public",
   runtimeConfig: {
     runtime: "claude-code",
     provider: { kind: "default" },
@@ -70,8 +87,18 @@ function baseDb(
   const agentRecord = overrides.agent !== undefined ? overrides.agent : AGENT_SCOUT;
   return {
     agent: {
-      findFirst: async ({ where }: { where: { workspaceId: string; name: string } }) =>
-        where.name === "scout" ? agentRecord : null,
+      findFirst: async ({
+        where,
+      }: {
+        where: { workspaceId: string; name?: string; id?: string };
+      }) => {
+        // A `name`-keyed lookup resolves the requested target; an `id`-keyed lookup (no `name`)
+        // is `agentVisibilityViewerForActor` resolving the calling Agent's own ownerId/role
+        // — here the caller always is `scout` itself.
+        if (where.name === undefined) return { ownerId: AGENT_SCOUT.ownerId, role: "member" };
+        if (!agentRecord) return null;
+        return where.name === (agentRecord as { name: string }).name ? agentRecord : null;
+      },
       findUnique: async ({ where }: { where: { id_workspaceId: { id: string } } }) =>
         where.id_workspaceId.id === CALLER_AGENT_ID ? { name: "scout" } : null,
       findMany: async () => overrides.ownedAgents ?? [],
@@ -114,8 +141,15 @@ test("profile show: defaults to the calling Agent's own profile when no target i
 
 test("profile show: a human target lists Agents they created", async () => {
   displaySnapshots.set("agent-scout", "offline");
+  displaySnapshots.set("agent-archivist", "online");
+  displayBatchReads = 0;
   const outcome = await resolveAgentProfileShow(
-    baseDb({ ownedAgents: [AGENT_SCOUT] }) as never,
+    baseDb({
+      ownedAgents: [
+        AGENT_SCOUT,
+        { ...AGENT_SCOUT, id: "agent-archivist", name: "archivist", displayName: "Archivist" },
+      ],
+    }) as never,
     { workspaceId: WORKSPACE_ID, agentId: CALLER_AGENT_ID },
     "alice",
   );
@@ -125,8 +159,12 @@ test("profile show: a human target lists Agents they created", async () => {
   if (outcome.body.profile.kind === "human")
     expect(outcome.body.profile.createdAgents).toEqual([
       { name: "scout", displayName: "Scout", status: "offline" },
+      { name: "archivist", displayName: "Archivist", status: "online" },
     ]);
+  // Two Agents' live statuses, one round trip — the reason the batched reader exists.
+  expect(displayBatchReads).toBe(1);
   displaySnapshots.delete("agent-scout");
+  displaySnapshots.delete("agent-archivist");
 });
 
 test("profile show: an unknown target 404s as user_not_found", async () => {
@@ -209,4 +247,52 @@ test("profile update: never accepts a name/Username field (the request type has 
   );
   expect(updateData).toEqual({ displayName: "Scout Bot" });
   expect(updateData).not.toHaveProperty("name");
+});
+
+test("profile show: a private target Agent invisible to the caller answers agent_not_visible", async () => {
+  const ghost = {
+    ...AGENT_SCOUT,
+    name: "ghost",
+    ownerId: "user-someone-else",
+    visibility: "private",
+  };
+  const outcome = await resolveAgentProfileShow(
+    baseDb({ agent: ghost }) as never,
+    { workspaceId: WORKSPACE_ID, agentId: CALLER_AGENT_ID },
+    "ghost",
+  );
+  expect(outcome.status).toBe(404);
+  if (outcome.status !== 404) throw new Error("unreachable");
+  expect(outcome.body).toEqual({
+    ok: false,
+    errorCode: "agent_not_visible",
+    error: "@ghost is not visible to you.",
+  });
+});
+
+test("createdAgentsFor: hides a private Agent from a viewer who is not its creator", async () => {
+  let query: unknown;
+  const otherUsersPrivateAgent = { ...AGENT_SCOUT, visibility: "private" };
+  const db = {
+    agent: {
+      findMany: async (input: unknown) => {
+        query = input;
+        return [otherUsersPrivateAgent];
+      },
+    },
+  } as never;
+  const outsiderViewer = { kind: "user" as const, userId: "user-outsider", role: "member" };
+
+  const agents = await createdAgentsFor(db, WORKSPACE_ID, "user-alice", outsiderViewer);
+
+  expect(query).toMatchObject({
+    where: {
+      workspaceId: WORKSPACE_ID,
+      ownerId: "user-alice",
+      OR: [{ visibility: "public" }, { ownerId: "user-outsider" }],
+    },
+  });
+  // The fake `findMany` ignores its own `where` (it always returns the row), so this proves the
+  // *query* carries the filter — the real Prisma call is what actually excludes the row.
+  expect(agents).not.toEqual([]);
 });

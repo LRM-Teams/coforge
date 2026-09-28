@@ -1,7 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import { parseAgentDisplaySnapshot, type AgentDisplaySnapshot } from "@lrm/coforge-sdk/internal";
 
-import { useRealtimeSubscription } from "../realtime/browser-realtime";
+import {
+  useRealtimeSubscription,
+  useRealtimeSubscriptions,
+} from "#src/features/realtime/browser-realtime";
+import { AGENT_VISIBILITY } from "./agent-visibility";
+import { ACTIVITY_PROBE_TIMEOUT_MS } from "./activity-probe-timeout";
 
 export type AgentStatusEvent = {
   agentId: string;
@@ -19,6 +24,9 @@ type StatusTrackedAgent = {
   workspaceId?: string;
   display?: AgentDisplaySnapshot;
   displayRevisionHighWater?: number;
+  /** Read by `useAgentStatuses` itself to derive which Agents in its own current
+   * state need a per-Agent status subscription. */
+  visibility?: string;
 };
 export type AgentStatusView = {
   value: "active" | "inactive";
@@ -35,10 +43,30 @@ type UnknownAgentStatusView = Omit<AgentStatusView, "value"> & {
 
 export const agentStatusChannel = (workspaceId: string) => `agent:status:${workspaceId}`;
 
-// Must match ACTIVITY_PROBE_TIMEOUT_MS in
-// `server/agents/agent-activity-sweep.server.ts`. Duplicated here rather than
-// imported because browser code cannot import a `.server.ts` module.
-export const ACTIVITY_PROBE_TIMEOUT_MS = 5_000;
+/** The re-routed destination for a private Agent's `agent:display` snapshot, the
+ * status-channel sibling of `agentActivityChannelForAgent`: only a viewer who can currently see
+ * that Agent is ever issued a subscription token for it. */
+export const agentStatusChannelForAgent = (workspaceId: string, agentId: string) =>
+  `agent:status:${workspaceId}:${agentId}`;
+
+/**
+ * The id-only event a visibility change publishes on the shared status channel. A
+ * browser that receives it refetches its Agent list, drops the Agent from caches if it can no
+ * longer see it, or (re)subscribes to its per-Agent channels if it still can.
+ */
+export type AgentVisibilityChangedEvent = { type: "agent:visibility_changed"; agentId: string };
+
+export function isAgentVisibilityChangedEvent(
+  value: unknown,
+): value is AgentVisibilityChangedEvent {
+  return (
+    Boolean(value) &&
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    Reflect.get(value as object, "type") === "agent:visibility_changed" &&
+    typeof Reflect.get(value as object, "agentId") === "string"
+  );
+}
 
 export function encodeAgentStatusEvent(event: AgentStatusEvent): Uint8Array {
   return new TextEncoder().encode(JSON.stringify(event));
@@ -172,6 +200,22 @@ export function mergeAgentStatusSnapshot<T extends StatusTrackedAgent>(
   });
 }
 
+/**
+ * Appends any `extraAgents` entries not already present in `list` by id. `list` is a
+ * primary Agent list (e.g. `listAgents`'s owned-Agents roster) that a fresh refresh always
+ * replaces wholesale; `extraAgents` are Agents visible to the viewer but outside that primary
+ * list — e.g. an owner/admin's view of another member's private Agent — represented as
+ * placeholders (status "inactive" until a live publication says otherwise) so they are never
+ * silently dropped by `mergeAgentStatusSnapshot`'s "the fresh snapshot is authoritative" rule,
+ * and so they receive the same per-Agent channel subscription every other private Agent in
+ * `visibleAgents` gets. If the primary list ever comes to include the same id (e.g. a broader
+ * roster in a later change), that entry wins and the placeholder is dropped.
+ */
+export function mergeExtraAgents<T extends StatusTrackedAgent>(list: T[], extraAgents: T[]): T[] {
+  const ids = new Set(list.map((agent) => agent.id));
+  return [...list, ...extraAgents.filter((extra) => !ids.has(extra.id))];
+}
+
 export function expireAgentStatuses<T extends StatusTrackedAgent>(agents: T[], now: number): T[] {
   return agents.map((agent) =>
     agent.status.value === "active" &&
@@ -195,7 +239,7 @@ export function expireAgentStatuses<T extends StatusTrackedAgent>(agents: T[], n
  * display does not schedule its refresh at its own `expiresAt`: that
  * deadline is pushed out by `ACTIVITY_PROBE_TIMEOUT_MS + 1_000`, so the
  * refresh is purely a safety net behind the server sweep's own
- * `agent:display` push once its own probe times out (see ADR 0020). Every
+ * `agent:display` push once its own probe times out. Every
  * other display kind keeps refreshing right at its own `expiresAt`. Returns
  * `undefined` when there is nothing to schedule.
  */
@@ -220,13 +264,31 @@ export function useAgentStatuses<T extends StatusTrackedAgent>({
   workspaceId,
   refresh,
   getConnectionToken,
+  extraAgents = [],
+  onVisibilityChangedEvent,
+  getPrivateAgentStatusToken,
 }: {
   agents: T[];
   workspaceId?: string;
   refresh: () => Promise<T[]>;
   getConnectionToken: () => Promise<string>;
+  /** Placeholder entries for Agents visible to the viewer but outside their own
+   * primary `agents` list — e.g. an owner/admin's view of another member's private Agent.
+   * Merged in (via `mergeExtraAgents`) alongside every fresh `agents`/`refresh()` result so a
+   * refresh never silently drops them; a live publication updates them in place exactly like any
+   * other tracked Agent once merged. */
+  extraAgents?: T[];
+  /** Called whenever this hook observes `agent:visibility_changed`, so a caller
+   * tracking a separate id list (e.g. the `extraAgents` source query) can refetch it too. */
+  onVisibilityChangedEvent?: () => void;
+  /** A private Agent's `agent:display` snapshot no longer arrives on the shared status
+   * channel, so this hook derives which of its own current Agents need a per-Agent subscription
+   * from their `visibility` field itself — no lag from an external, previous-render list. */
+  getPrivateAgentStatusToken?: (agentId: string) => Promise<string>;
 }) {
-  const [visibleAgents, setVisibleAgents] = useState(() => expireAgentStatuses(agents, Date.now()));
+  const [visibleAgents, setVisibleAgents] = useState(() =>
+    expireAgentStatuses(mergeExtraAgents(agents, extraAgents), Date.now()),
+  );
   const mounted = useRef(true);
   const currentWorkspaceId = useRef(workspaceId);
   const visibleWorkspaceId = useRef(workspaceId);
@@ -242,13 +304,16 @@ export function useAgentStatuses<T extends StatusTrackedAgent>({
   useEffect(() => {
     if (visibleWorkspaceId.current !== workspaceId) {
       visibleWorkspaceId.current = workspaceId;
-      setVisibleAgents(expireAgentStatuses(agents, Date.now()));
+      setVisibleAgents(expireAgentStatuses(mergeExtraAgents(agents, extraAgents), Date.now()));
       return;
     }
     setVisibleAgents((current) =>
-      expireAgentStatuses(mergeAgentStatusSnapshot(current, agents), Date.now()),
+      expireAgentStatuses(
+        mergeAgentStatusSnapshot(current, mergeExtraAgents(agents, extraAgents)),
+        Date.now(),
+      ),
     );
-  }, [agents, workspaceId]);
+  }, [agents, workspaceId, extraAgents]);
 
   useEffect(() => {
     const statusExpiresAt = Math.min(
@@ -278,7 +343,9 @@ export function useAgentStatuses<T extends StatusTrackedAgent>({
         .then((refreshed) => {
           if (disposed || !mounted.current || currentWorkspaceId.current !== refreshWorkspaceId)
             return;
-          setVisibleAgents((current) => mergeAgentStatusSnapshot(current, refreshed));
+          setVisibleAgents((current) =>
+            mergeAgentStatusSnapshot(current, mergeExtraAgents(refreshed, extraAgents)),
+          );
         })
         .catch(() => {
           if (!disposed && mounted.current && currentWorkspaceId.current === refreshWorkspaceId)
@@ -290,35 +357,64 @@ export function useAgentStatuses<T extends StatusTrackedAgent>({
       disposed = true;
       window.clearTimeout(timer);
     };
-  }, [refresh, visibleAgents, workspaceId]);
+  }, [refresh, visibleAgents, workspaceId, extraAgents]);
 
   const refreshSnapshot = async () => {
     const refreshed = await refresh();
     if (mounted.current)
       setVisibleAgents((current) =>
-        expireAgentStatuses(mergeAgentStatusSnapshot(current, refreshed), Date.now()),
+        expireAgentStatuses(
+          mergeAgentStatusSnapshot(current, mergeExtraAgents(refreshed, extraAgents)),
+          Date.now(),
+        ),
       );
+  };
+
+  const handleStatusPublication = (data: unknown) => {
+    try {
+      const value =
+        data instanceof Uint8Array ? (JSON.parse(new TextDecoder().decode(data)) as unknown) : data;
+      if (isAgentVisibilityChangedEvent(value)) {
+        // Refetch immediately rather than waiting for the next scheduled refresh —
+        // `mergeAgentStatusSnapshot` already drops any Agent absent from the fresh list, and
+        // subscribing/unsubscribing its per-Agent channels follows from that same fresh list
+        // wherever it is consumed (see `WorkspaceAgentsProvider`). A caller tracking a separate
+        // "extra visible Agents" id list (an owner/admin's view beyond their own roster) gets
+        // the same signal to refetch that list too.
+        void refreshSnapshot().catch(() => {});
+        onVisibilityChangedEvent?.();
+      } else if (Reflect.get(value as object, "type") === "agent:display") {
+        const snapshot = parseAgentDisplaySnapshot(value);
+        setVisibleAgents((current) => applyAgentDisplaySnapshot(current, snapshot, workspaceId));
+      } else {
+        const event = decodeAgentStatusEvent(value);
+        setVisibleAgents((current) => applyAgentStatusEvent(current, event));
+      }
+    } catch {}
   };
 
   useRealtimeSubscription({
     channel: workspaceId ? agentStatusChannel(workspaceId) : undefined,
     getToken: getConnectionToken,
     onConnected: () => void refreshSnapshot().catch(() => {}),
-    onPublication: (publication) => {
-      try {
-        const value =
-          publication.data instanceof Uint8Array
-            ? (JSON.parse(new TextDecoder().decode(publication.data)) as unknown)
-            : publication.data;
-        if (Reflect.get(value as object, "type") === "agent:display") {
-          const snapshot = parseAgentDisplaySnapshot(value);
-          setVisibleAgents((current) => applyAgentDisplaySnapshot(current, snapshot, workspaceId));
-        } else {
-          const event = decodeAgentStatusEvent(value);
-          setVisibleAgents((current) => applyAgentStatusEvent(current, event));
-        }
-      } catch {}
-    },
+    onPublication: (publication) => handleStatusPublication(publication.data),
+  });
+
+  // One status subscription per visible private Agent, on the same shared client,
+  // derived from this hook's own current `visibleAgents` state — never an external, previous-
+  // render list, so a freshly-private Agent (e.g. right after an `agent:visibility_changed`
+  // refresh above) is subscribed in the very render that learns about it.
+  useRealtimeSubscriptions({
+    channels:
+      workspaceId && getPrivateAgentStatusToken
+        ? visibleAgents
+            .filter((agent) => agent.visibility === AGENT_VISIBILITY.PRIVATE)
+            .map((agent) => ({
+              channel: agentStatusChannelForAgent(workspaceId, agent.id),
+              getToken: () => getPrivateAgentStatusToken(agent.id),
+            }))
+        : [],
+    onPublication: (_channel, publication) => handleStatusPublication(publication.data),
   });
 
   return visibleAgents;

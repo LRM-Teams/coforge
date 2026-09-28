@@ -4,61 +4,88 @@ import { z } from "zod";
 import {
   ChannelConversation,
   ChannelConversationHeader,
-} from "@/features/conversations/channel-conversation";
+} from "#src/features/conversations/channel-conversation";
 import {
   ConversationLoadError,
   ConversationPending,
-} from "@/features/conversations/conversation-pending";
+} from "#src/features/conversations/conversation-pending";
 import {
+  useConversationView,
+  useShownConversationTab,
+} from "#src/features/conversations/use-conversation-view";
+import { CONVERSATION_TABS } from "#src/features/conversations/conversation-tabs";
+import { openTaskParamSchema } from "#src/features/conversations/conversation-thread-search";
+import { ConversationTaskBoard } from "#src/features/tasks/conversation-task-board";
+import { conversationTaskBoardSearchShape } from "#src/features/tasks/task-board-search";
+import { finishedSummaryQuery } from "#src/features/tasks/use-finished-tasks";
+import { ConversationFilesPanel } from "#src/features/conversations/conversation-files";
+import {
+  ensureConversationWindow,
   publicChannelQuery,
-  publicChannelUpdates,
-  useConversationQuery,
-} from "@/features/conversations/conversation-queries";
-import { useConversationView } from "@/features/conversations/use-conversation-view";
-import { TaskBoard } from "@/features/tasks/task-board";
-import { ConversationFilesPanel } from "@/features/conversations/conversation-files";
-import { useTaskLayout } from "@/features/tasks/task-workflow";
-import { useConversationTasks } from "@/features/tasks/use-conversation-tasks";
-import { loadOwnConversationMessages } from "@/features/conversations/conversations.functions";
-import {
-  joinPublicChannel,
-  markPublicChannelRead,
-  markPublicChannelThreadRead,
-  setPublicChannelThreadFollowed,
-  setPublicChannelMuted,
-  sendPublicChannelMessage,
-  toggleChannelMessageReaction,
-} from "@/features/conversations/channels.functions";
+} from "#src/features/conversations/conversation-queries";
+import { useChannelConversation } from "#src/features/conversations/use-conversation-data";
+import { markPublicChannelRead } from "#src/features/conversations/channels.functions";
 import {
   agentIdFromProfileParam,
   agentProfileParamSchema,
   agentProfileTabParamSchema,
-} from "@/features/agents/profile-panel/profile-panel-search";
-import { useOpenAgentProfile } from "@/features/agents/profile-panel/open-agent-profile";
+} from "#src/features/agents/profile-panel/profile-panel-search";
+import { useOpenAgentProfile } from "#src/features/agents/profile-panel/open-agent-profile";
 import {
   useConversationReadRequiresScroll,
   useMarkConversationSeen,
-} from "@/features/conversations/conversation-navigation";
+} from "#src/features/conversations/conversation-navigation";
 import {
   latestTopLevelSequence,
   persistReadCursor,
-} from "@/features/conversations/conversation-unread";
+} from "#src/features/conversations/conversation-unread";
 import { useEffect } from "react";
 
 export const Route = createFileRoute("/_app/messages/channels/$channelId")({
   validateSearch: z.object({
-    view: z.enum(["chat", "tasks", "files"]).optional().catch(undefined),
-    layout: z.enum(["board", "list"]).optional().catch(undefined),
+    view: z.enum(CONVERSATION_TABS).optional().catch(undefined),
+    ...conversationTaskBoardSearchShape,
     message: z.uuid().optional().catch(undefined),
     threadRootId: z.uuid().optional().catch(undefined),
+    task: openTaskParamSchema,
     profile: agentProfileParamSchema,
     agentTab: agentProfileTabParamSchema,
   }),
+  loaderDeps: ({ search }) =>
+    ({
+      message: search.message,
+      threadRootId: search.threadRootId,
+      // The Tasks tab's finished-work window, whose counts the loader reads.
+      tasks: search.view === "tasks" ? (search.completed ?? "week") : undefined,
+    }) as const,
   remountDeps: ({ params }) => params.channelId,
-  loader: ({ context, params }) =>
-    context.queryClient.infiniteQuery(publicChannelQuery(params.channelId).query),
-  pendingMs: 300,
-  pendingMinMs: 0,
+  loader: async ({ context, params, deps, parentMatchPromise, cause }) => {
+    const window = await ensureConversationWindow(
+      context.queryClient,
+      publicChannelQuery(params.channelId).query,
+      deps.threadRootId ?? deps.message,
+    );
+    const conversationId = window.pages.at(-1)?.conversationId;
+    if (deps.tasks && conversationId) {
+      const completedWindow = deps.tasks;
+      const summary = parentMatchPromise.then(({ loaderData }) =>
+        context.queryClient.ensureQueryData(
+          finishedSummaryQuery(
+            { workspaceId: loaderData?.workspaceId ?? "", conversationId },
+            completedWindow,
+          ),
+        ),
+      );
+      // Arriving from another kind of page (`enter`: a first load, or from a channel to a direct
+      // message and back) waits for the counts. Staying on this kind of page (`stay`: switching to
+      // the Tasks tab, changing the window, or opening another conversation of the same kind) only
+      // starts the read: the board shows its loading state until the counts arrive
+      // (`finished.pending`), so the page never gives way to its loading page for them.
+      if (cause === "stay") void summary.catch(() => undefined);
+      else await summary;
+    }
+    return window;
+  },
   pendingComponent: ConversationPending,
   errorComponent: ConversationLoadError,
   component: ChannelPage,
@@ -66,25 +93,14 @@ export const Route = createFileRoute("/_app/messages/channels/$channelId")({
 
 function ChannelPage() {
   const { channelId } = Route.useParams();
-  const { view, layout, profile, agentTab } = Route.useSearch();
-  const taskLayout = useTaskLayout(layout);
+  const { view: requestedView, profile, agentTab, ...search } = Route.useSearch();
+  const view = useShownConversationTab(requestedView);
   const { openAgentProfile, setAgentProfileTab, closeAgentProfile } = useOpenAgentProfile();
   const profileAgentId = agentIdFromProfileParam(profile);
-  const send = useServerFn(sendPublicChannelMessage);
-  const toggleReaction = useServerFn(toggleChannelMessageReaction);
-  const join = useServerFn(joinPublicChannel);
-  const markRead = useServerFn(markPublicChannelThreadRead);
-  const setThreadFollowed = useServerFn(setPublicChannelThreadFollowed);
-  const setMuted = useServerFn(setPublicChannelMuted);
-  const loadOwnMessages = useServerFn(loadOwnConversationMessages);
-  const page = useConversationQuery({
-    ...publicChannelQuery(channelId),
-    loadUpdates: publicChannelUpdates(channelId),
-    onRealtime: () => taskView.refresh(),
-  });
+  const { page, taskView, refreshChannelAndSidebar, conversationProps } =
+    useChannelConversation(channelId);
   const { conversation } = page;
-  const taskView = useConversationTasks(conversation.conversationId);
-  const { router, showChat, showTasks, showFiles, changeLayout, openTask, openMessage } =
+  const { showChat, showTasks, showFiles, openTask, openTaskThread, openMessage } =
     useConversationView(page.ensureLoaded);
 
   // Opening the channel is reading it — except in the `newest-unread` preference, which keeps
@@ -113,25 +129,6 @@ function ChannelPage() {
     );
   };
 
-  // Membership changes reach the sidebar through the layout loader and this page
-  // through its query; both are refreshed.
-  const changeMuted = async (muted: boolean) => {
-    await setMuted({ data: { channelId, muted } });
-    await Promise.all([page.invalidate(), router.invalidate({ sync: true })]);
-  };
-  // The Members dialog calls `leavePublicChannel` itself; this only refreshes the page (so
-  // `senderMemberId` empties and the read-only Join view appears) and the sidebar channel list
-  // (so it reflects `joined: false`).
-  const afterLeft = async () => {
-    await Promise.all([page.invalidate(), router.invalidate({ sync: true })]);
-  };
-  const followThread = (threadRootId: string) =>
-    page.patch((current) => ({
-      ...current,
-      followedThreadRootIds: current.followedThreadRootIds.includes(threadRootId)
-        ? current.followedThreadRootIds
-        : [...current.followedThreadRootIds, threadRootId],
-    }));
   if (view === "files")
     return (
       <div className="flex min-h-0 flex-1 flex-col">
@@ -140,9 +137,7 @@ function ChannelPage() {
           active="files"
           onShowChat={showChat}
           onShowTasks={showTasks}
-          onMutedChange={changeMuted}
-          onLeft={afterLeft}
-          onOpenAgentProfile={openAgentProfile}
+          onChanged={refreshChannelAndSidebar}
         />
         <ConversationFilesPanel
           conversationId={conversation.conversationId}
@@ -150,100 +145,52 @@ function ChannelPage() {
         />
       </div>
     );
-  if (view === "tasks")
-    return (
-      <TaskBoard
+  // The Tasks tab sits in the conversation's main pane, so a Task opened from it shows the
+  // conversation's Task popup over the board.
+  const tasksPane =
+    view === "tasks" ? (
+      <ConversationTaskBoard
+        conversationId={conversation.conversationId}
         header={
           <ChannelConversationHeader
             conversation={conversation}
             active="tasks"
             onShowChat={showChat}
             onShowFiles={showFiles}
-            onMutedChange={changeMuted}
-            onLeft={afterLeft}
-            onOpenAgentProfile={openAgentProfile}
+            onChanged={refreshChannelAndSidebar}
           />
         }
-        layout={taskLayout}
-        onLayoutChange={changeLayout}
-        tasks={taskView.tasks}
-        conversationName={`#${conversation.name}`}
+        search={search}
+        taskView={taskView}
+        name={`#${conversation.name}`}
+        members={conversation.mentionables}
         currentMemberId={conversation.senderMemberId}
         canMutate={Boolean(conversation.senderMemberId)}
-        loading={taskView.loading}
-        error={taskView.error}
-        onOpenMessage={openTask}
-        onShowChat={showChat}
+        onOpenTask={openTask}
+        onOpenMessage={openTaskThread}
         onCreateTask={
           conversation.senderMemberId
-            ? async (title, requestId) => {
-                const [task] = await taskView.command({ operation: "create", title, requestId });
+            ? async (titles, idempotencyKey) => {
+                const tasks = await taskView.command({
+                  operation: "create",
+                  titles,
+                  idempotencyKey,
+                });
                 await page.invalidate();
-                return task;
+                return tasks;
               }
             : undefined
         }
-        onCommand={async (command) => {
-          await taskView.command(command);
-        }}
       />
-    );
+    ) : undefined;
   return (
     <ChannelConversation
       key={channelId}
-      conversation={conversation}
-      tasks={taskView.tasks}
+      {...conversationProps}
+      tasksPane={tasksPane}
       onShowTasks={showTasks}
       onShowFiles={showFiles}
-      onCreateTask={async (title, requestId, attachmentId) => {
-        await taskView.command({ operation: "create", title, requestId, attachmentId });
-        await page.invalidate();
-      }}
-      onSend={async (body, requestId, attachmentIds, threadRootId) => {
-        const message = await send({
-          data: { channelId, body, requestId, attachmentIds, threadRootId },
-        });
-        page.mergeUpdates([message]);
-        if (threadRootId) followThread(threadRootId);
-        void page.reconciliation.reconcile().catch(() => {});
-        return message;
-      }}
-      onToggleReaction={async (messageId, emoji, active) => {
-        await toggleReaction({ data: { channelId, messageId, emoji, active } });
-        // Reactions ride no realtime signal, so re-read the loaded pages (the sanctioned
-        // path for changes the feed does not carry) instead of patching one page's cache.
-        await page.invalidate();
-      }}
-      onJoin={async () => {
-        await join({ data: { channelId } });
-        await Promise.all([page.invalidate(), router.invalidate({ sync: true })]);
-      }}
-      onMutedChange={changeMuted}
-      onLeft={afterLeft}
-      onReadThread={(threadRootId, throughSequence) =>
-        markRead({ data: { channelId, threadRootId, throughSequence } })
-      }
-      onThreadFollowedChange={async (threadRootId, followed) => {
-        await setThreadFollowed({ data: { channelId, threadRootId, followed } });
-        if (followed) followThread(threadRootId);
-        else
-          page.patch((current) => ({
-            ...current,
-            followedThreadRootIds: current.followedThreadRootIds.filter(
-              (id) => id !== threadRootId,
-            ),
-          }));
-      }}
-      onLoadOwnMessages={(beforeSequence) =>
-        loadOwnMessages({
-          data: { conversationId: conversation.conversationId, beforeSequence },
-        })
-      }
-      onLoadMessageAround={page.loadMessageAround}
-      onShowLatest={page.showLatest}
       onReadLatest={readLatest}
-      onLoadOlder={page.loadOlder}
-      onLoadNewer={page.loadNewer}
       onOpenAgentProfile={openAgentProfile}
       agentProfile={{ agentId: profileAgentId, tab: agentTab }}
       onAgentProfileTabChange={setAgentProfileTab}

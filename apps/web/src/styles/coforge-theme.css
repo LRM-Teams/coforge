@@ -47,7 +47,7 @@
   --color-online: #1bb618;
   --color-offline: #afbccb;
 
-  /* Deleted-Agent avatar background (ADR 0044). Same greys as `--color-offline`, but a separate
+  /* Deleted-Agent avatar background. Same greys as `--color-offline`, but a separate
      token because that one is documented as the presence-dot colour and a deleted identity is not
      a presence state. See docs/design-tokens.md. */
   --color-avatar-deleted: #afbccb;

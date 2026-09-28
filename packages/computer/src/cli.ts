@@ -14,18 +14,18 @@ import {
   resolveDaemonSocketPath,
 } from "./paths";
 import { ComputerUpdater, UpdateError } from "./updater";
-import { resolveUpgradeCoordinatorPaths, runUpgradeOperation } from "./release/upgrade-runner";
-import { UpgradeCoordinatorError } from "./release/upgrade-coordinator";
+import { resolveUpgradeCoordinatorPaths, runUpgradeOperation } from "#src/release/upgrade-runner";
+import { UpgradeCoordinatorError } from "#src/release/upgrade-coordinator";
 import {
   createLocalUpgradeOperation,
   type UpgradeOperation,
   type UpgradeOperationKind,
-} from "./release/upgrade-operation";
-import { runInstallationSource } from "./release/installation-source";
+} from "#src/release/upgrade-operation";
+import { runInstallationSource } from "#src/release/installation-source";
 import { COFORGE_RELEASE_FEED_URL, COFORGE_SERVER_URL } from "./release-channel";
 import { FileComputerConfig, loadBuildProfile } from "./local-config";
 import { resolveComputerConfigDirectory } from "./paths";
-import { ComputerSetup } from "./setup/computer-setup";
+import { ComputerSetup } from "#src/setup/computer-setup";
 import { currentComputerNames, currentComputerPlatform } from "./platform";
 import { FileMachineIdFallback, resolveMachineId } from "./machine-id";
 import {
@@ -43,16 +43,16 @@ import {
   resolveDaemonExecutablePath,
   runMachineSupervisor,
 } from "@lrm/coforge-daemon";
-import { createWorkspaceLookup } from "./workspace/lookup";
-import { isValidComputerWorkspaceSlug } from "./workspace/workspace-slug";
-import { registrationIdempotencyKey } from "./registration/idempotency-key";
-import { writeSetupResult } from "./cli/setup-output";
+import { createWorkspaceLookup } from "#src/workspace/lookup";
+import { isValidComputerWorkspaceSlug } from "#src/workspace/workspace-slug";
+import { registrationIdempotencyKey } from "#src/registration/idempotency-key";
+import { writeSetupResult } from "#src/cli/setup-output";
 import { createCommand as createClientCommand } from "./daemon-client";
-import { configureComputerLogger } from "./logging/computer-logger";
-import { followComputerLogs } from "./logging/computer-logs";
+import { configureComputerLogger } from "#src/logging/computer-logger";
+import { followComputerLogs } from "#src/logging/computer-logs";
 import { COFORGE_COMPUTER_VERSION as VERSION } from "./version";
-import { createStatusPorts } from "./status/create-status-ports";
-import { createStatusCommand, type StatusCommand } from "./status/status-command";
+import { createStatusPorts } from "#src/status/create-status-ports";
+import { createStatusCommand, type StatusCommand } from "#src/status/status-command";
 
 export interface LoginCommand {
   run(serverUrl: string, options: { json: boolean }): Promise<void>;
@@ -531,7 +531,7 @@ export type RestartSupervisorLocal = {
 /**
  * Restarts the Coordinator process itself through the platform host - `coforge-computer restart
  * --supervisor` - rather than a Workspace runtime the ordinary `restart` command targets. Engages
- * the same runner hold a Coordinator-initiated restart uses today (ADR 0021) so a live tool call
+ * the same runner hold a Coordinator-initiated restart uses today so a live tool call
  * is not cut, unless the Coordinator cannot be reached at all: that unreachable case is exactly
  * why this command exists, so it restarts anyway rather than refusing.
  */

@@ -1,12 +1,12 @@
 import { expect, test } from "bun:test";
-import { selectWeeklyReportAssistantMessages } from "../src/server/records/weekly-report-assistant-chat.server";
+import { selectWeeklyReportAssistantMessages } from "#src/server/records/weekly-report-assistant-chat.server";
 import {
   buildWeeklyReportAssistantRequestBody,
   messageBelongsToWeeklyReportSubject,
   weeklyReportAssistantDisplayBody,
   weeklyReportAssistantSubjectFromBody,
-} from "../src/server/records/weekly-report-assistant-request.server";
-import { buildWeeklyReportAssistantSuggestionBody } from "../src/server/records/weekly-report-assistant-suggestion.server";
+} from "#src/server/records/weekly-report-assistant-request.server";
+import { buildWeeklyReportAssistantSuggestionBody } from "#src/server/records/weekly-report-assistant-suggestion.server";
 
 test("assistant request bodies carry page subject and compact manifest only", () => {
   const body = buildWeeklyReportAssistantRequestBody({
@@ -38,7 +38,7 @@ test("assistant request bodies carry page subject and compact manifest only", ()
 
 test("assistant request bodies optionally bind a side-chat session id", async () => {
   const { weeklyReportAssistantSessionFromBody } =
-    await import("../src/server/records/weekly-report-assistant-request.server");
+    await import("#src/server/records/weekly-report-assistant-request.server");
   const sessionId = "22222222-2222-2222-2222-222222222222";
   const body = buildWeeklyReportAssistantRequestBody({
     subjectType: "report",
@@ -155,7 +155,7 @@ test("assistant suggestion envelopes are stripped from display and attached for 
 
 test("platform synthesizer wakes bind session but stay hidden from the side panel", async () => {
   const { isWeeklyReportPlatformTurn } =
-    await import("../src/server/records/weekly-report-assistant-request.server");
+    await import("#src/server/records/weekly-report-assistant-request.server");
   const sessionId = "33333333-3333-3333-3333-333333333333";
   const wake = buildWeeklyReportAssistantRequestBody({
     subjectType: "report",

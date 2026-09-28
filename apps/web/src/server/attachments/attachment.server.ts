@@ -1,11 +1,20 @@
-import type { PrismaClient } from "../../../generated/client";
-import { AppError } from "../../lib/app-error";
-import { getFileStorage, type FileStorage, type StoredFile } from "../files/file-storage.server";
-import { ACTIVE_MEMBER_WHERE } from "../conversations/active-member.server";
+import type { PrismaClient } from "#src/generated/prisma/client";
+import { AppError } from "#src/lib/app-error";
+import {
+  getFileStorage,
+  type FileStorage,
+  type StoredFile,
+} from "#src/server/files/file-storage.server";
+import {
+  ACTIVE_MEMBER_WHERE,
+  VISIBLE_CONVERSATION_WHERE,
+} from "#src/server/conversations/active-member.server";
 
-export const ATTACHMENT_MAX_BYTES = 10 * 1024 * 1024;
+import { ATTACHMENT_MAX_BYTES } from "@lrm/coforge-sdk/internal";
+
+export { ATTACHMENT_MAX_BYTES };
 export const ATTACHMENT_SESSION_SECONDS = 900;
-/** `COFORGE_ATTACHMENT_DIRECT_UPLOAD_THRESHOLD_BYTES` default (ADR 0028): 1 MiB. */
+/** `COFORGE_ATTACHMENT_DIRECT_UPLOAD_THRESHOLD_BYTES` default: 1 MiB. */
 export const ATTACHMENT_DIRECT_UPLOAD_THRESHOLD_DEFAULT_BYTES = 1024 * 1024;
 
 export type AttachmentCapabilities = {
@@ -16,7 +25,7 @@ export type AttachmentCapabilities = {
 };
 
 /**
- * Reports server-authoritative attachment upload limits (ADR 0028). `directUploadEnabled` is
+ * Reports server-authoritative attachment upload limits. `directUploadEnabled` is
  * `true` only when the active storage backend implements `presignPut` (currently `OssFileStorage`
  * only; `LocalFileStorage` has none, so local dev always reports direct upload disabled).
  */
@@ -54,6 +63,7 @@ export async function storeAttachment(
   const conversation = await db.conversation.findFirst({
     where: {
       id: input.conversationId,
+      ...VISIBLE_CONVERSATION_WHERE,
       members: { some: { userId: input.userId, ...ACTIVE_MEMBER_WHERE } },
       OR: [{ channelName: null }, { workspace: { members: { some: { userId: input.userId } } } }],
     },
@@ -157,6 +167,8 @@ export async function readAuthorizedAttachment(
         await db.conversation.findFirst({
           where: {
             id: attachment.conversationId,
+            // A channel hidden from the Workspace keeps its files from everyone until restored.
+            ...VISIBLE_CONVERSATION_WHERE,
             OR: [
               {
                 channelName: null,
@@ -178,6 +190,7 @@ export async function readAuthorizedAttachment(
             conversationId: attachment.conversationId,
             agentId: input.agentId,
             ...ACTIVE_MEMBER_WHERE,
+            conversation: VISIBLE_CONVERSATION_WHERE,
           },
         })),
       );
@@ -191,4 +204,33 @@ export async function readAuthorizedAttachment(
       return file;
     },
   };
+}
+
+/** Every stored file a conversation holds: its attachments' and upload sessions' object keys. A
+ * finished upload keeps its session row, so a key found in both is listed once. Read it before the
+ * conversation is deleted, then pass it to `removeAttachmentFiles` after the delete commits. */
+export async function conversationAttachmentKeys(
+  db: Pick<PrismaClient, "attachment" | "attachmentUploadSession">,
+  conversationId: string,
+): Promise<string[]> {
+  const [attachments, uploads] = await Promise.all([
+    db.attachment.findMany({ where: { conversationId }, select: { objectKey: true } }),
+    db.attachmentUploadSession.findMany({ where: { conversationId }, select: { objectKey: true } }),
+  ]);
+  return [...new Set([...attachments, ...uploads].map(({ objectKey }) => objectKey))];
+}
+
+/** Removes stored files whose rows are already gone. Best effort: a file left behind is never
+ * served again, since nothing references it. */
+export async function removeAttachmentFiles(
+  objectKeys: readonly string[],
+  storage: () => Promise<FileStorage> = getFileStorage,
+): Promise<void> {
+  if (objectKeys.length === 0) return;
+  try {
+    const files = await storage();
+    await Promise.allSettled(objectKeys.map((objectKey) => files.remove(objectKey)));
+  } catch {
+    /* best effort */
+  }
 }

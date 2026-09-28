@@ -1,13 +1,15 @@
 import { expect, test } from "bun:test";
 import { isRedirect } from "@tanstack/react-router";
 
-import { formatAgentProfileParam } from "@/features/agents/profile-panel/profile-panel-search";
-import { Route as agentDetailRoute } from "@/routes/_app/agents.$agentId";
-import { Route as agentsRoute } from "@/routes/_app/agents.index";
+import { formatAgentProfileParam } from "#src/features/agents/profile-panel/profile-panel-search";
+import { Route as agentDetailRoute } from "#src/routes/_app/agents.$agentId";
+import { Route as agentsRoute } from "#src/routes/_app/agents.index";
 
-test("Members uses the standard delayed, non-minimum pending transition", () => {
-  expect(agentsRoute.options.pendingMs).toBe(300);
-  expect(agentsRoute.options.pendingMinMs).toBe(0);
+test("Members takes the shared pending policy instead of restating it", () => {
+  // The delay and the minimum live once, in the router defaults (lib/pending-policy.ts); a route
+  // that writes its own number is how they drifted apart in the first place.
+  expect(agentsRoute.options.pendingMs).toBeUndefined();
+  expect(agentsRoute.options.pendingMinMs).toBeUndefined();
   expect(agentsRoute.options.pendingComponent).toBeDefined();
 });
 

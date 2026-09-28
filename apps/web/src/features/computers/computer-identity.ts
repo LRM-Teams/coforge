@@ -1,6 +1,6 @@
 import { Cloud01 as Cloud, Monitor01 as Monitor } from "@untitledui/icons";
 
-import { m } from "@/paraglide/messages";
+import { m } from "#src/paraglide/messages";
 import { compareReleaseVersions, parseReleaseVersion } from "@lrm/coforge-sdk/internal";
 
 /**

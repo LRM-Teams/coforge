@@ -1,20 +1,20 @@
 import { expect, test } from "bun:test";
-import { handleAgentChannelsPost } from "../src/routes/api/agent/v1/channels";
+import { handleAgentChannelsPost } from "#src/routes/api/agent/v1/channels";
 import {
   handleAgentChannelGet,
   handleAgentChannelPatch,
-} from "../src/routes/api/agent/v1/channels_.$channel";
+} from "#src/routes/api/agent/v1/channels_.$channel";
 import {
   handleAgentChannelMembersDelete,
   handleAgentChannelMembersGet,
   handleAgentChannelMembersPost,
-} from "../src/routes/api/agent/v1/channels_.$channel.members";
-import { handleAgentChannelJoinPost } from "../src/routes/api/agent/v1/channels_.$channel.join";
-import { handleAgentChannelLeavePost } from "../src/routes/api/agent/v1/channels_.$channel.leave";
-import { handleAgentChannelArchivePost } from "../src/routes/api/agent/v1/channels_.$channel.archive";
-import { handleAgentChannelUnarchivePost } from "../src/routes/api/agent/v1/channels_.$channel.unarchive";
-import { AgentChannelManagementError } from "../src/server/conversations/agent-channel-management-error.server";
-import type { AgentChannelManagementRepository } from "../src/server/conversations/agent-channel-management.server";
+} from "#src/routes/api/agent/v1/channels_.$channel.members";
+import { handleAgentChannelJoinPost } from "#src/routes/api/agent/v1/channels_.$channel.join";
+import { handleAgentChannelLeavePost } from "#src/routes/api/agent/v1/channels_.$channel.leave";
+import { handleAgentChannelArchivePost } from "#src/routes/api/agent/v1/channels_.$channel.archive";
+import { handleAgentChannelUnarchivePost } from "#src/routes/api/agent/v1/channels_.$channel.unarchive";
+import { AgentChannelManagementError } from "#src/server/conversations/agent-channel-management-error.server";
+import type { AgentChannelManagementRepository } from "#src/server/conversations/agent-channel-management.server";
 
 const principal = { workspaceId: "workspace-1", agentId: "agent-1" };
 const get = (path: string) => new Request(`https://server.example${path}`);
@@ -47,10 +47,10 @@ function fakeRepository(overrides: Partial<AgentChannelManagementRepository> = {
   } as AgentChannelManagementRepository;
 }
 
-test("POST /channels creates a channel and echoes the caller's requestId", async () => {
+test("POST /channels creates a channel and echoes the caller's idempotencyKey", async () => {
   const calls: unknown[] = [];
   const result = await handleAgentChannelsPost(
-    post("/api/agent/v1/channels", { requestId: "r-1", name: "#eng", description: "Eng" }),
+    post("/api/agent/v1/channels", { idempotencyKey: "r-1", name: "#eng", description: "Eng" }),
     principal,
     fakeRepository({
       create: async (...args) => {
@@ -63,7 +63,7 @@ test("POST /channels creates a channel and echoes the caller's requestId", async
   expect(result.status).toBe(200);
   expect(await result.json()).toEqual({
     protocolMajor: 1,
-    requestId: "r-1",
+    idempotencyKey: "r-1",
     target: "#eng",
     channel: { id: "id-1", name: "#eng", description: "Eng" },
   });
@@ -109,7 +109,7 @@ test("POST /channels hides an unexpected repository failure behind a generic mes
 
 test("GET /channels/:channel returns the info envelope", async () => {
   const result = await handleAgentChannelGet(
-    get("/api/agent/v1/channels/%23eng?requestId=r-2"),
+    get("/api/agent/v1/channels/%23eng?idempotencyKey=r-2"),
     "#eng",
     principal,
     fakeRepository({
@@ -141,14 +141,14 @@ test("GET /channels/:channel returns the info envelope", async () => {
   expect(result.status).toBe(200);
   expect(await result.json()).toMatchObject({
     protocolMajor: 1,
-    requestId: "r-2",
+    idempotencyKey: "r-2",
     channel: { name: "#eng" },
   });
 });
 
 test("GET /channels/:channel forwards a bound Project through unchanged", async () => {
   const result = await handleAgentChannelGet(
-    get("/api/agent/v1/channels/%23launch-eng?requestId=r-3"),
+    get("/api/agent/v1/channels/%23launch-eng?idempotencyKey=r-3"),
     "#launch-eng",
     principal,
     fakeRepository({
@@ -303,6 +303,29 @@ test("POST /channels/:channel/members maps an unknown handle to its declared 404
   );
   expect(result.status).toBe(404);
   expect(await result.text()).toBe("member not found: @nobody");
+});
+
+test("POST /channels/:channel/members maps an errorCode-carrying failure to a JSON envelope", async () => {
+  const result = await handleAgentChannelMembersPost(
+    post("/api/agent/v1/channels/%23eng/members", { agent: "@ghost" }),
+    "#eng",
+    principal,
+    fakeRepository({
+      addMember: async () => {
+        throw new AgentChannelManagementError(
+          404,
+          "@ghost is not visible to you.",
+          "agent_not_visible",
+        );
+      },
+    }),
+  );
+  expect(result.status).toBe(404);
+  expect(await result.json()).toEqual({
+    ok: false,
+    errorCode: "agent_not_visible",
+    error: "@ghost is not visible to you.",
+  });
 });
 
 test("DELETE /channels/:channel/members removes a member and returns its envelope", async () => {

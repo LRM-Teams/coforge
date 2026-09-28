@@ -1,9 +1,9 @@
 import { describe, expect, mock, test } from "bun:test";
 import { notFound, redirect } from "@tanstack/react-router";
 
-import { AppError, isAppError } from "@/lib/app-error";
-import { toPublicServerError } from "@/server/errors/public-error.server";
-import { startInstance } from "@/start";
+import { AppError, isAppError } from "#src/lib/app-error";
+import { toPublicServerError } from "#src/server/errors/public-error.server";
+import { startInstance } from "#src/start";
 
 describe("server error disclosure", () => {
   test("replaces an unexpected exception and reports only safe diagnostics", () => {

@@ -1,13 +1,13 @@
 import { expect, test } from "bun:test";
-import { PrismaAgentControlStore } from "../src/server/db/repositories/agent-control.repositories.server";
+import { PrismaAgentControlStore } from "#src/server/db/repositories/agent-control.repositories.server";
 import {
   agentControlRevision,
   type AgentControlState,
-} from "../src/server/agents/agent-control.server";
-import type { PrismaClient } from "../generated/client";
+} from "#src/server/agents/agent-control.server";
+import type { PrismaClient } from "#src/generated/prisma/client";
 
 /**
- * ADR 0039 removed `updatedAtMs`/abandonment entirely, but a row persisted before that change
+ * `updatedAtMs`/abandonment was removed entirely, but a row persisted before that change
  * still carries the field in its stored `controlState` JSONB. `stateSchema` keeps accepting it
  * on read (legacy, ignored, never written); these tests prove the field never reaches the
  * application-level `AgentControlState`, that the next write no longer contains it, and — the
@@ -38,7 +38,7 @@ const legacyStoredState = {
   configRevision: agentControlRevision(runtimeConfig),
   controlSequence: 0,
   sessionSequence: 0,
-  // A pre-ADR-0039 row: the field this repository must accept on read, strip before handing the
+  // A legacy row: the field this repository must accept on read, strip before handing the
   // state to the rest of the application, and never reproduce on write.
   updatedAtMs: 1_700_000_000_000,
 };

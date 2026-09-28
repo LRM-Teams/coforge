@@ -2,9 +2,9 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Folder, Globe01 } from "@untitledui/icons";
 import type { AgentSkillsListResult, AgentSkillsScope } from "@lrm/coforge-sdk/internal";
 
-import { Badge } from "@/components/base/badges/badges";
-import { Button } from "@/components/base/buttons/button";
-import { m } from "@/paraglide/messages";
+import { Badge } from "#src/components/base/badges/badges";
+import { Button } from "#src/components/base/buttons/button";
+import { m } from "#src/paraglide/messages";
 
 export type AgentSkillsLoadResult =
   | { status: "ready"; result: AgentSkillsListResult }

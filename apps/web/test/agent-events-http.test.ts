@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { handleAgentEventsGet } from "../src/routes/api/agent/v1/events";
+import { handleAgentEventsGet } from "#src/routes/api/agent/v1/events";
 
 const request = (search = "") => new Request(`https://server.example/api/agent/v1/events${search}`);
 
@@ -11,7 +11,7 @@ const baseRepository = {
 test("forwards the requested limit and scope to the repository drain", async () => {
   let received: unknown;
   const result = await handleAgentEventsGet(
-    request("?requestId=request-1&limit=10"),
+    request("?idempotencyKey=request-1&limit=10"),
     { workspaceId: "workspace-1", agentId: "agent-1" },
     {
       ...baseRepository,
@@ -21,13 +21,30 @@ test("forwards the requested limit and scope to the repository drain", async () 
       },
     },
   );
-  expect(received).toEqual(["workspace-1", "agent-1", 10]);
+  expect(received).toEqual(["workspace-1", "agent-1", 10, undefined]);
+  expect(result.status).toBe(200);
+});
+
+test("forwards an optional target query to the repository drain", async () => {
+  let received: unknown;
+  const result = await handleAgentEventsGet(
+    request("?requestId=request-1&target=@ada"),
+    { workspaceId: "workspace-1", agentId: "agent-1" },
+    {
+      ...baseRepository,
+      drainAgentEvents: async (...args) => {
+        received = args;
+        return { messages: [], hasMore: false };
+      },
+    },
+  );
+  expect(received).toEqual(["workspace-1", "agent-1", undefined, "@ada"]);
   expect(result.status).toBe(200);
 });
 
 test("returns the canonical response shape with hasMore passthrough", async () => {
   const result = await handleAgentEventsGet(
-    request("?requestId=request-2"),
+    request("?idempotencyKey=request-2"),
     { workspaceId: "workspace-1", agentId: "agent-1" },
     {
       ...baseRepository,
@@ -53,7 +70,7 @@ test("returns the canonical response shape with hasMore passthrough", async () =
   const body = await result.json();
   expect(body).toEqual({
     protocolMajor: 1,
-    requestId: "request-2",
+    idempotencyKey: "request-2",
     hasMore: true,
     events: [
       {
@@ -81,8 +98,8 @@ test("generates a request id when the daemon omits one", async () => {
     },
   );
   const body = await result.json();
-  expect(typeof body.requestId).toBe("string");
-  expect(body.requestId.length).toBeGreaterThan(0);
+  expect(typeof body.idempotencyKey).toBe("string");
+  expect(body.idempotencyKey.length).toBeGreaterThan(0);
 });
 
 test("passes hasMore false through when the drain is exhausted", async () => {

@@ -1,10 +1,13 @@
 import {
+  DEFAULT_REMINDER_TIMEZONE,
   decodeLocalReminderRequest,
   encodeLocalReminderRequest,
+  UUID_LIKE_PATTERN,
   isReminderId,
   isValidReactionEmoji,
   mentionsInContent,
   parseMentionSelector,
+  RFC_UUID_PATTERN,
   type AgentMessageRecord,
   type AgentReminderOperationResponse,
   type ChannelCommand,
@@ -12,14 +15,17 @@ import {
   type MentionSelectorInput as MentionSelector,
   type ReminderSummaryRecord,
   type TaskCommand,
+  type TaskHistoryEvent,
+  type TaskResourceReceipt,
   type TaskResult,
   type TaskStatus,
+  TASK_STATUSES,
   type WorkspaceInfoResponse,
   type WeeklyReportCommand,
   type WeeklyReportResponse,
   WEEKLY_REPORT_SUBJECT_TYPES,
 } from "@lrm/coforge-sdk/internal";
-import { parseDurationSeconds } from "./src/reminder-duration";
+import { parseDurationSeconds } from "#src/reminder-duration";
 import {
   createAgentApiClient,
   createMessageTransportAgentApiTransport,
@@ -31,13 +37,22 @@ import {
   type AgentProfileUpdateRequest,
   type AgentProfileUpdateResponse,
   type AgentUserInfoResponse,
+  type AgentMentionActionKind,
+  type AgentMentionExecuteRequest,
+  type AgentMentionExecuteResponse,
+  type AgentMentionPendingResponse,
   type GitHubCredentialResponse,
   type WorkspaceInfoRuntimeContext,
 } from "@lrm/coforge-sdk/agent";
-import { COFORGE_CLI_VERSION } from "./src/version";
-import { formatManualGet, formatManualSearchResults } from "./src/manual-format";
-import { formatProfile, formatUserInfo } from "./src/user-format";
-import { parseActionCardInput, toActionCardAction } from "./src/action-prepare-input";
+import { COFORGE_CLI_VERSION } from "#src/version";
+import { formatManualGet, formatManualSearchResults } from "#src/manual-format";
+import { formatProfile, formatUserInfo } from "#src/user-format";
+import {
+  formatMentionActionResults,
+  formatPendingMentionActions,
+  incompleteMentionActions,
+} from "#src/mention-format";
+import { parseActionCardInput, toActionCardAction } from "#src/action-prepare-input";
 import {
   formatAttachmentDownloadSuccess,
   formatAttachmentUploadSuccess,
@@ -46,7 +61,12 @@ import {
   formatReadWindow,
   formatSearchResults,
   formatSendSuccess,
-} from "./src/message-format";
+  formatTaskWorkflowHint,
+  formatUndeliveredMentions,
+  senderPendingMention,
+  senderUnresolvedMention,
+  type PendingMentionAction,
+} from "#src/message-format";
 import {
   formatChannelAddMember,
   formatChannelArchive,
@@ -57,14 +77,28 @@ import {
   formatChannelMembers,
   formatChannelRemoveMember,
   formatChannelUpdate,
-} from "./src/channel-format";
+} from "#src/channel-format";
 import {
   CliError,
   NO_MESSAGE_SENT_NEXT_ACTION,
   unknownDeliveryNextAction,
   withOutputMode,
-} from "./src/cli-error";
-import { attachmentMimeType, validateAttachmentUploadArgs } from "./src/attachment-upload";
+} from "#src/cli-error";
+import { attachmentMimeType, validateAttachmentUploadArgs } from "#src/attachment-upload";
+import {
+  claimRefusal,
+  formatClaimResults,
+  formatMyTaskList,
+  formatResourceReceiptRecorded,
+  formatTaskAmended,
+  formatTaskAssigned,
+  formatTaskBoard,
+  formatTaskConverted,
+  formatTaskDeleted,
+  formatTaskStatusUpdated,
+  formatTaskUnclaimed,
+  formatTasksCreated,
+} from "#src/task-format";
 
 export { createAgentApiClient } from "@lrm/coforge-sdk/agent";
 
@@ -80,7 +114,7 @@ export type MessageSearchOptions = {
   offset?: number;
 };
 export type MessageInvocation =
-  | { command: "check" }
+  | { command: "check"; target?: string }
   | {
       command: "read";
       target: string;
@@ -135,7 +169,7 @@ export type LocalReminderReceiptResponse = {
   revision: number;
 };
 export type ThreadInvocation = { command: "thread-unfollow"; target: string };
-export type TaskInvocation = { command: "task"; task: Omit<TaskCommand, "requestId"> };
+export type TaskInvocation = { command: "task"; task: Omit<TaskCommand, "idempotencyKey"> };
 export type WorkspaceInfoOptions = {
   agents?: boolean;
   humans?: boolean;
@@ -147,7 +181,13 @@ export type WorkspaceInfoOptions = {
   offset?: number;
 };
 export type WorkspaceInfoInvocation = { command: "workspace.info" } & WorkspaceInfoOptions;
-export type WorkspaceInfoResult = WorkspaceInfoResponse & { computers?: unknown[] };
+/** `whoami`'s view: the shared shape minus the key our HTTP names `idempotencyKey` (the Agent API's
+ * own `workspace_info` result carries that name, not `requestId`). */
+export type WorkspaceInfoResult = Omit<WorkspaceInfoResponse, "requestId"> & {
+  /** The Agent API's own name for the request id it echoes (the local hop carries `requestId`). */
+  idempotencyKey: string;
+  computers?: unknown[];
+};
 export type WeeklyReportInvocation = {
   command: "weekly-report";
   weeklyReport: WeeklyReportCommand;
@@ -201,6 +241,14 @@ export type ProfileShowInvocation = {
   target?: string;
   json?: boolean;
 };
+export type MentionInvocation =
+  | { command: "mention-pending"; json?: boolean }
+  | {
+      command: "mention-action";
+      action: AgentMentionActionKind;
+      resolutionIds: string[];
+      json?: boolean;
+    };
 export type ProfileUpdateInvocation = {
   command: "profile-update";
   displayName?: string;
@@ -209,7 +257,7 @@ export type ProfileUpdateInvocation = {
 };
 
 export type MessageTransport = {
-  check(): Promise<{ messages: AgentMessageRecord[]; hasMore?: boolean }>;
+  check(target?: string): Promise<{ messages: AgentMessageRecord[]; hasMore?: boolean }>;
   read(
     target: string,
     options?: { before?: string; after?: string; around?: string; limit?: number },
@@ -256,18 +304,22 @@ export type MessageTransport = {
   actionPrepare?(target: string, action: ActionCardAction): Promise<ActionPrepareResult>;
   manualGet?(topic: string, intent: string, reason: string): Promise<AgentManualGetResponse>;
   manualSearch?(query: string, intent: string, reason: string): Promise<AgentManualSearchResponse>;
-  /** `coforge version`'s local-only Daemon query (ADR 0036); never reaches Web/backend. */
+  /** `coforge version`'s local-only Daemon query; never reaches Web/backend. */
   version?(): Promise<AgentVersionResponse>;
   userInfo?(name: string): Promise<AgentUserInfoResponse>;
   profileShow?(target?: string): Promise<AgentProfileShowResponse>;
   profileUpdate?(input: AgentProfileUpdateRequest): Promise<AgentProfileUpdateResponse>;
+  /** The calling Agent's mentions that reached no one (`coforge mention pending`). */
+  mentionPending?(): Promise<AgentMentionPendingResponse>;
+  /** Acts on pending mentions by resolution id (`coforge mention notify|add`). */
+  mentionExecute?(request: AgentMentionExecuteRequest): Promise<AgentMentionExecuteResponse>;
 };
 
 /** Eight-hex-character prefix or a full UUID; the server stores ids lowercase. */
 const MESSAGE_ANCHOR_PATTERN =
   /^[0-9a-f]{8}$|^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /** A full UUID; `--attachment-id` never accepts an eight-hex short form. */
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const UUID_PATTERN = UUID_LIKE_PATTERN;
 
 export function parseArgs(
   args: readonly string[],
@@ -291,7 +343,8 @@ export function parseArgs(
   | VersionInvocation
   | UserInfoInvocation
   | ProfileShowInvocation
-  | ProfileUpdateInvocation {
+  | ProfileUpdateInvocation
+  | MentionInvocation {
   if (args[0] === "whoami") return parseWhoamiArgs(args.slice(1));
   if (args[0] === "version") return parseVersionArgs(args.slice(1));
   if (args[0] === "manual" && (args[1] === "get" || args[1] === "search"))
@@ -300,6 +353,7 @@ export function parseArgs(
   if (args[0] === "profile" && args[1] === "show") return parseProfileShowArgs(args.slice(2));
   if (args[0] === "profile" && args[1] === "update") return parseProfileUpdateArgs(args.slice(2));
   if (args[0] === "workspace" && args[1] === "info") return parseWorkspaceInfoArgs(args.slice(2));
+  if (args[0] === "mention") return parseMentionArgs(args.slice(1));
   if (args[0] === "reminder") return parseReminderArgs(args.slice(1));
   if (args[0] === "task") return parseTaskArgs(args.slice(1));
   if (args[0] === "weekly-report-collect") return parseWeeklyReportCollectArgs(args.slice(1));
@@ -403,7 +457,11 @@ export function parseArgs(
     };
   }
   if (args[0] === "message" && isMessageCommand(args[1])) {
-    if (args[1] === "check" && args.length === 2) return { command: "check" };
+    if (args[1] === "check") {
+      if (args.length === 2) return { command: "check" };
+      if (args[2] === "--target" && args[3] && args.length === 4)
+        return { command: "check", target: args[3] };
+    }
     if (args[1] === "resolve") {
       const messageId = args[2];
       if (messageId && args.length === 3 && MESSAGE_ANCHOR_PATTERN.test(messageId))
@@ -584,7 +642,7 @@ export function parseArgs(
     }
   }
   throw new Error(
-    "Usage: coforge channel mute|unmute --target '#channel' | coforge channel info <target> | coforge channel members <target> | coforge channel join --target '#channel' | coforge channel leave --target '#channel' | coforge channel create --name <name> [--description <text>] [--json] | coforge channel update --target '#channel' [--name <name>] [--description <text>] [--json] | coforge channel lifecycle archive|unarchive --target '#channel' [--json] | coforge channel add-member --target '#channel' (--user @handle | --agent @handle) [--json] | coforge channel remove-member --target '#channel' (--user @handle | --agent @handle) [--json] | coforge thread unfollow --target '#channel:message-id' | coforge inbox check | coforge message check | coforge message search --query <text> [--target <target>] [--sender <handle>] [--sort relevance|recent] [--before <iso>] [--after <iso>] [--limit <n>] [--offset <n>] | coforge message read --target @user | coforge message send --target @user [--send-draft] [--anyway] [--reviewer-isolation] [--json] [--attachment-id <uuid>]... [--mention human:<uuid>:<handle>|agent:<uuid>:<handle>]... [--target-confirmed] | coforge message resolve <message-id> | coforge message react --message-id <id> --emoji <emoji> [--remove] | coforge task list|create|convert|claim|unclaim|assign|unassign|update|amend|history|delete|receipt ... | coforge attachment view [--id] <id> --output <path> [--json] | coforge attachment upload --path <file> (--target <target>|--channel <target>) [--mime-type <type>] [--json] | coforge weekly-report context --subject-type report|cycle --subject-id <uuid> | coforge weekly-report list [--cycle-id <uuid>] [--cursor <uuid>] [--limit <n>] | coforge weekly-report read --report-id <uuid> --section <name> [--max-characters <n>] | coforge weekly-report-collect submit-pack|submit-empty|submit-failure --run-id <uuid> --request-id <uuid> [--markdown <path>] [--reason <text>] | coforge action prepare --target <target> | coforge manual get <topic> --intent <text> --reason <text> | coforge manual search \"<keywords>\" --intent <text> --reason <text> | coforge whoami [--json] | coforge version [--json] | coforge user info <name> [--json] | coforge profile show [<target>] [--json] | coforge profile update [--display-name <text>] [--description <text>] [--json]",
+    "Usage: coforge channel mute|unmute --target '#channel' | coforge channel info <target> | coforge channel members <target> | coforge channel join --target '#channel' | coforge channel leave --target '#channel' | coforge channel create --name <name> [--description <text>] [--json] | coforge channel update --target '#channel' [--name <name>] [--description <text>] [--json] | coforge channel lifecycle archive|unarchive --target '#channel' [--json] | coforge channel add-member --target '#channel' (--user @handle | --agent @handle) [--json] | coforge channel remove-member --target '#channel' (--user @handle | --agent @handle) [--json] | coforge thread unfollow --target '#channel:message-id' | coforge inbox check | coforge message check [--target @user|#channel] | coforge message search --query <text> [--target <target>] [--sender <handle>] [--sort relevance|recent] [--before <iso>] [--after <iso>] [--limit <n>] [--offset <n>] | coforge message read --target @user | coforge message send --target @user [--send-draft] [--anyway] [--reviewer-isolation] [--json] [--attachment-id <uuid>]... [--mention human:<uuid>:<handle>|agent:<uuid>:<handle>]... [--target-confirmed] | coforge message resolve <message-id> | coforge message react --message-id <id> --emoji <emoji> [--remove] | coforge task list (--target <target> | --mine) [--status all|todo|in_progress|in_review|done|closed] | coforge task create --target <target> --title <title>... [--assignee @handle] [--creates-resource] | coforge task claim --target <target> (--number <n> | --message-id <id>)... [--reviewer-isolation] | coforge task convert|unclaim|assign|unassign|update|amend|history|delete|receipt ... | coforge attachment view [--id] <id> --output <path> [--json] | coforge attachment upload --path <file> (--target <target>|--channel <target>) [--mime-type <type>] [--json] | coforge weekly-report context --subject-type report|cycle --subject-id <uuid> | coforge weekly-report list [--cycle-id <uuid>] [--cursor <uuid>] [--limit <n>] | coforge weekly-report read --report-id <uuid> --section <name> [--max-characters <n>] | coforge weekly-report-collect submit-pack|submit-empty|submit-failure --run-id <uuid> --request-id <uuid> [--markdown <path>] [--reason <text>] | coforge action prepare --target <target> | coforge manual get <topic> [--intent <text>] [--reason <text>] | coforge manual search \"<keywords>\" [--intent <text>] [--reason <text>] | coforge whoami [--json] | coforge version [--json] | coforge user info <name> [--json] | coforge profile show [<target>] [--json] | coforge profile update [--display-name <text>] [--description <text>] [--json] | coforge mention pending [--json] | coforge mention notify <resolution-id>... [--json] | coforge mention add <resolution-id>... [--json]",
   );
 }
 
@@ -685,7 +743,7 @@ function parseWorkspaceInfoArgs(args: readonly string[]): WorkspaceInfoInvocatio
 const CHANNEL_MANAGEMENT_BOOLEAN_FLAGS = new Set(["--private", "--public", "--json"]);
 
 /** Rejects `--private`/`--public`, which Raft accepts but CoForge does not; every channel is
- * public and there is no private/visibility column (see ADR 0024). */
+ * public and there is no private/visibility column. */
 function privateChannelsUnsupportedError(): CliError {
   return new CliError({
     code: "UNSUPPORTED",
@@ -822,11 +880,11 @@ function parseChannelManagementArgs(args: readonly string[]): ChannelManagementI
 const MANUAL_INTENT_REASON_MIN_LENGTH = 12;
 const MANUAL_INTENT_REASON_MAX_LENGTH = 500;
 const MANUAL_USAGE =
-  'Usage: coforge manual get <topic> --intent "<text>" --reason "<text>" | coforge manual ' +
-  'search "<keywords>" --intent "<text>" --reason "<text>"';
+  'Usage: coforge manual get <topic> [--intent "<text>"] [--reason "<text>"] | coforge manual ' +
+  'search "<keywords>" [--intent "<text>"] [--reason "<text>"]';
 
-function isValidManualField(value: string | undefined): value is string {
-  if (value === undefined) return false;
+function isValidManualField(value: string | undefined): boolean {
+  if (value === undefined || value.trim() === "") return true;
   const trimmed = value.trim();
   return (
     trimmed.length >= MANUAL_INTENT_REASON_MIN_LENGTH &&
@@ -835,7 +893,7 @@ function isValidManualField(value: string | undefined): value is string {
 }
 
 /** Client-side mirror of the server's `--intent`/`--reason` validation (see
- * `apps/web/src/server/agents/manual/manual-validation.ts`): both required, trimmed, 12-500
+ * `apps/web/src/server/agents/manual/manual-validation.server.ts`): optional; non-empty values are trimmed, 12-500
  * characters. When both are invalid, one error names both rather than only the first checked. */
 function validateManualIntentReasonArgs(intent: string | undefined, reason: string | undefined) {
   const intentValid = isValidManualField(intent);
@@ -848,7 +906,7 @@ function validateManualIntentReasonArgs(intent: string | undefined, reason: stri
     throw new CliError({
       code: "KNOWLEDGE_INTENT_INVALID",
       message:
-        `--intent and --reason are both required and must be ${range} characters after ` +
+        `--intent and --reason, when provided, must be ${range} characters after ` +
         `trimming. ${safetyNote}`,
       retryable: false,
     });
@@ -856,14 +914,14 @@ function validateManualIntentReasonArgs(intent: string | undefined, reason: stri
     throw new CliError({
       code: "KNOWLEDGE_INTENT_INVALID",
       message:
-        `--intent is required and must be ${range} characters after trimming: state what you ` +
+        `--intent, when provided, must be ${range} characters after trimming: state what you ` +
         `ultimately want to accomplish. ${safetyNote}`,
       retryable: false,
     });
   throw new CliError({
     code: "KNOWLEDGE_REASON_INVALID",
     message:
-      `--reason is required and must be ${range} characters after trimming: state why the ` +
+      `--reason, when provided, must be ${range} characters after trimming: state why the ` +
       `Manual is needed at this point. ${safetyNote}`,
     retryable: false,
   });
@@ -909,7 +967,7 @@ function parseManualArgs(args: readonly string[]): ManualInvocation {
   }
   if (!value?.trim()) throw new Error(MANUAL_USAGE);
   validateManualIntentReasonArgs(intent, reason);
-  const context = { intent: intent!.trim(), reason: reason!.trim() };
+  const context = { intent: intent?.trim() ?? "", reason: reason?.trim() ?? "" };
   return sub === "get"
     ? { command: "manual-get", topic: value.trim(), ...context }
     : { command: "manual-search", query: value.trim(), ...context };
@@ -992,6 +1050,37 @@ function parseProfileUpdateArgs(args: readonly string[]): ProfileUpdateInvocatio
   };
 }
 
+const MENTION_USAGE =
+  "Usage: coforge mention pending [--json] | coforge mention notify <resolution-id>... [--json] | coforge mention add <resolution-id>... [--json]";
+
+function parseMentionArgs(args: readonly string[]): MentionInvocation {
+  const [sub, ...rest] = args;
+  const json = rest.includes("--json");
+  const positionals = rest.filter((arg) => arg !== "--json");
+  if (positionals.some((arg) => arg.startsWith("--"))) throw new Error(MENTION_USAGE);
+  if (sub === "pending") {
+    if (positionals.length) throw new Error(MENTION_USAGE);
+    return { command: "mention-pending", ...(json ? { json: true } : {}) };
+  }
+  if (sub === "notify" || sub === "add") {
+    const resolutionIds = [...new Set(positionals.map((id) => id.trim()).filter(Boolean))];
+    if (!resolutionIds.length)
+      throw new CliError({
+        code: "INVALID_ARG",
+        message: "At least one resolution id is required.",
+        retryable: false,
+        outputMode: json ? "json" : "text",
+      });
+    return {
+      command: "mention-action",
+      action: sub,
+      resolutionIds,
+      ...(json ? { json: true } : {}),
+    };
+  }
+  throw new Error(MENTION_USAGE);
+}
+
 function parseActionPrepareArgs(args: readonly string[]): ActionPrepareInvocation {
   let target: string | undefined;
   for (let index = 0; index < args.length; index++) {
@@ -1062,6 +1151,38 @@ export async function run(args: readonly string[], transport: MessageTransport):
     });
     return invocation.json ? result : formatProfile(result);
   }
+  if (invocation.command === "mention-pending") {
+    if (!transport.mentionPending) throw new Error("Mention transport is unavailable");
+    const outputMode = invocation.json ? "json" : "text";
+    const result = await transport.mentionPending().catch((error: unknown) => {
+      throw error instanceof CliError ? withOutputMode(error, outputMode) : error;
+    });
+    return invocation.json
+      ? { ok: true, pendingMentionActions: result.pendingMentionActions }
+      : formatPendingMentionActions(result.pendingMentionActions);
+  }
+  if (invocation.command === "mention-action") {
+    if (!transport.mentionExecute) throw new Error("Mention transport is unavailable");
+    const outputMode = invocation.json ? "json" : "text";
+    const { action, resolutionIds } = invocation;
+    const result = await transport
+      .mentionExecute({ action, resolutionIds })
+      .catch((error: unknown) => {
+        throw error instanceof CliError ? withOutputMode(error, outputMode) : error;
+      });
+    const incomplete = incompleteMentionActions(action, resolutionIds, result.results);
+    if (incomplete.length)
+      throw new CliError({
+        code: "MENTION_ACTION_FAILED",
+        message: `Mention ${action} did not complete for every requested target: ${incomplete.join(", ")}`,
+        retryable: false,
+        details: { action: result.action, results: result.results },
+        outputMode,
+      });
+    return invocation.json
+      ? { ok: true, action: result.action, results: result.results }
+      : formatMentionActionResults(result.action, result.results);
+  }
   if (invocation.command === "workspace.info") {
     const client = createAgentApiClient(createMessageTransportAgentApiTransport(transport));
     return formatWorkspaceInfo(await client.workspace.info(), invocation);
@@ -1074,14 +1195,14 @@ export async function run(args: readonly string[], transport: MessageTransport):
   }
   if (invocation.command === "task") {
     if (!transport.task) throw new Error("Task transport is unavailable");
-    let command = { ...invocation.task, requestId: crypto.randomUUID() } as TaskCommand;
+    let command = { ...invocation.task, idempotencyKey: crypto.randomUUID() } as TaskCommand;
     if (
       (command.operation === "update" || command.operation === "unclaim") &&
       command.expectedRevision === undefined
     ) {
       const listed = await transport.task({
         operation: "list",
-        requestId: crypto.randomUUID(),
+        idempotencyKey: crypto.randomUUID(),
         target: command.target,
       });
       const current = listed.tasks.find((task) => task.number === command.number);
@@ -1091,16 +1212,28 @@ export async function run(args: readonly string[], transport: MessageTransport):
     }
     try {
       const result = await transport.task(command);
-      const reviewerIsolation = command.freshnessContextMode === "withheld";
-      if (command.operation === "history") return formatTaskHistory(result);
-      if (command.operation === "receipt" && result.resourceFollowup)
-        return `${formatTasks(result, reviewerIsolation)}\nFollow-up reminder=${result.resourceFollowup.id} owner=${result.resourceFollowup.owner} fireAt=${result.resourceFollowup.fireAt}`;
-      return formatTasks(result, reviewerIsolation);
+      if (result.state === "held")
+        return formatHeldTaskRequest(result, command.freshnessContextMode === "withheld");
+      return formatTaskResult(command, result);
     } catch (error) {
-      if (command.freshnessContextMode === "withheld")
+      // Deleting is irreversible and a refusal is an authority fact, not a race: name who may.
+      if (
+        error instanceof CliError &&
+        command.operation === "delete" &&
+        error.proxy?.upstreamStatus === 403
+      )
+        throw new CliError({
+          code: error.code,
+          message: error.message,
+          retryable: error.retryable,
+          correlationId: error.correlationId,
+          proxy: error.proxy,
+          suggestedNextAction:
+            "Only the task's creator or a Workspace owner or admin can delete a task; ask one of them, or close it instead.",
+        });
+      // A typed failure is already redacted where it was raised; anything else may carry detail.
+      if (command.freshnessContextMode === "withheld" && !(error instanceof CliError))
         throw new Error("Reviewer-isolation Task request failed; upstream detail was withheld");
-      if (error instanceof Error && /revision|conflict|stale/i.test(error.message))
-        throw new Error("Task changed concurrently; read the Task list again before updating");
       throw error;
     }
   }
@@ -1278,14 +1411,23 @@ export async function run(args: readonly string[], transport: MessageTransport):
         ),
         outputMode,
       );
-    const sent = result as { messageId?: string; recentUnread?: AgentMessageRecord[] };
-    if (invocation.json)
+    const sent = result as {
+      messageId?: string;
+      recentUnread?: AgentMessageRecord[];
+      pendingMentionActions?: PendingMentionAction[];
+      unresolvedMentionHandles?: string[];
+    };
+    const undelivered = undeliveredMentionError(invocation.target, sent, outputMode);
+    if (invocation.json) {
+      if (undelivered) throw undelivered;
       return JSON.stringify({
         state: "sent",
         target: invocation.target,
         messageId: sent.messageId,
         recentUnread: sent.recentUnread ?? [],
       });
+    }
+    if (undelivered) throw undelivered;
     return formatSendSuccess(invocation.target, sent as { messageId: string }, sent.recentUnread);
   }
   if (command === "search") {
@@ -1303,7 +1445,7 @@ export async function run(args: readonly string[], transport: MessageTransport):
     await transport.react(invocation.messageId, invocation.emoji, invocation.remove === true);
     return formatReaction(invocation.messageId, invocation.emoji, invocation.remove === true);
   }
-  if (command === "check") return formatMessageCheck(await transport.check());
+  if (command === "check") return formatMessageCheck(await transport.check(invocation.target));
   const readOptions = invocation.command === "read" ? invocation : undefined;
   const readResponse = (await transport.read(invocation.target, readOptions)) as {
     messages: AgentMessageRecord[];
@@ -1340,7 +1482,7 @@ function trimmedEnv(value: string | undefined): string | undefined {
 }
 
 /**
- * `coforge whoami`: deliberately local (ADR 0036's placement-table rows) — it answers "what
+ * `coforge whoami`: deliberately local — it answers "what
  * identity and endpoint would my next command use", read only from the process environment the
  * Daemon already set for this Agent process (`code-agent/environment.ts`). It never makes a
  * request. `COFORGE_DAEMON_SOCKET` is always set to `""` for an Agent launch (`daemon-runtime/
@@ -1505,7 +1647,9 @@ function formatMessageCheck(result: { messages: AgentMessageRecord[]; hasMore?: 
   const footer = result.hasMore
     ? "More messages are pending. Run `coforge message check` again."
     : "No more new messages.";
-  return `${result.messages.map(formatMessage).join("\n")}\n\n${footer}`;
+  const body = result.messages.map(formatMessage).join("\n");
+  const hint = formatTaskWorkflowHint(result.messages);
+  return hint ? `${body}\n\n${hint}\n${footer}` : `${body}\n\n${footer}`;
 }
 
 function formatMessage(message: AgentMessageRecord): string {
@@ -1516,7 +1660,9 @@ function formatMessageResolve(result: unknown): string {
   const response = result as { messages?: AgentMessageRecord[] };
   const message = response.messages?.[0];
   if (!message) throw new Error("message not found or not visible to this Agent");
-  return formatMessage(message);
+  const line = formatMessage(message);
+  const hint = formatTaskWorkflowHint([message]);
+  return hint ? `${line}\n${hint}` : line;
 }
 
 function formatReaction(messageId: string, emoji: string, remove: boolean): string {
@@ -1543,6 +1689,68 @@ type HeldSendResult = {
 
 const HELD_SEND_NEXT_ACTION =
   "Review the held context, then update the draft or send the current draft unchanged.";
+
+/**
+ * A send whose message was queued but some of whose @mentions reached no one is a partial result:
+ * the message must not be sent again, and each mention has its own recovery. In text mode what was
+ * achieved goes to stdout (the undelivered mentions, then the queued line) before the error; with
+ * `--json` the whole partial result is the error's details.
+ */
+function undeliveredMentionError(
+  target: string,
+  sent: {
+    messageId?: string;
+    recentUnread?: AgentMessageRecord[];
+    pendingMentionActions?: PendingMentionAction[];
+    unresolvedMentionHandles?: string[];
+  },
+  outputMode: "text" | "json",
+): CliError | undefined {
+  const actions = sent.pendingMentionActions ?? [];
+  const unresolved = [...new Set(sent.unresolvedMentionHandles ?? [])];
+  const count = actions.length + unresolved.length;
+  if (count === 0) return undefined;
+  const recoveries = actions.flatMap(
+    (action) => senderPendingMention(action).recoveryCommand ?? [],
+  );
+  return new CliError({
+    code: "MENTION_DELIVERY_FAILED",
+    message: `Partial result for message ${sent.messageId}: message status=queued; ${count} @mention${count === 1 ? "" : "s"} status=not_queued.`,
+    retryable: false,
+    effect: "message_queued",
+    draftSaved: false,
+    outputMode,
+    stdoutText:
+      outputMode === "text"
+        ? `${formatUndeliveredMentions(actions, unresolved)}\n\n${formatSendSuccess(target, sent as { messageId: string }, sent.recentUnread, true)}`
+        : undefined,
+    details: {
+      result: {
+        ...sent,
+        state: "partial",
+        message: { status: "queued", id: sent.messageId },
+        pendingMentionActions: actions.map(senderPendingMention),
+        ...(unresolved.length
+          ? { unresolvedMentionWarnings: unresolved.map(senderUnresolvedMention) }
+          : {}),
+      },
+    },
+    suggestedNextAction: [
+      "The message is already queued.",
+      ...(recoveries.length
+        ? [
+            `Run only the per-token mention ${recoveries.length === 1 ? "recovery" : "recoveries"}: ${recoveries.map((command) => `\`${command}\``).join("; ")}.`,
+          ]
+        : []),
+      ...(unresolved.length
+        ? [
+            "If an unresolved token was literal prose, wrap it in code; otherwise verify the exact handle and send only a corrected follow-up mention.",
+          ]
+        : []),
+      "Do not resend the queued message.",
+    ].join(" "),
+  });
+}
 
 /**
  * A hold is not a transport failure — the server made a definite decision and the daemon already
@@ -1736,7 +1944,7 @@ function parseReminderArgs(args: readonly string[]): ReminderInvocation {
     request.repeat !== "none" &&
     request.timezone === undefined
   )
-    request.timezone = "Asia/Shanghai";
+    request.timezone = DEFAULT_REMINDER_TIMEZONE;
   validateReminderShape(request as ReminderInvocation);
   // The wire-level round trip below requires a full UUID for `reminderId` (the daemon and server
   // never see a bare prefix — it is resolved to a full ID before the real request goes out; see
@@ -1920,9 +2128,6 @@ function formatReminderResponse(
   return `Accepted reminder ${operation} request.`;
 }
 
-const WEEKLY_REPORT_UUID =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-
 function parseWeeklyReportCollectArgs(args: readonly string[]): WeeklyReportCollectInvocation {
   const operation = args[0];
   if (operation !== "submit-pack" && operation !== "submit-empty" && operation !== "submit-failure")
@@ -1937,12 +2142,7 @@ function parseWeeklyReportCollectArgs(args: readonly string[]): WeeklyReportColl
   }
   const runId = values.get("--run-id");
   const requestId = values.get("--request-id");
-  if (
-    !runId ||
-    !WEEKLY_REPORT_UUID.test(runId) ||
-    !requestId ||
-    !WEEKLY_REPORT_UUID.test(requestId)
-  )
+  if (!runId || !RFC_UUID_PATTERN.test(runId) || !requestId || !RFC_UUID_PATTERN.test(requestId))
     throw new Error("Usage:");
   if (operation === "submit-pack") {
     const markdownPath = values.get("--markdown");
@@ -1987,9 +2187,9 @@ function parseWeeklyReportKeyPointsArgs(args: readonly string[]): WeeklyReportKe
   const markdownPath = values.get("--markdown");
   if (
     !reportId ||
-    !WEEKLY_REPORT_UUID.test(reportId) ||
+    !RFC_UUID_PATTERN.test(reportId) ||
     !requestId ||
-    !WEEKLY_REPORT_UUID.test(requestId) ||
+    !RFC_UUID_PATTERN.test(requestId) ||
     !markdownPath ||
     values.size !== 3
   )
@@ -2022,7 +2222,7 @@ function parseWeeklyReportArgs(args: readonly string[]): WeeklyReportInvocation 
         subjectType as (typeof WEEKLY_REPORT_SUBJECT_TYPES)[number],
       ) ||
       !subjectId ||
-      !WEEKLY_REPORT_UUID.test(subjectId)
+      !RFC_UUID_PATTERN.test(subjectId)
     )
       throw new Error("Usage:");
     return {
@@ -2042,8 +2242,8 @@ function parseWeeklyReportArgs(args: readonly string[]): WeeklyReportInvocation 
       if (name !== "--cycle-id" && name !== "--cursor" && name !== "--limit")
         throw new Error("Usage:");
     }
-    if (cycleId && !WEEKLY_REPORT_UUID.test(cycleId)) throw new Error("Usage:");
-    if (cursor && !WEEKLY_REPORT_UUID.test(cursor)) throw new Error("Usage:");
+    if (cycleId && !RFC_UUID_PATTERN.test(cycleId)) throw new Error("Usage:");
+    if (cursor && !RFC_UUID_PATTERN.test(cursor)) throw new Error("Usage:");
     let limit: number | undefined;
     if (limitValue) {
       limit = Number(limitValue);
@@ -2066,7 +2266,7 @@ function parseWeeklyReportArgs(args: readonly string[]): WeeklyReportInvocation 
     if (name !== "--report-id" && name !== "--section" && name !== "--max-characters")
       throw new Error("Usage:");
   }
-  if (!reportId || !WEEKLY_REPORT_UUID.test(reportId) || !section) throw new Error("Usage:");
+  if (!reportId || !RFC_UUID_PATTERN.test(reportId) || !section) throw new Error("Usage:");
   let maxCharacters: number | undefined;
   if (maxCharactersValue) {
     maxCharacters = Number(maxCharactersValue);
@@ -2084,181 +2284,333 @@ function parseWeeklyReportArgs(args: readonly string[]): WeeklyReportInvocation 
   };
 }
 
+const TASK_OPERATIONS = [
+  "list",
+  "create",
+  "convert",
+  "claim",
+  "unclaim",
+  "assign",
+  "unassign",
+  "update",
+  "amend",
+  "history",
+  "delete",
+  "receipt",
+] as const;
+type TaskOperation = (typeof TASK_OPERATIONS)[number];
+
+/** The flags each `task` subcommand takes. */
+const TASK_FLAGS: Record<TaskOperation, readonly string[]> = {
+  list: ["--target", "--mine", "--status"],
+  create: ["--target", "--title", "--assignee", "--creates-resource"],
+  convert: ["--target", "--message-id"],
+  claim: ["--target", "--number", "--message-id", "--reviewer-isolation"],
+  unclaim: ["--target", "--number", "--expected-revision"],
+  assign: ["--target", "--number", "--assignee", "--expected-revision"],
+  unassign: ["--target", "--number", "--expected-revision"],
+  update: ["--target", "--number", "--status", "--expected-revision", "--reviewer-isolation"],
+  amend: [
+    "--target",
+    "--number",
+    "--title",
+    "--description",
+    "--clear-description",
+    "--expected-revision",
+    "--reviewer-isolation",
+  ],
+  history: ["--target", "--number"],
+  delete: ["--target", "--number"],
+  receipt: [
+    "--target",
+    "--number",
+    "--object",
+    "--purpose",
+    "--teardown-owner",
+    "--security-privacy",
+    "--expiry",
+    "--runbook",
+    "--tracking",
+  ],
+};
+
+/** Flags a subcommand accepts more than once. `update` counts its `--number`s only to refuse
+ * more than one by name. */
+const TASK_REPEATABLE_FLAGS: Partial<Record<TaskOperation, readonly string[]>> = {
+  create: ["--title"],
+  claim: ["--number", "--message-id"],
+  update: ["--number"],
+};
+
+const TASK_SWITCHES = new Set([
+  "--clear-description",
+  "--reviewer-isolation",
+  "--mine",
+  "--creates-resource",
+]);
+
+const TASK_TARGET = /^(?:#[a-z0-9][a-z0-9_-]{0,31}|@[a-z0-9][a-z0-9_-]{0,31})$/;
+
+function invalidTaskArg(message: string): CliError {
+  return new CliError({ code: "INVALID_ARG", message, retryable: false });
+}
+
+function taskNumber(raw: string | undefined): number {
+  const value = Number(raw);
+  if (raw === undefined) throw invalidTaskArg("--number is required");
+  if (raw.trim() === "" || !Number.isSafeInteger(value) || value <= 0)
+    throw invalidTaskArg(`--number must be a positive integer; got ${raw}`);
+  return value;
+}
+
+function expectedRevisionOption(raw: string | undefined): number | undefined {
+  if (raw === undefined) return undefined;
+  const value = Number(raw);
+  if (raw.trim() === "" || !Number.isSafeInteger(value) || value < 0)
+    throw invalidTaskArg(`--expected-revision must be a non-negative integer; got ${raw}`);
+  return value;
+}
+
+/** A handle the server can resolve: `@`, then a lowercase username or Agent name. */
+const TASK_HANDLE = /^@[a-z0-9][a-z0-9_-]{0,63}$/;
+
+/** A `@handle` option: trimmed, with the handle after `@` trimmed too. */
+function handleOption(raw: string, message: string): string {
+  const value = raw.trim();
+  const handle = `@${value.slice(1).trim()}`;
+  if (!value.startsWith("@") || !TASK_HANDLE.test(handle)) throw invalidTaskArg(message);
+  return handle;
+}
+
 function parseTaskArgs(args: readonly string[]): TaskInvocation {
-  const operation = args[0];
-  if (
-    !operation ||
-    ![
-      "list",
-      "create",
-      "convert",
-      "claim",
-      "unclaim",
-      "assign",
-      "unassign",
-      "update",
-      "amend",
-      "history",
-      "delete",
-      "receipt",
-    ].includes(operation)
-  )
+  const operation = args[0] as TaskOperation | undefined;
+  if (!operation || !(TASK_OPERATIONS as readonly string[]).includes(operation))
     throw new Error("Usage:");
-  const values = new Map<string, string>();
-  for (let index = 1; index < args.length; index += 2) {
-    const name = args[index];
-    if (name === "--clear-description" || name === "--reviewer-isolation") {
-      if (values.has(name)) throw new Error("Usage:");
-      values.set(name, "true");
-      index -= 1;
+  const allowed = TASK_FLAGS[operation];
+  const repeatable = TASK_REPEATABLE_FLAGS[operation] ?? [];
+  const values = new Map<string, string[]>();
+  for (let index = 1; index < args.length; index += 1) {
+    const name = args[index]!;
+    if (!allowed.includes(name)) throw new Error("Usage:");
+    if (values.has(name) && !repeatable.includes(name)) throw new Error("Usage:");
+    if (TASK_SWITCHES.has(name)) {
+      values.set(name, ["true"]);
       continue;
     }
     const value = args[index + 1];
-    if (!name?.startsWith("--") || !value || values.has(name)) throw new Error("Usage:");
-    values.set(name, value);
+    if (value === undefined) throw new Error("Usage:");
+    values.set(name, [...(values.get(name) ?? []), value]);
+    index += 1;
   }
-  const allowed: Record<string, string[]> = {
-    list: ["--target", "--status"],
-    create: ["--target", "--title", "--assignee"],
-    convert: ["--target", "--message-id"],
-    claim: ["--target", "--number", "--message-id", "--reviewer-isolation"],
-    unclaim: ["--target", "--number", "--expected-revision"],
-    assign: ["--target", "--number", "--assignee", "--expected-revision"],
-    unassign: ["--target", "--number", "--expected-revision"],
-    update: ["--target", "--number", "--status", "--expected-revision", "--reviewer-isolation"],
-    amend: [
-      "--target",
-      "--number",
-      "--title",
-      "--description",
-      "--clear-description",
-      "--expected-revision",
-      "--reviewer-isolation",
-    ],
-    history: ["--target", "--number"],
-    delete: ["--target", "--number", "--expected-revision"],
-    receipt: [
-      "--target",
-      "--number",
-      "--expected-revision",
-      "--object",
-      "--purpose",
-      "--teardown-owner",
-      "--security-privacy",
-      "--expiry",
-      "--runbook",
-      "--tracking",
-    ],
-  };
-  if ([...values.keys()].some((key) => !allowed[operation]!.includes(key)))
-    throw new Error("Usage:");
-  if (values.has("--description") && values.has("--clear-description"))
-    throw new Error("Use either --description or --clear-description, not both");
-  const target = values.get("--target");
-  if (!target || !/^(?:#[a-z0-9][a-z0-9_-]{0,31}|@[a-z0-9][a-z0-9_-]{0,31})$/.test(target))
-    throw new Error("Usage:");
-  const number = integerOption(values.get("--number"), 1);
-  const expectedRevision = integerOption(values.get("--expected-revision"), 0);
-  const status = values.get("--status") as TaskStatus | undefined;
-  if (status && !["todo", "in_progress", "in_review", "done", "closed"].includes(status))
-    throw new Error("Usage:");
-  let receipt: TaskCommand["receipt"];
-  if (operation === "receipt") {
-    const required = (flag: string) => {
-      const value = values.get(flag)?.trim();
-      if (!value) throw new Error(`${flag} is required and must be nonblank`);
-      return value;
-    };
-    const teardownOwner = required("--teardown-owner");
-    if (!/^@[a-z0-9][a-z0-9_-]{0,31}$/.test(teardownOwner))
-      throw new Error("--teardown-owner must be an @agent handle");
-    const expiry = new Date(required("--expiry"));
-    if (!Number.isFinite(expiry.getTime()))
-      throw new Error("--expiry must be an ISO-8601 timestamp");
-    receipt = {
-      object: required("--object"),
-      purpose: required("--purpose"),
-      teardownOwner,
-      securityPrivacy: required("--security-privacy"),
-      expiry: expiry.toISOString(),
-      runbook: required("--runbook"),
-      tracking: required("--tracking"),
-    };
+  const one = (flag: string) => values.get(flag)?.[0];
+
+  const mine = values.has("--mine");
+  const target = one("--target");
+  if (operation === "list") validateTaskListScope(target, mine, one("--status"));
+  if (!mine) {
+    if (!target?.trim()) throw invalidTaskArg("--target is required");
+    if (!TASK_TARGET.test(target))
+      throw invalidTaskArg(
+        `--target must be a conversation ('#channel' or '@user'); got ${target}`,
+      );
   }
-  const reviewerIsolation =
-    ["claim", "update", "amend"].includes(operation) &&
-    (values.has("--reviewer-isolation") || reviewerIsolationFromEnvironment());
-  const task = {
+
+  const task: Omit<TaskCommand, "idempotencyKey"> = {
     operation,
     target,
-    number,
-    messageId: values.get("--message-id"),
-    title: values.get("--title"),
-    description: values.get("--description"),
-    assignee: values.get("--assignee"),
-    ...(values.has("--clear-description") ? { description: null } : {}),
-    status,
-    expectedRevision,
-    ...(receipt ? { receipt } : {}),
-    ...(reviewerIsolation ? { freshnessContextMode: "withheld" as const } : {}),
-  } as Omit<TaskCommand, "requestId">;
-  const valid =
-    operation === "list" ||
-    (operation === "create" &&
-      Boolean(task.title) &&
-      (!task.assignee || /^@[a-z0-9][a-z0-9_-]{0,31}$/.test(task.assignee))) ||
-    (operation === "convert" && Boolean(task.messageId)) ||
-    (operation === "claim" && (number !== undefined) !== Boolean(task.messageId)) ||
-    (operation === "unclaim" && number !== undefined) ||
-    (operation === "assign" && number !== undefined && Boolean(task.assignee)) ||
-    (operation === "unassign" && number !== undefined) ||
-    (operation === "update" && number !== undefined && Boolean(status)) ||
-    (operation === "amend" &&
-      number !== undefined &&
-      (Boolean(task.title) || task.description !== undefined)) ||
-    (["history", "delete", "receipt"].includes(operation) && number !== undefined);
-  if (!valid) throw new Error("Usage:");
+    ...(mine ? { mine: true } : {}),
+  };
+  if (operation === "list") {
+    task.status = one("--status") as TaskStatus | "all" | undefined;
+  } else if (operation === "create") {
+    const titles = values.get("--title") ?? [];
+    if (!titles.length) throw invalidTaskArg("--title is required (at least one)");
+    if (titles.some((title) => !title.trim())) throw invalidTaskArg("--title must be nonblank");
+    if (titles.length === 1) task.title = titles[0];
+    else task.titles = titles;
+    const assignee = one("--assignee");
+    if (assignee !== undefined)
+      task.assignee = handleOption(assignee, "--assignee must be an @handle");
+    if (values.has("--creates-resource")) task.createsResource = true;
+  } else if (operation === "convert") {
+    const messageId = one("--message-id")?.trim();
+    if (!messageId) throw invalidTaskArg("--message-id is required");
+    task.messageId = messageId;
+  } else if (operation === "claim") {
+    const numbers = (values.get("--number") ?? []).map(taskNumber);
+    const messageIds = (values.get("--message-id") ?? []).map((id) => id.trim());
+    if (!numbers.length && !messageIds.length)
+      throw invalidTaskArg("Provide at least one --number or --message-id");
+    if (messageIds.some((id) => !id)) throw invalidTaskArg("--message-id must be nonblank");
+    if (numbers.length === 1) task.number = numbers[0];
+    else if (numbers.length) task.numbers = numbers;
+    if (messageIds.length === 1) task.messageId = messageIds[0];
+    else if (messageIds.length) task.messageIds = messageIds;
+  } else if (operation === "update") {
+    const numbers = values.get("--number") ?? [];
+    if (numbers.length !== 1)
+      throw invalidTaskArg(
+        numbers.length === 0
+          ? "Provide exactly one --number"
+          : `task update accepts exactly one --number; received ${numbers.length}. Run task update once per task.`,
+      );
+    task.number = taskNumber(numbers[0]);
+    const status = one("--status");
+    if (!status || !(TASK_STATUSES as readonly string[]).includes(status))
+      throw invalidTaskArg(`--status must be one of: ${TASK_STATUSES.join(", ")}; got ${status}`);
+    task.status = status as TaskStatus;
+  } else {
+    task.number = taskNumber(one("--number"));
+  }
+
+  if (operation === "assign") {
+    const assignee = one("--assignee")?.trim();
+    if (!assignee)
+      throw invalidTaskArg(
+        "--assignee <@who> is required; to clear the assignee use `coforge task unassign`",
+      );
+    task.assignee = handleOption(
+      assignee.startsWith("@") ? assignee : `@${assignee}`,
+      "--assignee must be an @handle",
+    );
+  }
+  if (operation === "amend") {
+    const description = one("--description");
+    const clear = values.has("--clear-description");
+    if (description !== undefined && clear)
+      throw invalidTaskArg("Use either --description or --clear-description, not both");
+    const title = one("--title");
+    if (title === undefined && description === undefined && !clear)
+      throw invalidTaskArg(
+        "At least one amendment is required: --title, --description, or --clear-description",
+      );
+    if (title !== undefined) task.title = title;
+    if (clear) task.description = null;
+    else if (description !== undefined) task.description = description;
+  }
+  if (operation === "receipt") task.receipt = taskReceiptArgs(one);
+  const expectedRevision = expectedRevisionOption(one("--expected-revision"));
+  if (expectedRevision !== undefined) task.expectedRevision = expectedRevision;
+  if (
+    ["claim", "update", "amend"].includes(operation) &&
+    (values.has("--reviewer-isolation") || reviewerIsolationFromEnvironment())
+  )
+    task.freshnessContextMode = "withheld";
   return { command: "task", task };
 }
 
-function integerOption(value: string | undefined, minimum: number): number | undefined {
-  if (value === undefined) return undefined;
-  const parsed = Number(value);
-  if (!Number.isSafeInteger(parsed) || parsed < minimum) throw new Error("Usage:");
-  return parsed;
+/** The seven resource-receipt fields, each required and nonblank. */
+function taskReceiptArgs(one: (flag: string) => string | undefined): TaskResourceReceipt {
+  const required = (flag: string) => {
+    const value = one(flag)?.trim();
+    if (!value) throw invalidTaskArg(`${flag} is required and must be nonblank`);
+    return value;
+  };
+  const teardownOwner = handleOption(
+    required("--teardown-owner"),
+    "--teardown-owner must be an @agent handle",
+  );
+  const expiry = new Date(required("--expiry"));
+  if (!Number.isFinite(expiry.getTime()))
+    throw invalidTaskArg("--expiry must be an ISO-8601 timestamp");
+  return {
+    object: required("--object"),
+    purpose: required("--purpose"),
+    teardownOwner,
+    securityPrivacy: required("--security-privacy"),
+    expiry: expiry.toISOString(),
+    runbook: required("--runbook"),
+    tracking: required("--tracking"),
+  };
 }
 
-function formatTasks(result: TaskResult, reviewerIsolation = false): string {
-  if (result.state === "held") {
-    if (reviewerIsolation || result.freshnessContextMode === "withheld") {
-      const count = result.newMessageCount ?? result.withheldMessageCount ?? 0;
-      return `Reviewer-isolation freshness hold: ${count} newer ${count === 1 ? "message" : "messages"} withheld.`;
-    }
-    const messages = result.heldMessages?.map(formatMessage).join("\n");
-    return `Task request held.${messages ? ` Review newer messages:\n${messages}` : ""}`;
+const TASK_LIST_STATUSES = ["all", ...TASK_STATUSES] as const;
+
+/** `task list` reads one conversation (`--target`) or this Agent's own Tasks (`--mine`). */
+function validateTaskListScope(target: string | undefined, mine: boolean, status?: string) {
+  if (status !== undefined && !(TASK_LIST_STATUSES as readonly string[]).includes(status))
+    throw invalidTaskArg(`--status must be one of ${TASK_LIST_STATUSES.join("|")}; got ${status}`);
+  if (mine && target) throw invalidTaskArg("--mine cannot be combined with --target");
+  if (!mine && !target) throw invalidTaskArg("--target is required (or pass --mine)");
+}
+
+/** A write the server held until the Agent has seen the conversation's newer messages. */
+function formatHeldTaskRequest(result: TaskResult, reviewerIsolation: boolean): string {
+  if (reviewerIsolation || result.freshnessContextMode === "withheld") {
+    const count = result.newMessageCount ?? result.withheldMessageCount ?? 0;
+    return `Reviewer-isolation freshness hold: ${count} newer ${count === 1 ? "message" : "messages"} withheld.`;
   }
-  if (!result.tasks.length) return "No tasks.";
-  return result.tasks
-    .map(
-      (task) =>
-        `#${task.number} status=${task.status} owner=${task.owner?.name ?? "unclaimed"} message=${task.messageId} revision=${task.revision} ${task.title}`,
-    )
-    .join("\n");
+  const messages = result.heldMessages?.map(formatMessage).join("\n");
+  return `Task request held.${messages ? ` Review newer messages:\n${messages}` : ""}`;
+}
+
+/** What a `task` subcommand prints for the server's answer. */
+function formatTaskResult(command: TaskCommand, result: TaskResult): string {
+  const target = command.target!;
+  const task = result.tasks[0];
+  switch (command.operation) {
+    case "list":
+      return command.mine
+        ? formatMyTaskList(result, command.status)
+        : formatTaskBoard(target, result, command.status);
+    case "history":
+      return formatTaskHistory(result);
+    case "create":
+      return formatTasksCreated(target, result);
+    case "delete":
+      return formatTaskDeleted(command.number!);
+    case "receipt":
+      return formatResourceReceiptRecorded(target, result);
+    case "amend":
+      return formatTaskAmended(result);
+    case "claim": {
+      const refusal = claimRefusal(target, result);
+      if (refusal) throw refusal;
+      return formatClaimResults(target, result);
+    }
+  }
+  if (!task) throw new Error(`the server returned no task for task ${command.operation}`);
+  switch (command.operation) {
+    case "convert":
+      return formatTaskConverted(target, task);
+    case "unclaim":
+      return formatTaskUnclaimed(task);
+    case "assign":
+    case "unassign":
+      return formatTaskAssigned(task);
+    case "update":
+      return formatTaskStatusUpdated(task);
+    default:
+      throw new Error(`no output is defined for task ${command.operation}`);
+  }
+}
+
+function historyActor(event: TaskHistoryEvent): string {
+  if (event.actorType === "system") return "@system";
+  return event.actorName ? `@${event.actorName}` : "<unresolved>";
 }
 
 function formatTaskHistory(result: TaskResult): string {
-  if (!result.history?.length) return "No task history.";
-  return result.history
-    .map(
-      (event) =>
-        `${event.sequence} ${event.eventType} actor=${event.actorName ?? event.actorKind} at=${event.createdAt}`,
-    )
-    .join("\n");
+  const task = result.tasks[0]!;
+  const events = result.history?.length
+    ? result.history
+        .map(
+          (event) =>
+            `seq=${event.seq} time=${event.createdAt} actor=${historyActor(event)} type=${event.eventType}\n  ${JSON.stringify(event.payload)}`,
+        )
+        .join("\n")
+    : "No recorded events.";
+  return `## Task #${task.number} history — revision ${task.revision}\n\n${task.title}\n\n${events}`;
 }
 
 function reviewerIsolationFromEnvironment(): boolean {
-  const value = Bun.env.COFORGE_REVIEWER_ISOLATION;
-  if (value === undefined || value === "0" || value === "false") return false;
+  const raw = Bun.env.COFORGE_REVIEWER_ISOLATION;
+  const value = raw?.trim().toLowerCase();
+  if (!value || value === "0" || value === "false") return false;
   if (value === "1" || value === "true") return true;
-  throw new Error("COFORGE_REVIEWER_ISOLATION must be one of: 1, true, 0, false");
+  throw new CliError({
+    code: "INVALID_ARG",
+    message: `COFORGE_REVIEWER_ISOLATION must be one of: 1, true, 0, false; got ${raw}`,
+    retryable: false,
+  });
 }

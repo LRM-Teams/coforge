@@ -1,4 +1,6 @@
 import {
+  DEFAULT_REMINDER_TIMEZONE,
+  parseReminderRecurrence,
   REMINDER_SYNC_MESSAGE_TYPE,
   decodeAgentReminderOperationRequest,
   encodeAgentReminderOperationRequest,
@@ -12,10 +14,36 @@ import {
   type ReminderSummaryRecord,
   type ReminderSync,
 } from "@lrm/coforge-sdk/internal";
+import { dateTimeFormat } from "#src/lib/dates";
 
 export const MAX_ACTIVE_REMINDERS = 50;
 export const MAX_REMINDER_LOG_EVENTS = 100;
-export const DEFAULT_REMINDER_TIMEZONE = "Asia/Shanghai";
+export { DEFAULT_REMINDER_TIMEZONE };
+
+/** Why the reminder domain refused a command, named once so both callers can report it. */
+export type ReminderRefusalCode =
+  | "INVALID_INPUT"
+  | "NOT_FOUND"
+  | "ACCESS_DENIED"
+  | "CONFLICT"
+  | "TEMPORARILY_UNAVAILABLE";
+
+/**
+ * A refusal the domain can name. The WebSocket path has always put the message in `reason`; the
+ * HTTP route flattened every refusal into one `400 invalid reminder request`, so a caller could not
+ * tell "not authorized" from "the connected Daemon is not capable" — and neither could the Daemon's
+ * own error log, which records the API's `code` field and nothing else. One named refusal, which
+ * both paths carry: the HTTP route answers with the `code`, the RPC path keeps the message.
+ */
+export class ReminderRefusal extends Error {
+  constructor(
+    readonly code: ReminderRefusalCode,
+    message: string,
+  ) {
+    super(message);
+    this.name = "ReminderRefusal";
+  }
+}
 
 type Scope = {
   protocolMajor?: number;
@@ -85,34 +113,90 @@ function validTimezone(zone: string) {
   }
 }
 
-const parts = (formatter: Intl.DateTimeFormat, instant: Date) =>
-  Object.fromEntries(
-    formatter
-      .formatToParts(instant)
-      .filter((part) => part.type !== "literal")
-      .map((part) => [part.type, part.value.toLowerCase()]),
-  );
+/** The local fields a recurrence match reads. The minute-by-minute scan reads them thousands of
+ * times per call, so they are collected in one pass over `formatToParts` with no intermediate parts
+ * array, filtered array, mapped array or lookup object per iteration. */
+type LocalMinute = {
+  weekday: string;
+  year: string;
+  month: string;
+  day: string;
+  hour: string;
+  minute: string;
+};
 
-const localMinuteKey = (value: Record<string, string>) =>
+const localMinute = (formatter: Intl.DateTimeFormat, instant: Date): LocalMinute => {
+  const local: LocalMinute = { weekday: "", year: "", month: "", day: "", hour: "", minute: "" };
+  for (const part of formatter.formatToParts(instant)) {
+    const value = part.value.toLowerCase();
+    if (part.type === "weekday") local.weekday = value;
+    else if (part.type === "year") local.year = value;
+    else if (part.type === "month") local.month = value;
+    else if (part.type === "day") local.day = value;
+    else if (part.type === "hour") local.hour = value;
+    else if (part.type === "minute") local.minute = value;
+  }
+  return local;
+};
+
+const localMinuteKey = (value: LocalMinute) =>
   `${value.year}-${value.month}-${value.day}-${value.hour}-${value.minute}`;
+
+/** The scan's per-minute test: does this instant's local wall clock match the recurrence's fixed
+ * hour, minute and (for a weekly recurrence) weekday? `probe` asks `formatToParts` for only those
+ * fields — the date fields the key needs are read with the full formatter on the rare minute that
+ * matches — so each of the horizon's thousands of probes formats fewer parts. */
+const matchesLocalMinute = (
+  probe: Intl.DateTimeFormat,
+  instant: Date,
+  hour: string | undefined,
+  minute: string | undefined,
+  weekdays: readonly string[] | undefined,
+): boolean => {
+  let hourMatches = false;
+  let minuteMatches = false;
+  let weekdayMatches = weekdays === undefined;
+  for (const part of probe.formatToParts(instant)) {
+    if (part.type === "hour") hourMatches = hour !== undefined && part.value === hour;
+    else if (part.type === "minute") minuteMatches = minute !== undefined && part.value === minute;
+    else if (part.type === "weekday" && weekdays)
+      weekdayMatches = weekdays.includes(part.value.toLowerCase());
+  }
+  return hourMatches && minuteMatches && weekdayMatches;
+};
 
 /** First matching real instant means overlap chooses the first occurrence; gaps have no match. */
 export function nextOccurrence(repeat: string, timezone: string, due: Date, now: Date): Date {
-  const interval = /^every:(\d+)([mhd])$/.exec(repeat);
-  if (interval) {
-    const unit = { m: 60_000, h: 3_600_000, d: 86_400_000 }[interval[2]!]!;
-    const period = Number(interval[1]) * unit;
+  const recurrence = parseReminderRecurrence(repeat);
+  if (recurrence?.kind === "every") {
+    const unit = { m: 60_000, h: 3_600_000, d: 86_400_000 }[recurrence.unit];
+    const period = recurrence.count * unit;
     return new Date(
       due.getTime() +
         Math.max(1, Math.floor((now.getTime() - due.getTime()) / period) + 1) * period,
     );
   }
-  const daily = /^daily@(\d\d):(\d\d)$/.exec(repeat);
-  const weekly = /^weekly:([a-z,]+)@(\d\d):(\d\d)$/.exec(repeat);
-  const weekdays = weekly?.[1]!.split(",");
-  const hour = daily?.[1] ?? weekly?.[2];
-  const minute = daily?.[2] ?? weekly?.[3];
-  const formatter = new Intl.DateTimeFormat("en-CA", {
+  const hour =
+    recurrence?.kind === "daily" || recurrence?.kind === "weekly"
+      ? String(recurrence.hour).padStart(2, "0")
+      : undefined;
+  const minute =
+    recurrence?.kind === "daily" || recurrence?.kind === "weekly"
+      ? String(recurrence.minute).padStart(2, "0")
+      : undefined;
+  const weekdays = recurrence?.kind === "weekly" ? recurrence.weekdays : undefined;
+  // The scan walks a multi-day horizon a minute at a time, so its probe asks for the three fields
+  // the test reads and nothing else; the full formatter runs on a matching minute only. Both come
+  // from the process-wide cache in `lib/dates.ts` — they used to be built on every call, and this
+  // function runs once per recurrence probe.
+  const probe = dateTimeFormat("en-CA", {
+    timeZone: timezone,
+    ...(weekdays ? { weekday: "short" as const } : {}),
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  });
+  const formatter = dateTimeFormat("en-CA", {
     timeZone: timezone,
     weekday: "short",
     year: "numeric",
@@ -124,25 +208,20 @@ export function nextOccurrence(repeat: string, timezone: string, due: Date, now:
   });
   for (
     let time = Math.floor(now.getTime() / 60_000) * 60_000 + 60_000;
-    time <= now.getTime() + (weekly ? 15 : 9) * 86_400_000;
+    time <= now.getTime() + (recurrence?.kind === "weekly" ? 15 : 9) * 86_400_000;
     time += 60_000
   ) {
-    const local = parts(formatter, new Date(time));
-    if (
-      local.hour === hour &&
-      local.minute === minute &&
-      (!weekdays || weekdays.includes(local.weekday!))
-    ) {
-      const key = localMinuteKey(local);
-      let duplicate = false;
-      for (let earlier = time - 60_000; earlier >= time - 3 * 3_600_000; earlier -= 60_000)
-        if (localMinuteKey(parts(formatter, new Date(earlier))) === key) {
-          duplicate = true;
-          break;
-        }
-      if (duplicate) continue;
-      return new Date(time);
-    }
+    if (!matchesLocalMinute(probe, new Date(time), hour, minute, weekdays)) continue;
+    const local = localMinute(formatter, new Date(time));
+    const key = localMinuteKey(local);
+    let duplicate = false;
+    for (let earlier = time - 60_000; earlier >= time - 3 * 3_600_000; earlier -= 60_000)
+      if (localMinuteKey(localMinute(formatter, new Date(earlier))) === key) {
+        duplicate = true;
+        break;
+      }
+    if (duplicate) continue;
+    return new Date(time);
   }
   throw new Error("No valid recurring occurrence found");
 }
@@ -190,7 +269,7 @@ export class Reminders {
     const scope = { ...request, userId };
     const fingerprint = JSON.stringify(request);
     if (!(await this.repository.authorize(scope)))
-      throw new Error("reminder operation is not authorized");
+      throw new ReminderRefusal("ACCESS_DENIED", "reminder operation is not authorized");
     if (!["list", "log"].includes(request.operation)) {
       const replay = await this.repository.replay?.(
         scope,
@@ -204,21 +283,26 @@ export class Reminders {
     let events: AgentReminderOperationResponse["events"] = [];
     if (request.operation === "schedule") {
       if (!(await this.capabilities.supports(request.workspaceId, request.computerId)))
-        throw new Error("connected Daemon does not support reminders");
+        throw new ReminderRefusal(
+          "TEMPORARILY_UNAVAILABLE",
+          "connected Daemon does not support reminders",
+        );
       const anchor = await this.repository.resolveAnchor(
         scope,
         request.target!,
         request.messageId!,
       );
       const zone = request.repeat ? (request.timezone ?? DEFAULT_REMINDER_TIMEZONE) : undefined;
-      if (zone && !validTimezone(zone)) throw new Error("invalid IANA timezone");
+      if (zone && !validTimezone(zone))
+        throw new ReminderRefusal("INVALID_INPUT", "invalid IANA timezone");
       const now = this.now();
       const first = request.fireAt
         ? new Date(request.fireAt)
         : request.delaySeconds
           ? new Date(now.getTime() + request.delaySeconds * 1000)
           : nextOccurrence(request.repeat!, zone!, now, now);
-      if (first.getTime() <= now.getTime()) throw new Error("reminder time must be in the future");
+      if (first.getTime() <= now.getTime())
+        throw new ReminderRefusal("INVALID_INPUT", "reminder time must be in the future");
       const created = await this.repository.create(scope, request.requestId, fingerprint, {
         ownerAgentId: request.agentId,
         computerId: request.computerId,
@@ -237,7 +321,7 @@ export class Reminders {
       events = await this.repository.events(scope, request.reminderId!, MAX_REMINDER_LOG_EVENTS);
     else {
       const current = await this.repository.get(scope, request.reminderId!);
-      if (!current) throw new Error("reminder not found");
+      if (!current) throw new ReminderRefusal("NOT_FOUND", "reminder not found");
       if (request.operation === "cancel") {
         const changed = await this.repository.update(
           scope,
@@ -259,7 +343,8 @@ export class Reminders {
         });
       } else {
         const zone = request.timezone;
-        if (zone && !validTimezone(zone)) throw new Error("invalid IANA timezone");
+        if (zone && !validTimezone(zone))
+          throw new ReminderRefusal("INVALID_INPUT", "invalid IANA timezone");
         const changed = await this.repository.update(
           scope,
           request.requestId,
@@ -303,7 +388,7 @@ export class Reminders {
 
   async snapshot(scope: Scope & { requestId: string }): Promise<Uint8Array> {
     if (!(await this.repository.authorize(scope)))
-      throw new Error("reminder snapshot is not authorized");
+      throw new ReminderRefusal("ACCESS_DENIED", "reminder snapshot is not authorized");
     const reminders = await this.repository.list(scope, "scheduled", true);
     return encodeReminderSync({
       protocolMajor: 1,
@@ -316,14 +401,14 @@ export class Reminders {
 
   async snapshotForDaemon(scope: DaemonScope & { requestId: string }): Promise<Uint8Array> {
     const agent = await this.repository.authorizeDaemon(scope);
-    if (!agent) throw new Error("reminder snapshot is not authorized");
+    if (!agent) throw new ReminderRefusal("ACCESS_DENIED", "reminder snapshot is not authorized");
     return this.snapshot({ ...scope, userId: agent.userId });
   }
 
   async fire(request: ReminderFireRequest, userId: string): Promise<Uint8Array> {
     const scope = { ...request, userId };
     if (!(await this.repository.authorize(scope)))
-      throw new Error("reminder fire is not authorized");
+      throw new ReminderRefusal("ACCESS_DENIED", "reminder fire is not authorized");
     const response = await this.repository.fire(scope, request, this.now());
     if (response.nextReminder) await this.bestEffort(upsertSync(request, response.nextReminder));
     return encodeReminderFireResponse(response.result);
@@ -331,7 +416,7 @@ export class Reminders {
 
   async fireFromDaemon(request: ReminderFireRequest): Promise<Uint8Array> {
     const agent = await this.repository.authorizeDaemon(request);
-    if (!agent) throw new Error("reminder fire is not authorized");
+    if (!agent) throw new ReminderRefusal("ACCESS_DENIED", "reminder fire is not authorized");
     return this.fire(request, agent.userId);
   }
 

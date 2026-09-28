@@ -6,9 +6,9 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AgentRuntimeEvent, AgentSession } from "@coforge/agent";
-import { KiroProvider } from "../src/code-agent/kiro/provider";
-import { discoverKiroCatalog } from "../src/code-agent/kiro/catalog";
-import { KIRO_ACP_ARGS } from "../src/code-agent/kiro/connection";
+import { KiroProvider } from "#src/code-agent/kiro/provider";
+import { discoverKiroCatalog } from "#src/code-agent/kiro/catalog";
+import { KIRO_ACP_ARGS } from "#src/code-agent/kiro/connection";
 
 // macOS tmpdir lives under /var, a symlink; the Kiro provider rejects a linked
 // agent profile directory (comparing realpath to the literal resolved path).
@@ -62,7 +62,7 @@ test("native Kiro v3 instructions, permissions, recovery and busy steering", asy
     );
     expect(await completed.promise).toBe("completed");
     expect(text).toContain("VIOLET-683");
-    // ADR 0048: notify() while busy steers the live turn through Kiro's own ACP
+    // notify() while busy steers the live turn through Kiro's own ACP
     // `_session/steer` extension instead of replacing it with a new prompt — the running tool
     // keeps running (steering never cancels in-flight work; only interrupt() does that), and the
     // steered text reaches the model at its next boundary.

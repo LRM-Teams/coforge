@@ -31,7 +31,7 @@ test("dependency changes include downstream consumers, but not unrelated modules
 
 test("documentation skips application checks, while shared and unknown inputs fail open to full coverage", () => {
   expect(
-    selectChecks(["README.md", "docs/release.md", "packages/daemon/AGENTS.md"], "changes"),
+    selectChecks(["README.md", "docs/release/README.md", "packages/daemon/AGENTS.md"], "changes"),
   ).toEqual([]);
   const all = [
     "agent",
@@ -84,7 +84,7 @@ test("documentation skips application checks, while shared and unknown inputs fa
 
 test("deployment validates the exact Web track only when the image or deployment is affected", () => {
   for (const path of [
-    "docs/release.md",
+    "docs/release/README.md",
     "packages/daemon/src/runtime.ts",
     "scripts/release/publish.ts",
   ]) {

@@ -8,16 +8,16 @@ import {
   type KeyboardEvent,
   type ReactNode,
 } from "react";
-import { ChevronLeft, ChevronRight, Plus, XClose as X } from "@untitledui/icons";
+import { ChevronLeft, ChevronRight, XClose as X } from "@untitledui/icons";
 
-import { Button } from "@/components/base/buttons/button";
-import { ButtonUtility } from "@/components/base/buttons/button-utility";
-import { m } from "@/paraglide/messages";
+import { Button } from "#src/components/base/buttons/button";
+import { ButtonUtility } from "#src/components/base/buttons/button-utility";
+import { m } from "#src/paraglide/messages";
 import { LeaderFormatSectionsEditor } from "./leader-format-sections-editor";
-import { ReportSectionEditor } from "./report-editor/report-section-editor";
+import { ReportSectionEditor } from "#src/features/records/report-editor/report-section-editor";
 import type { ReportContent } from "./records-content";
-import { cn } from "@/lib/utils";
-import type { UploadResult } from "./report-editor/types";
+import { cn } from "#src/lib/utils";
+import type { UploadResult } from "#src/features/records/report-editor/types";
 import { RecordsReadingColumn } from "./records-reading-column";
 
 export function ReportTabsEditor({
@@ -80,7 +80,16 @@ export function ReportTabsEditor({
     const observer = new ResizeObserver(() => updateTabOverflow());
     observer.observe(scroller);
     return () => observer.disconnect();
-  }, [tabNames.join("\u0000")]);
+  }, [tabNames.join("\u0000"), trailing.map((tab) => tab.id).join("\u0000")]);
+
+  useLayoutEffect(() => {
+    const scroller = scrollerRef.current;
+    if (!scroller || !activeTab) return;
+    const selected = scroller.querySelector('[aria-selected="true"]');
+    if (!(selected instanceof HTMLElement)) return;
+    selected.scrollIntoView({ inline: "nearest", block: "nearest" });
+    updateTabOverflow();
+  }, [activeTab]);
 
   function scrollTabs(direction: -1 | 1) {
     scrollerRef.current?.scrollBy({ left: direction * 160, behavior: "smooth" });
@@ -187,124 +196,157 @@ export function ReportTabsEditor({
   }
 
   const activeContent = pages[activeTab]?.markdown ?? "";
+  const readingTabs = !editableTabs;
 
-  return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex shrink-0 items-end gap-1 border-b border-secondary px-2 pt-3 sm:px-6">
-        {tabOverflow.left ? (
-          <ButtonUtility
-            size="xs"
-            color="tertiary"
-            icon={ChevronLeft}
-            aria-label={m.records_format_tab_scroll_prev()}
-            onClick={() => scrollTabs(-1)}
-            className="mb-2 size-6 shrink-0 p-1"
-          />
-        ) : null}
-        <nav
-          ref={scrollerRef}
-          aria-label={m.records_template_dimension()}
-          onScroll={updateTabOverflow}
-          className="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto pt-0 sm:gap-2"
-        >
-          {tabNames.map((name) => (
-            <div
-              key={name}
-              draggable={editableTabs}
-              onDragStart={(event) => handleDragStart(event, name)}
-              onDragOver={(event) => {
-                if (editableTabs) event.preventDefault();
-              }}
-              onDrop={(event) => handleDrop(event, name)}
-              onDragEnd={() => setDraggedTab(null)}
-              className={cn(
-                "group flex shrink-0 items-center gap-0.5",
-                draggedTab === name && "opacity-50",
-              )}
-            >
-              {editingTab === name ? (
-                <input
-                  autoFocus
-                  value={editingName}
-                  aria-label={`${m.records_template_dimension()}: ${name}`}
-                  onChange={handleEditChange}
-                  onBlur={commitEditingTab}
-                  onKeyDown={handleEditKeyDown}
-                  className="mb-2 h-8 w-28 min-w-0 border-b-2 border-brand bg-transparent px-0.5 text-sm font-semibold text-primary outline-none"
-                />
-              ) : (
-                <Button
-                  type="button"
-                  size="sm"
-                  color="link-gray"
-                  aria-selected={name === activeTab}
-                  onPress={() => setSelectedTab(name)}
-                  onDoubleClick={() => startEditingTab(name)}
-                  className={cn(
-                    "rounded-md px-2.5 py-1.5",
-                    name === activeTab
-                      ? "bg-primary text-primary shadow-xs ring-1 ring-secondary"
-                      : "bg-secondary_alt text-tertiary hover:bg-primary_hover hover:text-primary",
-                  )}
-                >
-                  {name}
-                </Button>
-              )}
-              {editableTabs ? (
-                <ButtonUtility
-                  size="xs"
-                  color="tertiary"
-                  icon={X}
-                  aria-label={`${m.records_template_delete()}: ${name}`}
-                  isDisabled={tabNames.length <= 1}
-                  onClick={() => removeTab(name)}
-                  className="mb-2 size-5 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
-                />
-              ) : null}
-            </div>
-          ))}
-          {trailing.map((tab) => (
-            <div key={tab.id} className="flex shrink-0 items-center gap-0.5">
+  const tabButtonClass = (active: boolean) =>
+    editableTabs
+      ? cn(
+          "rounded-lg px-3 py-1.5 text-sm",
+          active
+            ? "bg-primary font-medium text-primary shadow-xs ring-1 ring-secondary"
+            : "bg-primary text-tertiary ring-1 ring-transparent hover:text-secondary",
+        )
+      : cn(
+          "rounded-none px-1 pb-2.5 pt-1 text-sm",
+          active
+            ? "border-b-2 border-brand-solid font-semibold text-primary"
+            : "border-b-2 border-transparent text-tertiary hover:text-secondary",
+        );
+
+  const chevronClass = cn("size-6 shrink-0 p-1 text-fg-quaternary", editableTabs ? "" : "mb-2");
+
+  const tabBar = (
+    <>
+      {tabOverflow.left ? (
+        <ButtonUtility
+          size="xs"
+          color="tertiary"
+          icon={ChevronLeft}
+          aria-label={m.records_format_tab_scroll_prev()}
+          onClick={() => scrollTabs(-1)}
+          className={chevronClass}
+        />
+      ) : null}
+      <nav
+        ref={scrollerRef}
+        aria-label={m.records_template_dimension()}
+        onScroll={updateTabOverflow}
+        className={cn(
+          // Overflow is driven by chevrons only — never show a native scrollbar under the tabs.
+          "scrollbar-hide flex min-w-0 flex-1 items-center overflow-x-auto overscroll-x-contain pt-0",
+          readingTabs ? "gap-8 sm:gap-10" : "gap-2",
+        )}
+      >
+        {tabNames.map((name) => (
+          <div
+            key={name}
+            draggable={editableTabs}
+            onDragStart={(event) => handleDragStart(event, name)}
+            onDragOver={(event) => {
+              if (editableTabs) event.preventDefault();
+            }}
+            onDrop={(event) => handleDrop(event, name)}
+            onDragEnd={() => setDraggedTab(null)}
+            className={cn(
+              "group flex shrink-0 items-center gap-0.5",
+              draggedTab === name && "opacity-50",
+            )}
+          >
+            {editingTab === name ? (
+              <input
+                autoFocus
+                value={editingName}
+                aria-label={`${m.records_template_dimension()}: ${name}`}
+                onChange={handleEditChange}
+                onBlur={commitEditingTab}
+                onKeyDown={handleEditKeyDown}
+                className={cn(
+                  "h-8 w-28 min-w-0 bg-transparent px-0.5 text-sm font-semibold text-primary outline-none",
+                  editableTabs
+                    ? "rounded-lg border border-brand px-2"
+                    : "mb-2 border-b-2 border-brand",
+                )}
+              />
+            ) : (
               <Button
                 type="button"
                 size="sm"
                 color="link-gray"
-                aria-selected={tab.id === activeTab}
-                onPress={() => setSelectedTab(tab.id)}
-                className={cn(
-                  "rounded-md px-2.5 py-1.5",
-                  tab.id === activeTab
-                    ? "bg-primary text-primary shadow-xs ring-1 ring-secondary"
-                    : "bg-secondary_alt text-tertiary hover:bg-primary_hover hover:text-primary",
-                )}
+                aria-selected={name === activeTab}
+                onPress={() => setSelectedTab(name)}
+                onDoubleClick={() => startEditingTab(name)}
+                className={tabButtonClass(name === activeTab)}
               >
-                {tab.label}
+                {name}
               </Button>
-            </div>
-          ))}
-        </nav>
-        {tabOverflow.right ? (
-          <ButtonUtility
-            size="xs"
-            color="tertiary"
-            icon={ChevronRight}
-            aria-label={m.records_format_tab_scroll_next()}
-            onClick={() => scrollTabs(1)}
-            className="mb-2 size-6 shrink-0 p-1"
-          />
-        ) : null}
-        {editableTabs ? (
-          <Button
-            type="button"
-            size="sm"
-            color="link-gray"
-            iconLeading={Plus}
-            onPress={addTab}
-            className="mb-2 shrink-0 px-1"
+            )}
+            {editableTabs ? (
+              <ButtonUtility
+                size="xs"
+                color="tertiary"
+                icon={X}
+                aria-label={`${m.records_template_delete()}: ${name}`}
+                isDisabled={tabNames.length <= 1}
+                onClick={() => removeTab(name)}
+                className="size-5 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
+              />
+            ) : null}
+          </div>
+        ))}
+        {trailing.map((tab) => (
+          <div key={tab.id} className="flex shrink-0 items-center gap-0.5">
+            <Button
+              type="button"
+              size="sm"
+              color="link-gray"
+              aria-selected={tab.id === activeTab}
+              onPress={() => setSelectedTab(tab.id)}
+              className={tabButtonClass(tab.id === activeTab)}
+            >
+              {tab.label}
+            </Button>
+          </div>
+        ))}
+      </nav>
+      {tabOverflow.right ? (
+        <ButtonUtility
+          size="xs"
+          color="tertiary"
+          icon={ChevronRight}
+          aria-label={m.records_format_tab_scroll_next()}
+          onClick={() => scrollTabs(1)}
+          className={chevronClass}
+        />
+      ) : null}
+      {editableTabs ? (
+        <Button
+          type="button"
+          size="sm"
+          color="link-color"
+          onPress={addTab}
+          className="shrink-0 px-1"
+        >
+          {m.records_template_add_heading_level_one()}
+        </Button>
+      ) : null}
+    </>
+  );
+
+  return (
+    <div className="flex min-h-0 flex-1 flex-col">
+      <div className="relative shrink-0">
+        <RecordsReadingColumn className={cn("pb-0", readingTabs ? "pt-2" : "pt-3")}>
+          <div
+            className={cn(
+              "flex items-center gap-1",
+              readingTabs
+                ? "items-end border-b border-secondary/40"
+                : "border-b border-transparent",
+            )}
           >
-            {m.records_template_add_heading_level_one()}
-          </Button>
-        ) : null}
+            {tabBar}
+          </div>
+        </RecordsReadingColumn>
       </div>
 
       {trailingActive ? (
@@ -318,7 +360,7 @@ export function ReportTabsEditor({
         />
       ) : (
         <div className="min-h-0 flex-1 overflow-y-auto">
-          <RecordsReadingColumn>
+          <RecordsReadingColumn className="pt-5">
             <ReportSectionEditor
               key={`${activeTab}:${contentRevision}`}
               defaultValue={activeContent}

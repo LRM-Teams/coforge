@@ -6,8 +6,8 @@ import {
   attachmentMimeType,
   validateAttachmentMimeType,
   validateAttachmentUploadArgs,
-} from "../src/attachment-upload";
-import { CliError } from "../src/cli-error";
+} from "#src/attachment-upload";
+import { CliError } from "#src/cli-error";
 
 test("an explicit mime type always wins over the file extension", () => {
   expect(attachmentMimeType("photo.png", "application/octet-stream")).toBe(

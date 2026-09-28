@@ -4,7 +4,7 @@
  * The channel and recipient are bound here when the model omits them.
  */
 
-import type { PrismaClient } from "../../../generated/client";
+import type { PrismaClient } from "#src/generated/prisma/client";
 
 const EXPLICIT_MEMORY_QUESTION = /(?:^|\s)@memory\b/;
 

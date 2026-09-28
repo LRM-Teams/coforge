@@ -1,4 +1,4 @@
-import { cx } from "@/utils/cx";
+import { cx } from "#src/utils/cx";
 
 const sizes = {
     xs: "size-2",

@@ -1,12 +1,12 @@
 import { expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
-import { LocalDaemonLauncher } from "../src/daemon-host/launcher";
+import { LocalDaemonLauncher } from "#src/daemon-host/launcher";
 import {
   WorkspaceHealthJournal,
   workspaceHealthJournalPath,
-} from "../src/supervisor/workspace-health-journal";
-import { workspaceStateDirectory } from "../src/supervisor/workspace-instance";
+} from "#src/supervisor/workspace-health-journal";
+import { workspaceStateDirectory } from "#src/supervisor/workspace-instance";
 
 test.skipIf(process.platform !== "darwin")(
   "compiled macOS Coordinator configures two Workspaces and preserves scoped restart and stop across recovery",

@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { createAgentActivityPublicationHandler } from "#/server/agents/agent-activity-publish.server";
+import { createAgentActivityPublicationHandler } from "#src/server/agents/agent-activity-publish.server";
 
 const handlePublication = createAgentActivityPublicationHandler();
 

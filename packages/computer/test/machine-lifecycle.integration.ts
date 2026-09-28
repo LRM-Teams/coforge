@@ -3,7 +3,7 @@ import { chmod, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { createDaemonHost, LocalDaemonLauncher } from "@lrm/coforge-daemon";
-import { ComputerUpdater } from "../src/updater";
+import { ComputerUpdater } from "#src/updater";
 import { buildReleaseTree } from "../../../scripts/release/build-release";
 import {
   DAEMON_RUNTIME_READY_METHOD,
@@ -296,6 +296,7 @@ test.skipIf(!systemdUserAvailable)(
           version,
           commit: "a".repeat(40),
           buildDate: "2026-09-07T00:00:00Z",
+          photonWasm: new Uint8Array(Buffer.from("#wasm-fixture: photon_rs_bg.wasm\n")),
           artifacts: { "linux-x64": { computer: bytes } },
         },
         feedDirectory,

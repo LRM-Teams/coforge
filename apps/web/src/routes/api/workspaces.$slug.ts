@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { principalFromAuthorizationHeader } from "@/server/auth/computer-access-token.server";
-import { getDatabaseClient } from "@/server/db/client.server";
-import { PrismaWorkspaceAccess } from "@/server/db/repositories/setup.repositories.server";
+import { principalFromAuthorizationHeader } from "#src/server/auth/computer-access-token.server";
+import { getDatabaseClient } from "#src/server/db/client.server";
+import { PrismaWorkspaceAccess } from "#src/server/db/repositories/setup.repositories.server";
 
 /**
  * Resolves one Workspace by slug for a Computer that has just logged in, so `setup` can confirm

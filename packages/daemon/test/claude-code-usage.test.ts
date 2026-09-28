@@ -2,7 +2,7 @@ import { afterEach, expect, setSystemTime, test } from "bun:test";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { readClaudeCodeUsage } from "../src/code-agent/claude-code/usage";
+import { readClaudeCodeUsage } from "#src/code-agent/claude-code/usage";
 
 const fixture = new URL("./fixtures/claude-usage.ts", import.meta.url).pathname;
 const directory = () => mkdtemp(join(tmpdir(), "coforge-claude-usage-"));

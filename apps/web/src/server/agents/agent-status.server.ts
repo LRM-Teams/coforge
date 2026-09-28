@@ -1,5 +1,7 @@
 import { RedisClient } from "bun";
+import { redisUrlFor } from "#src/server/redis-url.server";
 import type { AgentStatus } from "@lrm/coforge-sdk/internal";
+import { workspaceRedisKey } from "#src/server/redis-keys.server";
 
 const ACTIVE_TTL_SECONDS = "90";
 export const AGENT_STATUS_LEASE_MS = Number(ACTIVE_TTL_SECONDS) * 1_000;
@@ -12,6 +14,19 @@ export type OrderedAgentStatus = Pick<
 export type AgentStatusSnapshot = OrderedAgentStatus & {
   expiresAt: number | null;
 };
+
+const SNAPSHOT_AGENT_STATUSES = `
+local out = {}
+for index = 1, #KEYS do
+  local raw = redis.call("GET", KEYS[index])
+  local remaining = redis.call("TTL", KEYS[index])
+  -- A missing value is sent as an empty string: a Lua table cannot carry a nil hole through to
+  -- the client, and an empty payload is what \`parse\` already treats as "no record".
+  out[#out + 1] = raw or ""
+  out[#out + 1] = remaining
+end
+return out
+`;
 
 const PUT_AGENT_STATUS = `
 local raw = redis.call("GET", KEYS[1])
@@ -43,6 +58,12 @@ export interface AgentStatusCache {
   put(status: AgentStatusScope & OrderedAgentStatus): Promise<boolean>;
   get(scope: AgentStatusScope): Promise<AgentStatus["status"]>;
   snapshot(scope: AgentStatusScope, now?: number): Promise<AgentStatusSnapshot | undefined>;
+  /** Many snapshots in one round trip (a Workspace's Agent list); `undefined` per scope that has
+   * no live lease, exactly like `snapshot`. Results come back in the scopes' order. */
+  snapshotMany(
+    scopes: readonly AgentStatusScope[],
+    now?: number,
+  ): Promise<Array<AgentStatusSnapshot | undefined>>;
 }
 
 export class RedisAgentStatusCache implements AgentStatusCache {
@@ -85,16 +106,26 @@ export class RedisAgentStatusCache implements AgentStatusCache {
   }
 
   async snapshot(scope: AgentStatusScope, now = Date.now()) {
-    const key = this.key(scope);
-    const [record, remainingSeconds] = await Promise.all([
-      this.redis.get(key).then((value) => this.parse(value)),
-      this.redis.ttl(key),
-    ]);
-    if (!record || remainingSeconds <= 0) return undefined;
-    return {
-      ...record,
-      expiresAt: record.status === "active" ? now + remainingSeconds * 1_000 : null,
-    };
+    return (await this.snapshotMany([scope], now))[0];
+  }
+
+  async snapshotMany(scopes: readonly AgentStatusScope[], now = Date.now()) {
+    if (scopes.length === 0) return [];
+    const keys = scopes.map((scope) => this.key(scope));
+    const flat = (await this.redis.eval(SNAPSHOT_AGENT_STATUSES, keys.length, ...keys)) as Array<
+      string | number | null
+    >;
+    return scopes.map((_scope, index) => {
+      const raw = flat[index * 2];
+      const remainingSeconds = Number(flat[index * 2 + 1] ?? 0);
+      const record = this.parse(typeof raw === "string" && raw.length > 0 ? raw : null);
+      // Same rule as `snapshot`: a record without a live lease is not a snapshot at all.
+      if (!record || remainingSeconds <= 0) return undefined;
+      return {
+        ...record,
+        expiresAt: record.status === "active" ? now + remainingSeconds * 1_000 : null,
+      };
+    });
   }
 
   private parse(value: string | null): OrderedAgentStatus | undefined {
@@ -123,16 +154,20 @@ export class RedisAgentStatusCache implements AgentStatusCache {
   }
 
   private key(scope: AgentStatusScope): string {
-    const segment = (value: string) => encodeURIComponent(value);
-    return `coforge:workspace:${segment(scope.workspaceId)}:computer:${segment(scope.computerId)}:agent:${segment(scope.agentId)}:status:v2`;
+    return workspaceRedisKey({
+      workspaceId: scope.workspaceId,
+      computerId: scope.computerId,
+      agentId: scope.agentId,
+      name: "status",
+      version: "v2",
+    });
   }
 }
 
 let singleton: RedisAgentStatusCache | undefined;
 
 export function getAgentStatusCache(): AgentStatusCache {
-  const redisUrl = process.env.REDIS_URL;
-  if (!redisUrl) throw new Error("REDIS_URL is required for Agent status");
+  const redisUrl = redisUrlFor("Agent status");
   singleton ??= new RedisAgentStatusCache(new RedisClient(redisUrl));
   return singleton;
 }

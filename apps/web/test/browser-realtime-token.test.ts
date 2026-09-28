@@ -2,10 +2,12 @@ import { expect, test } from "bun:test";
 import { exportJWK, generateKeyPair, jwtVerify } from "jose";
 import {
   issueAgentActivitySubscriptionToken,
+  issueAgentActivitySubscriptionTokenForAgent,
   issueAgentStatusSubscriptionToken,
+  issueAgentStatusSubscriptionTokenForAgent,
   issueConversationRealtimeToken,
   issueBrowserRealtimeToken,
-} from "../src/server/auth/browser-realtime-token.server";
+} from "#src/server/auth/browser-realtime-token.server";
 
 async function signingFixture() {
   const { privateKey, publicKey } = await generateKeyPair("EdDSA", {
@@ -65,6 +67,38 @@ test("subscription token authorizes one User for the Workspace Agent status chan
 
   expect(payload.sub).toBe("user-1");
   expect(payload.channel).toBe("agent:status:workspace-1");
+  expect(payload.channels).toBeUndefined();
+});
+
+test("subscription token authorizes one User for one private Agent's per-Agent Activity channel", async () => {
+  const { environment, publicKey } = await signingFixture();
+  const token = await issueAgentActivitySubscriptionTokenForAgent(
+    { userId: "user-1", workspaceId: "workspace-1", agentId: "agent-1" },
+    environment,
+  );
+  const { payload } = await jwtVerify(token, publicKey, {
+    issuer: "coforge-test",
+    audience: "coforge-test-centrifugo",
+  });
+
+  expect(payload.sub).toBe("user-1");
+  expect(payload.channel).toBe("agent:activity:workspace-1:agent-1");
+  expect(payload.channels).toBeUndefined();
+});
+
+test("subscription token authorizes one User for one private Agent's per-Agent status channel", async () => {
+  const { environment, publicKey } = await signingFixture();
+  const token = await issueAgentStatusSubscriptionTokenForAgent(
+    { userId: "user-1", workspaceId: "workspace-1", agentId: "agent-1" },
+    environment,
+  );
+  const { payload } = await jwtVerify(token, publicKey, {
+    issuer: "coforge-test",
+    audience: "coforge-test-centrifugo",
+  });
+
+  expect(payload.sub).toBe("user-1");
+  expect(payload.channel).toBe("agent:status:workspace-1:agent-1");
   expect(payload.channels).toBeUndefined();
 });
 

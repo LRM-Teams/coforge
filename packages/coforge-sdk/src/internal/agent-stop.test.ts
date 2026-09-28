@@ -1,6 +1,6 @@
 import { create, toBinary } from "@bufbuild/protobuf";
 import { expect, test } from "bun:test";
-import { AgentStopIntentSchema } from "./gen/coforge/rpc/v1/workspace_pb";
+import { AgentStopIntentSchema } from "#src/internal/gen/coforge/rpc/v1/workspace_pb";
 import { AGENT_STOP_MESSAGE_TYPE, decodeAgentStopIntent, encodeAgentStopIntent } from "./index";
 
 const stop = {

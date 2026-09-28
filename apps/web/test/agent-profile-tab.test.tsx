@@ -4,11 +4,11 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { RUNTIME_PROVIDER } from "@lrm/coforge-sdk/internal";
 
-import { AgentProfileTab } from "@/features/agents/profile-panel/agent-profile-tab";
-import type { AgentRuntimeControls } from "@/features/agents/agent-runtime-controls";
-import type { getAgentProfile } from "@/features/agents/agents.functions";
-import { formatDateForDisplay } from "@/lib/dates";
-import { m } from "@/paraglide/messages";
+import { AgentProfileTab } from "#src/features/agents/profile-panel/agent-profile-tab";
+import type { AgentRuntimeControls } from "#src/features/agents/agent-runtime-controls";
+import type { getAgentProfile } from "#src/features/agents/agents.functions";
+import { formatDateForDisplay } from "#src/lib/dates";
+import { m } from "#src/paraglide/messages";
 
 type AgentProfile = NonNullable<Awaited<ReturnType<typeof getAgentProfile>>>;
 
@@ -43,13 +43,13 @@ function profileFixture(overrides: Partial<AgentProfile> = {}): AgentProfile {
     isWeeklyReportAssistant: false,
     stopped: false,
     status: { value: "active", expiresAt: null, ordering: null },
-    latestError: undefined,
-    activity: [],
     ownedByCurrentUser: false,
     runtimeCredential: null,
     canManageAgentRole: false,
     canFullResetAgent: false,
     runtimeUsageVisible: false,
+    visibility: "public",
+    canChangeVisibility: false,
     ...overrides,
   } as unknown as AgentProfile;
 }
@@ -100,7 +100,6 @@ test("a member (non-manager) sees a read-only Profile: no pencils, no Actions se
       timeZone="UTC"
       canManage={false}
       controls={controlsFixture(true)}
-      onGotoActivity={() => {}}
       onSaveDisplayName={noop}
       onSaveDescription={noop}
       runtimeCredentialDialog={null}
@@ -122,7 +121,6 @@ test("the identity block (avatar, name heading, status badge, @handle) is not re
       timeZone="UTC"
       canManage={false}
       controls={controlsFixture(true)}
-      onGotoActivity={() => {}}
       onSaveDisplayName={noop}
       onSaveDescription={noop}
       runtimeCredentialDialog={null}
@@ -138,7 +136,6 @@ test("a manager (owner or admin-like) sees pencils and the Actions section", () 
       timeZone="UTC"
       canManage
       controls={controlsFixture(true)}
-      onGotoActivity={() => {}}
       onSaveDisplayName={noop}
       onSaveDescription={noop}
       onSaveRole={noop}
@@ -160,7 +157,6 @@ test("a stopped Agent's Actions section offers Start instead of Stop", () => {
       timeZone="UTC"
       canManage
       controls={controlsFixture(false)}
-      onGotoActivity={() => {}}
       onSaveDisplayName={noop}
       onSaveDescription={noop}
       runtimeCredentialDialog={null}
@@ -177,7 +173,6 @@ test("a viewer without visibility into the runtime's usage sees the plain Runtim
       timeZone="UTC"
       canManage={false}
       controls={controlsFixture(true)}
-      onGotoActivity={() => {}}
       onSaveDisplayName={noop}
       onSaveDescription={noop}
       runtimeCredentialDialog={null}
@@ -194,7 +189,6 @@ test('the runtime\'s owner gets a usage button labelled "<Runtime> · Usage" wra
       timeZone="UTC"
       canManage={false}
       controls={controlsFixture(true)}
-      onGotoActivity={() => {}}
       onSaveDisplayName={noop}
       onSaveDescription={noop}
       runtimeCredentialDialog={null}
@@ -220,7 +214,6 @@ test("a runtime without usage support keeps the plain badge even for its owner",
       timeZone="UTC"
       canManage={false}
       controls={controlsFixture(true)}
-      onGotoActivity={() => {}}
       onSaveDisplayName={noop}
       onSaveDescription={noop}
       runtimeCredentialDialog={null}
@@ -238,7 +231,6 @@ test("hides the context-usage badge entirely when there is no reading", () => {
         timeZone="UTC"
         canManage={false}
         controls={controlsFixture(true)}
-        onGotoActivity={() => {}}
         onSaveDisplayName={noop}
         onSaveDescription={noop}
         runtimeCredentialDialog={null}
@@ -262,7 +254,6 @@ test("shows the rounded, clamped percentage next to the Runtime badge when a rea
         timeZone="UTC"
         canManage={false}
         controls={controlsFixture(true)}
-        onGotoActivity={() => {}}
         onSaveDisplayName={noop}
         onSaveDescription={noop}
         runtimeCredentialDialog={null}
@@ -284,7 +275,6 @@ test("a manager with a Computer sees the Runtime config pencil", () => {
       timeZone="UTC"
       canManage
       controls={controlsFixture(true)}
-      onGotoActivity={() => {}}
       onSaveDisplayName={noop}
       onSaveDescription={noop}
       onStartRuntimeEdit={() => {}}
@@ -301,7 +291,6 @@ test("a non-manager never sees the Runtime config pencil", () => {
       timeZone="UTC"
       canManage={false}
       controls={controlsFixture(true)}
-      onGotoActivity={() => {}}
       onSaveDisplayName={noop}
       onSaveDescription={noop}
       onStartRuntimeEdit={() => {}}
@@ -318,7 +307,6 @@ test("an Agent without a Computer shows no Runtime config pencil, even for a man
       timeZone="UTC"
       canManage
       controls={controlsFixture(true)}
-      onGotoActivity={() => {}}
       onSaveDisplayName={noop}
       onSaveDescription={noop}
       onStartRuntimeEdit={() => {}}
@@ -335,7 +323,6 @@ test("the Runtime config pencil never renders when the container gives no onStar
       timeZone="UTC"
       canManage
       controls={controlsFixture(true)}
-      onGotoActivity={() => {}}
       onSaveDisplayName={noop}
       onSaveDescription={noop}
       runtimeCredentialDialog={null}
@@ -351,7 +338,6 @@ test("a non-Claude-Code Agent's context badge stays a tooltip trigger, not a pop
       timeZone="UTC"
       canManage={false}
       controls={controlsFixture(true)}
-      onGotoActivity={() => {}}
       onSaveDisplayName={noop}
       onSaveDescription={noop}
       runtimeCredentialDialog={null}
@@ -383,7 +369,6 @@ test("a Claude Code Agent's context badge becomes the breakdown popover trigger"
       timeZone="UTC"
       canManage={false}
       controls={controlsFixture(true)}
-      onGotoActivity={() => {}}
       onSaveDisplayName={noop}
       onSaveDescription={noop}
       runtimeCredentialDialog={null}
@@ -404,4 +389,54 @@ test("a Claude Code Agent's context badge becomes the breakdown popover trigger"
       time: formatDateForDisplay(new Date("2026-09-18T12:00:00.000Z"), "UTC", "en"),
     })}"`,
   );
+});
+
+test("a viewer who cannot change visibility sees the plain Visibility badge, no change button", () => {
+  const markup = render(
+    <AgentProfileTab
+      profile={profileFixture()}
+      timeZone="UTC"
+      canManage={false}
+      controls={controlsFixture(true)}
+      onSaveDisplayName={noop}
+      onSaveDescription={noop}
+      runtimeCredentialDialog={null}
+    />,
+  );
+  expect(markup).toContain("Visibility");
+  expect(markup).toContain("Public");
+  expect(markup).not.toContain("Make private");
+});
+
+test("the creator (or owner/admin) sees the current visibility and a button to change it", () => {
+  const markup = render(
+    <AgentProfileTab
+      profile={profileFixture({ visibility: "private", canChangeVisibility: true })}
+      timeZone="UTC"
+      canManage
+      controls={controlsFixture(true)}
+      onSaveDisplayName={noop}
+      onSaveDescription={noop}
+      onRequestVisibilityChange={noop}
+      runtimeCredentialDialog={null}
+    />,
+  );
+  expect(markup).toContain("Private");
+  expect(markup).toMatch(/<button[^>]*>(?:(?!<\/button>).)*Make public/);
+});
+
+test("a private Agent without the visibility grant shows the Private badge with no edit affordance", () => {
+  const markup = render(
+    <AgentProfileTab
+      profile={profileFixture({ visibility: "private", canChangeVisibility: false })}
+      timeZone="UTC"
+      canManage={false}
+      controls={controlsFixture(true)}
+      onSaveDisplayName={noop}
+      onSaveDescription={noop}
+      runtimeCredentialDialog={null}
+    />,
+  );
+  expect(markup).toContain("Private");
+  expect(markup).not.toContain("Make public");
 });

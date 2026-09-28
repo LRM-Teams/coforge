@@ -133,7 +133,7 @@ https://hands.build/public/v2/apps/raft-computer-cli/latest?channel=latest&produ
 It returns build id, version, per-platform asset hashes, and download URLs.
 The installer refuses to proceed when this endpoint is unreachable and no
 version is pinned, and it cross-checks the Hands hash against the CDN manifest
-before downloading. Compare with [`docs/release.md`](../release.md).
+before downloading. Compare with [`docs/release/`](../release/README.md).
 
 ## Boundaries
 

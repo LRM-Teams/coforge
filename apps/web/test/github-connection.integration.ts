@@ -1,8 +1,8 @@
 import { afterAll, expect, test } from "bun:test";
 import { PrismaPg } from "@prisma/adapter-pg";
-import { PrismaClient } from "../generated/client";
-import { GitHubConnection } from "../src/server/integrations/github-connection.server";
-import { applyGitHubWebhookEvent } from "../src/server/integrations/github-webhook.server";
+import { PrismaClient } from "#src/generated/prisma/client";
+import { GitHubConnection } from "#src/server/integrations/github-connection.server";
+import { applyGitHubWebhookEvent } from "#src/server/integrations/github-webhook.server";
 
 if (!Bun.env.GITHUB_TEST_DATABASE_URL)
   throw new Error("GITHUB_TEST_DATABASE_URL must target disposable local PostgreSQL");

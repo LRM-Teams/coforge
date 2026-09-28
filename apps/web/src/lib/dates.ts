@@ -1,3 +1,5 @@
+import { hour12For, type TimeFormat } from "./time-format";
+
 export const DEFAULT_TIME_ZONE = "UTC";
 
 export function validateTimeZone(value: string): string {
@@ -11,49 +13,108 @@ export function resolveTimeZone(preference: string | null | undefined, browserTi
   return DEFAULT_TIME_ZONE;
 }
 
+let cachedBrowserTimeZone: string | undefined;
+
+/** The browser's own zone, read once per page load like the formatters below that bake it in. */
+function browserTimeZone() {
+  cachedBrowserTimeZone ??=
+    typeof Intl !== "undefined" ? Intl.DateTimeFormat().resolvedOptions().timeZone : undefined;
+  return cachedBrowserTimeZone;
+}
+
+// Building an `Intl` formatter costs far more than formatting with one, and a long list formats
+// the same few shapes hundreds of times per render, so each shape is built once.
+function cached<T>(cache: Map<string, T>, key: string, create: () => T) {
+  let value = cache.get(key);
+  if (value === undefined) {
+    value = create();
+    cache.set(key, value);
+  }
+  return value;
+}
+
+const dateTimeFormats = new Map<string, Intl.DateTimeFormat>();
+
+export function dateTimeFormat(locale: string, options: Intl.DateTimeFormatOptions) {
+  return cached(
+    dateTimeFormats,
+    `${locale}\u0000${JSON.stringify(options)}`,
+    () => new Intl.DateTimeFormat(locale, options),
+  );
+}
+
+const relativeTimeFormats = new Map<string, Intl.RelativeTimeFormat>();
+
 export function formatDateForDisplay(
   value: Date | string,
   timeZone: string | null | undefined,
   locale = typeof navigator === "undefined" ? "en-US" : navigator.language,
+  timeFormat: TimeFormat | null = null,
 ) {
-  const browserTimeZone =
-    typeof Intl !== "undefined" ? Intl.DateTimeFormat().resolvedOptions().timeZone : undefined;
-  return new Intl.DateTimeFormat(locale, {
+  return dateTimeFormat(locale, {
     dateStyle: "medium",
     timeStyle: "short",
-    timeZone: resolveTimeZone(timeZone, browserTimeZone),
+    hour12: hour12For(timeFormat),
+    timeZone: resolveTimeZone(timeZone, browserTimeZone()),
   }).format(new Date(value));
 }
 
-/** Absolute 24h wall-clock time (`HH:MM:SS`), for contexts that need a fixed
- * timestamp instead of relative text (the Activity timeline's clock column). */
-export function formatClockTime(
+/** The calendar day only, no time of day: "2026.07.23" in Chinese, the language's own medium
+ * date elsewhere (for example "Jul 23, 2026"). */
+export function formatCalendarDate(
   value: Date | string,
   timeZone: string | null | undefined,
   locale = typeof navigator === "undefined" ? "en-US" : navigator.language,
 ) {
-  const browserTimeZone =
-    typeof Intl !== "undefined" ? Intl.DateTimeFormat().resolvedOptions().timeZone : undefined;
-  return new Intl.DateTimeFormat(locale, {
+  const zone = resolveTimeZone(timeZone, browserTimeZone());
+  if (!locale.toLowerCase().startsWith("zh")) {
+    return dateTimeFormat(locale, { dateStyle: "medium", timeZone: zone }).format(new Date(value));
+  }
+  const parts = dateTimeFormat(locale, {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    timeZone: zone,
+  }).formatToParts(new Date(value));
+  const part = (type: "year" | "month" | "day") =>
+    parts.find((entry) => entry.type === type)?.value ?? "";
+  return `${part("year")}.${part("month")}.${part("day")}`;
+}
+
+/** Absolute wall-clock time with seconds, for contexts that need a fixed timestamp instead of
+ * relative text (the Activity timeline's clock column), in the viewer's hour cycle. */
+export function formatClockTime(
+  value: Date | string,
+  timeZone: string | null | undefined,
+  locale = typeof navigator === "undefined" ? "en-US" : navigator.language,
+  timeFormat: TimeFormat | null = null,
+) {
+  return dateTimeFormat(locale, {
     hour: "2-digit",
     minute: "2-digit",
     second: "2-digit",
-    hourCycle: "h23",
-    timeZone: resolveTimeZone(timeZone, browserTimeZone),
+    hour12: hour12For(timeFormat),
+    timeZone: resolveTimeZone(timeZone, browserTimeZone()),
   }).format(new Date(value));
 }
 
 /** A sortable `YYYY-MM-DD` key for the calendar day `value` falls on in `timeZone`, used to
  * detect a day change between two instants (not for display). */
 export function calendarDayKey(value: Date | string, timeZone: string | null | undefined) {
-  const browserTimeZone =
-    typeof Intl !== "undefined" ? Intl.DateTimeFormat().resolvedOptions().timeZone : undefined;
-  return new Intl.DateTimeFormat("en-CA", {
-    timeZone: resolveTimeZone(timeZone, browserTimeZone),
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(new Date(value));
+  return zonedDateTime(value, timeZone).toPlainDate().toString();
+}
+
+/** The instant the calendar day containing `now` began in `timeZone` (viewer preference, then
+ * the browser's zone). Correct across a daylight-saving change earlier that day. */
+export function startOfDay(now: Date, timeZone: string | null | undefined): Date {
+  return new Date(zonedDateTime(now, timeZone).startOfDay().epochMilliseconds);
+}
+
+/** `value` as a moment on the wall clock of `timeZone` (viewer preference, then the browser's). */
+function zonedDateTime(value: Date | string, timeZone: string | null | undefined) {
+  return Temporal.Instant.fromEpochMilliseconds(new Date(value).getTime()).toZonedDateTimeISO(
+    resolveTimeZone(timeZone, browserTimeZone()),
+  );
 }
 
 /** The display label for a date-separator row: the calendar day only, no time. */
@@ -62,11 +123,9 @@ export function formatCalendarDayLabel(
   timeZone: string | null | undefined,
   locale = typeof navigator === "undefined" ? "en-US" : navigator.language,
 ) {
-  const browserTimeZone =
-    typeof Intl !== "undefined" ? Intl.DateTimeFormat().resolvedOptions().timeZone : undefined;
-  return new Intl.DateTimeFormat(locale, {
+  return dateTimeFormat(locale, {
     dateStyle: "medium",
-    timeZone: resolveTimeZone(timeZone, browserTimeZone),
+    timeZone: resolveTimeZone(timeZone, browserTimeZone()),
   }).format(new Date(value));
 }
 
@@ -77,10 +136,11 @@ export function formatRelativeTime(
 ) {
   const seconds = (new Date(value).getTime() - now.getTime()) / 1_000;
   const absoluteSeconds = Math.abs(seconds);
-  const formatter = new Intl.RelativeTimeFormat(locale, {
-    numeric: "auto",
-    style: "narrow",
-  });
+  const formatter = cached(
+    relativeTimeFormats,
+    locale,
+    () => new Intl.RelativeTimeFormat(locale, { numeric: "auto", style: "narrow" }),
+  );
   if (absoluteSeconds < 60) return formatter.format(0, "second");
 
   const units: Array<[Intl.RelativeTimeFormatUnit, number]> = [
@@ -97,11 +157,19 @@ export function formatRelativeTime(
   return formatter.format(amount, unit);
 }
 
+// Only canonical zone names are remembered: that set is small and fixed, while other accepted
+// spellings (any casing, raw offsets) and rejected values can be arbitrary user input
+// (`validateTimeZone` runs on the server).
+const canonicalTimeZones = new Set<string>();
+
 function isValidTimeZone(value: string) {
+  if (canonicalTimeZones.has(value)) return true;
+  let resolved: string;
   try {
-    new Intl.DateTimeFormat("en-US", { timeZone: value }).format();
-    return true;
+    resolved = new Intl.DateTimeFormat("en-US", { timeZone: value }).resolvedOptions().timeZone;
   } catch {
     return false;
   }
+  if (resolved === value) canonicalTimeZones.add(value);
+  return true;
 }

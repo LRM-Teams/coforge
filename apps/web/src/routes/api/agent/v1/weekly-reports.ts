@@ -1,13 +1,17 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { validateWeeklyReportRequest, type WeeklyReportRequest } from "@lrm/coforge-sdk/internal";
-import { agentAuthMiddleware } from "#/server/agents/agent-http.middleware";
+import { agentAuthMiddleware } from "#src/server/agents/agent-http-middleware.server";
 import {
   PrismaAgentRepository,
   RepositoryAgentAuthorization,
-} from "#/server/db/repositories/agent.repositories.server";
-import { recordCatalog } from "#/server/records/record-catalog.server";
-import { weeklyReportAssistantOwner } from "#/server/records/weekly-report-assistant.server";
-import { executeAgentWeeklyReport } from "#/server/agents/agent-weekly-report-http.server";
+} from "#src/server/db/repositories/agent.repositories.server";
+import { recordCatalog } from "#src/server/records/record-catalog.server";
+import { weeklyReportAssistantOwner } from "#src/server/records/weekly-report-assistant.server";
+import {
+  executeAgentWeeklyReport,
+  weeklyReportWireRequest,
+  type WeeklyReportWireRequest,
+} from "#src/server/agents/agent-weekly-report-http.server";
 
 export const Route = createFileRoute("/api/agent/v1/weekly-reports")({
   server: {
@@ -15,8 +19,12 @@ export const Route = createFileRoute("/api/agent/v1/weekly-reports")({
     handlers: {
       POST: async ({ request, context: { principal, db } }) => {
         try {
-          const body = (await request.json()) as WeeklyReportRequest;
-          const command = validateWeeklyReportRequest(body);
+          const body = (await request.json()) as WeeklyReportWireRequest;
+          // The validator speaks the shared shape, whose key is `requestId`.
+          const command = validateWeeklyReportRequest({
+            ...body,
+            requestId: body.idempotencyKey,
+          } as WeeklyReportRequest);
           const authorization = new RepositoryAgentAuthorization(new PrismaAgentRepository(db));
           const result = await executeAgentWeeklyReport(
             recordCatalog(db),
@@ -26,7 +34,7 @@ export const Route = createFileRoute("/api/agent/v1/weekly-reports")({
               weeklyReportAssistantOwner: (workspaceId, agentId) =>
                 weeklyReportAssistantOwner(db, { workspaceId, agentId }),
             },
-            command,
+            weeklyReportWireRequest(command),
             principal,
           );
           if ("error" in result)

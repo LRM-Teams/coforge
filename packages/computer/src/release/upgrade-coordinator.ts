@@ -7,7 +7,7 @@ import {
   UpdateError,
   type LockedComputerUpdater,
   type PreparedUpdate,
-} from "../updater";
+} from "#src/updater";
 import {
   createSupervisorUpgradeLifecycle,
   type ManagedRuntimeSnapshot,
@@ -140,7 +140,7 @@ function plural(count: number): string {
  * there is no process tree to stop or start, so those stages collapse into a single fact and the
  * probe is described as checking the activated executable rather than a live supervisor.
  *
- * When `restartsInPlace` is true (launchd, ADR 0032), `lifecycle.stop()` never actually stops
+ * When `restartsInPlace` is true (launchd), `lifecycle.stop()` never actually stops
  * anything - it only checks the label can be restarted - so there is no truthful "stopping" stage
  * to print before the switch; and `lifecycle.start()` kickstarts the already-running job rather
  * than starting a fresh one, hence "Restarting" rather than "Starting". */
@@ -174,7 +174,7 @@ function switchStageText(snapshot: ManagedRuntimeSnapshot, restartsInPlace: bool
 /** Stops (if running), activates one version, starts it back up (if it was running), and waits
  * for it to report healthy. Used for both the candidate switch and, on candidate failure, the
  * restore back to the previous version. For a `restartsInPlace` lifecycle this is really
- * check → activate → kickstart → probe (ADR 0032); `lifecycle.stop`/`lifecycle.start` and
+ * check → activate → kickstart → probe; `lifecycle.stop`/`lifecycle.start` and
  * `switchStageText` carry that distinction so this function's shape stays the same for both. */
 async function performSwitch(
   lifecycle: UpgradeLifecycle,
@@ -209,9 +209,9 @@ async function switchRuntime(
   try {
     // Quiesce before the switch, never after: for a stop-then-start lifecycle, `stop` runs the
     // ~2s SIGTERM/SIGKILL ladder this hold exists to keep away from a live tool call. For a
-    // lifecycle that restarts in place (ADR 0032), that same ladder runs inside the later
+    // lifecycle that restarts in place, that same ladder runs inside the later
     // `start`'s kickstart instead, but the hold must still be in place before it - only where it
-    // runs moved, not whether it needs to happen first (ADR 0020). The rollback `stop` below is
+    // runs moved, not whether it needs to happen first. The rollback `stop` below is
     // deliberately not held either way - that path is already a failure recovery and speed wins
     // there.
     if (snapshot.supervisorRunning) onStage("Holding Agent runners until they are idle");
@@ -369,24 +369,29 @@ export async function runUpgradeCoordinator(args: string[]): Promise<void> {
     committedResult = result;
   };
   let result: UpgradeResult;
+  let workspaceRecoveryFailed = false;
   try {
     result = await coordinateUpgrade(request, (stage) => console.log(`==> ${stage}`), commitResult);
   } catch (error) {
-    result =
-      error instanceof UpgradeCoordinatorError
-        ? error.result
-        : {
-            schema_version: 1,
-            request_id: request.requestId,
-            operation: request.operation,
-            status: "failed",
-            error: errorMessage(error),
-            ...(error instanceof UpdateError ? { errorCode: error.code } : {}),
-          };
+    if (error instanceof UpgradeCoordinatorError) {
+      result = error.result;
+      workspaceRecoveryFailed = /Workspace recovery failed/.test(error.message);
+    } else {
+      result = {
+        schema_version: 1,
+        request_id: request.requestId,
+        operation: request.operation,
+        status: "failed",
+        error: errorMessage(error),
+        ...(error instanceof UpdateError ? { errorCode: error.code } : {}),
+      };
+    }
   }
   await commitResult(result);
   // The caller reports the durable error; an uncaught throw would dump a second stack trace.
-  if (result.status === "failed") process.exitCode = 1;
+  // Succeeded bytes with incomplete Workspace recovery still exit non-zero so the CLI does not
+  // claim a clean install while launches remain held or children failed to start.
+  if (result.status === "failed" || workspaceRecoveryFailed) process.exitCode = 1;
 }
 
 export interface LaunchUpgradeCoordinatorPaths extends UpgradeCoordinatorPaths {
@@ -443,6 +448,11 @@ export async function launchUpgradeCoordinator(
   }
   const result = JSON.parse(await readFile(resultPath, "utf8")) as UpgradeResult;
   if (result.status === "failed") throw new UpgradeCoordinatorError(result.error!, result);
+  // A succeeded receipt can still pair with exit 1 when Workspace recovery failed after commit.
+  // Wait for the process so that incomplete recovery is not reported as a clean CLI success.
+  const exitCode = await child.exited;
+  if (exitCode !== 0)
+    throw new UpgradeCoordinatorError("candidate committed; Workspace recovery failed", result);
   return result;
 }
 

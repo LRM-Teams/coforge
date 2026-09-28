@@ -1,3 +1,5 @@
+import { RFC_UUID_PATTERN } from "@lrm/coforge-sdk/internal";
+
 export const APP_INBOX_PREVIEW_MAX_CHARS = 120;
 
 export type AppSourceRef = Readonly<{ kind: string; id: string; revision: string }>;
@@ -10,8 +12,6 @@ export type AppInboxDefinition = Readonly<{
   itemId(sourceRef: AppSourceRef): string;
 }>;
 
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-
 const reminderDue: AppInboxDefinition = {
   retention: "until_explicit_ack",
   action: { kind: "run_command", commandId: "reminder.ack" },
@@ -22,7 +22,7 @@ const reminderDue: AppInboxDefinition = {
     if (Object.keys(input).some((key) => !["kind", "id", "revision"].includes(key)))
       throw new Error("reminder sourceRef contains unknown fields");
     if (input.kind !== "reminder") throw new Error("reminder sourceRef.kind must be reminder");
-    if (typeof input.id !== "string" || !UUID.test(input.id))
+    if (typeof input.id !== "string" || !RFC_UUID_PATTERN.test(input.id))
       throw new Error("reminder sourceRef.id must be a UUID");
     if (typeof input.revision !== "string" || !/^[1-9][0-9]*$/.test(input.revision))
       throw new Error("reminder sourceRef.revision must be a positive integer string");

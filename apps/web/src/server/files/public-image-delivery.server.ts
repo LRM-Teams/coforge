@@ -1,3 +1,9 @@
+import {
+  assertDeliveryNotApplicationOrigin,
+  normalizeDeliveryBaseUrl,
+  type DeliveryUrlRule,
+} from "./delivery-base-url.server";
+
 /**
  * Public CDN delivery for profile images — user avatars and project icons.
  *
@@ -13,8 +19,8 @@
  * Bytes live in their own bucket (`public-image-storage.server.ts`) behind its own accelerated
  * domain, because Alibaba Cloud grants the CDN bucket-wide read per origin and configures URL
  * signing per domain: a domain that serves an unsigned object key can serve every object key in
- * its bucket. One domain, one bucket, one trust zone, as [ADR 0006] already requires of the
- * attachment and release domains. See docs/architecture.md and docs/operations/aliyun-oss-cdn.md.
+ * its bucket. One domain, one bucket, one trust zone, as the
+ * attachment and release domains already require. See docs/operations/aliyun-oss-cdn/.
  *
  * Env:
  * - `COFORGE_IMAGE_DELIVERY_URL` — the public image CDN origin, e.g.
@@ -26,6 +32,7 @@
  * There is no key and no expiry here. A URL this module returns is world-readable for as long as
  * the object exists.
  */
+
 /**
  * The rendered sizes this product asks the CDN for. An avatar or icon is displayed at at most
  * ~96px (the profile panel) and ~128px (a project header), so shipping the stored original —
@@ -38,7 +45,7 @@
  * bounded (an unsigned URL with arbitrary `x-oss-process` parameters is an invitation to burn
  * processing cost), and the bucket's source-image protection can then refuse anything else.
  * These names are part of provisioning: the styles must exist on the image bucket before the
- * domain serves traffic (docs/operations/aliyun-oss-cdn.md §11).
+ * domain serves traffic (docs/operations/aliyun-oss-cdn/profile-image-domain.md §11).
  */
 export const PROFILE_IMAGE_STYLES = {
   /** Every user avatar, at twice the largest place one is drawn. */
@@ -66,16 +73,16 @@ export class PublicImageDeliveryConfigError extends Error {
 export function readPublicImageDeliveryConfig(env: NodeJS.ProcessEnv): PublicImageDeliveryConfig {
   const rawUrl = env.COFORGE_IMAGE_DELIVERY_URL?.trim();
   if (!rawUrl) return null;
-  const baseUrl = normalizeBaseUrl(rawUrl);
+  const baseUrl = normalizeDeliveryBaseUrl(rawUrl, IMAGE_DELIVERY_URL_RULE);
   assertNotSignedAttachmentDomain(baseUrl, env);
-  assertNotApplicationOrigin(baseUrl, env);
+  assertDeliveryNotApplicationOrigin(baseUrl, env, IMAGE_DELIVERY_URL_RULE);
   return { baseUrl };
 }
 
 /**
  * The attachment domain has URL signing enabled for the whole domain, so an unsigned profile
  * image URL on it would 403 every avatar. Pointing both at one domain would also mean one bucket
- * for both classes, which is exactly the isolation ADR 0006 keeps.
+ * for both classes, which is exactly the isolation the one-domain, one-bucket rule keeps.
  */
 function assertNotSignedAttachmentDomain(baseUrl: string, env: NodeJS.ProcessEnv): void {
   const signed = env.COFORGE_FILE_DELIVERY_URL?.trim();
@@ -94,43 +101,20 @@ function assertNotSignedAttachmentDomain(baseUrl: string, env: NodeJS.ProcessEnv
 
 /**
  * Profile images are served without any access check, so they must not answer on the origin that
- * holds this application's session cookies. The application origin is taken from the configured
- * OAuth redirect URI, the one setting that already has to name this deployment's public origin;
- * a deployment that does not set it reaches here with nothing to compare, and the check permits
- * the URL (see the same reasoning in `file-delivery.server.ts`).
+ * holds this application's session cookies: a deployment that pointed image delivery at its own host
+ * would publish every avatar under the session's origin. The application origin comes from the
+ * configured OAuth redirect URI, and a deployment without one reaches here with nothing to compare,
+ * so this check permits the URL — which is why it is not the only gate, together with
+ * `assertNotSignedAttachmentDomain` above.
+ *
+ * The rule itself — https, no path/query/hash, not this application's origin — lives once in
+ * `delivery-base-url.server.ts`, shared with attachment delivery; only the setting and the error
+ * class are this feature's.
  */
-function assertNotApplicationOrigin(baseUrl: string, env: NodeJS.ProcessEnv): void {
-  const redirectUri = env.AUTHING_REDIRECT_URI?.trim();
-  if (!redirectUri) return;
-  let applicationOrigin: string;
-  try {
-    applicationOrigin = new URL(redirectUri).origin;
-  } catch {
-    return;
-  }
-  if (new URL(baseUrl).origin !== applicationOrigin) return;
-  throw new PublicImageDeliveryConfigError(
-    "COFORGE_IMAGE_DELIVERY_URL must not be the application's own origin",
-  );
-}
-
-function normalizeBaseUrl(rawUrl: string): string {
-  let url: URL;
-  try {
-    url = new URL(rawUrl);
-  } catch {
-    throw new PublicImageDeliveryConfigError("COFORGE_IMAGE_DELIVERY_URL must be a valid URL");
-  }
-  if (url.protocol !== "https:") {
-    throw new PublicImageDeliveryConfigError("COFORGE_IMAGE_DELIVERY_URL must use https");
-  }
-  if (url.search || url.hash || (url.pathname !== "/" && url.pathname !== "")) {
-    throw new PublicImageDeliveryConfigError(
-      "COFORGE_IMAGE_DELIVERY_URL must not have a path, query, or hash",
-    );
-  }
-  return `${url.protocol}//${url.host}`;
-}
+const IMAGE_DELIVERY_URL_RULE: DeliveryUrlRule = {
+  envVar: "COFORGE_IMAGE_DELIVERY_URL",
+  fail: (message) => new PublicImageDeliveryConfigError(message),
+};
 
 export type PublicImageDeliveryStatus =
   | { state: "configured" }
@@ -206,3 +190,45 @@ export function publicImageUrl(
 
 /** Resolves one object key to its public URL, or `null`; the seam callers inject in tests. */
 export type PublicImageUrlResolver = (objectKey: string, style: ProfileImageStyle) => string | null;
+
+/**
+ * The public URL for one image, or this deployment's own authenticated route for it: the CDN when
+ * there is one, the route otherwise. `null` when there is no object key, because then there is no
+ * image to point at.
+ *
+ * `fallback` is a function because the route is built from the object key (it carries the object
+ * id as `?v=`), so it must not be built when there is no key to build it from. Six image URLs used
+ * to spell this rule out — four avatars, the Computer creator's avatar and a project icon — each
+ * with its own doc paragraph saying the same thing. The census said five until the project icon was
+ * folded in; it had been the sixth all along, which is the kind of counting this rule punishes.
+ */
+export function publicImageUrlOrFallback(
+  objectKey: string | null,
+  style: ProfileImageStyle,
+  fallback: (objectKey: string) => string,
+  publicUrl: PublicImageUrlResolver = publicImageUrl,
+): string | null {
+  if (!objectKey) return null;
+  return publicUrl(objectKey, style) ?? fallback(objectKey);
+}
+
+/**
+ * The `?v=` an image route versions by: the object key's parent segment. The bytes behind one image
+ * id never change, so the segment identifies the stored version; `current` stands in when the key
+ * has no parent.
+ */
+export function publicImageVersion(objectKey: string): string {
+  return objectKey.split("/").at(-2) ?? "current";
+}
+
+/**
+ * A backend image route's URL, versioned: the route the caller names, plus the object's version
+ * token, URL-encoded. Every route that serves a profile image answers `cache-control: private,
+ * max-age=31536000, immutable` — see cache-control.server.ts — and that is only safe because a new
+ * upload lands on a new URL, which is the token written here. Three builders used to spell the whole
+ * expression out at the call site, encoding included, and a fourth (the Computer creator's avatar)
+ * spells out none of it because its route does not accept a token at all.
+ */
+export function versionedImagePath(path: string, objectKey: string): string {
+  return `${path}?v=${encodeURIComponent(publicImageVersion(objectKey))}`;
+}

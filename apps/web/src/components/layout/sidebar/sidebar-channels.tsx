@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
-import { MobileNavigationHeader } from "@/components/layout/sidebar/mobile-header";
-import { NavList } from "@/components/application/app-navigation/base-components/nav-list";
-import type { NavItemType } from "@/components/application/app-navigation/config";
+import { MobileNavigationHeader } from "#src/components/layout/sidebar/mobile-header";
+import { NavList } from "#src/components/application/app-navigation/base-components/nav-list";
+import type { NavItemType } from "#src/components/application/app-navigation/config";
 
 interface SidebarMobileDrawerProps {
   activeUrl?: string;

@@ -5,16 +5,16 @@ import {
   type AgentSessionReport,
   type AgentSessionInvalidate,
 } from "@lrm/coforge-sdk/internal";
-import { AgentSessionReceiver } from "../src/server/agents/agent-session.server";
+import { AgentSessionReceiver } from "#src/server/agents/agent-session.server";
 import {
   agentControlRevision,
   type AgentControlAgent,
   type AgentControlState,
-} from "../src/server/agents/agent-control.server";
+} from "#src/server/agents/agent-control.server";
 import {
   createAgentSessionMethod,
   createAgentSessionInvalidateMethod,
-} from "../src/server/centrifugo/agent-session-receiver.server";
+} from "#src/server/centrifugo/agent-session-receiver.server";
 
 test("Session RPC preserves control state and rejects stale scope, revoked access and lost writes", async () => {
   const snapshot: AgentSessionReport = {
@@ -44,6 +44,7 @@ test("Session RPC preserves control state and rejects stale scope, revoked acces
     workspaceId: "workspace",
     computerId: "computer",
     ownerId: "owner",
+    visibility: "public",
     runtimeConfig: config,
     state: {
       ...snapshot,
@@ -158,6 +159,7 @@ function invalidateFixture() {
     workspaceId: "workspace",
     computerId: "computer",
     ownerId: "owner",
+    visibility: "public",
     runtimeConfig: config,
     state,
     identity: state.identity,

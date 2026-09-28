@@ -1,14 +1,131 @@
 import { expect, test } from "bun:test";
 import { MEMORY_OFFER_REQUIRED_MESSAGE } from "@lrm/coforge-sdk/internal";
-import { handleAgentMessagesPost } from "../src/routes/api/agent/v1/messages";
-import { AppError } from "../src/lib/app-error";
-import { AgentSendRejectedError } from "../src/server/conversations/agent-send-rejected-error.server";
+import { handleAgentMessagesPost } from "#src/routes/api/agent/v1/messages";
+import { AppError } from "#src/lib/app-error";
+import type { AgentMessageRecord } from "#src/server/agents/agent-messages.server";
+import { AgentSendRejectedError } from "#src/server/conversations/agent-send-rejected-error.server";
 
 const request = (body: unknown) =>
   new Request("https://server.example/api/agent/v1/messages", {
     method: "POST",
     body: JSON.stringify(body),
   });
+
+/** A repository whose send target has these pending, unreviewed rows. */
+const pendingRepository = (rows: readonly AgentMessageRecord[]) => ({
+  agentTargetFreshness: async () => ({ readPending: async () => rows }),
+});
+
+test("takes Raft's idempotencyKey as the request's key, with structured mentions forwarded", async () => {
+  const mentions = [
+    { type: "user" as const, id: "11111111-1111-4111-8111-111111111111", name: "ada" },
+  ];
+  let receivedMentions: unknown;
+  const result = await handleAgentMessagesPost(
+    request({
+      target: "@ada",
+      content: "hello @ada",
+      idempotencyKey: "idem-1",
+      sendDraft: true,
+      mentions,
+    }),
+    { workspaceId: "workspace-1", agentId: "agent-1" },
+    {
+      repository: {},
+      sender: {
+        executeFromAgent: async (input: { mentions?: unknown }) => {
+          receivedMentions = input.mentions;
+          return { id: "sent-1" };
+        },
+      },
+    },
+  );
+  expect(result.status).toBe(200);
+  // Raft's `idempotencyKey` is the key this request is deduplicated by (task #58 ④), and the
+  // response echoes it back as this route's own `idempotencyKey`.
+  expect(await result.json()).toMatchObject({ idempotencyKey: "idem-1", state: "sent" });
+  expect(receivedMentions).toEqual(mentions);
+});
+
+test("a sent message reports the mentions it did not reach: pending actions and unresolved handles", async () => {
+  const result = await handleAgentMessagesPost(
+    request({
+      target: "#triage",
+      content: "@bob @ghost look",
+      idempotencyKey: "idem-m",
+      sendDraft: true,
+    }),
+    { workspaceId: "workspace-1", agentId: "agent-1" },
+    {
+      repository: {},
+      sender: {
+        executeFromAgent: async () => ({
+          id: "sent-m",
+          pendingMentionActions: [
+            {
+              resolutionId: "22222222-2222-4222-8222-222222222222",
+              messageId: "sent-m",
+              targetType: "user" as const,
+              targetId: "33333333-3333-4333-8333-333333333333",
+              targetHandle: "bob",
+              targetLabel: "Bob",
+              targetAvatarUrl: null,
+              channelName: "triage",
+              availableActions: [],
+              expiresAt: new Date("2026-10-01T00:00:00Z"),
+            },
+          ],
+          unresolvedMentionHandles: ["ghost"],
+        }),
+      },
+    },
+  );
+  expect(result.status).toBe(200);
+  expect(await result.json()).toMatchObject({
+    state: "sent",
+    messageId: "sent-m",
+    pendingMentionActions: [
+      {
+        resolutionId: "22222222-2222-4222-8222-222222222222",
+        messageId: "sent-m",
+        targetType: "user",
+        targetHandle: "bob",
+        targetAvatarUrl: null,
+        reason: "not_member",
+        availableActions: [],
+        expiresAt: "2026-10-01T00:00:00.000Z",
+      },
+    ],
+    unresolvedMentionHandles: ["ghost"],
+  });
+});
+
+test("tolerates Raft's declared `continue` field without inventing semantics for it", async () => {
+  const result = await handleAgentMessagesPost(
+    request({ target: "@ada", content: "hello", idempotencyKey: "idem-2", continue: true }),
+    { workspaceId: "workspace-1", agentId: "agent-1" },
+    {
+      repository: pendingRepository([
+        {
+          id: "message-1",
+          sequence: 1,
+          senderKind: "human" as const,
+          senderHandle: "bea",
+          senderDescription: "",
+          target: "@ada",
+          body: "unreviewed",
+          createdAt: new Date("2026-09-10T00:00:00Z"),
+          attachments: [],
+        },
+      ]),
+      sender: { executeFromAgent: async () => ({ id: "unreachable" }) },
+    },
+  );
+  expect(result.status).toBe(200);
+  // Raft's own CLI never sets `continue` (1.0.32) and its semantics are unverified, so it must not
+  // behave as the force-send flag: the only bypass is `continueAnyway`.
+  expect(await result.json()).toMatchObject({ idempotencyKey: "idem-2", state: "held" });
+});
 
 test("rejects an unsupported freshnessContextMode with 400", async () => {
   const result = await handleAgentMessagesPost(
@@ -66,9 +183,7 @@ test("withheld hold response carries state and a count, never message bodies", a
     request({ target: "@ada", content: "reviewer send", freshnessContextMode: "withheld" }),
     { workspaceId: "workspace-1", agentId: "agent-1" },
     {
-      repository: {
-        readPendingAgentContext: async () => pendingRows,
-      },
+      repository: pendingRepository(pendingRows),
       sender: { executeFromAgent: async () => ({ id: "unreachable" }) },
     },
   );
@@ -104,9 +219,7 @@ test("inline hold response still carries the presented message bodies", async ()
     request({ target: "@ada", content: "reviewer send" }),
     { workspaceId: "workspace-1", agentId: "agent-1" },
     {
-      repository: {
-        readPendingAgentContext: async () => pendingRows,
-      },
+      repository: pendingRepository(pendingRows),
       sender: { executeFromAgent: async () => ({ id: "unreachable" }) },
     },
   );
@@ -281,21 +394,19 @@ test("a malformed-channel INVALID_INPUT AppError is not reported as a mention er
 
 test("a bypassed hold's sent response carries recentUnread; every other response carries none", async () => {
   const dependencies = {
-    repository: {
-      readPendingAgentContext: async () => [
-        {
-          id: "message-1",
-          sequence: 1,
-          senderKind: "human" as const,
-          senderHandle: "bea",
-          senderDescription: "",
-          target: "@ada",
-          body: "missed while held",
-          createdAt: new Date("2026-09-10T00:00:00Z"),
-          attachments: [],
-        },
-      ],
-    },
+    repository: pendingRepository([
+      {
+        id: "message-1",
+        sequence: 1,
+        senderKind: "human" as const,
+        senderHandle: "bea",
+        senderDescription: "",
+        target: "@ada",
+        body: "missed while held",
+        createdAt: new Date("2026-09-10T00:00:00Z"),
+        attachments: [],
+      },
+    ]),
     sender: { executeFromAgent: async () => ({ id: "sent-1" }) },
   };
   const firstHeld = await handleAgentMessagesPost(

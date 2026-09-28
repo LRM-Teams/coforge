@@ -9,7 +9,7 @@ import { RPC_METHODS } from "./rpc-methods";
  * a string literal. Consumer code must import the per-feature `*_METHOD` constant (or `RPC_METHODS`)
  * instead, so a rename touches one place and reviewers can trust a single source of truth.
  */
-const SCANNED_METHODS = Object.values(RPC_METHODS);
+const SCANNED_METHODS = [...Object.values(RPC_METHODS)];
 
 const REPO_ROOT = join(import.meta.dir, "../../../..");
 

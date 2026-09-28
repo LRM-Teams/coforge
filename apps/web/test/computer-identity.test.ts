@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { Cloud01, Monitor01 } from "@untitledui/icons";
 
-import { computerIcon, computerLabel } from "@/features/computers/computer-identity";
+import { computerIcon, computerLabel } from "#src/features/computers/computer-identity";
 
 test("a cloud Computer never reads as a machine the User controls", () => {
   const cloud = {

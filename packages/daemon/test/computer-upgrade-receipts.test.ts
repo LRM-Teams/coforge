@@ -9,12 +9,12 @@ import {
   sweepComputerUpgradeReceipts,
   watchComputerUpgradeReceipt,
   UPGRADE_EXPIRED_WITHOUT_RECEIPT,
-} from "../src/platform/computer-upgrade-receipts";
+} from "#src/platform/computer-upgrade-receipts";
 import {
   MachineSupervisor,
   UPGRADE_OPERATION_PENDING_TTL_MS,
   type ManagedBinding,
-} from "../src/supervisor/machine-supervisor";
+} from "#src/supervisor/machine-supervisor";
 
 async function home() {
   return await mkdtemp(join(realpathSync(tmpdir()), "coforge-upgrade-receipt-"));
@@ -392,7 +392,7 @@ describe("watchComputerUpgradeReceipt", () => {
     }
   });
 
-  test("a real process exits promptly once aborted, even with a ten-minute budget (ADR 0037)", async () => {
+  test("a real process exits promptly once aborted, even with a ten-minute budget", async () => {
     // The 2026-09-17 incident: an uncancelled receipt watch's pending `Bun.sleep` kept the
     // Coordinator alive past its own shutdown, past launchd's 5s SIGKILL window. Only a real
     // process exit can prove no timer is left pending, so this measures one.

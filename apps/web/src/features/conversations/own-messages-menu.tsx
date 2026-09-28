@@ -1,15 +1,18 @@
 import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
-import { List } from "@untitledui/icons";
-import { MenuItem as AriaMenuItem, Popover as AriaPopover } from "react-aria-components";
+import { Loading02, List } from "@untitledui/icons";
+import {
+  ProgressBar,
+  MenuItem as AriaMenuItem,
+  Popover as AriaPopover,
+} from "react-aria-components";
 
-import { ButtonUtility } from "@/components/base/buttons/button-utility";
-import { Dropdown } from "@/components/base/dropdown/dropdown";
-import { LoadingIndicator } from "@/components/ui/loading-indicator";
-import { RelativeTime } from "@/components/ui/relative-time";
-import { useAppToast } from "@/components/ui/toast";
-import { useStateWithRef } from "@/hooks/use-state-with-ref";
-import { cn } from "@/lib/utils";
-import { m } from "@/paraglide/messages";
+import { ButtonUtility } from "#src/components/base/buttons/button-utility";
+import { Dropdown } from "#src/components/base/dropdown/dropdown";
+import { RelativeTime } from "#src/components/ui/relative-time";
+import { useAppToast } from "#src/components/ui/toast";
+import { useStateWithRef } from "#src/hooks/use-state-with-ref";
+import { cn } from "#src/lib/utils";
+import { m } from "#src/paraglide/messages";
 import { mergeMessages } from "./conversation-messages";
 
 export type OwnMessageIndexEntry = {
@@ -63,10 +66,10 @@ export function useOwnMessagesIndex({
       const page = await onLoad(beforeSequence);
       setHasOlder(page.hasOlder);
       setIndex((current) => mergeMessages(current, page.messages));
-    } catch (cause) {
+    } catch {
       scrollAnchorRef.current = undefined;
       scrollToLatestRef.current = false;
-      if (reportError) toast.error(m.conversation_history_load_error(), cause);
+      if (reportError) toast.error(m.conversation_history_load_error());
     } finally {
       setLoading(false);
     }
@@ -191,7 +194,13 @@ export function OwnMessagesMenu({
               messages.length ? "sticky top-0 z-10 h-7 rounded-md bg-primary" : "h-14",
             )}
           >
-            <LoadingIndicator className="size-4" label={m.conversation_loading_your_messages()} />
+            <ProgressBar
+              isIndeterminate
+              aria-label={m.conversation_loading_your_messages()}
+              className="inline-flex shrink-0 size-4"
+            >
+              <Loading02 aria-hidden className="size-full motion-safe:animate-spin" />
+            </ProgressBar>
           </div>
         )}
         <Dropdown.Menu

@@ -1,6 +1,8 @@
 import { RedisClient } from "bun";
+import { redisUrlFor } from "#src/server/redis-url.server";
 import { sanitizeUpgradeErrorText } from "@lrm/coforge-sdk/internal";
-import { AppError } from "@/lib/app-error";
+import { AppError } from "#src/lib/app-error";
+import { workspaceRedisKey } from "#src/server/redis-keys.server";
 
 export type ComputerUpgradeStatus =
   | { requestId: string; status: "accepted"; expectedVersion: string; expiresAt: string }
@@ -331,7 +333,12 @@ export class RedisComputerUpgradeStore {
     }
   }
   private scope(scope: Scope) {
-    return `coforge:workspace:${encodeURIComponent(scope.workspaceId)}:computer:${encodeURIComponent(scope.computerId)}:upgrade:v1`;
+    return workspaceRedisKey({
+      workspaceId: scope.workspaceId,
+      computerId: scope.computerId,
+      name: "upgrade",
+      version: "v1",
+    });
   }
   private identityKey(scope: Scope) {
     return `${this.scope(scope)}:identity`;
@@ -348,8 +355,7 @@ function requestId(result: ReportedComputerUpgradeResult): string {
 
 let singleton: RedisComputerUpgradeStore | undefined;
 export function getComputerUpgradeStore() {
-  const url = Bun.env.REDIS_URL;
-  if (!url) throw new Error("REDIS_URL is required for Computer upgrade status");
+  const url = redisUrlFor("Computer upgrade status");
   singleton ??= new RedisComputerUpgradeStore(new RedisClient(url));
   return singleton;
 }

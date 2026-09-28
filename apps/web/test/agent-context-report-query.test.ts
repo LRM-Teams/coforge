@@ -2,10 +2,10 @@ import { expect, test } from "bun:test";
 import {
   readAgentContextReport,
   scanAgentContextReport,
-} from "../src/server/agents/agent-context-report.server";
+} from "#src/server/agents/agent-context-report.server";
 import { decodeAgentContextScanRequest } from "@lrm/coforge-sdk/internal";
-import type { AgentContextCache } from "../src/server/centrifugo/agent-context-cache.server";
-import type { PrismaClient } from "../generated/client";
+import type { AgentContextCache } from "#src/server/centrifugo/agent-context-cache.server";
+import type { PrismaClient } from "#src/generated/prisma/client";
 
 type AgentRow = {
   id: string;
@@ -149,7 +149,7 @@ test("scan records the pending scan and publishes the request with the server's 
   ]);
   expect(published).toHaveLength(1);
   // launchId/sessionId are the server's remembered view of the Agent's live session — the daemon
-  // validates both against its own state before running anything (ADR 0051).
+  // validates both against its own state before running anything.
   const decoded = decodeAgentContextScanRequest(published[0]!);
   expect(decoded).toMatchObject({
     protocolMajor: 1,

@@ -2,11 +2,11 @@
 // adapter and local RPC are production code. This is not a model-agent E2E.
 import { mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
-import { runMachineSupervisor } from "../../src/supervisor/run-supervisor";
-import { startDaemonLocalRpcServer } from "../../src/local-rpc";
-import { InMemoryDaemonCredentialStore } from "../../src/credentials/credential-store";
-import { COFORGE_DAEMON_VERSION } from "../../src/version";
-import { FileBindingStore } from "../../src/supervisor/binding-store";
+import { runMachineSupervisor } from "#src/supervisor/run-supervisor";
+import { startDaemonLocalRpcServer } from "#src/local-rpc";
+import { InMemoryDaemonCredentialStore } from "#src/credentials/credential-store";
+import { COFORGE_DAEMON_VERSION } from "#src/version";
+import { FileBindingStore } from "#src/supervisor/binding-store";
 
 const [role, ...args] = Bun.argv.slice(2);
 if (role === "__daemon") {

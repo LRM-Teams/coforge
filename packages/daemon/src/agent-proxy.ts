@@ -15,6 +15,10 @@ import {
   type WorkspaceInfoRequest,
   type WorkspaceInfoResponse,
   type WeeklyReportCommand,
+  ATTACHMENT_MAX_BYTES,
+  isRecord,
+  UUID_LIKE_PATTERN,
+  UUID_LIKE_SOURCE,
 } from "@lrm/coforge-sdk/internal";
 import {
   actionCardActionSchema,
@@ -37,22 +41,29 @@ import {
   type AgentProfileShowResponse,
   type AgentProfileUpdateRequest,
   type AgentProfileUpdateResponse,
+  AGENT_MENTION_ACTION_MAX_IDS,
+  isAgentMentionActionKind,
+  type AgentMentionExecuteRequest,
+  type AgentMentionExecuteResponse,
+  type AgentMentionPendingResponse,
 } from "@lrm/coforge-sdk/agent";
-import { isAgentApiKey } from "./credentials/agent-api-key";
+import { isAgentApiKey } from "#src/credentials/agent-api-key";
 import { classifyAgentProxyFailure, AGENT_PROXY_CORRELATION_HEADER } from "./agent-proxy-failure";
-import { AgentManualRequestError } from "./connection/agent-manual-request-error";
-import { AgentUserInfoRequestError } from "./connection/agent-user-info-request-error";
-import { AgentProfileRequestError } from "./connection/agent-profile-request-error";
+import { AgentManualRequestError } from "#src/connection/agent-manual-request-error";
+import { AgentUserInfoRequestError } from "#src/connection/agent-user-info-request-error";
+import { AgentProfileRequestError } from "#src/connection/agent-profile-request-error";
+import { AgentMentionActionRequestError } from "#src/connection/agent-mention-action-request-error";
 import {
   validateWeeklyReportCollectCommand,
   type WeeklyReportCollectCommand,
+  type WeeklyReportCollectFailRunningCommand,
   type WeeklyReportCollectResult,
-} from "./connection/weekly-report-collect";
+} from "#src/connection/weekly-report-collect";
 import {
   validateWeeklyReportKeyPointsCommand,
   type WeeklyReportKeyPointsCommand,
   type WeeklyReportKeyPointsResult,
-} from "./connection/weekly-report-key-points";
+} from "#src/connection/weekly-report-key-points";
 import { getLogger } from "@logtape/logtape";
 import {
   admitOpenVikingOffer,
@@ -122,7 +133,7 @@ export type AgentProxyRuntime = {
     request: AgentManualSearchRequest,
     agentApiKey: string,
   ): Promise<AgentManualSearchResponse>;
-  /** `coforge version`'s local-only query (ADR 0036): answered entirely by the live Daemon, never
+  /** `coforge version`'s local-only query: answered entirely by the live Daemon, never
    * forwarded to Web/backend. */
   version?(
     context: string,
@@ -144,6 +155,16 @@ export type AgentProxyRuntime = {
     request: AgentProfileUpdateRequest,
     agentApiKey: string,
   ): Promise<AgentProfileUpdateResponse>;
+  mentionPending?(
+    context: string,
+    request: Record<string, never>,
+    agentApiKey: string,
+  ): Promise<AgentMentionPendingResponse>;
+  mentionExecute?(
+    context: string,
+    request: AgentMentionExecuteRequest,
+    agentApiKey: string,
+  ): Promise<AgentMentionExecuteResponse>;
   githubCredential?(
     context: string,
     request: GitHubCredentialRequest,
@@ -161,7 +182,7 @@ export type AgentProxyRuntime = {
   ): Promise<unknown>;
   agentWeeklyReportCollect?(
     context: string,
-    request: WeeklyReportCollectCommand,
+    request: WeeklyReportCollectCommand | WeeklyReportCollectFailRunningCommand,
     agentApiKey: string,
   ): Promise<WeeklyReportCollectResult>;
   agentWeeklyReportKeyPoints?(
@@ -180,15 +201,15 @@ export type AgentProxyRuntime = {
 };
 
 const LOCAL_PROXY_TOKEN = /^sfp_[A-Za-z0-9_-]{43}$/;
-const MESSAGE_ID_ANCHOR =
-  /^[0-9a-f]{8}$|^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const MESSAGE_ID_ANCHOR = new RegExp(`^(?:[0-9a-f]{8}|${UUID_LIKE_SOURCE})$`, "i");
+const UUID = UUID_LIKE_PATTERN;
 const LOCAL_ATTACHMENT_ROUTE_PREFIX = agentApiRoutes.local.attachments.path("");
 const LOCAL_ATTACHMENT_UPLOAD_PATH = agentApiRoutes.local.attachments.upload.path;
-// Mirrors `apps/web`'s `ATTACHMENT_MAX_BYTES` (10 MiB) plus slack for multipart framing
-// overhead (boundary markers, field headers); the daemon package cannot import from `apps/web`.
-const ATTACHMENT_UPLOAD_MAX_BYTES = 10 * 1024 * 1024 + 64 * 1024;
-// The four presigned-direct-upload session routes (ADR 0028) are plain JSON, so they reuse the
+// The cloud rejects attachments above `ATTACHMENT_MAX_BYTES`; the local upload hop allows that
+// plus slack for multipart framing overhead (boundary markers, field headers), so a file the
+// cloud accepts is never refused here. The base number is the SDK's shared fact, not a copy.
+const ATTACHMENT_UPLOAD_MAX_BYTES = ATTACHMENT_MAX_BYTES + 64 * 1024;
+// The four presigned-direct-upload session routes are plain JSON, so they reuse the
 // JSON body path below rather than the multipart forwarding above. `create` is a fixed path;
 // `complete`/`cancel`/`get` share a `/:uploadId[/complete]` prefix.
 const LOCAL_UPLOAD_SESSION_CREATE_PATH = agentApiRoutes.local.attachmentUploadSessions.create.path;
@@ -316,10 +337,6 @@ async function readJsonBody(
   }
 }
 
-function isJsonObject(value: unknown): value is JsonObject {
-  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
-}
-
 /** Matches one fixed pathname; such a route has no path param. */
 function exactPath(path: string) {
   return (pathname: string) => (pathname === path ? "" : undefined);
@@ -348,8 +365,8 @@ function operationFamily(prefix: string, fallback: string) {
     `${prefix}${typeof fields.operation === "string" ? fields.operation : fallback}`;
 }
 
-/** The Manual routes answer a domain error as JSON `{ ok: false, errorCode, error }` (ADR 0036,
- * Raft-aligned), so an `AgentManualRequestError` is forwarded rather than classified. */
+/** The Manual routes answer a domain error as JSON `{ ok: false, errorCode, error }`
+ * (Raft-aligned), so an `AgentManualRequestError` is forwarded rather than classified. */
 function manualDomainFailure(error: unknown): Response | undefined {
   if (!(error instanceof AgentManualRequestError)) return undefined;
   return Response.json(
@@ -359,7 +376,7 @@ function manualDomainFailure(error: unknown): Response | undefined {
 }
 
 /** `user info` answers a domain error as JSON `{ ok: false, errorCode, error }` (same convention
- * as the Manual routes; ADR 0036), so an `AgentUserInfoRequestError` is forwarded rather than
+ * as the Manual routes), so an `AgentUserInfoRequestError` is forwarded rather than
  * classified. */
 function userInfoDomainFailure(error: unknown): Response | undefined {
   if (!(error instanceof AgentUserInfoRequestError)) return undefined;
@@ -382,6 +399,28 @@ function profileDomainFailure(error: unknown): Response | undefined {
 function openvikingDomainFailure(error: unknown): Response | undefined {
   if (!(error instanceof OpenVikingReadProxyError)) return undefined;
   return Response.json(error.body, { status: error.status });
+}
+
+/** Same convention as `profileDomainFailure`, for the mention action routes. */
+function mentionActionDomainFailure(error: unknown): Response | undefined {
+  if (!(error instanceof AgentMentionActionRequestError)) return undefined;
+  return Response.json(
+    { ok: false, errorCode: error.errorCode, error: error.message },
+    { status: error.status },
+  );
+}
+
+function parseMentionExecuteFields(fields: JsonObject): AgentMentionExecuteRequest | Response {
+  const { action, resolutionIds: ids } = fields;
+  if (
+    !isAgentMentionActionKind(action) ||
+    !Array.isArray(ids) ||
+    ids.length < 1 ||
+    ids.length > AGENT_MENTION_ACTION_MAX_IDS ||
+    ids.some((id) => typeof id !== "string" || !UUID.test(id))
+  )
+    return badRequest();
+  return { action, resolutionIds: ids as string[] };
 }
 
 function parseProfileUpdateFields(fields: JsonObject): AgentProfileUpdateRequest | Response {
@@ -485,7 +524,6 @@ function parseMessageRequest(
       [payload.before, payload.after, payload.around].filter((anchor) => anchor !== undefined)
         .length > 1) ||
     (payload.operation === "search" && payload.around !== undefined) ||
-    (payload.operation === "check" && payload.target !== undefined) ||
     (payload.limit !== undefined &&
       (typeof payload.limit !== "number" ||
         !Number.isInteger(payload.limit) ||
@@ -631,6 +669,24 @@ const ROUTE_TABLE: readonly ProxyRoute[] = [
     domainFailure: profileDomainFailure,
   }),
   defineRoute({
+    family: "agent-api/mention-pending",
+    method: LOCAL_PROXY_ROUTES.mentionActions.pending.method,
+    match: exactPath(LOCAL_PROXY_ROUTES.mentionActions.pending.path),
+    body: "none",
+    handler: "mentionPending",
+    parse: () => ({}),
+    domainFailure: mentionActionDomainFailure,
+  }),
+  defineRoute({
+    family: "agent-api/mention-execute",
+    method: LOCAL_PROXY_ROUTES.mentionActions.execute.method,
+    match: exactPath(LOCAL_PROXY_ROUTES.mentionActions.execute.path),
+    body: "json-object",
+    handler: "mentionExecute",
+    parse: ({ fields }) => parseMentionExecuteFields(fields),
+    domainFailure: mentionActionDomainFailure,
+  }),
+  defineRoute({
     family: "agent-api/attachment",
     method: "GET",
     match: pathParam(LOCAL_ATTACHMENT_ROUTE_PREFIX),
@@ -705,14 +761,9 @@ const ROUTE_TABLE: readonly ProxyRoute[] = [
     match: exactPath(LOCAL_PROXY_ROUTES.tasks.path),
     body: "json-object",
     handler: "agentTask",
-    parse: ({ fields, binding }) => {
+    parse: ({ fields }) => {
       const command = fields as TaskCommand;
-      validateTaskRequest({
-        ...command,
-        protocolMajor: 1,
-        workspaceId: "local",
-        agentId: binding.agentId,
-      });
+      validateTaskRequest(command);
       return command;
     },
   }),
@@ -847,6 +898,10 @@ export function startAgentProxy(input: {
   // variable or running a refresh command.
   const contexts = new Map<string, TokenBinding>();
   const server = Bun.serve({
+    // Loopback only: Agents reach the proxy at 127.0.0.1 (see `url` below). Bun's default
+    // `0.0.0.0` would expose it to the network and let another local listener bind
+    // 127.0.0.1 on the same port and receive the Agents' requests instead.
+    hostname: "127.0.0.1",
     port: input.port ?? 0,
     async fetch(request) {
       const requestUrl = new URL(request.url);
@@ -891,7 +946,7 @@ export function startAgentProxy(input: {
           if (body instanceof Response) return body;
           payload = body.payload;
           if (route.body === "json-object") {
-            if (!isJsonObject(payload)) return badRequest();
+            if (!isRecord(payload)) return badRequest();
             fields = payload;
             redact = fields.freshnessContextMode === "withheld";
           }

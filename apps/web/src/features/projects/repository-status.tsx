@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link, useRouter } from "@tanstack/react-router";
-import { Button } from "@/components/base/buttons/button";
-import { m } from "@/paraglide/messages";
+import { Button } from "#src/components/base/buttons/button";
+import { m } from "#src/paraglide/messages";
 
 /**
  * Shared unlinked/denied/unavailable repository message, used by both the project

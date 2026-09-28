@@ -31,7 +31,7 @@ export interface AcceptanceInput {
   files: FilesProbe;
   release: ContentProbe;
   channels: ContentProbe;
-  /** A profile image: anonymous, unsigned, styled, and immutable by design (ADR 0052). */
+  /** A profile image: anonymous, unsigned, styled, and immutable by design. */
   image: ImageProbe;
   rejected_urls: RejectedProbe[];
 }

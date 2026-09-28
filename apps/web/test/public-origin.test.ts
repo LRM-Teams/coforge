@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { publicOrigin } from "@/server/http/public-origin.server";
+import { publicOrigin } from "#src/server/http/public-origin.server";
 
 describe("publicOrigin", () => {
   test("prefers the origin the reverse proxy reports", () => {

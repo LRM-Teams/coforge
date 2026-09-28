@@ -1,8 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { z } from "zod";
-import { agentAuthMiddleware } from "#/server/agents/agent-http.middleware";
-import { configuredGitHub } from "#/server/integrations/github-config.server";
-import { isAppError } from "#/lib/app-error";
+import { agentAuthMiddleware } from "#src/server/agents/agent-http-middleware.server";
+import { configuredGitHub } from "#src/server/integrations/github-config.server";
+import { isAppError } from "#src/lib/app-error";
 
 const requestSchema = z.object({}).strict();
 

@@ -17,25 +17,25 @@ import {
 } from "react";
 import { useEditor, EditorContent } from "@tiptap/react";
 
-import { cn } from "@/lib/utils";
+import { cn } from "#src/lib/utils";
 import { EditorBubbleMenu } from "./bubble-menu";
 import { createEditorExtensions } from "./extensions";
-import { uploadAndInsertFile } from "./extensions/file-upload";
+import { uploadAndInsertFile } from "#src/features/records/report-editor/extensions/file-upload";
 import { FileDropOverlay } from "./file-drop-overlay";
 import { applyTableColwidthsFromMarkdown } from "./table-markdown";
 import { TableControls } from "./table-controls";
 import type { UploadResult } from "./types";
 import { useFileDropZone } from "./use-file-drop-zone";
-import { openLink } from "./utils/link-handler";
+import { openLink } from "#src/features/records/report-editor/utils/link-handler";
 import {
   MARKDOWN_CHUNK_THRESHOLD,
   parseMarkdownChunked,
   type MarkdownManagerLike,
-} from "./utils/parse-markdown-chunked";
-import { preprocessMarkdown } from "./utils/preprocess";
+} from "#src/features/records/report-editor/utils/parse-markdown-chunked";
+import { preprocessMarkdown } from "#src/features/records/report-editor/utils/preprocess";
 
 import "katex/dist/katex.min.css";
-import "./styles/index.css";
+import "#src/features/records/report-editor/styles/index.css";
 
 const BLOB_IMAGE_RE = /!\[[^\]]*\]\(blob:[^)]*\)\n?/g;
 

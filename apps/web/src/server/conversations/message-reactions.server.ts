@@ -1,4 +1,4 @@
-import type { Prisma } from "../../../generated/client";
+import type { Prisma } from "#src/generated/prisma/client";
 
 /** Reactions on a message, oldest first so grouping preserves first-reaction order. */
 export const MESSAGE_REACTIONS_SELECT = {

@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { mkdir, mkdtemp, realpath, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createSession, resolveAgentSessionFile } from "../src/runner";
+import { createSession, resolveAgentSessionFile } from "#src/runner";
 
 /** macOS `TMPDIR` is `/var/folders/...` and `/var` is a symlink to `/private/var`, while the Agent
  * workspace is canonicalized with `realpath` before any path is compared or written. Create

@@ -1,5 +1,5 @@
 import { isValidMessageSender, type MessageSenderKind } from "@lrm/coforge-sdk/internal";
-import type { Prisma } from "../../../generated/client";
+import type { Prisma } from "#src/generated/prisma/client";
 
 /**
  * One rule for the name the browser shows as a message's sender, shared by the three browser
@@ -44,7 +44,7 @@ export function browserSenderHandle(sender: BrowserSender): string | undefined {
 }
 
 /** A sender relation could not be resolved to a public identity: no substitute is ever shipped
- * to an Agent in its place (ADR 0052, decision B) — never `"agent"`, an internal id, or an empty
+ * to an Agent in its place — never `"agent"`, an internal id, or an empty
  * handle. Named so a caller can distinguish this from an authorization or not-found error. */
 export class UnresolvedMessageSenderError extends Error {
   constructor(reason: string) {
@@ -83,8 +83,8 @@ export const MESSAGE_SENDER_SELECT = {
 } satisfies NonNullable<Prisma.MessageInclude["sender"]>;
 
 /**
- * The one exported projection from a sender relation to the three Agent-visible facts (ADR 0052,
- * decision B): `sender_kind`, `sender_handle`, `sender_description`. A `null`/`undefined` sender
+ * The one exported projection from a sender relation to the three Agent-visible facts:
+ * `sender_kind`, `sender_handle`, `sender_description`. A `null`/`undefined` sender
  * is the server identity (`kind: "system"`, no handle, no description) — see TaskBoard's
  * server-authored messages. A non-null sender with no resolvable handle throws
  * `UnresolvedMessageSenderError` rather than substituting `"agent"`, an internal id, or an empty

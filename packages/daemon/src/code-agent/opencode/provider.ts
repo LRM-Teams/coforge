@@ -4,10 +4,11 @@ import {
   type AgentRuntimeEvent,
   type CodeAgentProvider,
   type ProviderDiscoveryOptions,
-} from "../contract";
-import { agentEnvironment } from "../environment";
-import { asRecord, eventTime } from "../json-record";
-import { discoverExternalCodeAgents } from "../runtime-inventory";
+} from "#src/code-agent/contract";
+import { agentEnvironment } from "#src/code-agent/environment";
+import { exitFailureMessage } from "#src/code-agent/exit-failure-message";
+import { asRecord, eventTime } from "#src/code-agent/json-record";
+import { discoverExternalCodeAgents } from "#src/code-agent/runtime-inventory";
 import { discoverOpenCodeCatalog } from "./catalog";
 import { OpenCodeTurnProcess, type OpenCodeTurnResult } from "./turn-process";
 import { assertOpenCodeVersionSupported } from "./version";
@@ -19,8 +20,8 @@ import { assertOpenCodeVersionSupported } from "./version";
  * OpenCode reports on its own events (`sessionID`).
  *
  * The standing Agent instructions are sent as the whole prompt of a fresh session's first turn:
- * OpenCode reads a project's `AGENTS.md` itself, and 1.2.x has no system-prompt flag, so there is
- * no other channel for them. A resumed session never resends them.
+ * OpenCode v2 reads a project's `AGENTS.md` itself and has no system-prompt flag, so there is no
+ * other channel for them. A resumed session never resends them.
  */
 export class OpenCodeProvider implements CodeAgentProvider {
   readonly provider = RUNTIME_PROVIDER.OPENCODE;
@@ -213,9 +214,10 @@ class OpenCodeAgentSession implements AgentSession {
         envVars: this.#options.runtime?.envVars,
         gitHooks: this.#options.gitHooks,
       }),
-      // OpenCode resolves its discovery root (AGENTS.md walk-up, `.opencode/skills/`) from `PWD`
-      // when `--dir` is absent, and prefers it over the process cwd; Raft pins both for the same
-      // reason (its `opencodeBackend` overrides PWD and passes `--dir`).
+      // OpenCode resolves its discovery root (AGENTS.md walk-up, `.opencode/skills/`) from the
+      // process working directory / `PWD`; v2 has no `--dir` flag, so the turn pins both (cwd is
+      // passed to the spawn) and this override keeps an inherited `PWD` from pointing the Agent at
+      // the wrong tree. Raft pins the same pair.
       PWD: this.#options.agentWorkspaceDirectory,
       NO_COLOR: "1",
     };
@@ -226,14 +228,20 @@ class OpenCodeAgentSession implements AgentSession {
   }
 
   #buildArgv(prompt: string): string[] {
-    const argv = [...this.#command, "run", "--format", "json", "--dangerously-skip-permissions"];
-    argv.push("--dir", this.#options.agentWorkspaceDirectory);
+    // OpenCode v2's `run` surface, verified against the released `2.0.x` CLI: `--auto` replaced
+    // `--dangerously-skip-permissions`, the working directory is the process cwd (there is no
+    // `--dir`), and the reasoning effort rides the model id as `provider/model#variant` (there is
+    // no standalone `--variant`). `--format json` and `--session` are unchanged.
+    const argv = [...this.#command, "run", "--format", "json", "--auto"];
     const model = this.#options.runtime?.model;
-    if (model && model !== "default") argv.push("--model", model);
     // OpenCode calls the reasoning-effort selection a `variant`; the catalog's `variants` keys are
-    // exactly what `--variant` accepts.
+    // exactly what `#variant` accepts.
     const reasoning = this.#options.runtime?.reasoning;
-    if (reasoning) argv.push("--variant", reasoning);
+    if (model && model !== "default") {
+      argv.push("--model", reasoning ? `${model}#${reasoning}` : model);
+    }
+    // A variant with no explicit model has nowhere to go in v2 (`#variant` needs a model id), so
+    // it is dropped rather than invented; the runtime's own default model keeps its own effort.
     if (this.#resumeId) argv.push("--session", this.#resumeId);
     argv.push(prompt);
     return argv;
@@ -409,23 +417,25 @@ class OpenCodeAgentSession implements AgentSession {
   }
 }
 
-/** OpenCode reports `{ error: { name, data: { message } } }`; prefer the message, fall back to the
- * name. */
+/** OpenCode reports provider failures as `{ error: { name, data: { message } } }` (auth errors
+ * carry the text there) and provider quota/HTTP failures as the top-level envelope the 2026-09-23
+ * live capture showed: `{ error: { type: "provider.quota", message, status: 429 } }`. Prefer the
+ * data message, then the classified kind plus the raw message, then the name — a bare
+ * "Execution failed" here is exactly how a quota failure degraded into an unexplainable
+ * "Agent runtime failed." (boss ruling: expose the real error). The classifier already maps
+ * `rate.limit`/`429` text to the `rate_limited` reason, so the surfaced cause flows into the
+ * Activity's class and retry decision unchanged. */
 function openCodeErrorMessage(record: Readonly<Record<string, unknown>>): string {
   const error = asRecord(record.error);
   const data = asRecord(error?.data);
   if (typeof data?.message === "string" && data.message.trim()) return data.message.trim();
+  const kind = typeof error?.type === "string" ? error.type.trim() : "";
+  const status = typeof error?.status === "number" ? ` (HTTP ${error.status})` : "";
+  if (typeof error?.message === "string" && error.message.trim()) {
+    const detail = error.message.trim();
+    return kind ? `${kind}${status}: ${detail}` : detail;
+  }
+  if (kind) return `${kind}${status || ""}`.trim();
   if (typeof error?.name === "string" && error.name.trim()) return error.name.trim();
   return "Execution failed";
-}
-
-function exitFailureMessage(result: OpenCodeTurnResult): string {
-  const summary =
-    result.exitCode === null ? "terminated by signal" : `exit code ${result.exitCode}`;
-  const stderrLines = result.stderrTail
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean);
-  // Raw facts only: the daemon core redacts and caps runtime error text before it becomes Activity.
-  return stderrLines.length ? `${summary} | stderr: ${stderrLines.join(" | ")}` : summary;
 }

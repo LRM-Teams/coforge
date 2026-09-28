@@ -1,6 +1,6 @@
 import type { MemoryAgentToolProfile } from "../agent/memory-tool-fences";
 import { RPC_METHODS } from "./rpc-methods";
-/** TypeScript boundary approved by ADR 0004; codec/transport remains an adapter concern. */
+/** TypeScript boundary; codec/transport remains an adapter concern. */
 export const COMPUTER_REGISTER_METHOD = RPC_METHODS.computerRegister;
 export const COMPUTER_REGISTER_PROTOCOL_MAJOR = 1 as const;
 export const WORKSPACE_LIST_METHOD = RPC_METHODS.workspaceList;
@@ -24,6 +24,11 @@ export const AGENT_STOP_METHOD = RPC_METHODS.agentStop;
 export const AGENT_STOP_MESSAGE_TYPE = "coforge.rpc.v1.AgentStopIntent" as const;
 export const AGENT_ACTIVITY_PROBE_METHOD = RPC_METHODS.agentActivityProbe;
 export const AGENT_ACTIVITY_PROBE_MESSAGE_TYPE = "coforge.rpc.v1.AgentActivityProbe" as const;
+export const AGENT_INBOX_PURGE_METHOD = RPC_METHODS.agentInboxPurge;
+export const AGENT_INBOX_PURGE_MESSAGE_TYPE = "coforge.rpc.v1.AgentInboxPurge" as const;
+/** Why an Agent lost read access to channels. */
+export const AGENT_INBOX_PURGE_REASONS = ["member_removed", "left", "visibility_private"] as const;
+export type AgentInboxPurgeReason = (typeof AGENT_INBOX_PURGE_REASONS)[number];
 export const USAGE_SCAN_MESSAGE_TYPE = "coforge.rpc.v1.DaemonRuntimeUsageScanRequest" as const;
 export const USAGE_SCAN_RESPONSE_MESSAGE_TYPE =
   "coforge.rpc.v1.DaemonRuntimeUsageScanResponse" as const;
@@ -31,7 +36,7 @@ export const MODEL_REFRESH_MESSAGE_TYPE =
   "coforge.rpc.v1.DaemonRuntimeProviderModelRefreshRequest" as const;
 export const MODEL_REFRESH_RESPONSE_MESSAGE_TYPE =
   "coforge.rpc.v1.DaemonRuntimeProviderModelRefreshResponse" as const;
-/** Server -> daemon, on the daemon control channel like the usage scan (ADR 0051); per-Agent
+/** Server -> daemon, on the daemon control channel like the usage scan; per-Agent
  * rather than per-provider, so it decodes through the same `#route` chain in
  * `daemon-connection.ts` rather than a dedicated method the daemon calls. */
 export const AGENT_CONTEXT_SCAN_METHOD = RPC_METHODS.agentContextScan;
@@ -85,6 +90,8 @@ export const AGENT_MESSAGE_VALIDATION_MESSAGES = [
   "mute requires a channel target",
   "unfollow requires a channel thread target",
   MEMORY_OFFER_REQUIRED_MESSAGE,
+  "search `before` must be an ISO time, such as 2026-09-01T00:00:00Z",
+  "search `after` must be an ISO time, such as 2026-09-01T00:00:00Z",
 ] as const;
 export type AgentMessageValidationMessage = (typeof AGENT_MESSAGE_VALIDATION_MESSAGES)[number];
 export const AGENT_STATUS_METHOD = RPC_METHODS.agentStatus;
@@ -104,7 +111,7 @@ export const AGENT_ACTIVITY_DETAIL_KIND = {
   RUNTIME_RECONNECTING: "runtime_reconnecting",
   RUNTIME_ERROR: "runtime_error",
   // A stored native Session could not be resumed (missing, or rejected on replay); the
-  // daemon reported it invalidated and is cold-starting without it (ADR 0040). Working-level,
+  // daemon reported it invalidated and is cold-starting without it. Working-level,
   // like `runtime_reconnecting` above: it narrates a fallback in progress, not a terminal state.
   RUNTIME_UNAVAILABLE: "runtime_unavailable",
   // Content-free provider stream/system event (no rendered text): keeps the
@@ -173,8 +180,7 @@ export type AgentSessionInvalidateReason =
  * Fire-and-forget daemon-to-cloud notice that a stored native Session is gone or was
  * rejected on replay; the daemon is cold-starting without it. Never delivered as Activity.
  * No control-fence fields (no `startRequestId`/`controlEpoch`, unlike `AgentSessionReport`):
- * the server's exact match is on `launchId` + `sessionId` alone — see ADR 0040, "Why no
- * control fence fields".
+ * the server's exact match is on `launchId` + `sessionId` alone.
  */
 export type AgentSessionInvalidate = {
   protocolMajor: number;
@@ -191,7 +197,7 @@ export type AgentSessionInvalidate = {
 export const AGENT_CONTEXT_USAGE_METHOD = RPC_METHODS.agentContextUsage;
 /**
  * Fire-and-forget daemon-to-cloud notice of the Agent's current context-window usage, observed
- * at the top-level Claude Code `result` record (ADR 0050). Never delivered as Activity; a
+ * at the top-level Claude Code `result` record. Never delivered as Activity; a
  * provider with no such signal never emits it (Claude Code only today). This message never
  * shipped, so its fields are numbered contiguously.
  */
@@ -245,8 +251,7 @@ export type WorkspaceInfoResponse = {
    * `buildAgentRuntimeContext`). Every field is optional and omitted rather than sent empty, so an
    * older CLI decoder degrades cleanly. Never carries another Agent's runtime config. Named type
    * `WorkspaceInfoRuntimeContext` lives in `@lrm/coforge-sdk/agent` (`client.ts`) instead of here,
-   * so the two subpaths never export a same-named type (see "Agent SDK 与内部 protocol 的边界" in
-   * `docs/architecture.md`).
+   * so the two subpaths never export a same-named type.
    */
   runtimeContext?: {
     agentId?: string;
@@ -283,6 +288,7 @@ export const RUNTIME_PROVIDER = {
   KIRO: "kiro",
   CURSOR: "cursor",
   OPENCODE: "opencode",
+  GROK: "grok",
 } as const;
 export type RuntimeProvider = (typeof RUNTIME_PROVIDER)[keyof typeof RUNTIME_PROVIDER];
 /** Every RuntimeProvider value, for a zod `z.enum` or other exhaustive-tuple consumer. */
@@ -292,6 +298,21 @@ export const RUNTIME_PROVIDER_VALUES = Object.values(RUNTIME_PROVIDER) as [
 ];
 const RUNTIME_PROVIDERS: ReadonlySet<string> = new Set(RUNTIME_PROVIDER_VALUES);
 /** The RuntimeProvider a persisted or user-supplied value names, or undefined. */
+/**
+ * `parseRuntimeProvider`, but an unknown value is an error rather than an absence. The callers read
+ * a runtime provider that the daemon or the database already stored, so an unrecognized one means
+ * the stored data and this build disagree — not that the caller should fall back to a default.
+ *
+ * Three copies of the two-line check lived in this file's Agent lifecycle codec, Web's Computer
+ * runtimes repository and Web's Computer server functions. Each passes its own message, because
+ * those messages name the surface that failed.
+ */
+export function requireRuntimeProvider(value: unknown, message: string): RuntimeProvider {
+  const provider = parseRuntimeProvider(value);
+  if (provider === undefined) throw new Error(message);
+  return provider;
+}
+
 export function parseRuntimeProvider(value: unknown): RuntimeProvider | undefined {
   return typeof value === "string" && RUNTIME_PROVIDERS.has(value)
     ? (value as RuntimeProvider)
@@ -311,6 +332,7 @@ export const RUNTIME_PROVIDER_USES_EXTERNAL_CLI: Record<RuntimeProvider, boolean
   [RUNTIME_PROVIDER.KIRO]: true,
   [RUNTIME_PROVIDER.CURSOR]: true,
   [RUNTIME_PROVIDER.OPENCODE]: true,
+  [RUNTIME_PROVIDER.GROK]: true,
 };
 export type AgentRuntimeProviderConfig =
   | { kind: "default" }
@@ -319,7 +341,7 @@ export type AgentRuntimeProviderConfig =
 /**
  * Stable, machine-readable reasons a Computer upgrade did not complete, carried on the wire in
  * `ComputerUpgradeResult.errorCode` and, locally between the Coordinator and a Workspace daemon,
- * on `DaemonCommandResponse.errorCode` (ADR 0041). One owner, same
+ * on `DaemonCommandResponse.errorCode`. One owner, same
  * discipline as `RUNTIME_PROVIDER`: every throw site names one of these values instead of a
  * caller parsing `error`'s free text.
  *
@@ -517,7 +539,7 @@ export type DaemonRuntimeProviderModelRefreshResponse = DaemonRuntimeProviderMod
   message?: string;
   catalogs?: CodeAgentModelCatalog[];
 };
-/** Server -> daemon, on the daemon control channel like the usage scan (ADR 0051). Per-Agent: the
+/** Server -> daemon, on the daemon control channel like the usage scan. Per-Agent: the
  * server fills `launchId`/`sessionId` from its own record of the Agent's current control state;
  * the daemon still resolves its own current launch/session independently before running anything
  * (see `DaemonRuntime.scanAgentContext`) rather than trusting these fields outright. */
@@ -551,7 +573,7 @@ export type AgentContextScanResponse = AgentContextScanRequest & {
   reportJson?: Uint8Array;
 };
 /**
- * A parsed Claude Code `/context` report (ADR 0051): what the current context window is made of,
+ * A parsed Claude Code `/context` report: what the current context window is made of,
  * by category, plus the per-item Memory files/Skills lists. Claude Code only today; a provider
  * with no equivalent signal never produces one. Categories are free text, kept exactly as the CLI
  * printed them (English, Claude Code's own labels — never translated); `"Free space"` is
@@ -582,7 +604,7 @@ export type AgentStartIntent = {
   sessionMode?: "create" | "resume";
   previousLaunchId?: string;
   controlEpoch?: number;
-  /** ADR 0041: the server-minted launchId for this control operation's start step; required
+  /** The server-minted launchId for this control operation's start step; required
    * whenever `controlEpoch` is set (every managed start). */
   launchId?: string;
   /** Fenced Agent runtime profile. Unknown values are rejected by the codec. */
@@ -591,6 +613,10 @@ export type AgentStartIntent = {
   wakeMessage?: AgentRecoveryMessage;
   resumeMessages?: AgentRecoveryMessage[];
   unreadSummary?: Readonly<Record<string, number>>;
+  /** Text the Agent's first turn opens with, in place of message recovery: the guidance a user
+   * gives when resuming Agents they stopped. Never carried together with `wakeMessage`,
+   * `resumeMessages` or `unreadSummary`. */
+  resumePrompt?: string;
 };
 export type AgentStopIntent = {
   protocolMajor: number;
@@ -611,6 +637,18 @@ export type AgentActivityProbe = {
   agentId: string;
   probeId: string;
 };
+/** Versioned server-to-daemon notice that an Agent can no longer read these channels (and their
+ * threads); the daemon drops, and acknowledges, its local state for them. One-way. */
+export type AgentInboxPurge = {
+  protocolMajor: number;
+  requestId: string;
+  workspaceId: string;
+  computerId: string;
+  agentId: string;
+  conversationIds: string[];
+  targets: string[];
+  reason: AgentInboxPurgeReason;
+};
 export type AgentRecoveryMessage = {
   messageId: string;
   deliveryId: string;
@@ -621,6 +659,8 @@ export type AgentRecoveryMessage = {
   latestSenderHandle: string;
   latestSenderDescription: string;
   body: string;
+  /** True when the Agent is not in the channel and was notified of this one message. */
+  nonMemberMention?: boolean;
 };
 export type AgentMessageDelivery = {
   protocolMajor: number;
@@ -637,13 +677,21 @@ export type AgentMessageDelivery = {
   latestSenderKind?: import("./message-sender").MessageSenderKind;
   latestSenderHandle?: string;
   latestSenderDescription?: string;
+  /** True when this delivery personally @mentioned the recipient Agent. */
+  mentionsAgent?: boolean;
+  /** True when the recipient Agent was notified of this message without being a channel member. */
+  nonMemberMention?: boolean;
 };
 export type AgentMessageDeliveryAck = Omit<
   AgentMessageDelivery,
   "body" | "conversationId" | "method" | "requestId"
 > & { method: typeof AGENT_MESSAGE_ACK_METHOD; requestId: string };
 export { parseActivityEntries } from "./activity-entries";
-export { freshnessDecisionFactId, stableNormalizeFreshnessFact } from "./freshness-decision";
+export {
+  HELD_CONTEXT_LIMIT,
+  freshnessDecisionFactId,
+  stableNormalizeFreshnessFact,
+} from "./freshness-decision";
 export type { FreshnessDecisionAction, FreshnessDecisionFactInput } from "./freshness-decision";
 export { codePointLength, truncateCodePoints } from "./truncate";
 export {
@@ -719,6 +767,8 @@ export type AgentMessageRequest = {
   draftReholdCount?: number;
   /** `send` only: a normal send that replaced an already-held draft. */
   draftReplacedExisting?: boolean;
+  /** `send` only: this is the resend of a held draft (Raft's `sendDraft` in the v2 send body). */
+  sendDraft?: boolean;
   before?: string;
   after?: string;
   around?: string;
@@ -862,12 +912,15 @@ export {
   decodeAgentSessionInvalidate,
   encodeAgentContextUsage,
   decodeAgentContextUsage,
+  AGENT_RESUME_PROMPT_MAX_LENGTH,
   encodeAgentStartIntent,
   decodeAgentStartIntent,
   encodeAgentStopIntent,
   decodeAgentStopIntent,
   encodeAgentActivityProbe,
   decodeAgentActivityProbe,
+  encodeAgentInboxPurge,
+  decodeAgentInboxPurge,
   encodeAgentMessageDelivery,
   decodeAgentMessageDelivery,
   encodeAgentMessageDeliveryAck,
@@ -887,8 +940,19 @@ export * from "./task-codec";
 export * from "./channel-command";
 export * from "./agent-display";
 export * from "./message-sender";
+export * from "./agent-name";
+export * from "./workspace-slug";
+export * from "./uuid";
 export * from "./codec";
 export * from "./validation";
 export * from "./weekly-report";
 export * from "./mentions";
+export * from "./task-references";
+export * from "./channel-references";
+export * from "./readable-body";
 export * from "./tool-display";
+export * from "./attachment-limits";
+export * from "./mime-type";
+export * from "./json-record";
+export * from "./agent-environment";
+export * from "./error-code";

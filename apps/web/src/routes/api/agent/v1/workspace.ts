@@ -1,9 +1,13 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { resolveAgentStatus } from "#/server/agents/agent-user-info.server";
-import { agentAuthMiddleware } from "#/server/agents/agent-http.middleware";
-import { buildAgentRuntimeContext } from "#/server/agents/agent-runtime-context.server";
-import { parseAgentRuntimeConfig } from "#/server/agents/agent-runtime-config.server";
-import { ACTIVE_AGENT_WHERE } from "#/server/agents/active-agent.server";
+import { resolveAgentStatuses } from "#src/server/agents/agent-user-info.server";
+import { agentAuthMiddleware } from "#src/server/agents/agent-http-middleware.server";
+import { buildAgentRuntimeContext } from "#src/server/agents/agent-runtime-context.server";
+import { parseAgentRuntimeConfig } from "#src/server/agents/agent-runtime-config.server";
+import { ACTIVE_AGENT_WHERE } from "#src/server/agents/active-agent.server";
+import {
+  agentVisibilityViewerForActor,
+  visibleAgentWhere,
+} from "#src/server/agents/agent-visibility.server";
 
 export const Route = createFileRoute("/api/agent/v1/workspace")({
   server: {
@@ -11,6 +15,10 @@ export const Route = createFileRoute("/api/agent/v1/workspace")({
     handlers: {
       GET: async ({ context: { principal, db } }) => {
         try {
+          // A private Agent invisible to the caller is absent from the roster.
+          const viewer = await agentVisibilityViewerForActor(db, principal.workspaceId, {
+            agentId: principal.agentId,
+          });
           const [workspace, humans, agents, projects, self] = await Promise.all([
             db.workspace.findUnique({
               where: { id: principal.workspaceId },
@@ -26,7 +34,11 @@ export const Route = createFileRoute("/api/agent/v1/workspace")({
               orderBy: { user: { username: "asc" } },
             }),
             db.agent.findMany({
-              where: { workspaceId: principal.workspaceId, ...ACTIVE_AGENT_WHERE },
+              where: {
+                workspaceId: principal.workspaceId,
+                ...ACTIVE_AGENT_WHERE,
+                ...visibleAgentWhere(viewer),
+              },
               select: {
                 id: true,
                 name: true,
@@ -70,14 +82,13 @@ export const Route = createFileRoute("/api/agent/v1/workspace")({
             }),
           ]);
           if (!workspace) return Response.json({ error: "workspace not found" }, { status: 404 });
-          // Same online/offline source the Agents list and `coforge user info` read; one read per
-          // Agent, in parallel, and never a failure of the whole response.
-          const agentStatuses = await Promise.all(
-            agents.map(async (agent) => ({
-              agent,
-              ...(await resolveAgentStatus(principal.workspaceId, agent)),
-            })),
-          );
+          // Same online/offline source the Agents list and `coforge user info` read; one read for
+          // the whole list rather than one per Agent, and never a failure of the whole response.
+          const resolvedAgentStatuses = await resolveAgentStatuses(principal.workspaceId, agents);
+          const agentStatuses = agents.map((agent, index) => ({
+            agent,
+            ...resolvedAgentStatuses[index],
+          }));
           return Response.json({
             workspace,
             humans: humans.map((human) => ({

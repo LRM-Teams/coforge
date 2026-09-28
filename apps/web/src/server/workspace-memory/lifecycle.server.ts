@@ -1,5 +1,5 @@
 import { RedisClient } from "bun";
-import type { PrismaClient } from "../../../generated/client";
+import type { PrismaClient } from "#src/generated/prisma/client";
 import { getDatabaseClient } from "../db/client.server";
 import { PrismaOpenVikingBindingStore } from "../db/repositories/openviking-binding.repositories.server";
 import { PrismaWorkspaceMemoryAdmissionStore } from "../db/repositories/workspace-memory-admission.repositories.server";

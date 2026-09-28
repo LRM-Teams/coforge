@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { FileDaemonCredentialStore } from "../src/credentials/credential-store";
+import { FileDaemonCredentialStore } from "#src/credentials/credential-store";
 import { mkdtemp, readFile, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

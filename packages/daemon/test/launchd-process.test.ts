@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
-import { LaunchdProcessOwner } from "../src/platform/launchd-process";
-import { stopLaunchdJobs } from "../src/platform/launchd-job";
+import { LaunchdProcessOwner } from "#src/platform/launchd-process";
+import { stopLaunchdJobs } from "#src/platform/launchd-job";
 import { readLines } from "./fixtures/read-lines";
 
 test.skipIf(process.platform !== "darwin")(

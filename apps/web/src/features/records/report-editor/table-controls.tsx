@@ -22,9 +22,9 @@ import {
   Trash01 as Trash2,
 } from "@untitledui/icons";
 import { Button as AriaButton } from "react-aria-components";
-import { Dropdown } from "@/components/base/dropdown/dropdown";
-import { Tooltip } from "@/components/base/tooltip/tooltip";
-import { cn } from "@/lib/utils";
+import { Dropdown } from "#src/components/base/dropdown/dropdown";
+import { Tooltip } from "#src/components/base/tooltip/tooltip";
+import { cn } from "#src/lib/utils";
 import { useT } from "./i18n";
 import {
   deleteColumnAt,

@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
-import { AppError } from "../src/lib/app-error";
-import { AttachmentUploadSessionError } from "../src/server/attachments/attachment-upload-session.server";
-import { handleAttachmentUploadSessionCreate } from "../src/routes/api/agent/v1/attachment-upload-sessions/index";
+import { AppError } from "#src/lib/app-error";
+import { AttachmentUploadSessionError } from "#src/server/attachments/attachment-upload-session.server";
+import { handleAttachmentUploadSessionCreate } from "#src/routes/api/agent/v1/attachment-upload-sessions/index";
 
 const principal = { workspaceId: "workspace-1", agentId: "agent-1" };
 

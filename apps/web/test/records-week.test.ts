@@ -4,13 +4,14 @@ import {
   clearReportContent,
   currentIsoWeek,
   emptyReportContent,
+  isValidIsoWeekNumber,
   isValidTemplateName,
   hourlySendTimes,
   isHourlySendTime,
   formatRecipientSummary,
   memberWeekTitle,
   normalizeReportContent,
-} from "@/features/records/records-content";
+} from "#src/features/records/records-content";
 
 test("formats member week titles like the design catalog", () => {
   expect(memberWeekTitle(2026, 36)).toBe("2026 W36 工作周报");
@@ -33,6 +34,10 @@ test("validates template name budget", () => {
   expect(isValidTemplateName("WeeklyReportTemplate")).toBe(true);
   expect(isValidTemplateName("WeeklyReportTemplates")).toBe(false);
   expect(isValidTemplateName("")).toBe(false);
+  expect(isValidIsoWeekNumber(1)).toBe(true);
+  expect(isValidIsoWeekNumber(53)).toBe(true);
+  expect(isValidIsoWeekNumber(0)).toBe(false);
+  expect(isValidIsoWeekNumber(54)).toBe(false);
 });
 
 test("hourly send times are 24 on-the-hour slots", () => {

@@ -1,4 +1,4 @@
-import type { PrismaClient } from "../../../../generated/client";
+import type { PrismaClient } from "#src/generated/prisma/client";
 import { ACTIVE_AGENT_WHERE } from "../../agents/active-agent.server";
 import type { CoforgeMemoryActor } from "../../openviking/contract";
 import type {

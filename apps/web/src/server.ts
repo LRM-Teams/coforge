@@ -1,13 +1,17 @@
 import handler from "@tanstack/react-start/server-entry";
 
-import { paraglideMiddleware } from "./paraglide/server";
-import { assertStartupConfig } from "./server/startup-config.server";
-import { ensureWorkspaceMemoryLifecycle } from "./server/workspace-memory/lifecycle.server";
+import { paraglideMiddleware } from "#src/paraglide/server";
+import { assertStartupConfig } from "#src/server/startup-config.server";
+import { ensureWorkspaceMemoryLifecycle } from "#src/server/workspace-memory/lifecycle.server";
+import { startWeeklyReportScheduleTickFromEnv } from "#src/server/records/weekly-report-schedule-tick.server";
 
 // Fail the boot, not the first request, on invalid deployment configuration.
-assertStartupConfig();
+await assertStartupConfig();
 // Backend-owned memory sweep: independent of incidental Centrifugo traffic.
 ensureWorkspaceMemoryLifecycle();
+// Optional in-process clock for weekly-report auto-send. No-op unless
+// COFORGE_WEEKLY_REPORT_SCHEDULE_TICK_MS is set; external HTTP cron remains valid.
+startWeeklyReportScheduleTickFromEnv();
 
 export function isNonLocalizedRequest(request: Request): boolean {
   const pathname = new URL(request.url).pathname;
@@ -20,7 +24,7 @@ export function isNonLocalizedRequest(request: Request): boolean {
     pathname.startsWith("/.well-known/") ||
     // The two bootstrap installer entry points (`curl .../computer/install.sh | sh`,
     // `irm .../computer/install.ps1 | iex`) must resolve at exactly this path in every
-    // environment (docs/release.md's "Local Computer distribution model"). Paraglide's
+    // environment (docs/release/local-feed-hosting.md). Paraglide's
     // URL-pattern middleware otherwise 307-redirects any unprefixed path to `/en/...`, which
     // both breaks the documented URL and turns a `curl | sh` pipeline's error case into an
     // 18 KB HTML not-found page instead of plain text.

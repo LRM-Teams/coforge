@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { create, toBinary } from "@bufbuild/protobuf";
-import { AgentStartIntentSchema } from "./gen/coforge/rpc/v1/workspace_pb";
+import { AgentStartIntentSchema } from "#src/internal/gen/coforge/rpc/v1/workspace_pb";
 import {
   AGENT_START_MESSAGE_TYPE,
   ComputerRegistrationClient,
@@ -179,7 +179,7 @@ test("Agent start round-trips lifecycle fence fields", () => {
     reasoning: "high",
     providerConfig: { kind: "default" as const },
     controlEpoch: 7,
-    // ADR 0041: the server mints and supplies launchId for every managed start; required
+    // The server mints and supplies launchId for every managed start; required
     // whenever controlEpoch is set.
     launchId: "launch-1",
   } satisfies AgentStartIntent;

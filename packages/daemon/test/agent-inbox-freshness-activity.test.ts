@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import {
   heldFreshnessActivity,
   heldFreshnessMessageCount,
-} from "../src/daemon-runtime/agent-inbox-freshness-activity";
+} from "#src/daemon-runtime/agent-inbox-freshness-activity";
 import { stableNormalizeFreshnessFact, freshnessDecisionFactId } from "@lrm/coforge-sdk/internal";
 
 test("a held send narrates Raft's working status row, title, count line and decision line", () => {

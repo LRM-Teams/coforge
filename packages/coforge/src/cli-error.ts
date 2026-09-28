@@ -29,6 +29,9 @@ export type CliErrorInit = {
   suggestedNextAction?: string;
   /** Rich context to print before the fixed-line footer in text mode (e.g. held-message context). */
   contextText?: string;
+  /** Text mode only: what the command did achieve, printed to stdout before the error goes to
+   * stderr (a send that queued its message but not every @mention). */
+  stdoutText?: string;
   /** Extra structured data carried only in `--json` mode, alongside the fixed error fields. */
   details?: unknown;
   outputMode?: CliErrorOutputMode;
@@ -43,6 +46,7 @@ export class CliError extends Error {
   readonly proxy?: CliErrorProxyDiagnostics;
   readonly suggestedNextAction?: string;
   readonly contextText?: string;
+  readonly stdoutText?: string;
   readonly details?: unknown;
   readonly outputMode: CliErrorOutputMode;
 
@@ -57,6 +61,7 @@ export class CliError extends Error {
     this.proxy = init.proxy;
     this.suggestedNextAction = init.suggestedNextAction;
     this.contextText = init.contextText;
+    this.stdoutText = init.stdoutText;
     this.details = init.details;
     this.outputMode = init.outputMode ?? "text";
   }
@@ -179,6 +184,4 @@ export const NO_MESSAGE_SENT_NEXT_ACTION =
 /** Raft-aligned guidance for `coforge manual get|search` when the topic or query did not match:
  * retry narrower, or browse the generated catalog via the `index` topic. */
 export const MANUAL_NOT_FOUND_NEXT_ACTION =
-  "Retry with a close topic id or different keywords, keeping the same --intent/--reason. To " +
-  'browse all topics, run the index command: coforge manual get index --intent "Learn ' +
-  'available CoForge workflows" --reason "Browse the topic catalog after a missing topic"';
+  "Retry with a close topic id or different keywords. Browse topics: coforge manual get index";

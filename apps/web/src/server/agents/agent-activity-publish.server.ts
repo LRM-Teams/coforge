@@ -1,21 +1,30 @@
+import { isRecord } from "@lrm/coforge-sdk/internal";
 import { AGENT_ACTIVITY_DETAIL_KIND } from "@lrm/coforge-sdk/internal";
 import { decodeAgentActivity, encodeAgentActivity } from "@lrm/coforge-sdk/internal";
 
-import { getDatabaseClient } from "../db/client.server";
-import { PrismaAgentRepository } from "../db/repositories/agent.repositories.server";
+import { getDatabaseClient } from "#src/server/db/client.server";
+import type { PrismaClient } from "#src/generated/prisma/client";
 import {
   AgentActivityRepository,
   type TrustedAgentActivity,
-} from "../db/repositories/agent-activity.repositories.server";
+} from "#src/server/db/repositories/agent-activity.repositories.server";
 import {
   activityKindForObservation,
   getAgentDisplay,
   type AgentDisplay,
 } from "./agent-display.server";
 import { ensureAgentActivitySweep } from "./agent-activity-sweep.server";
-import { createCentrifugoServerApi } from "../centrifugo/server-api.server";
-import { agentStatusChannel } from "../../features/agents/agent-status-realtime";
-import { agentActivityChannel, isRunStartMarker } from "../../features/agents/agent-activity";
+import { createCentrifugoServerApi } from "#src/server/centrifugo/server-api.server";
+import {
+  agentStatusChannel,
+  agentStatusChannelForAgent,
+} from "#src/features/agents/agent-status-realtime";
+import {
+  agentActivityChannel,
+  agentActivityChannelForAgent,
+  isRunStartMarker,
+} from "#src/features/agents/agent-activity";
+import { AGENT_VISIBILITY } from "#src/features/agents/agent-visibility";
 import type { AgentActivityKind } from "@lrm/coforge-sdk/internal";
 
 type AgentActivityPublicationDependencies = {
@@ -35,6 +44,18 @@ type AgentActivityPublicationDependencies = {
   ): Promise<{ daemonInstanceId: string; launchId: string } | undefined>;
   display?: Pick<AgentDisplay, "observeActivity">;
   publishJson?(channel: string, data: unknown): Promise<void>;
+  /** The Agent's current visibility, read fresh (no cache) for every publication —
+   * never assumed from a prior request, and never optional: a caller that cannot answer this
+   * question must not silently fall back to the shared channel. A recognized non-`"public"`
+   * value routes the frame to the per-Agent channels; an unrecognized persisted value fails
+   * closed the same way `canSeeAgent`/`visibleAgentWhere` treat it. `undefined` — the lookup
+   * found nothing to route by — is rejected outright; `agentBelongsToWorkspace` already rejects
+   * an Agent that is not in the workspace, so this is the only other path to it. */
+  agentVisibility(workspaceId: string, agentId: string): Promise<string | undefined>;
+  /** Raw binary republish (Centrifugo server API `publish`, not the JSON `publishJson`) used only
+   * to re-route a private Agent's frame to its own per-Agent activity channel — the public path
+   * still lets Centrifugo do the actual shared-channel publish via the returned `result.b64data`. */
+  publish?(channel: string, data: Uint8Array): Promise<void>;
 };
 
 function bytesToBase64(bytes: Uint8Array) {
@@ -94,8 +115,8 @@ export async function handleAgentActivityPublication(
     // A busy heartbeat, a content-free runtime_progress frame, a content-free run-start
     // marker (thinking_started/model_response_started with no entries — see
     // isRunStartMarker), or a reply to the server's own liveness probe only renews the
-    // display lease; none of them carry anything worth keeping in history. ADR 0021
-    // (amended): tool_end, thinking_end and compaction_finished are ordinary status
+    // display lease; none of them carry anything worth keeping in history.
+    // tool_end, thinking_end and compaction_finished are ordinary status
     // observations now and are persisted like any other Activity — the log records tool
     // and thinking completion, only content-free progress pings stay lease-only.
     const isFillerActivity =
@@ -103,6 +124,17 @@ export async function handleAgentActivityPublication(
       activity.detailKind === AGENT_ACTIVITY_DETAIL_KIND.RUNTIME_PROGRESS ||
       isRunStartMarker(activity.detailKind, activity.entries) ||
       Boolean(activity.probeId);
+    // Read fresh, no cache. `agentBelongsToWorkspace` above already rejected an Agent
+    // that is not in the workspace; "lookup found nothing to route by" here is the only other
+    // way to reach `undefined`, and it is rejected the same way — never assumed public. A
+    // recognized non-"public" value routes to the per-Agent channels; an unrecognized persisted
+    // value fails closed to private the same way `canSeeAgent`/`visibleAgentWhere` do.
+    const visibility = await dependencies.agentVisibility(workspaceId, activity.agentId);
+    if (visibility === undefined) return unauthorized();
+    const isPrivate = visibility !== AGENT_VISIBILITY.PUBLIC;
+    const statusChannel = isPrivate
+      ? agentStatusChannelForAgent(workspaceId, activity.agentId)
+      : agentStatusChannel(workspaceId);
     const history = isFillerActivity
       ? Promise.resolve()
       : dependencies.observe({ ...cloudActivity, computerId }).catch(() => {});
@@ -119,12 +151,33 @@ export async function handleAgentActivityPublication(
         fence,
       );
       if (snapshot && dependencies.publishJson)
-        await dependencies.publishJson(agentStatusChannel(workspaceId), {
+        await dependencies.publishJson(statusChannel, {
           type: "agent:display",
           ...snapshot,
         });
     })().catch(() => {});
     await Promise.all([history, reduce]);
+
+    if (isPrivate) {
+      // The frame still reaches its own audience — just not the shared broadcast. Best-effort,
+      // like every other Activity delivery in this file: a failed re-publish here does not turn
+      // into a retry or a spool, it only means this one frame is missed live (history already
+      // recorded it above).
+      await dependencies
+        .publish?.(
+          agentActivityChannelForAgent(workspaceId, activity.agentId),
+          encodeAgentActivity(cloudActivity),
+        )
+        .catch(() => {});
+      // Centrifugal's publish proxy treats an `error` result as a plain denial that leaves the
+      // connection open (https://centrifugal.dev/docs/server/proxy#publish-proxy) — the least
+      // noisy refusal available, unlike a `disconnect` result, which would drop the Daemon's
+      // entire WSS connection over one re-routed Agent.
+      return Response.json({
+        error: { code: 1000, message: "activity re-routed to a private channel" },
+      });
+    }
+
     return Response.json({
       result: {
         skip_history: true,
@@ -136,11 +189,82 @@ export async function handleAgentActivityPublication(
   }
 }
 
+type PublicationAgentLookups = Pick<
+  AgentActivityPublicationDependencies,
+  "agentBelongsToWorkspace" | "agentBelongsToComputer" | "agentVisibility" | "currentRuntimeFence"
+>;
+
+/**
+ * The Agent-side checks of one publication, all answered by a single narrow read of the Agent
+ * row. Every daemon Activity frame, heartbeats and text fragments included, passes these checks,
+ * so each must not re-read the row. Build one per publication: the read is shared only within
+ * that request, so visibility and the launch fence are still read fresh for every frame. The row
+ * is deliberately not filtered by `ACTIVE_AGENT_WHERE`, matching the repository's `getById`.
+ */
+export function publicationAgentLookups(db: PrismaClient): PublicationAgentLookups {
+  const reads = new Map<
+    string,
+    Promise<{
+      workspaceId: string;
+      computerId: string | null;
+      visibility: string;
+      runtimeSession: unknown;
+    } | null>
+  >();
+  const read = (agentId: string) => {
+    let agent = reads.get(agentId);
+    if (!agent) {
+      agent = db.agent.findUnique({
+        where: { id: agentId },
+        select: { workspaceId: true, computerId: true, visibility: true, runtimeSession: true },
+      });
+      reads.set(agentId, agent);
+    }
+    return agent;
+  };
+  return {
+    agentBelongsToWorkspace: async (workspaceId, agentId) =>
+      (await read(agentId))?.workspaceId === workspaceId,
+    agentBelongsToComputer: async (workspaceId, agentId, computerId) => {
+      const agent = await read(agentId);
+      return agent?.workspaceId === workspaceId && agent.computerId === computerId;
+    },
+    // An unrecognized persisted value fails closed to private, as `canSeeAgent` and
+    // `visibleAgentWhere` treat it.
+    agentVisibility: async (workspaceId, agentId) => {
+      const agent = await read(agentId);
+      if (agent?.workspaceId !== workspaceId) return undefined;
+      return agent.visibility === AGENT_VISIBILITY.PUBLIC
+        ? AGENT_VISIBILITY.PUBLIC
+        : AGENT_VISIBILITY.PRIVATE;
+    },
+    currentRuntimeFence: async (workspaceId, computerId, agentId) => {
+      const agent = await read(agentId);
+      if (agent?.workspaceId === workspaceId && agent.computerId === computerId) {
+        const session = agent.runtimeSession;
+        if (isRecord(session)) {
+          const daemonInstanceId = Reflect.get(session, "daemonInstanceId");
+          const launchId = Reflect.get(session, "launchId");
+          const sessionComputerId = Reflect.get(session, "computerId");
+          if (
+            sessionComputerId === computerId &&
+            typeof daemonInstanceId === "string" &&
+            typeof launchId === "string" &&
+            daemonInstanceId &&
+            launchId
+          )
+            return { daemonInstanceId, launchId };
+        }
+      }
+      return undefined;
+    },
+  };
+}
+
 export function createAgentActivityPublicationHandler() {
   return async (request: Request) => {
     const db = getDatabaseClient();
     if (!db) return unauthorized();
-    const agents = new PrismaAgentRepository(db);
     const activity = new AgentActivityRepository(db);
     let display: AgentDisplay | undefined;
     let centrifugo: ReturnType<typeof createCentrifugoServerApi> | undefined;
@@ -154,11 +278,7 @@ export function createAgentActivityPublicationHandler() {
     }
     return handleAgentActivityPublication(request, {
       proxySecret: process.env.COFORGE_CENTRIFUGO_PROXY_SECRET,
-      agentBelongsToWorkspace: async (workspaceId, agentId) =>
-        (await agents.getById(agentId))?.workspaceId === workspaceId,
-      agentBelongsToComputer: async (workspaceId, agentId, computerId) =>
-        (await agents.getById(agentId))?.workspaceId === workspaceId &&
-        (await agents.getById(agentId))?.computerId === computerId,
+      ...publicationAgentLookups(db),
       computerBelongsToWorkspace: async (workspaceId, computerId) =>
         Boolean(
           await db.workspaceComputer.findUnique({
@@ -167,29 +287,7 @@ export function createAgentActivityPublicationHandler() {
           }),
         ),
       observe: (observation) => activity.record(observation),
-      currentRuntimeFence: async (workspaceId, computerId, agentId) => {
-        const agent = await db.agent.findUnique({
-          where: { id: agentId },
-          select: { workspaceId: true, computerId: true, runtimeSession: true },
-        });
-        if (agent?.workspaceId === workspaceId && agent.computerId === computerId) {
-          const session = agent.runtimeSession;
-          if (session && typeof session === "object" && !Array.isArray(session)) {
-            const daemonInstanceId = Reflect.get(session, "daemonInstanceId");
-            const launchId = Reflect.get(session, "launchId");
-            const sessionComputerId = Reflect.get(session, "computerId");
-            if (
-              sessionComputerId === computerId &&
-              typeof daemonInstanceId === "string" &&
-              typeof launchId === "string" &&
-              daemonInstanceId &&
-              launchId
-            )
-              return { daemonInstanceId, launchId };
-          }
-        }
-        return undefined;
-      },
+      publish: centrifugo ? (channel, data) => centrifugo.publish(channel, data) : undefined,
       display,
       publishJson: centrifugo
         ? (channel, data) => centrifugo.publishJson(channel, data)

@@ -1,6 +1,6 @@
-import type { DaemonConnectionClient } from "../../src/connection/daemon-connection";
+import type { DaemonConnectionClient } from "#src/connection/daemon-connection";
 import { join } from "node:path";
-import { LaunchdJob } from "../../src/platform/launchd-job";
+import { LaunchdJob } from "#src/platform/launchd-job";
 
 /** Cloud acceptance is covered separately; native lifecycle tests stay offline. */
 export class DaemonConnection implements DaemonConnectionClient {

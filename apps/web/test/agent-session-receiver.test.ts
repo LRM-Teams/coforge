@@ -3,10 +3,10 @@ import { encodeAgentSessionReport, encodeAgentSessionInvalidate } from "@lrm/cof
 import {
   createAgentSessionMethod,
   createAgentSessionInvalidateMethod,
-} from "../src/server/centrifugo/agent-session-receiver.server";
-import type { AgentSessions } from "../src/server/agents/agent-sessions.server";
-import type { AgentSessionReceiver } from "../src/server/agents/agent-session.server";
-import type { CentrifugoRpcMetadata } from "../src/server/centrifugo/rpc-handler.server";
+} from "#src/server/centrifugo/agent-session-receiver.server";
+import type { AgentSessions } from "#src/server/agents/agent-sessions.server";
+import type { AgentSessionReceiver } from "#src/server/agents/agent-session.server";
+import type { CentrifugoRpcMetadata } from "#src/server/centrifugo/rpc-handler.server";
 
 function captureWarnings() {
   const warnings: unknown[] = [];

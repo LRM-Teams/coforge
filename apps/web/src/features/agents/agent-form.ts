@@ -1,7 +1,7 @@
 import { parseRuntimeProvider, RUNTIME_PROVIDER } from "@lrm/coforge-sdk/internal";
 
-import { isAppError } from "@/lib/app-error";
-import { m } from "@/paraglide/messages";
+import { isAppError } from "#src/lib/app-error";
+import { m } from "#src/paraglide/messages";
 import type { UpdateAgentInput } from "./agent.schemas";
 
 /**
@@ -34,24 +34,36 @@ export function updateAgentInputFromForm(
 }
 
 /**
- * The Agent-update failure copy shared by the full-page edit dialog and the Profile panel's
- * in-place runtime editor — the same `updateAgent` `errorId`s, mapped to the same sentences,
- * so the two surfaces never drift.
+ * The copy for each `errorId` an Agent create or update can fail with, shared by the create
+ * dialog, the full-page edit dialog and the Profile panel's in-place runtime editor so the
+ * surfaces never drift.
  */
+const AGENT_FORM_ERROR_MESSAGES = new Map<string, () => string>([
+  ["agent-api-key-required", m.agent_form_api_key_required],
+  ["agent-runtime-unavailable", m.agent_form_runtime_unavailable],
+  ["agent-computer-required", m.agent_form_computer_required],
+  ["agent-name-taken", m.agent_form_name_taken],
+]);
+
+function agentFormErrorMessage(cause: unknown, fallback: () => string): string {
+  const message = isAppError(cause)
+    ? AGENT_FORM_ERROR_MESSAGES.get(cause.errorId ?? "")
+    : undefined;
+  return (message ?? fallback)();
+}
+
 export function agentUpdateErrorMessage(cause: unknown): string {
-  if (isAppError(cause) && cause.errorId === "agent-api-key-required")
-    return m.agent_form_api_key_required();
-  if (isAppError(cause) && cause.errorId === "agent-runtime-unavailable")
-    return m.agent_form_runtime_unavailable();
-  if (isAppError(cause) && cause.errorId === "agent-computer-required")
-    return m.agent_form_computer_required();
-  return m.agent_update_error();
+  return agentFormErrorMessage(cause, m.agent_update_error);
+}
+
+export function agentCreateErrorMessage(cause: unknown): string {
+  return agentFormErrorMessage(cause, m.agent_form_server_error);
 }
 
 /**
  * The Runtime config dialog's Advanced env rows are plain `[name="envKey"]`/`[name="envValue"]`
  * inputs (`agent-runtime-config-dialog.tsx`), read back here as parallel `FormData.getAll()`
- * arrays. Empty keys are dropped; the last duplicate key wins (ADR 0045). No name-format validation here — the
+ * arrays. Empty keys are dropped; the last duplicate key wins. No name-format validation here — the
  * server (`agent-environment.server.ts`'s `validateAgentEnvironment`) is the single source of
  * truth for what a valid variable name is.
  */

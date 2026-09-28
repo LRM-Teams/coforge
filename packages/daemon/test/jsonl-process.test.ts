@@ -2,10 +2,10 @@ import { expect, test } from "bun:test";
 import { tmpdir } from "node:os";
 import { readFileSync } from "node:fs";
 
-import { JsonlProcess } from "../src/code-agent/jsonl-process";
-import type { OwnedProcessTree } from "../src/platform/process-tree";
-import { ProcessTreeOwner } from "../src/platform/process-tree";
-import { AgentProcessManager } from "../src/agent-runtime/agent-process-manager";
+import { JsonlProcess } from "#src/code-agent/jsonl-process";
+import type { OwnedProcessTree } from "#src/platform/process-tree";
+import { ProcessTreeOwner } from "#src/platform/process-tree";
+import { AgentProcessManager } from "#src/agent-runtime/agent-process-manager";
 import type { AgentSession } from "@coforge/agent";
 
 test("close waits for bounded split stderr diagnostics after process exit", async () => {

@@ -1,6 +1,10 @@
-import { renderMessageSender, type AgentMessageRecord } from "@lrm/coforge-sdk/internal";
+import {
+  renderMessageSender,
+  UUID_LIKE_PATTERN,
+  type AgentMessageRecord,
+} from "@lrm/coforge-sdk/internal";
 
-/** The sender exactly as an Agent-visible message line shows it (ADR 0052, decision C):
+/** The sender exactly as an Agent-visible message line shows it:
  * `system` for a system message, `@handle — description` when a description exists, `@handle`
  * alone otherwise. */
 function messageSender(message: AgentMessageRecord): string {
@@ -42,14 +46,47 @@ function attachmentSuffix(message: AgentMessageRecord): string {
 
 function taskSuffix(message: AgentMessageRecord): string {
   if (!message.task) return "";
-  const owner = message.task.owner ? ` owner=@${message.task.owner.handle}` : "";
+  const owner = message.task.owner
+    ? ` owner=@${message.task.owner.handle}${message.task.owner.deleted ? " [deleted]" : ""}`
+    : "";
   return ` [task #${message.task.number} status=${message.task.status}${owner}]`;
+}
+
+/** One Tasks-manual pointer for a check/read/resolve window that contains tracked work. */
+export const TASK_WORKFLOW_HINT = "Tracked Tasks: coforge manual get tasks";
+
+export function formatTaskWorkflowHint(messages: readonly AgentMessageRecord[]): string {
+  return messages.some((message) => message.task) ? TASK_WORKFLOW_HINT : "";
+}
+
+/** Channel check/resolve lines longer than this are cut; the agent can `read --around` for the rest. */
+const CHANNEL_SUMMARY_CHARS = 200;
+
+/** A parent channel (`#name`), not a thread (`#name:rootId`) and not a DM. */
+function isPlainChannelTarget(target: string): boolean {
+  return target.startsWith("#") && !isThreadTarget(target);
+}
+
+/** Truncate a plain-channel body so check does not dump the full post into the transcript. */
+function channelSummaryBody(message: AgentMessageRecord): string {
+  if (!isPlainChannelTarget(message.target) || message.mentionsAgent || message.nonMemberMention)
+    return message.body;
+  const points = Array.from(message.body);
+  if (points.length <= CHANNEL_SUMMARY_CHARS) return message.body;
+  const shown = points.slice(0, CHANNEL_SUMMARY_CHARS).join("");
+  const hidden = points.length - CHANNEL_SUMMARY_CHARS;
+  return `${shown}…(+${hidden} chars, read: coforge message read --target "${message.target}" --around ${shortId(message.id)})`;
 }
 
 /** The message line shared by `message check`, `message resolve`, and held Task context. */
 export function formatMessageLine(message: AgentMessageRecord): string {
-  return `[target=${message.target} msg=${shortId(message.id)} time=${formatUtcTimestamp(message.createdAt)} type=${message.senderKind}] ${messageSender(message)}: ${message.body}${attachmentSuffix(message)}${taskSuffix(message)}`;
+  const notice = message.nonMemberMention ? `\n${NON_MEMBER_MENTION_NOTICE}` : "";
+  return `[target=${message.target} msg=${shortId(message.id)} time=${formatUtcTimestamp(message.createdAt)} type=${message.senderKind}] ${messageSender(message)}: ${channelSummaryBody(message)}${attachmentSuffix(message)}${taskSuffix(message)}${notice}`;
 }
+
+/** What an Agent notified of a channel message from outside that channel may do about it. */
+export const NON_MEMBER_MENTION_NOTICE =
+  "[CoForge notice: You were notified as a non-member, so you cannot reply in that channel. If no reply is needed, no action is required. Otherwise, DM the person who mentioned you or join the channel to participate.]";
 
 type ReadWindowResponse = {
   messages?: AgentMessageRecord[];
@@ -76,6 +113,8 @@ export function formatReadWindow(
 
   const lines = [`Read window: ${messages.length} returned, oldest to newest. ${older} ${newer}`];
   if (options.around) lines.push(`Around: ${options.around}.`);
+  const taskHint = formatTaskWorkflowHint(messages);
+  if (taskHint) lines.push(taskHint);
   lines.push("");
 
   const includeReplyTarget = !isThreadTarget(target);
@@ -222,29 +261,35 @@ type SendResponse = {
 };
 
 /**
- * `recentUnread` is only ever non-empty when the send bypassed a freshness hold via `--anyway`
- * (see ADR 0022); every other successful send passes an empty array or `undefined`.
+ * `recentUnread` is only ever non-empty when the send bypassed a freshness hold via `--anyway`;
+ * every other successful send passes an empty array or `undefined`.
  */
 export function formatSendSuccess(
   target: string,
   response: SendResponse,
   recentUnread?: readonly AgentMessageRecord[],
+  /** Some @mention did not reach its target: the message is only queued. */
+  queued = false,
 ): string {
+  const verb = queued ? "queued" : "sent";
   const base = !response.messageId
-    ? `Message sent to ${target}.`
+    ? `Message ${verb} to ${target}.`
     : (() => {
         const hint = isThreadTarget(target)
           ? ""
           : ` (to reply in this message's thread, use target "${target}:${shortId(response.messageId!)}")`;
-        return `Message sent to ${target}. Message ID: ${response.messageId}${hint}`;
+        return `Message ${verb} to ${target}. Message ID: ${response.messageId}${hint}`;
       })();
   if (!recentUnread?.length) return base;
-  return [
+  const lines = [
     base,
     "",
     "--- New messages you may have missed ---",
     ...recentUnread.map(formatMessageLine),
-  ].join("\n");
+  ];
+  const taskHint = formatTaskWorkflowHint(recentUnread);
+  if (taskHint) lines.push(taskHint);
+  return lines.join("\n");
 }
 
 type AttachmentUploadResponse = {
@@ -347,4 +392,115 @@ export function formatHeldSend(target: string, response: HeldSendResponse): stri
     "",
     paths.join("\n"),
   ].join("\n");
+}
+
+/** One mention of a sent message that did not reach its target, as the server reports it. */
+export type PendingMentionAction = {
+  resolutionId: string;
+  messageId: string;
+  targetType: string;
+  targetHandle: string;
+  availableActions: readonly string[];
+  expiresAt?: string;
+};
+
+const PENDING_MENTION_ACTION_ID = UUID_LIKE_PATTERN;
+
+/** An `@handle` exactly as it was written in the message. */
+export function authoredMentionToken(handle: string): string {
+  return handle.startsWith("@") ? handle : `@${handle}`;
+}
+
+/** The `coforge mention` verbs a pending mention still allows; none when its id is malformed. */
+export function mentionRecoveryVerbs(action: PendingMentionAction): string[] {
+  if (!PENDING_MENTION_ACTION_ID.test(action.resolutionId)) return [];
+  return [...new Set(action.availableActions)].filter(
+    (verb) => verb === "notify" || verb === "add",
+  );
+}
+
+/** The one recovery for a sent message's undelivered mention: notify its target by resolution id.
+ * None when the id is malformed. */
+function notifyRecoveryCommand(action: PendingMentionAction): string | null {
+  return PENDING_MENTION_ACTION_ID.test(action.resolutionId)
+    ? `coforge mention notify ${action.resolutionId}`
+    : null;
+}
+
+/** A sent message's mention that did not reach its target, as the sender's partial result. */
+export function senderPendingMention(action: PendingMentionAction) {
+  return {
+    resolutionId: action.resolutionId,
+    messageId: action.messageId,
+    targetHandle: authoredMentionToken(action.targetHandle),
+    status: "not_queued" as const,
+    reason: "not_in_conversation" as const,
+    consequence: "This @mention did not notify anyone.",
+    expiresAt: action.expiresAt ?? null,
+    recoveryCommand: notifyRecoveryCommand(action),
+  };
+}
+
+/** A sent message's `@handle` that named nobody the sender can see. */
+export function senderUnresolvedMention(handle: string) {
+  return {
+    targetHandle: authoredMentionToken(handle),
+    status: "not_queued" as const,
+    reason: "unknown_or_not_visible" as const,
+    consequence: "This @mention did not notify anyone.",
+    expiresAt: null,
+    recoveryCommand: null,
+  };
+}
+
+/**
+ * The partial result of a send whose message was queued but some of whose @mentions reached no
+ * one: one row per mention of someone outside the conversation, then one per `@handle` that named
+ * nobody.
+ */
+export function formatUndeliveredMentions(
+  actions: readonly PendingMentionAction[],
+  unresolvedHandles: readonly string[],
+): string {
+  const lines = [
+    "Undelivered mentions — partial result",
+    "Message effect: status=queued. Queue acceptance is the only message proof.",
+    "Do not rerun `coforge message send`; the message is already queued and a retry could duplicate it.",
+    "Each row below is bound to the literal @token from your message.",
+    "For a literal name rather than a recipient, wrap the @handle in inline or fenced code.",
+    "",
+  ];
+  for (const action of actions) {
+    const row = senderPendingMention(action);
+    const valid = row.recoveryCommand !== null;
+    lines.push(`- ${row.targetHandle} — status=${row.status}`);
+    lines.push(`  reason: ${row.reason}`);
+    lines.push(`  consequence: ${row.consequence}`);
+    lines.push(`  pending action: ${valid ? row.resolutionId : "[invalid pending action id]"}`);
+    if (row.messageId) lines.push(`  message: ${row.messageId}`);
+    lines.push(`  expires: ${row.expiresAt ?? "unknown"}`);
+    if (!valid) {
+      lines.push(
+        "  recovery: unavailable because the pending action id is invalid; inspect `coforge mention pending` without resending the message.",
+      );
+      continue;
+    }
+    lines.push(`  recovery: ${row.recoveryCommand}`);
+    lines.push(
+      "  note: the handle resolved, but the target was not in this conversation at send time. This does not prove the person left the Workspace.",
+    );
+    lines.push("  note: notify exits nonzero unless the target queue accepts the delivery.");
+  }
+  for (const handle of new Set(unresolvedHandles)) {
+    const row = senderUnresolvedMention(handle);
+    lines.push(`- ${row.targetHandle} — status=${row.status}`);
+    lines.push(`  reason: ${row.reason}`);
+    lines.push(`  consequence: ${row.consequence}`);
+    lines.push("  pending action: none; no visible target resolved for this token");
+    lines.push("  expires: n/a");
+    lines.push(
+      "  recovery: if this was a literal name or prose, wrap it in inline/fenced code; otherwise verify the exact handle and send only a corrected follow-up mention; do not resend this message.",
+    );
+  }
+  return lines.join("\n");
 }

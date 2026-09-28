@@ -3,7 +3,7 @@ import { describe, expect, test } from "bun:test";
 import {
   conversationOpenPosition,
   unreadBoundary,
-} from "../src/features/conversations/conversation-open-position";
+} from "#src/features/conversations/conversation-open-position";
 
 const messages = [
   { id: "m-1", sequence: 1 },

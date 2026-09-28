@@ -1,31 +1,46 @@
-import type { AccessibleWorkspace, Credential } from "../login";
+import type { AccessibleWorkspace, Credential } from "#src/login";
 
 /** Direct lookup seam for a Workspace named by an external setup intent. */
 export interface ComputerWorkspaceRpcTransport {
   getBySlug(serverUrl: string, credential: Credential, slug: string): Promise<AccessibleWorkspace>;
 }
 
+export type WorkspaceLookupFunction = ComputerWorkspaceRpcTransport["getBySlug"];
+/** Catalog input accepted when callers provide the direct lookup as the second argument. */
+export type WorkspaceCatalogFunction = (
+  serverUrl: string,
+  credential?: Credential,
+) => Promise<AccessibleWorkspace[]>;
+export type WorkspaceLookupTransport =
+  | ComputerWorkspaceRpcTransport
+  | WorkspaceLookupFunction
+  | WorkspaceCatalogFunction;
+
 export interface WorkspaceLookup {
-  getBySlug: ComputerWorkspaceRpcTransport["getBySlug"];
+  getBySlug: WorkspaceLookupFunction;
 }
 
 export function createWorkspaceLookup(
-  transport: ComputerWorkspaceRpcTransport | ((...args: any[]) => Promise<any>),
-  directLookup?: (
-    serverUrl: string,
-    credential: Credential,
-    slug: string,
-  ) => Promise<AccessibleWorkspace>,
+  transport: ComputerWorkspaceRpcTransport,
+  directLookup?: WorkspaceLookupFunction,
+): WorkspaceLookup;
+export function createWorkspaceLookup(
+  transport: WorkspaceLookupFunction,
+  directLookup?: WorkspaceLookupFunction,
+): WorkspaceLookup;
+export function createWorkspaceLookup(
+  transport: WorkspaceCatalogFunction,
+  directLookup: WorkspaceLookupFunction,
+): WorkspaceLookup;
+export function createWorkspaceLookup(
+  transport: WorkspaceLookupTransport,
+  directLookup?: WorkspaceLookupFunction,
 ): WorkspaceLookup {
   return {
     getBySlug:
       directLookup ??
       (typeof transport === "function"
-        ? (transport as (
-            serverUrl: string,
-            credential: Credential,
-            slug: string,
-          ) => Promise<AccessibleWorkspace>)
-        : (transport as ComputerWorkspaceRpcTransport).getBySlug.bind(transport)),
+        ? (transport as WorkspaceLookupFunction)
+        : transport.getBySlug.bind(transport)),
   };
 }

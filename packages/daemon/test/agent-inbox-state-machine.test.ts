@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { AgentInboxStateMachine } from "../src/daemon-runtime/agent-inbox-state-machine";
+import { AgentInboxStateMachine } from "#src/daemon-runtime/agent-inbox-state-machine";
 
 test("daemon retains the draft text and the count of holds it has taken", async () => {
   const inbox = new AgentInboxStateMachine();

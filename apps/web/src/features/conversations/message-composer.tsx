@@ -11,22 +11,31 @@ import {
 } from "react";
 import { useHydrated } from "@tanstack/react-router";
 import { FileIcon as FileTypeIcon } from "@untitledui/file-icons";
-import { ArrowUp, CheckSquare, Download01, Paperclip, Trash01, XClose } from "@untitledui/icons";
+import {
+  AlertCircle,
+  ArrowUp,
+  CheckSquare,
+  Download01,
+  Paperclip,
+  Trash01,
+  XClose,
+} from "@untitledui/icons";
 import { Popover as AriaPopover } from "react-aria-components";
 
-import { getReadableFileSize } from "@/components/application/file-upload/file-upload-base";
-import { Avatar } from "@/components/base/avatar/avatar";
-import { Button } from "@/components/base/buttons/button";
-import { ButtonUtility } from "@/components/base/buttons/button-utility";
-import { Dropdown } from "@/components/base/dropdown/dropdown";
-import { ProgressBar } from "@/components/base/progress-indicators/progress-indicators";
-import { Dialog, DialogTrigger } from "@/components/application/modals/modal";
+import { getReadableFileSize } from "#src/components/application/file-upload/file-upload-base";
+import { Avatar } from "#src/components/base/avatar/avatar";
+import { Button } from "#src/components/base/buttons/button";
+import { ButtonUtility } from "#src/components/base/buttons/button-utility";
+import { ProgressBar } from "#src/components/base/progress-indicators/progress-indicators";
+import { Dialog, DialogTrigger } from "#src/components/application/modals/modal";
 import {
   dragCarriesFiles,
   fileFromDropItems,
   filesFromPaste,
   shouldSendOnEnter,
 } from "./composer-behavior";
+import { draftWithUnsentMessage, type OutgoingMessage } from "./composer-outbox";
+import { useComposerRequests, useMessageOutbox } from "./use-message-outbox";
 import {
   clearComposerDraft,
   composerDraftKey,
@@ -34,13 +43,14 @@ import {
   writeComposerDraft,
 } from "./composer-draft";
 import type { Mentionable } from "./mention-text";
-import { useMentionCompletion } from "./use-mention-completion";
-import { MentionSuggestionList } from "./mention-suggestions";
+import type { ChannelSuggestion } from "./reference-completion";
+import { useReferenceCompletion } from "./use-reference-completion";
+import { ReferenceSuggestionList } from "./reference-suggestions";
+import { PendingMentionStrip, type PendingMention } from "./pending-mention-strip";
 import { fileIconType } from "./message-row";
-import { useAppToast } from "@/components/ui/toast";
-import { useSubmitGuard } from "@/hooks/use-submit-guard";
-import { cx } from "@/utils/cx";
-import { m } from "@/paraglide/messages";
+import { cx } from "#src/utils/cx";
+import { m } from "#src/paraglide/messages";
+import { getLocale } from "#src/paraglide/runtime";
 
 export type SentMessage = {
   id: string;
@@ -48,13 +58,17 @@ export type SentMessage = {
   body: string;
   createdAt: Date | string;
   attachmentFileName?: string;
+  /** The `@handle`s this send left as text because they name nobody the sender can see. */
+  unresolvedMentionHandles?: readonly string[];
+  /** Mentions of people outside the channel this send did not notify, for the sender to act on. */
+  pendingMentionActions?: readonly PendingMention[];
 };
 
 /** At most 10 attachments per send, mirroring the server-side `attachmentIds` bound
  * (`conversation.schemas.ts`'s `attachmentIdsSchema`, the Agent API's `AgentMessagesSendRequest`). */
 const MAX_ATTACHMENTS = 10;
 
-type PendingAttachment = {
+export type PendingAttachment = {
   /** Stable key across renders and across the file's own upload lifecycle; independent of
    * `file` identity so two same-named files can coexist. */
   localId: string;
@@ -178,7 +192,7 @@ function AttachmentChip({
                   </p>
                   {uploading && <ProgressBar value={attachment.progress} className="mt-1.5" />}
                   {attachment.failed && (
-                    <Button color="link-destructive" size="sm" onPress={onRetry} className="mt-1">
+                    <Button color="link-color" size="sm" onPress={onRetry} className="mt-1">
                       {m.controls_retry()}
                     </Button>
                   )}
@@ -221,7 +235,9 @@ export function MessageComposer({
   threadRootId,
   inThread,
   mentionables,
+  mentionOutsiders,
   recentHandles,
+  channels,
   quotedDraft,
   onSend,
   onCreateTask,
@@ -234,11 +250,15 @@ export function MessageComposer({
   threadRootId?: string;
   /** Thread composers cannot create Tasks. */
   inThread: boolean;
-  /** The channel's @-completion candidates; absent outside channels (no popup, no mention). */
+  /** The conversation's @-completion candidates; absent or empty, `@` opens no popup. */
   mentionables?: readonly Mentionable[];
+  /** The channel's people and public Agents outside it, offered after the members. */
+  mentionOutsiders?: readonly Mentionable[];
   /** Handles that recently sent a message in this conversation, most-recent first (channels
    * only); ranks @-completion candidates ahead of alphabetical order. */
   recentHandles?: readonly string[];
+  /** The Workspace's channels for #-completion; `conversationId` leads the list when it is one. */
+  channels?: readonly ChannelSuggestion[];
   /** A finished quote from a message the reader highlighted (`message-row.tsx`'s reply-to-
    * selection), to be appended to the draft. The `id` is what makes a repeat insertion of the same
    * text land again, so it is the caller's monotone counter — never a content hash. */
@@ -254,7 +274,6 @@ export function MessageComposer({
 }) {
   const composerId = useId();
   const hydrated = useHydrated();
-  const toast = useAppToast();
   // Device-local draft, scoped to this chat (and thread): typing here never touches another
   // conversation, and the text survives switching chats, reloads, and restarts on this device.
   const draftKey = composerDraftKey(conversationId, threadRootId);
@@ -270,18 +289,62 @@ export function MessageComposer({
   useEffect(() => {
     writeComposerDraft(draftKey, body);
   }, [draftKey, body]);
-  // @-completion (channels only): query tracking, popup state, and keyboard interaction.
-  const mention = useMentionCompletion({
+  // @-member and #-channel completion: query tracking, popup state, and keyboard interaction.
+  const completion = useReferenceCompletion({
     mentionables,
+    mentionOutsiders,
     recentHandles,
+    channels,
+    currentChannelId: conversationId,
     value: body,
     onChange: (next) => {
       setBody(next);
       if (retryRef.current && next.trim() !== retryRef.current.body) retryRef.current = undefined;
     },
   });
-  const [sending, guard] = useSubmitGuard();
-  const [error, setError] = useState("");
+  // What this chat's newest accepted send did not reach: `@handle`s that name nobody, and mentions
+  // of people outside the channel. Kept with the chat and the message's position: a reply that
+  // lands after the reader moved to another chat, or after a newer send's reply, never replaces it.
+  const [unresolved, setUnresolved] = useState<
+    | {
+        draftKey: string;
+        sequence: number;
+        handles: readonly string[];
+        pendingMentions: readonly PendingMention[];
+      }
+    | undefined
+  >(undefined);
+  const current = unresolved?.draftKey === draftKey ? unresolved : undefined;
+  const unresolvedHandles = current?.handles ?? [];
+  const pendingMentions = current?.pendingMentions ?? [];
+  const unresolvedNotice = unresolvedHandles.length
+    ? m.conversation_unresolved_mentions({
+        handles: new Intl.ListFormat(getLocale(), { type: "conjunction" }).format(
+          unresolvedHandles.map((handle) => `@${handle}`),
+        ),
+      })
+    : "";
+  // Submitting clears the composer at once and never disables it, so the next message can be
+  // typed straight away; the outbox holds each submitted message until the server accepts it,
+  // and the conversation shows it (greyed, then failed if need be) in the message list.
+  const outbox = useMessageOutbox({
+    draftKey,
+    onSend,
+    onCreateTask,
+    onSent: (message) => {
+      onSent?.(message);
+      setUnresolved((current) =>
+        current?.draftKey === draftKey && current.sequence > message.sequence
+          ? current
+          : {
+              draftKey,
+              sequence: message.sequence,
+              handles: message.unresolvedMentionHandles ?? [],
+              pendingMentions: message.pendingMentionActions ?? [],
+            },
+      );
+    },
+  });
   const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
   const [asTask, setAsTask] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -300,12 +363,7 @@ export function MessageComposer({
     retryRef.current = undefined;
     // The draft is React state, so the caret can only be placed once the textarea has re-rendered
     // with the quote in it.
-    requestAnimationFrame(() => {
-      const textarea = mention.textareaRef.current;
-      if (!textarea) return;
-      textarea.focus();
-      textarea.setSelectionRange(textarea.value.length, textarea.value.length);
-    });
+    requestAnimationFrame(focusComposer);
   }, [quotedDraft]);
   // IME composition tracking for Enter-to-send: see composer-behavior.ts.
   const isComposingRef = useRef(false);
@@ -316,7 +374,7 @@ export function MessageComposer({
   const [draggingFile, setDraggingFile] = useState(false);
   const uploading = attachments.some((item) => !item.id && !item.failed);
   const anyFailed = attachments.some((item) => item.failed);
-  const composerDisabled = !hydrated || sending;
+  const composerDisabled = !hydrated;
   const dropDisabled = composerDisabled || uploading;
 
   /** Uploads one already-added pending attachment, tracking it by `localId` regardless of
@@ -360,44 +418,74 @@ export function MessageComposer({
     }
   }
 
-  async function submit(event?: FormEvent<HTMLFormElement>) {
-    event?.preventDefault();
-    const text = body.trim() || attachments[0]?.file.name || "";
-    if (!text || uploading || anyFailed) return;
-    await guard(async () => {
-      setError("");
-      try {
-        const request =
-          retryRef.current?.body === text && retryRef.current.asTask === asTask
-            ? retryRef.current
-            : { body: text, requestId: crypto.randomUUID(), asTask };
-        retryRef.current = request;
-        // Only the ids of files that finished uploading and were not removed.
-        const attachmentIds = attachments.flatMap((item) => (item.id ? [item.id] : []));
-        const sentMessage =
-          asTask && !inThread && onCreateTask
-            ? // Task creation stays single-attachment; the first upload (send order) is used.
-              (await onCreateTask(text, request.requestId, attachmentIds[0]), undefined)
-            : await onSend(text, request.requestId, attachmentIds);
-        if (sentMessage) onSent?.(sentMessage);
-        retryRef.current = undefined;
-        setBody("");
-        clearComposerDraft(draftKey);
-        mention.close();
-        setAttachments([]);
-        setAsTask(false);
-      } catch (cause) {
-        const message = m.conversation_send_error();
-        setError(message);
-        toast.error(message, cause);
-      }
-    });
+  function focusComposer() {
+    const textarea = completion.textareaRef.current;
+    if (!textarea) return;
+    textarea.focus({ preventScroll: true });
+    textarea.setSelectionRange(textarea.value.length, textarea.value.length);
   }
 
+  // Opening a conversation or thread puts the caret in its composer, as a chat app does, so the
+  // first message needs no click. Only with a fine pointer: on touch it would pop the keyboard.
+  // The textarea is disabled until hydration, and a disabled field cannot take focus.
+  useEffect(() => {
+    if (hydrated && window.matchMedia("(pointer: fine)").matches) focusComposer();
+  }, [draftKey, hydrated]);
+
+  function submit(event?: FormEvent<HTMLFormElement>) {
+    event?.preventDefault();
+    const text = body.trim() || attachments[0]?.file.name || "";
+    if (!text || uploading || anyFailed || attachments.length > MAX_ATTACHMENTS) return;
+    const requestId =
+      retryRef.current?.body === text && retryRef.current.asTask === asTask
+        ? retryRef.current.requestId
+        : crypto.randomUUID();
+    // Only files that finished uploading and were not removed.
+    const uploaded = attachments.filter((item) => item.id);
+    const message: OutgoingMessage = {
+      localId: crypto.randomUUID(),
+      draftKey,
+      body: text,
+      requestId,
+      asTask: asTask && !inThread && Boolean(onCreateTask),
+      attachments: uploaded.flatMap((item) =>
+        item.id ? [{ id: item.id, fileName: item.file.name }] : [],
+      ),
+    };
+    retryRef.current = undefined;
+    setBody("");
+    clearComposerDraft(draftKey);
+    completion.close();
+    setAttachments([]);
+    setAsTask(false);
+    // A click on the send button moved focus there; typing continues in the composer.
+    focusComposer();
+    outbox.send(message, uploaded);
+  }
+
+  // "Edit" on an unsent message in the conversation puts it back here, ahead of anything typed
+  // since; sending it again unchanged reuses its request id. Retry and Delete just hand the focus
+  // back, since the row button that held it is gone.
+  useComposerRequests(draftKey, (request) => {
+    if (request.kind === "focus") {
+      focusComposer();
+      return;
+    }
+    setBody((current) => draftWithUnsentMessage(current, request.body));
+    setAttachments((current) => [...request.chips, ...current]);
+    if (request.asTask) setAsTask(true);
+    retryRef.current = {
+      body: request.body,
+      requestId: request.requestId,
+      asTask: request.asTask,
+    };
+    requestAnimationFrame(focusComposer);
+  });
+
   function keyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
-    // The open @-completion owns navigation and confirmation keys; Enter must not send while a
+    // The open completion owns navigation and confirmation keys; Enter must not send while a
     // candidate is being picked. During IME composition the keys belong to the IME.
-    if (mention.handleKeyDown(event, isComposingRef.current)) return;
+    if (completion.handleKeyDown(event, isComposingRef.current)) return;
     const send = shouldSendOnEnter(
       {
         key: event.key,
@@ -409,7 +497,7 @@ export function MessageComposer({
     );
     if (send) {
       event.preventDefault();
-      void submit();
+      submit();
     }
   }
 
@@ -489,87 +577,118 @@ export function MessageComposer({
           {m.conversation_drop_to_upload()}
         </div>
       )}
+      {pendingMentions.length > 0 && (
+        <PendingMentionStrip
+          key={current?.sequence}
+          mentions={pendingMentions}
+          onSettle={(resolutionIds, outcome) =>
+            setUnresolved(
+              (report) =>
+                report && {
+                  ...report,
+                  pendingMentions: report.pendingMentions.map((mention) =>
+                    resolutionIds.includes(mention.resolutionId)
+                      ? { ...mention, outcome }
+                      : mention,
+                  ),
+                },
+            )
+          }
+          onRemove={(resolutionId) =>
+            setUnresolved(
+              (report) =>
+                report && {
+                  ...report,
+                  pendingMentions: report.pendingMentions.filter(
+                    (mention) => mention.resolutionId !== resolutionId,
+                  ),
+                },
+            )
+          }
+        />
+      )}
+      {/* Always mounted, so a screen reader announces the notice when its text arrives. */}
+      <p role="status" className="sr-only">
+        {unresolvedNotice}
+      </p>
+      {unresolvedNotice && (
+        <div className="flex items-start gap-2 px-2 text-sm text-tertiary">
+          <AlertCircle
+            aria-hidden="true"
+            className="mt-0.5 size-4 shrink-0 text-fg-warning-primary"
+          />
+          <p aria-hidden="true" className="min-w-0 flex-1">
+            {unresolvedNotice}
+          </p>
+          <ButtonUtility
+            icon={XClose}
+            size="xs"
+            color="tertiary"
+            tooltip={m.conversation_unresolved_mentions_dismiss()}
+            onClick={() => setUnresolved((report) => report && { ...report, handles: [] })}
+          />
+        </div>
+      )}
       <label htmlFor={composerId} className="sr-only">
         {m.conversation_message_label()}
       </label>
       <textarea
         id={composerId}
-        ref={mention.textareaRef}
+        ref={completion.textareaRef}
         rows={1}
         value={body}
         disabled={composerDisabled}
         onChange={(event) => {
           setBody(event.target.value);
-          mention.track(event.target.value, event.target.selectionStart);
+          completion.track(event.target.value, event.target.selectionStart);
           if (retryRef.current && event.target.value.trim() !== retryRef.current.body)
             retryRef.current = undefined;
         }}
         onSelect={(event) =>
-          mention.track(event.currentTarget.value, event.currentTarget.selectionStart)
+          completion.track(event.currentTarget.value, event.currentTarget.selectionStart)
         }
-        onBlur={mention.close}
+        onBlur={completion.close}
         onKeyDown={keyDown}
         onCompositionStart={compositionStart}
         onCompositionEnd={compositionEnd}
         onPaste={paste}
-        aria-expanded={mention.open || undefined}
-        aria-controls={mention.open ? mention.listboxId : undefined}
-        aria-activedescendant={mention.open ? mention.optionId(mention.activeIndex) : undefined}
-        placeholder={m.conversation_message_placeholder()}
+        aria-expanded={completion.open || undefined}
+        aria-controls={completion.open ? completion.listboxId : undefined}
+        aria-activedescendant={
+          completion.open ? completion.optionId(completion.activeIndex) : undefined
+        }
+        placeholder={
+          inThread
+            ? m.conversation_thread_message_placeholder()
+            : m.conversation_message_placeholder()
+        }
         className="max-h-40 min-h-10 w-full resize-none bg-transparent px-2 py-1 text-md leading-6 outline-none [field-sizing:content] placeholder:text-placeholder disabled:opacity-50"
       />
-      {mention.open && (
-        <MentionSuggestionList
-          id={mention.listboxId}
-          items={mention.items}
-          activeIndex={mention.activeIndex}
-          optionId={mention.optionId}
-          onChoose={mention.choose}
-          onHighlight={mention.setActiveIndex}
+      {completion.open && completion.trigger && (
+        <ReferenceSuggestionList
+          id={completion.listboxId}
+          trigger={completion.trigger}
+          items={completion.items}
+          activeIndex={completion.activeIndex}
+          optionId={completion.optionId}
+          onChoose={completion.choose}
+          onHighlight={completion.setActiveIndex}
         />
       )}
-      {error && (
-        <p role="alert" className="text-sm text-error-primary">
-          {error}
+      {attachments.length > MAX_ATTACHMENTS && (
+        <p className="px-2 text-sm text-error-primary">
+          {m.conversation_attachment_limit({ max: MAX_ATTACHMENTS })}
         </p>
       )}
       <div className="flex items-center gap-2">
-        {taskMode ? (
-          <Dropdown.Root>
-            <ButtonUtility
-              icon={Paperclip}
-              size="sm"
-              color="tertiary"
-              isDisabled={composerDisabled}
-              aria-label={m.conversation_composer_actions()}
-            />
-            <Dropdown.Popover placement="top start">
-              <Dropdown.Menu>
-                <Dropdown.Item
-                  id="attachment"
-                  icon={Paperclip}
-                  label={m.conversation_attachment_label()}
-                  onAction={() => fileInputRef.current?.click()}
-                />
-                <Dropdown.Item
-                  id="task"
-                  icon={CheckSquare}
-                  label={m.tasks_as_task()}
-                  onAction={() => setAsTask(true)}
-                />
-              </Dropdown.Menu>
-            </Dropdown.Popover>
-          </Dropdown.Root>
-        ) : (
-          <ButtonUtility
-            icon={Paperclip}
-            size="sm"
-            color="tertiary"
-            isDisabled={composerDisabled}
-            tooltip={m.conversation_attachment_label()}
-            onClick={() => fileInputRef.current?.click()}
-          />
-        )}
+        <ButtonUtility
+          icon={Paperclip}
+          size="sm"
+          color="tertiary"
+          isDisabled={composerDisabled}
+          tooltip={m.conversation_attachment_label()}
+          onClick={() => fileInputRef.current?.click()}
+        />
         {attachments.map((item) => (
           <AttachmentChip
             key={item.localId}
@@ -593,29 +712,49 @@ export function MessageComposer({
           }}
           className="sr-only"
         />
-        {taskMode && asTask && (
-          <Button
-            color="secondary"
-            size="xs"
-            iconTrailing={XClose}
-            aria-pressed={true}
-            isDisabled={composerDisabled}
-            onPress={() => setAsTask(false)}
-          >
-            {m.tasks_as_task()}
-          </Button>
-        )}
-        <ButtonUtility
-          type="submit"
-          icon={ArrowUp}
-          size="sm"
-          color="tertiary"
-          isDisabled={
-            composerDisabled || uploading || anyFailed || (!body.trim() && attachments.length === 0)
-          }
-          tooltip={sending ? m.conversation_sending() : m.conversation_send()}
-          className="ml-auto rounded-full bg-brand-solid text-white hover:bg-brand-solid_hover hover:text-white"
-        />
+        {/* The Add-task control sits directly left of Send (the boss's ruling, #137). Both live
+            in a right-aligned group (`ml-auto`), so the entry tucks against Send instead of
+            stranding itself at the far left next to the paperclip. While the task chip is active
+            the entry yields to it (the chip is the pressed state with its X). */}
+        <div className="ml-auto flex items-center gap-2">
+          {taskMode && asTask && (
+            <Button
+              color="secondary"
+              size="xs"
+              iconTrailing={XClose}
+              aria-pressed={true}
+              isDisabled={composerDisabled}
+              onPress={() => setAsTask(false)}
+            >
+              {m.tasks_as_task()}
+            </Button>
+          )}
+          {taskMode && !asTask && (
+            <ButtonUtility
+              icon={CheckSquare}
+              size="sm"
+              color="tertiary"
+              isDisabled={composerDisabled}
+              tooltip={m.tasks_as_task()}
+              onClick={() => setAsTask(true)}
+            />
+          )}
+          <ButtonUtility
+            type="submit"
+            icon={ArrowUp}
+            size="sm"
+            color="tertiary"
+            isDisabled={
+              composerDisabled ||
+              uploading ||
+              anyFailed ||
+              attachments.length > MAX_ATTACHMENTS ||
+              (!body.trim() && attachments.length === 0)
+            }
+            tooltip={m.conversation_send()}
+            className="rounded-full bg-brand-solid text-white hover:bg-brand-solid_hover hover:text-white"
+          />
+        </div>
       </div>
     </form>
   );

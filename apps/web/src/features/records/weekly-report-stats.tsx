@@ -1,11 +1,11 @@
 import { useNavigate } from "@tanstack/react-router";
 import { Check, ChevronLeft, ChevronRight } from "@untitledui/icons";
 
-import { PageHeader } from "@/components/layout/page-header";
-import { Avatar } from "@/components/base/avatar/avatar";
-import { ButtonUtility } from "@/components/base/buttons/button-utility";
-import { avatarInitial, avatarToneClassName } from "@/lib/avatar-tone";
-import { m } from "@/paraglide/messages";
+import { PageHeader } from "#src/components/layout/page-header";
+import { Avatar } from "#src/components/base/avatar/avatar";
+import { ButtonUtility } from "#src/components/base/buttons/button-utility";
+import { avatarInitial, avatarToneClassName } from "#src/lib/avatar-tone";
+import { m } from "#src/paraglide/messages";
 import type { loadWeeklyReportStats } from "./records.functions";
 import { BackToRecords } from "./records-layout";
 

@@ -2,8 +2,8 @@ import { expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { AgentSkillsListResult } from "@lrm/coforge-sdk/internal";
 
-import { AgentSkills, type AgentSkillsLoadResult } from "@/features/agents/agent-skills";
-import { m } from "@/paraglide/messages";
+import { AgentSkills, type AgentSkillsLoadResult } from "#src/features/agents/agent-skills";
+import { m } from "#src/paraglide/messages";
 
 function scope(
   entries: AgentSkillsListResult["global"]["entries"],

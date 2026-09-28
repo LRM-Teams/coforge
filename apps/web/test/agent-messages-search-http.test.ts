@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
-import { handleAgentMessagesSearchGet } from "../src/routes/api/agent/v1/messages_.search";
+import { AGENT_MESSAGE_VALIDATION_MESSAGES } from "@lrm/coforge-sdk/internal";
+import { handleAgentMessagesSearchGet } from "#src/routes/api/agent/v1/messages_.search";
 
 const request = (search: string) =>
   new Request(`https://server.example/api/agent/v1/messages/search${search}`);
@@ -7,7 +8,7 @@ const request = (search: string) =>
 test("search returns the canonical response shape and echoes the request id", async () => {
   let received: unknown;
   const result = await handleAgentMessagesSearchGet(
-    request("?query=hello&requestId=request-2"),
+    request("?query=hello&idempotencyKey=request-2"),
     { workspaceId: "workspace-1", agentId: "agent-1" },
     {
       setAgentChannelMuted: async () => {},
@@ -45,7 +46,7 @@ test("search returns the canonical response shape and echoes the request id", as
   expect(result.status).toBe(200);
   expect(await result.json()).toEqual({
     protocolMajor: 1,
-    requestId: "request-2",
+    idempotencyKey: "request-2",
     results: [
       {
         id: "message-2",
@@ -103,8 +104,8 @@ test("search generates a request id when the daemon omits one", async () => {
     },
   );
   const body = await result.json();
-  expect(typeof body.requestId).toBe("string");
-  expect(body.requestId.length).toBeGreaterThan(0);
+  expect(typeof body.idempotencyKey).toBe("string");
+  expect(body.idempotencyKey.length).toBeGreaterThan(0);
 });
 
 test("rejects an unsupported search query with 400", async () => {
@@ -114,4 +115,49 @@ test("rejects an unsupported search query with 400", async () => {
     { setAgentChannelMuted: async () => {}, setAgentThreadFollowed: async () => {} },
   );
   expect(result.status).toBe(400);
+});
+
+test("search passes its time window through", async () => {
+  let received: unknown;
+  await handleAgentMessagesSearchGet(
+    request(
+      "?query=release&after=2026-09-01T00%3A00%3A00.000Z&before=2026-09-10T00%3A00%3A00.000Z",
+    ),
+    { workspaceId: "workspace-1", agentId: "agent-1" },
+    {
+      setAgentChannelMuted: async () => {},
+      setAgentThreadFollowed: async () => {},
+      searchMessages: async (...args) => {
+        received = args;
+        return [];
+      },
+    },
+  );
+  expect(received).toMatchObject([
+    "workspace-1",
+    "agent-1",
+    {
+      query: "release",
+      after: "2026-09-01T00:00:00.000Z",
+      before: "2026-09-10T00:00:00.000Z",
+    },
+  ]);
+});
+
+test("search rejects a time window that is not a date", async () => {
+  const result = await handleAgentMessagesSearchGet(
+    request("?query=release&after=last-week"),
+    { workspaceId: "workspace-1", agentId: "agent-1" },
+    {
+      setAgentChannelMuted: async () => {},
+      setAgentThreadFollowed: async () => {},
+      searchMessages: async () => [],
+    },
+  );
+  expect(result.status).toBe(400);
+  // The Agent learns which bound was wrong and the form it takes: a validation message the
+  // daemon passes through unchanged.
+  const message = await result.text();
+  expect(message).toBe("search `after` must be an ISO time, such as 2026-09-01T00:00:00Z");
+  expect(AGENT_MESSAGE_VALIDATION_MESSAGES).toContain(message as never);
 });

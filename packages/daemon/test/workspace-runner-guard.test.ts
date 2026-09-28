@@ -5,8 +5,8 @@ import { join } from "node:path";
 import {
   WORKSPACE_HEALTH_DEGRADED_THRESHOLD,
   WorkspaceHealthJournal,
-} from "../src/supervisor/workspace-health-journal";
-import { guardWorkspaceRunnerStart } from "../src/supervisor/workspace-runner-guard";
+} from "#src/supervisor/workspace-health-journal";
+import { guardWorkspaceRunnerStart } from "#src/supervisor/workspace-runner-guard";
 
 let directory: string;
 beforeEach(async () => {

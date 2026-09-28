@@ -20,11 +20,11 @@ import {
   RouterProvider,
   type Key,
 } from "react-aria-components";
-import { Dropdown } from "@/components/base/dropdown/dropdown";
-import { useAppToast } from "@/components/ui/toast";
-import { copyText } from "@/features/records/report-editor/lib/clipboard";
-import { cn } from "@/lib/utils";
-import { m } from "@/paraglide/messages";
+import { Dropdown } from "#src/components/base/dropdown/dropdown";
+import { useAppToast } from "#src/components/ui/toast";
+import { copyText } from "#src/features/records/report-editor/lib/clipboard";
+import { cn } from "#src/lib/utils";
+import { m } from "#src/paraglide/messages";
 import { projectFileDownloadUrl } from "./project-file-urls";
 import { projectObjectQuery } from "./project-tree-queries";
 import {

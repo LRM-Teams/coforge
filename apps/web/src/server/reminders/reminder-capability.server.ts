@@ -1,6 +1,8 @@
 import { RedisClient } from "bun";
+import { redisUrlFor } from "#src/server/redis-url.server";
 import { REMINDER_CAPABILITY } from "@lrm/coforge-sdk/internal";
 import type { ReminderCapabilityLease } from "./reminders.server";
+import { workspaceRedisKey } from "#src/server/redis-keys.server";
 
 const TTL_SECONDS = "90";
 export class RedisReminderCapabilityLease implements ReminderCapabilityLease {
@@ -27,19 +29,19 @@ export class RedisReminderCapabilityLease implements ReminderCapabilityLease {
       await this.redis.set(key, "supported", "EX", TTL_SECONDS);
   }
   private key(workspaceId: string, computerId: string) {
-    return `coforge:workspace:${encodeURIComponent(workspaceId)}:computer:${encodeURIComponent(computerId)}:reminder-capability:v1`;
+    return workspaceRedisKey({
+      workspaceId,
+      computerId,
+      name: "reminder-capability",
+      version: "v1",
+    });
   }
 }
 
 let lease: RedisReminderCapabilityLease | undefined;
 export function getReminderCapabilityLease() {
   lease ??= new RedisReminderCapabilityLease(
-    new RedisClient(
-      Bun.env.REDIS_URL ??
-        (() => {
-          throw new Error("REDIS_URL is required for reminder capability leases");
-        })(),
-    ),
+    new RedisClient(redisUrlFor("reminder capability leases")),
   );
   return lease;
 }

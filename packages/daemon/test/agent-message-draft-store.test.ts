@@ -5,7 +5,7 @@ import { join } from "node:path";
 import {
   AgentMessageDraftStore,
   AGENT_MESSAGE_DRAFT_TTL_MS,
-} from "../src/persistence/agent-message-draft-store";
+} from "#src/persistence/agent-message-draft-store";
 
 const directories: string[] = [];
 

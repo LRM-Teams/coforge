@@ -4,7 +4,7 @@ import type { AgentActivity, AgentStatus } from "@lrm/coforge-sdk/internal";
 import {
   RedisAgentDisplay,
   activityKindForObservation,
-} from "../src/server/agents/agent-display.server";
+} from "#src/server/agents/agent-display.server";
 
 const redisServer = Bun.which("redis-server");
 const port = 20_000 + Math.floor(Math.random() * 20_000);
@@ -470,6 +470,40 @@ describe.skipIf(!redisServer)("RedisAgentDisplay", () => {
     );
     expect((await subject.snapshot(scope)).contextUsage).toBeNull();
   });
+
+  test("reads many Agents' displays in one round trip, in the scopes' order", async () => {
+    await redis.send("FLUSHDB", []);
+    now = 6_400_000;
+    let evals = 0;
+    const counted = new Proxy(redis, {
+      get(target, property) {
+        if (property === "eval")
+          return (script: string, keys: number, ...args: Array<string | number>) => {
+            evals += 1;
+            return target.eval(script, keys, ...args);
+          };
+        const value = Reflect.get(target, property);
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    }) as unknown as typeof redis;
+    const subject = new RedisAgentDisplay(counted, () => now);
+    const other = { workspaceId: "workspace-a", computerId: "computer-a", agentId: "agent-b" };
+    await subject.observeStatus(status(1));
+    await subject.observeStatus({ ...status(1), ...other, requestId: "status-other" });
+    evals = 0;
+
+    const snapshots = await subject.snapshotMany([scope, other]);
+    expect(snapshots.map((entry) => entry.agentId)).toEqual([scope.agentId, other.agentId]);
+    // The batch answer is the answer the single-scope reader gives, per scope — the batch reader is
+    // the same script body, so this is the contract that must not drift.
+    expect(snapshots[0]).toEqual(await subject.snapshot(scope));
+    expect(snapshots[1]).toEqual(await subject.snapshot(other));
+    // One round trip for the pair, then one each for the two single reads it is compared against.
+    expect(evals).toBe(3);
+    // Nothing to read is no round trip.
+    expect(await subject.snapshotMany([])).toEqual([]);
+    expect(evals).toBe(3);
+  });
 });
 
 test("activityKindForObservation is stateless and leaves unknown facts unclassified", () => {
@@ -482,7 +516,7 @@ test("activityKindForObservation is stateless and leaves unknown facts unclassif
   expect(activityKindForObservation({ detailKind: "runtime_reconnecting", level: "info" })).toBe(
     "working",
   );
-  // Cold start after a session invalidate (ADR 0040) must be visible, not dropped.
+  // Cold start after a session invalidate must be visible, not dropped.
   expect(activityKindForObservation({ detailKind: "runtime_unavailable", level: "info" })).toBe(
     "working",
   );
@@ -491,7 +525,6 @@ test("activityKindForObservation is stateless and leaves unknown facts unclassif
   expect(activityKindForObservation({ detailKind: "future", level: "info" })).toBeUndefined();
 });
 
-// ADR 0021
 test("activityKindForObservation classifies the new detail kinds", () => {
   for (const detailKind of [
     "tool_end",

@@ -3,9 +3,9 @@ import { isValidElement } from "react";
 import type { Placement } from "react-aria";
 import type { ButtonProps as AriaButtonProps, LinkProps as AriaLinkProps } from "react-aria-components";
 import { Button as AriaButton, Link as AriaLink } from "react-aria-components";
-import { Tooltip } from "@/components/base/tooltip/tooltip";
-import { cx } from "@/utils/cx";
-import { isReactComponent } from "@/utils/is-react-component";
+import { Tooltip } from "#src/components/base/tooltip/tooltip";
+import { cx } from "#src/utils/cx";
+import { isReactComponent } from "#src/utils/is-react-component";
 
 export const styles = {
     secondary:

@@ -13,6 +13,7 @@ import {
   regionFromEndpoint,
   LATEST_OBJECT_KEY,
   manifestObjectKey,
+  ossError,
   parseTargets,
   runCli,
   runPublish,
@@ -62,12 +63,21 @@ function fixtureArtifacts(): Record<string, { computer: Uint8Array }> {
   return artifacts;
 }
 
+/** A small, distinct fixture standing in for the real ~1.8 MB `photon_rs_bg.wasm` - resolving the
+ * real file from the installed dependency chain is photon-wasm.test.ts's concern. */
+const FIXTURE_PHOTON_WASM = new Uint8Array(Buffer.from("#wasm-fixture: photon_rs_bg.wasm\n"));
+
+function stubResolvePhotonWasm(): () => Promise<Uint8Array> {
+  return async () => FIXTURE_PHOTON_WASM;
+}
+
 async function fixtureTree(version: string, outputDirectory: string): Promise<ReleaseTree> {
   const inputs: ReleaseInputs = {
     version,
     commit: "a".repeat(40),
     buildDate: new Date("2026-09-01T00:00:00.000Z").toISOString(),
     artifacts: fixtureArtifacts(),
+    photonWasm: FIXTURE_PHOTON_WASM,
   };
   return buildReleaseTree(inputs, outputDirectory);
 }
@@ -86,6 +96,9 @@ interface FakeOssOptions {
   preexistingKeys?: Set<string>;
   /** Keys whose existence probe answers with an ambiguous status instead of 200/404. */
   failProbeKeys?: Set<string>;
+  /** Delay every authenticated upload response by this many ms, simulating a slow link. Used by
+   * the slow-server regression test to prove a stalled upload reports the timeout's `name`. */
+  delayUploadMs?: number;
 }
 
 interface FakeOss {
@@ -97,6 +110,9 @@ interface FakeOss {
   /** Reads the fixture's in-memory store directly, bypassing HTTP - used to assert the final
    * state of `latest` after a rollback without needing a second signed client round trip. */
   peek(key: string): Uint8Array | undefined;
+  /** The `Content-Type` header the most recent PUT for this key carried, or undefined if it was
+   * never uploaded. */
+  contentType(key: string): string | undefined;
 }
 
 function startFakeOssServer(options: FakeOssOptions = {}): FakeOss {
@@ -105,6 +121,7 @@ function startFakeOssServer(options: FakeOssOptions = {}): FakeOss {
   if (options.previousLatest) store.set("latest", new TextEncoder().encode(options.previousLatest));
   const calls: Array<{ method: string; key: string }> = [];
   const authHeaders: Array<string | undefined> = [];
+  const contentTypes = new Map<string, string | undefined>();
 
   const server = Bun.serve({
     port: 0,
@@ -128,6 +145,9 @@ function startFakeOssServer(options: FakeOssOptions = {}): FakeOss {
         return new Response(null, { status: 204 });
       }
       if (method === "PUT") {
+        if (options.delayUploadMs) {
+          await Bun.sleep(options.delayUploadMs);
+        }
         if (options.failUploadKeys?.has(objectKey)) {
           return new Response("<Error><Code>InternalError</Code></Error>", {
             status: 500,
@@ -135,6 +155,7 @@ function startFakeOssServer(options: FakeOssOptions = {}): FakeOss {
           });
         }
         store.set(objectKey, new Uint8Array(await request.arrayBuffer()));
+        contentTypes.set(objectKey, request.headers.get("content-type") ?? undefined);
         return new Response(null, { status: 200 });
       }
 
@@ -177,6 +198,7 @@ function startFakeOssServer(options: FakeOssOptions = {}): FakeOss {
     calls,
     authHeaders,
     peek: (key) => store.get(key),
+    contentType: (key) => contentTypes.get(key),
   };
 }
 
@@ -276,6 +298,26 @@ test("publication uploads every object, verifies it by reading the bytes back, a
   expect(Buffer.compare(roundTrip.content as Buffer, local)).toBe(0);
 });
 
+test("photon_rs_bg.wasm uploads with the application/wasm media type; every other object stays octet-stream", async () => {
+  const outputDirectory = await tempDir("coforge-publish-tree-");
+  const tree = await fixtureTree("9.9.9-wasm-content-type", outputDirectory);
+  const wasmKey = `${tree.version}/photon_rs_bg.wasm`;
+  const manifestKey = manifestObjectKey(tree.version);
+  const fake = startFakeOssServer();
+  const connection = fixtureConnection(fake);
+  const client = await createOssClient(connection, CREDENTIALS);
+
+  await uploadReleaseTree(outputDirectory, tree, { client, connection });
+
+  expect(fake.contentType(wasmKey)).toBe("application/wasm");
+  expect(fake.contentType(manifestKey)).toBe("application/octet-stream");
+  for (const target of TEST_TARGETS) {
+    expect(fake.contentType(`${tree.version}/${target}/coforge-computer.gz`)).toBe(
+      "application/octet-stream",
+    );
+  }
+});
+
 test("a failed object upload never writes latest, and stops before uploading later objects", async () => {
   const outputDirectory = await tempDir("coforge-publish-tree-");
   const tree = await fixtureTree("9.9.9-upload-fail", outputDirectory);
@@ -300,6 +342,34 @@ test("a failed object upload never writes latest, and stops before uploading lat
     fake.calls.some((call) => call.method === "PUT" && call.key.endsWith("manifest.json")),
   ).toBe(false);
   expect(fake.calls.some((call) => call.key === LATEST_OBJECT_KEY)).toBe(false);
+});
+
+test("a stalled upload reports the timeout's name, not an opaque HTTP unknown", async () => {
+  const outputDirectory = await tempDir("coforge-publish-slowtimeout-");
+  const tree = await fixtureTree("9.9.9-slow-timeout", outputDirectory);
+  // The fixture never responds within the test's tiny per-request timeout, so ali-oss aborts the
+  // request with a name-only ResponseTimeoutError (no status/code/request-id - see publish.ts's
+  // ossError comment). This pins the regression: the message has to say *which* failure it was.
+  const fake = startFakeOssServer({ delayUploadMs: 500 });
+  const connection = fixtureConnection(fake);
+  const client = await createOssClient(connection, CREDENTIALS);
+
+  const rejection = await uploadReleaseTree(outputDirectory, tree, {
+    client,
+    connection,
+    requestTimeoutMs: 50,
+  }).catch((error: unknown) => error as Error);
+  expect(rejection).toBeInstanceOf(Error);
+  expect(rejection.message).toMatch(/OSS upload failed:/);
+  // The timeout surfaces its stable class name, so the log can say "it timed out" rather than
+  // leaving a bare `HTTP unknown` that is indistinguishable from any other opaque transport error.
+  expect(rejection.message).toMatch(/ResponseTimeoutError/);
+
+  // A failed publish must not have advanced `latest` or left the manifest behind.
+  expect(fake.calls.some((call) => call.key === LATEST_OBJECT_KEY)).toBe(false);
+  expect(
+    fake.calls.some((call) => call.method === "PUT" && call.key.endsWith("manifest.json")),
+  ).toBe(false);
 });
 
 test("republishing a version that already completed is refused before anything is uploaded", async () => {
@@ -541,6 +611,7 @@ test("a failed publish never prints the access key, secret, or an Authorization 
       ],
       {
         compile: stubCompile(),
+        resolvePhotonWasm: stubResolvePhotonWasm(),
         connection: { endpoint: fake.baseUrl, cname: true, secure: false },
       },
     );
@@ -588,7 +659,11 @@ test("--dry-run makes no network calls and reports the objects it would publish"
       endpoint: "oss-cn-beijing.aliyuncs.com",
       dryRun: true,
     },
-    { compile: stubCompile(), fetchImpl: throwingFetch },
+    {
+      compile: stubCompile(),
+      resolvePhotonWasm: stubResolvePhotonWasm(),
+      fetchImpl: throwingFetch,
+    },
   );
 
   expect(fetchCalls).toBe(0);
@@ -648,10 +723,114 @@ test("regionFromEndpoint reads the region a public OSS endpoint names and nothin
   expect(regionFromEndpoint("https://oss-cn-beijing-internal.aliyuncs.com")).toBe("oss-cn-beijing");
   expect(regionFromEndpoint("http://127.0.0.1:4567")).toBeUndefined();
   expect(regionFromEndpoint("files.coforge.cn")).toBeUndefined();
+  // Transfer acceleration endpoints are global and name no region.
+  expect(regionFromEndpoint("oss-accelerate.aliyuncs.com")).toBeUndefined();
+  expect(regionFromEndpoint("https://oss-accelerate-overseas.aliyuncs.com")).toBeUndefined();
   await expect(
     createOssClient(
       { bucket: BUCKET, endpoint: "http://127.0.0.1:4567", cname: true },
       CREDENTIALS,
     ),
   ).rejects.toThrow("cannot derive the OSS region");
+});
+
+test("a transport failure names its class, and still leaks nothing else", () => {
+  // The OSS SDK's own message and response body are never surfaced (a `SignatureDoesNotMatch` echoes
+  // the signature material back), but the error's *class* is a kind, not content - and it is the only
+  // diagnosis a transport failure has, since it reports no status at all.
+  const timeout = ossError("upload", "1.2.3/darwin-arm64/coforge-computer.gz", {
+    name: "ResponseTimeoutError",
+    message: "ResponseTimeoutError: connect ETIMEDOUT 1.2.3.4:443",
+  });
+  expect(timeout.message).toContain("ResponseTimeoutError");
+  expect(timeout.message).toContain("HTTP unknown");
+  expect(timeout.message).not.toContain("1.2.3.4");
+
+  const plain = ossError("upload", "key", new Error("Signature=abc123 AccessKeyId=LTAI-secret"));
+  expect(plain.message).not.toContain("Signature=abc123");
+  expect(plain.message).not.toContain("LTAI-secret");
+  // A bare `Error` says nothing, so it is not printed as if it were a diagnosis.
+  expect(plain.message).not.toContain(" Error ");
+});
+
+test("the publish client keeps ali-oss's documented defaults", async () => {
+  // Transfer acceleration fixed the slow cross-border link, so uploads use ali-oss's documented
+  // 60 s request timeout and its default keep-alive agent instead of batch-job overrides.
+  const connection = fixtureConnection({ url: "https://oss.example" });
+  const client = await createOssClient(connection, CREDENTIALS);
+  const options = (
+    client as unknown as { options: { timeout?: number; agent?: unknown; httpsAgent?: unknown } }
+  ).options;
+  expect(options.timeout).toBe(60_000);
+  expect(options.agent).toBeUndefined();
+  expect(options.httpsAgent).toBeUndefined();
+});
+
+test("an objects-only publication uploads its files and never touches latest", async () => {
+  // The per-platform half of a split publication: parallel jobs must not move the feed's only mutable
+  // object, because docs/release/local-distribution.md requires `latest` to be written last and
+  // never to point at an incomplete version. The finalize job moves it once every platform's
+  // objects are up.
+  const outputDirectory = await tempDir("coforge-publish-objects-only-");
+  const tree = await fixtureTree("9.9.9-objects-only", outputDirectory);
+  const fake = startFakeOssServer({});
+  const connection = fixtureConnection(fake);
+  const client = await createOssClient(connection, CREDENTIALS);
+
+  const result = await uploadReleaseTree(outputDirectory, tree, {
+    client,
+    connection,
+    activate: false,
+  });
+
+  // Every object except the manifest: its content is a hash of *all* targets, and each platform job
+  // compiles only its own, so writing it here would race five others with an incomplete marker.
+  expect(result.uploaded.length).toBe(tree.files.length - 1);
+  expect(fake.calls.some((call) => call.key === LATEST_OBJECT_KEY)).toBe(false);
+  // Scoped to writes: reading the manifest is expected (it is the completion marker the *next* publish
+  // probes). Writing it is what the objects-only job must not do.
+  expect(
+    fake.calls.some((call) => call.method === "PUT" && call.key.endsWith("manifest.json")),
+  ).toBe(false);
+  // The objects themselves still went up, and were verified by reading them back.
+  expect(fake.calls.filter((call) => call.method === "PUT").length).toBeGreaterThan(0);
+});
+
+test("a finalize pass verifies an already-uploaded version and writes only the manifest and latest", async () => {
+  // The two-phase publication end to end: the per-platform jobs put the objects up and touch neither
+  // the manifest (their own copy would be incomplete - each compiles one target) nor `latest`; the
+  // finalize job recompiles the same tree, verifies every object against those bytes, writes the one
+  // true manifest, and only then moves `latest`.
+  const outputDirectory = await tempDir("coforge-publish-finalize-");
+  const tree = await fixtureTree("9.9.9-finalize", outputDirectory);
+  const manifestKey = `9.9.9-finalize/manifest.json`;
+  const fake = startFakeOssServer({});
+  const connection = fixtureConnection(fake);
+  const client = await createOssClient(connection, CREDENTIALS);
+
+  const platform = await uploadReleaseTree(outputDirectory, tree, {
+    client,
+    connection,
+    activate: false,
+  });
+  const platformPuts = fake.calls.filter(
+    (call) => call.method === "PUT" && call.key !== LATEST_OBJECT_KEY,
+  );
+  expect(platformPuts.some((call) => call.key === manifestKey)).toBe(false);
+  expect(fake.calls.some((call) => call.key === LATEST_OBJECT_KEY)).toBe(false);
+  expect(platform.uploaded.length).toBe(tree.files.length - 1);
+
+  const finalize = await uploadReleaseTree(outputDirectory, tree, {
+    client,
+    connection,
+    allowExisting: true,
+  });
+
+  const finalizePuts = fake.calls
+    .filter((call) => call.method === "PUT" && call.key !== LATEST_OBJECT_KEY)
+    .slice(platformPuts.length);
+  // No data object is rewritten: they are verified against the freshly compiled bytes, not re-uploaded.
+  expect(finalizePuts.map((call) => call.key)).toEqual([manifestKey]);
+  expect(fake.calls.some((call) => call.key === LATEST_OBJECT_KEY)).toBe(true);
+  expect(finalize.uploaded.length).toBe(tree.files.length);
 });

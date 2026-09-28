@@ -1,4 +1,4 @@
-import { AppError } from "../../lib/app-error";
+import { AppError } from "#src/lib/app-error";
 import {
   assertCanChangeMemberRole,
   assertCanInvite,
@@ -8,6 +8,10 @@ import {
   type InvitableWorkspaceRole,
   type WorkspaceMemberRole,
 } from "./member-role.server";
+import {
+  announceMemberChanged,
+  type ConversationRealtime,
+} from "#src/server/conversations/conversation-realtime.server";
 
 export type WorkspaceMemberRecord = {
   workspaceId: string;
@@ -60,7 +64,9 @@ export type WorkspaceMemberDirectoryStore = {
     userId: string,
     role: WorkspaceMemberRole,
   ): Promise<WorkspaceMemberRecord>;
-  removeMember(workspaceId: string, userId: string): Promise<void>;
+  /** Removes the person from the Workspace and every conversation in it; reports the channels
+   * they were an active member of, whose member lists now changed. */
+  removeMember(workspaceId: string, userId: string): Promise<{ leftChannelIds: string[] }>;
 };
 
 const INVITATION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -70,6 +76,7 @@ export class WorkspaceMemberDirectory {
   constructor(
     private readonly store: WorkspaceMemberDirectoryStore,
     private readonly now: () => Date = () => new Date(),
+    private readonly realtime?: Pick<ConversationRealtime, "memberChanged">,
   ) {}
 
   async listMembers(input: { workspaceId: string; actorUserId: string }) {
@@ -163,13 +170,19 @@ export class WorkspaceMemberDirectory {
     const target = await this.store.findMembership(input.workspaceId, input.targetUserId);
     if (!target) throw new AppError("NOT_FOUND");
     assertCanRemoveMember(actor.role, target.role);
-    await this.store.removeMember(input.workspaceId, input.targetUserId);
+    await this.removeFromWorkspace(input.workspaceId, input.targetUserId);
   }
 
   async leave(input: { workspaceId: string; userId: string }) {
     const membership = await this.requireMembership(input.workspaceId, input.userId);
     assertCanLeaveWorkspace(membership.role);
-    await this.store.removeMember(input.workspaceId, input.userId);
+    await this.removeFromWorkspace(input.workspaceId, input.userId);
+  }
+
+  /** Removes the person, then tells the channels they were in that their member lists changed. */
+  private async removeFromWorkspace(workspaceId: string, userId: string) {
+    const { leftChannelIds } = await this.store.removeMember(workspaceId, userId);
+    await announceMemberChanged(this.realtime, { workspaceId, conversationIds: leftChannelIds });
   }
 
   private async requireMembership(workspaceId: string, userId: string) {

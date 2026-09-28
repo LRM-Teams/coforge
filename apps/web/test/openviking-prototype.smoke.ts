@@ -20,7 +20,7 @@
 import { expect, test } from "bun:test";
 import { Pool, type PoolClient } from "pg";
 import { PrismaPg } from "@prisma/adapter-pg";
-import { PrismaClient } from "../generated/client";
+import { PrismaClient } from "#src/generated/prisma/client";
 import { PrismaWorkspaceMemoryCitationStore } from "../src/server/db/repositories/workspace-memory-citation.repositories.server";
 import { createMemoryCitationBindings } from "../src/server/workspace-memory/memory-citations";
 import {

@@ -3,16 +3,16 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PrismaPg } from "@prisma/adapter-pg";
-import { PrismaClient } from "../generated/client";
-import { prepareDaemonApiKey } from "../src/server/auth/daemon-api-key.server";
-import { DEV_BROWSER_USER } from "../src/server/auth/dev-skip-auth.server";
-import { PrismaAgentControlStore } from "../src/server/db/repositories/agent-control.repositories.server";
+import { PrismaClient } from "#src/generated/prisma/client";
+import { prepareDaemonApiKey } from "#src/server/auth/daemon-api-key.server";
+import { DEV_BROWSER_USER } from "#src/server/auth/dev-skip-auth.server";
+import { PrismaAgentControlStore } from "#src/server/db/repositories/agent-control.repositories.server";
 import {
   DaemonConnection,
   DaemonRuntime,
   InMemoryDaemonCredentialStore,
-} from "../../../packages/daemon";
-import { PiJsonlFixtureProvider } from "../../../packages/daemon/test/fixtures/pi-jsonl-fixture-provider";
+} from "@lrm/coforge-daemon";
+import { PiJsonlFixtureProvider } from "@lrm/coforge-daemon/test/fixtures/pi-jsonl-fixture-provider";
 
 // Explicit opt-in: real local Web/PostgreSQL/Redis/Centrifugo and browser, but a
 // deterministic Pi-protocol child instead of paid model inference. No TRUNCATE/FLUSHDB.

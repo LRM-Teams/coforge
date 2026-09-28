@@ -1,11 +1,11 @@
-import type { PrismaClient } from "../../../generated/client";
-import { AppError } from "../../lib/app-error";
-import { createCentrifugoServerApi } from "../centrifugo/server-api.server";
-import { CentrifugoConversationRealtime } from "../conversations/conversation-realtime.server";
-import { PrismaDirectConversationRepository } from "../db/repositories/direct-conversation.repositories.server";
-import { getMessageRequestIdempotency } from "../conversations/redis-message-request-idempotency.server";
-import { SendDirectMessage } from "../conversations/direct-message.server";
-import { parseAgentRuntimeConfig } from "../agents/agent-runtime-config.server";
+import type { PrismaClient } from "#src/generated/prisma/client";
+import { AppError } from "#src/lib/app-error";
+import { createCentrifugoServerApi } from "#src/server/centrifugo/server-api.server";
+import { CentrifugoConversationRealtime } from "#src/server/conversations/conversation-realtime.server";
+import { PrismaDirectConversationRepository } from "#src/server/db/repositories/direct-conversation.repositories.server";
+import { getMessageRequestIdempotency } from "#src/server/conversations/redis-message-request-idempotency.server";
+import { SendDirectMessage } from "#src/server/conversations/direct-message.server";
+import { parseAgentRuntimeConfig } from "#src/server/agents/agent-runtime-config.server";
 import {
   DEFAULT_PERSONAL_KEY_POINT_PROMPT,
   DEFAULT_TEAM_KEY_POINT_PROMPT,
@@ -17,10 +17,9 @@ import {
   type ReportContent,
   applyKeyPointPromptText,
   emptyKeyPointPrompts,
-} from "../../features/records/records-content";
-import { linkifyKeyPointSourceAttributions } from "../../features/records/key-point-source-links";
+} from "#src/features/records/records-content";
+import { linkifyKeyPointSourceAttributions } from "#src/features/records/key-point-source-links";
 import { ensureWeeklyReportAssistant } from "./weekly-report-assistant.server";
-import { WeeklyReportAssistantChat } from "./weekly-report-assistant-chat.server";
 import { ensureWeeklyReportAssistantChatSession } from "./weekly-report-assistant-chat-session.server";
 
 export function isWeeklyReportAssistantReady(agent: {
@@ -282,7 +281,11 @@ export async function startTeamKeyPointExtraction(
       body: string;
     }) => Promise<void>;
   },
-): Promise<{ started: boolean; status: KeyPointExtractionMeta["status"] }> {
+): Promise<{
+  started: boolean;
+  status: KeyPointExtractionMeta["status"];
+  error?: string;
+}> {
   const overview = await db.weeklyReport.findFirst({
     where: {
       id: input.overviewReportId,
@@ -333,6 +336,16 @@ export async function startTeamKeyPointExtraction(
     },
   });
 
+  if (submitted.length === 0) {
+    // Ephemeral: toast on the click path only — do not park this on the overview
+    // panel (it would stick after members later submit).
+    return {
+      started: false,
+      status: "failed",
+      error: "no_submitted_member_reports",
+    };
+  }
+
   const leaderUserId = overview.authorId;
   const promptState = await loadPromptForLeader(db, {
     workspaceId: input.workspaceId,
@@ -341,19 +354,6 @@ export async function startTeamKeyPointExtraction(
     slot: "team",
   });
   const promptSnapshot = promptState.text.trim() || DEFAULT_TEAM_KEY_POINT_PROMPT;
-
-  if (submitted.length === 0) {
-    await writeKeyPointExtraction(db, {
-      reportId: overview.id,
-      content,
-      extraction: {
-        status: "failed",
-        promptSnapshot,
-        error: "no_submitted_member_reports",
-      },
-    });
-    return { started: false, status: "failed" };
-  }
 
   const assistant = await ensureWeeklyReportAssistant(db, {
     workspaceId: input.workspaceId,
@@ -476,14 +476,8 @@ async function wakeLeaderKeyPointAssistant(
     body: string;
   },
 ) {
-  const centrifugo = createCentrifugoServerApi();
-  const chat = new WeeklyReportAssistantChat(
-    db,
-    new PrismaDirectConversationRepository(db),
-    getMessageRequestIdempotency(),
-    centrifugo,
-    new CentrifugoConversationRealtime(centrifugo),
-  );
+  const { openWeeklyReportAssistantChat } = await import("./weekly-report-assistant-chat.server");
+  const chat = openWeeklyReportAssistantChat(db);
   await chat.postRequest({
     workspaceId: input.workspaceId,
     userId: input.leaderUserId,

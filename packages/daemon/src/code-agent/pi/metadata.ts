@@ -1,5 +1,5 @@
 import { RUNTIME_PROVIDER, type RuntimeMetadata } from "@lrm/coforge-sdk/internal";
-import { COFORGE_DAEMON_VERSION } from "../../version";
+import { COFORGE_DAEMON_VERSION } from "#src/version";
 
 /** Release-provided CoForge Agent identity. */
 export const COFORGE_AGENT_RUNTIME_METADATA: RuntimeMetadata = {

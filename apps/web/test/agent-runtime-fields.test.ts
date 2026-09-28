@@ -14,7 +14,7 @@ import {
   splitCustomModel,
   type RuntimeOptions,
   type RuntimeSelection,
-} from "@/features/agents/agent-runtime-fields";
+} from "#src/features/agents/agent-runtime-fields";
 
 /**
  * `reasoningFieldState` decides whether the Reasoning field should render and what value the

@@ -1,11 +1,12 @@
 import {
   AgentTransportError,
   type AgentTransportFailureClass,
-} from "./connection/agent-transport-error";
-import { AgentMessageRequestError } from "./connection/agent-message-request-error";
-import { AgentTaskRequestError } from "./connection/agent-task-request-error";
-import { AgentWeeklyReportRequestError } from "./connection/agent-weekly-report-request-error";
-import { AgentPreflightError } from "./daemon-runtime/agent-preflight-error";
+} from "#src/connection/agent-transport-error";
+import { AgentMessageRequestError } from "#src/connection/agent-message-request-error";
+import { AgentTaskRequestError } from "#src/connection/agent-task-request-error";
+import { AgentUpstreamRefusalError } from "#src/connection/agent-upstream-refusal-error";
+import { AgentWeeklyReportRequestError } from "#src/connection/agent-weekly-report-request-error";
+import { AgentPreflightError } from "#src/daemon-runtime/agent-preflight-error";
 
 /** Response header carrying the same correlation id as the JSON error body. */
 export const AGENT_PROXY_CORRELATION_HEADER = "x-coforge-correlation-id";
@@ -56,6 +57,20 @@ const TRANSPORT_PUBLIC_ERRORS: Record<AgentTransportFailureClass, string> = {
 // returned to the Agent and written to the daemon log, so none of them may ride along in a message.
 const CREDENTIAL_IN_DETAIL = /\b(?:sk_[a-z]+_|sfp_)[A-Za-z0-9_-]{16,}|\bBearer\s+\S+/g;
 
+/** The upstream statuses a business refusal may carry; anything else stays an opaque 502. */
+const UPSTREAM_REFUSAL_STATUSES: ReadonlySet<number> = new Set([400, 403, 404, 409, 503]);
+
+/** The caller-facing line per upstream refusal code. These are the route's own contract codes
+ * (`CONFLICT`, `ACCESS_DENIED`, …), not internals: naming them is what makes a business rejection
+ * actionable instead of arriving as a mystery 502. */
+const UPSTREAM_REFUSAL_PUBLIC_ERRORS: Record<string, string> = {
+  INVALID_INPUT: "the request was not valid for this operation",
+  NOT_FOUND: "the referenced task or message does not exist",
+  ACCESS_DENIED: "this agent is not allowed to do that",
+  CONFLICT: "the task changed since you last read it; read the Task list again",
+  TEMPORARILY_UNAVAILABLE: "the server is temporarily unavailable; retry",
+};
+
 /** Whitespace-normalises, strips credentials from, and bounds an error message. */
 function boundedDetail(message: string): string {
   const normalized = message
@@ -91,6 +106,9 @@ export function classifyAgentProxyFailure(
       responseStarted?: boolean;
       responseComplete?: boolean;
       draftSaved?: boolean;
+      /** Log only: the upstream body's own `code`, which explains a refusal that the caller is
+       * deliberately not shown the internals of. Never enters `body`. */
+      upstreamCode?: string;
     } = {},
   ): AgentProxyClassifiedFailure => {
     const body: AgentProxyFailureBody = {
@@ -121,6 +139,7 @@ export function classifyAgentProxyFailure(
         cause_code: body.proxy.cause_code,
         ...(options.detail !== undefined ? { detail: options.detail } : {}),
         upstream_status: body.proxy.upstream_status,
+        ...(options.upstreamCode !== undefined ? { upstream_code: options.upstreamCode } : {}),
         response_started: body.proxy.response_started,
         response_complete: body.proxy.response_complete,
         method: context.method,
@@ -180,7 +199,35 @@ export function classifyAgentProxyFailure(
     });
   }
 
+  // A refusal the upstream named with a business code (a 403 "this agent is not allowed", a 409
+  // "the task changed since you saw it") is not a transport failure: the caller gets the real
+  // status and that code, so a claim of an already-claimed task is a 409, not a 502. Reviewer
+  // isolation keeps the opaque form — a redacted request learns only that its request failed.
+  if (
+    error instanceof AgentUpstreamRefusalError &&
+    !context.redact &&
+    error.upstreamStatus !== undefined &&
+    error.upstreamCode !== undefined
+  ) {
+    const publicError = UPSTREAM_REFUSAL_PUBLIC_ERRORS[error.upstreamCode];
+    if (publicError !== undefined && UPSTREAM_REFUSAL_STATUSES.has(error.upstreamStatus)) {
+      return build(error.upstreamStatus, "upstream_http_response", error.upstreamCode, {
+        publicError,
+        topLevelCode: error.upstreamCode,
+        upstreamStatus: error.upstreamStatus,
+        responseStarted: true,
+        responseComplete: true,
+      });
+    }
+  }
+
   return build(502, "unclassified", "UNCLASSIFIED_PROXY_FAILURE", {
     detail: boundedDetail(error instanceof Error ? error.message : String(error)),
+    // A refusal this layer could not classify is exactly the case where the server's own code is
+    // the only thing that says what happened; the caller still gets the correlation id and nothing
+    // else, and the code is written to the daemon log beside it.
+    ...(error instanceof AgentUpstreamRefusalError && error.upstreamCode !== undefined
+      ? { upstreamCode: error.upstreamCode }
+      : {}),
   });
 }

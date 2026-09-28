@@ -1,4 +1,4 @@
-import { AppError } from "../../lib/app-error";
+import { AppError } from "#src/lib/app-error";
 
 export const WORKSPACE_MEMBER_ROLES = ["owner", "admin", "member"] as const;
 export type WorkspaceMemberRole = (typeof WORKSPACE_MEMBER_ROLES)[number];
@@ -14,20 +14,35 @@ export function isAdminLike(role: WorkspaceMemberRole): boolean {
   return role === "owner" || role === "admin";
 }
 
+/** An actor's stored server role (human `WorkspaceMembership.role` or `Agent.role`) counts as
+ * owner/admin only when it is a recognized role; a missing or unknown value fails closed. */
+export function isElevatedServerRole(role: string | undefined): boolean {
+  return role !== undefined && isWorkspaceMemberRole(role) && isAdminLike(role);
+}
+
+/** Workspace-wide settings, such as hiding `#general`, are Workspace owner/admin only. */
+export function assertCanManageWorkspaceSettings(actorRole: string | undefined): void {
+  if (!isElevatedServerRole(actorRole)) throw new AppError("ACCESS_DENIED");
+}
+
 export function assertCanManageMembers(actorRole: WorkspaceMemberRole): void {
   if (!isAdminLike(actorRole)) throw new AppError("ACCESS_DENIED");
 }
 
 /** Creating an Agent requires Workspace owner/admin authority, kept as its own named seam. */
+export function canCreateAgents(actorRole: string | undefined): boolean {
+  return isElevatedServerRole(actorRole);
+}
+
 export function assertCanCreateAgents(actorRole: WorkspaceMemberRole): void {
-  if (!isAdminLike(actorRole)) throw new AppError("ACCESS_DENIED");
+  if (!canCreateAgents(actorRole)) throw new AppError("ACCESS_DENIED");
 }
 
 /**
  * Raft capability table (`shared/src/serverPermissions.ts`): `deleteAgents` sits with
  * `createAgents`/`editAgents` in `ADMIN_SERVER_CAPABILITIES` and is absent from
  * `MEMBER_SERVER_CAPABILITIES`, so deleting an Agent is Workspace owner/admin only — not even the
- * Agent's own owner may delete it as a plain member (ADR 0044).
+ * Agent's own owner may delete it as a plain member.
  */
 export function assertCanDeleteAgents(actorRole: WorkspaceMemberRole): void {
   if (!isAdminLike(actorRole)) throw new AppError("ACCESS_DENIED");

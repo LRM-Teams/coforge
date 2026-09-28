@@ -1,5 +1,3 @@
-import { readFileSync } from "node:fs";
-
 import type { AuthingConfig } from "./browser-login.server";
 
 export class AuthConfigError extends Error {
@@ -9,10 +7,13 @@ export class AuthConfigError extends Error {
   }
 }
 
-export function readAuthingConfig(env: NodeJS.ProcessEnv, origin: string): AuthingConfig {
-  const appId = required(env, "AUTHING_APP_ID");
-  const appSecret = required(env, "AUTHING_APP_SECRET");
-  const issuer = httpsIssuer(required(env, "AUTHING_ISSUER"));
+export async function readAuthingConfig(
+  env: NodeJS.ProcessEnv,
+  origin: string,
+): Promise<AuthingConfig> {
+  const appId = await required(env, "AUTHING_APP_ID");
+  const appSecret = await required(env, "AUTHING_APP_SECRET");
+  const issuer = httpsIssuer(await required(env, "AUTHING_ISSUER"));
   const redirectUri = env.AUTHING_REDIRECT_URI?.trim() || `${origin}/auth/callback`;
   return {
     appId,
@@ -26,15 +27,15 @@ export function readAuthingConfig(env: NodeJS.ProcessEnv, origin: string): Authi
   };
 }
 
-export function readSessionSecret(env: NodeJS.ProcessEnv): string {
-  const secret = required(env, "COFORGE_SESSION_SECRET");
+export async function readSessionSecret(env: NodeJS.ProcessEnv): Promise<string> {
+  const secret = await required(env, "COFORGE_SESSION_SECRET");
   if (secret.length < 32) {
     throw new AuthConfigError("COFORGE_SESSION_SECRET must be at least 32 characters");
   }
   return secret;
 }
 
-function required(env: NodeJS.ProcessEnv, name: string): string {
+async function required(env: NodeJS.ProcessEnv, name: string): Promise<string> {
   const inlineValue = env[name]?.trim();
   const fileName = `${name}_FILE`;
   const filePath = env[fileName]?.trim();
@@ -45,7 +46,8 @@ function required(env: NodeJS.ProcessEnv, name: string): string {
   let value = inlineValue;
   if (filePath) {
     try {
-      value = readFileSync(filePath, "utf8").trim();
+      // Official file read: https://bun.com/docs/runtime/file-io
+      value = (await Bun.file(filePath).text()).trim();
     } catch {
       throw new AuthConfigError(`${fileName} could not be read`);
     }

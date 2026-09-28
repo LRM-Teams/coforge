@@ -1,4 +1,4 @@
-import type { PrismaClient } from "../../../../generated/client";
+import type { PrismaClient } from "#src/generated/prisma/client";
 import { decodeOpenVikingBinding, type OpenVikingBinding } from "../../openviking/contract";
 import type { OpenVikingBindingStore } from "../../openviking/stores";
 import {

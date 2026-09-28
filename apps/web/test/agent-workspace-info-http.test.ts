@@ -3,7 +3,7 @@ import { RUNTIME_PROVIDER } from "@lrm/coforge-sdk/internal";
 
 // The live status source: only `agent-1` (on computer-1) has an "online" display snapshot; every
 // other read throws, which the route must report as "unknown", never as a failure.
-mock.module("../src/server/agents/agent-display.server", () => ({
+mock.module("#src/server/agents/agent-display.server", () => ({
   getAgentDisplay: () => ({
     snapshot: async (scope: { workspaceId: string; computerId: string; agentId: string }) => {
       if (scope.agentId !== "agent-1") throw new Error("no snapshot");
@@ -20,10 +20,30 @@ mock.module("../src/server/agents/agent-display.server", () => ({
         expiresAt: null,
       };
     },
+    // The batched reader the route uses: it fails as a whole when any scope cannot be read, which is
+    // what sends the route to its per-Agent fallback. That fallback is the reason this test still
+    // sees `agent-1` as online while every other Agent is unknown, so it is exercised on purpose.
+    snapshotMany: async (
+      scopes: Array<{ workspaceId: string; computerId: string; agentId: string }>,
+    ) => {
+      if (scopes.some((scope) => scope.agentId !== "agent-1")) throw new Error("no snapshot");
+      return scopes.map((scope) => ({
+        protocolMajor: 1 as const,
+        workspaceId: scope.workspaceId,
+        computerId: scope.computerId,
+        agentId: scope.agentId,
+        revision: 1,
+        activityKind: "online",
+        detailKind: "idle",
+        detail: "",
+        entries: [],
+        expiresAt: null,
+      }));
+    },
   }),
 }));
 
-const { Route } = await import("../src/routes/api/agent/v1/workspace");
+const { Route } = await import("#src/routes/api/agent/v1/workspace");
 
 afterAll(() => {
   mock.restore();
@@ -44,31 +64,46 @@ const OTHER_AGENT = {
   stoppedAt: null,
 };
 
-function baseDb(selfAgent: unknown) {
+let lastRosterQuery: unknown;
+
+function baseDb(selfAgent: unknown, rosterOverride?: unknown[]) {
   return {
     workspace: { findUnique: async () => WORKSPACE },
     workspaceMembership: { findMany: async () => [] },
     agent: {
-      findMany: async () => [
-        {
-          id: "agent-1",
-          name: "scout",
-          displayName: "Scout",
-          description: "Reviews pull requests.",
-          computerId: "computer-1",
-          stoppedAt: null,
-        },
-        OTHER_AGENT,
-      ],
+      findMany: async (query: unknown) => {
+        lastRosterQuery = query;
+        return (
+          rosterOverride ?? [
+            {
+              id: "agent-1",
+              name: "scout",
+              displayName: "Scout",
+              description: "Reviews pull requests.",
+              computerId: "computer-1",
+              stoppedAt: null,
+            },
+            OTHER_AGENT,
+          ]
+        );
+      },
       findUnique: async () => selfAgent,
+      // `agentVisibilityViewerForActor` resolving the calling Agent's own ownerId/role;
+      // `agent-1` (the caller in every test here) owns nothing else in the fixtures below, so a
+      // fixed, non-elevated identity that never matches another Agent's `ownerId` is enough.
+      findFirst: async () => ({ ownerId: "user-scout-owner", role: "member" }),
     },
     project: { findMany: async () => [] },
   };
 }
 
-function request(principal: { workspaceId: string; agentId: string }, selfAgent: unknown) {
+function request(
+  principal: { workspaceId: string; agentId: string },
+  selfAgent: unknown,
+  rosterOverride?: unknown[],
+) {
   return get({
-    context: { principal, db: baseDb(selfAgent) },
+    context: { principal, db: baseDb(selfAgent, rosterOverride) },
   } as unknown as Parameters<typeof get>[0]);
 }
 
@@ -191,4 +226,15 @@ test("workspace info omits runtimeContext entirely when the calling Agent record
   expect(response.status).toBe(200);
   const body = await response.json();
   expect(body.runtimeContext).toBeUndefined();
+});
+
+test("workspace info roster query hides a private Agent the caller cannot see", async () => {
+  await request(PRINCIPAL, { id: "agent-1", name: "scout", runtimeConfig: {}, computerId: null });
+  expect(lastRosterQuery).toMatchObject({
+    where: {
+      workspaceId: "workspace-1",
+      deletedAt: null,
+      OR: [{ visibility: "public" }, { ownerId: "user-scout-owner" }],
+    },
+  });
 });

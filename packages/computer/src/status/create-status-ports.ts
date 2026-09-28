@@ -3,13 +3,14 @@ import { join, posix, win32 } from "node:path";
 import {
   acquireProcessLock,
   FileBindingStore,
+  isLockContention,
   LocalDaemonLauncher,
   resolveDaemonExecutablePath,
   workspaceHealthJournalPath,
   workspaceStateDirectory,
   WorkspaceHealthJournal,
 } from "@lrm/coforge-daemon";
-import { resolveDaemonSocketPath } from "../paths";
+import { resolveDaemonSocketPath } from "#src/paths";
 import {
   listDarwinLeftoverUpgradeJobs,
   listDarwinWorkspaceAgents,
@@ -77,7 +78,6 @@ export function createStatusPorts(input: CreateStatusPortsInput): StatusPorts {
       return locateBinaryOnPath(input.platform, binaryName, environment.PATH ?? "");
     },
     async resolveRealPath(path: string): Promise<string | null> {
-      if (input.platform === "win32") return null; // no "active" symlink exists on Windows
       try {
         return await realpath(path);
       } catch {
@@ -87,7 +87,16 @@ export function createStatusPorts(input: CreateStatusPortsInput): StatusPorts {
     async probeCoordinator() {
       if (input.platform === "darwin") return probeDarwinCoordinator(coordinatorLabel);
       if (input.platform === "linux") return probeLinuxCoordinator(coordinatorLabel);
-      return probeWindowsCoordinator(coordinatorLabel);
+      return probeWindowsCoordinator(coordinatorLabel, {
+        resolvePid: async () => {
+          try {
+            const pid = await readSupervisorLockOwner(supervisorLockOwnerPath);
+            return pid !== null && (await windowsPidIsAlive(pid)) ? pid : null;
+          } catch {
+            return null;
+          }
+        },
+      });
     },
     async probeDaemonSnapshot(): Promise<DaemonSnapshotProbe> {
       const launcher = new LocalDaemonLauncher({
@@ -132,17 +141,11 @@ export function createStatusPorts(input: CreateStatusPortsInput): StatusPorts {
         lock.release();
         return "free";
       } catch (error) {
-        return isSqliteLockContention(error) ? "held" : "unknown";
+        return isLockContention(error) ? "held" : "unknown";
       }
     },
     async readSupervisorLockOwner(): Promise<number | null> {
-      try {
-        const text = (await readFile(supervisorLockOwnerPath, "utf8")).trim();
-        const pid = Number(text);
-        return Number.isInteger(pid) && pid > 0 ? pid : null;
-      } catch {
-        return null;
-      }
+      return readSupervisorLockOwner(supervisorLockOwnerPath);
     },
     listLeftoverUpgradeJobs:
       input.platform === "darwin"
@@ -159,6 +162,16 @@ export function createStatusPorts(input: CreateStatusPortsInput): StatusPorts {
       }
     },
   };
+}
+
+async function readSupervisorLockOwner(path: string): Promise<number | null> {
+  try {
+    const text = (await readFile(path, "utf8")).trim();
+    const pid = Number(text);
+    return Number.isInteger(pid) && pid > 0 ? pid : null;
+  } catch {
+    return null;
+  }
 }
 
 async function readActiveInstall(path: string): Promise<ActiveInstallRead> {
@@ -211,11 +224,14 @@ async function locateBinaryOnPath(
   return null;
 }
 
-function isSqliteLockContention(error: unknown): boolean {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    "code" in error &&
-    (error.code === "SQLITE_BUSY" || error.code === "SQLITE_LOCKED")
-  );
+/** Best-effort liveness check for a Windows PID via `tasklist` (no mutation). */
+export async function windowsPidIsAlive(pid: number): Promise<boolean> {
+  const child = Bun.spawn(["tasklist.exe", "/FI", `PID eq ${pid}`, "/NH"], {
+    stdin: "ignore",
+    stdout: "pipe",
+    stderr: "ignore",
+  });
+  const [code, stdout] = await Promise.all([child.exited, new Response(child.stdout).text()]);
+  if (code !== 0) return false;
+  return new RegExp(`\\b${pid}\\b`).test(stdout);
 }

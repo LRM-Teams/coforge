@@ -1,7 +1,7 @@
 import type { FC, MouseEventHandler, ReactNode } from "react";
 import { Pressable } from "react-aria-components";
-import { Tooltip } from "@/components/base/tooltip/tooltip";
-import { cx } from "@/utils/cx";
+import { Tooltip } from "#src/components/base/tooltip/tooltip";
+import { cx } from "#src/utils/cx";
 
 interface NavButtonProps {
     /** Whether the collapsible nav item is open. */

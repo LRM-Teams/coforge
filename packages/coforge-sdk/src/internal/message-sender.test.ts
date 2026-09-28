@@ -21,8 +21,8 @@ describe("message sender validation", () => {
   });
 
   test("accepts an Agent name at the full length its own schema allows", () => {
-    expect(isValidMessageSender("agent", "a".repeat(60))).toBe(true);
-    expect(isValidMessageSender("agent", "a".repeat(61))).toBe(false);
+    expect(isValidMessageSender("agent", "a".repeat(64))).toBe(true);
+    expect(isValidMessageSender("agent", "a".repeat(65))).toBe(false);
   });
 
   test("accepts a username's underscore and an Agent name's hyphen", () => {

@@ -1,14 +1,14 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { agentAuthMiddleware } from "#/server/agents/agent-http.middleware";
+import { agentAuthMiddleware } from "#src/server/agents/agent-http-middleware.server";
 import {
   AgentChannelManagement,
   type AgentChannelManagementRepository,
-} from "#/server/conversations/agent-channel-management.server";
+} from "#src/server/conversations/agent-channel-management.server";
 import {
   channelManagementErrorResponse,
   readJsonBody,
-  requestIdFrom,
-} from "#/server/agents/agent-channel-routes.shared";
+  idempotencyKeyFrom,
+} from "#src/server/agents/agent-channel-routes.server";
 
 export type AgentChannelManagementPrincipal = { workspaceId: string; agentId: string };
 
@@ -18,7 +18,7 @@ export async function handleAgentChannelsPost(
   repository: AgentChannelManagementRepository,
 ): Promise<Response> {
   const body = await readJsonBody(request);
-  const requestId = requestIdFrom(body);
+  const idempotencyKey = idempotencyKeyFrom(body);
   if (!body || typeof body.name !== "string")
     return new Response("name is required", { status: 400 });
   if (body.description !== undefined && typeof body.description !== "string")
@@ -30,7 +30,7 @@ export async function handleAgentChannelsPost(
       body.name,
       body.description as string | undefined,
     );
-    return Response.json({ protocolMajor: 1, requestId, ...result });
+    return Response.json({ protocolMajor: 1, idempotencyKey, ...result });
   } catch (error) {
     return channelManagementErrorResponse(error, "channel create failed");
   }

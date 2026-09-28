@@ -26,6 +26,13 @@ export type FreshnessDecisionFactInput = {
   omittedMessageCount?: number | null;
 };
 
+/**
+ * Raft 1.0.32 `DEFAULT_HELD_CONTEXT_LIMIT`: how many newer messages a held notice shows. The
+ * server puts that many recent messages on a held response, and a daemon that decides a hold
+ * locally shows the same number, so both import this one value.
+ */
+export const HELD_CONTEXT_LIMIT = 3;
+
 /** Raft's `stableNormalizeApmHeldFreshness`: keys sorted recursively, `undefined` dropped, so the
  * same decision always serializes to the same bytes. */
 export function stableNormalizeFreshnessFact(value: unknown): unknown {

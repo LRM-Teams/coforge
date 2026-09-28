@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { resolveVisibleConversationSlot } from "../src/features/agents/profile-panel/profile-panel-slot";
+import { resolveVisibleConversationSlot } from "#src/features/agents/profile-panel/profile-panel-slot";
 
 describe("resolveVisibleConversationSlot", () => {
   test("shows nothing when neither panel is open", () => {

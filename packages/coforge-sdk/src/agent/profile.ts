@@ -7,7 +7,7 @@
  * flow for `Agent`), so there is no `avatarUrl` field or `--avatar-url` update flag here. A human
  * profile's `createdAgents` lists Agents the human owns (`Agent.ownerId`); an Agent profile never
  * carries `createdAgents` itself, because `Agent.ownerId` always references a human `User` in
- * CoForge's schema — an Agent can never own another Agent (ADR 0025: Agent creation is
+ * CoForge's schema — an Agent can never own another Agent (Agent creation is
  * human-committed only).
  */
 
@@ -72,7 +72,13 @@ export type AgentProfileUpdateResponse = {
   profile: AgentProfileView & { kind: "agent" };
 };
 
-export const AGENT_PROFILE_ERROR_CODES = ["user_not_found", "profile_invalid"] as const;
+/** `agent_not_visible`: see `user-info.ts`'s matching code — the same distinction
+ * applies to `profile show`'s target resolution. */
+export const AGENT_PROFILE_ERROR_CODES = [
+  "user_not_found",
+  "profile_invalid",
+  "agent_not_visible",
+] as const;
 export type AgentProfileErrorCode = (typeof AGENT_PROFILE_ERROR_CODES)[number];
 
 export type AgentProfileErrorResponse = {

@@ -1,10 +1,10 @@
-import { ArrowUp } from "@untitledui/icons";
+import { ProgressBar } from "react-aria-components";
+import { Loading02, ArrowUp } from "@untitledui/icons";
 
-import { Tooltip, TooltipTrigger } from "@/components/base/tooltip/tooltip";
-import { LoadingIndicator } from "@/components/ui/loading-indicator";
-import { StatusDot } from "@/components/ui/status-dot";
-import { cn } from "@/lib/utils";
-import { m } from "@/paraglide/messages";
+import { Tooltip, TooltipTrigger } from "#src/components/base/tooltip/tooltip";
+import { StatusDot } from "#src/components/ui/status-dot";
+import { cn } from "#src/lib/utils";
+import { m } from "#src/paraglide/messages";
 import { computerIcon, type ComputerIdentity } from "./computer-identity";
 
 /** Pixel-proportional pieces for each tile size, keyed off the default `md` (36px) shape. */
@@ -69,10 +69,18 @@ export function ComputerTile({
         <Icon className={dims.icon} />
       </span>
       {upgrading ? (
-        <LoadingIndicator
-          className={cn("absolute text-fg-brand-primary", dims.badgeOffset, dims.loading)}
-          label={m.computer_upgrade_in_progress()}
-        />
+        <ProgressBar
+          isIndeterminate
+          aria-label={m.computer_upgrade_in_progress()}
+          className={cn(
+            "inline-flex shrink-0",
+            "absolute text-fg-tertiary",
+            dims.badgeOffset,
+            dims.loading,
+          )}
+        >
+          <Loading02 aria-hidden className="size-full motion-safe:animate-spin" />
+        </ProgressBar>
       ) : (
         updateAvailableVersion && (
           <Tooltip title={m.computer_new_version({ version: updateAvailableVersion })}>
@@ -80,7 +88,7 @@ export function ComputerTile({
               <span
                 aria-hidden="true"
                 className={cn(
-                  "flex items-center justify-center rounded-full border-2 border-primary bg-fg-brand-primary",
+                  "flex items-center justify-center rounded-full border-2 border-primary bg-fg-success-primary",
                   dims.badge,
                 )}
               >

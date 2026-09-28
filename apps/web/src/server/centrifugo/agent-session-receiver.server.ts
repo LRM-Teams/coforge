@@ -4,9 +4,11 @@ import {
   type AgentSessionReport,
   type AgentSessionInvalidate,
 } from "@lrm/coforge-sdk/internal";
-import type { AgentSessionReceiver } from "../agents/agent-session.server";
-import type { AgentSessions } from "../agents/agent-sessions.server";
+import type { AgentSessionReceiver } from "#src/server/agents/agent-session.server";
+import type { AgentSessions } from "#src/server/agents/agent-sessions.server";
 import type { CentrifugoRpcMethod } from "./rpc-handler.server";
+import { rejectionReason } from "./rejection-reason.server";
+import { rejectNonDaemonPrincipal } from "./daemon-principal.server";
 
 /** Every fixed message this handler's collaborators throw for a rejected snapshot: the shared
  * `requireCurrentAgentScope`, `AgentSessionReceiver`, and `AgentSessions`. Mirrors the same
@@ -22,24 +24,13 @@ const KNOWN_REJECTION_REASONS = new Set([
   "Session snapshots are unsupported",
 ]);
 
-function rejectionReason(error: unknown): string {
-  const message = error instanceof Error ? error.message : undefined;
-  if (message && KNOWN_REJECTION_REASONS.has(message)) return message;
-  return `unexpected: ${error instanceof Error ? error.name : typeof error}`;
-}
-
 export function createAgentSessionMethod(
   sessions: Pick<AgentSessions, "accept" | "verify">,
   receiver?: AgentSessionReceiver,
 ): CentrifugoRpcMethod {
   return async (payload, metadata) => {
-    if (
-      !metadata.principal.userId ||
-      !metadata.principal.workspaceId ||
-      !metadata.principal.computerId
-    )
-      return { code: 401, message: "daemon authentication required" };
-    if (metadata.principal.agentId) return { code: 403, message: "daemon authentication required" };
+    const rejection = rejectNonDaemonPrincipal(metadata.principal);
+    if (rejection) return rejection;
     let report: AgentSessionReport | undefined;
     try {
       report = decodeAgentSessionReport(payload);
@@ -78,7 +69,7 @@ export function createAgentSessionMethod(
           computer_id: metadata.principal.computerId,
           epoch: report?.controlEpoch,
           sequence: report?.sequence,
-          reason: rejectionReason(error),
+          reason: rejectionReason(error, KNOWN_REJECTION_REASONS),
         }),
       );
       return { code: 403, message: "Agent Session snapshot is not authorized" };
@@ -114,13 +105,8 @@ export function createAgentSessionInvalidateMethod(
   receiver: Pick<AgentSessionReceiver, "invalidate">,
 ): CentrifugoRpcMethod {
   return async (payload, metadata) => {
-    if (
-      !metadata.principal.userId ||
-      !metadata.principal.workspaceId ||
-      !metadata.principal.computerId
-    )
-      return { code: 401, message: "daemon authentication required" };
-    if (metadata.principal.agentId) return { code: 403, message: "daemon authentication required" };
+    const rejection = rejectNonDaemonPrincipal(metadata.principal);
+    if (rejection) return rejection;
     let message: AgentSessionInvalidate | undefined;
     try {
       message = decodeAgentSessionInvalidate(payload);

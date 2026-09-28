@@ -1,4 +1,5 @@
 import {
+  ArrowLeft,
   MessageSquare01 as MessageSquare,
   Play,
   RefreshCcw01 as RotateCcw,
@@ -6,12 +7,13 @@ import {
   XClose as X,
 } from "@untitledui/icons";
 
-import { ButtonUtility } from "@/components/base/buttons/button-utility";
-import { AgentActivityAvatar } from "@/features/agents/agent-activity-avatar";
-import type { AgentRuntimeControls } from "@/features/agents/agent-runtime-controls";
-import { useAgentRecentActivity } from "@/features/agents/workspace-agents-realtime";
-import { m } from "@/paraglide/messages";
-import { localizeHref } from "@/paraglide/runtime";
+import { ButtonUtility } from "#src/components/base/buttons/button-utility";
+import { AgentActivityAvatar } from "#src/features/agents/agent-activity-avatar";
+import { agentDisplay } from "#src/features/agents/agent-activity-presentation";
+import type { AgentRuntimeControls } from "#src/features/agents/agent-runtime-controls";
+import { useAgentRecentActivity } from "#src/features/agents/workspace-agents-realtime";
+import { m } from "#src/paraglide/messages";
+import { localizeHref } from "#src/paraglide/runtime";
 import type { AgentDisplaySnapshot } from "@lrm/coforge-sdk/internal";
 
 /**
@@ -26,21 +28,45 @@ export function AgentProfileHeader({
   timeZone,
   controls,
   onClose,
+  back,
 }: {
-  agent: { id: string; name: string; displayName: string; description?: string };
+  agent: {
+    id: string;
+    name: string;
+    displayName: string;
+    description?: string;
+    avatarUrl?: string | null;
+  };
   display?: AgentDisplaySnapshot;
   timeZone: string | null;
   controls: AgentRuntimeControls;
   onClose: () => void;
+  /** Where the profile was opened from, when it is shown inside another page (a channel's
+   * members): a Back button before the avatar returns there. */
+  back?: { label: string; onPress: () => void };
 }) {
   const activity = useAgentRecentActivity(agent.id);
+  // The live status line, from the same source the avatar's own label uses.
+  const statusLabel = agentDisplay(display).label;
   return (
     // Same 20px gutter as the panel body (px-5): the bordered utility buttons align by box edge,
     // while the borderless Close pulls -mr-1.5 so its glyph lands on the gutter
-    // (docs/ui-guidelines.md §3 optical alignment).
+    // (docs/design/page-skeleton-and-density.md §8 optical alignment).
     <header className="flex h-12 shrink-0 items-center gap-2 border-b border-secondary px-5 py-0">
+      {back && (
+        <ButtonUtility
+          icon={ArrowLeft}
+          size="sm"
+          color="tertiary"
+          className="-ml-1.5"
+          tooltip={back.label}
+          aria-label={back.label}
+          onClick={back.onPress}
+        />
+      )}
       <AgentActivityAvatar
         agent={agent}
+        src={agent.avatarUrl}
         display={display}
         size="sm"
         timeZone={timeZone}
@@ -48,6 +74,15 @@ export function AgentProfileHeader({
       />
       <div className="min-w-0 flex-1 leading-tight">
         <p className="truncate text-sm font-semibold text-primary">{agent.displayName}</p>
+        {/* What the Agent is doing, under its name — the line a direct message's header already
+            shows, from the same `agentDisplay` the avatar's label reads, so the two cannot
+            disagree. Nothing is shown when there is no live display: a deleted Agent has no
+            status to report and "Status unknown" is not news. */}
+        {display && (
+          <p role="status" className="truncate text-xs text-tertiary">
+            {statusLabel}
+          </p>
+        )}
         {agent.description && <p className="truncate text-xs text-tertiary">{agent.description}</p>}
       </div>
       <ButtonUtility

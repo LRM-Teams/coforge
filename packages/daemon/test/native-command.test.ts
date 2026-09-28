@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { nativeCommandDiagnostic } from "../src/platform/native-command";
+import { nativeCommandDiagnostic } from "#src/platform/native-command";
 
 test("a failed native command keeps the explanation it printed", () => {
   expect(nativeCommandDiagnostic("Boot-out failed: 3: No such process\n")).toBe(

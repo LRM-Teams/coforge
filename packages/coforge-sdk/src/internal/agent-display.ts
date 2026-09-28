@@ -16,7 +16,7 @@ export type AgentDisplaySnapshot = {
   /** The cloud must be queried again at this deadline; it is not a client reducer rule. */
   expiresAt: number | null;
   /**
-   * The Agent's most recently observed context-window reading (ADR 0050), display-only —
+   * The Agent's most recently observed context-window reading, display-only —
    * nothing triggers on it. `undefined` on an older server that has never written this field;
    * `null` once written but the process is offline, a different launch/daemon instance started,
    * or no reading has been observed yet for the current one.

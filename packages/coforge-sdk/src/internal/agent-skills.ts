@@ -1,9 +1,11 @@
 import { RPC_METHODS } from "./rpc-methods";
+import { isScopeId } from "./scope-id";
+import { boundedPayload } from "./codec";
 import { create, fromBinary, toBinary } from "@bufbuild/protobuf";
 import {
   AgentSkillsListRequestSchema,
   AgentSkillsListResultSchema,
-} from "./gen/coforge/rpc/v1/agent_skills_pb";
+} from "#src/internal/gen/coforge/rpc/v1/agent_skills_pb";
 import { parseRuntimeProvider, type RuntimeProvider } from "./index";
 
 export const AGENT_SKILLS_LIST_METHOD = RPC_METHODS.agentSkillsList;
@@ -48,7 +50,7 @@ function request(value: {
   if (
     value.protocolMajor !== 1 ||
     [value.requestId, value.workspaceId, value.computerId, value.agentId].some(
-      (id) => !/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(id),
+      (id) => !isScopeId(id),
     )
   )
     throw new Error("Invalid Skills request scope");
@@ -122,8 +124,7 @@ function scope(
   };
 }
 function bounded(bytes: Uint8Array) {
-  if (bytes.length > MAX_BYTES) throw new Error("Skills payload too large");
-  return bytes;
+  return boundedPayload(bytes, MAX_BYTES, "Skills");
 }
 export function encodeAgentSkillsListRequest(value: AgentSkillsListRequest): Uint8Array {
   return toBinary(

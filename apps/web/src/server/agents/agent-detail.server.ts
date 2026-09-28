@@ -1,10 +1,6 @@
-import type { Prisma } from "../../../generated/client";
-import { latestActivityError, type ActivityEntry } from "../../features/agents/agent-activity";
+import type { Prisma } from "#src/generated/prisma/client";
 import type { AgentStatusCache } from "./agent-status.server";
 import type { AgentDisplay } from "./agent-display.server";
-import type { AgentDisplaySnapshot } from "@lrm/coforge-sdk/internal";
-
-type DetailActivity = ActivityEntry & { computerId: string };
 
 type DetailComputer = {
   id: string;
@@ -35,8 +31,12 @@ type DetailAgent = {
   };
   runtimeConfig: Prisma.JsonValue;
   weeklyReportAssistant?: { id: string } | null;
-  /** Set when a user stopped this Agent (ADR 0038). */
+  /** Set when a user stopped this Agent. */
   stoppedAt?: Date | null;
+  /** Who can see this Agent; optional so a caller that has not started selecting it
+   * yet still satisfies this type. */
+  visibility?: string;
+  avatarObjectKey?: string | null;
 };
 
 export type AgentDetailSource = {
@@ -45,7 +45,6 @@ export type AgentDetailSource = {
     agentId: string,
     userId: string,
   ): Promise<DetailAgent | undefined>;
-  listActivity(workspaceId: string, agentId: string): Promise<DetailActivity[]>;
 };
 
 function assignedComputer(agent: DetailAgent) {
@@ -69,32 +68,22 @@ export class AgentDetailQuery {
   async get(workspaceId: string, agentId: string, userId: string) {
     const agent = await this.source.findAuthorized(workspaceId, agentId, userId);
     if (!agent) return undefined;
-    const activity = await this.source.listActivity(workspaceId, agentId);
-    let status;
+    // The two reads are independent stores, so they overlap rather than queue: the page waits for
+    // the slower of the two, not for both in turn. Each keeps its own failure mode — a failed
+    // status read is reported as unknown, and a failed display read just loses the display block.
+    const scope = agent.computerId
+      ? { workspaceId, computerId: agent.computerId, agentId }
+      : undefined;
     let statusReadFailed = false;
-    let display: AgentDisplaySnapshot | undefined;
-    if (agent.computerId && this.status) {
-      try {
-        status = await this.status.snapshot({
-          workspaceId,
-          computerId: agent.computerId,
-          agentId,
-        });
-      } catch {
-        statusReadFailed = true;
-      }
-    }
-    if (agent.computerId && this.display) {
-      try {
-        display = await this.display.snapshot({
-          workspaceId,
-          computerId: agent.computerId,
-          agentId,
-        });
-      } catch {
-        // Display is an optional read model; unavailable is not equivalent to offline.
-      }
-    }
+    const [status, display] = await Promise.all([
+      scope && this.status
+        ? this.status.snapshot(scope).catch(() => {
+            statusReadFailed = true;
+            return undefined;
+          })
+        : undefined,
+      scope && this.display ? this.display.snapshot(scope).catch(() => undefined) : undefined,
+    ]);
     const assigned = assignedComputer(agent);
     return {
       id: agent.id,
@@ -109,6 +98,8 @@ export class AgentDetailQuery {
       runtimeConfig: agent.runtimeConfig,
       isWeeklyReportAssistant: Boolean(agent.weeklyReportAssistant),
       stopped: Boolean(agent.stoppedAt),
+      visibility: agent.visibility,
+      avatarObjectKey: agent.avatarObjectKey ?? null,
       ...(display ? { display } : {}),
       status: {
         value: statusReadFailed ? ("unknown" as const) : (status?.status ?? ("inactive" as const)),
@@ -122,8 +113,6 @@ export class AgentDetailQuery {
           : null,
       },
       computer: assigned,
-      latestError: latestActivityError(activity),
-      activity,
     };
   }
 }

@@ -1,7 +1,7 @@
 import { afterEach, expect, mock, spyOn, test } from "bun:test";
 import { parseArgs, run, type MessageTransport } from "../index";
-import { CliError } from "../src/cli-error";
-import { connectLocal } from "../src/local-client";
+import { CliError } from "#src/cli-error";
+import { connectLocal } from "#src/local-client";
 import { agentApiRoutes } from "@lrm/coforge-sdk/agent";
 
 afterEach(() => {

@@ -1,9 +1,9 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 // Scripted browser walkthrough: visits every route/state/theme/viewport this
 // repo's dev seed (`bun run seed:dev`) populates, runs automatic layout
 // checks, and writes screenshots plus a findings report.
 //
-// Run with `bun run ui:sweep` (or `node scripts/ui-sweep.mjs`).
+// Run with `bun run ui:sweep` (or `bun scripts/ui-sweep.mjs`).
 //
 // Browser automation: this drives a locally launched Chromium instance over
 // the raw Chrome DevTools Protocol (`--remote-debugging-port`), not the
@@ -21,7 +21,6 @@
 //   UI_SWEEP_THEMES       comma-separated theme names (light,dark)
 //   UI_SWEEP_VIEWPORTS    comma-separated viewport names (1440,1024,390)
 
-import { spawn } from "node:child_process";
 import { mkdir, mkdtemp, writeFile, readdir } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import path from "node:path";
@@ -119,9 +118,9 @@ async function findUnder(root, matchName, depth = 6) {
 
 async function launchChrome(chromePath, port) {
   const profileDir = await mkdtemp(path.join(os.tmpdir(), "ui-sweep-chrome-"));
-  const child = spawn(
-    chromePath,
+  const child = Bun.spawn(
     [
+      chromePath,
       "--headless=new",
       "--disable-gpu",
       "--no-first-run",
@@ -133,7 +132,7 @@ async function launchChrome(chromePath, port) {
       `--user-data-dir=${profileDir}`,
       "about:blank",
     ],
-    { stdio: "ignore" },
+    { stdin: "ignore", stdout: "ignore", stderr: "ignore" },
   );
   child.unref();
   const deadline = Date.now() + 15_000;

@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import type { PrismaClient } from "../generated/client";
-import { AppError } from "../src/lib/app-error";
-import { WorkspaceMembers } from "../src/server/workspaces/members.server";
+import type { PrismaClient } from "#src/generated/prisma/client";
+import { AppError } from "#src/lib/app-error";
+import { WorkspaceMembers } from "#src/server/workspaces/members.server";
 
 describe("WorkspaceMembers", () => {
   test("denies a User who is not a member before reading the directory", async () => {
@@ -12,9 +12,13 @@ describe("WorkspaceMembers", () => {
       agent: { findMany: async () => ((directoryRead = true), []) },
     } as unknown as PrismaClient;
 
-    await expect(new WorkspaceMembers(db).list("workspace-1", "outsider")).rejects.toEqual(
-      new AppError("ACCESS_DENIED"),
-    );
+    await expect(
+      new WorkspaceMembers(db).agentPage("workspace-1", "outsider", {
+        owner: "all",
+        query: "",
+        limit: 24,
+      }),
+    ).rejects.toEqual(new AppError("ACCESS_DENIED"));
     expect(directoryRead).toBe(false);
   });
 
@@ -51,7 +55,15 @@ describe("WorkspaceMembers", () => {
               name: "builder",
               displayName: "",
               description: "Builds releases",
+              avatarObjectKey: "workspaces/workspace-1/agents/other-agent/avatars/pic-1/original",
               ownerId: "another-user",
+              createdAt: new Date("2026-07-23T08:00:00.000Z"),
+              owner: {
+                id: "another-user",
+                username: "ada",
+                displayName: "  Ada Lovelace  ",
+                avatarObjectKey: "avatars/another-user/9c1d/avatar",
+              },
               runtimeConfig: { apiKey: "private" },
               computer: {
                 id: "office-mac-id",
@@ -66,6 +78,14 @@ describe("WorkspaceMembers", () => {
               displayName: "Reviewer",
               description: "Reviews changes",
               ownerId: "another-user",
+              createdAt: new Date("2026-08-01T00:00:00.000Z"),
+              owner: {
+                id: "another-user",
+                username: "ada",
+                displayName: null,
+                avatarObjectKey: null,
+              },
+              weeklyReportAssistant: { id: "assistant-1" },
               computer: { id: "other-machine-id", name: "other-workspace-machine", workspaces: [] },
             },
           ];
@@ -73,13 +93,18 @@ describe("WorkspaceMembers", () => {
       },
     } as unknown as PrismaClient;
 
-    const result = await new WorkspaceMembers(db).list("workspace-1", "viewer");
+    const members = new WorkspaceMembers(db);
+    const [people, agents] = await Promise.all([
+      members.peoplePage("workspace-1", "viewer", { query: "", limit: 24 }),
+      members.agentPage("workspace-1", "viewer", { owner: "all", query: "", limit: 24 }),
+    ]);
+    const result = { people: people.items, agents: agents.items };
 
     expect(queries.membership).toEqual({
       where: { workspaceId_userId: { workspaceId: "workspace-1", userId: "viewer" } },
       select: { userId: true, role: true },
     });
-    expect(queries.people).toEqual({
+    expect(queries.people).toMatchObject({
       where: { memberships: { some: { workspaceId: "workspace-1" } } },
       select: {
         id: true,
@@ -89,17 +114,19 @@ describe("WorkspaceMembers", () => {
         avatarObjectKey: true,
       },
       orderBy: [{ username: "asc" }, { id: "asc" }],
+      take: 25,
     });
-    expect(queries.agents).toEqual({
-      where: {
-        workspaceId: "workspace-1",
-        deletedAt: null,
-      },
+    expect(queries.agents).toMatchObject({
+      where: { AND: [{ workspaceId: "workspace-1", deletedAt: null }, {}, {}] },
       select: {
         id: true,
         name: true,
         displayName: true,
         description: true,
+        avatarObjectKey: true,
+        createdAt: true,
+        owner: { select: { id: true, username: true, displayName: true, avatarObjectKey: true } },
+        weeklyReportAssistant: { select: { id: true } },
         computer: {
           select: {
             id: true,
@@ -116,7 +143,6 @@ describe("WorkspaceMembers", () => {
       orderBy: [{ name: "asc" }, { id: "asc" }],
     });
     expect(result).toEqual({
-      actorRole: "admin",
       people: [
         {
           id: "other-user",
@@ -132,21 +158,87 @@ describe("WorkspaceMembers", () => {
           name: "builder",
           displayName: "builder",
           description: "Builds releases",
+          avatarUrl: "/api/workspaces/workspace-1/agents/other-agent/avatar?v=pic-1",
           computerId: "office-mac-id",
           computerName: "Team workstation",
+          createdAt: new Date("2026-07-23T08:00:00.000Z"),
+          owner: {
+            id: "another-user",
+            displayName: "Ada Lovelace",
+            avatarUrl: "/api/workspaces/workspace-1/users/another-user/avatar?v=9c1d",
+          },
+          deletable: true,
         },
         {
           id: "detached-agent",
           name: "reviewer",
           displayName: "Reviewer",
           description: "Reviews changes",
+          avatarUrl: null,
           computerId: null,
           computerName: null,
+          createdAt: new Date("2026-08-01T00:00:00.000Z"),
+          owner: { id: "another-user", displayName: "ada", avatarUrl: null },
+          deletable: false,
         },
       ],
     });
     expect(JSON.stringify(result)).not.toContain("private");
     expect(JSON.stringify(result)).not.toContain("ownerId");
     expect(JSON.stringify(result)).not.toContain("avatarObjectKey");
+  });
+
+  test("hides a private Agent owned by someone else from a plain member's directory", async () => {
+    let agentQuery: object | undefined;
+    const db = {
+      workspaceMembership: {
+        findUnique: async () => ({ userId: "viewer", role: "member" }),
+      },
+      user: { findMany: async () => [] },
+      agent: {
+        findMany: async (query: object) => {
+          agentQuery = query;
+          return [];
+        },
+      },
+    } as unknown as PrismaClient;
+
+    await new WorkspaceMembers(db).agentPage("workspace-1", "viewer", {
+      owner: "all",
+      query: "",
+      limit: 24,
+    });
+
+    const [visible] = (agentQuery as { where: { AND: object[] } }).where.AND;
+    expect(visible).toEqual({
+      workspaceId: "workspace-1",
+      deletedAt: null,
+      OR: [{ visibility: "public" }, { ownerId: "viewer" }],
+    });
+  });
+
+  test("an owner/admin's directory query has nothing to hide", async () => {
+    let agentQuery: object | undefined;
+    const db = {
+      workspaceMembership: {
+        findUnique: async () => ({ userId: "viewer", role: "admin" }),
+      },
+      user: { findMany: async () => [] },
+      agent: {
+        findMany: async (query: object) => {
+          agentQuery = query;
+          return [];
+        },
+      },
+    } as unknown as PrismaClient;
+
+    await new WorkspaceMembers(db).agentPage("workspace-1", "viewer", {
+      owner: "all",
+      query: "",
+      limit: 24,
+    });
+
+    const [visible] = (agentQuery as { where: { AND: object[] } }).where.AND;
+    expect(visible).toEqual({ workspaceId: "workspace-1", deletedAt: null });
   });
 });

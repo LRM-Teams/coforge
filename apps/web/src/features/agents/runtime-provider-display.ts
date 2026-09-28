@@ -3,9 +3,10 @@ import claudeCodeMark from "@lobehub/icons-static-svg/icons/claudecode-color.svg
 import codexMark from "@lobehub/icons-static-svg/icons/codex-color.svg";
 import cursorMark from "@lobehub/icons-static-svg/icons/cursor.svg";
 import kiroMark from "@lobehub/icons-static-svg/icons/kiro-color.svg";
+import grokMark from "@lobehub/icons-static-svg/icons/grok.svg";
 import opencodeMark from "@lobehub/icons-static-svg/icons/opencode.svg";
 import piMark from "@lobehub/icons-static-svg/icons/pi.svg";
-import { m } from "@/paraglide/messages";
+import { m } from "#src/paraglide/messages";
 
 /**
  * The one display table for a RuntimeProvider: shared by the Agent runtime picker, the Agent
@@ -22,6 +23,7 @@ export const RUNTIME_PROVIDER_DISPLAY_ORDER: readonly RuntimeProvider[] = [
   RUNTIME_PROVIDER.KIRO,
   RUNTIME_PROVIDER.CURSOR,
   RUNTIME_PROVIDER.OPENCODE,
+  RUNTIME_PROVIDER.GROK,
 ];
 
 /** The label shown in the runtime picker and the Agent detail page. CoForge's own built-in
@@ -35,6 +37,7 @@ export function runtimeProviderLabel(provider: RuntimeProvider): string {
     [RUNTIME_PROVIDER.KIRO]: "Kiro",
     [RUNTIME_PROVIDER.CURSOR]: "Cursor CLI",
     [RUNTIME_PROVIDER.OPENCODE]: "OpenCode",
+    [RUNTIME_PROVIDER.GROK]: "Grok Build",
   };
   return labels[provider];
 }
@@ -48,6 +51,7 @@ export const RUNTIME_PROVIDER_MARK: Record<RuntimeProvider, string> = {
   [RUNTIME_PROVIDER.KIRO]: kiroMark,
   [RUNTIME_PROVIDER.CURSOR]: cursorMark,
   [RUNTIME_PROVIDER.OPENCODE]: opencodeMark,
+  [RUNTIME_PROVIDER.GROK]: grokMark,
 };
 
 /** Whether that mark is a full-color icon rendered as an `<img>`, as opposed to a monochrome
@@ -60,4 +64,5 @@ export const RUNTIME_PROVIDER_MARK_IS_COLOR_ICON: Record<RuntimeProvider, boolea
   [RUNTIME_PROVIDER.KIRO]: true,
   [RUNTIME_PROVIDER.CURSOR]: false,
   [RUNTIME_PROVIDER.OPENCODE]: false,
+  [RUNTIME_PROVIDER.GROK]: false,
 };

@@ -1,12 +1,12 @@
-import type { PrismaClient } from "../../../../generated/client";
+import type { PrismaClient } from "#src/generated/prisma/client";
 import type { ComputerRegisterRequest } from "@lrm/coforge-sdk/internal";
-import type { AuthenticatedPrincipal, Workspace } from "../../computers/registration.server";
+import type { AuthenticatedPrincipal, Workspace } from "#src/server/computers/registration.server";
 import type {
   ComputerRegistrationRepository,
   WorkspaceAccess,
-} from "../../computers/registration.server";
-import { prepareDaemonApiKey } from "../../auth/daemon-api-key.server";
-import type { WorkspaceAccess as QueryWorkspaceAccess } from "../../workspaces/query.server";
+} from "#src/server/computers/registration.server";
+import { prepareDaemonApiKey } from "#src/server/auth/daemon-api-key.server";
+import type { WorkspaceAccess as QueryWorkspaceAccess } from "#src/server/workspaces/query.server";
 
 const workspaceShape = { id: true, slug: true, name: true } as const;
 const mapWorkspace = (value: {

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { AgentStateMachine } from "../src/agent-runtime/agent-state-machine";
+import { AgentStateMachine } from "#src/agent-runtime/agent-state-machine";
 
 describe("AgentStateMachine", () => {
   test("starts inactive and becomes active only after runtime is ready", () => {

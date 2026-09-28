@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { currentComputerNames } from "../src/platform";
+import { currentComputerNames } from "#src/platform";
 
 test("uses macOS Computer Name as the display name", () => {
   const commands: string[][] = [];

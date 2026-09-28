@@ -3,8 +3,8 @@ import {
   connectionLiveness,
   INBOUND_QUIET_MS,
   INBOUND_STALLED_MS,
-} from "../src/connection/connection-liveness";
-import { COMPUTER_STATUS_REFRESH_MS } from "../src/connection/daemon-connection";
+} from "#src/connection/connection-liveness";
+import { COMPUTER_STATUS_REFRESH_MS } from "#src/connection/daemon-connection";
 
 test("a connection that carried traffic recently is left alone", () => {
   expect(connectionLiveness(0)).toBe("carrying");

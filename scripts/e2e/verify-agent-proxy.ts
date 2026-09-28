@@ -1,7 +1,7 @@
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { CoforgeProvider, PiProvider } from "../../packages/daemon/src/code-agent/pi/provider";
+import { CoforgeProvider, PiProvider } from "@lrm/coforge-daemon";
 
 const names = [
   "HTTPS_PROXY",

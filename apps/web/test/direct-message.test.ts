@@ -1,14 +1,16 @@
 import { describe, expect, test } from "bun:test";
 import { decodeAgentMessageDelivery } from "@lrm/coforge-sdk/internal";
+import type { PrismaClient } from "#src/generated/prisma/client";
 import {
   ReadDirectMessages,
   SendDirectMessage,
-} from "../src/server/conversations/direct-message.server";
+} from "#src/server/conversations/direct-message.server";
 import type {
   MessageRequestIdempotency,
   MessageRequestScope,
-} from "../src/server/conversations/message-request-idempotency.server";
-import type { DirectConversationRepository } from "../src/server/db/repositories/direct-conversation.repositories.server";
+} from "#src/server/conversations/message-request-idempotency.server";
+import type { DirectConversationRepository } from "#src/server/db/repositories/direct-conversation.repositories.server";
+import { bestEffortMessageNotifier } from "#src/server/notifications/web-push-composition.server";
 
 const persisted = {
   id: "message-a",
@@ -192,6 +194,7 @@ describe("SendDirectMessage", () => {
         },
       },
       {
+        async memberChanged() {},
         async messageAvailable(input) {
           calls.push(`browser:${input.conversationId}:${input.messageId}:${input.sequence}`);
           throw new Error("controlled browser publication outage");
@@ -210,6 +213,41 @@ describe("SendDirectMessage", () => {
       }),
     ).resolves.toEqual(persisted);
     expect(calls).toEqual(["persist", "browser:conversation-a:message-a:1", "daemon"]);
+  });
+
+  test("signals a human message with its request id, so the sender's browser can match it", async () => {
+    const signals: unknown[] = [];
+    const repository = {
+      async getOrCreateUserAgent() {
+        return { id: "conversation-a" };
+      },
+      async sendMessage() {
+        return persisted;
+      },
+    } satisfies DirectConversationRepository;
+    const useCase = new SendDirectMessage(
+      repository,
+      new MemoryMessageRequestIdempotency(),
+      { async publish() {} },
+      {
+        async memberChanged() {},
+        async messageAvailable(input) {
+          signals.push(input);
+        },
+      },
+    );
+
+    await useCase.execute({
+      requestId: "request-a",
+      workspaceId: "workspace-a",
+      conversationId: "conversation-a",
+      senderMemberId: "member-a",
+      senderUserId: "user-a",
+      body: "Hello Agent",
+    });
+    expect(signals).toEqual([
+      expect.objectContaining({ messageId: "message-a", requestId: "request-a" }),
+    ]);
   });
 
   test.each([
@@ -312,6 +350,7 @@ describe("SendDirectMessage", () => {
         },
       },
       {
+        async memberChanged() {},
         async messageAvailable({ conversationId, messageId, sequence }) {
           calls.push("publish");
           publication = {
@@ -346,6 +385,42 @@ describe("SendDirectMessage", () => {
       },
       idempotencyKey: "message-a",
     });
+  });
+
+  test("resolves an Agent send promptly even when Web Push delivery never settles", async () => {
+    const repository = {
+      async sendMessage() {
+        throw new Error("not used");
+      },
+      async userIdForUsername() {
+        return "internal-user";
+      },
+      async getOrCreateUserAgent() {
+        return { id: "conversation-a" };
+      },
+      async sendAgentMessage() {
+        return { ...persisted, deliveryId: undefined, target: "@user" };
+      },
+    } satisfies DirectConversationRepository;
+    const useCase = new SendDirectMessage(
+      repository,
+      new MemoryMessageRequestIdempotency(),
+      { async publish() {} },
+      { async messageAvailable() {}, async memberChanged() {} },
+      bestEffortMessageNotifier({} as PrismaClient, async () => ({
+        notifyMessage: () => new Promise(() => {}),
+      })),
+    );
+
+    await expect(
+      useCase.executeFromAgent({
+        requestId: "request-a",
+        workspaceId: "workspace-a",
+        agentId: "agent-a",
+        target: "@user",
+        body: "Hi",
+      }),
+    ).resolves.toMatchObject({ id: "message-a" });
   });
 
   test("routes an Agent channel-thread reply through the parent channel and preserves the root", async () => {
@@ -523,6 +598,7 @@ describe("SendDirectMessage", () => {
         },
       },
       {
+        async memberChanged() {},
         async messageAvailable({ messageId }) {
           calls.push(`notify:${messageId}`);
         },
@@ -558,6 +634,7 @@ describe("SendDirectMessage", () => {
       new MemoryMessageRequestIdempotency(),
       { async publish() {} },
       {
+        async memberChanged() {},
         async messageAvailable() {
           notificationCalls += 1;
         },

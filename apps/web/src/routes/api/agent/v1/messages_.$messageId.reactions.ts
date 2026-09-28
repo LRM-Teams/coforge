@@ -1,12 +1,16 @@
 import { createFileRoute } from "@tanstack/react-router";
 import type { AgentReactionResponse } from "@lrm/coforge-sdk/agent";
-import { agentAuthMiddleware } from "#/server/agents/agent-http.middleware";
-import { PrismaDirectConversationRepository } from "#/server/db/repositories/direct-conversation.repositories.server";
+import { agentAuthMiddleware } from "#src/server/agents/agent-http-middleware.server";
+import { PrismaDirectConversationRepository } from "#src/server/db/repositories/direct-conversation.repositories.server";
 import {
   reactToAgentMessage,
   type AgentMessageRepository,
-} from "#/server/agents/agent-messages.service";
-import { AgentMessageValidationError } from "#/server/conversations/agent-message-validation-error.server";
+} from "#src/server/agents/agent-messages.server";
+import {
+  agentIdempotencyKey,
+  agentRouteErrorResponse,
+  readAgentJsonBody,
+} from "#src/server/agents/agent-http-routes.server";
 
 export type AgentMessageReactionPrincipal = { workspaceId: string; agentId: string };
 
@@ -19,27 +23,20 @@ export async function handleAgentMessageReaction(
 ): Promise<Response> {
   const scope = { workspaceId: principal.workspaceId, agentId: principal.agentId };
   try {
-    const body = (await request.json().catch(() => undefined)) as
-      | { requestId?: unknown; emoji?: unknown }
-      | undefined;
-    const requestId =
-      body && typeof body.requestId === "string" && body.requestId
-        ? body.requestId
-        : crypto.randomUUID();
-    const emoji = body && typeof body.emoji === "string" ? body.emoji : "";
+    const body = await readAgentJsonBody(request);
+    const idempotencyKey = agentIdempotencyKey(body);
+    const emoji = typeof body?.emoji === "string" ? body.emoji : "";
     const result = await reactToAgentMessage(repository, scope, messageId, emoji, active);
     const response: AgentReactionResponse = {
       protocolMajor: 1,
-      requestId,
+      idempotencyKey,
       messageId: result.messageId,
       emoji,
       active,
     };
     return Response.json(response);
   } catch (error) {
-    if (error instanceof AgentMessageValidationError)
-      return new Response(error.message, { status: 400 });
-    return new Response("message reaction failed", { status: 400 });
+    return agentRouteErrorResponse(error, "message reaction failed");
   }
 }
 

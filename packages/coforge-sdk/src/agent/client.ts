@@ -3,6 +3,7 @@ import type {
   AgentReminderRequest,
   AgentReminderResponse,
   AgentTaskRequest,
+  DistributiveOmit,
   AgentTaskResponse,
 } from "./types";
 import type { AgentActionPrepareRequest, AgentActionPrepareResponse } from "./action-cards";
@@ -53,7 +54,7 @@ export type AgentAttachmentUploadResponse = {
 };
 
 /**
- * Presigned direct-upload sessions (ADR 0028), mirroring Raft 1.0.32's
+ * Presigned direct-upload sessions, mirroring Raft 1.0.32's
  * `attachment-upload-sessions` state machine. `create`'s request field is `target` (this
  * repo's `#channel`/`@user` grammar), not Raft's resolved `channelId`.
  */
@@ -197,7 +198,7 @@ export type WorkspaceInfoRuntimeContext = {
 };
 export type WorkspaceInfoResult = {
   protocolMajor: number;
-  requestId: string;
+  idempotencyKey: string;
   workspace: { id: string; slug: string; name: string };
   humans: WorkspaceInfoHuman[];
   agents: WorkspaceInfoAgent[];
@@ -563,7 +564,7 @@ function unwrap<T>(result: AgentApiResult<T>): T {
   return result.data;
 }
 
-export type AgentTaskInput = Omit<AgentTaskRequest, "operation">;
+export type AgentTaskInput = DistributiveOmit<AgentTaskRequest, "operation">;
 export type AgentReminderInput = Omit<AgentReminderRequest, "operation">;
 
 function taskResources(transport: AgentApiTransport): RawAgentApiClient["tasks"] {

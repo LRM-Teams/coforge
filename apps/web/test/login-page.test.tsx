@@ -1,8 +1,8 @@
 import { expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 
-import { LoginPage } from "@/components/login-page";
-import { overwriteGetLocale } from "@/paraglide/runtime";
+import { LoginPage } from "#src/components/login-page";
+import { overwriteGetLocale } from "#src/paraglide/runtime";
 
 test("shows the Authing sign-in action", () => {
   const markup = renderToStaticMarkup(<LoginPage />);

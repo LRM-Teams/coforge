@@ -3,11 +3,14 @@ import { configure, reset, type LogRecord } from "@logtape/logtape";
 import {
   createAgentMessageHttpClient,
   defaultAgentChannelHttpClient,
-  DaemonConnection,
   type AgentMessageTransportResponse,
+} from "#src/connection/agent-http-clients";
+import {
+  DaemonConnection,
   type CentrifugeWorkspaceClient,
-} from "../src/connection/daemon-connection";
+} from "#src/connection/daemon-connection";
 import type { AgentSendResponse } from "@lrm/coforge-sdk/agent";
+import { AgentUpstreamRefusalError } from "#src/connection/agent-upstream-refusal-error";
 import {
   AGENT_MESSAGE_ACK_METHOD,
   AGENT_STATUS_METHOD,
@@ -26,6 +29,7 @@ import {
   encodeAgentStartIntent,
   encodeAgentStopIntent,
   encodeAgentActivityProbe,
+  encodeAgentInboxPurge,
   encodeComputerRestartIntent,
   decodeComputerUpgradeResult,
   COMPUTER_UPGRADE_RESULT_METHOD,
@@ -33,8 +37,9 @@ import {
 } from "@lrm/coforge-sdk/internal";
 import { DAEMON_RUNTIME_READY_METHOD } from "@lrm/coforge-sdk/internal";
 import { agentApiRoutes } from "@lrm/coforge-sdk/agent";
-import { AgentMessageRequestError } from "../src/connection/agent-message-request-error";
-import { AgentTransportError } from "../src/connection/agent-transport-error";
+import { AgentMessageRequestError } from "#src/connection/agent-message-request-error";
+import { AgentTransportError } from "#src/connection/agent-transport-error";
+import { AgentMentionActionRequestError } from "#src/connection/agent-mention-action-request-error";
 
 /** Runs `run()` with a logtape capture sink installed for `coforge.daemon.*`, then restores the
  * previous (unconfigured) logging state. Mirrors the pattern in daemon-runtime.test.ts. */
@@ -488,7 +493,7 @@ test("drops a pending session invalidate once a newer launch is observed via the
   );
 });
 
-test("a rebind's immediate session re-report drops a pending invalidate for the launch it replaced (ADR 0041)", async () => {
+test("a rebind's immediate session re-report drops a pending invalidate for the launch it replaced", async () => {
   // `AgentControl.start()`'s rebind path never touches this connection layer directly — it
   // re-reports the Session through the SAME `reportAgentSession` seam a fresh launch already
   // uses (`DaemonRuntime#rebindAgent`), so the existing `#observeLaunchIdentity` drop rule this
@@ -828,6 +833,106 @@ test("Agent reminder HTTP transport rejects network and malformed responses with
       }),
     ).rejects.toThrow(/Agent reminder (request failed|response is malformed)/);
   }
+});
+
+test("a reminder refusal keeps the server's code for the daemon log, not the caller", async () => {
+  const request: AgentReminderOperationRequest = {
+    protocolMajor: 1,
+    requestId: "request-reminder",
+    workspaceId: config.workspaceId,
+    computerId: config.computerId,
+    agentId: "agent-a",
+    operation: "schedule",
+    title: "check the release",
+    target: "#coforge",
+    messageId: "55555555-5555-4555-8555-555555555555",
+    delaySeconds: 3600,
+  };
+  const client = createAgentMessageHttpClient(async () =>
+    Response.json(
+      { error: "invalid reminder request", code: "TEMPORARILY_UNAVAILABLE" },
+      { status: 400 },
+    ),
+  );
+  const error = await client.requestReminder!({
+    url: "https://server.example/api/agent/v1/reminders",
+    agentApiKey: `sk_agent_${"a".repeat(43)}`,
+    daemonApiKey: "daemon-token",
+    request,
+  }).catch((thrown: unknown) => thrown);
+
+  // The caller-facing message stays opaque; the cause is carried alongside it for the log.
+  expect(error).toBeInstanceOf(AgentUpstreamRefusalError);
+  expect((error as AgentUpstreamRefusalError).message).toBe("Agent reminder request failed (400)");
+  expect((error as AgentUpstreamRefusalError).upstreamCode).toBe("TEMPORARILY_UNAVAILABLE");
+});
+
+test("mention pending HTTP transport GETs the Agent's pending mentions", async () => {
+  const calls: Array<{ url: string; method?: string; headers: Headers }> = [];
+  const body = { ok: true as const, pendingMentionActions: [] };
+  const client = createAgentMessageHttpClient(async (input, init) => {
+    calls.push({ url: String(input), method: init?.method, headers: new Headers(init?.headers) });
+    return Response.json(body);
+  });
+  const result = await client.requestMentionPending!({
+    url: "https://server.example/api/agent/v1/mention-actions/pending",
+    agentApiKey: `sk_agent_${"a".repeat(43)}`,
+    daemonApiKey: "daemon-token",
+    request: {},
+  });
+  expect(result).toEqual(body);
+  expect(calls).toHaveLength(1);
+  expect(calls[0]?.url).toBe("https://server.example/api/agent/v1/mention-actions/pending");
+  expect(calls[0]?.method).toBe("GET");
+  expect(calls[0]?.headers.get("x-coforge-agent-api-key")).toBe(
+    `Bearer sk_agent_${"a".repeat(43)}`,
+  );
+});
+
+test("mention action HTTP transport POSTs the action and its resolution ids", async () => {
+  const calls: Array<{ url: string; method?: string; body: unknown }> = [];
+  const body = {
+    ok: true,
+    action: "add",
+    results: [{ resolutionId: "22222222-2222-4222-8222-222222222222", status: "no_permission" }],
+  };
+  const client = createAgentMessageHttpClient(async (input, init) => {
+    calls.push({ url: String(input), method: init?.method, body: JSON.parse(String(init?.body)) });
+    return Response.json(body);
+  });
+  const result = await client.requestMentionExecute!({
+    url: "https://server.example/api/agent/v1/mention-actions/execute",
+    agentApiKey: `sk_agent_${"a".repeat(43)}`,
+    daemonApiKey: "daemon-token",
+    request: { action: "add", resolutionIds: ["22222222-2222-4222-8222-222222222222"] },
+  });
+  expect(result).toEqual(body as typeof result);
+  expect(calls).toEqual([
+    {
+      url: "https://server.example/api/agent/v1/mention-actions/execute",
+      method: "POST",
+      body: { action: "add", resolutionIds: ["22222222-2222-4222-8222-222222222222"] },
+    },
+  ]);
+});
+
+test("mention action HTTP transport turns an error envelope into a typed error", async () => {
+  const client = createAgentMessageHttpClient(async () =>
+    Response.json(
+      { ok: false, errorCode: "invalid_request", error: 'action must be "add".' },
+      { status: 400 },
+    ),
+  );
+  const error = await client.requestMentionExecute!({
+    url: "https://server.example/api/agent/v1/mention-actions/execute",
+    agentApiKey: `sk_agent_${"a".repeat(43)}`,
+    daemonApiKey: "daemon-token",
+    request: { action: "add", resolutionIds: ["22222222-2222-4222-8222-222222222222"] },
+  }).catch((thrown: unknown) => thrown);
+  expect(error).toBeInstanceOf(AgentMentionActionRequestError);
+  expect((error as AgentMentionActionRequestError).errorCode).toBe("invalid_request");
+  expect((error as AgentMentionActionRequestError).status).toBe(400);
+  expect((error as Error).message).toBe('action must be "add".');
 });
 
 test("GitHub credential HTTP transport authenticates the Agent request", async () => {
@@ -1254,6 +1359,54 @@ test("rejects an agent:activity_probe publication for a foreign Workspace", asyn
   expect(probed).toEqual([]);
 });
 
+test("routes an agent:inbox_purge publication for this daemon to its slot", async () => {
+  const fake = fakeClient();
+  const transport = new DaemonConnection("wss://cloud.example", () => fake.client);
+  const purged: string[][] = [];
+  transport.onAgentInboxPurge((purge) => purged.push(purge.conversationIds));
+  await transport.start("secret", config);
+
+  fake.publish(
+    `daemon:${config.workspaceId}:${config.computerId}`,
+    encodeAgentInboxPurge({
+      protocolMajor: 1,
+      requestId: "purge-request-1",
+      workspaceId: config.workspaceId,
+      computerId: config.computerId,
+      agentId: "agent-1",
+      conversationIds: ["conversation-team"],
+      targets: ["#team"],
+      reason: "member_removed",
+    }),
+  );
+
+  expect(purged).toEqual([["conversation-team"]]);
+});
+
+test("rejects an agent:inbox_purge publication for another Computer", async () => {
+  const fake = fakeClient();
+  const transport = new DaemonConnection("wss://cloud.example", () => fake.client);
+  const purged: string[][] = [];
+  transport.onAgentInboxPurge((purge) => purged.push(purge.conversationIds));
+  await transport.start("secret", config);
+
+  fake.publish(
+    `daemon:${config.workspaceId}:${config.computerId}`,
+    encodeAgentInboxPurge({
+      protocolMajor: 1,
+      requestId: "purge-request-2",
+      workspaceId: config.workspaceId,
+      computerId: "other-computer",
+      agentId: "agent-1",
+      conversationIds: ["conversation-team"],
+      targets: ["#team"],
+      reason: "left",
+    }),
+  );
+
+  expect(purged).toEqual([]);
+});
+
 test("routes an agent:context_scan publication to its slot and answers through the result RPC", async () => {
   const fake = fakeClient();
   const transport = new DaemonConnection("wss://cloud.example", () => fake.client);
@@ -1457,7 +1610,7 @@ test("uses the configured HTTP seam for Agent messages and never falls back to W
   const requests: unknown[] = [];
   const response = {
     protocolMajor: 1 as const,
-    requestId: "request-2",
+    idempotencyKey: "request-2",
     messages: [],
     hasOlder: false,
     hasNewer: false,
@@ -1536,7 +1689,7 @@ test("Agent read HTTP GET request carries the request id and sequence window", a
       limit: 50,
     },
   });
-  expect(capturedUrl?.searchParams.get("requestId")).toBe("request-read-1");
+  expect(capturedUrl?.searchParams.get("idempotencyKey")).toBe("request-read-1");
   expect(capturedUrl?.searchParams.get("fromSequence")).toBe("5");
   expect(capturedUrl?.searchParams.get("throughSequence")).toBe("12");
   expect(capturedUrl?.searchParams.get("target")).toBe("@ada");
@@ -1567,8 +1720,34 @@ test("Agent search HTTP GET request carries the request id", async () => {
       query: "hello",
     },
   });
-  expect(capturedUrl?.searchParams.get("requestId")).toBe("request-search-1");
+  expect(capturedUrl?.searchParams.get("idempotencyKey")).toBe("request-search-1");
   expect(capturedUrl?.searchParams.get("query")).toBe("hello");
+});
+
+test("Agent search HTTP GET request carries its time window", async () => {
+  let capturedUrl: URL | undefined;
+  const client = createAgentMessageHttpClient(async (input) => {
+    capturedUrl = input as URL;
+    return Response.json({ protocolMajor: 1, requestId: "request-search-2", results: [] });
+  });
+  await client.requestSearch!({
+    url: "https://server.example/api/agent/v1/messages",
+    agentApiKey: `sk_agent_${"a".repeat(43)}`,
+    daemonApiKey: "daemon-token",
+    request: {
+      protocolMajor: 1,
+      requestId: "request-search-2",
+      workspaceId: "workspace-a",
+      agentId: "agent-a",
+      operation: "search",
+      target: "",
+      query: "release",
+      after: "2026-09-01T00:00:00.000Z",
+      before: "2026-09-10T00:00:00.000Z",
+    },
+  });
+  expect(capturedUrl?.searchParams.get("after")).toBe("2026-09-01T00:00:00.000Z");
+  expect(capturedUrl?.searchParams.get("before")).toBe("2026-09-10T00:00:00.000Z");
 });
 
 test("Agent resolve HTTP GET request carries the request id", async () => {
@@ -1606,7 +1785,7 @@ test("Agent resolve HTTP GET request carries the request id", async () => {
     },
   });
   expect(capturedUrl?.pathname).toBe("/api/agent/v1/messages/abcd1234/resolve");
-  expect(capturedUrl?.searchParams.get("requestId")).toBe("request-resolve-1");
+  expect(capturedUrl?.searchParams.get("idempotencyKey")).toBe("request-resolve-1");
   expect(result.message.id).toBe("message-1");
 });
 
@@ -1635,9 +1814,37 @@ test("Agent events HTTP GET request carries the request id and limit", async () 
       limit: 25,
     },
   });
-  expect(capturedUrl?.searchParams.get("requestId")).toBe("request-events-1");
+  expect(capturedUrl?.searchParams.get("idempotencyKey")).toBe("request-events-1");
   expect(capturedUrl?.searchParams.get("limit")).toBe("25");
+  expect(capturedUrl?.searchParams.get("target")).toBeNull();
   expect(result.hasMore).toBe(true);
+});
+
+test("Agent events HTTP GET request forwards a non-empty check target", async () => {
+  let capturedUrl: URL | undefined;
+  const client = createAgentMessageHttpClient(async (input) => {
+    capturedUrl = input as URL;
+    return Response.json({
+      protocolMajor: 1,
+      requestId: "request-events-2",
+      events: [],
+      hasMore: false,
+    });
+  });
+  await client.requestEvents!({
+    url: "https://server.example/api/agent/v1/events",
+    agentApiKey: `sk_agent_${"a".repeat(43)}`,
+    daemonApiKey: "daemon-token",
+    request: {
+      protocolMajor: 1,
+      requestId: "request-events-2",
+      workspaceId: "workspace-a",
+      agentId: "agent-a",
+      operation: "check",
+      target: "@ada",
+    },
+  });
+  expect(capturedUrl?.searchParams.get("target")).toBe("@ada");
 });
 
 test.each(["mute", "unmute"] as const)(
@@ -1675,7 +1882,7 @@ test.each(["mute", "unmute"] as const)(
     });
     expect(capturedUrl).toBe(path);
     expect(capturedInit?.method).toBe("POST");
-    expect(JSON.parse(capturedInit?.body as string)).toEqual({ requestId: "request-mute-1" });
+    expect(JSON.parse(capturedInit?.body as string)).toEqual({ idempotencyKey: "request-mute-1" });
     expect(result.muted).toBe(operation === "mute");
   },
 );
@@ -1686,7 +1893,7 @@ test("Agent thread unfollow HTTP POST request carries the request id", async () 
     capturedInit = init;
     return Response.json({
       protocolMajor: 1,
-      requestId: "request-unfollow-1",
+      idempotencyKey: "request-unfollow-1",
       target: "#general:12345678-0000-4000-8000-000000000001",
       followed: false,
     });
@@ -1705,7 +1912,9 @@ test("Agent thread unfollow HTTP POST request carries the request id", async () 
     },
   });
   expect(capturedInit?.method).toBe("POST");
-  expect(JSON.parse(capturedInit?.body as string)).toEqual({ requestId: "request-unfollow-1" });
+  expect(JSON.parse(capturedInit?.body as string)).toEqual({
+    idempotencyKey: "request-unfollow-1",
+  });
   expect(result.followed).toBe(false);
 });
 
@@ -1782,7 +1991,7 @@ test.each(["react", "unreact"] as const)(
     expect(capturedUrl).toBe("https://server.example/api/agent/v1/messages/abcd1234/reactions");
     expect(capturedInit?.method).toBe(method);
     expect(JSON.parse(capturedInit?.body as string)).toEqual({
-      requestId: "request-react-1",
+      idempotencyKey: "request-react-1",
       emoji: "👍",
     });
     expect(result.messageId).toBe("abcd1234");
@@ -1926,7 +2135,7 @@ test("dispatches resolve and reaction operations to their dedicated HTTP client 
   const reactionCalls: unknown[] = [];
   const resolveResponse = {
     protocolMajor: 1 as const,
-    requestId: "request-resolve",
+    idempotencyKey: "request-resolve",
     message: {
       id: "message-1",
       sequence: 1,
@@ -1941,7 +2150,7 @@ test("dispatches resolve and reaction operations to their dedicated HTTP client 
   };
   const reactionResponse = {
     protocolMajor: 1 as const,
-    requestId: "request-react",
+    idempotencyKey: "request-react",
     messageId: "abcd1234",
     emoji: "👍",
     active: true,
@@ -2025,7 +2234,7 @@ test("dispatches check, mute, unmute, and thread-unfollow operations to their de
       eventsCalls.push(input);
       return {
         protocolMajor: 1,
-        requestId: "request-check",
+        idempotencyKey: "request-check",
         events: [
           {
             id: "message-1",
@@ -2046,7 +2255,7 @@ test("dispatches check, mute, unmute, and thread-unfollow operations to their de
       muteCalls.push(input);
       return {
         protocolMajor: 1,
-        requestId: "request-mute",
+        idempotencyKey: "request-mute",
         target: "#general",
         muted: input.request.muted,
       };
@@ -2055,7 +2264,7 @@ test("dispatches check, mute, unmute, and thread-unfollow operations to their de
       unfollowCalls.push(input);
       return {
         protocolMajor: 1,
-        requestId: "request-unfollow",
+        idempotencyKey: "request-unfollow",
         target: "#general:12345678-0000-4000-8000-000000000001",
         followed: false,
       };
@@ -2144,7 +2353,7 @@ test("adapts the read route's AgentHistoryResponse into the transport shape", as
   const transport = new DaemonConnection("wss://cloud.example", () => fake.client, {
     requestRead: async () => ({
       protocolMajor: 1,
-      requestId: "request-read",
+      idempotencyKey: "request-read",
       messages: [
         {
           id: "message-1",
@@ -2195,7 +2404,7 @@ test("adapts the dedicated search route's AgentSearchResponse (results -> messag
   const transport = new DaemonConnection("wss://cloud.example", () => fake.client, {
     requestSearch: async () => ({
       protocolMajor: 1,
-      requestId: "request-search",
+      idempotencyKey: "request-search",
       results: [
         {
           id: "message-1",
@@ -2237,7 +2446,7 @@ test("adapts the resolve route's AgentResolveResponse (message -> messages: [mes
   const transport = new DaemonConnection("wss://cloud.example", () => fake.client, {
     requestResolve: async () => ({
       protocolMajor: 1,
-      requestId: "request-resolve",
+      idempotencyKey: "request-resolve",
       message: {
         id: "message-1",
         sequence: 1,
@@ -2280,7 +2489,7 @@ const sendAdapterCases: Array<{
     label: "a forwarded send carries Raft's decision through unchanged",
     response: {
       protocolMajor: 1,
-      requestId: "request-send",
+      idempotencyKey: "request-send",
       state: "sent",
       decision: "forward",
       reason: "model_seen_boundary",
@@ -2298,7 +2507,7 @@ const sendAdapterCases: Array<{
     label: "a bypassed send reports its decision and the messages it skipped",
     response: {
       protocolMajor: 1,
-      requestId: "request-send",
+      idempotencyKey: "request-send",
       state: "sent",
       decision: "bypass",
       reason: "continue_anyway",
@@ -2320,10 +2529,49 @@ const sendAdapterCases: Array<{
     expected: { accepted: true, decision: "bypass", reason: "continue_anyway" },
   },
   {
+    label: "a sent message carries the mentions it did not reach",
+    response: {
+      protocolMajor: 1,
+      idempotencyKey: "request-send",
+      state: "sent",
+      decision: "forward",
+      messageId: "message-1",
+      pendingMentionActions: [
+        {
+          resolutionId: "22222222-2222-4222-8222-222222222222",
+          messageId: "message-1",
+          targetType: "user",
+          targetHandle: "bob",
+          targetAvatarUrl: null,
+          reason: "not_member",
+          availableActions: [],
+          expiresAt: "2026-10-01T00:00:00.000Z",
+        },
+      ],
+      unresolvedMentionHandles: ["ghost"],
+    },
+    expected: {
+      accepted: true,
+      pendingMentionActions: [
+        {
+          resolutionId: "22222222-2222-4222-8222-222222222222",
+          messageId: "message-1",
+          targetType: "user",
+          targetHandle: "bob",
+          targetAvatarUrl: null,
+          reason: "not_member",
+          availableActions: [],
+          expiresAt: "2026-10-01T00:00:00.000Z",
+        },
+      ],
+      unresolvedMentionHandles: ["ghost"],
+    },
+  },
+  {
     label: "a held send carries the window as messages/attentionCount plus Raft's counts",
     response: {
       protocolMajor: 1,
-      requestId: "request-send",
+      idempotencyKey: "request-send",
       state: "held",
       decision: "local_hold",
       reason: "exact_target_pending",
@@ -2360,7 +2608,7 @@ const sendAdapterCases: Array<{
     label: "a first-touch hold keeps its own decision",
     response: {
       protocolMajor: 1,
-      requestId: "request-send",
+      idempotencyKey: "request-send",
       state: "held",
       decision: "syncing_hold",
       reason: "target_first_touch_recent_context",
@@ -2375,8 +2623,12 @@ test.each(sendAdapterCases)(
   "adapts the send route's AgentSendResponse ($label) into the transport shape",
   async ({ response, expected }) => {
     const fake = fakeClient();
+    let sendUrl: string | undefined;
     const transport = new DaemonConnection("wss://cloud.example", () => fake.client, {
-      requestSend: async () => response,
+      requestSend: async ({ url }) => {
+        sendUrl = url;
+        return response;
+      },
     });
     await transport.start("daemon-token", {
       ...config,
@@ -2396,8 +2648,65 @@ test.each(sendAdapterCases)(
     );
     expect(result).toMatchObject(expected);
     expect(result.messages).toEqual(response.state === "held" ? (response.heldMessages ?? []) : []);
+    // The send body is Raft's; the route stays our own (task #58 ④: no `/v2/send`).
+    expect(sendUrl).toBe("https://server.example/api/agent/v1/messages");
   },
 );
+
+test("requestSend posts Raft's send body: idempotencyKey, sendDraft and structured mentions", async () => {
+  let capturedBody: Record<string, unknown> | undefined;
+  const client = createAgentMessageHttpClient(async (_input, init) => {
+    capturedBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+    return Response.json({
+      protocolMajor: 1,
+      requestId: "request-send",
+      state: "sent",
+      decision: "forward",
+      messageId: "message-1",
+      heldMessages: [],
+    });
+  });
+  await client.requestSend!({
+    url: "https://server.example/api/agent/v1/messages",
+    agentApiKey: `sk_agent_${"a".repeat(43)}`,
+    daemonApiKey: "daemon-token",
+    request: {
+      protocolMajor: 1,
+      requestId: "request-send",
+      workspaceId: "workspace-a",
+      agentId: "agent-a",
+      operation: "send",
+      target: "@ada",
+      content: "hi",
+      continueAnyway: true,
+      sendDraft: true,
+      draftReholdCount: 2,
+      draftReplacedExisting: false,
+      seenUpToSeq: 7,
+      freshnessContextMode: "inline",
+      attachmentIds: ["11111111-1111-4111-8111-111111111111"],
+      mentions: [{ type: "user", id: "22222222-2222-4222-8222-222222222222", name: "ada" }],
+    },
+  });
+  // Raft's `agentApiSendBodyKnownSchema` names: the idempotency key is `idempotencyKey` and it is the
+  // only spelling on the wire, the resend flag is `sendDraft`, and `continueAnyway` keeps its own
+  // name. Raft's declared-but-unused `continue` is deliberately neither sent nor interpreted.
+  expect(capturedBody).toEqual({
+    idempotencyKey: "request-send",
+    target: "@ada",
+    content: "hi",
+    continueAnyway: true,
+    sendDraft: true,
+    draftReholdCount: 2,
+    draftReplacedExisting: false,
+    seenUpToSeq: 7,
+    freshnessContextMode: "inline",
+    attachmentIds: ["11111111-1111-4111-8111-111111111111"],
+    mentions: [{ type: "user", id: "22222222-2222-4222-8222-222222222222", name: "ada" }],
+  });
+  expect(capturedBody).not.toHaveProperty("requestId");
+  expect(capturedBody).not.toHaveProperty("continue");
+});
 
 test("requestSend rejects a response whose state is not sent/held/denied instead of returning it untyped", async () => {
   // The exact incident: upstream answers 200, but the body has no `state` (or `context`) the

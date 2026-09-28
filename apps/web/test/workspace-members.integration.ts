@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { PrismaPg } from "@prisma/adapter-pg";
-import { PrismaClient } from "../generated/client";
-import { WorkspaceMembers } from "../src/server/workspaces/members.server";
+import { PrismaClient } from "#src/generated/prisma/client";
+import { WorkspaceMembers } from "#src/server/workspaces/members.server";
 
 test("lists only the requested Workspace directory and denies outsiders", async () => {
   const connectionString = Bun.env.CHANNEL_TEST_DATABASE_URL;
@@ -86,8 +86,22 @@ test("lists only the requested Workspace directory and denies outsiders", async 
     });
 
     const members = new WorkspaceMembers(db);
-    expect(await members.list(workspace.id, viewer.id)).toEqual({
+    const directory = async (userId: string) => {
+      const [summary, people, agents] = await Promise.all([
+        members.summary(workspace.id, userId),
+        members.peoplePage(workspace.id, userId, { query: "", limit: 50 }),
+        members.agentPage(workspace.id, userId, { owner: "all", query: "", limit: 50 }),
+      ]);
+      return {
+        actorRole: summary.actorRole,
+        viewerId: summary.viewerId,
+        people: people.items,
+        agents: agents.items,
+      };
+    };
+    expect(await directory(viewer.id)).toEqual({
       actorRole: "member",
+      viewerId: viewer.id,
       people: [
         {
           id: otherOwner.id,
@@ -110,27 +124,31 @@ test("lists only the requested Workspace directory and denies outsiders", async 
           name: "assigned",
           displayName: "Assigned Agent",
           description: "Runs on the owner workstation",
+          avatarUrl: null,
           computerId: computer.id,
           computerName: "Owner workstation",
+          createdAt: assignedAgent.createdAt,
+          owner: { id: otherOwner.id, displayName: "Agent Owner", avatarUrl: null },
+          deletable: true,
         },
         {
           id: unassignedAgent.id,
           name: "unassigned",
           displayName: "Unassigned Agent",
           description: "Has no Computer",
+          avatarUrl: null,
           computerId: null,
           computerName: null,
+          createdAt: unassignedAgent.createdAt,
+          owner: { id: otherOwner.id, displayName: "Agent Owner", avatarUrl: null },
+          deletable: true,
         },
       ],
     });
-    expect(JSON.stringify(await members.list(workspace.id, viewer.id))).not.toContain(
-      outsideAgent.id,
-    );
+    expect(JSON.stringify(await directory(viewer.id))).not.toContain(outsideAgent.id);
     await db.computer.update({ where: { id: computer.id }, data: { displayName: " " } });
-    expect((await members.list(workspace.id, viewer.id)).agents[0]?.computerName).toBe(
-      "owner-hostname",
-    );
-    await expect(members.list(workspace.id, outsider.id)).rejects.toThrow("ACCESS_DENIED");
+    expect((await directory(viewer.id)).agents[0]?.computerName).toBe("owner-hostname");
+    await expect(directory(outsider.id)).rejects.toThrow("ACCESS_DENIED");
   } finally {
     await db.workspace.deleteMany({
       where: { slug: { in: [`members-${suffix}`, `members-other-${suffix}`] } },

@@ -1,10 +1,10 @@
 import { describe, expect, test } from "bun:test";
 
-import { AgentDeletion, type AgentDeletionStore } from "../src/server/agents/agent-deletion.server";
+import { AgentDeletion, type AgentDeletionStore } from "#src/server/agents/agent-deletion.server";
 import type {
   AgentRecord,
   AgentRepository,
-} from "../src/server/db/repositories/agent.repositories.server";
+} from "#src/server/db/repositories/agent.repositories.server";
 
 function agent(overrides: Partial<AgentRecord> = {}): AgentRecord {
   return {
@@ -42,6 +42,7 @@ function repositoryFor(record: AgentRecord | undefined): AgentRepository {
 function fixture(options?: { stopFails?: boolean; record?: AgentRecord }) {
   const record = options?.record ?? agent();
   const stops: Array<{ agentId: string; userId: string }> = [];
+  const announced: Array<{ workspaceId: string; conversationIds: readonly string[] }> = [];
   const effects: Parameters<AgentDeletionStore["delete"]>[0][] = [];
   const store: AgentDeletionStore = {
     delete: async (input) => {
@@ -49,6 +50,7 @@ function fixture(options?: { stopFails?: boolean; record?: AgentRecord }) {
       return {
         outcome: "deleted",
         membershipsLeft: 2,
+        leftChannelIds: ["channel-1", "channel-2"],
         remindersCanceled: 1,
         apiKeysRevoked: 1,
       };
@@ -65,8 +67,13 @@ function fixture(options?: { stopFails?: boolean; record?: AgentRecord }) {
     },
     { run: async (_agentId, callback) => callback() },
     () => new Date("2026-09-18T04:00:00Z"),
+    {
+      memberChanged: async (input) => {
+        announced.push(input);
+      },
+    },
   );
-  return { deletion, stops, effects, record };
+  return { deletion, stops, effects, announced, record };
 }
 
 const owner = { userId: "user-1", workspaceId: "workspace-1", role: "owner" as const };
@@ -96,6 +103,56 @@ describe("AgentDeletion", () => {
       },
     ]);
     expect(stops).toEqual([{ agentId: "agent-1", userId: "user-1" }]);
+  });
+
+  test("deleting tells each channel the Agent left that its member list changed", async () => {
+    const { deletion, announced } = fixture();
+    await deletion.delete(owner, "agent-1");
+    expect(announced).toEqual([
+      { workspaceId: "workspace-1", conversationIds: ["channel-1", "channel-2"] },
+    ]);
+  });
+
+  test("the member-list signal goes out after the runtime lock is released, even when the stop fails", async () => {
+    let locked = false;
+    let stopAttempts = 0;
+    const announcedWhileLocked: boolean[] = [];
+    const deletion = new AgentDeletion(
+      repositoryFor(agent()),
+      {
+        delete: async () => ({
+          outcome: "deleted",
+          membershipsLeft: 1,
+          leftChannelIds: ["channel-1"],
+          remindersCanceled: 0,
+        }),
+      },
+      {
+        stop: async () => {
+          stopAttempts += 1;
+          throw new Error("daemon unavailable");
+        },
+      },
+      {
+        run: async (_agentId, callback) => {
+          locked = true;
+          try {
+            return await callback();
+          } finally {
+            locked = false;
+          }
+        },
+      },
+      undefined,
+      {
+        memberChanged: async () => {
+          announcedWhileLocked.push(locked);
+        },
+      },
+    );
+    await deletion.delete(owner, "agent-1");
+    expect(stopAttempts).toBe(1);
+    expect(announcedWhileLocked).toEqual([false]);
   });
 
   test("an admin may delete an Agent owned by someone else", async () => {

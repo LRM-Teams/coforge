@@ -1,6 +1,6 @@
 import { afterEach, expect, jest, test } from "bun:test";
 import type { AgentRuntimeEvent } from "@coforge/agent";
-import { ActivityTrajectory } from "../src/agent-runtime/activity-trajectory";
+import { ActivityTrajectory } from "#src/agent-runtime/activity-trajectory";
 
 afterEach(() => jest.useRealTimers());
 

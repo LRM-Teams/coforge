@@ -1,0 +1,178 @@
+import { expect, test } from "bun:test";
+
+import {
+  mapBrowserMessage,
+  type BrowserMessageRow,
+} from "#src/server/conversations/conversation-history.server";
+
+const WORKSPACE_ID = "11111111-2222-4333-8444-555555555555";
+
+function row(overrides: Partial<BrowserMessageRow>): BrowserMessageRow {
+  return {
+    id: "message-1",
+    sequence: 1,
+    threadRootId: null,
+    senderMemberId: "member-1",
+    body: "hello",
+    createdAt: new Date("2026-09-17T10:00:00Z"),
+    sender: null,
+    attachments: [],
+    mentions: [],
+    reactions: [],
+    ...overrides,
+  };
+}
+
+test("an Agent-sent channel message carries senderAgentId", () => {
+  const view = mapBrowserMessage(
+    row({
+      sender: {
+        userId: null,
+        agentId: "agent-builder",
+        agent: { name: "builder", displayName: "Builder", deletedAt: null, avatarObjectKey: null },
+        user: null,
+      },
+    }),
+    WORKSPACE_ID,
+  );
+  expect(view.senderKind).toBe("agent");
+  expect(view.senderAgentId).toBe("agent-builder");
+});
+
+test("a user-sent channel message has no senderAgentId", () => {
+  const view = mapBrowserMessage(
+    row({
+      sender: {
+        userId: "user-1",
+        agentId: null,
+        agent: null,
+        user: {
+          username: "ada",
+          displayName: "Ada Lovelace",
+          avatarObjectKey: null,
+        },
+      },
+    }),
+    WORKSPACE_ID,
+  );
+  expect(view.senderKind).toBe("user");
+  expect(view.senderAgentId).toBeUndefined();
+});
+
+test("a channel mention exposes the current display label separately from its stable handle", () => {
+  const view = mapBrowserMessage(
+    row({
+      mentions: [
+        {
+          kind: "user",
+          actorId: "user-ada",
+          handle: "ada",
+          member: { user: { displayName: "Ada Lovelace" }, agent: null },
+        },
+      ],
+    }),
+    WORKSPACE_ID,
+  );
+  expect(view.mentions).toEqual([
+    { kind: "user", actorId: "user-ada", handle: "ada", label: "Ada Lovelace" },
+  ]);
+});
+
+test("a system message (no sender) has no senderAgentId", () => {
+  const view = mapBrowserMessage(row({ sender: null }), WORKSPACE_ID);
+  expect(view.senderKind).toBe("system");
+  expect(view.senderAgentId).toBeUndefined();
+});
+
+// The browser shows a display name, like Slack; `@handle` stays what you type and what the
+// Agent-facing projection sends. Before this, a person read as "@ada" beside an Agent reading
+// as its display name, and the three browser projections each had their own rule.
+test("a person's message is attributed to their display name, not their @username", () => {
+  const view = mapBrowserMessage(
+    row({
+      sender: {
+        userId: "user-1",
+        agentId: null,
+        agent: null,
+        user: {
+          username: "ada",
+          displayName: "Ada Lovelace",
+          avatarObjectKey: null,
+        },
+      },
+    }),
+    WORKSPACE_ID,
+  );
+  expect(view.senderName).toBe("Ada Lovelace");
+});
+
+test("a person with no display name falls back to their username, without an @", () => {
+  const view = mapBrowserMessage(
+    row({
+      sender: {
+        userId: "user-1",
+        agentId: null,
+        agent: null,
+        user: {
+          username: "ada",
+          displayName: null,
+          avatarObjectKey: null,
+        },
+      },
+    }),
+    WORKSPACE_ID,
+  );
+  expect(view.senderName).toBe("ada");
+});
+
+test("a blank display name is treated as unset rather than shown as an empty name", () => {
+  const view = mapBrowserMessage(
+    row({
+      sender: {
+        userId: "user-1",
+        agentId: null,
+        agent: null,
+        user: {
+          username: "ada",
+          displayName: "   ",
+          avatarObjectKey: null,
+        },
+      },
+    }),
+    WORKSPACE_ID,
+  );
+  expect(view.senderName).toBe("ada");
+});
+
+test("an Agent's message is attributed to its display name, falling back to its handle", () => {
+  const named = mapBrowserMessage(
+    row({
+      sender: {
+        userId: null,
+        agentId: "agent-builder",
+        agent: { name: "builder", displayName: "Builder", deletedAt: null, avatarObjectKey: null },
+        user: null,
+      },
+    }),
+    WORKSPACE_ID,
+  );
+  expect(named.senderName).toBe("Builder");
+
+  const unnamed = mapBrowserMessage(
+    row({
+      sender: {
+        userId: null,
+        agentId: "agent-builder",
+        // `Agent.displayName` is a required column; unset is the empty string.
+        agent: { name: "builder", displayName: "", deletedAt: null, avatarObjectKey: null },
+        user: null,
+      },
+    }),
+    WORKSPACE_ID,
+  );
+  expect(unnamed.senderName).toBe("builder");
+});
+
+test("a server-authored message stays attributed to System", () => {
+  expect(mapBrowserMessage(row({ sender: null }), WORKSPACE_ID).senderName).toBe("System");
+});

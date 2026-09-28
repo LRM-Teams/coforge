@@ -1,10 +1,14 @@
 import { expect, test } from "bun:test";
-import { jobPlist } from "../src/platform/launchd-job";
+import { join } from "node:path";
+import { jobPlist } from "#src/platform/launchd-job";
 import {
   computerUpgradeCommand,
   computerUpgradeJobLabel,
   computerUpgradeJobPaths,
-} from "../src/platform/computer-upgrade-launcher";
+  computerUpgradeTaskName,
+  deleteWindowsComputerUpgradeTask,
+  launchWindowsComputerUpgrade,
+} from "#src/platform/computer-upgrade-launcher";
 
 const id = "123e4567-e89b-42d3-a456-426614174000";
 
@@ -38,8 +42,21 @@ test("darwin upgrades run the same action inside a one-shot launchd job, never l
   expect(command).not.toContain("launchctl");
 });
 
+test("Windows upgrades use the same action as darwin, never an in-Coordinator spawn argv", () => {
+  const command = computerUpgradeCommand("win32", "C:\\Coforge\\coforge-computer.exe", id, "1.2.3");
+  expect(command).toEqual([
+    "C:\\Coforge\\coforge-computer.exe",
+    "__remote-upgrade",
+    "--request-id",
+    id,
+    "--version",
+    "1.2.3",
+  ]);
+  expect(computerUpgradeTaskName(id)).toBe(`CoForge Upgrade ${id}`);
+});
+
 test("fails closed on platforms with no safe external coordinator", () => {
-  expect(() => computerUpgradeCommand("win32", "coforge.exe", id, "1.2.3")).toThrow(
+  expect(() => computerUpgradeCommand("freebsd", "coforge", id, "1.2.3")).toThrow(
     "no safe external coordinator",
   );
 });
@@ -53,6 +70,9 @@ test("request-id validation is unchanged", () => {
   );
   expect(() => computerUpgradeCommand("darwin", "/coforge-computer", id, "")).toThrow(
     "missing expected Computer release version",
+  );
+  expect(() => computerUpgradeTaskName("not-a-uuid")).toThrow(
+    "invalid Computer upgrade request ID",
   );
 });
 
@@ -69,8 +89,10 @@ test("the darwin upgrade job's plist and log live under the daemon state and Com
     homeDirectory: "/home/frank",
   });
   expect(paths.label).toBe(`cn.coforge.upgrade.${id}`);
-  expect(paths.directory).toBe("/state/daemon/upgrade-jobs");
-  expect(paths.logPath).toBe(`/home/frank/.coforge/computer/logs/computer/upgrade-${id}.log`);
+  expect(paths.directory).toBe(join("/state/daemon", "upgrade-jobs"));
+  expect(paths.logPath).toBe(
+    join("/home/frank", ".coforge", "computer", "logs", "computer", `upgrade-${id}.log`),
+  );
 });
 
 test("the generated darwin upgrade plist runs once at load and is never kept alive", () => {
@@ -89,4 +111,58 @@ test("the generated darwin upgrade plist runs once at load and is never kept ali
   expect(plist).not.toContain("KeepAlive");
   expect(plist).toContain(`<key>StandardOutPath</key><string>${paths.logPath}</string>`);
   expect(plist).toContain(`<key>StandardErrorPath</key><string>${paths.logPath}</string>`);
+});
+
+test("Windows upgrade schtasks Create+Run uses locale-independent XML registration", async () => {
+  const calls: string[][] = [];
+  const written: { path: string; content: string }[] = [];
+  const action = computerUpgradeCommand(
+    "win32",
+    "C:\\Path With Space\\coforge-computer.exe",
+    id,
+    "9.9.9",
+  );
+  await launchWindowsComputerUpgrade(id, action, {
+    userId: "DESKTOP\\alice",
+    writeTaskXml: async (path, content) => {
+      written.push({ path, content });
+    },
+    run: async (command) => {
+      calls.push(command);
+      return 0;
+    },
+  });
+  expect(written).toHaveLength(1);
+  expect(written[0]!.content).toContain("<StartBoundary>2099-01-01T00:00:00</StartBoundary>");
+  expect(written[0]!.content).toContain("<RunLevel>LeastPrivilege</RunLevel>");
+  expect(written[0]!.content).toContain(
+    "<Command>C:\\Path With Space\\coforge-computer.exe</Command>",
+  );
+  expect(written[0]!.content).toContain("__remote-upgrade");
+  expect(calls).toHaveLength(2);
+  expect(calls[0]!.slice(0, 5)).toEqual([
+    "schtasks.exe",
+    "/Create",
+    "/TN",
+    `CoForge Upgrade ${id}`,
+    "/XML",
+  ]);
+  expect(calls[0]![5]).toBe(written[0]!.path);
+  expect(calls[0]!).toContain("/F");
+  expect(calls[1]).toEqual(["schtasks.exe", "/Run", "/TN", `CoForge Upgrade ${id}`]);
+});
+
+test("Windows upgrade Create failure is rejected before Run", async () => {
+  await expect(
+    launchWindowsComputerUpgrade(id, ["coforge-computer.exe", "__remote-upgrade"], async () => 1),
+  ).rejects.toThrow("external Computer upgrade coordinator was rejected");
+});
+
+test("Windows upgrade cleanup deletes the Scheduled Task", async () => {
+  const calls: string[][] = [];
+  await deleteWindowsComputerUpgradeTask(id, async (command) => {
+    calls.push(command);
+    return 0;
+  });
+  expect(calls).toEqual([["schtasks.exe", "/Delete", "/TN", `CoForge Upgrade ${id}`, "/F"]]);
 });

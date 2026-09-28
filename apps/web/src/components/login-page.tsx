@@ -1,6 +1,6 @@
-import { Button } from "@/components/base/buttons/button";
-import { HintText } from "@/components/base/input/hint-text";
-import { m } from "@/paraglide/messages";
+import { Button } from "#src/components/base/buttons/button";
+import { HintText } from "#src/components/base/input/hint-text";
+import { m } from "#src/paraglide/messages";
 
 export function LoginPage({ error }: { error?: string }) {
   return (

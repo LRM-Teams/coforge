@@ -1,5 +1,5 @@
 import { WORKSPACE_PROTOCOL_MAJOR } from "@lrm/coforge-sdk/internal";
-import type { AgentMessageTransportResponse } from "../connection/daemon-connection";
+import type { AgentMessageTransportResponse } from "#src/connection/agent-http-clients";
 
 /**
  * The daemon's own freshness decision for an outgoing send — the local half of Raft's
@@ -75,11 +75,8 @@ export function planAgentInboxFreshness(input: AgentInboxFreshnessInput): AgentI
   };
 }
 
-/** Raft 1.0.32 `DEFAULT_HELD_CONTEXT_LIMIT`: how many newer messages a held notice shows. */
-export const HELD_CONTEXT_LIMIT = 3;
-
 /** Raft 1.0.32 `apmHeldFreshnessAvailableActions("send")`: the same list the server puts on a held
- * response it decided (`agent-messages.service.ts`'s `HELD_SEND_AVAILABLE_ACTIONS`). Kept here as
+ * response it decided (`agent-messages.server.ts`'s `HELD_SEND_AVAILABLE_ACTIONS`). Kept here as
  * well because a locally held send never reaches that code path; a shared home is worth doing
  * when the activity side (task #58's PR3) starts reading the list too. */
 export const HELD_SEND_AVAILABLE_ACTIONS = ["check_messages", "send_draft", "send_anyway"] as const;

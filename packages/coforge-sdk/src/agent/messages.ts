@@ -1,5 +1,7 @@
-import type { MessageTaskMetadata } from "../internal/local-daemon";
-import type { MessageSenderKind } from "../internal/message-sender";
+import type { AgentPendingMentionAction, MessageTaskMetadata } from "#src/internal/local-daemon";
+
+export type { AgentPendingMentionAction };
+import type { MessageSenderKind } from "#src/internal/message-sender";
 
 export type AgentMessageOperation = "read" | "search" | "send";
 
@@ -16,6 +18,10 @@ export type AgentMessagesSearchRequest = {
   target?: string;
   sender?: string;
   sort?: "relevance" | "recent";
+  /** Only messages sent before this ISO time. */
+  before?: string;
+  /** Only messages sent after this ISO time. */
+  after?: string;
   offset?: number;
   limit?: number;
 };
@@ -72,7 +78,7 @@ export type AgentMessage = {
 /** Response for the read route (GET /api/agent/v1/messages, no `query`); its own shape, not the shared message envelope. */
 export type AgentHistoryResponse = {
   protocolMajor: 1;
-  requestId: string;
+  idempotencyKey: string;
   messages: AgentMessage[];
   hasOlder: boolean;
   hasNewer: boolean;
@@ -83,14 +89,14 @@ export type AgentHistoryResponse = {
 /** Response for the dedicated search route (GET /api/agent/v1/messages/search). */
 export type AgentSearchResponse = {
   protocolMajor: 1;
-  requestId: string;
+  idempotencyKey: string;
   results: AgentMessage[];
 };
 
 /** Response for the send route (POST /api/agent/v1/messages); Raft 1.0.32's own send contract. */
 export type AgentSendResponse = {
   protocolMajor: 1;
-  requestId: string;
+  idempotencyKey: string;
   state: "sent" | "held";
   decision: "forward" | "bypass" | "local_hold" | "syncing_hold";
   reason?: string;
@@ -111,19 +117,24 @@ export type AgentSendResponse = {
   withheldMessageCount?: number;
   /** Sent only: pending messages a bypassed hold chose not to review; empty otherwise. */
   recentUnread?: AgentMessage[];
+  /** Sent only: mentions of people outside the channel, which notified no one; the Agent acts on
+   * them with `coforge mention`. */
+  pendingMentionActions?: AgentPendingMentionAction[];
+  /** Sent only: `@handle`s that name nobody the Agent can see. */
+  unresolvedMentionHandles?: string[];
 };
 
 /** Response for the resolve route (GET /api/agent/v1/messages/:id/resolve). */
 export type AgentResolveResponse = {
   protocolMajor: 1;
-  requestId: string;
+  idempotencyKey: string;
   message: AgentMessage;
 };
 
 /** Response for the reaction routes (POST/DELETE /api/agent/v1/messages/:id/reactions). */
 export type AgentReactionResponse = {
   protocolMajor: 1;
-  requestId: string;
+  idempotencyKey: string;
   messageId: string;
   emoji: string;
   active: boolean;
@@ -132,7 +143,7 @@ export type AgentReactionResponse = {
 /** Response for the events drain route (GET /api/agent/v1/events); its own shape, not the shared message envelope. */
 export type AgentEventsResponse = {
   protocolMajor: 1;
-  requestId: string;
+  idempotencyKey: string;
   events: AgentMessage[];
   hasMore: boolean;
 };
@@ -140,7 +151,7 @@ export type AgentEventsResponse = {
 /** Response for the channel mute/unmute routes. */
 export type AgentChannelAttentionResponse = {
   protocolMajor: 1;
-  requestId: string;
+  idempotencyKey: string;
   target: string;
   muted: boolean;
 };
@@ -148,7 +159,7 @@ export type AgentChannelAttentionResponse = {
 /** Response for the thread unfollow route. */
 export type AgentThreadAttentionResponse = {
   protocolMajor: 1;
-  requestId: string;
+  idempotencyKey: string;
   target: string;
   followed: false;
 };

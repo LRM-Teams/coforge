@@ -6,7 +6,7 @@ import type {
   AgentRuntimeEvent,
   AgentSessionIdentity,
 } from "@coforge/agent";
-import type { CodeAgentProvider } from "../contract";
+import type { CodeAgentProvider } from "#src/code-agent/contract";
 import type {
   SessionNotification,
   SessionConfigOption,
@@ -14,15 +14,15 @@ import type {
   ToolKind,
 } from "@agentclientprotocol/sdk";
 import { RUNTIME_PROVIDER } from "@lrm/coforge-sdk/internal";
-import { agentEnvironment } from "../environment";
-import { AgentSessionRecoveryError } from "../contract";
-import { scrubRuntimeErrorText } from "../../agent-runtime/runtime-error-activity";
+import { agentEnvironment } from "#src/code-agent/environment";
+import { AgentSessionRecoveryError } from "#src/code-agent/contract";
+import { scrubRuntimeErrorText } from "#src/agent-runtime/runtime-error-activity";
 import { bounded, KIRO_ACP_ARGS, KiroConnection, record } from "./connection";
 import { readKiroUsage } from "./usage";
 import { discoverKiroCatalog } from "./catalog";
-import { discoverExternalCodeAgents } from "../runtime-inventory";
+import { discoverExternalCodeAgents } from "#src/code-agent/runtime-inventory";
 import { assertKiroVersionSupported } from "./version";
-import type { ProviderDiscoveryOptions } from "../contract";
+import type { ProviderDiscoveryOptions } from "#src/code-agent/contract";
 
 // Kiro's tool_call frames never carry a programmatic name (only a
 // human-readable title, e.g. "Run Command", "Read File"), so the ACP `kind`
@@ -139,7 +139,7 @@ class KiroSession implements AgentSession {
    * Native ACP `steer-<uuid>` id -> the notice text sent under it and whether Kiro's own
    * `steering_injected` update has since confirmed the model read it. Populated only by a
    * `_session/steer` call that returned `queued: true`; drained by the matching
-   * `steering_cleared` (ADR 0048's Kiro `steer` mode).
+   * `steering_cleared` (Kiro's `steer` delivery mode).
    */
   readonly #steeredMessages = new Map<string, { text: string; injected: boolean }>();
   #generation = 0;
@@ -275,7 +275,7 @@ class KiroSession implements AgentSession {
   /**
    * Idle sends a fresh `session/prompt`, exactly as before. Busy (`#turn` set) steers the live
    * turn through Kiro's own ACP `_session/steer` extension instead — CoForge's default `steer`
-   * delivery mode (ADR 0048) now applies to Kiro too, matching Kiro CLI's own default steer
+   * delivery mode now applies to Kiro too, matching Kiro CLI's own default steer
    * behavior.
    */
   notify(message: string): Promise<void> {
@@ -305,7 +305,7 @@ class KiroSession implements AgentSession {
             admitted.reject(new Error("Kiro ended a turn without accepting its input"));
           // Cleared here, before emitting "completed" below, not only in the `finally` block's
           // safety net - a listener reacting to "completed" (a held fallback notice's
-          // redelivery, ADR 0048) must already see this Agent as idle.
+          // redelivery) must already see this Agent as idle.
           if (this.#turn === turn) this.#turn = undefined;
           if (generation !== this.#generation || this.#disposed) return;
           // ACP's standard `StopReason` union has no "error" member, but Kiro sends it; widen
@@ -382,7 +382,7 @@ class KiroSession implements AgentSession {
 
   /**
    * Injects `message` into the running turn via Kiro's undocumented `_session/steer` ACP
-   * extension (measured against kiro-cli 2.22.0, 2026-09-18 — see ADR 0048). Resolves once Kiro
+   * extension (measured against kiro-cli 2.22.0, 2026-09-18). Resolves once Kiro
    * accepts it (`queued: true`); a later `steering_cleared` for this id with no prior
    * `steering_injected` means Kiro's own buffer discarded it before the model ever read it, and
    * emits the fallback `notice-undelivered` event for the daemon core to redeliver once idle.
@@ -508,7 +508,7 @@ class KiroSession implements AgentSession {
       // Kiro clears its whole steering buffer at every non-cancelled turn end (after retrying
       // delivery for up to 3 further turns) and on session/cancel; the cleared id list can
       // include ids already confirmed via `steering_injected`. Only a still-unconfirmed one
-      // means the model never actually read it - that one alone needs redelivery (ADR 0048).
+      // means the model never actually read it - that one alone needs redelivery.
       for (const id of meta.messageIds) {
         if (typeof id !== "string") continue;
         const entry = this.#steeredMessages.get(id);

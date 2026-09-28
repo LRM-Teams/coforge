@@ -2,9 +2,9 @@ import { expect, test } from "bun:test";
 import { mkdtemp, mkdir, rm } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
-import { LocalDaemonLauncher } from "../src/daemon-host/launcher";
-import { SystemdWorkspaceInstance } from "../src/supervisor/systemd-workspace-instance";
-import { COFORGE_DAEMON_SERVER_URL } from "../src/connection/built-server";
+import { LocalDaemonLauncher } from "#src/daemon-host/launcher";
+import { SystemdWorkspaceInstance } from "#src/supervisor/systemd-workspace-instance";
+import { COFORGE_DAEMON_SERVER_URL } from "#src/connection/built-server";
 
 test("signal termination is observed even when Bun exitCode remains null", async () => {
   const child = Bun.spawn([process.execPath, "-e", "await Bun.sleep(60000)"], {

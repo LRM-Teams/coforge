@@ -4,7 +4,7 @@ import {
   type AppInboxAction,
   type AppSourceRef,
 } from "./registry";
-import { AgentAppInboxPersistence } from "../persistence/agent-app-inbox-store";
+import { AgentAppInboxPersistence } from "#src/persistence/agent-app-inbox-store";
 
 export type AgentAppItem = Readonly<{
   itemId: string;

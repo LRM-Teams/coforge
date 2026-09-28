@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { Pool } from "pg";
 import { PrismaPg } from "@prisma/adapter-pg";
-import { PrismaClient } from "../generated/client";
+import { PrismaClient } from "#src/generated/prisma/client";
 import { PrismaOpenVikingBindingStore } from "../src/server/db/repositories/openviking-binding.repositories.server";
 import { PrismaWorkspaceMemoryCleanupStore } from "../src/server/db/repositories/workspace-memory-cleanup.repositories.server";
 import { PrismaWorkspaceMemoryProfileStore } from "../src/server/db/repositories/workspace-memory-profile.repositories.server";

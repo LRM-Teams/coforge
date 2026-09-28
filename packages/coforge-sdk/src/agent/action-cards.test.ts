@@ -144,7 +144,7 @@ describe("actionCardActionSchema discriminated union", () => {
     expect(() =>
       actionCardActionSchema.parse({
         type: "integration:approve_agent_login",
-        requestId: "11111111-1111-1111-1111-111111111111",
+        idempotencyKey: "11111111-1111-1111-1111-111111111111",
       }),
     ).toThrow();
   });

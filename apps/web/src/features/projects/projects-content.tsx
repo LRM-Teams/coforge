@@ -1,17 +1,17 @@
 import { useState } from "react";
 import { Link, useRouter } from "@tanstack/react-router";
 import { Folder, Plus } from "@untitledui/icons";
-import { Button } from "@/components/base/buttons/button";
-import { PageHeader } from "@/components/layout/page-header";
+import { Button } from "#src/components/base/buttons/button";
+import { PageHeader } from "#src/components/layout/page-header";
 import {
   Empty,
   EmptyHeader,
   EmptyMedia,
   EmptyTitle,
   EmptyDescription,
-} from "@/components/ui/empty";
-import { Skeleton } from "@/components/ui/skeleton";
-import { m } from "@/paraglide/messages";
+} from "#src/components/ui/empty";
+import { Skeleton } from "#src/components/ui/skeleton";
+import { m } from "#src/paraglide/messages";
 import { CreateProjectDialog } from "./create-project-dialog";
 import type { listProjects } from "./projects.functions";
 import { ProjectImage } from "./project-image";

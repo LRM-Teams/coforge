@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { agentAuthMiddleware } from "#/server/agents/agent-http.middleware";
-import { handleMemoryAgentHttp } from "#/server/workspace-memory/memory-agent-http.server";
+import { agentAuthMiddleware } from "#src/server/agents/agent-http-middleware.server";
+import { handleMemoryAgentHttp } from "#src/server/workspace-memory/memory-agent-http.server";
 
 export const Route = createFileRoute("/api/agent/v1/openviking")({
   server: {

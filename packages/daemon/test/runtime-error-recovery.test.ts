@@ -8,7 +8,7 @@ import {
   RuntimeErrorDeliveryBackoff,
   RuntimeErrorFingerprintFence,
   runtimeErrorFingerprintFenceDetail,
-} from "../src/agent-runtime/runtime-error-recovery";
+} from "#src/agent-runtime/runtime-error-recovery";
 
 test("the first backoff delay is the base delay, with no jitter added when the random source returns 0", () => {
   const delay = runtimeErrorDeliveryBackoffDelayMs(1, { jitterRandom: () => 0 });

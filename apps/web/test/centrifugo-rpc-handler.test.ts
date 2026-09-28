@@ -11,9 +11,9 @@ import {
   createComputerUpgradeResultMethod,
   createDaemonConnectionStatusMethod,
   type CentrifugoRpcMethod,
-} from "../src/server/centrifugo/rpc-handler.server";
-import { createCentrifugoRpcHandler } from "../src/server/centrifugo/rpc-composition.server";
-import { AgentMessageValidationError } from "../src/server/conversations/agent-message-validation-error.server";
+} from "#src/server/centrifugo/rpc-handler.server";
+import { createCentrifugoRpcHandler } from "#src/server/centrifugo/rpc-composition.server";
+import { AgentMessageValidationError } from "#src/server/conversations/agent-message-validation-error.server";
 import {
   encodeAgentMessageDeliveryAck,
   encodeAgentStatus,
@@ -147,7 +147,7 @@ describe("Daemon connection status method", () => {
   test("a periodic online status persists a legacy leased identity without an expiry", async () => {
     const touched: unknown[] = [];
     const method = createDaemonConnectionStatusMethod(
-      { put: async () => {}, get: async () => true },
+      { put: async () => {}, get: async () => true, getMany: async () => [] },
       undefined,
       {
         touchIdentity: async (scope) => {
@@ -168,7 +168,7 @@ describe("Daemon connection status method", () => {
   test("an offline status never renews an identity for a Computer that just disconnected", async () => {
     const touched: unknown[] = [];
     const method = createDaemonConnectionStatusMethod(
-      { put: async () => {}, get: async () => false },
+      { put: async () => {}, get: async () => false, getMany: async () => [] },
       undefined,
       {
         touchIdentity: async (scope) => {
@@ -188,7 +188,7 @@ describe("Daemon connection status method", () => {
   test("an unauthorized status is refused before it can renew anything", async () => {
     const touched: unknown[] = [];
     const method = createDaemonConnectionStatusMethod(
-      { put: async () => {}, get: async () => true },
+      { put: async () => {}, get: async () => true, getMany: async () => [] },
       undefined,
       {
         touchIdentity: async (scope) => {
@@ -275,6 +275,7 @@ describe("CentrifugoRpcHandler", () => {
           workspaceId: "workspace-1",
           ownerId: "another-workspace-member",
           computerId: "computer-1",
+          visibility: "public",
         }),
       },
       {
@@ -284,6 +285,7 @@ describe("CentrifugoRpcHandler", () => {
         },
         get: async () => "inactive",
         snapshot: async () => undefined,
+        snapshotMany: async () => [],
       },
       {
         publish: async (channel, data) => {
@@ -380,6 +382,101 @@ describe("CentrifugoRpcHandler", () => {
     ).toEqual({ code: 403, message: "Agent status is not authorized" });
   });
 
+  // `agent:status` reports feed both the raw active/inactive event and the reduced
+  // `agent:display` snapshot onto the browser status channel — the same per-Agent-or-shared split
+  // the publish proxy, the Activity sweep and the context-usage receiver already apply, folded
+  // into the same Agent row this method already fetches for authorization above (no extra query).
+  test("routes both the status event and its display snapshot to a private Agent's per-Agent status channel", async () => {
+    const publications: Array<{ channel: string }> = [];
+    const method = createAgentStatusMethod(
+      {
+        getById: async () => ({
+          workspaceId: "workspace-1",
+          computerId: "computer-1",
+          visibility: "private",
+        }),
+      },
+      {
+        put: async () => true,
+        get: async () => "inactive",
+        snapshot: async () => undefined,
+        snapshotMany: async () => [],
+      },
+      { publish: async (channel) => void publications.push({ channel }) },
+      () => 1_000,
+      {
+        observeStatus: async () => ({
+          protocolMajor: 1,
+          workspaceId: "workspace-1",
+          computerId: "computer-1",
+          agentId: "agent-1",
+          revision: 1,
+          activityKind: "online",
+          detailKind: "",
+          detail: "",
+          entries: [],
+          expiresAt: 91_000,
+        }),
+      },
+      { publishJson: async (channel) => void publications.push({ channel }) },
+    );
+    const payload = encodeAgentStatus({
+      protocolMajor: 1,
+      requestId: "status-private",
+      workspaceId: "workspace-1",
+      computerId: "computer-1",
+      agentId: "agent-1",
+      status: "active",
+      daemonInstanceId: "daemon-1",
+      clientSeq: 1,
+      observedAtMs: 1_000,
+    });
+
+    expect(await method(payload, { principal: principal() })).toBeInstanceOf(Uint8Array);
+
+    expect(publications).toEqual([
+      { channel: "agent:status:workspace-1:agent-1" },
+      { channel: "agent:status:workspace-1:agent-1" },
+    ]);
+  });
+
+  // Never optional in effect: a lookup that cannot answer the visibility question must not
+  // silently fall back to publishing on the shared channel. The process lease is still accepted
+  // independently of this decision.
+  test("skips fan-out (but still accepts the process lease) when the Agent row carries no visibility field", async () => {
+    const statuses: unknown[] = [];
+    const publications: Array<{ channel: string }> = [];
+    const method = createAgentStatusMethod(
+      { getById: async () => ({ workspaceId: "workspace-1", computerId: "computer-1" }) },
+      {
+        put: async (status) => {
+          statuses.push(status);
+          return true;
+        },
+        get: async () => "inactive",
+        snapshot: async () => undefined,
+        snapshotMany: async () => [],
+      },
+      { publish: async (channel) => void publications.push({ channel }) },
+    );
+    const payload = encodeAgentStatus({
+      protocolMajor: 1,
+      requestId: "status-unset-visibility",
+      workspaceId: "workspace-1",
+      computerId: "computer-1",
+      agentId: "agent-1",
+      status: "active",
+      daemonInstanceId: "daemon-1",
+      clientSeq: 1,
+      observedAtMs: 1_000,
+    });
+
+    expect(await method(payload, { principal: principal() })).toBeInstanceOf(Uint8Array);
+
+    expect(statuses).toHaveLength(1);
+    expect(publications).toHaveLength(0);
+  });
+
   test("updates Agent display even when status channel publish fails", async () => {
     const displayObservations: unknown[] = [];
     const method = createAgentStatusMethod(
@@ -393,6 +490,7 @@ describe("CentrifugoRpcHandler", () => {
         put: async () => true,
         get: async () => "active",
         snapshot: async () => undefined,
+        snapshotMany: async () => [],
       },
       {
         publish: async () => {
@@ -449,6 +547,7 @@ describe("CentrifugoRpcHandler", () => {
         put: async () => false,
         get: async () => "active",
         snapshot: async () => undefined,
+        snapshotMany: async () => [],
       },
       {
         publish: async (...args) => {

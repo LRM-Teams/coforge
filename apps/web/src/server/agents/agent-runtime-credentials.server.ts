@@ -1,4 +1,3 @@
-import { readFileSync } from "node:fs";
 import type { AgentRuntimeConfig, EncryptedRuntimeApiKey } from "./agent-runtime-config.server";
 
 const API_KEY_MIN_LENGTH = 8;
@@ -133,9 +132,15 @@ export class AgentRuntimeCredentials {
   }
 }
 
-export function readAgentRuntimeCredentialEncryptionKey(
+/**
+ * Reads the 32-byte credential key from `COFORGE_AGENT_CREDENTIAL_ENCRYPTION_KEY` or
+ * `COFORGE_AGENT_CREDENTIAL_ENCRYPTION_KEY_FILE`. File contents use `Bun.file().text()`, the
+ * official recommended file read, so a secret mount cannot block the event loop.
+ * https://bun.com/docs/runtime/file-io
+ */
+export async function readAgentRuntimeCredentialEncryptionKey(
   env: NodeJS.ProcessEnv,
-): Uint8Array<ArrayBuffer> {
+): Promise<Uint8Array<ArrayBuffer>> {
   const inlineValue = env[ENCRYPTION_KEY_ENV]?.trim();
   const fileEnv = `${ENCRYPTION_KEY_ENV}_FILE`;
   const filePath = env[fileEnv]?.trim();
@@ -144,7 +149,7 @@ export function readAgentRuntimeCredentialEncryptionKey(
   let value = inlineValue;
   if (filePath) {
     try {
-      value = readFileSync(filePath, "utf8").trim();
+      value = (await Bun.file(filePath).text()).trim();
     } catch {
       throw new Error(`${fileEnv} could not be read`);
     }
@@ -157,12 +162,12 @@ export function readAgentRuntimeCredentialEncryptionKey(
   );
 }
 
-export function readOptionalAgentRuntimeCredentialEncryptionKey(
+export async function readOptionalAgentRuntimeCredentialEncryptionKey(
   env: NodeJS.ProcessEnv,
-): Uint8Array<ArrayBuffer> | undefined {
+): Promise<Uint8Array<ArrayBuffer> | undefined> {
   if (!env[ENCRYPTION_KEY_ENV]?.trim() && !env[`${ENCRYPTION_KEY_ENV}_FILE`]?.trim())
     return undefined;
-  return readAgentRuntimeCredentialEncryptionKey(env);
+  return await readAgentRuntimeCredentialEncryptionKey(env);
 }
 
 async function decryptApiKey(

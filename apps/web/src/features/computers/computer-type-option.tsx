@@ -1,7 +1,7 @@
 import { Check } from "@untitledui/icons";
 import type { ComponentType, SVGProps } from "react";
 
-import { Button } from "@/components/base/buttons/button";
+import { Button } from "#src/components/base/buttons/button";
 
 /**
  * One of the kinds of Computer a Workspace can add. Both kinds read the same,

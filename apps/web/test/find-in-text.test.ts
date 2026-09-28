@@ -1,9 +1,9 @@
 import { expect, test } from "bun:test";
-import { findMatches, FIND_MATCH_CAP } from "../src/features/projects/find-in-text";
+import { findMatches, FIND_MATCH_CAP } from "#src/features/projects/find-in-text";
 import {
   splitHighlightedLines,
   splitPlainLines,
-} from "../src/features/projects/split-highlighted-lines";
+} from "#src/features/projects/split-highlighted-lines";
 
 test("is case-insensitive by default", () => {
   expect(findMatches("Foo foo FOO", "foo")).toEqual([

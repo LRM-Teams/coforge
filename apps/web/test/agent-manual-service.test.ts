@@ -3,7 +3,7 @@ import {
   recordManualEvent,
   resolveManualGet,
   resolveManualSearch,
-} from "../src/server/agents/agent-manual.service";
+} from "#src/server/agents/agent-manual.server";
 
 const VALID_INTENT = "Open a pull request for a bound repository";
 const VALID_REASON = "Confirm the exact clone and push commands to use";
@@ -50,7 +50,7 @@ test("resolveManualGet 400s a malformed topic slug before checking intent/reason
 });
 
 test("resolveManualGet 400s with one error naming both fields when intent and reason are both invalid", () => {
-  const outcome = resolveManualGet({ topic: "github", intent: "short", reason: "" });
+  const outcome = resolveManualGet({ topic: "github", intent: "short", reason: "short" });
   expect(outcome.status).toBe(400);
   if (outcome.status !== 400) throw new Error("expected invalid");
   expect(outcome.body.errorCode).toBe("knowledge_intent_invalid");

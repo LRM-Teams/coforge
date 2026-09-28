@@ -1,4 +1,5 @@
 import { mkdir, readFile, readdir, rename, writeFile } from "node:fs/promises";
+import { hasErrorCode } from "@lrm/coforge-sdk/internal";
 import { basename, dirname, join } from "node:path";
 import { CliError, loginError, setupError } from "./errors";
 
@@ -113,7 +114,7 @@ export class FileComputerConfig implements ComputerConfig {
 }
 
 function isMissingFile(error: unknown): boolean {
-  return typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT";
+  return hasErrorCode(error, "ENOENT");
 }
 
 function profileReadError(operation: BuildProfileOperation, cause: unknown): CliError {

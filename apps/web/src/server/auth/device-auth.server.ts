@@ -1,10 +1,10 @@
-import { createHash, randomBytes, randomInt } from "node:crypto";
+import { randomBytes, randomInt } from "node:crypto";
 
 import {
   formatUserCode,
   normalizeUserCode,
   USER_CODE_LENGTH,
-} from "../../features/device-auth/device-code-format";
+} from "#src/features/device-auth/device-code-format";
 import { signComputerAccessToken } from "./computer-access-token.server";
 
 /**
@@ -57,7 +57,7 @@ export interface DeviceAuthorizationStore {
  * without a salt is deliberate - lookup is by exact digest, and neither value is user-chosen,
  * low-entropy, or reused anywhere else. */
 function digest(value: string): string {
-  return createHash("sha256").update(value).digest("base64url");
+  return new Bun.CryptoHasher("sha256").update(value).digest("base64url");
 }
 
 function generateUserCode(): string {

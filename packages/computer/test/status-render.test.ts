@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 
-import { renderStatusHuman, renderStatusJson } from "../src/status/render-status";
-import type { ComputerStatusReport } from "../src/status/types";
+import { renderStatusHuman, renderStatusJson } from "#src/status/render-status";
+import type { ComputerStatusReport } from "#src/status/types";
 
 const REPORT: ComputerStatusReport = {
   schemaVersion: 1,

@@ -1,6 +1,6 @@
-import type { PrismaClient } from "../../../generated/client";
-import { AppError } from "../../lib/app-error";
-import { enrollGeneralChannel } from "../conversations/public-channels.server";
+import type { PrismaClient } from "#src/generated/prisma/client";
+import { AppError } from "#src/lib/app-error";
+import { enrollGeneralChannel } from "#src/server/conversations/public-channels.server";
 import {
   WorkspaceMemberDirectory,
   type WorkspaceInvitationRecord,
@@ -12,7 +12,9 @@ import {
   type InvitableWorkspaceRole,
   type WorkspaceMemberRole,
 } from "./member-role.server";
-import { workspaceUserAvatarUrl } from "../db/repositories/user-profile.repositories.server";
+import { workspaceUserAvatarUrl } from "#src/server/db/repositories/user-profile.repositories.server";
+import { ACTIVE_CHANNEL_MEMBER_WHERE } from "#src/server/conversations/active-member.server";
+import { isUniqueViolation } from "#src/server/db/unique-violation.server";
 
 function asRole(value: string): WorkspaceMemberRole {
   if (!isWorkspaceMemberRole(value)) throw new AppError("INTERNAL_ERROR");
@@ -126,7 +128,7 @@ export class PrismaWorkspaceMemberDirectoryStore implements WorkspaceMemberDirec
       });
       return mapInvitation(row);
     } catch (error) {
-      if (isUniqueConflict(error)) throw new AppError("CONFLICT");
+      if (isUniqueViolation(error)) throw new AppError("CONFLICT");
       throw error;
     }
   }
@@ -216,26 +218,22 @@ export class PrismaWorkspaceMemberDirectoryStore implements WorkspaceMemberDirec
   }
 
   async removeMember(workspaceId: string, userId: string) {
-    await this.db.$transaction(async (tx) => {
+    return this.db.$transaction(async (tx) => {
       await tx.workspaceMembership.delete({
         where: { workspaceId_userId: { workspaceId, userId } },
+      });
+      const activeChannels = await tx.conversationMember.findMany({
+        where: { workspaceId, userId, ...ACTIVE_CHANNEL_MEMBER_WHERE },
+        select: { conversationId: true },
       });
       await tx.conversationMember.deleteMany({
         where: { workspaceId, userId },
       });
+      return { leftChannelIds: activeChannels.map((row) => row.conversationId) };
     });
   }
 }
 
 export function workspaceMemberDirectory(db: PrismaClient) {
   return new WorkspaceMemberDirectory(new PrismaWorkspaceMemberDirectoryStore(db));
-}
-
-function isUniqueConflict(error: unknown): boolean {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    "code" in error &&
-    (error as { code: unknown }).code === "P2002"
-  );
 }

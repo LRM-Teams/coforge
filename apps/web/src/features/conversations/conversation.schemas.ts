@@ -59,3 +59,10 @@ export const toggleMessageReactionInputSchema = z.object({
   emoji: z.string().min(1).max(16),
   active: z.boolean(),
 });
+
+/** Save or unsave one message to the viewer's own Saved list (#120): both FKs are compound, so
+ * the conversation must accompany the message. */
+export const savedMessageInputSchema = z.object({
+  conversationId: uuid,
+  messageId: uuid,
+});

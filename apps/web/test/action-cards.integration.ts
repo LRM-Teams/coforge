@@ -1,14 +1,14 @@
 import { expect, test } from "bun:test";
 import { PrismaPg } from "@prisma/adapter-pg";
-import { PrismaClient } from "../generated/client";
-import { ActionCards, ActionCardError } from "../src/server/conversations/action-cards.server";
-import type { ActionCardErrorCode } from "../src/server/conversations/action-card-error.server";
-import { PrismaDirectConversationRepository } from "../src/server/db/repositories/direct-conversation.repositories.server";
-import { AppError, isAppError, type AppErrorCode } from "../src/lib/app-error";
+import { PrismaClient } from "#src/generated/prisma/client";
+import { ActionCards, ActionCardError } from "#src/server/conversations/action-cards.server";
+import type { ActionCardErrorCode } from "#src/server/conversations/action-card-error.server";
+import { PrismaDirectConversationRepository } from "#src/server/db/repositories/direct-conversation.repositories.server";
+import { AppError, isAppError, type AppErrorCode } from "#src/lib/app-error";
 
 /**
- * Exercises `ActionCards.prepare` (see `apps/web/src/server/conversations/action-cards.server.ts`
- * and ADR 0027) against local PostgreSQL: handle resolution for all three action-card kinds,
+ * Exercises `ActionCards.prepare` (see `apps/web/src/server/conversations/action-cards.server.ts`)
+ * against local PostgreSQL: handle resolution for all three action-card kinds,
  * target-grammar reuse from Agent `message send`, and the conflict/validation error shapes the
  * HTTP route (`apps/web/src/routes/api/agent/v1/actions/prepare.ts`) maps to 422/403/409.
  */
@@ -95,6 +95,7 @@ async function setup() {
 
   const realtimeEvents: Array<{ conversationId: string; messageId: string; sequence: number }> = [];
   const actionCards = new ActionCards(db, new PrismaDirectConversationRepository(db), {
+    async memberChanged() {},
     async messageAvailable(event) {
       realtimeEvents.push(event);
     },
@@ -166,7 +167,7 @@ test("prepare persists channel:create with handles resolved to UUIDs and a reada
     });
 
     // One publication, carrying the Workspace the browser scopes the signal to. The event is
-    // additive (ADR 0046): it may grow further fields, so pin the meaningful ones and the count.
+    // additive: it may grow further fields, so pin the meaningful ones and the count.
     expect(ctx.realtimeEvents).toEqual([
       expect.objectContaining({
         conversationId: ctx.hub.id,
@@ -275,6 +276,30 @@ test("prepare rejects an unknown handle with a field-scoped INVALID_HANDLE error
   }
 });
 
+test("prepare refuses a private Agent as a channel member without naming it", async () => {
+  const ctx = await setup();
+  try {
+    await ctx.db.agent.update({ where: { id: ctx.bobsAgent.id }, data: { visibility: "private" } });
+    await expectActionCardError(
+      ctx.actionCards.prepare(ctx.principal, {
+        target: `#${ctx.hub.channelName}`,
+        action: {
+          type: "channel:add_member",
+          channel: ctx.hub.channelName!,
+          agents: [`@${ctx.bobsAgent.name}`],
+        },
+      }),
+      {
+        code: "INVALID_HANDLE",
+        field: "action.agents[0]",
+        message: `@${ctx.bobsAgent.name} is private and cannot be a channel member`,
+      },
+    );
+  } finally {
+    await ctx.cleanup();
+  }
+});
+
 test("prepare rejects a private channel:create as not-yet-supported", async () => {
   const ctx = await setup();
   try {
@@ -328,6 +353,26 @@ test("prepare rejects agent:create for an already-taken Agent name", async () =>
   }
 });
 
+test("prepare accepts agent:create for a deleted Agent's name", async () => {
+  const ctx = await setup();
+  try {
+    await ctx.db.agent.update({
+      where: { id: ctx.existingAgent.id },
+      data: { deletedAt: new Date() },
+    });
+    const result = await ctx.actionCards.prepare(ctx.principal, {
+      target: `#${ctx.hub.channelName}`,
+      action: { type: "agent:create", name: ctx.existingAgent.name, description: "" },
+    });
+    const card = await ctx.db.actionCard.findUniqueOrThrow({
+      where: { messageId: result.messageId },
+    });
+    expect(card.payload).toMatchObject({ type: "agent:create", name: ctx.existingAgent.name });
+  } finally {
+    await ctx.cleanup();
+  }
+});
+
 test("prepare denies an Agent that is not a member of the target channel", async () => {
   const ctx = await setup();
   try {
@@ -372,8 +417,43 @@ test("prepare posts into a thread when the target names a root message", async (
   }
 });
 
+test("prepare rejects a thread target whose anchor is not eight hex characters or a full id", async () => {
+  const ctx = await setup();
+  try {
+    const root = await ctx.db.message.create({
+      data: {
+        conversationId: ctx.hub.id,
+        workspaceId: ctx.workspace.id,
+        senderMemberId: ctx.hub.members.find((member) => member.userId === ctx.alice.id)!.id,
+        sequence: 1,
+        body: "Let's plan this",
+      },
+    });
+    // Each prefix names only this root, and is still not a thread target: the target grammar is
+    // `#name:<8 hex>` or `#name:<uuid>`, as for `message send`.
+    for (const anchor of [root.id.slice(0, 3), root.id.slice(0, 7), "abc", "not-hex"]) {
+      let caught: unknown;
+      try {
+        await ctx.actionCards.prepare(ctx.principal, {
+          target: `#${ctx.hub.channelName}:${anchor}`,
+          action: { type: "channel:create", name: `short-${ctx.suffix}` },
+        });
+      } catch (error) {
+        caught = error;
+      }
+      expect(isAppError(caught)).toBe(true);
+      expect((caught as AppError).code).toBe("INVALID_INPUT");
+    }
+    expect(
+      await ctx.db.actionCard.count({ where: { message: { conversationId: ctx.hub.id } } }),
+    ).toBe(0);
+  } finally {
+    await ctx.cleanup();
+  }
+});
+
 /**
- * Commit/cancel (ADR 0027 "Commit and cancel"): a human executes the real operation under their
+ * Commit/cancel: a human executes the real operation under their
  * own identity, then the card is marked `executed`/`cancelled`. Reuses `setup()`'s fixture: alice
  * is Workspace owner and Scout's (`ctx.agent`) owner, bob is a plain member and Helper's
  * (`ctx.bobsAgent`) owner, dave is Workspace admin.
@@ -410,9 +490,8 @@ test("commit channel:create executes PublicChannels.create + addMembers and mark
       include: { members: true },
     });
     expect(created.channelName).toBe(name);
-    // ADR 0031: the Agent-proposed description rides along from the card's own resolved payload
-    // and is now persisted on the created Conversation (ADR 0024 added the column; ADR 0027's
-    // "known gap" is closed).
+    // The Agent-proposed description rides along from the card's own resolved payload
+    // and is now persisted on the created Conversation.
     expect(created.description).toBe(description);
     expect(created.members.some((member) => member.userId === ctx.bob.id)).toBe(true);
 
@@ -538,7 +617,7 @@ test("agent:create guard/mark: pending precheck, workspace scoping, and marking 
 
     // `ManageAgents.create`'s own authority gate (`assertCanCreateAgents`, owner/admin only) is
     // covered by `manage-agents.test.ts`; here we only own the guard-before/mark-after seam
-    // `agents.functions.ts#createAgent` calls around it (see ADR 0027 "Commit and cancel").
+    // `agents.functions.ts#createAgent` calls around it.
     const created = await ctx.db.agent.create({
       data: {
         workspaceId: ctx.workspace.id,

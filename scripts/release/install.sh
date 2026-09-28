@@ -6,7 +6,8 @@ default_feed_url="https://releases.coforge.cn"
 # one-shot the user explicitly runs (`curl ... | sh`), not the long-lived compiled binary that
 # ./packages/computer/src/release-channel.ts hardens by inlining the feed URL at build time - an
 # attacker able to set this variable in the invoking shell can equally set PATH or https_proxy to
-# reach the same result, so there is no additional boundary to enforce here. See docs/release.md.
+# reach the same result, so there is no additional boundary to enforce here. See
+# docs/release/per-user-installation.md.
 feed_url=${COFORGE_RELEASE_FEED_URL:-$default_feed_url}
 feed_url=${feed_url%/}
 
@@ -182,6 +183,9 @@ max_pointer_bytes=4096
 max_manifest_bytes=1048576
 # Fixed transport ceiling; the updater checks exact compressed and expanded manifest sizes.
 max_binary_bytes=536870912
+# Pi's image library (photon_rs_bg.wasm) is a fixed, platform-independent object (~1.8 MB); the
+# updater checks its exact recorded size against the manifest.
+max_wasm_bytes=16777216
 
 [ "$quiet_header" -eq 1 ] || step "Detected platform: $platform"
 if [ "$version" = "latest" ]; then
@@ -209,6 +213,9 @@ fi
 compressed_path="$temporary_directory/coforge-computer.gz"
 step "Downloading CoForge Computer"
 fetch_binary --max-filesize "$max_binary_bytes" --output "$compressed_path" "$feed_url/$version/$target/coforge-computer.gz"
+# Pi's image library is part of the Computer download step and gets no progress line of its own;
+# only a failed fetch mentions it.
+fetch --max-filesize "$max_wasm_bytes" --output "$temporary_directory/photon_rs_bg.wasm" "$feed_url/$version/photon_rs_bg.wasm"
 printf '%s\n' "$version" > "$temporary_directory/version"
 if [ -n "$prepare_directory" ]; then
   exit 0

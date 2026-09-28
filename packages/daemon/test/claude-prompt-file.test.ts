@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { readFile, stat } from "node:fs/promises";
 import { dirname } from "node:path";
-import { createPromptFile } from "../src/code-agent/claude-code/prompt-file";
+import { createPromptFile } from "#src/code-agent/claude-code/prompt-file";
 
 test("a session's instructions are written where only this user can read them", async () => {
   const prompt = await createPromptFile("be helpful");

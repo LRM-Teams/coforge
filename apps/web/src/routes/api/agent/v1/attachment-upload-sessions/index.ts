@@ -1,17 +1,17 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { agentAuthMiddleware } from "#/server/agents/agent-http.middleware";
+import { UUID_LIKE_PATTERN, MIME_TYPE_PATTERN } from "@lrm/coforge-sdk/internal";
+import { errorResponse } from "#src/server/agents/agent-http-error.server";
+import { agentAuthMiddleware } from "#src/server/agents/agent-http-middleware.server";
 import {
   createAttachmentUploadSession,
   AttachmentUploadSessionError,
   type AttachmentUploadSessionCreated,
-} from "#/server/attachments/attachment-upload-session.server";
-import { getFileStorage } from "#/server/files/file-storage.server";
-import { PrismaDirectConversationRepository } from "#/server/db/repositories/direct-conversation.repositories.server";
-import { isAppError } from "#/lib/app-error";
+} from "#src/server/attachments/attachment-upload-session.server";
+import { getFileStorage } from "#src/server/files/file-storage.server";
+import { PrismaDirectConversationRepository } from "#src/server/db/repositories/direct-conversation.repositories.server";
+import { targetResolutionStatus } from "#src/server/agents/agent-target-status.server";
 
-/** RFC 6838 `type/subtype`, case-insensitively; matches the multipart upload route's pattern. */
-const MIME_TYPE_PATTERN = /^[a-z0-9][a-z0-9!#$&^_.+-]*\/[a-z0-9][a-z0-9!#$&^_.+-]*$/i;
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const UUID_PATTERN = UUID_LIKE_PATTERN;
 
 export type AttachmentUploadSessionCreatePrincipal = { workspaceId: string; agentId: string };
 
@@ -31,17 +31,6 @@ export type AttachmentUploadSessionCreateDependencies = {
     clientRequestId: string;
   }): Promise<AttachmentUploadSessionCreated>;
 };
-
-/** Mirrors `targetResolutionStatus` in `attachments/index.ts` (see its own doc comment). */
-function targetResolutionStatus(error: unknown): number {
-  if (isAppError(error)) return error.code === "ACCESS_DENIED" ? 403 : 400;
-  if (error instanceof Error && error.message === "invalid message target") return 400;
-  return 403;
-}
-
-function errorResponse(code: string, message: string, status: number, retryable: boolean) {
-  return Response.json({ error: message, code, retryable }, { status });
-}
 
 export async function handleAttachmentUploadSessionCreate(
   request: Request,

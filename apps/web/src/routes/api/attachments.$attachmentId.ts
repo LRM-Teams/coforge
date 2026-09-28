@@ -1,15 +1,16 @@
 import { createFileRoute } from "@tanstack/react-router";
-import type { PrismaClient } from "../../../generated/client";
-import { requireBrowserUser } from "#/server/auth/require-user.server";
+import type { PrismaClient } from "#src/generated/prisma/client";
+import { requireBrowserUser } from "#src/server/auth/require-user.server";
 import {
   attachmentResponseHeaders,
   isDeliveryInlinePreview,
   isInlineImage,
-} from "#/server/attachments/attachment-response.server";
-import { readAuthorizedAttachment } from "#/server/attachments/attachment.server";
-import { getDatabaseClient } from "#/server/db/client.server";
-import { getFileDelivery, type FileDelivery } from "#/server/files/file-delivery.server";
-import type { StoredFile } from "#/server/files/file-storage.server";
+} from "#src/server/attachments/attachment-response.server";
+import { readAuthorizedAttachment } from "#src/server/attachments/attachment.server";
+import { getDatabaseClient } from "#src/server/db/client.server";
+import { getFileDelivery, type FileDelivery } from "#src/server/files/file-delivery.server";
+import type { StoredFile } from "#src/server/files/file-storage.server";
+import { PRIVATE_NO_STORE } from "#src/server/http/cache-control.server";
 
 export const Route = createFileRoute("/api/attachments/$attachmentId")({
   server: {
@@ -21,7 +22,7 @@ export const Route = createFileRoute("/api/attachments/$attachmentId")({
 });
 
 type AttachmentDownloadDependencies = {
-  authenticate(cookieHeader: string | undefined): { id: string };
+  authenticate(cookieHeader: string | undefined): { id: string } | Promise<{ id: string }>;
   database(): PrismaClient | null | undefined;
   read(
     db: PrismaClient,
@@ -51,7 +52,7 @@ export async function handleAttachmentDownload(
   params: { attachmentId: string },
   dependencies: AttachmentDownloadDependencies = attachmentDownloadDependencies,
 ): Promise<Response> {
-  const user = dependencies.authenticate(request.headers.get("cookie") ?? undefined);
+  const user = await dependencies.authenticate(request.headers.get("cookie") ?? undefined);
   const db = dependencies.database();
   if (!db) return new Response("persistence unavailable", { status: 503 });
   try {
@@ -89,7 +90,7 @@ function signedRedirect(dependencies: AttachmentDownloadDependencies, objectKey:
       status: 302,
       headers: {
         Location: url,
-        "Cache-Control": "private, no-store",
+        "cache-control": PRIVATE_NO_STORE,
         "X-Content-Type-Options": "nosniff",
       },
     });

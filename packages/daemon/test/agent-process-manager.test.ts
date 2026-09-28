@@ -2,11 +2,11 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { AgentProcessManager } from "../src/agent-runtime/agent-process-manager";
-import { buildInitialMemoryMd } from "../src/agent-runtime/agent-memory-seed";
+import { AgentProcessManager } from "#src/agent-runtime/agent-process-manager";
+import { buildInitialMemoryMd } from "#src/agent-runtime/agent-memory-seed";
 import type { AgentSession, AgentRuntimeConfig, AgentSessionOptions } from "@coforge/agent";
-import type { CodeAgentProvider } from "../src/code-agent/contract";
-import { AgentProcessCleanupError } from "../src/code-agent/contract";
+import type { CodeAgentProvider } from "#src/code-agent/contract";
+import { AgentProcessCleanupError } from "#src/code-agent/contract";
 
 function sessionSpy() {
   const exitListeners = new Set<() => void>();
@@ -207,7 +207,9 @@ describe("AgentProcessManager", () => {
         { name: "memory", displayName: "Memory", description: "Team memory." },
       );
       await expect(stat(join(workspace, "MEMORY.md"))).rejects.toMatchObject({ code: "ENOENT" });
-      await expect(stat(join(workspace, ".pi", "skills"))).rejects.toMatchObject({ code: "ENOENT" });
+      await expect(stat(join(workspace, ".pi", "skills"))).rejects.toMatchObject({
+        code: "ENOENT",
+      });
     } finally {
       await manager.shutdown();
       await rm(root, { recursive: true, force: true });
@@ -237,7 +239,9 @@ describe("AgentProcessManager", () => {
         { name: "task", displayName: "Task" },
       );
       await expect(stat(join(workspace, "MEMORY.md"))).rejects.toMatchObject({ code: "ENOENT" });
-      await expect(stat(join(workspace, ".pi", "skills"))).rejects.toMatchObject({ code: "ENOENT" });
+      await expect(stat(join(workspace, ".pi", "skills"))).rejects.toMatchObject({
+        code: "ENOENT",
+      });
     } finally {
       await manager.shutdown();
       await rm(root, { recursive: true, force: true });

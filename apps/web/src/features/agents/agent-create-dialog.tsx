@@ -2,17 +2,19 @@ import { useState, type FormEvent } from "react";
 import { parseRuntimeProvider, RUNTIME_PROVIDER } from "@lrm/coforge-sdk/internal";
 import { Monitor01 as Monitor } from "@untitledui/icons";
 
-import { useSubmitGuard } from "@/hooks/use-submit-guard";
-import { localizeHref } from "@/paraglide/runtime";
-import { Button } from "@/components/base/buttons/button";
-import { Dialog, Modal, ModalOverlay } from "@/components/application/modals/modal";
-import { DialogHeader } from "@/components/application/modals/dialog-header";
-import { HintText } from "@/components/base/input/hint-text";
-import { Input } from "@/components/base/input/input";
-import { Select } from "@/components/base/select/select";
-import { TextArea } from "@/components/base/textarea/textarea";
-import { StatusDot } from "@/components/ui/status-dot";
-import { m } from "@/paraglide/messages";
+import { useSubmitGuard } from "#src/hooks/use-submit-guard";
+import { localizeHref } from "#src/paraglide/runtime";
+import { Button } from "#src/components/base/buttons/button";
+import { Checkbox } from "#src/components/base/checkbox/checkbox";
+import { Dialog, Modal, ModalOverlay } from "#src/components/application/modals/modal";
+import { DialogHeader } from "#src/components/application/modals/dialog-header";
+import { Input } from "#src/components/base/input/input";
+import { Select } from "#src/components/base/select/select";
+import { TextArea } from "#src/components/base/textarea/textarea";
+import { StatusDot } from "#src/components/ui/status-dot";
+import { m } from "#src/paraglide/messages";
+import { AGENT_VISIBILITY } from "./agent-visibility";
+import { agentCreateErrorMessage } from "./agent-form";
 import { AgentRuntimeFields, type RuntimeCatalog } from "./agent-runtime-fields";
 import type { CreateAgentInput } from "./agent.schemas";
 
@@ -25,8 +27,10 @@ export type AgentCreateComputerOption = {
 };
 
 /** The Agent-create form, shared by the Members page ("New agent") and an `agent:create`
- * action card's commit button (ADR 0027 "Commit and cancel"). `defaults` prefills the form;
- * `computerLocked` mirrors a card's `requiredComputer` by disabling the Computer selector. */
+ * action card's commit button. `defaults` prefills the form;
+ * `computerLocked` mirrors a card's `requiredComputer` by disabling the Computer selector;
+ * `visibilityLocked` keeps the Agent public, for a caller that adds it to a channel, and
+ * `joinsChannelName` says which channel that is. `nameNote` explains a prefilled name. */
 export function AgentCreateDialog({
   open,
   onOpenChange,
@@ -35,6 +39,9 @@ export function AgentCreateDialog({
   onLoadRuntimeCatalog,
   defaults,
   computerLocked = false,
+  visibilityLocked = false,
+  joinsChannelName,
+  nameNote,
   actionCardMessageId,
   onCreated,
 }: {
@@ -45,12 +52,16 @@ export function AgentCreateDialog({
   onLoadRuntimeCatalog: (computerId: string) => Promise<RuntimeCatalog[]>;
   defaults?: { name?: string; description?: string; computerId?: string };
   computerLocked?: boolean;
+  visibilityLocked?: boolean;
+  joinsChannelName?: string;
+  nameNote?: string;
   actionCardMessageId?: string;
   onCreated?: (result: { startPublished: boolean }) => void;
 }) {
   const [submitting, guard] = useSubmitGuard();
   const [error, setError] = useState("");
   const [computerId, setComputerId] = useState(defaults?.computerId ?? computers[0]?.id ?? "");
+  const [isPrivate, setIsPrivate] = useState(false);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -75,12 +86,14 @@ export function AgentCreateDialog({
           apiKey: String(form.get("apiKey") ?? "").trim() || undefined,
           computerId: String(form.get("computerId") ?? ""),
           actionCardMessageId,
+          visibility: isPrivate ? AGENT_VISIBILITY.PRIVATE : AGENT_VISIBILITY.PUBLIC,
         });
         formElement.reset();
+        setIsPrivate(false);
         onOpenChange(false);
         onCreated?.(result);
-      } catch {
-        setError(m.agent_form_server_error());
+      } catch (cause) {
+        setError(agentCreateErrorMessage(cause));
       }
     });
   }
@@ -101,8 +114,14 @@ export function AgentCreateDialog({
                   title={m.agent_form_title()}
                   description={m.agent_form_description()}
                   onClose={close}
+                  className="px-4 pt-4 sm:px-6 sm:pt-6"
                 />
-                <div className="grid gap-4 px-6 py-6 sm:grid-cols-2">
+                <div className="grid gap-3 px-4 py-4 sm:grid-cols-2 sm:gap-4 sm:px-6 sm:py-6">
+                  {joinsChannelName && (
+                    <p className="text-sm text-secondary sm:col-span-2">
+                      {m.agent_form_joins_channel({ channel: joinsChannelName })}
+                    </p>
+                  )}
                   <Select
                     name="computerId"
                     isRequired
@@ -142,13 +161,17 @@ export function AgentCreateDialog({
                     defaultValue={defaults?.name}
                     pattern="[a-z0-9]+(?:-[a-z0-9]+)*"
                     placeholder="release-fix"
-                    hint={m.agent_form_username_hint()}
+                    hint={
+                      nameNote
+                        ? `${m.agent_form_username_hint()} ${nameNote}`
+                        : m.agent_form_username_hint()
+                    }
                     className="min-w-0 sm:col-span-2"
                   />
                   <TextArea
                     label={m.agent_profile_description()}
                     name="description"
-                    rows={3}
+                    rows={2}
                     defaultValue={defaults?.description}
                     placeholder={m.agent_form_description_placeholder()}
                     className="min-w-0 sm:col-span-2"
@@ -165,13 +188,23 @@ export function AgentCreateDialog({
                       catalogs: await onLoadRuntimeCatalog(id),
                     })}
                   />
+                  <Checkbox
+                    className="sm:col-span-2"
+                    label={m.agent_form_visibility_private()}
+                    hint={m.agent_form_visibility_private_hint()}
+                    isDisabled={visibilityLocked}
+                    isSelected={isPrivate}
+                    onChange={setIsPrivate}
+                  />
+                  {/* A plain alert, not `HintText`: outside a field its "errorMessage" slot is not
+                      one the enclosing Dialog offers, and rendering it crashes the page. */}
                   {error && (
-                    <HintText isInvalid role="alert" className="sm:col-span-2">
+                    <p role="alert" className="text-sm text-error-primary sm:col-span-2">
                       {error}
-                    </HintText>
+                    </p>
                   )}
                 </div>
-                <div className="grid grid-cols-2 gap-3 border-t border-secondary px-6 py-4 sm:flex sm:justify-end">
+                <div className="grid grid-cols-2 gap-3 border-t border-secondary px-4 py-3 sm:flex sm:justify-end sm:px-6 sm:py-4">
                   <Button
                     type="button"
                     color="secondary"

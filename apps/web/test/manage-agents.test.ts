@@ -1,11 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import { RUNTIME_PROVIDER } from "@lrm/coforge-sdk/internal";
-import { ManageAgents } from "../src/server/agents/manage-agents.server";
-import { parseAgentRuntimeConfig } from "../src/server/agents/agent-runtime-config.server";
+import { ManageAgents } from "#src/server/agents/manage-agents.server";
+import { parseAgentRuntimeConfig } from "#src/server/agents/agent-runtime-config.server";
 import type {
   AgentRecord,
   AgentRepository,
-} from "../src/server/db/repositories/agent.repositories.server";
+} from "#src/server/db/repositories/agent.repositories.server";
 
 function fixture(options?: {
   publishFails?: boolean;
@@ -137,6 +137,8 @@ describe("ManageAgents", () => {
       ownerId: "user-1",
       name: "weekly-report-assistant-user-1",
       displayName: "周报助手",
+      // Unbound Agents have no Computer assignment (repository maps SQL NULL → undefined).
+      computerId: undefined,
       runtimeConfig: {
         runtime: RUNTIME_PROVIDER.COFORGE,
         provider: { kind: "default" },
@@ -165,6 +167,10 @@ describe("ManageAgents", () => {
     });
     expect(result.restart).toBe("published");
     expect(starts).toHaveLength(1);
+    expect(starts[0]).toMatchObject({
+      intent: { computerId: "computer-1", agentId: "assistant-agent" },
+      userId: "user-1",
+    });
   });
 
   test("profile runtime edits preserve encrypted environment while list and starts omit it", async () => {
@@ -641,7 +647,7 @@ describe("ManageAgents", () => {
     }
   });
 
-  test("a stopped Agent persists a runtime update without the stop -> ... -> start dance (ADR 0038)", async () => {
+  test("a stopped Agent persists a runtime update without the stop -> ... -> start dance", async () => {
     const { agentManagement, records, controls } = fixture();
     records.push({
       id: "agent-1",
@@ -723,5 +729,35 @@ describe("ManageAgents", () => {
       ).restart,
     ).toBe("deferred");
     expect(deferred.controls).toEqual(["stop", "persist", "start"]);
+  });
+
+  test("a created Agent defaults to public visibility", async () => {
+    const { agentManagement, records } = fixture();
+    await agentManagement.create(
+      { userId: "user-1", workspaceId: "workspace-1", role: "admin" as const },
+      {
+        name: "builder",
+        description: "",
+        provider: RUNTIME_PROVIDER.CODEX,
+        computerId: "computer-1",
+      },
+    );
+    expect(records[0]?.visibility).toBe("public");
+  });
+
+  test("create forwards the visibility chosen in the create form", async () => {
+    const { agentManagement, records } = fixture();
+    const result = await agentManagement.create(
+      { userId: "user-1", workspaceId: "workspace-1", role: "admin" as const },
+      {
+        name: "collector",
+        description: "",
+        provider: RUNTIME_PROVIDER.CODEX,
+        computerId: "computer-1",
+        visibility: "private",
+      },
+    );
+    expect(result.agent.visibility).toBe("private");
+    expect(records[0]?.visibility).toBe("private");
   });
 });

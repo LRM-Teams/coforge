@@ -3,7 +3,7 @@
  */
 
 import { readFileSync } from "node:fs";
-import type { PrismaClient } from "../../../generated/client";
+import type { PrismaClient } from "#src/generated/prisma/client";
 import { PrismaOpenVikingBindingStore } from "../db/repositories/openviking-binding.repositories.server";
 import { PrismaWorkspaceMemoryCitationStore } from "../db/repositories/workspace-memory-citation.repositories.server";
 import { PrismaWorkspaceMemoryProfileStore } from "../db/repositories/workspace-memory-profile.repositories.server";

@@ -1,6 +1,6 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { isValidReleaseVersion as isApprovedReleaseVersion } from "../../packages/coforge-sdk/src/internal/release-version";
+import { isValidReleaseVersion as isApprovedReleaseVersion } from "@lrm/coforge-sdk/internal/release-version";
 
 // Mirrors packages/computer/src/updater.ts's (module-private) isValidVersion and install.sh's/
 // install.ps1's is_valid_version/Test-CoforgeVersion exactly: a version is both a URL segment on
@@ -38,6 +38,11 @@ export type ReleaseInputs = {
   commit: string;
   buildDate: string; // ISO 8601
   artifacts: Record<string, { computer: Uint8Array }>;
+  /** Pi's image-resize WASM (`@silvia-odwyer/photon-node`'s `photon_rs_bg.wasm`), published once
+   * per version as a platform-independent sidecar next to the per-platform binaries - see
+   * docs/release/local-distribution.md. Resolved from the installed dependency by
+   * scripts/release/photon-wasm.ts, never committed to the repository. */
+  photonWasm: Uint8Array;
 };
 
 export type ReleaseTree = {
@@ -46,9 +51,10 @@ export type ReleaseTree = {
 };
 
 /** Writes the whole `<version>/` tree plus `manifest.json` into outputDirectory - everything
- * docs/release.md's feed layout describes except `latest`, which belongs to the publish step
- * (uploading and only then advancing the pointer), not to a build. Producing `latest` here would
- * let a build that never gets uploaded look, on disk, indistinguishable from a published release. */
+ * docs/release/local-distribution.md's feed layout describes except `latest`, which belongs to the
+ * publish step (uploading and only then advancing the pointer), not to a build. Producing `latest`
+ * here would let a build that never gets uploaded look, on disk, indistinguishable from a published
+ * release. */
 export async function buildReleaseTree(
   inputs: ReleaseInputs,
   outputDirectory: string,
@@ -78,7 +84,8 @@ export async function buildReleaseTree(
 
     // The checksum that goes into the manifest and the checksum that goes into the sidecar are
     // the exact same value, computed exactly once, right here - not two separate sha256() calls
-    // that happen to agree today. docs/release.md: "the two must never be allowed to diverge".
+    // that happen to agree today. docs/release/main-to-staging.md: "the two must never be allowed
+    // to diverge".
     const computerIdentity = artifactIdentity(artifact.computer);
     const compressedComputer = Bun.gzipSync(Buffer.from(artifact.computer), { level: 9 });
     platforms[target] = {
@@ -102,14 +109,24 @@ export async function buildReleaseTree(
     );
   }
 
-  // schema_version, version, commit, buildDate, platforms - the shape packages/computer/src/
-  // updater.ts's ReleaseManifest type and #assertManifest actually check, not a hand-guessed one.
+  // photon_rs_bg.wasm is platform-independent - one object per version, not per target - and is
+  // published uncompressed (it is ~1.8 MB already and gains nothing from gzip transport framing
+  // the way the multi-tens-of-MB computer binary does).
+  const photonWasmIdentity = artifactIdentity(inputs.photonWasm);
+  await writeFile(join(versionDirectory, "photon_rs_bg.wasm"), inputs.photonWasm);
+  files.push(`${inputs.version}/photon_rs_bg.wasm`);
+
+  // schema_version, version, commit, buildDate, platforms, photonWasm - the shape
+  // packages/computer/src/updater.ts's ReleaseManifest type and #assertManifest actually check,
+  // not a hand-guessed one. schema_version stays 2: photonWasm is an additive top-level field an
+  // older updater simply never reads, not a breaking format change.
   const manifest = {
     schema_version: 2 as const,
     version: inputs.version,
     commit: inputs.commit,
     buildDate: inputs.buildDate,
     platforms,
+    photonWasm: { file: "photon_rs_bg.wasm", ...photonWasmIdentity },
   };
   await writeFile(
     join(versionDirectory, "manifest.json"),

@@ -3,7 +3,7 @@ import { expect, test } from "bun:test";
 import {
   AgentWorkspaceResetRequestSchema,
   AgentControlResultSchema,
-} from "./gen/coforge/rpc/v1/agent_control_pb";
+} from "#src/internal/gen/coforge/rpc/v1/agent_control_pb";
 import {
   AGENT_WORKSPACE_RESET_METHOD,
   AGENT_CONTROL_RESULT_METHOD,

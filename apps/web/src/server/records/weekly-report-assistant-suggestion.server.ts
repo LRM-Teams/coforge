@@ -1,8 +1,9 @@
-import type { ReportContent } from "../../features/records/records-content";
+import { UUID_LIKE_PATTERN } from "@lrm/coforge-sdk/internal";
+import type { ReportContent } from "#src/features/records/records-content";
 
 const OPEN = "[weekly-report-suggestion]";
 const CLOSE = "[/weekly-report-suggestion]";
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const UUID_RE = UUID_LIKE_PATTERN;
 
 /**
  * Real envelopes put JSON right after the open tag. Prose that merely mentions
@@ -148,11 +149,18 @@ function asReportContent(value: unknown): ReportContent | null {
   const tabsValue = Reflect.get(value, "tabs");
   if (tabsValue === undefined) {
     const markdown = Reflect.get(value, "markdown");
-    return typeof markdown === "string" ? { markdown } : { tabs: {} };
+    if (typeof markdown === "string") return { markdown };
+    // Agents sometimes omit the `tabs` wrapper and put tab names directly on content.
+    return asTabMap(value);
   }
   if (!tabsValue || typeof tabsValue !== "object" || Array.isArray(tabsValue)) return null;
+  return asTabMap(tabsValue);
+}
+
+/** Canonical `{ tabs: { Name: { markdown } } }` or a flat tab map. Empty maps are rejected. */
+function asTabMap(value: object): ReportContent | null {
   const tabs: NonNullable<ReportContent["tabs"]> = {};
-  for (const [name, tab] of Object.entries(tabsValue)) {
+  for (const [name, tab] of Object.entries(value)) {
     // Agents often emit `"Summary": "## ..."`; canonical form is `{ markdown }`.
     if (typeof tab === "string") {
       tabs[name] = { markdown: tab };
@@ -163,5 +171,6 @@ function asReportContent(value: unknown): ReportContent | null {
     if (typeof markdown !== "string") return null;
     tabs[name] = { markdown };
   }
+  if (Object.keys(tabs).length === 0) return null;
   return { tabs };
 }

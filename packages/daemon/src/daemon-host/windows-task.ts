@@ -1,16 +1,98 @@
-import { LocalDaemonLauncher } from "./launcher";
+import { LocalDaemonLauncher, type LocalDaemonLauncherOptions } from "./launcher";
 import type { DaemonLauncher, DaemonWorkspaceConfig } from "./launcher";
-import { homedir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ManagedRuntimeIdentity } from "@lrm/coforge-sdk/internal";
+import { escapeXmlText } from "#src/platform/xml-escape";
+import {
+  removeFileQuietly,
+  runSchtasks,
+  windowsTaskUserId,
+  writeUtf16XmlFile,
+} from "#src/platform/windows-scheduled-task";
 
 type CommandRunner = (command: string[]) => Promise<number>;
+type TaskXmlWriter = (path: string, content: string) => Promise<void>;
+
+export type WindowsDaemonTaskXmlInput = {
+  userId: string;
+  executablePath: string;
+  socketPath: string;
+  stateDirectory?: string;
+  daemonConnectionEndpoint?: string;
+};
+
+/**
+ * Task Scheduler 1.2 XML for the machine-level Coordinator. Uses an interactive,
+ * least-privilege LogonTrigger so `schtasks /Create /XML` succeeds without elevation —
+ * the `/SC ONLOGON` CLI form is refused for non-admin users on current Windows builds.
+ * RestartOnFailure approximates systemd `Restart=on-failure` / launchd KeepAlive for the
+ * Coordinator process itself (Workspace children still use Coordinator reconcile).
+ */
+export function windowsDaemonTaskXml(input: WindowsDaemonTaskXmlInput): string {
+  const daemonArgs = [
+    "__daemon",
+    "--socket",
+    input.socketPath,
+    ...(input.stateDirectory ? ["--state-directory", input.stateDirectory] : []),
+  ].join(" ");
+  const exec = input.daemonConnectionEndpoint
+    ? {
+        command: "cmd.exe",
+        arguments: `/d /s /c "set COFORGE_DAEMON_CONNECTION_ENDPOINT=${input.daemonConnectionEndpoint}&& ${quoteCmdPath(input.executablePath)} ${daemonArgs}"`,
+      }
+    : { command: input.executablePath, arguments: daemonArgs };
+  return `<?xml version="1.0" encoding="UTF-16"?>
+<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+  <Triggers>
+    <LogonTrigger>
+      <Enabled>true</Enabled>
+      <UserId>${escapeXmlText(input.userId)}</UserId>
+    </LogonTrigger>
+  </Triggers>
+  <Principals>
+    <Principal id="Author">
+      <UserId>${escapeXmlText(input.userId)}</UserId>
+      <LogonType>InteractiveToken</LogonType>
+      <RunLevel>LeastPrivilege</RunLevel>
+    </Principal>
+  </Principals>
+  <Settings>
+    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
+    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
+    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
+    <AllowHardTerminate>true</AllowHardTerminate>
+    <StartWhenAvailable>true</StartWhenAvailable>
+    <RunOnlyIfNetworkAvailable>false</RunOnlyIfNetworkAvailable>
+    <AllowStartOnDemand>true</AllowStartOnDemand>
+    <Enabled>true</Enabled>
+    <Hidden>false</Hidden>
+    <RunOnlyIfIdle>false</RunOnlyIfIdle>
+    <WakeToRun>false</WakeToRun>
+    <ExecutionTimeLimit>PT0S</ExecutionTimeLimit>
+    <Priority>7</Priority>
+    <RestartOnFailure>
+      <Interval>PT1M</Interval>
+      <Count>999</Count>
+    </RestartOnFailure>
+  </Settings>
+  <Actions Context="Author">
+    <Exec>
+      <Command>${escapeXmlText(exec.command)}</Command>
+      <Arguments>${escapeXmlText(exec.arguments)}</Arguments>
+    </Exec>
+  </Actions>
+</Task>
+`;
+}
 
 export class WindowsUserDaemonHost implements DaemonLauncher {
   readonly #taskName: string;
   readonly #run: CommandRunner;
+  readonly #writeTaskXml: TaskXmlWriter;
   readonly #local: LocalDaemonLauncher;
-  readonly #command: string;
+  readonly #xml: string;
+  readonly #removeTaskXml: (path: string) => Promise<void>;
 
   constructor(options: {
     taskName?: string;
@@ -19,19 +101,31 @@ export class WindowsUserDaemonHost implements DaemonLauncher {
     stateDirectory?: string;
     serverUrl?: string;
     daemonConnectionEndpoint?: string;
+    userId?: string;
     run?: CommandRunner;
+    writeTaskXml?: TaskXmlWriter;
+    removeTaskXml?: (path: string) => Promise<void>;
+    connect?: LocalDaemonLauncherOptions["connect"];
+    timeoutMilliseconds?: number;
   }) {
     this.#taskName = options.taskName ?? "CoForge Daemon";
-    this.#run = options.run ?? runCommand;
-    const daemonCommand = `"${options.executablePath.replaceAll('"', '""')}" __daemon --socket ${options.socketPath}${options.stateDirectory ? ` --state-directory "${options.stateDirectory}"` : ""}`;
-    this.#command = options.daemonConnectionEndpoint
-      ? `cmd.exe /d /s /c "set COFORGE_DAEMON_CONNECTION_ENDPOINT=${options.daemonConnectionEndpoint}&& ${daemonCommand}"`
-      : daemonCommand;
+    this.#run = options.run ?? runSchtasks;
+    this.#writeTaskXml = options.writeTaskXml ?? writeUtf16XmlFile;
+    this.#removeTaskXml = options.removeTaskXml ?? removeFileQuietly;
+    this.#xml = windowsDaemonTaskXml({
+      userId: options.userId ?? windowsTaskUserId(),
+      executablePath: options.executablePath,
+      socketPath: options.socketPath,
+      stateDirectory: options.stateDirectory,
+      daemonConnectionEndpoint: options.daemonConnectionEndpoint,
+    });
     this.#local = new LocalDaemonLauncher({
       executablePath: options.executablePath,
       socketPath: options.socketPath,
       stateDirectory: options.stateDirectory ?? join(homedir(), ".coforge", "daemon"),
       serverUrl: options.serverUrl,
+      connect: options.connect,
+      timeoutMilliseconds: options.timeoutMilliseconds,
     });
   }
 
@@ -40,25 +134,24 @@ export class WindowsUserDaemonHost implements DaemonLauncher {
   }
 
   async ensureStarted(config: DaemonWorkspaceConfig): Promise<void> {
-    const result = await this.#run([
-      "schtasks.exe",
-      "/Create",
-      "/TN",
-      this.#taskName,
-      "/SC",
-      "ONLOGON",
-      "/TR",
-      this.#command,
-      "/F",
-    ]);
-    if (result !== 0) throw new Error("could not register the CoForge Daemon user task");
-    await this.ensureRunning();
-    await this.#local.ensureStarted(config);
+    // Prefer the user logon task when registration is allowed. When Create/Run is refused,
+    // fall back to an already-running foreground supervisor — never detach an unmanaged process.
+    if (await this.#installAndRun()) {
+      await this.#local.ensureStarted(config);
+      return;
+    }
+    try {
+      await this.#local.ensureStarted(config);
+    } catch (error) {
+      throw new Error(
+        "The Windows user task could not start CoForge Daemon. Run `coforge-computer foreground` under an external supervisor; CoForge will not detach a fallback process.",
+        { cause: error },
+      );
+    }
   }
 
   async ensureRunning(): Promise<void> {
-    const result = await this.#run(["schtasks.exe", "/Run", "/TN", this.#taskName]);
-    if (result !== 0)
+    if (!(await this.#installAndRun()))
       throw new Error(
         "The Windows user task could not start CoForge Daemon. Run `coforge-computer foreground` under an external supervisor; CoForge will not detach a fallback process.",
       );
@@ -82,13 +175,32 @@ export class WindowsUserDaemonHost implements DaemonLauncher {
    * stopped, which is not a restart failure - and `/Run` is the actual restart. */
   async restart(): Promise<void> {
     await this.#run(["schtasks.exe", "/End", "/TN", this.#taskName]);
-    const result = await this.#run(["schtasks.exe", "/Run", "/TN", this.#taskName]);
-    if (result !== 0) throw new Error("could not restart the CoForge Daemon user task");
+    if (!(await this.#installAndRun()))
+      throw new Error("could not restart the CoForge Daemon user task");
     await this.#local.ensureRunning();
+  }
+
+  async #installAndRun(): Promise<boolean> {
+    const xmlPath = join(tmpdir(), `coforge-daemon-task-${crypto.randomUUID()}.xml`);
+    try {
+      await this.#writeTaskXml(xmlPath, this.#xml);
+      const created = await this.#run([
+        "schtasks.exe",
+        "/Create",
+        "/TN",
+        this.#taskName,
+        "/XML",
+        xmlPath,
+        "/F",
+      ]);
+      if (created !== 0) return false;
+      return (await this.#run(["schtasks.exe", "/Run", "/TN", this.#taskName])) === 0;
+    } finally {
+      await this.#removeTaskXml(xmlPath);
+    }
   }
 }
 
-async function runCommand(command: string[]): Promise<number> {
-  const process = Bun.spawn(command, { stdin: "ignore", stdout: "ignore", stderr: "ignore" });
-  return await process.exited;
+function quoteCmdPath(path: string): string {
+  return `"${path.replaceAll('"', '""')}"`;
 }

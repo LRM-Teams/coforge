@@ -359,7 +359,7 @@ async function handle(request: Message) {
         },
       });
       break;
-    // Measured against real kiro-cli 2.22.0, 2026-09-18 (docs/adr/0048): `queued: true` plus a
+    // Measured against real kiro-cli 2.22.0, 2026-09-18: `queued: true` plus a
     // `steering_queued` update on success, prefixed `steer-<uuid>`; `queued: false` with
     // `dropped: "epoch_changed"` when a turn boundary raced the steer request's own persistence.
     // Real Kiro throws on an unknown session or an empty message and never emits an update for

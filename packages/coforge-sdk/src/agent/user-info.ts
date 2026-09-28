@@ -20,7 +20,7 @@ export type AgentUserInfo = {
   name: string;
   displayName: string;
   description: string;
-  /** Workspace role for a human; the Agent's own server role (ADR 0024) for an Agent. Never
+  /** Workspace role for a human; the Agent's own server role for an Agent. Never
    * `null` in practice today (both default to `"member"`), but typed nullable defensively. */
   role: string | null;
   isSelf: boolean;
@@ -30,7 +30,7 @@ export type AgentUserInfo = {
   model?: string;
   status?: AgentUserStatus;
   /** Present only when there is a persisted reason the Agent will not respond even while its
-   * process may be reachable (ADR 0038's `stoppedAt`, surfaced only while the display itself
+   * process may be reachable (`stoppedAt`, surfaced only while the display itself
    * already reads offline — never a transient in-flight control state). */
   availability?: string;
 };
@@ -48,7 +48,10 @@ export type AgentUserInfoResponse = {
   memberships: AgentUserInfoMembership[];
 };
 
-export const AGENT_USER_INFO_ERROR_CODES = ["user_not_found"] as const;
+/** `agent_not_visible`: the name resolves to a private Agent the caller cannot see —
+ * a stable, distinct outcome from `user_not_found` (which also covers a name that genuinely
+ * matches nothing). Reused by `profile show` (`profile.ts`). */
+export const AGENT_USER_INFO_ERROR_CODES = ["user_not_found", "agent_not_visible"] as const;
 export type AgentUserInfoErrorCode = (typeof AGENT_USER_INFO_ERROR_CODES)[number];
 
 export type AgentUserInfoErrorResponse = {

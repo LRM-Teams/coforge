@@ -1,18 +1,62 @@
+import { networkInterfaces } from "node:os";
 import { afterEach, expect, test } from "bun:test";
 import { agentApiRoutes } from "@lrm/coforge-sdk/agent";
-import { startAgentProxy } from "../src/agent-proxy";
-import { AgentMessageRequestError } from "../src/connection/agent-message-request-error";
-import { AgentTaskRequestError } from "../src/connection/agent-task-request-error";
-import { AgentPreflightError } from "../src/daemon-runtime/agent-preflight-error";
-import { AgentTransportError } from "../src/connection/agent-transport-error";
-import { AgentManualRequestError } from "../src/connection/agent-manual-request-error";
-import { AgentUserInfoRequestError } from "../src/connection/agent-user-info-request-error";
-import type { AgentProxyFailureBody } from "../src/agent-proxy-failure";
+import { startAgentProxy } from "#src/agent-proxy";
+import { AgentMessageRequestError } from "#src/connection/agent-message-request-error";
+import { AgentTaskRequestError } from "#src/connection/agent-task-request-error";
+import { AgentPreflightError } from "#src/daemon-runtime/agent-preflight-error";
+import { AgentTransportError } from "#src/connection/agent-transport-error";
+import { AgentManualRequestError } from "#src/connection/agent-manual-request-error";
+import { AgentUserInfoRequestError } from "#src/connection/agent-user-info-request-error";
+import { AgentMentionActionRequestError } from "#src/connection/agent-mention-action-request-error";
+import type { AgentProxyFailureBody } from "#src/agent-proxy-failure";
 
 const proxies: Array<{ close(): void }> = [];
 
 afterEach(() => {
   for (const proxy of proxies.splice(0)) proxy.close();
+});
+
+test("the proxy is reachable on loopback only, and no other listener can take over its port", async () => {
+  const proxy = startAgentProxy({ runtime: { agentMessage: async () => ({}) } });
+  proxies.push(proxy);
+  const port = Number(new URL(proxy.url).port);
+  const reachable = (hostname: string) =>
+    Bun.connect({ hostname, port, socket: { data() {} } }).then(
+      (socket) => {
+        socket.end();
+        return true;
+      },
+      () => false,
+    );
+  const otherAddresses = Object.values(networkInterfaces())
+    .flat()
+    .flatMap((address) =>
+      address && address.family === "IPv4" && !address.internal ? [address.address] : [],
+    );
+  // On Linux all of 127.0.0.0/8 is loopback, so 127.0.0.2 reaches a wildcard bind even on a host
+  // with no other interface, and the probes are the only guard (Linux also refuses the intruder
+  // bind below either way). macOS configures only 127.0.0.1 on lo0, but there the intruder bind
+  // guards the fix.
+  if (process.platform === "linux") otherAddresses.push("127.0.0.2");
+
+  expect(await reachable("127.0.0.1")).toBe(true);
+  // Every other address is refused. A wildcard bind answers on at least one of them.
+  expect(
+    await Promise.all(otherAddresses.map(async (address) => [address, await reachable(address)])),
+  ).toEqual(otherAddresses.map((address) => [address, false]));
+
+  // A wildcard bind would also let this more specific bind succeed and receive the Agents'
+  // requests to 127.0.0.1 (macOS allows it; Linux refuses it either way).
+  let intruder: ReturnType<typeof Bun.serve> | undefined;
+  let bindError: unknown;
+  try {
+    intruder = Bun.serve({ hostname: "127.0.0.1", port, fetch: () => new Response("intruder") });
+  } catch (error) {
+    bindError = error;
+  }
+  void intruder?.stop(true);
+  expect(bindError).toMatchObject({ code: "EADDRINUSE" });
 });
 
 test("proxy classifies Agent message failures: known validation passes through, upstream HTTP status passes through", async () => {
@@ -87,7 +131,7 @@ test("proxy redacts known request errors in reviewer-isolated mode", async () =>
   expect(messageBody.detail).toBeUndefined();
   expect(JSON.stringify(messageBody)).not.toContain("sensitive message failure");
   const task = await post(agentApiRoutes.proxy.tasks.path, {
-    requestId: "task",
+    idempotencyKey: "task",
     operation: "claim",
     target: "#general",
     number: 1,
@@ -665,6 +709,158 @@ test("proxy rejects a profile update whose displayName is not a string", async (
   expect(response.status).toBe(400);
 });
 
+const RESOLUTION_ID = "22222222-2222-4222-8222-222222222222";
+
+test("proxy forwards mention pending as a GET for the calling Agent", async () => {
+  const calls: unknown[] = [];
+  const pending = {
+    ok: true as const,
+    pendingMentionActions: [
+      {
+        resolutionId: RESOLUTION_ID,
+        messageId: "11111111-1111-4111-8111-111111111111",
+        targetType: "user" as const,
+        targetHandle: "bob",
+        targetAvatarUrl: null,
+        reason: "not_member" as const,
+        availableActions: [],
+        expiresAt: "2026-10-01T00:00:00.000Z",
+        channelName: "triage",
+      },
+    ],
+  };
+  const proxy = startAgentProxy({
+    runtime: {
+      agentMessage: async () => ({}),
+      issueAgentContext: (agentId: string) => agentId,
+      mentionPending: async (context, request) => {
+        calls.push({ context, request });
+        return pending;
+      },
+    },
+  });
+  proxies.push(proxy);
+  const token = proxy.issue("agent-a", `sk_agent_${"a".repeat(43)}`);
+  const response = await fetch(
+    proxy.url.replace(
+      agentApiRoutes.proxy.messages.path,
+      agentApiRoutes.proxy.mentionActions.pending.path,
+    ),
+    { headers: { authorization: `Bearer ${token}` } },
+  );
+  expect(response.status).toBe(200);
+  expect(await response.json()).toEqual(pending);
+  expect(calls).toEqual([{ context: "agent-a", request: {} }]);
+});
+
+test("proxy forwards a mention action as a validated JSON POST", async () => {
+  const calls: unknown[] = [];
+  const proxy = startAgentProxy({
+    runtime: {
+      agentMessage: async () => ({}),
+      issueAgentContext: (agentId: string) => agentId,
+      mentionExecute: async (context, request) => {
+        calls.push({ context, request });
+        return {
+          ok: true,
+          action: "add",
+          results: [{ resolutionId: RESOLUTION_ID, status: "no_permission" }],
+        };
+      },
+    },
+  });
+  proxies.push(proxy);
+  const token = proxy.issue("agent-a", `sk_agent_${"a".repeat(43)}`);
+  const response = await fetch(
+    proxy.url.replace(
+      agentApiRoutes.proxy.messages.path,
+      agentApiRoutes.proxy.mentionActions.execute.path,
+    ),
+    {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({ action: "add", resolutionIds: [RESOLUTION_ID] }),
+    },
+  );
+  expect(response.status).toBe(200);
+  const notify = await fetch(
+    proxy.url.replace(
+      agentApiRoutes.proxy.messages.path,
+      agentApiRoutes.proxy.mentionActions.execute.path,
+    ),
+    {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({ action: "notify", resolutionIds: [RESOLUTION_ID] }),
+    },
+  );
+  expect(notify.status).toBe(200);
+  expect(calls).toEqual([
+    { context: "agent-a", request: { action: "add", resolutionIds: [RESOLUTION_ID] } },
+    { context: "agent-a", request: { action: "notify", resolutionIds: [RESOLUTION_ID] } },
+  ]);
+});
+
+test("proxy rejects a mention action that is neither notify nor add, or names no valid resolution ids", async () => {
+  const proxy = startAgentProxy({
+    runtime: {
+      agentMessage: async () => ({}),
+      mentionExecute: async () => {
+        throw new Error("should not be called");
+      },
+    },
+  });
+  proxies.push(proxy);
+  const token = proxy.issue("agent-a", `sk_agent_${"a".repeat(43)}`);
+  const endpoint = proxy.url.replace(
+    agentApiRoutes.proxy.messages.path,
+    agentApiRoutes.proxy.mentionActions.execute.path,
+  );
+  for (const body of [
+    { action: "remove", resolutionIds: [RESOLUTION_ID] },
+    { action: "add", resolutionIds: [] },
+    { action: "add", resolutionIds: ["not-a-uuid"] },
+    { action: "add", resolutionIds: Array.from({ length: 21 }, () => RESOLUTION_ID) },
+  ]) {
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    expect(response.status).toBe(400);
+  }
+});
+
+test("proxy forwards a mention action error envelope unchanged, with its status", async () => {
+  const proxy = startAgentProxy({
+    runtime: {
+      agentMessage: async () => ({}),
+      mentionExecute: async () => {
+        throw new AgentMentionActionRequestError("invalid_request", 'action must be "add".', 400);
+      },
+    },
+  });
+  proxies.push(proxy);
+  const token = proxy.issue("agent-a", `sk_agent_${"a".repeat(43)}`);
+  const response = await fetch(
+    proxy.url.replace(
+      agentApiRoutes.proxy.messages.path,
+      agentApiRoutes.proxy.mentionActions.execute.path,
+    ),
+    {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({ action: "add", resolutionIds: [RESOLUTION_ID] }),
+    },
+  );
+  expect(response.status).toBe(400);
+  expect(await response.json()).toEqual({
+    ok: false,
+    errorCode: "invalid_request",
+    error: 'action must be "add".',
+  });
+});
+
 test("proxy rejects unexpected GitHub credential fields before forwarding", async () => {
   let calls = 0;
   const proxy = startAgentProxy({
@@ -728,11 +924,14 @@ test("Agent API key remains usable after an idle day without refresh", async () 
   expect((await request()).status).toBe(401);
 });
 
-test("rejects a message check operation that carries a target", async () => {
+test("forwards a message check operation that carries a target", async () => {
+  const calls: Array<Record<string, unknown>> = [];
   const proxy = startAgentProxy({
     runtime: {
-      agentMessage: async () => {
-        throw new Error("check must not reach the runtime with a target");
+      issueAgentContext: () => "trusted-context",
+      agentMessage: async (_context, request) => {
+        calls.push(request);
+        return { messages: [], hasMore: false };
       },
     },
   });
@@ -743,7 +942,10 @@ test("rejects a message check operation that carries a target", async () => {
     headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
     body: JSON.stringify({ requestId: "request-1", operation: "check", target: "@ada" }),
   });
-  expect(response.status).toBe(400);
+  expect(response.status).toBe(200);
+  expect(calls).toHaveLength(1);
+  expect(calls[0]?.operation).toBe("check");
+  expect(calls[0]?.target).toBe("@ada");
 });
 
 test("proxy forwards validated range options with token-bound identity", async () => {
@@ -1286,6 +1488,7 @@ test("proxy forwards weekly-report-collect packs with the Agent API key path", a
       },
       agentWeeklyReportCollect: async (_context, command) => {
         calls.push(command);
+        if (!("runId" in command)) throw new Error("expected slot report command");
         return {
           requestId: command.requestId,
           runId: command.runId,
@@ -1555,7 +1758,7 @@ test("every route forwards the token-bound context and Agent API key to its runt
     fetch(at(agentApiRoutes.proxy.tasks.path), {
       method: "POST",
       headers: jsonAuth,
-      body: JSON.stringify({ requestId: "r-1", operation: "list", target: "#general" }),
+      body: JSON.stringify({ idempotencyKey: "r-1", operation: "list", target: "#general" }),
     }),
     fetch(at(agentApiRoutes.proxy.channels.path), {
       method: "POST",
@@ -1749,10 +1952,7 @@ test("an unknown agent-api route is rejected instead of falling through", async 
   });
   proxies.push(proxy);
   const token = proxy.issue("agent-a", `sk_agent_${"a".repeat(43)}`);
-  const url = proxy.url.replace(
-    agentApiRoutes.proxy.messages.path,
-    "/api/agent/v1/causal",
-  );
+  const url = proxy.url.replace(agentApiRoutes.proxy.messages.path, "/api/agent/v1/causal");
   const response = await fetch(url, {
     method: "POST",
     headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },

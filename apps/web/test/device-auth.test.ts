@@ -8,8 +8,8 @@ import {
   pollDeviceToken,
   type DeviceAuthorizationRecord,
   type DeviceAuthorizationStore,
-} from "@/server/auth/device-auth.server";
-import { normalizeUserCode } from "@/features/device-auth/device-code-format";
+} from "#src/server/auth/device-auth.server";
+import { normalizeUserCode } from "#src/features/device-auth/device-code-format";
 
 /** An in-memory stand-in for the Prisma store, faithful in the one way that matters: `approve`,
  * `deny` and `consume` are conditional on the current status, so a test can exercise the races

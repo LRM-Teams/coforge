@@ -1,11 +1,11 @@
 import { expect, test } from "bun:test";
-import type { PrismaClient } from "../generated/client";
+import type { PrismaClient } from "#src/generated/prisma/client";
 import {
   AGENT_REMINDER_PAGE_SIZE,
   AgentRemindersQuery,
   prismaAgentReminderReadStore,
   type AgentReminderReadStore,
-} from "@/server/agents/agent-reminders.server";
+} from "#src/server/agents/agent-reminders.server";
 
 const viewer = { userId: "user-1", workspaceId: "workspace-1" };
 const item = (id: string) => ({

@@ -1,20 +1,15 @@
-import {
-  AGENT_MESSAGE_METHOD,
-  WORKSPACE_PROTOCOL_MAJOR,
-  encodeAgentMessageDelivery,
-  isChannelMessageTarget,
-  isPrintableSenderHandle,
-} from "@lrm/coforge-sdk/internal";
-import type { CentrifugoServerApi } from "../centrifugo/server-api.server";
-import { daemonControlChannel } from "../centrifugo/server-api.server";
+import { isChannelMessageTarget, isPrintableSenderHandle } from "@lrm/coforge-sdk/internal";
+import { encodeAgentDelivery } from "./agent-delivery.server";
+import type { CentrifugoServerApi } from "#src/server/centrifugo/server-api.server";
+import { daemonControlChannel } from "#src/server/centrifugo/server-api.server";
 import type {
   DirectConversationRepository,
   LatestSenderFields,
-} from "../db/repositories/direct-conversation.repositories.server";
+} from "#src/server/db/repositories/direct-conversation.repositories.server";
 import type { MessageRequestIdempotency } from "./message-request-idempotency.server";
 import type { ConversationRealtime } from "./conversation-realtime.server";
-import { agentReadableBody } from "./mentions";
-import type { MessageNotifier } from "../notifications/web-push-composition.server";
+import { deliveryMentionsAgent } from "./mentions.server";
+import type { MessageNotifier } from "#src/server/notifications/web-push-composition.server";
 
 export class ReadDirectMessages {
   constructor(private readonly conversations: DirectConversationRepository) {}
@@ -74,7 +69,7 @@ export class SendDirectMessage {
     // The sender's own message never bumps their own badge (the server's count excludes
     // self-authored messages), so a human-authored DM fans out to the conversation channel
     // only: the human is the only badge owner for this DM.
-    await this.publishBrowserEvent(message, input.conversationId, {});
+    await this.publishBrowserEvent(message, input.conversationId, {}, input.requestId);
     if (!message.agentId) throw new Error("message is not an Agent direct message");
     await this.publishUserMessageToAgent(input.requestId, input.conversationId, {
       ...message,
@@ -135,7 +130,7 @@ export class SendDirectMessage {
       },
     );
     // A channel message fans out to the Workspace; a DM goes only to its human viewer, naming
-    // the sending Agent's badge so the browser needs no conversation alias (ADR 0046).
+    // the sending Agent's badge so the browser needs no conversation alias.
     await this.publishBrowserEvent(
       message,
       conversation.id,
@@ -145,7 +140,13 @@ export class SendDirectMessage {
     );
     await this.notifications?.notifyMessage(message.id);
     await this.publishAgentMentionDeliveries(input.requestId, conversation.id, message);
-    return message;
+    // What the message did not reach, read from the stored message so a replay reports the same.
+    const report = (await this.conversations.agentMentionReport?.(
+      input.workspaceId,
+      input.agentId,
+      { id: message.id, conversationId: conversation.id, body: message.body },
+    )) ?? { pendingMentionActions: [], unresolvedMentionHandles: [] };
+    return { ...message, ...report };
   }
 
   /**
@@ -167,8 +168,6 @@ export class SendDirectMessage {
     } & Partial<LatestSenderFields>,
   ) {
     if (!message.deliveries?.length) return;
-    // Agents read plain `@handle` text; the stored body keeps mentions as embedded-UUID tokens.
-    const body = agentReadableBody(message.body, message.mentions ?? []);
     await Promise.allSettled(
       message.deliveries.flatMap((delivery) =>
         delivery.computerId
@@ -176,9 +175,7 @@ export class SendDirectMessage {
               Promise.resolve().then(() =>
                 this.centrifugo.publish(
                   daemonControlChannel(message.workspaceId, delivery.computerId!),
-                  encodeAgentMessageDelivery({
-                    protocolMajor: WORKSPACE_PROTOCOL_MAJOR,
-                    method: AGENT_MESSAGE_METHOD,
+                  encodeAgentDelivery({
                     requestId,
                     workspaceId: message.workspaceId,
                     conversationId,
@@ -186,11 +183,13 @@ export class SendDirectMessage {
                     messageId: message.id,
                     deliveryId: delivery.deliveryId,
                     sequence: message.sequence,
-                    body,
+                    body: message.body,
+                    mentions: message.mentions ?? [],
                     target: message.target ?? "",
                     latestSenderKind: message.latestSenderKind,
                     latestSenderHandle: message.latestSenderHandle,
                     latestSenderDescription: message.latestSenderDescription,
+                    mentionsAgent: deliveryMentionsAgent(message.mentions, delivery.agentId),
                   }),
                 ),
               ),
@@ -204,6 +203,8 @@ export class SendDirectMessage {
     message: { id: string; sequence: number; threadRootId?: string | null },
     conversationId: string,
     scope: { workspaceId?: string; userId?: string; agentId?: string },
+    /** A person's send only: lets the sender's page match its pending copy. */
+    requestId?: string,
   ) {
     if (!this.realtime) return;
     try {
@@ -215,6 +216,7 @@ export class SendDirectMessage {
         ...(scope.userId ? { userId: scope.userId } : {}),
         ...(scope.agentId ? { agentId: scope.agentId } : {}),
         ...(message.threadRootId ? { threadRootId: message.threadRootId } : {}),
+        ...(requestId ? { requestId } : {}),
       });
     } catch {
       // PostgreSQL remains canonical; browser reconciliation repairs a missed publication.
@@ -243,8 +245,7 @@ export class SendDirectMessage {
     if (!message.computerId) throw new Error("Agent is not assigned to a Computer");
     await this.centrifugo.publish(
       daemonControlChannel(message.workspaceId, message.computerId),
-      encodeAgentMessageDelivery({
-        protocolMajor: WORKSPACE_PROTOCOL_MAJOR,
+      encodeAgentDelivery({
         requestId,
         messageId: message.id,
         deliveryId: message.deliveryId,
@@ -252,8 +253,9 @@ export class SendDirectMessage {
         workspaceId: message.workspaceId,
         conversationId,
         agentId: message.agentId,
+        // A DM has no mention rows; its task and channel tokens still read back as text.
         body: message.body,
-        method: AGENT_MESSAGE_METHOD,
+        mentions: [],
         target: message.deliveryTarget ?? `@${message.latestSenderHandle}`,
         latestSenderKind: message.latestSenderKind,
         latestSenderHandle: message.latestSenderHandle,

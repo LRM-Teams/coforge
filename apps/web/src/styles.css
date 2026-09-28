@@ -6,16 +6,6 @@
 @plugin "tailwindcss-react-aria-components";
 @plugin "tailwindcss-animate";
 
-/* daisyUI supplies the one spinner's visuals (see components/ui/loading-indicator.tsx) and
-   nothing else. `include` limits it to that component, `themes: false` keeps its palette out -
-   CoForge colour tokens remain authoritative - and the `d-` prefix keeps its class names from
-   colliding with ours. Widening this include is a design decision, not a detail. */
-@plugin "daisyui" {
-  include: loading;
-  themes: false;
-  prefix: "d-";
-}
-
 /* Untitled UI's own dark mode switch: toggling `.dark-mode` on <html> (see
    src/features/theme). Do not use Tailwind's default `.dark` class name. */
 @custom-variant dark (&:where(.dark-mode, .dark-mode *));

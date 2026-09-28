@@ -1,5 +1,5 @@
 import { Mark, mergeAttributes } from "@tiptap/core";
-import { sanitizeTextStyle } from "../utils/text-style";
+import { sanitizeTextStyle } from "#src/features/records/report-editor/utils/text-style";
 
 declare module "@tiptap/core" {
   interface Commands<ReturnType> {

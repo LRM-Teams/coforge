@@ -1,12 +1,12 @@
 import { useState, type FormEvent } from "react";
 
-import { Dialog, Modal, ModalOverlay } from "@/components/application/modals/modal";
-import { DialogHeader } from "@/components/application/modals/dialog-header";
-import { Button } from "@/components/base/buttons/button";
-import { Input } from "@/components/base/input/input";
-import { Select } from "@/components/base/select/select";
-import { useSubmitGuard } from "@/hooks/use-submit-guard";
-import { m } from "@/paraglide/messages";
+import { Dialog, Modal, ModalOverlay } from "#src/components/application/modals/modal";
+import { DialogHeader } from "#src/components/application/modals/dialog-header";
+import { Button } from "#src/components/base/buttons/button";
+import { Input } from "#src/components/base/input/input";
+import { Select } from "#src/components/base/select/select";
+import { useSubmitGuard } from "#src/hooks/use-submit-guard";
+import { m } from "#src/paraglide/messages";
 
 /** The shared invite-a-member dialog used by the Members directory and the Settings Members section. */
 export function InviteMemberDialog({

@@ -1,14 +1,13 @@
 import { chmod, mkdir, rename, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-
-const SAFE_SCOPE = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
+import { isSafePathScope } from "./path-scope";
 
 export class AgentAppInboxPersistence {
   readonly #path: string;
 
   constructor(stateDirectory: string, workspaceId: string, agentId: string) {
     if (!stateDirectory) throw new Error("App Inbox state directory is required");
-    if (!SAFE_SCOPE.test(workspaceId) || !SAFE_SCOPE.test(agentId))
+    if (!isSafePathScope(workspaceId) || !isSafePathScope(agentId))
       throw new Error("invalid App Inbox Workspace or Agent path scope");
     this.#path = join(stateDirectory, "app-inbox", workspaceId, agentId, "items.json");
   }

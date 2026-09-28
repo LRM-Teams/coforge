@@ -26,10 +26,10 @@ import {
   type DaemonCommandRequest,
   type ManagedRuntimeIdentity,
 } from "@lrm/coforge-sdk/internal";
-import type { DaemonConfig } from "./daemon-runtime/runtime";
-import type { DaemonCredentialStore } from "./credentials/credential-store";
-import type { DaemonConfigStore } from "./persistence/daemon-config";
-import { COFORGE_DAEMON_SERVER_URL } from "./connection/built-server";
+import type { DaemonConfig } from "#src/daemon-runtime/runtime";
+import type { DaemonCredentialStore } from "#src/credentials/credential-store";
+import type { DaemonConfigStore } from "#src/persistence/daemon-config";
+import { COFORGE_DAEMON_SERVER_URL } from "#src/connection/built-server";
 
 const logger = getLogger(["coforge", "daemon", "local-rpc"]);
 
@@ -107,7 +107,11 @@ export async function startDaemonLocalRpcServer(
       },
     },
   });
-  await chmod(input.socketPath, 0o600);
+  await chmod(input.socketPath, 0o600).catch((error: unknown) => {
+    // Windows AF_UNIX socket files do not support POSIX mode bits the same way; listen already
+    // succeeded, so a chmod refusal must not take down the local RPC server.
+    if (process.platform !== "win32") throw error;
+  });
   return {
     close: async () => {
       server.stop(true);

@@ -3,7 +3,7 @@ import { create, toBinary } from "@bufbuild/protobuf";
 import {
   AgentSessionReportSchema,
   AgentStartIntentSchema,
-} from "./gen/coforge/rpc/v1/workspace_pb";
+} from "#src/internal/gen/coforge/rpc/v1/workspace_pb";
 import {
   encodeAgentSessionReport,
   decodeAgentSessionReport,
@@ -155,4 +155,38 @@ test("a start intent decodes for every runtime provider and rejects an unknown o
     }),
   );
   expect(() => decodeAgentStartIntent(unknown)).toThrow("unsupported runtime provider: nope");
+});
+
+test("a recovered message the Agent was notified of from outside the channel keeps that flag", () => {
+  const message = {
+    messageId: "message-1",
+    deliveryId: "delivery-1",
+    conversationId: "conversation-1",
+    sequence: 3,
+    target: "#triage",
+    latestSenderKind: "human" as const,
+    latestSenderHandle: "ada",
+    latestSenderDescription: "",
+    body: "have a look",
+  };
+  const intent = {
+    protocolMajor: 1,
+    requestId: "start",
+    workspaceId: "w",
+    computerId: "c",
+    agentId: "a",
+    provider: "codex" as const,
+    model: "model",
+    reasoning: "reasoning",
+    resumeMessages: [
+      { ...message, nonMemberMention: true },
+      { ...message, messageId: "message-2", deliveryId: "delivery-2" },
+    ],
+    unreadSummary: { "#triage": 2 },
+  };
+  expect(
+    decodeAgentStartIntent(encodeAgentStartIntent(intent)).resumeMessages?.map(
+      (resumed) => resumed.nonMemberMention,
+    ),
+  ).toEqual([true, undefined]);
 });

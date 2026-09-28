@@ -15,7 +15,7 @@ import {
   centrifugoWebSocketEndpoint,
   daemonConnectionEndpoint,
   resolveDaemonConnectionEndpoint,
-} from "../src/cloud-rpc-transport";
+} from "#src/cloud-rpc-transport";
 
 const request = {
   protocolMajor: COMPUTER_REGISTER_PROTOCOL_MAJOR,

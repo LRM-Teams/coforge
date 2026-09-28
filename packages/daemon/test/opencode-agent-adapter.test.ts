@@ -3,9 +3,13 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { OpenCodeProvider } from "../src/code-agent/opencode/provider";
-import { isOpenCodeVersionUnsupported } from "../src/code-agent/opencode/version";
-import type { AgentRuntimeEvent } from "../src/code-agent/contract";
+import { OpenCodeProvider } from "#src/code-agent/opencode/provider";
+import { isOpenCodeVersionUnsupported } from "#src/code-agent/opencode/version";
+import type { AgentRuntimeEvent } from "#src/code-agent/contract";
+import {
+  RUNTIME_ERROR_CLASS,
+  classifyRuntimeErrorText,
+} from "#src/agent-runtime/runtime-error-classification";
 
 const FIXTURE = new URL("./fixtures/opencode-fixture.ts", import.meta.url).pathname;
 const INSTRUCTIONS = "Standing OpenCode instructions.";
@@ -41,6 +45,29 @@ function nthCompleted(
     });
   });
 }
+
+test("a turn starts even though the CLI waits for stdin EOF before it emits anything", async () => {
+  // s144, 2026-09-22: `opencode run` reads its piped stdin to EOF before starting, the spawned
+  // child kept that pipe open, so no record ever arrived - `createAgentSession` never returned
+  // and two OpenCode Agents sat Offline with hung turn processes (one per Start click).
+  const directory = await mkdtemp(join(tmpdir(), "opencode-stdin-eof-"));
+  try {
+    const session = await provider().createAgentSession({
+      agentWorkspaceDirectory: directory,
+      instructions: INSTRUCTIONS,
+      environment: { COFORGE_OPENCODE_MODE: "text", COFORGE_OPENCODE_REQUIRE_STDIN_EOF: "1" },
+    });
+    try {
+      const completed = nthCompleted(session, 1);
+      await completed;
+      expect((await session.readSessionIdentity!())?.state).toBe("resumable");
+    } finally {
+      await session.dispose();
+    }
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+}, 20_000);
 
 test("a fresh session's first turn carries only the standing instructions, no --session", async () => {
   const directory = await mkdtemp(join(tmpdir(), "opencode-fresh-"));
@@ -205,6 +232,79 @@ test("an error event fails the turn with OpenCode's own message", async () => {
   }
 });
 
+test("a provider quota failure surfaces its kind, status and message, not a bare label", async () => {
+  // 2026-09-23: OpenCode Zen exhausted its pool and every turn ended as an unexplainable
+  // "Agent runtime failed." because the envelope's cause rode fields the adapter never read.
+  // The surfaced text must carry the classification the operator needs to act on.
+  const directory = await mkdtemp(join(tmpdir(), "opencode-quota-"));
+  try {
+    const session = await provider().createAgentSession({
+      agentWorkspaceDirectory: directory,
+      instructions: INSTRUCTIONS,
+      environment: {
+        COFORGE_OPENCODE_MODE: "provider-quota",
+        COFORGE_OPENCODE_TURN_DELAY_MS: "120",
+      },
+    });
+    try {
+      const events: AgentRuntimeEvent[] = [];
+      const completed = new Promise<void>((resolve) => {
+        session.subscribe((event) => {
+          events.push(event);
+          if (event.type === "completed") resolve();
+        });
+      });
+      await completed;
+      expect(events).toContainEqual({
+        type: "error",
+        message: "provider.quota (HTTP 429): Rate limit exceeded. Please try again later.",
+      });
+      expect(events).toContainEqual({ type: "completed", status: "failed" });
+      // The surfaced text is what the daemon classifies on — pin the classification itself, not
+      // just the string, so rewording the prefix cannot silently demote the rate_limited class
+      // (and its retry decision) back to generic.
+      const error = events.find((event) => event.type === "error");
+      const surfaced = error && error.type === "error" ? error.message : "";
+      expect(classifyRuntimeErrorText(surfaced).errorClass).toBe(RUNTIME_ERROR_CLASS.RATE_LIMIT);
+    } finally {
+      await session.dispose();
+    }
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("an unfamiliar error envelope still fails the turn with a non-empty message", async () => {
+  // A shape the adapter never met must degrade to words, never to an empty string — an empty
+  // reason is the same disease as the "Agent runtime failed." this fix removes; the exit code
+  // rides the separately-tested `exitFailureMessage` path when no event explains the exit.
+  const directory = await mkdtemp(join(tmpdir(), "opencode-opaque-"));
+  try {
+    const session = await provider().createAgentSession({
+      agentWorkspaceDirectory: directory,
+      instructions: INSTRUCTIONS,
+      environment: { COFORGE_OPENCODE_MODE: "opaque-error", COFORGE_OPENCODE_TURN_DELAY_MS: "120" },
+    });
+    try {
+      const events: AgentRuntimeEvent[] = [];
+      const completed = new Promise<void>((resolve) => {
+        session.subscribe((event) => {
+          events.push(event);
+          if (event.type === "completed") resolve();
+        });
+      });
+      await completed;
+      const error = events.find((event) => event.type === "error");
+      expect(error && error.type === "error" ? error.message.trim() : "").not.toBe("");
+      expect(events).toContainEqual({ type: "completed", status: "failed" });
+    } finally {
+      await session.dispose();
+    }
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("a non-zero exit fails the turn with its exit code and stderr tail", async () => {
   const directory = await mkdtemp(join(tmpdir(), "opencode-crash-"));
   try {
@@ -262,10 +362,10 @@ test("interrupting a running turn ends it as interrupted", async () => {
   }
 });
 
-test("gates the CLI on the 1.15 baseline the runtime is written against", () => {
-  expect(isOpenCodeVersionUnsupported("1.2.24")).toBe(true);
-  expect(isOpenCodeVersionUnsupported("1.15.0")).toBe(false);
-  expect(isOpenCodeVersionUnsupported("1.18.31")).toBe(false);
+test("gates the CLI on the OpenCode v2 runtime contract", () => {
+  expect(isOpenCodeVersionUnsupported("1.18.31")).toBe(true);
+  expect(isOpenCodeVersionUnsupported("2.0.0")).toBe(false);
+  expect(isOpenCodeVersionUnsupported("2.0.7")).toBe(false);
   // A version we cannot parse confidently is never gated.
   expect(isOpenCodeVersionUnsupported("nightly")).toBe(false);
 });

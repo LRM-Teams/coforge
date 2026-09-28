@@ -14,9 +14,11 @@ import { Route as AppRouteImport } from './routes/_app'
 import { Route as HealthRouteImport } from './routes/health'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as DotwellKnownOauthAuthorizationServerRouteImport } from './routes/[.]well-known.oauth-authorization-server'
+import { Route as AppActivityRouteImport } from './routes/_app/activity'
 import { Route as AppComputersRouteImport } from './routes/_app/computers'
 import { Route as AppMessagesRouteImport } from './routes/_app/messages'
 import { Route as AppRecordsRouteImport } from './routes/_app/records'
+import { Route as AppSearchRouteImport } from './routes/_app/search'
 import { Route as AppSettingsRouteImport } from './routes/_app/settings'
 import { Route as AppTasksRouteImport } from './routes/_app/tasks'
 import { Route as ApiAgentApiKeysRouteImport } from './routes/api/agent-api-keys'
@@ -38,6 +40,7 @@ import { Route as AppComputersIndexRouteImport } from './routes/_app/computers.i
 import { Route as AppComputersComputerIdRouteImport } from './routes/_app/computers.$computerId'
 import { Route as AppMessagesIndexRouteImport } from './routes/_app/messages.index'
 import { Route as AppMessagesAgentIdRouteImport } from './routes/_app/messages.$agentId'
+import { Route as AppMessagesSavedRouteImport } from './routes/_app/messages.saved'
 import { Route as AppProjectsIndexRouteImport } from './routes/_app/projects.index'
 import { Route as AppProjectsProjectSlugRouteImport } from './routes/_app/projects.$projectSlug'
 import { Route as AppRecordsIndexRouteImport } from './routes/_app/records.index'
@@ -85,6 +88,8 @@ import { Route as ApiAgentV1AttachmentsAttachmentIdRouteImport } from './routes/
 import { Route as ApiAgentV1AttachmentsCapabilitiesRouteImport } from './routes/api/agent/v1/attachments/capabilities'
 import { Route as ApiAgentV1ChannelsChannelRouteImport } from './routes/api/agent/v1/channels_.$channel'
 import { Route as ApiAgentV1ManualSearchRouteImport } from './routes/api/agent/v1/manual_.search'
+import { Route as ApiAgentV1MentionActionsExecuteRouteImport } from './routes/api/agent/v1/mention-actions_.execute'
+import { Route as ApiAgentV1MentionActionsPendingRouteImport } from './routes/api/agent/v1/mention-actions_.pending'
 import { Route as ApiAgentV1MessagesSearchRouteImport } from './routes/api/agent/v1/messages_.search'
 import { Route as ApiAgentV1UsersNameRouteImport } from './routes/api/agent/v1/users/$name'
 import { Route as ApiProjectsProjectIdRawSplatRouteImport } from './routes/api/projects.$projectId.raw.$'
@@ -99,6 +104,7 @@ import { Route as ApiAgentV1ChannelsChannelUnmuteRouteImport } from './routes/ap
 import { Route as ApiAgentV1MessagesMessageIdReactionsRouteImport } from './routes/api/agent/v1/messages_.$messageId.reactions'
 import { Route as ApiAgentV1MessagesMessageIdResolveRouteImport } from './routes/api/agent/v1/messages_.$messageId.resolve'
 import { Route as ApiAgentV1ThreadsThreadUnfollowRouteImport } from './routes/api/agent/v1/threads_.$thread.unfollow'
+import { Route as ApiWorkspacesWorkspaceIdAgentsAgentIdAvatarRouteImport } from './routes/api/workspaces/$workspaceId/agents/$agentId/avatar'
 import { Route as ApiWorkspacesWorkspaceIdUsersUserIdAvatarRouteImport } from './routes/api/workspaces/$workspaceId/users/$userId/avatar'
 
 const IndexRoute = IndexRouteImport.update({
@@ -126,6 +132,11 @@ const DotwellKnownOauthAuthorizationServerRoute =
     path: '/.well-known/oauth-authorization-server',
     getParentRoute: () => rootRouteImport,
   } as any)
+const AppActivityRoute = AppActivityRouteImport.update({
+  id: '/activity',
+  path: '/activity',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppComputersRoute = AppComputersRouteImport.update({
   id: '/computers',
   path: '/computers',
@@ -139,6 +150,11 @@ const AppMessagesRoute = AppMessagesRouteImport.update({
 const AppRecordsRoute = AppRecordsRouteImport.update({
   id: '/records',
   path: '/records',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppSearchRoute = AppSearchRouteImport.update({
+  id: '/search',
+  path: '/search',
   getParentRoute: () => AppRoute,
 } as any)
 const AppSettingsRoute = AppSettingsRouteImport.update({
@@ -244,6 +260,11 @@ const AppMessagesIndexRoute = AppMessagesIndexRouteImport.update({
 const AppMessagesAgentIdRoute = AppMessagesAgentIdRouteImport.update({
   id: '/$agentId',
   path: '/$agentId',
+  getParentRoute: () => AppMessagesRoute,
+} as any)
+const AppMessagesSavedRoute = AppMessagesSavedRouteImport.update({
+  id: '/saved',
+  path: '/saved',
   getParentRoute: () => AppMessagesRoute,
 } as any)
 const AppProjectsIndexRoute = AppProjectsIndexRouteImport.update({
@@ -504,6 +525,18 @@ const ApiAgentV1ManualSearchRoute = ApiAgentV1ManualSearchRouteImport.update({
   path: '/api/agent/v1/manual/search',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiAgentV1MentionActionsExecuteRoute =
+  ApiAgentV1MentionActionsExecuteRouteImport.update({
+    id: '/api/agent/v1/mention-actions_/execute',
+    path: '/api/agent/v1/mention-actions/execute',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const ApiAgentV1MentionActionsPendingRoute =
+  ApiAgentV1MentionActionsPendingRouteImport.update({
+    id: '/api/agent/v1/mention-actions_/pending',
+    path: '/api/agent/v1/mention-actions/pending',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const ApiAgentV1MessagesSearchRoute =
   ApiAgentV1MessagesSearchRouteImport.update({
     id: '/api/agent/v1/messages_/search',
@@ -587,6 +620,12 @@ const ApiAgentV1ThreadsThreadUnfollowRoute =
     path: '/api/agent/v1/threads/$thread/unfollow',
     getParentRoute: () => rootRouteImport,
   } as any)
+const ApiWorkspacesWorkspaceIdAgentsAgentIdAvatarRoute =
+  ApiWorkspacesWorkspaceIdAgentsAgentIdAvatarRouteImport.update({
+    id: '/api/workspaces/$workspaceId/agents/$agentId/avatar',
+    path: '/api/workspaces/$workspaceId/agents/$agentId/avatar',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const ApiWorkspacesWorkspaceIdUsersUserIdAvatarRoute =
   ApiWorkspacesWorkspaceIdUsersUserIdAvatarRouteImport.update({
     id: '/api/workspaces/$workspaceId/users/$userId/avatar',
@@ -599,9 +638,11 @@ export interface FileRoutesByFullPath {
   '/health': typeof HealthRoute
   '/login': typeof LoginRoute
   '/.well-known/oauth-authorization-server': typeof DotwellKnownOauthAuthorizationServerRoute
+  '/activity': typeof AppActivityRoute
   '/computers': typeof AppComputersRouteWithChildren
   '/messages': typeof AppMessagesRouteWithChildren
   '/records': typeof AppRecordsRouteWithChildren
+  '/search': typeof AppSearchRoute
   '/settings': typeof AppSettingsRoute
   '/tasks': typeof AppTasksRoute
   '/api/agent-api-keys': typeof ApiAgentApiKeysRoute
@@ -620,6 +661,7 @@ export interface FileRoutesByFullPath {
   '/agents/$agentId': typeof AppAgentsAgentIdRoute
   '/computers/$computerId': typeof AppComputersComputerIdRoute
   '/messages/$agentId': typeof AppMessagesAgentIdRoute
+  '/messages/saved': typeof AppMessagesSavedRoute
   '/projects/$projectSlug': typeof AppProjectsProjectSlugRoute
   '/records/$recordId': typeof AppRecordsRecordIdRoute
   '/records/settings': typeof AppRecordsSettingsRoute
@@ -668,6 +710,8 @@ export interface FileRoutesByFullPath {
   '/api/agent/v1/attachments/capabilities': typeof ApiAgentV1AttachmentsCapabilitiesRoute
   '/api/agent/v1/channels/$channel': typeof ApiAgentV1ChannelsChannelRouteWithChildren
   '/api/agent/v1/manual/search': typeof ApiAgentV1ManualSearchRoute
+  '/api/agent/v1/mention-actions/execute': typeof ApiAgentV1MentionActionsExecuteRoute
+  '/api/agent/v1/mention-actions/pending': typeof ApiAgentV1MentionActionsPendingRoute
   '/api/agent/v1/messages/search': typeof ApiAgentV1MessagesSearchRoute
   '/api/agent/v1/users/$name': typeof ApiAgentV1UsersNameRoute
   '/api/projects/$projectId/raw/$': typeof ApiProjectsProjectIdRawSplatRoute
@@ -684,6 +728,7 @@ export interface FileRoutesByFullPath {
   '/api/agent/v1/messages/$messageId/reactions': typeof ApiAgentV1MessagesMessageIdReactionsRoute
   '/api/agent/v1/messages/$messageId/resolve': typeof ApiAgentV1MessagesMessageIdResolveRoute
   '/api/agent/v1/threads/$thread/unfollow': typeof ApiAgentV1ThreadsThreadUnfollowRoute
+  '/api/workspaces/$workspaceId/agents/$agentId/avatar': typeof ApiWorkspacesWorkspaceIdAgentsAgentIdAvatarRoute
   '/api/workspaces/$workspaceId/users/$userId/avatar': typeof ApiWorkspacesWorkspaceIdUsersUserIdAvatarRoute
 }
 export interface FileRoutesByTo {
@@ -691,6 +736,8 @@ export interface FileRoutesByTo {
   '/health': typeof HealthRoute
   '/login': typeof LoginRoute
   '/.well-known/oauth-authorization-server': typeof DotwellKnownOauthAuthorizationServerRoute
+  '/activity': typeof AppActivityRoute
+  '/search': typeof AppSearchRoute
   '/settings': typeof AppSettingsRoute
   '/tasks': typeof AppTasksRoute
   '/api/agent-api-keys': typeof ApiAgentApiKeysRoute
@@ -709,6 +756,7 @@ export interface FileRoutesByTo {
   '/agents/$agentId': typeof AppAgentsAgentIdRoute
   '/computers/$computerId': typeof AppComputersComputerIdRoute
   '/messages/$agentId': typeof AppMessagesAgentIdRoute
+  '/messages/saved': typeof AppMessagesSavedRoute
   '/projects/$projectSlug': typeof AppProjectsProjectSlugRoute
   '/records/$recordId': typeof AppRecordsRecordIdRoute
   '/records/settings': typeof AppRecordsSettingsRoute
@@ -757,6 +805,8 @@ export interface FileRoutesByTo {
   '/api/agent/v1/attachments/capabilities': typeof ApiAgentV1AttachmentsCapabilitiesRoute
   '/api/agent/v1/channels/$channel': typeof ApiAgentV1ChannelsChannelRouteWithChildren
   '/api/agent/v1/manual/search': typeof ApiAgentV1ManualSearchRoute
+  '/api/agent/v1/mention-actions/execute': typeof ApiAgentV1MentionActionsExecuteRoute
+  '/api/agent/v1/mention-actions/pending': typeof ApiAgentV1MentionActionsPendingRoute
   '/api/agent/v1/messages/search': typeof ApiAgentV1MessagesSearchRoute
   '/api/agent/v1/users/$name': typeof ApiAgentV1UsersNameRoute
   '/api/projects/$projectId/raw/$': typeof ApiProjectsProjectIdRawSplatRoute
@@ -773,6 +823,7 @@ export interface FileRoutesByTo {
   '/api/agent/v1/messages/$messageId/reactions': typeof ApiAgentV1MessagesMessageIdReactionsRoute
   '/api/agent/v1/messages/$messageId/resolve': typeof ApiAgentV1MessagesMessageIdResolveRoute
   '/api/agent/v1/threads/$thread/unfollow': typeof ApiAgentV1ThreadsThreadUnfollowRoute
+  '/api/workspaces/$workspaceId/agents/$agentId/avatar': typeof ApiWorkspacesWorkspaceIdAgentsAgentIdAvatarRoute
   '/api/workspaces/$workspaceId/users/$userId/avatar': typeof ApiWorkspacesWorkspaceIdUsersUserIdAvatarRoute
 }
 export interface FileRoutesById {
@@ -782,9 +833,11 @@ export interface FileRoutesById {
   '/health': typeof HealthRoute
   '/login': typeof LoginRoute
   '/.well-known/oauth-authorization-server': typeof DotwellKnownOauthAuthorizationServerRoute
+  '/_app/activity': typeof AppActivityRoute
   '/_app/computers': typeof AppComputersRouteWithChildren
   '/_app/messages': typeof AppMessagesRouteWithChildren
   '/_app/records': typeof AppRecordsRouteWithChildren
+  '/_app/search': typeof AppSearchRoute
   '/_app/settings': typeof AppSettingsRoute
   '/_app/tasks': typeof AppTasksRoute
   '/api/agent-api-keys': typeof ApiAgentApiKeysRoute
@@ -803,6 +856,7 @@ export interface FileRoutesById {
   '/_app/agents/$agentId': typeof AppAgentsAgentIdRoute
   '/_app/computers/$computerId': typeof AppComputersComputerIdRoute
   '/_app/messages/$agentId': typeof AppMessagesAgentIdRoute
+  '/_app/messages/saved': typeof AppMessagesSavedRoute
   '/_app/projects/$projectSlug': typeof AppProjectsProjectSlugRoute
   '/_app/records/$recordId': typeof AppRecordsRecordIdRoute
   '/_app/records/settings': typeof AppRecordsSettingsRoute
@@ -851,6 +905,8 @@ export interface FileRoutesById {
   '/api/agent/v1/attachments/capabilities': typeof ApiAgentV1AttachmentsCapabilitiesRoute
   '/api/agent/v1/channels_/$channel': typeof ApiAgentV1ChannelsChannelRouteWithChildren
   '/api/agent/v1/manual_/search': typeof ApiAgentV1ManualSearchRoute
+  '/api/agent/v1/mention-actions_/execute': typeof ApiAgentV1MentionActionsExecuteRoute
+  '/api/agent/v1/mention-actions_/pending': typeof ApiAgentV1MentionActionsPendingRoute
   '/api/agent/v1/messages_/search': typeof ApiAgentV1MessagesSearchRoute
   '/api/agent/v1/users/$name': typeof ApiAgentV1UsersNameRoute
   '/api/projects/$projectId/raw/$': typeof ApiProjectsProjectIdRawSplatRoute
@@ -867,6 +923,7 @@ export interface FileRoutesById {
   '/api/agent/v1/messages_/$messageId/reactions': typeof ApiAgentV1MessagesMessageIdReactionsRoute
   '/api/agent/v1/messages_/$messageId/resolve': typeof ApiAgentV1MessagesMessageIdResolveRoute
   '/api/agent/v1/threads_/$thread/unfollow': typeof ApiAgentV1ThreadsThreadUnfollowRoute
+  '/api/workspaces/$workspaceId/agents/$agentId/avatar': typeof ApiWorkspacesWorkspaceIdAgentsAgentIdAvatarRoute
   '/api/workspaces/$workspaceId/users/$userId/avatar': typeof ApiWorkspacesWorkspaceIdUsersUserIdAvatarRoute
 }
 export interface FileRouteTypes {
@@ -876,9 +933,11 @@ export interface FileRouteTypes {
     | '/health'
     | '/login'
     | '/.well-known/oauth-authorization-server'
+    | '/activity'
     | '/computers'
     | '/messages'
     | '/records'
+    | '/search'
     | '/settings'
     | '/tasks'
     | '/api/agent-api-keys'
@@ -897,6 +956,7 @@ export interface FileRouteTypes {
     | '/agents/$agentId'
     | '/computers/$computerId'
     | '/messages/$agentId'
+    | '/messages/saved'
     | '/projects/$projectSlug'
     | '/records/$recordId'
     | '/records/settings'
@@ -945,6 +1005,8 @@ export interface FileRouteTypes {
     | '/api/agent/v1/attachments/capabilities'
     | '/api/agent/v1/channels/$channel'
     | '/api/agent/v1/manual/search'
+    | '/api/agent/v1/mention-actions/execute'
+    | '/api/agent/v1/mention-actions/pending'
     | '/api/agent/v1/messages/search'
     | '/api/agent/v1/users/$name'
     | '/api/projects/$projectId/raw/$'
@@ -961,6 +1023,7 @@ export interface FileRouteTypes {
     | '/api/agent/v1/messages/$messageId/reactions'
     | '/api/agent/v1/messages/$messageId/resolve'
     | '/api/agent/v1/threads/$thread/unfollow'
+    | '/api/workspaces/$workspaceId/agents/$agentId/avatar'
     | '/api/workspaces/$workspaceId/users/$userId/avatar'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -968,6 +1031,8 @@ export interface FileRouteTypes {
     | '/health'
     | '/login'
     | '/.well-known/oauth-authorization-server'
+    | '/activity'
+    | '/search'
     | '/settings'
     | '/tasks'
     | '/api/agent-api-keys'
@@ -986,6 +1051,7 @@ export interface FileRouteTypes {
     | '/agents/$agentId'
     | '/computers/$computerId'
     | '/messages/$agentId'
+    | '/messages/saved'
     | '/projects/$projectSlug'
     | '/records/$recordId'
     | '/records/settings'
@@ -1034,6 +1100,8 @@ export interface FileRouteTypes {
     | '/api/agent/v1/attachments/capabilities'
     | '/api/agent/v1/channels/$channel'
     | '/api/agent/v1/manual/search'
+    | '/api/agent/v1/mention-actions/execute'
+    | '/api/agent/v1/mention-actions/pending'
     | '/api/agent/v1/messages/search'
     | '/api/agent/v1/users/$name'
     | '/api/projects/$projectId/raw/$'
@@ -1050,6 +1118,7 @@ export interface FileRouteTypes {
     | '/api/agent/v1/messages/$messageId/reactions'
     | '/api/agent/v1/messages/$messageId/resolve'
     | '/api/agent/v1/threads/$thread/unfollow'
+    | '/api/workspaces/$workspaceId/agents/$agentId/avatar'
     | '/api/workspaces/$workspaceId/users/$userId/avatar'
   id:
     | '__root__'
@@ -1058,9 +1127,11 @@ export interface FileRouteTypes {
     | '/health'
     | '/login'
     | '/.well-known/oauth-authorization-server'
+    | '/_app/activity'
     | '/_app/computers'
     | '/_app/messages'
     | '/_app/records'
+    | '/_app/search'
     | '/_app/settings'
     | '/_app/tasks'
     | '/api/agent-api-keys'
@@ -1079,6 +1150,7 @@ export interface FileRouteTypes {
     | '/_app/agents/$agentId'
     | '/_app/computers/$computerId'
     | '/_app/messages/$agentId'
+    | '/_app/messages/saved'
     | '/_app/projects/$projectSlug'
     | '/_app/records/$recordId'
     | '/_app/records/settings'
@@ -1127,6 +1199,8 @@ export interface FileRouteTypes {
     | '/api/agent/v1/attachments/capabilities'
     | '/api/agent/v1/channels_/$channel'
     | '/api/agent/v1/manual_/search'
+    | '/api/agent/v1/mention-actions_/execute'
+    | '/api/agent/v1/mention-actions_/pending'
     | '/api/agent/v1/messages_/search'
     | '/api/agent/v1/users/$name'
     | '/api/projects/$projectId/raw/$'
@@ -1143,6 +1217,7 @@ export interface FileRouteTypes {
     | '/api/agent/v1/messages_/$messageId/reactions'
     | '/api/agent/v1/messages_/$messageId/resolve'
     | '/api/agent/v1/threads_/$thread/unfollow'
+    | '/api/workspaces/$workspaceId/agents/$agentId/avatar'
     | '/api/workspaces/$workspaceId/users/$userId/avatar'
   fileRoutesById: FileRoutesById
 }
@@ -1198,6 +1273,8 @@ export interface RootRouteChildren {
   ApiAgentV1AttachmentsCapabilitiesRoute: typeof ApiAgentV1AttachmentsCapabilitiesRoute
   ApiAgentV1ChannelsChannelRoute: typeof ApiAgentV1ChannelsChannelRouteWithChildren
   ApiAgentV1ManualSearchRoute: typeof ApiAgentV1ManualSearchRoute
+  ApiAgentV1MentionActionsExecuteRoute: typeof ApiAgentV1MentionActionsExecuteRoute
+  ApiAgentV1MentionActionsPendingRoute: typeof ApiAgentV1MentionActionsPendingRoute
   ApiAgentV1MessagesSearchRoute: typeof ApiAgentV1MessagesSearchRoute
   ApiAgentV1UsersNameRoute: typeof ApiAgentV1UsersNameRoute
   ApiProjectsProjectIdRawSplatRoute: typeof ApiProjectsProjectIdRawSplatRoute
@@ -1206,6 +1283,7 @@ export interface RootRouteChildren {
   ApiAgentV1MessagesMessageIdReactionsRoute: typeof ApiAgentV1MessagesMessageIdReactionsRoute
   ApiAgentV1MessagesMessageIdResolveRoute: typeof ApiAgentV1MessagesMessageIdResolveRoute
   ApiAgentV1ThreadsThreadUnfollowRoute: typeof ApiAgentV1ThreadsThreadUnfollowRoute
+  ApiWorkspacesWorkspaceIdAgentsAgentIdAvatarRoute: typeof ApiWorkspacesWorkspaceIdAgentsAgentIdAvatarRoute
   ApiWorkspacesWorkspaceIdUsersUserIdAvatarRoute: typeof ApiWorkspacesWorkspaceIdUsersUserIdAvatarRoute
 }
 
@@ -1246,6 +1324,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DotwellKnownOauthAuthorizationServerRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/_app/activity': {
+      id: '/_app/activity'
+      path: '/activity'
+      fullPath: '/activity'
+      preLoaderRoute: typeof AppActivityRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/computers': {
       id: '/_app/computers'
       path: '/computers'
@@ -1265,6 +1350,13 @@ declare module '@tanstack/react-router' {
       path: '/records'
       fullPath: '/records'
       preLoaderRoute: typeof AppRecordsRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/search': {
+      id: '/_app/search'
+      path: '/search'
+      fullPath: '/search'
+      preLoaderRoute: typeof AppSearchRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/settings': {
@@ -1412,6 +1504,13 @@ declare module '@tanstack/react-router' {
       path: '/$agentId'
       fullPath: '/messages/$agentId'
       preLoaderRoute: typeof AppMessagesAgentIdRouteImport
+      parentRoute: typeof AppMessagesRoute
+    }
+    '/_app/messages/saved': {
+      id: '/_app/messages/saved'
+      path: '/saved'
+      fullPath: '/messages/saved'
+      preLoaderRoute: typeof AppMessagesSavedRouteImport
       parentRoute: typeof AppMessagesRoute
     }
     '/_app/projects/': {
@@ -1743,6 +1842,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiAgentV1ManualSearchRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/agent/v1/mention-actions_/execute': {
+      id: '/api/agent/v1/mention-actions_/execute'
+      path: '/api/agent/v1/mention-actions/execute'
+      fullPath: '/api/agent/v1/mention-actions/execute'
+      preLoaderRoute: typeof ApiAgentV1MentionActionsExecuteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/agent/v1/mention-actions_/pending': {
+      id: '/api/agent/v1/mention-actions_/pending'
+      path: '/api/agent/v1/mention-actions/pending'
+      fullPath: '/api/agent/v1/mention-actions/pending'
+      preLoaderRoute: typeof ApiAgentV1MentionActionsPendingRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/agent/v1/messages_/search': {
       id: '/api/agent/v1/messages_/search'
       path: '/api/agent/v1/messages/search'
@@ -1841,6 +1954,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiAgentV1ThreadsThreadUnfollowRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/workspaces/$workspaceId/agents/$agentId/avatar': {
+      id: '/api/workspaces/$workspaceId/agents/$agentId/avatar'
+      path: '/api/workspaces/$workspaceId/agents/$agentId/avatar'
+      fullPath: '/api/workspaces/$workspaceId/agents/$agentId/avatar'
+      preLoaderRoute: typeof ApiWorkspacesWorkspaceIdAgentsAgentIdAvatarRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/workspaces/$workspaceId/users/$userId/avatar': {
       id: '/api/workspaces/$workspaceId/users/$userId/avatar'
       path: '/api/workspaces/$workspaceId/users/$userId/avatar'
@@ -1867,12 +1987,14 @@ const AppComputersRouteWithChildren = AppComputersRoute._addFileChildren(
 
 interface AppMessagesRouteChildren {
   AppMessagesAgentIdRoute: typeof AppMessagesAgentIdRoute
+  AppMessagesSavedRoute: typeof AppMessagesSavedRoute
   AppMessagesIndexRoute: typeof AppMessagesIndexRoute
   AppMessagesChannelsChannelIdRoute: typeof AppMessagesChannelsChannelIdRoute
 }
 
 const AppMessagesRouteChildren: AppMessagesRouteChildren = {
   AppMessagesAgentIdRoute: AppMessagesAgentIdRoute,
+  AppMessagesSavedRoute: AppMessagesSavedRoute,
   AppMessagesIndexRoute: AppMessagesIndexRoute,
   AppMessagesChannelsChannelIdRoute: AppMessagesChannelsChannelIdRoute,
 }
@@ -1902,9 +2024,11 @@ const AppRecordsRouteWithChildren = AppRecordsRoute._addFileChildren(
 )
 
 interface AppRouteChildren {
+  AppActivityRoute: typeof AppActivityRoute
   AppComputersRoute: typeof AppComputersRouteWithChildren
   AppMessagesRoute: typeof AppMessagesRouteWithChildren
   AppRecordsRoute: typeof AppRecordsRouteWithChildren
+  AppSearchRoute: typeof AppSearchRoute
   AppSettingsRoute: typeof AppSettingsRoute
   AppTasksRoute: typeof AppTasksRoute
   AppAgentsAgentIdRoute: typeof AppAgentsAgentIdRoute
@@ -1916,9 +2040,11 @@ interface AppRouteChildren {
 }
 
 const AppRouteChildren: AppRouteChildren = {
+  AppActivityRoute: AppActivityRoute,
   AppComputersRoute: AppComputersRouteWithChildren,
   AppMessagesRoute: AppMessagesRouteWithChildren,
   AppRecordsRoute: AppRecordsRouteWithChildren,
+  AppSearchRoute: AppSearchRoute,
   AppSettingsRoute: AppSettingsRoute,
   AppTasksRoute: AppTasksRoute,
   AppAgentsAgentIdRoute: AppAgentsAgentIdRoute,
@@ -2055,6 +2181,8 @@ const rootRouteChildren: RootRouteChildren = {
     ApiAgentV1AttachmentsCapabilitiesRoute,
   ApiAgentV1ChannelsChannelRoute: ApiAgentV1ChannelsChannelRouteWithChildren,
   ApiAgentV1ManualSearchRoute: ApiAgentV1ManualSearchRoute,
+  ApiAgentV1MentionActionsExecuteRoute: ApiAgentV1MentionActionsExecuteRoute,
+  ApiAgentV1MentionActionsPendingRoute: ApiAgentV1MentionActionsPendingRoute,
   ApiAgentV1MessagesSearchRoute: ApiAgentV1MessagesSearchRoute,
   ApiAgentV1UsersNameRoute: ApiAgentV1UsersNameRoute,
   ApiProjectsProjectIdRawSplatRoute: ApiProjectsProjectIdRawSplatRoute,
@@ -2066,6 +2194,8 @@ const rootRouteChildren: RootRouteChildren = {
   ApiAgentV1MessagesMessageIdResolveRoute:
     ApiAgentV1MessagesMessageIdResolveRoute,
   ApiAgentV1ThreadsThreadUnfollowRoute: ApiAgentV1ThreadsThreadUnfollowRoute,
+  ApiWorkspacesWorkspaceIdAgentsAgentIdAvatarRoute:
+    ApiWorkspacesWorkspaceIdAgentsAgentIdAvatarRoute,
   ApiWorkspacesWorkspaceIdUsersUserIdAvatarRoute:
     ApiWorkspacesWorkspaceIdUsersUserIdAvatarRoute,
 }

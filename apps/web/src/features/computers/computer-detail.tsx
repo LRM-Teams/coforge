@@ -7,13 +7,14 @@ import {
 } from "@untitledui/icons";
 import type { RuntimeProvider } from "@lrm/coforge-sdk/internal";
 
-import { Avatar } from "@/components/base/avatar/avatar";
-import { Button } from "@/components/base/buttons/button";
-import { ButtonUtility } from "@/components/base/buttons/button-utility";
-import { Input } from "@/components/base/input/input";
-import { useAppToast } from "@/components/ui/toast";
-import { avatarInitial, avatarToneClassName } from "@/lib/avatar-tone";
-import { m } from "@/paraglide/messages";
+import { Avatar } from "#src/components/base/avatar/avatar";
+import { Button } from "#src/components/base/buttons/button";
+import { ButtonUtility } from "#src/components/base/buttons/button-utility";
+import { Input } from "#src/components/base/input/input";
+import { Toggle } from "#src/components/base/toggle/toggle";
+import { useAppToast } from "#src/components/ui/toast";
+import { avatarInitial, avatarToneClassName } from "#src/lib/avatar-tone";
+import { m } from "#src/paraglide/messages";
 import { BackToComputers, useUpgradingComputer } from "./computer-layout";
 import {
   computerLabel,
@@ -34,6 +35,17 @@ import type { ComputerRestartStatus, ComputerUpgradeStatus } from "./computer.sc
 
 export const RESTART_POLL_INTERVAL_MS = 2_000;
 export const RESTART_MAX_POLLS = 31;
+
+/**
+ * An upgrade is an external one-shot job, not an in-process restart, and it takes far longer than
+ * one: on a real machine `upgrade-results/<id>.request.json` -> `.result.json` took about two
+ * minutes. The restart window above is sized for a restart, and reusing it here made a perfectly
+ * healthy upgrade look like a failure - the panel gave up while the job was still running, the
+ * Upgrade button came back, and the second click was refused with `UPGRADE_OPERATION_PENDING` and
+ * rendered as a failure. Three minutes covers the observed job with margin.
+ */
+export const UPGRADE_POLL_INTERVAL_MS = 3_000;
+export const UPGRADE_MAX_POLLS = 60;
 
 export type ComputerDetailView = ComputerIdentity & {
   id: string;
@@ -91,6 +103,8 @@ export function ComputerDetail({
   latestComputerVersion,
   restartPollIntervalMs = RESTART_POLL_INTERVAL_MS,
   restartMaxPolls = RESTART_MAX_POLLS,
+  upgradePollIntervalMs = UPGRADE_POLL_INTERVAL_MS,
+  upgradeMaxPolls = UPGRADE_MAX_POLLS,
 }: {
   computer: ComputerDetailView;
   timeZone?: string | null;
@@ -103,6 +117,8 @@ export function ComputerDetail({
   latestComputerVersion?: string | null;
   restartPollIntervalMs?: number;
   restartMaxPolls?: number;
+  upgradePollIntervalMs?: number;
+  upgradeMaxPolls?: number;
 }) {
   const [updatingRuntimeIdsState, setUpdatingRuntimeIdsState] = useState(() => new Set<string>());
   const updatingRuntimeIds = useRef(new Set<string>());
@@ -151,8 +167,8 @@ export function ComputerDetail({
           describeComputerUpgradeFailure({ reason: "publication" }),
         );
       if (!onReadUpgradeStatus) return;
-      for (let poll = 0; poll < restartMaxPolls; poll += 1) {
-        await new Promise((resolve) => window.setTimeout(resolve, restartPollIntervalMs));
+      for (let poll = 0; poll < upgradeMaxPolls; poll += 1) {
+        await new Promise((resolve) => window.setTimeout(resolve, upgradePollIntervalMs));
         const status = await onReadUpgradeStatus(requestId);
         if (status.status === "completed" && status.computerVersion) {
           // The version itself moves to the Version row (the caller invalidates the loader); the
@@ -273,12 +289,7 @@ export function ComputerDetail({
                     settle(() => {
                       if (result.status === "completed") {
                         setRestartState("completed");
-                        toast.success(
-                          m.computer_restart_completed({
-                            version: result.daemonVersion,
-                            process: result.workerInstanceId,
-                          }),
-                        );
+                        toast.success(m.computer_restart_completed());
                       } else if (result.status === "accepted") {
                         setRestartState("accepted");
                       } else {
@@ -416,7 +427,7 @@ export function ComputerDetail({
                       )}
                       {upgrade.errorId && (
                         <p className="mt-1.5 text-xs text-tertiary">
-                          {m.computer_upgrade_error_reference({ id: upgrade.errorId })}
+                          {m.error_reference({ errorId: upgrade.errorId })}
                         </p>
                       )}
                     </div>
@@ -469,29 +480,16 @@ export function ComputerDetail({
                         <RuntimeIdentity runtime={runtime} />
                       )}
                       {computer.ownedByCurrentUser && (
-                        <div className="shrink-0">
-                          <Button
-                            type="button"
-                            size="sm"
-                            color="secondary"
-                            aria-pressed={runtime.isPublic}
-                            aria-label={
-                              runtime.isPublic
-                                ? m.computer_runtime_make_private_label({
-                                    runtime: runtime.displayName,
-                                  })
-                                : m.computer_runtime_publish_label({
-                                    runtime: runtime.displayName,
-                                  })
-                            }
-                            isDisabled={updatingRuntimeIdsState.has(runtime.id)}
-                            onPress={() => void setRuntimePublic(runtime.id, !runtime.isPublic)}
-                          >
-                            {runtime.isPublic
-                              ? m.computer_runtime_public()
-                              : m.computer_runtime_private()}
-                          </Button>
-                        </div>
+                        <Toggle
+                          className="shrink-0"
+                          label={m.computer_runtime_public()}
+                          aria-label={m.computer_runtime_public_label({
+                            runtime: runtime.displayName,
+                          })}
+                          isSelected={runtime.isPublic}
+                          isDisabled={updatingRuntimeIdsState.has(runtime.id)}
+                          onChange={(isPublic) => void setRuntimePublic(runtime.id, isPublic)}
+                        />
                       )}
                       {computer.ownedByCurrentUser && runtimeVisibilityErrorIds.has(runtime.id) && (
                         <p role="alert" className="basis-full text-xs text-error-primary">

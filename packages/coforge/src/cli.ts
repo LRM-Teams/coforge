@@ -8,7 +8,7 @@ import { COFORGE_CLI_VERSION } from "./version";
 
 export async function runAgentCli(args: readonly string[]): Promise<void> {
   // `coforge --version`/`-V` reports only the CLI carrier, unlike `coforge version`, which also
-  // queries the live daemon for its own and the Computer's version (ADR 0036).
+  // queries the live daemon for its own and the Computer's version.
   if (args[0] === "--version" || args[0] === "-V") {
     console.log(COFORGE_CLI_VERSION);
     return;
@@ -51,8 +51,10 @@ export async function runAgentCli(args: readonly string[]): Promise<void> {
     if (typeof result === "string") console.log(result);
     else if (result !== undefined) console.log(JSON.stringify(result));
   } catch (error) {
-    if (error instanceof CliError) console.error(renderCliError(error));
-    else console.error(error instanceof Error ? error.message : String(error));
+    if (error instanceof CliError) {
+      if (error.stdoutText) console.log(error.stdoutText);
+      console.error(renderCliError(error));
+    } else console.error(error instanceof Error ? error.message : String(error));
     process.exitCode = 1;
   }
 }

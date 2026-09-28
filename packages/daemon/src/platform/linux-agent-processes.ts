@@ -9,7 +9,7 @@ import { readFile, readdir } from "node:fs/promises";
  * that kills them is the workspace systemd unit's `KillMode=mixed` — which does not apply when the
  * daemon was started any other way (a hand-run `bun run`, a `su`/SSH session without the user bus).
  * A leftover Agent process then double-runs on the same identity at the next dispatch, which
- * ADR 0033's `exitUnconfirmed` fence exists to prevent. The daemon therefore sweeps them itself on
+ * the `exitUnconfirmed` fence exists to prevent. The daemon therefore sweeps them itself on
  * boot.
  *
  * Scope is the Workspace, never another one: a process is only a candidate when its environment

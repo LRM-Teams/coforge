@@ -1,14 +1,18 @@
 import { expect, test } from "bun:test";
 import { PrismaPg } from "@prisma/adapter-pg";
-import { PrismaClient } from "../generated/client";
-import { AgentActivityRepository } from "../src/server/db/repositories/agent-activity.repositories.server";
+import { PrismaClient } from "#src/generated/prisma/client";
+import { AgentActivityRepository } from "#src/server/db/repositories/agent-activity.repositories.server";
 
-test("compact activity history preserves launch sequence across clock rollback and authorization", async () => {
+function testDatabase() {
   const connectionString = Bun.env.AGENT_ACTIVITY_TEST_DATABASE_URL;
   if (!connectionString) {
     throw new Error("AGENT_ACTIVITY_TEST_DATABASE_URL is required (local PostgreSQL)");
   }
-  const db = new PrismaClient({ adapter: new PrismaPg({ connectionString }) });
+  return new PrismaClient({ adapter: new PrismaPg({ connectionString }) });
+}
+
+test("compact activity history preserves launch sequence across clock rollback and authorization", async () => {
+  const db = testDatabase();
   const fixture = crypto.randomUUID();
   const member = await db.user.create({
     data: { username: `activity-member-${fixture}` },
@@ -113,6 +117,71 @@ test("compact activity history preserves launch sequence across clock rollback a
     await db.user.deleteMany({
       where: { id: { in: [member.id, outsider.id] } },
     });
+    await db.$disconnect();
+  }
+});
+
+test("compact activity history reads the five newest shown rows past hidden kinds and older launches", async () => {
+  const db = testDatabase();
+  const fixture = crypto.randomUUID();
+  const member = await db.user.create({ data: { username: `activity-deep-${fixture}` } });
+  const workspace = await db.workspace.create({
+    data: {
+      slug: `activity-deep-${fixture}`,
+      name: "Deep activity history test",
+      members: { create: { userId: member.id } },
+    },
+  });
+  try {
+    const computer = await db.computer.create({
+      data: { ownerId: member.id, machineId: `activity-deep-${fixture}` },
+    });
+    const agent = await db.agent.create({
+      data: {
+        workspaceId: workspace.id,
+        ownerId: member.id,
+        computerId: computer.id,
+        name: "deep",
+        displayName: "Deep",
+        runtimeConfig: {},
+      },
+    });
+    // Three launches of 40 rows each, every other row a kind the popover hides, and the newest
+    // rows of all hidden: the five shown rows sit behind them, and nothing older may surface.
+    const kinds = ["tool_started", "tool_end", "thinking_started", "thinking_end"];
+    await db.agentActivity.createMany({
+      data: Array.from({ length: 120 }, (_, index) => ({
+        agentId: agent.id,
+        workspaceId: workspace.id,
+        computerId: computer.id,
+        launchId: `launch-${Math.floor(index / 40)}`,
+        clientSeq: (index % 40) + 1,
+        detailKind: index >= 116 ? "compaction_finished" : kinds[index % kinds.length]!,
+        level: "info",
+        detail: `row ${index}`,
+        occurredAt: new Date(Date.UTC(2026, 0, 1, 0, 0, index)),
+        entries: [],
+      })),
+    });
+
+    const history = await new AgentActivityRepository(db).listForMember(workspace.id, member.id);
+    expect(
+      history[0]?.activity.map(({ launchId, clientSeq, detailKind }) => [
+        launchId,
+        clientSeq,
+        detailKind,
+      ]),
+    ).toEqual([
+      ["launch-2", 35, "thinking_started"],
+      ["launch-2", 33, "tool_started"],
+      ["launch-2", 31, "thinking_started"],
+      ["launch-2", 29, "tool_started"],
+      ["launch-2", 27, "thinking_started"],
+    ]);
+  } finally {
+    await db.workspace.deleteMany({ where: { id: workspace.id } });
+    await db.computer.deleteMany({ where: { ownerId: member.id } });
+    await db.user.deleteMany({ where: { id: member.id } });
     await db.$disconnect();
   }
 });

@@ -4,8 +4,8 @@ import type {
   AgentSessionIdentity,
   AgentSessionOptions,
 } from "@coforge/agent";
-import { AgentSessionRecoveryError, type CodeAgentProvider } from "../contract";
-import { agentEnvironment } from "../environment";
+import { AgentSessionRecoveryError, type CodeAgentProvider } from "#src/code-agent/contract";
+import { agentEnvironment } from "#src/code-agent/environment";
 import { RUNTIME_PROVIDER } from "@lrm/coforge-sdk/internal";
 import type { RuntimeProvider } from "@lrm/coforge-sdk/internal";
 import {
@@ -17,9 +17,9 @@ import {
 } from "@coforge/agent";
 import { join } from "node:path";
 import type { RuntimeMetadata } from "@lrm/coforge-sdk/internal";
-import { discoverCoforgeCatalog, discoverPiCatalog } from "../runtime-inventory";
+import { discoverCoforgeCatalog, discoverPiCatalog } from "#src/code-agent/runtime-inventory";
 import { COFORGE_AGENT_RUNTIME_METADATA } from "./metadata";
-import { errorMessage, textContent } from "../json-record";
+import { errorMessage, textContent } from "#src/code-agent/json-record";
 
 export class PiProvider implements CodeAgentProvider {
   readonly provider: RuntimeProvider = RUNTIME_PROVIDER.PI;
@@ -28,7 +28,7 @@ export class PiProvider implements CodeAgentProvider {
     return { provider: RUNTIME_PROVIDER.PI, version: PI_SDK_VERSION, displayName: "Pi" };
   }
 
-  discoverModelCatalog(options: import("../contract").ProviderDiscoveryOptions = {}) {
+  discoverModelCatalog(options: import("#src/code-agent/contract").ProviderDiscoveryOptions = {}) {
     return discoverPiCatalog(options.cwd ?? process.cwd(), options.environment ?? Bun.env);
   }
 

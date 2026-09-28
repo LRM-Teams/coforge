@@ -22,6 +22,7 @@ import type {
 } from "../index";
 import {
   agentApiRoutes,
+  decodeAgentChannelErrorResponse,
   decodeAgentManualErrorResponse,
   decodeAgentManualGetResponse,
   decodeAgentManualSearchResponse,
@@ -33,7 +34,13 @@ import {
   decodeAgentUserInfoResponse,
   decodeGitHubCredentialResponse,
   decodeGitHubCommitTrailersResponse,
+  decodeAgentMentionActionErrorResponse,
+  decodeAgentMentionExecuteResponse,
+  decodeAgentMentionPendingResponse,
   type ActionCardAction,
+  type AgentMentionExecuteRequest,
+  type AgentMentionExecuteResponse,
+  type AgentMentionPendingResponse,
   type AgentManualGetResponse,
   type AgentManualSearchResponse,
   type AgentVersionResponse,
@@ -97,6 +104,9 @@ function operationFailedCode(operation: string): string {
   return `${operation.toUpperCase().replace(/-/g, "_")}_FAILED`;
 }
 
+/** The agent-context token grammar the proxy checks before issuing any request. */
+const PROXY_CONTEXT_PATTERN = /^sfp_[A-Za-z0-9_-]{43}$/;
+
 /** A local condition that meant no request was ever issued: nothing to wait on or undo. */
 function preIssuanceError(operation: string, message: string): CliError {
   const isSend = operation === "send";
@@ -106,6 +116,15 @@ function preIssuanceError(operation: string, message: string): CliError {
     retryable: false,
     ...(isSend ? { draftSaved: false, suggestedNextAction: NO_MESSAGE_SENT_NEXT_ACTION } : {}),
   });
+}
+/** The preflight every proxied request runs before it issues: the context must exist and match
+ * the token grammar, and a proxy must be configured. Raises the operation's own pre-issuance
+ * error, so no request is ever sent — and no `send` can even start retrying — on a missing setup. */
+function requireProxySetup(operation: string, context: string, proxyUrl: string): void {
+  if (!context) throw preIssuanceError(operation, "coforge agent context is not configured");
+  if (!PROXY_CONTEXT_PATTERN.test(context))
+    throw preIssuanceError(operation, "coforge agent context is invalid");
+  if (!proxyUrl) throw preIssuanceError(operation, "coforge agent proxy is not configured");
 }
 
 /**
@@ -227,7 +246,7 @@ function manualFailedCode(errorCode: string | undefined): string {
 }
 
 /**
- * GETs one of the two Agent Manual routes (`ADR 0036`) through the local daemon proxy. Unlike
+ * GETs one of the two Agent Manual routes through the local daemon proxy. Unlike
  * `call` above (the multiplexed `messages` operation), the Manual routes always answer a domain
  * error as JSON `{ ok: false, errorCode, error }`, so that `errorCode` becomes the `CliError`
  * code directly, and a `knowledge_not_found` gets the Raft-aligned "browse the index" guidance.
@@ -240,10 +259,7 @@ async function manualRequest<T>(
   query: Record<string, string>,
   decode: (value: unknown) => T,
 ): Promise<T> {
-  if (!context) throw preIssuanceError("manual", "coforge agent context is not configured");
-  if (!/^sfp_[A-Za-z0-9_-]{43}$/.test(context))
-    throw preIssuanceError("manual", "coforge agent context is invalid");
-  if (!proxyUrl) throw preIssuanceError("manual", "coforge agent proxy is not configured");
+  requireProxySetup("manual", context, proxyUrl);
   const endpoint = proxyEndpoint(path);
   for (const [key, value] of Object.entries(query)) endpoint.searchParams.set(key, value);
   let response: Response;
@@ -275,7 +291,7 @@ async function manualRequest<T>(
 }
 
 /**
- * GETs the local-only `/api/agent/v1/version` route (ADR 0036's placement-table rows): unlike
+ * GETs the local-only `/api/agent/v1/version` route: unlike
  * `manualRequest` above, this never reaches Web/backend, so a non-ok response is always a local
  * proxy/daemon condition, never a domain error envelope. A network/timeout failure is reported as
  * "the live daemon could not be queried", matching `coforge version`'s own refusal wording for a
@@ -286,10 +302,7 @@ async function versionRequest(
   context: string,
   proxyUrl: string,
 ): Promise<AgentVersionResponse> {
-  if (!context) throw preIssuanceError("version", "coforge agent context is not configured");
-  if (!/^sfp_[A-Za-z0-9_-]{43}$/.test(context))
-    throw preIssuanceError("version", "coforge agent context is invalid");
-  if (!proxyUrl) throw preIssuanceError("version", "coforge agent proxy is not configured");
+  requireProxySetup("version", context, proxyUrl);
   let response: Response;
   try {
     response = await fetch(proxyEndpoint(agentApiRoutes.proxy.version.path), {
@@ -327,10 +340,7 @@ async function envelopeGetRequest<T>(
   decodeError: (value: unknown) => { errorCode: string; error: string } | undefined,
   operation: string,
 ): Promise<T> {
-  if (!context) throw preIssuanceError(operation, "coforge agent context is not configured");
-  if (!/^sfp_[A-Za-z0-9_-]{43}$/.test(context))
-    throw preIssuanceError(operation, "coforge agent context is invalid");
-  if (!proxyUrl) throw preIssuanceError(operation, "coforge agent proxy is not configured");
+  requireProxySetup(operation, context, proxyUrl);
   const endpoint = proxyEndpoint(path);
   for (const [key, value] of Object.entries(query)) endpoint.searchParams.set(key, value);
   let response: Response;
@@ -368,10 +378,7 @@ async function callProfileUpdate(
   proxyUrl: string,
   input: AgentProfileUpdateRequest,
 ): Promise<AgentProfileUpdateResponse> {
-  if (!context) throw preIssuanceError("profile-update", "coforge agent context is not configured");
-  if (!/^sfp_[A-Za-z0-9_-]{43}$/.test(context))
-    throw preIssuanceError("profile-update", "coforge agent context is invalid");
-  if (!proxyUrl) throw preIssuanceError("profile-update", "coforge agent proxy is not configured");
+  requireProxySetup("profile-update", context, proxyUrl);
   let response: Response;
   try {
     response = await fetch(proxyEndpoint(agentApiRoutes.local.profile.update.path), {
@@ -397,6 +404,59 @@ async function callProfileUpdate(
     });
   }
   return decodeAgentProfileUpdateResponse(rawBody);
+}
+
+/**
+ * One mention action route through the local Proxy. A 5xx is `SERVER_5XX`; any other refusal is
+ * `<OPERATION>_FAILED` carrying the server's own error text (the `{ ok: false, errorCode, error }`
+ * envelope, the Proxy's JSON error, or its bare text).
+ */
+async function mentionActionRequest<T>(
+  proxyEndpoint: (path: string) => URL,
+  context: string,
+  proxyUrl: string,
+  operation: "mention-pending" | "mention-action",
+  route: { method: string; path: string },
+  body: AgentMentionExecuteRequest | undefined,
+  decode: (value: unknown) => T,
+): Promise<T> {
+  requireProxySetup(operation, context, proxyUrl);
+  let response: Response;
+  try {
+    response = await fetch(proxyEndpoint(route.path), {
+      method: route.method,
+      headers: {
+        authorization: `Bearer ${context}`,
+        ...(body ? { "content-type": "application/json" } : {}),
+      },
+      ...(body ? { body: JSON.stringify(body) } : {}),
+      signal: AbortSignal.timeout(10_000),
+    });
+  } catch {
+    throw new CliError({
+      code: operationFailedCode(operation),
+      message: "agent proxy request failed (network or timeout)",
+      retryable: false,
+    });
+  }
+  if (!response.ok) {
+    const text = await response.text().catch(() => "");
+    let message = text;
+    try {
+      const parsed: unknown = JSON.parse(text);
+      const envelope = decodeAgentMentionActionErrorResponse(parsed);
+      const proxyError = (parsed as { error?: unknown } | null)?.error;
+      message = envelope?.error ?? (typeof proxyError === "string" ? proxyError : text);
+    } catch {
+      // A bare-text Proxy error (e.g. "bad request"): its text is the message.
+    }
+    throw new CliError({
+      code: response.status >= 500 ? "SERVER_5XX" : operationFailedCode(operation),
+      message: message || `HTTP ${response.status}`,
+      retryable: false,
+    });
+  }
+  return decode(await response.json().catch(() => undefined));
 }
 
 export function connectLocal(
@@ -513,7 +573,7 @@ export function connectLocal(
       if (followed) throw new Error("Explicit thread follow is unavailable");
       return call("thread-unfollow", target);
     },
-    check: () => call("check"),
+    check: (target?: string) => call("check", target),
     read: (
       target: string,
       options?: { before?: string; after?: string; around?: string; limit?: number },
@@ -538,7 +598,7 @@ export function connectLocal(
     task: (command: TaskCommand) => callTask(command),
     channel: (command: Omit<ChannelCommand, "requestId">) => callChannel(command),
     actionPrepare: (target: string, action: ActionCardAction) => callActionPrepare(target, action),
-    workspaceInfo: async (): Promise<WorkspaceInfoResponse> => {
+    workspaceInfo: async (): Promise<import("../index").WorkspaceInfoResult> => {
       if (!context || !/^sfp_[A-Za-z0-9_-]{43}$/.test(context))
         throw new Error("coforge agent context is invalid");
       if (!proxyUrl) throw new Error("coforge agent proxy is not configured");
@@ -548,7 +608,10 @@ export function connectLocal(
         signal: AbortSignal.timeout(10_000),
       });
       if (!response.ok) throw new Error(`workspace info request failed (${response.status})`);
-      return (await response.json()) as WorkspaceInfoResponse;
+      // The local hop's JSON carries the transport's own `requestId`; the CLI's view of
+      // `workspace_info` is the Agent API's shape, which names that echoed id `idempotencyKey`.
+      const { requestId, ...data } = (await response.json()) as WorkspaceInfoResponse;
+      return { ...data, idempotencyKey: requestId };
     },
     weeklyReport: (command: WeeklyReportCommand) => callWeeklyReport(command),
     weeklyReportCollect: (command: import("../index").WeeklyReportCollectCommand) =>
@@ -629,6 +692,26 @@ export function connectLocal(
       ),
     profileUpdate: (input: AgentProfileUpdateRequest): Promise<AgentProfileUpdateResponse> =>
       callProfileUpdate(proxyEndpoint, context, proxyUrl, input),
+    mentionPending: (): Promise<AgentMentionPendingResponse> =>
+      mentionActionRequest(
+        proxyEndpoint,
+        context,
+        proxyUrl,
+        "mention-pending",
+        agentApiRoutes.local.mentionActions.pending,
+        undefined,
+        decodeAgentMentionPendingResponse,
+      ),
+    mentionExecute: (request: AgentMentionExecuteRequest): Promise<AgentMentionExecuteResponse> =>
+      mentionActionRequest(
+        proxyEndpoint,
+        context,
+        proxyUrl,
+        "mention-action",
+        agentApiRoutes.local.mentionActions.execute,
+        request,
+        decodeAgentMentionExecuteResponse,
+      ),
     view: async (attachmentId: string) => {
       if (!context) throw new Error("coforge agent context is not configured");
       if (!/^sfp_[A-Za-z0-9_-]{43}$/.test(context))
@@ -1047,18 +1130,27 @@ export function connectLocal(
     if (!context || !/^sfp_[A-Za-z0-9_-]{43}$/.test(context))
       throw new Error("coforge agent context is invalid");
     if (!proxyUrl) throw new Error("coforge agent proxy is not configured");
-    const response = await fetch(proxyEndpoint(agentApiRoutes.proxy.tasks.path), {
-      method: agentApiRoutes.local.tasks.method,
-      headers: { authorization: `Bearer ${context}`, "content-type": "application/json" },
-      body: JSON.stringify(command),
-      signal: AbortSignal.timeout(10_000),
-    });
+    let response: Response;
+    try {
+      response = await fetch(proxyEndpoint(agentApiRoutes.proxy.tasks.path), {
+        method: agentApiRoutes.local.tasks.method,
+        headers: { authorization: `Bearer ${context}`, "content-type": "application/json" },
+        body: JSON.stringify(command),
+        signal: AbortSignal.timeout(10_000),
+      });
+    } catch {
+      throw proxyTransportFailure(command.operation, command.target);
+    }
     if (!response.ok) {
+      const errorBody = await readProxyErrorBody(response);
       if (command.freshnessContextMode === "withheld")
-        throw new Error(
-          `reviewer-isolation Task request failed (${response.status}); upstream detail withheld`,
-        );
-      throw new Error(`agent Task request failed (${response.status}): ${await response.text()}`);
+        throw new CliError({
+          code: response.status >= 500 ? "SERVER_5XX" : operationFailedCode(command.operation),
+          message: `Reviewer-isolation task ${command.operation} failed (HTTP ${response.status}); upstream error detail was withheld.`,
+          retryable: false,
+          proxy: { upstreamStatus: response.status },
+        });
+      throw proxyHttpFailure(command.operation, response.status, errorBody, command.target);
     }
     return (await response.json()) as TaskResult;
   }
@@ -1075,6 +1167,23 @@ export function connectLocal(
       signal: AbortSignal.timeout(10_000),
     });
     if (!response.ok) {
+      const rawText = await response.text();
+      // A JSON-enveloped `errorCode` (currently only `agent_not_visible`) is a real
+      // wire field the CLI renders directly, checked ahead of every other rule below — its own
+      // explanation must never be discarded in favor of a fixed "Channel not found" message.
+      let parsedBody: unknown;
+      try {
+        parsedBody = JSON.parse(rawText);
+      } catch {
+        parsedBody = undefined;
+      }
+      const envelopeError = decodeAgentChannelErrorResponse(parsedBody);
+      if (envelopeError)
+        throw new CliError({
+          code: envelopeError.errorCode.toUpperCase(),
+          message: envelopeError.error,
+          retryable: false,
+        });
       // Raft parity: an unknown channel is CliError code NOT_FOUND with a fixed message, not a
       // generic transport failure — for the operations that resolve a single #channel target
       // the same way Raft's join/leave/update/lifecycle/add-member/remove-member do.
@@ -1094,7 +1203,7 @@ export function connectLocal(
           retryable: false,
         });
       throw new Error(
-        `agent channel ${command.operation} request failed (${response.status}): ${await response.text()}`,
+        `agent channel ${command.operation} request failed (${response.status}): ${rawText}`,
       );
     }
     return response.json();

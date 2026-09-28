@@ -4,37 +4,50 @@ import { useServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { useQueryClient } from "@tanstack/react-query";
 
-import { SettingsContent, SettingsPending } from "@/components/settings-content";
-import { useAppToast } from "@/components/ui/toast";
-import { PageLoadError } from "@/features/errors/page-load-error";
-import { saveUserProfile } from "@/features/profiles/profile.functions";
+import { SettingsContent, SettingsPending } from "#src/components/settings-content";
+import { useAppToast } from "#src/components/ui/toast";
+import { PageLoadError } from "#src/features/errors/page-load-error";
+import { saveUserProfile } from "#src/features/profiles/profile.functions";
 import {
   browserNotificationPermission,
-  ensureBrowserPushSubscription,
+  showPageNotification,
+  syncBrowserPushSubscription,
   shouldShowAddToHomeScreenGuide,
-} from "@/features/notifications/browser-push";
+} from "#src/features/notifications/browser-push";
 import {
   saveBrowserNotificationPreference,
   sendTestBrowserNotification,
   subscribeBrowserPush,
-} from "@/features/notifications/notifications.functions";
+} from "#src/features/notifications/notifications.functions";
 import {
   getUserPreferences,
   saveConversationOpenMode,
-  saveUserTimeZone,
-} from "@/features/settings/settings.functions";
+  saveDateTimePreferences,
+} from "#src/features/settings/settings.functions";
 import {
   loadMyWorkspaceInvitations,
   loadWorkspaceMembers,
-} from "@/features/workspaces/members.functions";
-import { getLocale, setLocale } from "@/paraglide/runtime";
-import { readRailLabels, writeRailLabels } from "@/features/settings/rail-labels";
-import { readTextSize, writeTextSize, type TextSizeValue } from "@/features/settings/text-size";
+} from "#src/features/workspaces/members.functions";
+import { getLocale, setLocale } from "#src/paraglide/runtime";
+import { readRailLabels, writeRailLabels } from "#src/features/settings/rail-labels";
+import { readMessageFullWidth, writeMessageFullWidth } from "#src/features/settings/message-width";
+import {
+  readLiveAgentActivity,
+  writeLiveAgentActivity,
+} from "#src/features/settings/live-agent-activity";
+import { readTextSize, writeTextSize, type TextSizeValue } from "#src/features/settings/text-size";
 import {
   conversationOpenMode,
   type ConversationOpenMode,
-} from "@/features/settings/conversation-open-mode";
-import { m } from "@/paraglide/messages";
+} from "#src/features/settings/conversation-open-mode";
+import { isAppError } from "#src/lib/app-error";
+import type { TimeFormat } from "#src/lib/time-format";
+import { m } from "#src/paraglide/messages";
+import {
+  loadGeneralChannelHidden,
+  setGeneralChannelHidden,
+} from "#src/features/conversations/channels.functions";
+import { useRefreshSidebarChannels } from "#src/features/conversations/sidebar-lists";
 
 type Theme = "system" | "light" | "dark";
 
@@ -42,6 +55,7 @@ const appRoute = getRouteApi("/_app");
 
 const settingsSections = [
   "account",
+  "language-region",
   "members",
   "preferences",
   "notifications",
@@ -56,13 +70,15 @@ export const Route = createFileRoute("/_app/settings")({
     github: z.enum(["connected", "error", "wrong_account"]).optional().catch(undefined),
   }),
   loader: async () => {
-    const [preferences, members, incomingInvitations] = await Promise.all([
+    const [preferences, members, incomingInvitations, generalChannel] = await Promise.all([
       getUserPreferences(),
       loadWorkspaceMembers(),
       loadMyWorkspaceInvitations(),
+      loadGeneralChannelHidden(),
     ]);
     return {
       ...preferences,
+      generalChannelHidden: generalChannel?.hidden ?? null,
       members: {
         actorUserId: members.actorUserId,
         actorRole: members.actorRole,
@@ -76,8 +92,6 @@ export const Route = createFileRoute("/_app/settings")({
       },
     };
   },
-  pendingMs: 300,
-  pendingMinMs: 0,
   pendingComponent: SettingsPending,
   errorComponent: PageLoadError,
   component: SettingsPage,
@@ -86,25 +100,31 @@ export const Route = createFileRoute("/_app/settings")({
 function SettingsPage() {
   const [theme, setTheme] = useState<Theme>("system");
   const [railLabels, setRailLabels] = useState(true);
+  const [liveAgentActivity, setLiveAgentActivity] = useState(true);
   const [textSize, setTextSize] = useState<TextSizeValue>("default");
+  const [messageFullWidth, setMessageFullWidth] = useState(false);
   const { section, github } = Route.useSearch();
   const navigate = Route.useNavigate();
   const {
     timeZone: savedTimeZone,
+    timeFormat: savedTimeFormat,
     conversationOpenMode: savedOpenMode,
     members,
+    generalChannelHidden,
   } = Route.useLoaderData();
   const { user: profile, notifications } = appRoute.useLoaderData();
   const [notificationPermission, setNotificationPermission] = useState<
     NotificationPermission | "unsupported"
   >("unsupported");
   const [showAddToHomeScreenGuide, setShowAddToHomeScreenGuide] = useState(false);
-  const saveTimeZone = useServerFn(saveUserTimeZone);
+  const saveDateTime = useServerFn(saveDateTimePreferences);
   const saveOpenMode = useServerFn(saveConversationOpenMode);
   const saveNotificationPreference = useServerFn(saveBrowserNotificationPreference);
   const subscribePush = useServerFn(subscribeBrowserPush);
   const sendTestNotification = useServerFn(sendTestBrowserNotification);
   const saveProfile = useServerFn(saveUserProfile);
+  const saveGeneralChannelHidden = useServerFn(setGeneralChannelHidden);
+  const refreshSidebarChannels = useRefreshSidebarChannels();
   const router = useRouter();
   const queryClient = useQueryClient();
   const toast = useAppToast();
@@ -119,7 +139,9 @@ function SettingsPage() {
     setTheme(initialTheme);
     applyTheme(initialTheme);
     setRailLabels(readRailLabels());
+    setLiveAgentActivity(readLiveAgentActivity());
     setTextSize(readTextSize());
+    setMessageFullWidth(readMessageFullWidth());
   }, []);
 
   useEffect(() => {
@@ -152,6 +174,16 @@ function SettingsPage() {
     writeRailLabels(show);
   }
 
+  function changeLiveAgentActivity(show: boolean) {
+    setLiveAgentActivity(show);
+    writeLiveAgentActivity(show);
+  }
+
+  function changeMessageFullWidth(full: boolean) {
+    setMessageFullWidth(full);
+    writeMessageFullWidth(full);
+  }
+
   function changeTextSize(next: TextSizeValue) {
     setTextSize(next);
     writeTextSize(next);
@@ -163,21 +195,25 @@ function SettingsPage() {
     applyTheme(nextTheme);
   }
 
-  async function changeTimeZone(nextTimeZone: string) {
-    try {
-      await saveTimeZone({ data: { timeZone: nextTimeZone || null } });
-      await router.invalidate({ sync: true });
-    } catch (cause) {
-      toast.error(m.settings_save_error(), cause);
-    }
+  // Hiding #general changes the sidebar's channel list too; its realtime signal also refreshes
+  // other open pages.
+  async function changeGeneralChannelHidden(hidden: boolean) {
+    await saveGeneralChannelHidden({ data: { hidden } });
+    void refreshSidebarChannels();
+    await router.invalidate({ sync: true });
+  }
+
+  async function changeDateTime(input: { timeZone: string | null; timeFormat: TimeFormat | null }) {
+    await saveDateTime({ data: input });
+    await router.invalidate({ sync: true });
   }
 
   async function changeConversationOpenMode(nextMode: ConversationOpenMode) {
     try {
       await saveOpenMode({ data: { mode: nextMode } });
       await router.invalidate({ sync: true });
-    } catch (cause) {
-      toast.error(m.settings_save_error(), cause);
+    } catch {
+      toast.error(m.settings_save_error());
     }
   }
 
@@ -188,9 +224,7 @@ function SettingsPage() {
       permission = await Notification.requestPermission();
     setNotificationPermission(permission);
     if (permission !== "granted") return null;
-    const subscription = await ensureBrowserPushSubscription(notifications.publicKey);
-    await subscribePush({ data: subscription });
-    return subscription;
+    return syncBrowserPushSubscription(notifications.publicKey, (data) => subscribePush({ data }));
   }
 
   async function changeBrowserNotifications(enabled: boolean) {
@@ -198,27 +232,51 @@ function SettingsPage() {
       if (enabled && !(await registerCurrentBrowser(true))) return;
       await saveNotificationPreference({ data: { enabled } });
       await router.invalidate({ sync: true });
-    } catch (cause) {
-      toast.error(m.preferences_browser_notifications_save_error(), cause);
+    } catch {
+      toast.error(m.preferences_browser_notifications_save_error());
     }
   }
 
   async function enableBrowserNotifications() {
     try {
       await registerCurrentBrowser(true);
-    } catch (cause) {
-      toast.error(m.preferences_browser_notifications_save_error(), cause);
+    } catch {
+      toast.error(m.preferences_browser_notifications_save_error());
     }
   }
 
   async function testBrowserNotification() {
     try {
+      // The test button is only enabled once permission is granted; "Allow in browser" asks for it.
       const subscription = await registerCurrentBrowser(false);
       if (!subscription) throw new Error("Browser notification permission is not granted");
       await sendTestNotification({ data: { endpoint: subscription.endpoint } });
       return true;
     } catch (cause) {
-      toast.error(m.preferences_browser_notifications_test_error(), cause);
+      // The server could not reach this browser's push service: notifications still
+      // arrive while CoForge is open, so the test shows one from the page itself.
+      if (isAppError(cause) && cause.code === "PUSH_SERVICE_UNREACHABLE") {
+        try {
+          await showPageNotification({
+            title: m.preferences_browser_notifications_test_title(),
+            body: m.preferences_browser_notifications_test_body(),
+            tag: `test:${crypto.randomUUID()}`,
+            url: "/settings",
+          });
+          return true;
+        } catch (displayCause) {
+          console.warn("page notification test failed", displayCause);
+        }
+      }
+      // A client-side failure with the permission granted is the browser's own push service
+      // refusing to create the subscription; name that, and put the raw reason in the console.
+      const browserFailed = !isAppError(cause) && browserNotificationPermission() === "granted";
+      if (!isAppError(cause)) console.warn("browser push test failed", cause);
+      toast.error(
+        browserFailed
+          ? m.preferences_browser_notifications_test_browser_failed()
+          : m.preferences_browser_notifications_test_error(),
+      );
       return false;
     }
   }
@@ -258,6 +316,7 @@ function SettingsPage() {
       locale={locale}
       theme={theme}
       timeZone={savedTimeZone}
+      timeFormat={savedTimeFormat}
       browserNotificationsEnabled={notifications.enabled}
       browserNotificationPermission={notificationPermission}
       browserNotificationsConfigured={notifications.publicKey !== null}
@@ -269,14 +328,20 @@ function SettingsPage() {
       onThemeChange={changeTheme}
       railLabels={railLabels}
       onRailLabelsChange={changeRailLabels}
+      liveAgentActivity={liveAgentActivity}
+      onLiveAgentActivityChange={changeLiveAgentActivity}
       textSize={textSize}
+      messageFullWidth={messageFullWidth}
+      onMessageFullWidthChange={changeMessageFullWidth}
       onTextSizeChange={changeTextSize}
-      onTimeZoneChange={changeTimeZone}
+      onDateTimeSave={changeDateTime}
       conversationOpenMode={conversationOpenMode(savedOpenMode)}
       onConversationOpenModeChange={changeConversationOpenMode}
       onBrowserNotificationsChange={changeBrowserNotifications}
       onEnableBrowserNotifications={enableBrowserNotifications}
       onTestBrowserNotification={testBrowserNotification}
+      generalChannelHidden={generalChannelHidden}
+      onGeneralChannelHiddenSave={changeGeneralChannelHidden}
     />
   );
 }

@@ -1,14 +1,14 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { agentAuthMiddleware } from "#/server/agents/agent-http.middleware";
+import { agentAuthMiddleware } from "#src/server/agents/agent-http-middleware.server";
 import {
   AgentChannelManagement,
   type AgentChannelManagementRepository,
-} from "#/server/conversations/agent-channel-management.server";
+} from "#src/server/conversations/agent-channel-management.server";
 import {
   channelManagementErrorResponse,
   readJsonBody,
-  requestIdFrom,
-} from "#/server/agents/agent-channel-routes.shared";
+  idempotencyKeyFrom,
+} from "#src/server/agents/agent-channel-routes.server";
 
 export type AgentChannelManagementPrincipal = { workspaceId: string; agentId: string };
 
@@ -19,7 +19,7 @@ export async function handleAgentChannelUnarchivePost(
   repository: AgentChannelManagementRepository,
 ): Promise<Response> {
   const body = await readJsonBody(request);
-  const requestId = requestIdFrom(body);
+  const idempotencyKey = idempotencyKeyFrom(body);
   try {
     const result = await repository.setArchived(
       principal.workspaceId,
@@ -27,7 +27,7 @@ export async function handleAgentChannelUnarchivePost(
       channel,
       false,
     );
-    return Response.json({ protocolMajor: 1, requestId, ...result });
+    return Response.json({ protocolMajor: 1, idempotencyKey, ...result });
   } catch (error) {
     return channelManagementErrorResponse(error, "channel unarchive failed");
   }

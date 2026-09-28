@@ -6,12 +6,12 @@ import {
   discoverCodeAgentInventory,
   discoverExternalCodeAgents,
   type ExternalCodeAgentProbe,
-} from "../src/code-agent/runtime-inventory";
+} from "#src/code-agent/runtime-inventory";
 import {
   probeClaudeCodeVersion,
   resolveClaudeCodeExecutable,
-} from "../src/code-agent/claude-code/runtime";
-import { COFORGE_DAEMON_VERSION } from "../src/version";
+} from "#src/code-agent/claude-code/runtime";
+import { COFORGE_DAEMON_VERSION } from "#src/version";
 
 function probeFor(
   runtimes: Record<string, { path: string; version: string; exitCode?: number }>,

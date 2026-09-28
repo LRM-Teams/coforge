@@ -2,7 +2,7 @@
 # Deploy one immutable image digest to the coforge-staging Compose project.
 #
 # This script runs on the target host only. It consumes the release contract
-# in docs/release.md: one immutable digest per deployment, the previous
+# in docs/release/: one immutable digest per deployment, the previous
 # healthy digest recorded before mutation, automatic rollback on health
 # failure, and a key=value report on stdout that never contains secret
 # values. The rollback unit is the last healthy release, not only the image:

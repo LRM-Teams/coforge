@@ -5,11 +5,11 @@ import {
   UPGRADE_OPERATION_HISTORY,
   type ManagedBinding,
   type PendingUpgradeSettler,
-} from "../src/supervisor/machine-supervisor";
+} from "#src/supervisor/machine-supervisor";
 import {
   UpgradeLaunchesPausedError,
   UpgradeOperationPendingError,
-} from "../src/supervisor/upgrade-error";
+} from "#src/supervisor/upgrade-error";
 
 const NOW = 1_700_000_000_000;
 
@@ -65,6 +65,61 @@ test("paused recovery loads bindings without starting them, then resume reconcil
 
   await supervisor.resume();
   expect(calls).toEqual(["start:running", "stop:stopped"]);
+});
+
+test("reconcile restarts an enabled Workspace whose OS instance went inactive", async () => {
+  let live: string | null = "instance-1";
+  const starts: string[] = [];
+  const bindings: ManagedBinding[] = [
+    { workspaceId: "a", computerId: "c", workspaceRoot: "/a", enabled: true },
+  ];
+  const supervisor = new MachineSupervisor(
+    {
+      load: async () => structuredClone(bindings),
+      save: async (next) => {
+        bindings.splice(0, bindings.length, ...structuredClone(next));
+      },
+    },
+    {
+      start: async () => {
+        starts.push(live === null ? "respawn" : "initial");
+        live = `instance-${starts.length}`;
+        return live;
+      },
+      stop: async () => {
+        live = null;
+      },
+      instance: async () => live,
+    },
+  );
+
+  await supervisor.recover();
+  expect(starts).toEqual(["initial"]);
+  live = null;
+  await supervisor.reconcile();
+  expect(starts).toEqual(["initial", "respawn"]);
+  expect(live!).toBe("instance-2");
+});
+
+test("reconcile is a no-op while paused for upgrade", async () => {
+  const starts: string[] = [];
+  const supervisor = new MachineSupervisor(
+    {
+      load: async () => [{ workspaceId: "a", computerId: "c", workspaceRoot: "/a", enabled: true }],
+      save: async () => {},
+    },
+    {
+      start: async () => {
+        starts.push("start");
+        return "instance";
+      },
+      stop: async () => {},
+      instance: async () => null,
+    },
+  );
+  await supervisor.recover({ paused: true });
+  await supervisor.reconcile();
+  expect(starts).toEqual([]);
 });
 
 test("only one upgrade operation may be pending, and a replay is not a second launch", async () => {

@@ -9,15 +9,15 @@ import {
   type RuntimeProvider,
 } from "@lrm/coforge-sdk/internal";
 
-import { Button } from "@/components/base/buttons/button";
-import { ButtonUtility } from "@/components/base/buttons/button-utility";
-import { Input } from "@/components/base/input/input";
-import { Select } from "@/components/base/select/select";
+import { Button } from "#src/components/base/buttons/button";
+import { ButtonUtility } from "#src/components/base/buttons/button-utility";
+import { Input } from "#src/components/base/input/input";
+import { Select } from "#src/components/base/select/select";
 import {
   getComputerRuntimeCatalog,
   refreshComputerRuntimeCatalog,
-} from "@/features/computers/computers.functions";
-import { m } from "@/paraglide/messages";
+} from "#src/features/computers/computers.functions";
+import { m } from "#src/paraglide/messages";
 import {
   isPiBuiltinModelProvider,
   KEYED_MODEL_PROVIDERS,
@@ -477,29 +477,27 @@ export function AgentRuntimeFields({
         />
       )}
       {showApiKeyField && (
-        <label className="grid min-w-0 gap-1.5 text-sm sm:col-span-2">
-          {m.agent_runtime_api_key({ provider: apiKeyProviderId })}
-          <input
-            name="apiKey"
-            type="password"
-            aria-label={m.agent_runtime_api_key({ provider: apiKeyProviderId })}
-            value={apiKey}
-            onChange={(event) => setApiKey(event.target.value)}
-            required={!matchingConfiguredCredential}
-            minLength={8}
-            maxLength={4096}
-            autoComplete="new-password"
-            placeholder={m.agent_runtime_api_key_placeholder({ provider: apiKeyProviderId })}
-            className="h-10 rounded-lg border border-secondary bg-primary px-3 shadow-xs outline-none focus-visible:ring-2 focus-visible:ring-brand"
-          />
-          <span className="text-xs font-normal text-tertiary">
-            {matchingConfiguredCredential
+        <Input
+          label={m.agent_runtime_api_key({ provider: apiKeyProviderId })}
+          size="sm"
+          className="min-w-0 sm:col-span-2"
+          name="apiKey"
+          type="password"
+          value={apiKey}
+          onChange={setApiKey}
+          isRequired={!matchingConfiguredCredential}
+          minLength={8}
+          maxLength={4096}
+          autoComplete="new-password"
+          placeholder={m.agent_runtime_api_key_placeholder({ provider: apiKeyProviderId })}
+          hint={
+            matchingConfiguredCredential
               ? m.agent_form_api_key_preserve_help()
               : provider === RUNTIME_PROVIDER.PI
                 ? m.agent_form_pi_api_key_help()
-                : m.agent_form_coforge_api_key_help()}
-          </span>
-        </label>
+                : m.agent_form_coforge_api_key_help()
+          }
+        />
       )}
       {failed && (
         <div role="alert" className="grid gap-2 sm:col-span-2">

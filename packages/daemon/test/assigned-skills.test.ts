@@ -6,8 +6,8 @@ import {
   assignedSkillsDirectory,
   installAssignedSkills,
   parseAssignedSkillPacks,
-} from "../src/code-agent/assigned-skills";
-import { listAgentSkills } from "../src/code-agent/agent-skills";
+} from "#src/code-agent/assigned-skills";
+import { listAgentSkills } from "#src/code-agent/agent-skills";
 
 /** macOS `TMPDIR` is `/var/folders/...` and `/var` is a symlink to `/private/var`, while the skill
  * scanner rejects any root whose `realpath` differs from its resolved path. Create fixtures under

@@ -4,15 +4,16 @@ import {
   type CodeAgentModelMetadata,
 } from "@lrm/coforge-sdk/internal";
 import { getLogger } from "@logtape/logtape";
-import { diagnosticErrorCode } from "../../platform/diagnostic-error-code";
-import { agentEnvironment } from "../environment";
+import { diagnosticErrorCode } from "#src/platform/diagnostic-error-code";
+import { runCatalogCommand } from "#src/code-agent/catalog-command";
 
 const logger = getLogger(["coforge", "daemon", "code-agent", "opencode"]);
 
 /**
  * OpenCode's reasoning-effort names and their order, copied from Raft's `opencodeVariantOrder`
  * (`server/pkg/agent/models.go:790`). A model's `variants` map keyed by these names is what makes
- * its thinking selector: the value is what `opencode run --variant` accepts.
+ * its thinking selector: the value is what the model id's `#variant` suffix accepts in v2
+ * (`opencode run --model provider/model#variant`).
  */
 const VARIANT_ORDER: Readonly<Record<string, number>> = {
   none: 0,
@@ -32,8 +33,10 @@ const MAX_METADATA_LINES = 400;
  * Parses `opencode models --verbose` output: one `provider/model` row per model, optionally
  * followed by a pretty-printed JSON object describing it. The id is kept **verbatim** — it is
  * exactly what `opencode run --model` accepts — and each enabled, non-disabled `variants` entry
- * becomes a reasoning level (`--variant`), ordered by OpenCode's own effort order. Non-verbose
- * output (just the id rows) yields the same models with no reasoning levels.
+ * becomes a reasoning level (the model id's `#variant` suffix in v2), ordered by OpenCode's own
+ * effort order. Non-verbose output (just the id rows) yields the same models with no reasoning
+ * levels. The released v2 CLI (`2.0.12`) does not accept `--verbose` yet — it is on OpenCode's
+ * `dev` branch — so today the call degrades to the plain list through the fallback below.
  *
  * Raft's `parseOpenCodeModels` (`models.go:687`) is the reference: it too keeps the id verbatim
  * and projects variants into the thinking picker.
@@ -153,9 +156,11 @@ function reasoningLevels(variants: unknown): string[] {
 
 /**
  * Runs `opencode models --verbose` (Raft's own 15 s budget: a recent OpenCode syncs its hosted
- * model catalog over the network here) and parses the catalog. An empty verbose result retries
- * the plain command, which omits per-model metadata but still lists the ids. Any failure - missing
- * CLI, non-zero exit, timeout, unparseable output - means no catalog, never a thrown error.
+ * model catalog over the network here) and parses the catalog. An empty or unusable verbose result
+ * retries the plain command, which omits per-model metadata but still lists the ids — the path the
+ * released v2 CLI takes, since it rejects `--verbose` as an unknown flag. Missing CLI, empty
+ * output, timeout, or unparseable output means no catalog, never a thrown error; a non-zero exit
+ * with usable output remains acceptable for stale provider configuration.
  */
 export async function discoverOpenCodeCatalog(
   command: readonly string[],
@@ -164,7 +169,10 @@ export async function discoverOpenCodeCatalog(
   timeoutMs = 15_000,
 ): Promise<CodeAgentModelCatalog | undefined> {
   const verbose = await runOpenCodeModels([...command, "--verbose"], cwd, environment, timeoutMs);
-  const models = verbose ? parseOpenCodeModelList(verbose) : [];
+  // A CLI that does not know `--verbose` answers with its usage text; that is not a model list, so
+  // treat it exactly like an empty result and fall through to the plain command.
+  const usable = verbose && !/unrecognized flag/i.test(verbose) ? verbose : undefined;
+  const models = usable ? parseOpenCodeModelList(usable) : [];
   const resolved = models.length > 0 ? models : await runPlainModels(command, cwd, environment);
   return resolved.length > 0
     ? { provider: RUNTIME_PROVIDER.OPENCODE, models: resolved }
@@ -187,39 +195,17 @@ async function runOpenCodeModels(
   timeoutMs: number,
 ): Promise<string | undefined> {
   try {
-    const spawnEnvironment = {
-      ...agentEnvironment(undefined, environment),
-      NO_COLOR: "1",
-      FORCE_COLOR: "0",
-    };
-    const child = Bun.spawn({
-      cmd: [...command],
-      cwd,
-      env: spawnEnvironment,
-      stdin: "ignore",
-      stdout: "pipe",
-      stderr: "ignore",
-    });
-    try {
-      const [output, exitCode] = await Promise.race([
-        Promise.all([new Response(child.stdout).text(), child.exited]),
-        Bun.sleep(timeoutMs).then((): [string, number] => {
-          throw new Error("OpenCode model catalog discovery timed out");
-        }),
-      ]);
-      // A stale config entry can make `opencode models` exit non-zero while still listing the
-      // resolvable catalog (Raft reads the output regardless of exit code, `models.go:674-680`).
-      if (!output.trim()) {
-        logger.warning("OpenCode model catalog unavailable", {
-          event: "opencode.catalog.unavailable",
-          exit_code: exitCode,
-        });
-        return undefined;
-      }
-      return output;
-    } finally {
-      child.kill();
+    const { output, exitCode } = await runCatalogCommand(command, cwd, environment, timeoutMs);
+    // A stale config entry can make `opencode models` exit non-zero while still listing the
+    // resolvable catalog (Raft reads the output regardless of exit code, `models.go:674-680`).
+    if (!output.trim()) {
+      logger.warning("OpenCode model catalog unavailable", {
+        event: "opencode.catalog.unavailable",
+        exit_code: exitCode,
+      });
+      return undefined;
     }
+    return output;
   } catch (error) {
     logger.warning("OpenCode model catalog discovery failed", {
       event: "opencode.catalog.unavailable",

@@ -4,11 +4,11 @@ import {
   DaemonHandshakeResponseSchema,
   DaemonCommandRequestSchema,
   DaemonCommandResponseSchema,
-} from "./gen/coforge/rpc/v1/daemon_pb";
+} from "#src/internal/gen/coforge/rpc/v1/daemon_pb";
 import {
   DaemonRuntimeConfigureRequestSchema,
   DaemonRuntimeConfigureResponseSchema,
-} from "./gen/coforge/rpc/v1/daemon_runtime_pb";
+} from "#src/internal/gen/coforge/rpc/v1/daemon_runtime_pb";
 import {
   LocalRpcRequestSchema,
   LocalRpcResponseSchema,
@@ -22,7 +22,7 @@ import {
   UsageScanResponseSchema,
   DaemonHoldRequestSchema,
   DaemonHoldResponseSchema,
-} from "./gen/coforge/rpc/v1/local_rpc_pb";
+} from "#src/internal/gen/coforge/rpc/v1/local_rpc_pb";
 import { assertValidMessageSender, type MessageSenderKind } from "./message-sender";
 
 export const LOCAL_RPC_PROTOCOL_MAJOR = 1 as const;
@@ -265,17 +265,22 @@ export type AgentMessageRecord = {
   /** Always present, possibly empty; order matches send/upload order. */
   attachments: LocalAttachment[];
   task?: MessageTaskMetadata;
+  /** True when this message personally @mentioned the reading Agent. */
+  mentionsAgent?: boolean;
+  /** True when the reading Agent is not in the channel and was notified of this one message. */
+  nonMemberMention?: boolean;
 };
 export type MessageTaskMetadata = {
   number: number;
   status: import("./tasks").TaskStatus;
-  owner?: { displayName: string; handle: string };
+  /** `handle` has no leading "@"; `deleted` marks an Agent deleted while still holding the Task. */
+  owner?: { displayName: string; handle: string; deleted?: boolean };
 };
 
 export function decodeMessageTask(value: {
   number: number;
   status: string;
-  owner?: { displayName: string; handle: string };
+  owner?: { displayName: string; handle: string; deleted?: boolean };
 }): MessageTaskMetadata {
   let status: MessageTaskMetadata["status"];
   switch (value.status) {
@@ -294,7 +299,11 @@ export function decodeMessageTask(value: {
     status,
     ...(value.owner
       ? {
-          owner: { displayName: value.owner.displayName, handle: value.owner.handle },
+          owner: {
+            displayName: value.owner.displayName,
+            handle: value.owner.handle,
+            ...(value.owner.deleted ? { deleted: true } : {}),
+          },
         }
       : {}),
   };
@@ -319,6 +328,20 @@ export function decodeLocalAttachments(values: readonly RawLocalAttachment[]): L
     sizeBytes: Number(value.sizeBytes),
   }));
 }
+/** One mention the sender's message did not deliver, as the send reports it. */
+export type AgentPendingMentionAction = {
+  resolutionId: string;
+  messageId: string;
+  targetType: "user" | "agent";
+  targetHandle: string;
+  targetAvatarUrl: string | null;
+  /** Why it was not delivered: the target was not in the conversation at send time. */
+  reason: "not_member";
+  /** What the sender may still do: `notify` and/or `add`. */
+  availableActions: string[];
+  /** ISO time after which the action can no longer be taken. */
+  expiresAt: string;
+};
 export type AgentMessageResponse = {
   requestId: string;
   accepted: boolean;
@@ -350,6 +373,10 @@ export type AgentMessageResponse = {
   hasMore?: boolean;
   /** `message send` only: pending messages a bypassed hold chose not to review; empty otherwise. */
   recentUnread?: AgentMessageRecord[];
+  /** `message send` only: mentions of people outside the channel, which notified no one. */
+  pendingMentionActions?: AgentPendingMentionAction[];
+  /** `message send` only: `@handle`s that name nobody the Agent can see. */
+  unresolvedMentionHandles?: string[];
 };
 export type MessageAttentionSummary = {
   target: string;
@@ -357,7 +384,7 @@ export type MessageAttentionSummary = {
   firstPendingSequence: number;
   latestSequence: number;
   latestSenderKind?: MessageSenderKind;
-  /** Public handle without a leading "@". No description on this summary (ADR 0052, decision D). */
+  /** Public handle without a leading "@". No description on this summary. */
   latestSenderHandle?: string;
   flags: string[];
 };
@@ -385,6 +412,7 @@ function decodeAgentMessageRecords(
     createdAt: string;
     attachments: readonly RawLocalAttachment[];
     task?: Parameters<typeof decodeMessageTask>[0];
+    mentionsAgent?: boolean;
   }[],
 ): AgentMessageRecord[] {
   return records.map((m) => {
@@ -400,6 +428,7 @@ function decodeAgentMessageRecords(
       createdAt: m.createdAt,
       attachments: decodeLocalAttachments(m.attachments),
       ...(m.task ? { task: decodeMessageTask(m.task) } : {}),
+      ...(m.mentionsAgent ? { mentionsAgent: true } : {}),
     };
   });
 }

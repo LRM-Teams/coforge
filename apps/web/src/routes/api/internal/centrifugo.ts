@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 
-import { createCentrifugoRpcHandler } from "#/server/centrifugo/rpc-composition.server";
+import { createCentrifugoRpcHandler } from "#src/server/centrifugo/rpc-composition.server";
 
 const handler = createCentrifugoRpcHandler();
 

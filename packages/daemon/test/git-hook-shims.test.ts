@@ -7,7 +7,7 @@ import {
   ensureGitHookShimDirectory,
   gitHookShimScript,
   resetGitHookShimDirectoryCacheForTests,
-} from "../src/code-agent/git-hook-shims";
+} from "#src/code-agent/git-hook-shims";
 
 beforeEach(() => {
   resetGitHookShimDirectoryCacheForTests();

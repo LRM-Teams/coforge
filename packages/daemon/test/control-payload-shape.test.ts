@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { controlPayloadShape } from "../src/connection/control-payload";
+import { controlPayloadShape } from "#src/connection/control-payload";
 
 /** Protobuf wire bytes, written by hand so each test states exactly what arrived. */
 function varint(value: number): number[] {

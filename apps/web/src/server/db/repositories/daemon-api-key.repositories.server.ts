@@ -1,5 +1,8 @@
-import type { PrismaClient } from "../../../../generated/client";
-import type { DaemonApiKeyRecord, DaemonApiKeyRepository } from "../../auth/daemon-api-key.server";
+import type { PrismaClient } from "#src/generated/prisma/client";
+import type {
+  DaemonApiKeyRecord,
+  DaemonApiKeyRepository,
+} from "#src/server/auth/daemon-api-key.server";
 
 export class PrismaDaemonApiKeyRepository implements DaemonApiKeyRepository {
   constructor(private readonly db: PrismaClient) {}
@@ -26,10 +29,10 @@ export class PrismaDaemonApiKeyRepository implements DaemonApiKeyRepository {
     );
   }
 
-  async markUsed(id: string): Promise<void> {
+  async markUsed(id: string, at: Date): Promise<void> {
     await this.db.daemonApiKey.update({
       where: { id },
-      data: { lastUsedAt: new Date() },
+      data: { lastUsedAt: at },
     });
   }
 }

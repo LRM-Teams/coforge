@@ -1,5 +1,7 @@
 import { RedisClient } from "bun";
-import type { ComputerRestartStatus } from "../../features/computers/computer.schemas";
+import { redisUrlFor } from "#src/server/redis-url.server";
+import type { ComputerRestartStatus } from "#src/features/computers/computer.schemas";
+import { workspaceRedisKey } from "#src/server/redis-keys.server";
 
 const RESTART_TIMEOUT_MS = 60_000;
 const RESTART_TTL_SECONDS = 5 * 60;
@@ -191,14 +193,18 @@ export class RedisComputerRestartStore implements ComputerRestartStore {
     return `${this.scopeKey(scope)}:request:${encodeURIComponent(requestId)}`;
   }
   private scopeKey(scope: Scope) {
-    return `coforge:workspace:${encodeURIComponent(scope.workspaceId)}:computer:${encodeURIComponent(scope.computerId)}:restart:v1`;
+    return workspaceRedisKey({
+      workspaceId: scope.workspaceId,
+      computerId: scope.computerId,
+      name: "restart",
+      version: "v1",
+    });
   }
 }
 
 let singleton: ComputerRestartStore | undefined;
 export function getComputerRestartStore() {
-  const url = Bun.env.REDIS_URL;
-  if (!url) throw new Error("REDIS_URL is required for Computer restart status");
+  const url = redisUrlFor("Computer restart status");
   singleton ??= new RedisComputerRestartStore(new RedisClient(url));
   return singleton;
 }

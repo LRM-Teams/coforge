@@ -1,4 +1,4 @@
-import type { PrismaClient } from "../../../../generated/client";
+import type { PrismaClient } from "#src/generated/prisma/client";
 import type { WorkspaceMemoryCatalog } from "../../workspace-memory/catalog";
 import type {
   AdmissionConversation,

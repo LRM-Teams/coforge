@@ -12,10 +12,14 @@
   ],
   "type": "module",
   "module": "index.ts",
+  "imports": {
+    "#src/*": "./src/*.ts"
+  },
   "exports": {
     ".": "./index.ts",
     "./runner": "./src/cli.ts",
-    "./message-format": "./src/message-format.ts"
+    "./message-format": "./src/message-format.ts",
+    "./local-client": "./src/local-client.ts"
   },
   "scripts": {
     "test": "bun test",

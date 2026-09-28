@@ -6,6 +6,8 @@ import {
   WORKSPACE_PROTOCOL_MAJOR,
 } from "@lrm/coforge-sdk/internal";
 
+import { AGENT_ACTIVITY_WINDOW } from "./agent-activity-window";
+
 export type ActivityEntry = {
   id?: string;
   launchId: string;
@@ -25,11 +27,17 @@ export type ActivityEntry = {
 
 export const agentActivityChannel = (workspaceId: string) => `agent:activity:${workspaceId}`;
 
+/** The re-routed destination for a private Agent's Activity: the publish proxy
+ * forwards the same raw frame here instead of the shared `agentActivityChannel`, and only a
+ * viewer who can currently see that Agent is ever issued a subscription token for it. */
+export const agentActivityChannelForAgent = (workspaceId: string, agentId: string) =>
+  `agent:activity:${workspaceId}:${agentId}`;
+
 /** The avatar popover's row count. */
 export const RECENT_ACTIVITY_LIMIT = 5;
 
 /**
- * ADR 0021 (amended): `runtime_progress` is the one detail kind that stays a
+ * `runtime_progress` is the one detail kind that stays a
  * content-free liveness filler — never persisted, never shown anywhere.
  * `tool_end`, `thinking_end` and `compaction_finished` are ordinary status
  * rows now (persisted to history, part of the live Activity timeline); they
@@ -87,11 +95,11 @@ export function decodeActivityObservation(
       !Number.isSafeInteger(event.observedAtMs) ||
       event.observedAtMs < 1 ||
       // A busy heartbeat only renews the display lease; a content-free
-      // runtime_progress frame carries no rendered content (ADR 0021,
-      // amended — tool_end/thinking_end/compaction_finished no longer belong
-      // here, see POPOVER_EXCLUDED_DETAIL_KINDS); a run-start marker carries
+      // runtime_progress frame carries no rendered content
+      // (tool_end/thinking_end/compaction_finished no longer belong here, see
+      // POPOVER_EXCLUDED_DETAIL_KINDS); a run-start marker carries
       // no rendered content either (see isRunStartMarker); a reply to the
-      // server's own liveness probe (ADR 0020) is a liveness fact, not new
+      // server's own liveness probe is a liveness fact, not new
       // content. None of these belong in the Activity timeline or the
       // recent-activity list.
       event.isHeartbeat === true ||
@@ -120,10 +128,6 @@ export function decodeActivityObservation(
   }
 }
 
-/** The client keeps up to this many activity frames per Agent (mirrors the server's history
- * cap in `AgentActivityRepository.list`). */
-const ACTIVITY_WINDOW = 500;
-
 export function mergeAgentActivity(current: ActivityEntry[], incoming: ActivityEntry[]) {
   const entries = new Map<string, ActivityEntry>();
   for (const entry of [...current, ...incoming]) {
@@ -135,7 +139,7 @@ export function mergeAgentActivity(current: ActivityEntry[], incoming: ActivityE
     if (entries.get(key)?.id && !entry.id) continue;
     entries.set(key, entry);
   }
-  return orderActivity([...entries.values()]).slice(0, ACTIVITY_WINDOW);
+  return orderActivity([...entries.values()]).slice(0, AGENT_ACTIVITY_WINDOW);
 }
 
 function orderActivity<T extends ActivityEntry>(activity: T[]): T[] {

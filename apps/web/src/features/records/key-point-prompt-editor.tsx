@@ -1,9 +1,10 @@
 import type { Ref } from "react";
 import { RefreshCcw01 as Refresh, Trash01 as Trash } from "@untitledui/icons";
 
-import { Button } from "@/components/base/buttons/button";
-import { m } from "@/paraglide/messages";
-import type { KeyPointPromptState } from "./records-content";
+import { Button } from "#src/components/base/buttons/button";
+import { TextArea } from "#src/components/base/textarea/textarea";
+import { m } from "#src/paraglide/messages";
+import type { KeyPointPromptHistoryEntry, KeyPointPromptState } from "./records-content";
 
 /** Current prompt + history with「重新启用」/「删除」(settings 要点提示词模板). */
 export function KeyPointPromptEditor({
@@ -23,7 +24,8 @@ export function KeyPointPromptEditor({
   onChange: (text: string) => void;
   onFocus?: () => void;
   onBlur?: () => void;
-  onDeleteHistory?: (historyIndex: number) => void;
+  /** Asks to delete this history entry; the caller confirms before deleting. */
+  onDeleteHistory?: (entry: KeyPointPromptHistoryEntry) => void;
 }) {
   return (
     <div className="min-h-0 flex-1 space-y-6 overflow-y-auto px-4 py-4 sm:px-8 sm:py-6">
@@ -31,19 +33,20 @@ export function KeyPointPromptEditor({
         <h2 className="text-sm font-semibold text-primary">
           {m.records_key_points_prompt_label()}
         </h2>
-        <textarea
-          ref={textareaRef}
+        <TextArea
+          textAreaRef={textareaRef}
           aria-label={m.records_key_points_prompt_label()}
           value={text}
           // Keep editable while saving so React does not re-apply a stale `value` via disabled.
-          readOnly={busy}
+          isReadOnly={busy}
           rows={10}
-          onChange={(event) => onChange(event.target.value)}
+          onChange={onChange}
           onFocus={onFocus}
           onBlur={onBlur}
-          onCompositionEnd={(event) => onChange(event.currentTarget.value)}
+          onTextAreaCompositionEnd={(event) => onChange(event.currentTarget.value)}
           placeholder={m.records_key_points_prompt_placeholder()}
-          className="w-full resize-y rounded-xl border border-secondary bg-primary px-3 py-3 text-sm leading-6 text-primary outline-none placeholder:text-placeholder focus:border-brand focus:ring-1 focus:ring-brand read-only:opacity-80"
+          size="sm"
+          textAreaClassName="resize-y leading-6 read-only:opacity-80"
         />
       </section>
 
@@ -78,10 +81,10 @@ export function KeyPointPromptEditor({
                       <Button
                         type="button"
                         size="sm"
-                        color="link-destructive"
+                        color="tertiary-destructive"
                         iconLeading={Trash}
                         isDisabled={busy}
-                        onPress={() => onDeleteHistory(historyIndex)}
+                        onPress={() => onDeleteHistory(entry)}
                       >
                         {m.records_key_points_prompt_history_delete()}
                       </Button>

@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 
-import { parseRemoteUpgradeOperation } from "../src/release/upgrade-operation";
+import { parseRemoteUpgradeOperation } from "#src/release/upgrade-operation";
 
 const id = "4bd9b3f0-6f2d-4f4a-9d3e-0f1b2c3d4e5f";
 

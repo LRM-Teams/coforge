@@ -7,13 +7,17 @@ import {
   emptyReportContent,
   isAutoSendCancelled,
   memberReportTitle,
+  formatWeeklyReportCompletedAt,
   normalizeReportContent,
   removeKeyPointPromptHistoryEntry,
   reportContentToMarkdown,
   reportTabsEqual,
   withAssignmentUnread,
   withAutoSendCancelled,
-} from "@/features/records/records-content";
+  withWeekSendDismissed,
+  isWeekSendDismissed,
+  keyPointHistoryIndexOf,
+} from "#src/features/records/records-content";
 
 test("emptyReportContent creates named display pages", () => {
   expect(emptyReportContent(["Summary", "Research"])).toEqual({
@@ -135,6 +139,18 @@ test("withAutoSendCancelled stamps the ISO week and survives normalize", () => {
   expect(normalizeReportContent(next).schedule).toEqual({ cancelledYear: 2026, cancelledWeek: 38 });
 });
 
+test("withWeekSendDismissed blocks the week and survives normalize", () => {
+  const next = withWeekSendDismissed({ tabs: { Summary: { markdown: "body" } } }, 2026, 38);
+  expect(isWeekSendDismissed(next, 2026, 38)).toBe(true);
+  expect(isAutoSendCancelled(next, 2026, 38)).toBe(true);
+  expect(isWeekSendDismissed(next, 2026, 37)).toBe(false);
+  expect(normalizeReportContent(next).schedule).toEqual({
+    cancelledYear: 2026,
+    cancelledWeek: 38,
+    dismissSend: true,
+  });
+});
+
 test("normalizeReportContent drops legacy highlightPrompt without preserving it", () => {
   expect(
     normalizeReportContent({
@@ -212,4 +228,19 @@ test("removeKeyPointPromptHistoryEntry drops one history row by index", () => {
   expect(removeKeyPointPromptHistoryEntry(state, 0).history).toEqual([
     { text: "old-b", updatedAt: "2026-09-16T00:00:00.000Z" },
   ]);
+});
+
+test("formatWeeklyReportCompletedAt uses dotted Asia/Shanghai wall time", () => {
+  expect(formatWeeklyReportCompletedAt("2026-09-03T02:34:12.000Z")).toBe("2026.09.03 10:34:12");
+});
+
+test("a captured key-point history entry resolves to its position in the latest history", () => {
+  const older = { text: "older prompt", updatedAt: "2026-09-01T00:00:00.000Z" };
+  const newer = { text: "newer prompt", updatedAt: "2026-09-02T00:00:00.000Z" };
+  const inserted = { text: "inserted prompt", updatedAt: "2026-09-03T00:00:00.000Z" };
+
+  expect(keyPointHistoryIndexOf([newer, older], older)).toBe(1);
+  expect(keyPointHistoryIndexOf([inserted, newer, older], older)).toBe(2);
+  expect(keyPointHistoryIndexOf([newer], older)).toBe(-1);
+  expect(keyPointHistoryIndexOf([{ ...older, text: "edited prompt" }], older)).toBe(-1);
 });

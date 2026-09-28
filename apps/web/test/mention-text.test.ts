@@ -1,11 +1,10 @@
 import { expect, test } from "bun:test";
 
 import {
-  activeMentionQuery,
   filterMentionables,
-  makeMentionBodyFormatter,
+  makeReferenceBodyFormatter,
   type Mentionable,
-} from "../src/features/conversations/mention-text";
+} from "#src/features/conversations/mention-text";
 
 function person(handle: string, label: string, description = "", mentionScore = 0): Mentionable {
   return {
@@ -156,64 +155,40 @@ test("an Agent candidate ranks and sorts the same way as a person candidate", ()
 const AGENT_UUID = "bf69603b-642b-40d7-b877-0080e29f4306";
 const USER_UUID = "11111111-2222-4333-8444-555555555555";
 
-test("makeMentionBodyFormatter rewrites an Agent token to its display label", () => {
-  const format = makeMentionBodyFormatter([
+test("makeReferenceBodyFormatter rewrites an Agent token to its display label", () => {
+  const format = makeReferenceBodyFormatter([
     { kind: "agent", id: AGENT_UUID, handle: "kiro", label: "Kiro Reviewer" },
   ]);
   expect(format?.(`hi <@agent:${AGENT_UUID}> there`)).toBe("hi @Kiro Reviewer there");
 });
 
-test("makeMentionBodyFormatter resolves a human label and is case-insensitive on the uuid", () => {
-  const format = makeMentionBodyFormatter([
+test("makeReferenceBodyFormatter resolves a human label and is case-insensitive on the uuid", () => {
+  const format = makeReferenceBodyFormatter([
     { kind: "user", id: USER_UUID, handle: "ada", label: "Ada Lovelace" },
   ]);
   expect(format?.(`<@human:${USER_UUID.toUpperCase()}>`)).toBe("@Ada Lovelace");
 });
 
-test("makeMentionBodyFormatter leaves an unknown token intact rather than dropping it", () => {
-  const format = makeMentionBodyFormatter([
+test("makeReferenceBodyFormatter leaves an unknown token intact rather than dropping it", () => {
+  const format = makeReferenceBodyFormatter([
     { kind: "agent", id: AGENT_UUID, handle: "kiro", label: "Kiro Reviewer" },
   ]);
   const other = "e14e9498-e145-4686-9999-000000000000";
   expect(format?.(`<@agent:${other}>`)).toBe(`<@agent:${other}>`);
 });
 
-test("makeMentionBodyFormatter returns undefined when there is nothing to resolve", () => {
-  expect(makeMentionBodyFormatter([])).toBeUndefined();
-});
-
-test("an @query is found at the start of the text and after a space", () => {
-  expect(activeMentionQuery("@al", 3)).toEqual({ start: 0, query: "al" });
-  expect(activeMentionQuery("hi @al", 6)).toEqual({ start: 3, query: "al" });
-  expect(activeMentionQuery("hi @", 4)).toEqual({ start: 3, query: "" });
-});
-
-test("a mention starts only at the start of the text or after whitespace (the strict convention)", () => {
-  // Task #64: typing the message first and then @-mentioning without a space does NOT open the
-  // popup, because that is Slack's and Discord's boundary. The looser rule (fire after any
-  // non-handle character, which would also cover CJK text) was tried and rejected in favour of
-  // aligning with the convention.
-  expect(activeMentionQuery("写点东西@alice", "写点东西@alice".length)).toBeUndefined();
-  expect(activeMentionQuery("写点东西 @alice", "写点东西 @alice".length)).toEqual({
-    start: 5,
-    query: "alice",
-  });
-  expect(activeMentionQuery("done!@al", 7)).toBeUndefined();
-  expect(activeMentionQuery("done! @al", "done! @al".length)).toEqual({ start: 6, query: "al" });
-});
-
-test("a handle-shaped character is not a boundary, so an email or a second @ stays plain text", () => {
-  expect(activeMentionQuery("foo@bar", 7)).toBeUndefined();
-  expect(activeMentionQuery("@ada@b", 6)).toBeUndefined();
-  expect(activeMentionQuery("no at sign here", 15)).toBeUndefined();
-});
-
-test("the query ends at the caret, not at the end of the text", () => {
-  expect(activeMentionQuery("@alice wrote", 3)).toEqual({ start: 0, query: "al" });
-  expect(activeMentionQuery("hi @alice more", 6)).toEqual({ start: 3, query: "al" });
-  expect(activeMentionQuery("hi @alice more", 5)).toEqual({ start: 3, query: "a" });
-});
-
-test("a caret before any @ finds nothing", () => {
-  expect(activeMentionQuery("@alice", 0)).toBeUndefined();
+test("makeReferenceBodyFormatter reads task and channel tokens back as text even with no mentionables", () => {
+  // A task or channel token always has a readable form, so a view with no mentionables still gets
+  // a formatter rather than showing the raw token.
+  const channelId = "33333333-3333-4333-8333-333333333333";
+  const format = makeReferenceBodyFormatter([]);
+  expect(format(`see <@task:7> in <@channel:${channelId}:product>`)).toBe(
+    "see task #7 in #product",
+  );
+  expect(
+    makeReferenceBodyFormatter(
+      [],
+      new Map([[channelId, "launch"]]),
+    )(`in <@channel:${channelId}:product>`),
+  ).toBe("in #launch");
 });

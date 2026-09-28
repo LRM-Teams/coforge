@@ -1,12 +1,16 @@
-import type { PrismaClient } from "../../../../generated/client";
-import { enrollGeneralChannel } from "../../conversations/public-channels.server";
-import { ACTIVE_AGENT_WHERE } from "../../agents/active-agent.server";
+import type { PrismaClient } from "#src/generated/prisma/client";
+import { AppError } from "#src/lib/app-error";
+import { ACTIVE_AGENT_WHERE } from "#src/server/agents/active-agent.server";
+import { enrollGeneralChannel } from "#src/server/conversations/public-channels.server";
 import {
   parseAgentRuntimeConfig,
   type AgentRuntimeConfig,
-} from "../../agents/agent-runtime-config.server";
+} from "#src/server/agents/agent-runtime-config.server";
+import { AGENT_VISIBILITY, type AgentVisibility } from "#src/features/agents/agent-visibility";
+import { AGENT_NAME_MAX_LENGTH } from "#src/features/agents/agent.schemas";
+import { isUniqueViolation } from "#src/server/db/unique-violation.server";
 
-export type { AgentRuntimeConfig } from "../../agents/agent-runtime-config.server";
+export type { AgentRuntimeConfig } from "#src/server/agents/agent-runtime-config.server";
 
 export type AgentRecord = {
   id: string;
@@ -18,12 +22,24 @@ export type AgentRecord = {
   ownerId: string;
   computerId?: string;
   runtimeConfig: AgentRuntimeConfig;
-  /** Set when a user stopped this Agent (ADR 0038); undefined/null means not stopped. Config,
+  /** Set when a user stopped this Agent; undefined/null means not stopped. Config,
    * credential and environment mutations read this to skip the stop→…→start dance. */
   stoppedAt?: Date | null;
-  /** Set when a user deleted this Agent (ADR 0044); undefined/null means live. Only the
+  /** Set when a user deleted this Agent; undefined/null means live. Only the
    * deletion module and the deleted-sender message projection read this. */
   deletedAt?: Date | null;
+  /** Optional on this shared record type — every creation path but the weekly-report
+   * Collector (created `"private"`) still omits it and gets the schema's `"public"` default. A
+   * row actually read through `mapAgent` always carries a real value — `"public"` unless the
+   * persisted column reads exactly `"private"`, which fails closed the same way
+   * `canSeeAgent`/`visibleAgentWhere` treat an unrecognized value as not-public. Realtime call
+   * sites that need a guaranteed value still read it through their own required
+   * `agentVisibility` dependency (see `agent-activity-publish.server.ts` and siblings), never by
+   * trusting this field to be present on a hand-built fixture elsewhere in the codebase. */
+  visibility?: AgentVisibility;
+  /** Current picture in the shared image store. Absent means no picture, not a missing column. */
+  avatarObjectKey?: string | null;
+  avatarContentType?: string | null;
 };
 
 function mapAgent(agent: {
@@ -39,6 +55,9 @@ function mapAgent(agent: {
   runtimeSession?: unknown;
   stoppedAt?: Date | null;
   deletedAt?: Date | null;
+  visibility?: string;
+  avatarObjectKey?: string | null;
+  avatarContentType?: string | null;
 }): AgentRecord {
   let runtimeConfig;
   try {
@@ -59,6 +78,16 @@ function mapAgent(agent: {
     runtimeConfig,
     stoppedAt: agent.stoppedAt ?? null,
     deletedAt: agent.deletedAt ?? null,
+    // A real row's column is `NOT NULL DEFAULT 'public'`, so `agent.visibility` is always a real
+    // string in production; a hand-built fixture that omits it reads as `"public"`, matching the
+    // column's own default. Anything else — including an unrecognized persisted value — fails
+    // closed to `"private"`, the same way `canSeeAgent`/`visibleAgentWhere` do.
+    visibility:
+      agent.visibility === undefined || agent.visibility === AGENT_VISIBILITY.PUBLIC
+        ? AGENT_VISIBILITY.PUBLIC
+        : AGENT_VISIBILITY.PRIVATE,
+    avatarObjectKey: agent.avatarObjectKey ?? null,
+    avatarContentType: agent.avatarContentType ?? null,
   };
 }
 
@@ -66,7 +95,7 @@ export interface AgentRepository {
   getById(id: string): Promise<AgentRecord | undefined>;
   listInWorkspace(workspaceId: string): Promise<AgentRecord[]>;
   listForComputer(workspaceId: string, computerId: string): Promise<AgentRecord[]>;
-  /** Deleted Agents still assigned to one Computer (ADR 0044): recovery stops these rather than
+  /** Deleted Agents still assigned to one Computer: recovery stops these rather than
    * starting them, so a delete whose Stop never reached an offline Daemon is reconciled. */
   listDeletedForComputer(workspaceId: string, computerId: string): Promise<AgentRecord[]>;
   listOwnedInWorkspace(workspaceId: string, ownerId: string): Promise<AgentRecord[]>;
@@ -126,7 +155,31 @@ export class PrismaAgentRepository implements AgentRepository {
 
   async create(input: Omit<AgentRecord, "id" | "createdAt"> & { id?: string }) {
     return this.db.$transaction(async (tx) => {
-      const agent = mapAgent(await tx.agent.create({ data: input }));
+      // Free the name slot first if a soft-deleted Agent holds it: `@@unique([workspaceId, name])`
+      // also spans deleted rows, so a new Agent with a deleted one's name could never be created.
+      // The rename is checked before the create (a failed statement would poison this
+      // transaction). The deleted row is hidden from every directory and its name can never come
+      // back, so the id-suffixed rename is invisible and keeps renamed rows distinct from each
+      // other; history keeps referencing the deleted row by id, so nothing is inherited. A live
+      // holder keeps its name, so the insert's unique violation refuses the create as a taken name.
+      const deletedHolder = await tx.agent.findFirst({
+        where: { workspaceId: input.workspaceId, name: input.name, deletedAt: { not: null } },
+        select: { id: true },
+      });
+      if (deletedHolder)
+        await tx.agent.update({
+          where: { id: deletedHolder.id },
+          data: { name: deletedAgentName(input.name, deletedHolder.id) },
+        });
+      const agent = mapAgent(
+        await tx.agent.create({ data: input }).catch((error: unknown) => {
+          throw isUniqueViolation(error)
+            ? new AppError("CONFLICT", { errorId: "agent-name-taken" })
+            : error;
+        }),
+      );
+      // #general holds every public Agent from the start (a private one never): the enrollment
+      // brings the whole Workspace's #general membership up to date, this Agent included.
       await enrollGeneralChannel(tx, input.workspaceId);
       return agent;
     });
@@ -139,6 +192,18 @@ export class PrismaAgentRepository implements AgentRepository {
   ) {
     return mapAgent(await this.db.agent.update({ where: { id }, data: input }));
   }
+}
+
+/**
+ * The name a deleted Agent gives up its username for. It stays a valid username — at most
+ * `AGENT_NAME_MAX_LENGTH`, lowercase segments joined by single hyphens — because the deleted
+ * Agent's messages still reach readers with it as their sender handle, and a handle outside that
+ * grammar fails the sender check on every history read. The 12 hex digits of the id keep renamed
+ * rows of the same name apart.
+ */
+function deletedAgentName(name: string, agentId: string): string {
+  const suffix = `-deleted-${agentId.replaceAll("-", "").slice(0, 12)}`;
+  return `${name.slice(0, AGENT_NAME_MAX_LENGTH - suffix.length).replace(/-+$/, "")}${suffix}`;
 }
 
 export class RepositoryAgentAuthorization {

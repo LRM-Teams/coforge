@@ -25,19 +25,22 @@ import {
 } from "@untitledui/icons";
 import { useKeyboard } from "react-aria";
 import { ToggleButton as AriaToggleButton } from "react-aria-components";
-import { ButtonGroup, ButtonGroupItem } from "@/components/base/button-group/button-group";
-import { Button } from "@/components/base/buttons/button";
-import { styles as buttonStyles } from "@/components/base/buttons/button";
-import { Input } from "@/components/base/input/input";
-import { Tooltip } from "@/components/base/tooltip/tooltip";
-import { ContentEditor } from "@/features/records/report-editor/content-editor";
-import { copyText } from "@/features/records/report-editor/lib/clipboard";
-import { sharedLowlight } from "@/features/records/report-editor/lowlight";
-import { formatFileSize, getFileExtension } from "@/features/records/report-editor/utils/file-meta";
-import { extensionToLanguage } from "@/features/records/report-editor/utils/preview";
-import "@/features/records/report-editor/styles/code.css";
-import { cn } from "@/lib/utils";
-import { m } from "@/paraglide/messages";
+import { ButtonGroup, ButtonGroupItem } from "#src/components/base/button-group/button-group";
+import { Button } from "#src/components/base/buttons/button";
+import { styles as buttonStyles } from "#src/components/base/buttons/button";
+import { Input } from "#src/components/base/input/input";
+import { Tooltip } from "#src/components/base/tooltip/tooltip";
+import { ContentEditor } from "#src/features/records/report-editor/content-editor";
+import { copyText } from "#src/features/records/report-editor/lib/clipboard";
+import { sharedLowlight } from "#src/features/records/report-editor/lowlight";
+import {
+  formatFileSize,
+  getFileExtension,
+} from "#src/features/records/report-editor/utils/file-meta";
+import { extensionToLanguage } from "#src/features/records/report-editor/utils/preview";
+import "#src/features/records/report-editor/styles/code.css";
+import { cn } from "#src/lib/utils";
+import { m } from "#src/paraglide/messages";
 import { FIND_MATCH_CAP } from "./find-in-text";
 import { splitHighlightedLines, type HastRoot } from "./split-highlighted-lines";
 import { useFindInFile } from "./use-find-in-file";

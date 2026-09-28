@@ -1,10 +1,10 @@
 import { describe, expect, test } from "bun:test";
 
-import { authenticateCentrifugoConnect } from "../src/server/centrifugo/connect-proxy.server";
+import { authenticateCentrifugoConnect } from "#src/server/centrifugo/connect-proxy.server";
 import {
   createDaemonApiKeyFactory,
   type DaemonApiKeyRepository,
-} from "../src/server/auth/daemon-api-key.server";
+} from "#src/server/auth/daemon-api-key.server";
 
 const repository = (): DaemonApiKeyRepository & { token?: string } => {
   const records = new Map<string, any>();

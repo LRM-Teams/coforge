@@ -3,7 +3,8 @@
  * Publishes one unified Computer release version to the local-distribution feed on Alibaba Cloud
  * OSS: compile every target, assemble the version tree (build-release.ts), upload every object
  * it lists, read each one back and compare bytes, and only then write the feed's mutable
- * `latest` pointer - in that fixed order. docs/release.md ("Local Computer distribution model"):
+ * `latest` pointer - in that fixed order. docs/release/local-distribution.md ("Local Computer
+ * distribution model"):
  * "`latest` is the feed's only mutable object, and it is written last - every object under the
  * new `<version>/` it will point to is uploaded and verified first. A publish that fails partway
  * through therefore leaves at most an unreferenced version directory; `latest` never points at
@@ -36,6 +37,7 @@ import {
   type ReleaseTree,
 } from "./build-release";
 import { compileTargetArtifacts, isReleaseTarget, type ReleaseTarget } from "./compile-targets";
+import { resolvePhotonWasmBytes } from "./photon-wasm";
 
 /* -------------------------------------------------------------------------------------------- */
 /* OSS client and credentials                                                                    */
@@ -64,9 +66,11 @@ export interface OssConnection {
 }
 
 /** The region id a public OSS endpoint names (`oss-cn-beijing.aliyuncs.com` -> `oss-cn-beijing`),
- * or undefined for any other host (a fixture server, a custom domain). */
+ * or undefined for any other host (a fixture server, a custom domain, or a global transfer
+ * acceleration endpoint such as `oss-accelerate.aliyuncs.com`, which names no region). */
 export function regionFromEndpoint(endpoint: string): string | undefined {
   const host = endpoint.replace(/^https?:\/\//i, "").replace(/[/:].*$/, "");
+  if (/^oss-accelerate(?:-overseas)?\.aliyuncs\.com$/i.test(host)) return undefined;
   const match = /^(oss-[a-z0-9-]+?)(?:-internal)?\.aliyuncs\.com$/i.exec(host);
   return match?.[1];
 }
@@ -97,6 +101,9 @@ export async function createOssClient(
     cname: connection.cname ?? false,
     secure: connection.secure ?? true,
     authorizationV4: true,
+    // Transient transport errors (-1/-2: reset, connect timeout) retry at the SDK level. A response
+    // timeout carries no status, so it is putObject's own retry loop that rescues it.
+    retryMax: 2,
   };
   if (credentials) {
     return new OSS({ ...credentials, ...base });
@@ -150,23 +157,31 @@ function isMissingObject(error: unknown): boolean {
   return code === "NoSuchKey" || status === 404;
 }
 
-/** The only diagnostic a failed OSS call is allowed to surface: an HTTP status, the object key,
- * and OSS's own request id. It deliberately excludes the SDK error's `message` and any response
- * body/header - a real OSS `SignatureDoesNotMatch` error echoes the `StringToSign`, the supplied
- * `Signature`, and the `AccessKeyId` back to the caller, so surfacing that text would leak exactly
- * the material this function exists to protect. See publish.test.ts's credential-leak test, which
- * fails if this function is changed to include either. */
-function ossError(action: string, objectKey: string, error: unknown): Error {
-  const { status, code, requestId } =
+/** The only diagnostic a failed OSS call is allowed to surface: an HTTP status, OSS's own code, the
+ * error's *class name*, the object key, and OSS's request id. It deliberately excludes the SDK
+ * error's `message` and any response body/header - a real OSS `SignatureDoesNotMatch` error echoes
+ * the `StringToSign`, the supplied `Signature`, and the `AccessKeyId` back to the caller, so
+ * surfacing that text would leak exactly the material this function exists to protect. See
+ * publish.test.ts's credential-leak test, which fails if this function is changed to include either.
+ *
+ * The class name is in because it is the one part of an SDK error that is a *kind* rather than
+ * content: a transport failure reports no status at all (`HTTP unknown`), and `ResponseTimeoutError`
+ * versus `ConnectionTimeoutError` is the whole diagnosis. */
+export function ossError(action: string, objectKey: string, error: unknown): Error {
+  const { status, code, requestId, name } =
     typeof error === "object" && error !== null
-      ? (error as { status?: unknown; code?: unknown; requestId?: unknown })
+      ? (error as { status?: unknown; code?: unknown; requestId?: unknown; name?: unknown })
       : {};
   const statusText = typeof status === "number" ? status : "unknown";
   const codeText = typeof code === "string" && code.length > 0 ? ` code=${code}` : "";
+  // `Error` itself says nothing; a class name that differs from it is the interesting case.
+  const nameText =
+    typeof name === "string" && name.length > 0 && name !== "Error" ? ` ${name}` : "";
+
   const requestIdText =
     typeof requestId === "string" && requestId.length > 0 ? requestId : "unknown";
   return new Error(
-    `OSS ${action} failed: HTTP ${statusText}${codeText} ${objectKey} request-id=${requestIdText}`,
+    `OSS ${action} failed: HTTP ${statusText}${codeText}${nameText} ${objectKey} request-id=${requestIdText}`,
   );
 }
 
@@ -182,10 +197,68 @@ function bytesEqual(a: Uint8Array, b: Uint8Array): boolean {
   return true;
 }
 
-async function putObject(client: OSS, objectKey: string, bytes: Uint8Array): Promise<void> {
+/** Objects at or above this size are uploaded as several parts so a slow link cannot blow one
+ * request's timeout on the whole multi-megabyte object. The staging feed's largest object - the
+ * darwin-arm64 computer binary, ~28 MiB and the first one uploaded - exceeded ali-oss's default
+ * 60 s per-request timeout when the GitHub-runner-to-OSS path slowed below ~0.5 MB/s, and the SDK
+ * killed it with a `ResponseTimeoutError` (a `name`-only error, no status/code/request-id).
+ * Parts use ali-oss's documented defaults (1 MiB, 5 in parallel), so each 60 s request carries
+ * one megabyte rather than a whole binary. */
+const MULTIPART_MIN_BYTES = 20 * 1024 * 1024;
+/** Whole-multipart attempts before giving up. ali-oss's own retry never fires for a response
+ * timeout: its guard only retries errors carrying status -1/-2, and a `ResponseTimeoutError`
+ * carries none — so a timed-out part fails the whole call no matter what `retryMax` says. The
+ * outer retry below is the only thing that rescues it. Without a checkpoint, each attempt starts a
+ * new multipart upload (a new uploadId) and re-sends the whole object. */
+const MULTIPART_ATTEMPTS = 3;
+
+/** Every other release object (the computer binary, its gzip, checksum sidecars, the manifest) is
+ * served as opaque bytes; only photon_rs_bg.wasm has a real registered media type
+ * (https://www.iana.org/assignments/media-types/application/wasm), so it is the one object key
+ * this needs to special-case rather than a lookup table nothing else would ever hit. */
+function contentTypeFor(objectKey: string): string {
+  return objectKey.endsWith(".wasm") ? "application/wasm" : "application/octet-stream";
+}
+
+async function putObject(
+  client: OSS,
+  objectKey: string,
+  bytes: Uint8Array,
+  requestTimeoutMs?: number,
+): Promise<void> {
+  const buffer = Buffer.from(bytes);
+  const contentType = contentTypeFor(objectKey);
+  // `requestTimeoutMs` is a test-only hook so the stalled-server fixture can pin the
+  // `ResponseTimeoutError` reporting path; production uses ali-oss's 60 s default.
+  const requestOptions = requestTimeoutMs ? { timeout: requestTimeoutMs } : {};
   try {
-    await client.put(objectKey, Buffer.from(bytes), {
-      headers: { "Content-Type": "application/octet-stream" },
+    if (buffer.byteLength >= MULTIPART_MIN_BYTES) {
+      for (let attempt = 1; ; attempt += 1) {
+        try {
+          await client.multipartUpload(objectKey, buffer, {
+            ...requestOptions,
+            headers: { "Content-Type": contentType },
+          });
+          return;
+        } catch (error) {
+          // Only a timeout is worth re-attempting from here; anything else is either a
+          // configuration fault (a 403) or a real server error, and ossError already names it.
+          const name =
+            typeof error === "object" && error !== null
+              ? (error as { name?: unknown }).name
+              : undefined;
+          if (
+            attempt >= MULTIPART_ATTEMPTS ||
+            typeof name !== "string" ||
+            !name.endsWith("TimeoutError")
+          )
+            throw error;
+        }
+      }
+    }
+    await client.put(objectKey, buffer, {
+      ...requestOptions,
+      headers: { "Content-Type": contentType },
     });
   } catch (error) {
     throw ossError("upload", objectKey, error);
@@ -224,7 +297,7 @@ async function objectExists(client: OSS, objectKey: string): Promise<boolean> {
 }
 
 /** Refuses to republish a version that already completed. Published versions are immutable: the
- * feed's CDN caches `<version>/*` for 365 days (docs/operations/aliyun-oss-cdn.md), so a second
+ * feed's CDN caches `<version>/*` for 365 days (docs/operations/aliyun-oss-cdn/staging-record.md), so a second
  * publish under the same version would leave different bytes on different edge nodes for up to a
  * year - `install.sh` verifying an old sidecar against an old binary would silently install the
  * older build. A publish that failed partway through never wrote the manifest, so retrying that
@@ -247,6 +320,22 @@ export interface UploadOptions {
   connection: OssConnection;
   fetchImpl?: typeof fetch;
   log?: (line: string) => void;
+  /** Per-request upload timeout in ms. Production publishes set none (human directive
+   * 2026-09-21: uploads just take as long as the link needs). Tests pass a small value so a
+   * deliberately slow fixture server can prove that a stalled link reports the timeout's name
+   * instead of hanging the publish. */
+  requestTimeoutMs?: number;
+  /** Tolerate objects that are already up, verifying them against the freshly compiled bytes instead
+   * of refusing the version. This is the finalize half of a split publication: a version whose
+   * per-platform jobs have already uploaded their objects is re-compiled once on a single job, every
+   * object is read back and compared, the manifest is written, and only then does `latest` move. */
+  allowExisting?: boolean;
+  /** Whether to move the feed's `latest` pointer once the objects are up. `false` uploads and
+   * verifies this version's objects only — what a per-platform job must do, because `latest` is the
+   * feed's only mutable object and docs/release/local-distribution.md requires it to be written
+   * last, never pointing at an incomplete version. The finalize job moves it once every platform's
+   * objects are up. */
+  activate?: boolean;
 }
 
 export interface UploadResult {
@@ -258,94 +347,150 @@ export interface UploadResult {
  * to the local copy, and only then writes the mutable `latest` pointer - see the file banner for
  * why that order matters. Any failure (an upload, a read-back mismatch) throws before `latest`
  * is ever written, and stops uploading/verifying the objects after it. */
-export async function uploadReleaseTree(
-  outputDirectory: string,
+/**
+ * What every phase of a publication shares: the OSS client, the feed origin it probes, and the
+ * progress line sink. Threading this one object keeps the phases below to their own arguments.
+ */
+type UploadContext = {
+  client: OSS;
+  connection: OssConnection;
+  fetchImpl: typeof fetch;
+  log: (line: string) => void;
+  outputDirectory: string;
+  requestTimeoutMs?: number;
+};
+
+/** What this publication is responsible for, settled before any network call is made. */
+type UploadPlan = {
+  allowExisting: boolean;
+  /** An objects-only job leaves `latest` — and the manifest — to the finalize pass. */
+  objectsOnly: boolean;
+  /** Every object this job covers; an objects-only job excludes the manifest. */
+  files: string[];
+  /** The order objects go up: everything but the manifest, then the manifest itself, last. */
+  uploads: string[];
+};
+
+/**
+ * The manifest is pinned last explicitly rather than relying on `tree.files` being sorted:
+ * `build-release.ts` sorts the whole list, so "manifest.json" only happens to sort after the POSIX
+ * targets, but before Windows. Relying on that order would silently break the completion marker
+ * `assertVersionIsUnpublished` depends on.
+ *
+ * An objects-only job must not write the manifest either, even though the ordinary path pins it
+ * last. The manifest is the version's completion marker *and* a hash of every object, so a
+ * per-platform job - which compiles only its own target - would race five others and leave an
+ * incomplete manifest behind as the marker. The finalize job writes the one true manifest after
+ * every platform is up.
+ */
+function planUpload(
   tree: ReleaseTree,
-  options: UploadOptions,
-): Promise<UploadResult> {
-  const { client, connection } = options;
-  const fetchImpl = options.fetchImpl ?? fetch;
-  const log = options.log ?? ((): void => undefined);
-
-  await assertVersionIsUnpublished(tree.version, { client });
-
-  // The manifest is pinned last explicitly rather than relying on `tree.files` being sorted:
-  // `build-release.ts` sorts the whole list, so "manifest.json" only happens to sort after the
-  // POSIX targets, but before Windows. Relying on that order would silently break the
-  // completion marker `assertVersionIsUnpublished` depends on.
+  options: Pick<UploadOptions, "activate" | "allowExisting">,
+): UploadPlan {
   const manifestKey = manifestObjectKey(tree.version);
-  const manifestFiles = tree.files.filter((file) => file === manifestKey);
-  if (manifestFiles.length !== 1) {
+  if (tree.files.filter((file) => file === manifestKey).length !== 1) {
     throw new Error(`Release tree does not contain exactly one ${manifestKey} to upload last`);
   }
   const uploadOrder = [...tree.files.filter((file) => file !== manifestKey), manifestKey];
+  const objectsOnly = options.activate === false;
+  const files = objectsOnly ? tree.files.filter((file) => file !== manifestKey) : tree.files;
+  return {
+    // A normal publication refuses a version the feed has already seen; a finalize pass is exactly
+    // that version, so it verifies the objects that are up instead (see `UploadOptions.allowExisting`).
+    allowExisting: options.allowExisting === true,
+    objectsOnly,
+    files,
+    uploads: objectsOnly ? uploadOrder.filter((file) => file !== manifestKey) : uploadOrder,
+  };
+}
 
-  for (const relativePath of uploadOrder) {
-    const bytes = await readFile(join(outputDirectory, relativePath));
-    await putObject(client, relativePath, bytes);
-    log(`uploaded ${relativePath}`);
+/** Phase 1: put every object up, verifying — rather than re-uploading — the ones a finalize pass finds. */
+async function uploadObjects(context: UploadContext, plan: UploadPlan): Promise<void> {
+  for (const relativePath of plan.uploads) {
+    const bytes = await readFile(join(context.outputDirectory, relativePath));
+    if (plan.allowExisting && (await objectExists(context.client, relativePath))) {
+      const remote = await getObject(context.client, relativePath);
+      if (!bytesEqual(bytes, remote)) {
+        throw new Error(
+          `OSS object mismatch: ${relativePath} is up but does not match the freshly compiled bytes`,
+        );
+      }
+      context.log(`already present, verified ${relativePath}`);
+      continue;
+    }
+    await putObject(context.client, relativePath, bytes, context.requestTimeoutMs);
+    context.log(`uploaded ${relativePath}`);
   }
+}
 
-  for (const relativePath of tree.files) {
-    const local = await readFile(join(outputDirectory, relativePath));
-    const remote = await getObject(client, relativePath);
+/** Phase 2: every object must read back byte-for-byte identical to what was compiled. */
+async function verifyUploadedBytes(
+  context: UploadContext,
+  files: readonly string[],
+): Promise<void> {
+  for (const relativePath of files) {
+    const local = await readFile(join(context.outputDirectory, relativePath));
+    const remote = await getObject(context.client, relativePath);
     if (!bytesEqual(local, remote)) {
       throw new Error(`OSS read-back mismatch: ${relativePath} does not match the uploaded bytes`);
     }
-    log(`verified ${relativePath}`);
+    context.log(`verified ${relativePath}`);
   }
+}
 
-  async function verifyPrivateOrigin(key: string): Promise<void> {
-    try {
-      const response = await fetchImpl(objectOrigin(connection, key), {
-        method: "GET",
-        credentials: "omit",
-        redirect: "manual",
-        signal: AbortSignal.timeout(30_000),
-      });
-      await response.body?.cancel();
-      if (response.status !== 403 || response.headers.has("location"))
-        throw new Error("Origin is not private");
-    } catch {
-      throw new Error(`Private origin verification failed: ${key}`);
-    }
-    log(`verified private origin ${key}`);
+/**
+ * Phase 3: the public origin must refuse an anonymous GET — the bytes are reachable only through the
+ * signed CDN URL. `redirect: "manual"` separates a real refusal from a redirect to a public copy.
+ */
+async function verifyPrivateOrigin(context: UploadContext, key: string): Promise<void> {
+  try {
+    const response = await context.fetchImpl(objectOrigin(context.connection, key), {
+      method: "GET",
+      credentials: "omit",
+      redirect: "manual",
+      signal: AbortSignal.timeout(30_000),
+    });
+    await response.body?.cancel();
+    if (response.status !== 403 || response.headers.has("location"))
+      throw new Error("Origin is not private");
+  } catch {
+    throw new Error(`Private origin verification failed: ${key}`);
   }
+  context.log(`verified private origin ${key}`);
+}
 
-  for (const key of tree.files) {
-    await verifyPrivateOrigin(key);
-  }
-
-  const previous = (await objectExists(client, LATEST_OBJECT_KEY))
-    ? await getObject(client, LATEST_OBJECT_KEY)
+/** Phase 4: move `latest`, and put the previous selector back if the move cannot be verified. */
+async function activateLatest(context: UploadContext, version: string): Promise<void> {
+  const previous = (await objectExists(context.client, LATEST_OBJECT_KEY))
+    ? await getObject(context.client, LATEST_OBJECT_KEY)
     : null;
-  if (previous) await verifyPrivateOrigin(LATEST_OBJECT_KEY);
-  log(
+  if (previous) await verifyPrivateOrigin(context, LATEST_OBJECT_KEY);
+  context.log(
     previous
       ? `previous latest sha256=${new Bun.CryptoHasher("sha256").update(previous).digest("hex")}`
       : "previous latest: empty bootstrap",
   );
 
-  async function writeLatest(bytes: Uint8Array): Promise<void> {
-    await putObject(client, LATEST_OBJECT_KEY, bytes);
-    const readback = await getObject(client, LATEST_OBJECT_KEY);
+  const writeLatest = async (bytes: Uint8Array): Promise<void> => {
+    await putObject(context.client, LATEST_OBJECT_KEY, bytes);
+    const readback = await getObject(context.client, LATEST_OBJECT_KEY);
     if (!bytesEqual(bytes, readback)) throw new Error("OSS latest read-back mismatch");
-    await verifyPrivateOrigin(LATEST_OBJECT_KEY);
-  }
+    await verifyPrivateOrigin(context, LATEST_OBJECT_KEY);
+  };
 
   try {
-    await writeLatest(new TextEncoder().encode(`${tree.version}\n`));
+    await writeLatest(new TextEncoder().encode(`${version}\n`));
   } catch {
     try {
       if (previous) {
         await writeLatest(previous);
       } else {
         try {
-          await client.delete(LATEST_OBJECT_KEY);
+          await context.client.delete(LATEST_OBJECT_KEY);
         } catch (error) {
           throw ossError("delete", LATEST_OBJECT_KEY, error);
         }
-        if (await objectExists(client, LATEST_OBJECT_KEY)) {
+        if (await objectExists(context.client, LATEST_OBJECT_KEY)) {
           throw new Error("could not restore empty selector");
         }
       }
@@ -356,7 +501,42 @@ export async function uploadReleaseTree(
     }
     throw new Error("Release activation failed; previous latest restored and verified.");
   }
+}
 
+export async function uploadReleaseTree(
+  outputDirectory: string,
+  tree: ReleaseTree,
+  options: UploadOptions,
+): Promise<UploadResult> {
+  const context: UploadContext = {
+    client: options.client,
+    connection: options.connection,
+    fetchImpl: options.fetchImpl ?? fetch,
+    log: options.log ?? ((): void => undefined),
+    outputDirectory,
+    ...(options.requestTimeoutMs !== undefined
+      ? { requestTimeoutMs: options.requestTimeoutMs }
+      : {}),
+  };
+  const plan = planUpload(tree, options);
+  // A finalize pass is publishing a version the feed has already seen, so it must not assert.
+  if (!plan.allowExisting)
+    await assertVersionIsUnpublished(tree.version, { client: context.client });
+
+  await uploadObjects(context, plan);
+  await verifyUploadedBytes(context, plan.files);
+  for (const key of plan.files) {
+    await verifyPrivateOrigin(context, key);
+  }
+  // Objects-only publication: stop before touching `latest`. See `UploadOptions.activate`.
+  if (plan.objectsOnly) {
+    context.log(
+      `uploaded ${plan.files.length} objects; manifest and latest left to the finalize job`,
+    );
+    return { uploaded: [...plan.files], latestKey: LATEST_OBJECT_KEY };
+  }
+
+  await activateLatest(context, tree.version);
   return { uploaded: [...tree.files], latestKey: LATEST_OBJECT_KEY };
 }
 
@@ -387,10 +567,18 @@ export interface PublishOptions {
   targets: ReleaseTarget[];
   bucket: string;
   endpoint: string;
+  /** Finalize an already-uploaded version (see `UploadOptions.allowExisting`). */
+  allowExisting?: boolean;
+  /** Objects-only publication (see `UploadOptions.activate`): upload and verify this version's
+   * objects, leave `latest` alone. What each per-platform job does when the publication is split so
+   * a slow link no longer has to move ~186 MB inside one job's timeout. */
+  activate?: boolean;
   /** Overrides the region derived from `endpoint`; required for endpoints that do not name one. */
   region?: string;
   dryRun: boolean;
 }
+
+export type ResolvePhotonWasmFn = typeof resolvePhotonWasmBytes;
 
 export interface PublishDependencies {
   compile?: CompileFn;
@@ -404,6 +592,10 @@ export interface PublishDependencies {
    * server instead of the real bucket; `bucket`/`endpoint` otherwise default to
    * `options.bucket`/`options.endpoint` over HTTPS. */
   connection?: Partial<OssConnection>;
+  /** Resolves Pi's photon_rs_bg.wasm bytes; defaults to the real installed-dependency walk in
+   * photon-wasm.ts. Tests override this with a fixture so they never depend on the exact
+   * installed @silvia-odwyer/photon-node version. */
+  resolvePhotonWasm?: ResolvePhotonWasmFn;
 }
 
 export interface PublishOutcome {
@@ -420,6 +612,7 @@ export async function runPublish(
   deps: PublishDependencies = {},
 ): Promise<PublishOutcome> {
   const compile = deps.compile ?? compileTargetArtifacts;
+  const resolvePhotonWasm = deps.resolvePhotonWasm ?? resolvePhotonWasmBytes;
   const log = deps.log ?? ((): void => undefined);
 
   // Resolve credentials before compiling. In CI the credential chain exchanges a GitHub OIDC
@@ -450,10 +643,14 @@ export async function runPublish(
       });
     }
 
+    log("resolving Pi's image library (photon_rs_bg.wasm)...");
+    const photonWasm = await resolvePhotonWasm();
+
     const inputs: ReleaseInputs = {
       version: options.version,
       commit: options.commit,
       buildDate: new Date().toISOString(),
+      photonWasm,
       artifacts,
     };
     const treeDirectory = join(workDirectory, "tree");
@@ -476,6 +673,8 @@ export async function runPublish(
       connection,
       fetchImpl: deps.fetchImpl,
       log,
+      ...(options.activate === false ? { activate: false } : {}),
+      ...(options.allowExisting === true ? { allowExisting: true } : {}),
     });
     log(`published ${result.uploaded.length} objects and ${result.latestKey} -> ${tree.version}`);
     return {
@@ -517,6 +716,12 @@ function parseArgv(argv: string[]): ParsedArgs {
     switch (flag) {
       case "--dry-run":
         result.dryRun = true;
+        break;
+      case "--no-activate":
+        result.activate = false;
+        break;
+      case "--allow-existing":
+        result.allowExisting = true;
         break;
       case "--version":
         result.version = requireValue(argv, (index += 1), flag);

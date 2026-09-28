@@ -1,8 +1,8 @@
+import { isRecord } from "@lrm/coforge-sdk/internal";
+
 /** Narrowing helpers for the loosely typed JSON records provider processes emit. */
 export function asRecord(value: unknown): Record<string, unknown> | undefined {
-  return value !== null && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : undefined;
+  return isRecord(value) ? value : undefined;
 }
 
 /** Joins the `text` blocks of a provider content array; a bare string is returned as is. */

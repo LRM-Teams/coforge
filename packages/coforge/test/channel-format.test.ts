@@ -9,7 +9,7 @@ import {
   formatChannelMembers,
   formatChannelRemoveMember,
   formatChannelUpdate,
-} from "../src/channel-format";
+} from "#src/channel-format";
 
 const NO_CAPABILITIES = {
   post: false,

@@ -1,11 +1,11 @@
 import { createFileRoute } from "@tanstack/react-router";
 
-import { PageLoadError } from "@/features/errors/page-load-error";
-import { RecordDetail } from "@/features/records/record-detail";
-import { EmptyRecord } from "@/features/records/records-layout";
-import { loadRecordSubject } from "@/features/records/records.functions";
-import { latestWeeklyLanding } from "@/features/records/records-sidebar";
-import { isAppError } from "@/lib/app-error";
+import { PageLoadError } from "#src/features/errors/page-load-error";
+import { RecordDetail } from "#src/features/records/record-detail";
+import { EmptyRecord } from "#src/features/records/records-layout";
+import { loadRecordSubject } from "#src/features/records/records.functions";
+import { latestWeeklyLanding } from "#src/features/records/records-sidebar";
+import { isAppError } from "#src/lib/app-error";
 
 export const Route = createFileRoute("/_app/records/")({
   ssr: "data-only",

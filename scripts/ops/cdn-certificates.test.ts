@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { readdir } from "node:fs/promises";
 
 const CDN_DOMAINS = [
   "files-staging.coforge.cn",
@@ -10,8 +11,15 @@ async function readScript(): Promise<string> {
   return Bun.file(new URL("./renew-cdn-certificates.sh", import.meta.url)).text();
 }
 
+async function readDocDirectory(relativeDirectory: string): Promise<string> {
+  const directory = new URL(relativeDirectory, import.meta.url);
+  const names = (await readdir(directory)).filter((name) => name.endsWith(".md")).sort();
+  const texts = await Promise.all(names.map((name) => Bun.file(new URL(name, directory)).text()));
+  return texts.join("\n");
+}
+
 async function readRunbook(): Promise<string> {
-  return Bun.file(new URL("../../docs/operations/cdn-certificates.md", import.meta.url)).text();
+  return readDocDirectory("../../docs/operations/cdn-certificates/");
 }
 
 describe("renew-cdn-certificates.sh", () => {
@@ -145,10 +153,8 @@ describe("wiring", () => {
   });
 
   test("the aliyun-oss-cdn runbook points at the new document instead of the stale manual-renewal warning", async () => {
-    const ossCdnRunbook = await Bun.file(
-      new URL("../../docs/operations/aliyun-oss-cdn.md", import.meta.url),
-    ).text();
-    expect(ossCdnRunbook).toContain("cdn-certificates.md");
+    const ossCdnRunbook = await readDocDirectory("../../docs/operations/aliyun-oss-cdn/");
+    expect(ossCdnRunbook).toContain("cdn-certificates/");
     expect(ossCdnRunbook).not.toContain("不自动续期");
   });
 });

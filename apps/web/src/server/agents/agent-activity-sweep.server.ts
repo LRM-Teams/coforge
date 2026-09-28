@@ -1,15 +1,23 @@
 import { RedisClient } from "bun";
+import { redisUrlFor } from "#src/server/redis-url.server";
 import { encodeAgentActivityProbe } from "@lrm/coforge-sdk/internal";
 
-import { agentStatusChannel } from "../../features/agents/agent-status-realtime";
-import { createCentrifugoServerApi, daemonControlChannel } from "../centrifugo/server-api.server";
-import type { CentrifugoServerApi } from "../centrifugo/server-api.server";
+import {
+  agentStatusChannel,
+  agentStatusChannelForAgent,
+} from "#src/features/agents/agent-status-realtime";
+import { AGENT_VISIBILITY } from "#src/features/agents/agent-visibility";
+import { ACTIVITY_PROBE_TIMEOUT_MS } from "#src/features/agents/activity-probe-timeout";
+import {
+  createCentrifugoServerApi,
+  daemonControlChannel,
+} from "#src/server/centrifugo/server-api.server";
+import type { CentrifugoServerApi } from "#src/server/centrifugo/server-api.server";
 import { getAgentDisplay, type AgentDisplay, type Scope } from "./agent-display.server";
+import { getDatabaseClient } from "#src/server/db/client.server";
 
-/** How often `AgentActivitySweep.tick()` looks for stale busy leases. See ADR 0020. */
+/** How often `AgentActivitySweep.tick()` looks for stale busy leases. */
 export const ACTIVITY_SWEEP_INTERVAL_MS = 5_000;
-/** How long a liveness probe waits for the daemon's reply before the sweep synthesises `online`. */
-export const ACTIVITY_PROBE_TIMEOUT_MS = 5_000;
 /** Bounds one tick's Redis and Centrifugo-publish cost regardless of fleet size. */
 const SWEEP_BATCH_LIMIT = 200;
 /** Shorter than the 5s interval on purpose, so a slow tick cannot overlap the next one. */
@@ -35,7 +43,7 @@ export class RedisAgentActivitySweepLock implements AgentActivitySweepLock {
 }
 
 /**
- * Server-side liveness sweep (ADR 0020, CR-B of PR #251). Every tick, one web
+ * Server-side liveness sweep (CR-B of PR #251). Every tick, one web
  * instance (decided by `lock`) walks the `activity-leases` index for busy
  * displays whose lease has lapsed, asks the daemon directly via
  * `AgentActivityProbe`, and — once a probe times out without a reply —
@@ -55,6 +63,12 @@ export class AgentActivitySweep {
     private readonly lock: AgentActivitySweepLock,
     private readonly clock: () => number = Date.now,
     private readonly instanceId: string = crypto.randomUUID(),
+    /** The Agent's current visibility, read fresh (no cache) for every synthesized
+     * display push — never optional in effect: a lookup that finds nothing to route by skips
+     * the publish entirely (fails closed) rather than defaulting to the shared channel. A
+     * recognized non-`"public"` value routes it to the per-Agent one instead, same as the
+     * publish proxy. */
+    private readonly visibility: (scope: Scope) => Promise<string | undefined>,
   ) {}
 
   start(): void {
@@ -128,23 +142,43 @@ export class AgentActivitySweep {
       );
       return;
     }
-    if (result.outcome === "expired")
-      await this.api.publishJson(agentStatusChannel(scope.workspaceId), {
+    if (result.outcome === "expired") {
+      // Fail closed. A lookup that finds nothing to route by skips the publish
+      // entirely rather than guessing the shared channel — the stale badge self-corrects on a
+      // later tick once the lookup can answer.
+      const visibility = await this.visibility(scope);
+      if (visibility === undefined) return;
+      const isPrivate = visibility !== AGENT_VISIBILITY.PUBLIC;
+      const channel = isPrivate
+        ? agentStatusChannelForAgent(scope.workspaceId, scope.agentId)
+        : agentStatusChannel(scope.workspaceId);
+      await this.api.publishJson(channel, {
         type: "agent:display",
         ...result.snapshot,
       });
+    }
   }
 }
 
 let singleton: AgentActivitySweep | undefined;
 
 function getAgentActivitySweep(): AgentActivitySweep {
-  const redisUrl = process.env.REDIS_URL;
-  if (!redisUrl) throw new Error("REDIS_URL is required for the Agent activity sweep");
+  const redisUrl = redisUrlFor("the Agent activity sweep");
   singleton ??= new AgentActivitySweep(
     getAgentDisplay(),
     createCentrifugoServerApi(),
     new RedisAgentActivitySweepLock(new RedisClient(redisUrl)),
+    undefined,
+    undefined,
+    async (scope) => {
+      const db = getDatabaseClient();
+      if (!db) return undefined;
+      const agent = await db.agent.findUnique({
+        where: { id: scope.agentId },
+        select: { workspaceId: true, visibility: true },
+      });
+      return agent?.workspaceId === scope.workspaceId ? agent.visibility : undefined;
+    },
   );
   return singleton;
 }

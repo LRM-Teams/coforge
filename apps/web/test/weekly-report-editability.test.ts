@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 
-import { canEditWeeklyReportContent } from "@/server/records/weekly-report-editability";
+import { canEditWeeklyReportContent } from "#src/server/records/weekly-report-editability.server";
 
 test("the member can keep editing their own assignment after send", () => {
   expect(

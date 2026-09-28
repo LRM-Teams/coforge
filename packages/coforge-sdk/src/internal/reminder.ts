@@ -1,4 +1,7 @@
 import { RPC_METHODS } from "./rpc-methods";
+import { isScopeId } from "./scope-id";
+import { boundedPayload } from "./codec";
+import { RFC_UUID_PATTERN } from "./uuid";
 import { create, fromBinary, toBinary } from "@bufbuild/protobuf";
 import {
   AgentReminderOperationRequestSchema,
@@ -8,17 +11,16 @@ import {
   ReminderFireResponseSchema,
   ReminderSnapshotRequestSchema,
   ReminderSyncSchema,
-} from "./gen/coforge/rpc/v1/reminder_pb";
+} from "#src/internal/gen/coforge/rpc/v1/reminder_pb";
 
 export const AGENT_REMINDER_METHOD = RPC_METHODS.agentReminder;
 export const REMINDER_FIRE_METHOD = RPC_METHODS.reminderFire;
 export const REMINDER_SNAPSHOT_METHOD = RPC_METHODS.reminderSnapshot;
+/** Accepted spellings of the two callbacks above while an installed Computer still sends them. */
 export const REMINDER_SYNC_MESSAGE_TYPE = "coforge.rpc.v1.ReminderSync" as const;
 export const REMINDER_CAPABILITY = "reminder:v1" as const;
 
 const MAX_BYTES = 65_536;
-const ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const PREFIX = /^[0-9a-f]{8}$/i;
 const USERNAME = "[a-z0-9](?:[a-z0-9_-]{1,30}[a-z0-9])?";
 const HEX = "[0-9a-fA-F]";
@@ -33,6 +35,42 @@ const RECURRENCE =
   /^(?:every:[1-9]\d*[mhd]|daily@(?:[01]\d|2[0-3]):[0-5]\d|weekly:(?:mon|tue|wed|thu|fri|sat|sun)(?:,(?:mon|tue|wed|thu|fri|sat|sun))*@(?:[01]\d|2[0-3]):[0-5]\d)$/;
 const OPERATIONS = ["schedule", "list", "update", "snooze", "cancel", "log"] as const;
 const REMINDER_STATUSES = ["scheduled", "fired", "canceled"] as const;
+
+/** One parsed recurrence spelling of the canonical `RECURRENCE` grammar. */
+export type ReminderRecurrence =
+  | { kind: "every"; count: number; unit: "m" | "h" | "d" }
+  | { kind: "daily"; hour: number; minute: number }
+  | { kind: "weekly"; weekdays: string[]; hour: number; minute: number };
+
+/** Parse a recurrence string against the canonical grammar, or `undefined` when it does not
+ * match. The three patterns are the same alternatives `RECURRENCE` validates — nonzero interval
+ * counts, real clock hours, known weekday tokens — so a parse failure and a validation failure
+ * agree on exactly the same strings. Consumers of a validated reminder repeat — the cloud's
+ * `nextOccurrence` — parse through here so the grammar lives in one file next to the `RECURRENCE`
+ * regex that validates it, and a grammar change cannot leave a downstream parser behind. */
+export function parseReminderRecurrence(value: string): ReminderRecurrence | undefined {
+  const interval = /^every:([1-9]\d*)([mhd])$/.exec(value);
+  if (interval)
+    return {
+      kind: "every",
+      count: Number(interval[1]),
+      unit: interval[2] as "m" | "h" | "d",
+    };
+  const daily = /^daily@([01]\d|2[0-3]):([0-5]\d)$/.exec(value);
+  if (daily) return { kind: "daily", hour: Number(daily[1]), minute: Number(daily[2]) };
+  const weekly =
+    /^weekly:((?:mon|tue|wed|thu|fri|sat|sun)(?:,(?:mon|tue|wed|thu|fri|sat|sun))*)@([01]\d|2[0-3]):([0-5]\d)$/.exec(
+      value,
+    );
+  if (weekly)
+    return {
+      kind: "weekly",
+      weekdays: weekly[1]!.split(","),
+      hour: Number(weekly[2]),
+      minute: Number(weekly[3]),
+    };
+  return undefined;
+}
 
 export type ReminderOperation = (typeof OPERATIONS)[number];
 export type ReminderStatus = (typeof REMINDER_STATUSES)[number];
@@ -121,9 +159,9 @@ export type LocalReminderRequest = ReminderOperationFields & {
   revision?: number;
 };
 
-export const isReminderId = (value: string): boolean => UUID.test(value);
+export const isReminderId = (value: string): boolean => RFC_UUID_PATTERN.test(value);
 export const isReminderMessageAnchor = (value: string): boolean =>
-  UUID.test(value) || PREFIX.test(value);
+  RFC_UUID_PATTERN.test(value) || PREFIX.test(value);
 /** A `list` status filter: a duplicate-free, comma-separated subset of the three statuses. */
 export function isValidReminderStatusFilter(value: string): boolean {
   const parts = value.split(",").map((part) => part.trim());
@@ -132,8 +170,7 @@ export function isValidReminderStatusFilter(value: string): boolean {
 }
 
 function bounded(bytes: Uint8Array) {
-  if (bytes.length > MAX_BYTES) throw new Error("Reminder payload too large");
-  return bytes;
+  return boundedPayload(bytes, MAX_BYTES, "Reminder");
 }
 function positive(value: number | undefined, field: string): number | undefined {
   if (value !== undefined && (!Number.isSafeInteger(value) || value < 1 || value > 0xffffffff))
@@ -152,7 +189,7 @@ function instant(value: string | undefined, field: string): string | undefined {
 function scope<T extends ReminderScope>(value: T): T {
   if (
     value.protocolMajor !== 1 ||
-    [value.requestId, value.workspaceId, value.computerId, value.agentId].some((v) => !ID.test(v))
+    [value.requestId, value.workspaceId, value.computerId, value.agentId].some((v) => !isScopeId(v))
   )
     throw new Error("invalid reminder scope");
   return value;
@@ -248,6 +285,23 @@ const optional = <T extends Record<string, unknown>>(value: T) =>
     Object.entries(value).filter(([key, v]) => key !== "$typeName" && v !== undefined),
   );
 
+/**
+ * The request as it arrives over **JSON** — the same rules the codec applies (`scope`, `fields`,
+ * `operation`), with no binary round trip.
+ *
+ * Protobuf belongs to the WebSocket path. An HTTP handler that encodes a JSON request to protobuf
+ * bytes only to decode them straight back has adopted the wrong contract: it inherits the codec's
+ * field names and failure modes for no benefit, and hides which of the two shapes a route really
+ * speaks. Raft's own split is the same one: HTTP is JSON, the WS/RPC path is protobuf.
+ */
+export function validateAgentReminderOperationRequest(
+  value: unknown,
+): AgentReminderOperationRequest {
+  if (!value || typeof value !== "object" || Array.isArray(value))
+    throw new Error("invalid reminder request");
+  return operation({ ...(value as AgentReminderOperationRequest) });
+}
+
 export function encodeAgentReminderOperationRequest(value: AgentReminderOperationRequest) {
   return bounded(
     toBinary(
@@ -267,7 +321,7 @@ function summary(value: ReminderSummaryRecord): ReminderSummaryRecord {
   fields(value, true);
   if (
     !isReminderId(value.reminderId) ||
-    !ID.test(value.ownerAgentId) ||
+    !isScopeId(value.ownerAgentId) ||
     !positive(value.version, "reminder version") ||
     !value.title ||
     !value.target ||
@@ -282,8 +336,8 @@ function summary(value: ReminderSummaryRecord): ReminderSummaryRecord {
 }
 function event(value: ReminderLogEvent): ReminderLogEvent {
   if (
-    !ID.test(value.eventId) ||
-    !ID.test(value.type) ||
+    !isScopeId(value.eventId) ||
+    !isScopeId(value.type) ||
     !instant(value.time, "reminder event time") ||
     (value.nextFireAt !== undefined && !instant(value.nextFireAt, "next reminder fire time"))
   )
@@ -320,7 +374,7 @@ function job(value: ReminderJob): ReminderJob {
   fields(value, true);
   if (
     !isReminderId(value.reminderId) ||
-    !ID.test(value.ownerAgentId) ||
+    !isScopeId(value.ownerAgentId) ||
     !positive(value.version, "reminder version") ||
     !value.title ||
     !value.target ||
@@ -435,7 +489,7 @@ export function decodeReminderSnapshotRequest(bytes: Uint8Array): ReminderSnapsh
 
 function local(value: LocalReminderRequest): LocalReminderRequest {
   if (
-    !ID.test(value.requestId) ||
+    !isScopeId(value.requestId) ||
     !value.context ||
     ![...OPERATIONS, "ack", "dismiss"].includes(value.operation)
   )
@@ -480,3 +534,11 @@ export function decodeLocalReminderRequest(bytes: Uint8Array): LocalReminderRequ
   const v = fromBinary(LocalReminderRequestSchema, bounded(bytes));
   return local(optional(v) as LocalReminderRequest);
 }
+
+/**
+ * The timezone a repeating reminder takes when the caller names none. A product default rather than
+ * an implementation detail: the CLI applies it locally while validating a request, and the server
+ * applies it when the reminder is written, so both edges have to agree — otherwise the same command
+ * would be accepted as one clock and stored as another.
+ */
+export const DEFAULT_REMINDER_TIMEZONE = "Asia/Shanghai";

@@ -7,8 +7,8 @@
 
 import { Trash01 as Trash2 } from "@untitledui/icons";
 import { Button as AriaButton } from "react-aria-components";
-import { cn } from "@/lib/utils";
-import { isAllowedFileCardHref } from "./utils/file-cards";
+import { cn } from "#src/lib/utils";
+import { isAllowedFileCardHref } from "#src/features/records/report-editor/utils/file-cards";
 
 export type AttachmentInput = {
   kind: "url";

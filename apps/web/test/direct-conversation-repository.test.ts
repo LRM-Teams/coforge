@@ -1,7 +1,12 @@
 import { describe, expect, test } from "bun:test";
-import type { PrismaClient } from "../generated/client";
-import { buildUserAgentConversationCreateInput } from "../src/server/db/repositories/direct-conversation.repositories.server";
-import { PrismaDirectConversationRepository } from "../src/server/db/repositories/direct-conversation.repositories.server";
+import { Prisma, type PrismaClient } from "#src/generated/prisma/client";
+import { buildUserAgentConversationCreateInput } from "#src/server/db/repositories/direct-conversation.repositories.server";
+import {
+  PrismaDirectConversationRepository,
+  type AgentRecoveryContext,
+  type PendingAgentDelivery,
+} from "#src/server/db/repositories/direct-conversation.repositories.server";
+import type { AgentMessageRecord } from "#src/server/agents/agent-messages.server";
 
 /**
  * The real Prisma `$queryRaw` tag flattens a nested `Prisma.sql` fragment's own bind values into
@@ -77,7 +82,7 @@ describe("PrismaDirectConversationRepository", () => {
       ],
       take: 5,
     });
-    expect(result).toEqual([
+    expect(result).toEqual<AgentMessageRecord[]>([
       {
         id: "message-1",
         sequence: 41,
@@ -102,6 +107,7 @@ describe("PrismaDirectConversationRepository", () => {
   test("scopes a delivery ACK to the Agent's current Computer assignment", async () => {
     const updates: object[] = [];
     const db = {
+      conversationMember: { findMany: async () => [] },
       agentMessageDelivery: {
         updateMany: async (input: object) => {
           updates.push(input);
@@ -205,6 +211,7 @@ describe("PrismaDirectConversationRepository", () => {
       replies: undefined,
     });
     const db = {
+      threadRead: { findMany: async () => [] },
       conversation: {
         findUnique: async (input: object) => {
           queries.push(input);
@@ -214,7 +221,6 @@ describe("PrismaDirectConversationRepository", () => {
                 id: "user-member",
                 userId: "user-1",
                 agentId: null,
-                threadReads: [],
                 user: { username: "alice" },
                 agent: null,
               },
@@ -222,7 +228,6 @@ describe("PrismaDirectConversationRepository", () => {
                 id: "agent-member",
                 userId: null,
                 agentId: "agent-1",
-                threadReads: [],
                 user: null,
                 agent: { id: "agent-1", name: "helper", displayName: "Helper" },
               },
@@ -289,6 +294,7 @@ describe("PrismaDirectConversationRepository", () => {
     });
     const rowsFor = (messages: object[]) =>
       ({
+        threadRead: { findMany: async () => [] },
         conversation: {
           findUnique: async (input: object) => {
             queries.push(input);
@@ -298,17 +304,27 @@ describe("PrismaDirectConversationRepository", () => {
                   id: "user-member",
                   userId: "user-1",
                   agentId: null,
-                  threadReads: [],
-                  user: { username: "alice" },
+                  user: {
+                    id: "user-1",
+                    username: "alice",
+                    displayName: "Alice",
+                    description: "",
+                    avatarObjectKey: null,
+                  },
                   agent: null,
                 },
                 {
                   id: "agent-member",
                   userId: null,
                   agentId: "agent-1",
-                  threadReads: [],
                   user: null,
-                  agent: { id: "agent-1", name: "helper", displayName: "Helper" },
+                  agent: {
+                    id: "agent-1",
+                    name: "helper",
+                    displayName: "Helper",
+                    description: "",
+                    avatarObjectKey: null,
+                  },
                 },
               ],
               messages,
@@ -343,6 +359,29 @@ describe("PrismaDirectConversationRepository", () => {
       ["root-5", 5],
       ["reply-6", 6],
     ]);
+    // The viewer's own row is in the list — that is what makes a mention *of the viewer*
+    // resolvable, and what the pane's formatter and the composer both read.
+    expect(midWindow.viewerHandle).toBe("alice");
+    expect(midWindow.mentionables).toEqual([
+      {
+        kind: "user",
+        id: "user-1",
+        handle: "alice",
+        label: "Alice",
+        description: "",
+        avatarUrl: null,
+        mentionScore: 0,
+      },
+      {
+        kind: "agent",
+        id: "agent-1",
+        handle: "helper",
+        label: "Helper",
+        description: "",
+        avatarUrl: null,
+        mentionScore: 0,
+      },
+    ]);
 
     // No overflow: this page is the live tail.
     const atTail = await new TestConversationRepository(
@@ -355,6 +394,7 @@ describe("PrismaDirectConversationRepository", () => {
 
   test("the initial page is the live tail with nothing newer to fetch", async () => {
     const db = {
+      threadRead: { findMany: async () => [] },
       conversation: {
         findUnique: async () => ({
           members: [
@@ -362,7 +402,6 @@ describe("PrismaDirectConversationRepository", () => {
               id: "user-member",
               userId: "user-1",
               agentId: null,
-              threadReads: [],
               user: { username: "alice" },
               agent: null,
             },
@@ -370,7 +409,6 @@ describe("PrismaDirectConversationRepository", () => {
               id: "agent-member",
               userId: null,
               agentId: "agent-1",
-              threadReads: [],
               user: null,
               agent: { id: "agent-1", name: "helper", displayName: "Helper" },
             },
@@ -413,7 +451,7 @@ describe("PrismaDirectConversationRepository", () => {
                 userId: null,
                 agentId: "agent-helper",
                 user: null,
-                agent: { name: "helper", displayName: "Helper" },
+                agent: { name: "helper", displayName: "Helper", avatarObjectKey: null },
               },
             },
           ];
@@ -592,7 +630,7 @@ describe("PrismaDirectConversationRepository", () => {
     expect((await repository.readMessages("workspace-1", "agent-1", "@frank"))[0]?.task).toEqual({
       number: 31,
       status: "in_review",
-      owner: { displayName: "Ada Lovelace", handle: "@ada" },
+      owner: { displayName: "Ada Lovelace", handle: "ada" },
     });
     expect(
       (await repository.readMessages("workspace-1", "agent-1", "@frank:12345678"))[0]?.task,
@@ -771,9 +809,26 @@ describe("PrismaDirectConversationRepository", () => {
     );
 
     expect(queries).toHaveLength(1);
-    expect(queries[0]).toEqual(["workspace-1", "agent-1", "agent-1", 100]);
+    // One statement, bound only to the Workspace, the Agent, and the resume budget: the channel
+    // top level and the channel thread replies (each its membership, then deliveries not already
+    // read as a non-member), the two direct-message branches, the notified-non-member branch (and
+    // its not-a-member check), the membership join, the delivery join, the budget.
+    expect(queries[0]).toEqual([
+      ...Array.from({ length: 2 }, () => [
+        "workspace-1",
+        "agent-1",
+        // Not already read while the Agent was notified from outside the channel.
+        "agent-1",
+      ]).flat(),
+      ...Array.from({ length: 3 }, () => ["workspace-1", "agent-1"]).flat(),
+      "agent-1",
+      "workspace-1",
+      "agent-1",
+      "agent-1",
+      100,
+    ]);
     expect(result.resumeMessages).toHaveLength(100);
-    expect(result.resumeMessages.slice(0, 2)).toEqual([
+    expect(result.resumeMessages.slice(0, 2)).toEqual<AgentRecoveryContext["resumeMessages"]>([
       {
         messageId: "conversation-0-message-5",
         deliveryId: "conversation-0-delivery-5",
@@ -934,7 +989,7 @@ describe("PrismaDirectConversationRepository", () => {
       "workspace-1",
       "agent-1",
     );
-    expect(recovery.resumeMessages).toEqual([
+    expect(recovery.resumeMessages).toEqual<AgentRecoveryContext["resumeMessages"]>([
       {
         messageId: "message-1",
         deliveryId: "delivery-1",
@@ -951,7 +1006,7 @@ describe("PrismaDirectConversationRepository", () => {
   });
 
   test("fails closed rather than shipping a degraded sender when no name can be resolved", async () => {
-    // ADR 0052 (decision B): an author row the database cannot produce (both `users.username`
+    // An author row the database cannot produce (both `users.username`
     // and `agents.name` are NOT NULL) must fail with a named error rather than substitute
     // `"@agent"` or a bare `"@"` — the shape that previously poisoned daemon ready recovery.
     const db = {
@@ -985,6 +1040,7 @@ describe("PrismaDirectConversationRepository", () => {
   test("reads all scoped unacknowledged deliveries oldest-first", async () => {
     const queries: object[] = [];
     const db = {
+      conversationMember: { findMany: async () => [] },
       agentMessageDelivery: {
         findMany: async (input: object) => {
           queries.push(input);
@@ -1003,6 +1059,7 @@ describe("PrismaDirectConversationRepository", () => {
                   user: { username: "alice", description: "" },
                 },
                 mentions: [],
+                pendingMentionActions: [],
               },
             },
           ];
@@ -1024,7 +1081,7 @@ describe("PrismaDirectConversationRepository", () => {
       orderBy: [{ createdAt: "asc" }, { deliveryId: "asc" }],
     });
     expect(queries[0]).not.toHaveProperty("take");
-    expect(result).toEqual([
+    expect(result).toEqual<PendingAgentDelivery[]>([
       {
         messageId: "message-1",
         deliveryId: "delivery-1",
@@ -1041,6 +1098,7 @@ describe("PrismaDirectConversationRepository", () => {
 
   test("reads Agent-authored pending deliveries with the Agent handle", async () => {
     const db = {
+      conversationMember: { findMany: async () => [] },
       agentMessageDelivery: {
         findMany: async () => [
           {
@@ -1057,6 +1115,7 @@ describe("PrismaDirectConversationRepository", () => {
                 user: null,
               },
               mentions: [],
+              pendingMentionActions: [],
             },
           },
         ],
@@ -1068,7 +1127,7 @@ describe("PrismaDirectConversationRepository", () => {
         "workspace-1",
         "agent-1",
       ),
-    ).resolves.toEqual([
+    ).resolves.toEqual<PendingAgentDelivery[]>([
       {
         messageId: "message-agent",
         deliveryId: "delivery-agent",
@@ -1085,6 +1144,7 @@ describe("PrismaDirectConversationRepository", () => {
 
   test("sendAgentMessage links two attachments in send order and rejects one the Agent did not upload", async () => {
     const updates: { where: unknown; data: unknown }[] = [];
+    let attachmentQueries = 0;
     const attachmentsById: Record<
       string,
       {
@@ -1130,19 +1190,24 @@ describe("PrismaDirectConversationRepository", () => {
         }),
       },
       attachment: {
-        findFirst: async ({
+        findMany: async ({
           where,
         }: {
-          where: { id: string; uploaderAgentId: string; messageId: null };
+          where: { id: { in: string[] }; uploaderAgentId: string; messageId: null };
         }) => {
-          const row = attachmentsById[where.id];
-          if (!row || row.uploaderAgentId !== where.uploaderAgentId) return null;
-          return {
-            id: row.id,
-            fileName: row.fileName,
-            contentType: row.contentType,
-            sizeBytes: row.sizeBytes,
-          };
+          attachmentQueries += 1;
+          return where.id.in.flatMap((id) => {
+            const row = attachmentsById[id];
+            if (!row || row.uploaderAgentId !== where.uploaderAgentId) return [];
+            return [
+              {
+                id: row.id,
+                fileName: row.fileName,
+                contentType: row.contentType,
+                sizeBytes: row.sizeBytes,
+              },
+            ];
+          });
         },
         update: async ({ where, data }: { where: unknown; data: unknown }) => {
           updates.push({ where, data });
@@ -1153,21 +1218,26 @@ describe("PrismaDirectConversationRepository", () => {
       threadFollow: { createMany: async () => {} },
     };
     const db = {
+      agent: {
+        findUnique: async () => ({ ownerId: "user-1", visibility: "public" }),
+      },
       conversation: {
         findUnique: async () => ({
           id: "conversation-1",
           workspaceId: "workspace-1",
           channelName: null,
-          members: [
-            {
-              id: "member-agent",
-              agentId: "agent-1",
-              userId: null,
-              agent: { name: "agent-1", description: "" },
-            },
-            { id: "member-user", agentId: null, userId: "user-1" },
-          ],
         }),
+      },
+      conversationMember: {
+        findMany: async () => [
+          {
+            id: "member-agent",
+            agentId: "agent-1",
+            userId: null,
+            agent: { name: "agent-1", description: "" },
+          },
+          { id: "member-user", agentId: null, userId: "user-1" },
+        ],
       },
       $transaction: async (fn: (tx: unknown) => unknown) => fn(tx),
     } as unknown as PrismaClient;
@@ -1180,20 +1250,81 @@ describe("PrismaDirectConversationRepository", () => {
 
     // Order matches send order (B, then A), not any other reordering.
     expect(result.attachments.map((a) => a.id)).toEqual(["attach-b", "attach-a"]);
+    expect(attachmentQueries).toBe(1);
     expect(updates).toEqual([
       { where: { id: "attach-b" }, data: { messageId: "message-new", position: 0 } },
       { where: { id: "attach-a" }, data: { messageId: "message-new", position: 1 } },
     ]);
 
-    // The uploaderAgentId gap ADR 0022 named: a different Agent's unlinked attachment is
-    // rejected, closing the gap ADR 0023's upload route opened it up to fix.
+    // The uploaderAgentId gap: a different Agent's unlinked attachment is rejected, which
+    // closes that gap.
     await expect(
       repository.sendAgentMessage("conversation-1", "agent-1", "not mine", ["attach-foreign"]),
     ).rejects.toThrow("attachment is not available for this message");
   });
 
+  test("sendAgentMessage stores a resolvable task reference as a token and leaves an unknown number alone", async () => {
+    const created: { data: { body: string } }[] = [];
+    const tx = {
+      $queryRaw: async () => [],
+      message: {
+        findFirst: async () => null,
+        create: async ({ data }: { data: { body: string } }) => {
+          created.push({ data });
+          return {
+            id: "message-new",
+            body: data.body,
+            createdAt: new Date("2026-09-17T00:00:00Z"),
+            sequence: 1,
+            deliveries: [],
+          };
+        },
+      },
+      attachment: { findMany: async () => [], update: async () => ({}) },
+      task: {
+        findMany: async ({ where }: { where: { number: { in: number[] } } }) =>
+          where.number.in.filter((number) => number === 68).map((number) => ({ number })),
+      },
+      conversationMember: { findMany: async () => [] },
+      threadFollow: { createMany: async () => {} },
+    };
+    const db = {
+      agent: { findUnique: async () => ({ ownerId: "user-1", visibility: "public" }) },
+      conversation: {
+        findUnique: async () => ({
+          id: "conversation-1",
+          workspaceId: "workspace-1",
+          channelName: null,
+        }),
+      },
+      conversationMember: {
+        findMany: async () => [
+          {
+            id: "member-agent",
+            agentId: "agent-1",
+            userId: null,
+            agent: { name: "agent-1", description: "" },
+          },
+          { id: "member-user", agentId: null, userId: "user-1" },
+        ],
+      },
+      $transaction: async (fn: (tx: unknown) => unknown) => fn(tx),
+    } as unknown as PrismaClient;
+
+    await new PrismaDirectConversationRepository(db).sendAgentMessage(
+      "conversation-1",
+      "agent-1",
+      "follow task #68, not task #999",
+      [],
+    );
+
+    // Only the number that names a real task of this conversation becomes a structured reference.
+    expect(created[0]!.data.body).toBe("follow <@task:68>, not task #999");
+  });
+
   test("sendMessage links two human-uploaded attachments in send order", async () => {
     const updates: { where: unknown; data: unknown }[] = [];
+    let attachmentQueries = 0;
     const attachmentsById: Record<
       string,
       { id: string; fileName: string; contentType: string; sizeBytes: number; objectKey: string }
@@ -1226,10 +1357,13 @@ describe("PrismaDirectConversationRepository", () => {
         }),
       },
       attachment: {
-        findFirst: async ({ where }: { where: { id: string; uploaderId: string } }) => {
-          const row = attachmentsById[where.id];
-          if (!row || where.uploaderId !== "user-1") return null;
-          return row;
+        findMany: async ({ where }: { where: { id: { in: string[] }; uploaderId: string } }) => {
+          attachmentQueries += 1;
+          return where.id.in.flatMap((id) => {
+            const row = attachmentsById[id];
+            if (!row || where.uploaderId !== "user-1") return [];
+            return [row];
+          });
         },
         update: async ({ where, data }: { where: unknown; data: unknown }) => {
           updates.push({ where, data });
@@ -1247,7 +1381,7 @@ describe("PrismaDirectConversationRepository", () => {
               id: "member-agent",
               userId: null,
               agentId: "agent-1",
-              agent: { name: "helper", computerId: null },
+              agent: { name: "helper", computerId: null, ownerId: "user-1", visibility: "public" },
             },
           ],
         }),
@@ -1265,17 +1399,353 @@ describe("PrismaDirectConversationRepository", () => {
     );
 
     expect(result.attachments.map((a) => a.id)).toEqual(["attach-b", "attach-a"]);
+    expect(attachmentQueries).toBe(1);
     expect(updates).toEqual([
       { where: { id: "attach-b" }, data: { messageId: "message-new", position: 0 } },
       { where: { id: "attach-a" }, data: { messageId: "message-new", position: 1 } },
     ]);
   });
 
+  test("sendMessage rejects a non-creator sending into a since-privatized DM", async () => {
+    const db = {
+      conversation: {
+        findUnique: async () => ({
+          workspaceId: "workspace-1",
+          members: [
+            { id: "member-user", userId: "user-2", agentId: null, user: { username: "bob" } },
+            {
+              id: "member-agent",
+              userId: null,
+              agentId: "agent-1",
+              agent: {
+                name: "helper",
+                computerId: null,
+                ownerId: "user-1",
+                visibility: "private",
+              },
+            },
+          ],
+        }),
+      },
+    } as unknown as PrismaClient;
+    await expect(
+      new PrismaDirectConversationRepository(db).sendMessage(
+        "conversation-1",
+        "member-user",
+        "user-2",
+        "hello",
+      ),
+    ).rejects.toMatchObject({ name: "AppError", code: "AGENT_DM_RESTRICTED" });
+  });
+
+  test("sendAgentMessage rejects a private Agent's own outbound DM to a non-creator", async () => {
+    const db = {
+      agent: {
+        findUnique: async () => ({ ownerId: "user-1", visibility: "private" }),
+      },
+      conversation: {
+        findUnique: async () => ({
+          id: "conversation-1",
+          workspaceId: "workspace-1",
+          channelName: null,
+        }),
+      },
+      conversationMember: {
+        findMany: async () => [
+          {
+            id: "member-agent",
+            agentId: "agent-1",
+            userId: null,
+            agent: { name: "agent-1", description: "" },
+          },
+          { id: "member-user", agentId: null, userId: "user-2" },
+        ],
+      },
+      $transaction: async (fn: (tx: unknown) => unknown) => fn({}),
+    } as unknown as PrismaClient;
+    await expect(
+      new PrismaDirectConversationRepository(db).sendAgentMessage(
+        "conversation-1",
+        "agent-1",
+        "hello",
+      ),
+    ).rejects.toMatchObject({ name: "AgentSendRejectedError", status: 403 });
+  });
+
+  test("sendAgentMessage rejoins a soft-left Agent on a DM before sending", async () => {
+    const memberUpdates: { where: unknown; data: unknown }[] = [];
+    const tx = {
+      $queryRaw: async () => [],
+      message: {
+        findFirst: async () => null,
+        create: async ({ data }: { data: { body: string } }) => ({
+          id: "message-rejoined",
+          body: data.body,
+          createdAt: new Date("2026-09-23T10:00:00Z"),
+          sequence: 9,
+          threadRootId: null,
+          mentions: [],
+          deliveries: [],
+        }),
+      },
+      attachment: { findMany: async () => [] },
+      conversationMember: { findMany: async () => [] },
+      threadFollow: { createMany: async () => {} },
+      task: { findMany: async () => [] },
+    };
+    const db = {
+      agent: {
+        findUnique: async () => ({
+          ownerId: "user-1",
+          visibility: "public",
+          deletedAt: null,
+        }),
+      },
+      conversation: {
+        findUnique: async () => ({
+          id: "conversation-1",
+          workspaceId: "workspace-1",
+          channelName: null,
+        }),
+      },
+      conversationMember: {
+        findMany: async () => [
+          {
+            id: "member-agent",
+            agentId: "agent-1",
+            userId: null,
+            leftAt: new Date("2026-09-18T09:32:30Z"),
+            agent: { name: "agent-1", description: "" },
+          },
+          { id: "member-user", agentId: null, userId: "user-1", leftAt: null },
+        ],
+        update: async ({ where, data }: { where: unknown; data: unknown }) => {
+          memberUpdates.push({ where, data });
+          return {};
+        },
+      },
+      $transaction: async (fn: (client: unknown) => unknown) => fn(tx),
+    } as unknown as PrismaClient;
+
+    const result = await new PrismaDirectConversationRepository(db).sendAgentMessage(
+      "conversation-1",
+      "agent-1",
+      "hello after rejoin",
+    );
+
+    expect(memberUpdates).toEqual([{ where: { id: "member-agent" }, data: { leftAt: null } }]);
+    expect(result).toMatchObject({ id: "message-rejoined", sequence: 9 });
+  });
+
+  test("sendAgentMessage rejects a soft-left Agent on a channel without rejoining", async () => {
+    const memberUpdates: unknown[] = [];
+    const db = {
+      conversation: {
+        findUnique: async () => ({
+          id: "channel-1",
+          workspaceId: "workspace-1",
+          channelName: "team",
+          archivedAt: null,
+        }),
+      },
+      conversationMember: {
+        findMany: async () => [
+          {
+            id: "member-agent",
+            agentId: "agent-1",
+            userId: null,
+            leftAt: new Date("2026-09-18T09:32:30Z"),
+            agent: { name: "agent-1", description: "" },
+          },
+        ],
+        update: async (input: unknown) => {
+          memberUpdates.push(input);
+          return {};
+        },
+      },
+      $transaction: async () => {
+        throw new Error("transaction must not run");
+      },
+    } as unknown as PrismaClient;
+
+    await expect(
+      new PrismaDirectConversationRepository(db).sendAgentMessage("channel-1", "agent-1", "hello"),
+    ).rejects.toMatchObject({ name: "AgentSendRejectedError", status: 403 });
+    expect(memberUpdates).toEqual([]);
+  });
+
+  test("sendAgentMessage does not rejoin a soft-left DM when the Agent is deleted", async () => {
+    const memberUpdates: unknown[] = [];
+    const db = {
+      agent: {
+        findUnique: async () => ({ deletedAt: new Date("2026-09-18T09:32:30Z") }),
+      },
+      conversation: {
+        findUnique: async () => ({
+          id: "conversation-1",
+          workspaceId: "workspace-1",
+          channelName: null,
+        }),
+      },
+      conversationMember: {
+        findMany: async () => [
+          {
+            id: "member-agent",
+            agentId: "agent-1",
+            userId: null,
+            leftAt: new Date("2026-09-18T09:32:30Z"),
+            agent: { name: "agent-1", description: "" },
+          },
+          { id: "member-user", agentId: null, userId: "user-1", leftAt: null },
+        ],
+        update: async (input: unknown) => {
+          memberUpdates.push(input);
+          return {};
+        },
+      },
+      $transaction: async () => {
+        throw new Error("transaction must not run");
+      },
+    } as unknown as PrismaClient;
+
+    await expect(
+      new PrismaDirectConversationRepository(db).sendAgentMessage(
+        "conversation-1",
+        "agent-1",
+        "hello",
+      ),
+    ).rejects.toMatchObject({ name: "AgentSendRejectedError", status: 403 });
+    expect(memberUpdates).toEqual([]);
+  });
+
+  describe("getOrCreateUserAgent", () => {
+    function fixture(options: { visibility: string; ownerId: string; existing?: { id: string } }) {
+      const created: unknown[] = [];
+      const db = {
+        agent: {
+          findFirst: async () => ({
+            id: "agent-1",
+            ownerId: options.ownerId,
+            visibility: options.visibility,
+          }),
+        },
+        conversation: {
+          findUnique: async () => options.existing ?? null,
+          create: async (input: { data: unknown }) => {
+            created.push(input.data);
+            return { id: "conversation-new" };
+          },
+        },
+      } as unknown as PrismaClient;
+      return { repository: new PrismaDirectConversationRepository(db), created };
+    }
+
+    test("a non-creator cannot start a brand-new DM with a private Agent", async () => {
+      const { repository, created } = fixture({ visibility: "private", ownerId: "user-1" });
+      await expect(
+        repository.getOrCreateUserAgent("workspace-1", "user-2", "agent-1"),
+      ).rejects.toMatchObject({ name: "AppError", code: "AGENT_DM_RESTRICTED" });
+      expect(created).toEqual([]);
+    });
+
+    test("the creator can always start a DM with their own private Agent", async () => {
+      const { repository, created } = fixture({ visibility: "private", ownerId: "user-1" });
+      await repository.getOrCreateUserAgent("workspace-1", "user-1", "agent-1");
+      expect(created).toHaveLength(1);
+    });
+
+    test("anyone can start a DM with a public Agent", async () => {
+      const { repository, created } = fixture({ visibility: "public", ownerId: "user-1" });
+      await repository.getOrCreateUserAgent("workspace-1", "user-2", "agent-1");
+      expect(created).toHaveLength(1);
+    });
+
+    test("an existing DM with a since-privatized Agent stays open for reading, not creation", async () => {
+      const { repository, created } = fixture({
+        visibility: "private",
+        ownerId: "user-1",
+        existing: { id: "conversation-old" },
+      });
+      const conversation = await repository.getOrCreateUserAgent(
+        "workspace-1",
+        "user-2",
+        "agent-1",
+      );
+      expect(conversation).toEqual({ id: "conversation-old" });
+      expect(created).toEqual([]);
+    });
+  });
+
+  describe("openForUser reports dmWritable", () => {
+    function fixture(options: { visibility: string; ownerId: string; viewerId: string }) {
+      const db = {
+        threadRead: { findMany: async () => [] },
+        conversation: {
+          findUnique: async () => ({
+            id: "conversation-1",
+            workspaceId: "workspace-1",
+            directKey: `agent:agent-1|user:${options.viewerId}`,
+            members: [
+              {
+                id: "member-user",
+                userId: options.viewerId,
+                agentId: null,
+                readThroughSequence: 0,
+                user: { username: "viewer" },
+              },
+              {
+                id: "member-agent",
+                userId: null,
+                agentId: "agent-1",
+                readThroughSequence: 0,
+                agent: {
+                  id: "agent-1",
+                  name: "helper",
+                  displayName: "Helper",
+                  deletedAt: null,
+                  ownerId: options.ownerId,
+                  visibility: options.visibility,
+                },
+              },
+            ],
+            messages: [],
+          }),
+        },
+      } as unknown as PrismaClient;
+      class TestConversationRepository extends PrismaDirectConversationRepository {
+        override async getOrCreateUserAgent() {
+          return { id: "conversation-1" };
+        }
+      }
+      return new TestConversationRepository(db);
+    }
+
+    test("the creator can always send, public or private", async () => {
+      const repository = fixture({ visibility: "private", ownerId: "user-1", viewerId: "user-1" });
+      const page = await repository.openForUser("workspace-1", "user-1", "agent-1");
+      expect(page.dmWritable).toBe(true);
+    });
+
+    test("a non-creator's existing DM with a private Agent reads read-only", async () => {
+      const repository = fixture({ visibility: "private", ownerId: "user-1", viewerId: "user-2" });
+      const page = await repository.openForUser("workspace-1", "user-2", "agent-1");
+      expect(page.dmWritable).toBe(false);
+    });
+
+    test("a public Agent's DM is always writable", async () => {
+      const repository = fixture({ visibility: "public", ownerId: "user-1", viewerId: "user-2" });
+      const page = await repository.openForUser("workspace-1", "user-2", "agent-1");
+      expect(page.dmWritable).toBe(true);
+    });
+  });
+
   test("unread counts group per DM by the Agent whose row owns the badge", async () => {
     const queries: { sql: string; values: unknown[] }[] = [];
     const db = {
       $queryRaw: async (strings: TemplateStringsArray, ...values: unknown[]) => {
-        queries.push({ sql: strings.join(""), values: flattenSqlValues(values) });
+        // Composed the way Prisma does, so the shared unread rule fragment is part of the text.
+        const statement = Prisma.sql(strings, ...values);
+        queries.push({ sql: statement.sql, values: statement.values });
         return [
           { agentId: "agent-1", unread: 3 },
           { agentId: "agent-2", unread: 0 },
@@ -1294,7 +1764,9 @@ describe("PrismaDirectConversationRepository", () => {
     const statement = queries[0]!;
     expect(statement.sql).toContain('"directKey" IS NOT NULL');
     expect(statement.sql).toContain('"threadRootId" IS NULL');
-    expect(statement.sql).toContain('> cm."readThroughSequence"');
+    expect(statement.sql).toContain(
+      'm."sequence" > LEAST(cm."readThroughSequence", cm."unreadFromSequence" - 1)',
+    );
     // The badge key is the conversation's agent member row, never the viewer's own row.
     expect(statement.sql).toContain('am."agentId"');
     expect(statement.sql).not.toContain('cm."agentId"');
@@ -1303,7 +1775,7 @@ describe("PrismaDirectConversationRepository", () => {
   });
 
   test("markRead clamps the boundary to the conversation end and stays monotone", async () => {
-    let updated: { where: object; data: object } | undefined;
+    const updated: { where: object; data: object }[] = [];
     const db = {
       agent: {
         findFirst: async () => ({ id: "agent-1" }),
@@ -1318,7 +1790,7 @@ describe("PrismaDirectConversationRepository", () => {
           },
           conversationMember: {
             updateMany: async (input: { where: object; data: object }) => {
-              updated = input;
+              updated.push(input);
             },
           },
         }),
@@ -1331,18 +1803,31 @@ describe("PrismaDirectConversationRepository", () => {
       "agent-1",
       10_000,
     );
-    expect(updated).toEqual({
-      where: {
-        conversationId: "conversation-1",
-        userId: "user-1",
-        readThroughSequence: { lt: 7 },
-        leftAt: null,
+    expect(updated).toEqual([
+      {
+        where: {
+          conversationId: "conversation-1",
+          userId: "user-1",
+          readThroughSequence: { lt: 7 },
+          leftAt: null,
+        },
+        data: { readThroughSequence: 7 },
       },
-      data: { readThroughSequence: 7 },
-    });
+      // Reading to the end also consumes a forced `mark as unread` marker at or below it, so the
+      // badge cannot come back on the next render (P2b, #125).
+      {
+        where: {
+          conversationId: "conversation-1",
+          userId: "user-1",
+          unreadFromSequence: { not: null, lte: 7 },
+          leftAt: null,
+        },
+        data: { unreadFromSequence: null },
+      },
+    ]);
 
     // An empty conversation refuses to move the cursor to a non-positive boundary.
-    updated = undefined;
+    updated.length = 0;
     const emptyDb = {
       agent: {
         findFirst: async () => ({ id: "agent-1" }),
@@ -1357,7 +1842,7 @@ describe("PrismaDirectConversationRepository", () => {
           },
           conversationMember: {
             updateMany: async (input: { where: object; data: object }) => {
-              updated = input;
+              updated.push(input);
             },
           },
         }),
@@ -1368,11 +1853,12 @@ describe("PrismaDirectConversationRepository", () => {
       "agent-1",
       5,
     );
-    expect(updated).toBeUndefined();
+    expect(updated).toEqual([]);
   });
 
   test("rejects a pending delivery without a valid public username target", async () => {
     const db = {
+      conversationMember: { findMany: async () => [] },
       agentMessageDelivery: {
         findMany: async () => [
           {

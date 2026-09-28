@@ -1,10 +1,10 @@
 import { expect, test } from "bun:test";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { decodeAgentMessageDelivery } from "@lrm/coforge-sdk/internal";
-import { PrismaClient } from "../generated/client";
-import { TaskBoard } from "../src/server/tasks/task-board.server";
-import { PrismaDirectConversationRepository } from "../src/server/db/repositories/direct-conversation.repositories.server";
-import { PublicChannels } from "../src/server/conversations/public-channels.server";
+import { PrismaClient } from "#src/generated/prisma/client";
+import { TaskBoard } from "#src/server/tasks/task-board.server";
+import { PrismaDirectConversationRepository } from "#src/server/db/repositories/direct-conversation.repositories.server";
+import { PublicChannels } from "#src/server/conversations/public-channels.server";
 
 test("TaskBoard atomically creates, converts, claims and revision-checks message Tasks", async () => {
   const connectionString = Bun.env.TASK_TEST_DATABASE_URL ?? Bun.env.DATABASE_URL;
@@ -72,6 +72,7 @@ test("TaskBoard atomically creates, converts, claims and revision-checks message
   }> = [];
   const board = new TaskBoard(db, {
     realtime: {
+      async memberChanged() {},
       async messageAvailable(event) {
         realtime.push(event);
       },
@@ -79,7 +80,7 @@ test("TaskBoard atomically creates, converts, claims and revision-checks message
   });
   const command = {
     operation: "create" as const,
-    requestId: crypto.randomUUID(),
+    idempotencyKey: crypto.randomUUID(),
     conversationId: channel.id,
     title: "Ship Task backend",
   };
@@ -115,7 +116,7 @@ test("TaskBoard atomically creates, converts, claims and revision-checks message
       { workspaceId: workspace.id, userId: alice.id },
       {
         operation: "create",
-        requestId: crypto.randomUUID(),
+        idempotencyKey: crypto.randomUUID(),
         conversationId: direct.id,
         title: "DM attachment task",
         attachmentId: attachment.id,
@@ -138,7 +139,7 @@ test("TaskBoard atomically creates, converts, claims and revision-checks message
       { workspaceId: workspace.id, agentId: agent.id },
       {
         operation: "create",
-        requestId: crypto.randomUUID(),
+        idempotencyKey: crypto.randomUUID(),
         target: `@${alice.username}`,
         title: "DM temporary resource",
         assignee: `@${agent.name}`,
@@ -147,7 +148,7 @@ test("TaskBoard atomically creates, converts, claims and revision-checks message
     );
     const directReceiptCommand = {
       operation: "receipt" as const,
-      requestId: crypto.randomUUID(),
+      idempotencyKey: crypto.randomUUID(),
       target: `@${alice.username}`,
       number: directResource.tasks[0]!.number,
       receipt: {
@@ -198,21 +199,25 @@ test("TaskBoard atomically creates, converts, claims and revision-checks message
           { workspaceId: workspace.id, userId },
           {
             operation: "claim",
-            requestId: crypto.randomUUID(),
+            idempotencyKey: crypto.randomUUID(),
             conversationId: channel.id,
             number: 1,
           },
         ),
       ),
     );
-    expect(competingClaims.filter(({ status }) => status === "fulfilled")).toHaveLength(1);
-    expect(competingClaims.filter(({ status }) => status === "rejected")).toHaveLength(1);
+    // Both claims are answered; exactly one of them holds the Task.
+    const claimRows = competingClaims.map((settled) =>
+      settled.status === "fulfilled" ? settled.value.claims?.[0] : undefined,
+    );
+    expect(claimRows.filter((claim) => claim?.success)).toHaveLength(1);
+    expect(claimRows.filter((claim) => claim && !claim.success)).toHaveLength(1);
 
     const converted = await board.execute(
       { workspaceId: workspace.id, agentId: agent.id },
       {
         operation: "convert",
-        requestId: crypto.randomUUID(),
+        idempotencyKey: crypto.randomUUID(),
         target: `#${channel.channelName}`,
         messageId: ordinary.id.slice(0, 8),
       },
@@ -228,7 +233,7 @@ test("TaskBoard atomically creates, converts, claims and revision-checks message
           { workspaceId: workspace.id, agentId: agent.id },
           {
             operation: "claim",
-            requestId: crypto.randomUUID(),
+            idempotencyKey: crypto.randomUUID(),
             target: `#${channel.channelName}`,
             number: 2,
           },
@@ -240,22 +245,31 @@ test("TaskBoard atomically creates, converts, claims and revision-checks message
       owner: { kind: "agent" },
     });
 
-    await expect(
-      board.execute(
-        { workspaceId: workspace.id, userId: bob.id },
-        {
-          operation: "claim",
-          requestId: crypto.randomUUID(),
-          conversationId: channel.id,
-          number: 2,
-        },
-      ),
-    ).rejects.toThrow("CONFLICT");
+    expect(
+      (
+        await board.execute(
+          { workspaceId: workspace.id, userId: bob.id },
+          {
+            operation: "claim",
+            idempotencyKey: crypto.randomUUID(),
+            conversationId: channel.id,
+            number: 2,
+          },
+        )
+      ).claims,
+    ).toEqual([
+      expect.objectContaining({
+        number: 2,
+        success: false,
+        reason: "already claimed",
+        conflict: expect.objectContaining({ currentAssignee: { type: "agent", name: agent.name } }),
+      }),
+    ]);
     const review = await board.execute(
       { workspaceId: workspace.id, agentId: agent.id },
       {
         operation: "update",
-        requestId: crypto.randomUUID(),
+        idempotencyKey: crypto.randomUUID(),
         target: `#${channel.channelName}`,
         number: 2,
         status: "in_review",
@@ -267,7 +281,7 @@ test("TaskBoard atomically creates, converts, claims and revision-checks message
         { workspaceId: workspace.id, agentId: agent.id },
         {
           operation: "update",
-          requestId: crypto.randomUUID(),
+          idempotencyKey: crypto.randomUUID(),
           target: `#${channel.channelName}`,
           number: 2,
           status: "done",
@@ -281,7 +295,7 @@ test("TaskBoard atomically creates, converts, claims and revision-checks message
           { workspaceId: workspace.id, agentId: agent.id },
           {
             operation: "update",
-            requestId: crypto.randomUUID(),
+            idempotencyKey: crypto.randomUUID(),
             target: `#${channel.channelName}`,
             number: 2,
             status: "done",
@@ -297,7 +311,7 @@ test("TaskBoard atomically creates, converts, claims and revision-checks message
       { workspaceId: workspace.id, userId: alice.id },
       {
         operation: "create",
-        requestId: crypto.randomUUID(),
+        idempotencyKey: crypto.randomUUID(),
         conversationId: channel.id,
         title: "Close without claiming",
       },
@@ -306,7 +320,7 @@ test("TaskBoard atomically creates, converts, claims and revision-checks message
       { workspaceId: workspace.id, userId: alice.id },
       {
         operation: "update",
-        requestId: crypto.randomUUID(),
+        idempotencyKey: crypto.randomUUID(),
         conversationId: channel.id,
         number: unowned.tasks[0]!.number,
         status: "closed",
@@ -320,7 +334,7 @@ test("TaskBoard atomically creates, converts, claims and revision-checks message
           { workspaceId: workspace.id, userId: bob.id },
           {
             operation: "update",
-            requestId: crypto.randomUUID(),
+            idempotencyKey: crypto.randomUUID(),
             conversationId: channel.id,
             number: closed.tasks[0]!.number,
             status: "todo",
@@ -332,7 +346,7 @@ test("TaskBoard atomically creates, converts, claims and revision-checks message
 
     const postCommitCommand = {
       operation: "create" as const,
-      requestId: crypto.randomUUID(),
+      idempotencyKey: crypto.randomUUID(),
       conversationId: channel.id,
       title: "Committed despite side-effect failures",
     };
@@ -343,6 +357,7 @@ test("TaskBoard atomically creates, converts, claims and revision-checks message
         },
       },
       realtime: {
+        async memberChanged() {},
         async messageAvailable() {
           throw new Error("offline");
         },
@@ -364,7 +379,7 @@ test("TaskBoard atomically creates, converts, claims and revision-checks message
     expect(recovered.tasks[0]!.messageId).toBe(committed.tasks[0]!.messageId);
     expect(
       await db.task.count({
-        where: { requestId: postCommitCommand.requestId },
+        where: { requestId: postCommitCommand.idempotencyKey },
       }),
     ).toBe(1);
 
@@ -376,7 +391,7 @@ test("TaskBoard atomically creates, converts, claims and revision-checks message
         { workspaceId: workspace.id, userId: alice.id },
         {
           operation: "create",
-          requestId: crypto.randomUUID(),
+          idempotencyKey: crypto.randomUUID(),
           conversationId: channel.id,
           title: "mixed singular",
           titles: ["mixed batch"],
@@ -389,7 +404,7 @@ test("TaskBoard atomically creates, converts, claims and revision-checks message
       { workspaceId: workspace.id, agentId: agent.id },
       {
         operation: "create",
-        requestId: crypto.randomUUID(),
+        idempotencyKey: crypto.randomUUID(),
         target: `#${channel.channelName}`,
         titles: ["batch one", "batch two"],
         assignee: `@${agent.name}`,
@@ -414,7 +429,7 @@ test("TaskBoard atomically creates, converts, claims and revision-checks message
       { workspaceId: workspace.id, agentId: agent.id },
       {
         operation: "list",
-        requestId: crypto.randomUUID(),
+        idempotencyKey: crypto.randomUUID(),
         target: `#${channel.channelName}`,
         status: "all",
       },
@@ -424,7 +439,7 @@ test("TaskBoard atomically creates, converts, claims and revision-checks message
       { workspaceId: workspace.id, agentId: agent.id },
       {
         operation: "update",
-        requestId: crypto.randomUUID(),
+        idempotencyKey: crypto.randomUUID(),
         target: `#${channel.channelName}`,
         number: batch.tasks[1]!.number,
         status: "closed",
@@ -434,7 +449,7 @@ test("TaskBoard atomically creates, converts, claims and revision-checks message
       { workspaceId: workspace.id, agentId: agent.id },
       {
         operation: "unclaim",
-        requestId: crypto.randomUUID(),
+        idempotencyKey: crypto.randomUUID(),
         target: `#${channel.channelName}`,
         number: batchClosed.tasks[0]!.number,
       },
@@ -449,7 +464,7 @@ test("TaskBoard atomically creates, converts, claims and revision-checks message
       { workspaceId: workspace.id, agentId: agent.id },
       {
         operation: "update",
-        requestId: crypto.randomUUID(),
+        idempotencyKey: crypto.randomUUID(),
         target: `#${channel.channelName}`,
         number: batch.tasks[0]!.number,
         status: "in_review",
@@ -459,7 +474,7 @@ test("TaskBoard atomically creates, converts, claims and revision-checks message
       { workspaceId: workspace.id, agentId: agent.id },
       {
         operation: "unclaim",
-        requestId: crypto.randomUUID(),
+        idempotencyKey: crypto.randomUUID(),
         target: `#${channel.channelName}`,
         number: releasedReview.tasks[0]!.number,
       },
@@ -468,7 +483,7 @@ test("TaskBoard atomically creates, converts, claims and revision-checks message
       { workspaceId: workspace.id, agentId: agent.id },
       {
         operation: "claim",
-        requestId: crypto.randomUUID(),
+        idempotencyKey: crypto.randomUUID(),
         target: `#${channel.channelName}`,
         numbers: [releasedReview.tasks[0]!.number, batchClosed.tasks[0]!.number],
       },
@@ -491,7 +506,7 @@ test("TaskBoard atomically creates, converts, claims and revision-checks message
       { workspaceId: workspace.id, agentId: agent.id },
       {
         operation: "claim",
-        requestId: crypto.randomUUID(),
+        idempotencyKey: crypto.randomUUID(),
         target: `#${channel.channelName}`,
         number: releasedReview.tasks[0]!.number,
         numbers: [releasedReview.tasks[0]!.number],
@@ -512,7 +527,7 @@ test("TaskBoard atomically creates, converts, claims and revision-checks message
       { workspaceId: workspace.id, agentId: agent.id },
       {
         operation: "claim",
-        requestId: crypto.randomUUID(),
+        idempotencyKey: crypto.randomUUID(),
         target: `#${channel.channelName}`,
         number: releasedReview.tasks[0]!.number,
       },
@@ -524,17 +539,19 @@ test("TaskBoard atomically creates, converts, claims and revision-checks message
         success: true,
       },
     ]);
-    await expect(
-      board.execute(
-        { workspaceId: workspace.id, agentId: agent.id },
-        {
-          operation: "claim",
-          requestId: crypto.randomUUID(),
-          target: `#${channel.channelName}`,
-          numbers: [batchClosed.tasks[0]!.number],
-        },
-      ),
-    ).rejects.toThrow("CONFLICT");
+    expect(
+      (
+        await board.execute(
+          { workspaceId: workspace.id, agentId: agent.id },
+          {
+            operation: "claim",
+            idempotencyKey: crypto.randomUUID(),
+            target: `#${channel.channelName}`,
+            numbers: [batchClosed.tasks[0]!.number],
+          },
+        )
+      ).claims,
+    ).toEqual([{ number: batchClosed.tasks[0]!.number, success: false, reason: "task is closed" }]);
     for (const changes of [
       { title: "   " },
       { title: "x".repeat(10_001) },
@@ -545,7 +562,7 @@ test("TaskBoard atomically creates, converts, claims and revision-checks message
           { workspaceId: workspace.id, userId: alice.id },
           {
             operation: "amend",
-            requestId: crypto.randomUUID(),
+            idempotencyKey: crypto.randomUUID(),
             conversationId: channel.id,
             number: batch.tasks[1]!.number,
             ...changes,
@@ -558,7 +575,7 @@ test("TaskBoard atomically creates, converts, claims and revision-checks message
       { workspaceId: workspace.id, agentId: agent.id },
       {
         operation: "amend",
-        requestId: crypto.randomUUID(),
+        idempotencyKey: crypto.randomUUID(),
         target: `#${channel.channelName}`,
         number: batch.tasks[1]!.number,
         title: "batch two amended",
@@ -567,10 +584,13 @@ test("TaskBoard atomically creates, converts, claims and revision-checks message
       },
     );
     expect(amendment.history?.[0]).toMatchObject({
-      beforeTitle: "batch two",
-      afterTitle: "batch two amended",
-      beforeDescription: null,
-      afterDescription: "exact acceptance criteria",
+      eventType: "amended",
+      payload: {
+        changes: {
+          title: { from: "batch two", to: "batch two amended" },
+          description: { from: null, to: "exact acceptance criteria" },
+        },
+      },
     });
     const amendmentRace = await Promise.allSettled(
       ["writer a", "writer b"].map((title) =>
@@ -578,7 +598,7 @@ test("TaskBoard atomically creates, converts, claims and revision-checks message
           { workspaceId: workspace.id, agentId: agent.id },
           {
             operation: "amend",
-            requestId: crypto.randomUUID(),
+            idempotencyKey: crypto.randomUUID(),
             target: `#${channel.channelName}`,
             number: batch.tasks[1]!.number,
             title,
@@ -593,7 +613,7 @@ test("TaskBoard atomically creates, converts, claims and revision-checks message
       { workspaceId: workspace.id, agentId: agent.id },
       {
         operation: "create",
-        requestId: crypto.randomUUID(),
+        idempotencyKey: crypto.randomUUID(),
         target: `#${channel.channelName}`,
         title: "temporary resource",
         assignee: `@${agent.name}`,
@@ -605,7 +625,7 @@ test("TaskBoard atomically creates, converts, claims and revision-checks message
         { workspaceId: workspace.id, agentId: agent.id },
         {
           operation: "update",
-          requestId: crypto.randomUUID(),
+          idempotencyKey: crypto.randomUUID(),
           target: `#${channel.channelName}`,
           number: resource.tasks[0]!.number,
           status: "done",
@@ -616,7 +636,7 @@ test("TaskBoard atomically creates, converts, claims and revision-checks message
       { workspaceId: workspace.id, agentId: agent.id },
       {
         operation: "receipt",
-        requestId: crypto.randomUUID(),
+        idempotencyKey: crypto.randomUUID(),
         target: `#${channel.channelName}`,
         number: resource.tasks[0]!.number,
         receipt: {
@@ -644,7 +664,7 @@ test("TaskBoard atomically creates, converts, claims and revision-checks message
           { workspaceId: workspace.id, agentId: agent.id },
           {
             operation: "update",
-            requestId: crypto.randomUUID(),
+            idempotencyKey: crypto.randomUUID(),
             target: `#${channel.channelName}`,
             number: resource.tasks[0]!.number,
             status: "done",
@@ -657,7 +677,7 @@ test("TaskBoard atomically creates, converts, claims and revision-checks message
       { workspaceId: workspace.id, agentId: agent.id },
       {
         operation: "create",
-        requestId: crypto.randomUUID(),
+        idempotencyKey: crypto.randomUUID(),
         target: `#${channel.channelName}`,
         title: "deleted number must stay reserved",
       },
@@ -666,7 +686,7 @@ test("TaskBoard atomically creates, converts, claims and revision-checks message
       { workspaceId: workspace.id, agentId: agent.id },
       {
         operation: "delete",
-        requestId: crypto.randomUUID(),
+        idempotencyKey: crypto.randomUUID(),
         target: `#${channel.channelName}`,
         number: deleted.tasks[0]!.number,
       },
@@ -675,7 +695,7 @@ test("TaskBoard atomically creates, converts, claims and revision-checks message
       { workspaceId: workspace.id, agentId: agent.id },
       {
         operation: "create",
-        requestId: crypto.randomUUID(),
+        idempotencyKey: crypto.randomUUID(),
         target: `#${channel.channelName}`,
         title: "number after deletion",
       },
@@ -742,6 +762,7 @@ test("assignment receipts survive mute and disconnect without waking unrelated A
   const signaled: string[] = [];
   const board = new TaskBoard(db, {
     realtime: {
+      async memberChanged() {},
       async messageAvailable(event) {
         signaled.push(event.messageId);
       },
@@ -756,7 +777,7 @@ test("assignment receipts survive mute and disconnect without waking unrelated A
   try {
     const command = {
       operation: "create" as const,
-      requestId: crypto.randomUUID(),
+      idempotencyKey: crypto.randomUUID(),
       conversationId: channel.id,
       titles: ["First reserved task", "Second reserved task"],
       assignee: `@${assigned!.name}`,
@@ -778,7 +799,8 @@ test("assignment receipts survive mute and disconnect without waking unrelated A
     const retried = await board.execute(principal, command);
     expect(retried.assignmentReceipt).toEqual(receipt);
     expect(published).toHaveLength(1);
-    expect(await db.message.count({ where: { conversationId: channel.id } })).toBe(3);
+    // Two Task messages, the creation notice, and the one receipt; the retry wrote nothing.
+    expect(await db.message.count({ where: { conversationId: channel.id } })).toBe(4);
     expect(await repo.readPendingAgentDeliveries(workspace.id, assigned!.id)).toEqual([
       expect.objectContaining({
         messageId: receipt.messageId,
@@ -829,7 +851,7 @@ test("assignment receipts survive mute and disconnect without waking unrelated A
     await expect(
       board.execute(agentPrincipal, {
         ...command,
-        requestId: crypto.randomUUID(),
+        idempotencyKey: crypto.randomUUID(),
         conversationId: undefined,
         target,
         assignee: `@${unrelated!.name}`,
@@ -837,7 +859,7 @@ test("assignment receipts survive mute and disconnect without waking unrelated A
     ).rejects.toThrow("ACCESS_DENIED");
     const changed = await board.execute(principal, {
       operation: "assign",
-      requestId: crypto.randomUUID(),
+      idempotencyKey: crypto.randomUUID(),
       conversationId: channel.id,
       number: created.tasks[0]!.number,
       assignee: `@${unrelated!.name}`,
@@ -846,7 +868,7 @@ test("assignment receipts survive mute and disconnect without waking unrelated A
     await expect(
       board.execute(agentPrincipal, {
         operation: "assign",
-        requestId: crypto.randomUUID(),
+        idempotencyKey: crypto.randomUUID(),
         target,
         number: created.tasks[0]!.number,
         assignee: `@${assigned!.name}`,
@@ -877,7 +899,7 @@ test("assignment receipts survive mute and disconnect without waking unrelated A
 
     const mine = await board.execute(agentPrincipal, {
       operation: "list",
-      requestId: crypto.randomUUID(),
+      idempotencyKey: crypto.randomUUID(),
       mine: true,
     });
     expect(mine.tasks).toEqual([
@@ -886,7 +908,7 @@ test("assignment receipts survive mute and disconnect without waking unrelated A
     const direct = await repo.getOrCreateUserAgent(workspace.id, human.id, assigned!.id);
     const directCreated = await board.execute(agentPrincipal, {
       operation: "create",
-      requestId: crypto.randomUUID(),
+      idempotencyKey: crypto.randomUUID(),
       target: `@${human.username}`,
       title: "Direct assignment",
       assignee: `@${assigned!.name}`,
@@ -904,7 +926,7 @@ test("assignment receipts survive mute and disconnect without waking unrelated A
     });
     const directMine = await board.execute(agentPrincipal, {
       operation: "list",
-      requestId: crypto.randomUUID(),
+      idempotencyKey: crypto.randomUUID(),
       mine: true,
     });
     expect(directMine.tasks.find((task) => task.conversationId === direct.id)?.channelRef).toBe(
@@ -923,7 +945,7 @@ test("assignment receipts survive mute and disconnect without waking unrelated A
     });
     await board.execute(agentPrincipal, {
       operation: "unclaim",
-      requestId: crypto.randomUUID(),
+      idempotencyKey: crypto.randomUUID(),
       target: `@${human.username}`,
       number: directCreated.tasks[0]!.number,
     });
@@ -935,7 +957,7 @@ test("assignment receipts survive mute and disconnect without waking unrelated A
     ).toBe("system");
     const selfAssignCommand = {
       operation: "assign" as const,
-      requestId: crypto.randomUUID(),
+      idempotencyKey: crypto.randomUUID(),
       target: `@${human.username}`,
       number: directCreated.tasks[0]!.number,
       assignee: `@${assigned!.name}`,
@@ -943,7 +965,7 @@ test("assignment receipts survive mute and disconnect without waking unrelated A
     const selfAssigned = await board.execute(agentPrincipal, selfAssignCommand);
     await board.execute(principal, {
       ...selfAssignCommand,
-      requestId: crypto.randomUUID(),
+      idempotencyKey: crypto.randomUUID(),
       target: undefined,
       conversationId: direct.id,
       assignee: `@${human.username}`,
@@ -954,7 +976,7 @@ test("assignment receipts survive mute and disconnect without waking unrelated A
     expect(signaled).toHaveLength(signalsBeforeRetry);
     await board.execute(principal, {
       operation: "delete",
-      requestId: crypto.randomUUID(),
+      idempotencyKey: crypto.randomUUID(),
       conversationId: direct.id,
       number: directCreated.tasks[0]!.number,
     });
@@ -971,12 +993,12 @@ test("assignment receipts survive mute and disconnect without waking unrelated A
     await db.$executeRaw`ALTER TABLE "messages" ADD CONSTRAINT "test_reject_system_receipt" CHECK ("senderMemberId" IS NOT NULL) NOT VALID`;
     try {
       await expect(
-        board.execute(principal, { ...command, requestId: crypto.randomUUID() }),
+        board.execute(principal, { ...command, idempotencyKey: crypto.randomUUID() }),
       ).rejects.toThrow();
       await expect(
         board.execute(principal, {
           operation: "assign",
-          requestId: crypto.randomUUID(),
+          idempotencyKey: crypto.randomUUID(),
           conversationId: channel.id,
           number: created.tasks[1]!.number,
           assignee: `@${unrelated!.name}`,
@@ -988,7 +1010,7 @@ test("assignment receipts survive mute and disconnect without waking unrelated A
       );
       const afterRollback = await board.execute(agentPrincipal, {
         operation: "list",
-        requestId: crypto.randomUUID(),
+        idempotencyKey: crypto.randomUUID(),
         mine: true,
       });
       expect(
@@ -1000,6 +1022,258 @@ test("assignment receipts survive mute and disconnect without waking unrelated A
   } finally {
     await db.workspace.delete({ where: { id: workspace.id } });
     await db.computer.delete({ where: { id: computer.id } });
+    await db.user.delete({ where: { id: human.id } });
+    await db.$disconnect();
+  }
+});
+
+test("a created Task's title stores its references as tokens, and its own mention rows decide who a muted channel wakes", async () => {
+  const connectionString = Bun.env.TASK_TEST_DATABASE_URL;
+  if (!connectionString) throw new Error("TASK_TEST_DATABASE_URL must point to local PostgreSQL");
+  const db = new PrismaClient({ adapter: new PrismaPg({ connectionString }) });
+  const suffix = crypto.randomUUID().slice(0, 8);
+  const human = await db.user.create({ data: { username: `tokens-${suffix}` } });
+  const workspace = await db.workspace.create({
+    data: {
+      slug: `task-tokens-${suffix}`,
+      name: "Task tokens",
+      members: { create: { userId: human.id, role: "owner" } },
+      agents: {
+        create: ["helper", "quiet", "open"].map((name) => ({
+          name: `${name}-${suffix}`,
+          displayName: name,
+          ownerId: human.id,
+          runtimeConfig: {},
+        })),
+      },
+    },
+    include: { agents: true },
+  });
+  const agentNamed = (name: string) =>
+    workspace.agents.find((agent) => agent.name === `${name}-${suffix}`)!;
+  const [helper, quiet, open] = [agentNamed("helper"), agentNamed("quiet"), agentNamed("open")];
+  const computer = await db.computer.create({
+    data: { ownerId: human.id, machineId: crypto.randomUUID() },
+  });
+  await db.agent.updateMany({
+    where: { workspaceId: workspace.id },
+    data: { computerId: computer.id },
+  });
+  try {
+    const product = await db.conversation.create({
+      data: { workspaceId: workspace.id, channelName: `product-${suffix}` },
+    });
+    const channel = await db.conversation.create({
+      data: {
+        workspaceId: workspace.id,
+        channelName: `work-${suffix}`,
+        members: {
+          create: [
+            { userId: human.id },
+            { agentId: helper.id, channelMuted: true },
+            { agentId: quiet.id, channelMuted: true },
+            { agentId: open.id },
+          ],
+        },
+      },
+    });
+    const published: ReturnType<typeof decodeAgentMessageDelivery>[] = [];
+    const board = new TaskBoard(db, {
+      publisher: {
+        async publish(_channel, payload) {
+          published.push(decodeAgentMessageDelivery(payload));
+        },
+      },
+    });
+    const principal = { workspaceId: workspace.id, userId: human.id };
+    const existing = (
+      await board.execute(principal, {
+        operation: "create",
+        idempotencyKey: crypto.randomUUID(),
+        conversationId: channel.id,
+        title: "Existing task",
+      })
+    ).tasks[0]!;
+    published.length = 0;
+
+    const created = await board.execute(principal, {
+      operation: "create",
+      idempotencyKey: crypto.randomUUID(),
+      conversationId: channel.id,
+      titles: [
+        `@${helper.name} see #product-${suffix} and task #${existing.number}`,
+        `not \`@${quiet.name}\` nor [ask @${quiet.name}](https://example.com)`,
+      ],
+      assignee: `@${helper.name}`,
+    });
+    const [referencing, codeOnly] = created.tasks;
+    const rows = await db.message.findMany({
+      where: { id: { in: [referencing!.messageId, codeOnly!.messageId] } },
+      orderBy: { sequence: "asc" },
+      select: {
+        body: true,
+        task: { select: { title: true } },
+        mentions: { select: { actorId: true } },
+        deliveries: { select: { agentId: true } },
+      },
+    });
+
+    // The Task's message stores its references as tokens, and the Task keeps that same body as its
+    // title, as a converted Task keeps its message's.
+    const tokenized = `<@agent:${helper.id}> see <@channel:${product.id}:product-${suffix}> and <@task:${existing.number}>`;
+    expect(rows.map((row) => [row.body, row.task!.title])).toEqual([
+      [tokenized, tokenized],
+      [
+        `not \`@${quiet.name}\` nor [ask @${quiet.name}](https://example.com)`,
+        `not \`@${quiet.name}\` nor [ask @${quiet.name}](https://example.com)`,
+      ],
+    ]);
+    expect(rows.map((row) => row.mentions.map((mention) => mention.actorId))).toEqual([
+      [helper.id],
+      [],
+    ]);
+    // Every reader still sees text.
+    const readable = `@${helper.name} see #product-${suffix} and task #${existing.number}`;
+    expect(referencing!.title).toBe(readable);
+    const notice = await db.message.findFirstOrThrow({
+      where: { conversationId: channel.id, senderMemberId: null, body: { contains: "created" } },
+      orderBy: { sequence: "desc" },
+      select: { body: true },
+    });
+    expect(notice.body).toContain(`"${readable}"`);
+    expect(notice.body).not.toContain("<@");
+
+    // Each Task's message wakes every unmuted Agent, plus a muted Agent its own mention rows name.
+    // The quiet Agent, written only in code and a link label, stays muted.
+    expect(rows.map((row) => row.deliveries.map((delivery) => delivery.agentId).sort())).toEqual([
+      [helper.id, open.id].sort(),
+      [open.id],
+    ]);
+    const taskPayloads = published.filter(
+      (payload) => payload.messageId === referencing!.messageId,
+    );
+    expect(taskPayloads.map((payload) => [payload.agentId, payload.body]).sort()).toEqual(
+      [
+        [helper.id, readable],
+        [open.id, readable],
+      ].sort(),
+    );
+
+    // The assignment receipt is unchanged: top level in the conversation, delivered only to the
+    // assignee, on the conversation's own target.
+    const receipt = await db.message.findUniqueOrThrow({
+      where: { id: created.assignmentReceipt!.messageId },
+      select: { threadRootId: true, deliveries: { select: { agentId: true } } },
+    });
+    expect(receipt).toEqual({ threadRootId: null, deliveries: [{ agentId: helper.id }] });
+    expect(
+      published
+        .filter((payload) => payload.messageId === created.assignmentReceipt!.messageId)
+        .map((payload) => [payload.agentId, payload.target]),
+    ).toEqual([[helper.id, `#${channel.channelName}`]]);
+
+    // Amending compares titles as they read: re-sending the same readable title changes nothing
+    // (no history, tokens kept), and a real change is recorded in readable form.
+    const amend = (title: string) =>
+      board.execute(principal, {
+        operation: "amend",
+        idempotencyKey: crypto.randomUUID(),
+        conversationId: channel.id,
+        number: referencing!.number,
+        title,
+      });
+    const unchanged = await amend(readable);
+    expect(unchanged.history ?? []).toEqual([]);
+    expect(unchanged.tasks[0]!.title).toBe(readable);
+    expect(
+      (await db.task.findUniqueOrThrow({ where: { messageId: referencing!.messageId } })).title,
+    ).toBe(tokenized);
+    const renamed = await amend("A new title");
+    expect(renamed.history).toEqual([
+      expect.objectContaining({
+        eventType: "amended",
+        payload: expect.objectContaining({
+          changes: { title: { from: readable, to: "A new title" } },
+        }),
+      }),
+    ]);
+  } finally {
+    await db.workspace.delete({ where: { id: workspace.id } });
+    await db.computer.delete({ where: { id: computer.id } });
+    await db.user.delete({ where: { id: human.id } });
+    await db.$disconnect();
+  }
+});
+
+test("converting by an eight-character message id finds only that channel's top-level message, in any case, and refuses an ambiguous one", async () => {
+  const connectionString = Bun.env.TASK_TEST_DATABASE_URL;
+  if (!connectionString) throw new Error("TASK_TEST_DATABASE_URL must point to local PostgreSQL");
+  const db = new PrismaClient({ adapter: new PrismaPg({ connectionString }) });
+  const suffix = crypto.randomUUID().slice(0, 8);
+  const human = await db.user.create({ data: { username: `short-id-${suffix}` } });
+  const workspace = await db.workspace.create({
+    data: {
+      slug: `task-short-id-${suffix}`,
+      name: "Task short ids",
+      members: { create: { userId: human.id, role: "owner" } },
+    },
+  });
+  try {
+    const [channel, other] = await Promise.all(
+      ["work", "other"].map((name) =>
+        db.conversation.create({
+          data: {
+            workspaceId: workspace.id,
+            channelName: `${name}-${suffix}`,
+            members: { create: { userId: human.id } },
+          },
+          include: { members: true },
+        }),
+      ),
+    );
+    // Ids that share a first eight characters, built so each prefix below names a known set.
+    const id = (prefix: string, tail: string) =>
+      `${prefix}-0000-4000-8000-${tail.padStart(12, "0")}`;
+    const post = (
+      conversation: typeof channel,
+      messageId: string,
+      sequence: number,
+      threadRootId?: string,
+    ) =>
+      db.message.create({
+        data: {
+          id: messageId,
+          workspaceId: workspace.id,
+          conversationId: conversation!.id,
+          senderMemberId: conversation!.members[0]!.id,
+          sequence,
+          body: `Message ${sequence}`,
+          threadRootId,
+        },
+      });
+    const unique = await post(channel, id("abcdef01", "1"), 1);
+    // The same prefix as a reply here and as a top-level message elsewhere names nothing extra.
+    await post(channel, id("abcdef01", "2"), 2, unique.id);
+    await post(other, id("abcdef01", "3"), 1);
+    await post(channel, id("abcdef02", "1"), 3);
+    await post(channel, id("abcdef02", "2"), 4);
+
+    const board = new TaskBoard(db);
+    const convert = (messageId: string) =>
+      board.execute(
+        { workspaceId: workspace.id, userId: human.id },
+        {
+          operation: "convert",
+          idempotencyKey: crypto.randomUUID(),
+          conversationId: channel!.id,
+          messageId,
+        },
+      );
+    expect((await convert("ABCDEF01")).tasks[0]).toMatchObject({ messageId: unique.id });
+    await expect(convert("abcdef02")).rejects.toThrow("CONFLICT");
+    await expect(convert("abcdef03")).rejects.toThrow("NOT_FOUND");
+  } finally {
+    await db.workspace.delete({ where: { id: workspace.id } });
     await db.user.delete({ where: { id: human.id } });
     await db.$disconnect();
   }

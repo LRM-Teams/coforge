@@ -1,6 +1,6 @@
 import { PrismaPg } from "@prisma/adapter-pg";
-import { PrismaClient } from "../../../generated/client";
-import { AppError } from "../../lib/app-error";
+import { PrismaClient } from "#src/generated/prisma/client";
+import { AppError } from "#src/lib/app-error";
 
 let client: PrismaClient | undefined;
 export function getDatabaseClient(): PrismaClient | undefined {

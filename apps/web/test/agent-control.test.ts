@@ -4,19 +4,19 @@ import {
   agentControlRevision,
   type AgentControlAgent,
   type AgentControlStore,
-} from "../src/server/agents/agent-control.server";
-import { AgentSessionReceiver } from "../src/server/agents/agent-session.server";
+} from "#src/server/agents/agent-control.server";
+import { AgentSessionReceiver } from "#src/server/agents/agent-session.server";
 import {
   AgentSessions,
   type RuntimeSessionReference,
-} from "../src/server/agents/agent-sessions.server";
+} from "#src/server/agents/agent-sessions.server";
 import {
   decodeAgentStartIntent,
   decodeAgentStopIntent,
   decodeAgentWorkspaceResetRequest,
 } from "@lrm/coforge-sdk/internal";
-import { isAppError } from "../src/lib/app-error";
-import type { WorkspaceMemberRole } from "../src/server/workspaces/member-role.server";
+import { isAppError } from "#src/lib/app-error";
+import type { WorkspaceMemberRole } from "#src/server/workspaces/member-role.server";
 
 function observationRace() {
   const runtimeConfig = {
@@ -50,6 +50,7 @@ function observationRace() {
     agent: {
       id: "a",
       ownerId: "owner",
+      visibility: "public",
       workspaceId: "w",
       computerId: "c",
       runtimeConfig,
@@ -281,6 +282,7 @@ test("a deleted Agent has no user-initiated control, but an internal Stop still 
     workspaceId: "workspace-a",
     computerId: "computer-a",
     ownerId: "owner-a",
+    visibility: "public",
     deletedAt: new Date("2026-09-18T04:00:00Z"),
     runtimeConfig: {
       runtime: "pi",
@@ -321,7 +323,7 @@ test("a deleted Agent has no user-initiated control, but an internal Stop still 
     { run: async (_id, work) => work() },
   );
 
-  // ADR 0044: every user-initiated action is refused, including Start, before anything publishes.
+  // Every user-initiated action is refused, including Start, before anything publishes.
   for (const action of ["start", "stop", "restart", "reset-session", "full-reset"] as const) {
     await expect(
       control.execute({
@@ -351,6 +353,7 @@ test("reset is one confirmed-stop then fresh-start operation and retains no old 
     workspaceId: "workspace-a",
     computerId: "computer-a",
     ownerId: "owner-a",
+    visibility: "public",
     runtimeConfig: {
       runtime: "pi",
       provider: { kind: "default" },
@@ -398,7 +401,7 @@ test("reset is one confirmed-stop then fresh-start operation and retains no old 
         events.push("start");
         expect(start.sessionId).toBeUndefined();
         expect(start.controlEpoch).toBe(1);
-        // ADR 0041: the server mints and publishes launchId; the Daemon adopts it as-is.
+        // The server mints and publishes launchId; the Daemon adopts it as-is.
         expect(start.launchId).toBeTruthy();
         await control.authorizeLaunch({ ...start, controlEpoch: start.controlEpoch! });
         await control.result(start, {
@@ -437,6 +440,7 @@ test.each([undefined, "pi", "codex", "claude-code", "coforge"] as const)(
       workspaceId: "workspace-a",
       computerId: "computer-a",
       ownerId: "owner-a",
+      visibility: "public",
       runtimeConfig: {
         runtime: provider ?? "pi",
         provider: { kind: "default" },
@@ -517,6 +521,7 @@ test("a Session snapshot cannot complete control, and recovered identity binds o
     workspaceId: "workspace-a",
     computerId: "computer-a",
     ownerId: "owner-a",
+    visibility: "public",
     runtimeConfig: config,
     state: {
       version: 1,
@@ -608,6 +613,7 @@ test("start wakes retain the completed launch fence while ready recovery creates
   let agent: AgentControlAgent = {
     id: "a",
     ownerId: "owner",
+    visibility: "public",
     workspaceId: "w",
     computerId: "c",
     runtimeConfig,
@@ -662,6 +668,7 @@ test("Full Reset halts on a terminal failure and a legacy failed reset-workspace
   let agent: AgentControlAgent = {
     id: "a",
     ownerId: "owner",
+    visibility: "public",
     workspaceId: "w",
     computerId: "c",
     runtimeConfig: {
@@ -739,6 +746,7 @@ test("a failed operation never latches: start, stop, restart, reset-session, and
     let agent: AgentControlAgent = {
       id: "a",
       ownerId: "owner",
+      visibility: "public",
       workspaceId: "w",
       computerId: "c",
       runtimeConfig: {
@@ -913,6 +921,7 @@ test("Full Reset completes when the workspace clear could not finish, and the Ag
   let agent: AgentControlAgent = {
     id: "a",
     ownerId: "owner",
+    visibility: "public",
     workspaceId: "w",
     computerId: "c",
     identity: { sessionId: "old", state: "resumable" },
@@ -967,7 +976,7 @@ test("Full Reset completes when the workspace clear could not finish, and the Ag
   const secondStart = decodeAgentStartIntent(sent[2]!);
   expect(secondStart).toMatchObject({ requestId: "reset", controlEpoch: 1 });
   expect(secondStart.sessionId).toBeUndefined();
-  // ADR 0041: the server minted this operation's launchId already (`begin()`), carried in the
+  // The server minted this operation's launchId already (`begin()`), carried in the
   // Start intent it just published.
   expect(secondStart.launchId).toBeTruthy();
   expect((await store.get("a"))?.state?.identity).toBeUndefined();
@@ -994,6 +1003,7 @@ test("Clear Session and advancement commit together; recovery retries that step,
   let agent: AgentControlAgent = {
     id: "a",
     ownerId: "owner",
+    visibility: "public",
     workspaceId: "w",
     computerId: "c",
     identity: { sessionId: "old", state: "resumable" },
@@ -1060,6 +1070,7 @@ test("a signal-driven wakeup trusts the ACK path and never republishes the comma
     workspaceId: "workspace-a",
     computerId: "computer-a",
     ownerId: "owner-a",
+    visibility: "public",
     runtimeConfig: {
       runtime: "pi",
       provider: { kind: "default" },
@@ -1150,12 +1161,16 @@ function executeAuthorizationFixture(options: {
   ownerId: string;
   role: WorkspaceMemberRole | undefined;
   stoppedAt?: Date;
+  /** Defaults "public" so every existing fixture stays visible to any current member,
+   * exactly as before this option existed. */
+  visibility?: string;
 }) {
   let agent: AgentControlAgent = {
     id: "a",
     ownerId: options.ownerId,
     workspaceId: "w",
     computerId: "c",
+    visibility: options.visibility ?? "public",
     runtimeConfig: {
       runtime: "pi",
       provider: { kind: "default" },
@@ -1213,6 +1228,41 @@ test("a Workspace member who does not own the Agent can Restart and Reset sessio
       agentId: "a",
       requestId: "reset-req",
       action: "reset-session",
+    }),
+  ).resolves.toMatchObject({ phase: "pending" });
+});
+
+test("a Workspace member who cannot see a private Agent gets NOT_FOUND from execute", async () => {
+  const { control } = executeAuthorizationFixture({
+    ownerId: "owner-user",
+    role: "member",
+    visibility: "private",
+  });
+  const error = await control
+    .execute({
+      userId: "member-user",
+      workspaceId: "w",
+      agentId: "a",
+      requestId: "restart-req",
+      action: "restart",
+    })
+    .catch((cause: unknown) => cause);
+  expect(isAppError(error) && error.code === "NOT_FOUND").toBe(true);
+});
+
+test("a Workspace admin can still Restart another member's private Agent", async () => {
+  const { control } = executeAuthorizationFixture({
+    ownerId: "owner-user",
+    role: "admin",
+    visibility: "private",
+  });
+  await expect(
+    control.execute({
+      userId: "admin-user",
+      workspaceId: "w",
+      agentId: "a",
+      requestId: "restart-req",
+      action: "restart",
     }),
   ).resolves.toMatchObject({ phase: "pending" });
 });
@@ -1313,7 +1363,7 @@ test("recover/publishStart/publishStop stay owner-authorized and ignore Workspac
   ).rejects.toThrow("Agent is not authorized or assigned");
 });
 
-// --- Latest command wins: supersede (ADR 0039) --------------------------------------------------
+// --- Latest command wins: supersede -------------------------------------------------------------
 
 const pendingRuntimeConfig = {
   runtime: "pi" as const,
@@ -1339,7 +1389,7 @@ function pendingOpStore(initial: AgentControlAgent) {
   return { store, current: () => agent };
 }
 
-/** `agent_control:operation_superseded` (ADR 0039) is normal behaviour, logged at info. */
+/** `agent_control:operation_superseded` is normal behaviour, logged at info. */
 function captureInfo() {
   const events: unknown[] = [];
   const original = console.info;
@@ -1352,10 +1402,11 @@ function captureInfo() {
   };
 }
 
-test("a fresh pending operation is superseded immediately by a different requestId, regardless of age (ADR 0039)", async () => {
+test("a fresh pending operation is superseded immediately by a different requestId, regardless of age", async () => {
   const { store, current } = pendingOpStore({
     id: "a",
     ownerId: "owner",
+    visibility: "public",
     workspaceId: "w",
     computerId: "c",
     runtimeConfig: pendingRuntimeConfig,
@@ -1420,12 +1471,13 @@ test("a fresh pending operation is superseded immediately by a different request
 
 /** Builds a hand-built pending Full Reset state at a given chain phase, for the tests below: a
  * pending Full Reset is superseded exactly like every other pending operation, at every phase
- * its chain can be caught in (ADR 0039 removed both the abandonment concept ADR 0035 introduced
- * and the full-reset-only exception ADR 0036 had already dropped from it). */
+ * its chain can be caught in (there is no abandonment concept and no full-reset-only
+ * exception). */
 function pendingFullResetFixture(phase: "stopping" | "clearing" | "starting") {
   return pendingOpStore({
     id: "a",
     ownerId: "owner",
+    visibility: "public",
     workspaceId: "w",
     computerId: "c",
     runtimeConfig: pendingRuntimeConfig,
@@ -1640,6 +1692,7 @@ test("same requestId stays idempotent while pending and after completion (no new
   const { store, current } = pendingOpStore({
     id: "a",
     ownerId: "owner",
+    visibility: "public",
     workspaceId: "w",
     computerId: "c",
     runtimeConfig: pendingRuntimeConfig,
@@ -1704,10 +1757,11 @@ test("same requestId stays idempotent while pending and after completion (no new
   expect(current().state).toMatchObject({ requestId: "same-request", epoch: 1 });
 });
 
-test("the superseded waiter resolves phase: 'superseded' instead of throwing (ADR 0039)", async () => {
+test("the superseded waiter resolves phase: 'superseded' instead of throwing", async () => {
   let agent: AgentControlAgent = {
     id: "a",
     ownerId: "owner",
+    visibility: "public",
     workspaceId: "w",
     computerId: "c",
     runtimeConfig: pendingRuntimeConfig,
@@ -1754,12 +1808,13 @@ test("the superseded waiter resolves phase: 'superseded' instead of throwing (AD
   expect(outcome).toEqual({ requestId: "supersede", action: "stop", phase: "superseded" });
 });
 
-// --- Late results from a superseded operation stay harmless (ADR 0039 rule 6) -------------------
+// --- Late results from a superseded operation stay harmless -------------------------------------
 
 test("an old stop result after a supersede is rejected as stale and leaves the new epoch unchanged", async () => {
   const { store, current } = pendingOpStore({
     id: "a",
     ownerId: "owner",
+    visibility: "public",
     workspaceId: "w",
     computerId: "c",
     runtimeConfig: pendingRuntimeConfig,
@@ -1817,6 +1872,7 @@ test("an old authorizeLaunch after a supersede is rejected as stale and leaves t
   const { store, current } = pendingOpStore({
     id: "a",
     ownerId: "owner",
+    visibility: "public",
     workspaceId: "w",
     computerId: "c",
     runtimeConfig: pendingRuntimeConfig,
@@ -1869,6 +1925,7 @@ test("an old started result after a supersede is rejected and leaves the new epo
   const { store, current } = pendingOpStore({
     id: "a",
     ownerId: "owner",
+    visibility: "public",
     workspaceId: "w",
     computerId: "c",
     runtimeConfig: pendingRuntimeConfig,
@@ -1929,6 +1986,7 @@ test("recover republishes a pending start unchanged, without superseding it", as
   const { store, current } = pendingOpStore({
     id: "a",
     ownerId: "owner",
+    visibility: "public",
     workspaceId: "w",
     computerId: "c",
     runtimeConfig: pendingRuntimeConfig,
@@ -1985,6 +2043,7 @@ test("publishStop drives a pending starting Agent through stop then a fresh star
   const { store, current } = pendingOpStore({
     id: "a",
     ownerId: "owner",
+    visibility: "public",
     workspaceId: "w",
     computerId: "c",
     runtimeConfig: pendingRuntimeConfig,
@@ -2063,7 +2122,7 @@ test("publishStop drives a pending starting Agent through stop then a fresh star
   });
 });
 
-// --- Start and Stop as user operations with a persisted stopped state (ADR 0038) --------------
+// --- Start and Stop as user operations with a persisted stopped state -------------------------
 
 test("a Workspace member who does not own the Agent can Start and Stop it", async () => {
   const stop = executeAuthorizationFixture({ ownerId: "owner-user", role: "member" });
@@ -2177,6 +2236,7 @@ test("a user-initiated Start carries the same recovery context a Daemon-ready re
   let agent: AgentControlAgent = {
     id: "a",
     ownerId: "owner-user",
+    visibility: "public",
     workspaceId: "w",
     computerId: "c",
     runtimeConfig: {
@@ -2260,10 +2320,256 @@ test("a user-initiated Start carries the same recovery context a Daemon-ready re
   });
 });
 
-test("a pending operation is superseded by a user-initiated Stop (ADR 0039)", async () => {
+test.each(["restart", "reset-session"] as const)(
+  "a %s's Start carries the messages that arrived while the Agent was stopped",
+  async (action) => {
+    const config = {
+      runtime: "pi" as const,
+      provider: { kind: "default" as const },
+      model: "",
+      modelProvider: "",
+      reasoning: "",
+    };
+    let agent: AgentControlAgent = {
+      id: "agent-a",
+      workspaceId: "workspace-a",
+      computerId: "computer-a",
+      ownerId: "owner-a",
+      visibility: "public",
+      runtimeConfig: config,
+      state: null,
+    };
+    const store: AgentControlStore = {
+      memberRole: async () => "owner",
+      async get() {
+        return structuredClone(agent);
+      },
+      async replace(before, state) {
+        if (JSON.stringify(before.state) !== JSON.stringify(agent.state)) return false;
+        agent = { ...agent, state };
+        return true;
+      },
+    };
+    const starts: ReturnType<typeof decodeAgentStartIntent>[] = [];
+    const control: AgentControl = new AgentControl(
+      store,
+      {
+        async publish(_channel, bytes) {
+          try {
+            const stop = decodeAgentStopIntent(bytes);
+            await control.result(stop, {
+              ...stop,
+              provider: stop.provider!,
+              epoch: stop.controlEpoch!,
+              phase: "stopped",
+              sequence: 1,
+            });
+          } catch {
+            const start = decodeAgentStartIntent(bytes);
+            starts.push(start);
+            await control.authorizeLaunch(start);
+            await control.result(start, {
+              ...start,
+              epoch: start.controlEpoch!,
+              launchId: start.launchId!,
+              phase: "started",
+              sequence: 2,
+              identity: { sessionId: "fresh", state: "empty" },
+            });
+          }
+        },
+      },
+      { run: async (_id, work) => work() },
+      { timeoutMs: 1, fallbackMs: 0 },
+      undefined,
+      undefined,
+      {
+        readAgentRecoveryContext: async () => ({
+          resumeMessages: [
+            {
+              messageId: "message-1",
+              deliveryId: "delivery-1",
+              conversationId: "conversation-1",
+              sequence: 3,
+              target: "@alice",
+              latestSenderKind: "human",
+              latestSenderHandle: "alice",
+              latestSenderDescription: "",
+              body: "held by the daemon before the restart",
+            },
+          ],
+          unreadSummary: { "@alice": 2 },
+        }),
+      },
+    );
+
+    await control.execute({
+      userId: "owner-a",
+      workspaceId: "workspace-a",
+      agentId: "agent-a",
+      requestId: "request-a",
+      action,
+    });
+
+    // The stop step drops what the daemon held, already acknowledged; the Start that follows
+    // brings the unread messages back from the read boundary, like a plain Start does.
+    expect(starts.length).toBeGreaterThan(0);
+    for (const start of starts)
+      expect(start).toMatchObject({
+        resumeMessages: [expect.objectContaining({ messageId: "message-1" })],
+        unreadSummary: { "@alice": 2 },
+      });
+  },
+);
+
+test("a configuration restart's Start carries unread messages; a recovery Start is not read twice", async () => {
+  const config = {
+    runtime: "pi" as const,
+    provider: { kind: "default" as const },
+    model: "",
+    modelProvider: "",
+    reasoning: "",
+  };
+  let agent: AgentControlAgent = {
+    id: "agent-a",
+    workspaceId: "workspace-a",
+    computerId: "computer-a",
+    ownerId: "owner-a",
+    visibility: "public",
+    runtimeConfig: config,
+    // The configuration change already stopped the Agent, dropping what its daemon held.
+    state: {
+      version: 1,
+      protocolMajor: 1,
+      requestId: "stop-request",
+      workspaceId: "workspace-a",
+      computerId: "computer-a",
+      agentId: "agent-a",
+      provider: "pi",
+      epoch: 1,
+      action: "stop",
+      phase: "completed",
+      configRevision: new Bun.CryptoHasher("sha256").update(JSON.stringify(config)).digest("hex"),
+      controlSequence: 1,
+      sessionSequence: 0,
+    },
+  };
+  const store: AgentControlStore = {
+    memberRole: async () => "owner",
+    async get() {
+      return structuredClone(agent);
+    },
+    async replace(before, state) {
+      if (JSON.stringify(before.state) !== JSON.stringify(agent.state)) return false;
+      agent = { ...agent, state };
+      return true;
+    },
+  };
+  const published: ReturnType<typeof decodeAgentStartIntent>[] = [];
+  let reads = 0;
+  const control = new AgentControl(
+    store,
+    { publish: async (_channel, bytes) => void published.push(decodeAgentStartIntent(bytes)) },
+    { run: async (_id, work) => work() },
+    { timeoutMs: 0, fallbackMs: 0 },
+    undefined,
+    undefined,
+    {
+      readAgentRecoveryContext: async () => {
+        reads++;
+        return { resumeMessages: [], unreadSummary: { "@alice": 2 } };
+      },
+    },
+  );
+  const scope = {
+    protocolMajor: 1,
+    workspaceId: "workspace-a",
+    computerId: "computer-a",
+    agentId: "agent-a",
+    provider: "pi" as const,
+    model: "",
+    reasoning: "",
+  };
+
+  await control.publishStart({ ...scope, requestId: "config-restart" }, "owner-a");
+  expect(reads).toBe(1);
+  expect(published.at(-1)).toMatchObject({ unreadSummary: { "@alice": 2 } });
+
+  // A Daemon-ready recovery Start brings its own context; it is not read again.
+  agent = { ...agent, state: { ...agent.state!, action: "stop", phase: "completed" } };
+  await control.publishStart(
+    { ...scope, requestId: "ready-recovery", unreadSummary: { "@bob": 1 } },
+    "owner-a",
+  );
+  expect(reads).toBe(1);
+  expect(published.at(-1)).toMatchObject({ unreadSummary: { "@bob": 1 } });
+});
+
+test("a Start still goes out when its unread messages cannot be read", async () => {
+  const config = {
+    runtime: "pi" as const,
+    provider: { kind: "default" as const },
+    model: "",
+    modelProvider: "",
+    reasoning: "",
+  };
+  let agent: AgentControlAgent = {
+    id: "agent-a",
+    workspaceId: "workspace-a",
+    computerId: "computer-a",
+    ownerId: "owner-a",
+    visibility: "public",
+    runtimeConfig: config,
+    state: null,
+  };
+  const store: AgentControlStore = {
+    memberRole: async () => "owner",
+    async get() {
+      return structuredClone(agent);
+    },
+    async replace(before, state) {
+      if (JSON.stringify(before.state) !== JSON.stringify(agent.state)) return false;
+      agent = { ...agent, state };
+      return true;
+    },
+  };
+  const published: ReturnType<typeof decodeAgentStartIntent>[] = [];
+  const control = new AgentControl(
+    store,
+    { publish: async (_channel, bytes) => void published.push(decodeAgentStartIntent(bytes)) },
+    { run: async (_id, work) => work() },
+    { timeoutMs: 0, fallbackMs: 0 },
+    undefined,
+    undefined,
+    {
+      readAgentRecoveryContext: async () => {
+        throw new Error("Agent conversation has no other member to target");
+      },
+    },
+  );
+
+  await control.publishStart(
+    {
+      protocolMajor: 1,
+      requestId: "config-restart",
+      workspaceId: "workspace-a",
+      computerId: "computer-a",
+      agentId: "agent-a",
+      provider: "pi",
+      model: "",
+      reasoning: "",
+    },
+    "owner-a",
+  );
+  expect(published).toHaveLength(1);
+  expect(published[0]!.resumeMessages ?? []).toEqual([]);
+});
+
+test("a pending operation is superseded by a user-initiated Stop", async () => {
   const { store, current } = pendingOpStore({
     id: "a",
     ownerId: "owner",
+    visibility: "public",
     workspaceId: "w",
     computerId: "c",
     runtimeConfig: pendingRuntimeConfig,
@@ -2302,10 +2608,11 @@ test("a pending operation is superseded by a user-initiated Stop (ADR 0039)", as
   expect(decodeAgentStopIntent(sent[0]!)).toMatchObject({ requestId: "stop-req", controlEpoch: 5 });
 });
 
-test("a pending operation is superseded by a user-initiated Start (ADR 0039)", async () => {
+test("a pending operation is superseded by a user-initiated Start", async () => {
   const { store, current } = pendingOpStore({
     id: "a",
     ownerId: "owner",
+    visibility: "public",
     workspaceId: "w",
     computerId: "c",
     runtimeConfig: pendingRuntimeConfig,
@@ -2347,11 +2654,12 @@ test("a pending operation is superseded by a user-initiated Start (ADR 0039)", a
   });
 });
 
-test("a user Start that meets an Agent already starting joins that launch instead of superseding it (ADR 0039)", async () => {
+test("a user Start that meets an Agent already starting joins that launch instead of superseding it", async () => {
   const starting = (action: "start" | "restart") =>
     pendingOpStore({
       id: "a",
       ownerId: "owner",
+      visibility: "public",
       workspaceId: "w",
       computerId: "c",
       runtimeConfig: pendingRuntimeConfig,
@@ -2421,8 +2729,8 @@ test("a user Start that meets an Agent already starting joins that launch instea
   expect(current().state).toMatchObject({ requestId: "third", epoch: 5, phase: "stopping" });
 });
 
-test("authorizeLaunch verifies without writing (ADR 0041): a concurrent Session write cannot affect it", async () => {
-  // ADR 0041: `launchId` is minted and persisted by `begin()`/`advance()`/`publishCurrent()` the
+test("authorizeLaunch verifies without writing: a concurrent Session write cannot affect it", async () => {
+  // `launchId` is minted and persisted by `begin()`/`advance()`/`publishCurrent()` the
   // moment the operation enters "starting" — before the Daemon ever calls this. `authorizeLaunch`
   // only verifies the Daemon's claimed launchId against that already-stored value; it never
   // writes, so there is no compare-and-swap race left for a concurrent Session write (e.g. an
@@ -2438,6 +2746,7 @@ test("authorizeLaunch verifies without writing (ADR 0041): a concurrent Session 
   let agent: AgentControlAgent = {
     id: "a",
     ownerId: "owner",
+    visibility: "public",
     workspaceId: "w",
     computerId: "c",
     runtimeConfig,
@@ -2510,6 +2819,7 @@ test("authorizeLaunch rejects a launch that is no longer current, without writin
   const agent: AgentControlAgent = {
     id: "a",
     ownerId: "owner",
+    visibility: "public",
     workspaceId: "w",
     computerId: "c",
     runtimeConfig,
@@ -2560,11 +2870,12 @@ test("authorizeLaunch rejects a launch that is no longer current, without writin
 });
 
 test.each(["start", "restart", "reset-session", "full-reset"] as const)(
-  "%s publishes a Start intent carrying the server-minted launchId (ADR 0041)",
+  "%s publishes a Start intent carrying the server-minted launchId",
   async (action) => {
     const { store } = pendingOpStore({
       id: "a",
       ownerId: "owner",
+      visibility: "public",
       workspaceId: "w",
       computerId: "c",
       runtimeConfig: pendingRuntimeConfig,
@@ -2644,6 +2955,7 @@ test("a launchId is minted once per operation and stays stable across a republis
   const { store, current } = pendingOpStore({
     id: "a",
     ownerId: "owner",
+    visibility: "public",
     workspaceId: "w",
     computerId: "c",
     runtimeConfig: pendingRuntimeConfig,
@@ -2691,10 +3003,11 @@ test("a launchId is minted once per operation and stays stable across a republis
   expect(current().state?.requestId).toBe("start-1");
 });
 
-test("publishCurrent mints and persists a launchId for a legacy 'starting' row that predates ADR 0041", async () => {
+test("publishCurrent mints and persists a launchId for a legacy 'starting' row that has none", async () => {
   let agent: AgentControlAgent = {
     id: "a",
     ownerId: "owner",
+    visibility: "public",
     workspaceId: "w",
     computerId: "c",
     runtimeConfig: pendingRuntimeConfig,
@@ -2712,7 +3025,7 @@ test("publishCurrent mints and persists a launchId for a legacy 'starting' row t
       configRevision: agentControlRevision(pendingRuntimeConfig),
       controlSequence: 0,
       sessionSequence: 0,
-      // No launchId: exactly the shape a row written before ADR 0041 shipped would have.
+      // No launchId: exactly the shape a row written before the server minted launchIds would have.
     },
   };
   const store: AgentControlStore = {

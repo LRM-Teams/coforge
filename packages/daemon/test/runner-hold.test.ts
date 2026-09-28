@@ -3,9 +3,9 @@ import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { realpathSync } from "node:fs";
 import { join } from "node:path";
-import { DaemonRuntime, type WorkspaceConfig } from "../src/daemon-runtime/runtime";
-import type { AgentRuntimeConfig, AgentSession } from "../src/code-agent/contract";
-import { InMemoryDaemonCredentialStore } from "../src/credentials/credential-store";
+import { DaemonRuntime, type WorkspaceConfig } from "#src/daemon-runtime/runtime";
+import type { AgentRuntimeConfig, AgentSession } from "#src/code-agent/contract";
+import { InMemoryDaemonCredentialStore } from "#src/credentials/credential-store";
 import {
   AGENT_ACTIVITY_DETAIL_KIND,
   type AgentActivityDetailKind,

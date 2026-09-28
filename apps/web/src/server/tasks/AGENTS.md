@@ -1,0 +1,70 @@
+# Task board
+
+These rules apply to `src/server/tasks/`. The framework-free shared Task
+contract is `packages/coforge-sdk/src/internal/tasks.ts`.
+
+- `TaskBoard.execute(principal, command)` is the single place for Task
+  authorization, atomic message and Task creation, numbering, exclusive claims,
+  assignment, card amendments and history, resource receipts, and status
+  writes. Agent Task RPC adapters under `server/agents/` call the same
+  TaskBoard and never duplicate its business rules.
+- `task-view.server.ts` owns how a stored Task reads: its selection, its
+  `TaskView`, and its stored status. `task-history.server.ts` owns which
+  history events a Task write records and how they read back. TaskBoard and
+  the Activity inbox read Tasks through them; do not map a Task row or parse
+  its status anywhere else.
+- `claim` answers every selector with a result row and never throws for a
+  refused one: `reason` says why (not found, done, closed, held), and a Task
+  another member holds adds `conflict` (holder, `claimedAt`, `observedAt`),
+  read in the refusing transaction. Only the browser seam (`executeTask`
+  calling `refuseUnclaimed`) turns a claim that claimed nothing into an error.
+- Resource expiry follow-up uses the existing Reminder persistence and
+  synchronization. Never add a second task scheduler.
+- TaskBoard creates the server-authored assignment Message and the assignee's
+  delivery eligibility in the same transaction.
+- Task writes post their server notice (wording in `task-notices.server.ts`)
+  through `withNotices`, which holds the conversation lock and signals open
+  pages after the commit. Creation, conversion and assignment post in the
+  conversation; claims, status moves and unassignment post in the Task's own
+  thread. `unclaim`, `delete`, `amend`, the resource `receipt`, `history`,
+  `list` and no-op writes post nothing. Only the assignment receipt is delivered,
+  pushed and fanned out to unread badges; other notices reach only the
+  conversation's own realtime channel.
+- Every Task write also announces the new copies of the Tasks it changed, or
+  the ids it deleted, as `task.changed.v1` (`ConversationRealtime.taskChanged`),
+  routed like its conversation's messages by `messageSignalScope`: a channel's
+  to the Workspace channel, a direct message's to its human viewer only, and
+  nowhere when it lacks one human and one Agent (`conversationSignalScopes`
+  never falls back to the Workspace for Task content). Its publication key
+  differs from the message signal's on the same channel, which Centrifugo would
+  drop as a duplicate. The
+  browser and Agent task routes both give TaskBoard the realtime port; the Agent
+  route gives it no delivery publisher or push notifier.
+- A null Message sender is the server identity, never a fabricated member.
+  Authenticated send adapters always supply their member identity. Message
+  reads and browser projections expose the server identity as `system` without
+  changing Agent-send wake rules.
+- Task message metadata belongs to the existing message read projections.
+- The Workspace Tasks page's reads (`overview`, `overviewTask`, `finishedSummary`,
+  `finishedPage`) live in `task-overview.server.ts` (`TaskOverviewReads`);
+  `TaskBoard` keeps them as entry points and lends it the `list` authorization
+  for a one-conversation read, so Task authorization stays in TaskBoard.
+- `TaskBoard.overview(workspaceId, userId)` is browser-only. It reads visible
+  channels only; a direct message's Tasks stay on that conversation's Tasks tab,
+  and every Workspace-page read (`overviewTask`, `finishedSummary`,
+  `finishedPage` without a conversation) shares that scope. It returns
+  unfinished Tasks only, newest first;
+  Done and Closed are read through `finishedSummary` (counts by status, owner
+  and Project) and `finishedPage` (50 per page, newest update first, cursor
+  `(updatedAt, messageId)`), both limited to a `week | month | all` window
+  and scoped to the Workspace page or one conversation. The Agent `list`
+  command keeps its own semantics.
+- An Agent's own list (`list` with `mine`) returns every Task assigned to it in
+  the conversations it is a member of, unfinished by default and without a page
+  limit. Its `coverage` and `pagination` describe that query and come from
+  `agentOwnTaskScope` beside it; change the two together.
+- An assignee is bound by id wherever it was picked (the browser sends
+  `user:<id>` or `agent:<id>`); a bare `@handle` (the Agent CLI) resolves
+  within the conversation, and when a person and an Agent share the name the
+  person is meant, as an unbound mention resolves. Never send a handle for a
+  pick: usernames are global and Agent names per Workspace, so they can clash.

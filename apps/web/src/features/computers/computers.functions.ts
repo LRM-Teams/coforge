@@ -2,12 +2,12 @@ import { createServerFn } from "@tanstack/react-start";
 import {
   encodeDaemonRuntimeProviderModelRefreshRequest,
   isValidReleaseVersion,
-  parseRuntimeProvider,
+  requireRuntimeProvider,
   WORKSPACE_PROTOCOL_MAJOR,
   type CodeAgentModelMetadata,
   type RuntimeProvider,
 } from "@lrm/coforge-sdk/internal";
-import { AppError } from "@/lib/app-error";
+import { AppError } from "#src/lib/app-error";
 
 import {
   computerIdInputSchema,
@@ -21,23 +21,23 @@ import {
 import {
   workspaceUserMiddleware,
   type WorkspaceUserContext,
-} from "../../server/auth/function-auth";
+} from "#src/features/auth/function-auth";
 import {
   createCentrifugoServerApi,
   createUsageScan,
   daemonControlChannel,
-} from "../../server/centrifugo/server-api.server";
-import { getUsageCache } from "../../server/centrifugo/usage-cache.server";
-import { getComputerStatusCache } from "../../server/centrifugo/computer-status.server";
-import { computerCreatorAvatarUrl } from "../../server/computers/computer-creator-avatar.server";
-import { isWorkspaceMemberComputer } from "../../server/computers/computer-membership.server";
-import { ComputerRuntimeVisibility } from "../../server/computers/computer-runtime-visibility.server";
-import { PrismaComputerRuntimeRepository } from "../../server/db/repositories/computer-runtime.repositories.server";
-import { RestartComputer } from "../../server/computers/restart-computer.server";
-import { getComputerRestartStore } from "../../server/computers/computer-restart-store.server";
-import { getComputerUpgradeStore } from "../../server/computers/computer-upgrade-store.server";
-import { UpgradeComputer } from "../../server/computers/upgrade-computer.server";
-import { resolveReleaseFeedUrl } from "../../server/install/install-script.server";
+} from "#src/server/centrifugo/server-api.server";
+import { getUsageCache } from "#src/server/centrifugo/usage-cache.server";
+import { getComputerStatusCache } from "#src/server/centrifugo/computer-status.server";
+import { computerCreatorAvatarUrl } from "#src/server/computers/computer-creator-avatar.server";
+import { isWorkspaceMemberComputer } from "#src/server/computers/computer-membership.server";
+import { ComputerRuntimeVisibility } from "#src/server/computers/computer-runtime-visibility.server";
+import { PrismaComputerRuntimeRepository } from "#src/server/db/repositories/computer-runtime.repositories.server";
+import { RestartComputer } from "#src/server/computers/restart-computer.server";
+import { getComputerRestartStore } from "#src/server/computers/computer-restart-store.server";
+import { getComputerUpgradeStore } from "#src/server/computers/computer-upgrade-store.server";
+import { UpgradeComputer } from "#src/server/computers/upgrade-computer.server";
+import { resolveReleaseFeedUrl } from "#src/server/install/install-script.server";
 
 export const restartComputer = createServerFn({ method: "POST" })
   .middleware([workspaceUserMiddleware])
@@ -105,6 +105,18 @@ export const readUsage = createServerFn({ method: "GET" })
     });
   });
 
+/** Every Computer connected to the Workspace, by identity only: what pickers and search name. */
+export const listComputerNames = createServerFn({ method: "GET" })
+  .middleware([workspaceUserMiddleware])
+  .handler(async ({ context: { db, workspaceId } }) => {
+    const connections = await db.workspaceComputer.findMany({
+      where: { workspaceId },
+      select: { computer: { select: { id: true, name: true, displayName: true, kind: true } } },
+      orderBy: { createdAt: "asc" },
+    });
+    return connections.map(({ computer }) => computer);
+  });
+
 export const listComputers = createServerFn({ method: "GET" })
   .middleware([workspaceUserMiddleware])
   .handler(async ({ context }) => {
@@ -134,8 +146,12 @@ export const listComputers = createServerFn({ method: "GET" })
       }),
       visibility.list({ workspaceId, userId: user.id }),
     ]);
+    // One round trip for every Computer's online lease, not one per Computer.
+    const statuses = await computerStatus.getMany(
+      connections.map(({ computer }) => ({ workspaceId, computerId: computer.id })),
+    );
     return Promise.all(
-      connections.map(async ({ computer, createdAt }) => {
+      connections.map(async ({ computer, createdAt }, index) => {
         const computerRuntimes = runtimes.filter((runtime) => runtime.computerId === computer.id);
         return {
           id: computer.id,
@@ -156,10 +172,7 @@ export const listComputers = createServerFn({ method: "GET" })
           },
           connectedAt: createdAt,
           ownedByCurrentUser: computer.ownerId === user.id,
-          online: await computerStatus.get({
-            workspaceId,
-            computerId: computer.id,
-          }),
+          online: statuses[index] ?? false,
           runtimes: computerRuntimes.map(({ ownerId: _ownerId, ...runtime }) => runtime),
         };
       }),
@@ -210,19 +223,47 @@ export const upgradeComputer = createServerFn({ method: "POST" })
     ).execute({ workspaceId }, data);
   });
 
+/** The release feed answers a version string that changes at most once per release, so a
+ * short-TTL module cache keeps the Computers page's loader off the network path: the first read
+ * in a window fetches, every read within the window reuses the answer. A failed fetch is also
+ * cached briefly (a shorter TTL) so an unreachable feed turns into one bounded stall per window
+ * instead of one on every page load. Single-instance server, so a module global is the cache. */
+const VERSION_TTL_MS = 60_000;
+const VERSION_FAILURE_TTL_MS = 10_000;
+let versionCache: { value: string | null; at: number } | undefined;
+
 export const getLatestComputerVersion = createServerFn({ method: "GET" }).handler(async () => {
   const feedUrl = resolveReleaseFeedUrl();
   if (!feedUrl) return null;
+  return readLatestComputerVersion(feedUrl);
+});
 
+/** One feed read through the TTL cache; exported for tests (inject the fetch so no network). */
+export async function readLatestComputerVersion(
+  feedUrl: string,
+  fetchImpl: typeof fetch = fetch,
+  now = Date.now,
+): Promise<string | null> {
+  if (
+    versionCache &&
+    now() - versionCache.at <
+      (versionCache.value === null ? VERSION_FAILURE_TTL_MS : VERSION_TTL_MS)
+  )
+    return versionCache.value;
   try {
-    const response = await fetch(`${feedUrl}/latest`, { signal: AbortSignal.timeout(3_000) });
-    if (!response.ok) return null;
+    const response = await fetchImpl(`${feedUrl}/latest`, { signal: AbortSignal.timeout(3_000) });
+    if (!response.ok) throw new Error("release feed unavailable");
     const version = (await response.text()).trim();
-    return isValidReleaseVersion(version) ? version : null;
+    const value = isValidReleaseVersion(version) ? version : null;
+    versionCache = { value, at: now() };
+    return value;
   } catch {
+    // Feed down or unparsable: remember the miss briefly so page loads during an outage
+    // skip the stall, but let the next read retry rather than pinning the failure a minute.
+    versionCache = { value: null, at: now() };
     return null;
   }
-});
+}
 
 export const getComputerRuntimeCatalog = createServerFn({ method: "GET" })
   .middleware([workspaceUserMiddleware])
@@ -357,7 +398,5 @@ function modelMetadata(value: unknown): CodeAgentModelMetadata[] | undefined {
 }
 
 function runtimeProvider(value: string): RuntimeProvider {
-  const provider = parseRuntimeProvider(value);
-  if (!provider) throw new Error("Computer reported an unknown runtime provider");
-  return provider;
+  return requireRuntimeProvider(value, "Computer reported an unknown runtime provider");
 }

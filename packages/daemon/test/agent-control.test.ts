@@ -1,20 +1,20 @@
 import { expect, test } from "bun:test";
 import { configure, reset, type LogRecord } from "@logtape/logtape";
-import { AgentControl } from "../src/agent-runtime/agent-control";
-import { AgentSessions } from "../src/agent-runtime/agent-session";
+import { AgentControl } from "#src/agent-runtime/agent-control";
+import { AgentSessions } from "#src/agent-runtime/agent-session";
 import {
   AgentRuntimeState,
   type AgentRuntimeRecord,
   type AgentRuntimeStateStore,
-} from "../src/agent-runtime/agent-runtime-state";
+} from "#src/agent-runtime/agent-runtime-state";
 import type {
   AgentWorkspaceResetRequest,
   AgentControlResult,
   AgentControlScope,
   AgentStartIntent,
 } from "@lrm/coforge-sdk/internal";
-import { AgentSessionRecoveryError, AgentProcessCleanupError } from "../src/code-agent/contract";
-import type { LaunchRetryScheduler } from "../src/agent-runtime/agent-control";
+import { AgentSessionRecoveryError, AgentProcessCleanupError } from "#src/code-agent/contract";
+import type { LaunchRetryScheduler } from "#src/agent-runtime/agent-control";
 
 /** Every test in this file that can fail a launch asserts on the operation's own outcome, so it
  * arms no automatic retry; the retry behaviour has its own coverage in
@@ -1218,7 +1218,7 @@ function rebindScope(overrides: Partial<AgentStartIntent> = {}): AgentStartInten
   };
 }
 
-test("a Start that meets an already-running process under an older, terminal operation rebinds (ADR 0041)", async () => {
+test("a Start that meets an already-running process under an older, terminal operation rebinds", async () => {
   let record: AgentRuntimeRecord | undefined;
   let active = false;
   let launches = 0;
@@ -1316,6 +1316,64 @@ test("a Start that meets an already-running process under an older, terminal ope
     epoch: 2,
     launch_id: "launch-new",
     outcome: "rebound",
+  });
+});
+
+test("a Start for a different native session stops the running process instead of rebinding", async () => {
+  let record: AgentRuntimeRecord | undefined;
+  let active = false;
+  let launches = 0;
+  let rebinds = 0;
+  let stops = 0;
+  const store: AgentRuntimeStateStore = {
+    listAgentIds: async () => [],
+    read: async () => record && structuredClone(record),
+    write: async (_id, value) => {
+      record = structuredClone(value);
+    },
+    clearWorkspace: async () => {},
+  };
+  const state = new AgentRuntimeState(store);
+  const control = new AgentControl("daemon", state, new AgentSessions(state, async () => {}), {
+    running: () => active,
+    async stop() {
+      stops++;
+      active = false;
+      return { sessionId: "native-1", state: "resumable" };
+    },
+    async launch(intent) {
+      launches++;
+      active = true;
+      return { sessionId: intent.sessionId ?? "native-1", state: "resumable" };
+    },
+    async rebind() {
+      rebinds++;
+      return { sessionId: "native-1", state: "resumable" };
+    },
+    async result() {},
+  });
+
+  await control.start(rebindScope({ sessionId: "native-1" }));
+  expect(launches).toBe(1);
+  expect(record?.identity?.sessionId).toBe("native-1");
+
+  await control.start(
+    rebindScope({
+      requestId: "start-2",
+      controlEpoch: 2,
+      launchId: "launch-new",
+      sessionId: "subject-b",
+      sessionMode: "resume",
+    }),
+  );
+
+  expect(stops).toBe(1);
+  expect(rebinds).toBe(0);
+  expect(launches).toBe(2);
+  expect(record).toMatchObject({
+    phase: "running",
+    launchId: "launch-new",
+    identity: { sessionId: "subject-b", state: "resumable" },
   });
 });
 
@@ -1569,7 +1627,7 @@ test("back-to-back Starts for the same Agent serialize through state.run: exactl
   expect(started).toHaveLength(2);
 });
 
-test("a managed Start intent with no launchId sends a failed result instead of minting one locally (ADR 0041)", async () => {
+test("a managed Start intent with no launchId sends a failed result instead of minting one locally", async () => {
   let record: AgentRuntimeRecord | undefined;
   const results: AgentControlResult[] = [];
   let launches = 0;

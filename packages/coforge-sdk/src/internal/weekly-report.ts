@@ -1,4 +1,5 @@
 import { RPC_METHODS } from "./rpc-methods";
+import { RFC_UUID_PATTERN } from "./uuid";
 /** Agent HTTPS weekly-report reads. Authorization is the assistant owner User. */
 export const AGENT_WEEKLY_REPORT_METHOD = RPC_METHODS.agentWeeklyReport;
 export const WEEKLY_REPORT_PROTOCOL_MAJOR = 1 as const;
@@ -39,7 +40,6 @@ export type WeeklyReportResponse = {
   result: unknown;
 };
 
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const SUBJECT_TYPES = new Set<string>(WEEKLY_REPORT_SUBJECT_TYPES);
 
 function isNonblank(value: unknown): value is string {
@@ -47,7 +47,7 @@ function isNonblank(value: unknown): value is string {
 }
 
 function isUuid(value: unknown): value is string {
-  return typeof value === "string" && UUID.test(value);
+  return typeof value === "string" && RFC_UUID_PATTERN.test(value);
 }
 
 export function validateWeeklyReportRequest(value: unknown): WeeklyReportRequest {

@@ -2,7 +2,7 @@
 
 /** Computed, never stored: `server_role` when the actor's Workspace/Agent server role is
  * owner/admin; otherwise `channel_role` when its own membership's stored `channelRole` is
- * `admin`; otherwise absent. `server_role` wins when both apply (ADR 0030). */
+ * `admin`; otherwise absent. `server_role` wins when both apply. */
 export type AgentChannelAdminBasis = "server_role" | "channel_role";
 
 export const AGENT_CHANNEL_CAPABILITIES = [
@@ -33,7 +33,7 @@ export type AgentChannelInfo = {
   channelAdminBasis?: AgentChannelAdminBasis;
   /** Every capability name; only the ones this Agent may currently invoke are `true`. */
   channelCapabilities: AgentChannelCapabilities;
-  /** Present only when this channel is a Project discussion group (ADR 0026) for a Project the
+  /** Present only when this channel is a Project discussion group for a Project the
    * Agent's own Workspace owns. Field names and source match `workspace info --projects`
    * (`WorkspaceInfoProject`), so an Agent can match the two surfaces up. Absent on an older
    * server that predates this field. */
@@ -50,7 +50,7 @@ export type AgentChannelInfo = {
  * (PATCH .../:channel), which returns the same info shape after applying its patch. */
 export type AgentChannelInfoResponse = {
   protocolMajor: 1;
-  requestId: string;
+  idempotencyKey: string;
   channel: AgentChannelInfo;
 };
 
@@ -59,7 +59,7 @@ export type AgentChannelRosterAgent = {
   displayName: string;
   description: string;
   /** The member's own server role (a rename of this field's former `role` name, matching
-   * Raft's `serverRole`; see ADR 0030). */
+   * Raft's `serverRole`). */
   serverRole: string;
   /** Present for a `#channel` roster (every listed member is active there); absent for the
    * `@user` DM roster, which has no channel-role concept. */
@@ -88,7 +88,7 @@ export type AgentChannelRosterHuman = {
 /** Response for `channel members` (GET /api/agent/v1/channels/:channel/members). */
 export type AgentChannelMembersResponse = {
   protocolMajor: 1;
-  requestId: string;
+  idempotencyKey: string;
   target: string;
   agents: AgentChannelRosterAgent[];
   humans: AgentChannelRosterHuman[];
@@ -98,7 +98,7 @@ export type AgentChannelMembersResponse = {
  * from the full join confirmation. */
 export type AgentChannelJoinResponse = {
   protocolMajor: 1;
-  requestId: string;
+  idempotencyKey: string;
   target: string;
   joined: true;
   alreadyJoined: boolean;
@@ -108,7 +108,7 @@ export type AgentChannelJoinResponse = {
  * text from the full leave confirmation. */
 export type AgentChannelLeaveResponse = {
   protocolMajor: 1;
-  requestId: string;
+  idempotencyKey: string;
   target: string;
   joined: false;
   wasMember: boolean;
@@ -117,7 +117,7 @@ export type AgentChannelLeaveResponse = {
 /** Response for `channel create` (POST /api/agent/v1/channels). */
 export type AgentChannelCreateResponse = {
   protocolMajor: 1;
-  requestId: string;
+  idempotencyKey: string;
   target: string;
   channel: { id: string; name: string; description: string };
 };
@@ -125,7 +125,7 @@ export type AgentChannelCreateResponse = {
 /** Response for `channel lifecycle archive|unarchive`. */
 export type AgentChannelArchiveResponse = {
   protocolMajor: 1;
-  requestId: string;
+  idempotencyKey: string;
   target: string;
   archived: boolean;
 };
@@ -134,7 +134,7 @@ export type AgentChannelArchiveResponse = {
  * #x." text from the full add-member confirmation. */
 export type AgentChannelAddMemberResponse = {
   protocolMajor: 1;
-  requestId: string;
+  idempotencyKey: string;
   target: string;
   member: { kind: "user" | "agent"; handle: string };
   added: true;
@@ -145,8 +145,46 @@ export type AgentChannelAddMemberResponse = {
  * text from the full remove-member confirmation. */
 export type AgentChannelRemoveMemberResponse = {
   protocolMajor: 1;
-  requestId: string;
+  idempotencyKey: string;
   target: string;
   removed: true;
   wasMember: boolean;
 };
+
+/** `agent_not_visible`: `channel add-member --agent <handle>` resolves to a private
+ * Agent the calling Agent cannot see — the same stable outcome `user-info.ts`/`profile.ts` carry,
+ * distinct from the plain-text "member not found"/"channel not found" bodies every other channel
+ * command error still uses. */
+export const AGENT_CHANNEL_ERROR_CODES = ["agent_not_visible"] as const;
+export type AgentChannelErrorCode = (typeof AGENT_CHANNEL_ERROR_CODES)[number];
+
+export type AgentChannelErrorResponse = {
+  ok: false;
+  errorCode: AgentChannelErrorCode;
+  error: string;
+};
+
+function isChannelErrorCode(value: unknown): value is AgentChannelErrorCode {
+  return (
+    typeof value === "string" && (AGENT_CHANNEL_ERROR_CODES as readonly string[]).includes(value)
+  );
+}
+
+/** Decodes the one JSON-enveloped channel error body; every other channel command failure stays
+ * plain text (an HTTP status plus a message), so this returns `undefined` for those. */
+export function decodeAgentChannelErrorResponse(
+  value: unknown,
+): AgentChannelErrorResponse | undefined {
+  if (
+    !value ||
+    typeof value !== "object" ||
+    !("ok" in value) ||
+    value.ok !== false ||
+    !("errorCode" in value) ||
+    !isChannelErrorCode(value.errorCode) ||
+    !("error" in value) ||
+    typeof value.error !== "string"
+  )
+    return undefined;
+  return { ok: false, errorCode: value.errorCode, error: value.error };
+}

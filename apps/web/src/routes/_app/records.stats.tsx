@@ -1,8 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
 
-import { PageLoadError } from "@/features/errors/page-load-error";
-import { WeeklyReportStats } from "@/features/records/weekly-report-stats";
-import { loadWeeklyReportStats } from "@/features/records/records.functions";
+import { PageLoadError } from "#src/features/errors/page-load-error";
+import { WeeklyReportStats } from "#src/features/records/weekly-report-stats";
+import { loadWeeklyReportStats } from "#src/features/records/records.functions";
 
 export const Route = createFileRoute("/_app/records/stats")({
   validateSearch: (search: Record<string, unknown>): { year: number; month: number } => {

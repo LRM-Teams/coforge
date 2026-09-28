@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { useRouter } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import {
@@ -10,15 +10,15 @@ import {
   UsersPlus,
 } from "@untitledui/icons";
 
-import { Avatar } from "@/components/base/avatar/avatar";
-import { Badge } from "@/components/base/badges/badges";
-import { Button } from "@/components/base/buttons/button";
-import { ButtonUtility } from "@/components/base/buttons/button-utility";
-import { Dropdown } from "@/components/base/dropdown/dropdown";
-import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
-import { useAppToast } from "@/components/ui/toast";
-import { avatarInitial, avatarToneClassName } from "@/lib/avatar-tone";
-import { m } from "@/paraglide/messages";
+import { Avatar } from "#src/components/base/avatar/avatar";
+import { Badge } from "#src/components/base/badges/badges";
+import { Button } from "#src/components/base/buttons/button";
+import { ButtonUtility } from "#src/components/base/buttons/button-utility";
+import { Dropdown } from "#src/components/base/dropdown/dropdown";
+import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "#src/components/ui/empty";
+import { useAppToast } from "#src/components/ui/toast";
+import { avatarInitial, avatarToneClassName } from "#src/lib/avatar-tone";
+import { m } from "#src/paraglide/messages";
 import { InviteMemberDialog } from "./invite-member-dialog";
 import {
   acceptWorkspaceInvitation,
@@ -63,6 +63,9 @@ export function WorkspaceMembersPanel(props: {
   members: MemberRow[];
   pendingInvitations: InvitationRow[];
   incomingInvitations: IncomingInvitation[];
+  /** Workspace-wide channel settings, for an owner or admin; placed between the members and the
+   * pending invitations. */
+  systemChannels?: ReactNode;
 }) {
   const canManage = props.actorRole === "owner" || props.actorRole === "admin";
   const [inviteOpen, setInviteOpen] = useState(false);
@@ -84,8 +87,8 @@ export function WorkspaceMembersPanel(props: {
     try {
       await action();
       await refresh();
-    } catch (error) {
-      toast.error(m.workspace_members_action_failed(), error);
+    } catch {
+      toast.error(m.workspace_members_action_failed());
     }
   }
 
@@ -170,7 +173,7 @@ export function WorkspaceMembersPanel(props: {
                     </div>
                   </div>
                   <div className="flex shrink-0 items-center gap-3">
-                    <Badge size="sm" color={member.role === "owner" ? "brand" : "gray"}>
+                    <Badge size="sm" color="gray">
                       {roleLabel(member.role)}
                     </Badge>
                     {hasActions && (
@@ -234,6 +237,8 @@ export function WorkspaceMembersPanel(props: {
             })}
           </ul>
         </section>
+
+        {props.systemChannels}
 
         {canManage && (
           <section className="py-6">

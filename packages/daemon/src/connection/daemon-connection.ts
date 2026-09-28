@@ -1,19 +1,6 @@
 import { Centrifuge } from "centrifuge/build/protobuf";
-import {
-  agentApiRoutes,
-  decodeGitHubCredentialResponse,
-  decodeGitHubCommitTrailersResponse,
-} from "@lrm/coforge-sdk/agent";
+import { agentApiRoutes } from "@lrm/coforge-sdk/agent";
 import type {
-  AgentEventsResponse,
-  AgentChannelAttentionResponse,
-  AgentThreadAttentionResponse,
-  AgentHistoryResponse,
-  AgentSearchResponse,
-  AgentSendResponse,
-  AgentResolveResponse,
-  AgentReactionResponse,
-  AgentMessage,
   AgentActionPrepareRequest,
   AgentActionPrepareResponse,
   GitHubCredentialRequest,
@@ -24,21 +11,16 @@ import type {
   AgentManualGetResponse,
   AgentManualSearchRequest,
   AgentManualSearchResponse,
-  AgentManualErrorCode,
   AgentUserInfoRequest,
   AgentUserInfoResponse,
-  AgentUserInfoErrorCode,
   AgentProfileShowRequest,
   AgentProfileShowResponse,
   AgentProfileUpdateRequest,
   AgentProfileUpdateResponse,
-  AgentProfileErrorCode,
+  AgentMentionExecuteRequest,
+  AgentMentionExecuteResponse,
+  AgentMentionPendingResponse,
 } from "@lrm/coforge-sdk/agent";
-import { AgentMessageRequestError } from "./agent-message-request-error";
-import { AgentManualRequestError } from "./agent-manual-request-error";
-import { AgentUserInfoRequestError } from "./agent-user-info-request-error";
-import { AgentProfileRequestError } from "./agent-profile-request-error";
-import { AgentTransportError } from "./agent-transport-error";
 import {
   forwardOpenVikingOffer,
   forwardOpenVikingRead,
@@ -62,6 +44,7 @@ import {
   decodeAgentStartIntent,
   decodeAgentStopIntent,
   decodeAgentActivityProbe,
+  decodeAgentInboxPurge,
   decodeAgentSkillsListRequest,
   encodeAgentSkillsListResult,
   AGENT_SKILLS_LIST_RESULT_METHOD,
@@ -115,6 +98,7 @@ import {
   type AgentStartIntent,
   type AgentStopIntent,
   type AgentActivityProbe,
+  type AgentInboxPurge,
   type AgentMessageDelivery,
   type AgentMessageDeliveryAck,
   type AgentMessageRequest,
@@ -137,17 +121,42 @@ import {
   type TaskResponse,
   type WeeklyReportRequest,
   type WeeklyReportResponse,
-  type ChannelCommand,
-  type ChannelOperation,
+  AGENT_ENVIRONMENT_MAX_NAME_LENGTH,
+  AGENT_ENVIRONMENT_MAX_SERIALIZED_LENGTH,
+  AGENT_ENVIRONMENT_MAX_VALUE_LENGTH,
+  AGENT_ENVIRONMENT_MAX_VARIABLES,
+  AGENT_ENVIRONMENT_NAME_PATTERN,
+  isReservedAgentEnvironmentName,
 } from "@lrm/coforge-sdk/internal";
-import { isAgentApiKey } from "../credentials/agent-api-key";
-import type { AgentRuntimeProviderConfig } from "../code-agent/contract";
-import type { AgentLaunchIdentity } from "../code-agent/agent-instructions";
-import { diagnosticErrorCode } from "../platform/diagnostic-error-code";
-import { AgentWeeklyReportRequestError } from "./agent-weekly-report-request-error";
+import { isAgentApiKey } from "#src/credentials/agent-api-key";
+import type { AgentRuntimeProviderConfig } from "#src/code-agent/contract";
+import type { AgentLaunchIdentity } from "#src/code-agent/agent-instructions";
+import { diagnosticErrorCode } from "#src/platform/diagnostic-error-code";
 import { controlPayloadShape } from "./control-payload";
 import { connectionLiveness, INBOUND_STALLED_MS } from "./connection-liveness";
 import { getLogger } from "@logtape/logtape";
+import { AGENT_RPC_TIMEOUT_MS, agentHeaders, channelEndpointFor } from "./agent-http-wire";
+import {
+  adaptAgentHistoryResponse,
+  adaptAgentSearchResponse,
+  adaptAgentSendResponse,
+  adaptAgentResolveResponse,
+  adaptAgentReactionResponse,
+  defaultAgentMessageHttpClient,
+  defaultAgentWeeklyReportHttpClient,
+  defaultAgentWeeklyReportCollectHttpClient,
+  defaultAgentWeeklyReportKeyPointsHttpClient,
+  defaultAgentTaskHttpClient,
+  defaultAgentChannelHttpClient,
+  defaultAgentActionPrepareHttpClient,
+  type AgentMessageHttpClient,
+  type AgentTaskHttpClient,
+  type AgentChannelHttpClient,
+  type AgentActionPrepareHttpClient,
+  type AgentWeeklyReportHttpClient,
+  type AgentChannelRequest,
+  type AgentMessageTransportResponse,
+} from "./agent-http-clients";
 
 export type AgentLaunchConfig = {
   agentApiKey: string;
@@ -171,7 +180,6 @@ const READY_RETRY_ESCALATE_AFTER = 5;
  * delay this is roughly every ten minutes. */
 const READY_RETRY_ESCALATE_EVERY = 10;
 const REMEMBERED_REQUEST_IDS = 256;
-const AGENT_RPC_TIMEOUT_MS = 10_000;
 const logger = getLogger(["coforge", "daemon", "connection"]);
 
 /** The server's own name for the ready step that failed, when its rejection carries one.
@@ -218,203 +226,6 @@ export interface DaemonConnectionConfig {
   requestUpgrade?(requestId: string, expectedVersion?: string): Promise<void>;
 }
 
-type AgentHttpInput<Request> = {
-  url: string;
-  agentApiKey: string;
-  daemonApiKey: string;
-  request: Request;
-};
-
-export interface AgentMessageHttpClient {
-  requestRead?(input: AgentHttpInput<AgentMessageRequest>): Promise<AgentHistoryResponse>;
-  requestSearch?(input: AgentHttpInput<AgentMessageRequest>): Promise<AgentSearchResponse>;
-  requestSend?(input: AgentHttpInput<AgentMessageRequest>): Promise<AgentSendResponse>;
-  requestResolve?(input: AgentHttpInput<AgentMessageRequest>): Promise<AgentResolveResponse>;
-  requestReaction?(
-    input: AgentHttpInput<AgentMessageRequest> & { method: "POST" | "DELETE" },
-  ): Promise<AgentReactionResponse>;
-  /** `check` drains the server-side pending events page; the server advances the read boundary. */
-  requestEvents?(input: AgentHttpInput<AgentMessageRequest>): Promise<AgentEventsResponse>;
-  requestChannelMute?(
-    input: AgentHttpInput<AgentMessageRequest & { muted: boolean }>,
-  ): Promise<AgentChannelAttentionResponse>;
-  requestThreadUnfollow?(
-    input: AgentHttpInput<AgentMessageRequest>,
-  ): Promise<AgentThreadAttentionResponse>;
-  requestReminder?(
-    input: AgentHttpInput<AgentReminderOperationRequest>,
-  ): Promise<AgentReminderOperationResponse>;
-  requestWorkspaceInfo?(
-    input: AgentHttpInput<WorkspaceInfoRequest>,
-  ): Promise<WorkspaceInfoResponse>;
-  requestGitHubCredential?(
-    input: AgentHttpInput<GitHubCredentialRequest>,
-  ): Promise<GitHubCredentialResponse>;
-  requestGitHubCommitTrailers?(
-    input: AgentHttpInput<GitHubCommitTrailersRequest>,
-  ): Promise<GitHubCommitTrailersResponse>;
-  requestManualGet?(input: AgentHttpInput<AgentManualGetRequest>): Promise<AgentManualGetResponse>;
-  requestManualSearch?(
-    input: AgentHttpInput<AgentManualSearchRequest>,
-  ): Promise<AgentManualSearchResponse>;
-  requestUserInfo?(input: AgentHttpInput<AgentUserInfoRequest>): Promise<AgentUserInfoResponse>;
-  requestProfileShow?(
-    input: AgentHttpInput<AgentProfileShowRequest>,
-  ): Promise<AgentProfileShowResponse>;
-  requestProfileUpdate?(
-    input: AgentHttpInput<AgentProfileUpdateRequest>,
-  ): Promise<AgentProfileUpdateResponse>;
-}
-
-/**
- * The internal shape `DaemonConnection.agentMessage` returns to `DaemonRuntime`, carrying exactly
- * what `DaemonRuntime` consumes across every Agent message operation. Each per-route HTTP response
- * type (`AgentHistoryResponse`/`AgentSearchResponse`/`AgentSendResponse`/`AgentResolveResponse`/
- * `AgentReactionResponse`/`AgentEventsResponse`/`AgentChannelAttentionResponse`/
- * `AgentThreadAttentionResponse`) is adapted into this shape by `agentMessage`; it is no longer
- * `CloudAgentMessageResponse & {...}` now that the shared envelope is gone.
- */
-export type AgentMessageTransportResponse = {
-  protocolMajor: number;
-  requestId: string;
-  accepted: boolean;
-  attentionCount: number;
-  messageId?: string;
-  messages: AgentMessage[];
-  /** `send` only: Raft's send contract (state/decision/reason/counts). */
-  state?: "sent" | "held";
-  decision?: AgentSendResponse["decision"];
-  reason?: string;
-  producerFactId?: string;
-  availableActions?: string[];
-  continueAnywaySuggested?: boolean;
-  newMessageCount?: number;
-  shownMessageCount?: number;
-  omittedMessageCount?: number;
-  hasOlder?: boolean;
-  hasNewer?: boolean;
-  olderCursor?: string;
-  newerCursor?: string;
-  freshnessContextMode?: "inline" | "withheld";
-  withheldMessageCount?: number;
-  /** `send` only: Raft's `seenUpToSeq` on a held response — the frontier the notice presented and
-   * that the daemon records as consumed (Raft's `recordConsumedSeqs`). */
-  seenUpToSeq?: number;
-  hasMore?: boolean;
-  /** `send` only: pending messages a bypassed hold chose not to review; empty otherwise. */
-  recentUnread?: AgentMessage[];
-};
-
-/** Adapts the read route's response into the shape `DaemonRuntime` consumes. */
-function adaptAgentHistoryResponse(response: AgentHistoryResponse): AgentMessageTransportResponse {
-  return {
-    protocolMajor: response.protocolMajor,
-    requestId: response.requestId,
-    accepted: true,
-    attentionCount: 0,
-    messages: response.messages,
-    hasOlder: response.hasOlder,
-    hasNewer: response.hasNewer,
-    olderCursor: response.olderCursor,
-    newerCursor: response.newerCursor,
-  };
-}
-
-/** Adapts the dedicated search route's response into the shape `DaemonRuntime` consumes. */
-function adaptAgentSearchResponse(response: AgentSearchResponse): AgentMessageTransportResponse {
-  return {
-    protocolMajor: response.protocolMajor,
-    requestId: response.requestId,
-    accepted: true,
-    attentionCount: 0,
-    messages: response.results,
-  };
-}
-
-/**
- * Adapts the send route's response into the shape `DaemonRuntime` consumes. Raft's own
- * `state`/`decision` are carried through unchanged; `messages` is the held context window.
- */
-function adaptAgentSendResponse(response: AgentSendResponse): AgentMessageTransportResponse {
-  return {
-    protocolMajor: response.protocolMajor,
-    requestId: response.requestId,
-    accepted: response.state === "sent",
-    attentionCount: response.heldMessages?.length ?? 0,
-    messageId: response.messageId,
-    messages: response.heldMessages ?? [],
-    state: response.state,
-    decision: response.decision,
-    reason: response.reason,
-    producerFactId: response.producerFactId,
-    availableActions: response.availableActions,
-    continueAnywaySuggested: response.continueAnywaySuggested,
-    newMessageCount: response.newMessageCount,
-    shownMessageCount: response.shownMessageCount,
-    omittedMessageCount: response.omittedMessageCount,
-    freshnessContextMode: response.freshnessContextMode,
-    withheldMessageCount: response.withheldMessageCount,
-    seenUpToSeq: response.seenUpToSeq,
-    recentUnread: response.recentUnread,
-  };
-}
-
-/** Adapts the resolve route's response into the shape `DaemonRuntime` consumes. */
-function adaptAgentResolveResponse(response: AgentResolveResponse): AgentMessageTransportResponse {
-  return {
-    protocolMajor: response.protocolMajor,
-    requestId: response.requestId,
-    accepted: true,
-    attentionCount: 0,
-    messages: [response.message],
-  };
-}
-
-/** Adapts the reaction routes' response into the shape `DaemonRuntime` consumes. */
-function adaptAgentReactionResponse(
-  response: AgentReactionResponse,
-): AgentMessageTransportResponse {
-  return {
-    protocolMajor: response.protocolMajor,
-    requestId: response.requestId,
-    accepted: true,
-    attentionCount: 0,
-    messageId: response.messageId,
-    messages: [],
-  };
-}
-export interface AgentTaskHttpClient {
-  execute(input: AgentHttpInput<TaskRequest>): Promise<TaskResponse>;
-}
-export type AgentChannelRequest = ChannelCommand & {
-  protocolMajor: number;
-  workspaceId: string;
-  agentId: string;
-};
-export interface AgentChannelHttpClient {
-  execute(
-    input: AgentHttpInput<AgentChannelRequest> & { method: "GET" | "POST" | "PATCH" | "DELETE" },
-  ): Promise<Record<string, unknown>>;
-}
-export interface AgentActionPrepareHttpClient {
-  execute(input: AgentHttpInput<AgentActionPrepareRequest>): Promise<AgentActionPrepareResponse>;
-}
-export interface AgentWeeklyReportHttpClient {
-  request(input: AgentHttpInput<WeeklyReportRequest>): Promise<WeeklyReportResponse>;
-}
-export interface AgentWeeklyReportCollectHttpClient {
-  execute(
-    input: AgentHttpInput<import("./weekly-report-collect").WeeklyReportCollectCommand>,
-  ): Promise<import("./weekly-report-collect").WeeklyReportCollectResult>;
-}
-export interface AgentWeeklyReportKeyPointsHttpClient {
-  execute(
-    input: AgentHttpInput<import("./weekly-report-key-points").WeeklyReportKeyPointsCommand>,
-  ): Promise<import("./weekly-report-key-points").WeeklyReportKeyPointsResult>;
-}
-
-type HttpFetch = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
-
 /** Provider-neutral client contract for the daemon's Workspace connection. */
 export interface DaemonConnectionClient {
   workspaceInfo?(
@@ -443,6 +254,11 @@ export interface DaemonConnectionClient {
     request: AgentProfileUpdateRequest,
     agentApiKey: string,
   ): Promise<AgentProfileUpdateResponse>;
+  mentionPending?(agentApiKey: string): Promise<AgentMentionPendingResponse>;
+  mentionExecute?(
+    request: AgentMentionExecuteRequest,
+    agentApiKey: string,
+  ): Promise<AgentMentionExecuteResponse>;
   onAgentWorkspaceReset?(callback: (request: AgentWorkspaceResetRequest) => void): () => void;
   sendAgentControlResult?(result: AgentControlResult): Promise<void>;
   start(token: string, config: DaemonConnectionConfig): Promise<void>;
@@ -474,6 +290,7 @@ export interface DaemonConnectionClient {
   onAgentStart?(callback: (intent: AgentStartIntent) => void): () => void;
   onAgentStop?(callback: (intent: AgentStopIntent) => void): () => void;
   onAgentActivityProbe?(callback: (probe: AgentActivityProbe) => void): () => void;
+  onAgentInboxPurge?(callback: (purge: AgentInboxPurge) => void): () => void;
   onAgentMessage?(callback: (message: AgentMessageDelivery) => void): () => void;
   onReminderSync?(callback: (sync: ReminderSync) => void): () => void;
   requestSnapshot?(request: ReminderSnapshotRequest): Promise<ReminderSync>;
@@ -488,7 +305,7 @@ export interface DaemonConnectionClient {
   /** Fire-and-forget: never blocks or fails a launch. Buffered latest-per-agent while
    * disconnected and flushed on reconnect, like `sendAgentActivity`. */
   sendSessionInvalidate?(message: AgentSessionInvalidate): void;
-  /** Fire-and-forget: never blocks or fails a turn (ADR 0050). Buffered latest-per-agent while
+  /** Fire-and-forget: never blocks or fails a turn. Buffered latest-per-agent while
    * disconnected and flushed on reconnect, like `sendSessionInvalidate`. */
   sendAgentContextUsage?(message: AgentContextUsage): void;
   sendAgentDeliveryAck?(ack: AgentMessageDeliveryAck): Promise<void>;
@@ -510,7 +327,9 @@ export interface DaemonConnectionClient {
     agentApiKey: string,
   ): Promise<WeeklyReportResponse>;
   agentWeeklyReportCollect?(
-    request: import("./weekly-report-collect").WeeklyReportCollectCommand,
+    request:
+      | import("./weekly-report-collect").WeeklyReportCollectCommand
+      | import("./weekly-report-collect").WeeklyReportCollectFailRunningCommand,
     agentApiKey: string,
   ): Promise<import("./weekly-report-collect").WeeklyReportCollectResult>;
   agentWeeklyReportKeyPoints?(
@@ -570,632 +389,6 @@ export const defaultCentrifugeWorkspaceClientFactory: CentrifugeWorkspaceClientF
     websocket: globalThis.WebSocket,
   }) as unknown as CentrifugeWorkspaceClient;
 
-/** Maps a channel operation onto its cloud HTTP method and path, given the local target
- * (`create` carries no target: the channel does not exist yet). */
-function channelEndpointFor(
-  operation: ChannelOperation,
-  target: string | undefined,
-): { method: "GET" | "POST" | "PATCH" | "DELETE"; path: string } {
-  const routes = agentApiRoutes.cloud.channels;
-  switch (operation) {
-    case "create":
-      return { method: routes.create.method, path: routes.create.path };
-    case "info":
-      return { method: routes.info.method, path: routes.info.path(target ?? "") };
-    case "update":
-      return { method: routes.update.method, path: routes.update.path(target ?? "") };
-    case "members":
-      return { method: routes.members.method, path: routes.members.path(target ?? "") };
-    case "add-member":
-      return { method: routes.addMember.method, path: routes.addMember.path(target ?? "") };
-    case "remove-member":
-      return { method: routes.removeMember.method, path: routes.removeMember.path(target ?? "") };
-    case "join":
-      return { method: routes.join.method, path: routes.join.path(target ?? "") };
-    case "leave":
-      return { method: routes.leave.method, path: routes.leave.path(target ?? "") };
-    case "archive":
-      return { method: routes.archive.method, path: routes.archive.path(target ?? "") };
-    case "unarchive":
-      return { method: routes.unarchive.method, path: routes.unarchive.path(target ?? "") };
-  }
-}
-
-/** Authorization headers every Agent-scoped HTTP request carries. */
-function agentHeaders(keys: { agentApiKey: string; daemonApiKey: string }, json = false) {
-  return {
-    authorization: `Bearer ${keys.daemonApiKey}`,
-    "x-coforge-agent-api-key": `Bearer ${keys.agentApiKey}`,
-    ...(json ? { "content-type": "application/json" } : {}),
-  };
-}
-
-/** Invokes the HTTP fetcher, turning any thrown error into a typed pre-response transport failure. */
-async function fetchAgentResponse(
-  fetcher: HttpFetch,
-  url: string | URL,
-  init: RequestInit,
-  what: string,
-): Promise<Response> {
-  try {
-    return await fetcher(url, init);
-  } catch (cause) {
-    throw AgentTransportError.preResponseTransport(what, cause);
-  }
-}
-
-/** Reads a response body as text, turning a stream failure into a typed mid-response failure. */
-async function readAgentResponseText(response: Response, what: string): Promise<string> {
-  try {
-    return await response.text();
-  } catch (cause) {
-    throw AgentTransportError.midResponseTransport(what, response.status, cause);
-  }
-}
-
-/** Throws when the response is a non-2xx: a safe validation message, or a typed transport error. */
-async function assertAgentResponseOk(response: Response, what: string): Promise<void> {
-  if (response.ok) return;
-  throw AgentMessageRequestError.fromRpc(
-    response.status,
-    await readAgentResponseText(response, what),
-  );
-}
-
-/**
- * Decodes a 2xx response body as JSON, turning a decode failure or an optional shape `validate`
- * failure into a typed protocol-mismatch error — the response arrived, but the daemon could not
- * trust it. Never lets a missing required field reach the caller as a silent `undefined`.
- */
-async function readAgentResponseJson<Result>(
-  response: Response,
-  what: string,
-  validate?: (data: unknown) => string | undefined,
-): Promise<Result> {
-  let data: unknown;
-  try {
-    data = await response.json();
-  } catch {
-    throw AgentTransportError.protocolMismatch(
-      what,
-      response.status,
-      "response body is not valid JSON",
-    );
-  }
-  const shapeError = validate?.(data);
-  if (shapeError) throw AgentTransportError.protocolMismatch(what, response.status, shapeError);
-  return data as Result;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
-}
-
-/** GETs `url` with the request's defined `keys` copied into the query string. */
-async function getAgentJson<Result>(
-  fetcher: HttpFetch,
-  input: Omit<AgentHttpInput<never>, "request"> & {
-    query: Record<string, string | number | undefined>;
-    what: string;
-    validate?: (data: unknown) => string | undefined;
-  },
-): Promise<Result> {
-  const endpoint = new URL(input.url);
-  for (const [key, value] of Object.entries(input.query))
-    if (value !== undefined) endpoint.searchParams.set(key, String(value));
-  const response = await fetchAgentResponse(
-    fetcher,
-    endpoint,
-    { method: "GET", headers: agentHeaders(input) },
-    input.what,
-  );
-  await assertAgentResponseOk(response, input.what);
-  return readAgentResponseJson<Result>(response, input.what, input.validate);
-}
-
-/**
- * GETs an Agent Manual route, whose JSON error body is always `{ ok: false, errorCode, error }`
- * (Raft-aligned; see ADR 0036), unlike the plain-text/allowlisted `messages` error contract
- * `getAgentJson` assumes. A well-formed error body becomes a typed `AgentManualRequestError`
- * carrying its `errorCode` through to the CLI; anything else is a genuine transport failure.
- */
-async function getAgentManualJson<Result extends { ok: true }>(
-  fetcher: HttpFetch,
-  input: Omit<AgentHttpInput<never>, "request"> & {
-    query: Record<string, string | undefined>;
-    what: string;
-  },
-): Promise<Result> {
-  const endpoint = new URL(input.url);
-  for (const [key, value] of Object.entries(input.query))
-    if (value !== undefined) endpoint.searchParams.set(key, value);
-  const response = await fetchAgentResponse(
-    fetcher,
-    endpoint,
-    { method: "GET", headers: agentHeaders(input) },
-    input.what,
-  );
-  let data: unknown;
-  try {
-    data = await readAgentResponseText(response, input.what).then((text) => JSON.parse(text));
-  } catch {
-    throw AgentTransportError.protocolMismatch(
-      input.what,
-      response.status,
-      "response body is not valid JSON",
-    );
-  }
-  if (!response.ok) {
-    const body = data as { errorCode?: unknown; error?: unknown } | null;
-    if (body && typeof body.errorCode === "string" && typeof body.error === "string")
-      throw new AgentManualRequestError(
-        body.errorCode as AgentManualErrorCode,
-        body.error,
-        response.status,
-      );
-    throw AgentTransportError.upstreamHttpResponse(input.what, response.status);
-  }
-  return data as Result;
-}
-
-/**
- * Shared GET helper for a route whose JSON error body is always `{ ok: false, errorCode, error }`
- * (the same convention `getAgentManualJson` implements for the Manual routes; `user info` and
- * `profile show` reuse it here rather than duplicating the parsing). `makeError` turns a
- * well-formed error body into the route family's own typed error; anything else is a genuine
- * transport failure.
- */
-async function getAgentEnvelopeJson<Result extends { ok: true }>(
-  fetcher: HttpFetch,
-  input: Omit<AgentHttpInput<never>, "request"> & {
-    query: Record<string, string | undefined>;
-    what: string;
-  },
-  makeError: (errorCode: string, message: string, status: number) => Error,
-): Promise<Result> {
-  const endpoint = new URL(input.url);
-  for (const [key, value] of Object.entries(input.query))
-    if (value !== undefined) endpoint.searchParams.set(key, value);
-  const response = await fetchAgentResponse(
-    fetcher,
-    endpoint,
-    { method: "GET", headers: agentHeaders(input) },
-    input.what,
-  );
-  return decodeAgentEnvelopeJson<Result>(response, input.what, makeError);
-}
-
-/** Same envelope convention as `getAgentEnvelopeJson`, for a POST route (`profile update`). */
-async function postAgentEnvelopeJson<Result extends { ok: true }>(
-  fetcher: HttpFetch,
-  input: Omit<AgentHttpInput<never>, "request"> & { body: unknown; what: string },
-  makeError: (errorCode: string, message: string, status: number) => Error,
-): Promise<Result> {
-  const response = await fetchAgentResponse(
-    fetcher,
-    input.url,
-    {
-      method: "POST",
-      headers: agentHeaders(input, true),
-      body: JSON.stringify(input.body),
-    },
-    input.what,
-  );
-  return decodeAgentEnvelopeJson<Result>(response, input.what, makeError);
-}
-
-async function decodeAgentEnvelopeJson<Result extends { ok: true }>(
-  response: Response,
-  what: string,
-  makeError: (errorCode: string, message: string, status: number) => Error,
-): Promise<Result> {
-  let data: unknown;
-  try {
-    data = await readAgentResponseText(response, what).then((text) => JSON.parse(text));
-  } catch {
-    throw AgentTransportError.protocolMismatch(
-      what,
-      response.status,
-      "response body is not valid JSON",
-    );
-  }
-  if (!response.ok) {
-    const body = data as { errorCode?: unknown; error?: unknown } | null;
-    if (body && typeof body.errorCode === "string" && typeof body.error === "string")
-      throw makeError(body.errorCode, body.error, response.status);
-    throw AgentTransportError.upstreamHttpResponse(what, response.status);
-  }
-  return data as Result;
-}
-
-const AGENT_SEND_DECISIONS = new Set(["forward", "bypass", "local_hold", "syncing_hold"]);
-const AGENT_SEND_STATES = new Set(["sent", "held"]);
-
-/** Validates the send route's response shape; the incident this module exists to prevent. */
-function validateAgentSendResponseShape(data: unknown): string | undefined {
-  if (!isRecord(data)) return "response body is not a JSON object";
-  if (typeof data.state !== "string" || !AGENT_SEND_STATES.has(data.state))
-    return `response state is not one of "sent"/"held" (got ${JSON.stringify(data.state)})`;
-  if (typeof data.decision !== "string" || !AGENT_SEND_DECISIONS.has(data.decision))
-    return `response decision is not one of "forward"/"bypass"/"local_hold"/"syncing_hold" (got ${JSON.stringify(data.decision)})`;
-  if (data.state === "held" && !Array.isArray(data.heldMessages))
-    return "response is missing the heldMessages array";
-  return undefined;
-}
-
-function validateAgentMessageArrayShape(field: string) {
-  return (data: unknown): string | undefined =>
-    isRecord(data) && Array.isArray(data[field])
-      ? undefined
-      : `response is missing the ${field} array`;
-}
-
-export const createAgentMessageHttpClient = (
-  httpClient: HttpFetch = globalThis.fetch,
-): AgentMessageHttpClient => ({
-  requestRead: ({ request, ...keys }) =>
-    getAgentJson(httpClient, {
-      ...keys,
-      what: "agent read",
-      query: {
-        target: request.target,
-        requestId: request.requestId,
-        before: request.before,
-        after: request.after,
-        around: request.around,
-        limit: request.limit,
-        fromSequence: request.fromSequence,
-        throughSequence: request.throughSequence,
-      },
-      validate: validateAgentMessageArrayShape("messages"),
-    }),
-  requestSearch: ({ request, ...keys }) =>
-    getAgentJson(httpClient, {
-      ...keys,
-      what: "agent search",
-      query: {
-        requestId: request.requestId,
-        query: request.query,
-        target: request.target,
-        sender: request.sender,
-        sort: request.sort,
-        limit: request.limit,
-        offset: request.offset,
-      },
-      validate: validateAgentMessageArrayShape("results"),
-    }),
-  async requestSend({ url, request, ...keys }) {
-    const response = await fetchAgentResponse(
-      httpClient,
-      url,
-      {
-        method: "POST",
-        headers: agentHeaders(keys, true),
-        body: JSON.stringify({
-          requestId: request.requestId,
-          target: request.target,
-          content: request.content,
-          continueAnyway: request.continueAnyway,
-          draftReholdCount: request.draftReholdCount,
-          draftReplacedExisting: request.draftReplacedExisting,
-          seenUpToSeq: request.seenUpToSeq,
-          freshnessContextMode: request.freshnessContextMode,
-          attachmentIds: request.attachmentIds,
-          mentions: request.mentions,
-        }),
-      },
-      "agent send",
-    );
-    await assertAgentResponseOk(response, "agent send");
-    return readAgentResponseJson<AgentSendResponse>(
-      response,
-      "agent send",
-      validateAgentSendResponseShape,
-    );
-  },
-  requestEvents: ({ request, ...keys }) =>
-    getAgentJson<AgentEventsResponse>(httpClient, {
-      ...keys,
-      what: "agent events",
-      query: { requestId: request.requestId, limit: request.limit },
-      validate: validateAgentMessageArrayShape("events"),
-    }),
-  async requestChannelMute({ url, request, ...keys }) {
-    const response = await fetchAgentResponse(
-      httpClient,
-      url,
-      {
-        method: "POST",
-        headers: agentHeaders(keys, true),
-        body: JSON.stringify({ requestId: request.requestId }),
-      },
-      "agent channel attention",
-    );
-    await assertAgentResponseOk(response, "agent channel attention");
-    return readAgentResponseJson<AgentChannelAttentionResponse>(
-      response,
-      "agent channel attention",
-    );
-  },
-  async requestThreadUnfollow({ url, request, ...keys }) {
-    const response = await fetchAgentResponse(
-      httpClient,
-      url,
-      {
-        method: "POST",
-        headers: agentHeaders(keys, true),
-        body: JSON.stringify({ requestId: request.requestId }),
-      },
-      "agent thread attention",
-    );
-    await assertAgentResponseOk(response, "agent thread attention");
-    return readAgentResponseJson<AgentThreadAttentionResponse>(response, "agent thread attention");
-  },
-  async requestResolve({ url, request, ...keys }) {
-    const endpoint = new URL(url);
-    endpoint.searchParams.set("requestId", request.requestId);
-    const response = await fetchAgentResponse(
-      httpClient,
-      endpoint,
-      { method: "GET", headers: agentHeaders(keys) },
-      "agent resolve",
-    );
-    await assertAgentResponseOk(response, "agent resolve");
-    return readAgentResponseJson<AgentResolveResponse>(response, "agent resolve", (data) =>
-      isRecord(data) && isRecord(data.message)
-        ? undefined
-        : "response is missing the message object",
-    );
-  },
-  async requestReaction({ url, request, method, ...keys }) {
-    const response = await fetchAgentResponse(
-      httpClient,
-      url,
-      {
-        method,
-        headers: agentHeaders(keys, true),
-        body: JSON.stringify({ requestId: request.requestId, emoji: request.emoji }),
-      },
-      "agent reaction",
-    );
-    await assertAgentResponseOk(response, "agent reaction");
-    return readAgentResponseJson<AgentReactionResponse>(response, "agent reaction");
-  },
-  async requestWorkspaceInfo({ request, ...keys }) {
-    const data = await getAgentJson<Omit<WorkspaceInfoResponse, "protocolMajor" | "requestId">>(
-      httpClient,
-      { ...keys, what: "workspace_info", query: {} },
-    );
-    return { ...data, protocolMajor: request.protocolMajor, requestId: request.requestId };
-  },
-  requestManualGet: ({ request, ...keys }) =>
-    getAgentManualJson<AgentManualGetResponse>(httpClient, {
-      ...keys,
-      what: "agent manual get",
-      query: { topic: request.topic, intent: request.intent, reason: request.reason },
-    }),
-  requestManualSearch: ({ request, ...keys }) =>
-    getAgentManualJson<AgentManualSearchResponse>(httpClient, {
-      ...keys,
-      what: "agent manual search",
-      query: { query: request.query, intent: request.intent, reason: request.reason },
-    }),
-  requestUserInfo: ({ request: _request, ...keys }) =>
-    getAgentEnvelopeJson<AgentUserInfoResponse>(
-      httpClient,
-      { ...keys, what: "agent user info", query: {} },
-      (errorCode, message, status) =>
-        new AgentUserInfoRequestError(errorCode as AgentUserInfoErrorCode, message, status),
-    ),
-  requestProfileShow: ({ request, ...keys }) =>
-    getAgentEnvelopeJson<AgentProfileShowResponse>(
-      httpClient,
-      { ...keys, what: "agent profile show", query: { target: request.target } },
-      (errorCode, message, status) =>
-        new AgentProfileRequestError(errorCode as AgentProfileErrorCode, message, status),
-    ),
-  requestProfileUpdate: ({ request, ...keys }) =>
-    postAgentEnvelopeJson<AgentProfileUpdateResponse>(
-      httpClient,
-      { ...keys, what: "agent profile update", body: request },
-      (errorCode, message, status) =>
-        new AgentProfileRequestError(errorCode as AgentProfileErrorCode, message, status),
-    ),
-  async requestGitHubCredential({ url, request, ...keys }) {
-    const response = await httpClient(url, {
-      method: "POST",
-      headers: agentHeaders(keys, true),
-      body: JSON.stringify(request),
-      signal: AbortSignal.timeout(AGENT_RPC_TIMEOUT_MS),
-    });
-    if (!response.ok) throw new Error(`GitHub credential request failed (${response.status})`);
-    return decodeGitHubCredentialResponse(await response.json());
-  },
-  async requestGitHubCommitTrailers({ url, request, ...keys }) {
-    const response = await httpClient(url, {
-      method: "POST",
-      headers: agentHeaders(keys, true),
-      body: JSON.stringify(request),
-      signal: AbortSignal.timeout(AGENT_RPC_TIMEOUT_MS),
-    });
-    if (!response.ok) throw new Error(`GitHub commit trailers request failed (${response.status})`);
-    return decodeGitHubCommitTrailersResponse(await response.json());
-  },
-  async requestReminder({ url, request, ...keys }) {
-    let response: Response;
-    try {
-      response = await httpClient(url, {
-        method: "POST",
-        headers: agentHeaders(keys, true),
-        body: JSON.stringify(request),
-        signal: AbortSignal.timeout(AGENT_RPC_TIMEOUT_MS),
-      });
-    } catch {
-      throw new Error("Agent reminder request failed");
-    }
-    if (!response.ok) throw new Error(`Agent reminder request failed (${response.status})`);
-    let envelope: AgentReminderOperationResponse;
-    try {
-      envelope = (await response.json()) as AgentReminderOperationResponse;
-    } catch {
-      throw new Error("Agent reminder response is malformed");
-    }
-    if (!envelope || typeof envelope.requestId !== "string")
-      throw new Error("Agent reminder response is malformed");
-    return envelope;
-  },
-});
-
-export const defaultAgentMessageHttpClient = createAgentMessageHttpClient();
-
-export const defaultAgentWeeklyReportHttpClient: AgentWeeklyReportHttpClient = {
-  async request({ url, request, ...keys }) {
-    const response = await fetch(url, {
-      method: "POST",
-      signal: AbortSignal.timeout(AGENT_RPC_TIMEOUT_MS),
-      headers: agentHeaders(keys, true),
-      body: JSON.stringify(request),
-    });
-    if (!response.ok) {
-      const message = await response.text();
-      if (response.status === 400 || response.status === 403)
-        throw new AgentWeeklyReportRequestError(
-          message.trim() ||
-            (response.status === 403
-              ? "Weekly report access denied"
-              : "invalid weekly-report request"),
-        );
-      throw new Error(`server Agent weekly-report request failed (${response.status})`);
-    }
-    const result = (await response.json()) as WeeklyReportResponse;
-    if (result.requestId !== request.requestId)
-      throw new Error("weekly-report response request ID does not match request");
-    return result;
-  },
-};
-
-export const defaultAgentWeeklyReportCollectHttpClient: AgentWeeklyReportCollectHttpClient = {
-  async execute({ url, request, ...keys }) {
-    let response: Response;
-    try {
-      response = await fetch(url, {
-        method: "POST",
-        signal: AbortSignal.timeout(AGENT_RPC_TIMEOUT_MS),
-        headers: agentHeaders(keys, true),
-        body: JSON.stringify(request),
-      });
-    } catch (cause) {
-      throw AgentTransportError.preResponseTransport("Agent weekly-report-collect", cause);
-    }
-    if (!response.ok)
-      throw AgentTransportError.upstreamHttpResponse(
-        "Agent weekly-report-collect",
-        response.status,
-      );
-    const result =
-      (await response.json()) as import("./weekly-report-collect").WeeklyReportCollectResult;
-    if (result.requestId !== request.requestId)
-      throw new Error("weekly-report-collect response request ID does not match request");
-    return result;
-  },
-};
-
-export const defaultAgentWeeklyReportKeyPointsHttpClient: AgentWeeklyReportKeyPointsHttpClient = {
-  async execute({ url, request, ...keys }) {
-    let response: Response;
-    try {
-      response = await fetch(url, {
-        method: "POST",
-        signal: AbortSignal.timeout(AGENT_RPC_TIMEOUT_MS),
-        headers: agentHeaders(keys, true),
-        body: JSON.stringify(request),
-      });
-    } catch (cause) {
-      throw AgentTransportError.preResponseTransport("Agent weekly-report-key-points", cause);
-    }
-    if (!response.ok)
-      throw AgentTransportError.upstreamHttpResponse(
-        "Agent weekly-report-key-points",
-        response.status,
-      );
-    const result =
-      (await response.json()) as import("./weekly-report-key-points").WeeklyReportKeyPointsResult;
-    if (result.requestId !== request.requestId)
-      throw new Error("weekly-report-key-points response request ID does not match request");
-    return result;
-  },
-};
-
-export const defaultAgentTaskHttpClient: AgentTaskHttpClient = {
-  async execute({ url, request, ...keys }) {
-    const response = await fetch(url, {
-      method: "POST",
-      signal: AbortSignal.timeout(AGENT_RPC_TIMEOUT_MS),
-      headers: agentHeaders(keys, true),
-      body: JSON.stringify(request),
-    });
-    if (!response.ok) throw new Error(`server Agent Task request failed (${response.status})`);
-    const result = (await response.json()) as TaskResponse;
-    if (result.requestId !== request.requestId)
-      throw new Error("Task response request ID does not match request");
-    return result;
-  },
-};
-
-/** Forwards the classified channel request to its mapped cloud route and returns the JSON
- * response body unchanged. A non-2xx throws a typed `AgentTransportError` carrying the real
- * upstream status (so, e.g., a 404 "channel not found" reaches the CLI as a 404, not a generic
- * 502); a network failure is the same pre-response transport failure every other Agent HTTP
- * client here reports. */
-export const defaultAgentChannelHttpClient: AgentChannelHttpClient = {
-  async execute({ url, method, request, ...keys }) {
-    let response: Response;
-    try {
-      if (method === "GET") {
-        const endpoint = new URL(url);
-        endpoint.searchParams.set("requestId", request.requestId);
-        response = await fetch(endpoint, {
-          method: "GET",
-          headers: agentHeaders(keys),
-          signal: AbortSignal.timeout(AGENT_RPC_TIMEOUT_MS),
-        });
-      } else {
-        response = await fetch(url, {
-          method: method as "POST" | "PATCH" | "DELETE",
-          signal: AbortSignal.timeout(AGENT_RPC_TIMEOUT_MS),
-          headers: agentHeaders(keys, true),
-          body: JSON.stringify(request),
-        });
-      }
-    } catch (cause) {
-      throw AgentTransportError.preResponseTransport("Agent Channel", cause);
-    }
-    // A typed error (not a bare Error) so the real upstream status (e.g. 404 "channel not
-    // found") survives classification instead of collapsing into a generic 502; the CLI
-    // (local-client.ts#callChannel) turns a preserved 404 into CliError code NOT_FOUND.
-    if (!response.ok)
-      throw AgentTransportError.upstreamHttpResponse("Agent Channel", response.status);
-    return (await response.json()) as Record<string, unknown>;
-  },
-};
-
-export const defaultAgentActionPrepareHttpClient: AgentActionPrepareHttpClient = {
-  async execute({ url, request, ...keys }) {
-    const response = await fetch(url, {
-      method: "POST",
-      signal: AbortSignal.timeout(AGENT_RPC_TIMEOUT_MS),
-      headers: agentHeaders(keys, true),
-      body: JSON.stringify(request),
-    });
-    if (!response.ok)
-      throw new Error(`server Agent action-prepare request failed (${response.status})`);
-    const result = (await response.json()) as AgentActionPrepareResponse;
-    if (!result || typeof result.messageId !== "string" || result.metadata?.kind !== "action-card")
-      throw new Error("action-prepare response is malformed");
-    return result;
-  },
-};
-
 /** One replaceable listener; unsubscribing only clears the listener it registered. */
 class ListenerSlot<Listener extends (value: never) => unknown> {
   #listener: Listener | undefined;
@@ -1226,6 +419,7 @@ export class DaemonConnection implements DaemonConnectionClient {
   readonly #agentStart = new ListenerSlot<(intent: AgentStartIntent) => void>();
   readonly #agentStop = new ListenerSlot<(intent: AgentStopIntent) => void>();
   readonly #agentActivityProbe = new ListenerSlot<(probe: AgentActivityProbe) => void>();
+  readonly #agentInboxPurge = new ListenerSlot<(purge: AgentInboxPurge) => void>();
   readonly #agentWorkspaceReset = new ListenerSlot<(request: AgentWorkspaceResetRequest) => void>();
   readonly #agentMessage = new ListenerSlot<(message: AgentMessageDelivery) => void>();
   readonly #reminderSync = new ListenerSlot<(sync: ReminderSync) => void>();
@@ -1269,7 +463,7 @@ export class DaemonConnection implements DaemonConnectionClient {
    * been logged; suppresses repeats for the rest of this connection's lifetime (fix for a log
    * line that used to repeat on every rejected attempt). */
   #loggedUnknownSessionInvalidateMethod = false;
-  /** Latest-per-agent, like `#pendingSessionInvalidate` (ADR 0050). No launch-observation drop
+  /** Latest-per-agent, like `#pendingSessionInvalidate`. No launch-observation drop
    * rule here: the server's own launch-fence gate already rejects a stale one, and a context
    * reading is superseded by the next one anyway. */
   readonly #pendingContextUsage = new Map<string, AgentContextUsage>();
@@ -1277,7 +471,7 @@ export class DaemonConnection implements DaemonConnectionClient {
    * `#loggedUnknownSessionInvalidateMethod`, for `agent:context:usage`. */
   #loggedUnknownContextUsageMethod = false;
   /** Same one-per-connection-lifetime log suppression as
-   * `#loggedUnknownSessionInvalidateMethod`, for `agent:context_scan_result` (ADR 0051). */
+   * `#loggedUnknownSessionInvalidateMethod`, for `agent:context_scan_result`. */
   #loggedUnknownContextScanResultMethod = false;
   readonly #latestStatuses = new Map<string, AgentStatus>();
   readonly #restartRequestIds = new Set<string>();
@@ -1391,6 +585,10 @@ export class DaemonConnection implements DaemonConnectionClient {
     return this.#agentActivityProbe.set(callback);
   }
 
+  onAgentInboxPurge(callback: (purge: AgentInboxPurge) => void): () => void {
+    return this.#agentInboxPurge.set(callback);
+  }
+
   onAgentMessage(callback: (message: AgentMessageDelivery) => void): () => void {
     return this.#agentMessage.set(callback);
   }
@@ -1469,7 +667,7 @@ export class DaemonConnection implements DaemonConnectionClient {
     this.#publishSessionInvalidate(this.#client, message);
   }
 
-  /** Fire-and-forget; never awaited by a caller and never fails a turn (ADR 0050). */
+  /** Fire-and-forget; never awaited by a caller and never fails a turn. */
   sendAgentContextUsage(message: AgentContextUsage): void {
     if (!this.#connected || !this.#client) {
       this.#pendingContextUsage.set(message.agentId, message);
@@ -1737,7 +935,7 @@ export class DaemonConnection implements DaemonConnectionClient {
       const events = await requestEvents({ url, ...this.#agentKeys(agentApiKey), request });
       return {
         protocolMajor: events.protocolMajor,
-        requestId: events.requestId,
+        requestId: events.idempotencyKey,
         accepted: true,
         attentionCount: events.events.length,
         messages: events.events,
@@ -1760,7 +958,7 @@ export class DaemonConnection implements DaemonConnectionClient {
       });
       return {
         protocolMajor: result.protocolMajor,
-        requestId: result.requestId,
+        requestId: result.idempotencyKey,
         accepted: true,
         attentionCount: 0,
         messages: [],
@@ -1777,7 +975,7 @@ export class DaemonConnection implements DaemonConnectionClient {
       const result = await requestThreadUnfollow({ url, ...this.#agentKeys(agentApiKey), request });
       return {
         protocolMajor: result.protocolMajor,
-        requestId: result.requestId,
+        requestId: result.idempotencyKey,
         accepted: true,
         attentionCount: 0,
         messages: [],
@@ -1959,6 +1157,39 @@ export class DaemonConnection implements DaemonConnectionClient {
     });
   }
 
+  async mentionPending(agentApiKey: string): Promise<AgentMentionPendingResponse> {
+    if (!this.#connected || !this.#serverHttpUrl)
+      throw new Error("Agent mention actions endpoint is not configured");
+    if (!this.agentMessageHttpClient.requestMentionPending)
+      throw new Error("Agent mention actions HTTP client is unavailable");
+    return this.agentMessageHttpClient.requestMentionPending({
+      url: this.#serverEndpoint(
+        "Agent mention pending",
+        agentApiRoutes.cloud.mentionActions.pending.path,
+      ),
+      ...this.#agentKeys(agentApiKey),
+      request: {},
+    });
+  }
+
+  async mentionExecute(
+    request: AgentMentionExecuteRequest,
+    agentApiKey: string,
+  ): Promise<AgentMentionExecuteResponse> {
+    if (!this.#connected || !this.#serverHttpUrl)
+      throw new Error("Agent mention actions endpoint is not configured");
+    if (!this.agentMessageHttpClient.requestMentionExecute)
+      throw new Error("Agent mention actions HTTP client is unavailable");
+    return this.agentMessageHttpClient.requestMentionExecute({
+      url: this.#serverEndpoint(
+        "Agent mention action",
+        agentApiRoutes.cloud.mentionActions.execute.path,
+      ),
+      ...this.#agentKeys(agentApiKey),
+      request,
+    });
+  }
+
   async agentReminder(request: AgentReminderOperationRequest, agentApiKey: string) {
     if (!this.#connected || !this.#serverHttpUrl)
       throw new Error("daemon connection is not connected");
@@ -2070,7 +1301,9 @@ export class DaemonConnection implements DaemonConnectionClient {
   }
 
   async agentWeeklyReportCollect(
-    request: import("./weekly-report-collect").WeeklyReportCollectCommand,
+    request:
+      | import("./weekly-report-collect").WeeklyReportCollectCommand
+      | import("./weekly-report-collect").WeeklyReportCollectFailRunningCommand,
     agentApiKey: string,
   ): Promise<import("./weekly-report-collect").WeeklyReportCollectResult> {
     if (!this.#connected) throw new Error("daemon connection is not connected");
@@ -2130,7 +1363,7 @@ export class DaemonConnection implements DaemonConnectionClient {
   }
 
   /**
-   * The direct-upload session routes (ADR 0028) are plain JSON, unlike the multipart upload
+   * The direct-upload session routes are plain JSON, unlike the multipart upload
    * above; each simply forwards its body (if any) to the matching cloud route with the same
    * Agent-scoped headers `agentAttachment`/`agentAttachmentUpload` already add.
    */
@@ -2367,6 +1600,11 @@ export class DaemonConnection implements DaemonConnectionClient {
       this.#route(data, decodeAgentActivityProbe, (probe) => {
         if (probe.protocolMajor !== 1 || !ownsDaemon(probe)) return false;
         this.#deliver(this.#agentActivityProbe, probe);
+        return true;
+      }) ||
+      this.#route(data, decodeAgentInboxPurge, (purge) => {
+        if (purge.protocolMajor !== 1 || !ownsDaemon(purge)) return false;
+        this.#deliver(this.#agentInboxPurge, purge);
         return true;
       });
     if (handled) return;
@@ -2695,6 +1933,7 @@ export class DaemonConnection implements DaemonConnectionClient {
       this.#agentStart,
       this.#agentStop,
       this.#agentActivityProbe,
+      this.#agentInboxPurge,
       this.#agentWorkspaceReset,
       this.#agentMessage,
       this.#reminderSync,
@@ -2740,17 +1979,20 @@ function parseAgentEnvironment(value: unknown): Record<string, string> {
   const invalid = () => new Error("invalid Agent environment response");
   if (!value || typeof value !== "object" || Array.isArray(value)) throw invalid();
   const entries = Object.entries(value);
-  if (entries.length > 64 || JSON.stringify(value).length > 131_072) throw invalid();
+  if (
+    entries.length > AGENT_ENVIRONMENT_MAX_VARIABLES ||
+    JSON.stringify(value).length > AGENT_ENVIRONMENT_MAX_SERIALIZED_LENGTH
+  )
+    throw invalid();
   const envVars: Record<string, string> = Object.create(null);
   for (const [name, entry] of entries) {
     if (
-      !/^[A-Za-z_][A-Za-z0-9_]*$/.test(name) ||
-      name.length > 128 ||
-      name.toUpperCase() === "PATH" ||
-      name.toUpperCase().startsWith("COFORGE_") ||
+      !AGENT_ENVIRONMENT_NAME_PATTERN.test(name) ||
+      name.length > AGENT_ENVIRONMENT_MAX_NAME_LENGTH ||
+      isReservedAgentEnvironmentName(name) ||
       typeof entry !== "string" ||
       entry.includes("\0") ||
-      entry.length > 32_768
+      entry.length > AGENT_ENVIRONMENT_MAX_VALUE_LENGTH
     )
       throw invalid();
     envVars[name] = entry;

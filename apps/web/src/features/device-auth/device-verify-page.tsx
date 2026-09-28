@@ -6,15 +6,15 @@ import {
   XClose as X,
 } from "@untitledui/icons";
 
-import { Button } from "@/components/base/buttons/button";
-import { HintText } from "@/components/base/input/hint-text";
+import { Button } from "#src/components/base/buttons/button";
+import { HintText } from "#src/components/base/input/hint-text";
 import {
   InputOTP,
   InputOTPGroup,
   InputOTPSeparator,
   InputOTPSlot,
-} from "@/components/ui/input-otp";
-import { m } from "@/paraglide/messages";
+} from "#src/components/ui/input-otp";
+import { m } from "#src/paraglide/messages";
 import { formatUserCode, USER_CODE_LENGTH } from "./device-code-format";
 import {
   approveDeviceCode,

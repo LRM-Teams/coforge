@@ -6,7 +6,7 @@ import {
   filesFromPaste,
   IME_ENTER_GUARD_MS,
   shouldSendOnEnter,
-} from "@/features/conversations/composer-behavior";
+} from "#src/features/conversations/composer-behavior";
 
 const baseEnter = { key: "Enter", shiftKey: false, isComposing: false, keyCode: 13 };
 const noComposition = { lastCompositionEndAt: null, now: 0 };

@@ -1,6 +1,6 @@
 import { createFileRoute, notFound, redirect } from "@tanstack/react-router";
 
-import { PageLoadError } from "@/features/errors/page-load-error";
+import { PageLoadError } from "#src/features/errors/page-load-error";
 
 export const Route = createFileRoute("/_app/records/weeks/$year/$week")({
   ssr: "data-only",

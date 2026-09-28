@@ -3,9 +3,9 @@ import { realpathSync } from "node:fs";
 import { mkdir, mkdtemp, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ClaudeCodeProvider } from "../src/code-agent/claude-code/provider";
-import { CodexProvider } from "../src/code-agent/codex/provider";
-import { PiProvider } from "../src/code-agent/pi/provider";
+import { ClaudeCodeProvider } from "#src/code-agent/claude-code/provider";
+import { CodexProvider } from "#src/code-agent/codex/provider";
+import { PiProvider } from "#src/code-agent/pi/provider";
 
 // macOS tmpdir lives under /var, a symlink. Persisted Pi sessions are keyed by
 // the realpath of the workspace, so a literal /var/folders path here would

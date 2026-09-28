@@ -10,7 +10,7 @@ export function agentContextReportQueryKey(agentId: string) {
 export type AgentContextReadResult = Awaited<ReturnType<typeof getAgentContextReport>>;
 
 /**
- * One Agent's context-composition cache (ADR 0051): read on mount, kept warm by at most one
+ * One Agent's context-composition cache: read on mount, kept warm by at most one
  * automatic scan when that cached read comes back stale or missing, and a manual `refresh` for
  * everything else. `AgentContextPopoverContent` is the only consumer; it owns rendering every
  * non-available state (`unsupported`, `no_session`, `unparsed`, `timeout`, `error`) inline.

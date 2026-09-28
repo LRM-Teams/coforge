@@ -3,8 +3,8 @@ import { mkdir, mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { discoverPiModels } from "@coforge/agent";
-import type { AgentRuntimeEvent } from "../src/code-agent/contract";
-import { CoforgeProvider, PiProvider } from "../src/code-agent/pi/provider";
+import type { AgentRuntimeEvent } from "#src/code-agent/contract";
+import { CoforgeProvider, PiProvider } from "#src/code-agent/pi/provider";
 
 const TEST_AGENT_INSTRUCTIONS = "Test Agent instructions.";
 
@@ -879,14 +879,15 @@ test("Pi notify resets the per-triggering-message memory budget like sendMessage
   await writeOpenAiHost(agentDir, `${server.url}v1`);
   const oldProxyUrl = Bun.env.COFORGE_AGENT_PROXY_URL;
   const oldContext = Bun.env.COFORGE_AGENT_CONTEXT;
-  Bun.env.COFORGE_AGENT_PROXY_URL = proxy.url;
+  const proxyUrl = String(proxy.url);
+  Bun.env.COFORGE_AGENT_PROXY_URL = proxyUrl;
   Bun.env.COFORGE_AGENT_CONTEXT = "test-context";
   const session = await new PiProvider().createAgentSession({
     agentWorkspaceDirectory: workspace,
     instructions: TEST_AGENT_INSTRUCTIONS,
     environment: {
       PI_CODING_AGENT_DIR: agentDir,
-      COFORGE_AGENT_PROXY_URL: proxy.url,
+      COFORGE_AGENT_PROXY_URL: proxyUrl,
       COFORGE_AGENT_CONTEXT: "test-context",
     },
     runtime: {

@@ -7,7 +7,7 @@ export const agentApiRoutes = {
       search: { method: "GET", path: "/api/agent/v1/manual/search" },
     },
     // Local-only: answered entirely by the Daemon's Agent proxy and never forwarded to Web/backend
-    // (`coforge version`; see `docs/adr/0036-agent-manual.md`'s placement-table rows).
+    // (`coforge version`).
     version: { method: "GET", path: "/api/agent/v1/version" },
     messages: { method: "POST", path: "/api/agent/v1/messages" },
     inbox: { method: "POST", path: "/api/agent/v1/inbox" },
@@ -25,13 +25,20 @@ export const agentApiRoutes = {
       method: "GET",
       path: (name: string) => `/api/agent/v1/users/${encodeURIComponent(name)}`,
     },
+    mentionActions: {
+      pending: { method: "GET", path: "/api/agent/v1/mention-actions/pending" },
+      execute: { method: "POST", path: "/api/agent/v1/mention-actions/execute" },
+    },
     profile: {
       get: { method: "GET", path: "/api/agent/v1/profile" },
       update: { method: "POST", path: "/api/agent/v1/profile" },
     },
   },
   local: {
-    messages: { method: "POST", path: "/api/agent/v1/messages" },
+    messages: {
+      method: "POST",
+      path: "/api/agent/v1/messages",
+    },
     inbox: { method: "POST", path: "/api/agent/v1/inbox" },
     reminders: { method: "POST", path: "/api/agent/v1/reminders" },
     tasks: { method: "POST", path: "/api/agent/v1/tasks" },
@@ -70,6 +77,10 @@ export const agentApiRoutes = {
     users: {
       method: "GET",
       path: (name: string) => `/api/agent/v1/users/${encodeURIComponent(name)}`,
+    },
+    mentionActions: {
+      pending: { method: "GET", path: "/api/agent/v1/mention-actions/pending" },
+      execute: { method: "POST", path: "/api/agent/v1/mention-actions/execute" },
     },
     profile: {
       get: { method: "GET", path: "/api/agent/v1/profile" },
@@ -197,6 +208,10 @@ export const agentApiRoutes = {
     users: {
       method: "GET",
       path: (name: string) => `/api/agent/v1/users/${encodeURIComponent(name)}`,
+    },
+    mentionActions: {
+      pending: { method: "GET", path: "/api/agent/v1/mention-actions/pending" },
+      execute: { method: "POST", path: "/api/agent/v1/mention-actions/execute" },
     },
     profile: {
       get: { method: "GET", path: "/api/agent/v1/profile" },

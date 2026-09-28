@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { RUNTIME_PROVIDER } from "@lrm/coforge-sdk/internal";
-import { ChangeAgentRuntimeCredential } from "../src/server/agents/change-agent-runtime-credential.server";
-import { AgentRuntimeCredentials } from "../src/server/agents/agent-runtime-credentials.server";
-import type { AgentRecord } from "../src/server/db/repositories/agent.repositories.server";
+import { ChangeAgentRuntimeCredential } from "#src/server/agents/change-agent-runtime-credential.server";
+import { AgentRuntimeCredentials } from "#src/server/agents/agent-runtime-credentials.server";
+import type { AgentRecord } from "#src/server/db/repositories/agent.repositories.server";
 
 const principal = { workspaceId: "workspace-1", userId: "user-1" };
 
@@ -183,7 +183,7 @@ describe("ChangeAgentRuntimeCredential", () => {
     });
   });
 
-  test("a stopped Agent saves the credential without the stop -> ... -> start dance (ADR 0038)", async () => {
+  test("a stopped Agent saves the credential without the stop -> ... -> start dance", async () => {
     const { credentialChange, events } = fixture({ stopped: true });
 
     const result = await credentialChange.save(principal, "agent-1", "sk-secret-value-1234");

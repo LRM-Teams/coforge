@@ -16,20 +16,27 @@ import {
   Columns02 as SquareSplitVertical,
   ZoomIn,
 } from "@untitledui/icons";
-import { Button } from "@/components/base/buttons/button";
-import { ButtonUtility } from "@/components/base/buttons/button-utility";
-import { Dropdown } from "@/components/base/dropdown/dropdown";
-import { cn } from "@/lib/utils";
-import { copyText } from "../lib/clipboard";
-import { useT } from "../i18n";
+import { Button } from "#src/components/base/buttons/button";
+import { ButtonUtility } from "#src/components/base/buttons/button-utility";
+import { Dropdown } from "#src/components/base/dropdown/dropdown";
+import { cn } from "#src/lib/utils";
+import { copyText } from "#src/features/records/report-editor/lib/clipboard";
+import { useT } from "#src/features/records/report-editor/i18n";
 import {
   INSERTABLE_CODE_BLOCK_LANGUAGES,
   setLastInsertedCodeBlockLanguage,
   type InsertableCodeBlockLanguage,
-} from "../code-block-language";
-import { MermaidDiagram, type MermaidDiagramHandle } from "../mermaid-diagram";
-import { CodeBlockIframe } from "../code-block-iframe";
-import { normalizeMermaidView, parseCodeFenceInfo, type MermaidViewMode } from "./code-block-fence";
+} from "#src/features/records/report-editor/code-block-language";
+import {
+  MermaidDiagram,
+  type MermaidDiagramHandle,
+} from "#src/features/records/report-editor/mermaid-diagram";
+import { CodeBlockIframe } from "#src/features/records/report-editor/code-block-iframe";
+import { parseCodeFenceInfo, type MermaidViewMode } from "./code-block-fence";
+import {
+  resolveMermaidViewMode,
+  writeMermaidViewPreference,
+} from "#src/features/records/report-editor/mermaid-view-preference";
 
 // Coalesces fast keystrokes before re-rendering live previews.
 // `mermaid.initialize()` mutates a process-global config, so back-to-back
@@ -279,17 +286,17 @@ function CodeBlockView({ node, updateAttributes, deleteNode, editor, getPos }: N
   const language = fence.language;
   const isMermaid = language === "mermaid";
   const isHtml = language === "html";
-  // Prefer the dedicated attr (updated live). Fall back to a view encoded in
-  // the fence info string for content that still carries `mermaid view=…`
-  // as the language token from an older parse path.
-  const mermaidView = isMermaid
-    ? normalizeMermaidView(
-        node.attrs.mermaidView != null && node.attrs.mermaidView !== "both"
-          ? node.attrs.mermaidView
-          : fence.mermaidView,
-      )
-    : "both";
   const chart = node.textContent;
+  // Prefer the dedicated attr (updated live). Fall back to a view encoded in
+  // the fence info string, then a client preference so diagram/source choices
+  // survive refresh on read-only surfaces that cannot rewrite the markdown.
+  const mermaidView = isMermaid
+    ? resolveMermaidViewMode({
+        attrView: node.attrs.mermaidView,
+        fenceView: fence.mermaidView,
+        chart,
+      })
+    : "both";
   const debouncedChart = useDebouncedValue(isMermaid ? chart : "", PREVIEW_DEBOUNCE_MS);
   const debouncedHtml = useDebouncedValue(isHtml ? chart : "", PREVIEW_DEBOUNCE_MS);
 
@@ -319,6 +326,7 @@ function CodeBlockView({ node, updateAttributes, deleteNode, editor, getPos }: N
     });
   };
   const setMermaidView = (mode: MermaidViewMode) => {
+    writeMermaidViewPreference(chart, mode);
     // Keep `language` as the bare token so lowlight / ReadonlyContent see
     // `mermaid`, while the view mode rides in attrs + the fence info string.
     updateAttributes({ language: "mermaid", mermaidView: mode });

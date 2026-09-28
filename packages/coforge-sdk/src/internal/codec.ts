@@ -5,7 +5,7 @@ import { assertValidMessageSender, isValidMessageSender } from "./message-sender
 import {
   ComputerRegisterRequestSchema,
   ComputerRegisterResponseSchema,
-} from "./gen/coforge/rpc/v1/computer_pb";
+} from "#src/internal/gen/coforge/rpc/v1/computer_pb";
 import {
   RUNTIME_PROVIDER,
   AGENT_SESSION_INVALIDATE_REASONS,
@@ -22,7 +22,7 @@ import {
   WorkspaceListRequestSchema,
   WorkspaceListResponseSchema,
   ActivitySystemEntrySchema,
-} from "./gen/coforge/rpc/v1/workspace_pb";
+} from "#src/internal/gen/coforge/rpc/v1/workspace_pb";
 import {
   DaemonRuntimeCodeAgentsUpdateRequestSchema,
   DaemonRuntimeProviderModelRefreshRequestSchema,
@@ -35,7 +35,7 @@ import {
   ComputerRestartIntentSchema,
   ComputerUpgradeIntentSchema,
   ComputerUpgradeResultSchema,
-} from "./gen/coforge/rpc/v1/daemon_runtime_pb";
+} from "#src/internal/gen/coforge/rpc/v1/daemon_runtime_pb";
 import {
   AgentSessionReportSchema,
   AgentSessionInvalidateSchema,
@@ -43,11 +43,12 @@ import {
   AgentStartIntentSchema,
   AgentStopIntentSchema,
   AgentActivityProbeSchema,
+  AgentInboxPurgeSchema,
   AgentMessageDeliverySchema,
   AgentActivitySchema,
   AgentStatusSchema,
   AgentMessageDeliveryAckSchema,
-} from "./gen/coforge/rpc/v1/workspace_pb";
+} from "#src/internal/gen/coforge/rpc/v1/workspace_pb";
 import type {
   AgentSessionReport,
   AgentSessionInvalidate,
@@ -55,6 +56,7 @@ import type {
   AgentStartIntent,
   AgentStopIntent,
   AgentActivityProbe,
+  AgentInboxPurge,
   AgentRuntimeProviderConfig,
   AgentRecoveryMessage,
   AgentMessageDelivery,
@@ -67,6 +69,8 @@ import {
   AGENT_START_MESSAGE_TYPE,
   AGENT_STOP_MESSAGE_TYPE,
   AGENT_ACTIVITY_PROBE_MESSAGE_TYPE,
+  AGENT_INBOX_PURGE_MESSAGE_TYPE,
+  AGENT_INBOX_PURGE_REASONS,
   USAGE_SCAN_MESSAGE_TYPE,
   USAGE_SCAN_RESPONSE_MESSAGE_TYPE,
   MODEL_REFRESH_MESSAGE_TYPE,
@@ -676,10 +680,33 @@ function validateAgentContextUsage(value: {
     throw new Error("invalid context usage clientSeq");
 }
 
+/** The longest resume prompt a start intent carries, in UTF-16 code units. */
+export const AGENT_RESUME_PROMPT_MAX_LENGTH = 8192;
+
+function assertResumePrompt(
+  prompt: string | undefined,
+  hasRecovery: boolean,
+  error: (reason: string) => Error,
+) {
+  if (prompt === undefined) return;
+  if (!prompt.trim()) throw error("blank resume prompt");
+  if (prompt.length > AGENT_RESUME_PROMPT_MAX_LENGTH) throw error("resume prompt is too long");
+  if (hasRecovery) throw error("resume prompt cannot carry message recovery");
+}
+
 export function encodeAgentStartIntent(value: AgentStartIntent): Uint8Array {
+  assertResumePrompt(
+    value.resumePrompt,
+    Boolean(
+      value.wakeMessage ||
+      value.resumeMessages?.length ||
+      Object.keys(value.unreadSummary ?? {}).length,
+    ),
+    (reason) => new Error(`invalid Agent start ${reason}`),
+  );
   if (value.controlEpoch !== undefined)
     assertPositiveControlCounter(value.controlEpoch, "Agent control epoch");
-  // ADR 0041: the server mints and supplies launchId for every managed (controlEpoch-carrying)
+  // The server mints and supplies launchId for every managed (controlEpoch-carrying)
   // start; a start intent with an epoch but no launchId is an internal bug, not a wire concern.
   if (value.controlEpoch !== undefined && !value.launchId?.trim())
     throw new Error("managed Agent start intent requires a launchId");
@@ -757,7 +784,7 @@ export function decodeAgentStartIntent(bytes: Uint8Array): AgentStartIntent {
     throw new Error(`unsupported runtime provider: ${v.provider}`);
   if (v.controlEpoch !== undefined)
     assertPositiveControlCounter(v.controlEpoch, "Agent control epoch");
-  // ADR 0041: a managed start (one carrying controlEpoch) must carry the server-minted
+  // A managed start (one carrying controlEpoch) must carry the server-minted
   // launchId; a decoded intent that fails this is malformed, not merely "unmanaged."
   if (v.controlEpoch !== undefined && !v.launchId?.trim())
     throw new Error("invalid agent start intent: managed start requires a launchId");
@@ -795,6 +822,11 @@ export function decodeAgentStartIntent(bytes: Uint8Array): AgentStartIntent {
     throw new Error("invalid Agent session mode");
   if (v.sessionMode === "resume" && !v.sessionId)
     throw new Error("Agent resume requires a session ID");
+  assertResumePrompt(
+    v.resumePrompt,
+    recoveryMessages.length > 0 || v.unreadSummary.length > 0,
+    (reason) => new Error(`invalid agent start intent: ${reason}`),
+  );
   const recoveryMessage = (message: (typeof recoveryMessages)[number]) => ({
     messageId: message.messageId,
     deliveryId: message.deliveryId,
@@ -805,6 +837,7 @@ export function decodeAgentStartIntent(bytes: Uint8Array): AgentStartIntent {
     latestSenderHandle: message.latestSenderHandle,
     latestSenderDescription: message.latestSenderDescription,
     body: message.body,
+    ...(message.nonMemberMention ? { nonMemberMention: true } : {}),
   });
   return {
     protocolMajor: v.protocolMajor,
@@ -828,6 +861,7 @@ export function decodeAgentStartIntent(bytes: Uint8Array): AgentStartIntent {
     ...(v.controlEpoch !== undefined ? { controlEpoch: v.controlEpoch } : {}),
     ...(v.launchId ? { launchId: v.launchId } : {}),
     ...(v.toolProfile ? { toolProfile: v.toolProfile as AgentStartIntent["toolProfile"] } : {}),
+    ...(v.resumePrompt !== undefined ? { resumePrompt: v.resumePrompt } : {}),
     ...(v.wakeMessage ? { wakeMessage: recoveryMessage(v.wakeMessage) } : {}),
     ...(v.resumeMessages.length ? { resumeMessages: v.resumeMessages.map(recoveryMessage) } : {}),
     ...(v.unreadSummary.length
@@ -911,6 +945,44 @@ export function decodeAgentActivityProbe(bytes: Uint8Array): AgentActivityProbe 
   };
 }
 
+export function encodeAgentInboxPurge(value: AgentInboxPurge): Uint8Array {
+  return toBinary(
+    AgentInboxPurgeSchema,
+    create(AgentInboxPurgeSchema, {
+      ...value,
+      messageType: AGENT_INBOX_PURGE_MESSAGE_TYPE,
+    }),
+  );
+}
+
+export function decodeAgentInboxPurge(bytes: Uint8Array): AgentInboxPurge {
+  const value = fromBinary(AgentInboxPurgeSchema, bytes);
+  const reason = AGENT_INBOX_PURGE_REASONS.find((candidate) => candidate === value.reason);
+  if (
+    value.messageType !== AGENT_INBOX_PURGE_MESSAGE_TYPE ||
+    !value.requestId ||
+    !value.workspaceId ||
+    !value.computerId ||
+    !value.agentId ||
+    !value.conversationIds.length ||
+    value.conversationIds.some((id) => !id.trim()) ||
+    value.targets.length !== value.conversationIds.length ||
+    value.targets.some((target) => !target.startsWith("#") || target.length < 2) ||
+    !reason
+  )
+    throw new Error("invalid agent inbox purge");
+  return {
+    protocolMajor: value.protocolMajor,
+    requestId: value.requestId,
+    workspaceId: value.workspaceId,
+    computerId: value.computerId,
+    agentId: value.agentId,
+    conversationIds: [...value.conversationIds],
+    targets: [...value.targets],
+    reason,
+  };
+}
+
 function parseAgentRuntimeProviderConfig(
   kind: string,
   providerId: string | undefined,
@@ -941,10 +1013,12 @@ export function encodeAgentMessageDelivery(value: AgentMessageDelivery): Uint8Ar
       agentId: value.agentId,
       body: value.body,
       method: value.method,
-      target: value.target,
+      target: value.target ?? "",
       latestSenderKind: value.latestSenderKind ?? "",
       latestSenderHandle: value.latestSenderHandle ?? "",
       latestSenderDescription: value.latestSenderDescription ?? "",
+      mentionsAgent: value.mentionsAgent,
+      nonMemberMention: value.nonMemberMention,
     }),
   );
 }
@@ -981,6 +1055,8 @@ export function decodeAgentMessageDelivery(bytes: Uint8Array): AgentMessageDeliv
           latestSenderDescription: value.latestSenderDescription,
         }
       : {}),
+    ...(value.mentionsAgent !== undefined ? { mentionsAgent: value.mentionsAgent } : {}),
+    ...(value.nonMemberMention ? { nonMemberMention: true } : {}),
   };
 }
 export function encodeAgentMessageDeliveryAck(value: AgentMessageDeliveryAck): Uint8Array {
@@ -1331,4 +1407,15 @@ export function decodeComputerRegisterResponse(bytes: Uint8Array): ComputerRegis
 
 export function encodeComputerRegisterResponse(value: ComputerRegisterResponse): Uint8Array {
   return toBinary(ComputerRegisterResponseSchema, create(ComputerRegisterResponseSchema, value));
+}
+
+/**
+ * Refuses a wire payload over the limit its message type allows. Each codec module keeps its own
+ * limit and label — the lifecycle, skills and reminder messages are capped differently (32 KiB,
+ * 1 MiB, 64 KiB) — but the check and its wording are one rule, and both the encode and the decode
+ * path go through it, so a peer cannot make us parse an oversized frame.
+ */
+export function boundedPayload(bytes: Uint8Array, maxBytes: number, label: string): Uint8Array {
+  if (bytes.length > maxBytes) throw new Error(`${label} payload too large`);
+  return bytes;
 }

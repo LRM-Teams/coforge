@@ -1,16 +1,17 @@
 import { createServerFn } from "@tanstack/react-start";
-import type { PrismaClient } from "../../../generated/client";
-import { workspaceUserMiddleware } from "../../server/auth/function-auth";
-import { configuredGitHub } from "../../server/integrations/github-config.server";
-import type { RepositorySelection } from "../../server/integrations/github-connection.server";
-import { gitObjectIdSchema } from "../../lib/git-object-id";
-import { linkedRepositoryOf } from "../../server/projects/project-files.server";
-import { AppError, isAppError } from "../../lib/app-error";
-import { ProjectSettings } from "../../server/projects/project-settings.server";
+import type { PrismaClient } from "#src/generated/prisma/client";
+import { workspaceUserMiddleware } from "#src/features/auth/function-auth";
+import { configuredGitHub } from "#src/server/integrations/github-config.server";
+import type { RepositorySelection } from "#src/server/integrations/github-connection.server";
+import { gitObjectIdSchema } from "#src/lib/git-object-id";
+import { linkedRepositoryOf } from "#src/server/projects/project-files.server";
+import { AppError, isAppError } from "#src/lib/app-error";
+import { ProjectSettings } from "#src/server/projects/project-settings.server";
 import { z } from "zod";
 import { createProjectInput, projectIconUploadInput, updateProjectInput } from "./projects.schemas";
-import { ProjectImages, projectIconUrl } from "../../server/projects/project-images.server";
-import { workspaceUserAvatarUrl } from "../../server/db/repositories/user-profile.repositories.server";
+import { ProjectImages, projectIconUrl } from "#src/server/projects/project-images.server";
+import { workspaceUserAvatarUrl } from "#src/server/db/repositories/user-profile.repositories.server";
+import { isUniqueViolation } from "#src/server/db/unique-violation.server";
 
 export const uploadProjectIcon = createServerFn({ method: "POST" })
   .middleware([workspaceUserMiddleware])
@@ -289,8 +290,7 @@ export const createProject = createServerFn({ method: "POST" })
       });
     } catch (error) {
       // The slug is unique per Workspace; surface a taken slug as CONFLICT like workspace creation.
-      if (error instanceof Error && "code" in error && error.code === "P2002")
-        throw new AppError("CONFLICT");
+      if (isUniqueViolation(error)) throw new AppError("CONFLICT");
       throw error;
     }
   });

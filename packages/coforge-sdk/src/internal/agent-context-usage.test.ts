@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { AgentContextUsageSchema } from "./gen/coforge/rpc/v1/workspace_pb";
+import { AgentContextUsageSchema } from "#src/internal/gen/coforge/rpc/v1/workspace_pb";
 import { encodeAgentContextUsage, decodeAgentContextUsage } from "./index";
 
 function contextUsage() {

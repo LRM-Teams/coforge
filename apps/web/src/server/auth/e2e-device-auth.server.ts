@@ -1,6 +1,6 @@
 import { importJWK, SignJWT, type JWK } from "jose";
 
-import { publicOrigin } from "@/server/http/public-origin.server";
+import { publicOrigin } from "#src/server/http/public-origin.server";
 
 const CLIENT_ID = "coforge-computer";
 

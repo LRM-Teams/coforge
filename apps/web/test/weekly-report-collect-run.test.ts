@@ -4,12 +4,12 @@ import {
   allSlotsTerminal,
   canSynthesizeFromSlots,
   isRetryableSlotStatus,
-} from "../src/server/records/weekly-report-collect-run.server";
+} from "#src/server/records/weekly-report-collect-run.server";
 import {
   WEEKLY_REPORT_COLLECTOR_DISPLAY_NAME_PREFIX,
   weeklyReportCollectorAgentName,
   weeklyReportCollectorDisplayName,
-} from "../src/server/records/weekly-report-collector.server";
+} from "#src/server/records/weekly-report-collector.server";
 
 test("collector Agent names stay stable and User-Computer scoped", () => {
   expect(weeklyReportCollectorAgentName("computer-a")).toBe("weekly-report-collector-computer-a");
@@ -60,10 +60,28 @@ test("collect slot settle helpers match ADR 0032 terminal and partial-success ru
   expect(isRetryableSlotStatus(COLLECT_SLOT_STATUS.ready)).toBe(false);
 });
 
+test("collectWaveExhausted is true only when every slot is terminal with no ready pack", async () => {
+  const { COLLECT_SLOT_STATUS, collectWaveExhausted } =
+    await import("#src/server/records/weekly-report-collect-run.server");
+  expect(collectWaveExhausted([])).toBe(false);
+  expect(
+    collectWaveExhausted([
+      { status: COLLECT_SLOT_STATUS.failed },
+      { status: COLLECT_SLOT_STATUS.empty },
+    ]),
+  ).toBe(true);
+  expect(
+    collectWaveExhausted([
+      { status: COLLECT_SLOT_STATUS.ready },
+      { status: COLLECT_SLOT_STATUS.failed },
+    ]),
+  ).toBe(false);
+  expect(collectWaveExhausted([{ status: COLLECT_SLOT_STATUS.running }])).toBe(false);
+});
+
 test("startCollectRun rejects foreign computers and zero ready collectors", async () => {
-  const { startCollectRun } =
-    await import("../src/server/records/weekly-report-collect-run.server");
-  const { AppError } = await import("../src/lib/app-error");
+  const { startCollectRun } = await import("#src/server/records/weekly-report-collect-run.server");
+  const { AppError } = await import("#src/lib/app-error");
 
   const db = {
     weeklyReport: {
@@ -141,7 +159,7 @@ test("startCollectRun rejects foreign computers and zero ready collectors", asyn
 });
 
 test("ensureCollector refuses a Computer the User does not own", async () => {
-  const { ensureCollector } = await import("../src/server/records/weekly-report-collector.server");
+  const { ensureCollector } = await import("#src/server/records/weekly-report-collector.server");
 
   const db: any = {
     weeklyReportCollectorBinding: {
@@ -170,9 +188,73 @@ test("ensureCollector refuses a Computer the User does not own", async () => {
   ).rejects.toMatchObject({ code: "ACCESS_DENIED" });
 });
 
+test("ensureCollector creates a private Collector Agent for an owned Computer", async () => {
+  const { ensureCollector } = await import("#src/server/records/weekly-report-collector.server");
+  const createdAgents: Array<Record<string, unknown>> = [];
+  const db: any = {
+    $transaction: async (fn: (tx: any) => Promise<unknown>) => fn(db),
+    weeklyReportCollectorBinding: {
+      findUnique: async () => null,
+      create: async ({ data }: { data: Record<string, unknown> }) => ({
+        id: "binding-1",
+        ...data,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      }),
+    },
+    workspaceComputer: {
+      findUnique: async () => ({
+        computerId: "computer-a",
+        computer: {
+          id: "computer-a",
+          ownerId: "user-1",
+          displayName: "ubuntu",
+          name: "ubuntu",
+        },
+      }),
+    },
+    agent: {
+      findUnique: async () => null,
+      findMany: async () => [],
+      create: async ({ data }: { data: Record<string, unknown> }) => {
+        const agent = { ...data, id: "collector-1" };
+        createdAgents.push(agent);
+        return agent;
+      },
+    },
+    conversation: {
+      createMany: async () => ({ count: 0 }),
+      findUniqueOrThrow: async () => ({ id: "general-1" }),
+    },
+    workspaceMembership: {
+      findMany: async () => [{ userId: "user-1" }],
+    },
+    conversationMember: {
+      createMany: async () => ({ count: 0 }),
+    },
+    message: {
+      findFirst: async () => undefined,
+    },
+  };
+
+  const result = await ensureCollector(db as never, {
+    workspaceId: "ws-1",
+    userId: "user-1",
+    computerId: "computer-a",
+  });
+
+  expect(result.collectorAgentId).toBe("collector-1");
+  expect(createdAgents[0]).toMatchObject({
+    visibility: "private",
+    name: "weekly-report-collector-computer-a",
+    ownerId: "user-1",
+  });
+});
+
 test("ensureCollector reclaims an orphan Agent and creates the missing binding", async () => {
-  const { ensureCollector } = await import("../src/server/records/weekly-report-collector.server");
+  const { ensureCollector } = await import("#src/server/records/weekly-report-collector.server");
   let createdBinding: unknown = null;
+  let visibilityPatch: unknown = null;
   const db: any = {
     $transaction: async (fn: (tx: any) => Promise<unknown>) => fn(db),
     weeklyReportCollectorBinding: {
@@ -203,12 +285,16 @@ test("ensureCollector reclaims an orphan Agent and creates the missing binding",
         id: "orphan-agent",
         ownerId: "user-1",
         computerId: "computer-a",
+        visibility: "public",
       }),
       findMany: async () => [{ id: "orphan-agent" }],
       create: async () => {
         throw new Error("must not create duplicate agent");
       },
-      update: async () => ({}),
+      update: async ({ data }: { data: Record<string, unknown> }) => {
+        if (data.visibility != null) visibilityPatch = data;
+        return {};
+      },
     },
     conversation: {
       createMany: async () => ({ count: 0 }),
@@ -238,11 +324,12 @@ test("ensureCollector reclaims an orphan Agent and creates the missing binding",
     computerId: "computer-a",
     collectorAgentId: "orphan-agent",
   });
+  expect(visibilityPatch).toMatchObject({ visibility: "private" });
 });
 
 test("startCollectRun creates a collecting run with running slots for ready collectors", async () => {
   const { startCollectRun, COLLECT_RUN_STATUS, COLLECT_SLOT_STATUS } =
-    await import("../src/server/records/weekly-report-collect-run.server");
+    await import("#src/server/records/weekly-report-collect-run.server");
 
   let created: Record<string, unknown> | null = null;
   const db = {
@@ -344,7 +431,7 @@ test("startCollectRun creates a collecting run with running slots for ready coll
 
 test("buildCollectSynthesizerWakeText includes status board and ready packs", async () => {
   const { buildCollectSynthesizerWakeText } =
-    await import("../src/server/records/weekly-report-collect-orchestrate.server");
+    await import("#src/server/records/weekly-report-collect-orchestrate.server");
   const text = buildCollectSynthesizerWakeText({
     reportId: "report-1",
     runId: "run-1",
@@ -375,7 +462,7 @@ test("buildCollectSynthesizerWakeText includes status board and ready packs", as
 
 test("buildCollectorWakeBody requires owner-scoped harvest and lists identity hints", async () => {
   const { buildCollectorWakeBody } =
-    await import("../src/server/records/weekly-report-collect-orchestrate.server");
+    await import("#src/server/records/weekly-report-collect-orchestrate.server");
   const text = buildCollectorWakeBody({
     runId: "run-1",
     reportId: "report-1",
@@ -396,7 +483,7 @@ test("buildCollectorWakeBody requires owner-scoped harvest and lists identity hi
 
 test("buildCollectSynthesizerWakeText forwards user revision guidance", async () => {
   const { buildCollectSynthesizerWakeText } =
-    await import("../src/server/records/weekly-report-collect-orchestrate.server");
+    await import("#src/server/records/weekly-report-collect-orchestrate.server");
   const text = buildCollectSynthesizerWakeText({
     reportId: "report-1",
     runId: "run-1",
@@ -416,7 +503,7 @@ test("buildCollectSynthesizerWakeText forwards user revision guidance", async ()
 
 test("acceptCollectSlotReport advances collecting→synthesizing when every slot is ready", async () => {
   const { acceptCollectSlotReport, COLLECT_RUN_STATUS, COLLECT_SLOT_STATUS } =
-    await import("../src/server/records/weekly-report-collect-run.server");
+    await import("#src/server/records/weekly-report-collect-run.server");
 
   let slotStatus: string = COLLECT_SLOT_STATUS.running;
   let slotRequestId: string | null = null;
@@ -511,4 +598,183 @@ test("acceptCollectSlotReport advances collecting→synthesizing when every slot
   expect(replay.newlyAccepted).toBe(false);
   expect(replay.synthesisStarted).toBe(false);
   expect(replay.run.status).toBe(COLLECT_RUN_STATUS.synthesizing);
+});
+
+test("acceptCollectSlotReport leaves collecting when every slot failed with no ready pack", async () => {
+  // LLM/provider failures that surface via submit-failure must not leave the run
+  // stuck on collecting — the side-chat card stops polling only after status changes.
+  const { acceptCollectSlotReport, COLLECT_RUN_STATUS, COLLECT_SLOT_STATUS } =
+    await import("#src/server/records/weekly-report-collect-run.server");
+
+  let slotStatus: string = COLLECT_SLOT_STATUS.running;
+  let slotRequestId: string | null = null;
+  let slotFailure: string | null = null;
+  let runStatus: string = COLLECT_RUN_STATUS.collecting;
+  let runCompletedAt: Date | null = null;
+
+  const slotRow = () => ({
+    id: "slot-1",
+    computerId: "computer-1",
+    collectorAgentId: "agent-1",
+    scanPaths: ["/work"],
+    status: slotStatus,
+    retryCount: 0,
+    failureReason: slotFailure,
+    packMarkdown: null,
+    requestId: slotRequestId,
+  });
+
+  const runRow = () => ({
+    id: "run-1",
+    reportId: "report-1",
+    workspaceId: "ws-1",
+    userId: "user-1",
+    status: runStatus,
+    windowKind: "week",
+    windowStart: new Date("2026-08-31T00:00:00.000Z"),
+    windowEnd: new Date("2026-09-07T00:00:00.000Z"),
+    startedAt: new Date("2026-09-17T00:00:00.000Z"),
+    completedAt: runCompletedAt,
+    createdAt: new Date("2026-09-17T00:00:00.000Z"),
+    slots: [slotRow()],
+  });
+
+  const db = {
+    weeklyReportCollectSlot: {
+      findFirst: async ({ where }: { where: { requestId?: string } }) => {
+        if (where.requestId && where.requestId === slotRequestId) {
+          return { ...slotRow(), run: runRow() };
+        }
+        return null;
+      },
+      update: async ({ data }: { data: Record<string, unknown> }) => {
+        slotStatus = String(data.status);
+        slotFailure = (data.failureReason as string | null) ?? null;
+        slotRequestId = (data.requestId as string | null) ?? null;
+        return slotRow();
+      },
+    },
+    weeklyReportCollectRun: {
+      findFirst: async () => runRow(),
+      findFirstOrThrow: async () => runRow(),
+      updateMany: async ({
+        where,
+        data,
+      }: {
+        where: { id: string; status?: string };
+        data: Record<string, unknown>;
+      }) => {
+        if (where.status !== undefined && where.status !== runStatus) {
+          return { count: 0 };
+        }
+        runStatus = String(data.status);
+        runCompletedAt = (data.completedAt as Date | null | undefined) ?? runCompletedAt;
+        return { count: 1 };
+      },
+    },
+  };
+
+  const result = await acceptCollectSlotReport(db as never, {
+    workspaceId: "ws-1",
+    agentId: "agent-1",
+    requestId: "22222222-2222-4222-8222-222222222222",
+    runId: "run-1",
+    outcome: "failed",
+    failureReason: "Error: 405 Not Allowed (nginx)",
+  });
+
+  expect(result.newlyAccepted).toBe(true);
+  expect(result.synthesisStarted).toBe(false);
+  expect(result.waveExhausted).toBe(true);
+  expect(result.run.status).toBe(COLLECT_RUN_STATUS.cancelled);
+  expect(result.run.allTerminal).toBe(true);
+  expect(result.run.canSynthesize).toBe(false);
+  expect(slotStatus).toBe(COLLECT_SLOT_STATUS.failed);
+  expect(slotFailure ?? "").toContain("405");
+  expect(runStatus).toBe(COLLECT_RUN_STATUS.cancelled);
+  expect(runCompletedAt).toBeInstanceOf(Date);
+});
+
+test("settleStaleCollectRun marks overdue running slots stalled and closes an empty wave", async () => {
+  const { settleStaleCollectRun, COLLECT_RUN_STATUS, COLLECT_SLOT_STATUS, COLLECT_SLOT_STALL_MS } =
+    await import("#src/server/records/weekly-report-collect-run.server");
+
+  let slotStatus: string = COLLECT_SLOT_STATUS.running;
+  let slotFailure: string | null = null;
+  let runStatus: string = COLLECT_RUN_STATUS.collecting;
+  let runCompletedAt: Date | null = null;
+  const startedAt = new Date("2026-09-17T00:00:00.000Z");
+
+  const slotRow = () => ({
+    id: "slot-1",
+    computerId: "computer-1",
+    collectorAgentId: "agent-1",
+    scanPaths: ["/work"],
+    status: slotStatus,
+    retryCount: 0,
+    failureReason: slotFailure,
+    packMarkdown: null,
+    requestId: null,
+  });
+
+  const runRow = () => ({
+    id: "run-1",
+    reportId: "report-1",
+    workspaceId: "ws-1",
+    userId: "user-1",
+    status: runStatus,
+    windowKind: "week",
+    windowStart: new Date("2026-08-31T00:00:00.000Z"),
+    windowEnd: new Date("2026-09-07T00:00:00.000Z"),
+    startedAt,
+    completedAt: runCompletedAt,
+    createdAt: startedAt,
+    slots: [slotRow()],
+  });
+
+  const db = {
+    weeklyReportCollectRun: {
+      findFirst: async () => runRow(),
+      findFirstOrThrow: async () => runRow(),
+      updateMany: async ({
+        where,
+        data,
+      }: {
+        where: { id: string; status?: string };
+        data: Record<string, unknown>;
+      }) => {
+        if (where.status !== undefined && where.status !== runStatus) return { count: 0 };
+        runStatus = String(data.status);
+        runCompletedAt = (data.completedAt as Date | null | undefined) ?? runCompletedAt;
+        return { count: 1 };
+      },
+    },
+    weeklyReportCollectSlot: {
+      updateMany: async ({
+        where,
+        data,
+      }: {
+        where: { runId: string; status: string };
+        data: Record<string, unknown>;
+      }) => {
+        expect(where.status).toBe(COLLECT_SLOT_STATUS.running);
+        slotStatus = String(data.status);
+        slotFailure = (data.failureReason as string | null) ?? null;
+        return { count: 1 };
+      },
+    },
+  };
+
+  const now = startedAt.getTime() + COLLECT_SLOT_STALL_MS + 1;
+  const view = await settleStaleCollectRun(
+    db as never,
+    { workspaceId: "ws-1", userId: "user-1", runId: "run-1" },
+    now,
+  );
+
+  expect(slotStatus).toBe(COLLECT_SLOT_STATUS.stalled);
+  expect(slotFailure).toMatch(/超时|模型|接口|上报/);
+  expect(view.status).toBe(COLLECT_RUN_STATUS.cancelled);
+  expect(view.allTerminal).toBe(true);
+  expect(runCompletedAt).toBeInstanceOf(Date);
 });

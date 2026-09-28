@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { isValidWorkspaceSlug } from "../../server/workspaces/workspace-slug";
+import { isValidWorkspaceSlug } from "./workspace-slug";
 
 const workspaceSlug = z.string().refine(isValidWorkspaceSlug);
 

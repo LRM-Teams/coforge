@@ -4,7 +4,7 @@ import { UPGRADE_ERROR_CODE, type UpgradeErrorCode } from "@lrm/coforge-sdk/inte
  * A Computer upgrade refusal or failure the Coordinator can name a stable reason for. Every
  * throw site in this package that refuses or fails an upgrade request throws one of these
  * instead of a bare `Error`, so the code travels with the message instead of a caller having to
- * parse free text (ADR 0041). `code` is always one of
+ * parse free text. `code` is always one of
  * `UPGRADE_ERROR_CODE`'s values.
  */
 export class UpgradeError extends Error {

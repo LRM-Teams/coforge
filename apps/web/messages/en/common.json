@@ -21,8 +21,6 @@
   "content_archived_agents": "Archived agents",
   "filters_mine": "Mine",
   "filters_all": "All",
-  "filters_computer": "Computer",
-  "filters_search": "Search members",
   "login_title": "Sign in to CoForge",
   "login_description": "Use your email verification code to open CoForge.",
   "login_action": "Continue",
@@ -47,5 +45,6 @@
   "app_load_error_description": "The service may be temporarily unavailable. Try again in a moment.",
   "error_reference": "Error reference: {errorId}",
   "navigation_open_menu": "Open menu",
-  "navigation_close_menu": "Close menu"
+  "navigation_close_menu": "Close menu",
+  "navigation_activity": "Activity"
 }

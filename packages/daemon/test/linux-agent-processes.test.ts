@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   stopWorkspaceAgentProcesses,
   type LinuxProcessTable,
-} from "../src/platform/linux-agent-processes";
+} from "#src/platform/linux-agent-processes";
 
 const environment = (entries: Record<string, string>) =>
   Object.entries(entries)

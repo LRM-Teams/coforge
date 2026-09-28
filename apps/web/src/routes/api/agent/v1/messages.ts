@@ -1,28 +1,29 @@
 import { createFileRoute } from "@tanstack/react-router";
 import type { AgentHistoryResponse, AgentSendResponse, AgentMessage } from "@lrm/coforge-sdk/agent";
 import {
+  UUID_LIKE_PATTERN,
   isChannelMessageTarget,
   isValidMentionSelectorArray,
   MEMORY_OFFER_REQUIRED_MESSAGE,
 } from "@lrm/coforge-sdk/internal";
-import { createPrismaMemoryAgentDirectory } from "#/server/workspace-memory/memory-agent-http.server";
-import { explicitMemoryQuestionRequiresOffer } from "#/server/workspace-memory/explicit-memory-answer";
-import { agentAuthMiddleware } from "#/server/agents/agent-http.middleware";
-import { PrismaDirectConversationRepository } from "#/server/db/repositories/direct-conversation.repositories.server";
+import { createPrismaMemoryAgentDirectory } from "#src/server/workspace-memory/memory-agent-http.server";
+import { explicitMemoryQuestionRequiresOffer } from "#src/server/workspace-memory/explicit-memory-answer";
+import { agentAuthMiddleware } from "#src/server/agents/agent-http-middleware.server";
+import { PrismaDirectConversationRepository } from "#src/server/db/repositories/direct-conversation.repositories.server";
 import {
   readAgentMessages,
   executeAgentSendMessageWithPolicy,
   type AgentMentionSelector,
   type AgentMessageRepository,
   type AgentSendMessageResult,
-} from "#/server/agents/agent-messages.service";
-import { SendDirectMessage } from "#/server/conversations/direct-message.server";
-import { getMessageRequestIdempotency } from "#/server/conversations/redis-message-request-idempotency.server";
-import { createCentrifugoServerApi } from "#/server/centrifugo/server-api.server";
-import { CentrifugoConversationRealtime } from "#/server/conversations/conversation-realtime.server";
-import { bestEffortMessageNotifier } from "#/server/notifications/web-push-composition.server";
-import { isAppError } from "#/lib/app-error";
-import { AgentSendRejectedError } from "#/server/conversations/agent-send-rejected-error.server";
+} from "#src/server/agents/agent-messages.server";
+import { SendDirectMessage } from "#src/server/conversations/direct-message.server";
+import { getMessageRequestIdempotency } from "#src/server/conversations/redis-message-request-idempotency.server";
+import { createCentrifugoServerApi } from "#src/server/centrifugo/server-api.server";
+import { CentrifugoConversationRealtime } from "#src/server/conversations/conversation-realtime.server";
+import { bestEffortMessageNotifier } from "#src/server/notifications/web-push-composition.server";
+import { isAppError } from "#src/lib/app-error";
+import { AgentSendRejectedError } from "#src/server/conversations/agent-send-rejected-error.server";
 
 export type AgentMessagesGetPrincipal = { workspaceId: string; agentId: string };
 
@@ -45,7 +46,7 @@ export async function handleAgentMessagesGet(
   repository: AgentMessageRepository,
 ): Promise<Response> {
   const query = new URL(request.url).searchParams;
-  const requestId = query.get("requestId") || crypto.randomUUID();
+  const idempotencyKey = query.get("idempotencyKey") || crypto.randomUUID();
   const scope = { workspaceId: principal.workspaceId, agentId: principal.agentId };
   try {
     if (query.has("query"))
@@ -68,7 +69,7 @@ export async function handleAgentMessagesGet(
     const messages = result.messages as AgentMessage[];
     const response: AgentHistoryResponse = {
       protocolMajor: 1,
-      requestId,
+      idempotencyKey,
       messages,
       hasOlder: result.hasOlder,
       hasNewer: result.hasNewer,
@@ -83,7 +84,7 @@ export async function handleAgentMessagesGet(
 
 /** Maps `executeAgentSendMessageWithPolicy`'s side-effect decision onto the send route's response,
  * using Raft's own field names for both states (`agentApiSendResponseSchema`). */
-function mapSendResult(requestId: string, result: AgentSendMessageResult) {
+function mapSendResult(idempotencyKey: string, result: AgentSendMessageResult) {
   const toAgentMessage = (message: { createdAt: Date }) =>
     ({
       ...message,
@@ -91,7 +92,7 @@ function mapSendResult(requestId: string, result: AgentSendMessageResult) {
     }) as AgentMessage;
   const response: AgentSendResponse = {
     protocolMajor: 1,
-    requestId,
+    idempotencyKey,
     state: result.state,
     decision: result.decision,
     reason: result.reason,
@@ -109,11 +110,27 @@ function mapSendResult(requestId: string, result: AgentSendMessageResult) {
     freshnessContextMode: result.freshnessContextMode,
     withheldMessageCount: result.withheldMessageCount,
     recentUnread: (result.recentUnread ?? []).map(toAgentMessage),
+    // Sent only: what the message did not reach.
+    pendingMentionActions:
+      result.state === "sent"
+        ? (result.pendingMentionActions ?? []).map((action) => ({
+            resolutionId: action.resolutionId,
+            messageId: action.messageId,
+            targetType: action.targetType,
+            targetHandle: action.targetHandle,
+            targetAvatarUrl: action.targetAvatarUrl,
+            reason: "not_member" as const,
+            availableActions: [...action.availableActions],
+            expiresAt: action.expiresAt.toISOString(),
+          }))
+        : undefined,
+    unresolvedMentionHandles:
+      result.state === "sent" ? [...(result.unresolvedMentionHandles ?? [])] : undefined,
   };
   return response;
 }
 
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const UUID_PATTERN = UUID_LIKE_PATTERN;
 const ATTACHMENT_IDS_MAX_LENGTH = 10;
 
 /** Shape-only validation for `attachmentIds`: an array of at most 10 unique UUIDs. Deeper
@@ -157,7 +174,15 @@ export async function handleAgentMessagesPost(
     return Response.json({ error: "invalid attachmentIds" }, { status: 400 });
   if (body.mentions !== undefined && !isValidMentionSelectorArray(body.mentions))
     return Response.json({ error: "invalid mentions" }, { status: 400 });
-  const requestId = typeof body.requestId === "string" ? body.requestId : crypto.randomUUID();
+  // Raft's own name for this request's idempotency key (task #58 ④), and our only one: a request
+  // must not be deduplicable under two spellings, so `requestId` is not read. Raft's
+  // declared-but-unused `continue` field needs no handling here — this handler only reads what it
+  // acts on (the force-send flag is `continueAnyway`, as in Raft).
+  const idempotencyKey =
+    typeof body.idempotencyKey === "string" && body.idempotencyKey
+      ? body.idempotencyKey
+      : crypto.randomUUID();
+  // An explicit @memory question must be answered with a Memory Offer, not a plain channel send.
   const channelTarget = body.target.split(":")[0] ?? body.target;
   if (dependencies.memoryOfferRequired && isChannelMessageTarget(channelTarget)) {
     const offerRequired = await dependencies.memoryOfferRequired({
@@ -169,7 +194,7 @@ export async function handleAgentMessagesPost(
   }
   try {
     const result = await executeAgentSendMessageWithPolicy(dependencies, {
-      requestId,
+      idempotencyKey,
       workspaceId: principal.workspaceId,
       agentId: principal.agentId,
       target: body.target,
@@ -187,7 +212,7 @@ export async function handleAgentMessagesPost(
         : undefined,
       mentions: body.mentions as AgentMentionSelector[] | undefined,
     });
-    return Response.json(mapSendResult(requestId, result));
+    return Response.json(mapSendResult(idempotencyKey, result));
   } catch (error) {
     // Only this send-specific class is mapped here; every other error (including any AppError
     // raised elsewhere, e.g. getAgentChannel's ACCESS_DENIED for a non-member) propagates
@@ -199,6 +224,14 @@ export async function handleAgentMessagesPost(
     // text failure.
     if (isAppError(error) && error.code === "CONFLICT")
       return new Response("channel is archived", { status: 409 });
+    // A private Agent's direct conversation stays scoped to its own creator: a stable
+    // code with an explanation, the same rule this route already follows for the other named
+    // failures above, rather than a bare 500.
+    if (isAppError(error) && error.code === "AGENT_DM_RESTRICTED")
+      return Response.json(
+        { error: "this direct message is private and read-only for this Agent" },
+        { status: 403 },
+      );
     throw error;
   }
 }

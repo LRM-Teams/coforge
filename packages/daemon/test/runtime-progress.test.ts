@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { RuntimeProgressTracker } from "../src/agent-runtime/runtime-progress";
+import { RuntimeProgressTracker } from "#src/agent-runtime/runtime-progress";
 
 test("observe announces when the Agent is not already busy", () => {
   const tracker = new RuntimeProgressTracker();

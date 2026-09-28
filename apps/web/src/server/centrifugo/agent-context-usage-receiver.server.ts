@@ -1,32 +1,41 @@
 import { decodeAgentContextUsage, type AgentContextUsage } from "@lrm/coforge-sdk/internal";
-import type { AgentControlStore } from "../agents/agent-control.server";
-import type { AgentDisplay } from "../agents/agent-display.server";
+import type { AgentControlStore } from "#src/server/agents/agent-control.server";
+import type { AgentDisplay } from "#src/server/agents/agent-display.server";
 import type { CentrifugoServerApi } from "./server-api.server";
-import { agentStatusChannel } from "../../features/agents/agent-status-realtime";
+import {
+  agentStatusChannel,
+  agentStatusChannelForAgent,
+} from "#src/features/agents/agent-status-realtime";
+import { AGENT_VISIBILITY } from "#src/features/agents/agent-visibility";
 import type { CentrifugoRpcMethod } from "./rpc-handler.server";
+import { rejectNonDaemonPrincipal } from "./daemon-principal.server";
 
 /**
  * Fire-and-forget from the daemon's side (never awaited or retried there), gated exactly like
  * `agent:session:invalidate` (`agent-session-receiver.server.ts`): accepted only when
  * `AgentControlState.launchId === message.launchId` for the Agent, so a dead or superseded
- * launch's reading never paints the badge (ADR 0050). Every domain-level mismatch (unknown
+ * launch's reading never paints the badge. Every domain-level mismatch (unknown
  * Agent, foreign scope, non-matching provider, stale launch) is its own idempotent no-op — the
  * daemon must never treat this observation as something to retry — matching the invalidate
  * receiver's own contract. A malformed payload or foreign transport principal is the only 403.
  */
 export function createAgentContextUsageMethod(
   agents: Pick<AgentControlStore, "get">,
-  display?: Pick<AgentDisplay, "putContextUsage">,
-  displayEvents?: Pick<CentrifugoServerApi, "publishJson">,
+  // `= undefined` rather than `?:` so the required `agentVisibility` below can follow them
+  // (TypeScript only rejects a required parameter after a true `?:` optional one, not after one
+  // with a default); callers may still omit both exactly as before.
+  display: Pick<AgentDisplay, "putContextUsage"> | undefined = undefined,
+  displayEvents: Pick<CentrifugoServerApi, "publishJson"> | undefined = undefined,
+  /** The Agent's current visibility, read fresh (no cache) — never optional in effect:
+   * a lookup that finds nothing to route by skips the display push entirely (fails closed) the
+   * same way the unknown-Agent/foreign-scope/stale-launch checks above are a no-op, rather than
+   * defaulting to the shared channel. A recognized non-`"public"` value routes it to the
+   * per-Agent one instead, the same as the publish proxy and the Activity sweep. */
+  agentVisibility: (workspaceId: string, agentId: string) => Promise<string | undefined>,
 ): CentrifugoRpcMethod {
   return async (payload, metadata) => {
-    if (
-      !metadata.principal.userId ||
-      !metadata.principal.workspaceId ||
-      !metadata.principal.computerId
-    )
-      return { code: 401, message: "daemon authentication required" };
-    if (metadata.principal.agentId) return { code: 403, message: "daemon authentication required" };
+    const rejection = rejectNonDaemonPrincipal(metadata.principal);
+    if (rejection) return rejection;
     let message: AgentContextUsage | undefined;
     try {
       message = decodeAgentContextUsage(payload);
@@ -50,11 +59,19 @@ export function createAgentContextUsageMethod(
         return new Uint8Array();
       if (display) {
         const snapshot = await display.putContextUsage(message);
-        if (snapshot && displayEvents)
-          await displayEvents.publishJson(agentStatusChannel(message.workspaceId), {
-            type: "agent:display",
-            ...snapshot,
-          });
+        if (snapshot && displayEvents) {
+          const visibility = await agentVisibility(message.workspaceId, message.agentId);
+          if (visibility !== undefined) {
+            const isPrivate = visibility !== AGENT_VISIBILITY.PUBLIC;
+            const channel = isPrivate
+              ? agentStatusChannelForAgent(message.workspaceId, message.agentId)
+              : agentStatusChannel(message.workspaceId);
+            await displayEvents.publishJson(channel, {
+              type: "agent:display",
+              ...snapshot,
+            });
+          }
+        }
       }
       return new Uint8Array();
     } catch (error) {

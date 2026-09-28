@@ -1,14 +1,14 @@
 import { Heading } from "react-aria-components";
 
-import { Avatar, type AvatarProps } from "@/components/base/avatar/avatar";
+import { Avatar, type AvatarProps } from "#src/components/base/avatar/avatar";
 import type { AgentDisplaySnapshot } from "@lrm/coforge-sdk/internal";
 import { DELETED_AGENT_AVATAR_CLASS, DeletedAgentBadge } from "./deleted-agent";
-import { HoverPopover } from "@/components/ui/hover-popover";
-import { StatusDot } from "@/components/ui/status-dot";
-import { ClockTime } from "@/components/ui/relative-time";
-import { avatarInitial, avatarToneClassName } from "@/lib/avatar-tone";
-import { cn } from "@/lib/utils";
-import { m } from "@/paraglide/messages";
+import { HoverPopover } from "#src/components/ui/hover-popover";
+import { StatusDot } from "#src/components/ui/status-dot";
+import { ClockTime } from "#src/components/ui/relative-time";
+import { avatarInitial, avatarToneClassName } from "#src/lib/avatar-tone";
+import { cn } from "#src/lib/utils";
+import { m } from "#src/paraglide/messages";
 import { agentDisplay, presentActivityRows } from "./agent-activity-presentation";
 import {
   POPOVER_EXCLUDED_DETAIL_KINDS,
@@ -35,6 +35,7 @@ export function AgentDisplayAvatar({
   stopped,
   deleted,
   size = "sm",
+  cornerDot = true,
 }: {
   name: string;
   /** The Agent's uploaded avatar, when it has one; initials stand in otherwise. */
@@ -42,17 +43,20 @@ export function AgentDisplayAvatar({
   display?: AgentDisplaySnapshot;
   /** The user stopped this Agent; see `agentDisplay`. */
   stopped?: boolean;
-  /** ADR 0044: the Agent was deleted. Its avatar renders greyed wherever it appears, so a deleted
+  /** The Agent was deleted. Its avatar renders greyed wherever it appears, so a deleted
    * identity is recognisable outside message rows too (DM header, mention chips, member cards). */
   deleted?: boolean;
   size?: AvatarSize;
+  /** Draw the status dot on the avatar's corner. Off where the status already reads inline
+   * beside the name (the DM header), so it is not shown twice. */
+  cornerDot?: boolean;
 }) {
   const view = agentDisplay(display, { stopped });
   return (
     <span
       role="img"
       aria-label={`${name}, ${deleted ? m.agent_deleted_badge() : view.label}`}
-      className="relative block shrink-0 rounded-[inherit]"
+      className="relative flex shrink-0 rounded-[inherit]"
     >
       <Avatar
         size={size}
@@ -61,7 +65,7 @@ export function AgentDisplayAvatar({
         initials={avatarInitial(name)}
         contentClassName={deleted ? DELETED_AGENT_AVATAR_CLASS : avatarToneClassName(name)}
       />
-      {display && !deleted && (
+      {cornerDot && display && !deleted && (
         <StatusDot
           tone={view.tone}
           pulse={view.pulse}
@@ -75,24 +79,29 @@ export function AgentDisplayAvatar({
 /** Activity is newest-first, ordered and deduplicated by the owning Activity module. */
 export function AgentActivityAvatar({
   agent,
+  src,
   display,
   activity,
   loading = false,
   error = false,
   deleted = false,
   size = "sm",
+  cornerDot = true,
   timeZone,
   onOpen,
   onPress,
 }: {
   agent: { name: string; displayName: string; description?: string };
+  src?: string | null;
   display?: AgentDisplaySnapshot;
   activity: readonly ActivityEntry[];
   loading?: boolean;
   error?: boolean;
-  /** ADR 0044: render the deleted treatment instead of a live status. */
+  /** Render the deleted treatment instead of a live status. */
   deleted?: boolean;
   size?: AvatarSize;
+  /** See `AgentDisplayAvatar`. */
+  cornerDot?: boolean;
   timeZone?: string | null;
   onOpen?: () => void;
   /** A press/Enter on the avatar, independent of the hover peek popover. */
@@ -105,8 +114,8 @@ export function AgentActivityAvatar({
   // 500-row history cap) — a statement cut at that boundary just shows what loaded.
   // Filtered here too (defense in depth alongside agent-activity-queries.ts's mergeRecent):
   // this component is also fed the Agent detail page's full, unfiltered feed directly, which
-  // now legitimately contains tool_end/thinking_end/compaction_finished status rows (ADR 0021,
-  // amended) that don't belong in this short "recent activity" popover.
+  // now legitimately contains tool_end/thinking_end/compaction_finished status rows
+  // that don't belong in this short "recent activity" popover.
   const recent = presentActivityRows(
     activity.filter((entry) => !POPOVER_EXCLUDED_DETAIL_KINDS.has(entry.detailKind)),
   ).slice(0, RECENT_ACTIVITY_LIMIT);
@@ -117,7 +126,7 @@ export function AgentActivityAvatar({
       onPress={onPress}
       label={[
         agent.displayName,
-        // ADR 0044: a deleted Agent has no live status, so the popover trigger must not announce
+        // A deleted Agent has no live status, so the popover trigger must not announce
         // one (the inner avatar's own label is already corrected in `AgentDisplayAvatar`).
         deleted ? m.agent_deleted_badge() : view.label,
         m.agent_avatar_recent(),
@@ -130,9 +139,11 @@ export function AgentActivityAvatar({
       trigger={
         <AgentDisplayAvatar
           name={agent.displayName}
+          src={src}
           display={display}
           deleted={deleted}
           size={size}
+          cornerDot={cornerDot}
         />
       }
     >

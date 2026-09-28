@@ -1,6 +1,6 @@
 import { create, toBinary } from "@bufbuild/protobuf";
 import { expect, test } from "bun:test";
-import { AgentStartIntentSchema } from "./gen/coforge/rpc/v1/workspace_pb";
+import { AgentStartIntentSchema } from "#src/internal/gen/coforge/rpc/v1/workspace_pb";
 import { AGENT_START_MESSAGE_TYPE, decodeAgentStartIntent, encodeAgentStartIntent } from "./index";
 
 const base = {
@@ -95,4 +95,58 @@ test("rejects an oversized launchId on encode and decode", () => {
     }),
   );
   expect(() => decodeAgentStartIntent(encoded)).toThrow("invalid agent start intent launchId");
+});
+
+test("round-trips a resume prompt, which replaces every recovery field", () => {
+  const resumed = { ...base, resumePrompt: "Stop editing the schema; only the frontend." };
+  expect(decodeAgentStartIntent(encodeAgentStartIntent(resumed))).toEqual({
+    ...resumed,
+    modelProvider: "",
+    providerConfig: undefined,
+  });
+  expect(() => encodeAgentStartIntent({ ...resumed, unreadSummary: { "#general": 1 } })).toThrow(
+    "resume prompt",
+  );
+});
+
+test("rejects a blank or oversized resume prompt on encode and decode", () => {
+  expect(() => encodeAgentStartIntent({ ...base, resumePrompt: "  " })).toThrow("resume prompt");
+  expect(() => encodeAgentStartIntent({ ...base, resumePrompt: "x".repeat(8193) })).toThrow(
+    "resume prompt",
+  );
+  const encoded = toBinary(
+    AgentStartIntentSchema,
+    create(AgentStartIntentSchema, {
+      ...base,
+      messageType: AGENT_START_MESSAGE_TYPE,
+      resumePrompt: "x".repeat(8193),
+    }),
+  );
+  expect(() => decodeAgentStartIntent(encoded)).toThrow("resume prompt");
+});
+
+test("rejects decoding a resume prompt that also carries message recovery", () => {
+  const recovery = {
+    messageId: "message-1",
+    deliveryId: "delivery-1",
+    conversationId: "conversation-1",
+    sequence: 1n,
+    target: "#general",
+    latestSenderKind: "human",
+    latestSenderHandle: "ada",
+    latestSenderDescription: "",
+    body: "hello",
+  };
+  for (const carried of [{ wakeMessage: recovery }, { resumeMessages: [recovery] }]) {
+    const encoded = toBinary(
+      AgentStartIntentSchema,
+      create(AgentStartIntentSchema, {
+        ...base,
+        messageType: AGENT_START_MESSAGE_TYPE,
+        resumePrompt: "Only the frontend.",
+        ...carried,
+      }),
+    );
+    expect(() => decodeAgentStartIntent(encoded)).toThrow("resume prompt");
+  }
 });

@@ -2,11 +2,11 @@
 /**
  * Deployment identity helpers for the coforge-staging Compose project.
  *
- * The canonical contract lives in docs/release.md ("Release identity and
- * evidence" and "Audit records"): one immutable image per `main` commit,
- * the previous healthy digest recorded before every mutation, and one
- * audit record per attempt. Secrets never enter this module, its inputs,
- * or the records it renders.
+ * The canonical contract lives in docs/release/ ("Release identity and
+ * evidence" in evidence.md and "Audit records" in audit-records.md):
+ * one immutable image per `main` commit, the previous healthy digest
+ * recorded before every mutation, and one audit record per attempt.
+ * Secrets never enter this module, its inputs, or the records it renders.
  */
 
 const SHA_256_PATTERN = /^sha256:[0-9a-f]{64}$/;

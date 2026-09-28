@@ -1,10 +1,17 @@
 import { z } from "zod";
 import {
+  AGENT_NAME_MAX_LENGTH,
+  AGENT_NAME_PATTERN,
   RUNTIME_PROVIDER,
   RUNTIME_PROVIDER_USES_EXTERNAL_CLI,
   RUNTIME_PROVIDER_VALUES,
   type RuntimeProvider,
 } from "@lrm/coforge-sdk/internal";
+import { AGENT_VISIBILITY, AGENT_VISIBILITY_VALUES } from "./agent-visibility";
+
+/** The Agent self-description cap, shared by the edit-form schema and the server's
+ * self-service profile check so the two never disagree. */
+export const AGENT_PROFILE_DESCRIPTION_MAX_LENGTH = 500;
 
 export const KEYED_MODEL_PROVIDERS = new Set([
   "deepseek",
@@ -40,15 +47,13 @@ const apiKeySchema = z.preprocess(
   z.string().trim().min(8).max(4096).optional(),
 );
 
-// The @mention username: fixed at creation (Raft 1.0.32 alignment), never renamed afterward.
-export const AGENT_NAME_MAX_LENGTH = 60;
+// The @mention username: fixed at creation (Raft 1.0.32 alignment), never renamed afterward. The
+// bound and its grammar are the SDK's one definition (`@lrm/coforge-sdk/internal`, where the
+// sender-handle bound reads the same value); re-exported here because the web modules that build a
+// freed name from it import it from this file.
+export { AGENT_NAME_MAX_LENGTH };
 
-const nameSchema = z
-  .string()
-  .trim()
-  .min(1)
-  .max(AGENT_NAME_MAX_LENGTH)
-  .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/);
+const nameSchema = z.string().trim().min(1).max(AGENT_NAME_MAX_LENGTH).regex(AGENT_NAME_PATTERN);
 
 export const AGENT_DISPLAY_NAME_MAX_LENGTH = 80;
 
@@ -60,7 +65,7 @@ const displayNameSchema = z.preprocess(
 );
 
 const agentInputShape = {
-  description: z.string().trim().max(500).default(""),
+  description: z.string().trim().max(AGENT_PROFILE_DESCRIPTION_MAX_LENGTH).default(""),
   provider: z.enum(RUNTIME_PROVIDER_VALUES),
   model: z.string().trim().max(200).optional(),
   modelProvider: z.string().trim().max(100).optional(),
@@ -96,9 +101,12 @@ export const createAgentInputSchema = z
     ...agentInputShape,
     name: nameSchema,
     computerId: z.string().min(1),
-    /** Present when this create submits an Agent-prepared `agent:create` action card
-     * (ADR 0027 "Commit and cancel"); marks the card `executed` after the Agent is created. */
+    /** Present when this create submits an Agent-prepared `agent:create` action card;
+     * marks the card `executed` after the Agent is created. */
     actionCardMessageId: z.uuid().optional(),
+    /** Who can see this new Agent; defaults to public, matching every creation path
+     * except the weekly-report Collector Agent, which is created private outside this schema. */
+    visibility: z.enum(AGENT_VISIBILITY_VALUES).default(AGENT_VISIBILITY.PUBLIC),
   })
   .superRefine(validateRuntimeKey);
 
@@ -115,7 +123,10 @@ export const updateAgentInputSchema = z
 export type UpdateAgentInput = z.infer<typeof updateAgentInputSchema>;
 
 export const agentIdSchema = z.uuid();
-/** ADR 0044: deleting an Agent is name-confirmed, the same guard `ProjectSettings.delete` uses —
+/** The per-Agent realtime subscription token endpoints; any Server Function that only
+ * needs an authorized Agent id shares this shape rather than repeating the object literal. */
+export const agentIdInputSchema = z.object({ agentId: agentIdSchema });
+/** Deleting an Agent is name-confirmed, the same guard `ProjectSettings.delete` uses —
  * the server re-checks the typed name against the current row in the delete itself, so a
  * concurrent rename cannot bypass confirmation. */
 export const deleteAgentInputSchema = z.object({
@@ -128,6 +139,14 @@ export const updateAgentRoleInputSchema = z.object({
   role: z.enum(["admin", "member"]),
 });
 export type UpdateAgentRoleInput = z.infer<typeof updateAgentRoleInputSchema>;
+
+/** Changes an Agent's visibility, both directions. `changeAgentVisibility` is the only
+ * server function that writes this field; `createAgentInputSchema.visibility` is create-time only. */
+export const changeAgentVisibilityInputSchema = z.object({
+  agentId: agentIdSchema,
+  visibility: z.enum(AGENT_VISIBILITY_VALUES),
+});
+export type ChangeAgentVisibilityInput = z.infer<typeof changeAgentVisibilityInputSchema>;
 export const saveAgentRuntimeCredentialInputSchema = z.object({
   agentId: agentIdSchema,
   apiKey: z.string().trim().min(8).max(4096),

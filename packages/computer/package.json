@@ -3,6 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "imports": {
+    "#src/*": "./src/*.ts"
+  },
   "scripts": {
     "build": "bun ../../scripts/release/build-package.ts computer",
     "check": "bun run format:check && bun run lint && bun run typecheck",

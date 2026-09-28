@@ -6,13 +6,13 @@ import { join } from "node:path";
 
 // macOS tmpdir lives under /var, a symlink; the state store rejects linked ancestors.
 const tempRoot = realpathSync(tmpdir());
-import { DaemonRuntime } from "../src/daemon-runtime/runtime";
+import { DaemonRuntime } from "#src/daemon-runtime/runtime";
 import {
   DaemonConnection,
   type CentrifugeWorkspaceClient,
-} from "../src/connection/daemon-connection";
-import { InMemoryDaemonCredentialStore } from "../src/credentials/credential-store";
-import { agentWorkspaceDirectory } from "../src/agent-runtime/agent-workspace-path";
+} from "#src/connection/daemon-connection";
+import { InMemoryDaemonCredentialStore } from "#src/credentials/credential-store";
+import { agentWorkspaceDirectory } from "#src/agent-runtime/agent-workspace-path";
 import {
   AGENT_SKILLS_LIST_RESULT_METHOD,
   decodeAgentSkillsListResult,

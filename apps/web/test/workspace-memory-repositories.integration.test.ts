@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { Pool } from "pg";
 import { PrismaPg } from "@prisma/adapter-pg";
-import { PrismaClient } from "../generated/client";
+import { PrismaClient } from "#src/generated/prisma/client";
 import {
   applyWorkspaceMemoryCommand,
   createDefaultWorkspaceMemoryProfile,
