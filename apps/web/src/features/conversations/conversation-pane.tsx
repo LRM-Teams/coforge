@@ -28,13 +28,7 @@ import { ThreadPaneHeader, type ThreadFollow } from "./thread-pane-header";
 import { makeReferenceBodyFormatter } from "./mention-text";
 import type { ChipMention } from "./message-markdown";
 import type { ChannelSuggestion } from "./reference-completion";
-import {
-  GROUPING_WINDOW_MS,
-  MessageRow,
-  dayLabel,
-  groupsWithPrevious,
-  type MessageThreadEntry,
-} from "./message-row";
+import { GROUPING_WINDOW_MS, MessageRow, dayLabel, groupsWithPrevious } from "./message-row";
 import { optimisticSavedEntry } from "./saved-messages-collection";
 import { composerDraftKey } from "./composer-draft";
 import { OutboxMessageRow } from "./outbox-message-row";
@@ -73,8 +67,7 @@ export function ConversationPane({
   threadContext,
   onViewInConversation,
   threadFollow,
-  threadEntry,
-  threadPreview,
+  onOpenThread,
   threadHeaderAction,
   onLoadOlder,
   onLoadNewer,
@@ -112,8 +105,9 @@ export function ConversationPane({
   onViewInConversation?: () => void;
   /** The viewer's follow state for this thread, where following is offered (channels). */
   threadFollow?: ThreadFollow;
-  threadEntry?: (message: DirectConversationView["messages"][number]) => MessageThreadEntry;
-  threadPreview?: (message: DirectConversationView["messages"][number]) => React.ReactNode;
+  /** Opens a root's thread from the stream: the rows then offer each root's thread entry and
+   * preview, which read the conversation's thread store (`ThreadStoreProvider`). */
+  onOpenThread?: (rootId: string) => void;
   /** Shown in the thread header before its actions menu (the Agents following the thread). */
   threadHeaderAction?: React.ReactNode;
   /** Plain-`@handle` display resolution for the stream (see `MessageBody`). Built by each
@@ -172,6 +166,7 @@ export function ConversationPane({
   );
   const openAgentProfile = useLatestCallback(onOpenAgentProfile);
   const openTaskReference = useLatestCallback(onOpenTask);
+  const openThread = useLatestCallback(onOpenThread);
   // Saving (#127) is viewer-global state with a conversation-scoped write: the pane owns the
   // conversation id, the Chat page's Saved context owns the list every star (and the Saved view)
   // reads. Membership-gated exactly like the channel gates its row actions; outside the Chat
@@ -1023,8 +1018,7 @@ export function ConversationPane({
                       collapsible={collapsible}
                       agentDisplay={agentDisplayFor}
                       dateLocale={dateLocale}
-                      threadEntry={threadEntry}
-                      threadPreview={threadPreview}
+                      onOpenThread={openThread}
                       showsTask={!root}
                       onToggleReaction={toggleReaction}
                       onToggleSave={onToggleSave}

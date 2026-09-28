@@ -36,4 +36,13 @@ describe("groupRepliesByRoot", () => {
     expect(groupRepliesByRoot([root("a", 1)], previous)).not.toBe(previous);
     expect(groupRepliesByRoot([root("a", 1), { ...a1 }], previous)).not.toBe(previous);
   });
+
+  test("a reply in one thread keeps every other thread's list, so only that thread re-renders", () => {
+    const a1 = reply("a1", 2, "a");
+    const b1 = reply("b1", 3, "b");
+    const previous = groupRepliesByRoot([root("a", 1), a1, b1]);
+    const next = groupRepliesByRoot([root("a", 1), a1, b1, reply("a2", 4, "a")], previous);
+    expect(next.get("a")).not.toBe(previous.get("a"));
+    expect(next.get("b")).toBe(previous.get("b"));
+  });
 });
