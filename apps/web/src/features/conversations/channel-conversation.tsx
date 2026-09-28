@@ -8,7 +8,7 @@ import { Button } from "#src/components/base/buttons/button";
 import { ButtonUtility } from "#src/components/base/buttons/button-utility";
 import { ChannelSettingsPanel } from "./channel-settings-panel";
 import type { ChannelCapabilities } from "#src/server/conversations/channel-authority.server";
-import { ConversationHeader } from "./conversation-header";
+import { TabbedHeader } from "#src/components/layout/tabbed-header";
 import { ConversationListButton } from "./conversation-navigation";
 import { ThreadFollowingAgents } from "./thread-following-agents";
 import { ConversationTaskTabs } from "#src/features/tasks/conversation-task-tabs";
@@ -82,7 +82,7 @@ export function ChannelConversationHeader({
   const setSettingsOpen = onSettingsOpenChange ?? setOwnSettingsOpen;
   return (
     <>
-      <ConversationHeader
+      <TabbedHeader
         identity={
           <>
             <ConversationListButton />

@@ -469,24 +469,6 @@
   "conversation_saved_empty_description": "选择消息上的书签图标即可保存。",
   "conversation_saved_copy_link": "复制链接",
   "conversation_saved_link_copied": "链接已复制",
-  "activity_inbox_active": [
-    {
-      "declarations": ["input count", "local countPlural = count: plural"],
-      "selectors": ["countPlural"],
-      "match": {
-        "countPlural=other": "{count} 条进行中"
-      }
-    }
-  ],
-  "activity_inbox_unread": [
-    {
-      "declarations": ["input count", "local countPlural = count: plural"],
-      "selectors": ["countPlural"],
-      "match": {
-        "countPlural=other": "{count} 条未读"
-      }
-    }
-  ],
   "activity_inbox_filter_label": "筛选动态",
   "activity_inbox_filter_all": "全部",
   "activity_inbox_filter_unread": "未读",

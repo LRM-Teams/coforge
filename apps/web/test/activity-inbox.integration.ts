@@ -162,8 +162,8 @@ test("lists joined conversations and followed threads with activity, newest firs
     expect(thread!.latest.body).toBe("thanks");
     expect(thread!.mentioned).toBe(true);
     expect(thread!.unreadMention).toBe(true);
-    expect(page.totalCount).toBe(3);
-    expect(page.totalUnreadCount).toBe(3);
+    expect(page.unreadItemCount).toBe(3);
+    expect(page.unreadMentionItemCount).toBe(1);
     expect(page.nextOffset).toBe(null);
 
     const unread = await inbox.list(workspace.id, alice.id, { filter: "unread" });
@@ -180,6 +180,64 @@ test("lists joined conversations and followed threads with activity, newest firs
       offset: 2,
     });
     expect(secondPage.items.map((item) => item.key)).toEqual([channelItem!.key]);
+  } finally {
+    await cleanup(db, suffix);
+  }
+});
+
+test("the Unread and Mentions counts are items with unread and unread mentions, the same under every filter", async () => {
+  const db = database();
+  const suffix = crypto.randomUUID();
+  try {
+    const { alice, workspace, channel, post } = await seed(db, suffix);
+    const general = await channel("general");
+    const quiet = await channel("quiet");
+    const calm = await channel("calm");
+    // Three unread messages in one channel are one item with unread.
+    for (const body of ["one", "two", "three"])
+      await post(general.conversation.id, general.bobMember.id, body);
+    // A followed thread whose unread reply mentions the viewer: unread, and an unread mention.
+    const root = await post(general.conversation.id, general.aliceMember.id, "a question");
+    await db.threadFollow.create({
+      data: {
+        memberId: general.aliceMember.id,
+        rootMessageId: root.id,
+        conversationId: general.conversation.id,
+        workspaceId: workspace.id,
+      },
+    });
+    await post(general.conversation.id, general.bobMember.id, "@alice look", {
+      threadRootId: root.id,
+      mentionMemberIds: [general.aliceMember.id],
+    });
+    // A mention the viewer already read stays under Mentions but counts nowhere.
+    const seen = await post(quiet.conversation.id, quiet.bobMember.id, "@alice seen", {
+      mentionMemberIds: [quiet.aliceMember.id],
+    });
+    await db.conversationMember.update({
+      where: { id: quiet.aliceMember.id },
+      data: { readThroughSequence: seen.sequence },
+    });
+    // An item with nothing unread counts nowhere either.
+    const own = await post(calm.conversation.id, calm.aliceMember.id, "my own note");
+    await db.conversationMember.update({
+      where: { id: calm.aliceMember.id },
+      data: { readThroughSequence: own.sequence },
+    });
+
+    const inbox = new ActivityInbox(db);
+    const [all, unread, mentions] = await Promise.all(
+      (["all", "unread", "mentions"] as const).map((filter) =>
+        inbox.list(workspace.id, alice.id, { filter }),
+      ),
+    );
+    expect(all!.items).toHaveLength(4);
+    expect(unread!.items).toHaveLength(2);
+    expect(mentions!.items).toHaveLength(2);
+    for (const page of [all!, unread!, mentions!]) {
+      expect(page.unreadItemCount).toBe(2);
+      expect(page.unreadMentionItemCount).toBe(1);
+    }
   } finally {
     await cleanup(db, suffix);
   }
@@ -333,7 +391,7 @@ test("Mark all read clears unread and keeps every item listed", async () => {
     });
 
     const inbox = new ActivityInbox(db);
-    expect((await inbox.list(workspace.id, alice.id, { filter: "all" })).totalUnreadCount).toBe(2);
+    expect((await inbox.list(workspace.id, alice.id, { filter: "all" })).unreadItemCount).toBe(2);
     const shown = new Date();
     // Sent after the page the viewer looked at: Mark all read must not read it.
     const late = await post(general.conversation.id, general.bobMember.id, "late", {
@@ -349,7 +407,7 @@ test("Mark all read clears unread and keeps every item listed", async () => {
       ["thread", 1],
       ["channel", 0],
     ]);
-    expect(page.totalUnreadCount).toBe(1);
+    expect(page.unreadItemCount).toBe(1);
     expect(page.items[0]!.firstUnreadMessageId).toBe(late.id);
     const member = await db.conversationMember.findUniqueOrThrow({
       where: { id: general.aliceMember.id },
@@ -495,7 +553,8 @@ test("a thread counts every reply but only the unread past its read cursor, on a
     expect(thread!.thread?.replyCount).toBe(5);
     expect(thread!.unreadCount).toBe(2);
     expect(thread!.firstUnreadMessageId).toBe(firstUnread.id);
-    expect(secondPage.totalUnreadCount).toBe(3);
+    // The counts cover the whole list, not the page: both threads have unread replies.
+    expect(secondPage.unreadItemCount).toBe(2);
   } finally {
     await cleanup(db, suffix);
   }
@@ -641,7 +700,7 @@ test("the nav dot counts exactly the unread replies and messages the inbox lists
       throughSequence: doneReply.sequence,
     });
     const page = await inbox.list(workspace.id, alice.id, { filter: "all" });
-    expect(page.totalUnreadCount).toBe(7);
+    expect(page.items.reduce((sum, item) => sum + item.unreadCount, 0)).toBe(7);
     expect(await inbox.navAttention(workspace.id, alice.id)).toEqual({ unread: 7 });
   } finally {
     await cleanup(db, suffix);
@@ -728,6 +787,12 @@ test("a person notified of a mention outside their channels finds it in Activity
     const inbox = new ActivityInbox(db);
     const mentionsOf = async () =>
       (await inbox.list(workspace.id, bob.id, { filter: "mentions" })).items;
+    const countsOf = async () => {
+      const { unreadItemCount, unreadMentionItemCount } = await inbox.list(workspace.id, bob.id, {
+        filter: "all",
+      });
+      return { unreadItemCount, unreadMentionItemCount };
+    };
     // Not notified yet: nothing reached Bob.
     expect(await mentionsOf()).toEqual([]);
 
@@ -746,6 +811,8 @@ test("a person notified of a mention outside their channels finds it in Activity
     });
     expect(item!.latest.id).toBe(sent.id);
     expect((await inbox.navAttention(workspace.id, bob.id)).unread).toBe(1);
+    // Unread, it counts under both Unread and Mentions.
+    expect(await countsOf()).toEqual({ unreadItemCount: 1, unreadMentionItemCount: 1 });
     // Alice's own inbox never lists what she sent.
     expect(
       (await inbox.list(workspace.id, alice.id, { filter: "all" })).items.some(
@@ -757,6 +824,7 @@ test("a person notified of a mention outside their channels finds it in Activity
     await inbox.setMentionRead(workspace.id, bob.id, resolutionId, true);
     expect((await mentionsOf()).map((entry) => entry.unreadCount)).toEqual([0]);
     expect((await inbox.navAttention(workspace.id, bob.id)).unread).toBe(0);
+    expect(await countsOf()).toEqual({ unreadItemCount: 0, unreadMentionItemCount: 0 });
     await inbox.setMentionRead(workspace.id, bob.id, resolutionId, false);
     expect((await mentionsOf()).map((entry) => entry.unreadCount)).toEqual([1]);
     // Mark all read reads it too.

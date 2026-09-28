@@ -162,13 +162,23 @@ test("the Activity page lists, filters, marks Done and opens inbox items", async
       };
     })()`);
     expect(preview).toEqual({ strong: "reply", code: "code" });
+    // The Unread and Mentions tabs count cards: both seeded cards are unread, and the thread's
+    // reply is an unread mention. Other rows of the dev user's inbox may add to both.
+    const tabCounts = `Object.fromEntries([...document.querySelectorAll('[role="tab"]')].map((tab) => [tab.textContent.replace(/[\\d+]/g, "").trim(), Number(tab.textContent.replace(/\\D/g, "")) || 0]))`;
+    const counts = await evaluate<Record<string, number>>(tabCounts);
+    expect(Object.keys(counts)).toEqual(["All", "Unread", "Mentions"]);
+    expect(counts.All).toBe(0);
+    expect(counts.Unread).toBeGreaterThanOrEqual(2);
+    expect(counts.Mentions).toBeGreaterThanOrEqual(1);
     await browser("screenshot", join(artifacts, "wide.png"));
 
-    await browser("find", "role", "radio", "click", "--name", "Mentions");
+    await browser("find", "role", "tab", "click", "--name", "Mentions");
     await browser("wait", "--fn", `location.search.includes("filter=mentions")`);
     await browser("wait", "--fn", `${seededCards}.length === 1`);
     expect((await evaluate<string[]>(seededCards))[0]).toContain("E2E activity root");
-    await browser("find", "role", "radio", "click", "--name", "All");
+    // The counts do not depend on the tab showing.
+    expect(await evaluate<Record<string, number>>(tabCounts)).toEqual(counts);
+    await browser("find", "role", "tab", "click", "--name", "All");
     await browser("wait", "--fn", `${seededCards}.length === 2`);
 
     // The card menu opens on a right click (a long press on touch).
@@ -219,8 +229,10 @@ test("the Activity page lists, filters, marks Done and opens inbox items", async
     const channelCard = `[...document.querySelectorAll("ol > li")].find((item) => item.textContent.includes("E2E activity unread")).textContent`;
     await channelMenu("Mark as Read");
     await browser("wait", "--fn", `!${channelCard}.includes("1 new")`);
+    await browser("wait", "--fn", `${tabCounts}.Unread === ${counts.Unread - 1}`);
     await channelMenu("Mark as Unread");
     await browser("wait", "--fn", `${channelCard}.includes("1 new")`);
+    await browser("wait", "--fn", `${tabCounts}.Unread === ${counts.Unread}`);
     expect(await evaluate<boolean>(`!document.querySelector('[role="alert"]')`)).toBe(true);
 
     await evaluate(`(() => {
@@ -230,6 +242,8 @@ test("the Activity page lists, filters, marks Done and opens inbox items", async
       return true;
     })()`);
     await browser("wait", "--fn", `${seededCards}.length === 1`);
+    // Done took an unread card away, and the Unread count with it.
+    await browser("wait", "--fn", `${tabCounts}.Unread === ${counts.Unread - 1}`);
     await browser("reload");
     await browser("wait", "--fn", `${seededCards}.length === 1 && ${hydrated}`);
     expect((await evaluate<string[]>(seededCards))[0]).toContain("E2E activity root");
@@ -245,6 +259,12 @@ test("the Activity page lists, filters, marks Done and opens inbox items", async
     await browser("wait", "--fn", `${seededCards}.length === 1 && ${hydrated}`);
     // Opening the thread read it: its card stays, without the unread badge.
     expect((await evaluate<string[]>(seededCards))[0]).not.toContain("1 new");
+    // On a phone the tabs take their own row under the title.
+    expect(
+      await evaluate<boolean>(
+        `document.querySelector('[role="tablist"]').getBoundingClientRect().top >= document.querySelector("h1").getBoundingClientRect().bottom`,
+      ),
+    ).toBe(true);
     await browser("screenshot", join(artifacts, "phone.png"));
   } finally {
     await browser("close").catch(() => undefined);
