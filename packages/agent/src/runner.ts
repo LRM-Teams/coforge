@@ -79,18 +79,31 @@ type ProxyToolResult = {
   details: Record<string, never>;
 };
 
-function localProxyUrl(path: string): string {
-  const endpoint = Bun.env.COFORGE_AGENT_PROXY_URL;
-  const token = Bun.env.COFORGE_AGENT_CONTEXT;
+function localProxyUrl(
+  path: string,
+  env?: Readonly<Record<string, string | undefined>>,
+): string {
+  const endpoint = env?.COFORGE_AGENT_PROXY_URL ?? Bun.env.COFORGE_AGENT_PROXY_URL;
+  const token = env?.COFORGE_AGENT_CONTEXT ?? Bun.env.COFORGE_AGENT_CONTEXT;
   if (!endpoint || !token) throw new Error("CoForge Agent proxy is not configured");
   return new URL(path, endpoint).toString();
 }
 
-async function postLocalProxy(path: string, body: unknown): Promise<unknown> {
-  const response = await fetch(localProxyUrl(path), {
+function proxyContextToken(env?: Readonly<Record<string, string | undefined>>): string {
+  const token = env?.COFORGE_AGENT_CONTEXT ?? Bun.env.COFORGE_AGENT_CONTEXT;
+  if (!token) throw new Error("CoForge Agent proxy is not configured");
+  return token;
+}
+
+async function postLocalProxy(
+  path: string,
+  body: unknown,
+  env?: Readonly<Record<string, string | undefined>>,
+): Promise<unknown> {
+  const response = await fetch(localProxyUrl(path, env), {
     method: "POST",
     headers: {
-      authorization: `Bearer ${Bun.env.COFORGE_AGENT_CONTEXT!}`,
+      authorization: `Bearer ${proxyContextToken(env)}`,
       "content-type": "application/json",
     },
     body: JSON.stringify(body),
@@ -120,8 +133,36 @@ function toolResult(value: unknown): ProxyToolResult {
   return { content: [{ type: "text", text: JSON.stringify(value) }], details: {} };
 }
 
-function defaultMemoryProxy(): MemoryAgentProxy {
-  return { post: postLocalProxy };
+function defaultMemoryProxy(
+  env?: Readonly<Record<string, string | undefined>>,
+): MemoryAgentProxy {
+  // The session environment, not the process env: Pi sessions run in the
+  // Daemon process, so a second Agent's launch would otherwise overwrite
+  // Bun.env.COFORGE_AGENT_CONTEXT and route this Agent's proxy calls — and
+  // its fence binding — to the other Agent.
+  return { post: (path, body) => postLocalProxy(path, body, env) };
+}
+
+/**
+ * Models pass numeric tool arguments as strings often enough that the
+ * resulting server-side decode failure burned the turn's read budget before
+ * any real call went out. Coerce the numeric fence-tool parameters before the
+ * command is built so a well-formed intent is never lost to formatting.
+ */
+function coerceNumericToolParams<P extends Record<string, unknown>>(params: P): P {
+  const coerced = { ...params };
+  for (const key of ["limit", "tokenBudget"]) {
+    const value = coerced[key];
+    if (typeof value === "string" && value.trim() !== "" && Number.isInteger(Number(value))) {
+      (coerced as Record<string, unknown>)[key] = Number(value);
+    }
+  }
+  // A bare "viking://" root is the model's shorthand for "everywhere"; the
+  // server schema requires a real target, so omit it rather than burn a read.
+  if (typeof coerced.targetUri === "string" && /^viking:\/\/\s*$/.test(coerced.targetUri)) {
+    delete (coerced as Record<string, unknown>).targetUri;
+  }
+  return coerced;
 }
 
 /** The only model-callable tools available under a Memory Agent fence. */
@@ -146,7 +187,7 @@ export function createMemoryFenceTools(
         const command = decodeOpenVikingAgentCommand({
           protocol: OPENVIKING_AGENT_PROTOCOL,
           op,
-          ...(params as Params),
+          ...coerceNumericToolParams(params as Params),
         });
         budget.consume(command);
         const response = await proxy.post(agentApiRoutes.proxy.openviking.path, command);
@@ -425,7 +466,9 @@ export async function createSession(options: {
     .extensions.some((extension) => extension.tools.has("bash"));
   const memoryBudget = memoryFence ? new MemoryAgentTurnBudget() : undefined;
   const memoryTools =
-    memoryFence && memoryBudget ? createMemoryFenceTools(memoryFence, memoryBudget) : [];
+    memoryFence && memoryBudget
+      ? createMemoryFenceTools(memoryFence, memoryBudget, defaultMemoryProxy(environment))
+      : [];
   const customTools = [
     ...(options.environment && !extensionDefinesBash && !memoryBudget
       ? [
