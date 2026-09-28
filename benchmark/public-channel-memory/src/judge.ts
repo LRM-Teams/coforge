@@ -85,8 +85,11 @@ export function cursorJudgeArgv(input: {
     "--output-format",
     "text",
     "--trust",
+    // `enabled` needs an AppArmor sandbox this eval host does not provide;
+    // the judge prompt already forbids tools and the workspace is an empty
+    // temp directory, so allowlist mode is the workable containment here.
     "--sandbox",
-    "enabled",
+    "disabled",
     "--workspace",
     input.workspace,
     "--model",

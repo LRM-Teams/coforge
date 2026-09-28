@@ -1,0 +1,14 @@
+{
+  "name": "@coforge/evolbench-collab-eval",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "eval": "bun src/run.ts"
+  },
+  "dependencies": {
+    "@lrm/coforge-sdk": "workspace:*",
+    "@prisma/adapter-pg": "^7.10.0",
+    "@prisma/client": "^7.10.0"
+  }
+}

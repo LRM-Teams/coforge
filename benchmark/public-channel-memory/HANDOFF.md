@@ -246,3 +246,18 @@ bun benchmark/public-channel-memory/src/run.ts
 - 密钥不进 argv、日志、handoff 正文
 - 不发明隐喻；PublicChannel / Admitted Segment / Memory Offer / leak / headline 用产品词
 )
+
+## 多 agent 群聊评测（2026-09-23~25）挖出的产品/接线问题
+
+1. **多 agent fence 403**（已修，`packages/agent/src/runner.ts`）：Pi 会话与 daemon 同进程，第二个 agent 启动会用全局 `Bun.env.COFORGE_AGENT_CONTEXT` 覆盖第一个的上下文 → memory fence 全部 403。修复：proxy env 改为 session env 闭包。
+2. **托管 reset-session 丢 fence**（未修，评测侧绕过）：server 重建的 start intent 不带 toolProfile；evolbench run.ts 用 stop → 清 currentSessionId → 带 fence 的 startAgent 绕过。
+3. **OV keys 统一**：所有评测必须把账号 keys 写到 `/tmp/pcm-eval-ov-keys.json`（web app 的 resolveAuthorization 读这个文件），否则报 "OpenViking runtime is unavailable"。
+4. **模型工具参数格式烧预算**：limit 传字符串、编造 operationId、裸 viking:// URI；client 已加 coerce，预算不返还仍是产品问题（evo warm no_offer ~50%）。
+5. **skillsbench lane 教训**：runner 任务选择靠 `COFORGE_EVAL_TASKS` env，不传则永远只跑第一个任务。
+6. **SF cold shard 教训**：sfcold 分片必须带 `COFORGE_EVAL_VERIFY_SIDECAR` + `COFORGE_EVAL_ENV_NOTE`，否则产出不可验证的行。
+
+### 结论快照（2026-09-25）
+- LoCoMo 10/10 样本 ~85%，0 泄漏。
+- EvoAgentBench（官方 LCB 判分，全集口径配对 n=86）：warm:test 61.6% vs cold:test 54.7%，**transfer gain +7.0pp**（10 胜/4 负）；warm:train 92.9%。
+- SkillLearnBench：配对集 64/64 结果完全一致——群聊记忆对 SLB 结果零效应；曾见的 warm 49% vs cold 62% 是判分覆盖面偏倚假象。
+- SkillFlow：warm 11 个独有胜、0 个独有负（跑完后再出最终数）。
