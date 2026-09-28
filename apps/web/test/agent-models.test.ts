@@ -69,6 +69,20 @@ describe("listVisibleAgentModels", () => {
     expect(list.readAt).toBe(1_700_000_000_000);
   });
 
+  test("takes the read time before reading, so the list covers everything before it", async () => {
+    let clock = 1_000;
+    const db = {
+      agent: {
+        findMany: async () => {
+          clock = 2_000;
+          return [];
+        },
+      },
+    } as unknown as Pick<PrismaClient, "agent">;
+    const list = await listVisibleAgentModels(db, WORKSPACE_ID, member, () => clock);
+    expect(list.readAt).toBe(1_000);
+  });
+
   test("an owner or admin reads every live Agent in the Workspace", async () => {
     const { db, calls } = fakeDb([]);
     await listVisibleAgentModels(db, WORKSPACE_ID, {

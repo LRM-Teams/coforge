@@ -18,6 +18,8 @@ export async function listVisibleAgentModels(
   viewer: AgentVisibilityViewer,
   now: () => number = Date.now,
 ): Promise<{ readAt: number; models: Record<string, string> }> {
+  // Taken before the read: the list covers every Agent that existed by `readAt`.
+  const readAt = now();
   const rows = await db.agent.findMany({
     where: { workspaceId, ...ACTIVE_AGENT_WHERE, ...visibleAgentWhere(viewer) },
     select: { id: true, runtimeConfig: true },
@@ -30,5 +32,5 @@ export async function listVisibleAgentModels(
       models[row.id] = "";
     }
   }
-  return { readAt: now(), models };
+  return { readAt, models };
 }
