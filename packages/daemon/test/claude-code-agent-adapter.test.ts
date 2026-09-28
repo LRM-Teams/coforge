@@ -684,7 +684,10 @@ test("Claude Code startup fails when its CLI does not complete initialization", 
         agentWorkspaceDirectory: tmpdir(),
         instructions: TEST_AGENT_INSTRUCTIONS,
       }),
-      Bun.sleep(200).then(() => {
+      // Process startup can exceed 200ms on a cold Bun worker even though the fixture
+      // immediately emits malformed JSONL; keep the assertion about the protocol error while
+      // avoiding a startup-scheduling race.
+      Bun.sleep(1_000).then(() => {
         throw new Error("startup timed out");
       }),
     ]),
