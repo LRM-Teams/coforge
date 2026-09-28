@@ -160,7 +160,7 @@ test("lists joined conversations and followed threads with activity, newest firs
     expect(thread!.thread?.replyCount).toBe(2);
     expect(thread!.thread?.root.body).toBe("a question");
     expect(thread!.latest.body).toBe("thanks");
-    expect(thread!.mentioned).toBe(true);
+    expect(thread!.firstMentionMessageId).toBe(reply.id);
     expect(thread!.unreadMention).toBe(true);
     expect(page.unreadItemCount).toBe(3);
     expect(page.unreadMentionItemCount).toBe(1);
@@ -454,7 +454,7 @@ test("a thread counts only mentions in its own replies past its Done boundary", 
       Object.fromEntries(
         (await inbox.list(workspace.id, alice.id, { filter: "all" })).items.map((item) => [
           item.thread?.root.body ?? kindOf(item),
-          [item.mentioned, item.unreadMention],
+          [item.firstMentionMessageId !== null, item.unreadMention],
         ]),
       );
     expect(await mentionState()).toEqual({
@@ -478,6 +478,79 @@ test("a thread counts only mentions in its own replies past its Done boundary", 
       threadRootId: mentioned.id,
     });
     expect((await mentionState()).mentioned).toEqual([false, false]);
+  } finally {
+    await cleanup(db, suffix);
+  }
+});
+
+test("an item opens at its first mention past Done, read or not", async () => {
+  const db = database();
+  const suffix = crypto.randomUUID();
+  try {
+    const { alice, workspace, channel, post } = await seed(db, suffix);
+    const general = await channel("general");
+    const root = await post(general.conversation.id, general.bobMember.id, "root");
+    await db.threadFollow.create({
+      data: {
+        memberId: general.aliceMember.id,
+        rootMessageId: root.id,
+        conversationId: general.conversation.id,
+        workspaceId: workspace.id,
+      },
+    });
+    const ping = await post(general.conversation.id, general.bobMember.id, "ping", {
+      mentionMemberIds: [general.aliceMember.id],
+    });
+    await post(general.conversation.id, general.bobMember.id, "second ping", {
+      mentionMemberIds: [general.aliceMember.id],
+    });
+    await post(general.conversation.id, general.bobMember.id, "deployed");
+    const replyPing = await post(general.conversation.id, general.bobMember.id, "reply ping", {
+      threadRootId: root.id,
+      mentionMemberIds: [general.aliceMember.id],
+    });
+    await post(general.conversation.id, general.bobMember.id, "plain reply", {
+      threadRootId: root.id,
+    });
+
+    const inbox = new ActivityInbox(db);
+    await inbox.markAllRead(workspace.id, alice.id, { before: new Date(Date.UTC(2027, 0, 1)) });
+    const firstMentions = async () =>
+      Object.fromEntries(
+        (await inbox.list(workspace.id, alice.id, { filter: "mentions" })).items.map((item) => [
+          kindOf(item),
+          item.firstMentionMessageId,
+        ]),
+      );
+    // Everything is read, and the newest message mentions no one: the item still opens at the
+    // first message that mentioned the viewer.
+    expect(await firstMentions()).toEqual({ thread: replyPing.id, channel: ping.id });
+
+    // Done leaves the mentions behind: newer activity lists both items again, with no mention.
+    const newest = (threadRootId: string | null) =>
+      db.message.findFirstOrThrow({
+        where: { conversationId: general.conversation.id, threadRootId },
+        orderBy: { sequence: "desc" },
+      });
+    await inbox.markDone(workspace.id, alice.id, {
+      kind: "conversation",
+      conversationId: general.conversation.id,
+      throughSequence: (await newest(null)).sequence,
+    });
+    await inbox.markDone(workspace.id, alice.id, {
+      kind: "thread",
+      conversationId: general.conversation.id,
+      rootMessageId: root.id,
+      throughSequence: (await newest(root.id)).sequence,
+    });
+    await post(general.conversation.id, general.bobMember.id, "after Done");
+    await post(general.conversation.id, general.bobMember.id, "reply after Done", {
+      threadRootId: root.id,
+    });
+    const all = await inbox.list(workspace.id, alice.id, { filter: "all" });
+    expect(
+      Object.fromEntries(all.items.map((item) => [kindOf(item), item.firstMentionMessageId])),
+    ).toEqual({ thread: null, channel: null });
   } finally {
     await cleanup(db, suffix);
   }
@@ -807,7 +880,7 @@ test("a person notified of a mention outside their channels finds it in Activity
       mentionAction: { resolutionId },
       thread: null,
       unreadCount: 1,
-      mentioned: true,
+      firstMentionMessageId: sent.id,
     });
     expect(item!.latest.id).toBe(sent.id);
     expect((await inbox.navAttention(workspace.id, bob.id)).unread).toBe(1);
