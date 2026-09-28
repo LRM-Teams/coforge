@@ -184,11 +184,13 @@ test("sendFormatTemplateFromSideChat resends after this week was cancelled", asy
     `已重新发送 ${year} W${week} 工作周报，共 1 位成员。`,
   ]);
   expect(sourceContent.schedule).toBeUndefined();
-  expect(created[0]).toMatchObject({
+  const parent = created[0];
+  if (!parent) throw new Error("expected a parent template");
+  expect(parent).toMatchObject({
     kind: "template",
     content: { tabs: { Summary: { markdown: "# Outline" } } },
   });
-  expect((created[0]?.content as { schedule?: unknown }).schedule).toBeUndefined();
+  expect((parent.content as { schedule?: unknown }).schedule).toBeUndefined();
 });
 
 test("sendWeeklyAssignments does not post a #general notice", async () => {

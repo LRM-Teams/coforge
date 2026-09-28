@@ -3069,17 +3069,17 @@ export class RecordCatalog {
     const cleared = withoutWeekSendDismissed(sourceContent, year, week);
     const alreadySent = Boolean(
       report.settingsId &&
-        (await this.db.weeklyReport.findFirst({
-          where: {
-            workspaceId: input.workspaceId,
-            authorId: input.userId,
-            kind: "template",
-            settingsId: report.settingsId,
-            cycle: { year, week },
-            submissions: { some: { kind: "member" } },
-          },
-          select: { id: true },
-        })),
+      (await this.db.weeklyReport.findFirst({
+        where: {
+          workspaceId: input.workspaceId,
+          authorId: input.userId,
+          kind: "template",
+          settingsId: report.settingsId,
+          cycle: { year, week },
+          submissions: { some: { kind: "member" } },
+        },
+        select: { id: true },
+      })),
     );
 
     if (alreadySent) {

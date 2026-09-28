@@ -34,9 +34,9 @@ test("format template send phrases stay on the format surface", async () => {
   const { looksLikeFormatTemplateSendRequest, shouldUseFormatTemplateSendPath } =
     await import("#src/features/records/weekly-highlight-extract");
   expect(looksLikeFormatTemplateSendRequest("重新发送")).toBe(true);
-  expect(
-    looksLikeFormatTemplateSendRequest("我刚才取消了本周的周报发送，我需要重新发送"),
-  ).toBe(true);
+  expect(looksLikeFormatTemplateSendRequest("我刚才取消了本周的周报发送，我需要重新发送")).toBe(
+    true,
+  );
   expect(looksLikeFormatTemplateSendRequest("重新整理")).toBe(false);
   expect(looksLikeFormatTemplateSendRequest("发送给某位成员的消息")).toBe(false);
   expect(shouldUseFormatTemplateSendPath("format", "重新发送")).toBe(true);
