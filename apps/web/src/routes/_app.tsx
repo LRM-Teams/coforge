@@ -18,6 +18,7 @@ import { InPageNotifications } from "#src/features/notifications/in-page-notific
 import { getBrowserNotificationSettings } from "#src/features/notifications/notifications.functions";
 import { listAgents } from "#src/features/agents/agents.functions";
 import { WorkspaceAgentsProvider } from "#src/features/agents/workspace-agents-realtime";
+import { WorkspacePresenceProvider } from "#src/features/workspaces/member-presence";
 import { getUserPreferences } from "#src/features/settings/settings.functions";
 import { getPanelTabOrders } from "#src/features/panel-tabs/panel-tabs.functions";
 import { PanelTabOrderProvider } from "#src/features/panel-tabs/panel-tab-order-context";
@@ -77,39 +78,46 @@ function AppLayout() {
         workspaceId={currentWorkspace?.id}
         getConnectionToken={getConnectionToken}
       >
-        <WorkspaceAgentsProvider workspaceId={currentWorkspace?.id} agents={agents}>
-          <PanelTabOrderProvider workspaceId={currentWorkspace?.id} orders={tabOrders}>
-            {/* The server prunes dead web-push subscriptions (404/410), and nothing else ever
+        <WorkspacePresenceProvider workspaceId={currentWorkspace?.id}>
+          <WorkspaceAgentsProvider workspaceId={currentWorkspace?.id} agents={agents}>
+            <PanelTabOrderProvider workspaceId={currentWorkspace?.id} orders={tabOrders}>
+              {/* The server prunes dead web-push subscriptions (404/410), and nothing else ever
             re-registers them — without this the phone stays silent until a manual toggle. */}
-            <BrowserPushLifecycle
-              enabled={notifications.enabled}
-              publicKey={notifications.publicKey}
-            />
-            {/* While a tab is open, show the OS notification here instead of relying on
+              <BrowserPushLifecycle
+                enabled={notifications.enabled}
+                publicKey={notifications.publicKey}
+              />
+              {/* While a tab is open, show the OS notification here instead of relying on
                 Web Push, which mainland-China staging/clients cannot reach for Chrome. */}
-            <InPageNotifications
-              enabled={notifications.enabled}
-              viewerId={user.id}
-              workspaceId={currentWorkspace?.id}
-            />
-            <AppShell
-              user={{ id: user.id, name: user.name, email: user.email, avatarUrl: user.avatarUrl }}
-              workspaces={workspaces}
-              currentWorkspace={currentWorkspace}
-              recordsPreview={recordsPreview}
-              onSelectWorkspace={async (slug) => {
-                await select({ data: { slug } });
-                await router.invalidate({ sync: true });
-              }}
-              onCreateWorkspace={async (input) => {
-                await create({ data: input });
-                await router.invalidate({ sync: true });
-              }}
-            >
-              <Outlet />
-            </AppShell>
-          </PanelTabOrderProvider>
-        </WorkspaceAgentsProvider>
+              <InPageNotifications
+                enabled={notifications.enabled}
+                viewerId={user.id}
+                workspaceId={currentWorkspace?.id}
+              />
+              <AppShell
+                user={{
+                  id: user.id,
+                  name: user.name,
+                  email: user.email,
+                  avatarUrl: user.avatarUrl,
+                }}
+                workspaces={workspaces}
+                currentWorkspace={currentWorkspace}
+                recordsPreview={recordsPreview}
+                onSelectWorkspace={async (slug) => {
+                  await select({ data: { slug } });
+                  await router.invalidate({ sync: true });
+                }}
+                onCreateWorkspace={async (input) => {
+                  await create({ data: input });
+                  await router.invalidate({ sync: true });
+                }}
+              >
+                <Outlet />
+              </AppShell>
+            </PanelTabOrderProvider>
+          </WorkspaceAgentsProvider>
+        </WorkspacePresenceProvider>
       </BrowserRealtimeProvider>
     </TimeFormatProvider>
   );

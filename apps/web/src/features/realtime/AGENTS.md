@@ -15,3 +15,5 @@ These rules apply to `src/features/realtime/`.
   client, so several features may share a channel (for example
   `chat:user:<user_id>`). Never call `newSubscription` directly; Centrifuge
   rejects a second subscription to the same channel.
+- Presence and join/leave exist only in the `presence` Centrifugo namespace; do
+  not enable them on another namespace to answer "who is online".

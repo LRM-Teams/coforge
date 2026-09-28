@@ -40,6 +40,7 @@ import {
 import { cn } from "#src/lib/utils";
 import { m } from "#src/paraglide/messages";
 import { InviteMemberDialog } from "#src/features/workspaces/invite-member-dialog";
+import { useMemberOnline } from "#src/features/workspaces/member-presence";
 import { conversationLayoutStorage } from "#src/features/conversations/layout-storage";
 import type { AgentStatusView } from "./agent-status-realtime";
 import type { AgentDisplaySnapshot } from "@lrm/coforge-sdk/internal";
@@ -474,6 +475,7 @@ const CARD_CLASS =
 function PersonCard({ person }: { person: DirectoryPerson }) {
   const { total, items } = person.createdAgents;
   const more = total - items.length;
+  const online = useMemberOnline(person.id);
   return (
     <GridListItem id={person.id} textValue={person.displayName} className={CARD_CLASS}>
       <Avatar
@@ -482,9 +484,16 @@ function PersonCard({ person }: { person: DirectoryPerson }) {
         src={person.avatarUrl ?? undefined}
         initials={avatarInitial(person.displayName)}
         contentClassName={avatarToneClassName(person.displayName)}
+        // No dot until presence is known: an unknown state is never drawn as offline.
+        status={online === undefined ? undefined : online ? "online" : "offline"}
       />
       <div className="min-w-0">
-        <h2 className="truncate text-md font-semibold text-primary">{person.displayName}</h2>
+        <h2 className="truncate text-md font-semibold text-primary">
+          {person.displayName}
+          {online !== undefined && (
+            <span className="sr-only">, {online ? m.member_online() : m.member_offline()}</span>
+          )}
+        </h2>
         <p className="truncate text-sm text-tertiary">@{person.name}</p>
       </div>
       {/* Fixed two-line slot, as on Agent cards, so a row's footers line up. */}

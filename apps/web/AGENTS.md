@@ -145,7 +145,7 @@ responsibility.
 - `features/settings/` — preference pages and device-local preferences.
 - `features/search/` — the Workspace search page (`/search`): filters, matching channels, Agents and Computers, message results with their preview, and the browser-local search history and frequently used places.
 - `features/tasks/` — Task board, list, overview, and message task actions.
-- `features/workspaces/` — Workspace switcher and creation, member directory reads, invitations, human roles, and the last page `/` returns to.
+- `features/workspaces/` — Workspace switcher and creation, member directory reads, member presence (`presence:workspace:<workspace_id>`), invitations, human roles, and the last page `/` returns to.
 - `server/agents/` — Agent lifecycle, control, sessions, display reduction,
   visibility, deletion, and the Agent HTTPS API.
 - `server/attachments/` — attachment upload sessions and delivery.
