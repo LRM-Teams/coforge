@@ -39,6 +39,8 @@ export type TaskView = {
   resourceReceiptRecordedAt?: string | null;
   resourceReceipt?: TaskResourceReceipt;
   claimedAt?: string | null;
+  /** The current or most recent isolated runtime attempt for an Agent-owned Task. */
+  executionSessionId?: string | null;
 };
 
 export type TaskResourceReceipt = {

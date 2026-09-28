@@ -675,6 +675,8 @@ export type AgentMessageDelivery = {
   mentionsAgent?: boolean;
   /** True when the recipient Agent was notified of this message without being a channel member. */
   nonMemberMention?: boolean;
+  /** Present when this delivery starts an isolated Task execution session. */
+  taskExecutionSessionId?: string;
 };
 export type AgentMessageDeliveryAck = Omit<
   AgentMessageDelivery,

@@ -1013,6 +1013,7 @@ export function encodeAgentMessageDelivery(value: AgentMessageDelivery): Uint8Ar
       latestSenderDescription: value.latestSenderDescription ?? "",
       mentionsAgent: value.mentionsAgent,
       nonMemberMention: value.nonMemberMention,
+      taskExecutionSessionId: value.taskExecutionSessionId ?? "",
     }),
   );
 }
@@ -1051,6 +1052,9 @@ export function decodeAgentMessageDelivery(bytes: Uint8Array): AgentMessageDeliv
       : {}),
     ...(value.mentionsAgent !== undefined ? { mentionsAgent: value.mentionsAgent } : {}),
     ...(value.nonMemberMention ? { nonMemberMention: true } : {}),
+    ...(value.taskExecutionSessionId
+      ? { taskExecutionSessionId: value.taskExecutionSessionId }
+      : {}),
   };
 }
 export function encodeAgentMessageDeliveryAck(value: AgentMessageDeliveryAck): Uint8Array {

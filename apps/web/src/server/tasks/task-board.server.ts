@@ -702,6 +702,9 @@ export class TaskBoard {
       where: { messageId: before.messageId },
       select: taskSelection,
     });
+    if (task.owner?.agentId && task.ownerMemberId !== before.ownerMemberId) {
+      await this.ensureTaskExecutionSession(tx, task, task.owner.agentId);
+    }
     const changes = taskChanges(before, task);
     if (!changes.length) return { task, events: [] };
     const latest = await tx.taskHistoryEvent.findFirst({
@@ -713,6 +716,30 @@ export class TaskBoard {
       data: historyRows(task.messageId, actor, changes, latest?.seq ?? 0),
     });
     return { task, events };
+  }
+
+  /** Creates the durable, idempotent hand-off record. The daemon will consume this record in the
+   * follow-up delivery phase; keeping creation under the Task write lock prevents duplicate
+   * execution sessions when two claim/assign requests race. */
+  private async ensureTaskExecutionSession(tx: Transaction, task: SelectedTask, agentId: string) {
+    const session = await tx.taskExecutionSession.upsert({
+      where: { taskMessageId_agentId: { taskMessageId: task.messageId, agentId } },
+      create: {
+        taskMessageId: task.messageId,
+        conversationId: task.conversationId,
+        workspaceId: task.workspaceId,
+        agentId,
+        status: "starting",
+        attempt: 1,
+      },
+      update: {},
+      select: { id: true },
+    });
+    await tx.agentMessageDelivery.updateMany({
+      where: { messageId: task.messageId, agentId },
+      data: { taskExecutionSessionId: session.id },
+    });
+    return session;
   }
 
   /** Push a committed message to every Agent it was delivered to. Failures never surface. */
@@ -727,6 +754,7 @@ export class TaskBoard {
       deliveries: Array<{
         deliveryId: string;
         agentId: string;
+        taskExecutionSessionId: string | null;
         agent: { computerId: string | null };
       }>;
     },
@@ -760,6 +788,9 @@ export class TaskBoard {
                     latestSenderDescription: sender.description,
                     // Task deliveries are directed at this Agent; treat as a personal wake.
                     mentionsAgent: true,
+                    ...(delivery.taskExecutionSessionId
+                      ? { taskExecutionSessionId: delivery.taskExecutionSessionId }
+                      : {}),
                   }),
                 ),
               ),
@@ -937,8 +968,8 @@ export class TaskBoard {
             .map((mention) => mention.id),
         );
         const recipients = agentMembers.filter(({ agentId, channelMuted }) =>
-          mentionedAgentIds.size
-            ? mentionedAgentIds.has(agentId!)
+          assignee?.agentId === agentId || mentionedAgentIds.size
+            ? assignee?.agentId === agentId || mentionedAgentIds.has(agentId!)
             : coordinator?.coordinatorAgentId
               ? agentId === coordinator.coordinatorAgentId
               : !scope.channel || !channelMuted,
@@ -995,7 +1026,15 @@ export class TaskBoard {
             where: { id: command.attachmentId },
             data: { messageId: message.id, position: 0 },
           });
-        tasks.push(message.task!);
+        if (assignee?.agentId) {
+          await this.ensureTaskExecutionSession(tx, message.task!, assignee.agentId);
+          tasks.push(
+            await tx.task.findUniqueOrThrow({
+              where: { messageId: message.task!.messageId },
+              select: taskSelection,
+            }),
+          );
+        } else tasks.push(message.task!);
         sequences.push(sequence);
       }
       await tx.taskHistoryEvent.createMany({
@@ -1345,8 +1384,16 @@ export class TaskBoard {
       if (
         existing.ownerMemberId === member.id &&
         (existing.status === "in_progress" || existing.status === "in_review")
-      )
+      ) {
+        if (member.agentId && !existing.executionSessions[0]) {
+          await this.ensureTaskExecutionSession(tx, existing, member.agentId);
+          return tx.task.findUniqueOrThrow({
+            where: { messageId: existing.messageId },
+            select: taskSelection,
+          });
+        }
         return existing;
+      }
       if (existing.status === "done" || existing.status === "closed")
         throw new ClaimRefused(`task is ${existing.status}`, undefined, existing.number);
       if (existing.ownerMemberId && existing.ownerMemberId !== member.id)
