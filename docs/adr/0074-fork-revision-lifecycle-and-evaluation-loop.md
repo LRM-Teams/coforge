@@ -1,0 +1,11 @@
+# ForkRevision 三阶段生命周期由 EvaluationOrchestrator 独占驱动，多根因以有界子集对照而非 cause_set 表达
+
+Fork 表达分三阶段（Q77-A）：`ForkDraft` 仅存在于 diagnosis run 内；服务端完成 schema、anchor/ref 存在性、ACL、provenance 与幂等校验后提交全局可检索 `ForkRevision(status=provisional)`（消费角色称 ForkCandidate）；获得因果验证或反证后追加 superseding `ForkRevision(status=validated|invalidated)`。权威提交表示"记录及来源被服务端接受"，不等于因果结论已验证——存储可信度与因果可信度是两件事；revision 追加而非复制删除，符合 append-only/supersedes 模型。
+
+**验证门槛**（Q81-A）：provisional → validated 须同时满足①anchor/ref/ACL/provenance 仍有效；②至少一条原始 observed branch；③至少一个独立对照支持——同一可重建状态的配对 replay/continuation 显示预期差异，或另一真实 run/task 出现机制一致分支；④完成四维适用性与反例检查；⑤无高严重度未决矛盾。高质量可比证据反驳核心机制则 invalidated；证据不足保持 provisional。Citation 不改变验证状态。独立对照冻结 ControlContract（Q85-A）：同一 anchor/state snapshot、任务输入、agent/model/prompt policy、工具与依赖版本、权限、预算与独立 evaluator，treatment 与 baseline 唯一计划差异是目标 Memory Hint/guidance；关键冻结项不满足时只作 supporting evidence。生成 ForkCandidate/Hint 的模型不得担任结果 evaluator。
+
+**循环所有权**（Q92-A）：EvaluationOrchestrator 独占 `创建 MemoryTaskState/SearchPlan → Memory 检索与 memory@ 投递 → task run → step-reward/结果评价 → 冻结 DiagnosisBrief → causal diagnosis → 服务端提交 ForkRevision/DiagnosisOutcome → 下一 run MemoryTaskState → 停止或 replay/continuation` 的状态迁移；Memory/Diagnosis 只能提交 trigger/schedule proposal。停止条件（Q82-A）：终态、replay/continuation 不合资格、父级预算/时间/分支上限耗尽、或连续 2 个 iteration 无新增 evidence refs 且关键判断不变；未终态保持 provisional，dossier 保存 waiting conditions，未来证据事件重启一次性 run。交接用不可变内容寻址 envelope（Q93-A）：幂等键 = evaluation_iteration_id + handoff_kind + input_manifest_hash，at-least-once + ack/checkpoint，重复投递返回原结果；活 session 只保持语义连续性，不作为恢复或幂等边界。
+
+**并发层级**（Q115-A 确认）：Memory→Diagnosis→Memory 评测迭代内统一最多并发 5 个一次性子 agent（InteractionPathWorker、sub-diagnosis worker、explorer 共用槽位，Q100 阶段屏障复用）；独立诊断 run（非评测迭代）沿用 ≤3 sub-diagnosis worker；dossier 增量再诊断预算（≤4 候选 / 1 path / ≤首诊 50%）不变。
+
+**多根因**（Q125-A）：任务级失败常为多根因，但修理动作是完整替代 Branch（一次可编码多处改动）、定位可用 cut grounding（块集合）、一任务允许多个 Fork——不需要在节点上加根因字段或新造多锚点 cause_set（无对照的叙事冒充必要性，且撞单锚点稳定身份）。真实窄缺口是必要性归因：多改动分支被验证充分后，删掉其中一个改动是否仍充分。仅当分支已过 replay 投资六门槛且 diff 含 ≥2 处可分离改动时，在同一 ControlContract 下对最多 2 个预声明子集做配对 replay，结果记为该 branch 的 supporting evidence（subset_sufficient / not_sufficient），不能单独满足 validated 门槛；不可 replay 的任务不做、不许模型标注代替。可分期：先只保留整支充分性 + forecast contract partial_match 表达"修好子任务但任务仍失败"，实验显示"缺一不可"误判成瓶颈再启用子集实验。
