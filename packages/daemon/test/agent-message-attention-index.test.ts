@@ -608,8 +608,7 @@ test("the consumed cursor survives a restart, in Raft's consumed-seqs file", () 
   const store = new AgentConsumedSeqStore(temporaryStateDirectory());
   const before = indexWithConsumedSeqs(store);
   before.recordModelSeen("agent-1", "@ada", 7);
-  before.recordReadContext("agent-1", "#general:11111111");
-  before.recordModelSeen("agent-1", "#general:11111111", 2);
+  before.recordReadContext("agent-1", "#general:11111111", 2);
 
   // A new daemon process: no deliveries, no reads, only the file Raft names.
   const after = indexWithConsumedSeqs(store);
@@ -630,8 +629,7 @@ test("a restart keeps the read context a thread-target confirmation is decided f
   // The Agent read a thread under the channel and never read the channel itself: exactly the shape
   // that makes a top-level send to the channel ask for confirmation (Raft's
   // `detectThreadContextParentSend`).
-  before.recordReadContext("agent-1", "#general:11111111");
-  before.recordModelSeen("agent-1", "#general:11111111", 2);
+  before.recordReadContext("agent-1", "#general:11111111", 2);
   expect(before.readOrder("agent-1", "#general")).toBeUndefined();
 
   const after = indexWithConsumedSeqs(store);
@@ -729,8 +727,7 @@ test("a thread counts as read context only once a read of it has shown a message
 test("a consumed frontier alone does not order its target, before or after a restart", () => {
   const store = new AgentConsumedSeqStore(temporaryStateDirectory());
   const before = indexWithConsumedSeqs(store);
-  before.recordReadContext("agent-1", "#general:11111111");
-  before.recordModelSeen("agent-1", "#general:11111111", 2);
+  before.recordReadContext("agent-1", "#general:11111111", 2);
   // What a `check` of the channel records: the messages it returned, not a review of the channel.
   before.recordModelSeen("agent-1", "#general", 9);
   expect(before.readOrder("agent-1", "#general")).toBeUndefined();
@@ -741,6 +738,24 @@ test("a consumed frontier alone does not order its target, before or after a res
   expect(after.latestThreadReadUnderParent("agent-1", "#general")?.target).toBe(
     "#general:11111111",
   );
+});
+
+test("which threads count as read context survives the Agent's next launch", () => {
+  const store = new AgentConsumedSeqStore(temporaryStateDirectory());
+  const index = indexWithConsumedSeqs(store);
+  // Read empty, then drained by a check: shown nothing by a read.
+  index.recordReadContext("agent-1", "#general:11111111");
+  index.recordModelSeen("agent-1", "#general:11111111", 5);
+  // Paged through: a read showed message 3, without moving the consumed frontier.
+  index.recordReadContext("agent-1", "#general:22222222", 3);
+  index.recordReadContext("agent-1", "#general:11111111");
+
+  // Every launch, exit and Stop forgets the Agent and reloads it from the file.
+  index.clearAgent("agent-1");
+  expect(index.latestThreadReadUnderParent("agent-1", "#general")?.target).toBe(
+    "#general:22222222",
+  );
+  expect(index.modelSeenSequence("agent-1", "#general:22222222")).toBe(0);
 });
 
 // A fake `hold` collaborator standing in for `AgentDeliveryQueue`, matching the seam

@@ -2117,6 +2117,65 @@ describe("DaemonRuntime", () => {
       }
     });
 
+    test("a held send whose context was withheld does not count", async () => {
+      const sends: AgentMessageRequest[] = [];
+      const harness = await messageHarness(async (request) => {
+        sends.push(request);
+        return request.target === threadTarget
+          ? {
+              protocolMajor: 1,
+              idempotencyKey: request.idempotencyKey,
+              accepted: false,
+              attentionCount: 1,
+              messages: [messageRecord(9, "@ada", threadTarget)],
+              state: "held",
+              decision: "local_hold" as const,
+              freshnessContextMode: "withheld" as const,
+            }
+          : {
+              protocolMajor: 1,
+              idempotencyKey: request.idempotencyKey,
+              accepted: true,
+              attentionCount: 0,
+              messageId: "sent",
+              messages: [],
+              state: "sent",
+              decision: "forward",
+            };
+      });
+      try {
+        await harness.runtime.agentMessage(
+          harness.context,
+          {
+            idempotencyKey: "withheld-thread-send",
+            context: harness.context,
+            operation: "send",
+            target: threadTarget,
+            content: "thread reply",
+            freshnessContextMode: "withheld",
+          },
+          harness.apiKey,
+        );
+        const result = await harness.runtime
+          .agentMessage(
+            harness.context,
+            {
+              idempotencyKey: "top-level-send",
+              context: harness.context,
+              operation: "send",
+              target: "@ada",
+              content: "top-level reply",
+            },
+            harness.apiKey,
+          )
+          .catch((error: unknown) => error);
+        expect(result).not.toBeInstanceOf(AgentPreflightError);
+        expect(sends.map(({ target }) => target)).toEqual([threadTarget, "@ada"]);
+      } finally {
+        await harness.runtime.stop();
+      }
+    });
+
     test("checking the parent after reading a thread still asks, until the parent is read", async () => {
       const { harness, sends, run, sendTopLevel } = await guardHarness((request) =>
         request.target === threadTarget ? [3] : [9],

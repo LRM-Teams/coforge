@@ -14,12 +14,19 @@ import { escapePathIdentity, isSafePathScope } from "./path-scope";
 
 const logger = getLogger(["coforge", "daemon", "consumed-seqs"]);
 
-/** One Agent's consumed cursor for one target — Raft's `targets[target]` record verbatim (1.0.32
- * bundle 752736-752751): `seq` is the frontier the Agent has consumed (monotonic, never lower),
- * `readOrder` is when that target was last reviewed, ordered against every other target's. */
-export type AgentConsumedSeqEntry = Readonly<{ seq?: number; readOrder?: number }>;
+/** One Agent's consumed cursor for one target, after Raft's `targets[target]` record (1.0.32 bundle
+ * 752736-752751): `seq` is the frontier the Agent has consumed (monotonic, never lower), `readOrder`
+ * when the target was last reviewed, ordered against every other target's, and `reviewedSeq` the
+ * newest message a review showed. `reviewedSeq` is CoForge's own addition: Raft folds it into `seq`,
+ * but a paged read must not move the frontier a hold is decided from, and a `check` moves that
+ * frontier without reviewing anything. */
+export type AgentConsumedSeqEntry = Readonly<{
+  seq?: number;
+  readOrder?: number;
+  reviewedSeq?: number;
+}>;
 
-/** Raft's `consumed-seqs.json` shape verbatim: a `targets` map plus the next `readOrder` to hand
+/** Raft's `consumed-seqs.json` shape, plus `reviewedSeq`: a `targets` map plus the next `readOrder` to hand
  * out. `nextReadOrder` is never trusted as a starting point on read — `read` recomputes it from the
  * orders it actually sees, exactly as Raft's `normalizeState` does. */
 export type AgentConsumedSeqState = Readonly<{
@@ -42,7 +49,9 @@ export type AgentConsumedSeqPort = Readonly<{
    * `recordConsumedSeqs` takes an order, but Raft calls it only for a held send; Raft 1.0.32's
    * `check` records nothing.) */
   recordConsumedSeqs(agentId: string, entries: Readonly<Record<string, number>>): void;
-  /** Raft's `recordConsumedRead(agentId, target, sequence)`; answers the `readOrder` it assigned. */
+  /** A review of `target`: takes the next `readOrder` and raises `reviewedSeq` to `sequence`, leaving
+   * the consumed `seq` alone (Raft's `recordConsumedRead`, which raises `seq` instead). Answers the
+   * `readOrder` it assigned. */
   recordConsumedRead(agentId: string, target: string, sequence?: number): number | undefined;
 }>;
 
@@ -52,20 +61,20 @@ function positiveFiniteNumber(value: unknown): number | undefined {
 }
 
 /**
- * The daemon's durable copy of the consumed cursor, in Raft's file shape
- * (`{ targets: { <target>: { seq, readOrder } }, nextReadOrder }`).
+ * The daemon's durable copy of the consumed cursor, in Raft's file shape plus one field
+ * (`{ targets: { <target>: { seq, readOrder, reviewedSeq } }, nextReadOrder }`).
  *
  * Why it has to be durable: the cursor decides whether a send is held (`modelSeenSequence`), which
  * frontier travels as `seenUpToSeq`, and whether a top-level send under a parent whose newest read
- * context is a thread needs confirming. Raft keeps all three in one file that outlives the process
+ * context is a thread needs confirming (and which threads a review showed anything in). Raft keeps all three in one file that outlives the process
  * (`consumed-seqs.json`, 1.0.32 bundle 752725-752800); the daemon used to keep them only in memory,
  * so a restart silently reset the Agent's read context to "never read anything".
  *
  * Raft's mechanism is a synchronous read-modify-write per record, with write errors swallowed —
  * best-effort persistence that can never fail a message send. Kept as it is: synchronous critical
  * sections cannot interleave (no lost update between two records racing for the same Agent), and a
- * lost write costs one cursor position, not a failed send. The file name and every field are
- * Raft's; only the location is CoForge's own state directory.
+ * lost write costs one cursor position, not a failed send. The file name and every field but
+ * `reviewedSeq` are Raft's; the location is CoForge's own state directory.
  */
 export class AgentConsumedSeqStore implements AgentConsumedSeqPort {
   readonly #root: string;
@@ -139,14 +148,15 @@ export class AgentConsumedSeqStore implements AgentConsumedSeqPort {
     if (target.length === 0) return undefined;
     const state = mutableState(this.read(agentId));
     const prior = state.targets[target] ?? {};
-    const nextSeq = positiveFiniteNumber(sequence);
+    const reviewed = positiveFiniteNumber(sequence);
+    const priorReviewed = positiveFiniteNumber(prior.reviewedSeq);
     state.targets[target] = {
-      seq:
-        nextSeq !== undefined &&
-        (positiveFiniteNumber(prior.seq) === undefined || nextSeq > prior.seq!)
-          ? nextSeq
-          : prior.seq,
+      ...prior,
       readOrder: state.nextReadOrder,
+      reviewedSeq:
+        reviewed !== undefined && (priorReviewed === undefined || reviewed > priorReviewed)
+          ? reviewed
+          : priorReviewed,
     };
     state.nextReadOrder += 1;
     this.#write(agentId, state);
@@ -199,7 +209,9 @@ function mutableState(state: AgentConsumedSeqState): MutableState {
 /**
  * Raft's `normalizeState` (1.0.32 bundle 752730-752752): keep the entries that carry an order or a
  * sequence, and start from a `nextReadOrder` that is above every order in the file — so a cursor
- * written by an older build (or hand-edited) can never hand out an order it already used.
+ * written by an older build (or hand-edited) can never hand out an order it already used. A
+ * `reviewedSeq` is kept only beside a `readOrder`, since it describes a review. A file written
+ * before `reviewedSeq` existed has none, so no thread counts as read context until it is read again.
  */
 function normalizeState(value: unknown): AgentConsumedSeqState {
   if (!value || typeof value !== "object" || Array.isArray(value))
@@ -211,11 +223,14 @@ function normalizeState(value: unknown): AgentConsumedSeqState {
     for (const [target, entry] of Object.entries(raw.targets as Record<string, unknown>)) {
       if (target.length === 0 || !entry || typeof entry !== "object" || Array.isArray(entry))
         continue;
-      const record = entry as { seq?: unknown; readOrder?: unknown };
+      const record = entry as { seq?: unknown; readOrder?: unknown; reviewedSeq?: unknown };
       const seq = positiveFiniteNumber(record.seq);
       const readOrder = positiveFiniteNumber(record.readOrder);
       if (seq === undefined && readOrder === undefined) continue;
-      targets[target] = { seq, readOrder };
+      // A shown message without a review order is not a review; drop it with the order.
+      const reviewedSeq =
+        readOrder === undefined ? undefined : positiveFiniteNumber(record.reviewedSeq);
+      targets[target] = { seq, readOrder, reviewedSeq };
       // Only a real order counts. Raft falls back to `seq` for files written before `readOrder`
       // existed; this file never had that shape, and a frontier recorded without a review
       // (`recordConsumedSeqs`) must not push the order counter up to its sequence.
