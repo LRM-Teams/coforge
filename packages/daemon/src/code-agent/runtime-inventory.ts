@@ -156,8 +156,9 @@ export async function discoverExternalCodeAgents(
     externalCodeAgents
       .filter(({ provider }) => !requestedProvider || requestedProvider === provider)
       .map(async ({ provider, executable: name }) => {
+        let executable: string | undefined;
         try {
-          const executable =
+          executable =
             (await probe.resolve?.(provider, name, searchPath)) ?? probe.which(name, searchPath);
           if (!executable) {
             logger.info("Code Agent executable was not found", {
@@ -190,7 +191,20 @@ export async function discoverExternalCodeAgents(
             return { runtime: cached.runtime, cacheKey: undefined };
           }
           const runtime = await probeRuntimeVersion(provider, name, executable, probe);
-          return runtime ? { runtime, cacheKey } : undefined;
+          if (runtime) return { runtime, cacheKey };
+          // A transient version/app-server failure must not make an installed runtime vanish
+          // from the Computer inventory. Keep the last successful result when the executable
+          // itself is unchanged; the next refresh will retry the live probe.
+          if (cached?.runtime) {
+            logger.warning("Code Agent runtime probe failed; using cached runtime", {
+              event: "code_agent_runtime:cache_fallback",
+              provider,
+              executable_name: name,
+              outcome: "degraded",
+            });
+            return { runtime: cached.runtime, cacheKey: undefined };
+          }
+          return undefined;
         } catch (error) {
           logger.warning("Code Agent runtime probe failed", {
             event: "code_agent_runtime:probe_failed",
@@ -199,6 +213,22 @@ export async function discoverExternalCodeAgents(
             error_code: diagnosticErrorCode(error),
             outcome: "unavailable",
           });
+          // A transient probe failure must not erase an otherwise known installed runtime.
+          const fallbackCacheKey = executable
+            ? cache
+              ? await fileStatCacheKey([executable])
+              : undefined
+            : undefined;
+          const fallbackCached = fallbackCacheKey ? cache?.[provider] : undefined;
+          if (fallbackCached?.runtime) {
+            logger.warning("Code Agent runtime probe failed; using cached runtime", {
+              event: "code_agent_runtime:cache_fallback",
+              provider,
+              executable_name: name,
+              outcome: "degraded",
+            });
+            return { runtime: fallbackCached.runtime, cacheKey: undefined };
+          }
           // An executable without a usable version is not available inventory.
           return undefined;
         }
