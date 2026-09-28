@@ -30,15 +30,18 @@ export function isPreviewed(
 
 /**
  * The preview for a message result: its channel or its direct conversation's Agent, at the row
- * the stream shows it on (a thread reply's root). Undefined when its place cannot be previewed.
+ * the stream shows it on, with a thread reply's thread open (the stream stays at its root).
+ * Undefined when its place cannot be previewed.
  */
 export function messagePreviewTarget(
   conversation: { id: string; channelName: string | null; directAgent: { id: string } | null },
   message: { id: string; threadRootId?: string },
 ): SearchPreviewTarget | undefined {
   const messageId = message.threadRootId ?? message.id;
-  if (conversation.channelName) return { kind: "channel", id: conversation.id, messageId };
+  const threadRootId = message.threadRootId;
+  if (conversation.channelName)
+    return { kind: "channel", id: conversation.id, messageId, threadRootId };
   return conversation.directAgent
-    ? { kind: "agent", id: conversation.directAgent.id, messageId }
+    ? { kind: "agent", id: conversation.directAgent.id, messageId, threadRootId }
     : undefined;
 }

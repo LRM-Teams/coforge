@@ -3,17 +3,9 @@ import { useSuspenseQuery } from "@tanstack/react-query";
 import { CatchBoundary, ClientOnly, getRouteApi } from "@tanstack/react-router";
 
 import { Skeleton } from "#src/components/ui/skeleton";
-import { useConversationAgentProfile } from "#src/features/agents/profile-panel/open-agent-profile";
-import {
-  useCurrentWorkspaceId,
-  useLiveAgent,
-} from "#src/features/agents/workspace-agents-realtime";
-import { ChannelConversation } from "#src/features/conversations/channel-conversation";
-import { DirectConversation } from "#src/features/conversations/direct-conversation";
-import {
-  useChannelConversation,
-  useDirectConversation,
-} from "#src/features/conversations/use-conversation-data";
+import { useCurrentWorkspaceId } from "#src/features/agents/workspace-agents-realtime";
+import { ChannelConversationPage } from "#src/features/conversations/channel-conversation-page";
+import { DirectConversationPage } from "#src/features/conversations/direct-conversation-page";
 import { m } from "#src/paraglide/messages";
 import type { RememberedEntity } from "./search-memory";
 import { searchDirectoryQuery } from "./search-queries";
@@ -21,13 +13,17 @@ import { searchDirectoryQuery } from "./search-queries";
 const searchRoute = getRouteApi("/_app/search");
 
 /** What the preview shows: a channel or an Agent's direct conversation, optionally at a message. */
-export type SearchPreviewTarget = RememberedEntity & { messageId?: string };
+export type SearchPreviewTarget = RememberedEntity & {
+  messageId?: string;
+  /** A thread reply's root: the preview opens that thread. */
+  threadRootId?: string;
+};
 
 /**
- * A result's conversation beside the search results: the conversation itself, as its page shows
- * it (its header, the stream positioned at the message, the composer, threads, reactions and the
- * Agent profile), without the Chat / Tasks / Files tabs. Previewing is not reading: the stream is
- * not marked read, though a thread opened in the preview is, as in Chat. Memoized: typing in the search box re-renders the page, not the conversation.
+ * A result's conversation beside the search results, exactly as Chat opens it: the same page
+ * (`ChannelConversationPage` / `DirectConversationPage`) with its tabs, stream positioned at the
+ * message, composer, threads, Task board and files, and reading it as Chat does. Memoized: typing
+ * in the search box re-renders the search page, not the conversation.
  */
 export const SearchPreview = memo(function SearchPreview({
   target,
@@ -69,37 +65,60 @@ export const SearchPreview = memo(function SearchPreview({
 });
 
 function ChannelPreview({ channelId, jumpMessage }: { channelId: string; jumpMessage?: string }) {
-  const { conversationProps } = useChannelConversation(channelId);
-  const previewProps = usePreviewConversationProps();
-  return <ChannelConversation {...conversationProps} {...previewProps} jumpMessage={jumpMessage} />;
-}
-
-function DirectPreview({ agentId, jumpMessage }: { agentId: string; jumpMessage?: string }) {
-  const { conversationProps } = useDirectConversation(agentId);
-  const agentStatus = useLiveAgent(agentId)?.status.value;
-  const previewProps = usePreviewConversationProps();
   return (
-    <DirectConversation
-      {...conversationProps}
-      {...previewProps}
-      agentStatus={agentStatus}
+    <ChannelConversationPage
+      channelId={channelId}
       jumpMessage={jumpMessage}
+      {...usePreviewPageProps()}
     />
   );
 }
 
-/** The props a conversation page gets from the messages layout, which the preview supplies itself: the
- * Workspace's channels (for references; the search page has already read them) and the Agent
- * profile panel, kept in the search URL. */
-function usePreviewConversationProps() {
+function DirectPreview({ agentId, jumpMessage }: { agentId: string; jumpMessage?: string }) {
+  return (
+    <DirectConversationPage
+      agentId={agentId}
+      jumpMessage={jumpMessage}
+      {...usePreviewPageProps()}
+    />
+  );
+}
+
+/** What the page reads from Chat that the search page supplies itself: its own address state (the
+ * tab, board view and what it has open, kept in the search URL) and the Workspace's channels (for
+ * references; the search page has already read them). */
+function usePreviewPageProps() {
   const workspaceId = useCurrentWorkspaceId() ?? "";
   const channels = useSuspenseQuery({
     ...searchDirectoryQuery(workspaceId),
     select: (directory) => directory.channels,
   }).data;
-  const profile = searchRoute.useSearch({ select: (search) => search.profile });
-  const agentTab = searchRoute.useSearch({ select: (search) => search.agentTab });
-  return { channels, ...useConversationAgentProfile({ profile, agentTab }) };
+  // Only the page's own fields, shared structurally: typing a query does not re-render the page.
+  const search = searchRoute.useSearch({
+    select: ({
+      view,
+      status,
+      layout,
+      owners,
+      completed,
+      threadRootId,
+      task,
+      profile,
+      agentTab,
+    }) => ({
+      view,
+      status,
+      layout,
+      owners,
+      completed,
+      threadRootId,
+      task,
+      profile,
+      agentTab,
+    }),
+    structuralSharing: true,
+  });
+  return { search, channels };
 }
 
 /** Message-shaped placeholders while the conversation loads. */

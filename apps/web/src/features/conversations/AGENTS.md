@@ -56,15 +56,21 @@ These rules apply to `src/features/conversations/`.
   stream; `use-conversation-sync.ts` owns browser-only deep-link and read-cursor
   synchronization.
 - The Saved list is a TanStack DB collection (`saved-messages-collection.ts`) on the
-  Chat layout's `DbClient`, seeded from the loader. Read it through
+  `DbClient` of `ConversationViewerProvider` (with the viewer's open mode), seeded
+  from the loader of the page that hosts a conversation: Chat and search. Read it through
   `useSavedEntries`/`useIsMessageSaved` and write through the context's
   `save`/`unsave`; never a module-level collection or `createCollection`
   singleton, which would share state across SSR requests.
 - A conversation's data and actions (messages kept live, its Tasks, send,
   react, join, read and follow threads) come from `useChannelConversation` /
   `useDirectConversation` (`use-conversation-data.ts`), shared by the
-  conversation routes, the Tasks page popup and the search page's preview.
-  Change a send or read path there, not in a route.
+  conversation pages and the Tasks page popup. Change a send or read path
+  there, not in a route.
+- `channel-conversation-page.tsx` / `direct-conversation-page.tsx` are a
+  conversation as Chat opens it (tabs, Task board, files, reading). The Chat
+  routes and the search preview both render them, so the two never differ;
+  a route only reads its params and loads. Their address state is
+  `conversationPageSearchShape`, which every host's `validateSearch` spreads.
 - `mentionOutsiders` (the channel's people and public Agents outside it) is for
   @-completion only. Never merge it into `mentionables`, which also resolves
   plain `@handle` labels and stored mention tokens.

@@ -145,8 +145,6 @@ export function useConversationReadRequiresScroll(): boolean {
 export function ConversationNavigation({ children }: { children: ReactNode }) {
   const { projects, saved } = messagesRoute.useLoaderData();
   const { channels, directs, viewerId, readAt } = useSidebarLists();
-  const { conversationOpenMode: savedOpenMode } = appRoute.useLoaderData();
-  const openMode = conversationOpenMode(savedOpenMode);
   const agents = useLiveAgents();
   const workspaceId = useCurrentWorkspaceId();
   const desktop = useBreakpoint("lg");
@@ -239,28 +237,6 @@ export function ConversationNavigation({ children }: { children: ReactNode }) {
     () => ({ counts, clear: unread.clear }),
     [counts, unread.clear],
   );
-  // Saved (#127): the loader seeds the collection; a toggle changes it at once and persists in
-  // the background. A router invalidation's fresh list reaches it through its Query.
-  const queryClient = useQueryClient();
-  const [dbClient] = useState(() => new DbClient({ queryClient }));
-  const savedWorkspaceId = workspaceId ?? "";
-  // The collection is seeded once per Workspace from the list at hand; later loader lists go
-  // through its Query (the effect below), never by re-seeding.
-  const seededSaved = useRef(saved);
-  const savedMessages = useMemo<SavedMessagesState>(() => {
-    const collection = materializeSavedMessages(dbClient, savedWorkspaceId, seededSaved.current, {
-      list: () => listSavedMessages(),
-      save: (target) => saveMessage({ data: target }),
-      unsave: (target) => unsaveMessage({ data: target }),
-    });
-    const store = savedMessagesStore(collection);
-    return { store, save: store.save, unsave: store.unsave };
-  }, [dbClient, savedWorkspaceId]);
-  useEffect(() => {
-    if (saved === seededSaved.current) return;
-    queryClient.setQueryData(savedMessagesQueryKey(savedWorkspaceId), saved);
-  }, [queryClient, savedWorkspaceId, saved]);
-
   return (
     <ConversationListContext
       value={{
@@ -269,40 +245,38 @@ export function ConversationNavigation({ children }: { children: ReactNode }) {
         detailVisible: desktop || !showList,
       }}
     >
-      <OpenModeContext value={openMode}>
+      <ConversationViewerProvider saved={saved}>
         <UnreadContext value={controls}>
-          <SavedMessagesContext value={savedMessages}>
-            <main className="flex h-svh min-w-0 flex-col bg-primary lg:flex-row">
-              <section
-                className={cx(
-                  "min-h-0 flex-1 flex-col lg:flex lg:w-72 lg:flex-none lg:border-r lg:border-secondary",
-                  showList ? "flex" : "hidden",
-                )}
-              >
-                <PageHeader heading={m.navigation_chat()} />
-                <div className="min-h-0 flex-1 overflow-y-auto py-4">
-                  <ConversationDirectory
-                    channels={visibleChannels}
-                    agents={agents}
-                    directRows={directs.byAgent}
-                    selectedChannelId={channel?.channelId}
-                    selectedAgentId={agent?.agentId}
-                    selectedSaved={pathname === "/messages/saved"}
-                    onCreateChannel={() => setCreating(true)}
-                  />
-                </div>
-                <LiveAgentActivityBar agents={agents} />
-              </section>
-              <div
-                className={cx(
-                  "min-h-0 min-w-0 flex-1 flex-col lg:flex",
-                  showList ? "hidden" : "flex",
-                )}
-              >
-                {children}
+          <main className="flex h-svh min-w-0 flex-col bg-primary lg:flex-row">
+            <section
+              className={cx(
+                "min-h-0 flex-1 flex-col lg:flex lg:w-72 lg:flex-none lg:border-r lg:border-secondary",
+                showList ? "flex" : "hidden",
+              )}
+            >
+              <PageHeader heading={m.navigation_chat()} />
+              <div className="min-h-0 flex-1 overflow-y-auto py-4">
+                <ConversationDirectory
+                  channels={visibleChannels}
+                  agents={agents}
+                  directRows={directs.byAgent}
+                  selectedChannelId={channel?.channelId}
+                  selectedAgentId={agent?.agentId}
+                  selectedSaved={pathname === "/messages/saved"}
+                  onCreateChannel={() => setCreating(true)}
+                />
               </div>
-            </main>
-          </SavedMessagesContext>
+              <LiveAgentActivityBar agents={agents} />
+            </section>
+            <div
+              className={cx(
+                "min-h-0 min-w-0 flex-1 flex-col lg:flex",
+                showList ? "hidden" : "flex",
+              )}
+            >
+              {children}
+            </div>
+          </main>
           {creating && (
             <CreateChannelDialog
               open={creating}
@@ -319,8 +293,48 @@ export function ConversationNavigation({ children }: { children: ReactNode }) {
             />
           )}
         </UnreadContext>
-      </OpenModeContext>
+      </ConversationViewerProvider>
     </ConversationListContext>
+  );
+}
+
+/**
+ * What a conversation reads about its viewer wherever it is shown (Chat, the search preview): the
+ * "When I view a conversation" open mode and the Saved list, seeded from the page's loader.
+ */
+export function ConversationViewerProvider({
+  saved,
+  children,
+}: {
+  saved: SavedEntry[];
+  children: ReactNode;
+}) {
+  const { conversationOpenMode: savedOpenMode } = appRoute.useLoaderData();
+  const workspaceId = useCurrentWorkspaceId() ?? "";
+  // Saved (#127): the loader seeds the collection; a toggle changes it at once and persists in
+  // the background. A router invalidation's fresh list reaches it through its Query.
+  const queryClient = useQueryClient();
+  const [dbClient] = useState(() => new DbClient({ queryClient }));
+  // The collection is seeded once per Workspace from the list at hand; later loader lists go
+  // through its Query (the effect below), never by re-seeding.
+  const seededSaved = useRef(saved);
+  const savedMessages = useMemo<SavedMessagesState>(() => {
+    const collection = materializeSavedMessages(dbClient, workspaceId, seededSaved.current, {
+      list: () => listSavedMessages(),
+      save: (target) => saveMessage({ data: target }),
+      unsave: (target) => unsaveMessage({ data: target }),
+    });
+    const store = savedMessagesStore(collection);
+    return { store, save: store.save, unsave: store.unsave };
+  }, [dbClient, workspaceId]);
+  useEffect(() => {
+    if (saved === seededSaved.current) return;
+    queryClient.setQueryData(savedMessagesQueryKey(workspaceId), saved);
+  }, [queryClient, workspaceId, saved]);
+  return (
+    <OpenModeContext value={conversationOpenMode(savedOpenMode)}>
+      <SavedMessagesContext value={savedMessages}>{children}</SavedMessagesContext>
+    </OpenModeContext>
   );
 }
 

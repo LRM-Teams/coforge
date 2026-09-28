@@ -466,6 +466,20 @@ function MessageResults({
   );
 }
 
+/**
+ * Where a result opens in Chat: its conversation at the row that shows the message, and for a
+ * thread reply its thread open too, the way Chat opens a thread from Activity.
+ */
+function messageOpenTarget(
+  conversation: MessageSearchHit["conversation"],
+  message: MessageSearchHit["message"],
+) {
+  const target = savedJumpTarget(conversation, message);
+  return message.threadRootId && "search" in target
+    ? { ...target, search: { ...target.search, threadRootId: message.threadRootId } }
+    : target;
+}
+
 /** The remembered place a message result opens: its channel, or its direct conversation's Agent. */
 function conversationKey(
   conversation: MessageSearchHit["conversation"],
@@ -502,7 +516,7 @@ function SearchResultRow({
   return (
     <li>
       <Link
-        {...savedJumpTarget(conversation, message)}
+        {...messageOpenTarget(conversation, message)}
         data-search-message-id={message.id}
         aria-current={target && isPreviewed(previewed, target) ? "true" : undefined}
         onClick={onClick}

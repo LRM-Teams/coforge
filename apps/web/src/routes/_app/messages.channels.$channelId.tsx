@@ -1,47 +1,21 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useServerFn } from "@tanstack/react-start";
 import { z } from "zod";
-import {
-  ChannelConversation,
-  ChannelConversationHeader,
-} from "#src/features/conversations/channel-conversation";
 import {
   ConversationLoadError,
   ConversationPending,
 } from "#src/features/conversations/conversation-pending";
-import {
-  useConversationView,
-  useShownConversationTab,
-} from "#src/features/conversations/use-conversation-view";
-import { CONVERSATION_TABS } from "#src/features/conversations/conversation-tabs";
-import { conversationOpenSearchShape } from "#src/features/conversations/conversation-thread-search";
-import { ConversationTaskBoard } from "#src/features/tasks/conversation-task-board";
-import { conversationTaskBoardSearchShape } from "#src/features/tasks/task-board-search";
+import { conversationPageSearchShape } from "#src/features/conversations/conversation-page-search";
 import { finishedSummaryQuery } from "#src/features/tasks/use-finished-tasks";
-import { ConversationFilesPanel } from "#src/features/conversations/conversation-files";
 import {
   ensureConversationWindow,
   publicChannelQuery,
 } from "#src/features/conversations/conversation-queries";
-import { useChannelConversation } from "#src/features/conversations/use-conversation-data";
-import { markPublicChannelRead } from "#src/features/conversations/channels.functions";
-import { useConversationAgentProfile } from "#src/features/agents/profile-panel/open-agent-profile";
-import {
-  useConversationReadRequiresScroll,
-  useMarkConversationSeen,
-} from "#src/features/conversations/conversation-navigation";
-import {
-  latestTopLevelSequence,
-  persistReadCursor,
-} from "#src/features/conversations/conversation-unread";
-import { useEffect } from "react";
+import { ChannelConversationPage } from "#src/features/conversations/channel-conversation-page";
 
 export const Route = createFileRoute("/_app/messages/channels/$channelId")({
   validateSearch: z.object({
-    view: z.enum(CONVERSATION_TABS).optional().catch(undefined),
-    ...conversationTaskBoardSearchShape,
+    ...conversationPageSearchShape,
     message: z.uuid().optional().catch(undefined),
-    ...conversationOpenSearchShape,
   }),
   loaderDeps: ({ search }) =>
     ({
@@ -85,104 +59,5 @@ export const Route = createFileRoute("/_app/messages/channels/$channelId")({
 
 function ChannelPage() {
   const { channelId } = Route.useParams();
-  const { view: requestedView, profile, agentTab, ...search } = Route.useSearch();
-  const view = useShownConversationTab(requestedView);
-  const agentProfile = useConversationAgentProfile({ profile, agentTab });
-  const { page, taskView, refreshChannelAndSidebar, conversationProps } =
-    useChannelConversation(channelId);
-  const { conversation } = page;
-  const { showChat, showTasks, showFiles, openTask, openTaskThread, openMessage } =
-    useConversationView(page.ensureLoaded);
-
-  // Opening the channel is reading it — except in the `newest-unread` preference, which keeps
-  // unseen messages unread until the latest is actually viewed: the badge clears immediately
-  // and every event it already counted is remembered, but the server-side cursor only
-  // advances through `onReadLatest` below.
-  const markSeen = useMarkConversationSeen();
-  const advanceReadCursor = useServerFn(markPublicChannelRead);
-  const readRequiresScroll = useConversationReadRequiresScroll();
-  const topLevelEnd = latestTopLevelSequence(conversation.messages);
-  useEffect(() => {
-    markSeen(channelId, topLevelEnd);
-  }, [markSeen, channelId, topLevelEnd]);
-  useEffect(() => {
-    if (!topLevelEnd || !conversation.senderMemberId || readRequiresScroll) return;
-    void persistReadCursor(
-      () => advanceReadCursor({ data: { channelId, throughSequence: topLevelEnd } }),
-      `channel:${channelId}`,
-    );
-  }, [advanceReadCursor, channelId, topLevelEnd, conversation.senderMemberId, readRequiresScroll]);
-  const readLatest = (throughSequence: number) => {
-    if (!conversation.senderMemberId) return;
-    void persistReadCursor(
-      () => advanceReadCursor({ data: { channelId, throughSequence } }),
-      `channel:${channelId}:latest`,
-    );
-  };
-
-  if (view === "files")
-    return (
-      <div className="flex min-h-0 flex-1 flex-col">
-        <ChannelConversationHeader
-          conversation={conversation}
-          active="files"
-          onShowChat={showChat}
-          onShowTasks={showTasks}
-          onChanged={refreshChannelAndSidebar}
-        />
-        <ConversationFilesPanel
-          conversationId={conversation.conversationId}
-          onOpenMessage={openMessage}
-        />
-      </div>
-    );
-  // The Tasks tab sits in the conversation's main pane, so a Task opened from it shows the
-  // conversation's Task popup over the board.
-  const tasksPane =
-    view === "tasks" ? (
-      <ConversationTaskBoard
-        conversationId={conversation.conversationId}
-        header={
-          <ChannelConversationHeader
-            conversation={conversation}
-            active="tasks"
-            onShowChat={showChat}
-            onShowFiles={showFiles}
-            onChanged={refreshChannelAndSidebar}
-          />
-        }
-        search={search}
-        taskView={taskView}
-        name={`#${conversation.name}`}
-        members={conversation.mentionables}
-        currentMemberId={conversation.senderMemberId}
-        canMutate={Boolean(conversation.senderMemberId)}
-        onOpenTask={openTask}
-        onOpenMessage={openTaskThread}
-        onCreateTask={
-          conversation.senderMemberId
-            ? async (titles, idempotencyKey) => {
-                const tasks = await taskView.command({
-                  operation: "create",
-                  titles,
-                  idempotencyKey,
-                });
-                await page.invalidate();
-                return tasks;
-              }
-            : undefined
-        }
-      />
-    ) : undefined;
-  return (
-    <ChannelConversation
-      key={channelId}
-      {...conversationProps}
-      tasksPane={tasksPane}
-      onShowTasks={showTasks}
-      onShowFiles={showFiles}
-      onReadLatest={readLatest}
-      {...agentProfile}
-    />
-  );
+  return <ChannelConversationPage channelId={channelId} search={Route.useSearch()} />;
 }
