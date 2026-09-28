@@ -9,6 +9,7 @@ import { channelNamesQuery } from "#src/features/conversations/conversation-quer
 import type { TaskPopupControls } from "#src/features/conversations/direct-conversation";
 import { useChannelConversation } from "#src/features/conversations/use-conversation-data";
 import { TaskDetailDialog } from "./task-detail-dialog";
+import { conversationTasksQuery } from "./use-conversation-tasks";
 import type { OverviewTaskCommand, OverviewTaskRow } from "./task-overview-collection";
 
 type OverviewTaskPopupProps = {
@@ -46,6 +47,8 @@ function TaskPopupBoundary(props: OverviewTaskPopupProps) {
   const workspaceId = useCurrentWorkspaceId() ?? "";
   // Read alongside the conversation rather than after it: both hold the popup back.
   usePrefetchQuery(channelNamesQuery(workspaceId));
+  // The Task list too, so the thread's task references show their badges as early as they can.
+  usePrefetchQuery(conversationTasksQuery(task.conversationId));
   // A conversation that cannot load leaves the popup with the Task alone. The boundary only
   // records the failure; the fallback renders here, outside it, so it keeps one component type
   // (and its pending and error state) across this component's renders.

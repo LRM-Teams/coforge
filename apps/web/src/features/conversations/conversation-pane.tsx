@@ -76,7 +76,6 @@ export function ConversationPane({
   threadEntry,
   threadPreview,
   threadHeaderAction,
-  messageFooter,
   onLoadOlder,
   onLoadNewer,
   onLoadOwnMessages,
@@ -87,7 +86,6 @@ export function ConversationPane({
   onToggleReaction,
   onOpenAgentProfile,
   plainMentions,
-  taskReferences,
   onOpenTask,
   channelNames,
   channels,
@@ -118,14 +116,10 @@ export function ConversationPane({
   threadPreview?: (message: DirectConversationView["messages"][number]) => React.ReactNode;
   /** Shown in the thread header before its actions menu (the Agents following the thread). */
   threadHeaderAction?: React.ReactNode;
-  messageFooter?: (message: DirectConversationView["messages"][number]) => React.ReactNode;
   /** Plain-`@handle` display resolution for the stream (see `MessageBody`). Built by each
    * wrapper — the DM from its Agent counterpart, a channel from its member directory. */
   plainMentions?: Map<string, ChipMention>;
-  /** The task numbers a body's `task #N` references resolve to in this conversation, and the
-   * handler that opens one's detail popup. Owned by `ThreadedConversationContent`, which reads
-   * them from the conversation's task list. */
-  taskReferences?: ReadonlySet<number>;
+  /** Opens a task reference's detail popup. Owned by `ThreadedConversationContent`. */
   onOpenTask?: (number: number) => void;
   /** Channel id → current name, for the channel links in a body (see `MessageBody`). Owned by
    * `ThreadedConversationContent`, which reads the viewer's channel list. */
@@ -877,13 +871,11 @@ export function ConversationPane({
                     collapsible={collapsible}
                     agentDisplay={agentDisplayFor}
                     dateLocale={dateLocale}
-                    messageFooter={messageFooter}
                     onToggleReaction={toggleReaction}
                     onToggleSave={onToggleSave}
                     onOpenAgentProfile={openAgentProfile}
                     viewerHandle={conversation.viewerHandle}
                     plainMentions={plainMentions}
-                    taskReferences={taskReferences}
                     onOpenTask={openTaskReference}
                     channelNames={channelNames}
                     onQuoteSelection={canCompose ? quoteSelection : undefined}
@@ -1033,13 +1025,12 @@ export function ConversationPane({
                       dateLocale={dateLocale}
                       threadEntry={threadEntry}
                       threadPreview={threadPreview}
-                      messageFooter={messageFooter}
+                      showsTask={!root}
                       onToggleReaction={toggleReaction}
                       onToggleSave={onToggleSave}
                       onOpenAgentProfile={openAgentProfile}
                       viewerHandle={conversation.viewerHandle}
                       plainMentions={plainMentions}
-                      taskReferences={taskReferences}
                       onOpenTask={openTaskReference}
                       channelNames={channelNames}
                       onQuoteSelection={canCompose ? quoteSelection : undefined}
@@ -1054,7 +1045,6 @@ export function ConversationPane({
                     composerShown={canCompose}
                     plainMentions={plainMentions}
                     viewerHandle={conversation.viewerHandle}
-                    taskReferences={taskReferences}
                     onOpenTask={openTaskReference}
                     onRetry={() => outbox.retry(entry)}
                     onEdit={() => outbox.edit(entry)}

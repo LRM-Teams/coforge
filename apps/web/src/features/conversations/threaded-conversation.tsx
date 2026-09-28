@@ -13,7 +13,6 @@ import { m } from "#src/paraglide/messages";
 import { DELETED_AGENT_AVATAR_CLASS } from "#src/features/agents/deleted-agent";
 import { AgentProfilePanel } from "#src/features/agents/profile-panel/agent-profile-panel";
 import { resolveVisibleConversationSlot } from "#src/features/agents/profile-panel/profile-panel-slot";
-import { TaskBadge } from "#src/features/tasks/task-board";
 import { TaskDetailDialog } from "#src/features/tasks/task-detail-dialog";
 
 import { ConversationPane } from "./conversation-pane";
@@ -30,7 +29,7 @@ import { groupRepliesByRoot } from "./conversation-messages";
 import { ThreadRootState, type ThreadRootLoad } from "./thread-root-state";
 import { conversationLayoutStorage } from "./layout-storage";
 import { ConversationPending } from "./conversation-pending";
-import { TaskReferenceStatusProvider } from "./task-reference-status";
+import { ConversationIdProvider } from "./conversation-id";
 import { resolveConversationThreadRoot } from "./conversation-thread-search";
 import type { DirectConversationView, ThreadedConversationProps } from "./conversation-types";
 import type { ChannelSuggestion } from "./reference-completion";
@@ -43,9 +42,9 @@ export function ThreadedConversation(props: ThreadedConversationProps) {
 
   return (
     <ClientOnly fallback={props.taskPopup ? null : <ConversationPending />}>
-      <TaskReferenceStatusProvider tasks={props.tasks}>
+      <ConversationIdProvider conversationId={props.conversation.conversationId}>
         <ThreadedConversationContent {...props} />
-      </TaskReferenceStatusProvider>
+      </ConversationIdProvider>
     </ClientOnly>
   );
 }
@@ -137,13 +136,6 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
     () => makeReferenceBodyFormatter(conversation.mentionables ?? [], channelNames),
     [conversation.mentionables, channelNames],
   );
-  // A `task #N` reference in a body renders as a chip that opens the task's detail popup. The
-  // conversation's own task list decides which referenced numbers can be opened, and the popup
-  // loads the task's history itself.
-  const taskNumbers = useMemo(
-    () => new Set((props.tasks ?? []).map((task) => task.number)),
-    [props.tasks],
-  );
   const conversationTaskPopup = useOpenConversationTask();
   const {
     openTaskNumber,
@@ -160,7 +152,6 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
   const threadPaneProps = (root: DirectConversationView["messages"][number]) => ({
     ...conversationProps,
     streamRead: windowRead,
-    taskReferences: taskNumbers,
     onOpenTask: openTaskReference,
     channelNames,
     channels: channelList,
@@ -359,20 +350,12 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
     },
     [repliesByRoot, threadCursor, openThread, formatPreviewBody],
   );
-  const messageFooter = useCallback(
-    (message: DirectConversationView["messages"][number]) => {
-      const task = props.tasks?.find((candidate) => candidate.messageId === message.id);
-      return task ? <TaskBadge task={task} /> : null;
-    },
-    [props.tasks],
-  );
   // Outside the conversation's page only its Task popup shows; the panes stay unmounted.
   if (taskPopup) return taskDialog;
   const conversationMainPane = (
     <ConversationPane
       {...conversationProps}
       streamRead={windowRead}
-      taskReferences={taskNumbers}
       onOpenTask={openTaskReference}
       channelNames={channelNames}
       channels={channelList}
@@ -384,7 +367,6 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
       conversation={{ ...conversation, messages: mainMessages }}
       threadEntry={threadEntry}
       threadPreview={threadPreview}
-      messageFooter={messageFooter}
     />
   );
   const conversationSidePane = visibleSlot && (

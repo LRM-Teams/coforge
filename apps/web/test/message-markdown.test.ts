@@ -5,8 +5,6 @@ import {
   MENTION_CHIP_AGENT_CLASS,
   MENTION_CHIP_CLASS,
   MENTION_CHIP_SELF_CLASS,
-  TASK_CHIP_CLASS,
-  TASK_CHIP_LINK_CLASS,
   type ChipMention,
   mentionHandlesByToken,
   patternAlternation,
@@ -364,40 +362,27 @@ test("a plain handle of the viewer renders with the self chip class", () => {
   ).toBe(true);
 });
 
-/** Runs the chip pass over a tree shaped like the sanitized one, for a conversation's tasks. */
-function taskChipify(children: unknown[], numbers: ReadonlySet<number> = new Set()) {
+/** Runs the chip pass over a tree shaped like the sanitized one. */
+function referencePass(children: unknown[]) {
   const tree = { type: "root", children } as never;
-  rehypeReferenceChips({ mentions: new Map(), taskNumbers: numbers })(tree);
+  rehypeReferenceChips({ mentions: new Map() })(tree);
   return tree as { children: Array<Record<string, unknown>> };
 }
 
-test("a task token renders as a number-only chip", () => {
-  const tree = taskChipify([paragraph([text("with <@task:68> next")])], new Set([68]));
-  const children = tree.children[0]!.children as Array<Record<string, unknown>>;
-  expect(children[0]).toEqual(text("with "));
-  expect(children[1]).toMatchObject({
-    tagName: "span",
-    properties: { title: "task #68", "aria-label": "task #68" },
-    children: [text("#68")],
-  });
-  expect(children[2]).toEqual(text(" next"));
-});
-
-test("a referenced number known here becomes a clickable chip", () => {
-  const tree = taskChipify([paragraph([text("<@task:68>")])], new Set([68]));
-  const chip = (tree.children[0]!.children as Array<Record<string, unknown>>)[0]!;
-  const properties = chip.properties as {
-    className: string[];
-    "data-task-reference-number"?: number;
-  };
-  expect(properties.className).toEqual([...TASK_CHIP_CLASS.split(" "), TASK_CHIP_LINK_CLASS]);
-  expect(properties["data-task-reference-number"]).toBe(68);
-});
-
-test("a task token naming no task of this conversation reads as plain text, with no chip", () => {
-  // A token is a claim, checked against the conversation's tasks.
-  const tree = taskChipify([paragraph([text("see <@task:999>.")])], new Set([68]));
-  expect(tree.children[0]!.children).toEqual([text("see "), text("task #999"), text(".")]);
+test("a task token becomes a task reference that the renderer resolves against the conversation", () => {
+  // The pass needs no Task list: whether the number names a Task, and how it looks, is read at
+  // render time by the part that shows it (`message-body.tsx`).
+  const tree = referencePass([paragraph([text("with <@task:68> next")])]);
+  expect(tree.children[0]!.children).toEqual([
+    text("with "),
+    {
+      type: "element",
+      tagName: "span",
+      properties: { "data-task-reference-number": 68 },
+      children: [text("task #68")],
+    },
+    text(" next"),
+  ]);
 });
 
 test("a task token or a plain @handle inside a link is text, never a control inside a link", () => {
@@ -405,7 +390,7 @@ test("a task token or a plain @handle inside a link is text, never a control ins
     paragraph([
       { type: "element", tagName: "a", properties: { href: "/x" }, children: [text(value)] },
     ]);
-  const task = taskChipify([link("<@task:68>")], new Set([68]));
+  const task = referencePass([link("<@task:68>")]);
   expect((task.children[0]!.children as Array<Record<string, unknown>>)[0]!.children).toEqual([
     text("task #68"),
   ]);
@@ -418,14 +403,11 @@ test("a task token or a plain @handle inside a link is text, never a control ins
 });
 
 test("a task token inside a code element is never chipped", () => {
-  const tree = taskChipify(
-    [
-      paragraph([
-        { type: "element", tagName: "code", properties: {}, children: [text("<@task:68>")] },
-      ]),
-    ],
-    new Set([68]),
-  );
+  const tree = referencePass([
+    paragraph([
+      { type: "element", tagName: "code", properties: {}, children: [text("<@task:68>")] },
+    ]),
+  ]);
   const code = (tree.children[0]!.children as Array<Record<string, unknown>>)[0]!;
   expect(code.children).toEqual([text("<@task:68>")]);
 });

@@ -49,6 +49,7 @@ import {
   selectionFragmentHtml,
 } from "./selection-copy";
 import { copyText } from "#src/features/records/report-editor/lib/clipboard";
+import { MessageTask } from "#src/features/tasks/message-task";
 import { useTimeFormat } from "#src/lib/time-format-context";
 import { hour12For, type TimeFormat } from "#src/lib/time-format";
 import { dateTimeFormat } from "#src/lib/dates";
@@ -520,6 +521,7 @@ const ROW_CLASS = "flex flex-col";
  */
 export const MessageRow = memo(function MessageRow({
   message,
+  showsTask = false,
   own,
   dayChanged,
   grouped,
@@ -532,13 +534,11 @@ export const MessageRow = memo(function MessageRow({
   dateLocale,
   threadEntry,
   threadPreview,
-  messageFooter,
   onToggleReaction,
   onToggleSave,
   onOpenAgentProfile,
   viewerHandle,
   plainMentions,
-  taskReferences,
   onOpenTask,
   channelNames,
   onQuoteSelection,
@@ -567,7 +567,9 @@ export const MessageRow = memo(function MessageRow({
   dateLocale?: string;
   threadEntry?: (message: MessageView) => MessageThreadEntry;
   threadPreview?: (message: MessageView) => ReactNode;
-  messageFooter?: (message: MessageView) => ReactNode;
+  /** Shows the Task the message became under it (`MessageTask`): the conversation's own stream
+   * does, a thread pane (whose root the Task popup already shows) does not. */
+  showsTask?: boolean;
   /** Toggles the viewer's own emoji reaction on a message; the conversation refreshes it. */
   onToggleReaction?: (messageId: string, emoji: string, active: boolean) => void;
   /** Saves/unsaves this message for the viewer (#127): the conversation owns the write, the
@@ -582,10 +584,7 @@ export const MessageRow = memo(function MessageRow({
    * (DM text, or a channel body written without the completion) still renders the member's
    * display label. Absent, plain handles render as literal text. */
   plainMentions?: Map<string, ChipMention>;
-  /** The task numbers a body's `task #N` references resolve to in this conversation: a referenced
-   * number in the set renders as a chip that opens the task's detail popup. */
-  taskReferences?: ReadonlySet<number>;
-  /** Opens a task-reference chip's detail popup; absent, a reference stays a highlight. */
+  /** Opens a task reference's detail popup (see `MessageBody`). */
   onOpenTask?: (number: number) => void;
   /** Channel id → current name, for the channel links in the body (see `MessageBody`). */
   channelNames?: ReadonlyMap<string, string>;
@@ -920,7 +919,6 @@ export const MessageRow = memo(function MessageRow({
                 mentions={message.mentions}
                 plainMentions={plainMentions}
                 viewerHandle={viewerHandle}
-                taskReferences={taskReferences}
                 onOpenTask={onOpenTask}
                 channelNames={channelNames}
                 onOpenAgentProfile={onOpenAgentProfile}
@@ -1009,7 +1007,7 @@ export const MessageRow = memo(function MessageRow({
               })}
             </div>
           )}
-          {messageFooter?.(message)}
+          {showsTask && <MessageTask messageId={message.id} />}
           {threadPreview?.(message)}
         </div>
         {(threadEntry || onToggleReaction || onToggleSave || copyable) && (
