@@ -21,24 +21,24 @@ describe("shouldShowInPageNotification", () => {
       shouldShowInPageNotification({
         visible: false,
         focused: false,
-        pathname: "/messages/channels/a",
-        conversationPath: "/messages/channels/a",
+        pathname: "/w/acme/channel/a",
+        conversationPath: "/w/acme/channel/a",
       }),
     ).toBe(true);
     expect(
       shouldShowInPageNotification({
         visible: true,
         focused: true,
-        pathname: "/messages/channels/other",
-        conversationPath: "/messages/channels/a",
+        pathname: "/w/acme/channel/other",
+        conversationPath: "/w/acme/channel/a",
       }),
     ).toBe(true);
     expect(
       shouldShowInPageNotification({
         visible: true,
         focused: false,
-        pathname: "/messages/channels/a",
-        conversationPath: "/messages/channels/a",
+        pathname: "/w/acme/channel/a",
+        conversationPath: "/w/acme/channel/a",
       }),
     ).toBe(true);
   });
@@ -48,8 +48,8 @@ describe("shouldShowInPageNotification", () => {
       shouldShowInPageNotification({
         visible: true,
         focused: true,
-        pathname: "/messages/channels/a",
-        conversationPath: "/messages/channels/a",
+        pathname: "/w/acme/channel/a",
+        conversationPath: "/w/acme/channel/a",
       }),
     ).toBe(false);
   });

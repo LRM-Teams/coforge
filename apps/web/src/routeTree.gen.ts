@@ -10,17 +10,9 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
-import { Route as AppRouteImport } from './routes/_app'
 import { Route as HealthRouteImport } from './routes/health'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as DotwellKnownOauthAuthorizationServerRouteImport } from './routes/[.]well-known.oauth-authorization-server'
-import { Route as AppActivityRouteImport } from './routes/_app/activity'
-import { Route as AppComputersRouteImport } from './routes/_app/computers'
-import { Route as AppMessagesRouteImport } from './routes/_app/messages'
-import { Route as AppRecordsRouteImport } from './routes/_app/records'
-import { Route as AppSearchRouteImport } from './routes/_app/search'
-import { Route as AppSettingsRouteImport } from './routes/_app/settings'
-import { Route as AppTasksRouteImport } from './routes/_app/tasks'
 import { Route as ApiAgentApiKeysRouteImport } from './routes/api/agent-api-keys'
 import { Route as ApiAttachmentsRouteImport } from './routes/api/attachments'
 import { Route as ApiJwksRouteImport } from './routes/api/jwks'
@@ -34,19 +26,7 @@ import { Route as NotificationsOpenRouteImport } from './routes/notifications.op
 import { Route as OauthDeviceRouteImport } from './routes/oauth/device'
 import { Route as OauthTokenRouteImport } from './routes/oauth/token'
 import { Route as OauthVerifyRouteImport } from './routes/oauth/verify'
-import { Route as AppAgentsIndexRouteImport } from './routes/_app/agents.index'
-import { Route as AppAgentsAgentIdRouteImport } from './routes/_app/agents.$agentId'
-import { Route as AppComputersIndexRouteImport } from './routes/_app/computers.index'
-import { Route as AppComputersComputerIdRouteImport } from './routes/_app/computers.$computerId'
-import { Route as AppMessagesIndexRouteImport } from './routes/_app/messages.index'
-import { Route as AppMessagesAgentIdRouteImport } from './routes/_app/messages.$agentId'
-import { Route as AppMessagesSavedRouteImport } from './routes/_app/messages.saved'
-import { Route as AppProjectsIndexRouteImport } from './routes/_app/projects.index'
-import { Route as AppProjectsProjectSlugRouteImport } from './routes/_app/projects.$projectSlug'
-import { Route as AppRecordsIndexRouteImport } from './routes/_app/records.index'
-import { Route as AppRecordsRecordIdRouteImport } from './routes/_app/records.$recordId'
-import { Route as AppRecordsSettingsRouteImport } from './routes/_app/records.settings'
-import { Route as AppRecordsStatsRouteImport } from './routes/_app/records.stats'
+import { Route as WWorkspaceSlugRouteImport } from './routes/w.$workspaceSlug'
 import { Route as ApiAttachmentsAttachmentIdRouteImport } from './routes/api/attachments.$attachmentId'
 import { Route as ApiComputerAttachRouteImport } from './routes/api/computer/attach'
 import { Route as ApiComputerWorkspaceRouteImport } from './routes/api/computer/workspace'
@@ -56,8 +36,14 @@ import { Route as ApiInternalCentrifugoConnectRouteImport } from './routes/api/i
 import { Route as ApiInternalWeeklyReportScheduleRouteImport } from './routes/api/internal/weekly-report-schedule'
 import { Route as ApiMeAvatarRouteImport } from './routes/api/me/avatar'
 import { Route as ApiWorkspacesSlugRouteImport } from './routes/api/workspaces.$slug'
-import { Route as AppMessagesChannelsChannelIdRouteImport } from './routes/_app/messages.channels.$channelId'
-import { Route as AppProjectsProjectSlugSettingsRouteImport } from './routes/_app/projects.$projectSlug_.settings'
+import { Route as WWorkspaceSlugChatRouteImport } from './routes/w.$workspaceSlug/_chat'
+import { Route as WWorkspaceSlugComputersRouteImport } from './routes/w.$workspaceSlug/_computers'
+import { Route as WWorkspaceSlugActivityRouteImport } from './routes/w.$workspaceSlug/activity'
+import { Route as WWorkspaceSlugMembersRouteImport } from './routes/w.$workspaceSlug/members'
+import { Route as WWorkspaceSlugRecordsRouteImport } from './routes/w.$workspaceSlug/records'
+import { Route as WWorkspaceSlugSearchRouteImport } from './routes/w.$workspaceSlug/search'
+import { Route as WWorkspaceSlugSettingsRouteImport } from './routes/w.$workspaceSlug/settings'
+import { Route as WWorkspaceSlugTasksRouteImport } from './routes/w.$workspaceSlug/tasks'
 import { Route as ApiAgentV1ChannelsRouteImport } from './routes/api/agent/v1/channels'
 import { Route as ApiAgentV1EventsRouteImport } from './routes/api/agent/v1/events'
 import { Route as ApiAgentV1GithubCommitTrailersRouteImport } from './routes/api/agent/v1/github-commit-trailers'
@@ -76,8 +62,16 @@ import { Route as ApiE2eWorkspacesSlugRouteImport } from './routes/api/e2e/works
 import { Route as ApiIntegrationsGithubCallbackRouteImport } from './routes/api/integrations/github/callback'
 import { Route as ApiIntegrationsGithubWebhookRouteImport } from './routes/api/integrations/github/webhook'
 import { Route as ApiProjectsProjectIdIconRouteImport } from './routes/api/projects.$projectId.icon'
-import { Route as AppProjectsProjectSlugTreeSplatRouteImport } from './routes/_app/projects.$projectSlug_.tree.$'
-import { Route as AppRecordsWeeksYearWeekRouteImport } from './routes/_app/records.weeks.$year.$week'
+import { Route as WWorkspaceSlugChatIndexRouteImport } from './routes/w.$workspaceSlug/_chat.index'
+import { Route as WWorkspaceSlugChatSavedRouteImport } from './routes/w.$workspaceSlug/_chat.saved'
+import { Route as WWorkspaceSlugComputersComputersRouteImport } from './routes/w.$workspaceSlug/_computers.computers'
+import { Route as WWorkspaceSlugAgentAgentIdRouteImport } from './routes/w.$workspaceSlug/agent.$agentId'
+import { Route as WWorkspaceSlugProjectsIndexRouteImport } from './routes/w.$workspaceSlug/projects.index'
+import { Route as WWorkspaceSlugProjectsProjectSlugRouteImport } from './routes/w.$workspaceSlug/projects.$projectSlug'
+import { Route as WWorkspaceSlugRecordsIndexRouteImport } from './routes/w.$workspaceSlug/records.index'
+import { Route as WWorkspaceSlugRecordsRecordIdRouteImport } from './routes/w.$workspaceSlug/records.$recordId'
+import { Route as WWorkspaceSlugRecordsSettingsRouteImport } from './routes/w.$workspaceSlug/records.settings'
+import { Route as WWorkspaceSlugRecordsStatsRouteImport } from './routes/w.$workspaceSlug/records.stats'
 import { Route as ApiAgentV1ActionsPrepareRouteImport } from './routes/api/agent/v1/actions/prepare'
 import { Route as ApiAgentV1AttachmentUploadSessionsIndexRouteImport } from './routes/api/agent/v1/attachment-upload-sessions/index'
 import { Route as ApiAgentV1AttachmentUploadSessionsUploadIdRouteImport } from './routes/api/agent/v1/attachment-upload-sessions/$uploadId'
@@ -91,6 +85,10 @@ import { Route as ApiAgentV1MentionActionsPendingRouteImport } from './routes/ap
 import { Route as ApiAgentV1MessagesSearchRouteImport } from './routes/api/agent/v1/messages_.search'
 import { Route as ApiAgentV1UsersNameRouteImport } from './routes/api/agent/v1/users/$name'
 import { Route as ApiProjectsProjectIdRawSplatRouteImport } from './routes/api/projects.$projectId.raw.$'
+import { Route as WWorkspaceSlugChatChannelChannelIdRouteImport } from './routes/w.$workspaceSlug/_chat.channel.$channelId'
+import { Route as WWorkspaceSlugChatMessagesAgentIdRouteImport } from './routes/w.$workspaceSlug/_chat.messages.$agentId'
+import { Route as WWorkspaceSlugComputersComputerComputerIdRouteImport } from './routes/w.$workspaceSlug/_computers.computer.$computerId'
+import { Route as WWorkspaceSlugProjectsProjectSlugSettingsRouteImport } from './routes/w.$workspaceSlug/projects.$projectSlug_.settings'
 import { Route as ApiAgentV1AttachmentUploadSessionsUploadIdCompleteRouteImport } from './routes/api/agent/v1/attachment-upload-sessions/$uploadId.complete'
 import { Route as ApiAgentV1ChannelsChannelArchiveRouteImport } from './routes/api/agent/v1/channels_.$channel.archive'
 import { Route as ApiAgentV1ChannelsChannelJoinRouteImport } from './routes/api/agent/v1/channels_.$channel.join'
@@ -104,14 +102,12 @@ import { Route as ApiAgentV1MessagesMessageIdResolveRouteImport } from './routes
 import { Route as ApiAgentV1ThreadsThreadUnfollowRouteImport } from './routes/api/agent/v1/threads_.$thread.unfollow'
 import { Route as ApiWorkspacesWorkspaceIdAgentsAgentIdAvatarRouteImport } from './routes/api/workspaces/$workspaceId/agents/$agentId/avatar'
 import { Route as ApiWorkspacesWorkspaceIdUsersUserIdAvatarRouteImport } from './routes/api/workspaces/$workspaceId/users/$userId/avatar'
+import { Route as WWorkspaceSlugProjectsProjectSlugTreeSplatRouteImport } from './routes/w.$workspaceSlug/projects.$projectSlug_.tree.$'
+import { Route as WWorkspaceSlugRecordsWeeksYearWeekRouteImport } from './routes/w.$workspaceSlug/records.weeks.$year.$week'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const AppRoute = AppRouteImport.update({
-  id: '/_app',
   getParentRoute: () => rootRouteImport,
 } as any)
 const HealthRoute = HealthRouteImport.update({
@@ -130,41 +126,6 @@ const DotwellKnownOauthAuthorizationServerRoute =
     path: '/.well-known/oauth-authorization-server',
     getParentRoute: () => rootRouteImport,
   } as any)
-const AppActivityRoute = AppActivityRouteImport.update({
-  id: '/activity',
-  path: '/activity',
-  getParentRoute: () => AppRoute,
-} as any)
-const AppComputersRoute = AppComputersRouteImport.update({
-  id: '/computers',
-  path: '/computers',
-  getParentRoute: () => AppRoute,
-} as any)
-const AppMessagesRoute = AppMessagesRouteImport.update({
-  id: '/messages',
-  path: '/messages',
-  getParentRoute: () => AppRoute,
-} as any)
-const AppRecordsRoute = AppRecordsRouteImport.update({
-  id: '/records',
-  path: '/records',
-  getParentRoute: () => AppRoute,
-} as any)
-const AppSearchRoute = AppSearchRouteImport.update({
-  id: '/search',
-  path: '/search',
-  getParentRoute: () => AppRoute,
-} as any)
-const AppSettingsRoute = AppSettingsRouteImport.update({
-  id: '/settings',
-  path: '/settings',
-  getParentRoute: () => AppRoute,
-} as any)
-const AppTasksRoute = AppTasksRouteImport.update({
-  id: '/tasks',
-  path: '/tasks',
-  getParentRoute: () => AppRoute,
-} as any)
 const ApiAgentApiKeysRoute = ApiAgentApiKeysRouteImport.update({
   id: '/api/agent-api-keys',
   path: '/api/agent-api-keys',
@@ -230,70 +191,10 @@ const OauthVerifyRoute = OauthVerifyRouteImport.update({
   path: '/oauth/verify',
   getParentRoute: () => rootRouteImport,
 } as any)
-const AppAgentsIndexRoute = AppAgentsIndexRouteImport.update({
-  id: '/agents/',
-  path: '/agents/',
-  getParentRoute: () => AppRoute,
-} as any)
-const AppAgentsAgentIdRoute = AppAgentsAgentIdRouteImport.update({
-  id: '/agents/$agentId',
-  path: '/agents/$agentId',
-  getParentRoute: () => AppRoute,
-} as any)
-const AppComputersIndexRoute = AppComputersIndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => AppComputersRoute,
-} as any)
-const AppComputersComputerIdRoute = AppComputersComputerIdRouteImport.update({
-  id: '/$computerId',
-  path: '/$computerId',
-  getParentRoute: () => AppComputersRoute,
-} as any)
-const AppMessagesIndexRoute = AppMessagesIndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => AppMessagesRoute,
-} as any)
-const AppMessagesAgentIdRoute = AppMessagesAgentIdRouteImport.update({
-  id: '/$agentId',
-  path: '/$agentId',
-  getParentRoute: () => AppMessagesRoute,
-} as any)
-const AppMessagesSavedRoute = AppMessagesSavedRouteImport.update({
-  id: '/saved',
-  path: '/saved',
-  getParentRoute: () => AppMessagesRoute,
-} as any)
-const AppProjectsIndexRoute = AppProjectsIndexRouteImport.update({
-  id: '/projects/',
-  path: '/projects/',
-  getParentRoute: () => AppRoute,
-} as any)
-const AppProjectsProjectSlugRoute = AppProjectsProjectSlugRouteImport.update({
-  id: '/projects/$projectSlug',
-  path: '/projects/$projectSlug',
-  getParentRoute: () => AppRoute,
-} as any)
-const AppRecordsIndexRoute = AppRecordsIndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => AppRecordsRoute,
-} as any)
-const AppRecordsRecordIdRoute = AppRecordsRecordIdRouteImport.update({
-  id: '/$recordId',
-  path: '/$recordId',
-  getParentRoute: () => AppRecordsRoute,
-} as any)
-const AppRecordsSettingsRoute = AppRecordsSettingsRouteImport.update({
-  id: '/settings',
-  path: '/settings',
-  getParentRoute: () => AppRecordsRoute,
-} as any)
-const AppRecordsStatsRoute = AppRecordsStatsRouteImport.update({
-  id: '/stats',
-  path: '/stats',
-  getParentRoute: () => AppRecordsRoute,
+const WWorkspaceSlugRoute = WWorkspaceSlugRouteImport.update({
+  id: '/w/$workspaceSlug',
+  path: '/w/$workspaceSlug',
+  getParentRoute: () => rootRouteImport,
 } as any)
 const ApiAttachmentsAttachmentIdRoute =
   ApiAttachmentsAttachmentIdRouteImport.update({
@@ -344,18 +245,44 @@ const ApiWorkspacesSlugRoute = ApiWorkspacesSlugRouteImport.update({
   path: '/api/workspaces/$slug',
   getParentRoute: () => rootRouteImport,
 } as any)
-const AppMessagesChannelsChannelIdRoute =
-  AppMessagesChannelsChannelIdRouteImport.update({
-    id: '/channels/$channelId',
-    path: '/channels/$channelId',
-    getParentRoute: () => AppMessagesRoute,
-  } as any)
-const AppProjectsProjectSlugSettingsRoute =
-  AppProjectsProjectSlugSettingsRouteImport.update({
-    id: '/projects/$projectSlug_/settings',
-    path: '/projects/$projectSlug/settings',
-    getParentRoute: () => AppRoute,
-  } as any)
+const WWorkspaceSlugChatRoute = WWorkspaceSlugChatRouteImport.update({
+  id: '/_chat',
+  getParentRoute: () => WWorkspaceSlugRoute,
+} as any)
+const WWorkspaceSlugComputersRoute = WWorkspaceSlugComputersRouteImport.update({
+  id: '/_computers',
+  getParentRoute: () => WWorkspaceSlugRoute,
+} as any)
+const WWorkspaceSlugActivityRoute = WWorkspaceSlugActivityRouteImport.update({
+  id: '/activity',
+  path: '/activity',
+  getParentRoute: () => WWorkspaceSlugRoute,
+} as any)
+const WWorkspaceSlugMembersRoute = WWorkspaceSlugMembersRouteImport.update({
+  id: '/members',
+  path: '/members',
+  getParentRoute: () => WWorkspaceSlugRoute,
+} as any)
+const WWorkspaceSlugRecordsRoute = WWorkspaceSlugRecordsRouteImport.update({
+  id: '/records',
+  path: '/records',
+  getParentRoute: () => WWorkspaceSlugRoute,
+} as any)
+const WWorkspaceSlugSearchRoute = WWorkspaceSlugSearchRouteImport.update({
+  id: '/search',
+  path: '/search',
+  getParentRoute: () => WWorkspaceSlugRoute,
+} as any)
+const WWorkspaceSlugSettingsRoute = WWorkspaceSlugSettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
+  getParentRoute: () => WWorkspaceSlugRoute,
+} as any)
+const WWorkspaceSlugTasksRoute = WWorkspaceSlugTasksRouteImport.update({
+  id: '/tasks',
+  path: '/tasks',
+  getParentRoute: () => WWorkspaceSlugRoute,
+} as any)
 const ApiAgentV1ChannelsRoute = ApiAgentV1ChannelsRouteImport.update({
   id: '/api/agent/v1/channels',
   path: '/api/agent/v1/channels',
@@ -454,17 +381,64 @@ const ApiProjectsProjectIdIconRoute =
     path: '/api/projects/$projectId/icon',
     getParentRoute: () => rootRouteImport,
   } as any)
-const AppProjectsProjectSlugTreeSplatRoute =
-  AppProjectsProjectSlugTreeSplatRouteImport.update({
-    id: '/projects/$projectSlug_/tree/$',
-    path: '/projects/$projectSlug/tree/$',
-    getParentRoute: () => AppRoute,
-  } as any)
-const AppRecordsWeeksYearWeekRoute = AppRecordsWeeksYearWeekRouteImport.update({
-  id: '/weeks/$year/$week',
-  path: '/weeks/$year/$week',
-  getParentRoute: () => AppRecordsRoute,
+const WWorkspaceSlugChatIndexRoute = WWorkspaceSlugChatIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => WWorkspaceSlugChatRoute,
 } as any)
+const WWorkspaceSlugChatSavedRoute = WWorkspaceSlugChatSavedRouteImport.update({
+  id: '/saved',
+  path: '/saved',
+  getParentRoute: () => WWorkspaceSlugChatRoute,
+} as any)
+const WWorkspaceSlugComputersComputersRoute =
+  WWorkspaceSlugComputersComputersRouteImport.update({
+    id: '/computers',
+    path: '/computers',
+    getParentRoute: () => WWorkspaceSlugComputersRoute,
+  } as any)
+const WWorkspaceSlugAgentAgentIdRoute =
+  WWorkspaceSlugAgentAgentIdRouteImport.update({
+    id: '/agent/$agentId',
+    path: '/agent/$agentId',
+    getParentRoute: () => WWorkspaceSlugRoute,
+  } as any)
+const WWorkspaceSlugProjectsIndexRoute =
+  WWorkspaceSlugProjectsIndexRouteImport.update({
+    id: '/projects/',
+    path: '/projects/',
+    getParentRoute: () => WWorkspaceSlugRoute,
+  } as any)
+const WWorkspaceSlugProjectsProjectSlugRoute =
+  WWorkspaceSlugProjectsProjectSlugRouteImport.update({
+    id: '/projects/$projectSlug',
+    path: '/projects/$projectSlug',
+    getParentRoute: () => WWorkspaceSlugRoute,
+  } as any)
+const WWorkspaceSlugRecordsIndexRoute =
+  WWorkspaceSlugRecordsIndexRouteImport.update({
+    id: '/',
+    path: '/',
+    getParentRoute: () => WWorkspaceSlugRecordsRoute,
+  } as any)
+const WWorkspaceSlugRecordsRecordIdRoute =
+  WWorkspaceSlugRecordsRecordIdRouteImport.update({
+    id: '/$recordId',
+    path: '/$recordId',
+    getParentRoute: () => WWorkspaceSlugRecordsRoute,
+  } as any)
+const WWorkspaceSlugRecordsSettingsRoute =
+  WWorkspaceSlugRecordsSettingsRouteImport.update({
+    id: '/settings',
+    path: '/settings',
+    getParentRoute: () => WWorkspaceSlugRecordsRoute,
+  } as any)
+const WWorkspaceSlugRecordsStatsRoute =
+  WWorkspaceSlugRecordsStatsRouteImport.update({
+    id: '/stats',
+    path: '/stats',
+    getParentRoute: () => WWorkspaceSlugRecordsRoute,
+  } as any)
 const ApiAgentV1ActionsPrepareRoute =
   ApiAgentV1ActionsPrepareRouteImport.update({
     id: '/api/agent/v1/actions/prepare',
@@ -540,6 +514,30 @@ const ApiProjectsProjectIdRawSplatRoute =
     id: '/api/projects/$projectId/raw/$',
     path: '/api/projects/$projectId/raw/$',
     getParentRoute: () => rootRouteImport,
+  } as any)
+const WWorkspaceSlugChatChannelChannelIdRoute =
+  WWorkspaceSlugChatChannelChannelIdRouteImport.update({
+    id: '/channel/$channelId',
+    path: '/channel/$channelId',
+    getParentRoute: () => WWorkspaceSlugChatRoute,
+  } as any)
+const WWorkspaceSlugChatMessagesAgentIdRoute =
+  WWorkspaceSlugChatMessagesAgentIdRouteImport.update({
+    id: '/messages/$agentId',
+    path: '/messages/$agentId',
+    getParentRoute: () => WWorkspaceSlugChatRoute,
+  } as any)
+const WWorkspaceSlugComputersComputerComputerIdRoute =
+  WWorkspaceSlugComputersComputerComputerIdRouteImport.update({
+    id: '/computer/$computerId',
+    path: '/computer/$computerId',
+    getParentRoute: () => WWorkspaceSlugComputersRoute,
+  } as any)
+const WWorkspaceSlugProjectsProjectSlugSettingsRoute =
+  WWorkspaceSlugProjectsProjectSlugSettingsRouteImport.update({
+    id: '/projects/$projectSlug_/settings',
+    path: '/projects/$projectSlug/settings',
+    getParentRoute: () => WWorkspaceSlugRoute,
   } as any)
 const ApiAgentV1AttachmentUploadSessionsUploadIdCompleteRoute =
   ApiAgentV1AttachmentUploadSessionsUploadIdCompleteRouteImport.update({
@@ -619,19 +617,24 @@ const ApiWorkspacesWorkspaceIdUsersUserIdAvatarRoute =
     path: '/api/workspaces/$workspaceId/users/$userId/avatar',
     getParentRoute: () => rootRouteImport,
   } as any)
+const WWorkspaceSlugProjectsProjectSlugTreeSplatRoute =
+  WWorkspaceSlugProjectsProjectSlugTreeSplatRouteImport.update({
+    id: '/projects/$projectSlug_/tree/$',
+    path: '/projects/$projectSlug/tree/$',
+    getParentRoute: () => WWorkspaceSlugRoute,
+  } as any)
+const WWorkspaceSlugRecordsWeeksYearWeekRoute =
+  WWorkspaceSlugRecordsWeeksYearWeekRouteImport.update({
+    id: '/weeks/$year/$week',
+    path: '/weeks/$year/$week',
+    getParentRoute: () => WWorkspaceSlugRecordsRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/health': typeof HealthRoute
   '/login': typeof LoginRoute
   '/.well-known/oauth-authorization-server': typeof DotwellKnownOauthAuthorizationServerRoute
-  '/activity': typeof AppActivityRoute
-  '/computers': typeof AppComputersRouteWithChildren
-  '/messages': typeof AppMessagesRouteWithChildren
-  '/records': typeof AppRecordsRouteWithChildren
-  '/search': typeof AppSearchRoute
-  '/settings': typeof AppSettingsRoute
-  '/tasks': typeof AppTasksRoute
   '/api/agent-api-keys': typeof ApiAgentApiKeysRoute
   '/api/attachments': typeof ApiAttachmentsRouteWithChildren
   '/api/jwks': typeof ApiJwksRoute
@@ -645,14 +648,7 @@ export interface FileRoutesByFullPath {
   '/oauth/device': typeof OauthDeviceRoute
   '/oauth/token': typeof OauthTokenRoute
   '/oauth/verify': typeof OauthVerifyRoute
-  '/agents/$agentId': typeof AppAgentsAgentIdRoute
-  '/computers/$computerId': typeof AppComputersComputerIdRoute
-  '/messages/$agentId': typeof AppMessagesAgentIdRoute
-  '/messages/saved': typeof AppMessagesSavedRoute
-  '/projects/$projectSlug': typeof AppProjectsProjectSlugRoute
-  '/records/$recordId': typeof AppRecordsRecordIdRoute
-  '/records/settings': typeof AppRecordsSettingsRoute
-  '/records/stats': typeof AppRecordsStatsRoute
+  '/w/$workspaceSlug': typeof WWorkspaceSlugRouteWithChildren
   '/api/attachments/$attachmentId': typeof ApiAttachmentsAttachmentIdRoute
   '/api/computer/attach': typeof ApiComputerAttachRoute
   '/api/computer/workspace': typeof ApiComputerWorkspaceRoute
@@ -662,13 +658,12 @@ export interface FileRoutesByFullPath {
   '/api/internal/weekly-report-schedule': typeof ApiInternalWeeklyReportScheduleRoute
   '/api/me/avatar': typeof ApiMeAvatarRoute
   '/api/workspaces/$slug': typeof ApiWorkspacesSlugRoute
-  '/agents/': typeof AppAgentsIndexRoute
-  '/computers/': typeof AppComputersIndexRoute
-  '/messages/': typeof AppMessagesIndexRoute
-  '/projects/': typeof AppProjectsIndexRoute
-  '/records/': typeof AppRecordsIndexRoute
-  '/messages/channels/$channelId': typeof AppMessagesChannelsChannelIdRoute
-  '/projects/$projectSlug/settings': typeof AppProjectsProjectSlugSettingsRoute
+  '/w/$workspaceSlug/activity': typeof WWorkspaceSlugActivityRoute
+  '/w/$workspaceSlug/members': typeof WWorkspaceSlugMembersRoute
+  '/w/$workspaceSlug/records': typeof WWorkspaceSlugRecordsRouteWithChildren
+  '/w/$workspaceSlug/search': typeof WWorkspaceSlugSearchRoute
+  '/w/$workspaceSlug/settings': typeof WWorkspaceSlugSettingsRoute
+  '/w/$workspaceSlug/tasks': typeof WWorkspaceSlugTasksRoute
   '/api/agent/v1/channels': typeof ApiAgentV1ChannelsRoute
   '/api/agent/v1/events': typeof ApiAgentV1EventsRoute
   '/api/agent/v1/github-commit-trailers': typeof ApiAgentV1GithubCommitTrailersRoute
@@ -687,8 +682,16 @@ export interface FileRoutesByFullPath {
   '/api/integrations/github/callback': typeof ApiIntegrationsGithubCallbackRoute
   '/api/integrations/github/webhook': typeof ApiIntegrationsGithubWebhookRoute
   '/api/projects/$projectId/icon': typeof ApiProjectsProjectIdIconRoute
-  '/projects/$projectSlug/tree/$': typeof AppProjectsProjectSlugTreeSplatRoute
-  '/records/weeks/$year/$week': typeof AppRecordsWeeksYearWeekRoute
+  '/w/$workspaceSlug/saved': typeof WWorkspaceSlugChatSavedRoute
+  '/w/$workspaceSlug/computers': typeof WWorkspaceSlugComputersComputersRoute
+  '/w/$workspaceSlug/agent/$agentId': typeof WWorkspaceSlugAgentAgentIdRoute
+  '/w/$workspaceSlug/projects/$projectSlug': typeof WWorkspaceSlugProjectsProjectSlugRoute
+  '/w/$workspaceSlug/records/$recordId': typeof WWorkspaceSlugRecordsRecordIdRoute
+  '/w/$workspaceSlug/records/settings': typeof WWorkspaceSlugRecordsSettingsRoute
+  '/w/$workspaceSlug/records/stats': typeof WWorkspaceSlugRecordsStatsRoute
+  '/w/$workspaceSlug/': typeof WWorkspaceSlugChatIndexRoute
+  '/w/$workspaceSlug/projects/': typeof WWorkspaceSlugProjectsIndexRoute
+  '/w/$workspaceSlug/records/': typeof WWorkspaceSlugRecordsIndexRoute
   '/api/agent/v1/actions/prepare': typeof ApiAgentV1ActionsPrepareRoute
   '/api/agent/v1/attachment-upload-sessions/$uploadId': typeof ApiAgentV1AttachmentUploadSessionsUploadIdRouteWithChildren
   '/api/agent/v1/attachments/$attachmentId': typeof ApiAgentV1AttachmentsAttachmentIdRoute
@@ -700,6 +703,10 @@ export interface FileRoutesByFullPath {
   '/api/agent/v1/messages/search': typeof ApiAgentV1MessagesSearchRoute
   '/api/agent/v1/users/$name': typeof ApiAgentV1UsersNameRoute
   '/api/projects/$projectId/raw/$': typeof ApiProjectsProjectIdRawSplatRoute
+  '/w/$workspaceSlug/channel/$channelId': typeof WWorkspaceSlugChatChannelChannelIdRoute
+  '/w/$workspaceSlug/messages/$agentId': typeof WWorkspaceSlugChatMessagesAgentIdRoute
+  '/w/$workspaceSlug/computer/$computerId': typeof WWorkspaceSlugComputersComputerComputerIdRoute
+  '/w/$workspaceSlug/projects/$projectSlug/settings': typeof WWorkspaceSlugProjectsProjectSlugSettingsRoute
   '/api/agent/v1/attachment-upload-sessions/': typeof ApiAgentV1AttachmentUploadSessionsIndexRoute
   '/api/agent/v1/attachments/': typeof ApiAgentV1AttachmentsIndexRoute
   '/api/agent/v1/attachment-upload-sessions/$uploadId/complete': typeof ApiAgentV1AttachmentUploadSessionsUploadIdCompleteRoute
@@ -715,16 +722,14 @@ export interface FileRoutesByFullPath {
   '/api/agent/v1/threads/$thread/unfollow': typeof ApiAgentV1ThreadsThreadUnfollowRoute
   '/api/workspaces/$workspaceId/agents/$agentId/avatar': typeof ApiWorkspacesWorkspaceIdAgentsAgentIdAvatarRoute
   '/api/workspaces/$workspaceId/users/$userId/avatar': typeof ApiWorkspacesWorkspaceIdUsersUserIdAvatarRoute
+  '/w/$workspaceSlug/projects/$projectSlug/tree/$': typeof WWorkspaceSlugProjectsProjectSlugTreeSplatRoute
+  '/w/$workspaceSlug/records/weeks/$year/$week': typeof WWorkspaceSlugRecordsWeeksYearWeekRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/health': typeof HealthRoute
   '/login': typeof LoginRoute
   '/.well-known/oauth-authorization-server': typeof DotwellKnownOauthAuthorizationServerRoute
-  '/activity': typeof AppActivityRoute
-  '/search': typeof AppSearchRoute
-  '/settings': typeof AppSettingsRoute
-  '/tasks': typeof AppTasksRoute
   '/api/agent-api-keys': typeof ApiAgentApiKeysRoute
   '/api/attachments': typeof ApiAttachmentsRouteWithChildren
   '/api/jwks': typeof ApiJwksRoute
@@ -738,14 +743,7 @@ export interface FileRoutesByTo {
   '/oauth/device': typeof OauthDeviceRoute
   '/oauth/token': typeof OauthTokenRoute
   '/oauth/verify': typeof OauthVerifyRoute
-  '/agents/$agentId': typeof AppAgentsAgentIdRoute
-  '/computers/$computerId': typeof AppComputersComputerIdRoute
-  '/messages/$agentId': typeof AppMessagesAgentIdRoute
-  '/messages/saved': typeof AppMessagesSavedRoute
-  '/projects/$projectSlug': typeof AppProjectsProjectSlugRoute
-  '/records/$recordId': typeof AppRecordsRecordIdRoute
-  '/records/settings': typeof AppRecordsSettingsRoute
-  '/records/stats': typeof AppRecordsStatsRoute
+  '/w/$workspaceSlug': typeof WWorkspaceSlugChatIndexRoute
   '/api/attachments/$attachmentId': typeof ApiAttachmentsAttachmentIdRoute
   '/api/computer/attach': typeof ApiComputerAttachRoute
   '/api/computer/workspace': typeof ApiComputerWorkspaceRoute
@@ -755,13 +753,11 @@ export interface FileRoutesByTo {
   '/api/internal/weekly-report-schedule': typeof ApiInternalWeeklyReportScheduleRoute
   '/api/me/avatar': typeof ApiMeAvatarRoute
   '/api/workspaces/$slug': typeof ApiWorkspacesSlugRoute
-  '/agents': typeof AppAgentsIndexRoute
-  '/computers': typeof AppComputersIndexRoute
-  '/messages': typeof AppMessagesIndexRoute
-  '/projects': typeof AppProjectsIndexRoute
-  '/records': typeof AppRecordsIndexRoute
-  '/messages/channels/$channelId': typeof AppMessagesChannelsChannelIdRoute
-  '/projects/$projectSlug/settings': typeof AppProjectsProjectSlugSettingsRoute
+  '/w/$workspaceSlug/activity': typeof WWorkspaceSlugActivityRoute
+  '/w/$workspaceSlug/members': typeof WWorkspaceSlugMembersRoute
+  '/w/$workspaceSlug/search': typeof WWorkspaceSlugSearchRoute
+  '/w/$workspaceSlug/settings': typeof WWorkspaceSlugSettingsRoute
+  '/w/$workspaceSlug/tasks': typeof WWorkspaceSlugTasksRoute
   '/api/agent/v1/channels': typeof ApiAgentV1ChannelsRoute
   '/api/agent/v1/events': typeof ApiAgentV1EventsRoute
   '/api/agent/v1/github-commit-trailers': typeof ApiAgentV1GithubCommitTrailersRoute
@@ -780,8 +776,15 @@ export interface FileRoutesByTo {
   '/api/integrations/github/callback': typeof ApiIntegrationsGithubCallbackRoute
   '/api/integrations/github/webhook': typeof ApiIntegrationsGithubWebhookRoute
   '/api/projects/$projectId/icon': typeof ApiProjectsProjectIdIconRoute
-  '/projects/$projectSlug/tree/$': typeof AppProjectsProjectSlugTreeSplatRoute
-  '/records/weeks/$year/$week': typeof AppRecordsWeeksYearWeekRoute
+  '/w/$workspaceSlug/saved': typeof WWorkspaceSlugChatSavedRoute
+  '/w/$workspaceSlug/computers': typeof WWorkspaceSlugComputersComputersRoute
+  '/w/$workspaceSlug/agent/$agentId': typeof WWorkspaceSlugAgentAgentIdRoute
+  '/w/$workspaceSlug/projects/$projectSlug': typeof WWorkspaceSlugProjectsProjectSlugRoute
+  '/w/$workspaceSlug/records/$recordId': typeof WWorkspaceSlugRecordsRecordIdRoute
+  '/w/$workspaceSlug/records/settings': typeof WWorkspaceSlugRecordsSettingsRoute
+  '/w/$workspaceSlug/records/stats': typeof WWorkspaceSlugRecordsStatsRoute
+  '/w/$workspaceSlug/projects': typeof WWorkspaceSlugProjectsIndexRoute
+  '/w/$workspaceSlug/records': typeof WWorkspaceSlugRecordsIndexRoute
   '/api/agent/v1/actions/prepare': typeof ApiAgentV1ActionsPrepareRoute
   '/api/agent/v1/attachment-upload-sessions/$uploadId': typeof ApiAgentV1AttachmentUploadSessionsUploadIdRouteWithChildren
   '/api/agent/v1/attachments/$attachmentId': typeof ApiAgentV1AttachmentsAttachmentIdRoute
@@ -793,6 +796,10 @@ export interface FileRoutesByTo {
   '/api/agent/v1/messages/search': typeof ApiAgentV1MessagesSearchRoute
   '/api/agent/v1/users/$name': typeof ApiAgentV1UsersNameRoute
   '/api/projects/$projectId/raw/$': typeof ApiProjectsProjectIdRawSplatRoute
+  '/w/$workspaceSlug/channel/$channelId': typeof WWorkspaceSlugChatChannelChannelIdRoute
+  '/w/$workspaceSlug/messages/$agentId': typeof WWorkspaceSlugChatMessagesAgentIdRoute
+  '/w/$workspaceSlug/computer/$computerId': typeof WWorkspaceSlugComputersComputerComputerIdRoute
+  '/w/$workspaceSlug/projects/$projectSlug/settings': typeof WWorkspaceSlugProjectsProjectSlugSettingsRoute
   '/api/agent/v1/attachment-upload-sessions': typeof ApiAgentV1AttachmentUploadSessionsIndexRoute
   '/api/agent/v1/attachments': typeof ApiAgentV1AttachmentsIndexRoute
   '/api/agent/v1/attachment-upload-sessions/$uploadId/complete': typeof ApiAgentV1AttachmentUploadSessionsUploadIdCompleteRoute
@@ -808,21 +815,15 @@ export interface FileRoutesByTo {
   '/api/agent/v1/threads/$thread/unfollow': typeof ApiAgentV1ThreadsThreadUnfollowRoute
   '/api/workspaces/$workspaceId/agents/$agentId/avatar': typeof ApiWorkspacesWorkspaceIdAgentsAgentIdAvatarRoute
   '/api/workspaces/$workspaceId/users/$userId/avatar': typeof ApiWorkspacesWorkspaceIdUsersUserIdAvatarRoute
+  '/w/$workspaceSlug/projects/$projectSlug/tree/$': typeof WWorkspaceSlugProjectsProjectSlugTreeSplatRoute
+  '/w/$workspaceSlug/records/weeks/$year/$week': typeof WWorkspaceSlugRecordsWeeksYearWeekRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
-  '/_app': typeof AppRouteWithChildren
   '/health': typeof HealthRoute
   '/login': typeof LoginRoute
   '/.well-known/oauth-authorization-server': typeof DotwellKnownOauthAuthorizationServerRoute
-  '/_app/activity': typeof AppActivityRoute
-  '/_app/computers': typeof AppComputersRouteWithChildren
-  '/_app/messages': typeof AppMessagesRouteWithChildren
-  '/_app/records': typeof AppRecordsRouteWithChildren
-  '/_app/search': typeof AppSearchRoute
-  '/_app/settings': typeof AppSettingsRoute
-  '/_app/tasks': typeof AppTasksRoute
   '/api/agent-api-keys': typeof ApiAgentApiKeysRoute
   '/api/attachments': typeof ApiAttachmentsRouteWithChildren
   '/api/jwks': typeof ApiJwksRoute
@@ -836,14 +837,7 @@ export interface FileRoutesById {
   '/oauth/device': typeof OauthDeviceRoute
   '/oauth/token': typeof OauthTokenRoute
   '/oauth/verify': typeof OauthVerifyRoute
-  '/_app/agents/$agentId': typeof AppAgentsAgentIdRoute
-  '/_app/computers/$computerId': typeof AppComputersComputerIdRoute
-  '/_app/messages/$agentId': typeof AppMessagesAgentIdRoute
-  '/_app/messages/saved': typeof AppMessagesSavedRoute
-  '/_app/projects/$projectSlug': typeof AppProjectsProjectSlugRoute
-  '/_app/records/$recordId': typeof AppRecordsRecordIdRoute
-  '/_app/records/settings': typeof AppRecordsSettingsRoute
-  '/_app/records/stats': typeof AppRecordsStatsRoute
+  '/w/$workspaceSlug': typeof WWorkspaceSlugRouteWithChildren
   '/api/attachments/$attachmentId': typeof ApiAttachmentsAttachmentIdRoute
   '/api/computer/attach': typeof ApiComputerAttachRoute
   '/api/computer/workspace': typeof ApiComputerWorkspaceRoute
@@ -853,13 +847,14 @@ export interface FileRoutesById {
   '/api/internal/weekly-report-schedule': typeof ApiInternalWeeklyReportScheduleRoute
   '/api/me/avatar': typeof ApiMeAvatarRoute
   '/api/workspaces/$slug': typeof ApiWorkspacesSlugRoute
-  '/_app/agents/': typeof AppAgentsIndexRoute
-  '/_app/computers/': typeof AppComputersIndexRoute
-  '/_app/messages/': typeof AppMessagesIndexRoute
-  '/_app/projects/': typeof AppProjectsIndexRoute
-  '/_app/records/': typeof AppRecordsIndexRoute
-  '/_app/messages/channels/$channelId': typeof AppMessagesChannelsChannelIdRoute
-  '/_app/projects/$projectSlug_/settings': typeof AppProjectsProjectSlugSettingsRoute
+  '/w/$workspaceSlug/_chat': typeof WWorkspaceSlugChatRouteWithChildren
+  '/w/$workspaceSlug/_computers': typeof WWorkspaceSlugComputersRouteWithChildren
+  '/w/$workspaceSlug/activity': typeof WWorkspaceSlugActivityRoute
+  '/w/$workspaceSlug/members': typeof WWorkspaceSlugMembersRoute
+  '/w/$workspaceSlug/records': typeof WWorkspaceSlugRecordsRouteWithChildren
+  '/w/$workspaceSlug/search': typeof WWorkspaceSlugSearchRoute
+  '/w/$workspaceSlug/settings': typeof WWorkspaceSlugSettingsRoute
+  '/w/$workspaceSlug/tasks': typeof WWorkspaceSlugTasksRoute
   '/api/agent/v1/channels': typeof ApiAgentV1ChannelsRoute
   '/api/agent/v1/events': typeof ApiAgentV1EventsRoute
   '/api/agent/v1/github-commit-trailers': typeof ApiAgentV1GithubCommitTrailersRoute
@@ -878,8 +873,16 @@ export interface FileRoutesById {
   '/api/integrations/github/callback': typeof ApiIntegrationsGithubCallbackRoute
   '/api/integrations/github/webhook': typeof ApiIntegrationsGithubWebhookRoute
   '/api/projects/$projectId/icon': typeof ApiProjectsProjectIdIconRoute
-  '/_app/projects/$projectSlug_/tree/$': typeof AppProjectsProjectSlugTreeSplatRoute
-  '/_app/records/weeks/$year/$week': typeof AppRecordsWeeksYearWeekRoute
+  '/w/$workspaceSlug/_chat/saved': typeof WWorkspaceSlugChatSavedRoute
+  '/w/$workspaceSlug/_computers/computers': typeof WWorkspaceSlugComputersComputersRoute
+  '/w/$workspaceSlug/agent/$agentId': typeof WWorkspaceSlugAgentAgentIdRoute
+  '/w/$workspaceSlug/projects/$projectSlug': typeof WWorkspaceSlugProjectsProjectSlugRoute
+  '/w/$workspaceSlug/records/$recordId': typeof WWorkspaceSlugRecordsRecordIdRoute
+  '/w/$workspaceSlug/records/settings': typeof WWorkspaceSlugRecordsSettingsRoute
+  '/w/$workspaceSlug/records/stats': typeof WWorkspaceSlugRecordsStatsRoute
+  '/w/$workspaceSlug/_chat/': typeof WWorkspaceSlugChatIndexRoute
+  '/w/$workspaceSlug/projects/': typeof WWorkspaceSlugProjectsIndexRoute
+  '/w/$workspaceSlug/records/': typeof WWorkspaceSlugRecordsIndexRoute
   '/api/agent/v1/actions/prepare': typeof ApiAgentV1ActionsPrepareRoute
   '/api/agent/v1/attachment-upload-sessions/$uploadId': typeof ApiAgentV1AttachmentUploadSessionsUploadIdRouteWithChildren
   '/api/agent/v1/attachments/$attachmentId': typeof ApiAgentV1AttachmentsAttachmentIdRoute
@@ -891,6 +894,10 @@ export interface FileRoutesById {
   '/api/agent/v1/messages_/search': typeof ApiAgentV1MessagesSearchRoute
   '/api/agent/v1/users/$name': typeof ApiAgentV1UsersNameRoute
   '/api/projects/$projectId/raw/$': typeof ApiProjectsProjectIdRawSplatRoute
+  '/w/$workspaceSlug/_chat/channel/$channelId': typeof WWorkspaceSlugChatChannelChannelIdRoute
+  '/w/$workspaceSlug/_chat/messages/$agentId': typeof WWorkspaceSlugChatMessagesAgentIdRoute
+  '/w/$workspaceSlug/_computers/computer/$computerId': typeof WWorkspaceSlugComputersComputerComputerIdRoute
+  '/w/$workspaceSlug/projects/$projectSlug_/settings': typeof WWorkspaceSlugProjectsProjectSlugSettingsRoute
   '/api/agent/v1/attachment-upload-sessions/': typeof ApiAgentV1AttachmentUploadSessionsIndexRoute
   '/api/agent/v1/attachments/': typeof ApiAgentV1AttachmentsIndexRoute
   '/api/agent/v1/attachment-upload-sessions/$uploadId/complete': typeof ApiAgentV1AttachmentUploadSessionsUploadIdCompleteRoute
@@ -906,6 +913,8 @@ export interface FileRoutesById {
   '/api/agent/v1/threads_/$thread/unfollow': typeof ApiAgentV1ThreadsThreadUnfollowRoute
   '/api/workspaces/$workspaceId/agents/$agentId/avatar': typeof ApiWorkspacesWorkspaceIdAgentsAgentIdAvatarRoute
   '/api/workspaces/$workspaceId/users/$userId/avatar': typeof ApiWorkspacesWorkspaceIdUsersUserIdAvatarRoute
+  '/w/$workspaceSlug/projects/$projectSlug_/tree/$': typeof WWorkspaceSlugProjectsProjectSlugTreeSplatRoute
+  '/w/$workspaceSlug/records/weeks/$year/$week': typeof WWorkspaceSlugRecordsWeeksYearWeekRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -914,13 +923,6 @@ export interface FileRouteTypes {
     | '/health'
     | '/login'
     | '/.well-known/oauth-authorization-server'
-    | '/activity'
-    | '/computers'
-    | '/messages'
-    | '/records'
-    | '/search'
-    | '/settings'
-    | '/tasks'
     | '/api/agent-api-keys'
     | '/api/attachments'
     | '/api/jwks'
@@ -934,14 +936,7 @@ export interface FileRouteTypes {
     | '/oauth/device'
     | '/oauth/token'
     | '/oauth/verify'
-    | '/agents/$agentId'
-    | '/computers/$computerId'
-    | '/messages/$agentId'
-    | '/messages/saved'
-    | '/projects/$projectSlug'
-    | '/records/$recordId'
-    | '/records/settings'
-    | '/records/stats'
+    | '/w/$workspaceSlug'
     | '/api/attachments/$attachmentId'
     | '/api/computer/attach'
     | '/api/computer/workspace'
@@ -951,13 +946,12 @@ export interface FileRouteTypes {
     | '/api/internal/weekly-report-schedule'
     | '/api/me/avatar'
     | '/api/workspaces/$slug'
-    | '/agents/'
-    | '/computers/'
-    | '/messages/'
-    | '/projects/'
-    | '/records/'
-    | '/messages/channels/$channelId'
-    | '/projects/$projectSlug/settings'
+    | '/w/$workspaceSlug/activity'
+    | '/w/$workspaceSlug/members'
+    | '/w/$workspaceSlug/records'
+    | '/w/$workspaceSlug/search'
+    | '/w/$workspaceSlug/settings'
+    | '/w/$workspaceSlug/tasks'
     | '/api/agent/v1/channels'
     | '/api/agent/v1/events'
     | '/api/agent/v1/github-commit-trailers'
@@ -976,8 +970,16 @@ export interface FileRouteTypes {
     | '/api/integrations/github/callback'
     | '/api/integrations/github/webhook'
     | '/api/projects/$projectId/icon'
-    | '/projects/$projectSlug/tree/$'
-    | '/records/weeks/$year/$week'
+    | '/w/$workspaceSlug/saved'
+    | '/w/$workspaceSlug/computers'
+    | '/w/$workspaceSlug/agent/$agentId'
+    | '/w/$workspaceSlug/projects/$projectSlug'
+    | '/w/$workspaceSlug/records/$recordId'
+    | '/w/$workspaceSlug/records/settings'
+    | '/w/$workspaceSlug/records/stats'
+    | '/w/$workspaceSlug/'
+    | '/w/$workspaceSlug/projects/'
+    | '/w/$workspaceSlug/records/'
     | '/api/agent/v1/actions/prepare'
     | '/api/agent/v1/attachment-upload-sessions/$uploadId'
     | '/api/agent/v1/attachments/$attachmentId'
@@ -989,6 +991,10 @@ export interface FileRouteTypes {
     | '/api/agent/v1/messages/search'
     | '/api/agent/v1/users/$name'
     | '/api/projects/$projectId/raw/$'
+    | '/w/$workspaceSlug/channel/$channelId'
+    | '/w/$workspaceSlug/messages/$agentId'
+    | '/w/$workspaceSlug/computer/$computerId'
+    | '/w/$workspaceSlug/projects/$projectSlug/settings'
     | '/api/agent/v1/attachment-upload-sessions/'
     | '/api/agent/v1/attachments/'
     | '/api/agent/v1/attachment-upload-sessions/$uploadId/complete'
@@ -1004,16 +1010,14 @@ export interface FileRouteTypes {
     | '/api/agent/v1/threads/$thread/unfollow'
     | '/api/workspaces/$workspaceId/agents/$agentId/avatar'
     | '/api/workspaces/$workspaceId/users/$userId/avatar'
+    | '/w/$workspaceSlug/projects/$projectSlug/tree/$'
+    | '/w/$workspaceSlug/records/weeks/$year/$week'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
     | '/health'
     | '/login'
     | '/.well-known/oauth-authorization-server'
-    | '/activity'
-    | '/search'
-    | '/settings'
-    | '/tasks'
     | '/api/agent-api-keys'
     | '/api/attachments'
     | '/api/jwks'
@@ -1027,14 +1031,7 @@ export interface FileRouteTypes {
     | '/oauth/device'
     | '/oauth/token'
     | '/oauth/verify'
-    | '/agents/$agentId'
-    | '/computers/$computerId'
-    | '/messages/$agentId'
-    | '/messages/saved'
-    | '/projects/$projectSlug'
-    | '/records/$recordId'
-    | '/records/settings'
-    | '/records/stats'
+    | '/w/$workspaceSlug'
     | '/api/attachments/$attachmentId'
     | '/api/computer/attach'
     | '/api/computer/workspace'
@@ -1044,13 +1041,11 @@ export interface FileRouteTypes {
     | '/api/internal/weekly-report-schedule'
     | '/api/me/avatar'
     | '/api/workspaces/$slug'
-    | '/agents'
-    | '/computers'
-    | '/messages'
-    | '/projects'
-    | '/records'
-    | '/messages/channels/$channelId'
-    | '/projects/$projectSlug/settings'
+    | '/w/$workspaceSlug/activity'
+    | '/w/$workspaceSlug/members'
+    | '/w/$workspaceSlug/search'
+    | '/w/$workspaceSlug/settings'
+    | '/w/$workspaceSlug/tasks'
     | '/api/agent/v1/channels'
     | '/api/agent/v1/events'
     | '/api/agent/v1/github-commit-trailers'
@@ -1069,8 +1064,15 @@ export interface FileRouteTypes {
     | '/api/integrations/github/callback'
     | '/api/integrations/github/webhook'
     | '/api/projects/$projectId/icon'
-    | '/projects/$projectSlug/tree/$'
-    | '/records/weeks/$year/$week'
+    | '/w/$workspaceSlug/saved'
+    | '/w/$workspaceSlug/computers'
+    | '/w/$workspaceSlug/agent/$agentId'
+    | '/w/$workspaceSlug/projects/$projectSlug'
+    | '/w/$workspaceSlug/records/$recordId'
+    | '/w/$workspaceSlug/records/settings'
+    | '/w/$workspaceSlug/records/stats'
+    | '/w/$workspaceSlug/projects'
+    | '/w/$workspaceSlug/records'
     | '/api/agent/v1/actions/prepare'
     | '/api/agent/v1/attachment-upload-sessions/$uploadId'
     | '/api/agent/v1/attachments/$attachmentId'
@@ -1082,6 +1084,10 @@ export interface FileRouteTypes {
     | '/api/agent/v1/messages/search'
     | '/api/agent/v1/users/$name'
     | '/api/projects/$projectId/raw/$'
+    | '/w/$workspaceSlug/channel/$channelId'
+    | '/w/$workspaceSlug/messages/$agentId'
+    | '/w/$workspaceSlug/computer/$computerId'
+    | '/w/$workspaceSlug/projects/$projectSlug/settings'
     | '/api/agent/v1/attachment-upload-sessions'
     | '/api/agent/v1/attachments'
     | '/api/agent/v1/attachment-upload-sessions/$uploadId/complete'
@@ -1097,20 +1103,14 @@ export interface FileRouteTypes {
     | '/api/agent/v1/threads/$thread/unfollow'
     | '/api/workspaces/$workspaceId/agents/$agentId/avatar'
     | '/api/workspaces/$workspaceId/users/$userId/avatar'
+    | '/w/$workspaceSlug/projects/$projectSlug/tree/$'
+    | '/w/$workspaceSlug/records/weeks/$year/$week'
   id:
     | '__root__'
     | '/'
-    | '/_app'
     | '/health'
     | '/login'
     | '/.well-known/oauth-authorization-server'
-    | '/_app/activity'
-    | '/_app/computers'
-    | '/_app/messages'
-    | '/_app/records'
-    | '/_app/search'
-    | '/_app/settings'
-    | '/_app/tasks'
     | '/api/agent-api-keys'
     | '/api/attachments'
     | '/api/jwks'
@@ -1124,14 +1124,7 @@ export interface FileRouteTypes {
     | '/oauth/device'
     | '/oauth/token'
     | '/oauth/verify'
-    | '/_app/agents/$agentId'
-    | '/_app/computers/$computerId'
-    | '/_app/messages/$agentId'
-    | '/_app/messages/saved'
-    | '/_app/projects/$projectSlug'
-    | '/_app/records/$recordId'
-    | '/_app/records/settings'
-    | '/_app/records/stats'
+    | '/w/$workspaceSlug'
     | '/api/attachments/$attachmentId'
     | '/api/computer/attach'
     | '/api/computer/workspace'
@@ -1141,13 +1134,14 @@ export interface FileRouteTypes {
     | '/api/internal/weekly-report-schedule'
     | '/api/me/avatar'
     | '/api/workspaces/$slug'
-    | '/_app/agents/'
-    | '/_app/computers/'
-    | '/_app/messages/'
-    | '/_app/projects/'
-    | '/_app/records/'
-    | '/_app/messages/channels/$channelId'
-    | '/_app/projects/$projectSlug_/settings'
+    | '/w/$workspaceSlug/_chat'
+    | '/w/$workspaceSlug/_computers'
+    | '/w/$workspaceSlug/activity'
+    | '/w/$workspaceSlug/members'
+    | '/w/$workspaceSlug/records'
+    | '/w/$workspaceSlug/search'
+    | '/w/$workspaceSlug/settings'
+    | '/w/$workspaceSlug/tasks'
     | '/api/agent/v1/channels'
     | '/api/agent/v1/events'
     | '/api/agent/v1/github-commit-trailers'
@@ -1166,8 +1160,16 @@ export interface FileRouteTypes {
     | '/api/integrations/github/callback'
     | '/api/integrations/github/webhook'
     | '/api/projects/$projectId/icon'
-    | '/_app/projects/$projectSlug_/tree/$'
-    | '/_app/records/weeks/$year/$week'
+    | '/w/$workspaceSlug/_chat/saved'
+    | '/w/$workspaceSlug/_computers/computers'
+    | '/w/$workspaceSlug/agent/$agentId'
+    | '/w/$workspaceSlug/projects/$projectSlug'
+    | '/w/$workspaceSlug/records/$recordId'
+    | '/w/$workspaceSlug/records/settings'
+    | '/w/$workspaceSlug/records/stats'
+    | '/w/$workspaceSlug/_chat/'
+    | '/w/$workspaceSlug/projects/'
+    | '/w/$workspaceSlug/records/'
     | '/api/agent/v1/actions/prepare'
     | '/api/agent/v1/attachment-upload-sessions/$uploadId'
     | '/api/agent/v1/attachments/$attachmentId'
@@ -1179,6 +1181,10 @@ export interface FileRouteTypes {
     | '/api/agent/v1/messages_/search'
     | '/api/agent/v1/users/$name'
     | '/api/projects/$projectId/raw/$'
+    | '/w/$workspaceSlug/_chat/channel/$channelId'
+    | '/w/$workspaceSlug/_chat/messages/$agentId'
+    | '/w/$workspaceSlug/_computers/computer/$computerId'
+    | '/w/$workspaceSlug/projects/$projectSlug_/settings'
     | '/api/agent/v1/attachment-upload-sessions/'
     | '/api/agent/v1/attachments/'
     | '/api/agent/v1/attachment-upload-sessions/$uploadId/complete'
@@ -1194,11 +1200,12 @@ export interface FileRouteTypes {
     | '/api/agent/v1/threads_/$thread/unfollow'
     | '/api/workspaces/$workspaceId/agents/$agentId/avatar'
     | '/api/workspaces/$workspaceId/users/$userId/avatar'
+    | '/w/$workspaceSlug/projects/$projectSlug_/tree/$'
+    | '/w/$workspaceSlug/records/weeks/$year/$week'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
-  AppRoute: typeof AppRouteWithChildren
   HealthRoute: typeof HealthRoute
   LoginRoute: typeof LoginRoute
   DotwellKnownOauthAuthorizationServerRoute: typeof DotwellKnownOauthAuthorizationServerRoute
@@ -1215,6 +1222,7 @@ export interface RootRouteChildren {
   OauthDeviceRoute: typeof OauthDeviceRoute
   OauthTokenRoute: typeof OauthTokenRoute
   OauthVerifyRoute: typeof OauthVerifyRoute
+  WWorkspaceSlugRoute: typeof WWorkspaceSlugRouteWithChildren
   ApiComputerAttachRoute: typeof ApiComputerAttachRoute
   ApiComputerWorkspaceRoute: typeof ApiComputerWorkspaceRoute
   ApiInternalCentrifugoRoute: typeof ApiInternalCentrifugoRoute
@@ -1269,13 +1277,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/_app': {
-      id: '/_app'
-      path: ''
-      fullPath: '/'
-      preLoaderRoute: typeof AppRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/health': {
       id: '/health'
       path: '/health'
@@ -1296,55 +1297,6 @@ declare module '@tanstack/react-router' {
       fullPath: '/.well-known/oauth-authorization-server'
       preLoaderRoute: typeof DotwellKnownOauthAuthorizationServerRouteImport
       parentRoute: typeof rootRouteImport
-    }
-    '/_app/activity': {
-      id: '/_app/activity'
-      path: '/activity'
-      fullPath: '/activity'
-      preLoaderRoute: typeof AppActivityRouteImport
-      parentRoute: typeof AppRoute
-    }
-    '/_app/computers': {
-      id: '/_app/computers'
-      path: '/computers'
-      fullPath: '/computers'
-      preLoaderRoute: typeof AppComputersRouteImport
-      parentRoute: typeof AppRoute
-    }
-    '/_app/messages': {
-      id: '/_app/messages'
-      path: '/messages'
-      fullPath: '/messages'
-      preLoaderRoute: typeof AppMessagesRouteImport
-      parentRoute: typeof AppRoute
-    }
-    '/_app/records': {
-      id: '/_app/records'
-      path: '/records'
-      fullPath: '/records'
-      preLoaderRoute: typeof AppRecordsRouteImport
-      parentRoute: typeof AppRoute
-    }
-    '/_app/search': {
-      id: '/_app/search'
-      path: '/search'
-      fullPath: '/search'
-      preLoaderRoute: typeof AppSearchRouteImport
-      parentRoute: typeof AppRoute
-    }
-    '/_app/settings': {
-      id: '/_app/settings'
-      path: '/settings'
-      fullPath: '/settings'
-      preLoaderRoute: typeof AppSettingsRouteImport
-      parentRoute: typeof AppRoute
-    }
-    '/_app/tasks': {
-      id: '/_app/tasks'
-      path: '/tasks'
-      fullPath: '/tasks'
-      preLoaderRoute: typeof AppTasksRouteImport
-      parentRoute: typeof AppRoute
     }
     '/api/agent-api-keys': {
       id: '/api/agent-api-keys'
@@ -1437,96 +1389,12 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof OauthVerifyRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/_app/agents/': {
-      id: '/_app/agents/'
-      path: '/agents'
-      fullPath: '/agents/'
-      preLoaderRoute: typeof AppAgentsIndexRouteImport
-      parentRoute: typeof AppRoute
-    }
-    '/_app/agents/$agentId': {
-      id: '/_app/agents/$agentId'
-      path: '/agents/$agentId'
-      fullPath: '/agents/$agentId'
-      preLoaderRoute: typeof AppAgentsAgentIdRouteImport
-      parentRoute: typeof AppRoute
-    }
-    '/_app/computers/': {
-      id: '/_app/computers/'
-      path: '/'
-      fullPath: '/computers/'
-      preLoaderRoute: typeof AppComputersIndexRouteImport
-      parentRoute: typeof AppComputersRoute
-    }
-    '/_app/computers/$computerId': {
-      id: '/_app/computers/$computerId'
-      path: '/$computerId'
-      fullPath: '/computers/$computerId'
-      preLoaderRoute: typeof AppComputersComputerIdRouteImport
-      parentRoute: typeof AppComputersRoute
-    }
-    '/_app/messages/': {
-      id: '/_app/messages/'
-      path: '/'
-      fullPath: '/messages/'
-      preLoaderRoute: typeof AppMessagesIndexRouteImport
-      parentRoute: typeof AppMessagesRoute
-    }
-    '/_app/messages/$agentId': {
-      id: '/_app/messages/$agentId'
-      path: '/$agentId'
-      fullPath: '/messages/$agentId'
-      preLoaderRoute: typeof AppMessagesAgentIdRouteImport
-      parentRoute: typeof AppMessagesRoute
-    }
-    '/_app/messages/saved': {
-      id: '/_app/messages/saved'
-      path: '/saved'
-      fullPath: '/messages/saved'
-      preLoaderRoute: typeof AppMessagesSavedRouteImport
-      parentRoute: typeof AppMessagesRoute
-    }
-    '/_app/projects/': {
-      id: '/_app/projects/'
-      path: '/projects'
-      fullPath: '/projects/'
-      preLoaderRoute: typeof AppProjectsIndexRouteImport
-      parentRoute: typeof AppRoute
-    }
-    '/_app/projects/$projectSlug': {
-      id: '/_app/projects/$projectSlug'
-      path: '/projects/$projectSlug'
-      fullPath: '/projects/$projectSlug'
-      preLoaderRoute: typeof AppProjectsProjectSlugRouteImport
-      parentRoute: typeof AppRoute
-    }
-    '/_app/records/': {
-      id: '/_app/records/'
-      path: '/'
-      fullPath: '/records/'
-      preLoaderRoute: typeof AppRecordsIndexRouteImport
-      parentRoute: typeof AppRecordsRoute
-    }
-    '/_app/records/$recordId': {
-      id: '/_app/records/$recordId'
-      path: '/$recordId'
-      fullPath: '/records/$recordId'
-      preLoaderRoute: typeof AppRecordsRecordIdRouteImport
-      parentRoute: typeof AppRecordsRoute
-    }
-    '/_app/records/settings': {
-      id: '/_app/records/settings'
-      path: '/settings'
-      fullPath: '/records/settings'
-      preLoaderRoute: typeof AppRecordsSettingsRouteImport
-      parentRoute: typeof AppRecordsRoute
-    }
-    '/_app/records/stats': {
-      id: '/_app/records/stats'
-      path: '/stats'
-      fullPath: '/records/stats'
-      preLoaderRoute: typeof AppRecordsStatsRouteImport
-      parentRoute: typeof AppRecordsRoute
+    '/w/$workspaceSlug': {
+      id: '/w/$workspaceSlug'
+      path: '/w/$workspaceSlug'
+      fullPath: '/w/$workspaceSlug'
+      preLoaderRoute: typeof WWorkspaceSlugRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/api/attachments/$attachmentId': {
       id: '/api/attachments/$attachmentId'
@@ -1591,19 +1459,61 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiWorkspacesSlugRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/_app/messages/channels/$channelId': {
-      id: '/_app/messages/channels/$channelId'
-      path: '/channels/$channelId'
-      fullPath: '/messages/channels/$channelId'
-      preLoaderRoute: typeof AppMessagesChannelsChannelIdRouteImport
-      parentRoute: typeof AppMessagesRoute
+    '/w/$workspaceSlug/_chat': {
+      id: '/w/$workspaceSlug/_chat'
+      path: ''
+      fullPath: '/w/$workspaceSlug'
+      preLoaderRoute: typeof WWorkspaceSlugChatRouteImport
+      parentRoute: typeof WWorkspaceSlugRoute
     }
-    '/_app/projects/$projectSlug_/settings': {
-      id: '/_app/projects/$projectSlug_/settings'
-      path: '/projects/$projectSlug/settings'
-      fullPath: '/projects/$projectSlug/settings'
-      preLoaderRoute: typeof AppProjectsProjectSlugSettingsRouteImport
-      parentRoute: typeof AppRoute
+    '/w/$workspaceSlug/_computers': {
+      id: '/w/$workspaceSlug/_computers'
+      path: ''
+      fullPath: '/w/$workspaceSlug'
+      preLoaderRoute: typeof WWorkspaceSlugComputersRouteImport
+      parentRoute: typeof WWorkspaceSlugRoute
+    }
+    '/w/$workspaceSlug/activity': {
+      id: '/w/$workspaceSlug/activity'
+      path: '/activity'
+      fullPath: '/w/$workspaceSlug/activity'
+      preLoaderRoute: typeof WWorkspaceSlugActivityRouteImport
+      parentRoute: typeof WWorkspaceSlugRoute
+    }
+    '/w/$workspaceSlug/members': {
+      id: '/w/$workspaceSlug/members'
+      path: '/members'
+      fullPath: '/w/$workspaceSlug/members'
+      preLoaderRoute: typeof WWorkspaceSlugMembersRouteImport
+      parentRoute: typeof WWorkspaceSlugRoute
+    }
+    '/w/$workspaceSlug/records': {
+      id: '/w/$workspaceSlug/records'
+      path: '/records'
+      fullPath: '/w/$workspaceSlug/records'
+      preLoaderRoute: typeof WWorkspaceSlugRecordsRouteImport
+      parentRoute: typeof WWorkspaceSlugRoute
+    }
+    '/w/$workspaceSlug/search': {
+      id: '/w/$workspaceSlug/search'
+      path: '/search'
+      fullPath: '/w/$workspaceSlug/search'
+      preLoaderRoute: typeof WWorkspaceSlugSearchRouteImport
+      parentRoute: typeof WWorkspaceSlugRoute
+    }
+    '/w/$workspaceSlug/settings': {
+      id: '/w/$workspaceSlug/settings'
+      path: '/settings'
+      fullPath: '/w/$workspaceSlug/settings'
+      preLoaderRoute: typeof WWorkspaceSlugSettingsRouteImport
+      parentRoute: typeof WWorkspaceSlugRoute
+    }
+    '/w/$workspaceSlug/tasks': {
+      id: '/w/$workspaceSlug/tasks'
+      path: '/tasks'
+      fullPath: '/w/$workspaceSlug/tasks'
+      preLoaderRoute: typeof WWorkspaceSlugTasksRouteImport
+      parentRoute: typeof WWorkspaceSlugRoute
     }
     '/api/agent/v1/channels': {
       id: '/api/agent/v1/channels'
@@ -1731,19 +1641,75 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiProjectsProjectIdIconRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/_app/projects/$projectSlug_/tree/$': {
-      id: '/_app/projects/$projectSlug_/tree/$'
-      path: '/projects/$projectSlug/tree/$'
-      fullPath: '/projects/$projectSlug/tree/$'
-      preLoaderRoute: typeof AppProjectsProjectSlugTreeSplatRouteImport
-      parentRoute: typeof AppRoute
+    '/w/$workspaceSlug/_chat/': {
+      id: '/w/$workspaceSlug/_chat/'
+      path: '/'
+      fullPath: '/w/$workspaceSlug/'
+      preLoaderRoute: typeof WWorkspaceSlugChatIndexRouteImport
+      parentRoute: typeof WWorkspaceSlugChatRoute
     }
-    '/_app/records/weeks/$year/$week': {
-      id: '/_app/records/weeks/$year/$week'
-      path: '/weeks/$year/$week'
-      fullPath: '/records/weeks/$year/$week'
-      preLoaderRoute: typeof AppRecordsWeeksYearWeekRouteImport
-      parentRoute: typeof AppRecordsRoute
+    '/w/$workspaceSlug/_chat/saved': {
+      id: '/w/$workspaceSlug/_chat/saved'
+      path: '/saved'
+      fullPath: '/w/$workspaceSlug/saved'
+      preLoaderRoute: typeof WWorkspaceSlugChatSavedRouteImport
+      parentRoute: typeof WWorkspaceSlugChatRoute
+    }
+    '/w/$workspaceSlug/_computers/computers': {
+      id: '/w/$workspaceSlug/_computers/computers'
+      path: '/computers'
+      fullPath: '/w/$workspaceSlug/computers'
+      preLoaderRoute: typeof WWorkspaceSlugComputersComputersRouteImport
+      parentRoute: typeof WWorkspaceSlugComputersRoute
+    }
+    '/w/$workspaceSlug/agent/$agentId': {
+      id: '/w/$workspaceSlug/agent/$agentId'
+      path: '/agent/$agentId'
+      fullPath: '/w/$workspaceSlug/agent/$agentId'
+      preLoaderRoute: typeof WWorkspaceSlugAgentAgentIdRouteImport
+      parentRoute: typeof WWorkspaceSlugRoute
+    }
+    '/w/$workspaceSlug/projects/': {
+      id: '/w/$workspaceSlug/projects/'
+      path: '/projects'
+      fullPath: '/w/$workspaceSlug/projects/'
+      preLoaderRoute: typeof WWorkspaceSlugProjectsIndexRouteImport
+      parentRoute: typeof WWorkspaceSlugRoute
+    }
+    '/w/$workspaceSlug/projects/$projectSlug': {
+      id: '/w/$workspaceSlug/projects/$projectSlug'
+      path: '/projects/$projectSlug'
+      fullPath: '/w/$workspaceSlug/projects/$projectSlug'
+      preLoaderRoute: typeof WWorkspaceSlugProjectsProjectSlugRouteImport
+      parentRoute: typeof WWorkspaceSlugRoute
+    }
+    '/w/$workspaceSlug/records/': {
+      id: '/w/$workspaceSlug/records/'
+      path: '/'
+      fullPath: '/w/$workspaceSlug/records/'
+      preLoaderRoute: typeof WWorkspaceSlugRecordsIndexRouteImport
+      parentRoute: typeof WWorkspaceSlugRecordsRoute
+    }
+    '/w/$workspaceSlug/records/$recordId': {
+      id: '/w/$workspaceSlug/records/$recordId'
+      path: '/$recordId'
+      fullPath: '/w/$workspaceSlug/records/$recordId'
+      preLoaderRoute: typeof WWorkspaceSlugRecordsRecordIdRouteImport
+      parentRoute: typeof WWorkspaceSlugRecordsRoute
+    }
+    '/w/$workspaceSlug/records/settings': {
+      id: '/w/$workspaceSlug/records/settings'
+      path: '/settings'
+      fullPath: '/w/$workspaceSlug/records/settings'
+      preLoaderRoute: typeof WWorkspaceSlugRecordsSettingsRouteImport
+      parentRoute: typeof WWorkspaceSlugRecordsRoute
+    }
+    '/w/$workspaceSlug/records/stats': {
+      id: '/w/$workspaceSlug/records/stats'
+      path: '/stats'
+      fullPath: '/w/$workspaceSlug/records/stats'
+      preLoaderRoute: typeof WWorkspaceSlugRecordsStatsRouteImport
+      parentRoute: typeof WWorkspaceSlugRecordsRoute
     }
     '/api/agent/v1/actions/prepare': {
       id: '/api/agent/v1/actions/prepare'
@@ -1836,6 +1802,34 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiProjectsProjectIdRawSplatRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/w/$workspaceSlug/_chat/channel/$channelId': {
+      id: '/w/$workspaceSlug/_chat/channel/$channelId'
+      path: '/channel/$channelId'
+      fullPath: '/w/$workspaceSlug/channel/$channelId'
+      preLoaderRoute: typeof WWorkspaceSlugChatChannelChannelIdRouteImport
+      parentRoute: typeof WWorkspaceSlugChatRoute
+    }
+    '/w/$workspaceSlug/_chat/messages/$agentId': {
+      id: '/w/$workspaceSlug/_chat/messages/$agentId'
+      path: '/messages/$agentId'
+      fullPath: '/w/$workspaceSlug/messages/$agentId'
+      preLoaderRoute: typeof WWorkspaceSlugChatMessagesAgentIdRouteImport
+      parentRoute: typeof WWorkspaceSlugChatRoute
+    }
+    '/w/$workspaceSlug/_computers/computer/$computerId': {
+      id: '/w/$workspaceSlug/_computers/computer/$computerId'
+      path: '/computer/$computerId'
+      fullPath: '/w/$workspaceSlug/computer/$computerId'
+      preLoaderRoute: typeof WWorkspaceSlugComputersComputerComputerIdRouteImport
+      parentRoute: typeof WWorkspaceSlugComputersRoute
+    }
+    '/w/$workspaceSlug/projects/$projectSlug_/settings': {
+      id: '/w/$workspaceSlug/projects/$projectSlug_/settings'
+      path: '/projects/$projectSlug/settings'
+      fullPath: '/w/$workspaceSlug/projects/$projectSlug/settings'
+      preLoaderRoute: typeof WWorkspaceSlugProjectsProjectSlugSettingsRouteImport
+      parentRoute: typeof WWorkspaceSlugRoute
+    }
     '/api/agent/v1/attachment-upload-sessions/$uploadId/complete': {
       id: '/api/agent/v1/attachment-upload-sessions/$uploadId/complete'
       path: '/complete'
@@ -1927,94 +1921,22 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiWorkspacesWorkspaceIdUsersUserIdAvatarRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/w/$workspaceSlug/projects/$projectSlug_/tree/$': {
+      id: '/w/$workspaceSlug/projects/$projectSlug_/tree/$'
+      path: '/projects/$projectSlug/tree/$'
+      fullPath: '/w/$workspaceSlug/projects/$projectSlug/tree/$'
+      preLoaderRoute: typeof WWorkspaceSlugProjectsProjectSlugTreeSplatRouteImport
+      parentRoute: typeof WWorkspaceSlugRoute
+    }
+    '/w/$workspaceSlug/records/weeks/$year/$week': {
+      id: '/w/$workspaceSlug/records/weeks/$year/$week'
+      path: '/weeks/$year/$week'
+      fullPath: '/w/$workspaceSlug/records/weeks/$year/$week'
+      preLoaderRoute: typeof WWorkspaceSlugRecordsWeeksYearWeekRouteImport
+      parentRoute: typeof WWorkspaceSlugRecordsRoute
+    }
   }
 }
-
-interface AppComputersRouteChildren {
-  AppComputersComputerIdRoute: typeof AppComputersComputerIdRoute
-  AppComputersIndexRoute: typeof AppComputersIndexRoute
-}
-
-const AppComputersRouteChildren: AppComputersRouteChildren = {
-  AppComputersComputerIdRoute: AppComputersComputerIdRoute,
-  AppComputersIndexRoute: AppComputersIndexRoute,
-}
-
-const AppComputersRouteWithChildren = AppComputersRoute._addFileChildren(
-  AppComputersRouteChildren,
-)
-
-interface AppMessagesRouteChildren {
-  AppMessagesAgentIdRoute: typeof AppMessagesAgentIdRoute
-  AppMessagesSavedRoute: typeof AppMessagesSavedRoute
-  AppMessagesIndexRoute: typeof AppMessagesIndexRoute
-  AppMessagesChannelsChannelIdRoute: typeof AppMessagesChannelsChannelIdRoute
-}
-
-const AppMessagesRouteChildren: AppMessagesRouteChildren = {
-  AppMessagesAgentIdRoute: AppMessagesAgentIdRoute,
-  AppMessagesSavedRoute: AppMessagesSavedRoute,
-  AppMessagesIndexRoute: AppMessagesIndexRoute,
-  AppMessagesChannelsChannelIdRoute: AppMessagesChannelsChannelIdRoute,
-}
-
-const AppMessagesRouteWithChildren = AppMessagesRoute._addFileChildren(
-  AppMessagesRouteChildren,
-)
-
-interface AppRecordsRouteChildren {
-  AppRecordsRecordIdRoute: typeof AppRecordsRecordIdRoute
-  AppRecordsSettingsRoute: typeof AppRecordsSettingsRoute
-  AppRecordsStatsRoute: typeof AppRecordsStatsRoute
-  AppRecordsIndexRoute: typeof AppRecordsIndexRoute
-  AppRecordsWeeksYearWeekRoute: typeof AppRecordsWeeksYearWeekRoute
-}
-
-const AppRecordsRouteChildren: AppRecordsRouteChildren = {
-  AppRecordsRecordIdRoute: AppRecordsRecordIdRoute,
-  AppRecordsSettingsRoute: AppRecordsSettingsRoute,
-  AppRecordsStatsRoute: AppRecordsStatsRoute,
-  AppRecordsIndexRoute: AppRecordsIndexRoute,
-  AppRecordsWeeksYearWeekRoute: AppRecordsWeeksYearWeekRoute,
-}
-
-const AppRecordsRouteWithChildren = AppRecordsRoute._addFileChildren(
-  AppRecordsRouteChildren,
-)
-
-interface AppRouteChildren {
-  AppActivityRoute: typeof AppActivityRoute
-  AppComputersRoute: typeof AppComputersRouteWithChildren
-  AppMessagesRoute: typeof AppMessagesRouteWithChildren
-  AppRecordsRoute: typeof AppRecordsRouteWithChildren
-  AppSearchRoute: typeof AppSearchRoute
-  AppSettingsRoute: typeof AppSettingsRoute
-  AppTasksRoute: typeof AppTasksRoute
-  AppAgentsAgentIdRoute: typeof AppAgentsAgentIdRoute
-  AppProjectsProjectSlugRoute: typeof AppProjectsProjectSlugRoute
-  AppAgentsIndexRoute: typeof AppAgentsIndexRoute
-  AppProjectsIndexRoute: typeof AppProjectsIndexRoute
-  AppProjectsProjectSlugSettingsRoute: typeof AppProjectsProjectSlugSettingsRoute
-  AppProjectsProjectSlugTreeSplatRoute: typeof AppProjectsProjectSlugTreeSplatRoute
-}
-
-const AppRouteChildren: AppRouteChildren = {
-  AppActivityRoute: AppActivityRoute,
-  AppComputersRoute: AppComputersRouteWithChildren,
-  AppMessagesRoute: AppMessagesRouteWithChildren,
-  AppRecordsRoute: AppRecordsRouteWithChildren,
-  AppSearchRoute: AppSearchRoute,
-  AppSettingsRoute: AppSettingsRoute,
-  AppTasksRoute: AppTasksRoute,
-  AppAgentsAgentIdRoute: AppAgentsAgentIdRoute,
-  AppProjectsProjectSlugRoute: AppProjectsProjectSlugRoute,
-  AppAgentsIndexRoute: AppAgentsIndexRoute,
-  AppProjectsIndexRoute: AppProjectsIndexRoute,
-  AppProjectsProjectSlugSettingsRoute: AppProjectsProjectSlugSettingsRoute,
-  AppProjectsProjectSlugTreeSplatRoute: AppProjectsProjectSlugTreeSplatRoute,
-}
-
-const AppRouteWithChildren = AppRoute._addFileChildren(AppRouteChildren)
 
 interface ApiAttachmentsRouteChildren {
   ApiAttachmentsAttachmentIdRoute: typeof ApiAttachmentsAttachmentIdRoute
@@ -2037,6 +1959,104 @@ const ApiMeRouteChildren: ApiMeRouteChildren = {
 }
 
 const ApiMeRouteWithChildren = ApiMeRoute._addFileChildren(ApiMeRouteChildren)
+
+interface WWorkspaceSlugChatRouteChildren {
+  WWorkspaceSlugChatSavedRoute: typeof WWorkspaceSlugChatSavedRoute
+  WWorkspaceSlugChatIndexRoute: typeof WWorkspaceSlugChatIndexRoute
+  WWorkspaceSlugChatChannelChannelIdRoute: typeof WWorkspaceSlugChatChannelChannelIdRoute
+  WWorkspaceSlugChatMessagesAgentIdRoute: typeof WWorkspaceSlugChatMessagesAgentIdRoute
+}
+
+const WWorkspaceSlugChatRouteChildren: WWorkspaceSlugChatRouteChildren = {
+  WWorkspaceSlugChatSavedRoute: WWorkspaceSlugChatSavedRoute,
+  WWorkspaceSlugChatIndexRoute: WWorkspaceSlugChatIndexRoute,
+  WWorkspaceSlugChatChannelChannelIdRoute:
+    WWorkspaceSlugChatChannelChannelIdRoute,
+  WWorkspaceSlugChatMessagesAgentIdRoute:
+    WWorkspaceSlugChatMessagesAgentIdRoute,
+}
+
+const WWorkspaceSlugChatRouteWithChildren =
+  WWorkspaceSlugChatRoute._addFileChildren(WWorkspaceSlugChatRouteChildren)
+
+interface WWorkspaceSlugComputersRouteChildren {
+  WWorkspaceSlugComputersComputersRoute: typeof WWorkspaceSlugComputersComputersRoute
+  WWorkspaceSlugComputersComputerComputerIdRoute: typeof WWorkspaceSlugComputersComputerComputerIdRoute
+}
+
+const WWorkspaceSlugComputersRouteChildren: WWorkspaceSlugComputersRouteChildren =
+  {
+    WWorkspaceSlugComputersComputersRoute:
+      WWorkspaceSlugComputersComputersRoute,
+    WWorkspaceSlugComputersComputerComputerIdRoute:
+      WWorkspaceSlugComputersComputerComputerIdRoute,
+  }
+
+const WWorkspaceSlugComputersRouteWithChildren =
+  WWorkspaceSlugComputersRoute._addFileChildren(
+    WWorkspaceSlugComputersRouteChildren,
+  )
+
+interface WWorkspaceSlugRecordsRouteChildren {
+  WWorkspaceSlugRecordsRecordIdRoute: typeof WWorkspaceSlugRecordsRecordIdRoute
+  WWorkspaceSlugRecordsSettingsRoute: typeof WWorkspaceSlugRecordsSettingsRoute
+  WWorkspaceSlugRecordsStatsRoute: typeof WWorkspaceSlugRecordsStatsRoute
+  WWorkspaceSlugRecordsIndexRoute: typeof WWorkspaceSlugRecordsIndexRoute
+  WWorkspaceSlugRecordsWeeksYearWeekRoute: typeof WWorkspaceSlugRecordsWeeksYearWeekRoute
+}
+
+const WWorkspaceSlugRecordsRouteChildren: WWorkspaceSlugRecordsRouteChildren = {
+  WWorkspaceSlugRecordsRecordIdRoute: WWorkspaceSlugRecordsRecordIdRoute,
+  WWorkspaceSlugRecordsSettingsRoute: WWorkspaceSlugRecordsSettingsRoute,
+  WWorkspaceSlugRecordsStatsRoute: WWorkspaceSlugRecordsStatsRoute,
+  WWorkspaceSlugRecordsIndexRoute: WWorkspaceSlugRecordsIndexRoute,
+  WWorkspaceSlugRecordsWeeksYearWeekRoute:
+    WWorkspaceSlugRecordsWeeksYearWeekRoute,
+}
+
+const WWorkspaceSlugRecordsRouteWithChildren =
+  WWorkspaceSlugRecordsRoute._addFileChildren(
+    WWorkspaceSlugRecordsRouteChildren,
+  )
+
+interface WWorkspaceSlugRouteChildren {
+  WWorkspaceSlugChatRoute: typeof WWorkspaceSlugChatRouteWithChildren
+  WWorkspaceSlugComputersRoute: typeof WWorkspaceSlugComputersRouteWithChildren
+  WWorkspaceSlugActivityRoute: typeof WWorkspaceSlugActivityRoute
+  WWorkspaceSlugMembersRoute: typeof WWorkspaceSlugMembersRoute
+  WWorkspaceSlugRecordsRoute: typeof WWorkspaceSlugRecordsRouteWithChildren
+  WWorkspaceSlugSearchRoute: typeof WWorkspaceSlugSearchRoute
+  WWorkspaceSlugSettingsRoute: typeof WWorkspaceSlugSettingsRoute
+  WWorkspaceSlugTasksRoute: typeof WWorkspaceSlugTasksRoute
+  WWorkspaceSlugAgentAgentIdRoute: typeof WWorkspaceSlugAgentAgentIdRoute
+  WWorkspaceSlugProjectsProjectSlugRoute: typeof WWorkspaceSlugProjectsProjectSlugRoute
+  WWorkspaceSlugProjectsIndexRoute: typeof WWorkspaceSlugProjectsIndexRoute
+  WWorkspaceSlugProjectsProjectSlugSettingsRoute: typeof WWorkspaceSlugProjectsProjectSlugSettingsRoute
+  WWorkspaceSlugProjectsProjectSlugTreeSplatRoute: typeof WWorkspaceSlugProjectsProjectSlugTreeSplatRoute
+}
+
+const WWorkspaceSlugRouteChildren: WWorkspaceSlugRouteChildren = {
+  WWorkspaceSlugChatRoute: WWorkspaceSlugChatRouteWithChildren,
+  WWorkspaceSlugComputersRoute: WWorkspaceSlugComputersRouteWithChildren,
+  WWorkspaceSlugActivityRoute: WWorkspaceSlugActivityRoute,
+  WWorkspaceSlugMembersRoute: WWorkspaceSlugMembersRoute,
+  WWorkspaceSlugRecordsRoute: WWorkspaceSlugRecordsRouteWithChildren,
+  WWorkspaceSlugSearchRoute: WWorkspaceSlugSearchRoute,
+  WWorkspaceSlugSettingsRoute: WWorkspaceSlugSettingsRoute,
+  WWorkspaceSlugTasksRoute: WWorkspaceSlugTasksRoute,
+  WWorkspaceSlugAgentAgentIdRoute: WWorkspaceSlugAgentAgentIdRoute,
+  WWorkspaceSlugProjectsProjectSlugRoute:
+    WWorkspaceSlugProjectsProjectSlugRoute,
+  WWorkspaceSlugProjectsIndexRoute: WWorkspaceSlugProjectsIndexRoute,
+  WWorkspaceSlugProjectsProjectSlugSettingsRoute:
+    WWorkspaceSlugProjectsProjectSlugSettingsRoute,
+  WWorkspaceSlugProjectsProjectSlugTreeSplatRoute:
+    WWorkspaceSlugProjectsProjectSlugTreeSplatRoute,
+}
+
+const WWorkspaceSlugRouteWithChildren = WWorkspaceSlugRoute._addFileChildren(
+  WWorkspaceSlugRouteChildren,
+)
 
 interface ApiAgentV1AttachmentUploadSessionsUploadIdRouteChildren {
   ApiAgentV1AttachmentUploadSessionsUploadIdCompleteRoute: typeof ApiAgentV1AttachmentUploadSessionsUploadIdCompleteRoute
@@ -2084,7 +2104,6 @@ const ApiAgentV1ChannelsChannelRouteWithChildren =
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
-  AppRoute: AppRouteWithChildren,
   HealthRoute: HealthRoute,
   LoginRoute: LoginRoute,
   DotwellKnownOauthAuthorizationServerRoute:
@@ -2102,6 +2121,7 @@ const rootRouteChildren: RootRouteChildren = {
   OauthDeviceRoute: OauthDeviceRoute,
   OauthTokenRoute: OauthTokenRoute,
   OauthVerifyRoute: OauthVerifyRoute,
+  WWorkspaceSlugRoute: WWorkspaceSlugRouteWithChildren,
   ApiComputerAttachRoute: ApiComputerAttachRoute,
   ApiComputerWorkspaceRoute: ApiComputerWorkspaceRoute,
   ApiInternalCentrifugoRoute: ApiInternalCentrifugoRoute,

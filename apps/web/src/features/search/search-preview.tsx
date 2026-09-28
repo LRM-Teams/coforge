@@ -13,7 +13,7 @@ import { m } from "#src/paraglide/messages";
 import type { RememberedEntity } from "./search-memory";
 import { searchDirectoryQuery } from "./search-queries";
 
-const searchRoute = getRouteApi("/_app/search");
+const searchRoute = getRouteApi("/w/$workspaceSlug/search");
 
 /** What the preview shows: a channel or an Agent's direct conversation, optionally at a message. */
 export type SearchPreviewTarget = RememberedEntity & {

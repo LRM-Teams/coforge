@@ -11,6 +11,7 @@ import type {
   WebPushSubscriptionInput,
   WebPushSubscriptionStore,
 } from "./web-push-notifications.server";
+import { workspacePath } from "#src/features/workspaces/workspace-url";
 
 const MESSAGE_PREVIEW_LENGTH = 180;
 
@@ -83,12 +84,13 @@ export class PrismaWebPushSubscriptionStore implements WebPushSubscriptionStore 
       readableBody.length > MESSAGE_PREVIEW_LENGTH
         ? `${readableBody.slice(0, MESSAGE_PREVIEW_LENGTH - 1)}…`
         : readableBody;
+    const workspaceSlug = message.conversation.workspace.slug;
     const conversationPath = channelName
-      ? `/messages/channels/${message.conversationId}`
-      : `/messages/${agentId}`;
+      ? workspacePath(workspaceSlug, `/channel/${message.conversationId}`)
+      : workspacePath(workspaceSlug, `/messages/${agentId}`);
     // The message lives in the Chat tab; the server rendering the target never sees the hash.
     const anchoredTarget = `${conversationPath}?view=chat#message-${message.id}`;
-    const url = `/notifications/open?workspace=${encodeURIComponent(message.conversation.workspace.slug)}&target=${encodeURIComponent(anchoredTarget)}`;
+    const url = `/notifications/open?workspace=${encodeURIComponent(workspaceSlug)}&target=${encodeURIComponent(anchoredTarget)}`;
     return {
       message: {
         id: message.id,

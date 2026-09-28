@@ -7,6 +7,7 @@ import { AgentDisplayAvatar } from "#src/features/agents/agent-activity-avatar";
 import { agentDisplay } from "#src/features/agents/agent-activity-presentation";
 import { formatAgentProfileParam } from "#src/features/agents/profile-panel/profile-panel-search";
 import { useAgentDisplays } from "#src/features/agents/workspace-agents-realtime";
+import { useWorkspaceSlug } from "#src/features/workspaces/workspace-route";
 import { computerIcon } from "#src/features/computers/computer-identity";
 import { conversationRoute } from "#src/features/conversations/last-conversation";
 import { m } from "#src/paraglide/messages";
@@ -40,6 +41,7 @@ export function SearchEntityRow({
   onOpen?: () => void;
 }) {
   const { previewed, preview } = useSearchPreview();
+  const workspaceSlug = useWorkspaceSlug();
   // A channel or the viewer's own Agent (whose DM they can read) previews; others just open.
   const target =
     entity.kind === "channel" || (entity.kind === "agent" && entity.ownedByCurrentUser)
@@ -62,14 +64,25 @@ export function SearchEntityRow({
   };
   switch (entity.kind) {
     case "channel":
-      return <Link {...conversationRoute({ channelId: entity.id })} {...props} />;
+      return <Link {...conversationRoute({ channelId: entity.id }, workspaceSlug)} {...props} />;
     case "computer":
-      return <Link to="/computers/$computerId" params={{ computerId: entity.id }} {...props} />;
+      return (
+        <Link
+          to="/w/$workspaceSlug/computer/$computerId"
+          params={{ workspaceSlug, computerId: entity.id }}
+          {...props}
+        />
+      );
     case "agent":
       return entity.ownedByCurrentUser ? (
-        <Link {...conversationRoute({ agentId: entity.id })} {...props} />
+        <Link {...conversationRoute({ agentId: entity.id }, workspaceSlug)} {...props} />
       ) : (
-        <Link to="/agents" search={{ profile: formatAgentProfileParam(entity.id) }} {...props} />
+        <Link
+          to="/w/$workspaceSlug/members"
+          params={{ workspaceSlug }}
+          search={{ profile: formatAgentProfileParam(entity.id) }}
+          {...props}
+        />
       );
   }
 }

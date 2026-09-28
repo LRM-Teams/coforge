@@ -65,7 +65,9 @@ test("a member turns off collapsing long messages for one channel and back on", 
 
   const membership = await db.workspaceMembership.findFirstOrThrow({
     where: { userId: DEV_BROWSER_USER.id, role: "owner" },
+    include: { workspace: { select: { slug: true } } },
   });
+  const workspacePath = `/en/w/${membership.workspace.slug}`;
   const workspaceId = membership.workspaceId;
   const channel = await db.conversation.create({
     data: { workspaceId, channelName: `e2e-collapse-${process.pid}`, description: "" },
@@ -89,7 +91,7 @@ test("a member turns off collapsing long messages for one channel and back on", 
     await mkdir(artifacts, { recursive: true });
 
     await browser("set", "viewport", "1440", "900");
-    await browser("open", `${origin}/en/messages/channels/${channel.id}`);
+    await browser("open", `${origin}${workspacePath}/channel/${channel.id}`);
     await waitFor(showMore, 60_000);
     await browser("screenshot", join(artifacts, "collapsed.png"));
 

@@ -3,7 +3,7 @@ import { PageLoadError } from "#src/features/errors/page-load-error";
 import { ProjectsContent, ProjectsPending } from "#src/features/projects/projects-content";
 import { listProjects } from "#src/features/projects/projects.functions";
 
-export const Route = createFileRoute("/_app/projects/")({
+export const Route = createFileRoute("/w/$workspaceSlug/projects/")({
   loader: () => listProjects(),
   pendingComponent: ProjectsPending,
   errorComponent: PageLoadError,

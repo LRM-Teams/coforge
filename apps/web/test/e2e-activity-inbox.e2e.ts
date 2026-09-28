@@ -63,9 +63,11 @@ test("the Activity page lists, filters, marks Done and opens inbox items", async
     .map((card) => card.textContent)
     .filter((text) => text.includes("E2E activity"))`;
   try {
-    const { workspaceId } = await db.workspaceMembership.findFirstOrThrow({
+    const { workspaceId, workspace } = await db.workspaceMembership.findFirstOrThrow({
       where: { userId: DEV_BROWSER_USER.id },
+      include: { workspace: { select: { slug: true } } },
     });
+    const workspacePath = `/en/w/${workspace.slug}`;
     const peer = await db.user.upsert({
       where: { id: seededUuid("e2e-activity-inbox:peer") },
       update: {},
@@ -141,7 +143,7 @@ test("the Activity page lists, filters, marks Done and opens inbox items", async
     await mkdir(artifacts, { recursive: true });
 
     await browser("set", "viewport", "1440", "900");
-    await browser("open", `${origin}/en/activity`);
+    await browser("open", `${origin}${workspacePath}/activity`);
     await browser("wait", "--fn", `${seededCards}.length === 2 && ${hydrated}`);
     const cards = await evaluate<string[]>(seededCards);
     // Newest activity first: the channel's unread message was posted after the thread reply.
@@ -252,10 +254,12 @@ test("the Activity page lists, filters, marks Done and opens inbox items", async
     await browser("wait", "--fn", `location.search.includes("threadRootId=${rootId}")`);
     // The pane scrolls to the first unread reply.
     await browser("wait", "--fn", `document.getElementById("message-${replyId}") !== null`);
-    expect(await evaluate<string>("location.pathname")).toBe(`/en/messages/channels/${channelId}`);
+    expect(await evaluate<string>("location.pathname")).toBe(
+      `${workspacePath}/channel/${channelId}`,
+    );
 
     await browser("set", "viewport", "390", "844");
-    await browser("open", `${origin}/en/activity`);
+    await browser("open", `${origin}${workspacePath}/activity`);
     await browser("wait", "--fn", `${seededCards}.length === 1 && ${hydrated}`);
     // Opening the thread read it: its card stays, without the unread badge.
     expect((await evaluate<string[]>(seededCards))[0]).not.toContain("1 new");

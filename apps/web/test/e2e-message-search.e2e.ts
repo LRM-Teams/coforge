@@ -61,7 +61,9 @@ test("the search page finds a message and opens it in its channel", async () => 
   try {
     const membership = await db.workspaceMembership.findFirstOrThrow({
       where: { userId: DEV_BROWSER_USER.id },
+      include: { workspace: { select: { slug: true } } },
     });
+    const workspacePath = `/en/w/${membership.workspace.slug}`;
     const workspaceId = membership.workspaceId;
     // Reset: a channel the viewer never joined, holding one match among older filler, so the
     // jump has to load the window around the match.
@@ -97,10 +99,10 @@ test("the search page finds a message and opens it in its channel", async () => 
     await mkdir(artifacts, { recursive: true });
 
     await browser("set", "viewport", "1440", "900");
-    await browser("open", `${origin}/en/messages`);
+    await browser("open", `${origin}${workspacePath}`);
     // The rail's Search entry opens the empty search page with the box focused.
-    await browser("click", 'aside a[href="/en/search"]');
-    await waitFor(`location.pathname === "/en/search"`);
+    await browser("click", `aside a[href="${workspacePath}/search"]`);
+    await waitFor(`location.pathname === "${workspacePath}/search"`);
     await waitFor(`document.body.textContent.includes("Search everything")`);
     await waitFor(`document.activeElement?.type === "search"`);
     await browser("screenshot", join(artifacts, "empty.png"));
@@ -126,7 +128,7 @@ test("the search page finds a message and opens it in its channel", async () => 
     // The result opens its channel at the message.
     // On a wide screen a single click previews; a double click opens.
     await browser("dblclick", "main ol li a");
-    await waitFor(`location.pathname === "/en/messages/channels/${channelId}"`);
+    await waitFor(`location.pathname === "${workspacePath}/channel/${channelId}"`);
     await waitFor(`document.querySelector('li[data-message-id="${match.id}"]') !== null`);
     await browser("screenshot", join(artifacts, "jumped.png"));
 

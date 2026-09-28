@@ -6,7 +6,7 @@ import { loadRecordSubject } from "#src/features/records/records.functions";
 import { sanitizeRecordsReturnTo } from "#src/features/records/records-return-to";
 import { isAppError } from "#src/lib/app-error";
 
-export const Route = createFileRoute("/_app/records/$recordId")({
+export const Route = createFileRoute("/w/$workspaceSlug/records/$recordId")({
   // Loader may run on the server; TipTap must not SSR (client-only).
   ssr: "data-only",
   // Always revalidate when entering a report so saves from a previous visit win

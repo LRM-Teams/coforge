@@ -15,9 +15,9 @@ import {
 } from "#src/features/search/search-preview-context";
 import { searchPageSearchSchema, searchQuerySchema } from "#src/features/search/search.schemas";
 
-const appRoute = getRouteApi("/_app");
+const appRoute = getRouteApi("/w/$workspaceSlug");
 
-export const Route = createFileRoute("/_app/search")({
+export const Route = createFileRoute("/w/$workspaceSlug/search")({
   validateSearch: searchPageSearchSchema,
   // The loader reads only what `loaderDeps` names; typing a query never reruns it.
   staleTime: Infinity,

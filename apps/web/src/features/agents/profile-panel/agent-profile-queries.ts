@@ -36,7 +36,7 @@ export function agentEnvironmentQuery(agentId: string | undefined, enabled: bool
 /**
  * Re-fetches every surface that still shows this Agent after a panel edit.
  * The panel itself is query-cached (`agent-profile`); the DM list and conversation
- * header come from the `/_app` loader (`listAgents` → LiveAgents); message
+ * header come from the Workspace layout loader (`listAgents` → LiveAgents); message
  * `senderName` lives on the conversation query; the Members grid lives on `member-directory`. The full Agent detail page uses
  * `router.invalidate` for the loader; settings avatar upload also invalidates
  * `["conversation"]` so already-open threads pick up the new identity.

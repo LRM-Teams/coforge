@@ -9,6 +9,7 @@ import { TextArea } from "#src/components/base/textarea/textarea";
 import { Select } from "#src/components/base/select/select";
 import { Toggle } from "#src/components/base/toggle/toggle";
 import { listAccessibleGitHubRepositories } from "#src/features/integrations/github.functions";
+import { useWorkspaceSlug } from "#src/features/workspaces/workspace-route";
 import { m } from "#src/paraglide/messages";
 import {
   deleteProject,
@@ -24,6 +25,7 @@ export function ProjectSettingsPage({
   project: NonNullable<Awaited<ReturnType<typeof getProject>>>;
 }) {
   const router = useRouter();
+  const workspaceSlug = useWorkspaceSlug();
   const save = useServerFn(updateProject);
   const remove = useServerFn(deleteProject);
   const upload = useServerFn(uploadProjectIcon);
@@ -90,7 +92,7 @@ export function ProjectSettingsPage({
     try {
       if (deleting) {
         await remove({ data: { id: project.id, confirmation } });
-        await router.navigate({ to: "/projects" });
+        await router.navigate({ to: "/w/$workspaceSlug/projects", params: { workspaceSlug } });
         await router.invalidate({ sync: true });
       } else {
         const repository = items.find((item) => String(item.id) === selection);
@@ -132,8 +134,8 @@ export function ProjectSettingsPage({
         heading={m.project_settings()}
         leading={
           <Link
-            to="/projects/$projectSlug"
-            params={{ projectSlug: project.slug }}
+            to="/w/$workspaceSlug/projects/$projectSlug"
+            params={{ workspaceSlug, projectSlug: project.slug }}
             aria-label={project.name}
             className="shrink-0 rounded-lg p-2 text-tertiary outline-focus-ring hover:bg-primary_hover focus-visible:outline-2"
           >
@@ -246,7 +248,8 @@ export function ProjectSettingsPage({
               )}
               {!loading && (repositoryError || items.length === 0) && (
                 <Link
-                  to="/settings"
+                  to="/w/$workspaceSlug/settings"
+                  params={{ workspaceSlug }}
                   search={{ section: "integrations" }}
                   className="text-sm font-medium text-brand-secondary hover:underline"
                 >

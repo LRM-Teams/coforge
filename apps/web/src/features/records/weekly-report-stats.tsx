@@ -20,7 +20,7 @@ export function WeeklyReportStats({
   year: number;
   month: number;
 }) {
-  const navigate = useNavigate({ from: "/records/stats" });
+  const navigate = useNavigate({ from: "/w/$workspaceSlug/records/stats" });
 
   function shiftMonth(delta: number) {
     const date = new Date(year, month - 1 + delta, 1);

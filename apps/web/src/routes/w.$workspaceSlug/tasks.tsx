@@ -28,7 +28,7 @@ import {
 import { loadOverviewTask } from "#src/features/tasks/tasks.functions";
 import { useCurrentWorkspaceId } from "#src/features/agents/workspace-agents-realtime";
 
-export const Route = createFileRoute("/_app/tasks")({
+export const Route = createFileRoute("/w/$workspaceSlug/tasks")({
   validateSearch: z.object({
     ...taskBoardSearchShape,
     task: overviewTaskParamSchema,
@@ -186,7 +186,7 @@ function TasksPage() {
 function renderTaskTitle(task: OverviewTaskRow, title: ReactNode) {
   return (
     <Link
-      from="/tasks"
+      from="/w/$workspaceSlug/tasks"
       to="."
       search={(previous) => ({ ...previous, task: overviewTaskParam(task) })}
       resetScroll={false}

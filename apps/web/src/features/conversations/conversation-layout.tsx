@@ -6,6 +6,7 @@ import {
   useCurrentWorkspaceId,
   useLiveAgents,
 } from "#src/features/agents/workspace-agents-realtime";
+import { useWorkspaceSlug } from "#src/features/workspaces/workspace-route";
 import { useBreakpoint } from "#src/hooks/use-breakpoint";
 import { m } from "#src/paraglide/messages";
 import { ConversationPending } from "./conversation-pending";
@@ -28,6 +29,7 @@ export function EmptyConversation() {
   const { channels, directs } = useSidebarLists();
   const agents = useLiveAgents();
   const workspaceId = useCurrentWorkspaceId();
+  const workspaceSlug = useWorkspaceSlug();
   const desktop = useBreakpoint("lg");
   const navigate = useNavigate();
   // While any navigation is under way (the landing one included) the pane leaves it alone; once
@@ -43,8 +45,8 @@ export function EmptyConversation() {
         hiddenAgentIds: directs.hiddenAgentIds,
       },
     );
-    if (target) void navigate({ ...conversationRoute(target), replace: true });
-  }, [desktop, navigating, workspaceId, channels, agents, directs, navigate]);
+    if (target) void navigate({ ...conversationRoute(target, workspaceSlug), replace: true });
+  }, [desktop, navigating, workspaceId, workspaceSlug, channels, agents, directs, navigate]);
 
   // While a channel or direct message is opening, this pane would still ask for the choice just
   // made until the router's pending fallback is due: show the conversation skeleton instead. The

@@ -11,7 +11,7 @@ import { RecordsLayout, type RecordsTab } from "#src/features/records/records-la
 import { loadRecordsCatalog } from "#src/features/records/records.functions";
 import { latestWeeklyLanding } from "#src/features/records/records-sidebar";
 
-export const Route = createFileRoute("/_app/records")({
+export const Route = createFileRoute("/w/$workspaceSlug/records")({
   validateSearch: (search: Record<string, unknown>): { tab: RecordsTab } => ({
     tab: search.tab === "notes" ? "notes" : "weekly",
   }),
@@ -25,17 +25,17 @@ function RecordsPage() {
   const { tab } = Route.useSearch();
   const navigate = useNavigate({ from: Route.fullPath });
   const params = useParams({
-    from: "/_app/records/$recordId",
+    from: "/w/$workspaceSlug/records/$recordId",
     shouldThrow: false,
   });
   const weekParams = useParams({
-    from: "/_app/records/weeks/$year/$week",
+    from: "/w/$workspaceSlug/records/weeks/$year/$week",
     shouldThrow: false,
   });
   const matchRoute = useMatchRoute();
-  const selectedPanel = matchRoute({ to: "/records/settings", fuzzy: false })
+  const selectedPanel = matchRoute({ to: "/w/$workspaceSlug/records/settings", fuzzy: false })
     ? "settings"
-    : matchRoute({ to: "/records/stats", fuzzy: false })
+    : matchRoute({ to: "/w/$workspaceSlug/records/stats", fuzzy: false })
       ? "stats"
       : null;
   const routeRecordId = params?.recordId;

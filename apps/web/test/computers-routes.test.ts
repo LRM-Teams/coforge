@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 
-import { Route as computerDetailRoute } from "#src/routes/_app/computers.$computerId";
-import { Route as computersRoute } from "#src/routes/_app/computers";
+import { Route as computerDetailRoute } from "#src/routes/w.$workspaceSlug/_computers.computer.$computerId";
+import { Route as computersRoute } from "#src/routes/w.$workspaceSlug/_computers";
 
 test("Computer routes take the shared pending policy instead of restating it", () => {
   expect(computersRoute.options.pendingMs).toBeUndefined();

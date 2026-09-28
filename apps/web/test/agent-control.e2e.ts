@@ -43,7 +43,10 @@ test("Profile controls and Skills cross Web, WSS, native child and Session persi
   const root = await mkdtemp(join(tmpdir(), "coforge-control-e2e-"));
   const originalHome = Bun.env.HOME;
   const ownerId = DEV_BROWSER_USER.id;
-  const membership = await db.workspaceMembership.findFirstOrThrow({ where: { userId: ownerId } });
+  const membership = await db.workspaceMembership.findFirstOrThrow({
+    where: { userId: ownerId },
+    include: { workspace: { select: { slug: true } } },
+  });
   const workspaceId = membership.workspaceId;
   const computer = await db.computer.create({
     data: { ownerId, machineId: `control-e2e-${crypto.randomUUID()}` },
@@ -126,7 +129,7 @@ test("Profile controls and Skills cross Web, WSS, native child and Session persi
     );
     await Bun.write(sibling, "other Agent untouched");
 
-    await browser("open", `http://127.0.0.1:8790/agents/${agent.id}`);
+    await browser("open", `http://127.0.0.1:8790/w/${membership.workspace.slug}/agent/${agent.id}`);
     await browser("set", "viewport", "1280", "900", "2");
     await browser(
       "wait",

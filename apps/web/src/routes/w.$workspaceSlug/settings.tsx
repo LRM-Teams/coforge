@@ -52,10 +52,11 @@ import {
   setGeneralChannelHidden,
 } from "#src/features/conversations/channels.functions";
 import { useRefreshSidebarChannels } from "#src/features/conversations/sidebar-lists";
+import { workspacePath } from "#src/features/workspaces/workspace-url";
 
 type Theme = "system" | "light" | "dark";
 
-const appRoute = getRouteApi("/_app");
+const appRoute = getRouteApi("/w/$workspaceSlug");
 
 const settingsSections = [
   "account",
@@ -66,7 +67,7 @@ const settingsSections = [
   "integrations",
 ] as const;
 
-export const Route = createFileRoute("/_app/settings")({
+export const Route = createFileRoute("/w/$workspaceSlug/settings")({
   // The section lives in the URL so it survives the full reload a locale
   // switch triggers and so a settings link can open a specific section.
   validateSearch: z.object({
@@ -109,6 +110,7 @@ function SettingsPage() {
   const [textSize, setTextSize] = useState<TextSizeValue>("default");
   const [messageFullWidth, setMessageFullWidth] = useState(false);
   const { section, github } = Route.useSearch();
+  const { workspaceSlug } = Route.useParams();
   const navigate = Route.useNavigate();
   const {
     timeZone: savedTimeZone,
@@ -272,7 +274,7 @@ function SettingsPage() {
             title: m.preferences_browser_notifications_test_title(),
             body: m.preferences_browser_notifications_test_body(),
             tag: `test:${crypto.randomUUID()}`,
-            url: "/settings",
+            url: workspacePath(workspaceSlug, "/settings"),
           });
           return true;
         } catch (displayCause) {

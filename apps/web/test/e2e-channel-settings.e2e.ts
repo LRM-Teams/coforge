@@ -87,7 +87,9 @@ test("the channel settings panel edits info, preferences, archive and membership
   try {
     const membership = await db.workspaceMembership.findFirstOrThrow({
       where: { userId: DEV_BROWSER_USER.id },
+      include: { workspace: { select: { slug: true } } },
     });
+    const workspacePath = `/en/w/${membership.workspace.slug}`;
     const workspaceId = membership.workspaceId;
     // Reset: the viewer created the channel (so is its admin), it is live, unpinned and unmuted,
     // and closed in their sidebar, so it is opened by URL and pinned from the panel alone.
@@ -121,7 +123,7 @@ test("the channel settings panel edits info, preferences, archive and membership
     await mkdir(artifacts, { recursive: true });
 
     await browser("set", "viewport", "1440", "900");
-    await browser("open", `${origin}/en/messages/channels/${channelId}`);
+    await browser("open", `${origin}${workspacePath}/channel/${channelId}`);
     await waitFor(
       `document.querySelector('[aria-label="Channel details and settings"]') !== null`,
       60_000,
@@ -236,7 +238,7 @@ test("the channel settings panel edits info, preferences, archive and membership
 
     // Phone: the panel covers the screen and still scrolls to its actions.
     await browser("set", "viewport", "390", "844");
-    await browser("open", `${origin}/en/messages/channels/${channelId}`);
+    await browser("open", `${origin}${workspacePath}/channel/${channelId}`);
     await waitFor(
       `document.querySelector('[aria-label="Channel details and settings"]') !== null`,
       60_000,

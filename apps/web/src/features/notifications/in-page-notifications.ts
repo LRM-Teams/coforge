@@ -1,6 +1,7 @@
 import { useCallback, useRef } from "react";
 import { useServerFn } from "@tanstack/react-start";
 
+import { deLocalizeHref } from "#src/paraglide/runtime";
 import { useRealtimeSubscription } from "#src/features/realtime/browser-realtime";
 import { getUserConversationSubscriptionToken } from "#src/features/realtime/realtime.functions";
 import {
@@ -110,7 +111,8 @@ async function showInPageNotification(
     !shouldShowInPageNotification({
       visible: document.visibilityState === "visible",
       focused: document.hasFocus(),
-      pathname: window.location.pathname,
+      // The address bar carries the locale prefix (`/en/w/…`); the target does not.
+      pathname: deLocalizeHref(window.location.pathname),
       conversationPath: notification.conversationPath,
     })
   )

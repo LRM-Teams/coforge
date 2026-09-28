@@ -6,7 +6,7 @@ import { normalizeUserCode } from "#src/features/device-auth/device-code-format"
 
 /**
  * Where a Computer's `login` sends the person sitting in front of it. Deliberately outside
- * `_app`: someone arriving here may have no Workspace selected yet, and the page has to work as a
+ * the Workspace layout: someone arriving here may have no Workspace selected yet, and the page has to work as a
  * standalone destination pasted from a terminal.
  *
  * The loader redirects to /login when there is no session, so signing in first is a property of

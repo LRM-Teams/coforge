@@ -22,11 +22,7 @@ import { Dropdown } from "#src/components/base/dropdown/dropdown";
 import { SidebarRail } from "#src/components/layout/sidebar/sidebar-rail";
 import { MobileDrawerProvider } from "#src/components/layout/sidebar/mobile-header";
 import { SidebarMobileDrawer } from "#src/components/layout/sidebar/sidebar-channels";
-import {
-  DEFAULT_RECORDS_NAV_HREF,
-  rememberRecordsLastPath,
-  recordsNavHref,
-} from "#src/features/records/records-last-path";
+import { rememberRecordsLastPath, recordsNavHref } from "#src/features/records/records-last-path";
 import {
   ACTIVITY_INBOX_QUERY_PREFIX,
   activityNavAttentionQuery,
@@ -39,6 +35,7 @@ import {
 import { avatarInitial, avatarToneClassName } from "#src/lib/avatar-tone";
 import { m } from "#src/paraglide/messages";
 import { localizeHref } from "#src/paraglide/runtime";
+import { workspacePath } from "#src/features/workspaces/workspace-url";
 
 export type AppUser = {
   id: string;
@@ -68,59 +65,57 @@ function useActivityAttention(user: AppUser, workspaceId?: string) {
   return (query.data?.unread ?? 0) > 0;
 }
 
+/** Chat is the Workspace's home page ("") and its conversations. */
+const CHAT_SECTIONS = ["", "channel", "messages", "saved"];
+
 function useNavItems(
-  recordsPreview = false,
-  workspaceId?: string,
+  base: string,
+  recordsPreview: boolean,
+  workspaceId: string,
   activityDot?: ReactNode,
-): (NavItemType & { icon: FC<{ className?: string }>; bareHref: string })[] {
+): (NavItemType & {
+  icon: FC<{ className?: string }>;
+  bareHref: string;
+  /** Sections under `base` this item is also current for. */
+  sections?: readonly string[];
+})[] {
   const recordsDot = recordsPreview ? (
     <span className="ml-auto size-1.5 shrink-0 rounded-full bg-brand-solid" />
   ) : undefined;
-  const recordsHref = workspaceId ? recordsNavHref(workspaceId) : DEFAULT_RECORDS_NAV_HREF;
+  const recordsHref = recordsNavHref(workspaceId);
+  const item = (section: string) => ({
+    bareHref: `${base}/${section}`,
+    href: localizeHref(`${base}/${section}`),
+  });
   return [
-    {
-      label: m.search_title(),
-      bareHref: "/search",
-      href: localizeHref("/search"),
-      icon: SearchLg,
-    },
+    { label: m.search_title(), ...item("search"), icon: SearchLg },
     {
       label: m.navigation_chat(),
-      bareHref: "/messages",
-      href: localizeHref("/messages"),
+      bareHref: base,
+      href: localizeHref(base),
+      sections: CHAT_SECTIONS,
       icon: MessageChatSquare,
     },
-    {
-      label: m.navigation_activity(),
-      bareHref: "/activity",
-      href: localizeHref("/activity"),
-      icon: Activity,
-      badge: activityDot,
-    },
-    { label: m.tasks_tab(), bareHref: "/tasks", href: localizeHref("/tasks"), icon: ListTodo },
-    {
-      label: m.projects_title(),
-      bareHref: "/projects",
-      href: localizeHref("/projects"),
-      icon: Folder,
-    },
+    { label: m.navigation_activity(), ...item("activity"), icon: Activity, badge: activityDot },
+    { label: m.tasks_tab(), ...item("tasks"), icon: ListTodo },
+    { label: m.projects_title(), ...item("projects"), icon: Folder },
     {
       label: m.navigation_agents(),
-      bareHref: "/agents",
-      href: localizeHref("/agents"),
+      ...item("members"),
+      sections: ["members", "agent"],
       icon: Users,
     },
     {
       label: m.navigation_records(),
-      bareHref: "/records",
-      href: localizeHref(recordsHref),
+      bareHref: `${base}/records`,
+      href: localizeHref(`${base}${recordsHref}`),
       icon: FileText,
       badge: recordsDot,
     },
     {
       label: m.navigation_computers(),
-      bareHref: "/computers",
-      href: localizeHref("/computers"),
+      ...item("computers"),
+      sections: ["computers", "computer"],
       icon: Monitor,
     },
   ];
@@ -149,8 +144,8 @@ function useSpaNavigation() {
 
 export function AppShell({
   user,
-  workspaces = [],
-  currentWorkspace = null,
+  workspaces,
+  currentWorkspace,
   onSelectWorkspace,
   onCreateWorkspace,
   onSignOut,
@@ -158,8 +153,9 @@ export function AppShell({
   recordsPreview = false,
 }: {
   user: AppUser;
-  workspaces?: WorkspaceOption[];
-  currentWorkspace?: WorkspaceOption | null;
+  workspaces: WorkspaceOption[];
+  /** The Workspace the page URL names. */
+  currentWorkspace: WorkspaceOption;
   onSelectWorkspace?: (slug: string) => Promise<void> | void;
   onCreateWorkspace?: (input: { name: string; slug: string }) => Promise<void>;
   onSignOut?: () => Promise<void> | void;
@@ -171,22 +167,28 @@ export function AppShell({
   // match on bareHref (with sub-route prefix matching) instead.
   const pathname = useRouterState({ select: (state) => state.location.pathname });
   const searchStr = useRouterState({ select: (state) => state.location.searchStr });
-  const workspaceId = currentWorkspace?.id;
+  const workspaceId = currentWorkspace.id;
+  const base = workspacePath(currentWorkspace.slug);
   useEffect(() => {
-    if (!workspaceId || !pathname.startsWith("/records")) return;
+    if (!pathname.startsWith(`${base}/records`)) return;
     const search = !searchStr ? "" : searchStr.startsWith("?") ? searchStr : `?${searchStr}`;
-    rememberRecordsLastPath(workspaceId, `${pathname}${search}`);
-  }, [workspaceId, pathname, searchStr]);
+    // Remembered within the Workspace, so it holds the path under `/w/<slug>`.
+    rememberRecordsLastPath(workspaceId, `${pathname.slice(base.length)}${search}`);
+  }, [workspaceId, base, pathname, searchStr]);
   const hasActivityAttention = useActivityAttention(user, workspaceId);
   const navItems = useNavItems(
+    base,
     recordsPreview,
     workspaceId,
     hasActivityAttention ? (
       <span className="ml-auto size-1.5 shrink-0 rounded-full bg-brand-solid" />
     ) : undefined,
   );
-  const activeUrl = navItems.find(
-    (item) => pathname === item.bareHref || pathname.startsWith(`${item.bareHref}/`),
+  const section = pathname.slice(base.length).split("/")[1] ?? "";
+  const activeUrl = navItems.find((item) =>
+    item.sections
+      ? item.sections.includes(section)
+      : pathname === item.bareHref || pathname.startsWith(`${item.bareHref}/`),
   )?.href;
   const onSidebarClickCapture = useSpaNavigation();
 
@@ -207,7 +209,7 @@ export function AppShell({
                 onCreate={onCreateWorkspace}
               />
             }
-            footer={<UserMenuCard user={user} onSignOut={onSignOut} />}
+            footer={<UserMenuCard base={base} user={user} onSignOut={onSignOut} />}
           />
           <SidebarRail
             activeUrl={activeUrl}
@@ -221,7 +223,7 @@ export function AppShell({
                 onCreate={onCreateWorkspace}
               />
             }
-            footer={<UserMenuCard compact user={user} onSignOut={onSignOut} />}
+            footer={<UserMenuCard compact base={base} user={user} onSignOut={onSignOut} />}
           />
         </div>
 
@@ -232,10 +234,13 @@ export function AppShell({
 }
 
 function UserMenuCard({
+  base,
   user,
   onSignOut,
   compact = false,
 }: {
+  /** The Workspace path (`/w/<slug>`) Settings lives under. */
+  base: string;
   user: AppUser;
   onSignOut?: () => Promise<void> | void;
   compact?: boolean;
@@ -286,7 +291,7 @@ function UserMenuCard({
           <Dropdown.Item
             id="settings"
             label={m.navigation_personal_settings()}
-            href={localizeHref("/settings")}
+            href={localizeHref(`${base}/settings`)}
             icon={Settings01}
           />
           <Dropdown.Separator />

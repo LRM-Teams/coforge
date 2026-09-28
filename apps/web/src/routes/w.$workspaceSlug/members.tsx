@@ -30,7 +30,7 @@ import {
   agentProfileTabParamSchema,
 } from "#src/features/agents/profile-panel/profile-panel-search";
 
-export const Route = createFileRoute("/_app/agents/")({
+export const Route = createFileRoute("/w/$workspaceSlug/members")({
   validateSearch: z.object({
     memberType: z.enum(["agent", "human"]).default("agent").catch("agent"),
     owner: z.enum(["all", "mine"]).default("all").catch("all"),
@@ -45,7 +45,7 @@ export const Route = createFileRoute("/_app/agents/")({
   // through the Query cache, and the loader only makes the first page ready for this tab.
   loader: async ({ context, deps }) => {
     // Members is where Users configure the weekly-report assistant; ensure it exists here
-    // (not in the global `_app` listAgents loader, which must stay failure-isolated).
+    // (not in the Workspace layout listAgents loader, which must stay failure-isolated).
     const [assistant, computers, summary] = await Promise.all([
       ensureWeeklyReportAssistantMember(),
       listComputers(),

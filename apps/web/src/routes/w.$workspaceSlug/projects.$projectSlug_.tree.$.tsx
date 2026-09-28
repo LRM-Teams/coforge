@@ -8,7 +8,7 @@ import {
   projectTreeQuery,
 } from "#src/features/projects/project-tree-queries";
 
-export const Route = createFileRoute("/_app/projects/$projectSlug_/tree/$")({
+export const Route = createFileRoute("/w/$workspaceSlug/projects/$projectSlug_/tree/$")({
   // The markdown Preview toggle renders ContentEditor (TipTap), which must not SSR.
   ssr: "data-only",
   loader: async ({ params, context: { queryClient } }) => {

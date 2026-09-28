@@ -11,26 +11,24 @@ import {
 } from "#src/features/conversations/conversation-page-loader";
 import { ConversationPage } from "#src/features/conversations/conversation-page";
 
-export const Route = createFileRoute("/_app/messages/channels/$channelId")({
+export const Route = createFileRoute("/w/$workspaceSlug/_chat/messages/$agentId")({
   validateSearch: z.object({
     ...conversationPageSearchShape,
     message: z.uuid().optional().catch(undefined),
   }),
   loaderDeps: ({ search }) => conversationPageLoaderDeps(search),
-  remountDeps: ({ params }) => params.channelId,
+  remountDeps: ({ params }) => params.agentId,
   loader: ({ context, params, deps, parentMatchPromise, cause }) =>
-    loadConversationPage(context.queryClient, { kind: "channel", id: params.channelId }, deps, {
+    loadConversationPage(context.queryClient, { kind: "agent", id: params.agentId }, deps, {
       cause,
       workspaceId: () => parentMatchPromise.then(({ loaderData }) => loaderData?.workspaceId ?? ""),
     }),
   pendingComponent: ConversationPending,
   errorComponent: ConversationLoadError,
-  component: ChannelConversationRoute,
+  component: DirectConversationRoute,
 });
 
-function ChannelConversationRoute() {
-  const { channelId } = Route.useParams();
-  return (
-    <ConversationPage target={{ kind: "channel", id: channelId }} search={Route.useSearch()} />
-  );
+function DirectConversationRoute() {
+  const { agentId } = Route.useParams();
+  return <ConversationPage target={{ kind: "agent", id: agentId }} search={Route.useSearch()} />;
 }

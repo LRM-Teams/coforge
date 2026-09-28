@@ -53,7 +53,7 @@ describe("WebPushNotifications", () => {
       message: {
         title: "#general",
         body: "@helper: Build finished",
-        url: "/messages/channels/channel-a#message-message-a",
+        url: "/w/acme/channel/channel-a#message-message-a",
         workspaceId: "workspace-a",
         recipients: [
           { userId: "alice", subscriptions: [first] },
@@ -78,7 +78,7 @@ describe("WebPushNotifications", () => {
         payload: {
           title: "#general",
           body: "@helper: Build finished",
-          url: "/messages/channels/channel-a#message-message-a",
+          url: "/w/acme/channel/channel-a#message-message-a",
           tag: "message:message-a",
         },
       },
@@ -87,7 +87,7 @@ describe("WebPushNotifications", () => {
         payload: {
           title: "#general",
           body: "@helper: Build finished",
-          url: "/messages/channels/channel-a#message-message-a",
+          url: "/w/acme/channel/channel-a#message-message-a",
           tag: "message:message-a",
         },
       },
@@ -99,7 +99,7 @@ describe("WebPushNotifications", () => {
       message: {
         title: "#general",
         body: "@helper: Build finished",
-        url: "/messages/channels/channel-a#message-message-a",
+        url: "/w/acme/channel/channel-a#message-message-a",
         workspaceId: "workspace-a",
         recipients: [{ userId: "alice", subscriptions: [] }],
       },
@@ -131,7 +131,7 @@ describe("WebPushNotifications", () => {
         message: {
           title: "#general",
           body: "@helper: Build finished",
-          url: "/messages/channels/channel-a#message-message-a",
+          url: "/w/acme/channel/channel-a#message-message-a",
           workspaceId: "workspace-a",
           recipients: [{ userId: "alice", subscriptions: [first] }],
         },
@@ -163,7 +163,7 @@ describe("WebPushNotifications", () => {
       message: {
         title: "@helper",
         body: "Ready",
-        url: "/messages/agent-a",
+        url: "/w/acme/messages/agent-a",
         workspaceId: "workspace-a",
         recipients: [
           { userId: "alice", subscriptions: [first] },
@@ -197,7 +197,7 @@ describe("WebPushNotifications", () => {
       message: {
         title: "@helper",
         body: "Ready",
-        url: "/messages/agent-a",
+        url: "/w/acme/messages/agent-a",
         workspaceId: "workspace-a",
         recipients: [{ userId: "alice", subscriptions: [first] }],
       },
@@ -261,13 +261,15 @@ describe("WebPushNotifications", () => {
         },
       });
 
-      await expect(notifications.sendTest("user-a", first.endpoint, "en")).resolves.toEqual({
-        sent: 0,
-        failed: 0,
-        removed: 1,
-        errorId: expect.any(String),
-        unreachable: 0,
-      });
+      await expect(notifications.sendTest("user-a", first.endpoint, "en", "acme")).resolves.toEqual(
+        {
+          sent: 0,
+          failed: 0,
+          removed: 1,
+          errorId: expect.any(String),
+          unreachable: 0,
+        },
+      );
       const logged = error.mock.calls.map((call) => String(call[0])).join("\n");
       expect(logged).toContain("web_push.subscription_removed");
       expect(logged).toContain(first.id);
@@ -289,13 +291,15 @@ describe("WebPushNotifications", () => {
           throw new WebPushDeliveryError(500);
         },
       });
-      await expect(notifications.sendTest("user-a", first.endpoint, "en")).resolves.toEqual({
-        sent: 0,
-        failed: 1,
-        removed: 0,
-        errorId: expect.any(String),
-        unreachable: 0,
-      });
+      await expect(notifications.sendTest("user-a", first.endpoint, "en", "acme")).resolves.toEqual(
+        {
+          sent: 0,
+          failed: 1,
+          removed: 0,
+          errorId: expect.any(String),
+          unreachable: 0,
+        },
+      );
       const logged = error.mock.calls.map((call) => String(call[0])).join("\n");
       expect(logged).toContain("web_push.delivery_failed");
       // The stable event + correlatable errorId already satisfy the rest of the contract;
@@ -315,7 +319,7 @@ describe("WebPushNotifications", () => {
       },
     });
 
-    await expect(notifications.sendTest("user-a", first.endpoint, "en")).resolves.toEqual({
+    await expect(notifications.sendTest("user-a", first.endpoint, "en", "acme")).resolves.toEqual({
       sent: 1,
       failed: 0,
       removed: 0,
@@ -325,7 +329,7 @@ describe("WebPushNotifications", () => {
       expect.objectContaining({
         title: "CoForge",
         forceDisplay: true,
-        url: "/settings",
+        url: "/w/acme/settings",
       }),
     ]);
   });
@@ -339,7 +343,7 @@ describe("WebPushNotifications", () => {
       },
     });
 
-    await notifications.sendTest("user-a", first.endpoint, "zh-CN");
+    await notifications.sendTest("user-a", first.endpoint, "zh-CN", "acme");
     expect(bodies).toEqual(["此设备上的浏览器通知正常工作。"]);
   });
 

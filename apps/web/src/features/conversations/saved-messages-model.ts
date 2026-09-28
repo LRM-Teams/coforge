@@ -22,12 +22,16 @@
 /** Where a saved message's card navigates: its conversation, anchored at the stream position. */
 export type SavedJumpTarget =
   | {
-      to: "/messages/channels/$channelId";
-      params: { channelId: string };
+      to: "/w/$workspaceSlug/channel/$channelId";
+      params: { workspaceSlug: string; channelId: string };
       search: { message: string };
     }
-  | { to: "/messages/$agentId"; params: { agentId: string }; search: { message: string } }
-  | { to: "/messages" };
+  | {
+      to: "/w/$workspaceSlug/messages/$agentId";
+      params: { workspaceSlug: string; agentId: string };
+      search: { message: string };
+    }
+  | { to: "/w/$workspaceSlug"; params: { workspaceSlug: string } };
 
 /** The Agent id encoded in a direct conversation's `directKey`; null when absent or malformed. */
 export function agentIdFromDirectKey(directKey: string | null): string | null {
@@ -36,29 +40,31 @@ export function agentIdFromDirectKey(directKey: string | null): string | null {
 }
 
 /**
- * Where a saved message's card navigates: its own conversation, anchored at the row that
- * shows it in the stream — the root for a thread reply, the message itself otherwise, as a
- * position-only `?message=` search param (never a hash; see the module note).
+ * Where a saved message's card navigates: its own conversation in the Workspace `workspaceSlug`
+ * names, anchored at the row that shows it in the stream — the root for a thread reply, the
+ * message itself otherwise, as a position-only `?message=` search param (never a hash; see the
+ * module note).
  */
 export function savedJumpTarget(
+  workspaceSlug: string,
   conversation: { id: string; channelName: string | null; directKey: string | null },
   message: { id: string; threadRootId?: string | null },
 ): SavedJumpTarget {
   const anchorId = message.threadRootId ?? message.id;
   if (conversation.channelName) {
     return {
-      to: "/messages/channels/$channelId",
-      params: { channelId: conversation.id },
+      to: "/w/$workspaceSlug/channel/$channelId",
+      params: { workspaceSlug, channelId: conversation.id },
       search: { message: anchorId },
     };
   }
   const agentId = agentIdFromDirectKey(conversation.directKey);
   if (agentId) {
     return {
-      to: "/messages/$agentId",
-      params: { agentId },
+      to: "/w/$workspaceSlug/messages/$agentId",
+      params: { workspaceSlug, agentId },
       search: { message: anchorId },
     };
   }
-  return { to: "/messages" };
+  return { to: "/w/$workspaceSlug", params: { workspaceSlug } };
 }

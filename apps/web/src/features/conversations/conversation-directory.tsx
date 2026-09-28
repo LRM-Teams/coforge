@@ -9,6 +9,7 @@ import { ButtonUtility } from "#src/components/base/buttons/button-utility";
 import { useAppToast } from "#src/components/ui/toast";
 import { AgentDisplayAvatar } from "#src/features/agents/agent-activity-avatar";
 import type { LiveAgent } from "#src/features/agents/workspace-agents-realtime";
+import { useWorkspaceSlug } from "#src/features/workspaces/workspace-route";
 import { cx } from "#src/utils/cx";
 import { m } from "#src/paraglide/messages";
 import { useChannelUnreadCounts, useCloseConversationList } from "./conversation-navigation";
@@ -98,7 +99,8 @@ function ConversationRow({
 }) {
   const closeList = useCloseConversationList();
   const router = useRouter();
-  const route = conversationRoute(target);
+  const workspaceSlug = useWorkspaceSlug();
+  const route = conversationRoute(target, workspaceSlug);
   return (
     // The row is a React Aria link so the conversation menu's `MenuTrigger trigger="contextMenu"`
     // can use it as its trigger; `render` hands the element to TanStack's `Link`, which owns

@@ -79,7 +79,7 @@ These rules apply to `src/features/agents/`.
   filter loaded pages on the client.
 - Clicking an Agent name opens the same right-hand `AgentProfilePanel` the
   conversation slot uses (`profile`/`agentTab` search params);
-  `/agents/$agentId` redirects there.
+  `agent/$agentId` redirects there.
 - Computer prerequisites appear only after the user requests Agent creation.
   Runtime management stays in the profile panel, not the directory.
 - Workspace directory reads belong to

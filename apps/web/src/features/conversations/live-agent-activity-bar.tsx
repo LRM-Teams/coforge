@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link } from "@tanstack/react-router";
 
 import { AgentDisplayAvatar } from "#src/features/agents/agent-activity-avatar";
+import { useWorkspaceSlug } from "#src/features/workspaces/workspace-route";
 import { m } from "#src/paraglide/messages";
 
 import {
@@ -24,6 +25,7 @@ export function LiveAgentActivityBar({
 }) {
   const activity = selectLiveAgentActivity(agents);
   const closeList = useCloseConversationList();
+  const workspaceSlug = useWorkspaceSlug();
   const [enabled, setEnabled] = useState(true);
   useEffect(() => {
     const sync = () => setEnabled(readLiveAgentActivity());
@@ -35,8 +37,8 @@ export function LiveAgentActivityBar({
   return (
     <div className="shrink-0 border-t border-secondary bg-primary px-3 py-2">
       <Link
-        to="/messages/$agentId"
-        params={{ agentId: activity.agentId }}
+        to="/w/$workspaceSlug/messages/$agentId"
+        params={{ workspaceSlug, agentId: activity.agentId }}
         onClick={closeList}
         aria-label={`${activity.displayName}, ${activity.label}`}
         className="flex min-w-0 items-center gap-2 rounded-md px-1 py-1 outline-focus-ring transition duration-100 ease-linear hover:bg-primary_hover focus-visible:outline-2 focus-visible:outline-offset-2"

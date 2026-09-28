@@ -6,7 +6,7 @@ import { ActivityInboxPending, ActivityInboxView } from "#src/features/inbox/act
 import { activityInboxQuery } from "#src/features/inbox/activity-inbox-queries";
 import { ACTIVITY_INBOX_FILTERS } from "#src/features/inbox/activity-inbox.schemas";
 
-export const Route = createFileRoute("/_app/activity")({
+export const Route = createFileRoute("/w/$workspaceSlug/activity")({
   validateSearch: z.object({
     filter: z.enum(ACTIVITY_INBOX_FILTERS).optional().catch(undefined),
   }),

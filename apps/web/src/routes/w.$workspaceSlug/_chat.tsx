@@ -11,7 +11,7 @@ import {
 import { listProjects } from "#src/features/projects/projects.functions";
 import { savedMessagesQuery } from "#src/features/conversations/conversation-queries";
 
-export const Route = createFileRoute("/_app/messages")({
+export const Route = createFileRoute("/w/$workspaceSlug/_chat")({
   loader: async ({ context: { queryClient }, parentMatchPromise, cause }) => {
     // The sidebar's channel and DM lists go into the Query cache, which the server render reads and
     // the client hydrates; after hydration they back the sidebar's collections

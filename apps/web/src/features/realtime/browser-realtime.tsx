@@ -55,7 +55,7 @@ export type RealtimeClient = Pick<ClientInfo, "client" | "user">;
 /**
  * Subscribes one authorized channel on the shared Workspace connection.
  *
- * The `_app` layout owns the only browser connection; features subscribe
+ * The Workspace layout owns the only browser connection; features subscribe
  * through this hook and never construct their own Centrifuge client. A channel
  * with a narrower server-issued grant supplies its own `getToken`.
  */

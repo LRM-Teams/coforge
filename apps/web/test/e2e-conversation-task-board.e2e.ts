@@ -75,7 +75,9 @@ test("a conversation's Tasks tab is the Tasks page board, claims by moving and p
   const directTitle = `Direct work ${suffix}`;
   const membership = await db.workspaceMembership.findFirstOrThrow({
     where: { userId: DEV_BROWSER_USER.id },
+    include: { workspace: { select: { slug: true } } },
   });
+  const workspacePath = `/en/w/${membership.workspace.slug}`;
   const workspaceId = membership.workspaceId;
   const channel = await db.conversation.create({
     data: {
@@ -136,7 +138,10 @@ test("a conversation's Tasks tab is the Tasks page board, claims by moving and p
     await browser("set", "viewport", "1440", "900");
 
     // The channel's Tasks tab: the Tasks page's toolbar, no page header, no source or Claim.
-    await browser("open", `${origin}/en/messages/channels/${channel.id}?view=tasks&layout=board`);
+    await browser(
+      "open",
+      `${origin}${workspacePath}/channel/${channel.id}?view=tasks&layout=board`,
+    );
     await waitFor(bodyHas(openTitle), 60_000);
     await waitFor(`${byText("button", "Filter")} !== undefined`);
     expect(await eval_(`${byText("button", "Display")} !== undefined`)).toBe(true);
@@ -201,7 +206,7 @@ test("a conversation's Tasks tab is the Tasks page board, claims by moving and p
     await browser("screenshot", join(artifacts, "channel-claimed.png"));
 
     // A direct message's Tasks tab is the same board.
-    await browser("open", `${origin}/en/messages/${agent.id}?view=tasks&layout=board`);
+    await browser("open", `${origin}${workspacePath}/messages/${agent.id}?view=tasks&layout=board`);
     await waitFor(bodyHas(directTitle), 60_000);
     await waitFor(`${byText("button", "Filter")} !== undefined`);
     expect(await eval_(`${byText("button", "Claim")} === undefined`)).toBe(true);
@@ -209,7 +214,7 @@ test("a conversation's Tasks tab is the Tasks page board, claims by moving and p
 
     // At phone width the tab still fits its toolbar and cards without scrolling sideways.
     await browser("set", "viewport", "390", "844");
-    await browser("open", `${origin}/en/messages/channels/${channel.id}?view=tasks`);
+    await browser("open", `${origin}${workspacePath}/channel/${channel.id}?view=tasks`);
     await waitFor(bodyHas(openTitle), 60_000);
     await waitFor(`${byText("button", "Filter")} !== undefined`);
     expect(

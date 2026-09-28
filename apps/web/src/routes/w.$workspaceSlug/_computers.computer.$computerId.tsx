@@ -18,7 +18,7 @@ import {
 } from "#src/features/computers/computers.functions";
 import { latestComputerVersionQuery } from "#src/features/computers/latest-version.query";
 
-export const Route = createFileRoute("/_app/computers/$computerId")({
+export const Route = createFileRoute("/w/$workspaceSlug/_computers/computer/$computerId")({
   // The list the parent already loaded is the whole truth about which
   // Computers this Workspace has, so the miss is decided during loading —
   // where a not-found also reaches the response status — not during render.

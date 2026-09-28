@@ -53,6 +53,7 @@ import { useRefreshSidebarLists } from "#src/features/conversations/sidebar-list
 import { TASK_STATUS_COLOR } from "#src/features/tasks/task-workflow";
 import { cn } from "#src/lib/utils";
 import { DeletedAgentBadge } from "#src/features/agents/deleted-agent";
+import { useWorkspaceSlug } from "#src/features/workspaces/workspace-route";
 import { m } from "#src/paraglide/messages";
 import type { ActivityInboxItem } from "#src/server/inbox/activity-inbox.server";
 import {
@@ -69,7 +70,7 @@ import {
 } from "./activity-inbox-queries";
 import type { ActivityInboxFilter } from "./activity-inbox.schemas";
 
-const appRoute = getRouteApi("/_app");
+const appRoute = getRouteApi("/w/$workspaceSlug");
 
 /**
  * The Activity page: the viewer's channels, direct messages and followed threads with activity
@@ -458,18 +459,14 @@ function withoutItem(
  * read. A mention the viewer was notified of opens at that message, in its thread when it is a
  * reply.
  */
-function openTarget({
-  place,
-  thread,
-  unreadCount,
-  firstUnreadMessageId,
-  latest,
-  mentionAction,
-}: ActivityInboxItem) {
+function openTarget(
+  workspaceSlug: string,
+  { place, thread, unreadCount, firstUnreadMessageId, latest, mentionAction }: ActivityInboxItem,
+) {
   if (mentionAction)
     return {
-      to: "/messages/channels/$channelId" as const,
-      params: { channelId: place.conversationId },
+      to: "/w/$workspaceSlug/channel/$channelId" as const,
+      params: { workspaceSlug, channelId: place.conversationId },
       search: mentionAction.threadRootId
         ? { threadRootId: mentionAction.threadRootId, message: mentionAction.threadRootId }
         : { message: latest.id },
@@ -482,12 +479,17 @@ function openTarget({
   const hash = thread && unreadAnchor ? `message-${unreadAnchor}` : undefined;
   return place.kind === "channel"
     ? {
-        to: "/messages/channels/$channelId" as const,
-        params: { channelId: place.conversationId },
+        to: "/w/$workspaceSlug/channel/$channelId" as const,
+        params: { workspaceSlug, channelId: place.conversationId },
         search,
         hash,
       }
-    : { to: "/messages/$agentId" as const, params: { agentId: place.agent.id }, search, hash };
+    : {
+        to: "/w/$workspaceSlug/messages/$agentId" as const,
+        params: { workspaceSlug, agentId: place.agent.id },
+        search,
+        hash,
+      };
 }
 
 /** A message's text rendered as inline Markdown, or its first attachment's name. */
@@ -506,7 +508,8 @@ const ActivityInboxCard = memo(function ActivityInboxCard({
   actions: ActivityItemActions;
 }) {
   const router = useRouter();
-  const target = openTarget(item);
+  const workspaceSlug = useWorkspaceSlug();
+  const target = openTarget(workspaceSlug, item);
   const href = router.buildLocation(target).publicHref;
   const unread = item.unreadCount > 0;
   const { place, thread } = item;

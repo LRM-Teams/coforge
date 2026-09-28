@@ -1,4 +1,4 @@
-import { useMemo, type ComponentPropsWithoutRef } from "react";
+import { useMemo, type ComponentPropsWithoutRef, type ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
 import Markdown, { type Components, type ExtraProps, type Options } from "react-markdown";
 import rehypeSanitize from "rehype-sanitize";
@@ -9,6 +9,7 @@ import { MESSAGE_REMARK_PLUGINS, escapeLiteralHtml } from "#src/lib/message-synt
 import { mentionHandlesByToken, rehypeReferenceChips, type ChipMention } from "./message-markdown";
 import type { MentionRef } from "./mention-text";
 import { TaskReference } from "#src/features/tasks/task-reference";
+import { useWorkspaceSlug } from "#src/features/workspaces/workspace-route";
 import "./message-markdown.css";
 
 /**
@@ -121,6 +122,53 @@ const MARKDOWN_COMPONENTS = {
   ),
 };
 
+/** A channel or thread chip's router link, in the Workspace on screen. Its own component so only a
+ * message that carries such a chip reads the route. */
+function ChannelChipLink({
+  channelId,
+  threadRootId,
+  className,
+  children,
+}: {
+  channelId: string;
+  threadRootId?: string;
+  className?: string;
+  children: ReactNode;
+}) {
+  const workspaceSlug = useWorkspaceSlug();
+  if (threadRootId === undefined) {
+    return (
+      // `data-channel-id` stays on the anchor so a copied selection reads it back as `#name`
+      // (see `selection-copy.ts`), not as a Markdown link to the app's URL.
+      <Link
+        to="/w/$workspaceSlug/channel/$channelId"
+        params={{ workspaceSlug, channelId }}
+        className={className}
+        data-channel-id={channelId}
+      >
+        {children}
+      </Link>
+    );
+  }
+  return (
+    // The data attributes stay on the anchor for the same reason as a channel link's: a copied
+    // selection reads the chip back as `#name:<8 hex>` (see `selection-copy.ts`).
+    <Link
+      to="/w/$workspaceSlug/channel/$channelId"
+      params={{ workspaceSlug, channelId }}
+      search={{ threadRootId }}
+      // Opening a thread in the channel already on screen keeps the stream where it is, as the
+      // thread opener does.
+      resetScroll={false}
+      className={className}
+      data-thread-channel-id={channelId}
+      data-thread-root-id={threadRootId}
+    >
+      {children}
+    </Link>
+  );
+}
+
 /**
  * The `span` renderer. An Agent mention chip carries `data-mention-agent-id` and becomes a
  * keyboard- and pointer-accessible control when `onOpenAgentProfile` is provided. A task reference
@@ -146,37 +194,22 @@ function chipSpan(
     const channelId = (props as Record<string, unknown>)["data-channel-id"];
     if (typeof channelId === "string") {
       return (
-        // `data-channel-id` stays on the anchor so a copied selection reads it back as `#name`
-        // (see `selection-copy.ts`), not as a Markdown link to the app's URL.
-        <Link
-          to="/messages/channels/$channelId"
-          params={{ channelId }}
-          className={className}
-          data-channel-id={channelId}
-        >
+        <ChannelChipLink channelId={channelId} className={className}>
           {children}
-        </Link>
+        </ChannelChipLink>
       );
     }
     const threadChannelId = (props as Record<string, unknown>)["data-thread-channel-id"];
     const threadRootId = (props as Record<string, unknown>)["data-thread-root-id"];
     if (typeof threadChannelId === "string" && typeof threadRootId === "string") {
       return (
-        // The data attributes stay on the anchor for the same reason as a channel link's: a copied
-        // selection reads the chip back as `#name:<8 hex>` (see `selection-copy.ts`).
-        <Link
-          to="/messages/channels/$channelId"
-          params={{ channelId: threadChannelId }}
-          search={{ threadRootId }}
-          // Opening a thread in the channel already on screen keeps the stream where it is, as
-          // the thread opener does.
-          resetScroll={false}
+        <ChannelChipLink
+          channelId={threadChannelId}
+          threadRootId={threadRootId}
           className={className}
-          data-thread-channel-id={threadChannelId}
-          data-thread-root-id={threadRootId}
         >
           {children}
-        </Link>
+        </ChannelChipLink>
       );
     }
     const taskNumber = (props as Record<string, unknown>)["data-task-reference-number"];

@@ -1,6 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
-import { getRequest, setResponseHeader } from "@tanstack/react-start/server";
+import { setResponseHeader } from "@tanstack/react-start/server";
 import { RUNTIME_PROVIDER } from "@lrm/coforge-sdk/internal";
 import {
   agentIdInputSchema,
@@ -38,7 +38,6 @@ import { getAgentControlSignal } from "#src/server/agents/agent-control-signal.s
 import { PrismaAgentControlStore } from "#src/server/db/repositories/agent-control.repositories.server";
 import { createCentrifugoServerApi } from "#src/server/centrifugo/server-api.server";
 import {
-  authMiddleware,
   workspaceUserMiddleware,
   type WorkspaceUserContext,
 } from "#src/features/auth/function-auth";
@@ -51,7 +50,6 @@ import {
   visiblePrivateAgentWhere,
   type AgentVisibilityViewer,
 } from "#src/server/agents/agent-visibility.server";
-import { workspaceIdForUser } from "#src/server/workspaces/enrollment.server";
 import { workspaceMemberRole } from "#src/server/workspaces/members.server";
 import { workspaceUserAvatarUrl } from "#src/server/db/repositories/user-profile.repositories.server";
 import { ComputerRuntimeVisibility } from "#src/server/computers/computer-runtime-visibility.server";
@@ -372,16 +370,11 @@ export const listVisiblePrivateAgentIds = createServerFn({ method: "GET" })
   });
 
 export const createAgent = createServerFn({ method: "POST" })
-  .middleware([authMiddleware])
+  .middleware([workspaceUserMiddleware])
   .validator(createAgentInputSchema)
   .handler(async ({ data, context }) => {
-    const user = context.user;
-    const db = requireDatabaseClient();
-    const workspaceId = await workspaceIdForUser(
-      db,
-      user,
-      getRequest().headers.get("accept-language") ?? "",
-    );
+    // The Workspace the page names, like every other Agent write.
+    const { user, db, workspaceId } = context;
     const role = await workspaceMemberRole(db, workspaceId, user.id);
     // An `agent:create` action card: guard it is still committable
     // *before* creating the Agent, then mark it `executed` *after* — `ManageAgents.create` below

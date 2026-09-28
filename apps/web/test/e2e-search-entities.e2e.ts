@@ -70,8 +70,10 @@ test("the search page lists matching channels, Agents and Computers and opens th
       }),
     ]);
   };
+  /** The dev user's Workspace pages, `/en/w/<slug>`; set once its membership is read. */
+  let workspacePath = "";
   async function searchFor(query: string, expected: string[]) {
-    await browser("open", `${origin}/en/search?q=${encodeURIComponent(query)}`);
+    await browser("open", `${origin}${workspacePath}/search?q=${encodeURIComponent(query)}`);
     await waitFor(
       `JSON.stringify([...document.querySelectorAll("[data-search-entity]")].map((row) => row.dataset.searchEntity)) === ${JSON.stringify(JSON.stringify(expected))}`,
     );
@@ -83,7 +85,9 @@ test("the search page lists matching channels, Agents and Computers and opens th
   try {
     const membership = await db.workspaceMembership.findFirstOrThrow({
       where: { userId: DEV_BROWSER_USER.id },
+      include: { workspace: { select: { slug: true } } },
     });
+    workspacePath = `/en/w/${membership.workspace.slug}`;
     const workspaceId = membership.workspaceId;
     await db.conversation.deleteMany({ where: { id: channelId } });
     await db.conversation.deleteMany({ where: { workspaceId, channelName: "e2e-lighthouse" } });
@@ -171,11 +175,11 @@ test("the search page lists matching channels, Agents and Computers and opens th
     ]);
     // A channel and the viewer's own Agent preview on a single click; a double click opens.
     await browser("dblclick", `[data-search-entity="channel:${channelId}"]`);
-    await waitFor(`location.pathname === "/en/messages/channels/${channelId}"`);
+    await waitFor(`location.pathname === "${workspacePath}/channel/${channelId}"`);
     await browser("back");
     await waitFor(`document.querySelector('[data-search-entity="agent:${agentId}"]') !== null`);
     await browser("dblclick", `[data-search-entity="agent:${agentId}"]`);
-    await waitFor(`location.pathname === "/en/messages/${agentId}"`);
+    await waitFor(`location.pathname === "${workspacePath}/messages/${agentId}"`);
     // Another member's Agent opens its profile instead.
     await browser("back");
     await waitFor(
@@ -183,11 +187,11 @@ test("the search page lists matching channels, Agents and Computers and opens th
     );
     await browser("click", `[data-search-entity="agent:${othersAgentId}"]`);
     await waitFor(
-      `location.pathname === "/en/agents" && new URLSearchParams(location.search).get("profile") === "agent:${othersAgentId}"`,
+      `location.pathname === "${workspacePath}/members" && new URLSearchParams(location.search).get("profile") === "agent:${othersAgentId}"`,
     );
     await searchFor("mac studio", [`computer:${computer.id}`]);
     await browser("click", `[data-search-entity="computer:${computer.id}"]`);
-    await waitFor(`location.pathname === "/en/computers/${computer.id}"`);
+    await waitFor(`location.pathname === "${workspacePath}/computer/${computer.id}"`);
   } finally {
     await browser("close").catch(() => undefined);
     await db.conversation.deleteMany({ where: { id: channelId } }).catch(() => {});
