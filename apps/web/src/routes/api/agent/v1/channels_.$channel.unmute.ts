@@ -25,7 +25,6 @@ export async function handleAgentChannelUnmutePost(
     const idempotencyKey = agentIdempotencyKey(await readAgentJsonBody(request));
     await muteAgentChannel(repository, scope, channel, false);
     const response: AgentChannelAttentionResponse = {
-      protocolMajor: 1,
       idempotencyKey,
       target: channel,
       muted: false,

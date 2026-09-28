@@ -93,7 +93,7 @@ description: >-
   markdown result with:
 
 \`\`\`
-coforge weekly-report-key-points submit --report-id <uuid> --request-id <uuid> --markdown <file>
+coforge weekly-report-key-points submit --report-id <uuid> --idempotency-key <uuid> --markdown <file>
 \`\`\`
 
   Do **not** use a \`body-edit\` Confirm envelope for this write-back.

@@ -25,7 +25,6 @@ export async function handleAgentThreadUnfollowPost(
     const idempotencyKey = agentIdempotencyKey(await readAgentJsonBody(request));
     await unfollowAgentThread(repository, scope, thread);
     const response: AgentThreadAttentionResponse = {
-      protocolMajor: 1,
       idempotencyKey,
       target: thread,
       followed: false,

@@ -25,7 +25,7 @@ afterEach(() => {
 
 test("accepts sfp_ daemon-local Proxy tokens", async () => {
   const fetch = spyOn(globalThis, "fetch").mockResolvedValue(
-    Response.json({ requestId: "request", accepted: true, attentionCount: 0, messages: [] }),
+    Response.json({ idempotencyKey: "request", accepted: true, attentionCount: 0, messages: [] }),
   );
 
   await connectLocal("", `sfp_${"a".repeat(43)}`, proxyUrl(agentApiRoutes.local.messages)).check();
@@ -35,7 +35,7 @@ test("accepts sfp_ daemon-local Proxy tokens", async () => {
 
 test("forwards attachmentIds, mentions, and targetConfirmed on a send request", async () => {
   const fetch = spyOn(globalThis, "fetch").mockResolvedValue(
-    Response.json({ requestId: "request", accepted: true, attentionCount: 0, messages: [] }),
+    Response.json({ idempotencyKey: "request", accepted: true, attentionCount: 0, messages: [] }),
   );
   const mentions = [{ type: "user" as const, id: "actor-1", name: "ada" }];
 
@@ -175,7 +175,7 @@ test("redacts upstream detail for a withheld reviewer-isolation Task failure", a
 
   await expect(
     connectLocal("", `sfp_${"a".repeat(43)}`, proxyUrl(agentApiRoutes.local.messages)).task({
-      requestId: "request",
+      idempotencyKey: "request",
       operation: "update",
       target: "#general",
       number: 1,
@@ -772,8 +772,7 @@ test("rejects legacy cf_proxy_ tokens without contacting the proxy", async () =>
 test("posts validated reminders to the derived endpoint with implicit bearer context", async () => {
   const fetch = spyOn(globalThis, "fetch").mockResolvedValue(
     Response.json({
-      protocolMajor: 1,
-      requestId: "request",
+      idempotencyKey: "request",
       workspaceId: "workspace",
       computerId: "computer",
       agentId: "agent",
@@ -805,13 +804,13 @@ test("posts validated reminders to the derived endpoint with implicit bearer con
     repeat: "daily@09:30",
     timezone: "Asia/Shanghai",
   });
-  expect(body.requestId).toMatch(/^[0-9a-f-]{36}$/);
+  expect(body.idempotencyKey).toMatch(/^[0-9a-f-]{36}$/);
   expect(body.context).toBeUndefined();
 });
 
 test("resolve posts the messageId as a resolve operation", async () => {
   const fetch = spyOn(globalThis, "fetch").mockResolvedValue(
-    Response.json({ requestId: "request", accepted: true, attentionCount: 0, messages: [] }),
+    Response.json({ idempotencyKey: "request", accepted: true, attentionCount: 0, messages: [] }),
   );
   await connectLocal("", `sfp_${"a".repeat(43)}`, proxyUrl(agentApiRoutes.local.messages)).resolve(
     "abcd1234",
@@ -964,7 +963,7 @@ test.each([
   [true, "unreact"],
 ] as const)("react posts the messageId and emoji as a %s operation", async (remove, operation) => {
   const fetch = spyOn(globalThis, "fetch").mockResolvedValue(
-    Response.json({ requestId: "request", accepted: true, attentionCount: 0, messages: [] }),
+    Response.json({ idempotencyKey: "request", accepted: true, attentionCount: 0, messages: [] }),
   );
   await connectLocal("", `sfp_${"a".repeat(43)}`, proxyUrl(agentApiRoutes.local.messages)).react(
     "abcd1234",
@@ -1094,8 +1093,7 @@ test("channel: a 404 from info/members (no single-channel target operation) is n
 
 test("channel: a successful response is returned as parsed JSON", async () => {
   const rawResponse = {
-    protocolMajor: 1,
-    requestId: "r-1",
+    idempotencyKey: "r-1",
     target: "#eng",
     joined: true,
     alreadyJoined: false,
@@ -1165,7 +1163,7 @@ test("version without a configured Agent proxy URL fails as a local precondition
   expect((error as CliError).code).toBe("VERSION_FAILED");
 });
 
-test("retries a send that hit a transient upstream 502, reusing the same requestId", async () => {
+test("retries a send that hit a transient upstream 502, reusing the same idempotencyKey", async () => {
   const fetch = spyOn(globalThis, "fetch")
     .mockResolvedValueOnce(
       Response.json(
@@ -1178,7 +1176,7 @@ test("retries a send that hit a transient upstream 502, reusing the same request
       ),
     )
     .mockResolvedValueOnce(
-      Response.json({ requestId: "request", accepted: true, attentionCount: 0, messages: [] }),
+      Response.json({ idempotencyKey: "request", accepted: true, attentionCount: 0, messages: [] }),
     );
   const client = connectLocal("", `sfp_${"a".repeat(43)}`, proxyUrl(agentApiRoutes.local.messages));
 
@@ -1187,15 +1185,15 @@ test("retries a send that hit a transient upstream 502, reusing the same request
   expect(fetch).toHaveBeenCalledTimes(2);
   const first = JSON.parse(fetch.mock.calls[0]![1]!.body as string);
   const second = JSON.parse(fetch.mock.calls[1]![1]!.body as string);
-  // The same requestId is what makes the retry safe: the server suppresses the duplicate.
-  expect(second.requestId).toEqual(first.requestId);
+  // The same idempotencyKey is what makes the retry safe: the server suppresses the duplicate.
+  expect(second.idempotencyKey).toEqual(first.idempotencyKey);
 });
 
 test("retries a send that never reached the proxy at all", async () => {
   const fetch = spyOn(globalThis, "fetch")
     .mockRejectedValueOnce(new TypeError("fetch failed"))
     .mockResolvedValueOnce(
-      Response.json({ requestId: "request", accepted: true, attentionCount: 0, messages: [] }),
+      Response.json({ idempotencyKey: "request", accepted: true, attentionCount: 0, messages: [] }),
     );
 
   await connectLocal("", `sfp_${"a".repeat(43)}`, proxyUrl(agentApiRoutes.local.messages)).send(

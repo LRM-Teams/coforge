@@ -2,6 +2,7 @@ import { RPC_METHODS } from "./rpc-methods";
 import { isScopeId } from "./scope-id";
 import { boundedPayload } from "./codec";
 import { RFC_UUID_PATTERN } from "./uuid";
+import { fromWireRequestId, toWireRequestId } from "./idempotency-key-wire";
 import { create, fromBinary, toBinary } from "@bufbuild/protobuf";
 import {
   AgentReminderOperationRequestSchema,
@@ -19,6 +20,8 @@ export const REMINDER_SNAPSHOT_METHOD = RPC_METHODS.reminderSnapshot;
 /** Accepted spellings of the two callbacks above while an installed Computer still sends them. */
 export const REMINDER_SYNC_MESSAGE_TYPE = "coforge.rpc.v1.ReminderSync" as const;
 export const REMINDER_CAPABILITY = "reminder:v1" as const;
+/** The protocol number every versioned reminder message carries (`protocol_major`). */
+export const REMINDER_PROTOCOL_MAJOR = 1 as const;
 
 const MAX_BYTES = 65_536;
 const PREFIX = /^[0-9a-f]{8}$/i;
@@ -74,13 +77,17 @@ export function parseReminderRecurrence(value: string): ReminderRecurrence | und
 
 export type ReminderOperation = (typeof OPERATIONS)[number];
 export type ReminderStatus = (typeof REMINDER_STATUSES)[number];
-export type ReminderScope = {
-  protocolMajor: number;
-  requestId: string;
+/** The identity every reminder message carries: the Agent, on its Computer, in its Workspace. */
+export type ReminderIdentity = {
   workspaceId: string;
   computerId: string;
   agentId: string;
 };
+/** The WebSocket path's scope (`ReminderSync`, fire, snapshot): protobuf names its id `request_id`. */
+export type ReminderScope = ReminderIdentity & { protocolMajor: number; requestId: string };
+/** The Agent HTTP path's scope: the same identity, without a protocol number (the URL versions the
+ * HTTP API) and with the idempotency key under its one HTTP name. */
+export type ReminderOperationScope = ReminderIdentity & { idempotencyKey: string };
 export type ReminderOperationFields = {
   reminderId?: string;
   title?: string;
@@ -98,7 +105,7 @@ export type ReminderOperationFields = {
   status?: string;
   all?: boolean;
 };
-export type AgentReminderOperationRequest = ReminderScope &
+export type AgentReminderOperationRequest = ReminderOperationScope &
   ReminderOperationFields & { operation: ReminderOperation };
 export type ReminderSummaryRecord = {
   reminderId: string;
@@ -115,7 +122,7 @@ export type ReminderSummaryRecord = {
   firedAt?: string;
 };
 export type ReminderLogEvent = { eventId: string; type: string; time: string; nextFireAt?: string };
-export type AgentReminderOperationResponse = ReminderScope & {
+export type AgentReminderOperationResponse = ReminderOperationScope & {
   accepted: boolean;
   reason?: string;
   reminders: ReminderSummaryRecord[];
@@ -153,7 +160,7 @@ export type ReminderFireResponse = ReminderScope & {
 };
 export type ReminderSnapshotRequest = ReminderScope;
 export type LocalReminderRequest = ReminderOperationFields & {
-  requestId: string;
+  idempotencyKey: string;
   context: string;
   operation: ReminderOperation | "ack" | "dismiss";
   revision?: number;
@@ -186,12 +193,19 @@ function instant(value: string | undefined, field: string): string | undefined {
     throw new Error(`invalid ${field}`);
   return value;
 }
-function scope<T extends ReminderScope>(value: T): T {
-  if (
-    value.protocolMajor !== 1 ||
-    [value.requestId, value.workspaceId, value.computerId, value.agentId].some((v) => !isScopeId(v))
-  )
+function identity(value: ReminderIdentity): void {
+  if ([value.workspaceId, value.computerId, value.agentId].some((v) => !isScopeId(v)))
     throw new Error("invalid reminder scope");
+}
+function scope<T extends ReminderScope>(value: T): T {
+  if (value.protocolMajor !== REMINDER_PROTOCOL_MAJOR || !isScopeId(value.requestId))
+    throw new Error("invalid reminder scope");
+  identity(value);
+  return value;
+}
+function operationScope<T extends ReminderOperationScope>(value: T): T {
+  if (!isScopeId(value.idempotencyKey)) throw new Error("invalid reminder scope");
+  identity(value);
   return value;
 }
 function fields<T extends ReminderOperationFields>(value: T, canonicalTarget = false): T {
@@ -227,7 +241,7 @@ function fields<T extends ReminderOperationFields>(value: T, canonicalTarget = f
   return value;
 }
 function operation<T extends AgentReminderOperationRequest>(value: T): T {
-  scope(value);
+  operationScope(value);
   fields(value);
   if (!OPERATIONS.includes(value.operation)) throw new Error("invalid reminder operation");
   const present = (name: keyof ReminderOperationFields) => value[name] !== undefined;
@@ -286,8 +300,23 @@ const optional = <T extends Record<string, unknown>>(value: T) =>
   );
 
 /**
- * The request as it arrives over **JSON** — the same rules the codec applies (`scope`, `fields`,
- * `operation`), with no binary round trip.
+ * The protobuf boundary of the versioned HTTP-path shapes (operation request and response): besides
+ * the `request_id` mapping every HTTP-path shape shares (`idempotency-key-wire.ts`), their schemas
+ * carry `protocol_major`, which the TypeScript shape does not — it is set here on encode and
+ * checked here on decode. The local request has no `protocol_major` and uses the shared pair alone.
+ */
+function toVersionedProto<T extends { idempotencyKey: string }>(value: T) {
+  return { ...toWireRequestId(value), protocolMajor: REMINDER_PROTOCOL_MAJOR };
+}
+function fromVersionedProto<T>(message: Record<string, unknown>): T {
+  const { protocolMajor, ...wire } = optional(message);
+  if (protocolMajor !== REMINDER_PROTOCOL_MAJOR) throw new Error("invalid reminder scope");
+  return fromWireRequestId(wire as { requestId: string }) as T;
+}
+
+/**
+ * The request as it arrives over **JSON** — the same rules the codec applies (`operationScope`,
+ * `fields`, `operation`), with no binary round trip.
  *
  * Protobuf belongs to the WebSocket path. An HTTP handler that encodes a JSON request to protobuf
  * bytes only to decode them straight back has adopted the wrong contract: it inherits the codec's
@@ -306,15 +335,18 @@ export function encodeAgentReminderOperationRequest(value: AgentReminderOperatio
   return bounded(
     toBinary(
       AgentReminderOperationRequestSchema,
-      create(AgentReminderOperationRequestSchema, operation(value)),
+      create(AgentReminderOperationRequestSchema, toVersionedProto(operation(value))),
     ),
   );
 }
 export function decodeAgentReminderOperationRequest(
   bytes: Uint8Array,
 ): AgentReminderOperationRequest {
-  const v = fromBinary(AgentReminderOperationRequestSchema, bounded(bytes));
-  return operation(optional(v) as AgentReminderOperationRequest);
+  return operation(
+    fromVersionedProto<AgentReminderOperationRequest>(
+      fromBinary(AgentReminderOperationRequestSchema, bounded(bytes)),
+    ),
+  );
 }
 
 function summary(value: ReminderSummaryRecord): ReminderSummaryRecord {
@@ -345,7 +377,7 @@ function event(value: ReminderLogEvent): ReminderLogEvent {
   return value;
 }
 function response(value: AgentReminderOperationResponse) {
-  scope(value);
+  operationScope(value);
   value.reminders.forEach(summary);
   value.events.forEach(event);
   return value;
@@ -354,7 +386,7 @@ export function encodeAgentReminderOperationResponse(value: AgentReminderOperati
   return bounded(
     toBinary(
       AgentReminderOperationResponseSchema,
-      create(AgentReminderOperationResponseSchema, response(value)),
+      create(AgentReminderOperationResponseSchema, toVersionedProto(response(value))),
     ),
   );
 }
@@ -363,7 +395,7 @@ export function decodeAgentReminderOperationResponse(
 ): AgentReminderOperationResponse {
   const v = fromBinary(AgentReminderOperationResponseSchema, bounded(bytes));
   return response({
-    ...optional(v),
+    ...fromVersionedProto<AgentReminderOperationResponse>(v),
     reason: v.reason,
     reminders: v.reminders.map((r) => summary(optional(r) as ReminderSummaryRecord)),
     events: v.events.map((e) => event(optional(e) as ReminderLogEvent)),
@@ -489,7 +521,7 @@ export function decodeReminderSnapshotRequest(bytes: Uint8Array): ReminderSnapsh
 
 function local(value: LocalReminderRequest): LocalReminderRequest {
   if (
-    !isScopeId(value.requestId) ||
+    !isScopeId(value.idempotencyKey) ||
     !value.context ||
     ![...OPERATIONS, "ack", "dismiss"].includes(value.operation)
   )
@@ -516,7 +548,6 @@ function local(value: LocalReminderRequest): LocalReminderRequest {
   } else {
     operation({
       ...value,
-      protocolMajor: 1,
       workspaceId: "local",
       computerId: "local",
       agentId: "local",
@@ -527,12 +558,15 @@ function local(value: LocalReminderRequest): LocalReminderRequest {
 }
 export function encodeLocalReminderRequest(value: LocalReminderRequest) {
   return bounded(
-    toBinary(LocalReminderRequestSchema, create(LocalReminderRequestSchema, local(value))),
+    toBinary(
+      LocalReminderRequestSchema,
+      create(LocalReminderRequestSchema, toWireRequestId(local(value))),
+    ),
   );
 }
 export function decodeLocalReminderRequest(bytes: Uint8Array): LocalReminderRequest {
-  const v = fromBinary(LocalReminderRequestSchema, bounded(bytes));
-  return local(optional(v) as LocalReminderRequest);
+  const wire = optional(fromBinary(LocalReminderRequestSchema, bounded(bytes)));
+  return local(fromWireRequestId(wire as { requestId: string }) as LocalReminderRequest);
 }
 
 /**

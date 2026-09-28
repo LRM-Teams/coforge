@@ -25,96 +25,96 @@ const failRunningSchema = z.object({
 
 const bodySchema = z.union([failRunningSchema, slotReportSchema]);
 
-/** Daemon rejects the proxy response unless `idempotencyKey` echoes the request. */
-export function weeklyReportCollectHttpResponse(input: {
-  idempotencyKey: string;
-  runId: string;
-  status: string;
-  allTerminal: boolean;
-  canSynthesize: boolean;
-  newlyAccepted: boolean;
-  synthesisStarted: boolean;
-  waveExhausted?: boolean;
-  slotCount?: number;
-}) {
-  return {
-    idempotencyKey: input.idempotencyKey,
-    requestId: input.idempotencyKey,
-    runId: input.runId,
-    status: input.status,
-    allTerminal: input.allTerminal,
-    canSynthesize: input.canSynthesize,
-    newlyAccepted: input.newlyAccepted,
-    synthesisStarted: input.synthesisStarted,
-    ...(input.waveExhausted !== undefined ? { waveExhausted: input.waveExhausted } : {}),
-    ...(input.slotCount !== undefined ? { slotCount: input.slotCount } : {}),
-  };
+export type WeeklyReportCollectPrincipal = {
+  workspaceId: string;
+  computerId: string;
+  agentId?: string;
+};
+
+/** The records-domain operations the route dispatches to, without the database handle. */
+export type WeeklyReportCollectService = {
+  reportCollectSlotOutcome(
+    input: Parameters<typeof reportCollectSlotOutcome>[1],
+  ): ReturnType<typeof reportCollectSlotOutcome>;
+  reportCollectorRuntimeFailure(
+    input: Parameters<typeof reportCollectorRuntimeFailure>[1],
+  ): ReturnType<typeof reportCollectorRuntimeFailure>;
+};
+
+/** Exported and taking its service as an argument so the route's own contract — above all that the
+ * response echoes the request's `idempotencyKey`, which the daemon rejects it without — is testable
+ * without a database. */
+export async function handleWeeklyReportCollectPost(
+  request: Request,
+  principal: WeeklyReportCollectPrincipal,
+  service: WeeklyReportCollectService,
+): Promise<Response> {
+  try {
+    if (!principal.agentId) {
+      return Response.json({ error: "agent required" }, { status: 403 });
+    }
+    const json = await request.json();
+    const body = bodySchema.parse(json);
+
+    if ("failRunningSlots" in body) {
+      const result = await service.reportCollectorRuntimeFailure({
+        workspaceId: principal.workspaceId,
+        agentId: principal.agentId,
+        computerId: principal.computerId,
+        requestId: body.idempotencyKey,
+        failureReason: body.failureReason,
+      });
+      const primary = result.accepted[0]?.run;
+      // The daemon rejects the proxy response unless `idempotencyKey` echoes the request.
+      return Response.json({
+        idempotencyKey: body.idempotencyKey,
+        runId: primary?.id ?? "00000000-0000-4000-8000-000000000000",
+        status: primary?.status ?? "collecting",
+        allTerminal: primary?.allTerminal ?? true,
+        canSynthesize: primary?.canSynthesize ?? false,
+        newlyAccepted: result.accepted.some((row) => row.newlyAccepted),
+        synthesisStarted: result.accepted.some((row) => row.synthesisStarted),
+        waveExhausted: result.accepted.some((row) => row.waveExhausted),
+        slotCount: result.slotCount,
+      });
+    }
+
+    const accepted = await service.reportCollectSlotOutcome({
+      workspaceId: principal.workspaceId,
+      agentId: principal.agentId,
+      computerId: principal.computerId,
+      requestId: body.idempotencyKey,
+      runId: body.runId,
+      outcome: body.outcome,
+      packMarkdown: body.packMarkdown,
+      failureReason: body.failureReason,
+    });
+    const view = accepted.run;
+
+    return Response.json({
+      idempotencyKey: body.idempotencyKey,
+      runId: view.id,
+      status: view.status,
+      allTerminal: view.allTerminal,
+      canSynthesize: view.canSynthesize,
+      newlyAccepted: accepted.newlyAccepted,
+      synthesisStarted: accepted.synthesisStarted,
+      waveExhausted: accepted.waveExhausted,
+    });
+  } catch (error) {
+    return agentRouteDomainErrorResponse(error, "invalid collect request");
+  }
 }
 
 export const Route = createFileRoute("/api/agent/v1/weekly-report-collect")({
   server: {
     middleware: [agentAuthMiddleware],
     handlers: {
-      POST: async ({ request, context: { principal, db } }) => {
-        try {
-          if (!principal.agentId) {
-            return Response.json({ error: "agent required" }, { status: 403 });
-          }
-          const json = await request.json();
-          const body = bodySchema.parse(json);
-
-          if ("failRunningSlots" in body) {
-            const result = await reportCollectorRuntimeFailure(db, {
-              workspaceId: principal.workspaceId,
-              agentId: principal.agentId,
-              computerId: principal.computerId,
-              requestId: body.idempotencyKey,
-              failureReason: body.failureReason,
-            });
-            const primary = result.accepted[0]?.run;
-            return Response.json(
-              weeklyReportCollectHttpResponse({
-                idempotencyKey: body.idempotencyKey,
-                runId: primary?.id ?? "00000000-0000-4000-8000-000000000000",
-                status: primary?.status ?? "collecting",
-                allTerminal: primary?.allTerminal ?? true,
-                canSynthesize: primary?.canSynthesize ?? false,
-                newlyAccepted: result.accepted.some((row) => row.newlyAccepted),
-                synthesisStarted: result.accepted.some((row) => row.synthesisStarted),
-                waveExhausted: result.accepted.some((row) => row.waveExhausted),
-                slotCount: result.slotCount,
-              }),
-            );
-          }
-
-          const accepted = await reportCollectSlotOutcome(db, {
-            workspaceId: principal.workspaceId,
-            agentId: principal.agentId,
-            computerId: principal.computerId,
-            requestId: body.idempotencyKey,
-            runId: body.runId,
-            outcome: body.outcome,
-            packMarkdown: body.packMarkdown,
-            failureReason: body.failureReason,
-          });
-          const view = accepted.run;
-
-          return Response.json(
-            weeklyReportCollectHttpResponse({
-              idempotencyKey: body.idempotencyKey,
-              runId: view.id,
-              status: view.status,
-              allTerminal: view.allTerminal,
-              canSynthesize: view.canSynthesize,
-              newlyAccepted: accepted.newlyAccepted,
-              synthesisStarted: accepted.synthesisStarted,
-              waveExhausted: accepted.waveExhausted,
-            }),
-          );
-        } catch (error) {
-          return agentRouteDomainErrorResponse(error, "invalid collect request");
-        }
-      },
+      POST: ({ request, context: { principal, db } }) =>
+        handleWeeklyReportCollectPost(request, principal, {
+          reportCollectSlotOutcome: (input) => reportCollectSlotOutcome(db, input),
+          reportCollectorRuntimeFailure: (input) => reportCollectorRuntimeFailure(db, input),
+        }),
     },
   },
 });

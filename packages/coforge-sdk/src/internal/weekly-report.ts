@@ -3,7 +3,6 @@ import { RFC_UUID_PATTERN } from "./uuid";
 import { utf8Encoder, utf8Decoder } from "./text-codec";
 /** Agent HTTPS weekly-report reads. Authorization is the assistant owner User. */
 export const AGENT_WEEKLY_REPORT_METHOD = RPC_METHODS.agentWeeklyReport;
-export const WEEKLY_REPORT_PROTOCOL_MAJOR = 1 as const;
 
 export const WEEKLY_REPORT_SUBJECT_TYPES = ["report", "cycle"] as const;
 export type WeeklyReportSubjectType = (typeof WEEKLY_REPORT_SUBJECT_TYPES)[number];
@@ -28,15 +27,13 @@ export type WeeklyReportCommand =
     };
 
 export type WeeklyReportRequest = WeeklyReportCommand & {
-  protocolMajor: number;
-  requestId: string;
+  idempotencyKey: string;
   workspaceId: string;
   agentId: string;
 };
 
 export type WeeklyReportResponse = {
-  protocolMajor: number;
-  requestId: string;
+  idempotencyKey: string;
   operation: WeeklyReportCommand["operation"];
   result: unknown;
 };
@@ -55,20 +52,14 @@ export function validateWeeklyReportRequest(value: unknown): WeeklyReportRequest
   if (!value || typeof value !== "object" || Array.isArray(value))
     throw new Error("invalid weekly-report request");
   const row = value as Record<string, unknown>;
-  if (
-    row.protocolMajor !== WEEKLY_REPORT_PROTOCOL_MAJOR ||
-    !isNonblank(row.requestId) ||
-    !isNonblank(row.workspaceId) ||
-    !isNonblank(row.agentId)
-  )
+  if (!isNonblank(row.idempotencyKey) || !isNonblank(row.workspaceId) || !isNonblank(row.agentId))
     throw new Error("invalid weekly-report request");
   const operation = row.operation;
   if (operation === "context") {
     if (!SUBJECT_TYPES.has(String(row.subjectType)) || !isUuid(row.subjectId))
       throw new Error("invalid weekly-report request");
     return {
-      protocolMajor: WEEKLY_REPORT_PROTOCOL_MAJOR,
-      requestId: row.requestId,
+      idempotencyKey: row.idempotencyKey,
       workspaceId: row.workspaceId,
       agentId: row.agentId,
       operation: "context",
@@ -87,8 +78,7 @@ export function validateWeeklyReportRequest(value: unknown): WeeklyReportRequest
     )
       throw new Error("invalid weekly-report request");
     return {
-      protocolMajor: WEEKLY_REPORT_PROTOCOL_MAJOR,
-      requestId: row.requestId,
+      idempotencyKey: row.idempotencyKey,
       workspaceId: row.workspaceId,
       agentId: row.agentId,
       operation: "list",
@@ -108,8 +98,7 @@ export function validateWeeklyReportRequest(value: unknown): WeeklyReportRequest
     )
       throw new Error("invalid weekly-report request");
     return {
-      protocolMajor: WEEKLY_REPORT_PROTOCOL_MAJOR,
-      requestId: row.requestId,
+      idempotencyKey: row.idempotencyKey,
       workspaceId: row.workspaceId,
       agentId: row.agentId,
       operation: "read",
@@ -135,15 +124,13 @@ export function decodeWeeklyReportRequest(bytes: Uint8Array): WeeklyReportReques
 
 export function encodeWeeklyReportResponse(response: WeeklyReportResponse): Uint8Array {
   if (
-    response.protocolMajor !== WEEKLY_REPORT_PROTOCOL_MAJOR ||
-    !isNonblank(response.requestId) ||
+    !isNonblank(response.idempotencyKey) ||
     !["context", "list", "read"].includes(response.operation)
   )
     throw new Error("invalid weekly-report response");
   return utf8Encoder.encode(
     JSON.stringify({
-      protocolMajor: WEEKLY_REPORT_PROTOCOL_MAJOR,
-      requestId: response.requestId,
+      idempotencyKey: response.idempotencyKey,
       operation: response.operation,
       result: response.result ?? null,
     }),
@@ -161,14 +148,12 @@ export function decodeWeeklyReportResponse(bytes: Uint8Array): WeeklyReportRespo
     throw new Error("invalid weekly-report response");
   const row = value as Record<string, unknown>;
   if (
-    row.protocolMajor !== WEEKLY_REPORT_PROTOCOL_MAJOR ||
-    !isNonblank(row.requestId) ||
+    !isNonblank(row.idempotencyKey) ||
     !["context", "list", "read"].includes(String(row.operation))
   )
     throw new Error("invalid weekly-report response");
   return {
-    protocolMajor: WEEKLY_REPORT_PROTOCOL_MAJOR,
-    requestId: row.requestId,
+    idempotencyKey: row.idempotencyKey,
     operation: row.operation as WeeklyReportCommand["operation"],
     result: row.result ?? null,
   };

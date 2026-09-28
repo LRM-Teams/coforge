@@ -23,7 +23,6 @@ export async function handleAgentEventsGet(
     const target = query.get("target") || undefined;
     const result = await drainAgentEvents(repository, scope, limit, target);
     const response: AgentEventsResponse = {
-      protocolMajor: 1,
       idempotencyKey,
       events: result.messages,
       hasMore: result.hasMore,

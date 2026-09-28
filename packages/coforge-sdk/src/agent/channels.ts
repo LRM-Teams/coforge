@@ -49,7 +49,6 @@ export type AgentChannelInfo = {
 /** Response for `channel info` (GET /api/agent/v1/channels/:channel) and `channel update`
  * (PATCH .../:channel), which returns the same info shape after applying its patch. */
 export type AgentChannelInfoResponse = {
-  protocolMajor: 1;
   idempotencyKey: string;
   channel: AgentChannelInfo;
 };
@@ -87,7 +86,6 @@ export type AgentChannelRosterHuman = {
 
 /** Response for `channel members` (GET /api/agent/v1/channels/:channel/members). */
 export type AgentChannelMembersResponse = {
-  protocolMajor: 1;
   idempotencyKey: string;
   target: string;
   agents: AgentChannelRosterAgent[];
@@ -97,7 +95,6 @@ export type AgentChannelMembersResponse = {
 /** Response for `channel join`. `alreadyJoined` distinguishes Raft's "Already joined #x." text
  * from the full join confirmation. */
 export type AgentChannelJoinResponse = {
-  protocolMajor: 1;
   idempotencyKey: string;
   target: string;
   joined: true;
@@ -107,7 +104,6 @@ export type AgentChannelJoinResponse = {
 /** Response for `channel leave`. `wasMember` distinguishes Raft's "Already not joined in #x."
  * text from the full leave confirmation. */
 export type AgentChannelLeaveResponse = {
-  protocolMajor: 1;
   idempotencyKey: string;
   target: string;
   joined: false;
@@ -116,7 +112,6 @@ export type AgentChannelLeaveResponse = {
 
 /** Response for `channel create` (POST /api/agent/v1/channels). */
 export type AgentChannelCreateResponse = {
-  protocolMajor: 1;
   idempotencyKey: string;
   target: string;
   channel: { id: string; name: string; description: string };
@@ -124,7 +119,6 @@ export type AgentChannelCreateResponse = {
 
 /** Response for `channel lifecycle archive|unarchive`. */
 export type AgentChannelArchiveResponse = {
-  protocolMajor: 1;
   idempotencyKey: string;
   target: string;
   archived: boolean;
@@ -133,7 +127,6 @@ export type AgentChannelArchiveResponse = {
 /** Response for `channel add-member`. `alreadyMember` distinguishes Raft's "@h is already in
  * #x." text from the full add-member confirmation. */
 export type AgentChannelAddMemberResponse = {
-  protocolMajor: 1;
   idempotencyKey: string;
   target: string;
   member: { kind: "user" | "agent"; handle: string };
@@ -144,7 +137,6 @@ export type AgentChannelAddMemberResponse = {
 /** Response for `channel remove-member`. `wasMember` distinguishes Raft's "@h was not in #x."
  * text from the full remove-member confirmation. */
 export type AgentChannelRemoveMemberResponse = {
-  protocolMajor: 1;
   idempotencyKey: string;
   target: string;
   removed: true;

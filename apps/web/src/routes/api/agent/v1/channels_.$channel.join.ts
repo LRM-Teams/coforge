@@ -22,7 +22,7 @@ export async function handleAgentChannelJoinPost(
   const idempotencyKey = idempotencyKeyFrom(body);
   try {
     const result = await repository.join(principal.workspaceId, principal.agentId, channel);
-    return Response.json({ protocolMajor: 1, idempotencyKey, ...result });
+    return Response.json({ idempotencyKey, ...result });
   } catch (error) {
     return channelManagementErrorResponse(error, "channel join failed");
   }

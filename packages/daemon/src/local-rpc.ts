@@ -203,7 +203,7 @@ class LocalRpcDispatcher {
   async #inbox(payload: Uint8Array): Promise<Uint8Array> {
     const request = decodeLocalInboxRequest(payload);
     const { runtime } = this.input;
-    if (!request.context || !request.requestId || !runtime.inbox)
+    if (!request.context || !request.idempotencyKey || !runtime.inbox)
       throw new Error("agent local context is not bound");
     return encodeInboxResponse(await runtime.inbox(request.context, request));
   }

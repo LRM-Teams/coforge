@@ -156,13 +156,13 @@ export type ChannelInvocation = { command: "mute" | "unmute"; target: string };
  * from `ChannelInvocation` above (`mute`/`unmute`, unchanged). */
 export type ChannelManagementInvocation = {
   command: "channel-manage";
-  channel: Omit<ChannelCommand, "requestId">;
+  channel: Omit<ChannelCommand, "idempotencyKey">;
   json?: boolean;
 };
-export type ReminderInvocation = Omit<LocalReminderRequest, "context" | "requestId"> & {
+export type ReminderInvocation = Omit<LocalReminderRequest, "context" | "idempotencyKey"> & {
   command: "reminder";
 };
-export type ReminderTransportRequest = Omit<LocalReminderRequest, "context" | "requestId">;
+export type ReminderTransportRequest = Omit<LocalReminderRequest, "context" | "idempotencyKey">;
 export type LocalReminderReceiptResponse = {
   accepted: boolean;
   reminderId: string;
@@ -181,11 +181,8 @@ export type WorkspaceInfoOptions = {
   offset?: number;
 };
 export type WorkspaceInfoInvocation = { command: "workspace.info" } & WorkspaceInfoOptions;
-/** `whoami`'s view: the shared shape minus the key our HTTP names `idempotencyKey` (the Agent API's
- * own `workspace_info` result carries that name, not `requestId`). */
-export type WorkspaceInfoResult = Omit<WorkspaceInfoResponse, "requestId"> & {
-  /** The Agent API's own name for the request id it echoes (the local hop carries `requestId`). */
-  idempotencyKey: string;
+/** `whoami`'s view of the `workspace_info` result. */
+export type WorkspaceInfoResult = WorkspaceInfoResponse & {
   computers?: unknown[];
 };
 export type WeeklyReportInvocation = {
@@ -193,14 +190,14 @@ export type WeeklyReportInvocation = {
   weeklyReport: WeeklyReportCommand;
 };
 export type WeeklyReportCollectCommand = {
-  requestId: string;
+  idempotencyKey: string;
   runId: string;
   outcome: "ready" | "empty" | "failed";
   packMarkdown?: string;
   failureReason?: string;
 };
 export type WeeklyReportCollectResult = {
-  requestId: string;
+  idempotencyKey: string;
   runId: string;
   status: string;
   allTerminal: boolean;
@@ -213,12 +210,12 @@ export type WeeklyReportCollectInvocation = {
   markdownPath?: string;
 };
 export type WeeklyReportKeyPointsCommand = {
-  requestId: string;
+  idempotencyKey: string;
   reportId: string;
   markdown: string;
 };
 export type WeeklyReportKeyPointsResult = {
-  requestId: string;
+  idempotencyKey: string;
   reportId: string;
   status: string;
 };
@@ -289,7 +286,7 @@ export type MessageTransport = {
     request: ReminderTransportRequest,
   ): Promise<AgentReminderOperationResponse | LocalReminderReceiptResponse>;
   setThreadFollowed?(target: string, followed: boolean): Promise<unknown>;
-  channel?(command: Omit<ChannelCommand, "requestId">): Promise<unknown>;
+  channel?(command: Omit<ChannelCommand, "idempotencyKey">): Promise<unknown>;
   task?(command: TaskCommand): Promise<TaskResult>;
   workspaceInfo?(): Promise<WorkspaceInfoResult>;
   weeklyReport?(command: WeeklyReportCommand): Promise<WeeklyReportResponse>;
@@ -642,7 +639,7 @@ export function parseArgs(
     }
   }
   throw new Error(
-    "Usage: coforge channel mute|unmute --target '#channel' | coforge channel info <target> | coforge channel members <target> | coforge channel join --target '#channel' | coforge channel leave --target '#channel' | coforge channel create --name <name> [--description <text>] [--json] | coforge channel update --target '#channel' [--name <name>] [--description <text>] [--json] | coforge channel lifecycle archive|unarchive --target '#channel' [--json] | coforge channel add-member --target '#channel' (--user @handle | --agent @handle) [--json] | coforge channel remove-member --target '#channel' (--user @handle | --agent @handle) [--json] | coforge thread unfollow --target '#channel:message-id' | coforge inbox check | coforge message check [--target @user|#channel] | coforge message search --query <text> [--target <target>] [--sender <handle>] [--sort relevance|recent] [--before <iso>] [--after <iso>] [--limit <n>] [--offset <n>] | coforge message read --target @user | coforge message send --target @user [--send-draft] [--anyway] [--reviewer-isolation] [--json] [--attachment-id <uuid>]... [--mention human:<uuid>:<handle>|agent:<uuid>:<handle>]... [--target-confirmed] | coforge message resolve <message-id> | coforge message react --message-id <id> --emoji <emoji> [--remove] | coforge task list (--target <target> | --mine) [--status all|todo|in_progress|in_review|done|closed] | coforge task create --target <target> --title <title>... [--assignee @handle] [--creates-resource] | coforge task claim --target <target> (--number <n> | --message-id <id>)... [--reviewer-isolation] | coforge task convert|unclaim|assign|unassign|update|amend|history|delete|receipt ... | coforge attachment view [--id] <id> --output <path> [--json] | coforge attachment upload --path <file> (--target <target>|--channel <target>) [--mime-type <type>] [--json] | coforge weekly-report context --subject-type report|cycle --subject-id <uuid> | coforge weekly-report list [--cycle-id <uuid>] [--cursor <uuid>] [--limit <n>] | coforge weekly-report read --report-id <uuid> --section <name> [--max-characters <n>] | coforge weekly-report-collect submit-pack|submit-empty|submit-failure --run-id <uuid> --request-id <uuid> [--markdown <path>] [--reason <text>] | coforge action prepare --target <target> | coforge manual get <topic> [--intent <text>] [--reason <text>] | coforge manual search \"<keywords>\" [--intent <text>] [--reason <text>] | coforge whoami [--json] | coforge version [--json] | coforge user info <name> [--json] | coforge profile show [<target>] [--json] | coforge profile update [--display-name <text>] [--description <text>] [--json] | coforge mention pending [--json] | coforge mention notify <resolution-id>... [--json] | coforge mention add <resolution-id>... [--json]",
+    "Usage: coforge channel mute|unmute --target '#channel' | coforge channel info <target> | coforge channel members <target> | coforge channel join --target '#channel' | coforge channel leave --target '#channel' | coforge channel create --name <name> [--description <text>] [--json] | coforge channel update --target '#channel' [--name <name>] [--description <text>] [--json] | coforge channel lifecycle archive|unarchive --target '#channel' [--json] | coforge channel add-member --target '#channel' (--user @handle | --agent @handle) [--json] | coforge channel remove-member --target '#channel' (--user @handle | --agent @handle) [--json] | coforge thread unfollow --target '#channel:message-id' | coforge inbox check | coforge message check [--target @user|#channel] | coforge message search --query <text> [--target <target>] [--sender <handle>] [--sort relevance|recent] [--before <iso>] [--after <iso>] [--limit <n>] [--offset <n>] | coforge message read --target @user | coforge message send --target @user [--send-draft] [--anyway] [--reviewer-isolation] [--json] [--attachment-id <uuid>]... [--mention human:<uuid>:<handle>|agent:<uuid>:<handle>]... [--target-confirmed] | coforge message resolve <message-id> | coforge message react --message-id <id> --emoji <emoji> [--remove] | coforge task list (--target <target> | --mine) [--status all|todo|in_progress|in_review|done|closed] | coforge task create --target <target> --title <title>... [--assignee @handle] [--creates-resource] | coforge task claim --target <target> (--number <n> | --message-id <id>)... [--reviewer-isolation] | coforge task convert|unclaim|assign|unassign|update|amend|history|delete|receipt ... | coforge attachment view [--id] <id> --output <path> [--json] | coforge attachment upload --path <file> (--target <target>|--channel <target>) [--mime-type <type>] [--json] | coforge weekly-report context --subject-type report|cycle --subject-id <uuid> | coforge weekly-report list [--cycle-id <uuid>] [--cursor <uuid>] [--limit <n>] | coforge weekly-report read --report-id <uuid> --section <name> [--max-characters <n>] | coforge weekly-report-collect submit-pack|submit-empty|submit-failure --run-id <uuid> --idempotency-key <uuid> [--markdown <path>] [--reason <text>] | coforge action prepare --target <target> | coforge manual get <topic> [--intent <text>] [--reason <text>] | coforge manual search \"<keywords>\" [--intent <text>] [--reason <text>] | coforge whoami [--json] | coforge version [--json] | coforge user info <name> [--json] | coforge profile show [<target>] [--json] | coforge profile update [--display-name <text>] [--description <text>] [--json] | coforge mention pending [--json] | coforge mention notify <resolution-id>... [--json] | coforge mention add <resolution-id>... [--json]",
   );
 }
 
@@ -1956,7 +1953,7 @@ function parseReminderArgs(args: readonly string[]): ReminderInvocation {
     encodeLocalReminderRequest({
       ...request,
       ...(needsIdProbe ? { reminderId: "12345678-1234-4123-8123-123456789abc" } : {}),
-      requestId: "cli-validation",
+      idempotencyKey: "cli-validation",
       context: "cli-validation",
     } as LocalReminderRequest),
   );
@@ -2141,8 +2138,13 @@ function parseWeeklyReportCollectArgs(args: readonly string[]): WeeklyReportColl
     values.set(name, value);
   }
   const runId = values.get("--run-id");
-  const requestId = values.get("--request-id");
-  if (!runId || !RFC_UUID_PATTERN.test(runId) || !requestId || !RFC_UUID_PATTERN.test(requestId))
+  const idempotencyKey = values.get("--idempotency-key");
+  if (
+    !runId ||
+    !RFC_UUID_PATTERN.test(runId) ||
+    !idempotencyKey ||
+    !RFC_UUID_PATTERN.test(idempotencyKey)
+  )
     throw new Error("Usage:");
   if (operation === "submit-pack") {
     const markdownPath = values.get("--markdown");
@@ -2151,7 +2153,7 @@ function parseWeeklyReportCollectArgs(args: readonly string[]): WeeklyReportColl
       command: "weekly-report-collect",
       markdownPath,
       collect: {
-        requestId,
+        idempotencyKey,
         runId,
         outcome: "ready",
       },
@@ -2161,14 +2163,14 @@ function parseWeeklyReportCollectArgs(args: readonly string[]): WeeklyReportColl
     if (values.size !== 2) throw new Error("Usage:");
     return {
       command: "weekly-report-collect",
-      collect: { requestId, runId, outcome: "empty" },
+      collect: { idempotencyKey, runId, outcome: "empty" },
     };
   }
   const reason = values.get("--reason");
   if (!reason || values.size !== 3) throw new Error("Usage:");
   return {
     command: "weekly-report-collect",
-    collect: { requestId, runId, outcome: "failed", failureReason: reason },
+    collect: { idempotencyKey, runId, outcome: "failed", failureReason: reason },
   };
 }
 
@@ -2183,13 +2185,13 @@ function parseWeeklyReportKeyPointsArgs(args: readonly string[]): WeeklyReportKe
     values.set(name, value);
   }
   const reportId = values.get("--report-id");
-  const requestId = values.get("--request-id");
+  const idempotencyKey = values.get("--idempotency-key");
   const markdownPath = values.get("--markdown");
   if (
     !reportId ||
     !RFC_UUID_PATTERN.test(reportId) ||
-    !requestId ||
-    !RFC_UUID_PATTERN.test(requestId) ||
+    !idempotencyKey ||
+    !RFC_UUID_PATTERN.test(idempotencyKey) ||
     !markdownPath ||
     values.size !== 3
   )
@@ -2197,7 +2199,7 @@ function parseWeeklyReportKeyPointsArgs(args: readonly string[]): WeeklyReportKe
   return {
     command: "weekly-report-key-points",
     markdownPath,
-    keyPoints: { requestId, reportId, markdown: "" },
+    keyPoints: { idempotencyKey, reportId, markdown: "" },
   };
 }
 

@@ -95,7 +95,7 @@ async function call(input: {
       authorization: `Bearer ${Bun.env.COFORGE_AGENT_CONTEXT}`,
       "content-type": "application/json",
     },
-    body: JSON.stringify({ ...input, requestId: crypto.randomUUID() }),
+    body: JSON.stringify({ ...input, idempotencyKey: crypto.randomUUID() }),
   });
   if (!response.ok)
     throw new Error(`Agent proxy returned ${response.status}: ${await response.text()}`);

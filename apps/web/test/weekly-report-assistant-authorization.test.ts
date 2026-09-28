@@ -3,11 +3,7 @@ import type { PrismaClient } from "#src/generated/prisma/client";
 import { AppError } from "#src/lib/app-error";
 import { RecordCatalog } from "#src/server/records/record-catalog.server";
 import { PrismaAgentRepository } from "#src/server/db/repositories/agent.repositories.server";
-import {
-  decodeWeeklyReportRequest,
-  validateWeeklyReportRequest,
-  WEEKLY_REPORT_PROTOCOL_MAJOR,
-} from "@lrm/coforge-sdk/internal";
+import { decodeWeeklyReportRequest, validateWeeklyReportRequest } from "@lrm/coforge-sdk/internal";
 import { parseWeeklyReportAssistantSuggestion } from "#src/server/records/weekly-report-assistant-suggestion.server";
 
 test("assistant section reads deny member reports the User cannot see", async () => {
@@ -153,8 +149,7 @@ test("send-prompt suggestions are prompts only and Agent weekly-report protocol 
   for (const operation of ["write", "draft_update", "highlight_generate", "send"] as const) {
     expect(() =>
       validateWeeklyReportRequest({
-        protocolMajor: WEEKLY_REPORT_PROTOCOL_MAJOR,
-        requestId: "request-1",
+        idempotencyKey: "request-1",
         workspaceId: "workspace-1",
         agentId: "agent-1",
         operation,
@@ -164,8 +159,7 @@ test("send-prompt suggestions are prompts only and Agent weekly-report protocol 
       decodeWeeklyReportRequest(
         new TextEncoder().encode(
           JSON.stringify({
-            protocolMajor: WEEKLY_REPORT_PROTOCOL_MAJOR,
-            requestId: "request-1",
+            idempotencyKey: "request-1",
             workspaceId: "workspace-1",
             agentId: "agent-1",
             operation,

@@ -197,7 +197,6 @@ export type WorkspaceInfoRuntimeContext = {
   agentWorkspacePath?: string;
 };
 export type WorkspaceInfoResult = {
-  protocolMajor: number;
   idempotencyKey: string;
   workspace: { id: string; slug: string; name: string };
   humans: WorkspaceInfoHuman[];

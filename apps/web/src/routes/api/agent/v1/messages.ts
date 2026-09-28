@@ -61,7 +61,6 @@ export async function handleAgentMessagesGet(
     });
     const messages = result.messages as AgentMessage[];
     const response: AgentHistoryResponse = {
-      protocolMajor: 1,
       idempotencyKey,
       messages,
       hasOlder: result.hasOlder,
@@ -84,7 +83,6 @@ function mapSendResult(idempotencyKey: string, result: AgentSendMessageResult) {
       createdAt: message.createdAt.toISOString(),
     }) as AgentMessage;
   const response: AgentSendResponse = {
-    protocolMajor: 1,
     idempotencyKey,
     state: result.state,
     decision: result.decision,

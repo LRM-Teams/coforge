@@ -9,11 +9,11 @@ import {
 test("round trips the version-compatible unified Inbox protocol", () => {
   expect(
     decodeLocalInboxRequest(
-      encodeLocalInboxRequest({ requestId: "r", context: "c", operation: "check" }),
+      encodeLocalInboxRequest({ idempotencyKey: "r", context: "c", operation: "check" }),
     ),
-  ).toEqual({ requestId: "r", context: "c", operation: "check" });
+  ).toEqual({ idempotencyKey: "r", context: "c", operation: "check" });
   const response = {
-    requestId: "r",
+    idempotencyKey: "r",
     accepted: true,
     entries: [
       {

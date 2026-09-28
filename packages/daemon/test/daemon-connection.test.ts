@@ -779,20 +779,19 @@ const config = {
 test("Agent reminder HTTP responses must correlate through the injected HTTP client", async () => {
   const fake = fakeClient();
   const request: AgentReminderOperationRequest = {
-    protocolMajor: 1,
-    requestId: "request-reminder",
+    idempotencyKey: "request-reminder",
     workspaceId: config.workspaceId,
     computerId: config.computerId,
     agentId: "agent-a",
     operation: "list",
   };
-  const scopes = ["protocolMajor", "requestId", "workspaceId", "computerId", "agentId"] as const;
+  const scopes = ["idempotencyKey", "workspaceId", "computerId", "agentId"] as const;
   for (const scope of scopes) {
     const transport = new DaemonConnection("wss://cloud.example", () => fake.client, {
       async requestReminder({ request: input }) {
         return {
           ...input,
-          [scope]: scope === "protocolMajor" ? 2 : "wrong-scope",
+          [scope]: "wrong-scope",
           accepted: true,
           reminders: [],
           events: [],
@@ -809,8 +808,7 @@ test("Agent reminder HTTP responses must correlate through the injected HTTP cli
 
 test("Agent reminder HTTP transport rejects network and malformed responses without global mocks", async () => {
   const request: AgentReminderOperationRequest = {
-    protocolMajor: 1,
-    requestId: "request-reminder",
+    idempotencyKey: "request-reminder",
     workspaceId: config.workspaceId,
     computerId: config.computerId,
     agentId: "agent-a",
@@ -837,8 +835,7 @@ test("Agent reminder HTTP transport rejects network and malformed responses with
 
 test("a reminder refusal keeps the server's code for the daemon log, not the caller", async () => {
   const request: AgentReminderOperationRequest = {
-    protocolMajor: 1,
-    requestId: "request-reminder",
+    idempotencyKey: "request-reminder",
     workspaceId: config.workspaceId,
     computerId: config.computerId,
     agentId: "agent-a",
@@ -1627,8 +1624,7 @@ test("uses the configured HTTP seam for Agent messages and never falls back to W
   });
   await transport.agentMessage(
     {
-      protocolMajor: 1,
-      requestId: "request-2",
+      idempotencyKey: "request-2",
       workspaceId: config.workspaceId,
       agentId: "agent-1",
       operation: "read",
@@ -1649,8 +1645,7 @@ test("uses the configured HTTP seam for Agent messages and never falls back to W
   await expect(
     noEndpoint.agentMessage(
       {
-        protocolMajor: 1,
-        requestId: "request-3",
+        idempotencyKey: "request-3",
         workspaceId: config.workspaceId,
         agentId: "agent-1",
         operation: "read",
@@ -1667,7 +1662,7 @@ test("Agent read HTTP GET request carries the request id and sequence window", a
     capturedUrl = input as URL;
     return Response.json({
       protocolMajor: 1,
-      requestId: "request-read-1",
+      idempotencyKey: "request-read-1",
       messages: [],
       hasOlder: false,
       hasNewer: false,
@@ -1678,8 +1673,7 @@ test("Agent read HTTP GET request carries the request id and sequence window", a
     agentApiKey: `sk_agent_${"a".repeat(43)}`,
     daemonApiKey: "daemon-token",
     request: {
-      protocolMajor: 1,
-      requestId: "request-read-1",
+      idempotencyKey: "request-read-1",
       workspaceId: "workspace-a",
       agentId: "agent-a",
       operation: "read",
@@ -1711,8 +1705,7 @@ test("Agent search HTTP GET request carries the request id", async () => {
     agentApiKey: `sk_agent_${"a".repeat(43)}`,
     daemonApiKey: "daemon-token",
     request: {
-      protocolMajor: 1,
-      requestId: "request-search-1",
+      idempotencyKey: "request-search-1",
       workspaceId: "workspace-a",
       agentId: "agent-a",
       operation: "search",
@@ -1735,8 +1728,7 @@ test("Agent search HTTP GET request carries its time window", async () => {
     agentApiKey: `sk_agent_${"a".repeat(43)}`,
     daemonApiKey: "daemon-token",
     request: {
-      protocolMajor: 1,
-      requestId: "request-search-2",
+      idempotencyKey: "request-search-2",
       workspaceId: "workspace-a",
       agentId: "agent-a",
       operation: "search",
@@ -1775,8 +1767,7 @@ test("Agent resolve HTTP GET request carries the request id", async () => {
     agentApiKey: `sk_agent_${"a".repeat(43)}`,
     daemonApiKey: "daemon-token",
     request: {
-      protocolMajor: 1,
-      requestId: "request-resolve-1",
+      idempotencyKey: "request-resolve-1",
       workspaceId: "workspace-a",
       agentId: "agent-a",
       operation: "resolve",
@@ -1805,8 +1796,7 @@ test("Agent events HTTP GET request carries the request id and limit", async () 
     agentApiKey: `sk_agent_${"a".repeat(43)}`,
     daemonApiKey: "daemon-token",
     request: {
-      protocolMajor: 1,
-      requestId: "request-events-1",
+      idempotencyKey: "request-events-1",
       workspaceId: "workspace-a",
       agentId: "agent-a",
       operation: "check",
@@ -1836,8 +1826,7 @@ test("Agent events HTTP GET request forwards a non-empty check target", async ()
     agentApiKey: `sk_agent_${"a".repeat(43)}`,
     daemonApiKey: "daemon-token",
     request: {
-      protocolMajor: 1,
-      requestId: "request-events-2",
+      idempotencyKey: "request-events-2",
       workspaceId: "workspace-a",
       agentId: "agent-a",
       operation: "check",
@@ -1871,8 +1860,7 @@ test.each(["mute", "unmute"] as const)(
       agentApiKey: `sk_agent_${"a".repeat(43)}`,
       daemonApiKey: "daemon-token",
       request: {
-        protocolMajor: 1,
-        requestId: "request-mute-1",
+        idempotencyKey: "request-mute-1",
         workspaceId: "workspace-a",
         agentId: "agent-a",
         operation,
@@ -1903,8 +1891,7 @@ test("Agent thread unfollow HTTP POST request carries the request id", async () 
     agentApiKey: `sk_agent_${"a".repeat(43)}`,
     daemonApiKey: "daemon-token",
     request: {
-      protocolMajor: 1,
-      requestId: "request-unfollow-1",
+      idempotencyKey: "request-unfollow-1",
       workspaceId: "workspace-a",
       agentId: "agent-a",
       operation: "thread-unfollow",
@@ -1924,7 +1911,7 @@ test("requestSend HTTP POST body carries freshnessContextMode when set and omits
     capturedBodies.push(JSON.parse(init?.body as string));
     return Response.json({
       protocolMajor: 1,
-      requestId: "request-send-1",
+      idempotencyKey: "request-send-1",
       state: "sent",
       decision: "forward",
       messageId: "message-1",
@@ -1932,7 +1919,7 @@ test("requestSend HTTP POST body carries freshnessContextMode when set and omits
   });
   const baseRequest = {
     protocolMajor: 1,
-    requestId: "request-send-1",
+    idempotencyKey: "request-send-1",
     workspaceId: "workspace-a",
     agentId: "agent-a",
     operation: "send" as const,
@@ -1978,8 +1965,7 @@ test.each(["react", "unreact"] as const)(
       agentApiKey: `sk_agent_${"a".repeat(43)}`,
       daemonApiKey: "daemon-token",
       request: {
-        protocolMajor: 1,
-        requestId: "request-react-1",
+        idempotencyKey: "request-react-1",
         workspaceId: "workspace-a",
         agentId: "agent-a",
         operation,
@@ -2008,8 +1994,7 @@ test("requestRead surfaces a safe validation failure as AgentMessageRequestError
       agentApiKey: `sk_agent_${"a".repeat(43)}`,
       daemonApiKey: "daemon-token",
       request: {
-        protocolMajor: 1,
-        requestId: "request-read-2",
+        idempotencyKey: "request-read-2",
         workspaceId: "workspace-a",
         agentId: "agent-a",
         operation: "read",
@@ -2031,8 +2016,7 @@ test("requestEvents, requestChannelMute, and requestThreadUnfollow surface non-2
       agentApiKey: `sk_agent_${"a".repeat(43)}`,
       daemonApiKey: "daemon-token",
       request: {
-        protocolMajor: 1,
-        requestId: "request-events-2",
+        idempotencyKey: "request-events-2",
         workspaceId: "workspace-a",
         agentId: "agent-a",
         operation: "check",
@@ -2050,8 +2034,7 @@ test("requestEvents, requestChannelMute, and requestThreadUnfollow surface non-2
       agentApiKey: `sk_agent_${"a".repeat(43)}`,
       daemonApiKey: "daemon-token",
       request: {
-        protocolMajor: 1,
-        requestId: "request-mute-2",
+        idempotencyKey: "request-mute-2",
         workspaceId: "workspace-a",
         agentId: "agent-a",
         operation: "mute",
@@ -2070,8 +2053,7 @@ test("requestEvents, requestChannelMute, and requestThreadUnfollow surface non-2
       agentApiKey: `sk_agent_${"a".repeat(43)}`,
       daemonApiKey: "daemon-token",
       request: {
-        protocolMajor: 1,
-        requestId: "request-unfollow-2",
+        idempotencyKey: "request-unfollow-2",
         workspaceId: "workspace-a",
         agentId: "agent-a",
         operation: "thread-unfollow",
@@ -2093,8 +2075,7 @@ test("resolve and reaction HTTP clients surface safe validation failures as Agen
       agentApiKey: `sk_agent_${"a".repeat(43)}`,
       daemonApiKey: "daemon-token",
       request: {
-        protocolMajor: 1,
-        requestId: "request-resolve-2",
+        idempotencyKey: "request-resolve-2",
         workspaceId: "workspace-a",
         agentId: "agent-a",
         operation: "resolve",
@@ -2116,8 +2097,7 @@ test("resolve and reaction HTTP clients surface safe validation failures as Agen
       agentApiKey: `sk_agent_${"a".repeat(43)}`,
       daemonApiKey: "daemon-token",
       request: {
-        protocolMajor: 1,
-        requestId: "request-react-2",
+        idempotencyKey: "request-react-2",
         workspaceId: "workspace-a",
         agentId: "agent-a",
         operation: "react",
@@ -2171,8 +2151,7 @@ test("dispatches resolve and reaction operations to their dedicated HTTP client 
   });
   await transport.agentMessage(
     {
-      protocolMajor: 1,
-      requestId: "request-resolve",
+      idempotencyKey: "request-resolve",
       workspaceId: config.workspaceId,
       agentId: "agent-1",
       operation: "resolve",
@@ -2188,8 +2167,7 @@ test("dispatches resolve and reaction operations to their dedicated HTTP client 
   ]);
   await transport.agentMessage(
     {
-      protocolMajor: 1,
-      requestId: "request-react",
+      idempotencyKey: "request-react",
       workspaceId: config.workspaceId,
       agentId: "agent-1",
       operation: "react",
@@ -2201,8 +2179,7 @@ test("dispatches resolve and reaction operations to their dedicated HTTP client 
   );
   await transport.agentMessage(
     {
-      protocolMajor: 1,
-      requestId: "request-unreact",
+      idempotencyKey: "request-unreact",
       workspaceId: config.workspaceId,
       agentId: "agent-1",
       operation: "unreact",
@@ -2276,8 +2253,7 @@ test("dispatches check, mute, unmute, and thread-unfollow operations to their de
   });
   const checked = await transport.agentMessage(
     {
-      protocolMajor: 1,
-      requestId: "request-check",
+      idempotencyKey: "request-check",
       workspaceId: config.workspaceId,
       agentId: "agent-1",
       operation: "check",
@@ -2297,8 +2273,7 @@ test("dispatches check, mute, unmute, and thread-unfollow operations to their de
 
   await transport.agentMessage(
     {
-      protocolMajor: 1,
-      requestId: "request-mute",
+      idempotencyKey: "request-mute",
       workspaceId: config.workspaceId,
       agentId: "agent-1",
       operation: "mute",
@@ -2308,8 +2283,7 @@ test("dispatches check, mute, unmute, and thread-unfollow operations to their de
   );
   await transport.agentMessage(
     {
-      protocolMajor: 1,
-      requestId: "request-unmute",
+      idempotencyKey: "request-unmute",
       workspaceId: config.workspaceId,
       agentId: "agent-1",
       operation: "unmute",
@@ -2330,8 +2304,7 @@ test("dispatches check, mute, unmute, and thread-unfollow operations to their de
 
   const unfollowed = await transport.agentMessage(
     {
-      protocolMajor: 1,
-      requestId: "request-unfollow",
+      idempotencyKey: "request-unfollow",
       workspaceId: config.workspaceId,
       agentId: "agent-1",
       operation: "thread-unfollow",
@@ -2379,8 +2352,7 @@ test("adapts the read route's AgentHistoryResponse into the transport shape", as
   });
   const result = await transport.agentMessage(
     {
-      protocolMajor: 1,
-      requestId: "request-read",
+      idempotencyKey: "request-read",
       workspaceId: config.workspaceId,
       agentId: "agent-1",
       operation: "read",
@@ -2426,8 +2398,7 @@ test("adapts the dedicated search route's AgentSearchResponse (results -> messag
   });
   const result = await transport.agentMessage(
     {
-      protocolMajor: 1,
-      requestId: "request-search",
+      idempotencyKey: "request-search",
       workspaceId: config.workspaceId,
       agentId: "agent-1",
       operation: "search",
@@ -2466,8 +2437,7 @@ test("adapts the resolve route's AgentResolveResponse (message -> messages: [mes
   });
   const result = await transport.agentMessage(
     {
-      protocolMajor: 1,
-      requestId: "request-resolve",
+      idempotencyKey: "request-resolve",
       workspaceId: config.workspaceId,
       agentId: "agent-1",
       operation: "resolve",
@@ -2488,7 +2458,6 @@ const sendAdapterCases: Array<{
   {
     label: "a forwarded send carries Raft's decision through unchanged",
     response: {
-      protocolMajor: 1,
       idempotencyKey: "request-send",
       state: "sent",
       decision: "forward",
@@ -2506,7 +2475,6 @@ const sendAdapterCases: Array<{
   {
     label: "a bypassed send reports its decision and the messages it skipped",
     response: {
-      protocolMajor: 1,
       idempotencyKey: "request-send",
       state: "sent",
       decision: "bypass",
@@ -2531,7 +2499,6 @@ const sendAdapterCases: Array<{
   {
     label: "a sent message carries the mentions it did not reach",
     response: {
-      protocolMajor: 1,
       idempotencyKey: "request-send",
       state: "sent",
       decision: "forward",
@@ -2570,7 +2537,6 @@ const sendAdapterCases: Array<{
   {
     label: "a held send carries the window as messages/attentionCount plus Raft's counts",
     response: {
-      protocolMajor: 1,
       idempotencyKey: "request-send",
       state: "held",
       decision: "local_hold",
@@ -2607,7 +2573,6 @@ const sendAdapterCases: Array<{
   {
     label: "a first-touch hold keeps its own decision",
     response: {
-      protocolMajor: 1,
       idempotencyKey: "request-send",
       state: "held",
       decision: "syncing_hold",
@@ -2636,8 +2601,7 @@ test.each(sendAdapterCases)(
     });
     const result = await transport.agentMessage(
       {
-        protocolMajor: 1,
-        requestId: "request-send",
+        idempotencyKey: "request-send",
         workspaceId: config.workspaceId,
         agentId: "agent-1",
         operation: "send",
@@ -2659,7 +2623,7 @@ test("requestSend posts Raft's send body: idempotencyKey, sendDraft and structur
     capturedBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
     return Response.json({
       protocolMajor: 1,
-      requestId: "request-send",
+      idempotencyKey: "request-send",
       state: "sent",
       decision: "forward",
       messageId: "message-1",
@@ -2671,8 +2635,7 @@ test("requestSend posts Raft's send body: idempotencyKey, sendDraft and structur
     agentApiKey: `sk_agent_${"a".repeat(43)}`,
     daemonApiKey: "daemon-token",
     request: {
-      protocolMajor: 1,
-      requestId: "request-send",
+      idempotencyKey: "request-send",
       workspaceId: "workspace-a",
       agentId: "agent-a",
       operation: "send",
@@ -2712,9 +2675,9 @@ test("requestSend rejects a response whose state is not sent/held/denied instead
   // The exact incident: upstream answers 200, but the body has no `state` (or `context`) the
   // daemon can trust. Previously this fell through to a `TypeError` deep in `runtime.ts`.
   for (const malformedBody of [
-    { protocolMajor: 1, requestId: "request-send" }, // missing state and context entirely
-    { protocolMajor: 1, requestId: "request-send", state: "sent" }, // missing context
-    { protocolMajor: 1, requestId: "request-send", state: "queued", context: [] }, // unknown state
+    { idempotencyKey: "request-send" }, // missing state and context entirely
+    { idempotencyKey: "request-send", state: "sent" }, // missing context
+    { idempotencyKey: "request-send", state: "queued", context: [] }, // unknown state
     "not an object",
   ]) {
     const client = createAgentMessageHttpClient(async () => Response.json(malformedBody));
@@ -2723,8 +2686,7 @@ test("requestSend rejects a response whose state is not sent/held/denied instead
       agentApiKey: `sk_agent_${"a".repeat(43)}`,
       daemonApiKey: "daemon-token",
       request: {
-        protocolMajor: 1,
-        requestId: "request-send",
+        idempotencyKey: "request-send",
         workspaceId: "workspace-a",
         agentId: "agent-a",
         operation: "send",
@@ -2751,8 +2713,7 @@ test("requestSend classifies a network failure as pre-response transport, never 
     agentApiKey: `sk_agent_${"a".repeat(43)}`,
     daemonApiKey: "daemon-token",
     request: {
-      protocolMajor: 1,
-      requestId: "request-send",
+      idempotencyKey: "request-send",
       workspaceId: "workspace-a",
       agentId: "agent-a",
       operation: "send",
@@ -2777,8 +2738,7 @@ test("requestSend on a non-2xx upstream response surfaces the real status, not a
     agentApiKey: `sk_agent_${"a".repeat(43)}`,
     daemonApiKey: "daemon-token",
     request: {
-      protocolMajor: 1,
-      requestId: "request-send",
+      idempotencyKey: "request-send",
       workspaceId: "workspace-a",
       agentId: "agent-a",
       operation: "send",
@@ -2807,8 +2767,7 @@ test("defaultAgentChannelHttpClient on a non-2xx upstream response surfaces the 
     agentApiKey: `sk_agent_${"a".repeat(43)}`,
     daemonApiKey: "daemon-token",
     request: {
-      protocolMajor: 1,
-      requestId: "request-channel",
+      idempotencyKey: "request-channel",
       workspaceId: "workspace-a",
       agentId: "agent-a",
       operation: "join",
@@ -2830,8 +2789,7 @@ test("defaultAgentChannelHttpClient classifies a network failure as pre-response
     agentApiKey: `sk_agent_${"a".repeat(43)}`,
     daemonApiKey: "daemon-token",
     request: {
-      protocolMajor: 1,
-      requestId: "request-channel",
+      idempotencyKey: "request-channel",
       workspaceId: "workspace-a",
       agentId: "agent-a",
       operation: "join",
@@ -2845,7 +2803,7 @@ test("defaultAgentChannelHttpClient classifies a network failure as pre-response
 test("defaultAgentChannelHttpClient returns the parsed JSON body on a 2xx response", async () => {
   const rawResponse = {
     protocolMajor: 1,
-    requestId: "request-channel",
+    idempotencyKey: "request-channel",
     target: "#eng",
     joined: true,
     alreadyJoined: false,
@@ -2857,8 +2815,7 @@ test("defaultAgentChannelHttpClient returns the parsed JSON body on a 2xx respon
     agentApiKey: `sk_agent_${"a".repeat(43)}`,
     daemonApiKey: "daemon-token",
     request: {
-      protocolMajor: 1,
-      requestId: "request-channel",
+      idempotencyKey: "request-channel",
       workspaceId: "workspace-a",
       agentId: "agent-a",
       operation: "join",
@@ -2878,8 +2835,7 @@ test("DaemonConnection.agentChannel routes a 404 through the same AgentTransport
   });
   const attempt = transport.agentChannel(
     {
-      protocolMajor: 1,
-      requestId: "request-channel",
+      idempotencyKey: "request-channel",
       workspaceId: config.workspaceId,
       agentId: "agent-1",
       operation: "join",

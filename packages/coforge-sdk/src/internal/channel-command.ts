@@ -17,7 +17,7 @@ export type ChannelOperation = (typeof CHANNEL_OPERATIONS)[number];
 
 export type ChannelCommand = {
   operation: ChannelOperation;
-  requestId: string;
+  idempotencyKey: string;
   /** `#name`, `#name:<thread>` (members only) or `@user` (members only); omitted for `create`. */
   target?: string;
   /** `create`/`update`: the new channel name, with or without a leading `#`. */

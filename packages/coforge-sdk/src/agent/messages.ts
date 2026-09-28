@@ -77,7 +77,6 @@ export type AgentMessage = {
 
 /** Response for the read route (GET /api/agent/v1/messages, no `query`); its own shape, not the shared message envelope. */
 export type AgentHistoryResponse = {
-  protocolMajor: 1;
   idempotencyKey: string;
   messages: AgentMessage[];
   hasOlder: boolean;
@@ -88,14 +87,12 @@ export type AgentHistoryResponse = {
 
 /** Response for the dedicated search route (GET /api/agent/v1/messages/search). */
 export type AgentSearchResponse = {
-  protocolMajor: 1;
   idempotencyKey: string;
   results: AgentMessage[];
 };
 
 /** Response for the send route (POST /api/agent/v1/messages); Raft 1.0.32's own send contract. */
 export type AgentSendResponse = {
-  protocolMajor: 1;
   idempotencyKey: string;
   state: "sent" | "held";
   decision: "forward" | "bypass" | "local_hold" | "syncing_hold";
@@ -126,14 +123,12 @@ export type AgentSendResponse = {
 
 /** Response for the resolve route (GET /api/agent/v1/messages/:id/resolve). */
 export type AgentResolveResponse = {
-  protocolMajor: 1;
   idempotencyKey: string;
   message: AgentMessage;
 };
 
 /** Response for the reaction routes (POST/DELETE /api/agent/v1/messages/:id/reactions). */
 export type AgentReactionResponse = {
-  protocolMajor: 1;
   idempotencyKey: string;
   messageId: string;
   emoji: string;
@@ -142,7 +137,6 @@ export type AgentReactionResponse = {
 
 /** Response for the events drain route (GET /api/agent/v1/events); its own shape, not the shared message envelope. */
 export type AgentEventsResponse = {
-  protocolMajor: 1;
   idempotencyKey: string;
   events: AgentMessage[];
   hasMore: boolean;
@@ -150,7 +144,6 @@ export type AgentEventsResponse = {
 
 /** Response for the channel mute/unmute routes. */
 export type AgentChannelAttentionResponse = {
-  protocolMajor: 1;
   idempotencyKey: string;
   target: string;
   muted: boolean;
@@ -158,7 +151,6 @@ export type AgentChannelAttentionResponse = {
 
 /** Response for the thread unfollow route. */
 export type AgentThreadAttentionResponse = {
-  protocolMajor: 1;
   idempotencyKey: string;
   target: string;
   followed: false;

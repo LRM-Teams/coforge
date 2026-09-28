@@ -27,7 +27,7 @@ export async function handleAgentChannelUnarchivePost(
       channel,
       false,
     );
-    return Response.json({ protocolMajor: 1, idempotencyKey, ...result });
+    return Response.json({ idempotencyKey, ...result });
   } catch (error) {
     return channelManagementErrorResponse(error, "channel unarchive failed");
   }

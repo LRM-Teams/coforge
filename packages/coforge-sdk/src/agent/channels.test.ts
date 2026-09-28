@@ -14,8 +14,6 @@ test("decodeAgentChannelErrorResponse rejects an unrecognized errorCode or a suc
   expect(
     decodeAgentChannelErrorResponse({ ok: false, errorCode: "other", error: "x" }),
   ).toBeUndefined();
-  expect(
-    decodeAgentChannelErrorResponse({ protocolMajor: 1, idempotencyKey: "k", target: "#x" }),
-  ).toBeUndefined();
+  expect(decodeAgentChannelErrorResponse({ idempotencyKey: "k", target: "#x" })).toBeUndefined();
   expect(decodeAgentChannelErrorResponse(undefined)).toBeUndefined();
 });
