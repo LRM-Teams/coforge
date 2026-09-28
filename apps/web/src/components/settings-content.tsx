@@ -100,6 +100,7 @@ interface SettingsContentProps {
   theme: Theme;
   railLabels: boolean;
   liveAgentActivity: boolean;
+  hideEmptySidebarSections: boolean;
   textSize: TextSizeValue;
   messageFullWidth: boolean;
   timeZone: string | null;
@@ -116,6 +117,7 @@ interface SettingsContentProps {
   onRailLabelsChange: (show: boolean) => void;
   onMessageFullWidthChange: (full: boolean) => void;
   onLiveAgentActivityChange: (show: boolean) => void;
+  onHideEmptySidebarSectionsChange: (hide: boolean) => void;
   onTextSizeChange: (size: TextSizeValue) => void;
   onDateTimeSave: (input: {
     timeZone: string | null;
@@ -656,6 +658,8 @@ function Preferences({
   onRailLabelsChange,
   liveAgentActivity,
   onLiveAgentActivityChange,
+  hideEmptySidebarSections,
+  onHideEmptySidebarSectionsChange,
   textSize,
   onTextSizeChange,
   messageFullWidth,
@@ -783,6 +787,21 @@ function Preferences({
               aria-label={m.preferences_live_agent_activity()}
               isSelected={liveAgentActivity}
               onChange={onLiveAgentActivityChange}
+            />
+          </SettingsField>
+        </SettingsCard>
+        <SettingsCard>
+          <SettingsField
+            inline
+            label={m.preferences_hide_empty_sidebar_sections()}
+            description={m.preferences_hide_empty_sidebar_sections_description()}
+            note={savedOnDevice}
+          >
+            <Toggle
+              size="md"
+              aria-label={m.preferences_hide_empty_sidebar_sections()}
+              isSelected={hideEmptySidebarSections}
+              onChange={onHideEmptySidebarSectionsChange}
             />
           </SettingsField>
         </SettingsCard>
