@@ -26,10 +26,12 @@ import {
 } from "./pinned-conversations";
 import { conversationRoute, type ConversationTarget } from "./last-conversation";
 import {
+  directorySectionHideable,
   readCollapsedSections,
   writeCollapsedSections,
   type DirectorySectionId,
 } from "./directory-sections";
+import { EMPTY_SECTION_HIDDEN_CLASS } from "#src/features/settings/hide-empty-sidebar-sections";
 
 type DirectoryChannel = {
   id: string;
@@ -385,8 +387,19 @@ export function ConversationDirectory({
       </div>
       {/* Pinned channels and DMs, together and in the order they were pinned. Empty, it shows
           where to drop a row; a device without a mouse cannot drag, so it leaves it out there
-          (its rows pin from their long-press menu). */}
-      <div className={cx("mt-2", pinnedEmpty && "hidden any-pointer-fine:block")}>
+          (its rows pin from their long-press menu), and so does Hide empty sidebar sections until
+          a row is dragged. */}
+      <div
+        className={cx(
+          "mt-2",
+          pinnedEmpty && "hidden any-pointer-fine:block",
+          directorySectionHideable({
+            itemCount: base.pinned.length,
+            dragging: drag.dragging,
+            revealWhileDragging: true,
+          }) && EMPTY_SECTION_HIDDEN_CLASS,
+        )}
+      >
         <DirectorySection
           label={m.conversation_pinned_section()}
           expanded={!collapsed.includes("pinned")}
@@ -440,7 +453,13 @@ export function ConversationDirectory({
         </DirectorySection>
       </div>
 
-      <div className="mt-4">
+      <div
+        className={cx(
+          "mt-4",
+          directorySectionHideable({ itemCount: base.agents.length, dragging: drag.dragging }) &&
+            EMPTY_SECTION_HIDDEN_CLASS,
+        )}
+      >
         <DirectorySection
           label={m.messages_agents_action()}
           expanded={!collapsed.includes("agents")}

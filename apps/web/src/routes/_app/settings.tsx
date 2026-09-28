@@ -30,6 +30,10 @@ import {
 } from "#src/features/workspaces/members.functions";
 import { getLocale, setLocale } from "#src/paraglide/runtime";
 import { readRailLabels, writeRailLabels } from "#src/features/settings/rail-labels";
+import {
+  readHideEmptySidebarSections,
+  writeHideEmptySidebarSections,
+} from "#src/features/settings/hide-empty-sidebar-sections";
 import { readMessageFullWidth, writeMessageFullWidth } from "#src/features/settings/message-width";
 import {
   readLiveAgentActivity,
@@ -101,6 +105,7 @@ function SettingsPage() {
   const [theme, setTheme] = useState<Theme>("system");
   const [railLabels, setRailLabels] = useState(true);
   const [liveAgentActivity, setLiveAgentActivity] = useState(true);
+  const [hideEmptySidebarSections, setHideEmptySidebarSections] = useState(false);
   const [textSize, setTextSize] = useState<TextSizeValue>("default");
   const [messageFullWidth, setMessageFullWidth] = useState(false);
   const { section, github } = Route.useSearch();
@@ -140,6 +145,7 @@ function SettingsPage() {
     applyTheme(initialTheme);
     setRailLabels(readRailLabels());
     setLiveAgentActivity(readLiveAgentActivity());
+    setHideEmptySidebarSections(readHideEmptySidebarSections());
     setTextSize(readTextSize());
     setMessageFullWidth(readMessageFullWidth());
   }, []);
@@ -172,6 +178,11 @@ function SettingsPage() {
   function changeRailLabels(show: boolean) {
     setRailLabels(show);
     writeRailLabels(show);
+  }
+
+  function changeHideEmptySidebarSections(hide: boolean) {
+    setHideEmptySidebarSections(hide);
+    writeHideEmptySidebarSections(hide);
   }
 
   function changeLiveAgentActivity(show: boolean) {
@@ -330,6 +341,8 @@ function SettingsPage() {
       onRailLabelsChange={changeRailLabels}
       liveAgentActivity={liveAgentActivity}
       onLiveAgentActivityChange={changeLiveAgentActivity}
+      hideEmptySidebarSections={hideEmptySidebarSections}
+      onHideEmptySidebarSectionsChange={changeHideEmptySidebarSections}
       textSize={textSize}
       messageFullWidth={messageFullWidth}
       onMessageFullWidthChange={changeMessageFullWidth}

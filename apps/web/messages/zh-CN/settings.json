@@ -93,6 +93,8 @@
   "preferences_message_full_width": "消息全宽显示",
   "preferences_live_agent_activity": "Agent 实时活动",
   "preferences_live_agent_activity_hint": "在聊天列表底部显示最新的 Agent 状态。",
+  "preferences_hide_empty_sidebar_sections": "隐藏空的侧栏分区",
+  "preferences_hide_empty_sidebar_sections_description": "聊天列表里的置顶和私信为空时整块隐藏。拖动会话时置顶会重新出现。",
   "preferences_conversations": "会话",
   "preferences_conversation_open_mode": "打开会话时",
   "preferences_open_newest_read": "定位到最新消息并标记为已读",

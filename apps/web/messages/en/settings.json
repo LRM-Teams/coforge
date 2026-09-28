@@ -93,6 +93,8 @@
   "preferences_message_full_width": "Full-width messages",
   "preferences_live_agent_activity": "Live agent activity",
   "preferences_live_agent_activity_hint": "Show the latest agent status at the bottom of the chat list.",
+  "preferences_hide_empty_sidebar_sections": "Hide empty sidebar sections",
+  "preferences_hide_empty_sidebar_sections_description": "Hide Pinned and Direct messages in the chat list while they have nothing in them. Pinned comes back while you drag a conversation.",
   "preferences_conversations": "Conversations",
   "preferences_conversation_open_mode": "When I view a conversation",
   "preferences_open_newest_read": "Start at the newest message and mark it read",

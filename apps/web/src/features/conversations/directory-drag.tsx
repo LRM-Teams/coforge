@@ -105,7 +105,7 @@ export function useDirectoryDrag({
       setDragging(null);
     },
   };
-  return { layout, context };
+  return { layout, context, dragging: dragging !== null };
 }
 
 /** The drop target under the pointer that takes the dragged row, a row before its section.
