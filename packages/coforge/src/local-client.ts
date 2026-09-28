@@ -934,7 +934,7 @@ export function connectLocal(
           fileName: input.fileName,
           contentType: input.contentType,
           sizeBytes: input.sizeBytes,
-          clientRequestId: crypto.randomUUID(),
+          idempotencyKey: crypto.randomUUID(),
         }),
         signal: AbortSignal.timeout(30_000),
       });

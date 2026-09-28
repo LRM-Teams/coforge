@@ -1283,7 +1283,7 @@ test("proxy forwards the direct-upload session create route as plain JSON", asyn
         fileName: "note.txt",
         contentType: "text/plain",
         sizeBytes: 4,
-        clientRequestId: crypto.randomUUID(),
+        idempotencyKey: crypto.randomUUID(),
       }),
     },
   );

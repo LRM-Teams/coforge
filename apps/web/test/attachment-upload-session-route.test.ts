@@ -18,7 +18,7 @@ const validBody = {
   fileName: "note.txt",
   contentType: "text/plain",
   sizeBytes: 5,
-  clientRequestId: "11111111-1111-1111-1111-111111111111",
+  idempotencyKey: "11111111-1111-1111-1111-111111111111",
 };
 
 const stubCreated = {
@@ -57,7 +57,7 @@ test.each([
   ["contentType", { ...validBody, contentType: "not-a-mime-type" }],
   ["sizeBytes", { ...validBody, sizeBytes: 0 }],
   ["sizeBytes", { ...validBody, sizeBytes: 1.5 }],
-  ["clientRequestId", { ...validBody, clientRequestId: "not-a-uuid" }],
+  ["idempotencyKey", { ...validBody, idempotencyKey: "not-a-uuid" }],
 ])("rejects an invalid %s before resolving the target", async (_field, body) => {
   const response = await handleAttachmentUploadSessionCreate(createRequest(body), principal, {
     resolveTarget: async () => {
@@ -147,7 +147,7 @@ test("creates a session and returns 201 with the presigned upload", async () => 
       fileName: "note.txt",
       contentType: "text/plain",
       sizeBytes: 5,
-      clientRequestId: "11111111-1111-1111-1111-111111111111",
+      idempotencyKey: "11111111-1111-1111-1111-111111111111",
     },
   ]);
 });
