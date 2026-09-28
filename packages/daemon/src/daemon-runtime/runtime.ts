@@ -115,7 +115,10 @@ import { memoryIndexReminder } from "#src/agent-runtime/agent-memory-seed";
 import { AgentControl } from "#src/agent-runtime/agent-control";
 import { AgentSessions } from "#src/agent-runtime/agent-session";
 import { AgentRuntimeState } from "#src/agent-runtime/agent-runtime-state";
-import { ContextHandoffCoordinator } from "#src/agent-runtime/context-handoff";
+import {
+  ContextHandoffCoordinator,
+  contextHandoffActivity,
+} from "#src/agent-runtime/context-handoff";
 import { MemoryAgentRuntimeStateStore } from "#src/persistence/memory-agent-runtime-state-store";
 import { listAgentSkills } from "#src/code-agent/agent-skills";
 import {
@@ -2353,7 +2356,7 @@ export class DaemonRuntime {
       );
       let handoff = this.#contextHandoffs.get(agentId);
       if (!handoff) {
-        handoff = new ContextHandoffCoordinator((prompt) => {
+        handoff = new ContextHandoffCoordinator(({ prompt, percent }) => {
           this.#emitAgentActivity(
             agentId,
             launch,
@@ -2361,7 +2364,7 @@ export class DaemonRuntime {
               agentId,
               AGENT_ACTIVITY_DETAIL_KIND.SYSTEM_MESSAGE,
               "info",
-              "Context usage reached 80%; preparing handoff.",
+              contextHandoffActivity(percent),
             ),
           );
           const session = this.#agentProcessManager.session(agentId);

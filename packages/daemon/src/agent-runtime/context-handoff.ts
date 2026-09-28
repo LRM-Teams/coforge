@@ -13,10 +13,17 @@ export function contextHandoffPrompt(percent: number): string {
   ].join("\n");
 }
 
+/** The activity line for a handoff that is starting. It takes the percent the prompt states, because
+ * the activity and the prompt describe one event: "reached 80%" next to "reached 83% of the provider
+ * window" is two answers to the same question, and the threshold above must not be spelled twice. */
+export function contextHandoffActivity(percent: number): string {
+  return `Context usage reached ${percent}%; preparing handoff.`;
+}
+
 export class ContextHandoffCoordinator {
   #requested = false;
 
-  constructor(private readonly request: (prompt: string) => void) {}
+  constructor(private readonly request: (handoff: { prompt: string; percent: number }) => void) {}
 
   observe(usedTokens: number, windowTokens: number): boolean {
     if (
@@ -29,8 +36,9 @@ export class ContextHandoffCoordinator {
       return false;
     const ratio = usedTokens / windowTokens;
     if (ratio < CONTEXT_HANDOFF_THRESHOLD) return false;
+    const percent = Math.floor(ratio * 100);
     this.#requested = true;
-    this.request(contextHandoffPrompt(Math.floor(ratio * 100)));
+    this.request({ prompt: contextHandoffPrompt(percent), percent });
     return true;
   }
 
