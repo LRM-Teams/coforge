@@ -19,7 +19,7 @@ import { getLocale } from "#src/paraglide/runtime";
 import { useLiveAgents } from "#src/features/agents/workspace-agents-realtime";
 
 import { attachmentFileNameSummary } from "./attachment-file-name";
-import { useConversationOpenMode, useSavedMessages } from "./conversation-navigation";
+import { useConversationOpenMode, useSavedMessages } from "./conversation-viewer";
 import { conversationOpenPosition, unreadBoundary } from "./conversation-open-position";
 import { latestTopLevelSequence } from "./conversation-unread";
 import { streamState, type StreamRead } from "./stream-state";

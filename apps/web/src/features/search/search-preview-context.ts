@@ -28,6 +28,15 @@ export function isPreviewed(
   );
 }
 
+/** The preview the search URL names: `open` (`channel:<id>` or `agent:<id>`) at message `msg`. */
+export function searchPreviewTarget(
+  open: string | undefined,
+  msg?: string,
+): SearchPreviewTarget | undefined {
+  const [kind, id] = open?.split(":") ?? [];
+  return (kind === "channel" || kind === "agent") && id ? { kind, id, messageId: msg } : undefined;
+}
+
 /**
  * The preview for a message result: its channel or its direct conversation's Agent, at the row
  * the stream shows it on, with a thread reply's thread open (the stream stays at its root).

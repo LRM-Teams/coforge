@@ -5,12 +5,9 @@ import { useConversationAgentProfile } from "#src/features/agents/profile-panel/
 import { useLiveAgent } from "#src/features/agents/workspace-agents-realtime";
 import { ConversationTaskBoard } from "#src/features/tasks/conversation-task-board";
 import { ConversationFilesPanel } from "./conversation-files";
-import {
-  useConversationReadRequiresScroll,
-  useMarkConversationSeen,
-} from "./conversation-navigation";
+import { useMarkConversationSeen } from "./conversation-navigation";
+import { useConversationReadRequiresScroll } from "./conversation-viewer";
 import type { ConversationPageSearch } from "./conversation-page-search";
-import type { ChannelSuggestion } from "./reference-completion";
 import { latestTopLevelSequence, persistReadCursor } from "./conversation-unread";
 import { markDirectConversationRead } from "./conversations.functions";
 import { DirectConversation, DirectConversationHeader } from "./direct-conversation";
@@ -26,14 +23,11 @@ export function DirectConversationPage({
   agentId,
   search: pageSearch,
   jumpMessage,
-  channels,
 }: {
   agentId: string;
   search: ConversationPageSearch;
   /** The message the stream lands on, for a host that keeps it itself (the search preview). */
   jumpMessage?: string;
-  /** Every channel of the Workspace, for a host outside Chat (see `ThreadedConversation`). */
-  channels?: readonly ChannelSuggestion[];
 }) {
   const agentStatus = useLiveAgent(agentId)?.status.value;
   const { view: requestedView, profile, agentTab, ...search } = pageSearch;
@@ -118,7 +112,6 @@ export function DirectConversationPage({
     <DirectConversation
       key={conversation.agent.id}
       jumpMessage={jumpMessage}
-      channels={channels}
       {...conversationProps}
       tasksPane={tasksPane}
       agentStatus={agentStatus}

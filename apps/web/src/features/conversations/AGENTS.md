@@ -55,9 +55,11 @@ These rules apply to `src/features/conversations/`.
   coordinates thread/profile panes; `conversation-pane.tsx` renders one message
   stream; `use-conversation-sync.ts` owns browser-only deep-link and read-cursor
   synchronization.
-- The Saved list is a TanStack DB collection (`saved-messages-collection.ts`) on the
-  `DbClient` of `ConversationViewerProvider` (with the viewer's open mode), seeded
-  from the loader of the page that hosts a conversation: Chat and search. Read it through
+- `conversation-viewer.tsx` is what a conversation reads from the page hosting
+  it (Chat, the search preview): the viewer's open mode, the Workspace's
+  channels and the Saved list, a TanStack DB collection
+  (`saved-messages-collection.ts`) on the provider's `DbClient`, seeded from
+  the host's loader. The sidebar's unread badges stay Chat's own. Read it through
   `useSavedEntries`/`useIsMessageSaved` and write through the context's
   `save`/`unsave`; never a module-level collection or `createCollection`
   singleton, which would share state across SSR requests.
@@ -69,7 +71,8 @@ These rules apply to `src/features/conversations/`.
 - `channel-conversation-page.tsx` / `direct-conversation-page.tsx` are a
   conversation as Chat opens it (tabs, Task board, files, reading). The Chat
   routes and the search preview both render them, so the two never differ;
-  a route only reads its params and loads. Their address state is
+  a host only reads its params and loads through `loadConversationPage`
+  (`conversation-page-loader.ts`). Their address state is
   `conversationPageSearchShape`, which every host's `validateSearch` spreads.
 - `mentionOutsiders` (the channel's people and public Agents outside it) is for
   @-completion only. Never merge it into `mentionables`, which also resolves

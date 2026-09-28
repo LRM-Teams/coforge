@@ -18,6 +18,7 @@ import {
 } from "#src/components/ui/empty";
 import { RelativeTime } from "#src/components/ui/relative-time";
 import { Skeleton } from "#src/components/ui/skeleton";
+import { conversationSearchWithThread } from "#src/features/conversations/conversation-thread-search";
 import { savedJumpTarget } from "#src/features/conversations/saved-messages-model";
 import { useBreakpoint } from "#src/hooks/use-breakpoint";
 import { computerLabel } from "#src/features/computers/computer-identity";
@@ -476,7 +477,7 @@ function messageOpenTarget(
 ) {
   const target = savedJumpTarget(conversation, message);
   return message.threadRootId && "search" in target
-    ? { ...target, search: { ...target.search, threadRootId: message.threadRootId } }
+    ? { ...target, search: conversationSearchWithThread(target.search, message.threadRootId) }
     : target;
 }
 

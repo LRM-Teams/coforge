@@ -6,12 +6,9 @@ import { ConversationTaskBoard } from "#src/features/tasks/conversation-task-boa
 import { markPublicChannelRead } from "./channels.functions";
 import { ChannelConversation, ChannelConversationHeader } from "./channel-conversation";
 import { ConversationFilesPanel } from "./conversation-files";
-import {
-  useConversationReadRequiresScroll,
-  useMarkConversationSeen,
-} from "./conversation-navigation";
+import { useMarkConversationSeen } from "./conversation-navigation";
+import { useConversationReadRequiresScroll } from "./conversation-viewer";
 import type { ConversationPageSearch } from "./conversation-page-search";
-import type { ChannelSuggestion } from "./reference-completion";
 import { latestTopLevelSequence, persistReadCursor } from "./conversation-unread";
 import { useChannelConversation } from "./use-conversation-data";
 import { useConversationView, useShownConversationTab } from "./use-conversation-view";
@@ -25,14 +22,11 @@ export function ChannelConversationPage({
   channelId,
   search: pageSearch,
   jumpMessage,
-  channels,
 }: {
   channelId: string;
   search: ConversationPageSearch;
   /** The message the stream lands on, for a host that keeps it itself (the search preview). */
   jumpMessage?: string;
-  /** Every channel of the Workspace, for a host outside Chat (see `ThreadedConversation`). */
-  channels?: readonly ChannelSuggestion[];
 }) {
   const { view: requestedView, profile, agentTab, ...search } = pageSearch;
   const view = useShownConversationTab(requestedView);
@@ -127,7 +121,6 @@ export function ChannelConversationPage({
     <ChannelConversation
       key={channelId}
       jumpMessage={jumpMessage}
-      channels={channels}
       {...conversationProps}
       tasksPane={tasksPane}
       onShowTasks={showTasks}

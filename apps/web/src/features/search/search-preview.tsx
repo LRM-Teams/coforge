@@ -5,6 +5,8 @@ import { CatchBoundary, ClientOnly, getRouteApi } from "@tanstack/react-router";
 import { Skeleton } from "#src/components/ui/skeleton";
 import { useCurrentWorkspaceId } from "#src/features/agents/workspace-agents-realtime";
 import { ChannelConversationPage } from "#src/features/conversations/channel-conversation-page";
+import { pickConversationPageSearch } from "#src/features/conversations/conversation-page-search";
+import { ConversationViewerProvider } from "#src/features/conversations/conversation-viewer";
 import { DirectConversationPage } from "#src/features/conversations/direct-conversation-page";
 import { m } from "#src/paraglide/messages";
 import type { RememberedEntity } from "./search-memory";
@@ -51,11 +53,7 @@ export const SearchPreview = memo(function SearchPreview({
             onCatch={() => setFailed(true)}
           >
             <Suspense fallback={<PreviewSkeleton />}>
-              {target.kind === "channel" ? (
-                <ChannelPreview channelId={target.id} jumpMessage={target.messageId} />
-              ) : (
-                <DirectPreview agentId={target.id} jumpMessage={target.messageId} />
-              )}
+              <PreviewPage target={target} />
             </Suspense>
           </CatchBoundary>
         </ClientOnly>
@@ -64,61 +62,33 @@ export const SearchPreview = memo(function SearchPreview({
   );
 });
 
-function ChannelPreview({ channelId, jumpMessage }: { channelId: string; jumpMessage?: string }) {
-  return (
-    <ChannelConversationPage
-      channelId={channelId}
-      jumpMessage={jumpMessage}
-      {...usePreviewPageProps()}
-    />
-  );
-}
-
-function DirectPreview({ agentId, jumpMessage }: { agentId: string; jumpMessage?: string }) {
-  return (
-    <DirectConversationPage
-      agentId={agentId}
-      jumpMessage={jumpMessage}
-      {...usePreviewPageProps()}
-    />
-  );
-}
-
-/** What the page reads from Chat that the search page supplies itself: its own address state (the
- * tab, board view and what it has open, kept in the search URL) and the Workspace's channels (for
- * references; the search page has already read them). */
-function usePreviewPageProps() {
+/**
+ * The conversation page itself, under what Chat's layout gives it and the search page supplies:
+ * the viewer's Saved list (read by the route's loader), the Workspace's channels (the search page
+ * has already read them) and the page's own address state out of the search URL.
+ */
+function PreviewPage({ target }: { target: SearchPreviewTarget }) {
   const workspaceId = useCurrentWorkspaceId() ?? "";
   const channels = useSuspenseQuery({
     ...searchDirectoryQuery(workspaceId),
     select: (directory) => directory.channels,
   }).data;
+  const saved = searchRoute.useLoaderData();
   // Only the page's own fields, shared structurally: typing a query does not re-render the page.
   const search = searchRoute.useSearch({
-    select: ({
-      view,
-      status,
-      layout,
-      owners,
-      completed,
-      threadRootId,
-      task,
-      profile,
-      agentTab,
-    }) => ({
-      view,
-      status,
-      layout,
-      owners,
-      completed,
-      threadRootId,
-      task,
-      profile,
-      agentTab,
-    }),
+    select: pickConversationPageSearch,
     structuralSharing: true,
   });
-  return { search, channels };
+  const jumpMessage = target.messageId;
+  return (
+    <ConversationViewerProvider saved={saved} channels={channels}>
+      {target.kind === "channel" ? (
+        <ChannelConversationPage channelId={target.id} search={search} jumpMessage={jumpMessage} />
+      ) : (
+        <DirectConversationPage agentId={target.id} search={search} jumpMessage={jumpMessage} />
+      )}
+    </ConversationViewerProvider>
+  );
 }
 
 /** Message-shaped placeholders while the conversation loads. */
