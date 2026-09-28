@@ -232,8 +232,8 @@ function AnchorLink({
   ) : (
     <Link
       className={className}
-      to="/w/$workspaceSlug/messages/$agentId"
-      params={{ workspaceSlug, agentId: anchor.agentId }}
+      to="/w/$workspaceSlug/dm/$dmId"
+      params={{ workspaceSlug, dmId: anchor.conversationId }}
       search={{
         view: "chat",
         message: anchor.messageId,

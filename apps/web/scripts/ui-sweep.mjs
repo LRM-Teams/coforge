@@ -616,7 +616,7 @@ async function discoverIds(page) {
     agentId: null,
     computerId: null,
     channelId: null,
-    dmAgentId: null,
+    dmId: null,
   };
 
   const extract = (linkPattern) => `(() => {
@@ -650,7 +650,8 @@ async function discoverIds(page) {
 
   await page.navigate(`${BASE_URL}${workspace}`);
   ids.channelId = await page.evalJs(extract(`${workspace}/channel/([0-9a-fA-F-]{36})(?:[/?]|$)`));
-  ids.dmAgentId = await page.evalJs(extract(`${workspace}/messages/([0-9a-fA-F-]{36})(?:[/?]|$)`));
+  // The sidebar lists only the direct conversations the user already has, each at `dm/<id>`.
+  ids.dmId = await page.evalJs(extract(`${workspace}/dm/([0-9a-fA-F-]{36})(?:[/?]|$)`));
 
   return ids;
 }
@@ -665,7 +666,7 @@ function buildSurfaces(ids) {
   if (!ids.agentId) missing.push("agentId");
   if (!ids.computerId) missing.push("computerId");
   if (!ids.channelId) missing.push("channelId");
-  if (!ids.dmAgentId) missing.push("dmAgentId");
+  if (!ids.dmId) missing.push("dmId");
 
   const url = (p) => `${BASE_URL}/${LOCALE}/w/${ids.workspaceSlug}${p}`;
 
@@ -707,7 +708,7 @@ function buildSurfaces(ids) {
         await sleepScript(300);
       },
     },
-    ids.dmAgentId && { key: "dm-conversation", url: url(`/messages/${ids.dmAgentId}`) },
+    ids.dmId && { key: "dm-conversation", url: url(`/dm/${ids.dmId}`) },
     { key: "tasks-board", url: url("/tasks?layout=board") },
     { key: "tasks-list", url: url("/tasks?layout=list") },
     { key: "computers-list", url: url("/computers") },

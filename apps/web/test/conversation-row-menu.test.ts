@@ -38,7 +38,10 @@ test("a DM row is enabled, pinned and hidden only by its own preferences", () =>
   const rows = new Map(
     directRowsOf(
       {
-        conversations: ["agent-dm", "agent-closed"],
+        conversations: [
+          { agentId: "agent-dm", conversationId: "dm-1" },
+          { agentId: "agent-closed", conversationId: "dm-2" },
+        ],
         pinned: [{ agentId: "agent-dm", sortOrder: 3 }],
         hidden: ["agent-closed"],
       },

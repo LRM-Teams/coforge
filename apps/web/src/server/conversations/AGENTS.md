@@ -11,9 +11,13 @@ These rules apply to `src/server/conversations/`.
   for which Agents a sent channel message wakes, whether a person or an Agent
   sent it; the Agent send path in the direct-conversation repository calls it
   too. A Task and an action card keep their own rules.
+- `DirectConversations` (`direct-conversations.server.ts`) owns opening the
+  viewer's direct conversation by who it is with (only their own live Agent,
+  or a Workspace member) and naming who a conversation id is with. The
+  `dm/$dmId` page and every "Message" button go through it.
 - `UserDirectConversations` (`user-direct-conversations.server.ts`) owns
   direct conversations between Workspace members (and a member with
-  themself): opening one per pair and sending in it. It never delivers to an
+  themself): one per pair and sending in it. It never delivers to an
   Agent; its signals go only to its members' own channels.
 - `server/db/repositories/direct-conversation.repositories.server.ts` owns
   thread root validation, target-scoped ranges, Agent read positions, Agent

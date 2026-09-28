@@ -25,7 +25,7 @@ import { MobileNavigationButton } from "#src/components/layout/sidebar/mobile-he
 import { formatCalendarDate } from "#src/lib/dates";
 import { Avatar } from "#src/components/base/avatar/avatar";
 import { avatarInitial, avatarToneClassName } from "#src/lib/avatar-tone";
-import { getLocale, localizeHref } from "#src/paraglide/runtime";
+import { getLocale } from "#src/paraglide/runtime";
 import { Button } from "#src/components/base/buttons/button";
 import { Input } from "#src/components/base/input/input";
 import { ButtonUtility } from "#src/components/base/buttons/button-utility";
@@ -63,7 +63,7 @@ import {
   formatAgentProfileParam,
   type AgentProfileTab,
 } from "#src/features/agents/profile-panel/profile-panel-search";
-import { workspacePath } from "#src/features/workspaces/workspace-url";
+import { useOpenDirectConversation } from "#src/features/conversations/open-direct-conversation";
 
 type ComputerOption = {
   id: string;
@@ -538,6 +538,7 @@ function AgentCard({
   onDelete?: () => void;
 }) {
   const navigate = useNavigate();
+  const openDirectConversation = useOpenDirectConversation();
   const workspaceSlug = useWorkspaceSlug();
   // Editing happens in the profile panel's Profile tab.
   const openProfileToEdit = () =>
@@ -580,7 +581,7 @@ function AgentCard({
             <Button
               size="sm"
               color="secondary"
-              href={localizeHref(workspacePath(workspaceSlug, `/messages/${member.id}`))}
+              onPress={() => void openDirectConversation({ agentId: member.id })}
             >
               {m.agent_private_chat()}
             </Button>

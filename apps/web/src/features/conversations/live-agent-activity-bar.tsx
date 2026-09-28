@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "@tanstack/react-router";
+import { Button as AriaButton } from "react-aria-components";
 
 import { AgentDisplayAvatar } from "#src/features/agents/agent-activity-avatar";
 import { useWorkspaceSlug } from "#src/features/workspaces/workspace-route";
@@ -12,6 +13,8 @@ import {
 
 import { selectLiveAgentActivity, type LiveAgentActivityCandidate } from "./live-agent-activity";
 import { useCloseConversationList } from "./conversation-navigation";
+import type { DirectRow } from "./sidebar-rows";
+import { useOpenDirectConversation } from "./open-direct-conversation";
 
 /**
  * Latest notable Agent work, pinned under the chat list. Idle and offline
@@ -20,12 +23,17 @@ import { useCloseConversationList } from "./conversation-navigation";
  */
 export function LiveAgentActivityBar({
   agents,
+  directRows,
 }: {
   agents: readonly LiveAgentActivityCandidate[];
+  /** The viewer's DM rows by Agent. The roster is the viewer's own Agents, so the row opens the
+   * Agent's DM, starting it when there is none yet. */
+  directRows: ReadonlyMap<string, DirectRow>;
 }) {
   const activity = selectLiveAgentActivity(agents);
   const closeList = useCloseConversationList();
   const workspaceSlug = useWorkspaceSlug();
+  const openDirectConversation = useOpenDirectConversation();
   const [enabled, setEnabled] = useState(true);
   useEffect(() => {
     const sync = () => setEnabled(readLiveAgentActivity());
@@ -33,28 +41,49 @@ export function LiveAgentActivityBar({
     return subscribeLiveAgentActivity(sync);
   }, []);
   if (!enabled || !activity) return null;
+  const dmId = directRows.get(activity.agentId)?.conversationId;
+  const className =
+    "flex min-w-0 items-center gap-2 rounded-md px-1 py-1 outline-focus-ring transition duration-100 ease-linear hover:bg-primary_hover focus-visible:outline-2 focus-visible:outline-offset-2";
+  const content = (
+    <>
+      <AgentDisplayAvatar
+        name={activity.displayName}
+        src={activity.avatarUrl}
+        display={activity.display}
+        size="xs"
+      />
+      <span className="min-w-0 flex-1 truncate text-xs text-secondary">
+        <span className="font-medium text-primary">{activity.displayName}</span>
+        <span className="text-tertiary"> {activity.label}</span>
+      </span>
+      <span className="sr-only">{m.messages_live_activity()}</span>
+    </>
+  );
 
   return (
     <div className="shrink-0 border-t border-secondary bg-primary px-3 py-2">
-      <Link
-        to="/w/$workspaceSlug/messages/$agentId"
-        params={{ workspaceSlug, agentId: activity.agentId }}
-        onClick={closeList}
-        aria-label={`${activity.displayName}, ${activity.label}`}
-        className="flex min-w-0 items-center gap-2 rounded-md px-1 py-1 outline-focus-ring transition duration-100 ease-linear hover:bg-primary_hover focus-visible:outline-2 focus-visible:outline-offset-2"
-      >
-        <AgentDisplayAvatar
-          name={activity.displayName}
-          src={activity.avatarUrl}
-          display={activity.display}
-          size="xs"
-        />
-        <span className="min-w-0 flex-1 truncate text-xs text-secondary">
-          <span className="font-medium text-primary">{activity.displayName}</span>
-          <span className="text-tertiary"> {activity.label}</span>
-        </span>
-        <span className="sr-only">{m.messages_live_activity()}</span>
-      </Link>
+      {dmId ? (
+        <Link
+          to="/w/$workspaceSlug/dm/$dmId"
+          params={{ workspaceSlug, dmId }}
+          onClick={closeList}
+          aria-label={`${activity.displayName}, ${activity.label}`}
+          className={className}
+        >
+          {content}
+        </Link>
+      ) : (
+        <AriaButton
+          onPress={() => {
+            closeList();
+            void openDirectConversation({ agentId: activity.agentId });
+          }}
+          aria-label={`${activity.displayName}, ${activity.label}`}
+          className={`w-full text-left ${className}`}
+        >
+          {content}
+        </AriaButton>
+      )}
     </div>
   );
 }

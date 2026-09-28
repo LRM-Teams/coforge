@@ -21,3 +21,9 @@ export function peopleDirectKeyPair(directKey: string): [string, string] {
   const [first, second] = directKey.split("|").map((part) => part.slice("user:".length));
   return [first!, second ?? first!];
 }
+
+/** The Agent a User–Agent key (`agent:<id>|user:<id>`) names; `null` for any other key. */
+export function agentOfDirectKey(directKey: string | null): string | null {
+  if (!directKey) return null;
+  return /^agent:([^|]+)\|user:/.exec(directKey)?.[1] ?? null;
+}

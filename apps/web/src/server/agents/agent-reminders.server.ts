@@ -15,7 +15,7 @@ export type AgentReminderListItem = {
   target: string;
   createdAt: string;
   anchor:
-    | { kind: "direct"; agentId: string; messageId: string; threadRootId: string | null }
+    | { kind: "direct"; conversationId: string; messageId: string; threadRootId: string | null }
     | {
         kind: "channel";
         channelId: string;
@@ -138,7 +138,7 @@ export function prismaAgentReminderReadStore(db: PrismaClient): AgentReminderRea
                 conversation.members.some((member) => member.agentId === agentId)
               ? {
                   kind: "direct" as const,
-                  agentId,
+                  conversationId: conversation.id,
                   messageId: row.messageId,
                   threadRootId: message.threadRootId,
                 }

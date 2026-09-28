@@ -32,7 +32,7 @@ async function sidebarWith(overrides: Partial<SidebarApi> = {}, { synced = true 
   const server = {
     channels: [channel("general"), channel("random", { unreadCount: 2 })],
     preferences: {
-      conversations: ["helper"],
+      conversations: [{ agentId: "helper", conversationId: "dm-helper" }],
       pinned: [{ agentId: "helper", sortOrder: 0 }],
       hidden: [] as string[],
     },
@@ -141,7 +141,10 @@ test("a failed DM re-read keeps the rows it has", async () => {
   const { sidebar, server } = await sidebarWith();
   server.failReads = true;
   await sidebar.directs.utils.refetch();
-  expect(sidebar.directs.get("helper")).toMatchObject({ pinned: true, conversation: true });
+  expect(sidebar.directs.get("helper")).toMatchObject({
+    pinned: true,
+    conversationId: "dm-helper",
+  });
 });
 
 test("a change to a row that has left the list is still saved", async () => {

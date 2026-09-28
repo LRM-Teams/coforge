@@ -74,8 +74,9 @@ export function SearchEntityRow({
         />
       );
     case "agent":
-      return entity.ownedByCurrentUser ? (
-        <Link {...conversationRoute({ agentId: entity.id }, workspaceSlug)} {...props} />
+      // Opens the viewer's DM with the Agent when there is one, as in Chat; else its profile.
+      return entity.ownedByCurrentUser && entity.dmId ? (
+        <Link {...conversationRoute({ dmId: entity.dmId }, workspaceSlug)} {...props} />
       ) : (
         <Link
           to="/w/$workspaceSlug/members"

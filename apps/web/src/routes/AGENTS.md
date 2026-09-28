@@ -8,7 +8,7 @@ These rules apply to `src/routes/`.
   `AppShell` and renders `Outlet`), with Raft's page names: `channel/$channelId`,
   `saved`, `activity`, `tasks`, `search`, `members`, `agent/$agentId`,
   `computers`, `computer/$computerId`, `settings`, plus `projects` and
-  `records`; an Agent direct message is `messages/$agentId`. Pathless layouts (`_chat`, `_computers`) share chrome between
+  `records`; a direct message is `dm/$dmId`, by its conversation id. Pathless layouts (`_chat`, `_computers`) share chrome between
   pages without adding a URL segment. Old URLs are not redirected.
 - The page URL names the Workspace: server functions act on it
   (`workspaceUserMiddleware`), and a Workspace the User is not in is a 404.

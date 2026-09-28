@@ -96,15 +96,19 @@ test("installed Computer creates an Agent through Web and persists its real repl
       "--fn",
       `Array.from(document.querySelectorAll('a')).some(e => e.textContent.trim() === ${JSON.stringify(name)})`,
     );
+    const agentLink = `Array.from(document.querySelectorAll('a')).find(e => e.textContent.trim() === ${JSON.stringify(name)})`;
+    // The card's name opens the Agent's profile: `members?profile=agent:<id>`.
     const agentPath: string = JSON.parse(
-      await browser(
-        "eval",
-        `Array.from(document.querySelectorAll('a')).find(e => e.textContent.trim() === ${JSON.stringify(name)}).getAttribute('href')`,
-      ),
+      await browser("eval", `${agentLink}.getAttribute('href')`),
     );
-    const agentId = new URL(agentPath, origin).pathname.split("/").at(-1)!;
-    await browser("click", `a[href="${workspacePath}/messages/${agentId}"]`);
-    await browser("wait", "--url", `**/messages/${agentId}`);
+    const agentId = new URL(agentPath, origin).searchParams.get("profile")!.replace(/^agent:/, "");
+    // The card's Private chat starts the DM on first use and opens it at `dm/<conversation id>`.
+    await browser(
+      "eval",
+      `Array.from(${agentLink}.closest('[role=row]').querySelectorAll('button')).find(e => e.textContent.trim() === 'Private chat').click()`,
+    );
+    await browser("wait", "--url", "**/dm/*");
+    const directPath: string = JSON.parse(await browser("eval", "location.pathname"));
     await browser(
       "wait",
       "--fn",
@@ -351,7 +355,7 @@ test("installed Computer creates an Agent through Web and persists its real repl
     await controlComputer("stop");
     // Stop awaits the native Workspace process shutdown. The Web Online badge
     // is a leased loader snapshot, not evidence of whether that process stopped.
-    await browser("open", `${origin}${workspacePath}/messages/${agentId}?view=tasks`);
+    await browser("open", `${origin}${directPath}?view=tasks`);
     await click("button", "Create task");
     const offlineTitle = `OFFLINE_${crypto.randomUUID()}: Create offline-result.txt containing recovered task, then submit this task for review.`;
     await browser("find", "role", "textbox", "fill", "--name", "Task 1", "--exact", offlineTitle);

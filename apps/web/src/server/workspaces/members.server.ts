@@ -156,7 +156,7 @@ export class WorkspaceMembers {
    */
   async directory(workspaceId: string, userId: string) {
     const { visibleAgents } = await this.viewer(workspaceId, userId);
-    const [people, agents] = await Promise.all([
+    const [people, agents, directs] = await Promise.all([
       this.db.user.findMany({
         where: { memberships: { some: { workspaceId } } },
         select: { id: true, username: true, displayName: true, avatarObjectKey: true },
@@ -167,7 +167,22 @@ export class WorkspaceMembers {
         select: { id: true, name: true, displayName: true, avatarObjectKey: true, ownerId: true },
         orderBy: [{ name: "asc" }, { id: "asc" }],
       }),
+      // The viewer's own direct conversations with Agents, so a picker can open the one that exists.
+      this.db.conversationMember.findMany({
+        where: { workspaceId, userId, leftAt: null, conversation: { directKey: { not: null } } },
+        select: {
+          conversationId: true,
+          conversation: {
+            select: { members: { where: { agentId: { not: null } }, select: { agentId: true } } },
+          },
+        },
+      }),
     ]);
+    const dmByAgent = new Map(
+      directs.flatMap((row) =>
+        row.conversation.members.map((member) => [member.agentId!, row.conversationId] as const),
+      ),
+    );
     return {
       people: people.map((person) => ({
         id: person.id,
@@ -183,6 +198,8 @@ export class WorkspaceMembers {
         /** The Web opens an Agent's direct conversation only for its owner (`ownedConversations`
          * in `features/conversations/conversations.functions.ts`). */
         ownedByCurrentUser: agent.ownerId === userId,
+        /** The viewer's direct conversation with this Agent (`dm/<id>`), once there is one. */
+        dmId: dmByAgent.get(agent.id) ?? null,
       })),
     };
   }

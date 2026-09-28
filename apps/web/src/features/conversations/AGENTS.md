@@ -21,6 +21,11 @@ These rules apply to `src/features/conversations/`.
   back to its own section only. A drag saves the new pin order plus the rows
   it unpinned, never a whole list, so pins it cannot see survive.
   Channels and Direct messages are not reordered by hand.
+- Direct messages list the viewer's existing DM conversations only, as Raft
+  does: a conversation starts from a "Message" affordance
+  (`useOpenDirectConversation`, which opens or starts it and goes to
+  `dm/<conversationId>`), never from the sidebar. Link to a DM by its
+  conversation id; only a "start" affordance knows just an Agent or a member.
 - The sidebar's channel and DM lists live in `sidebar-collections.ts`
   (collections and changes, tested without React) and `sidebar-lists.ts`
   (hooks): the chat layout's (`_chat`) loader fetches them into the TanStack Query cache

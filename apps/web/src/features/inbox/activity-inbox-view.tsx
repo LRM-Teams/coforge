@@ -492,8 +492,8 @@ function openTarget(
         hash,
       }
     : {
-        to: "/w/$workspaceSlug/messages/$agentId" as const,
-        params: { workspaceSlug, agentId: place.agent.id },
+        to: "/w/$workspaceSlug/dm/$dmId" as const,
+        params: { workspaceSlug, dmId: place.conversationId },
         search,
         hash,
       };

@@ -18,6 +18,7 @@ import {
   landingConversation,
   rememberedConversation,
 } from "./last-conversation";
+import { listedDirectIds } from "./sidebar-rows";
 
 /**
  * The Chat detail pane with no conversation in the URL. On a desktop-wide viewport, where list and
@@ -41,8 +42,7 @@ export function EmptyConversation() {
       workspaceId ? rememberedConversation(workspaceId) : undefined,
       {
         channels,
-        agentIds: agents.map((agent) => agent.id),
-        hiddenAgentIds: directs.hiddenAgentIds,
+        directIds: listedDirectIds(directs, agents),
       },
     );
     if (target) void navigate({ ...conversationRoute(target, workspaceSlug), replace: true });

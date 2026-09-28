@@ -13,10 +13,7 @@
  * - **A thread reply renders only through its root's row**, so its anchor is the root id —
  *   "land on the row in the stream, open the thread yourself" (the agreed ①: muse + deepseek).
  *
- * Channels route by their conversation id; direct messages route by Agent id, which the
- * repository encodes structurally in `directKey` (`agent:<agentId>|user:<userId>`, `keyFor` in
- * the direct-conversation repository), so the parse never guesses from UUIDs or a viewer id. An
- * unparsable key (a legacy row) degrades to the conversation list instead of a broken route.
+ * Channels and direct messages both route by their conversation id.
  */
 
 /** Where a saved message's card navigates: its conversation, anchored at the stream position. */
@@ -27,17 +24,10 @@ export type SavedJumpTarget =
       search: { message: string };
     }
   | {
-      to: "/w/$workspaceSlug/messages/$agentId";
-      params: { workspaceSlug: string; agentId: string };
+      to: "/w/$workspaceSlug/dm/$dmId";
+      params: { workspaceSlug: string; dmId: string };
       search: { message: string };
-    }
-  | { to: "/w/$workspaceSlug"; params: { workspaceSlug: string } };
-
-/** The Agent id encoded in a direct conversation's `directKey`; null when absent or malformed. */
-export function agentIdFromDirectKey(directKey: string | null): string | null {
-  if (!directKey) return null;
-  return /^agent:([^|]+)\|user:/.exec(directKey)?.[1] ?? null;
-}
+    };
 
 /**
  * Where a saved message's card navigates: its own conversation in the Workspace `workspaceSlug`
@@ -47,7 +37,7 @@ export function agentIdFromDirectKey(directKey: string | null): string | null {
  */
 export function savedJumpTarget(
   workspaceSlug: string,
-  conversation: { id: string; channelName: string | null; directKey: string | null },
+  conversation: { id: string; channelName: string | null },
   message: { id: string; threadRootId?: string | null },
 ): SavedJumpTarget {
   const anchorId = message.threadRootId ?? message.id;
@@ -58,13 +48,9 @@ export function savedJumpTarget(
       search: { message: anchorId },
     };
   }
-  const agentId = agentIdFromDirectKey(conversation.directKey);
-  if (agentId) {
-    return {
-      to: "/w/$workspaceSlug/messages/$agentId",
-      params: { workspaceSlug, agentId },
-      search: { message: anchorId },
-    };
-  }
-  return { to: "/w/$workspaceSlug", params: { workspaceSlug } };
+  return {
+    to: "/w/$workspaceSlug/dm/$dmId",
+    params: { workspaceSlug, dmId: conversation.id },
+    search: { message: anchorId },
+  };
 }

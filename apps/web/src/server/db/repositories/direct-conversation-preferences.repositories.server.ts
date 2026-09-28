@@ -101,9 +101,8 @@ export class PrismaDirectConversationPreferences {
   }
 
   /**
-   * What the sidebar needs about the viewer's own DMs, keyed the way it addresses them: an Agent id
-   * (DM rows come from the live Agent list, not from a server list). Pins carry their order; hidden
-   * DMs are listed so the sidebar can leave them out.
+   * What the sidebar needs about the viewer's own DMs with Agents, keyed by Agent id: each DM's own
+   * id, pins with their order, and the closed DMs the sidebar leaves out.
    */
   async preferencesForUser(workspaceId: string, userId: string) {
     const dmScope = {
@@ -113,14 +112,15 @@ export class PrismaDirectConversationPreferences {
       conversation: { directKey: { not: null } },
     };
     const [conversations, pins, hidden] = await Promise.all([
-      // Which of the live Agent rows are conversations at all: DM rows come from the Agent list, so
-      // this is the only way the sidebar can tell a started DM from an Agent it has never written
-      // to — and a preference must not be offered on the latter (it would only answer NOT_FOUND).
+      // The viewer's DMs with Agents and their ids: the sidebar lists exactly these.
       this.db.conversationMember.findMany({
         where: dmScope,
         select: {
           conversation: {
-            select: { members: { where: { agentId: { not: null } }, select: { agentId: true } } },
+            select: {
+              id: true,
+              members: { where: { agentId: { not: null } }, select: { agentId: true } },
+            },
           },
         },
       }),
@@ -165,7 +165,10 @@ export class PrismaDirectConversationPreferences {
     ]);
     return {
       conversations: conversations.flatMap((row) =>
-        row.conversation.members.map((member) => member.agentId!),
+        row.conversation.members.map((member) => ({
+          agentId: member.agentId!,
+          conversationId: row.conversation.id,
+        })),
       ),
       pinned: pins
         .flatMap((pin) =>

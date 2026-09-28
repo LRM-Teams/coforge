@@ -21,12 +21,26 @@ describe("notificationOpenResponse", () => {
     expect(response.headers.get("set-cookie")).toContain("Secure");
   });
 
+  test("opens a direct conversation by its own id", async () => {
+    const direct = target.replace("/channel/", "/dm/");
+    const response = await notificationOpenResponse({
+      request: new Request(
+        `https://coforge.example/notifications/open?workspace=acme&target=${encodeURIComponent(direct)}`,
+      ),
+      userId: "user-a",
+      canAccessWorkspace: async () => true,
+    });
+    expect(response.headers.get("location")).toBe(direct);
+  });
+
   test("does not select or open inaccessible and malformed targets", async () => {
     for (const url of [
       `https://coforge.example/notifications/open?workspace=other&target=${encodeURIComponent(target)}`,
       "https://coforge.example/notifications/open?workspace=acme&target=https://evil.example",
       // A target in another Workspace than the one selected.
       `https://coforge.example/notifications/open?workspace=acme&target=${encodeURIComponent(target.replace("/w/acme/", "/w/other/"))}`,
+      // Direct messages once went by Agent id.
+      `https://coforge.example/notifications/open?workspace=acme&target=${encodeURIComponent(target.replace("/channel/", "/messages/"))}`,
       // The shape conversations had before they moved under `/w/<slug>`.
       `https://coforge.example/notifications/open?workspace=acme&target=${encodeURIComponent(target.replace("/w/acme/channel/", "/messages/channels/"))}`,
     ]) {
