@@ -1,5 +1,4 @@
 import { memo, useCallback, useEffect, useRef, useState } from "react";
-import type { AgentDisplaySnapshot } from "@lrm/coforge-sdk/internal";
 import { FileIcon as FileTypeIcon } from "@untitledui/file-icons";
 import {
   Bookmark,
@@ -26,6 +25,7 @@ import {
   ModalOverlay,
 } from "#src/components/application/modals/modal";
 import { AgentDisplayAvatar } from "#src/features/agents/agent-activity-avatar";
+import { useLiveAgentDisplay } from "#src/features/agents/workspace-agents-realtime";
 import { AgentModelLabel } from "#src/features/agents/agent-model-label";
 import { avatarInitial, avatarToneClassName } from "#src/lib/avatar-tone";
 import { DELETED_AGENT_AVATAR_CLASS, DeletedAgentBadge } from "#src/features/agents/deleted-agent";
@@ -505,6 +505,23 @@ export function DayDivider({ value, locale }: { value: Date | string; locale?: s
  * that pins the main thread until the renderer is killed. */
 const ROW_CLASS = "flex flex-col";
 
+/** An Agent's avatar in the stream, with that Agent's live status dot: it reads that one Agent, so
+ * another Agent's activity never repaints this row. */
+function MessageAgentAvatar({
+  agentId,
+  name,
+  src,
+  deleted,
+}: {
+  agentId: string;
+  name: string;
+  src?: string | null;
+  deleted: boolean;
+}) {
+  const display = useLiveAgentDisplay(agentId);
+  return <AgentDisplayAvatar name={name} src={src} display={display} deleted={deleted} size="sm" />;
+}
+
 /** One history row: optional day divider, then the message with its hover actions. */
 /**
  * Memoized: a conversation re-renders on every send, poll, page and pane change, and a row only
@@ -520,7 +537,6 @@ export const MessageRow = memo(function MessageRow({
   expanded,
   onToggleExpanded,
   collapsible = true,
-  agentDisplay,
   unreadStartsHere,
   highlighted,
   dateLocale,
@@ -546,9 +562,6 @@ export const MessageRow = memo(function MessageRow({
   onToggleExpanded: (messageId: string) => void;
   /** Whether a long body may fold at all (the viewer's "Collapse long messages" preference). */
   collapsible?: boolean;
-  /** The live display snapshot for one Agent, from the app shell's subscription. Absent where the
-   * surface has no access to it; the avatar then renders without a dot rather than as a wrong one. */
-  agentDisplay?: (agentId: string) => AgentDisplaySnapshot | undefined;
   /** The conversation's unread run begins at this row: draws the divider above. */
   unreadStartsHere?: boolean;
   /** A position jump just landed on this row, so it wears the anchor highlight for a moment. The
@@ -601,18 +614,17 @@ export const MessageRow = memo(function MessageRow({
   // a `DELETED` badge beside the name.
   // An Agent's avatar in the stream carries the same online/working/thinking/error/offline dot the
   // sidebar, conversation header and @-mention popup use, so you can tell whether the Agent that
-  // wrote a message is around right now without opening its profile. The snapshot comes from the
-  // app shell's one subscription, looked up by the conversation and passed in. A person's avatar
+  // wrote a message is around right now without opening its profile. The avatar reads that one
+  // Agent from the app shell's live Agent store (`MessageAgentAvatar`). A person's avatar
   // stays plain here (people's presence is drawn on the Members page); a deleted Agent shows no dot
   // either (`AgentDisplayAvatar` greys it and drops the dot) — a deletion is not a presence state.
   const avatar =
     message.senderKind === "agent" && message.senderAgentId ? (
-      <AgentDisplayAvatar
+      <MessageAgentAvatar
+        agentId={message.senderAgentId}
         name={message.senderName}
         src={message.senderAvatarUrl}
-        display={agentDisplay?.(message.senderAgentId)}
         deleted={deleted}
-        size="sm"
       />
     ) : (
       <Avatar

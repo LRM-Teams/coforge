@@ -7,10 +7,12 @@ These rules apply to `src/features/agents/`.
 - `WorkspaceAgentsProvider` (`workspace-agents-realtime.tsx`) is the app
   shell's one Agent status subscription and one Activity subscription.
   Avatars, pages, and panels read through its hooks (`useLiveAgents`,
-  `useLiveAgent`, `useAgentRecentActivity`, `useAgentActivityFeed`,
-  `usePrefetchAgentActivityFeed`) and never
+  `useLiveAgent`, `useLiveAgentDisplay`, `useAgentRecentActivity`,
+  `useAgentActivityFeed`, `usePrefetchAgentActivityFeed`) and never
   open connections or subscribe themselves. The conversations feature does not
-  own Agent state.
+  own Agent state. The live Agents are a TanStack Store: a reader of one Agent
+  (`useLiveAgent`, `useLiveAgentDisplay`) re-renders only when that Agent
+  changes, so a list row reads its own Agent rather than the whole list.
 - The model beside an Agent's name in chat (`agent-models.ts`, Settings → Show
   agent model) is one query per Workspace over every Agent the viewer may see
   (`listVisibleAgentModels`, scoped by `visibleAgentWhere`), wider than
