@@ -42,6 +42,7 @@ describe("WorkspaceMembers", () => {
               description: "Compiler pioneer",
               email: "private@example.test",
               avatarObjectKey: "avatars/other-user/7f3a/avatar",
+              agents: [],
             },
           ];
         },
@@ -150,6 +151,7 @@ describe("WorkspaceMembers", () => {
           displayName: "grace",
           description: "Compiler pioneer",
           avatarUrl: "/api/workspaces/workspace-1/users/other-user/avatar?v=7f3a",
+          createdAgents: { total: 0, items: [] },
         },
       ],
       agents: [
