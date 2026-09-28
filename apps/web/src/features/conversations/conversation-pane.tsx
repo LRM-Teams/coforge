@@ -19,7 +19,7 @@ import { getLocale } from "#src/paraglide/runtime";
 import { useLiveAgents } from "#src/features/agents/workspace-agents-realtime";
 
 import { attachmentFileNameSummary } from "./attachment-file-name";
-import { useConversationOpenMode, useSavedMessages } from "./conversation-navigation";
+import { useConversationOpenMode, useSavedMessages } from "./conversation-host";
 import { conversationOpenPosition, unreadBoundary } from "./conversation-open-position";
 import { latestTopLevelSequence } from "./conversation-unread";
 import { streamState, type StreamRead } from "./stream-state";
@@ -456,15 +456,15 @@ export function ConversationPane({
       // - first-unread: land on the oldest unread (divider above it).
       // - newest-read / newest-unread: land at the latest. `newest-unread` differs only in
       //   when the cursor advances: it waits for `onReadLatest` below, never for the open.
-      // A message hash (deep link, task jump) still wins over both — the anchor effect
-      // handles it and has already cleared `followingLatest` by the time this runs.
+      // A message hash (deep link, task jump) or a jump to a message (a search result, a Saved
+      // card) still wins over both: the anchor and jump effects land there instead.
       // Only an actual open positions on unread. Reaching the latest again later in the same
       // conversation (`followingLatest`) keeps following it.
       const openMessageId =
         firstRender || changedConversation
           ? conversationOpenPosition(openMode, firstUnread)
           : undefined;
-      if (openMessageId && !window.location.hash) {
+      if (openMessageId && !window.location.hash && !jumpMessage) {
         if (conversation.messages.some((message) => message.id === openMessageId)) {
           setFollowingLatest(false);
           pendingOpenMessageIdRef.current = openMessageId;

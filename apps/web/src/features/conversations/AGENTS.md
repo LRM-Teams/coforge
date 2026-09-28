@@ -55,16 +55,25 @@ These rules apply to `src/features/conversations/`.
   coordinates thread/profile panes; `conversation-pane.tsx` renders one message
   stream; `use-conversation-sync.ts` owns browser-only deep-link and read-cursor
   synchronization.
-- The Saved list is a TanStack DB collection (`saved-messages-collection.ts`) on the
-  Chat layout's `DbClient`, seeded from the loader. Read it through
+- `conversation-host.tsx` is what a conversation reads from the page hosting
+  it (Chat, the search preview): the viewer's open mode, the Workspace's
+  channels and the Saved list, a TanStack DB collection
+  (`saved-messages-collection.ts`) on the provider's `DbClient`, seeded from
+  the host's loader. The sidebar's unread badges stay Chat's own. Read it through
   `useSavedEntries`/`useIsMessageSaved` and write through the context's
   `save`/`unsave`; never a module-level collection or `createCollection`
   singleton, which would share state across SSR requests.
 - A conversation's data and actions (messages kept live, its Tasks, send,
   react, join, read and follow threads) come from `useChannelConversation` /
   `useDirectConversation` (`use-conversation-data.ts`), shared by the
-  conversation routes, the Tasks page popup and the search page's preview.
-  Change a send or read path there, not in a route.
+  conversation pages and the Tasks page popup. Change a send or read path
+  there, not in a route.
+- `channel-conversation-page.tsx` / `direct-conversation-page.tsx` are a
+  conversation as Chat opens it (tabs, Task board, files, reading). The Chat
+  routes and the search preview both render them, so the two never differ;
+  a host only reads its params and loads through `loadConversationPage`
+  (`conversation-page-loader.ts`). Their address state is
+  `conversationPageSearchShape`, which every host's `validateSearch` spreads.
 - `mentionOutsiders` (the channel's people and public Agents outside it) is for
   @-completion only. Never merge it into `mentionables`, which also resolves
   plain `@handle` labels and stored mention tokens.

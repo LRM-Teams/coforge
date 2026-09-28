@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { conversationOpenSearchShape } from "#src/features/conversations/conversation-thread-search";
+import { conversationPageSearchShape } from "#src/features/conversations/conversation-page-search";
 import { SEARCH_RANGES } from "./search-filters";
 
 /** Longest query the search box sends; longer text is cut, never rejected. */
@@ -53,17 +53,21 @@ export const searchPageSearchSchema = z.object({
     .optional()
     .catch(undefined),
   msg: z.uuid().optional().catch(undefined),
-  // The previewed conversation's open thread, Task popup or Agent profile, as its page keeps them.
-  ...conversationOpenSearchShape,
+  // The previewed conversation's tab, Task board view and what it has open, as Chat keeps them.
+  ...conversationPageSearchShape,
 });
 
-/** The search Cmd/Ctrl+K reopens: the page's query and filters, nothing of a preview. */
-export const lastSearchSchema = searchPageSearchSchema.pick({
+/** The search itself: its query, filters and `defer`, nothing of a preview. */
+export const searchQuerySchema = searchPageSearchSchema.pick({
   q: true,
   senderId: true,
   scope: true,
   channelId: true,
   range: true,
   sort: true,
+  defer: true,
 });
+
+/** The search Cmd/Ctrl+K reopens: the query and filters, without `defer`. */
+export const lastSearchSchema = searchQuerySchema.omit({ defer: true });
 export type LastSearch = z.output<typeof lastSearchSchema>;

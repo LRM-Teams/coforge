@@ -14,9 +14,9 @@ These rules apply to `src/features/tasks/`.
   a conversation (`ConversationTaskBoard`) creates Tasks. Cards carry no
   Claim or Unclaim button: moving an unowned To do Task to In progress claims
   it (`getTaskMoveCommand`).
-- `/tasks` spreads `taskBoardSearchShape` and the conversation routes
+- `/tasks` spreads `taskBoardSearchShape` and every conversation page host
   `conversationTaskBoardSearchShape` (`task-board-search.ts`, without
-  `projects`) into their validated search, read with `useTaskBoardSearch`:
+  `projects`, through `conversationPageSearchShape`) into their validated search, read with `useTaskBoardSearch`:
   `status`, `layout`, `owners`, `projects`, `completed`. A status or layout
   change is a history entry; picks and the window replace the address in
   place. Hidden columns and Display fields are one device preference shared
@@ -32,7 +32,8 @@ These rules apply to `src/features/tasks/`.
   or one conversation: exact server counts for the `completed` window (`week`
   when absent, `month`, `all`) under the owner and Project picks, and
   50-per-page reads with "Load more". `/tasks` reads the counts before its
-  board shows. A conversation route waits for them only on `cause: "enter"`
+  board shows. A conversation page's loader (`loadConversationPage`, for Chat's
+  routes and the search preview) waits for them only on `cause: "enter"`
   (arriving from any other route, including a first load); on `stay`
   (switching to the Tasks tab, changing the window, or opening another
   conversation of the same kind) it only starts the read, and the board

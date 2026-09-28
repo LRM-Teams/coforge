@@ -11,11 +11,8 @@ import { AgentDisplayAvatar } from "#src/features/agents/agent-activity-avatar";
 import type { LiveAgent } from "#src/features/agents/workspace-agents-realtime";
 import { cx } from "#src/utils/cx";
 import { m } from "#src/paraglide/messages";
-import {
-  useChannelUnreadCounts,
-  useCloseConversationList,
-  useSavedEntries,
-} from "./conversation-navigation";
+import { useChannelUnreadCounts, useCloseConversationList } from "./conversation-navigation";
+import { useSavedEntries } from "./conversation-host";
 import { ConversationRowMenu } from "./conversation-row-menu";
 import { conversationRowMenuEnabled, directRowPreference } from "./conversation-row-menu-model";
 import { useSidebarActions } from "./sidebar-lists";

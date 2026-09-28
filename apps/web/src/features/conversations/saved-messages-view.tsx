@@ -17,7 +17,7 @@ import { RelativeTime } from "#src/components/ui/relative-time";
 import { useAppToast } from "#src/components/ui/toast";
 import { copyText } from "#src/features/records/report-editor/lib/clipboard";
 import { m } from "#src/paraglide/messages";
-import { useSavedEntries, useSavedMessages } from "./conversation-navigation";
+import { useSavedEntries, useSavedMessages } from "./conversation-host";
 import { savedJumpTarget } from "./saved-messages-model";
 import type { SavedEntry } from "./saved-messages-collection";
 import { messagePlainText } from "./selection-copy";

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef } from "react";
-import { ClientOnly, useMatch } from "@tanstack/react-router";
+import { ClientOnly } from "@tanstack/react-router";
 import { Group, Panel, Separator, useDefaultLayout } from "react-resizable-panels";
 import { ChevronRight, MessageSquare01 as MessageSquare } from "@untitledui/icons";
 
@@ -17,6 +17,7 @@ import { TaskDetailDialog } from "#src/features/tasks/task-detail-dialog";
 
 import { ConversationPane } from "./conversation-pane";
 import { useConversationDetailVisible } from "./conversation-navigation";
+import { useConversationHostChannels } from "./conversation-host";
 import { useConversationSync } from "./use-conversation-sync";
 import {
   useConversationPositionJump,
@@ -119,13 +120,9 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
     return [...snapshot.replies, ...loaded.filter((reply) => !seen.has(reply.id))];
   };
   // A stored channel reference links to its channel, under its current name, only when the
-  // Workspace has that channel: every channel by id, closed ones included, from the messages layout.
-  const layoutChannels = useMatch({
-    from: "/_app/messages",
-    shouldThrow: false,
-    select: (match) => match.loaderData?.channelNames,
-  });
-  const channelList = channels ?? layoutChannels ?? NO_CHANNELS;
+  // Workspace has that channel: every channel by id, closed ones included, from the hosting page.
+  const hostChannels = useConversationHostChannels();
+  const channelList = channels ?? hostChannels ?? NO_CHANNELS;
   const channelNames = useMemo(
     () => new Map(channelList.map((channel) => [channel.id, channel.name])),
     [channelList],

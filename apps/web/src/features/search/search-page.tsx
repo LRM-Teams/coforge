@@ -18,6 +18,7 @@ import {
 } from "#src/components/ui/empty";
 import { RelativeTime } from "#src/components/ui/relative-time";
 import { Skeleton } from "#src/components/ui/skeleton";
+import { conversationSearchWithThread } from "#src/features/conversations/conversation-thread-search";
 import { savedJumpTarget } from "#src/features/conversations/saved-messages-model";
 import { useBreakpoint } from "#src/hooks/use-breakpoint";
 import { computerLabel } from "#src/features/computers/computer-identity";
@@ -466,6 +467,24 @@ function MessageResults({
   );
 }
 
+/**
+ * Where a result opens in Chat: its conversation at the row that shows the message, and for a
+ * thread reply its thread open at the reply, the way Chat opens a thread from Activity.
+ */
+function messageOpenTarget(
+  conversation: MessageSearchHit["conversation"],
+  message: MessageSearchHit["message"],
+) {
+  const target = savedJumpTarget(conversation, message);
+  return message.threadRootId && "search" in target
+    ? {
+        ...target,
+        search: conversationSearchWithThread(target.search, message.threadRootId),
+        hash: `message-${message.id}`,
+      }
+    : target;
+}
+
 /** The remembered place a message result opens: its channel, or its direct conversation's Agent. */
 function conversationKey(
   conversation: MessageSearchHit["conversation"],
@@ -502,7 +521,7 @@ function SearchResultRow({
   return (
     <li>
       <Link
-        {...savedJumpTarget(conversation, message)}
+        {...messageOpenTarget(conversation, message)}
         data-search-message-id={message.id}
         aria-current={target && isPreviewed(previewed, target) ? "true" : undefined}
         onClick={onClick}

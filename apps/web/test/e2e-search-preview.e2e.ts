@@ -8,11 +8,13 @@ import { DEV_BROWSER_USER } from "#src/server/auth/dev-skip-auth.server";
 
 /**
  * Previewing a result beside the list. On a wide screen a single click shows the result's
- * conversation next to the results, positioned at the message, with its own header lined up with
- * the search header and its composer: a reply sent there lands in the conversation. The list
- * stays, marking the previewed row, and the URL keeps the preview. Another click switches it, Esc
- * outside the conversation closes it, and a double click opens the conversation itself. A match
- * previews its channel. On a phone a click opens the conversation directly.
+ * conversation next to the results exactly as Chat opens it: positioned at the message, its header
+ * (with the Chat / Tasks / Files tabs) lined up with the search header, its composer, and read as
+ * Chat reads it. A reply sent there lands in the conversation; a thread reply opens its thread.
+ * The list stays, marking the previewed row, and the URL keeps the preview. Another click switches
+ * it, Esc outside the conversation closes it, and a double click opens the conversation itself (a
+ * thread reply with its thread open). A match previews its channel. On a phone a click opens the
+ * conversation directly.
  *
  * Opt-in like the other browser E2Es: real local Web + `agent-browser`. Seeds are deterministic
  * and reset on every run. Screenshots are written under `.amp/e2e/search-preview/`.
@@ -121,6 +123,28 @@ test("a result previews beside the list and opens on a double click", async () =
     const inA = await db.message.findFirstOrThrow({
       where: { conversationId: channelA, body: `${phrase} in a` },
     });
+    // A reply in the match's thread matches too, with enough replies after it that landing on it
+    // is not the pane's default.
+    const inThread = await db.message.create({
+      data: {
+        conversationId: channelA,
+        workspaceId,
+        senderMemberId: memberA!.id,
+        body: `${phrase} in a thread`,
+        threadRootId: inA.id,
+        sequence: bodies.length + 1,
+      },
+    });
+    await db.message.createMany({
+      data: Array.from({ length: 40 }, (_, index) => ({
+        conversationId: channelA,
+        workspaceId,
+        senderMemberId: memberA!.id,
+        body: `thread reply ${index + 1}`,
+        threadRootId: inA.id,
+        sequence: bodies.length + 2 + index,
+      })),
+    });
     const inB = await db.message.create({
       data: {
         conversationId: channelB,
@@ -142,6 +166,11 @@ test("a result previews beside the list and opens on a double click", async () =
     );
     await waitFor(`document.querySelector('${PREVIEW} li[data-message-id="${inA.id}"]') !== null`);
     await waitFor(`document.querySelector('${PREVIEW} textarea:not([disabled])') !== null`);
+    // It opens at the result, on screen, as Chat does from a link to a message.
+    await waitFor(`(() => {
+      const rect = document.querySelector('${PREVIEW} li[data-message-id="${inA.id}"]').getBoundingClientRect();
+      return rect.top >= 48 && rect.bottom <= innerHeight;
+    })()`);
     const preview = await evaluate<{
       listed: boolean;
       current: string | null;
@@ -163,6 +192,33 @@ test("a result previews beside the list and opens on a double click", async () =
     });
     expect(preview.headerBottoms[1]).toBe(preview.headerBottoms[0]!);
     await browser("screenshot", join(artifacts, "preview.png"));
+
+    // The preview carries the conversation's tabs, and reads the channel as Chat does.
+    const tabs = await evaluate<string[]>(
+      `[...document.querySelectorAll('${PREVIEW} [role="tab"]')].map((tab) => tab.textContent.trim())`,
+    );
+    expect(tabs).toEqual(["Chat", "Tasks", "Files"]);
+    const readUpTo = async () =>
+      (await db.conversationMember.findFirstOrThrow({ where: { id: memberA!.id } }))
+        .readThroughSequence;
+    for (let attempt = 0; (await readUpTo()) === 0 && attempt < 50; attempt++)
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(await readUpTo()).toBeGreaterThan(0);
+    await browser(
+      "eval",
+      `[...document.querySelectorAll('${PREVIEW} [role="tab"]')].find((tab) => tab.textContent.trim() === "Tasks").click()`,
+    );
+    await waitFor(
+      `${param("view")} === "tasks" && location.pathname === "/en/search" && [...document.querySelectorAll('${PREVIEW} button')].some((button) => button.textContent.trim() === "Create task")`,
+    );
+    await browser("screenshot", join(artifacts, "tasks.png"));
+    await browser(
+      "eval",
+      `[...document.querySelectorAll('${PREVIEW} [role="tab"]')].find((tab) => tab.textContent.trim() === "Chat").click()`,
+    );
+    await waitFor(
+      `${param("view")} === "chat" && document.querySelector('${PREVIEW} textarea') !== null`,
+    );
 
     // A reply sent from the preview lands in the conversation, and the preview stays.
     const reply = `reply from search ${Date.now()}`;
@@ -209,6 +265,27 @@ test("a result previews beside the list and opens on a double click", async () =
     await browser("press", "Escape");
     await waitFor(`${param("open")} === "" && document.querySelector('${PREVIEW}') === null`);
     expect(await evaluate<string>(param("q"))).toBe(phrase);
+
+    // A thread reply previews with its thread open at that reply, and a double click opens it in
+    // Chat the same way, as Activity opens a thread.
+    const replyOnScreen = `(() => {
+      const pane = [...document.querySelectorAll('section[aria-label="Thread"]')].find((section) => !section.hidden);
+      const reply = pane?.querySelector('li[data-message-id="${inThread.id}"]');
+      if (!reply) return false;
+      const rect = reply.getBoundingClientRect();
+      return rect.top >= 48 && rect.bottom <= innerHeight;
+    })()`;
+    await browser("click", row(inThread.id));
+    await waitFor(`${param("threadRootId")} === "${inA.id}"`);
+    await waitFor(replyOnScreen);
+    await browser("screenshot", join(artifacts, "thread-hit.png"));
+    await browser("dblclick", row(inThread.id));
+    await waitFor(
+      `location.pathname === "/en/messages/channels/${channelA}" && ${param("threadRootId")} === "${inA.id}"`,
+    );
+    await waitFor(replyOnScreen);
+    await browser("back");
+    await waitFor(`document.querySelector('${row(inB.id)}') !== null`);
 
     // A double click on a result opens it for real, counted as one open.
     const usageKey = `coforge:search-usage:${workspaceId}:${DEV_BROWSER_USER.id}`;
@@ -275,6 +352,20 @@ test("a result previews beside the list and opens on a double click", async () =
     await waitFor(`document.querySelector('${PREVIEW}') === null`);
     await browser("press", "Escape");
     await waitFor(`location.pathname === "/en/messages/channels/${channelB}"`);
+
+    // Chat opened at a message lands on it even with unread messages above it (the viewer's default
+    // "first unread" open mode does not take over a jump).
+    await db.conversationMember.update({
+      where: { id: memberA!.id },
+      data: { readThroughSequence: 0 },
+    });
+    await browser("open", `${origin}/en/messages/channels/${channelA}?message=${inA.id}`);
+    await waitFor(`(() => {
+      const row = document.querySelector('main li[data-message-id="${inA.id}"]');
+      if (!row) return false;
+      const rect = row.getBoundingClientRect();
+      return rect.top >= 48 && rect.bottom <= innerHeight;
+    })()`);
 
     // On a phone there is no room beside the list: a click opens the conversation.
     await browser("set", "viewport", "390", "844");
