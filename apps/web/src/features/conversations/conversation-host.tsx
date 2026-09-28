@@ -1,15 +1,6 @@
-import {
-  createContext,
-  useContext,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  useSyncExternalStore,
-  type ReactNode,
-} from "react";
+import { createContext, useContext, useMemo, useSyncExternalStore, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { DbClient } from "@tanstack/react-db";
+import { useDbClient } from "@tanstack/react-db";
 import { getRouteApi } from "@tanstack/react-router";
 
 import { useCurrentWorkspaceId } from "#src/features/agents/workspace-agents-realtime";
@@ -18,11 +9,11 @@ import {
   conversationOpenMode,
   type ConversationOpenMode,
 } from "#src/features/settings/conversation-open-mode";
+import { savedMessagesQuery } from "./conversation-queries";
 import type { ChannelSuggestion } from "./reference-completion";
 import { listSavedMessages, saveMessage, unsaveMessage } from "./saved-messages.functions";
 import {
   materializeSavedMessages,
-  savedMessagesQueryKey,
   savedMessagesStore,
   type SavedEntry,
   type SavedMessagesStore,
@@ -47,40 +38,34 @@ const ChannelsContext = createContext<readonly ChannelSuggestion[] | undefined>(
 /**
  * What a conversation reads from the page hosting it (Chat, the search preview): the viewer's
  * "When I view a conversation" open mode and Saved list, and the Workspace's channels (every
- * channel by id, closed ones included: the authority a body's channel links check), each seeded
- * by the hosting page's loader. The sidebar's unread badges stay Chat's own.
+ * channel by id, closed ones included: the authority a body's channel links check), read by the
+ * hosting page's loader. The sidebar's unread badges stay Chat's own.
  */
 export function ConversationHostProvider({
-  saved,
   channels,
   children,
 }: {
-  saved: SavedEntry[];
   channels: readonly ChannelSuggestion[];
   children: ReactNode;
 }) {
   const { conversationOpenMode: savedOpenMode } = appRoute.useLoaderData();
   const workspaceId = useCurrentWorkspaceId() ?? "";
-  // Saved (#127): the loader seeds the collection; a toggle changes it at once and persists in
-  // the background. A router invalidation's fresh list reaches it through its Query.
+  // Saved (#127): one collection on the app's `DbClient` (`DbClient.collection` keeps one per id),
+  // so every host shares it. It starts from the list the host's loader read into the Query cache,
+  // follows that Query afterwards, and a toggle changes it at once and persists in the background.
+  const dbClient = useDbClient();
   const queryClient = useQueryClient();
-  const [dbClient] = useState(() => new DbClient({ queryClient }));
-  // The collection is seeded once per Workspace from the list at hand; later loader lists go
-  // through its Query (the effect below), never by re-seeding.
-  const seededSaved = useRef(saved);
   const savedMessages = useMemo<SavedMessagesState>(() => {
-    const collection = materializeSavedMessages(dbClient, workspaceId, seededSaved.current, {
-      list: () => listSavedMessages(),
-      save: (target) => saveMessage({ data: target }),
-      unsave: (target) => unsaveMessage({ data: target }),
-    });
-    const store = savedMessagesStore(collection);
+    const seed = queryClient.getQueryData(savedMessagesQuery(workspaceId).queryKey) ?? [];
+    const store = savedMessagesStore(
+      materializeSavedMessages(dbClient, workspaceId, seed, {
+        list: () => listSavedMessages(),
+        save: (target) => saveMessage({ data: target }),
+        unsave: (target) => unsaveMessage({ data: target }),
+      }),
+    );
     return { store, save: store.save, unsave: store.unsave };
-  }, [dbClient, workspaceId]);
-  useEffect(() => {
-    if (saved === seededSaved.current) return;
-    queryClient.setQueryData(savedMessagesQueryKey(workspaceId), saved);
-  }, [queryClient, workspaceId, saved]);
+  }, [dbClient, queryClient, workspaceId]);
   return (
     <OpenModeContext value={conversationOpenMode(savedOpenMode)}>
       <SavedMessagesContext value={savedMessages}>

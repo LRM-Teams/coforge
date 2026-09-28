@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, jest, test } from "bun:test";
 import { DbClient } from "@tanstack/react-db";
 import { QueryClient } from "@tanstack/react-query";
 import {
@@ -61,6 +61,27 @@ describe("saved messages collection", () => {
     const { collection } = setup([entry("m1")]);
     expect(collection.has("m1")).toBe(true);
     expect(collection.has("m2")).toBe(false);
+  });
+
+  test("stays whole on the app's DbClient while no page shows it", async () => {
+    // The collection lives as long as the app's one DbClient: a page that comes back to it, even
+    // long after the last one left, finds the list, not a garbage-collected empty collection.
+    jest.useFakeTimers();
+    try {
+      const { collection } = setup([entry("m1")]);
+      const store = savedMessagesStore(collection);
+      const unsubscribe = store.subscribe(() => {});
+      unsubscribe();
+      // The collection's GC timer is armed from a microtask, and its cleanup runs from an idle
+      // callback once the timer fires.
+      await Promise.resolve();
+      jest.advanceTimersByTime(60 * 60_000);
+      jest.advanceTimersByTime(60_000);
+      await Promise.resolve();
+      expect(collection.has("m1")).toBe(true);
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   test("a save shows at once and persists through the save call", async () => {

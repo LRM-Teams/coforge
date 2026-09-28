@@ -9,7 +9,7 @@ import {
   sidebarDirectsQuery,
 } from "#src/features/conversations/sidebar-collections";
 import { listProjects } from "#src/features/projects/projects.functions";
-import { listSavedMessages } from "#src/features/conversations/saved-messages.functions";
+import { savedMessagesQuery } from "#src/features/conversations/conversation-queries";
 
 export const Route = createFileRoute("/_app/messages")({
   loader: async ({ context: { queryClient }, parentMatchPromise, cause }) => {
@@ -35,12 +35,22 @@ export const Route = createFileRoute("/_app/messages")({
         firstLoad ? directs : directs.catch(() => undefined),
       ]);
     });
-    const [channelNames, projects, saved, , currentWorkspaceId] = await Promise.all([
+    // Saved (#127) goes into the Query cache the Saved collection follows, read afresh like the
+    // sidebar's lists. A failed read keeps the list the cache has, or starts from an empty one: the
+    // chat page stays up and saving still works.
+    const saved = workspaceId.then((workspaceId) => {
+      const query = savedMessagesQuery(workspaceId);
+      return queryClient
+        .query({ ...query, staleTime: cause === "preload" ? ("static" as const) : 0 })
+        .catch(() => {
+          if (queryClient.getQueryData(query.queryKey) === undefined)
+            queryClient.setQueryData(query.queryKey, []);
+        });
+    });
+    const [channelNames, projects, , , currentWorkspaceId] = await Promise.all([
       listChannelNames(),
       listProjects(),
-      // Saved (#127) tolerates a failed read: the chat page stays up and simply starts from an
-      // empty saved list.
-      listSavedMessages().catch(() => []),
+      saved,
       sidebarLists,
       workspaceId,
     ]);
@@ -50,7 +60,6 @@ export const Route = createFileRoute("/_app/messages")({
       // Every channel by id, closed ones included: the authority a body's channel links check.
       channelNames,
       projects,
-      saved,
     };
   },
   pendingComponent: MessagesPending,
