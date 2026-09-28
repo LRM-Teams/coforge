@@ -738,13 +738,11 @@ ${INBOX_DRAIN_HINT}]`,
     const byTarget = this.#modelSeen.get(agentId) ?? new Map<string, number>();
     byTarget.set(target, Math.max(byTarget.get(target) ?? 0, sequence));
     this.#modelSeen.set(agentId, byTarget);
-    // Raft's `recordConsumedSeqs(agentId, { [target]: sequence })`: the Agent has consumed this
-    // frontier, so it survives the process — the same cursor that decides the next hold, the
-    // `seenUpToSeq` a fresh send inherits, and which target was read most recently.
-    this.#notePersistedOrder(
-      agentId,
-      this.#consumedSeqs?.recordConsumedSeqs(agentId, { [target]: sequence }),
-    );
+    // The Agent has consumed this frontier, so it survives the process: the same cursor that
+    // decides the next hold and the `seenUpToSeq` a fresh send inherits. It orders nothing — only a
+    // review (`recordReadContext`) does, which is why a `check` page, like Raft's, moves no
+    // `readOrder`.
+    this.#consumedSeqs?.recordConsumedSeqs(agentId, { [target]: sequence });
 
     // The window the Agent has now been shown (or the boundary it reported) is reviewed: drop what
     // it covers, so a locally decided hold cannot present the same messages twice.
@@ -788,21 +786,16 @@ ${INBOX_DRAIN_HINT}]`,
     this.#readContext.set(agentId, byTarget);
   }
 
-  /** Keeps this Agent's read-order counter above every order the durable cursor has handed out, so
-   * a target reviewed before a restart can never outrank one reviewed after it. */
-  #notePersistedOrder(agentId: string, order: number | undefined): void {
-    if (order === undefined) return;
-    const counter = this.#readContextCounters.get(agentId) ?? 0;
-    if (counter < order) this.#readContextCounters.set(agentId, order);
-  }
-
   /** The most recently read context order for `target`, or `undefined` if never recorded. */
   readOrder(agentId: string, target: string): number | undefined {
     this.#hydrate(agentId);
     return this.#readContext.get(agentId)?.get(target);
   }
 
-  /** The most recently read thread target rooted under `parentTarget`, or `undefined` if none. */
+  /** The most recently read thread target rooted under `parentTarget` in which the Agent has
+   * consumed at least one message, or `undefined` if none. Raft's
+   * `getMostRecentConsumedThreadForParent` skips a record with no `seq`: a thread read that returned
+   * nothing gave the Agent no thread context to reply to. */
   latestThreadReadUnderParent(
     agentId: string,
     parentTarget: string,
@@ -812,8 +805,13 @@ ${INBOX_DRAIN_HINT}]`,
     if (!byTarget) return undefined;
     const prefix = `${parentTarget}:`;
     let latest: { target: string; order: number } | undefined;
+    const consumed = this.#modelSeen.get(agentId);
     for (const [target, order] of byTarget)
-      if (target.startsWith(prefix) && (!latest || order > latest.order))
+      if (
+        target.startsWith(prefix) &&
+        (consumed?.get(target) ?? 0) > 0 &&
+        (!latest || order > latest.order)
+      )
         latest = { target, order };
     return latest;
   }

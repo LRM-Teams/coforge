@@ -609,6 +609,7 @@ test("the consumed cursor survives a restart, in Raft's consumed-seqs file", () 
   const before = indexWithConsumedSeqs(store);
   before.recordModelSeen("agent-1", "@ada", 7);
   before.recordReadContext("agent-1", "#general:11111111");
+  before.recordModelSeen("agent-1", "#general:11111111", 2);
 
   // A new daemon process: no deliveries, no reads, only the file Raft names.
   const after = indexWithConsumedSeqs(store);
@@ -630,6 +631,7 @@ test("a restart keeps the read context a thread-target confirmation is decided f
   // that makes a top-level send to the channel ask for confirmation (Raft's
   // `detectThreadContextParentSend`).
   before.recordReadContext("agent-1", "#general:11111111");
+  before.recordModelSeen("agent-1", "#general:11111111", 2);
   expect(before.readOrder("agent-1", "#general")).toBeUndefined();
 
   const after = indexWithConsumedSeqs(store);
@@ -694,15 +696,51 @@ test("latestThreadReadUnderParent finds the most recently read thread rooted und
     async () => {},
   );
   expect(index.latestThreadReadUnderParent("agent-1", "#general")).toBeUndefined();
-  index.recordReadContext("agent-1", "#general:11111111");
-  index.recordReadContext("agent-1", "#other:22222222");
-  index.recordReadContext("agent-1", "#general:33333333");
+  for (const thread of ["#general:11111111", "#other:22222222", "#general:33333333"]) {
+    index.recordReadContext("agent-1", thread);
+    index.recordModelSeen("agent-1", thread, 1);
+  }
   const latest = index.latestThreadReadUnderParent("agent-1", "#general");
   expect(latest?.target).toBe("#general:33333333");
   // A read of the parent target itself is not a thread read under it.
   index.recordReadContext("agent-1", "#general");
   expect(index.latestThreadReadUnderParent("agent-1", "#general")?.target).toBe(
     "#general:33333333",
+  );
+});
+
+test("a thread counts as read context only once the Agent has consumed a message in it", () => {
+  const index = new AgentMessageAttentionIndex(
+    "workspace-1",
+    { session: () => session() },
+    async () => {},
+  );
+  // A read of a thread that returned nothing orders the thread but consumes nothing in it.
+  index.recordReadContext("agent-1", "#general:11111111");
+  expect(index.latestThreadReadUnderParent("agent-1", "#general")).toBeUndefined();
+
+  index.recordReadContext("agent-1", "#general:22222222");
+  index.recordModelSeen("agent-1", "#general:22222222", 4);
+  index.recordReadContext("agent-1", "#general:11111111");
+  expect(index.latestThreadReadUnderParent("agent-1", "#general")?.target).toBe(
+    "#general:22222222",
+  );
+});
+
+test("a consumed frontier alone does not order its target, before or after a restart", () => {
+  const store = new AgentConsumedSeqStore(temporaryStateDirectory());
+  const before = indexWithConsumedSeqs(store);
+  before.recordReadContext("agent-1", "#general:11111111");
+  before.recordModelSeen("agent-1", "#general:11111111", 2);
+  // What a `check` of the channel records: the messages it returned, not a review of the channel.
+  before.recordModelSeen("agent-1", "#general", 9);
+  expect(before.readOrder("agent-1", "#general")).toBeUndefined();
+
+  const after = indexWithConsumedSeqs(store);
+  expect(after.modelSeenSequence("agent-1", "#general")).toBe(9);
+  expect(after.readOrder("agent-1", "#general")).toBeUndefined();
+  expect(after.latestThreadReadUnderParent("agent-1", "#general")?.target).toBe(
+    "#general:11111111",
   );
 });
 

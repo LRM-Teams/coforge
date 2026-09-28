@@ -36,13 +36,11 @@ export type AgentConsumedSeqState = Readonly<{
 export type AgentConsumedSeqPort = Readonly<{
   /** Raft's `readState`: never throws, and a missing or unreadable file is an empty state. */
   read(agentId: string): AgentConsumedSeqState;
-  /** Raft's `recordConsumedSeqs(agentId, entries)`; answers the highest `readOrder` it handed out
-   * (`undefined` when nothing changed), which is how the caller keeps its in-memory orders in
-   * lockstep with the file's. Raft's own function returns nothing — its state has one home. */
-  recordConsumedSeqs(
-    agentId: string,
-    entries: Readonly<Record<string, number>>,
-  ): number | undefined;
+  /** Moves each target's consumed `seq` frontier and leaves its `readOrder` alone. Raft's
+   * `recordConsumedSeqs` also takes a new order, but Raft calls it only for a held send, which the
+   * daemon orders separately through `recordConsumedRead`; the daemon also records `check` pages
+   * here, and Raft's `check` orders nothing (1.0.38 writes only exact seqs). */
+  recordConsumedSeqs(agentId: string, entries: Readonly<Record<string, number>>): void;
   /** Raft's `recordConsumedRead(agentId, target, sequence)`; answers the `readOrder` it assigned. */
   recordConsumedRead(agentId: string, target: string, sequence?: number): number | undefined;
 }>;
@@ -119,36 +117,21 @@ export class AgentConsumedSeqStore implements AgentConsumedSeqPort {
     return normalizeState(parsed);
   }
 
-  recordConsumedSeqs(
-    agentId: string,
-    entries: Readonly<Record<string, number>>,
-  ): number | undefined {
+  recordConsumedSeqs(agentId: string, entries: Readonly<Record<string, number>>): void {
     const updates = Object.entries(entries).filter(
       ([target, sequence]) => target.length > 0 && positiveFiniteNumber(sequence) !== undefined,
     );
-    if (updates.length === 0) return undefined;
+    if (updates.length === 0) return;
     const state = mutableState(this.read(agentId));
     let changed = false;
     for (const [target, sequence] of updates) {
       const prior = state.targets[target] ?? {};
-      state.targets[target] = {
-        seq:
-          positiveFiniteNumber(prior.seq) === undefined || sequence > prior.seq!
-            ? sequence
-            : prior.seq,
-        readOrder: state.nextReadOrder,
-      };
-      state.nextReadOrder += 1;
-      if (
-        state.targets[target].seq !== prior.seq ||
-        state.targets[target].readOrder !== prior.readOrder
-      )
-        changed = true;
+      if (positiveFiniteNumber(prior.seq) !== undefined && sequence <= prior.seq!) continue;
+      state.targets[target] = { ...prior, seq: sequence };
+      changed = true;
     }
     // Raft only pays for the write when a cursor actually moved.
-    if (!changed) return undefined;
-    this.#write(agentId, state);
-    return state.nextReadOrder - 1;
+    if (changed) this.#write(agentId, state);
   }
 
   recordConsumedRead(agentId: string, target: string, sequence?: number): number | undefined {
@@ -232,7 +215,10 @@ function normalizeState(value: unknown): AgentConsumedSeqState {
       const readOrder = positiveFiniteNumber(record.readOrder);
       if (seq === undefined && readOrder === undefined) continue;
       targets[target] = { seq, readOrder };
-      maxObservedOrder = Math.max(maxObservedOrder, readOrder ?? seq ?? 0);
+      // Only a real order counts. Raft falls back to `seq` for files written before `readOrder`
+      // existed; this file never had that shape, and a frontier recorded without a review
+      // (`recordConsumedSeqs`) must not push the order counter up to its sequence.
+      maxObservedOrder = Math.max(maxObservedOrder, readOrder ?? 0);
     }
   }
   const rawNextReadOrder = positiveFiniteNumber(raw.nextReadOrder);

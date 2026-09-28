@@ -38,6 +38,7 @@ import {
   AGENT_CONTEXT_SCAN_STATUS,
   type AgentContextScanRequest,
   type AgentMessageRequest,
+  type LocalAgentMessageRequest,
   type TaskRequest,
   type TaskResponse,
 } from "@lrm/coforge-sdk/internal";
@@ -2000,6 +2001,114 @@ describe("DaemonRuntime", () => {
     } finally {
       await harness.runtime.stop();
     }
+  });
+
+  describe("which thread read makes a top-level send ask for confirmation", () => {
+    const rootId = "12345678-1234-4234-8234-123456789abc";
+    const threadTarget = `@ada:${rootId}`;
+
+    /** A transport whose reads and checks answer with `rowsFor(request)` and whose sends go out. */
+    async function guardHarness(rowsFor: (request: AgentMessageRequest) => number[]) {
+      const sends: AgentMessageRequest[] = [];
+      const harness = await messageHarness(async (request) => {
+        if (request.operation === "read" || request.operation === "check")
+          return {
+            protocolMajor: 1,
+            idempotencyKey: request.idempotencyKey,
+            accepted: true,
+            attentionCount: 0,
+            messages: rowsFor(request).map((sequence) =>
+              messageRecord(sequence, "@ada", request.target || "@ada"),
+            ),
+          };
+        sends.push(request);
+        return {
+          protocolMajor: 1,
+          idempotencyKey: request.idempotencyKey,
+          accepted: true,
+          attentionCount: 0,
+          messageId: "sent",
+          messages: [],
+          state: "sent",
+          decision: "forward",
+        };
+      });
+      const run = (request: Omit<LocalAgentMessageRequest, "context">) =>
+        harness.runtime.agentMessage(
+          harness.context,
+          { ...request, context: harness.context },
+          harness.apiKey,
+        );
+      const sendTopLevel = () =>
+        run({
+          idempotencyKey: "top-level-send",
+          operation: "send",
+          target: "@ada",
+          content: "top-level reply",
+        }).catch((error: unknown) => error);
+      return { harness, sends, run, sendTopLevel };
+    }
+
+    test("a thread read that returned no messages does not count", async () => {
+      const { harness, sends, run, sendTopLevel } = await guardHarness((request) =>
+        request.target === "@ada" ? [7] : [],
+      );
+      try {
+        await run({ idempotencyKey: "check-parent", operation: "check", target: "@ada" });
+        await run({ idempotencyKey: "read-empty-thread", operation: "read", target: threadTarget });
+        const result = await sendTopLevel();
+        expect(result).not.toBeInstanceOf(AgentPreflightError);
+        expect(sends).toHaveLength(1);
+        expect(sends[0]).toMatchObject({ target: "@ada", content: "top-level reply" });
+      } finally {
+        await harness.runtime.stop();
+      }
+    });
+
+    test("a thread read with --around does not count", async () => {
+      const { harness, sends, run, sendTopLevel } = await guardHarness(() => [3]);
+      try {
+        await run({
+          idempotencyKey: "read-thread-around",
+          operation: "read",
+          target: threadTarget,
+          around: "message-3",
+        });
+        const result = await sendTopLevel();
+        expect(result).not.toBeInstanceOf(AgentPreflightError);
+        expect(sends).toHaveLength(1);
+      } finally {
+        await harness.runtime.stop();
+      }
+    });
+
+    test("checking the parent after reading a thread still asks, until the parent is read", async () => {
+      const { harness, sends, run, sendTopLevel } = await guardHarness((request) =>
+        request.target === threadTarget ? [3] : [9],
+      );
+      try {
+        await run({ idempotencyKey: "read-thread", operation: "read", target: threadTarget });
+        await run({ idempotencyKey: "check-parent", operation: "check", target: "@ada" });
+        const asked = await sendTopLevel();
+        expect(asked).toBeInstanceOf(AgentPreflightError);
+        expect((asked as AgentPreflightError).code).toBe(
+          "THREAD_CONTEXT_TARGET_CONFIRMATION_REQUIRED",
+        );
+        expect(sends).toEqual([]);
+
+        await run({ idempotencyKey: "read-parent", operation: "read", target: "@ada" });
+        const result = await run({
+          idempotencyKey: "top-level-after-parent-read",
+          operation: "send",
+          target: "@ada",
+          content: "top-level reply",
+        });
+        expect(result.accepted).toBe(true);
+        expect(sends).toHaveLength(1);
+      } finally {
+        await harness.runtime.stop();
+      }
+    });
   });
 
   test("a --send-draft resend forwards --anyway instead of refusing it", async () => {
