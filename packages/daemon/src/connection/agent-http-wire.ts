@@ -137,6 +137,8 @@ export async function getAgentJson<Result>(
     query: Record<string, string | number | undefined>;
     what: string;
     validate?: (data: unknown) => string | undefined;
+    /** A deadline for the whole request; none when omitted. */
+    timeoutMs?: number;
   },
 ): Promise<Result> {
   const endpoint = new URL(input.url);
@@ -145,7 +147,11 @@ export async function getAgentJson<Result>(
   const response = await fetchAgentResponse(
     fetcher,
     endpoint,
-    { method: "GET", headers: agentHeaders(input) },
+    {
+      method: "GET",
+      headers: agentHeaders(input),
+      ...(input.timeoutMs !== undefined ? { signal: AbortSignal.timeout(input.timeoutMs) } : {}),
+    },
     input.what,
   );
   await assertAgentResponseOk(response, input.what);
@@ -288,16 +294,32 @@ export async function decodeAgentEnvelopeJson<Result extends { ok: true }>(
 
 export const AGENT_SEND_DECISIONS = new Set(["forward", "bypass", "local_hold", "syncing_hold"]);
 export const AGENT_SEND_STATES = new Set(["sent", "held"]);
+export const AGENT_SEND_RECONCILIATION_STATES = new Set(["committed", "not_found"]);
+
+/** `"a"/"b"/…`, the members of `values` as an error string names them. */
+function quotedList(values: ReadonlySet<string>): string {
+  return [...values].map((value) => JSON.stringify(value)).join("/");
+}
 
 /** Validates the send route's response shape; the incident this module exists to prevent. */
 export function validateAgentSendResponseShape(data: unknown): string | undefined {
   if (!isRecord(data)) return "response body is not a JSON object";
   if (typeof data.state !== "string" || !AGENT_SEND_STATES.has(data.state))
-    return `response state is not one of "sent"/"held" (got ${JSON.stringify(data.state)})`;
+    return `response state is not one of ${quotedList(AGENT_SEND_STATES)} (got ${JSON.stringify(data.state)})`;
   if (typeof data.decision !== "string" || !AGENT_SEND_DECISIONS.has(data.decision))
-    return `response decision is not one of "forward"/"bypass"/"local_hold"/"syncing_hold" (got ${JSON.stringify(data.decision)})`;
+    return `response decision is not one of ${quotedList(AGENT_SEND_DECISIONS)} (got ${JSON.stringify(data.decision)})`;
   if (data.state === "held" && !Array.isArray(data.heldMessages))
     return "response is missing the heldMessages array";
+  return undefined;
+}
+
+/** Validates a `reconcileOnly` answer: `not_found`, or `committed` naming its message. */
+export function validateAgentSendReconciliationShape(data: unknown): string | undefined {
+  if (!isRecord(data)) return "response body is not a JSON object";
+  if (typeof data.state !== "string" || !AGENT_SEND_RECONCILIATION_STATES.has(data.state))
+    return `reconciliation state is not one of ${quotedList(AGENT_SEND_RECONCILIATION_STATES)} (got ${JSON.stringify(data.state)})`;
+  if (data.state === "committed" && (typeof data.messageId !== "string" || !data.messageId))
+    return "committed response is missing the messageId";
   return undefined;
 }
 

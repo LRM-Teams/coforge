@@ -49,6 +49,7 @@ import {
 } from "@lrm/coforge-sdk/agent";
 import { isAgentApiKey } from "#src/credentials/agent-api-key";
 import { classifyAgentProxyFailure, AGENT_PROXY_CORRELATION_HEADER } from "./agent-proxy-failure";
+import { AgentPreflightError } from "#src/daemon-runtime/agent-preflight-error";
 import { AgentManualRequestError } from "#src/connection/agent-manual-request-error";
 import { AgentUserInfoRequestError } from "#src/connection/agent-user-info-request-error";
 import { AgentProfileRequestError } from "#src/connection/agent-profile-request-error";
@@ -492,6 +493,9 @@ function parseMessageRequest(
     ].includes(payload.operation as string) ||
     (payload.continueAnyway !== undefined && typeof payload.continueAnyway !== "boolean") ||
     (payload.sendDraft !== undefined && typeof payload.sendDraft !== "boolean") ||
+    (payload.expectedDraftKey !== undefined &&
+      (typeof payload.expectedDraftKey !== "string" ||
+        payload.expectedDraftKey.trim().length === 0)) ||
     (payload.freshnessContextMode !== undefined &&
       payload.freshnessContextMode !== "inline" &&
       payload.freshnessContextMode !== "withheld") ||
@@ -534,6 +538,14 @@ function parseMessageRequest(
     (payload.mentions !== undefined && !isValidMentionSelectorArray(payload.mentions))
   )
     return badRequest();
+  // A key names the draft `--send-draft` would resend; without `--send-draft` there is none to
+  // check, so the request is refused here, in the runtime's own precondition contract.
+  if (payload.expectedDraftKey !== undefined && payload.sendDraft !== true)
+    throw new AgentPreflightError(
+      "--expected-draft-key can only be used together with --send-draft.",
+      "EXPECTED_DRAFT_KEY_REQUIRES_SEND_DRAFT",
+      { draftSaved: false },
+    );
   return {
     idempotencyKey: payload.idempotencyKey,
     operation: payload.operation as LocalAgentMessageRequest["operation"],
@@ -541,6 +553,8 @@ function parseMessageRequest(
     content: typeof payload.content === "string" ? payload.content : undefined,
     continueAnyway: payload.continueAnyway === true || undefined,
     sendDraft: payload.sendDraft === true || undefined,
+    expectedDraftKey:
+      typeof payload.expectedDraftKey === "string" ? payload.expectedDraftKey : undefined,
     before: typeof payload.before === "string" ? payload.before : undefined,
     after: typeof payload.after === "string" ? payload.after : undefined,
     around: typeof payload.around === "string" ? payload.around : undefined,

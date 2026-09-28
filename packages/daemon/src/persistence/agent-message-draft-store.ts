@@ -7,13 +7,17 @@ import { escapePathIdentity } from "./path-scope";
 export const AGENT_MESSAGE_DRAFT_TTL_MS = 10 * 60 * 1_000;
 
 /**
- * The continuation state of one held send — exactly the fields Raft's `setSavedDraft`
- * (`continue-state.json`) writes (1.0.32 bundle 753200-753235): `content`, `attachmentIds`,
- * `mentions`, `savedAt`, `reholdCount`, `seenUpToSeq`.
+ * The continuation state of one held send — the fields Raft's `setSavedDraft`
+ * (`continue-state.json`) writes: `content`, `attachmentIds`, `idempotencyKey`, `mentions`,
+ * `savedAt`, `reholdCount`, `seenUpToSeq`.
  */
 export type AgentMessageDraftContent = Readonly<{
   content: string;
   attachmentIds?: readonly string[];
+  /** The idempotency key of the logical send this draft belongs to. Every send of the draft
+   * (`--send-draft`, the same-key replay after a reconciliation) reuses it, so the server can never
+   * commit the same logical send twice. An entry without one names no send and reads as missing. */
+  idempotencyKey: string;
   mentions?: readonly LocalMentionSelector[];
   /** Raft's `seenUpToSeq`: the reviewed frontier this draft already accounts for. Carried into the
    * resend so the context the held notice presented is not presented — or held — twice. */
@@ -29,12 +33,21 @@ export type AgentMessageDraft = AgentMessageDraftContent &
     savedAt: number;
   }>;
 
+/** What a lookup found for one target. An expired draft is reported once, with its last body, and
+ * removed; a later lookup reports it `missing`. */
+export type AgentMessageDraftLookup =
+  | { status: "found"; draft: AgentMessageDraft }
+  | { status: "missing" }
+  | { status: "expired"; content: string; savedAt: number };
+
 /**
  * Short-lived continuation state, isolated in one private file per Agent.
  *
  * The file shape is Raft's `continue-state.json`: a single `targets` map keyed by the message
- * target, each entry holding that target's draft. `target` is the key, never a field of the entry,
- * and expired entries are dropped on read, both as Raft's `getSavedDraft`/`setSavedDraft` do.
+ * target, each entry holding that target's draft. `target` is the key, never a field of the entry.
+ * As in Raft's `lookupSavedDraft`, only a lookup removes an expired entry, and only its own
+ * target's: `--send-draft` can then tell an expired draft from one that never existed, and a write
+ * for one target never drops another target's expired draft (or its last body).
  */
 export class AgentMessageDraftStore {
   readonly #path: string;
@@ -54,10 +67,15 @@ export class AgentMessageDraftStore {
     );
   }
 
-  load(target: string): Promise<AgentMessageDraft | undefined> {
+  lookup(target: string): Promise<AgentMessageDraftLookup> {
     return this.#serialized(async () => {
       const drafts = await this.#read();
-      return drafts.get(target);
+      const draft = drafts.get(target);
+      if (!draft) return { status: "missing" };
+      if (!this.#expired(draft)) return { status: "found", draft };
+      drafts.delete(target);
+      await this.#write(drafts);
+      return { status: "expired", content: draft.content, savedAt: draft.savedAt };
     });
   }
 
@@ -82,12 +100,27 @@ export class AgentMessageDraftStore {
     });
   }
 
+  /** Raft's clear after an accepted send: only the send whose key the draft holds consumes it, so
+   * an older send accepted late never removes a newer draft. Returns whether it cleared. */
+  clearIfIdempotencyKeyMatches(target: string, idempotencyKey: string): Promise<boolean> {
+    return this.#serialized(async () => {
+      const drafts = await this.#read();
+      const draft = drafts.get(target);
+      // An expired draft is left for `--send-draft` to report (and hand back) as expired.
+      if (!draft || this.#expired(draft) || draft.idempotencyKey !== idempotencyKey) return false;
+      drafts.delete(target);
+      await this.#write(drafts);
+      return true;
+    });
+  }
+
   #writeDraft(target: string, draft: AgentMessageDraftContent, reholdCount: number): Promise<void> {
     return this.#serialized(async () => {
       const drafts = await this.#read();
       drafts.set(target, {
         target,
         content: draft.content,
+        idempotencyKey: draft.idempotencyKey,
         reholdCount,
         ...(draft.attachmentIds?.length ? { attachmentIds: draft.attachmentIds } : {}),
         ...(draft.mentions?.length ? { mentions: draft.mentions } : {}),
@@ -124,6 +157,10 @@ export class AgentMessageDraftStore {
     }
   }
 
+  #expired(draft: AgentMessageDraft): boolean {
+    return this.now() - draft.savedAt > AGENT_MESSAGE_DRAFT_TTL_MS;
+  }
+
   async #read(): Promise<Map<string, AgentMessageDraft>> {
     if (!(await Bun.file(this.#path).exists())) return new Map();
     let envelope: unknown;
@@ -134,11 +171,7 @@ export class AgentMessageDraftStore {
     }
     const drafts = readDraftEntries(envelope);
     if (!drafts) throw new Error(`Agent message draft data is corrupt: ${this.#path}`);
-    const fresh = new Map(
-      [...drafts].filter(([, draft]) => this.now() - draft.savedAt <= AGENT_MESSAGE_DRAFT_TTL_MS),
-    );
-    if (fresh.size !== drafts.size) await this.#write(fresh);
-    return fresh;
+    return drafts;
   }
 
   async #write(drafts: ReadonlyMap<string, AgentMessageDraft>): Promise<void> {
@@ -153,6 +186,7 @@ export class AgentMessageDraftStore {
         // Raft writes the array even when the send carried no attachments; the read side treats an
         // empty or absent list the same way.
         attachmentIds: [...(draft.attachmentIds ?? [])],
+        idempotencyKey: draft.idempotencyKey,
         ...(draft.mentions?.length ? { mentions: draft.mentions } : {}),
         savedAt: draft.savedAt,
         reholdCount: draft.reholdCount,
@@ -173,59 +207,46 @@ export class AgentMessageDraftStore {
 }
 
 /**
- * Reads either Raft's `{ targets: { … } }` file or the daemon's older `{ version, drafts: [ … ] }`
- * envelope (whose entries named their text `body` and could carry a dropped `holdToken`), so an
- * in-flight draft survives the upgrade instead of being lost.
+ * Reads Raft's `{ targets: { … } }` file. An entry without an idempotency key names no logical send,
+ * so it is left out (and so dropped by the next write).
  */
 function readDraftEntries(value: unknown): Map<string, AgentMessageDraft> | undefined {
   if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
-  const envelope = value as Record<string, unknown>;
-  const drafts = new Map<string, AgentMessageDraft>();
-  if (Array.isArray(envelope.drafts)) {
-    if (envelope.version !== 1) return undefined;
-    for (const entry of envelope.drafts) {
-      const target =
-        entry &&
-        typeof entry === "object" &&
-        typeof (entry as { target?: unknown }).target === "string"
-          ? (entry as { target: string }).target
-          : undefined;
-      const draft = readDraft(entry, target);
-      if (!draft) return undefined;
-      drafts.set(draft.target, draft);
-    }
-    return drafts;
-  }
-  const targets = envelope.targets;
+  const targets = (value as Record<string, unknown>).targets;
   if (!targets || typeof targets !== "object" || Array.isArray(targets)) return undefined;
+  const drafts = new Map<string, AgentMessageDraft>();
   for (const [target, entry] of Object.entries(targets)) {
     const draft = readDraft(entry, target);
-    if (!draft) return undefined;
-    drafts.set(target, draft);
+    if (draft === "invalid") return undefined;
+    if (draft) drafts.set(target, draft);
   }
   return drafts;
 }
 
-/** One draft entry, tolerating a missing `reholdCount`/`seenUpToSeq` and the pre-rename `body`. */
-function readDraft(value: unknown, target: string | undefined): AgentMessageDraft | undefined {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
-  if (target === undefined) return undefined;
+/** One draft entry, tolerating a missing `reholdCount`/`seenUpToSeq`; `undefined` when it names no
+ * send (no key), `"invalid"` when the file is corrupt. */
+function readDraft(value: unknown, target: string): AgentMessageDraft | "invalid" | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return "invalid";
   const draft = value as Record<string, unknown>;
-  const content = typeof draft.content === "string" ? draft.content : draft.body;
-  if (typeof content !== "string") return undefined;
-  if (typeof draft.savedAt !== "number" || !Number.isFinite(draft.savedAt)) return undefined;
-  if (draft.reholdCount !== undefined && typeof draft.reholdCount !== "number") return undefined;
-  if (draft.seenUpToSeq !== undefined && typeof draft.seenUpToSeq !== "number") return undefined;
+  if (typeof draft.content !== "string") return "invalid";
+  if (typeof draft.savedAt !== "number" || !Number.isFinite(draft.savedAt)) return "invalid";
+  if (draft.reholdCount !== undefined && typeof draft.reholdCount !== "number") return "invalid";
+  if (draft.seenUpToSeq !== undefined && typeof draft.seenUpToSeq !== "number") return "invalid";
+  // Keys are compared exactly as written; a blank one names no send.
+  if (typeof draft.idempotencyKey !== "string" || draft.idempotencyKey.trim().length === 0)
+    return undefined;
+  const idempotencyKey = draft.idempotencyKey;
   const attachmentIds = Array.isArray(draft.attachmentIds)
     ? draft.attachmentIds.filter((id): id is string => typeof id === "string")
     : undefined;
   const mentions = Array.isArray(draft.mentions)
     ? draft.mentions.filter(isMentionSelector)
     : undefined;
-  if (Array.isArray(draft.mentions) && mentions?.length !== draft.mentions.length) return undefined;
+  if (Array.isArray(draft.mentions) && mentions?.length !== draft.mentions.length) return "invalid";
   return {
     target,
-    content,
+    content: draft.content,
+    idempotencyKey,
     reholdCount: typeof draft.reholdCount === "number" ? draft.reholdCount : 0,
     savedAt: draft.savedAt,
     ...(attachmentIds?.length ? { attachmentIds } : {}),

@@ -292,6 +292,17 @@ export function formatSendSuccess(
   return lines.join("\n");
 }
 
+/**
+ * A send whose response was lost but whose commit the daemon confirmed by its idempotency key
+ * (Raft 1.0.38's reconciliation). Only the message id is known; nothing was sent a second time.
+ */
+export function formatSendCommitted(target: string, messageId: string): string {
+  return [
+    `Message commit confirmed for ${target}. Message ID: ${messageId}`,
+    "The original response was lost, so delivery-side receipt details (including mention delivery warnings and recent unread context) are unavailable; no message was replayed.",
+  ].join("\n");
+}
+
 type AttachmentUploadResponse = {
   id: string;
   fileName: string;
@@ -374,7 +385,9 @@ export function formatHeldSend(target: string, response: HeldSendResponse): stri
     `  coforge message send --target "${target}" <<'COFORGE_MESSAGE'`,
     "  revised message",
     "  COFORGE_MESSAGE",
-    "To send the current draft unchanged:",
+    // "10 minutes" mirrors the daemon's `AGENT_MESSAGE_DRAFT_TTL_MS`
+    // (`packages/daemon/src/persistence/agent-message-draft-store.ts`), which the CLI cannot import.
+    "To send the current draft unchanged (within 10 minutes; after that the draft is discarded and --send-draft reports SEND_DRAFT_EXPIRED):",
     `  coforge message send --send-draft --target "${target}"`,
     "  (this sends the stored copy — do not use it if you meant to change the content)",
     "You can also choose not to send anything.",

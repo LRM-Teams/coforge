@@ -1,14 +1,22 @@
-import { expect, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { handleAgentMessagesPost } from "#src/routes/api/agent/v1/messages";
 import { AppError } from "#src/lib/app-error";
 import type { AgentMessageRecord } from "#src/server/agents/agent-messages.server";
 import { AgentSendRejectedError } from "#src/server/conversations/agent-send-rejected-error.server";
+import {
+  MessageRequestInProgressError,
+  type MessageRequestRecords,
+  type MessageRequestScope,
+} from "#src/server/conversations/message-request-idempotency.server";
 
 const request = (body: unknown) =>
   new Request("https://server.example/api/agent/v1/messages", {
     method: "POST",
     body: JSON.stringify(body),
   });
+
+/** No request is recorded under any key: the state a send finds when nothing was sent before. */
+const noRequestRecords: MessageRequestRecords = { find: async () => undefined };
 
 /** A repository whose send target has these pending, unreviewed rows. */
 const pendingRepository = (rows: readonly AgentMessageRecord[]) => ({
@@ -30,6 +38,7 @@ test("takes Raft's idempotencyKey as the request's key, with structured mentions
     }),
     { workspaceId: "workspace-1", agentId: "agent-1" },
     {
+      requestRecords: noRequestRecords,
       repository: {},
       sender: {
         executeFromAgent: async (input: { mentions?: unknown }) => {
@@ -56,6 +65,7 @@ test("a sent message reports the mentions it did not reach: pending actions and 
     }),
     { workspaceId: "workspace-1", agentId: "agent-1" },
     {
+      requestRecords: noRequestRecords,
       repository: {},
       sender: {
         executeFromAgent: async () => ({
@@ -104,6 +114,7 @@ test("tolerates Raft's declared `continue` field without inventing semantics for
     request({ target: "@ada", content: "hello", idempotencyKey: "idem-2", continue: true }),
     { workspaceId: "workspace-1", agentId: "agent-1" },
     {
+      requestRecords: noRequestRecords,
       repository: pendingRepository([
         {
           id: "message-1",
@@ -131,6 +142,7 @@ test("rejects an unsupported freshnessContextMode with 400", async () => {
     request({ target: "@ada", content: "hello", freshnessContextMode: "secret" }),
     { workspaceId: "workspace-1", agentId: "agent-1" },
     {
+      requestRecords: noRequestRecords,
       repository: {},
       sender: { executeFromAgent: async () => ({ id: "unreachable" }) },
     },
@@ -144,6 +156,7 @@ test("rejects a missing target or body with 400 before reading freshnessContextM
     request({ content: "hello" }),
     { workspaceId: "workspace-1", agentId: "agent-1" },
     {
+      requestRecords: noRequestRecords,
       repository: {},
       sender: { executeFromAgent: async () => ({ id: "unreachable" }) },
     },
@@ -182,6 +195,7 @@ test("withheld hold response carries state and a count, never message bodies", a
     request({ target: "@ada", content: "reviewer send", freshnessContextMode: "withheld" }),
     { workspaceId: "workspace-1", agentId: "agent-1" },
     {
+      requestRecords: noRequestRecords,
       repository: pendingRepository(pendingRows),
       sender: { executeFromAgent: async () => ({ id: "unreachable" }) },
     },
@@ -218,6 +232,7 @@ test("inline hold response still carries the presented message bodies", async ()
     request({ target: "@ada", content: "reviewer send" }),
     { workspaceId: "workspace-1", agentId: "agent-1" },
     {
+      requestRecords: noRequestRecords,
       repository: pendingRepository(pendingRows),
       sender: { executeFromAgent: async () => ({ id: "unreachable" }) },
     },
@@ -246,7 +261,11 @@ test("rejects a non-uuid entry in attachmentIds with 400", async () => {
   const result = await handleAgentMessagesPost(
     request({ target: "@ada", content: "hello", attachmentIds: ["not-a-uuid"] }),
     { workspaceId: "workspace-1", agentId: "agent-1" },
-    { repository: {}, sender: { executeFromAgent: async () => ({ id: "unreachable" }) } },
+    {
+      requestRecords: noRequestRecords,
+      repository: {},
+      sender: { executeFromAgent: async () => ({ id: "unreachable" }) },
+    },
   );
   expect(result.status).toBe(400);
   expect(await result.json()).toEqual({ error: "invalid attachmentIds" });
@@ -260,7 +279,11 @@ test("rejects attachmentIds with more than 10 entries with 400", async () => {
   const result = await handleAgentMessagesPost(
     request({ target: "@ada", content: "hello", attachmentIds: ids }),
     { workspaceId: "workspace-1", agentId: "agent-1" },
-    { repository: {}, sender: { executeFromAgent: async () => ({ id: "unreachable" }) } },
+    {
+      requestRecords: noRequestRecords,
+      repository: {},
+      sender: { executeFromAgent: async () => ({ id: "unreachable" }) },
+    },
   );
   expect(result.status).toBe(400);
   expect(await result.json()).toEqual({ error: "invalid attachmentIds" });
@@ -271,7 +294,11 @@ test("rejects a duplicate id in attachmentIds with 400", async () => {
   const result = await handleAgentMessagesPost(
     request({ target: "@ada", content: "hello", attachmentIds: [id, id] }),
     { workspaceId: "workspace-1", agentId: "agent-1" },
-    { repository: {}, sender: { executeFromAgent: async () => ({ id: "unreachable" }) } },
+    {
+      requestRecords: noRequestRecords,
+      repository: {},
+      sender: { executeFromAgent: async () => ({ id: "unreachable" }) },
+    },
   );
   expect(result.status).toBe(400);
   expect(await result.json()).toEqual({ error: "invalid attachmentIds" });
@@ -284,6 +311,7 @@ test("accepts two distinct attachmentIds and forwards them in order to the sende
     request({ target: "@ada", content: "hello", attachmentIds: ids }),
     { workspaceId: "workspace-1", agentId: "agent-1" },
     {
+      requestRecords: noRequestRecords,
       repository: {},
       sender: {
         executeFromAgent: async (input: { attachmentIds?: string[] }) => {
@@ -301,7 +329,11 @@ test("rejects malformed mentions with 400", async () => {
   const result = await handleAgentMessagesPost(
     request({ target: "@ada", content: "hello @Ada", mentions: [{ type: "human", id: "x" }] }),
     { workspaceId: "workspace-1", agentId: "agent-1" },
-    { repository: {}, sender: { executeFromAgent: async () => ({ id: "unreachable" }) } },
+    {
+      requestRecords: noRequestRecords,
+      repository: {},
+      sender: { executeFromAgent: async () => ({ id: "unreachable" }) },
+    },
   );
   expect(result.status).toBe(400);
   expect(await result.json()).toEqual({ error: "invalid mentions" });
@@ -316,6 +348,7 @@ test("maps an AgentSendRejectedError from the sender to its own status and messa
     }),
     { workspaceId: "workspace-1", agentId: "agent-1" },
     {
+      requestRecords: noRequestRecords,
       repository: {},
       sender: {
         executeFromAgent: async () => {
@@ -337,6 +370,7 @@ test("maps an AgentSendRejectedError naming the offending mention to a 400", asy
     }),
     { workspaceId: "workspace-1", agentId: "agent-1" },
     {
+      requestRecords: noRequestRecords,
       repository: {},
       sender: {
         executeFromAgent: async () => {
@@ -362,6 +396,7 @@ test("a channel ACCESS_DENIED AppError from channel resolution is not reported a
     request({ target: "#general", content: "hello" }),
     { workspaceId: "workspace-1", agentId: "agent-1" },
     {
+      requestRecords: noRequestRecords,
       repository: {},
       sender: {
         executeFromAgent: async () => {
@@ -379,6 +414,7 @@ test("a malformed-channel INVALID_INPUT AppError is not reported as a mention er
     request({ target: "#general", content: "hello" }),
     { workspaceId: "workspace-1", agentId: "agent-1" },
     {
+      requestRecords: noRequestRecords,
       repository: {},
       sender: {
         executeFromAgent: async () => {
@@ -393,6 +429,7 @@ test("a malformed-channel INVALID_INPUT AppError is not reported as a mention er
 
 test("a bypassed hold's sent response carries recentUnread; every other response carries none", async () => {
   const dependencies = {
+    requestRecords: noRequestRecords,
     repository: pendingRepository([
       {
         id: "message-1",
@@ -456,4 +493,154 @@ test("a bypassed hold's sent response carries recentUnread; every other response
       attachments: [],
     },
   ]);
+});
+
+describe("reconcileOnly: whether an idempotency key already committed, without sending", () => {
+  const reconcile = (records: MessageRequestRecords) => {
+    const sent: unknown[] = [];
+    const freshnessReads: unknown[] = [];
+    const response = handleAgentMessagesPost(
+      request({ target: "@ada", idempotencyKey: "idem-lost", reconcileOnly: true }),
+      { workspaceId: "workspace-1", agentId: "agent-1" },
+      {
+        requestRecords: records,
+        repository: {
+          agentTargetFreshness: async (...args: unknown[]) => {
+            freshnessReads.push(args);
+            return { readPending: async () => [] };
+          },
+        },
+        sender: {
+          executeFromAgent: async (input: unknown) => {
+            sent.push(input);
+            return { id: "never" };
+          },
+        },
+      },
+    );
+    return { response, sent, freshnessReads };
+  };
+
+  test("a committed key answers its message id, with no receipt, and sends nothing", async () => {
+    const scopes: MessageRequestScope[] = [];
+    const { response, sent, freshnessReads } = reconcile({
+      find: async (scope) => {
+        scopes.push(scope);
+        return {
+          state: "completed",
+          message: {
+            id: "message-7",
+            body: "hello",
+            createdAt: new Date("2026-09-28T00:00:00Z"),
+            sequence: 7,
+            threadRootId: null,
+            attachments: [],
+            workspaceId: "workspace-1",
+            agentId: "agent-1",
+          },
+        };
+      },
+    });
+    const result = await response;
+    expect(result.status).toBe(200);
+    expect(await result.json()).toEqual({
+      idempotencyKey: "idem-lost",
+      state: "committed",
+      reconciliation: true,
+      receiptComplete: false,
+      messageId: "message-7",
+    });
+    // The same scope `executeFromAgent` records a send under.
+    expect(scopes).toEqual([
+      {
+        workspaceId: "workspace-1",
+        senderKind: "agent",
+        senderId: "agent-1",
+        requestId: "idem-lost",
+      },
+    ]);
+    expect(sent).toEqual([]);
+    expect(freshnessReads).toEqual([]);
+  });
+
+  test("an unknown key answers not_found and sends nothing", async () => {
+    const { response, sent, freshnessReads } = reconcile(noRequestRecords);
+    const result = await response;
+    expect(result.status).toBe(200);
+    expect(await result.json()).toEqual({
+      idempotencyKey: "idem-lost",
+      state: "not_found",
+      reconciliation: true,
+    });
+    expect(sent).toEqual([]);
+    expect(freshnessReads).toEqual([]);
+  });
+
+  test("a key whose send is still processing answers 409, as a duplicate send does", async () => {
+    const { response, sent } = reconcile({ find: async () => ({ state: "processing" }) });
+    const result = await response;
+    expect(result.status).toBe(409);
+    expect(await result.json()).toEqual({
+      error: "message request is already processing; retry later",
+    });
+    expect(sent).toEqual([]);
+  });
+
+  test("reconcileOnly: false is an ordinary send", async () => {
+    const result = await handleAgentMessagesPost(
+      request({
+        target: "@ada",
+        content: "hello",
+        idempotencyKey: "idem-plain",
+        reconcileOnly: false,
+      }),
+      { workspaceId: "workspace-1", agentId: "agent-1" },
+      {
+        requestRecords: noRequestRecords,
+        repository: {},
+        sender: { executeFromAgent: async () => ({ id: "sent-plain" }) },
+      },
+    );
+    expect(result.status).toBe(200);
+    expect(await result.json()).toMatchObject({ state: "sent", messageId: "sent-plain" });
+  });
+
+  test("needs the target and the key, and no content", async () => {
+    for (const body of [
+      { target: "@ada", reconcileOnly: true },
+      { idempotencyKey: "idem-lost", reconcileOnly: true },
+      { target: "@ada", idempotencyKey: "idem-lost", reconcileOnly: "yes" },
+    ]) {
+      const result = await handleAgentMessagesPost(
+        request(body),
+        { workspaceId: "workspace-1", agentId: "agent-1" },
+        {
+          requestRecords: noRequestRecords,
+          repository: {},
+          sender: { executeFromAgent: async () => ({ id: "never" }) },
+        },
+      );
+      expect(result.status).toBe(400);
+    }
+  });
+});
+
+test("a send whose key is still processing answers 409 instead of failing the request", async () => {
+  const result = await handleAgentMessagesPost(
+    request({ target: "@ada", content: "hello", idempotencyKey: "idem-busy" }),
+    { workspaceId: "workspace-1", agentId: "agent-1" },
+    {
+      requestRecords: noRequestRecords,
+      repository: {},
+      sender: {
+        executeFromAgent: async () => {
+          throw new MessageRequestInProgressError();
+        },
+      },
+    },
+  );
+  expect(result.status).toBe(409);
+  expect(await result.json()).toEqual({
+    error: "message request is already processing; retry later",
+  });
 });

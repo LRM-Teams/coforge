@@ -131,10 +131,14 @@ import { AgentInboxStateMachine } from "./agent-inbox-state-machine";
 import { locallyHeldSend, planAgentInboxFreshness } from "./agent-inbox-freshness";
 import { heldFreshnessActivity, heldFreshnessMessageCount } from "./agent-inbox-freshness-activity";
 import { AgentConsumedSeqStore } from "#src/persistence/agent-consumed-seq-store";
-import { AgentMessageDraftStore } from "#src/persistence/agent-message-draft-store";
+import {
+  AGENT_MESSAGE_DRAFT_TTL_MS,
+  AgentMessageDraftStore,
+} from "#src/persistence/agent-message-draft-store";
 import { AgentAppInbox, type MintAppItem } from "#src/agent-app-inbox/agent-app-inbox";
 import { isAgentApiKey } from "#src/credentials/agent-api-key";
 import { AgentPreflightError } from "./agent-preflight-error";
+import { settleAgentSend } from "./agent-send-settlement";
 import {
   discoverCodeAgentRuntimes,
   discoverCodeAgentCatalogs,
@@ -348,19 +352,25 @@ const BUSY_ACTIVITY_DETAIL_KINDS = new Set<string>([
   AGENT_ACTIVITY_DETAIL_KIND.SYSTEM_MESSAGE,
 ]);
 
-/** How many recently handled send request ids per Agent+target the draft bookkeeping remembers.
- * A transport retry re-runs the same request id, so remembering the last few is what lets the
- * daemon tell a replay of an older send from a fresh one (task #70). */
-const DRAFT_REPLAY_MEMORY = 8;
-
-/** Per Agent+target draft bookkeeping, kept in memory only: the draft file itself stays exactly
- * Raft's `continue-state.json` shape, so no bookkeeping field leaks onto disk. */
-type AgentDraftBookkeeping = {
-  /** The request whose content the target's current draft holds; only it may clear that draft. */
-  ownerIdempotencyKey?: string;
-  /** Recently handled send idempotency keys for this target, oldest first. */
-  seenIdempotencyKeys: string[];
-};
+/** Raft 1.0.38's `SEND_DRAFT_EXPIRED`: nothing is sent. The entry is gone, so the discarded body
+ * travels once, in `details.discarded_draft`, which the CLI prints as its last copy. */
+function expiredDraftError(target: string, content: string, savedAt: number): AgentPreflightError {
+  const savedAtIso = new Date(savedAt).toISOString();
+  return new AgentPreflightError(
+    `The saved draft for this target expired and was discarded: drafts are kept for ${AGENT_MESSAGE_DRAFT_TTL_MS / 60_000} minutes, and this one was saved at ${savedAtIso}. This command did not send anything.`,
+    "SEND_DRAFT_EXPIRED",
+    {
+      draftSaved: false,
+      retryable: false,
+      suggestedNextAction:
+        "If this draft came from a failed send whose outcome was never confirmed, the original " +
+        "may already have been delivered under its idempotency key: read the target and confirm " +
+        "before resending, or you may post it twice. To send the discarded body, send it normally: " +
+        `\`coforge message send --target ${JSON.stringify(target)}\` with the body on stdin.`,
+    },
+    { discarded_draft: { content, saved_at: savedAtIso } },
+  );
+}
 
 /** Detail kinds that end a busy turn; the heartbeat stops as soon as one is observed. */
 const TERMINAL_ACTIVITY_DETAIL_KINDS = new Set<string>([
@@ -498,7 +508,6 @@ export class DaemonRuntime {
   readonly #runtimeErrorBackoffTimers = new Map<string, ReturnType<typeof setTimeout>>();
   readonly #reminders: ReminderScheduler;
   readonly #agentInboxes = new Map<string, AgentInboxStateMachine>();
-  readonly #draftBookkeeping = new Map<string, Map<string, AgentDraftBookkeeping>>();
   readonly #appInboxes = new Map<string, Promise<AgentAppInbox>>();
   readonly #notifiedAppItems = new Map<string, Map<string, Promise<boolean>>>();
   readonly #runtimeInstanceId = generateRuntimeInstanceId();
@@ -3429,6 +3438,36 @@ export class DaemonRuntime {
     };
   }
 
+  /**
+   * The saved draft `--send-draft` re-sends, checked before anything is issued (Raft 1.0.38): an
+   * expired draft is discarded and returned as the error's last copy, a missing one is refused, and
+   * `--expected-draft-key` refuses a draft that now belongs to a different logical send.
+   */
+  async #draftToResend(
+    inbox: AgentInboxStateMachine,
+    target: string,
+    request: LocalAgentMessageRequest,
+  ) {
+    const lookup = await inbox.lookup(target);
+    if (lookup.status === "expired")
+      throw expiredDraftError(target, lookup.content, lookup.savedAt);
+    if (lookup.status === "missing")
+      throw new AgentPreflightError(`No saved draft for target: ${target}`, "SEND_DRAFT_NOT_FOUND");
+    const draft = lookup.draft;
+    if (request.expectedDraftKey !== undefined && draft.idempotencyKey !== request.expectedDraftKey)
+      throw new AgentPreflightError(
+        "The saved draft no longer matches the expected idempotency key. No request was made and the current draft was left unchanged because it belongs to a different logical send.",
+        "SAVED_DRAFT_IDENTITY_CHANGED",
+        {
+          draftSaved: false,
+          retryable: false,
+          suggestedNextAction:
+            "Review the current draft before deciding whether to send it; do not treat it as the earlier logical send.",
+        },
+      );
+    return draft;
+  }
+
   /** Sends a body or a held draft, honouring the server's freshness hold decision. */
   async #sendAgentMessage(
     agentId: string,
@@ -3438,23 +3477,14 @@ export class DaemonRuntime {
   ): Promise<AgentMessageResponse> {
     const startedAt = performance.now();
     const inbox = this.#agentInbox(agentId);
-    // Task #70: the daemon owns the per-target draft for every request, and a transport retry
-    // re-runs this whole flow with the SAME idempotency key. Without this bookkeeping, a retry of an
-    // older send to the same target rewrites the draft and, once it is finally accepted, clears the
-    // draft a newer hold just stored — the Agent was told its held message is saved, and
-    // `--send-draft` then answers SEND_DRAFT_NOT_FOUND. A replay of an older request therefore
-    // touches nothing about the draft; the newest writer owns it until its own outcome.
-    const draftBookkeeping = this.#draftBookkeepingFor(agentId, target);
-    const replayed = draftBookkeeping.seenIdempotencyKeys.includes(request.idempotencyKey);
-    if (!replayed) {
-      draftBookkeeping.seenIdempotencyKeys.push(request.idempotencyKey);
-      if (draftBookkeeping.seenIdempotencyKeys.length > DRAFT_REPLAY_MEMORY)
-        draftBookkeeping.seenIdempotencyKeys.shift();
-      draftBookkeeping.ownerIdempotencyKey = request.idempotencyKey;
-    }
-    const draft = request.sendDraft ? await inbox.draft(target) : undefined;
-    if (request.sendDraft && !draft)
-      throw new AgentPreflightError(`No saved draft for target: ${target}`, "SEND_DRAFT_NOT_FOUND");
+    // The daemon owns the per-target draft, and the draft names its own send by key: every local
+    // request carries a key the CLI minted for that invocation, so the draft's key alone decides
+    // which accepted send may clear it (`clearIfIdempotencyKeyMatches` below, task #70).
+    const draft = request.sendDraft ? await this.#draftToResend(inbox, target, request) : undefined;
+    // Raft 1.0.38: one logical send keeps one idempotency key. A fresh send's key is this
+    // invocation's; `--send-draft` re-sends under the key the draft was saved with, so a resend
+    // after an unknown outcome can never commit the same message twice.
+    const idempotencyKey = draft?.idempotencyKey ?? request.idempotencyKey;
     // A normal send replaces whatever draft was there; Raft reports that (and the hold count the
     // draft had reached) so the server can compute `continueAnywaySuggested`.
     const priorDraft = draft ?? (request.sendDraft ? undefined : await inbox.draft(target));
@@ -3507,14 +3537,18 @@ export class DaemonRuntime {
         const parentOrder = this.#messageAttention.readOrder(agentId, target);
         if (parentOrder === undefined || parentOrder < latestThread.order) {
           // Raft-aligned: the outgoing content is saved as the local draft before refusing, so the
-          // documented recovery is resending that exact draft, not retyping it. A replay of an
-          // older request must not overwrite the draft the newest one owns.
-          if (!replayed)
-            await inbox.save(target, { content, attachmentIds, mentions, seenUpToSeq });
+          // documented recovery is resending that exact draft, not retyping it.
+          await inbox.save(target, {
+            content,
+            attachmentIds,
+            mentions,
+            seenUpToSeq,
+            idempotencyKey,
+          });
           throw new AgentPreflightError(
             targetConfirmationRequiredMessage(target, latestThread.target),
             "THREAD_CONTEXT_TARGET_CONFIRMATION_REQUIRED",
-            true,
+            { draftSaved: true },
           );
         }
       }
@@ -3522,8 +3556,8 @@ export class DaemonRuntime {
     // `inbox.save` persists the draft locally BEFORE the request is issued to the transport below;
     // any failure past this point leaves delivery state unknown, never "not sent" (see
     // `agent-preflight-error.ts` / `agent-proxy-failure.ts` and `message send`'s CLI renderer).
-    if (!request.sendDraft && !replayed)
-      await inbox.save(target, { content, attachmentIds, mentions, seenUpToSeq });
+    if (!request.sendDraft)
+      await inbox.save(target, { content, attachmentIds, mentions, seenUpToSeq, idempotencyKey });
     // The daemon's own freshness decision, taken BEFORE any transport call: a send it holds must
     // never be issued, because a re-issue of the same request would re-decide it (observed: the
     // same idempotencyKey held at 00:18:30 and forwarded at 00:19:30 delivered a message the Agent had
@@ -3541,7 +3575,7 @@ export class DaemonRuntime {
         ? locallyHeldSend(
             freshness,
             {
-              idempotencyKey: request.idempotencyKey,
+              idempotencyKey,
               draftReholdCount,
               freshnessContextMode: request.freshnessContextMode,
             },
@@ -3567,9 +3601,9 @@ export class DaemonRuntime {
                 attachments: [],
               })),
           )
-        : await this.#transport.agentMessage!(
+        : await settleAgentSend(
             {
-              idempotencyKey: request.idempotencyKey,
+              idempotencyKey,
               agentId,
               workspaceId: this.#connection.workspaceId,
               operation: "send",
@@ -3584,7 +3618,20 @@ export class DaemonRuntime {
               attachmentIds: attachmentIds ? [...attachmentIds] : undefined,
               mentions: mentions ? [...mentions] : undefined,
             },
-            agentApiKey,
+            {
+              send: (send) => this.#transport.agentMessage!(send, agentApiKey),
+              reconcile: (reconciliation) => {
+                if (!this.#transport.reconcileAgentSend)
+                  throw new Error("daemon connection cannot reconcile a send");
+                return this.#transport.reconcileAgentSend(reconciliation, agentApiKey);
+              },
+              draftHoldsKey: async (draftTarget, key) =>
+                (await inbox.draft(draftTarget))?.idempotencyKey === key,
+            },
+            {
+              reviewerIsolation: request.freshnessContextMode === "withheld",
+              logScope: this.#agentLogScope(agentId, idempotencyKey),
+            },
           );
     const held = result.state === "held";
     // Raft's `contextWasWithheld`: a withheld context was never presented to the Agent, so nothing
@@ -3600,20 +3647,12 @@ export class DaemonRuntime {
         // hold later, remembering the frontier the notice presented so the resend clears the hold.
         reholdCount: draftReholdCount + 1,
         seenUpToSeq: contextWasWithheld ? seenUpToSeq : (result.seenUpToSeq ?? seenUpToSeq),
+        idempotencyKey,
       });
-      // A hold is the newest user-visible draft state for this target, so it takes ownership.
-      draftBookkeeping.ownerIdempotencyKey = request.idempotencyKey;
     } else if (result.accepted) {
-      // Only the request that owns the draft may consume it: an older send's accepted replay must
-      // leave a newer hold's draft alone (task #70). An absent owner means the daemon restarted and
-      // has no record, which keeps the pre-existing behaviour of clearing on acceptance.
-      if (
-        draftBookkeeping.ownerIdempotencyKey === undefined ||
-        draftBookkeeping.ownerIdempotencyKey === request.idempotencyKey
-      ) {
-        await inbox.clear(target);
-        draftBookkeeping.ownerIdempotencyKey = undefined;
-      }
+      // Raft's `clearSavedDraftIfIdempotencyKeyMatches`: only the send whose key the draft holds
+      // consumes it, so an older send accepted late leaves a newer draft alone (task #70).
+      await inbox.clearIfIdempotencyKeyMatches(target, idempotencyKey);
     }
     const targetMessages = result.messages.filter((message) => message.target === target);
     // Raft's `recordConsumedSeqs(data.seenUpToSeq)`: the notice presented this frontier, so the
@@ -3664,7 +3703,7 @@ export class DaemonRuntime {
         // field for field, so a locally decided hold is auditable next to a server-decided one.
         logger.info("Agent inbox freshness decision", {
           event: "agent.inbox.freshness_decision",
-          ...this.#agentLogScope(agentId, request.idempotencyKey),
+          ...this.#agentLogScope(agentId, idempotencyKey),
           producer_fact_id: producerFactId,
           action: "send",
           decision: heldDecision,
@@ -3705,15 +3744,19 @@ export class DaemonRuntime {
     }
     logger.info("Agent sent a message", {
       event: "agent.message.sent",
-      ...this.#agentLogScope(agentId, request.idempotencyKey),
-      freshness_decision: result.decision ?? "forward",
+      ...this.#agentLogScope(agentId, idempotencyKey),
+      // A commit confirmed by reconciliation carries no freshness decision of its own, so it logs
+      // none (the decision vocabulary stays Raft's) and says `reconciled` instead.
+      ...(result.state === "committed"
+        ? { reconciled: true }
+        : { freshness_decision: result.decision ?? "forward" }),
       accepted: result.accepted,
       message_id: result.messageId,
       duration_ms: Math.round(performance.now() - startedAt),
       outcome: result.accepted ? "ok" : "rejected",
     });
     return {
-      idempotencyKey: request.idempotencyKey,
+      idempotencyKey,
       accepted: result.accepted,
       attentionCount: result.attentionCount,
       messageId: result.messageId ?? "",
@@ -4248,21 +4291,6 @@ export class DaemonRuntime {
     const opened = AgentAppInbox.open(this.stateDirectory, this.#connection.workspaceId, agentId);
     this.#appInboxes.set(agentId, opened);
     return opened;
-  }
-
-  /** Per Agent+target draft bookkeeping (task #70), created on first use. */
-  #draftBookkeepingFor(agentId: string, target: string): AgentDraftBookkeeping {
-    let byTarget = this.#draftBookkeeping.get(agentId);
-    if (!byTarget) {
-      byTarget = new Map<string, AgentDraftBookkeeping>();
-      this.#draftBookkeeping.set(agentId, byTarget);
-    }
-    let state = byTarget.get(target);
-    if (!state) {
-      state = { seenIdempotencyKeys: [] };
-      byTarget.set(target, state);
-    }
-    return state;
   }
 
   #agentInbox(agentId: string): AgentInboxStateMachine {

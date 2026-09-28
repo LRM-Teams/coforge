@@ -8,6 +8,10 @@ import {
 } from "@lrm/coforge-sdk/internal";
 import { AgentMessageValidationError } from "#src/server/conversations/agent-message-validation-error.server";
 import type { PendingMentionActionView } from "#src/server/conversations/pending-mention-actions.server";
+import {
+  MessageRequestInProgressError,
+  type MessageRequestRecords,
+} from "#src/server/conversations/message-request-idempotency.server";
 
 export type AgentMessageRepository = {
   /** One Agent-facing target resolved once, so a send's freshness reads and read-through advance
@@ -174,6 +178,32 @@ export async function executeAgentSendMessage(
     pendingMentionActions: message.pendingMentionActions ?? [],
     unresolvedMentionHandles: message.unresolvedMentionHandles ?? [],
   };
+}
+
+/** The answer to an Agent's `reconcileOnly` send (Raft 1.0.38). */
+export type AgentSendReconciliation =
+  | { state: "committed"; messageId: string }
+  | { state: "not_found" };
+
+/**
+ * Whether an Agent's send under this idempotency key already committed, answered from the same
+ * request record `executeFromAgent` writes — without the freshness check, a hold, or a send. A key
+ * still being processed is the in-flight duplicate `MessageRequestInProgressError` reports:
+ * Raft's contract has no state for it, and the daemon treats it as "cannot confirm".
+ */
+export async function reconcileAgentSendMessage(
+  records: MessageRequestRecords,
+  input: { idempotencyKey: string; workspaceId: string; agentId: string },
+): Promise<AgentSendReconciliation> {
+  const record = await records.find({
+    workspaceId: input.workspaceId,
+    senderKind: "agent",
+    senderId: input.agentId,
+    requestId: input.idempotencyKey,
+  });
+  if (!record) return { state: "not_found" };
+  if (record.state === "processing") throw new MessageRequestInProgressError();
+  return { state: "committed", messageId: record.message.id };
 }
 
 export async function executeAgentSendMessageWithPolicy(

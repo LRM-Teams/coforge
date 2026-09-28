@@ -8,7 +8,7 @@ import {
   setSystemTime,
   test,
 } from "bun:test";
-import { rm } from "node:fs/promises";
+import { mkdir, rm } from "node:fs/promises";
 import { tmpdir, userInfo } from "node:os";
 import { realpathSync } from "node:fs";
 import { join } from "node:path";
@@ -26,14 +26,27 @@ import {
 import type { WorkspaceConfig } from "#src/daemon-runtime/runtime";
 import { InMemoryDaemonCredentialStore } from "#src/credentials/credential-store";
 import { AgentConsumedSeqStore } from "#src/persistence/agent-consumed-seq-store";
-import type { AgentMessageTransportResponse } from "#src/connection/agent-http-clients";
+import type {
+  AgentMessageTransportResponse,
+  AgentSendReconciliationRequest,
+} from "#src/connection/agent-http-clients";
+import type { AgentSendReconciliationResponse } from "@lrm/coforge-sdk/agent";
 import {
   DaemonConnection,
   type CentrifugeWorkspaceClient,
 } from "#src/connection/daemon-connection";
 import { startAgentProxy, type AgentProxy } from "#src/agent-proxy";
 import { AgentPreflightError } from "#src/daemon-runtime/agent-preflight-error";
+import { AgentSendVerdictError } from "#src/daemon-runtime/agent-send-verdict";
+import { AgentTransportError } from "#src/connection/agent-transport-error";
 import {
+  AGENT_MESSAGE_DRAFT_TTL_MS,
+  AgentMessageDraftStore,
+} from "#src/persistence/agent-message-draft-store";
+import {
+  AGENT_SEND_LOCAL_DEADLINE_MS,
+  AGENT_SEND_MAX_REQUESTS,
+  AGENT_SEND_REQUEST_TIMEOUT_MS,
   AGENT_ACTIVITY_DETAIL_KIND,
   AGENT_CONTEXT_SCAN_STATUS,
   type AgentContextScanRequest,
@@ -92,6 +105,13 @@ const CONSUMED_SEQ_ROOT = join(
   tmpdir(),
   `coforge-cli-consumed-seq-${encodeURIComponent(String(process.geteuid?.() ?? userInfo().username)).replaceAll(".", "%2E")}`,
 );
+/** Where the daemon's per-Agent send drafts land in tests: Raft's temporary root
+ * (`COFORGE_CLI_DRAFT_STATE_DIR ?? tmpdir()`), shared by every runtime in this file, so each test
+ * starts without another test's draft. */
+const DRAFT_ROOT = join(
+  process.env.COFORGE_CLI_DRAFT_STATE_DIR ?? tmpdir(),
+  `coforge-cli-attested-send-${encodeURIComponent(String(process.geteuid?.() ?? userInfo().username)).replaceAll(".", "%2E")}`,
+);
 const workspaceRoot = join(tempRoot, `coforge-daemon-runtime-${crypto.randomUUID()}`);
 const connection: WorkspaceConfig = {
   computerId: "computer-a",
@@ -115,6 +135,7 @@ const config: AgentRuntimeConfig = {
 // fresh runtime.
 beforeEach(async () => {
   await rm(CONSUMED_SEQ_ROOT, { recursive: true, force: true });
+  await rm(DRAFT_ROOT, { recursive: true, force: true });
 });
 
 test("ready and reconnect snapshots report the executable version and observed OS", async () => {
@@ -818,6 +839,7 @@ async function messageHarness(
     cancel?: (uploadId: string, agentApiKey?: string) => Promise<Response>;
     get?: (uploadId: string, agentApiKey?: string) => Promise<Response>;
   },
+  reconcile?: (request: AgentSendReconciliationRequest) => Promise<AgentSendReconciliationResponse>,
 ) {
   const credentials = new InMemoryDaemonCredentialStore();
   await credentials.save(connection.workspaceId, connection.computerId, "token-a");
@@ -839,6 +861,7 @@ async function messageHarness(
         async revokeAgentApiKey() {},
         async sendAgentDeliveryAck() {},
         agentMessage: respond,
+        reconcileAgentSend: reconcile,
         agentTask: respondTask,
         agentAttachmentUpload: respondAttachmentUpload,
         agentAttachmentUploadSessionCreate: respondUploadSessions?.create,
@@ -1962,7 +1985,7 @@ describe("DaemonRuntime", () => {
       expect(preflight.message).toContain('coforge message send --send-draft --target "@ada"');
       // Raft-aligned: the guard saves the outgoing content as a draft before refusing, and reports
       // that back so the CLI renders `Draft saved: yes`, not `no`.
-      expect(preflight.draftSaved).toBe(true);
+      expect(preflight.verdict.draftSaved).toBe(true);
       expect(sends).toEqual([]);
 
       // The saved draft resends unchanged via --send-draft, with no holdToken (there was no hold).
@@ -1978,9 +2001,12 @@ describe("DaemonRuntime", () => {
         harness.apiKey,
       );
       expect(sends).toHaveLength(1);
+      // The refusal saved the draft under the refused send's key, and the resend is that same
+      // logical send, not a new one under the resend's own key.
       expect(sends[0]).toMatchObject({
         target: "@ada",
         content: "top-level reply",
+        idempotencyKey: "blocked-send",
       });
 
       // --target-confirmed remains the other bypass, for a fresh (non-draft) send.
@@ -3131,7 +3157,8 @@ describe("DaemonRuntime", () => {
     // the same context (Raft's `recordConsumedSeqs(data.seenUpToSeq)` + `setSavedDraft`).
     expect(messageRequests).toEqual([
       { idempotencyKey: "send-1", draftReholdCount: 0, seenUpToSeq: undefined },
-      { idempotencyKey: "send-2", draftReholdCount: 1, seenUpToSeq: 7 },
+      // Raft 1.0.38: the resend is the same logical send, under the draft's own key.
+      { idempotencyKey: "send-1", draftReholdCount: 1, seenUpToSeq: 7 },
     ]);
 
     await expect(
@@ -8725,96 +8752,13 @@ test("a locally held send shows the unreviewed window, and a resend after it goe
   }
 });
 
-test("a replayed older send can neither clobber nor clear a newer held draft (task #70)", async () => {
-  const calls: AgentMessageRequest[] = [];
-  const harness = await messageHarness(async (request) => {
-    calls.push(request);
-    return request.idempotencyKey === "send-held"
-      ? {
-          protocolMajor: 1,
-          idempotencyKey: request.idempotencyKey,
-          accepted: false,
-          attentionCount: 1,
-          state: "held" as const,
-          decision: "local_hold" as const,
-          reason: "exact_target_pending",
-          continueAnywaySuggested: true,
-          newMessageCount: 1,
-          shownMessageCount: 1,
-          omittedMessageCount: 0,
-          seenUpToSeq: 7,
-          messages: [],
-        }
-      : {
-          protocolMajor: 1,
-          idempotencyKey: request.idempotencyKey,
-          accepted: true,
-          attentionCount: 0,
-          state: "sent" as const,
-          decision: "forward" as const,
-          messageId: "sent",
-          messages: [],
-        };
-  });
-  try {
-    const send = (idempotencyKey: string, body: string) => ({
-      idempotencyKey,
-      context: harness.context,
-      operation: "send" as const,
-      target: "@ada",
-      content: body,
-    });
-    // 1. An older send runs and is accepted; it owns the target's draft for now.
-    await harness.runtime.agentMessage(
-      harness.context,
-      send("send-old", "older body"),
-      harness.apiKey,
-    );
-    // 2. A newer send is held, so ITS content is what the Agent was told was saved as a draft.
-    const held = await harness.runtime.agentMessage(
-      harness.context,
-      send("send-held", "held body"),
-      harness.apiKey,
-    );
-    expect(held.state).toBe("held");
-    // 3. The transport retries the older send (same request id) and it is accepted.
-    await harness.runtime.agentMessage(
-      harness.context,
-      send("send-old", "older body"),
-      harness.apiKey,
-    );
-    // 4. The held draft is intact, and resending it sends the HELD content — before this fix the
-    //    replay above cleared the draft and the CLI answered SEND_DRAFT_NOT_FOUND.
-    const resent = await harness.runtime.agentMessage(
-      harness.context,
-      {
-        idempotencyKey: "send-resend",
-        context: harness.context,
-        operation: "send",
-        target: "@ada",
-        sendDraft: true,
-      },
-      harness.apiKey,
-    );
-    expect(resent.state).toBe("sent");
-    expect(calls.filter((call) => call.operation === "send").map((call) => call.content)).toEqual([
-      "older body",
-      "held body",
-      "older body",
-      "held body",
-    ]);
-  } finally {
-    await harness.runtime.stop();
-  }
-});
-
 test("a genuinely new send still replaces the target's draft, as Raft documents", async () => {
   const calls: AgentMessageRequest[] = [];
   const harness = await messageHarness(async (request) => {
     calls.push(request);
     // Both the first send and the newer one are held here, so what the resend carries is decided
     // purely by whose content the target's draft holds.
-    return request.idempotencyKey !== "send-resend"
+    return !request.sendDraft
       ? {
           protocolMajor: 1,
           idempotencyKey: request.idempotencyKey,
@@ -8853,9 +8797,8 @@ test("a genuinely new send still replaces the target's draft, as Raft documents"
       },
       harness.apiKey,
     );
-    // A brand-new request (new id) is the newest writer, so its content replaces the draft — the
-    // "new send replaces the stored draft" behaviour Raft documents (with its replaced-draft
-    // warning); it is only a *replay* of an older request that must leave the draft alone.
+    // A new send is the newest writer, so its content (and key) replace the draft — the "new send
+    // replaces the stored draft" behaviour Raft documents, with its replaced-draft warning.
     await harness.runtime.agentMessage(
       harness.context,
       {
@@ -8888,4 +8831,453 @@ test("a genuinely new send still replaces the target's draft, as Raft documents"
   } finally {
     await harness.runtime.stop();
   }
+});
+
+describe("one logical send keeps one idempotency key (Raft 1.0.38)", () => {
+  const sent = (
+    request: Pick<AgentMessageRequest, "idempotencyKey">,
+    messageId = "sent",
+  ): AgentMessageTransportResponse => ({
+    idempotencyKey: request.idempotencyKey,
+    accepted: true,
+    attentionCount: 0,
+    messageId,
+    messages: [],
+    state: "sent",
+    decision: "forward",
+  });
+  const held = (request: AgentMessageRequest): AgentMessageTransportResponse => ({
+    idempotencyKey: request.idempotencyKey,
+    accepted: false,
+    attentionCount: 1,
+    state: "held",
+    decision: "local_hold",
+    reason: "exact_target_pending",
+    newMessageCount: 1,
+    shownMessageCount: 0,
+    omittedMessageCount: 0,
+    seenUpToSeq: 7,
+    messages: [],
+  });
+  const notFound = async (
+    request: AgentSendReconciliationRequest,
+  ): Promise<AgentSendReconciliationResponse> => ({
+    idempotencyKey: request.idempotencyKey,
+    state: "not_found",
+    reconciliation: true,
+  });
+  const lostBeforeResponse = () =>
+    AgentTransportError.preResponseTransport("agent send", new Error("socket closed"));
+  const lostMidResponse = () =>
+    AgentTransportError.midResponseTransport("agent send", 200, new Error("stream reset"));
+  /** The runtime's draft for `@ada`, read through the same store (and directory) it uses. */
+  const draft = async () => {
+    const lookup = await new AgentMessageDraftStore("agent-a").lookup("@ada");
+    return lookup.status === "found" ? lookup.draft : undefined;
+  };
+  const deferred = <T>() => {
+    let resolve!: (value: T) => void;
+    let reject!: (error: unknown) => void;
+    const promise = new Promise<T>((res, rej) => {
+      resolve = res;
+      reject = rej;
+    });
+    return { promise, resolve, reject };
+  };
+  type Harness = Awaited<ReturnType<typeof messageHarness>>;
+  const send = (
+    harness: Harness,
+    idempotencyKey: string,
+    fields: Partial<import("@lrm/coforge-sdk/internal").LocalAgentMessageRequest> = {},
+  ) =>
+    harness.runtime.agentMessage(
+      harness.context,
+      {
+        idempotencyKey,
+        context: harness.context,
+        operation: "send",
+        target: "@ada",
+        ...fields,
+      },
+      harness.apiKey,
+    );
+  const failure = (promise: Promise<unknown>) =>
+    promise.then(
+      () => undefined,
+      (error) => error,
+    );
+  /** A message harness whose sends answer through `respond` and whose reconciliations through
+   * `reconcile`. */
+  const harnessWith = (
+    respond: (request: AgentMessageRequest) => Promise<AgentMessageTransportResponse>,
+    reconcile?: (
+      request: AgentSendReconciliationRequest,
+    ) => Promise<AgentSendReconciliationResponse>,
+  ) => messageHarness(respond, undefined, undefined, undefined, reconcile);
+
+  test("--send-draft after an unknown outcome sends under the original send's key, then clears", async () => {
+    const calls: AgentMessageRequest[] = [];
+    const harness = await harnessWith(async (request) => {
+      calls.push(request);
+      if (calls.length === 1) throw lostMidResponse();
+      return sent(request);
+    });
+    try {
+      expect(await failure(send(harness, "send-first", { content: "reply" }))).toBeInstanceOf(
+        AgentTransportError,
+      );
+      expect((await draft())?.idempotencyKey).toBe("send-first");
+
+      const resent = await send(harness, "send-again", { sendDraft: true });
+
+      expect(resent.state).toBe("sent");
+      expect(calls.map((call) => [call.idempotencyKey, call.content])).toEqual([
+        ["send-first", "reply"],
+        ["send-first", "reply"],
+      ]);
+      expect(await draft()).toBeUndefined();
+    } finally {
+      await harness.runtime.stop();
+    }
+  });
+
+  test("a held refresh keeps the draft's key, so the resend is the same logical send", async () => {
+    const calls: AgentMessageRequest[] = [];
+    const harness = await harnessWith(async (request) => {
+      calls.push(request);
+      return request.sendDraft ? sent(request) : held(request);
+    });
+    try {
+      expect((await send(harness, "send-held", { content: "held reply" })).state).toBe("held");
+      expect(await draft()).toMatchObject({ idempotencyKey: "send-held", reholdCount: 1 });
+
+      await send(harness, "send-resend", { sendDraft: true });
+
+      expect(calls.map((call) => call.idempotencyKey)).toEqual(["send-held", "send-held"]);
+    } finally {
+      await harness.runtime.stop();
+    }
+  });
+
+  test("an accepted send whose key differs from the draft's leaves the newer draft in place", async () => {
+    // The draft names its own send: a send that finishes after another one replaced the draft
+    // (its answer arriving late) must not consume a draft it no longer owns.
+    const answer = deferred<AgentMessageTransportResponse>();
+    const issued = deferred<void>();
+    const harness = await harnessWith(async (request) => {
+      if (request.content === "newer reply") return held(request);
+      issued.resolve();
+      return answer.promise;
+    });
+    try {
+      const older = send(harness, "send-older", { content: "older reply" });
+      await issued.promise;
+      await send(harness, "send-newer", { content: "newer reply" });
+      answer.resolve(sent({ idempotencyKey: "send-older" }));
+
+      expect((await older).state).toBe("sent");
+      expect(await draft()).toMatchObject({
+        content: "newer reply",
+        idempotencyKey: "send-newer",
+      });
+    } finally {
+      await harness.runtime.stop();
+    }
+  });
+
+  test("--expected-draft-key refuses a draft that now belongs to another send, without a request", async () => {
+    const calls: AgentMessageRequest[] = [];
+    const harness = await harnessWith(async (request) => {
+      calls.push(request);
+      return held(request);
+    });
+    try {
+      await send(harness, "send-newer", { content: "newer draft" });
+      calls.length = 0;
+
+      const refused = await failure(
+        send(harness, "send-check", { sendDraft: true, expectedDraftKey: "send-older" }),
+      );
+
+      expect(refused).toBeInstanceOf(AgentPreflightError);
+      expect(refused).toMatchObject({
+        code: "SAVED_DRAFT_IDENTITY_CHANGED",
+        verdict: { draftSaved: false, retryable: false },
+      });
+      expect((refused as AgentPreflightError).verdict.suggestedNextAction).toContain(
+        "Review the current draft",
+      );
+      expect(calls).toEqual([]);
+      expect(await draft()).toMatchObject({
+        content: "newer draft",
+        idempotencyKey: "send-newer",
+      });
+    } finally {
+      await harness.runtime.stop();
+    }
+  });
+
+  test("an expired draft is not sent: the entry is removed and its body travels once, as details", async () => {
+    const calls: AgentMessageRequest[] = [];
+    const savedAt = Date.now() - AGENT_MESSAGE_DRAFT_TTL_MS - 1_000;
+    await new AgentMessageDraftStore("agent-a", undefined, () => savedAt).save("@ada", {
+      content: "stale reply\n",
+      idempotencyKey: "send-stale",
+    });
+    const harness = await harnessWith(async (request) => {
+      calls.push(request);
+      return sent(request);
+    });
+    try {
+      const expired = await failure(send(harness, "send-late", { sendDraft: true }));
+
+      expect(expired).toBeInstanceOf(AgentPreflightError);
+      const error = expired as AgentPreflightError;
+      expect(error.code).toBe("SEND_DRAFT_EXPIRED");
+      expect(error.message).toContain("This command did not send anything.");
+      expect(error.message).not.toContain("stale reply");
+      expect(error.verdict.suggestedNextAction).toContain("may already have been delivered");
+      expect(error.details).toEqual({
+        discarded_draft: { content: "stale reply\n", saved_at: new Date(savedAt).toISOString() },
+      });
+      expect(calls).toEqual([]);
+      expect(await failure(send(harness, "send-later", { sendDraft: true }))).toMatchObject({
+        code: "SEND_DRAFT_NOT_FOUND",
+      });
+    } finally {
+      await harness.runtime.stop();
+    }
+  });
+
+  test("a send to another target never drops this target's expired draft or its last copy", async () => {
+    const savedAt = Date.now() - AGENT_MESSAGE_DRAFT_TTL_MS - 1_000;
+    await new AgentMessageDraftStore("agent-a", undefined, () => savedAt).save("@ada", {
+      content: "ada's reply",
+      idempotencyKey: "send-ada",
+    });
+    const harness = await harnessWith(async (request) => sent(request));
+    try {
+      await send(harness, "send-bob", { target: "@bob", content: "bob's reply" });
+
+      const expired = await failure(send(harness, "send-late", { sendDraft: true }));
+
+      expect(expired).toMatchObject({
+        code: "SEND_DRAFT_EXPIRED",
+        details: { discarded_draft: { content: "ada's reply" } },
+      });
+    } finally {
+      await harness.runtime.stop();
+    }
+  });
+
+  test("the send's log names the key it actually went out under, and so does its answer", async () => {
+    const harness = await harnessWith(async (request) =>
+      request.sendDraft ? sent(request) : held(request),
+    );
+    try {
+      await send(harness, "send-held", { content: "held reply" });
+      const { result, records } = await captureLogs(() =>
+        send(harness, "send-resend", { sendDraft: true }),
+      );
+
+      expect(result.idempotencyKey).toBe("send-held");
+      const sentRecord = records.find((record) => record.properties.event === "agent.message.sent");
+      expect(sentRecord?.properties.request_id).toBe("send-held");
+    } finally {
+      await harness.runtime.stop();
+    }
+  });
+
+  test("a draft written without a key is no draft to resend", async () => {
+    await mkdir(join(DRAFT_ROOT, "agent-a"), { recursive: true, mode: 0o700 });
+    await Bun.write(
+      join(DRAFT_ROOT, "agent-a", "continue-state.json"),
+      JSON.stringify({ targets: { "@ada": { content: "keyless", savedAt: Date.now() } } }),
+    );
+    const calls: AgentMessageRequest[] = [];
+    const harness = await harnessWith(async (request) => {
+      calls.push(request);
+      return sent(request);
+    });
+    try {
+      expect(await failure(send(harness, "send-draft", { sendDraft: true }))).toMatchObject({
+        code: "SEND_DRAFT_NOT_FOUND",
+      });
+      expect(calls).toEqual([]);
+    } finally {
+      await harness.runtime.stop();
+    }
+  });
+
+  test("the draft's key outlives a daemon restart", async () => {
+    const first = await harnessWith(async (request) => held(request));
+    await send(first, "send-held", { content: "held reply" });
+    await first.runtime.stop();
+
+    const calls: AgentMessageRequest[] = [];
+    const second = await harnessWith(async (request) => {
+      calls.push(request);
+      return sent(request);
+    });
+    try {
+      expect(
+        await failure(send(second, "send-a", { sendDraft: true, expectedDraftKey: "send-older" })),
+      ).toMatchObject({ code: "SAVED_DRAFT_IDENTITY_CHANGED" });
+      expect(calls).toEqual([]);
+
+      await send(second, "send-b", { sendDraft: true, expectedDraftKey: "send-held" });
+
+      expect(calls.map((call) => [call.idempotencyKey, call.content])).toEqual([
+        ["send-held", "held reply"],
+      ]);
+      expect(await draft()).toBeUndefined();
+    } finally {
+      await second.runtime.stop();
+    }
+  });
+
+  describe("settling an ambiguous send through the runtime (cases in agent-send-settlement.test.ts)", () => {
+    test("a lost response reconciled as committed is the send's success and consumes its draft", async () => {
+      const reconciled: AgentSendReconciliationRequest[] = [];
+      const harness = await harnessWith(
+        async () => {
+          throw lostBeforeResponse();
+        },
+        async (request) => {
+          reconciled.push(request);
+          return {
+            idempotencyKey: request.idempotencyKey,
+            state: "committed",
+            reconciliation: true,
+            receiptComplete: false,
+            messageId: "committed-1",
+          };
+        },
+      );
+      try {
+        const { result, records } = await captureLogs(() =>
+          send(harness, "send-lost", { content: "reply" }),
+        );
+
+        expect(result).toMatchObject({
+          accepted: true,
+          state: "committed",
+          messageId: "committed-1",
+        });
+        const reconciledLog = records.find(
+          (record) => record.properties.event === "agent.message.send_reconciled",
+        )?.properties;
+        // The documented outcome vocabulary (docs/observability/structured-logging.md); the
+        // answer itself is its own field.
+        expect(reconciledLog).toMatchObject({
+          request_id: "send-lost",
+          outcome: "ok",
+          reconciliation: "committed",
+        });
+        const sentLog = records.find(
+          (record) => record.properties.event === "agent.message.sent",
+        )?.properties;
+        expect(sentLog?.outcome).toBe("ok");
+        expect(sentLog).not.toHaveProperty("freshness_decision", "reconciled");
+        expect(reconciled).toEqual([
+          {
+            idempotencyKey: "send-lost",
+            agentId: "agent-a",
+            workspaceId: connection.workspaceId,
+            target: "@ada",
+          },
+        ]);
+        expect(await draft()).toBeUndefined();
+      } finally {
+        await harness.runtime.stop();
+      }
+    });
+
+    test("a send's worst case stays within the CLI's budget of daemon requests", async () => {
+      // A short thread target is resolved by one read, then the send is lost, reconciled as
+      // not_found, and its replay lost too: the most requests one `message send` can cost.
+      const rootId = "12345678-1234-4234-8234-123456789abc";
+      let requests = 0;
+      const harness = await harnessWith(
+        async (request) => {
+          requests += 1;
+          if (request.operation === "read")
+            return {
+              idempotencyKey: request.idempotencyKey,
+              accepted: true,
+              attentionCount: 0,
+              messages: [messageRecord(1, "@ada", "@ada", rootId)],
+            };
+          throw lostBeforeResponse();
+        },
+        async (request) => {
+          requests += 1;
+          return notFound(request);
+        },
+      );
+      try {
+        await failure(send(harness, "send-thread", { target: "@ada:12345678", content: "reply" }));
+        expect(requests).toBe(AGENT_SEND_MAX_REQUESTS);
+        expect(AGENT_SEND_LOCAL_DEADLINE_MS).toBeGreaterThan(
+          AGENT_SEND_MAX_REQUESTS * AGENT_SEND_REQUEST_TIMEOUT_MS,
+        );
+      } finally {
+        await harness.runtime.stop();
+      }
+    });
+
+    test("a failed replay is retryable while the runtime's draft still holds the key", async () => {
+      const harness = await harnessWith(async () => {
+        throw lostBeforeResponse();
+      }, notFound);
+      try {
+        const error = await failure(send(harness, "send-replay", { content: "reply" }));
+
+        expect(error).toBeInstanceOf(AgentSendVerdictError);
+        expect((error as AgentSendVerdictError).verdict).toMatchObject({
+          retryable: true,
+          draftSaved: true,
+        });
+        expect((error as AgentSendVerdictError).verdict.suggestedNextAction).toContain(
+          '--expected-draft-key "send-replay" --target "@ada"',
+        );
+        expect((await draft())?.idempotencyKey).toBe("send-replay");
+      } finally {
+        await harness.runtime.stop();
+      }
+    });
+
+    test("a failed replay whose draft another send took over is not retryable", async () => {
+      const replay = deferred<AgentMessageTransportResponse>();
+      const replayIssued = deferred<void>();
+      let lost = false;
+      const harness = await harnessWith(async (request) => {
+        if (request.content === "newer reply") return held(request);
+        if (!lost) {
+          lost = true;
+          throw lostBeforeResponse();
+        }
+        replayIssued.resolve();
+        return replay.promise;
+      }, notFound);
+      try {
+        const older = failure(send(harness, "send-older", { content: "older reply" }));
+        await replayIssued.promise;
+        expect((await send(harness, "send-newer", { content: "newer reply" })).state).toBe("held");
+        replay.reject(lostBeforeResponse());
+
+        const error = (await older) as AgentSendVerdictError;
+
+        expect(error).toBeInstanceOf(AgentSendVerdictError);
+        expect(error.verdict).toMatchObject({ retryable: false, draftSaved: false });
+        expect(error.verdict.suggestedNextAction).toContain("CANNOT_CONFIRM");
+        expect(await draft()).toMatchObject({
+          content: "newer reply",
+          idempotencyKey: "send-newer",
+        });
+      } finally {
+        await harness.runtime.stop();
+      }
+    });
+  });
 });

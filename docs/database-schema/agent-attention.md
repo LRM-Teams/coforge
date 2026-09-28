@@ -8,8 +8,8 @@ later notice or launch, or dropped it for a channel the Agent lost); it does
 not mean the Agent read it or that a run completed. A daemon restart loses
 what it held, and the next start recovers it from the read boundary, not from
 ACK state. Agent read/send uses the independent
-HTTPS RPC, and a logical send retries the same `idempotencyKey` after an uncertain
-result. Agent Activity is a best-effort observation and has no local spool or
+HTTPS RPC, and a logical send keeps one `idempotencyKey`: after an uncertain
+result the daemon reconciles by that key and replays under it, never under a new one. Agent Activity is a best-effort observation and has no local spool or
 database recovery role.
 
 A daemon `ready` replays every still-unacknowledged `AgentMessageDelivery`

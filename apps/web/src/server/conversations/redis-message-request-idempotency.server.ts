@@ -1,6 +1,8 @@
 import { RedisClient } from "bun";
 import type {
   MessageRequestIdempotency,
+  MessageRequestRecord,
+  MessageRequestRecords,
   MessageRequestScope,
   PersistedDirectMessage,
 } from "./message-request-idempotency.server";
@@ -67,7 +69,9 @@ const systemTimers: MessageRequestIdempotencyTimers = {
   cancel: (handle) => clearInterval(handle as ReturnType<typeof setInterval>),
 };
 
-export class RedisMessageRequestIdempotency implements MessageRequestIdempotency {
+export class RedisMessageRequestIdempotency
+  implements MessageRequestIdempotency, MessageRequestRecords
+{
   private readonly timers: MessageRequestIdempotencyTimers;
 
   constructor(
@@ -97,13 +101,11 @@ export class RedisMessageRequestIdempotency implements MessageRequestIdempotency
       String(PROCESSING_TTL_SECONDS),
     ]);
     if (claimed === null) {
-      const stored = await this.redis.get(key);
-      if (!stored) throw new MessageRequestInProgressError();
-      const value = JSON.parse(stored) as StoredValue;
+      const record = await this.find(scope);
       // While the first request is still working, a second one is refused outright: it must never
       // reach persistence, or one idempotency key would produce two messages.
-      if (value.state === "processing") throw new MessageRequestInProgressError();
-      return { ...value.message, createdAt: new Date(value.message.createdAt) };
+      if (record?.state !== "completed") throw new MessageRequestInProgressError();
+      return record.message;
     }
 
     // Keep the claim while this request works, so a long handler cannot open the window the next
@@ -133,6 +135,18 @@ export class RedisMessageRequestIdempotency implements MessageRequestIdempotency
     } finally {
       this.timers.cancel(keepAlive);
     }
+  }
+
+  /** One read, never a claim: the record expires on the same TTLs `execute` writes it with. */
+  async find(scope: MessageRequestScope): Promise<MessageRequestRecord | undefined> {
+    const stored = await this.redis.get(this.key(scope));
+    if (!stored) return undefined;
+    const value = JSON.parse(stored) as StoredValue;
+    if (value.state === "processing") return { state: "processing" };
+    return {
+      state: "completed",
+      message: { ...value.message, createdAt: new Date(value.message.createdAt) },
+    };
   }
 
   private key(scope: MessageRequestScope) {

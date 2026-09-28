@@ -62,9 +62,18 @@ Rules for one Workspace child's runtime in `src/daemon-runtime/`. They extend
 
 ## Agent HTTPS forwarding
 
-- Held Message sends: keep only the draft text and the opaque Web/backend
-  token. Never decide freshness, count hold stages, or authorize `--anyway`
-  locally.
+- Message sends: the per-target draft (`persistence/agent-message-draft-store.ts`)
+  is the only local send state. It carries its send's `idempotencyKey`;
+  `--send-draft` reuses it, and only that key's accepted send clears the draft.
+  Never authorize `--anyway` locally.
+- `agent-send-settlement.ts` settles one send: an ambiguous failure
+  (pre-response or 5xx) gets one `reconcileAgentSend` and at most one same-key
+  replay, never a blind retry. It sees the transport and the draft only through
+  its ports; keep reconcile logic out of `runtime.ts`.
+- `agent-send-verdict.ts` is the one shape for what the daemon judged about a
+  failed request (`retryable`, `draftSaved`, `suggestedNextAction`).
+  `agent-proxy-failure.ts` classifies the cause, then applies the verdict. A
+  failed replay is retryable only while the draft still holds its key.
 - Agent Task operations use the Credential Proxy and the authenticated Agent
   HTTPS connection. Task parsing and wire contracts belong to the SDK and CLI;
   claim/review applies to complex, coordinated, or already-shared Tasks, not
