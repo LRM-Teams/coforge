@@ -29,6 +29,8 @@ export type CollectorComputerSlot = {
   computerId: string;
   displayName: string;
   hostname: string;
+  /** Daemon-reported host platform (`win32`, `linux`, `darwin`), or null when unknown. */
+  platform: string | null;
   bindingId: string | null;
   collectorAgentId: string | null;
   computerConfigured: boolean;
@@ -173,7 +175,9 @@ export async function listOwnedComputerSlots(
     where: { workspaceId: input.workspaceId },
     select: {
       computerId: true,
-      computer: { select: { id: true, ownerId: true, displayName: true, name: true } },
+      computer: {
+        select: { id: true, ownerId: true, displayName: true, name: true, platform: true },
+      },
     },
     orderBy: { computerId: "asc" },
   });
@@ -205,6 +209,7 @@ export async function listOwnedComputerSlots(
       computerId: row.computerId,
       displayName: row.computer.displayName || row.computer.name || row.computerId,
       hostname: row.computer.name,
+      platform: row.computer.platform,
       bindingId: binding?.id ?? null,
       collectorAgentId: binding?.collectorAgentId ?? null,
       computerConfigured,

@@ -10,6 +10,7 @@ import { Select } from "#src/components/base/select/select";
 import { TextArea } from "#src/components/base/textarea/textarea";
 import { formatAgentProfileParam } from "#src/features/agents/profile-panel/profile-panel-search";
 import { m } from "#src/paraglide/messages";
+import { defaultCollectScanPath } from "./collect-scan-path";
 import {
   defaultCustomRangeEndingToday,
   listCollectWindowOptions,
@@ -21,6 +22,10 @@ import {
   submitWeeklyReportCollectPlan,
 } from "./records.functions";
 import { RECORDS_PRIMARY_BUTTON_CLASSNAME } from "./records-primary-button";
+
+/** Selected state uses the same neutral black fill as Records primary buttons. */
+const COLLECT_PLAN_CHECKBOX_CLASSNAME =
+  "[&[data-selected]>div]:bg-primary-solid! [&[data-selected]>div]:ring-primary-solid!";
 
 type SlotRow = Awaited<ReturnType<typeof listWeeklyReportCollectorSlots>>[number];
 
@@ -55,7 +60,9 @@ export function WeeklyReportCollectPlanCard(props: {
       setSlots(rows);
       setSelected(rows.filter((row) => row.ready).map((row) => row.computerId));
       setPathsByComputer(
-        Object.fromEntries(rows.map((row) => [row.computerId, "/home/jian40/\n"])),
+        Object.fromEntries(
+          rows.map((row) => [row.computerId, defaultCollectScanPath(row.platform)]),
+        ),
       );
     });
     return () => {
@@ -216,69 +223,72 @@ export function WeeklyReportCollectPlanCard(props: {
             return (
               <div
                 key={slot.computerId}
-                className="space-y-1 rounded-lg border border-secondary bg-primary p-2"
+                className="flex items-center gap-2 rounded-lg border border-secondary bg-primary p-2"
               >
-                <div className="flex items-center gap-2">
-                  <Checkbox
-                    isSelected={checked}
-                    isDisabled={busy || props.disabled || !slot.ready}
-                    onChange={(next) => {
-                      setSelected((prev) =>
-                        next
-                          ? [...new Set([...prev, slot.computerId])]
-                          : prev.filter((id) => id !== slot.computerId),
-                      );
-                    }}
-                  />
-                  <span className="min-w-0 flex-1 truncate text-sm font-medium text-primary">
-                    {slot.displayName}
-                  </span>
-                  {!slot.ready ? (
-                    <Button
+                <Checkbox
+                  className={COLLECT_PLAN_CHECKBOX_CLASSNAME}
+                  isSelected={checked}
+                  isDisabled={busy || props.disabled || !slot.ready}
+                  onChange={(next) => {
+                    setSelected((prev) =>
+                      next
+                        ? [...new Set([...prev, slot.computerId])]
+                        : prev.filter((id) => id !== slot.computerId),
+                    );
+                  }}
+                />
+                <div className="min-w-0 flex-1 space-y-1">
+                  <div className="flex items-center gap-2">
+                    <span className="min-w-0 flex-1 truncate text-sm font-medium text-primary">
+                      {slot.displayName}
+                    </span>
+                    {!slot.ready ? (
+                      <Button
+                        size="sm"
+                        color="secondary"
+                        isDisabled={busy}
+                        onPress={() => void onEnsure(slot.computerId)}
+                      >
+                        {m.records_collect_plan_setup()}
+                      </Button>
+                    ) : null}
+                    {slot.collectorAgentId ? (
+                      <Link
+                        to="/agents"
+                        search={{
+                          profile: formatAgentProfileParam(slot.collectorAgentId),
+                          agentTab: "profile",
+                        }}
+                        aria-label={m.records_collect_plan_gear()}
+                        className="text-tertiary hover:text-primary"
+                      >
+                        <Settings className="size-4" />
+                      </Link>
+                    ) : null}
+                  </div>
+                  <div className="flex items-start gap-2">
+                    <TextArea
                       size="sm"
-                      color="secondary"
-                      isDisabled={busy}
-                      onPress={() => void onEnsure(slot.computerId)}
-                    >
-                      {m.records_collect_plan_setup()}
-                    </Button>
-                  ) : null}
-                  {slot.collectorAgentId ? (
-                    <Link
-                      to="/agents"
-                      search={{
-                        profile: formatAgentProfileParam(slot.collectorAgentId),
-                        agentTab: "profile",
-                      }}
-                      aria-label={m.records_collect_plan_gear()}
-                      className="text-tertiary hover:text-primary"
-                    >
-                      <Settings className="size-4" />
-                    </Link>
+                      className="min-w-0 flex-1"
+                      textAreaClassName="min-h-12 font-mono text-xs"
+                      value={pathsByComputer[slot.computerId] ?? ""}
+                      onChange={(value) =>
+                        setPathsByComputer((prev) => ({
+                          ...prev,
+                          [slot.computerId]: value,
+                        }))
+                      }
+                      isDisabled={busy || props.disabled}
+                      aria-label={m.records_collect_plan_paths()}
+                    />
+                    <Edit className="mt-1 size-4 shrink-0 text-tertiary" aria-hidden />
+                  </div>
+                  {!slot.ready ? (
+                    <p className="text-xs text-warning-primary">
+                      {m.records_collect_plan_not_ready()}
+                    </p>
                   ) : null}
                 </div>
-                <div className="flex items-start gap-2 pl-7">
-                  <TextArea
-                    size="sm"
-                    className="min-w-0 flex-1"
-                    textAreaClassName="min-h-12 font-mono text-xs"
-                    value={pathsByComputer[slot.computerId] ?? ""}
-                    onChange={(value) =>
-                      setPathsByComputer((prev) => ({
-                        ...prev,
-                        [slot.computerId]: value,
-                      }))
-                    }
-                    isDisabled={busy || props.disabled}
-                    aria-label={m.records_collect_plan_paths()}
-                  />
-                  <Edit className="mt-1 size-4 shrink-0 text-tertiary" aria-hidden />
-                </div>
-                {!slot.ready ? (
-                  <p className="pl-7 text-xs text-warning-primary">
-                    {m.records_collect_plan_not_ready()}
-                  </p>
-                ) : null}
               </div>
             );
           })
