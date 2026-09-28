@@ -834,7 +834,9 @@ export const MessageRow = memo(function MessageRow({
         data-message={own ? "own" : "other"}
         onClick={openActions}
         className={cn(
-          "group/message relative flex scroll-m-6 gap-3 px-4 transition-[background-color,box-shadow] duration-500 hover:bg-secondary focus-within:bg-secondary target:bg-tertiary target:ring-2 target:ring-brand/50 target:ring-offset-4 target:ring-offset-primary md:px-6",
+          // `message-row` is the container the header's secondary pieces query: the row follows its
+          // own width (a thread or search pane is narrower than the window), not the viewport's.
+          "@container/message-row group/message relative flex scroll-m-6 gap-3 px-4 transition-[background-color,box-shadow] duration-500 hover:bg-secondary focus-within:bg-secondary target:bg-tertiary target:ring-2 target:ring-brand/50 target:ring-offset-4 target:ring-offset-primary md:px-6",
           highlighted && "bg-tertiary ring-2 ring-brand/50 ring-offset-4 ring-offset-primary",
           grouped ? "py-0.5" : "py-2",
         )}
@@ -878,8 +880,12 @@ export const MessageRow = memo(function MessageRow({
                   {displayName}
                 </span>
               )}
+              {/* The name is what a reader needs; the model is secondary, so it appears only once
+                  the row is wide enough for both. */}
               {message.senderKind === "agent" && message.senderAgentId && !deleted && (
-                <AgentModelLabel agentId={message.senderAgentId} seenAt={message.createdAt} />
+                <span className="hidden @2xl/message-row:inline">
+                  <AgentModelLabel agentId={message.senderAgentId} seenAt={message.createdAt} />
+                </span>
               )}
               {deleted && <DeletedAgentBadge />}
               <time
