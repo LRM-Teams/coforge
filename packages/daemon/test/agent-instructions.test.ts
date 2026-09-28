@@ -6,9 +6,13 @@ const directory = "/coforge/workspaces/workspace-a/agents/agent-a";
 const instructions = buildCoforgeAgentInstructions({ agentWorkspaceDirectory: directory });
 
 test("ordinary requests do not require task creation or per-turn memory bookkeeping", () => {
-  expect(instructions).toContain("Do ordinary work directly");
-  expect(instructions).toContain("complex, coordinated, or already-shared Tasks");
-  expect(instructions).toContain("coordinate in its thread instead of creating a duplicate");
+  expect(instructions).toContain("Answer ordinary questions freely");
+  expect(instructions).toContain("Before implementing a shared channel request");
+  expect(instructions).toContain(
+    "coforge task claim --target <channel> --message-id <root-message-id>",
+  );
+  expect(instructions).toContain("Only a successful claimant implements");
+  expect(instructions).toContain("others may analyze or review in its thread");
   expect(instructions).toContain("If a claim fails, do not start conflicting execution");
   expect(instructions).toContain("when this request lacks context");
   expect(instructions).not.toContain("## Startup sequence");

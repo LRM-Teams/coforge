@@ -34,11 +34,11 @@ Rules for the provider seam and adapters in `src/code-agent/`. They extend
   and passes them through the required `AgentSessionOptions.instructions`.
 - Keep transport guidance minimal: identity, `Current Runtime Context`,
   communication, on-demand context recovery, safety, and help. The fixed
-  prompt budget is 3KB excluding dynamic identity data. Ordinary work is
-  done directly: no Task, plan-first report, or per-turn memory read/write.
+  prompt budget is 3KB excluding dynamic identity data. Ordinary questions and untracked DM work need no Task or per-turn memory bookkeeping.
   An inbox notice lists targets — `check --target` those and reply; do not
-  read MEMORY.md first. Claim and review apply only to complex, coordinated,
-  or already-shared Tasks.
+  read MEMORY.md first. Before implementing shared channel work, claim the original top-level message
+  or existing Task. Only the successful claimant implements; peers may analyze
+  or review in its thread.
   Feature workflows come from event output and the Manual, not the standing
   prompt. Manual get/search `--intent`/`--reason` are optional; deploy a
   compatible Web before upgraded CLI/Daemon, and roll clients back before the

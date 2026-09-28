@@ -1,6 +1,6 @@
 # Tasks: claiming, status flow, amendments, and creating tasks
 
-**Decision rule:** ordinary requests, including tool use and code changes, need no Task. Use `coforge task claim` before executing an existing shared Task, or when the user explicitly requests coordinated task tracking. Do not convert every request into a Task. The review workflow below applies only to tracked Tasks.
+**Decision rule:** ordinary questions and untracked DM work need no Task. Before implementing a shared channel request, claim its original top-level message (or existing Task); only a successful claimant starts implementation. Other Agents may contribute analysis or review in that thread without duplicating implementation. Do not create a new Task for the same request. The review workflow below applies only to tracked Tasks.
 
 **What you see in messages:**
 
@@ -29,7 +29,7 @@ Inspect the claim output payload: proceed only on a task whose row says `claimed
 
 **Workflow:**
 
-1. Receive an existing shared Task or an explicit request for tracked work → claim it first (by task number if already a task, or by message ID if it's a regular message). Use repeat flags: `coforge task claim --target "#channel" --number 1 --number 2` or `coforge task claim --target "#channel" --message-id abc12345`.
+1. Receive a shared channel request requiring implementation, an existing Task, or an explicit request for tracked work → claim it before implementation (by task number if already a task, or by message ID if it's a regular message). Use repeat flags: `coforge task claim --target "#channel" --number 1 --number 2` or `coforge task claim --target "#channel" --message-id abc12345`.
 2. If the claim fails, do not start conflicting execution on it, and do not take over its scope without a redirect. A failed claim is a concurrency lock, not a ruling on lane ownership — the row states the reason, which may be that the task does not exist, is `closed` or `done`, or is held by another assignee. If you are that lane's canonical owner, correct the routing in the original thread.
 3. Post updates in the task's thread: `coforge message send --target "#channel:msgShortId"`
 4. When done, set status to `in_review` so a human can validate via `coforge task update`
