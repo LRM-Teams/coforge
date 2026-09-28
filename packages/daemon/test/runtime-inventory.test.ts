@@ -163,6 +163,36 @@ describe("external Code Agent inventory", () => {
     expect(killed).toBe(true);
   });
 
+  test("starts independent external runtime probes concurrently while preserving provider order", async () => {
+    const started: string[] = [];
+    let release!: () => void;
+    const allStarted = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const paths = {
+      claude: "/bin/claude",
+      "kiro-cli": "/bin/kiro-cli",
+    };
+    const probe: ExternalCodeAgentProbe = {
+      which: (name) => paths[name as keyof typeof paths],
+      spawn: (executable) => {
+        started.push(executable);
+        if (started.length === 2) release();
+        const output = executable.endsWith("claude") ? "2.1.0\n" : "kiro-cli 2.21.2\n";
+        return {
+          stdout: new Blob([output]).stream(),
+          exited: allStarted.then(() => 0),
+        };
+      },
+    };
+
+    await expect(discoverExternalCodeAgents(probe)).resolves.toEqual([
+      { provider: "claude-code", version: "2.1.0", displayName: "Claude Code" },
+      { provider: "kiro", version: "2.21.2", displayName: "Kiro" },
+    ]);
+    expect(started).toEqual(["/bin/claude", "/bin/kiro-cli"]);
+  }, 6_000);
+
   test("kills a Claude Code version probe that exceeds its timeout", async () => {
     let killed = false;
     await expect(
