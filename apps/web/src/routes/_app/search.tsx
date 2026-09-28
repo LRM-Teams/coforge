@@ -53,7 +53,9 @@ function SearchRoute() {
     [navigate],
   );
   // The preview lives in the URL, so a reload or a shared link reopens it; switching it replaces
-  // the entry rather than stacking history.
+  // the entry rather than stacking history. `msg` marks the previewed result; `message` is the
+  // conversation's own one-shot jump to it. The previous conversation's thread, Task and profile
+  // go with it.
   const preview = useMemo<SearchPreviewTarget | undefined>(() => {
     const [kind, id] = open?.split(":") ?? [];
     return (kind === "channel" || kind === "agent") && id
@@ -63,10 +65,18 @@ function SearchRoute() {
   const onPreviewChange = useCallback(
     (next: SearchPreviewTarget | undefined) =>
       void navigate({
-        search: (previous) => ({
+        search: ({
+          message: _message,
+          threadRootId: _threadRootId,
+          task: _task,
+          profile: _profile,
+          agentTab: _agentTab,
+          ...previous
+        }) => ({
           ...previous,
           open: next ? `${next.kind}:${next.id}` : undefined,
           msg: next?.messageId,
+          message: next?.messageId,
         }),
         replace: true,
       }),

@@ -18,7 +18,6 @@ import {
 } from "#src/components/ui/empty";
 import { RelativeTime } from "#src/components/ui/relative-time";
 import { Skeleton } from "#src/components/ui/skeleton";
-import { conversationRoute } from "#src/features/conversations/last-conversation";
 import { savedJumpTarget } from "#src/features/conversations/saved-messages-model";
 import { useBreakpoint } from "#src/hooks/use-breakpoint";
 import { computerLabel } from "#src/features/computers/computer-identity";
@@ -58,8 +57,9 @@ const COMMIT_DELAY_MS = 200;
  * The Workspace search page. The query and filters live in the URL, so a search can be shared,
  * reloaded, and returned to with Back; typing commits the query after a short pause, and never
  * while an input method is still composing. Filters search on their own, without a query.
- * On a wide screen a click previews a result's conversation beside the list (kept in the URL) and
- * a double click opens it; on a narrow one a click opens it. Esc closes the preview, then leaves.
+ * On a wide screen a click previews a result's conversation beside the list (kept in the URL), where
+ * it can be replied to, and a double click opens it; on a narrow one a click opens it. Esc outside
+ * the conversation closes the preview, then leaves.
  */
 export function SearchPage({
   workspaceId,
@@ -90,7 +90,6 @@ export function SearchPage({
   // A preview needs room beside the list; below `md` a click opens the conversation instead.
   const wide = useBreakpoint("md");
   const showPreview = Boolean(preview && wide);
-  const directory = useQuery(searchDirectoryQuery(workspaceId)).data;
   const previewContext = useMemo(
     () => ({ previewed: preview, preview: wide ? onPreviewChange : undefined }),
     [preview, wide, onPreviewChange],
@@ -104,6 +103,7 @@ export function SearchPage({
   // typed since; only a change from elsewhere (a link, Back) replaces the text.
   const lastCommitted = useRef(query);
   const input = useRef<HTMLInputElement>(null);
+  const previewSection = useRef<HTMLDivElement>(null);
   const committed = query.trim();
 
   useEffect(() => {
@@ -136,31 +136,14 @@ export function SearchPage({
     return () => document.removeEventListener(SEARCH_FOCUS_EVENT, focus);
   }, []);
 
-  const openPreviewed = () => {
-    if (!preview) return;
-    const route =
-      preview.kind === "channel"
-        ? conversationRoute({ channelId: preview.id })
-        : conversationRoute({ agentId: preview.id });
-    void router.navigate({ ...route, search: { message: preview.messageId } });
-  };
-  const previewName =
-    preview?.kind === "channel"
-      ? directory?.channels.find((channel) => channel.id === preview.id)?.name
-      : directory?.agents.find((agent) => agent.id === preview?.id)?.name;
-  // A place the lists do not name (yet) is still titled, never a bare "#".
-  const previewTitle = !previewName
-    ? m.search_preview()
-    : preview?.kind === "channel"
-      ? `#${previewName}`
-      : previewName;
-
   // Esc closes the preview, then leaves search for wherever it was opened from. A menu or dialog
-  // takes its own Esc, and a filled box clears itself first.
+  // takes its own Esc, so does the previewed conversation (its composer, its thread), and a
+  // filled box clears itself first.
   const onEscape = useEffectEvent((event: KeyboardEvent) => {
     if (event.key !== "Escape" || event.defaultPrevented || event.isComposing) return;
     const target = event.target instanceof Element ? event.target : null;
     if (target?.closest('[role="menu"], [role="listbox"], [role="dialog"]')) return;
+    if (target && previewSection.current?.contains(target)) return;
     if (showPreview) {
       // Only the preview closes: a search box's own Esc would also clear the query.
       event.preventDefault();
@@ -259,13 +242,9 @@ export function SearchPage({
           )}
         </div>
         {showPreview && preview && (
-          <SearchPreview
-            key={`${preview.kind}:${preview.id}`}
-            target={preview}
-            title={previewTitle}
-            onOpen={openPreviewed}
-            onClose={() => onPreviewChange(undefined)}
-          />
+          <div ref={previewSection} className="flex min-h-0 min-w-0 flex-1">
+            <SearchPreview key={`${preview.kind}:${preview.id}`} target={preview} />
+          </div>
         )}
       </main>
     </SearchPreviewContext.Provider>

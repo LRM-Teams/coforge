@@ -8,10 +8,11 @@ import { DEV_BROWSER_USER } from "#src/server/auth/dev-skip-auth.server";
 
 /**
  * Previewing a result beside the list. On a wide screen a single click shows the result's
- * conversation next to the results, positioned at the message and without a composer; the list
- * stays, marking the previewed row, and the URL keeps the preview. Another click switches it,
- * Esc closes it, and a double click (or "Open conversation") opens the conversation itself. A
- * match previews its channel. On a phone a click opens the conversation directly.
+ * conversation next to the results, positioned at the message, with its own header lined up with
+ * the search header and its composer: a reply sent there lands in the conversation. The list
+ * stays, marking the previewed row, and the URL keeps the preview. Another click switches it, Esc
+ * outside the conversation closes it, and a double click opens the conversation itself. A match
+ * previews its channel. On a phone a click opens the conversation directly.
  *
  * Opt-in like the other browser E2Es: real local Web + `agent-browser`. Seeds are deterministic
  * and reset on every run. Screenshots are written under `.amp/e2e/search-preview/`.
@@ -132,7 +133,7 @@ test("a result previews beside the list and opens on a double click", async () =
     await mkdir(artifacts, { recursive: true });
     await browser("set", "viewport", "1440", "900");
 
-    // A single click previews the result beside the list, at the message, with no composer.
+    // A single click previews the result beside the list, at the message, with its composer.
     await browser("open", `${origin}/en/search?q=${encodeURIComponent(phrase)}`);
     await waitFor(`document.querySelector('${row(inA.id)}') !== null`);
     await browser("click", row(inA.id));
@@ -140,15 +141,46 @@ test("a result previews beside the list and opens on a double click", async () =
       `${param("open")} === "channel:${channelA}" && ${param("msg")} === "${inA.id}" && location.pathname === "/en/search"`,
     );
     await waitFor(`document.querySelector('${PREVIEW} li[data-message-id="${inA.id}"]') !== null`);
-    const preview = await evaluate<{ composer: boolean; listed: boolean; current: string | null }>(
+    await waitFor(`document.querySelector('${PREVIEW} textarea:not([disabled])') !== null`);
+    const preview = await evaluate<{
+      composer: boolean;
+      listed: boolean;
+      current: string | null;
+      headerBottoms: number[];
+    }>(
       `({
         composer: document.querySelector('${PREVIEW} textarea') !== null,
         listed: document.querySelector('${row(inB.id)}') !== null,
         current: document.querySelector('${row(inA.id)}').getAttribute("aria-current"),
+        // The search header and the conversation's header end on one line.
+        headerBottoms: [
+          document.querySelector("main header"),
+          document.querySelector('${PREVIEW} header'),
+        ].map((header) => Math.round(header.getBoundingClientRect().bottom)),
       })`,
     );
-    expect(preview).toEqual({ composer: false, listed: true, current: "true" });
+    expect(preview.composer).toBe(true);
+    expect(preview.listed).toBe(true);
+    expect(preview.current).toBe("true");
+    expect(preview.headerBottoms[1]).toBe(preview.headerBottoms[0]!);
     await browser("screenshot", join(artifacts, "preview.png"));
+
+    // A reply sent from the preview lands in the conversation, and the preview stays.
+    const reply = `reply from search ${Date.now()}`;
+    await browser("fill", `${PREVIEW} textarea`, reply);
+    await browser("press", "Enter");
+    await waitFor(
+      `[...document.querySelectorAll('${PREVIEW} li[data-message-id]')].some((item) => item.textContent.includes(${JSON.stringify(reply)}))`,
+    );
+    const saved = await db.message.findFirst({ where: { conversationId: channelA, body: reply } });
+    expect(saved).not.toBeNull();
+    expect(await evaluate<string>(`location.pathname`)).toBe("/en/search");
+    await browser("screenshot", join(artifacts, "replied.png"));
+
+    // Esc in the conversation (its composer) belongs to the conversation: the preview stays.
+    await browser("focus", `${PREVIEW} textarea`);
+    await browser("press", "Escape");
+    expect(await evaluate<string>(param("open"))).toBe(`channel:${channelA}`);
 
     // Another result switches the preview; a reload keeps it.
     await browser("click", row(inB.id));
@@ -157,18 +189,14 @@ test("a result previews beside the list and opens on a double click", async () =
     await browser("reload");
     await waitFor(`document.querySelector('${PREVIEW} li[data-message-id="${inB.id}"]') !== null`);
 
-    // Esc closes the preview and keeps the search.
+    // Esc from the search side closes the preview and keeps the search. (The preview's composer
+    // takes the caret when it opens, as a conversation does.)
+    await browser("focus", 'input[type="search"]');
     await browser("press", "Escape");
     await waitFor(`${param("open")} === "" && document.querySelector('${PREVIEW}') === null`);
     expect(await evaluate<string>(param("q"))).toBe(phrase);
 
-    // "Open conversation" in the preview, and a double click on a result, open it for real.
-    await browser("click", row(inA.id));
-    await waitFor(`document.querySelector('${PREVIEW}') !== null`);
-    await browser("click", `${PREVIEW} [aria-label="Open conversation"]`);
-    await waitFor(`location.pathname === "/en/messages/channels/${channelA}"`);
-    await browser("back");
-    await waitFor(`document.querySelector('${row(inB.id)}') !== null`);
+    // A double click on a result opens it for real, counted as one open.
     const usageKey = `coforge:search-usage:${workspaceId}:${DEV_BROWSER_USER.id}`;
     const opensOfB = () =>
       evaluate<number>(
@@ -221,8 +249,9 @@ test("a result previews beside the list and opens on a double click", async () =
     await browser("fill", 'input[type="search"]', phrase);
     await waitFor(`document.querySelector('${row(inA.id)}') !== null`);
     await browser("click", row(inA.id));
-    await waitFor(`document.querySelector('${PREVIEW}') !== null`);
-    await browser("click", `${PREVIEW} [aria-label="Open conversation"]`);
+    // The preview has landed on the message (its one-shot jump is consumed).
+    await waitFor(`document.querySelector('${PREVIEW}') !== null && ${param("message")} === ""`);
+    await browser("dblclick", row(inA.id));
     await waitFor(`location.pathname === "/en/messages/channels/${channelA}"`);
     await browser("back");
     await waitFor(

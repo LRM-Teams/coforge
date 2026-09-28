@@ -28,7 +28,9 @@ export function TabbedHeader({
           className,
         )}
       >
-        <div className="col-start-1 row-start-1 flex h-12 min-w-0 items-center gap-2 md:gap-3">
+        {/* The row plus this header's 1px rule is the 48px band, so it lines up with the page
+            header beside it. */}
+        <div className="col-start-1 row-start-1 flex h-[calc(--spacing(12)-1px)] min-w-0 items-center gap-2 md:gap-3">
           {identity}
         </div>
         {actions && (
