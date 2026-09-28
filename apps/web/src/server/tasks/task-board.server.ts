@@ -198,7 +198,7 @@ const CLAIM_REFUSAL = {
 const DUPLICATE_TASK_WINDOW_MS = 15 * 60 * 1000;
 
 function normalizeTaskTitle(title: string): string {
-  return title.trim().replace(/\s+/g, " ");
+  return title.trim().replace(/\s+/g, " ").toLowerCase();
 }
 
 /** What another member's hold on a Task leaves open. Illustrative, not a permission table. */
