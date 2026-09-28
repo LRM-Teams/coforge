@@ -78,7 +78,6 @@ export function OutboxMessageRow({
   composerShown,
   plainMentions,
   viewerHandle,
-  taskReferences,
   onOpenTask,
   onRetry,
   onEdit,
@@ -91,9 +90,7 @@ export function OutboxMessageRow({
   composerShown: boolean;
   plainMentions?: Map<string, ChipMention>;
   viewerHandle?: string;
-  /** The pending row renders the same body markup as a delivered one: a `task #N` reference
-   * keeps its chip (clickable, same popup) instead of degrading to plain text for the send. */
-  taskReferences?: ReadonlySet<number>;
+  /** Opens a task reference's detail popup, as on a delivered row (see `MessageBody`). */
   onOpenTask?: (number: number) => void;
   onRetry: () => void;
   onEdit: () => void;
@@ -133,7 +130,6 @@ export function OutboxMessageRow({
               body={entry.body}
               plainMentions={plainMentions}
               viewerHandle={viewerHandle}
-              taskReferences={taskReferences}
               onOpenTask={onOpenTask}
             />
           </div>

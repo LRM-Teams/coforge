@@ -1,20 +1,14 @@
-import { useMemo, type ComponentPropsWithoutRef, type KeyboardEvent } from "react";
+import { useMemo, type ComponentPropsWithoutRef } from "react";
 import { Link } from "@tanstack/react-router";
 import Markdown, { type Components, type ExtraProps, type Options } from "react-markdown";
 import rehypeSanitize from "rehype-sanitize";
 import type { Element } from "hast";
 
+import { chipControl } from "#src/lib/chip-control";
 import { MESSAGE_REMARK_PLUGINS, escapeLiteralHtml } from "#src/lib/message-syntax";
-import {
-  TASK_CHIP_LINK_CLASS,
-  mentionHandlesByToken,
-  rehypeReferenceChips,
-  type ChipMention,
-} from "./message-markdown";
+import { mentionHandlesByToken, rehypeReferenceChips, type ChipMention } from "./message-markdown";
 import type { MentionRef } from "./mention-text";
-import { TaskNumberBadge, statusLabel } from "#src/features/tasks/task-status-icon";
-import { cn } from "#src/lib/utils";
-import { useTaskReferenceStatuses } from "./task-reference-status";
+import { TaskReference } from "#src/features/tasks/task-reference";
 import "./message-markdown.css";
 
 /**
@@ -43,7 +37,6 @@ export function MessageBody({
   plainMentions,
   viewerHandle,
   onOpenAgentProfile,
-  taskReferences,
   onOpenTask,
   channelNames,
 }: {
@@ -57,10 +50,7 @@ export function MessageBody({
    * the conversation owns that slot; absent, Agent chips render as inert highlights (the
    * previous behavior), never dead controls. */
   onOpenAgentProfile?: (agentId: string) => void;
-  /** The conversation's own task numbers: a stored task reference naming one of them becomes a
-   * clickable chip; any other reads as the text `task #N`. */
-  taskReferences?: ReadonlySet<number>;
-  /** Opens a task-reference chip's detail popup. Absent, a reference stays a plain highlight. */
+  /** Opens a task reference's detail popup. Absent, a known Task's badge is not a control. */
   onOpenTask?: (number: number) => void;
   /** Every channel of the Workspace, id → current name (closed ones included), for a host that can
    * navigate: a stored channel reference whose id is listed becomes a link to that channel under
@@ -86,19 +76,18 @@ export function MessageBody({
                 mentions: handles,
                 viewerHandle,
                 plainMentions,
-                taskNumbers: taskReferences,
                 channelNames,
               },
             ],
           ]
         : [rehypeSanitize],
-    [hasReference, handles, viewerHandle, plainMentions, taskReferences, channelNames],
+    [hasReference, handles, viewerHandle, plainMentions, channelNames],
   );
   // The `span` override recognises the chips `rehypeReferenceChips` injects: an Agent mention chip
-  // (`data-mention-agent-id`) and a task-reference chip (`data-task-reference-number`) become
-  // accessible buttons, a channel-reference chip (`data-channel-id`) a link to the channel, and a
-  // thread-reference chip (`data-thread-root-id`) a link that opens the thread in its channel.
-  // Every other span passes through.
+  // (`data-mention-agent-id`) becomes an accessible button, a task reference
+  // (`data-task-reference-number`) its Task's badge (`TaskReference`), a channel-reference chip
+  // (`data-channel-id`) a link to the channel, and a thread-reference chip (`data-thread-root-id`) a
+  // link that opens the thread in its channel. Every other span passes through.
   const components = useMemo<Components>(
     () => ({ ...MARKDOWN_COMPONENTS, span: chipSpan(onOpenAgentProfile, onOpenTask) }),
     [onOpenAgentProfile, onOpenTask],
@@ -133,16 +122,14 @@ const MARKDOWN_COMPONENTS = {
 };
 
 /**
- * The `span` renderer. An Agent mention chip carries `data-mention-agent-id` and a task-reference
- * chip that names a conversation task carries `data-task-reference-number` (see
- * `message-markdown.ts`); when the matching handler is provided each becomes a keyboard- and
- * pointer-accessible control, and a task chip whose status is known
- * (`TaskReferenceStatusProvider`) shows as its `TaskNumberBadge`. A channel-reference chip
+ * The `span` renderer. An Agent mention chip carries `data-mention-agent-id` and becomes a
+ * keyboard- and pointer-accessible control when `onOpenAgentProfile` is provided. A task reference
+ * carries `data-task-reference-number` and renders as `TaskReference`. A channel-reference chip
  * carries `data-channel-id` and becomes a router link to that channel: it navigates, so it is a
- * real link (open in a new tab, copy the address) rather than a button. A thread-reference chip carries `data-thread-channel-id` and
- * `data-thread-root-id` and becomes a router link to that channel with the thread pane open
- * (`?threadRootId=`), the same URL state the thread opener writes. All other spans — including human mention chips and task chips
- * whose task is gone — render unchanged.
+ * real link (open in a new tab, copy the address) rather than a button. A thread-reference chip
+ * carries `data-thread-channel-id` and `data-thread-root-id` and becomes a router link to that
+ * channel with the thread pane open (`?threadRootId=`), the same URL state the thread opener
+ * writes. All other spans, human mention chips included, render unchanged.
  */
 function chipSpan(
   onOpenAgentProfile?: (agentId: string) => void,
@@ -155,7 +142,6 @@ function chipSpan(
     ...props
   }: ComponentPropsWithoutRef<"span"> & ExtraProps) {
     void node;
-    const taskStatuses = useTaskReferenceStatuses();
     // `data-*` attributes arrive on props via react-markdown's hast → props mapping.
     const channelId = (props as Record<string, unknown>)["data-channel-id"];
     if (typeof channelId === "string") {
@@ -193,42 +179,20 @@ function chipSpan(
         </Link>
       );
     }
-    const agentId = (props as Record<string, unknown>)["data-mention-agent-id"];
     const taskNumber = (props as Record<string, unknown>)["data-task-reference-number"];
-    const status = typeof taskNumber === "number" ? taskStatuses?.get(taskNumber) : undefined;
-    const openTask =
-      typeof taskNumber === "number" && onOpenTask ? () => onOpenTask(taskNumber) : undefined;
-    const open =
-      typeof agentId === "string" && onOpenAgentProfile
-        ? () => onOpenAgentProfile(agentId)
-        : openTask;
-    const control = open && {
-      role: "button",
-      tabIndex: 0,
-      onClick: open,
-      onKeyDown: (event: KeyboardEvent<HTMLSpanElement>) => {
-        if (event.key === "Enter" || event.key === " ") {
-          event.preventDefault();
-          open();
-        }
-      },
-    };
-    if (typeof taskNumber === "number" && status) {
-      // The badge carries the colour, so the chip keeps only its control affordance; the ring is
-      // decorative, so the status is spelled out in the chip's name.
-      const name = `task #${taskNumber}, ${statusLabel(status)}`;
+    if (typeof taskNumber === "number") {
       return (
-        <span
-          {...props}
-          {...control}
-          aria-label={name}
-          data-task-status={status}
-          className={cn("inline-block rounded-md align-middle", control && TASK_CHIP_LINK_CLASS)}
-        >
-          <TaskNumberBadge number={taskNumber} status={status} />
-        </span>
+        <TaskReference {...props} number={taskNumber} onOpenTask={onOpenTask}>
+          {children}
+        </TaskReference>
       );
     }
+    const agentId = (props as Record<string, unknown>)["data-mention-agent-id"];
+    const control = chipControl(
+      typeof agentId === "string" && onOpenAgentProfile
+        ? () => onOpenAgentProfile(agentId)
+        : undefined,
+    );
     return (
       <span {...props} {...control} className={className}>
         {children}

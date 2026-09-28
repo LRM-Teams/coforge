@@ -33,6 +33,12 @@ These rules apply to `src/features/conversations/`.
   `channel.updated.v1`, or the viewer leaving, muting or pinning it from the
   settings panel) re-reads only the
   channel list through `useRefreshSidebarChannels`.
+- A message row's Task data is read by the part that shows it, by id, as
+  Mattermost and Telegram Web do: the Task a message became (`MessageTask`)
+  and a body's task reference (`TaskReference`) each read one Task under
+  `ConversationIdProvider` (see `features/tasks/AGENTS.md`). Never pass rows a
+  render callback or a set built from the conversation's Task list: a change
+  to one Task would re-render every row.
 - TanStack DB collections are client-only: create them through the
   per-`QueryClient` factory after hydration, never at module scope, and keep
   `/messages` server-rendered.

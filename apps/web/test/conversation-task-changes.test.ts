@@ -2,6 +2,8 @@ import { expect, test } from "bun:test";
 import type { TaskView } from "@lrm/coforge-sdk/internal";
 import { QueryClient, QueryObserver } from "@tanstack/react-query";
 
+import { taskView } from "./fixtures/task-view";
+
 import {
   applyTaskChanges,
   createTaskChangeBurst,
@@ -14,32 +16,13 @@ import {
  * in one write, and says whether Done or Closed changed, so the Tasks tab reads its finished counts
  * and pages again only then — and never again for the echo of a change it already holds.
  */
-const task = (number: number, fields: Partial<TaskView> = {}): TaskView => ({
-  messageId: `message-${number}`,
-  conversationId: "conversation-1",
-  number,
-  title: `Task ${number}`,
-  status: "todo",
-  revision: 1,
-  owner: null,
-  creator: {
-    memberId: "member-creator",
-    kind: "user",
-    id: "user-creator",
-    name: "Creator",
-    handle: "creator",
-  },
-  createdAt: "2026-09-25T00:00:00.000Z",
-  updatedAt: "2026-09-25T00:00:00.000Z",
-  ...fields,
-});
 
 test("a burst applies every change in one list, newest copy winning", () => {
-  const current = [task(1), task(2)];
+  const current = [taskView(1), taskView(2)];
   const { tasks, finishedChanged } = applyTaskChanges(current, [
-    { tasks: [task(1, { status: "in_progress", revision: 2 })], deleted: [] },
-    { tasks: [task(1, { status: "in_review", revision: 3 }), task(3)], deleted: [] },
-    { tasks: [task(1, { status: "in_progress", revision: 2 })], deleted: ["message-2"] },
+    { tasks: [taskView(1, { status: "in_progress", revision: 2 })], deleted: [] },
+    { tasks: [taskView(1, { status: "in_review", revision: 3 }), taskView(3)], deleted: [] },
+    { tasks: [taskView(1, { status: "in_progress", revision: 2 })], deleted: ["message-2"] },
   ]);
   expect(tasks.map(({ number, status }) => [number, status])).toEqual([
     [1, "in_review"],
@@ -49,16 +32,16 @@ test("a burst applies every change in one list, newest copy winning", () => {
 });
 
 test("Done or Closed changed: a Task moved into or out of them, or a finished Task deleted", () => {
-  const current = [task(1), task(2, { status: "done" }), task(3, { status: "closed" })];
+  const current = [taskView(1), taskView(2, { status: "done" }), taskView(3, { status: "closed" })];
   const into = applyTaskChanges(current, [
-    { tasks: [task(1, { status: "done", revision: 2 })], deleted: [] },
+    { tasks: [taskView(1, { status: "done", revision: 2 })], deleted: [] },
   ]);
   const outOf = applyTaskChanges(current, [
-    { tasks: [task(2, { status: "todo", revision: 2 })], deleted: [] },
+    { tasks: [taskView(2, { status: "todo", revision: 2 })], deleted: [] },
   ]);
   const deleted = applyTaskChanges(current, [{ tasks: [], deleted: ["message-3"] }]);
   const newFinished = applyTaskChanges(current, [
-    { tasks: [task(4, { status: "closed" })], deleted: [] },
+    { tasks: [taskView(4, { status: "closed" })], deleted: [] },
   ]);
   expect([into, outOf, deleted, newFinished].map((result) => result.finishedChanged)).toEqual([
     true,
@@ -69,7 +52,7 @@ test("Done or Closed changed: a Task moved into or out of them, or a finished Ta
 });
 
 test("the echo of a change the list already holds changes nothing", () => {
-  const moved = task(1, { status: "done", revision: 2 });
+  const moved = taskView(1, { status: "done", revision: 2 });
   const { tasks, finishedChanged } = applyTaskChanges(
     [moved],
     [{ tasks: [moved], deleted: ["message-9"] }],
@@ -79,21 +62,21 @@ test("the echo of a change the list already holds changes nothing", () => {
 });
 
 test("an older copy never replaces a newer one", () => {
-  const current = [task(1, { status: "done", revision: 3 })];
+  const current = [taskView(1, { status: "done", revision: 3 })];
   const { tasks, finishedChanged } = applyTaskChanges(current, [
-    { tasks: [task(1, { status: "todo", revision: 2 })], deleted: [] },
+    { tasks: [taskView(1, { status: "todo", revision: 2 })], deleted: [] },
   ]);
   expect(tasks).toEqual(current);
   expect(finishedChanged).toBe(false);
 });
 
 test("a Task that leaves Done and comes back within one burst ends Done, and Done is read again", () => {
-  const current = [task(1, { status: "done", revision: 1 })];
+  const current = [taskView(1, { status: "done", revision: 1 })];
   const { tasks, finishedChanged } = applyTaskChanges(current, [
-    { tasks: [task(1, { status: "todo", revision: 2 })], deleted: [] },
-    { tasks: [task(1, { status: "done", revision: 3 })], deleted: [] },
+    { tasks: [taskView(1, { status: "todo", revision: 2 })], deleted: [] },
+    { tasks: [taskView(1, { status: "done", revision: 3 })], deleted: [] },
   ]);
-  expect(tasks).toEqual([task(1, { status: "done", revision: 3 })]);
+  expect(tasks).toEqual([taskView(1, { status: "done", revision: 3 })]);
   expect(finishedChanged).toBe(true);
 });
 
@@ -126,7 +109,7 @@ const announced = (
   number: number,
 ): TaskChanges & { conversationId: string } => ({
   conversationId,
-  tasks: [task(number, { conversationId })],
+  tasks: [taskView(number, { conversationId })],
   deleted: [],
 });
 
@@ -185,11 +168,11 @@ test("a change announced while the first list read is in flight reads the list a
   try {
     expect(answers).toHaveLength(1);
     await writeTaskChanges(queryClient, { list, finished }, [
-      { tasks: [task(1, { status: "in_progress", revision: 2 })], deleted: [] },
+      { tasks: [taskView(1, { status: "in_progress", revision: 2 })], deleted: [] },
     ]);
     expect(answers).toHaveLength(2);
-    answers[0]!([task(1)]);
-    answers[1]!([task(1, { status: "in_progress", revision: 2 })]);
+    answers[0]!([taskView(1)]);
+    answers[1]!([taskView(1, { status: "in_progress", revision: 2 })]);
     const read = await observer.refetch({ cancelRefetch: false });
     expect(read.data?.map(({ status }) => status)).toEqual(["in_progress"]);
   } finally {
@@ -218,7 +201,7 @@ test("a change before the first list read has answered reads Done and Closed aga
     await finishedObserver.refetch({ cancelRefetch: false });
     const before = finishedReads;
     await writeTaskChanges(queryClient, { list, finished }, [
-      { tasks: [task(1, { status: "done", revision: 2 })], deleted: [] },
+      { tasks: [taskView(1, { status: "done", revision: 2 })], deleted: [] },
     ]);
     await queryClient.getQueryCache().find({ queryKey: finished })?.promise;
     expect(finishedReads).toBe(before + 1);
@@ -233,7 +216,7 @@ test("a change to a list already read writes it in place and reads nothing again
   const queryClient = new QueryClient();
   const list = ["conversation", "tasks", "conversation-1"] as const;
   const finished = ["task", "finished", "workspace-1", "conversation-1"] as const;
-  queryClient.setQueryData(list, [task(1), task(2, { status: "done" })]);
+  queryClient.setQueryData(list, [taskView(1), taskView(2, { status: "done" })]);
   let finishedReads = 0;
   const observer = new QueryObserver(queryClient, {
     queryKey: finished,
@@ -243,7 +226,7 @@ test("a change to a list already read writes it in place and reads nothing again
   try {
     const before = finishedReads;
     await writeTaskChanges(queryClient, { list, finished }, [
-      { tasks: [task(1, { status: "in_progress", revision: 2 })], deleted: [] },
+      { tasks: [taskView(1, { status: "in_progress", revision: 2 })], deleted: [] },
     ]);
     expect(queryClient.getQueryData<TaskView[]>(list)?.map(({ status }) => status)).toEqual([
       "in_progress",

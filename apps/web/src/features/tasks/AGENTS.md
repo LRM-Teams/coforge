@@ -87,6 +87,10 @@ workspaceId]` Query its loader fills (`task-overview-collection.ts`,
   put number and source over the title with the owner avatar beside them.
   A task reference in a message body is `TaskNumberBadge`: `#N` on the
   status's Untitled UI colour badge with the same ring leading.
+- A message row's part reads its one Task through `useNumberedTask` /
+  `useMessageTask` (disabled observers of the conversation's list), never
+  from a list passed down. They never read the list: `useConversationTasks`
+  owns reading it and keeping it live.
 - Board columns can be hidden from their "···" menu, as Linear allows; hidden
   ones are listed last (`HiddenColumn`), stay drop targets, and show again when
   pressed. Every column shows by default; the choice is per device
