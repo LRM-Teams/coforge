@@ -63,12 +63,15 @@ These rules apply to `src/features/conversations/`.
   synchronization.
 - `conversation-host.tsx` is what a conversation reads from the page hosting
   it (Chat, the search preview): the viewer's open mode, the Workspace's
-  channels and the Saved list, a TanStack DB collection
-  (`saved-messages-collection.ts`) on the app's one `DbClient` (`DbProvider`
-  in `router.tsx`, read with `useDbClient`) that lives as long as the app
-  (`gcTime: Infinity`), so every host shares it. A host's
-  loader reads `savedMessagesQuery` into the Query cache; the collection starts
-  from it and follows it. The sidebar's unread badges stay Chat's own. Read it through
+  channels and the Saved list. A host's loader reads `savedMessagesQuery` into
+  the Query cache, which the server and hydrating render read. After hydration
+  the list is a TanStack DB collection (`saved-messages-collection.ts`) on the
+  app's one `DbClient` (`DbProvider` in `router.tsx`, read with `useDbClient`),
+  shared by every host; it starts from that cache and follows it. TanStack DB's
+  GC empties it (and its Query) once no page shows it; a host's loader reads
+  the list again on every visit, and the store stands back on that until the
+  collection has synced. Never materialize a
+  collection during a server render. The sidebar's unread badges stay Chat's own. Read it through
   `useSavedEntries`/`useIsMessageSaved` and write through the context's
   `save`/`unsave`; never a module-level collection or `createCollection`
   singleton, which would share state across SSR requests.

@@ -316,25 +316,25 @@ test("a result previews beside the list and opens on a double click", async () =
 
     // A message saved elsewhere meanwhile (another tab) shows saved when Chat is opened again: each
     // visit reads the Saved list afresh.
-    await browser("click", 'aside a[href="/en/tasks"]');
-    await waitFor(`location.pathname === "/en/tasks"`);
+    await browser("click", `aside a[href="${workspacePath}/tasks"]`);
+    await waitFor(`location.pathname === "${workspacePath}/tasks"`);
     await db.savedMessage.create({
       data: { messageId: inB.id, conversationId: channelB, workspaceId, memberId: memberB!.id },
     });
-    await browser("click", 'aside a[href="/en/messages"]');
-    await waitFor(`location.pathname.startsWith("/en/messages")`);
+    await browser("click", `aside a[href="${workspacePath}"]`);
+    await waitFor(`location.pathname.startsWith("${workspacePath}")`);
     await browser(
       "eval",
-      `document.querySelector('a[href="/en/messages/channels/${channelB}"]').click()`,
+      `document.querySelector('a[href="${workspacePath}/channel/${channelB}"]').click()`,
     );
-    await waitFor(`location.pathname === "/en/messages/channels/${channelB}"`);
+    await waitFor(`location.pathname === "${workspacePath}/channel/${channelB}"`);
     await waitFor(`${saveButton("main", "Remove from Saved")} !== null`);
     await browser("eval", `${saveButton("main", "Remove from Saved")}.click()`);
     await waitFor(`${saveButton("main", "Save message")} !== null`);
     await browser("back");
     await browser("back");
     await browser("back");
-    await waitFor(`location.pathname === "/en/search"`);
+    await waitFor(`location.pathname === "${workspacePath}/search"`);
 
     // A matching channel previews too, at its newest messages.
     await browser("open", `${origin}${workspacePath}/search?q=e2e-preview-a`);
