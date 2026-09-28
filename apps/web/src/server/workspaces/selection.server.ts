@@ -1,6 +1,9 @@
 import { getRequest, setResponseHeader } from "@tanstack/react-start/server";
 import type { PrismaClient } from "#src/generated/prisma/client";
 
+import { AppError } from "#src/lib/app-error";
+import { PrismaWorkspaceAccess } from "#src/server/db/repositories/setup.repositories.server";
+import { workspaceSlugFromPath } from "#src/features/workspaces/workspace-url";
 import { requireExistingWorkspaceId } from "./enrollment.server";
 
 const WORKSPACE_COOKIE = "coforge_workspace";
@@ -38,34 +41,57 @@ export function writePreferredWorkspaceSlug(slug: string): void {
   setResponseHeader("Set-Cookie", serializeWorkspaceCookie(slug, secure));
 }
 
-const selectedWorkspaceByRequest = new WeakMap<Request, Map<string, Promise<string>>>();
+const workspaceIdByRequest = new WeakMap<Request, Map<string, Promise<string>>>();
 
 /**
- * Runs `load` once per (request, userId) and shares the result with later
- * callers on the same request. A rejected load is forgotten so a retry can run.
+ * Runs `load` once per (request, key) and shares the result with later callers on the same
+ * request. A rejected load is forgotten so a retry can run.
  */
 export function memoizeForRequest(
   request: Request,
-  userId: string,
+  key: string,
   load: () => Promise<string>,
 ): Promise<string> {
-  let byUser = selectedWorkspaceByRequest.get(request);
-  if (!byUser) selectedWorkspaceByRequest.set(request, (byUser = new Map()));
-  const cached = byUser.get(userId);
+  let byKey = workspaceIdByRequest.get(request);
+  if (!byKey) workspaceIdByRequest.set(request, (byKey = new Map()));
+  const cached = byKey.get(key);
   if (cached) return cached;
   const pending = load();
-  byUser.set(userId, pending);
-  pending.catch(() => byUser.delete(userId));
+  byKey.set(key, pending);
+  pending.catch(() => byKey.delete(key));
   return pending;
 }
 
+/** The Workspace a URL names, when the User is a member; NOT_FOUND otherwise, never another. */
+export async function requireWorkspaceIdForSlug(
+  db: PrismaClient,
+  userId: string,
+  slug: string,
+): Promise<string> {
+  const workspace = await new PrismaWorkspaceAccess(db).findAccessibleBySlug(slug, { userId });
+  if (!workspace) throw new AppError("NOT_FOUND");
+  return workspace.id;
+}
+
 /**
- * The caller's selected Workspace for this request. During SSR one page load
- * calls many server functions against the same Request, so the lookup runs
- * once per Request and User; a browser call is one Request and pays once.
+ * The caller's Workspace for this request: the one the page URL names (`/w/<slug>`), which must
+ * be one of the caller's, or else the remembered Workspace for a page outside `/w/<slug>`. A
+ * browser call sends its page's slug (`sentSlug`, only a claim until the membership check); during
+ * SSR it is read from the page request. One page load calls many server functions against the
+ * same Request, so each lookup runs once per Request, User and Workspace named.
  */
-export function requireWorkspaceIdForRequest(db: PrismaClient, userId: string): Promise<string> {
-  return memoizeForRequest(getRequest(), userId, () =>
+export function requireWorkspaceIdForRequest(
+  db: PrismaClient,
+  userId: string,
+  sentSlug?: string,
+): Promise<string> {
+  const request = getRequest();
+  const urlSlug = sentSlug ?? workspaceSlugFromPath(new URL(request.url).pathname);
+  if (urlSlug)
+    return memoizeForRequest(request, `url:${userId}:${urlSlug}`, () =>
+      requireWorkspaceIdForSlug(db, userId, urlSlug),
+    );
+  return memoizeForRequest(request, `remembered:${userId}`, () =>
     requireExistingWorkspaceId(db, userId, preferredWorkspaceSlugFromRequest()),
   );
 }
