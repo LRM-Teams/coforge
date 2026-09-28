@@ -5,8 +5,16 @@ import rehypeSanitize from "rehype-sanitize";
 import type { Element } from "hast";
 
 import { MESSAGE_REMARK_PLUGINS, escapeLiteralHtml } from "#src/lib/message-syntax";
-import { mentionHandlesByToken, rehypeReferenceChips, type ChipMention } from "./message-markdown";
+import {
+  TASK_CHIP_LINK_CLASS,
+  mentionHandlesByToken,
+  rehypeReferenceChips,
+  type ChipMention,
+} from "./message-markdown";
 import type { MentionRef } from "./mention-text";
+import { TaskNumberBadge, statusLabel } from "#src/features/tasks/task-status-icon";
+import { cn } from "#src/lib/utils";
+import { useTaskReferenceStatuses } from "./task-reference-status";
 import "./message-markdown.css";
 
 /**
@@ -128,9 +136,10 @@ const MARKDOWN_COMPONENTS = {
  * The `span` renderer. An Agent mention chip carries `data-mention-agent-id` and a task-reference
  * chip that names a conversation task carries `data-task-reference-number` (see
  * `message-markdown.ts`); when the matching handler is provided each becomes a keyboard- and
- * pointer-accessible control. A channel-reference chip carries `data-channel-id` and becomes a
- * router link to that channel: it navigates, so it is a real link (open in a new tab, copy the
- * address) rather than a button. A thread-reference chip carries `data-thread-channel-id` and
+ * pointer-accessible control, and a task chip whose status is known
+ * (`TaskReferenceStatusProvider`) shows as its `TaskNumberBadge`. A channel-reference chip
+ * carries `data-channel-id` and becomes a router link to that channel: it navigates, so it is a
+ * real link (open in a new tab, copy the address) rather than a button. A thread-reference chip carries `data-thread-channel-id` and
  * `data-thread-root-id` and becomes a router link to that channel with the thread pane open
  * (`?threadRootId=`), the same URL state the thread opener writes. All other spans — including human mention chips and task chips
  * whose task is gone — render unchanged.
@@ -146,6 +155,7 @@ function chipSpan(
     ...props
   }: ComponentPropsWithoutRef<"span"> & ExtraProps) {
     void node;
+    const taskStatuses = useTaskReferenceStatuses();
     // `data-*` attributes arrive on props via react-markdown's hast → props mapping.
     const channelId = (props as Record<string, unknown>)["data-channel-id"];
     if (typeof channelId === "string") {
@@ -185,33 +195,42 @@ function chipSpan(
     }
     const agentId = (props as Record<string, unknown>)["data-mention-agent-id"];
     const taskNumber = (props as Record<string, unknown>)["data-task-reference-number"];
+    const status = typeof taskNumber === "number" ? taskStatuses?.get(taskNumber) : undefined;
     const openTask =
       typeof taskNumber === "number" && onOpenTask ? () => onOpenTask(taskNumber) : undefined;
     const open =
       typeof agentId === "string" && onOpenAgentProfile
         ? () => onOpenAgentProfile(agentId)
         : openTask;
-    if (open) {
+    const control = open && {
+      role: "button",
+      tabIndex: 0,
+      onClick: open,
+      onKeyDown: (event: KeyboardEvent<HTMLSpanElement>) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          open();
+        }
+      },
+    };
+    if (typeof taskNumber === "number" && status) {
+      // The badge carries the colour, so the chip keeps only its control affordance; the ring is
+      // decorative, so the status is spelled out in the chip's name.
+      const name = `task #${taskNumber}, ${statusLabel(status)}`;
       return (
         <span
           {...props}
-          className={className}
-          role="button"
-          tabIndex={0}
-          onClick={open}
-          onKeyDown={(event: KeyboardEvent<HTMLSpanElement>) => {
-            if (event.key === "Enter" || event.key === " ") {
-              event.preventDefault();
-              open();
-            }
-          }}
+          {...control}
+          aria-label={name}
+          data-task-status={status}
+          className={cn("inline-block rounded-md align-middle", control && TASK_CHIP_LINK_CLASS)}
         >
-          {children}
+          <TaskNumberBadge number={taskNumber} status={status} />
         </span>
       );
     }
     return (
-      <span {...props} className={className}>
+      <span {...props} {...control} className={className}>
         {children}
       </span>
     );

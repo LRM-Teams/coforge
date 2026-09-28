@@ -30,6 +30,7 @@ import { groupRepliesByRoot } from "./conversation-messages";
 import { ThreadRootState, type ThreadRootLoad } from "./thread-root-state";
 import { conversationLayoutStorage } from "./layout-storage";
 import { ConversationPending } from "./conversation-pending";
+import { TaskReferenceStatusProvider } from "./task-reference-status";
 import { resolveConversationThreadRoot } from "./conversation-thread-search";
 import type { DirectConversationView, ThreadedConversationProps } from "./conversation-types";
 import type { ChannelSuggestion } from "./reference-completion";
@@ -42,7 +43,9 @@ export function ThreadedConversation(props: ThreadedConversationProps) {
 
   return (
     <ClientOnly fallback={props.taskPopup ? null : <ConversationPending />}>
-      <ThreadedConversationContent {...props} />
+      <TaskReferenceStatusProvider tasks={props.tasks}>
+        <ThreadedConversationContent {...props} />
+      </TaskReferenceStatusProvider>
     </ClientOnly>
   );
 }
