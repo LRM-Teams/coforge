@@ -34,6 +34,8 @@ import {
 } from "./channels.functions";
 import { loadActionCardStates } from "./action-cards.functions";
 import { channelMembersQueryKey } from "./conversation-query-keys";
+import { savedMessagesQueryKey } from "./saved-messages-collection";
+import { listSavedMessages } from "./saved-messages.functions";
 import type { ActionCardView } from "./action-card";
 import { createReactionToggler, type ReactionSummary } from "./message-reactions";
 
@@ -115,6 +117,14 @@ export const conversationAroundQuery = (conversationId: string, messageId: strin
     queryKey: ["conversation", "around", conversationId, messageId],
     queryFn: () => loadConversationAround({ data: { conversationId, messageId } }),
     staleTime: 0,
+  });
+
+/** The viewer's Saved list, the Query the Saved collection (`saved-messages-collection.ts`) syncs
+ * from: a host's loader reads it into the cache, and the collection starts from what is there. */
+export const savedMessagesQuery = (workspaceId: string) =>
+  queryOptions({
+    queryKey: savedMessagesQueryKey(workspaceId),
+    queryFn: () => listSavedMessages(),
   });
 
 /** Every channel of the Workspace by id, closed ones included — what a body's channel links and

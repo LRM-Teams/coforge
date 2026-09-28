@@ -71,7 +71,7 @@ export function useMarkConversationSeen(): (
 
 /** Keep both panels mounted so returning to the list preserves scroll and drafts. */
 export function ConversationNavigation({ children }: { children: ReactNode }) {
-  const { projects, saved, channelNames } = messagesRoute.useLoaderData();
+  const { projects, channelNames } = messagesRoute.useLoaderData();
   const { channels, directs, viewerId, readAt } = useSidebarLists();
   const agents = useLiveAgents();
   const workspaceId = useCurrentWorkspaceId();
@@ -173,7 +173,7 @@ export function ConversationNavigation({ children }: { children: ReactNode }) {
         detailVisible: desktop || !showList,
       }}
     >
-      <ConversationHostProvider saved={saved} channels={channelNames}>
+      <ConversationHostProvider channels={channelNames}>
         <UnreadContext value={controls}>
           <main className="flex h-svh min-w-0 flex-col bg-primary lg:flex-row">
             <section

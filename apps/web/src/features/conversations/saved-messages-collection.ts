@@ -34,8 +34,8 @@ export function savedMessagesCollection(
   api: SavedMessagesApi,
 ) {
   const id = `saved-messages:${workspaceId}`;
-  return collectionOptions(id, (client) =>
-    queryCollectionOptions<SavedEntry>({
+  return collectionOptions(id, (client) => ({
+    ...queryCollectionOptions<SavedEntry>({
       id,
       queryKey: savedMessagesQueryKey(workspaceId),
       queryFn: () => api.list(),
@@ -62,7 +62,11 @@ export function savedMessagesCollection(
         );
       },
     }),
-  );
+    // The list lives as long as the app's one DbClient (TanStack DB's default drops a collection's
+    // rows 5 minutes after its last subscriber, and the DbClient would then hand the emptied
+    // collection to the next page). It is one small list per Workspace.
+    gcTime: Number.POSITIVE_INFINITY,
+  }));
 }
 
 export type SavedMessagesCollection = Collection<SavedEntry, string | number>;

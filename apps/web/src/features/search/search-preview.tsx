@@ -6,7 +6,7 @@ import { Skeleton } from "#src/components/ui/skeleton";
 import { useCurrentWorkspaceId } from "#src/features/agents/workspace-agents-realtime";
 import { pickConversationPageSearch } from "#src/features/conversations/conversation-page-search";
 import { ConversationHostProvider } from "#src/features/conversations/conversation-host";
-import { savedMessagesQueryKey } from "#src/features/conversations/saved-messages-collection";
+import { savedMessagesQuery } from "#src/features/conversations/conversation-queries";
 import { listSavedMessages } from "#src/features/conversations/saved-messages.functions";
 import { ConversationPage } from "#src/features/conversations/conversation-page";
 import { m } from "#src/paraglide/messages";
@@ -76,17 +76,17 @@ function PreviewPage({ target }: { target: SearchPreviewTarget }) {
     select: (directory) => directory.channels,
   }).data;
   // The viewer's Saved stars, as Chat shows them; a failed read leaves none, as in Chat.
-  const saved = useSuspenseQuery({
-    queryKey: savedMessagesQueryKey(workspaceId),
+  useSuspenseQuery({
+    ...savedMessagesQuery(workspaceId),
     queryFn: () => listSavedMessages().catch(() => []),
-  }).data;
+  });
   // Only the page's own fields, shared structurally: typing a query does not re-render the page.
   const search = searchRoute.useSearch({
     select: pickConversationPageSearch,
     structuralSharing: true,
   });
   return (
-    <ConversationHostProvider saved={saved} channels={channels}>
+    <ConversationHostProvider channels={channels}>
       <ConversationPage
         target={{ kind: target.kind, id: target.id }}
         search={search}
