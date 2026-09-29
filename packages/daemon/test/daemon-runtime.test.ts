@@ -104,18 +104,31 @@ const emptyCodeAgentDiscovery = {
 
 // macOS tmpdir lives under /var, a symlink; the state store rejects linked ancestors.
 const tempRoot = realpathSync(tmpdir());
+/** This process's own root for the Agents' CLI temporary state (see `cli-temp-state.preload.ts`).
+ * Without it the stores fall back to the machine-wide `tmpdir()` root, which this file clears
+ * before every test, so it refuses to run rather than delete another process's drafts. */
+function cliTempStateRoot(
+  variable: "COFORGE_CLI_CONSUMED_SEQ_STATE_DIR" | "COFORGE_CLI_DRAFT_STATE_DIR",
+) {
+  const root = process.env[variable];
+  if (!root) throw new Error(`${variable} is unset: run these tests from packages/daemon`);
+  return root;
+}
+const userDirectoryName = encodeURIComponent(
+  String(process.geteuid?.() ?? userInfo().username),
+).replaceAll(".", "%2E");
 /** Where the daemon's consumed cursor lands when a test passes no state directory: Raft's temporary
  * root (`SLOCK_CLI_CONSUMED_SEQ_STATE_DIR ?? tmpdir()`), under CoForge's own directory name. */
 const CONSUMED_SEQ_ROOT = join(
-  tmpdir(),
-  `coforge-cli-consumed-seq-${encodeURIComponent(String(process.geteuid?.() ?? userInfo().username)).replaceAll(".", "%2E")}`,
+  cliTempStateRoot("COFORGE_CLI_CONSUMED_SEQ_STATE_DIR"),
+  `coforge-cli-consumed-seq-${userDirectoryName}`,
 );
 /** Where the daemon's per-Agent send drafts land in tests: Raft's temporary root
  * (`COFORGE_CLI_DRAFT_STATE_DIR ?? tmpdir()`), shared by every runtime in this file, so each test
  * starts without another test's draft. */
 const DRAFT_ROOT = join(
-  process.env.COFORGE_CLI_DRAFT_STATE_DIR ?? tmpdir(),
-  `coforge-cli-attested-send-${encodeURIComponent(String(process.geteuid?.() ?? userInfo().username)).replaceAll(".", "%2E")}`,
+  cliTempStateRoot("COFORGE_CLI_DRAFT_STATE_DIR"),
+  `coforge-cli-attested-send-${userDirectoryName}`,
 );
 const workspaceRoot = join(tempRoot, `coforge-daemon-runtime-${crypto.randomUUID()}`);
 const connection: WorkspaceConfig = {
@@ -134,7 +147,7 @@ const config: AgentRuntimeConfig = {
 };
 
 // The daemon's consumed cursor is durable now (Raft's `consumed-seqs.json`), and its home is the
-// temporary state root every runtime in this file shares by default. Left alone, one test's reviewed
+// temporary state root every runtime in this process shares by default. Left alone, one test's reviewed
 // boundary would reach the next and suppress a delivery its Agent was never shown — correct in
 // production, wrong here. Every test starts from a clean cursor, exactly as it already starts from a
 // fresh runtime.
