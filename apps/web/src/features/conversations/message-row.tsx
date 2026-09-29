@@ -25,6 +25,8 @@ import {
   ModalOverlay,
 } from "#src/components/application/modals/modal";
 import { AgentDisplayAvatar } from "#src/features/agents/agent-activity-avatar";
+import { AgentHoverCard } from "#src/features/agents/agent-hover-card";
+import type { OpenAgentProfile } from "#src/features/agents/profile-panel/open-agent-profile";
 import { useLiveAgentDisplay } from "#src/features/agents/workspace-agents-realtime";
 import { AgentModelLabel } from "#src/features/agents/agent-model-label";
 import { avatarInitial, avatarToneClassName } from "#src/lib/avatar-tone";
@@ -580,9 +582,10 @@ export const MessageRow = memo(function MessageRow({
   /** Saves/unsaves this message for the viewer (#127): the conversation owns the write, the
    * Chat page's Saved context supplies `saved`. Absent, the row offers no save action. */
   onToggleSave?: (messageId: string, saved: boolean) => Promise<void>;
-  /** Opens the Agent profile panel; present only where the conversation owns that slot
-   * (`features/agents/profile-panel/`'s `openAgentProfile`). Absent, the avatar/name render inert. */
-  onOpenAgentProfile?: (agentId: string) => void;
+  /** Opens the Agent profile panel, on a given tab when one is named; present only where the
+   * conversation owns that slot (`features/agents/profile-panel/`'s `openAgentProfile`). Absent, the
+   * avatar/name render inert and the avatar has no hover card. */
+  onOpenAgentProfile?: OpenAgentProfile;
   /** The viewing user's handle; a mention of it renders with the stronger "me" chip. */
   viewerHandle?: string;
   /** The conversation's member directory as handle → chip, so a plain `@handle` in the body
@@ -847,16 +850,15 @@ export const MessageRow = memo(function MessageRow({
             >
               {clockLabel(message.createdAt, dateLocale, timeFormat)}
             </time>
-          ) : openableAgentId ? (
-            <Button
-              color="tertiary"
-              noTextPadding
-              aria-label={m.agent_open_profile({ name: message.senderName })}
-              onPress={() => onOpenAgentProfile?.(openableAgentId)}
-              className="h-auto w-auto min-w-0 rounded-full p-0 hover:bg-transparent"
-            >
-              {avatar}
-            </Button>
+          ) : openableAgentId && onOpenAgentProfile ? (
+            <AgentHoverCard
+              agentId={openableAgentId}
+              name={message.senderName}
+              handle={message.senderHandle}
+              src={message.senderAvatarUrl}
+              trigger={avatar}
+              onOpenProfile={onOpenAgentProfile}
+            />
           ) : (
             avatar
           )}

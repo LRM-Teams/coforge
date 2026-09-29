@@ -56,14 +56,6 @@ export class AgentActivityRepository {
     });
     const visibleAgentIds = visibleAgents.map((agent) => agent.id);
     if (visibleAgentIds.length === 0) return [];
-    // Excluded from the popover's top-5 selection only: tool_end,
-    // thinking_end and compaction_finished are ordinary, persisted status rows in the Agent
-    // detail Activity feed (AgentActivityRepository.list), but they occur once per tool call
-    // or thinking phase and would crowd out genuinely noteworthy events in this short list.
-    const excludedTool = AGENT_ACTIVITY_DETAIL_KIND.TOOL_END;
-    const excludedThinking = AGENT_ACTIVITY_DETAIL_KIND.THINKING_END;
-    const excludedCompaction = AGENT_ACTIVITY_DETAIL_KIND.COMPACTION_FINISHED;
-    const excludedReview = AGENT_ACTIVITY_DETAIL_KIND.REVIEW_FINISHED;
     const rows = await this.db.$queryRaw<CompactActivityRow[]>`
       WITH authorized_agents AS (
         SELECT agent."id"
@@ -75,7 +67,7 @@ export class AgentActivityRepository {
           AND membership."userId" = ${userId}::uuid
           AND agent."id" = ANY(${visibleAgentIds}::uuid[])
       ),
-      -- Each Agent's five newest shown rows, read from the head of its
+      -- Each Agent's five newest rows, read from the head of its
       -- (workspaceId, agentId, occurredAt DESC) index instead of ranking its whole history.
       recent AS (
         SELECT
@@ -91,7 +83,6 @@ export class AgentActivityRepository {
           FROM "agent_activities" AS activity
           WHERE activity."workspaceId" = ${workspaceId}::uuid
             AND activity."agentId" = agent."id"
-            AND activity."detailKind" NOT IN (${excludedTool}, ${excludedThinking}, ${excludedCompaction}, ${excludedReview})
           ORDER BY activity."occurredAt" DESC, activity."createdAt" DESC, activity."id" DESC
           LIMIT 5
         ) AS recent
@@ -127,7 +118,6 @@ export class AgentActivityRepository {
           WHERE activity."workspaceId" = ${workspaceId}::uuid
             AND activity."agentId" = positioned."agentId"
             AND activity."launchId" = positioned."launchId"
-            AND activity."detailKind" NOT IN (${excludedTool}, ${excludedThinking}, ${excludedCompaction}, ${excludedReview})
           ORDER BY activity."clientSeq" DESC
           OFFSET positioned.launch_position - 1
           LIMIT 1

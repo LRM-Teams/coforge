@@ -37,19 +37,28 @@ export type ActivityRow = {
  * still comes from the ordinary activity-kind classification above (`activityKindForObservation`
  * on the server puts all three under "working", so the primary label reads "Working" the same as
  * any other busy frame). Current daemons send their own secondary text in `detail` ("Tool
- * finished", "Thinking finished"); this map is only the fallback wording for an empty `detail`
- * (older daemons, and rows stored before the daemon started sending text) — see the `detail ||
- * STATUS_SECONDARY_LABEL[kind]` use below. `runtime_progress` has no entry here — it stays a
- * content-free liveness filler, never persisted or shown in the timeline (see
- * POPOVER_EXCLUDED_DETAIL_KINDS in agent-activity.ts), so falling through to its empty raw
+ * finished", "Thinking finished"); this map's `label` is only the fallback wording for an empty
+ * `detail` (older daemons, and rows stored before the daemon started sending text), and its
+ * `recentTone` the dot the recent-activity list gives the row when it differs from the frame's own
+ * (a finished compaction reads as the Agent settling back, not another busy step). `runtime_progress` has no entry here — it stays a
+ * content-free liveness filler, never persisted or shown in the timeline (`mergeAgentActivity`
+ * drops it), so falling through to its empty raw
  * `detail` below (no secondary text at all) is correct for it too.
  */
-const STATUS_SECONDARY_LABEL: Readonly<Record<string, string>> = {
-  [AGENT_ACTIVITY_DETAIL_KIND.TOOL_END]: "Tool finished",
-  [AGENT_ACTIVITY_DETAIL_KIND.THINKING_END]: "Thinking finished",
-  [AGENT_ACTIVITY_DETAIL_KIND.COMPACTION_FINISHED]: "Compaction finished",
-  [AGENT_ACTIVITY_DETAIL_KIND.REVIEW_FINISHED]: "Review finished",
+const FINISHED_STATUS: Readonly<Record<string, { label: string; recentTone?: Tone }>> = {
+  [AGENT_ACTIVITY_DETAIL_KIND.TOOL_END]: { label: "Tool finished" },
+  [AGENT_ACTIVITY_DETAIL_KIND.THINKING_END]: { label: "Thinking finished" },
+  [AGENT_ACTIVITY_DETAIL_KIND.COMPACTION_FINISHED]: {
+    label: "Compaction finished",
+    recentTone: "idle",
+  },
+  [AGENT_ACTIVITY_DETAIL_KIND.REVIEW_FINISHED]: { label: "Review finished" },
 };
+
+/** Working and thinking are the busy tones: their dots pulse. */
+export function isBusyTone(tone: Tone): boolean {
+  return tone === "working" || tone === "thinking";
+}
 
 /** One atom of a presented activity frame: 0 or 1 visible row, plus (for text/thinking
  * atoms only) a `mergeGroup` naming the contiguous statement it belongs to. A hidden
@@ -193,6 +202,10 @@ function activityAtoms(observation: ActivityObservation): ActivityAtom[] {
                         : tone === "offline"
                           ? "Stopped"
                           : "Activity";
+  // Completion rows prefer the daemon's own detail ("Tool finished") and fall back to
+  // FINISHED_STATUS for frames reported or stored with an empty one.
+  const finished = FINISHED_STATUS[kind];
+  const statusSecondary = finished ? detail || finished.label : undefined;
   const recentLabel =
     tone === "working"
       ? starting
@@ -207,7 +220,7 @@ function activityAtoms(observation: ActivityObservation): ActivityAtom[] {
                 ? "Review still running…"
                 : stalledRecovery
                   ? "Restarting stalled provider…"
-                  : detail || "Working…"
+                  : (statusSecondary ?? (detail || "Working…"))
       : tone === "thinking"
         ? "Thinking…"
         : tone === "idle"
@@ -223,10 +236,6 @@ function activityAtoms(observation: ActivityObservation): ActivityAtom[] {
                   ? `Error: ${detail}`
                   : "Error"
               : detail || label;
-  // Completion rows prefer the daemon's own detail ("Tool finished") and fall back to
-  // STATUS_SECONDARY_LABEL for frames reported or stored with an empty one.
-  const statusSecondary =
-    kind in STATUS_SECONDARY_LABEL ? detail || STATUS_SECONDARY_LABEL[kind] : undefined;
   const secondary =
     statusSecondary ?? (starting || (tone === "offline" && detail === "Stopped") ? "" : detail);
   return [
@@ -236,10 +245,10 @@ function activityAtoms(observation: ActivityObservation): ActivityAtom[] {
         // A detail that only repeats the label ("Idle", "Compacting context") adds nothing.
         detail: secondary.toLowerCase() === label.toLowerCase() ? "" : secondary,
         recentLabel,
-        currentLabel: tone === "working" || tone === "thinking" ? recentLabel : null,
+        currentLabel: isBusyTone(tone) ? recentLabel : null,
         tone,
-        recentTone: tone,
-        pulse: tone === "working" || tone === "thinking",
+        recentTone: finished?.recentTone ?? tone,
+        pulse: isBusyTone(tone),
         monospace: false,
         expandable: false,
       },

@@ -121,7 +121,7 @@ test("compact activity history preserves launch sequence across clock rollback a
   }
 });
 
-test("compact activity history reads the five newest shown rows past hidden kinds and older launches", async () => {
+test("compact activity history reads the five newest rows, finished frames included, from the newest launch", async () => {
   const db = testDatabase();
   const fixture = crypto.randomUUID();
   const member = await db.user.create({ data: { username: `activity-deep-${fixture}` } });
@@ -146,8 +146,8 @@ test("compact activity history reads the five newest shown rows past hidden kind
         runtimeConfig: {},
       },
     });
-    // Three launches of 40 rows each, every other row a kind the popover hides, and the newest
-    // rows of all hidden: the five shown rows sit behind them, and nothing older may surface.
+    // Three launches of 40 rows each, the newest ones "finished" frames: the recent list shows
+    // them like any other row, and nothing from an older launch surfaces.
     const kinds = ["tool_started", "tool_end", "thinking_started", "thinking_end"];
     await db.agentActivity.createMany({
       data: Array.from({ length: 120 }, (_, index) => ({
@@ -172,11 +172,11 @@ test("compact activity history reads the five newest shown rows past hidden kind
         detailKind,
       ]),
     ).toEqual([
-      ["launch-2", 35, "thinking_started"],
-      ["launch-2", 33, "tool_started"],
-      ["launch-2", 31, "thinking_started"],
-      ["launch-2", 29, "tool_started"],
-      ["launch-2", 27, "thinking_started"],
+      ["launch-2", 40, "compaction_finished"],
+      ["launch-2", 39, "compaction_finished"],
+      ["launch-2", 38, "compaction_finished"],
+      ["launch-2", 37, "compaction_finished"],
+      ["launch-2", 36, "thinking_end"],
     ]);
   } finally {
     await db.workspace.deleteMany({ where: { id: workspace.id } });

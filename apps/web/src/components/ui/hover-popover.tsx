@@ -1,5 +1,11 @@
-import type { ReactNode } from "react";
-import { Button, Popover, PreviewTrigger } from "react-aria-components";
+import { useContext, type ReactNode } from "react";
+import {
+  Button,
+  OverlayTriggerStateContext,
+  Popover,
+  PreviewTrigger,
+  type ButtonProps,
+} from "react-aria-components";
 
 import { cn } from "#src/lib/utils";
 
@@ -16,7 +22,8 @@ import { cn } from "#src/lib/utils";
 // wiring on the trigger.
 //
 // It never binds a press, so the trigger keeps its own: the Agent avatar opens the profile
-// panel on a press while its peek stays a peek.
+// panel on a press. That press also closes the peek, which would otherwise stay over the page the
+// press just changed until the pointer leaves.
 export function HoverPopover({
   label,
   trigger,
@@ -33,7 +40,7 @@ export function HoverPopover({
   className?: string;
   children: ReactNode;
   onOpen?: () => void;
-  /** The trigger's own action for a press (pointer or keyboard), independent of the peek. */
+  /** The trigger's own action for a press (pointer or keyboard); the press also closes the peek. */
   onPress?: () => void;
   working?: boolean;
 }) {
@@ -47,14 +54,14 @@ export function HoverPopover({
         if (isOpen) onOpen?.();
       }}
     >
-      <Button
+      <PreviewTriggerButton
         aria-label={label}
         data-working={working}
         className={triggerClassName}
         onPress={onPress}
       >
         {trigger}
-      </Button>
+      </PreviewTriggerButton>
       <Popover
         placement="bottom start"
         offset={12}
@@ -69,4 +76,30 @@ export function HoverPopover({
       </Popover>
     </PreviewTrigger>
   );
+}
+
+/** The trigger, inside `PreviewTrigger` so it can reach the peek's open state: `PreviewTrigger`
+ * provides it through `OverlayTriggerStateContext`, the context React Aria's own overlay triggers
+ * share with their content. */
+function PreviewTriggerButton({ onPress, ...props }: ButtonProps) {
+  const closePreview = useClosePreview();
+  return (
+    <Button
+      {...props}
+      onPress={
+        onPress &&
+        ((event) => {
+          closePreview();
+          onPress(event);
+        })
+      }
+    />
+  );
+}
+
+/** Closes the peek the calling content sits in; for an action inside the popover that moves the
+ * reader somewhere else (the Agent card's "Recent activity" link opens the profile panel). */
+export function useClosePreview(): () => void {
+  const preview = useContext(OverlayTriggerStateContext);
+  return () => preview?.close();
 }

@@ -26,6 +26,7 @@ import {
 import type { ChannelSuggestion } from "./reference-completion";
 import { m } from "#src/paraglide/messages";
 import type { AgentProfileTab } from "#src/features/agents/profile-panel/profile-panel-search";
+import type { OpenAgentProfile } from "#src/features/agents/profile-panel/open-agent-profile";
 import { useWorkspaceSlug } from "#src/features/workspaces/workspace-route";
 
 export type ChannelConversationView = Omit<DirectConversationView, "agent" | "messages"> & {
@@ -209,8 +210,9 @@ export function ChannelConversation({
   onToggleReaction?: (messageId: string, emoji: string, active: boolean) => Promise<void>;
   onShowTasks?: () => void;
   onShowFiles?: () => void;
-  /** Opens the Agent profile panel from an Agent sender's avatar/name in the message list. */
-  onOpenAgentProfile?: (agentId: string) => void;
+  /** Opens the Agent profile panel from an Agent sender's avatar/name in the message list, on a
+   * given tab when one is named. */
+  onOpenAgentProfile?: OpenAgentProfile;
   agentProfile?: { agentId: string | undefined; tab: AgentProfileTab | undefined };
   onAgentProfileTabChange?: (tab: AgentProfileTab) => void;
   onCloseAgentProfile?: () => void;
