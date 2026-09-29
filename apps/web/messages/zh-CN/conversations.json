@@ -319,6 +319,7 @@
   "conversation_thread_message_placeholder": "回复讨论…",
   "conversation_you": "我",
   "conversation_dm_self_suffix": "（你）",
+  "conversation_dm_self_name": "{name}（你）",
   "tasks_tab": "任务",
   "tasks_chat_tab": "聊天",
   "tasks_board": "会话任务",
