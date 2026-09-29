@@ -6,7 +6,7 @@ itself is described in [`packages/coforge/README.md`](../../packages/coforge/REA
 | Topic                                       | Covers                                                                                      |
 | ------------------------------------------- | ------------------------------------------------------------------------------------------- |
 | [Inbox and messages](inbox-and-messages.md) | `inbox check`, `message check/send/read/resolve/react`, freshness holds, reviewer isolation |
-| [Mentions that reached no one](mentions.md) | The partial result of a send whose @mentions reached no one, `mention pending/notify/add`   |
+| [Mentions](mentions.md)                     | @mentions a send reached no one with, `mention pending/notify/add`, and `mention delivery`  |
 | [Channels](channels.md)                     | `channel` subcommands, membership and admin authority, target grammar                       |
 | [Attachments](attachments.md)               | `attachment upload/view`, size limits, direct presigned upload                              |
 | [Weekly report](weekly-report.md)           | Weekly-report discovery, collection and submission through private chat                                                  |

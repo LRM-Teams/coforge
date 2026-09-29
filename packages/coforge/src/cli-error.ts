@@ -69,8 +69,14 @@ export class CliError extends Error {
   }
 }
 
-/** Returns a copy of `error` carrying a different `outputMode`; `CliError` fields are immutable. */
-export function withOutputMode(error: CliError, outputMode: CliErrorOutputMode): CliError {
+/** Returns a copy of `error` carrying a different `outputMode`, and any fields the caller now knows
+ * better (`overrides`); `CliError` fields are immutable. `stdoutText` is text mode's alone, so a
+ * copy for JSON drops it. */
+export function withOutputMode(
+  error: CliError,
+  outputMode: CliErrorOutputMode,
+  overrides: Pick<CliErrorInit, "retryable" | "suggestedNextAction"> = {},
+): CliError {
   return new CliError({
     code: error.code,
     message: error.message,
@@ -81,7 +87,9 @@ export function withOutputMode(error: CliError, outputMode: CliErrorOutputMode):
     proxy: error.proxy,
     suggestedNextAction: error.suggestedNextAction,
     contextText: error.contextText,
+    stdoutText: outputMode === "text" ? error.stdoutText : undefined,
     details: error.details,
+    ...overrides,
     outputMode,
   });
 }

@@ -1,3 +1,11 @@
+/** Mention delivery (`coforge mention delivery`): what became of each @mention in a message the
+ * Agent sent, by the message's full id or eight-hex prefix. */
+const MENTION_DELIVERIES_ROUTE = {
+  method: "GET",
+  path: (messageId: string) =>
+    `/api/agent/v1/messages/${encodeURIComponent(messageId)}/mention-deliveries`,
+} as const;
+
 /** Public Agent API route contract shared by clients and HTTP adapters. */
 export const agentApiRoutes = {
   proxy: {
@@ -32,6 +40,7 @@ export const agentApiRoutes = {
       pending: { method: "GET", path: "/api/agent/v1/mention-actions/pending" },
       execute: { method: "POST", path: "/api/agent/v1/mention-actions/execute" },
     },
+    mentionDeliveries: MENTION_DELIVERIES_ROUTE,
     profile: {
       get: { method: "GET", path: "/api/agent/v1/profile" },
       update: { method: "POST", path: "/api/agent/v1/profile" },
@@ -90,6 +99,7 @@ export const agentApiRoutes = {
       pending: { method: "GET", path: "/api/agent/v1/mention-actions/pending" },
       execute: { method: "POST", path: "/api/agent/v1/mention-actions/execute" },
     },
+    mentionDeliveries: MENTION_DELIVERIES_ROUTE,
     profile: {
       get: { method: "GET", path: "/api/agent/v1/profile" },
       update: { method: "POST", path: "/api/agent/v1/profile" },
@@ -223,6 +233,7 @@ export const agentApiRoutes = {
       pending: { method: "GET", path: "/api/agent/v1/mention-actions/pending" },
       execute: { method: "POST", path: "/api/agent/v1/mention-actions/execute" },
     },
+    mentionDeliveries: MENTION_DELIVERIES_ROUTE,
     profile: {
       get: { method: "GET", path: "/api/agent/v1/profile" },
       update: { method: "POST", path: "/api/agent/v1/profile" },

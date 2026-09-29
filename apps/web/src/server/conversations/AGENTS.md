@@ -54,8 +54,8 @@ These rules apply to `src/server/conversations/`.
   Done state on the row (`server/inbox/activity-inbox.server.ts`).
   `PublicChannels.executeMentionActions` carries out a person's `add` through
   `addMembers`; an Agent's `add` is refused (`add_requires_human_member_authority`).
-- `mention-deliveries.server.ts` owns tracked @mention outcomes: issuing and
-  re-issuing envelopes, the daemon's reports, and when an Agent can be woken.
+- `mention-deliveries.server.ts` owns tracked @mention outcomes: issuing and re-issuing
+  envelopes, the daemon's reports, when an Agent can be woken, and the sender's read of them.
 - `channel-agent-control.server.ts` (`ChannelAgentControl`) owns a channel's
   "Stop all Agents" and "Resume all": which Agents each acts on, who may ask,
   and the resume prompt built from the member's guidance. The control itself

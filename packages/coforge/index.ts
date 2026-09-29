@@ -43,6 +43,7 @@ import {
   type AgentMentionExecuteRequest,
   type AgentMentionExecuteResponse,
   type AgentMentionPendingResponse,
+  type AgentMentionDeliveryResponse,
   type GitHubCredentialResponse,
   type WorkspaceInfoRuntimeContext,
 } from "@lrm/coforge-sdk/agent";
@@ -51,8 +52,11 @@ import { formatManualGet, formatManualSearchResults } from "#src/manual-format";
 import { formatProfile, formatUserInfo } from "#src/user-format";
 import {
   formatMentionActionResults,
+  formatMentionDeliveries,
   formatPendingMentionActions,
   incompleteMentionActions,
+  mentionDeliveryFailure,
+  MENTION_DELIVERY_MESSAGE_ID_HINT,
 } from "#src/mention-format";
 import { parseActionCardInput, toActionCardAction } from "#src/action-prepare-input";
 import {
@@ -247,6 +251,7 @@ export type ProfileShowInvocation = {
 };
 export type MentionInvocation =
   | { command: "mention-pending"; json?: boolean }
+  | { command: "mention-delivery"; messageId: string; json?: boolean }
   | {
       command: "mention-action";
       action: AgentMentionActionKind;
@@ -318,6 +323,9 @@ export type MessageTransport = {
   mentionPending?(): Promise<AgentMentionPendingResponse>;
   /** Acts on pending mentions by resolution id (`coforge mention notify|add`). */
   mentionExecute?(request: AgentMentionExecuteRequest): Promise<AgentMentionExecuteResponse>;
+  /** What became of each @mention in a message the calling Agent sent (`coforge mention
+   * delivery`). */
+  mentionDelivery?(messageId: string): Promise<AgentMentionDeliveryResponse>;
 };
 
 /** Eight-hex-character prefix or a full UUID; the server stores ids lowercase. */
@@ -662,7 +670,7 @@ export function parseArgs(
     }
   }
   throw new Error(
-    "Usage: coforge channel mute|unmute --target '#channel' | coforge channel info <target> | coforge channel members <target> | coforge channel join --target '#channel' | coforge channel leave --target '#channel' | coforge channel create --name <name> [--description <text>] [--json] | coforge channel update --target '#channel' [--name <name>] [--description <text>] [--json] | coforge channel lifecycle archive|unarchive --target '#channel' [--json] | coforge channel add-member --target '#channel' (--user @handle | --agent @handle) [--json] | coforge channel remove-member --target '#channel' (--user @handle | --agent @handle) [--json] | coforge thread unfollow --target '#channel:message-id' | coforge inbox check | coforge message check [--target @user|#channel] | coforge message search --query <text> [--target <target>] [--sender <handle>] [--sort relevance|recent] [--before <iso>] [--after <iso>] [--limit <n>] [--offset <n>] | coforge message read --target @user | coforge message send --target @user [--send-draft [--expected-draft-key <key>]] [--anyway] [--reviewer-isolation] [--json] [--attachment-id <uuid>]... [--mention human:<uuid>:<handle>|agent:<uuid>:<handle>]... [--target-confirmed] | coforge message resolve <message-id> | coforge message react --message-id <id> --emoji <emoji> [--remove] | coforge task list (--target <target> | --mine) [--status all|todo|in_progress|in_review|done|closed] | coforge task create --target <target> --title <title>... [--assignee @handle] [--creates-resource] | coforge task claim --target <target> (--number <n> | --message-id <id>)... [--reviewer-isolation] | coforge task convert|unclaim|assign|unassign|update|amend|history|delete|receipt ... | coforge attachment view [--id] <id> --output <path> [--json] | coforge attachment upload --path <file> (--target <target>|--channel <target>) [--mime-type <type>] [--json] | coforge weekly-report templates|inbox|members | coforge weekly-report workflow --input <json-file> | coforge weekly-report context --subject-type report|cycle --subject-id <uuid> | coforge weekly-report list [--cycle-id <uuid>] [--cursor <uuid>] [--limit <n>] | coforge weekly-report read --report-id <uuid> --section <name> [--max-characters <n>] | coforge weekly-report-collect submit-pack|submit-empty|submit-failure --run-id <uuid> --idempotency-key <uuid> [--markdown <path>] [--reason <text>] | coforge action prepare --target <target> | coforge manual get <topic> [--intent <text>] [--reason <text>] | coforge manual search \"<keywords>\" [--intent <text>] [--reason <text>] | coforge whoami [--json] | coforge version [--json] | coforge user info <name> [--json] | coforge profile show [<target>] [--json] | coforge profile update [--display-name <text>] [--description <text>] [--json] | coforge mention pending [--json] | coforge mention notify <resolution-id>... [--json] | coforge mention add <resolution-id>... [--json]",
+    "Usage: coforge channel mute|unmute --target '#channel' | coforge channel info <target> | coforge channel members <target> | coforge channel join --target '#channel' | coforge channel leave --target '#channel' | coforge channel create --name <name> [--description <text>] [--json] | coforge channel update --target '#channel' [--name <name>] [--description <text>] [--json] | coforge channel lifecycle archive|unarchive --target '#channel' [--json] | coforge channel add-member --target '#channel' (--user @handle | --agent @handle) [--json] | coforge channel remove-member --target '#channel' (--user @handle | --agent @handle) [--json] | coforge thread unfollow --target '#channel:message-id' | coforge inbox check | coforge message check [--target @user|#channel] | coforge message search --query <text> [--target <target>] [--sender <handle>] [--sort relevance|recent] [--before <iso>] [--after <iso>] [--limit <n>] [--offset <n>] | coforge message read --target @user | coforge message send --target @user [--send-draft [--expected-draft-key <key>]] [--anyway] [--reviewer-isolation] [--json] [--attachment-id <uuid>]... [--mention human:<uuid>:<handle>|agent:<uuid>:<handle>]... [--target-confirmed] | coforge message resolve <message-id> | coforge message react --message-id <id> --emoji <emoji> [--remove] | coforge task list (--target <target> | --mine) [--status all|todo|in_progress|in_review|done|closed] | coforge task create --target <target> --title <title>... [--assignee @handle] [--creates-resource] | coforge task claim --target <target> (--number <n> | --message-id <id>)... [--reviewer-isolation] | coforge task convert|unclaim|assign|unassign|update|amend|history|delete|receipt ... | coforge attachment view [--id] <id> --output <path> [--json] | coforge attachment upload --path <file> (--target <target>|--channel <target>) [--mime-type <type>] [--json] | coforge weekly-report templates|inbox|members | coforge weekly-report workflow --input <json-file> | coforge weekly-report context --subject-type report|cycle --subject-id <uuid> | coforge weekly-report list [--cycle-id <uuid>] [--cursor <uuid>] [--limit <n>] | coforge weekly-report read --report-id <uuid> --section <name> [--max-characters <n>] | coforge weekly-report-collect submit-pack|submit-empty|submit-failure --run-id <uuid> --idempotency-key <uuid> [--markdown <path>] [--reason <text>] | coforge action prepare --target <target> | coforge manual get <topic> [--intent <text>] [--reason <text>] | coforge manual search \"<keywords>\" [--intent <text>] [--reason <text>] | coforge whoami [--json] | coforge version [--json] | coforge user info <name> [--json] | coforge profile show [<target>] [--json] | coforge profile update [--display-name <text>] [--description <text>] [--json] | coforge mention pending [--json] | coforge mention notify <resolution-id>... [--json] | coforge mention add <resolution-id>... [--json] | coforge mention delivery --message <message-id> [--json]",
   );
 }
 
@@ -1071,10 +1079,11 @@ function parseProfileUpdateArgs(args: readonly string[]): ProfileUpdateInvocatio
 }
 
 const MENTION_USAGE =
-  "Usage: coforge mention pending [--json] | coforge mention notify <resolution-id>... [--json] | coforge mention add <resolution-id>... [--json]";
+  "Usage: coforge mention pending [--json] | coforge mention notify <resolution-id>... [--json] | coforge mention add <resolution-id>... [--json] | coforge mention delivery --message <message-id> [--json]";
 
 function parseMentionArgs(args: readonly string[]): MentionInvocation {
   const [sub, ...rest] = args;
+  if (sub === "delivery") return parseMentionDeliveryArgs(rest);
   const json = rest.includes("--json");
   const positionals = rest.filter((arg) => arg !== "--json");
   if (positionals.some((arg) => arg.startsWith("--"))) throw new Error(MENTION_USAGE);
@@ -1099,6 +1108,37 @@ function parseMentionArgs(args: readonly string[]): MentionInvocation {
     };
   }
   throw new Error(MENTION_USAGE);
+}
+
+/** `coforge mention delivery --message <id> [--json]`: the message by its full id or the
+ * eight-hex prefix `message read` shows, as `message resolve` and `message react` take it. */
+function parseMentionDeliveryArgs(args: readonly string[]): MentionInvocation {
+  const json = args.includes("--json");
+  const outputMode = json ? "json" : "text";
+  let messageId: string | undefined;
+  for (let index = 0; index < args.length; index++) {
+    if (args[index] === "--json") continue;
+    if (args[index] === "--message" && args[index + 1] !== undefined)
+      messageId = args[++index]!.trim();
+    else throw new Error(MENTION_USAGE);
+  }
+  if (!messageId)
+    throw new CliError({
+      code: "INVALID_ARG",
+      message: "--message <id> is required.",
+      retryable: false,
+      suggestedNextAction: MENTION_DELIVERY_MESSAGE_ID_HINT,
+      outputMode,
+    });
+  if (!MESSAGE_ANCHOR_PATTERN.test(messageId))
+    throw new CliError({
+      code: "INVALID_ARG",
+      message: `--message takes a message id (a full UUID or its first eight hex characters), not ${messageId}.`,
+      retryable: false,
+      suggestedNextAction: MENTION_DELIVERY_MESSAGE_ID_HINT,
+      outputMode,
+    });
+  return { command: "mention-delivery", messageId, ...(json ? { json: true } : {}) };
 }
 
 function parseActionPrepareArgs(args: readonly string[]): ActionPrepareInvocation {
@@ -1180,6 +1220,18 @@ export async function run(args: readonly string[], transport: MessageTransport):
     return invocation.json
       ? { ok: true, pendingMentionActions: result.pendingMentionActions }
       : formatPendingMentionActions(result.pendingMentionActions);
+  }
+  if (invocation.command === "mention-delivery") {
+    if (!transport.mentionDelivery) throw new Error("Mention transport is unavailable");
+    const outputMode = invocation.json ? "json" : "text";
+    const result = await transport.mentionDelivery(invocation.messageId).catch((error: unknown) => {
+      throw error instanceof CliError
+        ? mentionDeliveryFailure(error, invocation.messageId, outputMode)
+        : error;
+    });
+    return invocation.json
+      ? { ok: true, messageId: result.messageId, deliveries: result.deliveries }
+      : formatMentionDeliveries(result.messageId, result.deliveries);
   }
   if (invocation.command === "mention-action") {
     if (!transport.mentionExecute) throw new Error("Mention transport is unavailable");

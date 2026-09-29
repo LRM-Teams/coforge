@@ -1463,6 +1463,76 @@ test("a mention action server error is SERVER_5XX, and a refusal carries the ser
   expect(pending.message).toBe("bad request");
 });
 
+test("mention delivery GETs a sent message's outcomes through the Proxy, by full id or prefix", async () => {
+  const messageId = "11111111-1111-4111-8111-111111111111";
+  const body = {
+    ok: true,
+    messageId,
+    deliveries: [{ targetHandle: "@bob", outcome: "lost", reasonCategory: "quota" }],
+  };
+  const fetch = spyOn(globalThis, "fetch")
+    .mockResolvedValueOnce(Response.json(body))
+    .mockResolvedValueOnce(Response.json(body));
+  const client = connectLocal("", MENTION_CONTEXT, proxyUrl(agentApiRoutes.local.messages));
+  const result = await client.mentionDelivery(messageId);
+  expect(result).toEqual(body as typeof result);
+  await client.mentionDelivery("11111111");
+  const [[url, init], [prefixUrl]] = fetch.mock.calls as unknown as [[URL, RequestInit], [URL]];
+  expect(url).toEqual(
+    new URL(proxyUrl({ path: agentApiRoutes.local.mentionDeliveries.path(messageId) })),
+  );
+  expect(init.method).toBe("GET");
+  expect(prefixUrl).toEqual(
+    new URL(proxyUrl({ path: agentApiRoutes.local.mentionDeliveries.path("11111111") })),
+  );
+});
+
+test("a mention delivery failure keeps the server's code, and a read that failed in transit is retryable", async () => {
+  const messageId = "11111111-1111-4111-8111-111111111111";
+  const client = connectLocal("", MENTION_CONTEXT, proxyUrl(agentApiRoutes.local.messages));
+  const failure = async () =>
+    (await client.mentionDelivery(messageId).catch((caught: unknown) => caught)) as CliError;
+
+  spyOn(globalThis, "fetch").mockResolvedValueOnce(
+    Response.json(
+      { ok: false, errorCode: "message_not_found", error: "You sent no message with that id." },
+      { status: 404 },
+    ),
+  );
+  const notFound = await failure();
+  expect(notFound).toBeInstanceOf(CliError);
+  expect(notFound.code).toBe("MESSAGE_NOT_FOUND");
+  expect(notFound.message).toBe("You sent no message with that id.");
+  expect(notFound.retryable).toBe(false);
+
+  spyOn(globalThis, "fetch").mockResolvedValueOnce(
+    Response.json(
+      { ok: false, errorCode: "ambiguous_message_id", error: "use its full id" },
+      { status: 400 },
+    ),
+  );
+  expect((await failure()).code).toBe("AMBIGUOUS_MESSAGE_ID");
+
+  spyOn(globalThis, "fetch").mockResolvedValueOnce(
+    Response.json({ error: "upstream failed", code: "UPSTREAM_HTTP_ERROR" }, { status: 502 }),
+  );
+  const serverError = await failure();
+  expect(serverError.code).toBe("SERVER_5XX");
+  expect(serverError.message).toBe("upstream failed");
+  expect(serverError.retryable).toBe(true);
+
+  spyOn(globalThis, "fetch").mockRejectedValueOnce(new TypeError("fetch failed"));
+  const unreachable = await failure();
+  expect(unreachable.code).toBe("MENTION_DELIVERY_LOOKUP_FAILED");
+  expect(unreachable.retryable).toBe(true);
+
+  spyOn(globalThis, "fetch").mockResolvedValueOnce(new Response("bad request", { status: 400 }));
+  const refused = await failure();
+  expect(refused.code).toBe("MENTION_DELIVERY_LOOKUP_FAILED");
+  expect(refused.message).toBe("bad request");
+  expect(refused.retryable).toBe(false);
+});
+
 const departedReason =
   "@bob is not a member of this Workspace, so this Agent cannot send them a direct message";
 const context = `sfp_${"a".repeat(43)}`;

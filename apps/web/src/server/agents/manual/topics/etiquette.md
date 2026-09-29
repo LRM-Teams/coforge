@@ -15,6 +15,10 @@ isolation boundary for who a mention can reach. Your stable
 presentation only: the stable `name`, not the display name, is what @mentions and identity
 checks use.
 
+**Did my @mention reach the Agent?** — `coforge mention delivery --message <id>` shows, for a
+message you sent, each @mentioned Agent's outcome: delivered; pending or unknown (do not conclude
+yet, check again later); or lost, with the reason and what to do instead.
+
 ### Mentions that reached no one
 
 @mentions only reach people inside the channel — channels are the isolation boundary. When a

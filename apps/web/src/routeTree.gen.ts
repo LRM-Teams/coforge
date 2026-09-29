@@ -103,6 +103,7 @@ import { Route as ApiAgentV1ChannelsChannelMembersRouteImport } from './routes/a
 import { Route as ApiAgentV1ChannelsChannelMuteRouteImport } from './routes/api/agent/v1/channels_.$channel.mute'
 import { Route as ApiAgentV1ChannelsChannelUnarchiveRouteImport } from './routes/api/agent/v1/channels_.$channel.unarchive'
 import { Route as ApiAgentV1ChannelsChannelUnmuteRouteImport } from './routes/api/agent/v1/channels_.$channel.unmute'
+import { Route as ApiAgentV1MessagesMessageIdMentionDeliveriesRouteImport } from './routes/api/agent/v1/messages_.$messageId.mention-deliveries'
 import { Route as ApiAgentV1MessagesMessageIdReactionsRouteImport } from './routes/api/agent/v1/messages_.$messageId.reactions'
 import { Route as ApiAgentV1MessagesMessageIdResolveRouteImport } from './routes/api/agent/v1/messages_.$messageId.resolve'
 import { Route as ApiAgentV1ThreadsThreadUnfollowRouteImport } from './routes/api/agent/v1/threads_.$thread.unfollow'
@@ -627,6 +628,12 @@ const ApiAgentV1ChannelsChannelUnmuteRoute =
     path: '/unmute',
     getParentRoute: () => ApiAgentV1ChannelsChannelRoute,
   } as any)
+const ApiAgentV1MessagesMessageIdMentionDeliveriesRoute =
+  ApiAgentV1MessagesMessageIdMentionDeliveriesRouteImport.update({
+    id: '/api/agent/v1/messages_/$messageId/mention-deliveries',
+    path: '/api/agent/v1/messages/$messageId/mention-deliveries',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const ApiAgentV1MessagesMessageIdReactionsRoute =
   ApiAgentV1MessagesMessageIdReactionsRouteImport.update({
     id: '/api/agent/v1/messages_/$messageId/reactions',
@@ -771,6 +778,7 @@ export interface FileRoutesByFullPath {
   '/api/agent/v1/channels/$channel/mute': typeof ApiAgentV1ChannelsChannelMuteRoute
   '/api/agent/v1/channels/$channel/unarchive': typeof ApiAgentV1ChannelsChannelUnarchiveRoute
   '/api/agent/v1/channels/$channel/unmute': typeof ApiAgentV1ChannelsChannelUnmuteRoute
+  '/api/agent/v1/messages/$messageId/mention-deliveries': typeof ApiAgentV1MessagesMessageIdMentionDeliveriesRoute
   '/api/agent/v1/messages/$messageId/reactions': typeof ApiAgentV1MessagesMessageIdReactionsRoute
   '/api/agent/v1/messages/$messageId/resolve': typeof ApiAgentV1MessagesMessageIdResolveRoute
   '/api/agent/v1/threads/$thread/unfollow': typeof ApiAgentV1ThreadsThreadUnfollowRoute
@@ -871,6 +879,7 @@ export interface FileRoutesByTo {
   '/api/agent/v1/channels/$channel/mute': typeof ApiAgentV1ChannelsChannelMuteRoute
   '/api/agent/v1/channels/$channel/unarchive': typeof ApiAgentV1ChannelsChannelUnarchiveRoute
   '/api/agent/v1/channels/$channel/unmute': typeof ApiAgentV1ChannelsChannelUnmuteRoute
+  '/api/agent/v1/messages/$messageId/mention-deliveries': typeof ApiAgentV1MessagesMessageIdMentionDeliveriesRoute
   '/api/agent/v1/messages/$messageId/reactions': typeof ApiAgentV1MessagesMessageIdReactionsRoute
   '/api/agent/v1/messages/$messageId/resolve': typeof ApiAgentV1MessagesMessageIdResolveRoute
   '/api/agent/v1/threads/$thread/unfollow': typeof ApiAgentV1ThreadsThreadUnfollowRoute
@@ -976,6 +985,7 @@ export interface FileRoutesById {
   '/api/agent/v1/channels_/$channel/mute': typeof ApiAgentV1ChannelsChannelMuteRoute
   '/api/agent/v1/channels_/$channel/unarchive': typeof ApiAgentV1ChannelsChannelUnarchiveRoute
   '/api/agent/v1/channels_/$channel/unmute': typeof ApiAgentV1ChannelsChannelUnmuteRoute
+  '/api/agent/v1/messages_/$messageId/mention-deliveries': typeof ApiAgentV1MessagesMessageIdMentionDeliveriesRoute
   '/api/agent/v1/messages_/$messageId/reactions': typeof ApiAgentV1MessagesMessageIdReactionsRoute
   '/api/agent/v1/messages_/$messageId/resolve': typeof ApiAgentV1MessagesMessageIdResolveRoute
   '/api/agent/v1/threads_/$thread/unfollow': typeof ApiAgentV1ThreadsThreadUnfollowRoute
@@ -1080,6 +1090,7 @@ export interface FileRouteTypes {
     | '/api/agent/v1/channels/$channel/mute'
     | '/api/agent/v1/channels/$channel/unarchive'
     | '/api/agent/v1/channels/$channel/unmute'
+    | '/api/agent/v1/messages/$messageId/mention-deliveries'
     | '/api/agent/v1/messages/$messageId/reactions'
     | '/api/agent/v1/messages/$messageId/resolve'
     | '/api/agent/v1/threads/$thread/unfollow'
@@ -1180,6 +1191,7 @@ export interface FileRouteTypes {
     | '/api/agent/v1/channels/$channel/mute'
     | '/api/agent/v1/channels/$channel/unarchive'
     | '/api/agent/v1/channels/$channel/unmute'
+    | '/api/agent/v1/messages/$messageId/mention-deliveries'
     | '/api/agent/v1/messages/$messageId/reactions'
     | '/api/agent/v1/messages/$messageId/resolve'
     | '/api/agent/v1/threads/$thread/unfollow'
@@ -1284,6 +1296,7 @@ export interface FileRouteTypes {
     | '/api/agent/v1/channels_/$channel/mute'
     | '/api/agent/v1/channels_/$channel/unarchive'
     | '/api/agent/v1/channels_/$channel/unmute'
+    | '/api/agent/v1/messages_/$messageId/mention-deliveries'
     | '/api/agent/v1/messages_/$messageId/reactions'
     | '/api/agent/v1/messages_/$messageId/resolve'
     | '/api/agent/v1/threads_/$thread/unfollow'
@@ -1356,6 +1369,7 @@ export interface RootRouteChildren {
   ApiProjectsProjectIdRawSplatRoute: typeof ApiProjectsProjectIdRawSplatRoute
   ApiAgentV1AttachmentUploadSessionsIndexRoute: typeof ApiAgentV1AttachmentUploadSessionsIndexRoute
   ApiAgentV1AttachmentsIndexRoute: typeof ApiAgentV1AttachmentsIndexRoute
+  ApiAgentV1MessagesMessageIdMentionDeliveriesRoute: typeof ApiAgentV1MessagesMessageIdMentionDeliveriesRoute
   ApiAgentV1MessagesMessageIdReactionsRoute: typeof ApiAgentV1MessagesMessageIdReactionsRoute
   ApiAgentV1MessagesMessageIdResolveRoute: typeof ApiAgentV1MessagesMessageIdResolveRoute
   ApiAgentV1ThreadsThreadUnfollowRoute: typeof ApiAgentV1ThreadsThreadUnfollowRoute
@@ -2024,6 +2038,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiAgentV1ChannelsChannelUnmuteRouteImport
       parentRoute: typeof ApiAgentV1ChannelsChannelRoute
     }
+    '/api/agent/v1/messages_/$messageId/mention-deliveries': {
+      id: '/api/agent/v1/messages_/$messageId/mention-deliveries'
+      path: '/api/agent/v1/messages/$messageId/mention-deliveries'
+      fullPath: '/api/agent/v1/messages/$messageId/mention-deliveries'
+      preLoaderRoute: typeof ApiAgentV1MessagesMessageIdMentionDeliveriesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/agent/v1/messages_/$messageId/reactions': {
       id: '/api/agent/v1/messages_/$messageId/reactions'
       path: '/api/agent/v1/messages/$messageId/reactions'
@@ -2317,6 +2338,8 @@ const rootRouteChildren: RootRouteChildren = {
   ApiAgentV1AttachmentUploadSessionsIndexRoute:
     ApiAgentV1AttachmentUploadSessionsIndexRoute,
   ApiAgentV1AttachmentsIndexRoute: ApiAgentV1AttachmentsIndexRoute,
+  ApiAgentV1MessagesMessageIdMentionDeliveriesRoute:
+    ApiAgentV1MessagesMessageIdMentionDeliveriesRoute,
   ApiAgentV1MessagesMessageIdReactionsRoute:
     ApiAgentV1MessagesMessageIdReactionsRoute,
   ApiAgentV1MessagesMessageIdResolveRoute:

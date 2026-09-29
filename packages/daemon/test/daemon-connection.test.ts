@@ -48,6 +48,7 @@ import { agentApiRoutes } from "@lrm/coforge-sdk/agent";
 import { AgentMessageRequestError } from "#src/connection/agent-message-request-error";
 import { AgentTransportError } from "#src/connection/agent-transport-error";
 import { AgentMentionActionRequestError } from "#src/connection/agent-mention-action-request-error";
+import { AgentMentionDeliveryRequestError } from "#src/connection/agent-mention-delivery-request-error";
 
 /** Runs `run()` with a logtape capture sink installed for `coforge.daemon.*`, then restores the
  * previous (unconfigured) logging state. Mirrors the pattern in daemon-runtime.test.ts. */
@@ -944,6 +945,52 @@ test("mention pending HTTP transport GETs the Agent's pending mentions", async (
   expect(calls[0]?.headers.get("x-coforge-agent-api-key")).toBe(
     `Bearer sk_agent_${"a".repeat(43)}`,
   );
+});
+
+test("mention delivery HTTP transport GETs a sent message's outcomes with the Agent's key", async () => {
+  const calls: Array<{ url: string; method?: string; headers: Headers }> = [];
+  const messageId = "11111111-1111-4111-8111-111111111111";
+  const body = {
+    ok: true as const,
+    messageId,
+    deliveries: [{ targetHandle: "@bob", outcome: "pending" as const }],
+  };
+  const client = createAgentMessageHttpClient(async (input, init) => {
+    calls.push({ url: String(input), method: init?.method, headers: new Headers(init?.headers) });
+    return Response.json(body);
+  });
+  const url = `https://server.example${agentApiRoutes.cloud.mentionDeliveries.path(messageId)}`;
+  const result = await client.requestMentionDelivery!({
+    url,
+    agentApiKey: `sk_agent_${"a".repeat(43)}`,
+    daemonApiKey: "daemon-token",
+    request: { messageId },
+  });
+  expect(result).toEqual(body);
+  expect(calls).toHaveLength(1);
+  expect(calls[0]?.url).toBe(url);
+  expect(calls[0]?.method).toBe("GET");
+  expect(calls[0]?.headers.get("x-coforge-agent-api-key")).toBe(
+    `Bearer sk_agent_${"a".repeat(43)}`,
+  );
+});
+
+test("mention delivery HTTP transport carries the cloud's not-found error through", async () => {
+  const client = createAgentMessageHttpClient(async () =>
+    Response.json(
+      { ok: false, errorCode: "message_not_found", error: "You sent no message with that id." },
+      { status: 404 },
+    ),
+  );
+  const error = await client.requestMentionDelivery!({
+    url: "https://server.example/api/agent/v1/messages/x/mention-deliveries",
+    agentApiKey: `sk_agent_${"a".repeat(43)}`,
+    daemonApiKey: "daemon-token",
+    request: { messageId: "x" },
+  }).catch((thrown: unknown) => thrown);
+  expect(error).toBeInstanceOf(AgentMentionDeliveryRequestError);
+  expect((error as AgentMentionDeliveryRequestError).errorCode).toBe("message_not_found");
+  expect((error as AgentMentionDeliveryRequestError).status).toBe(404);
 });
 
 test("mention action HTTP transport POSTs the action and its resolution ids", async () => {
