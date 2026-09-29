@@ -161,7 +161,7 @@ These instructions apply to the entire repository.
 - Do not introduce Next.js. The accepted Web/backend direction is TanStack Start with Bun 1.4 as the business-control runtime.
 - Bun-specific runtime and compatibility guidance lives in
   `.agents/skills/using-bun-runtime/SKILL.md`; load it before changing Bun
-  runtime code or dependencies. The target runtime remains Bun, never Node.
+  runtime code or dependencies. The target runtime remains Bun, never Node (the installer crate is Rust).
 
 ## Shared agent skills
 
@@ -180,7 +180,7 @@ These instructions apply to the entire repository.
 
 - The local product has exactly two source/package components: `packages/computer` and `packages/daemon`; the Computer package depends on the Daemon package at build time.
 - Users install one native `coforge-computer` executable. That executable contains both package roles and dispatches internal `__daemon` and `__agent-cli` modes; Daemon is not a standalone release payload, user-installed product, or public CLI entry point.
-- Never create another local product component. Daemon runtime supervision is implemented and released inside `coforge-daemon`.
+- Never create another local product component. Daemon runtime supervision is implemented and released inside `coforge-daemon`. The one other local component is the Rust installer crate `installer/` (`coforge-installer`: toolchain pinned in `installer/mise.toml`, its own version and release, not a user product). Every change to an installation belongs to it: install, upgrade, repair, status, and recover, with the machine mutation lock, download and verification, activation, service control, probe, rolling back a failed upgrade, and receipts. Move that logic out of `packages/computer` into the installer; never add more of it to Computer. Computer fetches the installer fresh from the release feed's `installer/latest` for each operation, launches it, and reads its receipt, so an installer fix applies to the next upgrade without a Computer release. The installer controls a running Computer only through `coforge-computer __lifecycle` (versioned JSON), never the local protobuf RPC.
 - Computer and Daemon roles remain independent OS processes even though both execute the same native file. Their local control channel is a Unix domain socket, not a TCP management port.
 - One coforge-daemon owns one persisted daemon configuration and one cloud Workspace connection.
 - `coforge-computer` does not maintain a long-lived cloud WebSocket. The daemon owns exactly one long-lived WSS connection for its configured Workspace.
