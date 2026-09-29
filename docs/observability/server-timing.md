@@ -25,6 +25,10 @@ Server-Timing: total;dur=16.6, db;dur=9.5
 `query` 事件归到发起它的请求；请求之外的查询（后台 sweep）被丢弃。开关关闭时 Prisma 不开启 query
 事件，因为开启后每条查询都要格式化参数。
 
+归属依赖一个 Prisma 官方文档没有写明的行为：`query` 事件在发起查询的调用方的异步上下文里触发。这一点在
+Prisma 7.10 上验证过，由 `apps/web/test/server-timing-prisma.integration.ts` 用真实查询守住；升级
+Prisma 后这个测试失败，说明 `db` 已不可信。
+
 ## 安全边界
 
 头里只有两个固定指标名和数字 `dur`，没有 `desc`，不含路径、ID、查询文本或用户数据；服务端不发送
