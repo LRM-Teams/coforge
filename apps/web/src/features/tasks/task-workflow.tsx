@@ -22,7 +22,7 @@ import { useBreakpoint } from "#src/hooks/use-breakpoint";
 import { cn } from "#src/lib/utils";
 import { m } from "#src/paraglide/messages";
 import { getTaskMoveCommand } from "./task-move";
-import { TaskStatusIcon } from "./task-status-icon";
+import { TaskStatusIcon, statusLabel } from "./task-status-icon";
 import { isTaskColumnHidden } from "#src/features/settings/task-hidden-columns";
 
 export type TaskLayout = "board" | "list";
@@ -434,18 +434,8 @@ function HiddenColumn({
   );
 }
 
-export function statusLabel(status: TaskStatus) {
-  return {
-    todo: m.tasks_status_todo,
-    in_progress: m.tasks_status_in_progress,
-    in_review: m.tasks_status_in_review,
-    done: m.tasks_status_done,
-    closed: m.tasks_status_closed,
-  }[status]();
-}
-
-// The status colours live with the icon; the popup and timeline read them from here too.
-export { TASK_STATUS_COLOR } from "./task-status-icon";
+// The status colours and labels live with the icon; the popup and timeline read them from here too.
+export { TASK_STATUS_COLOR, statusLabel } from "./task-status-icon";
 
 /** A hidden board column before hydration: the boot script's class on <html> hides it. */
 export const HIDDEN_COLUMN_CLASS: Record<TaskStatus, string> = {

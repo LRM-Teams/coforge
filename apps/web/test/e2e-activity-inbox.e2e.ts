@@ -11,7 +11,8 @@ import { DEV_BROWSER_USER } from "#src/server/auth/dev-skip-auth.server";
  * viewer and a channel with an unread message appear as cards with their badges and Markdown
  * previews; the Mentions view
  * keeps only the thread; the card menu offers read, Done and unfollow; Done removes a card for
- * good; opening the thread card lands in its thread pane at the first unread reply.
+ * good; opening the thread card lands in its thread pane at the first unread reply, and a thread
+ * read to the end opens at its newest reply.
  *
  * Opt-in like the other browser E2Es: real local Web + `agent-browser`. The channel, its peer and
  * its messages are seeded deterministically and reset on every run. Screenshots of the wide and
@@ -63,9 +64,11 @@ test("the Activity page lists, filters, marks Done and opens inbox items", async
     .map((card) => card.textContent)
     .filter((text) => text.includes("E2E activity"))`;
   try {
-    const { workspaceId } = await db.workspaceMembership.findFirstOrThrow({
+    const { workspaceId, workspace } = await db.workspaceMembership.findFirstOrThrow({
       where: { userId: DEV_BROWSER_USER.id },
+      include: { workspace: { select: { slug: true } } },
     });
+    const workspacePath = `/en/w/${workspace.slug}`;
     const peer = await db.user.upsert({
       where: { id: seededUuid("e2e-activity-inbox:peer") },
       update: {},
@@ -138,10 +141,76 @@ test("the Activity page lists, filters, marks Done and opens inbox items", async
     await db.threadFollow.create({
       data: { memberId: viewer!.id, rootMessageId: rootId, conversationId: channelId, workspaceId },
     });
+    // A second channel with a followed thread the viewer has read to the end, where nothing
+    // mentions them. The channel itself is Done, so only the thread card lists.
+    const quietChannelId = seededUuid("e2e-activity-inbox:quiet-channel");
+    await db.conversation.upsert({
+      where: { id: quietChannelId },
+      update: { archivedAt: null },
+      create: { id: quietChannelId, workspaceId, channelName: "e2e-activity-quiet" },
+    });
+    await db.message.deleteMany({ where: { conversationId: quietChannelId } });
+    const quietViewer = await db.conversationMember.upsert({
+      where: {
+        conversationId_userId: { conversationId: quietChannelId, userId: DEV_BROWSER_USER.id },
+      },
+      update: {
+        leftAt: null,
+        readThroughSequence: 1,
+        doneThroughSequence: 1,
+        unreadFromSequence: null,
+      },
+      create: {
+        conversationId: quietChannelId,
+        workspaceId,
+        userId: DEV_BROWSER_USER.id,
+        readThroughSequence: 1,
+        doneThroughSequence: 1,
+      },
+    });
+    const quietRootId = seededUuid("e2e-activity-inbox:quiet-root");
+    const quietNewestId = seededUuid("e2e-activity-inbox:quiet-newest");
+    // Enough replies that the thread pane scrolls: the newest one is out of view at the root.
+    const quietRows = [
+      { id: quietRootId, body: "E2E quiet root", threadRootId: null },
+      ...Array.from({ length: 39 }, (_, index) => ({
+        id: seededUuid(`e2e-activity-inbox:quiet-reply-${index}`),
+        body: `E2E quiet reply ${index + 1}`,
+        threadRootId: quietRootId,
+      })),
+      { id: quietNewestId, body: "E2E quiet newest reply", threadRootId: quietRootId },
+    ];
+    for (const [index, row] of quietRows.entries())
+      await db.message.create({
+        data: {
+          ...row,
+          senderMemberId: quietViewer.id,
+          conversationId: quietChannelId,
+          workspaceId,
+          sequence: index + 1,
+        },
+      });
+    await db.threadFollow.create({
+      data: {
+        memberId: quietViewer.id,
+        rootMessageId: quietRootId,
+        conversationId: quietChannelId,
+        workspaceId,
+      },
+    });
+    await db.threadRead.create({
+      data: {
+        memberId: quietViewer.id,
+        rootMessageId: quietRootId,
+        conversationId: quietChannelId,
+        workspaceId,
+        readThroughSequence: quietRows.length,
+      },
+    });
     await mkdir(artifacts, { recursive: true });
 
     await browser("set", "viewport", "1440", "900");
-    await browser("open", `${origin}/en/activity`);
+    await browser("open", `${origin}${workspacePath}/activity`);
     await browser("wait", "--fn", `${seededCards}.length === 2 && ${hydrated}`);
     const cards = await evaluate<string[]>(seededCards);
     // Newest activity first: the channel's unread message was posted after the thread reply.
@@ -162,13 +231,23 @@ test("the Activity page lists, filters, marks Done and opens inbox items", async
       };
     })()`);
     expect(preview).toEqual({ strong: "reply", code: "code" });
+    // The Unread and Mentions tabs count cards: both seeded cards are unread, and the thread's
+    // reply is an unread mention. Other rows of the dev user's inbox may add to both.
+    const tabCounts = `Object.fromEntries([...document.querySelectorAll('[role="tab"]')].map((tab) => [tab.textContent.replace(/[\\d+]/g, "").trim(), Number(tab.textContent.replace(/\\D/g, "")) || 0]))`;
+    const counts = await evaluate<Record<string, number>>(tabCounts);
+    expect(Object.keys(counts)).toEqual(["All", "Unread", "Mentions"]);
+    expect(counts.All).toBe(0);
+    expect(counts.Unread).toBeGreaterThanOrEqual(2);
+    expect(counts.Mentions).toBeGreaterThanOrEqual(1);
     await browser("screenshot", join(artifacts, "wide.png"));
 
-    await browser("find", "role", "radio", "click", "--name", "Mentions");
+    await browser("find", "role", "tab", "click", "--name", "Mentions");
     await browser("wait", "--fn", `location.search.includes("filter=mentions")`);
     await browser("wait", "--fn", `${seededCards}.length === 1`);
     expect((await evaluate<string[]>(seededCards))[0]).toContain("E2E activity root");
-    await browser("find", "role", "radio", "click", "--name", "All");
+    // The counts do not depend on the tab showing.
+    expect(await evaluate<Record<string, number>>(tabCounts)).toEqual(counts);
+    await browser("find", "role", "tab", "click", "--name", "All");
     await browser("wait", "--fn", `${seededCards}.length === 2`);
 
     // The card menu opens on a right click (a long press on touch).
@@ -219,8 +298,10 @@ test("the Activity page lists, filters, marks Done and opens inbox items", async
     const channelCard = `[...document.querySelectorAll("ol > li")].find((item) => item.textContent.includes("E2E activity unread")).textContent`;
     await channelMenu("Mark as Read");
     await browser("wait", "--fn", `!${channelCard}.includes("1 new")`);
+    await browser("wait", "--fn", `${tabCounts}.Unread === ${counts.Unread - 1}`);
     await channelMenu("Mark as Unread");
     await browser("wait", "--fn", `${channelCard}.includes("1 new")`);
+    await browser("wait", "--fn", `${tabCounts}.Unread === ${counts.Unread}`);
     expect(await evaluate<boolean>(`!document.querySelector('[role="alert"]')`)).toBe(true);
 
     await evaluate(`(() => {
@@ -230,6 +311,8 @@ test("the Activity page lists, filters, marks Done and opens inbox items", async
       return true;
     })()`);
     await browser("wait", "--fn", `${seededCards}.length === 1`);
+    // Done took an unread card away, and the Unread count with it.
+    await browser("wait", "--fn", `${tabCounts}.Unread === ${counts.Unread - 1}`);
     await browser("reload");
     await browser("wait", "--fn", `${seededCards}.length === 1 && ${hydrated}`);
     expect((await evaluate<string[]>(seededCards))[0]).toContain("E2E activity root");
@@ -238,13 +321,46 @@ test("the Activity page lists, filters, marks Done and opens inbox items", async
     await browser("wait", "--fn", `location.search.includes("threadRootId=${rootId}")`);
     // The pane scrolls to the first unread reply.
     await browser("wait", "--fn", `document.getElementById("message-${replyId}") !== null`);
-    expect(await evaluate<string>("location.pathname")).toBe(`/en/messages/channels/${channelId}`);
+    expect(await evaluate<string>("location.pathname")).toBe(
+      `${workspacePath}/channel/${channelId}`,
+    );
+
+    // A thread read to the end with no mention opens at its newest reply.
+    await browser("open", `${origin}${workspacePath}/activity`);
+    await browser(
+      "wait",
+      "--fn",
+      `document.body.textContent.includes("E2E quiet root") && ${hydrated}`,
+    );
+    await browser("find", "text", "E2E quiet root", "click");
+    await browser("wait", "--fn", `location.search.includes("threadRootId=${quietRootId}")`);
+    // The newest reply sits inside the visible part of the scrolled thread pane.
+    await browser(
+      "wait",
+      "--fn",
+      `(() => {
+        const row = document.getElementById("message-${quietNewestId}");
+        let pane = row?.parentElement;
+        while (pane && !(pane.scrollHeight > pane.clientHeight && getComputedStyle(pane).overflowY !== "visible"))
+          pane = pane.parentElement;
+        if (!row || !pane || pane.scrollTop === 0) return false;
+        const rowBox = row.getBoundingClientRect();
+        const paneBox = pane.getBoundingClientRect();
+        return rowBox.top >= paneBox.top && rowBox.bottom <= paneBox.bottom;
+      })()`.replace(/\n\s*/g, " "),
+    );
 
     await browser("set", "viewport", "390", "844");
-    await browser("open", `${origin}/en/activity`);
+    await browser("open", `${origin}${workspacePath}/activity`);
     await browser("wait", "--fn", `${seededCards}.length === 1 && ${hydrated}`);
     // Opening the thread read it: its card stays, without the unread badge.
     expect((await evaluate<string[]>(seededCards))[0]).not.toContain("1 new");
+    // On a phone the tabs take their own row under the title.
+    expect(
+      await evaluate<boolean>(
+        `document.querySelector('[role="tablist"]').getBoundingClientRect().top >= document.querySelector("h1").getBoundingClientRect().bottom`,
+      ),
+    ).toBe(true);
     await browser("screenshot", join(artifacts, "phone.png"));
   } finally {
     await browser("close").catch(() => undefined);

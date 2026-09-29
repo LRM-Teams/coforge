@@ -54,7 +54,6 @@ import { AgentUpstreamRefusalError } from "./agent-upstream-refusal-error";
 import {
   AGENT_RPC_TIMEOUT_MS,
   agentHeaders,
-  agentWireBody,
   assertAgentResponseOk,
   fetchAgentResponse,
   getAgentEnvelopeJson,
@@ -129,8 +128,7 @@ export interface AgentMessageHttpClient {
  * `CloudAgentMessageResponse & {...}` now that the shared envelope is gone.
  */
 export type AgentMessageTransportResponse = {
-  protocolMajor: number;
-  requestId: string;
+  idempotencyKey: string;
   accepted: boolean;
   attentionCount: number;
   messageId?: string;
@@ -167,10 +165,7 @@ export function adaptAgentHistoryResponse(
   response: AgentHistoryResponse,
 ): AgentMessageTransportResponse {
   return {
-    protocolMajor: response.protocolMajor,
-    // The agent HTTP API names this key `idempotencyKey` (task #58 ④); the daemon's own transport
-    // shape keeps `requestId`, so the two names meet here.
-    requestId: response.idempotencyKey,
+    idempotencyKey: response.idempotencyKey,
     accepted: true,
     attentionCount: 0,
     messages: response.messages,
@@ -186,10 +181,7 @@ export function adaptAgentSearchResponse(
   response: AgentSearchResponse,
 ): AgentMessageTransportResponse {
   return {
-    protocolMajor: response.protocolMajor,
-    // The agent HTTP API names this key `idempotencyKey` (task #58 ④); the daemon's own transport
-    // shape keeps `requestId`, so the two names meet here.
-    requestId: response.idempotencyKey,
+    idempotencyKey: response.idempotencyKey,
     accepted: true,
     attentionCount: 0,
     messages: response.results,
@@ -202,10 +194,7 @@ export function adaptAgentSearchResponse(
  */
 export function adaptAgentSendResponse(response: AgentSendResponse): AgentMessageTransportResponse {
   return {
-    protocolMajor: response.protocolMajor,
-    // The agent HTTP API names this key `idempotencyKey` (task #58 ④); the daemon's own transport
-    // shape keeps `requestId`, so the two names meet here.
-    requestId: response.idempotencyKey,
+    idempotencyKey: response.idempotencyKey,
     accepted: response.state === "sent",
     attentionCount: response.heldMessages?.length ?? 0,
     messageId: response.messageId,
@@ -233,10 +222,7 @@ export function adaptAgentResolveResponse(
   response: AgentResolveResponse,
 ): AgentMessageTransportResponse {
   return {
-    protocolMajor: response.protocolMajor,
-    // The agent HTTP API names this key `idempotencyKey` (task #58 ④); the daemon's own transport
-    // shape keeps `requestId`, so the two names meet here.
-    requestId: response.idempotencyKey,
+    idempotencyKey: response.idempotencyKey,
     accepted: true,
     attentionCount: 0,
     messages: [response.message],
@@ -248,10 +234,7 @@ export function adaptAgentReactionResponse(
   response: AgentReactionResponse,
 ): AgentMessageTransportResponse {
   return {
-    protocolMajor: response.protocolMajor,
-    // The agent HTTP API names this key `idempotencyKey` (task #58 ④); the daemon's own transport
-    // shape keeps `requestId`, so the two names meet here.
-    requestId: response.idempotencyKey,
+    idempotencyKey: response.idempotencyKey,
     accepted: true,
     attentionCount: 0,
     messageId: response.messageId,
@@ -262,7 +245,6 @@ export interface AgentTaskHttpClient {
   execute(input: AgentHttpInput<TaskRequest>): Promise<TaskResponse>;
 }
 export type AgentChannelRequest = ChannelCommand & {
-  protocolMajor: number;
   workspaceId: string;
   agentId: string;
 };
@@ -300,7 +282,7 @@ export const createAgentMessageHttpClient = (
       what: "agent read",
       query: {
         target: request.target,
-        idempotencyKey: request.requestId,
+        idempotencyKey: request.idempotencyKey,
         before: request.before,
         after: request.after,
         around: request.around,
@@ -315,7 +297,7 @@ export const createAgentMessageHttpClient = (
       ...keys,
       what: "agent search",
       query: {
-        idempotencyKey: request.requestId,
+        idempotencyKey: request.idempotencyKey,
         query: request.query,
         target: request.target,
         sender: request.sender,
@@ -335,12 +317,12 @@ export const createAgentMessageHttpClient = (
         method: "POST",
         headers: agentHeaders(keys, true),
         // Raft's `agentApiSendV2BodySchema` field names (1.0.32 bundle 16728-16744): the idempotency
-        // key is `idempotencyKey` (our request id travels as it), `sendDraft` is declared when this
+        // key is `idempotencyKey`, `sendDraft` is declared when this
         // send is the resend of a held draft, and `mentions` is the structured list. Raft also
         // declares `continue`, which its own CLI never sets and whose semantics are unverified — we
         // neither send nor interpret it (the force-send flag is `continueAnyway`, as in Raft).
         body: JSON.stringify({
-          idempotencyKey: request.requestId,
+          idempotencyKey: request.idempotencyKey,
           target: request.target,
           content: request.content,
           continueAnyway: request.continueAnyway,
@@ -367,7 +349,7 @@ export const createAgentMessageHttpClient = (
       ...keys,
       what: "agent events",
       query: {
-        idempotencyKey: request.requestId,
+        idempotencyKey: request.idempotencyKey,
         limit: request.limit,
         ...(request.target ? { target: request.target } : {}),
       },
@@ -380,7 +362,7 @@ export const createAgentMessageHttpClient = (
       {
         method: "POST",
         headers: agentHeaders(keys, true),
-        body: JSON.stringify({ idempotencyKey: request.requestId }),
+        body: JSON.stringify({ idempotencyKey: request.idempotencyKey }),
       },
       "agent channel attention",
     );
@@ -397,7 +379,7 @@ export const createAgentMessageHttpClient = (
       {
         method: "POST",
         headers: agentHeaders(keys, true),
-        body: JSON.stringify({ idempotencyKey: request.requestId }),
+        body: JSON.stringify({ idempotencyKey: request.idempotencyKey }),
       },
       "agent thread attention",
     );
@@ -406,7 +388,7 @@ export const createAgentMessageHttpClient = (
   },
   async requestResolve({ url, request, ...keys }) {
     const endpoint = new URL(url);
-    endpoint.searchParams.set("idempotencyKey", request.requestId);
+    endpoint.searchParams.set("idempotencyKey", request.idempotencyKey);
     const response = await fetchAgentResponse(
       httpClient,
       endpoint,
@@ -427,7 +409,7 @@ export const createAgentMessageHttpClient = (
       {
         method,
         headers: agentHeaders(keys, true),
-        body: JSON.stringify({ idempotencyKey: request.requestId, emoji: request.emoji }),
+        body: JSON.stringify({ idempotencyKey: request.idempotencyKey, emoji: request.emoji }),
       },
       "agent reaction",
     );
@@ -435,14 +417,12 @@ export const createAgentMessageHttpClient = (
     return readAgentResponseJson<AgentReactionResponse>(response, "agent reaction");
   },
   async requestWorkspaceInfo({ request, ...keys }) {
-    const data = await getAgentJson<
-      Omit<WorkspaceInfoResponse, "protocolMajor" | "idempotencyKey">
-    >(httpClient, { ...keys, what: "workspace_info", query: {} });
-    return {
-      ...data,
-      protocolMajor: request.protocolMajor,
-      requestId: request.requestId,
-    };
+    const data = await getAgentJson<Omit<WorkspaceInfoResponse, "idempotencyKey">>(httpClient, {
+      ...keys,
+      what: "workspace_info",
+      query: {},
+    });
+    return { ...data, idempotencyKey: request.idempotencyKey };
   },
   requestManualGet: ({ request, ...keys }) =>
     getAgentManualJson<AgentManualGetResponse>(httpClient, {
@@ -493,7 +473,7 @@ export const createAgentMessageHttpClient = (
     const response = await httpClient(url, {
       method: "POST",
       headers: agentHeaders(keys, true),
-      body: agentWireBody(request),
+      body: JSON.stringify(request),
       signal: AbortSignal.timeout(AGENT_RPC_TIMEOUT_MS),
     });
     if (!response.ok) throw new Error(`GitHub credential request failed (${response.status})`);
@@ -503,7 +483,7 @@ export const createAgentMessageHttpClient = (
     const response = await httpClient(url, {
       method: "POST",
       headers: agentHeaders(keys, true),
-      body: agentWireBody(request),
+      body: JSON.stringify(request),
       signal: AbortSignal.timeout(AGENT_RPC_TIMEOUT_MS),
     });
     if (!response.ok) throw new Error(`GitHub commit trailers request failed (${response.status})`);
@@ -515,7 +495,7 @@ export const createAgentMessageHttpClient = (
       response = await httpClient(url, {
         method: "POST",
         headers: agentHeaders(keys, true),
-        body: agentWireBody(request),
+        body: JSON.stringify(request),
         signal: AbortSignal.timeout(AGENT_RPC_TIMEOUT_MS),
       });
     } catch {
@@ -538,12 +518,9 @@ export const createAgentMessageHttpClient = (
     } catch {
       throw new Error("Agent reminder response is malformed");
     }
-    // The agent HTTP API names the echoed key `idempotencyKey`; this transport shape keeps
-    // `requestId`, so the wire value is mapped onto it here.
-    const wire = envelope as unknown as { idempotencyKey?: unknown };
-    if (!wire || typeof wire.idempotencyKey !== "string")
+    if (!envelope || typeof envelope.idempotencyKey !== "string")
       throw new Error("Agent reminder response is malformed");
-    return { ...envelope, requestId: wire.idempotencyKey };
+    return envelope;
   },
 });
 
@@ -555,7 +532,7 @@ export const defaultAgentWeeklyReportHttpClient: AgentWeeklyReportHttpClient = {
       method: "POST",
       signal: AbortSignal.timeout(AGENT_RPC_TIMEOUT_MS),
       headers: agentHeaders(keys, true),
-      body: agentWireBody(request),
+      body: JSON.stringify(request),
     });
     if (!response.ok) {
       const message = await response.text();
@@ -569,8 +546,8 @@ export const defaultAgentWeeklyReportHttpClient: AgentWeeklyReportHttpClient = {
       throw new Error(`server Agent weekly-report request failed (${response.status})`);
     }
     const result = (await response.json()) as WeeklyReportResponse;
-    if ((result as { idempotencyKey?: string }).idempotencyKey !== request.requestId)
-      throw new Error("weekly-report response request ID does not match request");
+    if (result.idempotencyKey !== request.idempotencyKey)
+      throw new Error("weekly-report response idempotency key does not match request");
     return result;
   },
 };
@@ -583,7 +560,7 @@ export const defaultAgentWeeklyReportCollectHttpClient: AgentWeeklyReportCollect
         method: "POST",
         signal: AbortSignal.timeout(AGENT_RPC_TIMEOUT_MS),
         headers: agentHeaders(keys, true),
-        body: agentWireBody(request),
+        body: JSON.stringify(request),
       });
     } catch (cause) {
       throw AgentTransportError.preResponseTransport("Agent weekly-report-collect", cause);
@@ -595,8 +572,8 @@ export const defaultAgentWeeklyReportCollectHttpClient: AgentWeeklyReportCollect
       );
     const result =
       (await response.json()) as import("./weekly-report-collect").WeeklyReportCollectResult;
-    if ((result as { idempotencyKey?: string }).idempotencyKey !== request.requestId)
-      throw new Error("weekly-report-collect response request ID does not match request");
+    if (result.idempotencyKey !== request.idempotencyKey)
+      throw new Error("weekly-report-collect response idempotency key does not match request");
     return result;
   },
 };
@@ -609,7 +586,7 @@ export const defaultAgentWeeklyReportKeyPointsHttpClient: AgentWeeklyReportKeyPo
         method: "POST",
         signal: AbortSignal.timeout(AGENT_RPC_TIMEOUT_MS),
         headers: agentHeaders(keys, true),
-        body: agentWireBody(request),
+        body: JSON.stringify(request),
       });
     } catch (cause) {
       throw AgentTransportError.preResponseTransport("Agent weekly-report-key-points", cause);
@@ -621,8 +598,8 @@ export const defaultAgentWeeklyReportKeyPointsHttpClient: AgentWeeklyReportKeyPo
       );
     const result =
       (await response.json()) as import("./weekly-report-key-points").WeeklyReportKeyPointsResult;
-    if ((result as { idempotencyKey?: string }).idempotencyKey !== request.requestId)
-      throw new Error("weekly-report-key-points response request ID does not match request");
+    if (result.idempotencyKey !== request.idempotencyKey)
+      throw new Error("weekly-report-key-points response idempotency key does not match request");
     return result;
   },
 };
@@ -667,7 +644,7 @@ export const defaultAgentChannelHttpClient: AgentChannelHttpClient = {
     try {
       if (method === "GET") {
         const endpoint = new URL(url);
-        endpoint.searchParams.set("idempotencyKey", request.requestId);
+        endpoint.searchParams.set("idempotencyKey", request.idempotencyKey);
         response = await fetch(endpoint, {
           method: "GET",
           headers: agentHeaders(keys),
@@ -678,7 +655,7 @@ export const defaultAgentChannelHttpClient: AgentChannelHttpClient = {
           method: method as "POST" | "PATCH" | "DELETE",
           signal: AbortSignal.timeout(AGENT_RPC_TIMEOUT_MS),
           headers: agentHeaders(keys, true),
-          body: agentWireBody(request),
+          body: JSON.stringify(request),
         });
       }
     } catch (cause) {
@@ -699,7 +676,7 @@ export const defaultAgentActionPrepareHttpClient: AgentActionPrepareHttpClient =
       method: "POST",
       signal: AbortSignal.timeout(AGENT_RPC_TIMEOUT_MS),
       headers: agentHeaders(keys, true),
-      body: agentWireBody(request),
+      body: JSON.stringify(request),
     });
     if (!response.ok)
       throw new Error(`server Agent action-prepare request failed (${response.status})`);

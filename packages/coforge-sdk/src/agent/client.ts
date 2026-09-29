@@ -78,7 +78,7 @@ export type AgentAttachmentUploadSessionCreateRequest = {
   fileName: string;
   contentType: string;
   sizeBytes: number;
-  clientRequestId: string;
+  idempotencyKey: string;
 };
 
 export type AgentAttachmentUploadSessionCreateResponse = {
@@ -197,7 +197,6 @@ export type WorkspaceInfoRuntimeContext = {
   agentWorkspacePath?: string;
 };
 export type WorkspaceInfoResult = {
-  protocolMajor: number;
   idempotencyKey: string;
   workspace: { id: string; slug: string; name: string };
   humans: WorkspaceInfoHuman[];

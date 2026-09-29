@@ -22,7 +22,7 @@ export async function handleAgentChannelGet(
   const idempotencyKey = idempotencyKeyFromQuery(request);
   try {
     const info = await repository.info(principal.workspaceId, principal.agentId, channel);
-    return Response.json({ protocolMajor: 1, idempotencyKey, channel: info });
+    return Response.json({ idempotencyKey, channel: info });
   } catch (error) {
     return channelManagementErrorResponse(error, "channel info failed");
   }
@@ -45,7 +45,7 @@ export async function handleAgentChannelPatch(
       name: body?.name as string | undefined,
       description: body?.description as string | undefined,
     });
-    return Response.json({ protocolMajor: 1, idempotencyKey, channel: info });
+    return Response.json({ idempotencyKey, channel: info });
   } catch (error) {
     return channelManagementErrorResponse(error, "channel update failed");
   }

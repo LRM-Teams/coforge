@@ -7,10 +7,18 @@ These rules apply to `src/features/agents/`.
 - `WorkspaceAgentsProvider` (`workspace-agents-realtime.tsx`) is the app
   shell's one Agent status subscription and one Activity subscription.
   Avatars, pages, and panels read through its hooks (`useLiveAgents`,
-  `useLiveAgent`, `useAgentRecentActivity`, `useAgentActivityFeed`,
-  `usePrefetchAgentActivityFeed`) and never
+  `useLiveAgent`, `useLiveAgentDisplay`, `useAgentRecentActivity`,
+  `useAgentActivityFeed`, `usePrefetchAgentActivityFeed`) and never
   open connections or subscribe themselves. The conversations feature does not
-  own Agent state.
+  own Agent state. The live Agents are a TanStack Store: a reader of one Agent
+  (`useLiveAgent`, `useLiveAgentDisplay`) re-renders only when that Agent
+  changes, so a list row reads its own Agent rather than the whole list.
+- The model beside an Agent's name in chat (`agent-models.ts`, Settings → Show
+  agent model) is one query per Workspace over every Agent the viewer may see
+  (`listVisibleAgentModels`, scoped by `visibleAgentWhere`), wider than
+  `listAgents`. A row reads its own Agent with `select` and never receives the
+  map. The query is read again on focus and reconnect, when an unknown Agent
+  newer than the list appears, and after a runtime save or a visibility change.
 - `agent-status-realtime.ts` consumes backend display snapshots from the
   initial server response and the realtime status channel and accepts newer
   revisions. At display expiry it refreshes from the backend and retries on
@@ -71,7 +79,7 @@ These rules apply to `src/features/agents/`.
   filter loaded pages on the client.
 - Clicking an Agent name opens the same right-hand `AgentProfilePanel` the
   conversation slot uses (`profile`/`agentTab` search params);
-  `/agents/$agentId` redirects there.
+  `agent/$agentId` redirects there.
 - Computer prerequisites appear only after the user requests Agent creation.
   Runtime management stays in the profile panel, not the directory.
 - Workspace directory reads belong to

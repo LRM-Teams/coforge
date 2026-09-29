@@ -46,7 +46,7 @@ import { statusLabel, TASK_STATUS_COLOR, type TaskControls } from "./task-workfl
 
 type DetailCommand = Omit<TaskCommand, "idempotencyKey" | "conversationId"> & { number: number };
 
-const appRoute = getRouteApi("/_app");
+const appRoute = getRouteApi("/w/$workspaceSlug");
 
 const UNASSIGNED = "unassigned";
 const memberKey = (member: { kind: string; id: string }) => `${member.kind}:${member.id}`;

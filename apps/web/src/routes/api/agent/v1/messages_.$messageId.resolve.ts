@@ -24,7 +24,6 @@ export async function handleAgentMessageResolveGet(
   try {
     const message = await resolveAgentMessage(repository, scope, messageId);
     const response: AgentResolveResponse = {
-      protocolMajor: 1,
       idempotencyKey,
       message: message as AgentMessage,
     };

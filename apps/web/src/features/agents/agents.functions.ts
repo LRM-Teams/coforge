@@ -1,6 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
-import { getRequest, setResponseHeader } from "@tanstack/react-start/server";
+import { setResponseHeader } from "@tanstack/react-start/server";
 import { RUNTIME_PROVIDER } from "@lrm/coforge-sdk/internal";
 import {
   agentIdInputSchema,
@@ -21,6 +21,7 @@ import { PrismaChangeAgentVisibilityStore } from "#src/server/db/repositories/ag
 import { setAgentRole } from "#src/server/agents/agent-role.server";
 import { AppError } from "#src/lib/app-error";
 import { ACTIVE_AGENT_WHERE } from "#src/server/agents/active-agent.server";
+import { listVisibleAgentModels } from "#src/server/agents/agent-models.server";
 import { AgentAvatars, agentAvatarUrl } from "#src/server/agents/agent-avatar.server";
 import { isAdminLike, type WorkspaceMemberRole } from "#src/server/workspaces/member-role.server";
 import { requireDatabaseClient } from "#src/server/db/client.server";
@@ -37,7 +38,6 @@ import { getAgentControlSignal } from "#src/server/agents/agent-control-signal.s
 import { PrismaAgentControlStore } from "#src/server/db/repositories/agent-control.repositories.server";
 import { createCentrifugoServerApi } from "#src/server/centrifugo/server-api.server";
 import {
-  authMiddleware,
   workspaceUserMiddleware,
   type WorkspaceUserContext,
 } from "#src/features/auth/function-auth";
@@ -50,7 +50,6 @@ import {
   visiblePrivateAgentWhere,
   type AgentVisibilityViewer,
 } from "#src/server/agents/agent-visibility.server";
-import { workspaceIdForUser } from "#src/server/workspaces/enrollment.server";
 import { workspaceMemberRole } from "#src/server/workspaces/members.server";
 import { workspaceUserAvatarUrl } from "#src/server/db/repositories/user-profile.repositories.server";
 import { ComputerRuntimeVisibility } from "#src/server/computers/computer-runtime-visibility.server";
@@ -343,6 +342,15 @@ export const getAgentStatusSubscriptionTokenForAgent = createServerFn({ method: 
     });
   });
 
+/** The configured model of every Agent the viewer may see in the Workspace, by Agent id, for the
+ * model shown beside an Agent's name in chat (Settings → Show agent model). */
+export const listAgentModels = createServerFn({ method: "GET" })
+  .middleware([workspaceUserMiddleware])
+  .handler(async ({ context: { user, workspaceId, db } }) => {
+    const viewer = await agentVisibilityViewerForUser(db, workspaceId, user.id);
+    return listVisibleAgentModels(db, workspaceId, viewer);
+  });
+
 /**
  * Realtime gap: the viewer's own `listAgents` roster (their owned Agents) is narrower
  * than what they are authorized to see — an owner/admin, or a private Agent's creator viewing it
@@ -362,16 +370,11 @@ export const listVisiblePrivateAgentIds = createServerFn({ method: "GET" })
   });
 
 export const createAgent = createServerFn({ method: "POST" })
-  .middleware([authMiddleware])
+  .middleware([workspaceUserMiddleware])
   .validator(createAgentInputSchema)
   .handler(async ({ data, context }) => {
-    const user = context.user;
-    const db = requireDatabaseClient();
-    const workspaceId = await workspaceIdForUser(
-      db,
-      user,
-      getRequest().headers.get("accept-language") ?? "",
-    );
+    // The Workspace the page names, like every other Agent write.
+    const { user, db, workspaceId } = context;
     const role = await workspaceMemberRole(db, workspaceId, user.id);
     // An `agent:create` action card: guard it is still committable
     // *before* creating the Agent, then mark it `executed` *after* — `ManageAgents.create` below

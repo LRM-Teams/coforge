@@ -1,14 +1,14 @@
-import { RFC_UUID_PATTERN } from "@lrm/coforge-sdk/internal";
+import { RFC_UUID_PATTERN, WEEKLY_REPORT_MARKDOWN_MAX_CHARS } from "@lrm/coforge-sdk/internal";
 
 /** Local proxy / CLI body for personal key-point extraction write-back. */
 export type WeeklyReportKeyPointsCommand = {
-  requestId: string;
+  idempotencyKey: string;
   reportId: string;
   markdown: string;
 };
 
 export type WeeklyReportKeyPointsResult = {
-  requestId: string;
+  idempotencyKey: string;
   reportId: string;
   status: string;
 };
@@ -17,17 +17,17 @@ export type WeeklyReportKeyPointsResult = {
 export function validateWeeklyReportKeyPointsCommand(
   payload: Record<string, unknown>,
 ): WeeklyReportKeyPointsCommand | null {
-  if (typeof payload.requestId !== "string" || !RFC_UUID_PATTERN.test(payload.requestId))
+  if (typeof payload.idempotencyKey !== "string" || !RFC_UUID_PATTERN.test(payload.idempotencyKey))
     return null;
   if (typeof payload.reportId !== "string" || !RFC_UUID_PATTERN.test(payload.reportId)) return null;
   if (
     typeof payload.markdown !== "string" ||
     payload.markdown.trim().length === 0 ||
-    payload.markdown.length > 500_000
+    payload.markdown.length > WEEKLY_REPORT_MARKDOWN_MAX_CHARS
   )
     return null;
   return {
-    requestId: payload.requestId,
+    idempotencyKey: payload.idempotencyKey,
     reportId: payload.reportId,
     markdown: payload.markdown,
   };

@@ -43,7 +43,6 @@ export async function handleAgentMessagesSearchGet(
       offset: query.has("offset") ? Number(query.get("offset")) : undefined,
     })) as AgentMessage[];
     const response: AgentSearchResponse = {
-      protocolMajor: 1,
       idempotencyKey,
       results,
     };

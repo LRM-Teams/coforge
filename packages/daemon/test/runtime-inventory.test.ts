@@ -7,6 +7,7 @@ import {
   discoverExternalCodeAgents,
   type ExternalCodeAgentProbe,
 } from "#src/code-agent/runtime-inventory";
+import { fileStatCacheKey, inventoryCachePath } from "#src/code-agent/runtime-inventory-cache";
 import {
   probeClaudeCodeVersion,
   resolveClaudeCodeExecutable,
@@ -162,6 +163,72 @@ describe("external Code Agent inventory", () => {
     ).resolves.toBeUndefined();
     expect(killed).toBe(true);
   });
+
+  test("keeps a cached runtime when a later version probe temporarily fails", async () => {
+    const home = await mkdtemp(join(tmpdir(), "coforge-runtime-cache-fallback-"));
+    const executable = join(home, "codex");
+    await Bun.write(executable, "fixture");
+    const key = await fileStatCacheKey([executable]);
+    expect(key).toBeDefined();
+    await Bun.write(
+      inventoryCachePath(home),
+      JSON.stringify({
+        codex: {
+          key,
+          runtime: { provider: "codex", version: "0.151.0", displayName: "Codex" },
+        },
+      }),
+    );
+    try {
+      const probe: ExternalCodeAgentProbe = {
+        which: (name) => (name === "codex" ? executable : undefined),
+        probe: async () => undefined,
+        spawn: () => ({
+          stdout: new Blob(["broken\n"]).stream(),
+          exited: Promise.resolve(1),
+        }),
+      };
+      await expect(
+        discoverExternalCodeAgents(probe, { HOME: home, PATH: "" }, "linux", undefined, home),
+      ).resolves.toContainEqual({
+        provider: "codex",
+        version: "0.151.0",
+        displayName: "Codex",
+      });
+    } finally {
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+
+  test("starts independent external runtime probes concurrently while preserving provider order", async () => {
+    const started: string[] = [];
+    let release!: () => void;
+    const allStarted = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const paths = {
+      claude: "/bin/claude",
+      "kiro-cli": "/bin/kiro-cli",
+    };
+    const probe: ExternalCodeAgentProbe = {
+      which: (name) => paths[name as keyof typeof paths],
+      spawn: (executable) => {
+        started.push(executable);
+        if (started.length === 2) release();
+        const output = executable.endsWith("claude") ? "2.1.0\n" : "kiro-cli 2.21.2\n";
+        return {
+          stdout: new Blob([output]).stream(),
+          exited: allStarted.then(() => 0),
+        };
+      },
+    };
+
+    await expect(discoverExternalCodeAgents(probe)).resolves.toEqual([
+      { provider: "claude-code", version: "2.1.0", displayName: "Claude Code" },
+      { provider: "kiro", version: "2.21.2", displayName: "Kiro" },
+    ]);
+    expect(started).toEqual(["/bin/claude", "/bin/kiro-cli"]);
+  }, 6_000);
 
   test("kills a Claude Code version probe that exceeds its timeout", async () => {
     let killed = false;

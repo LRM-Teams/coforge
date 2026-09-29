@@ -21,9 +21,14 @@ These rules apply to `src/features/conversations/`.
   back to its own section only. A drag saves the new pin order plus the rows
   it unpinned, never a whole list, so pins it cannot see survive.
   Channels and Direct messages are not reordered by hand.
+- Direct messages list the viewer's existing DM conversations only, as Raft
+  does: a conversation starts from a "Message" affordance
+  (`useOpenDirectConversation`, which opens or starts it and goes to
+  `dm/<conversationId>`), never from the sidebar. Link to a DM by its
+  conversation id; only a "start" affordance knows just an Agent or a member.
 - The sidebar's channel and DM lists live in `sidebar-collections.ts`
   (collections and changes, tested without React) and `sidebar-lists.ts`
-  (hooks): the `/messages` loader fetches them into the TanStack Query cache
+  (hooks): the chat layout's (`_chat`) loader fetches them into the TanStack Query cache
   (the server render reads it), and after hydration the same Query keys back
   TanStack DB collections. Read them with `useSidebarLists` and change them
   only through `useSidebarActions` (optimistic: the row changes at once, a
@@ -33,14 +38,26 @@ These rules apply to `src/features/conversations/`.
   `channel.updated.v1`, or the viewer leaving, muting or pinning it from the
   settings panel) re-reads only the
   channel list through `useRefreshSidebarChannels`.
+- A message row's Task, thread and Agent status data is read by the part that
+  shows it, by id, as Mattermost and Telegram Web do. An Agent's avatar
+  (`MessageAgentAvatar`) reads its one Agent through `useLiveAgentDisplay`. The Task a message became
+  (`MessageTask`) and a body's task reference (`TaskReference`) each read one
+  Task under `ConversationIdProvider` (see `features/tasks/AGENTS.md`). A
+  root's thread preview and thread entries (`thread-summary.tsx`) read that
+  root from the conversation's TanStack Store thread store
+  (`thread-store.tsx`, `useSelector`), which `ThreadedConversation` creates
+  and keeps in step; a pane given `onOpenThread` must sit under its
+  `ThreadStoreProvider`.
+  Never pass rows a render callback or a value built from the conversation's
+  Tasks, threads or live Agents: a change to one would re-render every row.
 - TanStack DB collections are client-only: create them through the
   per-`QueryClient` factory after hydration, never at module scope, and keep
-  `/messages` server-rendered.
+  the chat pages server-rendered.
 - Direct and channel views share the empty-state layout and compact thread
   prompt in `direct-conversation.tsx`. Each supplies its own identity, media,
   and copy, and keeps its composer or join action.
-- `conversation-header.tsx` is the one header row both DM and channel headers
-  fill (identity, centered Chat/Tasks/Files tabs, actions); give it slots rather
+- DM and channel headers fill the shared `components/layout/tabbed-header.tsx`
+  row (identity, centered Chat/Tasks/Files tabs, actions); give it slots rather
   than laying out a second tab row.
 - The main stream's side room (and its "Full-width messages" device setting)
   is `MESSAGE_COLUMN_CLASS` in `features/settings/message-width.ts`; history
@@ -49,18 +66,33 @@ These rules apply to `src/features/conversations/`.
   coordinates thread/profile panes; `conversation-pane.tsx` renders one message
   stream; `use-conversation-sync.ts` owns browser-only deep-link and read-cursor
   synchronization.
-- The Saved list is a TanStack DB collection (`saved-messages-collection.ts`) on the
-  Chat layout's `DbClient`, seeded from the loader. Read it through
+- `conversation-host.tsx` is what a conversation reads from the page hosting
+  it (Chat, the search preview): the viewer's open mode, the Workspace's
+  channels and the Saved list. A host's loader reads `savedMessagesQuery` into
+  the Query cache, which the server and hydrating render read. After hydration
+  the list is a TanStack DB collection (`saved-messages-collection.ts`) on the
+  app's one `DbClient` (`DbProvider` in `router.tsx`, read with `useDbClient`),
+  shared by every host; it starts from that cache and follows it. TanStack DB's
+  GC empties it (and its Query) once no page shows it; a host's loader reads
+  the list again on every visit, and the store stands back on that until the
+  collection has synced. Never materialize a
+  collection during a server render. The sidebar's unread badges stay Chat's own. Read it through
   `useSavedEntries`/`useIsMessageSaved` and write through the context's
   `save`/`unsave`; never a module-level collection or `createCollection`
   singleton, which would share state across SSR requests.
 - A conversation's data and actions (messages kept live, its Tasks, send,
   react, join, read and follow threads) come from `useChannelConversation` /
   `useDirectConversation` (`use-conversation-data.ts`), shared by the
-  conversation routes and the Tasks page popup. Change a send or read path
-  there, not in a route. The search page's read-only preview is the one
-  exception: it takes no actions, so it reads only the messages through
-  `useConversationQuery` with the same query factories.
+  conversation pages and the Tasks page popup. Change a send or read path
+  there, not in a route.
+- `conversation-page.tsx` (`ConversationPage`) is a conversation as Chat
+  opens it (tabs, Task board, files, reading), one page for channels and
+  direct messages: each kind supplies only its data, header, conversation and
+  read cursor. The Chat routes and the search preview both render it, so the
+  two never differ;
+  a host only reads its params and loads through `loadConversationPage`
+  (`conversation-page-loader.ts`). Their address state is
+  `conversationPageSearchShape`, which every host's `validateSearch` spreads.
 - `mentionOutsiders` (the channel's people and public Agents outside it) is for
   @-completion only. Never merge it into `mentionables`, which also resolves
   plain `@handle` labels and stored mention tokens.

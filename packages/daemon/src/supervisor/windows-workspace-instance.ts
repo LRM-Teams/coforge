@@ -1,6 +1,7 @@
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
+import { WorkspaceHealthJournal, workspaceHealthJournalPath } from "./workspace-health-journal";
 import {
   validateWorkspaceEndpoint,
   type NativeProcessIdentity,
@@ -86,7 +87,9 @@ export class WindowsWorkspaceInstance implements WorkspaceInstance {
 
   async stop(): Promise<void> {
     const current = await this.#readRecord();
+    let signalled = false;
     if (current && this.isAlive(current.mainPid)) {
+      signalled = true;
       try {
         this.signalProcess(current.mainPid);
       } catch (error) {
@@ -103,6 +106,16 @@ export class WindowsWorkspaceInstance implements WorkspaceInstance {
       }
     }
     await rm(this.#recordPath, { force: true });
+    // Windows has no systemd/launchd Restart unit: Coordinator stop is the intentional lifecycle
+    // seam. If SIGKILL beats the child's SIGTERM shutdown, live would stay true and the next
+    // start would recordCrash toward the degraded latch. Clear live only when this stop actually
+    // signalled a live PID — an already-dead child must keep live so the replacement can count
+    // the unexpected death (macOS/Linux never enter this class).
+    if (signalled) {
+      await new WorkspaceHealthJournal(
+        workspaceHealthJournalPath(this.config.stateDirectory),
+      ).recordGracefulStop();
+    }
   }
 
   async identity(): Promise<NativeProcessIdentity | null> {

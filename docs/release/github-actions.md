@@ -70,20 +70,26 @@ on merge suits the cloud application, which replaces a running service, but a
 client release leaves a persistent artifact set behind, and at the current user
 count a build per merge is waste. Adding a trigger later is one line.
 
-Routine staging publications use `<target-version>-dev.<workflow-run-number>`;
-the current target is `0.1.0`, so leaving the workflow's version input empty
-generates versions such as `0.1.0-dev.9` and `0.1.0-dev.10`. Run numbers may
-have gaps and are not reset when the target version changes. Update the
-workflow's default target when preparing the next release line. The source SHA
-and build time remain in the manifest rather than the version string. There
-is no nightly schedule or date-based version convention. Use only two routine
-forms: staging builds such as `0.1.0-dev.9` and stable versions such as `0.1.0`,
-selected through the explicit version input. No beta or release-candidate
-stage is required. Previously published versions, including historical `rc`
-versions, remain immutable and available by exact version; the next successful
-publication moves `latest` without renaming or deleting them. Retrying a
-partially published version must still respect the write-once rule; use a new workflow run for a fresh
-default version rather than overwriting an existing version.
+Each release line counts its own staging builds, as semver pre-releases do
+(`1.0.0-beta.2 < 1.0.0-beta.11`). The workflow's `DEV_LINE` names the current
+line; leaving the version input empty publishes the smallest
+`<line>-dev.<N>`, counting from 1, whose `manifest.json` the feed does not yet
+have (`nextDevVersion` in `scripts/release/publish.ts`), so the builds read
+`0.1.1-dev.1`, `0.1.1-dev.2`, and so on. A number already published is skipped
+(`0.1.1-dev.82`, published under the earlier run-number naming, is one). A
+number whose earlier publication failed before its manifest is reused by the
+next publication, which overwrites the leftover objects: without a manifest
+no installer or `latest` ever referenced them. An explicit version input is
+still refused once its manifest exists. The `release-staging` concurrency group keeps two publications from
+choosing a number at the same time. Move `DEV_LINE` when a line ships as a
+stable version. The source SHA and build time remain in the manifest rather
+than the version string. There is no nightly schedule or date-based version
+convention. Use only two routine forms: staging builds such as `0.1.1-dev.2`
+and stable versions such as `0.1.1`, selected through the explicit version
+input. No beta or release-candidate stage is required. Previously published
+versions, including historical `rc` versions, remain immutable and available
+by exact version; the next successful publication moves `latest` without
+renaming or deleting them.
 
 The Computer distribution is published to the release feed only. It is **not
 published to npm**; that channel is purely additive and can be introduced later

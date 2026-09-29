@@ -9,13 +9,11 @@ import { ButtonUtility } from "#src/components/base/buttons/button-utility";
 import { useAppToast } from "#src/components/ui/toast";
 import { AgentDisplayAvatar } from "#src/features/agents/agent-activity-avatar";
 import type { LiveAgent } from "#src/features/agents/workspace-agents-realtime";
+import { useWorkspaceSlug } from "#src/features/workspaces/workspace-route";
 import { cx } from "#src/utils/cx";
 import { m } from "#src/paraglide/messages";
-import {
-  useChannelUnreadCounts,
-  useCloseConversationList,
-  useSavedEntries,
-} from "./conversation-navigation";
+import { useChannelUnreadCounts, useCloseConversationList } from "./conversation-navigation";
+import { useSavedEntries } from "./conversation-host";
 import { ConversationRowMenu } from "./conversation-row-menu";
 import { conversationRowMenuEnabled, directRowPreference } from "./conversation-row-menu-model";
 import { useSidebarActions } from "./sidebar-lists";
@@ -29,10 +27,12 @@ import {
 } from "./pinned-conversations";
 import { conversationRoute, type ConversationTarget } from "./last-conversation";
 import {
+  directorySectionHideable,
   readCollapsedSections,
   writeCollapsedSections,
   type DirectorySectionId,
 } from "./directory-sections";
+import { EMPTY_SECTION_HIDDEN_CLASS } from "#src/features/settings/hide-empty-sidebar-sections";
 
 type DirectoryChannel = {
   id: string;
@@ -99,7 +99,8 @@ function ConversationRow({
 }) {
   const closeList = useCloseConversationList();
   const router = useRouter();
-  const route = conversationRoute(target);
+  const workspaceSlug = useWorkspaceSlug();
+  const route = conversationRoute(target, workspaceSlug);
   return (
     // The row is a React Aria link so the conversation menu's `MenuTrigger trigger="contextMenu"`
     // can use it as its trigger; `render` hands the element to TanStack's `Link`, which owns
@@ -211,18 +212,18 @@ export function ConversationDirectory({
   agents,
   directRows: directRowsByAgent,
   selectedChannelId,
-  selectedAgentId,
+  selectedDmId,
   selectedSaved,
   onCreateChannel,
 }: {
   channels: DirectoryChannel[];
   agents: LiveAgent[];
-  /** The viewer's own DM rows by Agent (P2b, #708): which Agent rows are conversations, which are
-   * pinned (and in what order), and which are closed. DM rows come from the Agent list, so this is
-   * the only thing that can tell them apart. */
+  /** The viewer's own DM rows by Agent (P2b, #708): which Agents they have a conversation with (and
+   * its id), which are pinned (and in what order), and which are closed. */
   directRows: ReadonlyMap<string, DirectRow>;
   selectedChannelId?: string;
-  selectedAgentId?: string;
+  /** The open direct message, by conversation id (from the URL, so it highlights at once). */
+  selectedDmId?: string;
   /** The Saved view is open — its sidebar entry renders as the current row. */
   selectedSaved?: boolean;
   /** Opens the create-channel flow from the "+" next to the CHANNELS caption. */
@@ -236,12 +237,14 @@ export function ConversationDirectory({
     const sortedChannels = [...channels].sort((left, right) =>
       left.joined === right.joined ? 0 : left.joined ? -1 : 1,
     );
-    /** DM rows in the Agent list's own order; a closed one is left out of its section by the
-     * split. */
-    const directRows = agents.map((agent) => ({
-      agent,
-      preference: directRowPreference(directRowsByAgent.get(agent.id)),
-    }));
+    /** DM rows in the Agent list's own order, one per existing conversation (an Agent the viewer
+     * never wrote to has none, as in Raft); a closed one is left out of its section by the split. */
+    const directRows = agents.flatMap((agent) => {
+      const row = directRowsByAgent.get(agent.id);
+      return row?.conversationId
+        ? [{ agent, conversationId: row.conversationId, preference: directRowPreference(row) }]
+        : [];
+    });
     const sections = splitPinnedConversations(sortedChannels, directRows);
     const base: DirectoryLayout = {
       pinned: sections.pinned.map((entry) =>
@@ -308,7 +311,7 @@ export function ConversationDirectory({
       </ConversationRowMenu>
     );
   };
-  const directRow = ({ agent, preference }: (typeof directRows)[number]) => (
+  const directRow = ({ agent, conversationId, preference }: (typeof directRows)[number]) => (
     <ConversationRowMenu
       target={{
         kind: "direct",
@@ -318,8 +321,8 @@ export function ConversationDirectory({
       }}
     >
       <ConversationRow
-        target={{ agentId: agent.id }}
-        current={agent.id === selectedAgentId}
+        target={{ dmId: conversationId }}
+        current={conversationId === selectedDmId}
         unreadCount={unreadCounts[agent.id]}
         label={agent.displayName}
         icon={
@@ -388,8 +391,19 @@ export function ConversationDirectory({
       </div>
       {/* Pinned channels and DMs, together and in the order they were pinned. Empty, it shows
           where to drop a row; a device without a mouse cannot drag, so it leaves it out there
-          (its rows pin from their long-press menu). */}
-      <div className={cx("mt-2", pinnedEmpty && "hidden any-pointer-fine:block")}>
+          (its rows pin from their long-press menu), and so does Hide empty sidebar sections until
+          a row is dragged. */}
+      <div
+        className={cx(
+          "mt-2",
+          pinnedEmpty && "hidden any-pointer-fine:block",
+          directorySectionHideable({
+            itemCount: base.pinned.length,
+            dragging: drag.dragging,
+            revealWhileDragging: true,
+          }) && EMPTY_SECTION_HIDDEN_CLASS,
+        )}
+      >
         <DirectorySection
           label={m.conversation_pinned_section()}
           expanded={!collapsed.includes("pinned")}
@@ -443,7 +457,13 @@ export function ConversationDirectory({
         </DirectorySection>
       </div>
 
-      <div className="mt-4">
+      <div
+        className={cx(
+          "mt-4",
+          directorySectionHideable({ itemCount: base.agents.length, dragging: drag.dragging }) &&
+            EMPTY_SECTION_HIDDEN_CLASS,
+        )}
+      >
         <DirectorySection
           label={m.messages_agents_action()}
           expanded={!collapsed.includes("agents")}

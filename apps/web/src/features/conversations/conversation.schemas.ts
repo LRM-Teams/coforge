@@ -26,8 +26,11 @@ export const conversationPageInputSchema = {
   afterSequence: z.number().int().nonnegative().optional(),
   limit: z.number().int().min(1).max(100).optional(),
 };
+/** A sidebar preference on the viewer's DM with an Agent, which the sidebar keys by Agent. */
 export const agentConversationInputSchema = z.object({ agentId: uuid });
-export const agentConversationPageInputSchema = agentConversationInputSchema.extend(
+/** One of the viewer's direct conversations, by its own id (`dm/<id>`). */
+export const directConversationInputSchema = z.object({ conversationId: uuid });
+export const directConversationPageInputSchema = directConversationInputSchema.extend(
   conversationPageInputSchema,
 );
 const conversationHistoryInputSchema = z.object({ conversationId: uuid });
@@ -37,17 +40,17 @@ export const ownMessageIndexInputSchema = conversationHistoryInputSchema.extend(
 export const conversationAroundInputSchema = conversationHistoryInputSchema.extend({
   messageId: uuid,
 });
-export const agentConversationUpdatesInputSchema = agentConversationInputSchema.extend({
+export const directConversationUpdatesInputSchema = directConversationInputSchema.extend({
   afterSequence: z.number().int().nonnegative(),
 });
-export const sendConversationMessageInputSchema = agentConversationInputSchema.extend({
+export const sendConversationMessageInputSchema = directConversationInputSchema.extend({
   requestId: uuid,
   body: z.string().trim().min(1).max(8_000),
   attachmentIds: attachmentIdsSchema,
   threadRootId: uuid.optional(),
 });
 
-export const readConversationThreadInputSchema = agentConversationInputSchema.extend({
+export const readConversationThreadInputSchema = directConversationInputSchema.extend({
   threadRootId: uuid,
   throughSequence: z.number().int().positive(),
 });

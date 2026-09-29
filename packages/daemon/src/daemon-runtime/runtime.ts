@@ -95,7 +95,6 @@ import {
   type ChannelCommand,
   type WeeklyReportCommand,
   type WeeklyReportResponse,
-  WEEKLY_REPORT_PROTOCOL_MAJOR,
   threadParentTarget,
   mentionsInContent,
   parseUpgradeErrorCode,
@@ -109,12 +108,17 @@ import {
   freshnessDecisionFactId,
   HELD_CONTEXT_LIMIT,
   UUID_LIKE_SOURCE,
+  utf8Encoder,
 } from "@lrm/coforge-sdk/internal";
 import { agentWorkspaceDirectory } from "#src/agent-runtime/agent-workspace-path";
 import { memoryIndexReminder } from "#src/agent-runtime/agent-memory-seed";
 import { AgentControl } from "#src/agent-runtime/agent-control";
 import { AgentSessions } from "#src/agent-runtime/agent-session";
 import { AgentRuntimeState } from "#src/agent-runtime/agent-runtime-state";
+import {
+  ContextHandoffCoordinator,
+  contextHandoffActivity,
+} from "#src/agent-runtime/context-handoff";
 import { MemoryAgentRuntimeStateStore } from "#src/persistence/memory-agent-runtime-state-store";
 import { listAgentSkills } from "#src/code-agent/agent-skills";
 import {
@@ -353,9 +357,9 @@ const DRAFT_REPLAY_MEMORY = 8;
  * Raft's `continue-state.json` shape, so no bookkeeping field leaks onto disk. */
 type AgentDraftBookkeeping = {
   /** The request whose content the target's current draft holds; only it may clear that draft. */
-  ownerRequestId?: string;
-  /** Recently handled send request ids for this target, oldest first. */
-  seenRequestIds: string[];
+  ownerIdempotencyKey?: string;
+  /** Recently handled send idempotency keys for this target, oldest first. */
+  seenIdempotencyKeys: string[];
 };
 
 /** Detail kinds that end a busy turn; the heartbeat stops as soon as one is observed. */
@@ -530,6 +534,8 @@ export class DaemonRuntime {
   /** The last (usedTokens, windowTokens) reading sent per Agent, so an unchanged
    * reading is not re-sent. Forgotten on launch end/dispose, alongside `#compactionTracker`. */
   readonly #lastContextUsage = new Map<string, { usedTokens: number; windowTokens: number }>();
+  /** One early handoff request per native session; reset when a new launch starts. */
+  readonly #contextHandoffs = new Map<string, ContextHandoffCoordinator>();
   readonly #agentProxy?: AgentProxy;
   readonly #activityHeartbeatTimers = new Map<string, ReturnType<typeof setTimeout>>();
   readonly #lastBusyActivity = new Map<
@@ -752,7 +758,7 @@ export class DaemonRuntime {
       requestId: "",
       accepted: Boolean(snapshot),
       status,
-      ...(snapshot ? { snapshotJson: new TextEncoder().encode(JSON.stringify(snapshot)) } : {}),
+      ...(snapshot ? { snapshotJson: utf8Encoder.encode(JSON.stringify(snapshot)) } : {}),
       ...(message ? { message } : {}),
     });
     // The one place a scan result gets its `collectedAt`: a fresh reading is stamped "now"; an
@@ -858,7 +864,7 @@ export class DaemonRuntime {
             launch.launchId,
             sessionId,
             AGENT_CONTEXT_SCAN_STATUS.AVAILABLE,
-            new TextEncoder().encode(JSON.stringify(report)),
+            utf8Encoder.encode(JSON.stringify(report)),
           )
         : result(launch.launchId, sessionId, AGENT_CONTEXT_SCAN_STATUS.UNPARSED);
     } catch (error) {
@@ -1849,6 +1855,7 @@ export class DaemonRuntime {
     this.#compactionTracker.dispose(agentId);
     this.#runtimeProgress.dispose(agentId);
     this.#lastContextUsage.delete(agentId);
+    this.#contextHandoffs.delete(agentId);
     this.#revokeLocalLaunch(agentId);
     try {
       await this.#releaseAgentRuntime(agentId);
@@ -1971,6 +1978,7 @@ export class DaemonRuntime {
     // #deliveryQueue.shouldHold on every delivery for this Agent from now on.
     this.#deliveryQueue.setProvider(agentId, config.provider);
     this.#lastContextUsage.delete(agentId);
+    this.#contextHandoffs.delete(agentId);
     // AgentControl's fresh retry after a kiro/pi AgentSessionRecoveryError: the invalidate was
     // already reported before this launch (see `invalidateSession` above); narrate the cold
     // start here, where the real launch's ActivityLaunch now exists. `invalidateReason` is
@@ -2132,6 +2140,7 @@ export class DaemonRuntime {
         this.#compactionTracker.dispose(agentId);
         this.#runtimeProgress.dispose(agentId);
         this.#lastContextUsage.delete(agentId);
+        this.#contextHandoffs.delete(agentId);
         this.#collectSkillAgents.delete(agentId);
         if (this.#currentActivityLaunches.get(agentId) !== launch) return;
         this.#messageAttention.clearAgent(agentId);
@@ -2346,6 +2355,32 @@ export class DaemonRuntime {
         event.usedTokens,
         event.windowTokens,
       );
+      let handoff = this.#contextHandoffs.get(agentId);
+      if (!handoff) {
+        handoff = new ContextHandoffCoordinator(({ prompt, percent }) => {
+          this.#emitAgentActivity(
+            agentId,
+            launch,
+            this.#activity(
+              agentId,
+              AGENT_ACTIVITY_DETAIL_KIND.SYSTEM_MESSAGE,
+              "info",
+              contextHandoffActivity(percent),
+            ),
+          );
+          const session = this.#agentProcessManager.session(agentId);
+          if (!session?.notify) return;
+          void session.notify(prompt).catch((error: unknown) => {
+            logger.warning("Context handoff request was not accepted", {
+              event: "agent.context_handoff.request_failed",
+              agent_id: agentId,
+              error_code: error instanceof Error ? error.name : "UnknownError",
+            });
+          });
+        });
+        this.#contextHandoffs.set(agentId, handoff);
+      }
+      handoff.observe(event.usedTokens, event.windowTokens);
       return;
     }
     if (event.type === "activity" || event.type === "tool-start") {
@@ -2568,7 +2603,7 @@ export class DaemonRuntime {
     if (!agentApiKey || !this.#transport.agentWeeklyReportCollect) return;
     await this.#transport.agentWeeklyReportCollect(
       {
-        requestId: crypto.randomUUID(),
+        idempotencyKey: crypto.randomUUID(),
         failRunningSlots: true,
         failureReason,
       },
@@ -2723,9 +2758,6 @@ export class DaemonRuntime {
     // An exited Agent is not woken for a message it has already consumed: the delivery is
     // acknowledged and dropped here, before any launch, rather than after one.
     if (exited && this.#messageAttention.hasConsumed(message))
-      return this.#messageAttention.acknowledge(message);
-    // Nor for a delivery that would not wake a running Agent either.
-    if (exited && this.#messageAttention.isSilent(message))
       return this.#messageAttention.acknowledge(message);
     // A wake launch failed moments ago, so launching again now would most likely fail the same
     // way. The delivery waits, acknowledged as the daemon keeps it, for the first launch after the
@@ -3350,8 +3382,7 @@ export class DaemonRuntime {
       roundCount += 1;
       const result = await this.#transport.agentMessage!(
         {
-          protocolMajor: WORKSPACE_PROTOCOL_MAJOR,
-          requestId: request.requestId,
+          idempotencyKey: request.idempotencyKey,
           agentId,
           workspaceId: this.#connection.workspaceId,
           operation: "check",
@@ -3374,12 +3405,13 @@ export class DaemonRuntime {
       if (message.sequence > current) maxSequenceByTarget.set(message.target, message.sequence);
     }
     for (const [target, sequence] of maxSequenceByTarget) {
+      // A check consumes what it returned without reviewing the target, so it takes no read order
+      // and never outranks a thread the Agent read (Raft's `check` records none either).
       this.#messageAttention.recordModelSeen(agentId, target, sequence);
-      this.#messageAttention.recordReadContext(agentId, target);
     }
     logger.info("Agent checked pending messages", {
       event: "agent.message.checked",
-      ...this.#agentLogScope(agentId, request.requestId),
+      ...this.#agentLogScope(agentId, request.idempotencyKey),
       pending_count: attention.reduce((count, item) => count + item.pendingCount, 0),
       displayed_count: messages.length,
       round_count: roundCount,
@@ -3388,7 +3420,7 @@ export class DaemonRuntime {
       outcome: "ok",
     });
     return {
-      requestId: request.requestId,
+      idempotencyKey: request.idempotencyKey,
       accepted: true,
       attentionCount: attention.reduce((n, a) => n + a.pendingCount, 0),
       summaries: attention.map((item) => ({ ...item, flags: [...item.flags] })),
@@ -3408,18 +3440,18 @@ export class DaemonRuntime {
     const startedAt = performance.now();
     const inbox = this.#agentInbox(agentId);
     // Task #70: the daemon owns the per-target draft for every request, and a transport retry
-    // re-runs this whole flow with the SAME request id. Without this bookkeeping, a retry of an
+    // re-runs this whole flow with the SAME idempotency key. Without this bookkeeping, a retry of an
     // older send to the same target rewrites the draft and, once it is finally accepted, clears the
     // draft a newer hold just stored — the Agent was told its held message is saved, and
     // `--send-draft` then answers SEND_DRAFT_NOT_FOUND. A replay of an older request therefore
     // touches nothing about the draft; the newest writer owns it until its own outcome.
     const draftBookkeeping = this.#draftBookkeepingFor(agentId, target);
-    const replayed = draftBookkeeping.seenRequestIds.includes(request.requestId);
+    const replayed = draftBookkeeping.seenIdempotencyKeys.includes(request.idempotencyKey);
     if (!replayed) {
-      draftBookkeeping.seenRequestIds.push(request.requestId);
-      if (draftBookkeeping.seenRequestIds.length > DRAFT_REPLAY_MEMORY)
-        draftBookkeeping.seenRequestIds.shift();
-      draftBookkeeping.ownerRequestId = request.requestId;
+      draftBookkeeping.seenIdempotencyKeys.push(request.idempotencyKey);
+      if (draftBookkeeping.seenIdempotencyKeys.length > DRAFT_REPLAY_MEMORY)
+        draftBookkeeping.seenIdempotencyKeys.shift();
+      draftBookkeeping.ownerIdempotencyKey = request.idempotencyKey;
     }
     const draft = request.sendDraft ? await inbox.draft(target) : undefined;
     if (request.sendDraft && !draft)
@@ -3495,7 +3527,7 @@ export class DaemonRuntime {
       await inbox.save(target, { content, attachmentIds, mentions, seenUpToSeq });
     // The daemon's own freshness decision, taken BEFORE any transport call: a send it holds must
     // never be issued, because a re-issue of the same request would re-decide it (observed: the
-    // same requestId held at 00:18:30 and forwarded at 00:19:30 delivered a message the Agent had
+    // same idempotencyKey held at 00:18:30 and forwarded at 00:19:30 delivered a message the Agent had
     // been told was held, and the deliberate `--send-draft` resend then duplicated it). A hold
     // decided here is terminal; the server still gets the request when the daemon forwards, so its
     // own check remains the race guard for anything that arrived in between.
@@ -3510,7 +3542,7 @@ export class DaemonRuntime {
         ? locallyHeldSend(
             freshness,
             {
-              requestId: request.requestId,
+              idempotencyKey: request.idempotencyKey,
               draftReholdCount,
               freshnessContextMode: request.freshnessContextMode,
             },
@@ -3538,8 +3570,7 @@ export class DaemonRuntime {
           )
         : await this.#transport.agentMessage!(
             {
-              protocolMajor: WORKSPACE_PROTOCOL_MAJOR,
-              requestId: request.requestId,
+              idempotencyKey: request.idempotencyKey,
               agentId,
               workspaceId: this.#connection.workspaceId,
               operation: "send",
@@ -3572,17 +3603,17 @@ export class DaemonRuntime {
         seenUpToSeq: contextWasWithheld ? seenUpToSeq : (result.seenUpToSeq ?? seenUpToSeq),
       });
       // A hold is the newest user-visible draft state for this target, so it takes ownership.
-      draftBookkeeping.ownerRequestId = request.requestId;
+      draftBookkeeping.ownerIdempotencyKey = request.idempotencyKey;
     } else if (result.accepted) {
       // Only the request that owns the draft may consume it: an older send's accepted replay must
       // leave a newer hold's draft alone (task #70). An absent owner means the daemon restarted and
       // has no record, which keeps the pre-existing behaviour of clearing on acceptance.
       if (
-        draftBookkeeping.ownerRequestId === undefined ||
-        draftBookkeeping.ownerRequestId === request.requestId
+        draftBookkeeping.ownerIdempotencyKey === undefined ||
+        draftBookkeeping.ownerIdempotencyKey === request.idempotencyKey
       ) {
         await inbox.clear(target);
-        draftBookkeeping.ownerRequestId = undefined;
+        draftBookkeeping.ownerIdempotencyKey = undefined;
       }
     }
     const targetMessages = result.messages.filter((message) => message.target === target);
@@ -3596,8 +3627,10 @@ export class DaemonRuntime {
     );
     if (consumedBoundary > 0) {
       this.#messageAttention.recordModelSeen(agentId, target, consumedBoundary);
-      // The held-context read inside `send`: the Agent just consumed these messages for `target`.
-      this.#messageAttention.recordReadContext(agentId, target);
+      // The held-context read inside `send`: the Agent just reviewed these messages for `target`.
+      // A withheld context was never presented, so it reviews nothing (Raft records none either).
+      if (!contextWasWithheld)
+        this.#messageAttention.recordReadContext(agentId, target, consumedBoundary);
     }
     const recentUnread = contextWasWithheld
       ? []
@@ -3632,7 +3665,7 @@ export class DaemonRuntime {
         // field for field, so a locally decided hold is auditable next to a server-decided one.
         logger.info("Agent inbox freshness decision", {
           event: "agent.inbox.freshness_decision",
-          ...this.#agentLogScope(agentId, request.requestId),
+          ...this.#agentLogScope(agentId, request.idempotencyKey),
           producer_fact_id: producerFactId,
           action: "send",
           decision: heldDecision,
@@ -3673,7 +3706,7 @@ export class DaemonRuntime {
     }
     logger.info("Agent sent a message", {
       event: "agent.message.sent",
-      ...this.#agentLogScope(agentId, request.requestId),
+      ...this.#agentLogScope(agentId, request.idempotencyKey),
       freshness_decision: result.decision ?? "forward",
       accepted: result.accepted,
       message_id: result.messageId,
@@ -3681,7 +3714,7 @@ export class DaemonRuntime {
       outcome: result.accepted ? "ok" : "rejected",
     });
     return {
-      requestId: request.requestId,
+      idempotencyKey: request.idempotencyKey,
       accepted: result.accepted,
       attentionCount: result.attentionCount,
       messageId: result.messageId ?? "",
@@ -3723,8 +3756,7 @@ export class DaemonRuntime {
       : undefined;
     const result = await this.#transport.agentMessage!(
       {
-        protocolMajor: WORKSPACE_PROTOCOL_MAJOR,
-        requestId: request.requestId,
+        idempotencyKey: request.idempotencyKey,
         agentId,
         workspaceId: this.#connection.workspaceId,
         operation,
@@ -3748,24 +3780,25 @@ export class DaemonRuntime {
     // truncated preview without whether the message mentions the Agent.
     if (result.accepted && operation === "read")
       this.#messageAttention.recordSeenMessages(agentId, result.messages);
+    // The newest message a successful read showed for `target` itself; one pass, no copies.
+    let visibleSequence = 0;
+    if (operation === "read" && result.accepted && !request.around)
+      for (const message of result.messages)
+        if (message.target === target && message.sequence > visibleSequence)
+          visibleSequence = message.sequence;
     if (settlesAttention && result.accepted) {
-      const visibleSequence = Math.max(
-        ...result.messages
-          .filter((message) => message.target === target)
-          .map(({ sequence }) => sequence),
-        0,
-      );
       if (visibleSequence > 0)
         this.#messageAttention.recordModelSeen(agentId, target, visibleSequence);
       else if (result.messages.length === 0 && attentionUpperBound !== undefined)
         this.#messageAttention.clearThrough(agentId, target, attentionUpperBound);
     }
-    // The `--target-confirmed` guard's read-context tracking: any successful `read` (anchored or
-    // not) counts as the Agent having consumed messages for `target`.
-    if (operation === "read" && target && result.accepted)
-      this.#messageAttention.recordReadContext(agentId, target);
+    // The thread-mismatch guard's read context: a successful `read` reviews `target`, including a
+    // paged one, and remembers the newest message it showed. An `--around` read only looks
+    // something up, so it orders nothing (Raft's `read --around` records no order either).
+    if (operation === "read" && target && result.accepted && !request.around)
+      this.#messageAttention.recordReadContext(agentId, target, visibleSequence);
     return {
-      requestId: request.requestId,
+      idempotencyKey: request.idempotencyKey,
       accepted: result.accepted,
       attentionCount: result.attentionCount,
       messageId: result.messageId ?? "",
@@ -3778,9 +3811,11 @@ export class DaemonRuntime {
     };
   }
 
-  #agentLogScope(agentId: string, requestId: string) {
+  /** The log's correlation field is `request_id`; on the Agent HTTP path it carries the request's
+   * idempotency key. */
+  #agentLogScope(agentId: string, idempotencyKey: string) {
     return {
-      request_id: requestId,
+      request_id: idempotencyKey,
       workspace_id: this.#connection.workspaceId,
       computer_id: this.#connection.computerId,
       agent_id: agentId,
@@ -3962,7 +3997,6 @@ export class DaemonRuntime {
     return this.#transport.agentChannel(
       {
         ...command,
-        protocolMajor: WORKSPACE_PROTOCOL_MAJOR,
         workspaceId: this.#connection.workspaceId,
         agentId,
       },
@@ -4008,8 +4042,7 @@ export class DaemonRuntime {
     if (!attention && modelSeen !== 0) return undefined;
     const context = await this.#transport.agentMessage?.(
       {
-        protocolMajor: WORKSPACE_PROTOCOL_MAJOR,
-        requestId: crypto.randomUUID(),
+        idempotencyKey: crypto.randomUUID(),
         agentId,
         workspaceId: this.#connection.workspaceId,
         operation: "read",
@@ -4064,8 +4097,7 @@ export class DaemonRuntime {
     return this.#transport.agentWeeklyReport(
       {
         ...command,
-        protocolMajor: WEEKLY_REPORT_PROTOCOL_MAJOR,
-        requestId: crypto.randomUUID(),
+        idempotencyKey: crypto.randomUUID(),
         workspaceId: this.#connection.workspaceId,
         agentId,
       },
@@ -4114,8 +4146,7 @@ export class DaemonRuntime {
     const parent = match[1]!;
     const result = await this.#transport.agentMessage!(
       {
-        protocolMajor: WORKSPACE_PROTOCOL_MAJOR,
-        requestId: crypto.randomUUID(),
+        idempotencyKey: crypto.randomUUID(),
         agentId,
         workspaceId: this.#connection.workspaceId,
         operation: "read",
@@ -4176,7 +4207,6 @@ export class DaemonRuntime {
     return this.#transport.agentReminder(
       {
         ...fields,
-        protocolMajor: WORKSPACE_PROTOCOL_MAJOR,
         workspaceId: this.#connection.workspaceId,
         computerId: this.#connection.computerId,
         agentId,
@@ -4215,7 +4245,7 @@ export class DaemonRuntime {
     const agentId = this.#agentIdForContext(context);
     const inbox = await this.#appInbox(agentId);
     return {
-      requestId: request.requestId,
+      idempotencyKey: request.idempotencyKey,
       accepted: true,
       entries: [
         ...this.#messageAttention.check(agentId).map((messageTarget) => ({
@@ -4249,7 +4279,7 @@ export class DaemonRuntime {
     }
     let state = byTarget.get(target);
     if (!state) {
-      state = { seenRequestIds: [] };
+      state = { seenIdempotencyKeys: [] };
       byTarget.set(target, state);
     }
     return state;

@@ -1,23 +1,18 @@
-import { useCallback, useEffect, useMemo, useRef } from "react";
-import { ClientOnly, useMatch } from "@tanstack/react-router";
+import { useEffect, useMemo, useRef } from "react";
+import { ClientOnly } from "@tanstack/react-router";
 import { Group, Panel, Separator, useDefaultLayout } from "react-resizable-panels";
-import { ChevronRight, MessageSquare01 as MessageSquare } from "@untitledui/icons";
+import { MessageSquare01 as MessageSquare } from "@untitledui/icons";
 
-import { Avatar } from "#src/components/base/avatar/avatar";
-import { Button } from "#src/components/base/buttons/button";
-import { RelativeTime } from "#src/components/ui/relative-time";
-import { avatarInitial, avatarToneClassName } from "#src/lib/avatar-tone";
 import { useBreakpoint } from "#src/hooks/use-breakpoint";
 import { cn } from "#src/lib/utils";
 import { m } from "#src/paraglide/messages";
-import { DELETED_AGENT_AVATAR_CLASS } from "#src/features/agents/deleted-agent";
 import { AgentProfilePanel } from "#src/features/agents/profile-panel/agent-profile-panel";
 import { resolveVisibleConversationSlot } from "#src/features/agents/profile-panel/profile-panel-slot";
-import { TaskBadge } from "#src/features/tasks/task-board";
 import { TaskDetailDialog } from "#src/features/tasks/task-detail-dialog";
 
 import { ConversationPane } from "./conversation-pane";
 import { useConversationDetailVisible } from "./conversation-navigation";
+import { useConversationHostChannels } from "./conversation-host";
 import { useConversationSync } from "./use-conversation-sync";
 import {
   useConversationPositionJump,
@@ -25,11 +20,12 @@ import {
   useOpenConversationThread,
 } from "./open-conversation-thread";
 import { makeReferenceBodyFormatter } from "./mention-text";
-import { replyCountLabel } from "./conversation-labels";
 import { groupRepliesByRoot } from "./conversation-messages";
 import { ThreadRootState, type ThreadRootLoad } from "./thread-root-state";
 import { conversationLayoutStorage } from "./layout-storage";
 import { ConversationPending } from "./conversation-pending";
+import { ConversationIdProvider } from "./conversation-id";
+import { ThreadStoreProvider, useConversationThreadStore } from "./thread-store";
 import { resolveConversationThreadRoot } from "./conversation-thread-search";
 import type { DirectConversationView, ThreadedConversationProps } from "./conversation-types";
 import type { ChannelSuggestion } from "./reference-completion";
@@ -42,7 +38,9 @@ export function ThreadedConversation(props: ThreadedConversationProps) {
 
   return (
     <ClientOnly fallback={props.taskPopup ? null : <ConversationPending />}>
-      <ThreadedConversationContent {...props} />
+      <ConversationIdProvider conversationId={props.conversation.conversationId}>
+        <ThreadedConversationContent {...props} />
+      </ConversationIdProvider>
     </ClientOnly>
   );
 }
@@ -66,6 +64,7 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
     tasksPane,
     channels,
     taskPopup,
+    jumpMessage,
     ...conversationProps
   } = props;
   const detailVisible = useConversationDetailVisible();
@@ -116,13 +115,9 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
     return [...snapshot.replies, ...loaded.filter((reply) => !seen.has(reply.id))];
   };
   // A stored channel reference links to its channel, under its current name, only when the
-  // Workspace has that channel: every channel by id, closed ones included, from the messages layout.
-  const layoutChannels = useMatch({
-    from: "/_app/messages",
-    shouldThrow: false,
-    select: (match) => match.loaderData?.channelNames,
-  });
-  const channelList = channels ?? layoutChannels ?? NO_CHANNELS;
+  // Workspace has that channel: every channel by id, closed ones included, from the hosting page.
+  const hostChannels = useConversationHostChannels();
+  const channelList = channels ?? hostChannels ?? NO_CHANNELS;
   const channelNames = useMemo(
     () => new Map(channelList.map((channel) => [channel.id, channel.name])),
     [channelList],
@@ -132,13 +127,6 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
   const formatPreviewBody = useMemo(
     () => makeReferenceBodyFormatter(conversation.mentionables ?? [], channelNames),
     [conversation.mentionables, channelNames],
-  );
-  // A `task #N` reference in a body renders as a chip that opens the task's detail popup. The
-  // conversation's own task list decides which referenced numbers can be opened, and the popup
-  // loads the task's history itself.
-  const taskNumbers = useMemo(
-    () => new Set((props.tasks ?? []).map((task) => task.number)),
-    [props.tasks],
   );
   const conversationTaskPopup = useOpenConversationTask();
   const {
@@ -156,7 +144,6 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
   const threadPaneProps = (root: DirectConversationView["messages"][number]) => ({
     ...conversationProps,
     streamRead: windowRead,
-    taskReferences: taskNumbers,
     onOpenTask: openTaskReference,
     channelNames,
     channels: channelList,
@@ -233,7 +220,7 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
   // The thread in view is marked read: the task popup's when it is open, else the side pane's.
   const threadInView = openTaskRoot?.id ?? (detailVisible ? selected : undefined);
   const threadInViewSequence = threadInView ? (repliesOf(threadInView).at(-1)?.sequence ?? 0) : 0;
-  const { visited, windowRead, threadCursor, threadRootFailure, loadThreadRoot } =
+  const { visited, windowRead, readThrough, threadCursor, threadRootFailure, loadThreadRoot } =
     useConversationSync({
       conversation,
       searchThreadRootId,
@@ -271,20 +258,17 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
         ? threadRootFailure.load
         : { status: "loading" }
       : undefined;
-  // Row render props, memoized on the data they read so a memoized row re-renders when its own
-  // thread or task changes and not on every pane render.
-  const threadEntry = useCallback(
-    (message: DirectConversationView["messages"][number]) => {
-      const boundary = threadCursor(message.id) ?? 0;
-      return {
-        unread: repliesOf(message.id).filter(
-          (reply) => reply.senderKind === "agent" && reply.sequence > boundary,
-        ).length,
-        open: () => openThread(message.id),
-      };
-    },
-    [repliesByRoot, threadCursor, openThread],
+  // What the stream's thread summaries read, each by its own root (`thread-summary.tsx`).
+  const threadState = useMemo(
+    () => ({
+      replies: repliesByRoot,
+      persistedReads: conversation.threadReadThrough,
+      localReads: readThrough,
+      formatBody: formatPreviewBody,
+    }),
+    [repliesByRoot, conversation.threadReadThrough, readThrough, formatPreviewBody],
   );
+  const threads = useConversationThreadStore(threadState);
   // Records each open thread's root and replies while they are loaded (see `threadSnapshots`).
   useEffect(() => {
     const snapshots = threadSnapshots.current;
@@ -294,94 +278,25 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
       if (root) snapshots.set(rootId, { root, replies: repliesByRoot.get(rootId) ?? [] });
     }
   }, [visited, mainMessages, repliesByRoot]);
-  const threadPreview = useCallback(
-    (message: DirectConversationView["messages"][number]) => {
-      // System notices are stream bookkeeping, not a person replying: they belong to the full
-      // thread pane, never to the preview card under the root (the boss on the phone — a
-      // preview row that reads as a reply but has no content is worse than none). Filtering
-      // before the count too, so a thread with only notices shows no preview button at all;
-      // the thread pane still lists every reply when opened.
-      const threadReplies = repliesOf(message.id).filter((reply) => reply.senderKind !== "system");
-      if (!threadReplies.length) return null;
-      const label = replyCountLabel(threadReplies.length);
-      const unread = threadReplies.filter(
-        (reply) => reply.senderKind === "agent" && reply.sequence > (threadCursor(message.id) ?? 0),
-      ).length;
-      // The newest few only; the side pane holds the full thread.
-      const visible = threadReplies.slice(-3);
-      return (
-        <Button
-          color="tertiary"
-          size="sm"
-          noTextPadding
-          onPress={() => openThread(message.id)}
-          className="mt-1.5 block h-auto w-full rounded-lg bg-secondary p-2 text-left font-normal hover:bg-secondary_hover"
-        >
-          <span className="flex items-center gap-0.5 text-sm font-medium text-brand-secondary">
-            {unread > 0 ? `${label} · ${m.conversation_thread_unread({ count: unread })}` : label}
-            <ChevronRight aria-hidden="true" className="size-4" />
-          </span>
-          <span className="mt-1 flex flex-col gap-1.5">
-            {visible.map((reply) => (
-              <span key={reply.id} className="flex min-w-0 items-center gap-2">
-                <Avatar
-                  size="xs"
-                  alt={reply.senderName}
-                  src={reply.senderAvatarUrl}
-                  initials={avatarInitial(reply.senderName)}
-                  contentClassName={
-                    reply.senderDeleted
-                      ? DELETED_AGENT_AVATAR_CLASS
-                      : avatarToneClassName(reply.senderName)
-                  }
-                  className="shrink-0"
-                />
-                <span className="shrink-0 text-sm font-medium text-primary">
-                  {reply.senderName}
-                </span>
-                <span className="min-w-0 flex-1 truncate text-sm text-secondary">
-                  {formatPreviewBody(reply.body)}
-                </span>
-                <RelativeTime
-                  value={reply.createdAt}
-                  plain
-                  className="shrink-0 text-xs whitespace-nowrap text-tertiary"
-                />
-              </span>
-            ))}
-          </span>
-        </Button>
-      );
-    },
-    [repliesByRoot, threadCursor, openThread, formatPreviewBody],
-  );
-  const messageFooter = useCallback(
-    (message: DirectConversationView["messages"][number]) => {
-      const task = props.tasks?.find((candidate) => candidate.messageId === message.id);
-      return task ? <TaskBadge task={task} /> : null;
-    },
-    [props.tasks],
-  );
   // Outside the conversation's page only its Task popup shows; the panes stay unmounted.
   if (taskPopup) return taskDialog;
   const conversationMainPane = (
-    <ConversationPane
-      {...conversationProps}
-      streamRead={windowRead}
-      taskReferences={taskNumbers}
-      onOpenTask={openTaskReference}
-      channelNames={channelNames}
-      channels={channelList}
-      jumpMessage={jumpMessageId}
-      onJumpMessageConsumed={clearJumpMessage}
-      onLoadMessageAround={onLoadMessageAround}
-      onReadLatest={onReadLatest}
-      header={header}
-      conversation={{ ...conversation, messages: mainMessages }}
-      threadEntry={threadEntry}
-      threadPreview={threadPreview}
-      messageFooter={messageFooter}
-    />
+    <ThreadStoreProvider store={threads}>
+      <ConversationPane
+        {...conversationProps}
+        streamRead={windowRead}
+        onOpenTask={openTaskReference}
+        channelNames={channelNames}
+        channels={channelList}
+        jumpMessage={jumpMessage ?? jumpMessageId}
+        onJumpMessageConsumed={jumpMessage ? undefined : clearJumpMessage}
+        onLoadMessageAround={onLoadMessageAround}
+        onReadLatest={onReadLatest}
+        header={header}
+        conversation={{ ...conversation, messages: mainMessages }}
+        onOpenThread={openThread}
+      />
+    </ThreadStoreProvider>
   );
   const conversationSidePane = visibleSlot && (
     <>

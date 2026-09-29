@@ -16,7 +16,7 @@ export type SavedMessagesApi = {
   unsave: (target: SavedMessageTarget) => Promise<unknown>;
 };
 
-/** How long the loader's list counts as fresh, so a server render does not re-read it. */
+/** How long the loader's list counts as fresh, so the collection's first sync does not re-read it. */
 const LOADER_LIST_FRESH_MS = 30_000;
 
 export const savedMessagesQueryKey = (workspaceId: string) =>
@@ -68,10 +68,11 @@ export function savedMessagesCollection(
 export type SavedMessagesCollection = Collection<SavedEntry, string | number>;
 
 /**
- * The Saved collection on `dbClient`, holding the loader's list from the first render: rows seeded
- * at materialization are there synchronously (a server render draws the right stars), while the
- * Query stays fresh for `LOADER_LIST_FRESH_MS`, so starting sync does not re-read it at once.
- * Only the first materialization on a client seeds it; later loader lists arrive through the Query.
+ * The Saved collection on `dbClient`, materialized after hydration (TanStack DB collections are
+ * client-side only), holding the loader's list from its first render: rows seeded at
+ * materialization are there synchronously, while the Query stays fresh for
+ * `LOADER_LIST_FRESH_MS`, so starting sync does not re-read it at once. Only the first
+ * materialization on a client seeds it; later loader lists arrive through the Query.
  */
 export function materializeSavedMessages(
   dbClient: DbClient,
@@ -91,19 +92,30 @@ const newestSaveFirst = (left: SavedEntry, right: SavedEntry) =>
  * The collection as a React external store: `entries()` keeps one snapshot until the collection
  * changes (newest save first, like the server's list), and `has(id)` lets each row subscribe to its
  * own saved state so a toggle re-renders that row only. The collection subscription (which starts
- * its sync) opens with the first listener, so a server render, which never subscribes, reads the
- * seeded rows without starting a Query.
+ * its sync) opens with the first listener.
  *
  * `save`/`unsave` notify right after the optimistic write instead of waiting for the collection's
  * change event: TanStack DB 0.9.2 emits none for an optimistic delete of a seeded row until the
  * write persists, which would hold the star until the server answered.
  */
-export function savedMessagesStore(collection: SavedMessagesCollection) {
-  let entries = [...collection.toArray].sort(newestSaveFirst);
+export function savedMessagesStore(
+  collection: SavedMessagesCollection,
+  cached: () => readonly SavedEntry[] = () => [],
+) {
+  // While the collection holds nothing it has synced (TanStack DB's GC emptied it, and it has not
+  // synced again since) the list the host's loader just read into the Query cache stands in, as
+  // the sidebar's lists fall back on their cache. Not `isReady()` alone like the sidebar: rows
+  // seeded at materialization are real while the collection is still `idle`.
+  const standIn = () =>
+    collection.status === "cleaned-up" || (!collection.isReady() && collection.size === 0);
+  const current = () => (standIn() ? cached() : collection.toArray);
+  let entries = [...current()].sort(newestSaveFirst);
+  let entriesStandIn = standIn();
   const listeners = new Set<() => void>();
   let subscription: { unsubscribe: () => void } | undefined;
   const changed = () => {
-    entries = [...collection.toArray].sort(newestSaveFirst);
+    entries = [...current()].sort(newestSaveFirst);
+    entriesStandIn = standIn();
     for (const notify of listeners) notify();
   };
   const afterWrite = (persisted: Promise<void>) => {
@@ -115,8 +127,19 @@ export function savedMessagesStore(collection: SavedMessagesCollection) {
     });
   };
   return {
-    entries: () => entries,
-    has: (messageId: string) => collection.has(messageId),
+    // The collection can leave the stand-in (become ready) without a change event; `entries` then
+    // reads it afresh, so it never disagrees with `has`.
+    entries: () => {
+      if (standIn() !== entriesStandIn) {
+        entries = [...current()].sort(newestSaveFirst);
+        entriesStandIn = standIn();
+      }
+      return entries;
+    },
+    has: (messageId: string) =>
+      standIn()
+        ? cached().some((saved) => saved.message.id === messageId)
+        : collection.has(messageId),
     subscribe(listener: () => void) {
       listeners.add(listener);
       subscription ??= collection.subscribeChanges(changed);
@@ -133,6 +156,24 @@ export function savedMessagesStore(collection: SavedMessagesCollection) {
 }
 
 export type SavedMessagesStore = ReturnType<typeof savedMessagesStore>;
+
+/**
+ * The Saved list as the page renders it before hydration (and on the server), from the Query
+ * cache: TanStack DB collections are client-side only, so none exists yet. Nothing can be saved
+ * until the page is hydrated.
+ */
+export function cachedSavedMessagesStore(list: readonly SavedEntry[]): SavedMessagesStore {
+  const entries = [...list].sort(newestSaveFirst);
+  const ids = new Set(list.map((saved) => saved.message.id));
+  const notHydrated = () => Promise.reject(new Error("The page is not hydrated yet"));
+  return {
+    entries: () => entries,
+    has: (messageId: string) => ids.has(messageId),
+    subscribe: () => () => {},
+    save: notHydrated,
+    unsave: notHydrated,
+  };
+}
 
 /** Saves at once; resolves when the server has it, rejects (after rolling back) when it fails. */
 export async function saveMessageOptimistically(

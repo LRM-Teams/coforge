@@ -1,69 +1,49 @@
-import { Suspense, useMemo, useState, type ComponentProps } from "react";
+import { memo, Suspense, useState, type Ref } from "react";
 import { useSuspenseQuery } from "@tanstack/react-query";
-import { CatchBoundary, ClientOnly } from "@tanstack/react-router";
-import { MessageSquare02, XClose } from "@untitledui/icons";
+import { CatchBoundary, ClientOnly, getRouteApi } from "@tanstack/react-router";
 
-import { Button } from "#src/components/base/buttons/button";
-import { ButtonUtility } from "#src/components/base/buttons/button-utility";
 import { Skeleton } from "#src/components/ui/skeleton";
 import { useCurrentWorkspaceId } from "#src/features/agents/workspace-agents-realtime";
-import { ConversationPane } from "#src/features/conversations/conversation-pane";
-import {
-  channelNamesQuery,
-  directConversationQuery,
-  directConversationUpdates,
-  publicChannelQuery,
-  publicChannelUpdates,
-  useConversationQuery,
-} from "#src/features/conversations/conversation-queries";
+import { pickConversationPageSearch } from "#src/features/conversations/conversation-page-search";
+import { ConversationHostProvider } from "#src/features/conversations/conversation-host";
+import { savedMessagesQuery } from "#src/features/conversations/conversation-queries";
+import { listSavedMessages } from "#src/features/conversations/saved-messages.functions";
+import { ConversationPage } from "#src/features/conversations/conversation-page";
+import type { ConversationPageTarget } from "#src/features/conversations/conversation-page-loader";
 import { m } from "#src/paraglide/messages";
-import type { RememberedEntity } from "./search-memory";
+import { searchDirectoryQuery } from "./search-queries";
 
-/** What the preview shows: a channel or an Agent's direct conversation, optionally at a message. */
-export type SearchPreviewTarget = RememberedEntity & { messageId?: string };
+const searchRoute = getRouteApi("/w/$workspaceSlug/search");
+
+/** What the preview shows: a channel or a direct conversation, by its id, optionally at a
+ * message. */
+export type SearchPreviewTarget = ConversationPageTarget & {
+  messageId?: string;
+  /** A thread reply's root and the reply itself: the preview opens that thread at the reply. */
+  threadRootId?: string;
+  threadReplyId?: string;
+};
 
 /**
- * A result's conversation beside the search results: read-only (no composer, reactions, Tasks or
- * thread panes, and nothing is marked read), positioned at the message when there is one. Its
- * header names the place and offers to open the conversation itself or close the preview.
+ * A result's conversation beside the search results, exactly as Chat opens it: the same page
+ * (`ConversationPage`) with its tabs, stream positioned at the message, composer, threads, Task
+ * board and files, and reading it as Chat does. Memoized: typing in the search box re-renders the
+ * search page, not the conversation.
  */
-export function SearchPreview({
+export const SearchPreview = memo(function SearchPreview({
   target,
-  title,
-  onOpen,
-  onClose,
+  ref,
 }: {
   target: SearchPreviewTarget;
-  /** `#channel` or the Agent's name. */
-  title: string;
-  onOpen: () => void;
-  onClose: () => void;
+  ref?: Ref<HTMLElement>;
 }) {
   const [failed, setFailed] = useState(false);
   return (
     <section
+      ref={ref}
       aria-label={m.search_preview()}
       className="flex min-h-0 min-w-0 flex-1 flex-col border-l border-secondary bg-primary"
     >
-      <header className="flex h-14 shrink-0 items-center gap-2 border-b border-secondary px-4">
-        <h2 className="min-w-0 flex-1 truncate text-md font-semibold text-primary">{title}</h2>
-        <Button
-          size="sm"
-          color="secondary"
-          iconLeading={MessageSquare02}
-          aria-label={m.search_preview_open()}
-          onClick={onOpen}
-        >
-          {m.search_preview_open()}
-        </Button>
-        <ButtonUtility
-          icon={XClose}
-          size="sm"
-          color="tertiary"
-          tooltip={m.search_preview_close()}
-          onClick={onClose}
-        />
-      </header>
       {failed ? (
         <p role="alert" className="p-4 text-sm text-error-primary">
           {m.search_preview_failed()}
@@ -76,110 +56,44 @@ export function SearchPreview({
             onCatch={() => setFailed(true)}
           >
             <Suspense fallback={<PreviewSkeleton />}>
-              {target.kind === "channel" ? (
-                <ChannelPreview channelId={target.id} messageId={target.messageId} title={title} />
-              ) : (
-                <DirectPreview agentId={target.id} messageId={target.messageId} title={title} />
-              )}
+              <PreviewPage target={target} />
             </Suspense>
           </CatchBoundary>
         </ClientOnly>
       )}
     </section>
   );
-}
+});
 
-/** Only the conversation's messages, kept live: none of a page's Tasks or actions. */
-function ChannelPreview({
-  channelId,
-  messageId,
-  title,
-}: {
-  channelId: string;
-  messageId?: string;
-  title: string;
-}) {
-  const page = useConversationQuery({
-    ...publicChannelQuery(channelId),
-    loadUpdates: publicChannelUpdates(channelId),
-  });
-  return <PreviewPane page={page} messageId={messageId} title={title} />;
-}
-
-function DirectPreview({
-  agentId,
-  messageId,
-  title,
-}: {
-  agentId: string;
-  messageId?: string;
-  title: string;
-}) {
-  const page = useConversationQuery({
-    ...directConversationQuery(agentId),
-    loadUpdates: directConversationUpdates(agentId),
-  });
-  return <PreviewPane page={page} messageId={messageId} title={title} />;
-}
-
-/** The loaded conversation's top-level stream, with its paging, jumped to `messageId`. */
-function PreviewPane({
-  page,
-  messageId,
-  title,
-}: {
-  page: {
-    conversation: ComponentProps<typeof ConversationPane>["conversation"];
-    loadOlder: ComponentProps<typeof ConversationPane>["onLoadOlder"];
-    loadNewer: ComponentProps<typeof ConversationPane>["onLoadNewer"];
-    loadMessageAround: ComponentProps<typeof ConversationPane>["onLoadMessageAround"];
-    showLatest: ComponentProps<typeof ConversationPane>["onShowLatest"];
-  };
-  messageId?: string;
-  /** Names the place in the empty state. */
-  title: string;
-}) {
-  const { conversation } = page;
+/**
+ * The conversation page itself, under what Chat's layout gives it and the search page supplies:
+ * the viewer's Saved list, the Workspace's channels (the search page has already read them) and the
+ * page's own address state out of the search URL.
+ */
+function PreviewPage({ target }: { target: SearchPreviewTarget }) {
   const workspaceId = useCurrentWorkspaceId() ?? "";
-  const channels = useSuspenseQuery(channelNamesQuery(workspaceId)).data;
-  const channelNames = useMemo(
-    () => new Map(channels.map((channel) => [channel.id, channel.name])),
-    [channels],
-  );
-  // The stream shows top-level messages; a thread's replies stay behind its root.
-  const roots = useMemo(
-    () => ({
-      ...conversation,
-      messages: conversation.messages.filter((message) => !message.threadRootId),
-    }),
-    [conversation],
-  );
+  const channels = useSuspenseQuery({
+    ...searchDirectoryQuery(workspaceId),
+    select: (directory) => directory.channels,
+  }).data;
+  // The viewer's Saved stars, as Chat shows them; a failed read leaves none, as in Chat.
+  useSuspenseQuery({
+    ...savedMessagesQuery(workspaceId),
+    queryFn: () => listSavedMessages().catch(() => []),
+  });
+  // Only the page's own fields, shared structurally: typing a query does not re-render the page.
+  const search = searchRoute.useSearch({
+    select: pickConversationPageSearch,
+    structuralSharing: true,
+  });
   return (
-    <ConversationPane
-      conversation={roots}
-      emptyState={{
-        title,
-        description: m.search_preview_empty(),
-        media: <MessageSquare02 aria-hidden="true" className="size-6 text-tertiary" />,
-      }}
-      readOnlyNotice={
-        // The header's "Open conversation" is the way to reply; one button, not two.
-        <p className="rounded-xl border border-secondary bg-secondary px-4 py-3 text-sm text-tertiary">
-          {m.search_preview_read_only()}
-        </p>
-      }
-      // The preview never sends; the composer is replaced by the notice above.
-      onSend={async () => {
-        throw new Error("The search preview does not send messages");
-      }}
-      onLoadOlder={page.loadOlder}
-      onLoadNewer={page.loadNewer}
-      onLoadMessageAround={page.loadMessageAround}
-      onShowLatest={page.showLatest}
-      channelNames={channelNames}
-      channels={channels}
-      jumpMessage={messageId}
-    />
+    <ConversationHostProvider channels={channels}>
+      <ConversationPage
+        target={{ kind: target.kind, id: target.id }}
+        search={search}
+        jumpMessage={target.messageId}
+      />
+    </ConversationHostProvider>
   );
 }
 

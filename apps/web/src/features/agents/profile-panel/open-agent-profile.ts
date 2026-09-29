@@ -1,6 +1,7 @@
 import { useRouter } from "@tanstack/react-router";
 
 import {
+  agentIdFromProfileParam,
   agentProfileSearchWithoutThread,
   formatAgentProfileParam,
   type AgentProfileTab,
@@ -53,4 +54,25 @@ export function useOpenAgentProfile() {
       },
     });
   return { openAgentProfile, setAgentProfileTab, closeAgentProfile };
+}
+
+/**
+ * The Agent profile panel's props for a conversation, from its host's `profile` / `agentTab`
+ * search params. Every conversation host (both conversation routes, the search preview) spreads
+ * them into the conversation.
+ */
+export function useConversationAgentProfile({
+  profile,
+  agentTab,
+}: {
+  profile?: string;
+  agentTab?: AgentProfileTab;
+}) {
+  const { openAgentProfile, setAgentProfileTab, closeAgentProfile } = useOpenAgentProfile();
+  return {
+    onOpenAgentProfile: openAgentProfile,
+    agentProfile: { agentId: agentIdFromProfileParam(profile), tab: agentTab },
+    onAgentProfileTabChange: setAgentProfileTab,
+    onCloseAgentProfile: closeAgentProfile,
+  };
 }

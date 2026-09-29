@@ -19,7 +19,7 @@ const subscription = {
   p256dh: client.publicKey,
   auth: Buffer.from(crypto.getRandomValues(new Uint8Array(16))).toString("base64url"),
 };
-const payload = { title: "CoForge", body: "Ready", url: "/settings", tag: "test" };
+const payload = { title: "CoForge", body: "Ready", url: "/w/acme/settings", tag: "test" };
 const config = webPush.generateVAPIDKeys();
 const webPushConfig = { subject: "https://coforge.cn", ...config };
 const target = { hostname: "fcm.googleapis.com", address: "203.0.114.8", family: 4 as const };
@@ -60,7 +60,7 @@ test("web-push 3.6.7 creates an encrypted aes128gcm request under Bun", async ()
     {
       title: "CoForge",
       body: "Encrypted payload",
-      url: "/settings",
+      url: "/w/acme/settings",
       tag: "test",
     },
   );

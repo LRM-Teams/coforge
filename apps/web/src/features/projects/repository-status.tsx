@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Link, useRouter } from "@tanstack/react-router";
 import { Button } from "#src/components/base/buttons/button";
+import { useWorkspaceSlug } from "#src/features/workspaces/workspace-route";
 import { m } from "#src/paraglide/messages";
 
 /**
@@ -16,6 +17,7 @@ export function RepositoryStatusMessage({
   onRetry?: () => Promise<unknown>;
 }) {
   const router = useRouter();
+  const workspaceSlug = useWorkspaceSlug();
   const [retrying, setRetrying] = useState(false);
   const text =
     status === "unlinked"
@@ -29,7 +31,8 @@ export function RepositoryStatusMessage({
       {status !== "unlinked" && (
         <>
           <Link
-            to="/settings"
+            to="/w/$workspaceSlug/settings"
+            params={{ workspaceSlug }}
             search={{ section: "integrations" }}
             className="text-sm font-medium text-brand-secondary hover:underline"
           >

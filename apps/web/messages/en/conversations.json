@@ -100,6 +100,11 @@
   "channel_settings_description": "Description",
   "channel_settings_description_placeholder": "What is this channel about?",
   "channel_settings_project": "Project",
+  "channel_settings_coordinator_title": "Coordination mode",
+  "channel_settings_coordinator_label": "Coordinator Agent",
+  "channel_settings_coordinator_hint": "New top-level requests go to this Agent first.",
+  "channel_settings_coordinator_none": "No coordinator",
+  "channel_settings_coordinator_error": "Coordinator could not be updated. Please try again.",
   "channel_settings_view_repository": "View {repository} on GitHub",
   "channel_settings_cancel": "Cancel",
   "channel_settings_save": "Save",
@@ -256,6 +261,7 @@
   "conversation_menu_unpin": "Unpin",
   "conversation_menu_close": "Close Chat",
   "conversation_menu_action_error": "Couldn't update the conversation.",
+  "conversation_open_error": "Couldn't open the conversation. Try again.",
   "conversation_unsent_offline": "Couldn't send. Check your connection and try again",
   "conversation_unsent_unavailable": "Couldn't send. Try again in a moment",
   "conversation_unsent_interrupted": "This may not have been sent. Trying again won't send it twice",
@@ -479,26 +485,6 @@
   "conversation_saved_empty_description": "Save a message by selecting its bookmark icon.",
   "conversation_saved_copy_link": "Copy link",
   "conversation_saved_link_copied": "Link copied",
-  "activity_inbox_active": [
-    {
-      "declarations": ["input count", "local countPlural = count: plural"],
-      "selectors": ["countPlural"],
-      "match": {
-        "countPlural=one": "{count} active",
-        "countPlural=other": "{count} active"
-      }
-    }
-  ],
-  "activity_inbox_unread": [
-    {
-      "declarations": ["input count", "local countPlural = count: plural"],
-      "selectors": ["countPlural"],
-      "match": {
-        "countPlural=one": "{count} unread",
-        "countPlural=other": "{count} unread"
-      }
-    }
-  ],
   "activity_inbox_filter_label": "Filter Activity",
   "activity_inbox_filter_all": "All",
   "activity_inbox_filter_unread": "Unread",
@@ -638,11 +624,7 @@
   "conversation_mention_group_not_in_channel": "Not in this channel",
   "search_this_channel": "Search this channel",
   "search_preview": "Search preview",
-  "search_preview_open": "Open conversation",
-  "search_preview_close": "Close preview",
   "search_preview_failed": "This conversation could not be loaded.",
-  "search_preview_empty": "No messages here yet.",
-  "search_preview_read_only": "Open the conversation to reply.",
   "conversation_pending_mention_notify": "Notify",
   "conversation_pending_mention_notify_target": "Notify {target}",
   "conversation_pending_mention_queued": "Notification queued for {target} · still not in {channel}",

@@ -17,11 +17,11 @@ type PreviewReply = {
   body: string;
 };
 
-/** The preview's reply selection, mirrored from `ThreadedConversationContent`'s
- * `threadPreview` (threaded-conversation.tsx): the same filter, in the same place, so the test
- * pins the rule the component must follow rather than the component itself (apps/web's suite
- * renders server-side; effects never run). If the component ever stops agreeing with this
- * table, the live behavior drifts and a reviewer should catch it in the diff. */
+/** The preview's reply selection, mirrored from `ThreadPreview` (thread-summary.tsx): the same
+ * filter, in the same place, so the test pins the rule the component must follow rather than the
+ * component itself (apps/web's suite renders server-side; effects never run). If the component
+ * ever stops agreeing with this table, the live behavior drifts and a reviewer should catch it in
+ * the diff. */
 function previewReplies(replies: readonly PreviewReply[]): PreviewReply[] {
   return replies.filter((reply) => reply.senderKind !== "system");
 }
@@ -47,8 +47,8 @@ describe("system notices in the thread preview (#139)", () => {
 
 describe("the thread pane path stays unfiltered (#139's second rule)", () => {
   /**
-   * The thread pane must keep showing every reply — the filter lives only inside the
-   * `threadPreview` callback, never in `repliesOf` (the single grouping the thread pane's
+   * The thread pane must keep showing every reply — the filter lives only inside
+   * `ThreadPreview` (thread-summary.tsx), never in `repliesOf` (the single grouping the thread pane's
    * `messages` read). Source-pinned (the same style as `message-jump-highlight`): apps/web's
    * suite renders server-side, so the guarantee "the pane reads the unfiltered grouping" is
    * what the source itself must show.
@@ -60,11 +60,14 @@ describe("the thread pane path stays unfiltered (#139's second rule)", () => {
       join(import.meta.dir, "../src/features/conversations/threaded-conversation.tsx"),
       "utf8",
     );
-    // Exactly one system filter, and it is the preview's: a second occurrence would mean the
-    // pane's data source was filtered too — the drift this test exists to catch.
-    const filterCount = source.split('senderKind !== "system"').length - 1;
-    expect(filterCount).toBe(1);
-    expect(source).toContain('senderKind !== "system"');
+    const preview = await readFile(
+      join(import.meta.dir, "../src/features/conversations/thread-summary.tsx"),
+      "utf8",
+    );
+    // Exactly one system filter, and it is the preview's: an occurrence where the pane's data is
+    // built would mean the pane was filtered too — the drift this test exists to catch.
+    expect(preview.split('senderKind !== "system"').length - 1).toBe(1);
+    expect(source.split('senderKind !== "system"').length - 1).toBe(0);
     // The thread pane reads `repliesOf(...)` — the unfiltered grouping — as its messages
     // (`threadPaneProps(root)`; the open task popup's thread does too).
     expect(source).toContain("messages: repliesOf(root.id),");

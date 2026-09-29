@@ -23,7 +23,7 @@ import { attachmentPreviewKind } from "./attachment-preview-kind";
 import { loadConversationFiles, type ConversationFile } from "./conversation-files.functions";
 import { attachmentUrl, fileIconType } from "./message-row";
 
-const appRoute = getRouteApi("/_app");
+const appRoute = getRouteApi("/w/$workspaceSlug");
 
 export const conversationFilesQuery = (conversationId: string) =>
   queryOptions({

@@ -224,11 +224,6 @@ export async function getAgentEnvelopeJson<Result extends { ok: true }>(
   return decodeAgentEnvelopeJson<Result>(response, input.what, makeError);
 }
 
-/**
- * Serializes an agent HTTP request body. Our own transport objects name the request's idempotency
- * key `requestId` (that name also crosses the local RPC to the CLI), while the agent HTTP API names
- * it `idempotencyKey` — so the wire carries the API's single name, and the two never ride together.
- */
 /** Reads the `code` out of an agent API error body; a body that is absent, empty or not JSON is
  * simply a refusal without a named code, which is exactly what the caller already sees. */
 export async function readUpstreamErrorCode(response: Response): Promise<string | undefined> {
@@ -238,12 +233,6 @@ export async function readUpstreamErrorCode(response: Response): Promise<string 
   } catch {
     return undefined;
   }
-}
-
-export function agentWireBody(request: unknown): string {
-  if (!request || typeof request !== "object") return JSON.stringify(request);
-  const { requestId, ...rest } = request as Record<string, unknown>;
-  return JSON.stringify(requestId === undefined ? rest : { ...rest, idempotencyKey: requestId });
 }
 
 export function mentionActionError(errorCode: string, message: string, status: number): Error {
@@ -266,7 +255,7 @@ export async function postAgentEnvelopeJson<Result extends { ok: true }>(
     {
       method: "POST",
       headers: agentHeaders(input, true),
-      body: agentWireBody(input.body),
+      body: JSON.stringify(input.body),
     },
     input.what,
   );

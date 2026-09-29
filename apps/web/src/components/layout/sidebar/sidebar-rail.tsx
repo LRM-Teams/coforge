@@ -11,13 +11,15 @@ export const SIDEBAR_RAIL_WIDTH = "4.375rem";
 
 type RailItemType = NavItemType & { icon: FC<{ className?: string }>; current?: boolean };
 
+/** Without its caption (Settings → Show labels in the sidebar off) an item is just its icon box,
+ * so the icons sit close together instead of keeping the captioned spacing. */
 function RailItem({ href, icon: Icon, label, current, badge }: RailItemType) {
   return (
     <a
       href={href}
       aria-label={label}
       aria-current={current ? "page" : undefined}
-      className="group flex h-14 flex-col items-center justify-center gap-1 rounded-lg px-0.5 outline-focus-ring focus-visible:outline-2 focus-visible:outline-offset-2"
+      className="group flex h-14 flex-col items-center justify-center gap-1 rounded-lg px-0.5 [.rail-labels-hidden_&]:h-11 outline-focus-ring focus-visible:outline-2 focus-visible:outline-offset-2"
     >
       <span
         className={cx(

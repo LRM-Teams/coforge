@@ -85,17 +85,15 @@ export function applyUnreadEvent(
 }
 
 /**
- * Whether a new message landed in a chat the sidebar is not showing because the viewer closed it:
- * a channel missing from the listed channels, or a DM whose Agent is in the closed set. Such a
- * message brings the chat back, so the sidebar re-reads its list. Thread replies never do.
+ * Whether a new message landed in a chat the sidebar is not showing: one the viewer closed, or a DM
+ * that started after the list was read. Such a message brings the chat in, so the sidebar re-reads
+ * its list. Thread replies never do.
  */
 export function activityInClosedConversation(
   event: UnreadEventInput,
-  listed: { conversations: ReadonlySet<string>; hiddenAgentIds: ReadonlySet<string> },
+  listed: ReadonlySet<string>,
 ): boolean {
-  if (event.threadRootId) return false;
-  if (event.agentId) return listed.hiddenAgentIds.has(event.agentId);
-  return !listed.conversations.has(event.conversationId);
+  return !event.threadRootId && !listed.has(event.conversationId);
 }
 
 /** A conversation was read: clear its badge and remember the boundary it was read to. */
@@ -186,7 +184,7 @@ export type UnreadState = {
 /**
  * The Chat page's two signal subscriptions and its unread-count state. Renders nothing: the
  * directory reads `counts`, the conversation routes call `clear`, and every loader refresh
- * flows through `replace`. Both subscriptions ride the `_app` layout's one Centrifuge
+ * flows through `replace`. Both subscriptions ride the Workspace layout's one Centrifuge
  * connection; neither opens a WebSocket of its own.
  */
 export function useChannelUnread({
@@ -195,7 +193,7 @@ export function useChannelUnread({
   channels,
   openConversationId,
   openAgentId,
-  hiddenAgentIds,
+  listedConversationIds,
   onClosedConversationActivity,
   onChannelUpdated,
 }: {
@@ -208,8 +206,8 @@ export function useChannelUnread({
   openConversationId?: string;
   /** The Agent badge of the direct message currently shown, if a DM is open. */
   openAgentId?: string;
-  /** Agents whose DM the viewer closed; the sidebar leaves those rows out. */
-  hiddenAgentIds: ReadonlySet<string>;
+  /** Every chat the sidebar lists, channels and DMs, by conversation id. */
+  listedConversationIds: ReadonlySet<string>;
   /** A new message arrived in a closed chat: the sidebar re-reads its list to bring it back. */
   onClosedConversationActivity: () => void;
   /** A channel was renamed, described, archived or unarchived: the sidebar re-reads its list. */
@@ -222,7 +220,7 @@ export function useChannelUnread({
     channels,
     openConversationId,
     openAgentId,
-    hiddenAgentIds,
+    listedConversationIds,
     onClosedConversationActivity,
     onChannelUpdated,
   });
@@ -230,7 +228,7 @@ export function useChannelUnread({
     channels,
     openConversationId,
     openAgentId,
-    hiddenAgentIds,
+    listedConversationIds,
     onClosedConversationActivity,
     onChannelUpdated,
   };
@@ -249,12 +247,11 @@ export function useChannelUnread({
         channels: channelRows,
         openConversationId: open,
         openAgentId: openAgent,
-        hiddenAgentIds: hiddenAgents,
+        listedConversationIds: listed,
         onClosedConversationActivity: reopenFromActivity,
       } = refs.current;
       const conversations = new Set(channelRows.map((channel) => channel.id));
-      if (activityInClosedConversation(event, { conversations, hiddenAgentIds: hiddenAgents }))
-        reopenFromActivity();
+      if (activityInClosedConversation(event, listed)) reopenFromActivity();
       setCounts((current) =>
         applyUnreadEvent(current, event, {
           conversations,

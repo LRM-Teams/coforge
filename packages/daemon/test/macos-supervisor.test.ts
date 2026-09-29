@@ -8,6 +8,65 @@ import {
 } from "#src/supervisor/workspace-health-journal";
 import { workspaceStateDirectory } from "#src/supervisor/workspace-instance";
 
+/** What a Workspace writes to its `native-ready.json`. */
+type NativeReady = { workspacePid: number; agentPid: number; predecessorAlive: boolean };
+
+/** Reads one readiness file, or `undefined` while it is absent or half-written. The connection
+ * fixture writes this file with a plain `Bun.write`, which is not atomic, so a read can land on a
+ * partial document while it is being rewritten. "Not rewritten yet" is the normal state a poll sees,
+ * not a failure — an unguarded `.json()` there turns a rewrite into a JSON parse error. */
+async function readNativeReady(path: string): Promise<NativeReady | undefined> {
+  try {
+    return (await Bun.file(path).json()) as NativeReady;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Polls a readiness file until `accepts` holds, or the deadline passes with `message`. */
+async function waitForNativeReady(
+  path: string,
+  accepts: (ready: NativeReady) => boolean,
+  deadline: number,
+  message: string,
+): Promise<NativeReady> {
+  while (true) {
+    const ready = await readNativeReady(path);
+    if (ready && accepts(ready)) return ready;
+    if (Date.now() >= deadline) throw new Error(message);
+    await Bun.sleep(25);
+  }
+}
+
+test("a half-written readiness file reads as not-yet-ready rather than a parse error", async () => {
+  const directory = await mkdtemp("/tmp/cf-ready-");
+  const path = join(directory, "native-ready.json");
+  try {
+    // Mid-`Bun.write`, exactly what a poll can observe.
+    await Bun.write(path, '{"workspacePid":12');
+    expect(await readNativeReady(path)).toBeUndefined();
+    // The wait gives up on its own message, not on the JSON parse error underneath it.
+    await expect(
+      waitForNativeReady(path, () => true, Date.now() + 60, "Workspace A did not report readiness"),
+    ).rejects.toThrow("Workspace A did not report readiness");
+
+    await Bun.write(
+      path,
+      JSON.stringify({ workspacePid: 4242, agentPid: 7, predecessorAlive: false }),
+    );
+    await expect(
+      waitForNativeReady(
+        path,
+        (ready) => ready.workspacePid === 4242,
+        Date.now() + 60,
+        "unreachable",
+      ),
+    ).resolves.toEqual({ workspacePid: 4242, agentPid: 7, predecessorAlive: false });
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test.skipIf(process.platform !== "darwin")(
   "compiled macOS Coordinator configures two Workspaces and preserves scoped restart and stop across recovery",
   async () => {
@@ -73,12 +132,26 @@ test.skipIf(process.platform !== "darwin")(
       await client.ensureRunning();
       expect(await client.control("snapshot")).toEqual(stopped);
       const bReadyPath = join(root, "workspaces", "Yg", "native-ready.json");
-      const oldB = await Bun.file(bReadyPath).json();
+      const oldB = await waitForNativeReady(
+        bReadyPath,
+        () => true,
+        Date.now() + 30_000,
+        "Workspace B never reported readiness",
+      );
       // Restore A as a live peer, then crash only B. The replacement is owned
       // by launchd, not an explicit Coordinator restart operation.
       await client.control("start", "a");
       const peer = (await client.control("snapshot"))[0]!;
-      const peerAgent = await Bun.file(join(root, "workspaces", "YQ", "native-ready.json")).json();
+      // `start` returns once A's local RPC answers, which is before A rewrites native-ready.json
+      // (see the B recovery loop below); until then the file still names the Agent `stop` ended.
+      const aReadyPath = join(root, "workspaces", "YQ", "native-ready.json");
+      const peerDeadline = Date.now() + 30_000;
+      const peerAgent = await waitForNativeReady(
+        aReadyPath,
+        (ready) => ready.workspacePid === peer.processId,
+        peerDeadline,
+        "Workspace A did not report readiness",
+      );
       process.kill(b.processId, "SIGKILL");
       const replacementClient = new LocalDaemonLauncher({
         executablePath: executable,
@@ -87,15 +160,15 @@ test.skipIf(process.platform !== "darwin")(
         spawn: () => {},
       });
       const deadline = Date.now() + 30_000;
-      let replacement: typeof oldB | undefined;
+      let replacement: NativeReady | undefined;
       while (true) {
         const identity = await replacementClient.identity().catch(() => null);
         // The local RPC socket now opens before the Workspace finishes starting (readiness must
         // not wait on Code Agent discovery), so a fresh identity does not yet guarantee
         // native-ready.json has caught up; poll it too.
         if (identity && identity.processId !== b.processId) {
-          const candidate = await Bun.file(bReadyPath).json();
-          if (candidate.workspacePid !== oldB.workspacePid) {
+          const candidate = await readNativeReady(bReadyPath);
+          if (candidate && candidate.workspacePid !== oldB.workspacePid) {
             replacement = candidate;
             break;
           }

@@ -26,7 +26,7 @@ import {
 import { finishedTasksScopeKey } from "./use-finished-tasks";
 import { m } from "#src/paraglide/messages";
 
-const appRoute = getRouteApi("/_app");
+const appRoute = getRouteApi("/w/$workspaceSlug");
 
 /** The empty list while the Tasks load: one array, so what is memoized on `tasks` keeps. */
 const NO_TASKS: TaskView[] = [];
@@ -53,6 +53,55 @@ export const conversationTasksQuery = (conversationId: string) =>
     staleTime: TASKS_QUERY_STALE_TIME_MS,
     refetchOnWindowFocus: true,
   });
+
+/**
+ * One Task of a conversation, read from the list `useConversationTasks` keeps, for the part of a
+ * message row that shows it. A reader is told only when its own Task changes (`select` plus
+ * `notifyOnChangeProps`), and never reads the list itself (`enabled: false`): the list's owner reads
+ * it and keeps it live, and rows mounting as the stream scrolls must not each read it again.
+ * https://tanstack.com/query/latest/docs/framework/react/guides/render-optimizations
+ */
+const conversationTaskReader = (
+  conversationId: string,
+  select: (tasks: TaskView[]) => TaskView | undefined,
+) =>
+  queryOptions({
+    ...conversationTasksQuery(conversationId),
+    select,
+    notifyOnChangeProps: ["data"],
+    // A disabled observer never reads the list, not even before its first read, yet still takes
+    // the cached list and every write to it.
+    // https://tanstack.com/query/latest/docs/framework/react/guides/disabling-queries
+    enabled: false,
+  });
+
+/** The conversation's Task `#number`, which a body's task reference names. */
+export const numberedTaskReader = (conversationId: string, number: number) =>
+  conversationTaskReader(conversationId, (tasks) => tasks.find((task) => task.number === number));
+
+/** The Task a message became. */
+export const messageTaskReader = (conversationId: string, messageId: string) =>
+  conversationTaskReader(conversationId, (tasks) =>
+    tasks.find((task) => task.messageId === messageId),
+  );
+
+/** The conversation's Task `#number`, read with `numberedTaskReader`. */
+export function useNumberedTask(conversationId: string, number: number) {
+  const reader = useMemo(
+    () => numberedTaskReader(conversationId, number),
+    [conversationId, number],
+  );
+  return useQuery(reader).data;
+}
+
+/** The Task a message became, read with `messageTaskReader`. */
+export function useMessageTask(conversationId: string, messageId: string) {
+  const reader = useMemo(
+    () => messageTaskReader(conversationId, messageId),
+    [conversationId, messageId],
+  );
+  return useQuery(reader).data;
+}
 
 export type ConversationTasks = ReturnType<typeof useConversationTasks>;
 

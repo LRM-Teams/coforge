@@ -114,12 +114,12 @@ responsibility.
 - `features/realtime/` — the one browser Centrifuge connection.
 - `features/records/` — Workspace Records (see the last section).
 - `features/settings/` — preference pages and device-local preferences.
-- `features/search/` — the Workspace search page (`/search`): filters, matching channels, Agents and Computers, message results with their preview, and the browser-local search history and frequently used places.
+- `features/search/` — the Workspace search page (`search`): filters, matching channels, Agents and Computers, message results with their preview, and the browser-local search history and frequently used places.
 - `features/tasks/` — Task board, list, overview, and message task actions.
-- `features/workspaces/` — Workspace switcher and creation, member directory reads, invitations, human roles, and the last page `/` returns to.
+- `features/workspaces/` — Workspace switcher and creation, the Workspace a page URL names (`/w/<slug>`), member directory reads, member presence (`presence:workspace:<workspace_id>`), invitations, human roles, and the last page `/` returns to.
 - `server/agents/` — Agent lifecycle, control, sessions, display reduction,
   visibility, deletion, and the Agent HTTPS API.
-- `server/attachments/` — attachment upload sessions and delivery.
+- `server/attachments/` — attachment upload sessions, claiming a sender's uploads for a new message, and delivery.
 - `server/auth/` — login, sessions, device auth, API keys, and auth guards.
 - `server/centrifugo/` — Centrifugo proxies, RPC receivers, and short-lived
   result caches.

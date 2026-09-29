@@ -218,10 +218,9 @@ export type AgentContextUsage = {
 };
 export const WORKSPACE_PROTOCOL_MAJOR = COMPUTER_REGISTER_PROTOCOL_MAJOR;
 export type Workspace = { id: string; slug: string; name: string };
-export type WorkspaceInfoRequest = { protocolMajor: number; requestId: string };
+export type WorkspaceInfoRequest = { idempotencyKey: string };
 export type WorkspaceInfoResponse = {
-  protocolMajor: number;
-  requestId: string;
+  idempotencyKey: string;
   workspace: Workspace;
   humans: { id: string; name: string; displayName: string; role: string }[];
   agents: {
@@ -681,6 +680,8 @@ export type AgentMessageDelivery = {
   mentionsAgent?: boolean;
   /** True when the recipient Agent was notified of this message without being a channel member. */
   nonMemberMention?: boolean;
+  /** Present when this delivery starts an isolated Task execution session. */
+  taskExecutionSessionId?: string;
 };
 export type AgentMessageDeliveryAck = Omit<
   AgentMessageDelivery,
@@ -741,8 +742,7 @@ export type AgentStatus = {
   observedAtMs: number;
 };
 export type AgentMessageRequest = {
-  protocolMajor: number;
-  requestId: string;
+  idempotencyKey: string;
   agentId: string;
   workspaceId: string;
   fromSequence?: number;
@@ -943,6 +943,7 @@ export * from "./message-sender";
 export * from "./agent-name";
 export * from "./workspace-slug";
 export * from "./uuid";
+export * from "./weekly-report-limits";
 export * from "./codec";
 export * from "./validation";
 export * from "./weekly-report";
@@ -956,3 +957,4 @@ export * from "./mime-type";
 export * from "./json-record";
 export * from "./agent-environment";
 export * from "./error-code";
+export * from "./text-codec";

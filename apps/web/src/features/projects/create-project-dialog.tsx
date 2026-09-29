@@ -12,6 +12,7 @@ import {
   getGitHubConnection,
   listAccessibleGitHubRepositories,
 } from "#src/features/integrations/github.functions";
+import { useWorkspaceSlug } from "#src/features/workspaces/workspace-route";
 import { isAppError } from "#src/lib/app-error";
 import { nameToSlug } from "#src/lib/slug";
 import { m } from "#src/paraglide/messages";
@@ -32,6 +33,7 @@ export function CreateProjectDialog({
   onOpenChange: (open: boolean) => void;
   onCreated: () => Promise<void>;
 }) {
+  const workspaceSlug = useWorkspaceSlug();
   const repositories = useServerFn(listAccessibleGitHubRepositories);
   const githubConnection = useServerFn(getGitHubConnection);
   const create = useServerFn(createProject);
@@ -320,7 +322,8 @@ export function CreateProjectDialog({
                             </>
                           ) : (
                             <Link
-                              to="/settings"
+                              to="/w/$workspaceSlug/settings"
+                              params={{ workspaceSlug }}
                               search={{ section: "integrations" }}
                               className="font-medium text-brand-secondary underline underline-offset-4 hover:text-primary"
                             >

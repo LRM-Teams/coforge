@@ -1,4 +1,5 @@
 import { lockConversation } from "#src/server/conversations/conversation-lock.server";
+import { agentDirectKey } from "#src/features/conversations/direct-key";
 import {
   UUID_LIKE_SOURCE,
   type MessageSenderKind,
@@ -10,7 +11,11 @@ import { AppError, isAppError } from "#src/lib/app-error";
 import { canDirectMessageAgent } from "#src/server/agents/agent-visibility.server";
 import { AgentMessageValidationError } from "#src/server/conversations/agent-message-validation-error.server";
 import { messageAnchorWhere, messageIdMatchesAnchor } from "#src/server/db/message-anchor.server";
-import { getAgentChannel, PublicChannels } from "#src/server/conversations/public-channels.server";
+import {
+  channelAgentRecipients,
+  getAgentChannel,
+  PublicChannels,
+} from "#src/server/conversations/public-channels.server";
 import {
   ACTIVE_MEMBER_WHERE,
   VISIBLE_CONVERSATION_WHERE,
@@ -558,8 +563,6 @@ export type DirectConversationRepository = {
   }>;
 };
 
-const keyFor = (userId: string, agentId: string) => `agent:${agentId}|user:${userId}`;
-
 export const buildUserAgentConversationCreateInput = (
   workspaceId: string,
   userId: string,
@@ -567,7 +570,7 @@ export const buildUserAgentConversationCreateInput = (
 ) =>
   ({
     workspace: { connect: { id: workspaceId } },
-    directKey: keyFor(userId, agentId),
+    directKey: agentDirectKey(userId, agentId),
     members: {
       create: [
         {
@@ -879,7 +882,7 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
   /**
    * The browser's own emoji reaction in this user's DM with one Agent. Read-only
    * conversation lookup: reacting must never start a DM as a side effect. Scope
-   * authorization stays with the caller (`ownedConversations` in the function layer).
+   * authorization stays with the caller (`DirectConversations.authorize`).
    */
   async setUserMessageReaction(
     workspaceId: string,
@@ -919,15 +922,17 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
 
   async getOrCreateUserAgent(workspaceId: string, userId: string, agentId: string) {
     // Deliberately *not* filtered by `ACTIVE_AGENT_WHERE`: a deleted Agent's direct conversation
-    // stays readable (history is kept), and `ownedConversations` decides per operation
-    // whether reading or writing is allowed. Starting a new conversation with a deleted Agent is
-    // unreachable anyway — the DM list and profile affordances no longer offer one.
+    // stays readable (history is kept), and `DirectConversations.authorize` decides per operation
+    // whether reading or writing is allowed. `DirectConversations.open` refuses to start one with
+    // a deleted Agent.
     const agent = await this.db.agent.findFirst({
       where: { id: agentId, workspaceId, workspace: { members: { some: { userId } } } },
       select: { id: true, ownerId: true, visibility: true },
     });
     if (!agent) throw new Error("conversation scope is not authorized");
-    const where = { workspaceId_directKey: { workspaceId, directKey: keyFor(userId, agentId) } };
+    const where = {
+      workspaceId_directKey: { workspaceId, directKey: agentDirectKey(userId, agentId) },
+    };
     const existing = await this.db.conversation.findUnique({ where, select: { id: true } });
     if (existing) return existing;
     // A brand-new DM with a private Agent may only ever be started by its own creator:
@@ -952,7 +957,7 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
    * inspecting who could message in it. */
   async findUserAgentConversation(workspaceId: string, userId: string, agentId: string) {
     return this.db.conversation.findUnique({
-      where: { workspaceId_directKey: { workspaceId, directKey: keyFor(userId, agentId) } },
+      where: { workspaceId_directKey: { workspaceId, directKey: agentDirectKey(userId, agentId) } },
       select: { id: true },
     });
   }
@@ -2328,12 +2333,6 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
           bindings: mentions ?? [],
         },
       );
-      // Other Agents this channel message wakes: every resolved Agent mention. An Agent message
-      // without an Agent mention never notifies another Agent, and an Agent never wakes itself.
-      const mentionedAgentIds = new Set(
-        stored.mentions.filter((mention) => mention.type === "agent").map((mention) => mention.id),
-      );
-      mentionedAgentIds.delete(agentId);
       if (conversation.channelName && root) {
         // Everyone the reply mentions follows the thread: exactly the members its stored mention
         // rows name (each mention's key is the member id), plus every `--mention` binding.
@@ -2359,6 +2358,15 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
           skipDuplicates: true,
         });
       }
+      // A DM wakes no Agent: its only Agent is the sender.
+      const recipients = conversation.channelName
+        ? await channelAgentRecipients(tx, {
+            conversationId,
+            threadRootId: root?.id,
+            mentions: stored.mentions,
+            senderAgentId: agentId,
+          })
+        : [];
       const created = await tx.message.create({
         data: {
           conversationId,
@@ -2378,16 +2386,14 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
                 })),
               }
             : undefined,
-          deliveries: mentionedAgentIds.size
-            ? {
-                create: [...mentionedAgentIds].map((wakeAgentId) => ({
-                  workspaceId: conversation.workspaceId,
-                  conversationId,
-                  agentId: wakeAgentId,
-                  sequence,
-                })),
-              }
-            : undefined,
+          deliveries: {
+            create: recipients.map((wakeAgentId) => ({
+              workspaceId: conversation.workspaceId,
+              conversationId,
+              agentId: wakeAgentId,
+              sequence,
+            })),
+          },
         },
         select: {
           id: true,

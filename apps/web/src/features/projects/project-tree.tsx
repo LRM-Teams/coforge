@@ -9,6 +9,7 @@ import { PageHeader } from "#src/components/layout/page-header";
 import { RelativeTime } from "#src/components/ui/relative-time";
 import { useBreakpoint } from "#src/hooks/use-breakpoint";
 import { conversationLayoutStorage } from "#src/features/conversations/layout-storage";
+import { useWorkspaceSlug } from "#src/features/workspaces/workspace-route";
 import { avatarInitial, avatarToneClassName } from "#src/lib/avatar-tone";
 import { cn } from "#src/lib/utils";
 import { m } from "#src/paraglide/messages";
@@ -310,9 +311,11 @@ function UnindexedPath({
 }
 
 function BackLink() {
+  const workspaceSlug = useWorkspaceSlug();
   return (
     <Link
-      to="/projects"
+      to="/w/$workspaceSlug/projects"
+      params={{ workspaceSlug }}
       aria-label={m.project_back()}
       className="shrink-0 rounded-lg p-2 text-tertiary outline-focus-ring hover:bg-primary_hover focus-visible:outline-2"
     >
@@ -332,6 +335,7 @@ function Breadcrumb({
   branch: string;
   segments: string[];
 }) {
+  const workspaceSlug = useWorkspaceSlug();
   const trail = [
     { label: projectName, to: "project" as const },
     { label: branch, to: "tree" as const, splat: "" },
@@ -354,13 +358,17 @@ function Breadcrumb({
           <ChevronRight aria-hidden="true" className="size-3.5 shrink-0 text-quaternary" />
         )}
         {crumb.to === "project" ? (
-          <Link to="/projects/$projectSlug" params={{ projectSlug }} className={crumbLinkClassName}>
+          <Link
+            to="/w/$workspaceSlug/projects/$projectSlug"
+            params={{ workspaceSlug, projectSlug }}
+            className={crumbLinkClassName}
+          >
             {crumb.label}
           </Link>
         ) : (
           <Link
-            to="/projects/$projectSlug/tree/$"
-            params={{ projectSlug, _splat: crumb.splat }}
+            to="/w/$workspaceSlug/projects/$projectSlug/tree/$"
+            params={{ workspaceSlug, projectSlug, _splat: crumb.splat }}
             className={crumbLinkClassName}
           >
             {crumb.label}
@@ -417,6 +425,7 @@ function DirectoryBody({
   defaultBranch: string;
   treeSha: string;
 }) {
+  const workspaceSlug = useWorkspaceSlug();
   // The listing renders from the tree at once; last commits fill in when their request lands.
   const { data: history } = useQuery(projectDirectoryCommitsQuery(slug, path, treeSha));
   const commits: Record<string, LastCommit> = history?.status === "ready" ? history.commits : {};
@@ -480,8 +489,8 @@ function DirectoryBody({
         {path !== "" && (
           <li>
             <Link
-              to="/projects/$projectSlug/tree/$"
-              params={{ projectSlug: slug, _splat: parentPath }}
+              to="/w/$workspaceSlug/projects/$projectSlug/tree/$"
+              params={{ workspaceSlug, projectSlug: slug, _splat: parentPath }}
               className={cn(rowClassName, "text-tertiary")}
             >
               <Folder aria-hidden="true" className="size-5 shrink-0 text-tertiary" />
@@ -538,8 +547,8 @@ function DirectoryBody({
               <li key={entry.path}>
                 {isBrowsable(entry.type) ? (
                   <Link
-                    to="/projects/$projectSlug/tree/$"
-                    params={{ projectSlug: slug, _splat: entry.path }}
+                    to="/w/$workspaceSlug/projects/$projectSlug/tree/$"
+                    params={{ workspaceSlug, projectSlug: slug, _splat: entry.path }}
                     className={rowClassName}
                   >
                     {content}

@@ -8,7 +8,10 @@ import { directListsOf, directRowsOf } from "#src/features/conversations/sidebar
  * returns and to what the sidebar reads.
  */
 const preferences = {
-  conversations: ["helper", "scout"],
+  conversations: [
+    { agentId: "helper", conversationId: "dm-helper" },
+    { agentId: "scout", conversationId: "dm-scout" },
+  ],
   pinned: [{ agentId: "helper", sortOrder: 2 }],
   hidden: ["helper", "scout"],
 };
@@ -17,7 +20,7 @@ test("DM preferences and unread counts become one row per Agent", () => {
   expect(directRowsOf(preferences, { helper: 3, docs: 1 })).toEqual([
     {
       agentId: "helper",
-      conversation: true,
+      conversationId: "dm-helper",
       pinned: true,
       pinSortOrder: 2,
       hidden: true,
@@ -25,7 +28,7 @@ test("DM preferences and unread counts become one row per Agent", () => {
     },
     {
       agentId: "scout",
-      conversation: true,
+      conversationId: "dm-scout",
       pinned: false,
       pinSortOrder: null,
       hidden: true,
@@ -33,7 +36,7 @@ test("DM preferences and unread counts become one row per Agent", () => {
     },
     {
       agentId: "docs",
-      conversation: false,
+      conversationId: null,
       pinned: false,
       pinSortOrder: null,
       hidden: false,

@@ -66,7 +66,9 @@ test("an owner deletes a channel from its settings panel", async () => {
   const sidebarHasChannel = `[...document.querySelectorAll("a")].some((link) => link.textContent.trim() === ${JSON.stringify(channelName)})`;
   const membership = await db.workspaceMembership.findFirstOrThrow({
     where: { userId: DEV_BROWSER_USER.id, role: "owner" },
+    include: { workspace: { select: { slug: true } } },
   });
+  const workspacePath = `/en/w/${membership.workspace.slug}`;
   const workspaceId = membership.workspaceId;
   const ownMembership = { workspaceId_userId: { workspaceId, userId: DEV_BROWSER_USER.id } };
   const channel = await db.conversation.create({
@@ -93,7 +95,7 @@ test("an owner deletes a channel from its settings panel", async () => {
     await mkdir(artifacts, { recursive: true });
 
     await browser("set", "viewport", "1440", "900");
-    await browser("open", `${origin}/en/messages/channels/${channel.id}`);
+    await browser("open", `${origin}${workspacePath}/channel/${channel.id}`);
     await waitFor(
       `document.querySelector('[aria-label="Channel details and settings"]') !== null`,
       60_000,
@@ -129,15 +131,15 @@ test("an owner deletes a channel from its settings panel", async () => {
 
     await clickText('[role="dialog"] button', "Delete");
 
-    await waitFor(`location.pathname !== "/en/messages/channels/${channel.id}"`);
+    await waitFor(`location.pathname !== "${workspacePath}/channel/${channel.id}"`);
     await waitFor(`!${sidebarHasChannel}`);
     expect(await db.conversation.findUnique({ where: { id: channel.id } })).toBeNull();
     expect(await db.message.count({ where: { conversationId: channel.id } })).toBe(0);
     await browser("screenshot", join(artifacts, "deleted.png"));
 
     // Opening it by URL afterwards lands back in Chat too.
-    await browser("open", `${origin}/en/messages/channels/${channel.id}`);
-    await waitFor(`location.pathname !== "/en/messages/channels/${channel.id}"`);
+    await browser("open", `${origin}${workspacePath}/channel/${channel.id}`);
+    await waitFor(`location.pathname !== "${workspacePath}/channel/${channel.id}"`);
   } finally {
     await db.workspaceMembership
       .update({ where: ownMembership, data: { role: "owner" } })

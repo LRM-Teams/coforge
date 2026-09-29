@@ -76,6 +76,8 @@ test("removes leftover Windows upgrade tasks whose result file already exists", 
     platform: "win32",
     stateDirectory: "/irrelevant",
     listCompletedRequestIds: async () => [doneId, pendingId],
+    listRegisteredUpgradeTaskNames: async () =>
+      new Set([`CoForge Upgrade ${doneId}`, `CoForge Upgrade ${pendingId}`]),
     resultExists: async (requestId) => requestId === doneId,
     windowsTaskRunner: async (command) => {
       deleted.push(command.join(" "));
@@ -97,12 +99,28 @@ test("Windows sweep only deletes request IDs supplied as completed", async () =>
     platform: "win32",
     stateDirectory: "/irrelevant",
     listCompletedRequestIds: async () => [doneId],
+    listRegisteredUpgradeTaskNames: async () => new Set([`CoForge Upgrade ${doneId}`]),
     windowsTaskRunner: async (command) => {
       deleted.push(command[3]!);
       return 0;
     },
   });
   expect(deleted).toEqual([`CoForge Upgrade ${doneId}`]);
+});
+
+test("Windows sweep skips Delete when the Scheduled Task is already gone", async () => {
+  const deleted: string[] = [];
+  await sweepLeftoverComputerUpgradeJobs({
+    platform: "win32",
+    stateDirectory: "/irrelevant",
+    listCompletedRequestIds: async () => [doneId, pendingId],
+    listRegisteredUpgradeTaskNames: async () => new Set([`CoForge Upgrade ${doneId}`]),
+    windowsTaskRunner: async (command) => {
+      deleted.push(command.join(" "));
+      return 0;
+    },
+  });
+  expect(deleted).toEqual([`schtasks.exe /Delete /TN CoForge Upgrade ${doneId} /F`]);
 });
 
 test("leaves a job alone when no result file exists yet", async () => {

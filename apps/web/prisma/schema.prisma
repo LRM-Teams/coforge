@@ -35,6 +35,7 @@ model Workspace {
   attachments            Attachment[]
   attachmentUploadSessions AttachmentUploadSession[]
   tasks                  Task[]
+  taskExecutionSessions  TaskExecutionSession[]
   actionCards            ActionCard[]
   weeklyReportCycles     WeeklyReportCycle[]
   weeklyReports          WeeklyReport[]
@@ -257,6 +258,8 @@ model Agent {
   owner                     User                       @relation(fields: [ownerId], references: [id])
   computer                  Computer?                  @relation(fields: [computerId], references: [id], onDelete: SetNull)
   conversations             ConversationMember[]
+  coordinatedConversations Conversation[]         @relation("ConversationCoordinator")
+  taskExecutionSessions    TaskExecutionSession[]
   pendingMentionActions     PendingMentionAction[]
   deliveries                AgentMessageDelivery[]
   apiKeys                   AgentApiKey[]
@@ -676,6 +679,7 @@ model Conversation {
   id             String                 @id @default(uuid()) @db.Uuid
   workspaceId    String                 @db.Uuid
   projectId      String?                @db.Uuid
+  coordinatorAgentId String?             @db.Uuid
   directKey      String?
   channelName    String?
   description    String                 @default("")
@@ -698,12 +702,14 @@ model Conversation {
   savedMessages  SavedMessage[]
   pins           ConversationPin[]
   project        Project?               @relation("ProjectConversations", fields: [projectId], references: [id], onDelete: SetNull)
+  coordinatorAgent Agent?               @relation("ConversationCoordinator", fields: [coordinatorAgentId, workspaceId], references: [id, workspaceId], onDelete: NoAction)
 
   @@unique([workspaceId, directKey])
   @@unique([workspaceId, channelName])
   @@unique([id, workspaceId])
   @@index([workspaceId])
   @@index([projectId])
+  @@index([coordinatorAgentId])
   @@map("conversations")
 }
 
@@ -842,6 +848,7 @@ model Task {
   owner                        ConversationMember? @relation("TaskOwner", fields: [ownerMemberId, conversationId, workspaceId], references: [id, conversationId, workspaceId], onDelete: Restrict)
   creator                      ConversationMember  @relation("TaskCreator", fields: [creatorMemberId, conversationId, workspaceId], references: [id, conversationId, workspaceId], onDelete: Restrict)
   history                      TaskHistoryEvent[]
+  executionSessions            TaskExecutionSession[]
 
   @@unique([conversationId, number])
   @@unique([messageId, conversationId])
@@ -853,6 +860,33 @@ model Task {
   /// Workspace holds.
   @@index([ownerMemberId, status])
   @@map("tasks")
+}
+
+/// Disposable runtime context for one Agent's attempt at one Task. The Agent identity and
+/// permissions remain on `Agent`; this record only fences Task execution and retries.
+model TaskExecutionSession {
+  id             String    @id @default(uuid()) @db.Uuid
+  taskMessageId  String    @db.Uuid
+  conversationId String    @db.Uuid
+  workspaceId    String    @db.Uuid
+  agentId        String    @db.Uuid
+  nativeSessionId String?
+  status         String    @default("starting")
+  attempt        Int       @default(1)
+  requestId      String?   @db.Uuid
+  launchId       String?
+  lastError      String?
+  createdAt      DateTime  @default(now())
+  startedAt      DateTime?
+  finishedAt     DateTime?
+  task           Task      @relation(fields: [taskMessageId, conversationId], references: [messageId, conversationId], onDelete: Cascade)
+  agent          Agent     @relation(fields: [agentId, workspaceId], references: [id, workspaceId], onDelete: Cascade)
+  workspace      Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([taskMessageId, agentId])
+  @@index([agentId, status])
+  @@index([workspaceId, status, createdAt])
+  @@map("task_execution_sessions")
 }
 
 model TaskHistoryEvent {
@@ -1086,26 +1120,26 @@ model Attachment {
 /// reserves ahead of time. `attachmentId` is not a foreign key — that row does not exist until
 /// verification succeeds — only a unique reservation the eventual `Attachment.id` must match.
 model AttachmentUploadSession {
-  id              String       @id @default(uuid()) @db.Uuid
-  workspaceId     String       @db.Uuid
-  conversationId  String       @db.Uuid
-  agentId         String       @db.Uuid
-  attachmentId    String       @unique @db.Uuid
-  objectKey       String       @unique
-  fileName        String
-  contentType     String
-  sizeBytes       Int
-  clientRequestId String       @db.Uuid
-  state           String       @default("pending")
-  terminalReason  String?
-  expiresAt       DateTime
-  createdAt       DateTime     @default(now())
-  updatedAt       DateTime     @updatedAt
-  workspace       Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  conversation    Conversation @relation(fields: [conversationId, workspaceId], references: [id, workspaceId], onDelete: Cascade)
-  agent           Agent        @relation(fields: [agentId, workspaceId], references: [id, workspaceId], onDelete: Cascade)
+  id             String       @id @default(uuid()) @db.Uuid
+  workspaceId    String       @db.Uuid
+  conversationId String       @db.Uuid
+  agentId        String       @db.Uuid
+  attachmentId   String       @unique @db.Uuid
+  objectKey      String       @unique
+  fileName       String
+  contentType    String
+  sizeBytes      Int
+  idempotencyKey String       @db.Uuid
+  state          String       @default("pending")
+  terminalReason String?
+  expiresAt      DateTime
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  workspace      Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  conversation   Conversation @relation(fields: [conversationId, workspaceId], references: [id, workspaceId], onDelete: Cascade)
+  agent          Agent        @relation(fields: [agentId, workspaceId], references: [id, workspaceId], onDelete: Cascade)
 
-  @@unique([agentId, clientRequestId])
+  @@unique([agentId, idempotencyKey])
   @@index([conversationId, workspaceId])
   @@index([expiresAt])
   @@map("attachment_upload_sessions")
@@ -1117,6 +1151,7 @@ model AgentMessageDelivery {
   workspaceId    String       @db.Uuid
   conversationId String       @db.Uuid
   agentId        String       @db.Uuid
+  taskExecutionSessionId String? @db.Uuid
   sequence       Int
   receivedAt     DateTime?
   createdAt      DateTime     @default(now())

@@ -6,7 +6,7 @@
 
 ```sh
 gh workflow run release-staging.yml --repo LRM-Teams/coforge
-# 或指定版本号，不填则自动生成 0.0.0-dev.<run_number>-<short sha>
+# 或指定版本号；不填则发布当前版本线（workflow 的 DEV_LINE）下一个未用的 <line>-dev.<N>，从 1 开始
 gh workflow run release-staging.yml --repo LRM-Teams/coforge -f version=0.2.0-rc.1
 ```
 

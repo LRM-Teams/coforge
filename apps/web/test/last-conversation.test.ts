@@ -32,7 +32,8 @@ const channels = [
   { id: "c2", joined: true, archived: false },
   { id: "c3", joined: true, archived: true },
 ];
-const lists = { channels, agentIds: ["a1", "a2"], hiddenAgentIds: ["a2"] };
+// Direct messages the sidebar lists (a closed one is not).
+const lists = { channels, directIds: ["d1"] };
 
 describe("the conversation Chat reopens", () => {
   beforeEach(stubLocalStorage);
@@ -41,25 +42,25 @@ describe("the conversation Chat reopens", () => {
   });
 
   test("is the channel, direct message, or Saved view opened last in this Workspace", () => {
-    rememberConversation("w1", "/messages/channels/c2");
+    rememberConversation("w1", "/w/acme/channel/c2");
     expect(rememberedConversation("w1")).toEqual({ channelId: "c2" });
-    rememberConversation("w1", "/messages/a1");
-    expect(rememberedConversation("w1")).toEqual({ agentId: "a1" });
-    rememberConversation("w1", "/messages/saved");
+    rememberConversation("w1", "/w/acme/dm/d1");
+    expect(rememberedConversation("w1")).toEqual({ dmId: "d1" });
+    rememberConversation("w1", "/w/acme/saved");
     expect(rememberedConversation("w1")).toEqual({ view: "saved" });
   });
 
   test("is kept per Workspace", () => {
-    rememberConversation("w1", "/messages/channels/c1");
-    rememberConversation("w2", "/messages/channels/c2");
+    rememberConversation("w1", "/w/acme/channel/c1");
+    rememberConversation("w2", "/w/other/channel/c2");
     expect(rememberedConversation("w1")).toEqual({ channelId: "c1" });
     expect(rememberedConversation("w2")).toEqual({ channelId: "c2" });
   });
 
   test("ignores pages that are not a conversation", () => {
-    rememberConversation("w1", "/messages/channels/c1");
-    rememberConversation("w1", "/messages");
-    rememberConversation("w1", "/agents/a1");
+    rememberConversation("w1", "/w/acme/channel/c1");
+    rememberConversation("w1", "/w/acme");
+    rememberConversation("w1", "/w/acme/agent/a1");
     expect(rememberedConversation("w1")).toEqual({ channelId: "c1" });
   });
 
@@ -72,7 +73,7 @@ describe("the conversation Chat reopens", () => {
     expect(rememberedConversation("w1")).toBeUndefined();
     // A private window or SSR can have no localStorage at all.
     Reflect.deleteProperty(globalThis, "localStorage");
-    rememberConversation("w1", "/messages/channels/c1");
+    rememberConversation("w1", "/w/acme/channel/c1");
     expect(rememberedConversation("w1")).toBeUndefined();
   });
 });
@@ -81,16 +82,15 @@ describe("where Chat lands", () => {
   test("is the remembered conversation while it is still listed", () => {
     expect(landingConversation({ channelId: "c2" }, lists)).toEqual({ channelId: "c2" });
     expect(landingConversation({ channelId: "c0" }, lists)).toEqual({ channelId: "c0" });
-    expect(landingConversation({ agentId: "a1" }, lists)).toEqual({ agentId: "a1" });
+    expect(landingConversation({ dmId: "d1" }, lists)).toEqual({ dmId: "d1" });
     expect(landingConversation({ view: "saved" }, lists)).toEqual({ view: "saved" });
   });
 
   test("falls back to the first joined channel once the remembered one is gone", () => {
     expect(landingConversation({ channelId: "deleted" }, lists)).toEqual({ channelId: "c1" });
     expect(landingConversation({ channelId: "c3" }, lists)).toEqual({ channelId: "c1" });
-    expect(landingConversation({ agentId: "removed" }, lists)).toEqual({ channelId: "c1" });
-    // A direct message the viewer closed is out of the list.
-    expect(landingConversation({ agentId: "a2" }, lists)).toEqual({ channelId: "c1" });
+    // A direct message the viewer closed, or with a removed Agent, is out of the list.
+    expect(landingConversation({ dmId: "closed" }, lists)).toEqual({ channelId: "c1" });
     expect(landingConversation(undefined, lists)).toEqual({ channelId: "c1" });
   });
 
@@ -98,8 +98,7 @@ describe("where Chat lands", () => {
     expect(
       landingConversation(undefined, {
         channels: [channels[0]!, channels[3]!],
-        agentIds: [],
-        hiddenAgentIds: [],
+        directIds: [],
       }),
     ).toBeUndefined();
   });

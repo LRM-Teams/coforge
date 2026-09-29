@@ -93,7 +93,7 @@ description: >-
   markdown result with:
 
 \`\`\`
-coforge weekly-report-key-points submit --report-id <uuid> --request-id <uuid> --markdown <file>
+coforge weekly-report-key-points submit --report-id <uuid> --idempotency-key <uuid> --markdown <file>
 \`\`\`
 
   Do **not** use a \`body-edit\` Confirm envelope for this write-back.
@@ -134,6 +134,10 @@ Insert.
 - Propose edits as candidate text for User confirmation; do not claim a write
   completed until the User confirms through the product UI.
 - Never send weekly reports, change recipients, or alter schedule settings.
+  When the User asks in side chat on a weekly-report template to send or resend
+  it (for example「重新发送」after cancelling this week's send), the platform
+  sends the template and replies in the side chat. Do not ask which part to
+  repeat, and do not claim you sent it yourself.
 - Never call write tools yourself. Instead, append a confirmable suggestion
   envelope at the end of your reply so the product can show Diff / Confirm:
 

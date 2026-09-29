@@ -1,6 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { getRequest } from "@tanstack/react-start/server";
-import { authMiddleware } from "#src/features/auth/function-auth";
+import { authMiddleware, workspaceUserMiddleware } from "#src/features/auth/function-auth";
 import { requireDatabaseClient } from "#src/server/db/client.server";
 import {
   PrismaUserPreferencesRepository,
@@ -77,12 +77,17 @@ export const unsubscribeBrowserPush = createServerFn({ method: "POST" })
   });
 
 export const sendTestBrowserNotification = createServerFn({ method: "POST" })
-  .middleware([authMiddleware])
+  .middleware([workspaceUserMiddleware])
   .validator(browserPushTestInput)
   .handler(async ({ data, context }) => {
     const { user, db, preferences } = notificationContext(context.user);
     if (!(await preferences.getBrowserNotificationsEnabled(user.id)))
       throw new AppError("ACCESS_DENIED");
+    // Clicking the test notification opens Settings in the Workspace it was sent from.
+    const { slug } = await db.workspace.findUniqueOrThrow({
+      where: { id: context.workspaceId },
+      select: { slug: true },
+    });
     let result;
     try {
       const sender = await createWebPushNotifications(db);
@@ -90,6 +95,7 @@ export const sendTestBrowserNotification = createServerFn({ method: "POST" })
         user.id,
         data.endpoint,
         extractLocaleFromRequest(getRequest()),
+        slug,
       );
     } catch (error) {
       // An unusable configuration (bad key pair, missing private key file) or any other refusal:

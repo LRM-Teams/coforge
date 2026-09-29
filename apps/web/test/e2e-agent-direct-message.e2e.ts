@@ -52,6 +52,7 @@ const databaseUrl = requireEnvironment("DATABASE_URL");
 if (requireEnvironment("COFORGE_E2E_ALLOW_RESET") !== "1")
   throw new Error("COFORGE_E2E_ALLOW_RESET=1 is required for destructive E2E cleanup");
 const workspaceId = "10000000-0000-4000-8000-000000000001";
+const workspaceSlug = "e2e-workspace";
 const workspaceRoot = join(import.meta.dir, "../../../.amp/e2e/workspace-root");
 const daemonStateDirectory = join(import.meta.dir, "../../../.amp/e2e/daemon-state");
 const attachmentDirectory = join(
@@ -79,7 +80,7 @@ test("Agent runtime, status, Message Inbox, and App Inbox cross the real system"
   await db.workspace.create({
     data: {
       id: workspaceId,
-      slug: "e2e-workspace",
+      slug: workspaceSlug,
       name: "E2E Workspace",
       members: {
         create: {
@@ -102,7 +103,7 @@ test("Agent runtime, status, Message Inbox, and App Inbox cross the real system"
     {
       protocolMajor: 1,
       requestId: crypto.randomUUID(),
-      workspaceSlug: "e2e-workspace",
+      workspaceSlug,
       name: "e2e-computer",
       displayName: "E2E Computer",
       machineId: "e2e-machine",
@@ -597,14 +598,16 @@ test("Agent runtime, status, Message Inbox, and App Inbox cross the real system"
         })) === 1,
     );
 
-    const page = await fetch(`http://127.0.0.1:8789/messages/${created.agent.id}`);
+    const page = await fetch(
+      `http://127.0.0.1:8789/w/${workspaceSlug}/dm/${opened.conversationId}`,
+    );
     expect(page.status).toBe(200);
     const html = await page.text();
     expect(html).toContain("E2E User message");
     expect(html).toContain("E2E Agent reply");
 
     const profile = await fetch(
-      `http://127.0.0.1:8789/agents?profile=agent:${created.agent.id}&agentTab=profile`,
+      `http://127.0.0.1:8789/w/${workspaceSlug}/members?profile=agent:${created.agent.id}&agentTab=profile`,
     );
     expect(profile.status).toBe(200);
     const profileHtml = await profile.text();
@@ -617,7 +620,7 @@ test("Agent runtime, status, Message Inbox, and App Inbox cross the real system"
     let activityHtml = "";
     await waitFor(async () => {
       const activityPage = await fetch(
-        `http://127.0.0.1:8789/agents?profile=agent:${created.agent.id}&agentTab=activity`,
+        `http://127.0.0.1:8789/w/${workspaceSlug}/members?profile=agent:${created.agent.id}&agentTab=activity`,
       );
       if (activityPage.status !== 200) return false;
       activityHtml = await activityPage.text();
@@ -645,7 +648,7 @@ test("Agent runtime, status, Message Inbox, and App Inbox cross the real system"
 }, 40_000);
 
 async function agentsPage() {
-  const response = await fetch("http://127.0.0.1:8789/");
+  const response = await fetch(`http://127.0.0.1:8789/w/${workspaceSlug}`);
   expect(response.status).toBe(200);
   return response.text();
 }

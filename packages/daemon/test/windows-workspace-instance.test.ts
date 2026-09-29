@@ -1,10 +1,14 @@
 import { expect, test } from "bun:test";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
 import { WindowsWorkspaceInstance } from "#src/supervisor/windows-workspace-instance";
 import type { WorkspaceInstanceConfig } from "#src/supervisor/workspace-instance";
+import {
+  WorkspaceHealthJournal,
+  workspaceHealthJournalPath,
+} from "#src/supervisor/workspace-health-journal";
 
 async function config(): Promise<WorkspaceInstanceConfig & { root: string }> {
   const root = await mkdtemp(join(tmpdir(), "coforge-windows-workspace-"));
@@ -82,6 +86,64 @@ test("stop clears the durable instance record after signalling the child", async
     await instance.stop();
     expect(signals).toEqual([{ pid: 77, signal: undefined }]);
     expect(await instance.identity()).toBeNull();
+  } finally {
+    await rm(cfg.root, { recursive: true, force: true });
+  }
+});
+
+test("stop clears the health live marker after an intentional Windows SIGTERM/SIGKILL", async () => {
+  // Upgrade/reload stops go through WindowsWorkspaceInstance.stop. If SIGKILL wins the race
+  // before the child's SIGTERM shutdown runs recordGracefulStop, the next start would count a
+  // crash and trip the degraded latch. Clearing live here is Windows-only and intentional.
+  const cfg = await config();
+  let alive = true;
+  try {
+    await mkdir(cfg.stateDirectory, { recursive: true });
+    const journalPath = workspaceHealthJournalPath(cfg.stateDirectory);
+    await writeFile(
+      journalPath,
+      `${JSON.stringify({ schemaVersion: 1, live: true, crashes: [] })}\n`,
+      { mode: 0o600 },
+    );
+    const instance = new WindowsWorkspaceInstance(
+      cfg,
+      async () => ({ pid: 88 }),
+      () => alive,
+      () => {
+        alive = false;
+      },
+    );
+    await instance.ensureStarted();
+    await instance.stop();
+    const journal = new WorkspaceHealthJournal(journalPath);
+    expect(await journal.wasLeftRunning()).toBe(false);
+  } finally {
+    await rm(cfg.root, { recursive: true, force: true });
+  }
+});
+
+test("stop does not clear the live marker when the Windows child was already dead", async () => {
+  // Reconcile must not erase an unexpected death before the replacement child can recordCrash.
+  const cfg = await config();
+  try {
+    await mkdir(cfg.stateDirectory, { recursive: true });
+    const journalPath = workspaceHealthJournalPath(cfg.stateDirectory);
+    await writeFile(
+      journalPath,
+      `${JSON.stringify({ schemaVersion: 1, live: true, crashes: [] })}\n`,
+      { mode: 0o600 },
+    );
+    const instance = new WindowsWorkspaceInstance(
+      cfg,
+      async () => ({ pid: 99 }),
+      () => false,
+      () => {
+        throw new Error("should not signal a dead process");
+      },
+    );
+    await instance.ensureStarted();
+    await instance.stop();
+    expect(await new WorkspaceHealthJournal(journalPath).wasLeftRunning()).toBe(true);
   } finally {
     await rm(cfg.root, { recursive: true, force: true });
   }

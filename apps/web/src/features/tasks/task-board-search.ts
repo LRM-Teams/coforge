@@ -10,7 +10,8 @@ import { useTaskLayout, type TaskLayout } from "./task-workflow";
 /**
  * A conversation's Task board view in the address: one status, the layout, the owner picks
  * (comma-separated User or Agent ids, `none` for nobody) and how far back Done and Closed reach
- * (a week when absent). Routes spread it into their `validateSearch`.
+ * (a week when absent). Every conversation page host spreads it (through
+ * `conversationPageSearchShape`) into its `validateSearch`.
  */
 export const conversationTaskBoardSearchShape = {
   status: z.enum(TASK_STATUSES).optional().catch(undefined),
@@ -33,8 +34,9 @@ export type TaskBoardView = ReturnType<typeof useTaskBoardSearch>;
 
 /**
  * The board's view read from the address, and changes written back to it. Shared by the Tasks
- * page and both conversation routes, so it navigates relative to the current route (`to: "."`)
- * rather than through one route's typed API; each route validates the result.
+ * page and every conversation page host (Chat's routes, the search preview), so it navigates
+ * relative to the current route (`to: "."`) rather than through one route's typed API; each
+ * route validates the result.
  */
 export function useTaskBoardSearch(search: TaskBoardSearch) {
   const router = useRouter();

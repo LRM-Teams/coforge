@@ -1,6 +1,9 @@
 import type { TaskStatus } from "@lrm/coforge-sdk/internal";
 
+import { BadgeWithIcon } from "#src/components/base/badges/badges";
+import type { IconComponentType } from "#src/components/base/badges/badge-types";
 import { cn } from "#src/lib/utils";
+import { m } from "#src/paraglide/messages";
 
 /** One colour per status, shared by the status icon, the board and the task popup: the badge
  * colour, the solid dot, the icon's colour, and the lighter line the popup's history timeline
@@ -94,5 +97,46 @@ export function TaskStatusIcon({ status, className }: { status: TaskStatus; clas
         />
       )}
     </svg>
+  );
+}
+
+/** The status ring as the leading icon of an Untitled UI badge. The ring keeps its own status
+ * colour over the badge's icon colour, so it matches the board. */
+const ringIcon =
+  (status: TaskStatus): IconComponentType =>
+  ({ className }) => (
+    <TaskStatusIcon status={status} className={cn(className, TASK_STATUS_COLOR[status].text)} />
+  );
+const STATUS_BADGE_ICON: Record<TaskStatus, IconComponentType> = {
+  todo: ringIcon("todo"),
+  in_progress: ringIcon("in_progress"),
+  in_review: ringIcon("in_review"),
+  done: ringIcon("done"),
+  closed: ringIcon("closed"),
+};
+
+export function statusLabel(status: TaskStatus) {
+  return {
+    todo: m.tasks_status_todo,
+    in_progress: m.tasks_status_in_progress,
+    in_review: m.tasks_status_in_review,
+    done: m.tasks_status_done,
+    closed: m.tasks_status_closed,
+  }[status]();
+}
+
+/** A task as `#N` on its status's colour badge, the status ring leading: how a message body shows a
+ * task reference. */
+export function TaskNumberBadge({ number, status }: { number: number; status: TaskStatus }) {
+  return (
+    <BadgeWithIcon
+      type="color"
+      size="sm"
+      color={TASK_STATUS_COLOR[status].badge}
+      iconLeading={STATUS_BADGE_ICON[status]}
+      className="inline-flex"
+    >
+      #{number}
+    </BadgeWithIcon>
   );
 }

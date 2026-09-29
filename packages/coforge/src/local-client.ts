@@ -214,15 +214,15 @@ function proxyTransportFailure(operation: string, target: string | undefined): C
 /** How many times a `send` is attempted before its delivery state is reported as unknown, the base
  * delay between attempts (doubled each time: 250ms, 500ms), and a hard ceiling on the whole retry
  * window. The window stays under the server's 30s "processing" idempotency TTL
- * (`redis-message-request-idempotency.server.ts`), so a retry always finds its own requestId still
+ * (`redis-message-request-idempotency.server.ts`), so a retry always finds its own idempotencyKey still
  * claimed and can never re-execute a send the server already accepted. */
 const SEND_RETRY_ATTEMPTS = 3;
 const SEND_RETRY_BASE_DELAY_MS = 250;
 const SEND_RETRY_DEADLINE_MS = 25_000;
 
 /**
- * Whether a `send` failure is worth retrying with the SAME `requestId`. A send is idempotent end
- * to end — the daemon forwards this `requestId` to the cloud and the server suppresses a duplicate
+ * Whether a `send` failure is worth retrying with the SAME `idempotencyKey`. A send is idempotent end
+ * to end — the daemon forwards this `idempotencyKey` to the cloud and the server suppresses a duplicate
  * by it (`message-request-idempotency`) — so a retry either lands the message the first attempt
  * failed to deliver or returns the one it already persisted. Only transient transport/gateway
  * failures qualify: a 4xx, a `local_precondition` (e.g. the thread-target guard), or a protocol
@@ -237,7 +237,7 @@ function isRetryableSendFailure(error: unknown): boolean {
     return true;
   if (failureClass !== "upstream_http_response") return false;
   const status = error.proxy.upstreamStatus;
-  // 5xx is a gateway/upstream fault; 409 is the server's own "this requestId is still processing".
+  // 5xx is a gateway/upstream fault; 409 is the server's own "this idempotencyKey is still processing".
   return status !== undefined && (status >= 500 || status === 409);
 }
 
@@ -506,7 +506,7 @@ export function connectLocal(
     if (!context) throw preIssuanceError(operation, "coforge agent context is not configured");
     if (!/^sfp_[A-Za-z0-9_-]{43}$/.test(context))
       throw preIssuanceError(operation, "coforge agent context is invalid");
-    const requestId = crypto.randomUUID();
+    const idempotencyKey = crypto.randomUUID();
     if (!proxyUrl) throw preIssuanceError(operation, "coforge agent proxy is not configured");
     const attemptRequest = async (): Promise<Response> => {
       let response: Response;
@@ -514,7 +514,7 @@ export function connectLocal(
         response = await fetch(proxyEndpoint(agentApiRoutes.proxy.messages.path), {
           method: agentApiRoutes.local.messages.method,
           headers: { authorization: `Bearer ${context}`, "content-type": "application/json" },
-          body: JSON.stringify({ requestId, operation, target, content: body, ...options }),
+          body: JSON.stringify({ idempotencyKey, operation, target, content: body, ...options }),
           signal: AbortSignal.timeout(10_000),
         });
       } catch {
@@ -541,7 +541,7 @@ export function connectLocal(
       }
       return response;
     };
-    // A `send` retries with the same requestId: the daemon forwards that id to the cloud and the
+    // A `send` retries with the same idempotencyKey: the daemon forwards that key to the cloud and the
     // server suppresses a duplicate by it, so a transient failure no longer has to end in silence.
     // Every other operation keeps the single attempt it had before.
     const retryDeadline = Date.now() + SEND_RETRY_DEADLINE_MS;
@@ -596,7 +596,7 @@ export function connectLocal(
     react: (messageId: string, emoji: string, remove?: boolean) =>
       call(remove ? "unreact" : "react", undefined, undefined, { messageId, emoji }),
     task: (command: TaskCommand) => callTask(command),
-    channel: (command: Omit<ChannelCommand, "requestId">) => callChannel(command),
+    channel: (command: Omit<ChannelCommand, "idempotencyKey">) => callChannel(command),
     actionPrepare: (target: string, action: ActionCardAction) => callActionPrepare(target, action),
     workspaceInfo: async (): Promise<import("../index").WorkspaceInfoResult> => {
       if (!context || !/^sfp_[A-Za-z0-9_-]{43}$/.test(context))
@@ -608,10 +608,7 @@ export function connectLocal(
         signal: AbortSignal.timeout(10_000),
       });
       if (!response.ok) throw new Error(`workspace info request failed (${response.status})`);
-      // The local hop's JSON carries the transport's own `requestId`; the CLI's view of
-      // `workspace_info` is the Agent API's shape, which names that echoed id `idempotencyKey`.
-      const { requestId, ...data } = (await response.json()) as WorkspaceInfoResponse;
-      return { ...data, idempotencyKey: requestId };
+      return (await response.json()) as WorkspaceInfoResponse;
     },
     weeklyReport: (command: WeeklyReportCommand) => callWeeklyReport(command),
     weeklyReportCollect: (command: import("../index").WeeklyReportCollectCommand) =>
@@ -768,13 +765,13 @@ export function connectLocal(
       throw new Error("coforge agent context is invalid");
     if (!proxyUrl) throw new Error("coforge agent proxy is not configured");
     const endpoint = new URL(proxyUrl);
-    // The GET attachment-download forwarding (`agent-proxy.ts`) treats any segment after the
-    // attachment route prefix as an opaque attachment id and reaches the identical cloud URL
-    // unchanged. "capabilities" is itself a literal cloud sub-route registered ahead of
-    // `$attachmentId`, so this coincidentally-shaped request reaches it without any daemon
-    // change. Covered by a `local-client.test.ts` case; if a future daemon route ordering
-    // change breaks this, add explicit forwarding in `agent-proxy.ts` instead of relying on it.
-    endpoint.pathname = agentApiRoutes.local.attachments.path("capabilities");
+    // `capabilities` is a declared sub-route of the attachment route, served by Web ahead of the id
+    // route. The request still rides the download forwarding (`agent-proxy.ts`), which treats any
+    // segment after the attachment prefix as an opaque attachment id and reaches the identical
+    // cloud URL — which is why this needs no route of its own in the Daemon. Covered by a
+    // `local-client.test.ts` case; if a future daemon route-ordering change breaks it, add explicit
+    // forwarding there.
+    endpoint.pathname = agentApiRoutes.local.attachments.capabilities.path;
     endpoint.search = "";
     let response: Response;
     try {
@@ -934,7 +931,7 @@ export function connectLocal(
           fileName: input.fileName,
           contentType: input.contentType,
           sizeBytes: input.sizeBytes,
-          clientRequestId: crypto.randomUUID(),
+          idempotencyKey: crypto.randomUUID(),
         }),
         signal: AbortSignal.timeout(30_000),
       });
@@ -1087,7 +1084,7 @@ export function connectLocal(
     const response = await fetch(proxyEndpoint(agentApiRoutes.proxy.inbox.path), {
       method: agentApiRoutes.local.inbox.method,
       headers: { authorization: `Bearer ${context}`, "content-type": "application/json" },
-      body: JSON.stringify({ requestId: crypto.randomUUID(), operation: "check" }),
+      body: JSON.stringify({ idempotencyKey: crypto.randomUUID(), operation: "check" }),
       signal: AbortSignal.timeout(10_000),
     });
     if (!response.ok) throw new Error(`agent inbox request failed (${response.status})`);
@@ -1100,9 +1097,9 @@ export function connectLocal(
     if (!context || !/^sfp_[A-Za-z0-9_-]{43}$/.test(context))
       throw new Error("coforge agent context is invalid");
     if (!proxyUrl) throw new Error("coforge agent proxy is not configured");
-    const requestId = crypto.randomUUID();
+    const idempotencyKey = crypto.randomUUID();
     const validated = decodeLocalReminderRequest(
-      encodeLocalReminderRequest({ ...fields, requestId, context } as LocalReminderRequest),
+      encodeLocalReminderRequest({ ...fields, idempotencyKey, context } as LocalReminderRequest),
     );
     const { context: _implicitContext, ...body } = validated;
     let response: Response;
@@ -1155,15 +1152,15 @@ export function connectLocal(
     return (await response.json()) as TaskResult;
   }
 
-  async function callChannel(command: Omit<ChannelCommand, "requestId">) {
+  async function callChannel(command: Omit<ChannelCommand, "idempotencyKey">) {
     if (!context || !/^sfp_[A-Za-z0-9_-]{43}$/.test(context))
       throw new Error("coforge agent context is invalid");
     if (!proxyUrl) throw new Error("coforge agent proxy is not configured");
-    const requestId = crypto.randomUUID();
+    const idempotencyKey = crypto.randomUUID();
     const response = await fetch(proxyEndpoint(agentApiRoutes.proxy.channels.path), {
       method: agentApiRoutes.local.channels.method,
       headers: { authorization: `Bearer ${context}`, "content-type": "application/json" },
-      body: JSON.stringify({ ...command, requestId }),
+      body: JSON.stringify({ ...command, idempotencyKey }),
       signal: AbortSignal.timeout(10_000),
     });
     if (!response.ok) {

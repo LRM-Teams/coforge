@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "#src/generated/prisma/client";
 import { DEV_BROWSER_USER } from "#src/server/auth/dev-skip-auth.server";
+import { DirectConversations } from "#src/server/conversations/direct-conversations.server";
 import { TaskBoard } from "#src/server/tasks/task-board.server";
 
 /**
@@ -75,7 +76,9 @@ test("a conversation's Tasks tab is the Tasks page board, claims by moving and p
   const directTitle = `Direct work ${suffix}`;
   const membership = await db.workspaceMembership.findFirstOrThrow({
     where: { userId: DEV_BROWSER_USER.id },
+    include: { workspace: { select: { slug: true } } },
   });
+  const workspacePath = `/en/w/${membership.workspace.slug}`;
   const workspaceId = membership.workspaceId;
   const channel = await db.conversation.create({
     data: {
@@ -100,14 +103,11 @@ test("a conversation's Tasks tab is the Tasks page board, claims by moving and p
       },
     },
   });
-  const direct = await db.conversation.create({
-    data: {
-      workspaceId,
-      // The key the direct message page looks the conversation up by.
-      directKey: `agent:${agent.id}|user:${DEV_BROWSER_USER.id}`,
-      members: { create: [{ userId: DEV_BROWSER_USER.id }, { agentId: agent.id }] },
-    },
-  });
+  const { conversationId: directId } = await new DirectConversations(db).open(
+    workspaceId,
+    DEV_BROWSER_USER.id,
+    { agentId: agent.id },
+  );
   try {
     const board = new TaskBoard(db);
     const as = { workspaceId, userId: DEV_BROWSER_USER.id };
@@ -131,12 +131,15 @@ test("a conversation's Tasks tab is the Tasks page board, claims by moving and p
       });
     await command(channel.id, { operation: "create", title: openTitle });
     await command(channel.id, { operation: "create", title: dragTitle });
-    await command(direct.id, { operation: "create", title: directTitle });
+    await command(directId, { operation: "create", title: directTitle });
     await mkdir(artifacts, { recursive: true });
     await browser("set", "viewport", "1440", "900");
 
     // The channel's Tasks tab: the Tasks page's toolbar, no page header, no source or Claim.
-    await browser("open", `${origin}/en/messages/channels/${channel.id}?view=tasks&layout=board`);
+    await browser(
+      "open",
+      `${origin}${workspacePath}/channel/${channel.id}?view=tasks&layout=board`,
+    );
     await waitFor(bodyHas(openTitle), 60_000);
     await waitFor(`${byText("button", "Filter")} !== undefined`);
     expect(await eval_(`${byText("button", "Display")} !== undefined`)).toBe(true);
@@ -201,7 +204,7 @@ test("a conversation's Tasks tab is the Tasks page board, claims by moving and p
     await browser("screenshot", join(artifacts, "channel-claimed.png"));
 
     // A direct message's Tasks tab is the same board.
-    await browser("open", `${origin}/en/messages/${agent.id}?view=tasks&layout=board`);
+    await browser("open", `${origin}${workspacePath}/dm/${directId}?view=tasks&layout=board`);
     await waitFor(bodyHas(directTitle), 60_000);
     await waitFor(`${byText("button", "Filter")} !== undefined`);
     expect(await eval_(`${byText("button", "Claim")} === undefined`)).toBe(true);
@@ -209,7 +212,7 @@ test("a conversation's Tasks tab is the Tasks page board, claims by moving and p
 
     // At phone width the tab still fits its toolbar and cards without scrolling sideways.
     await browser("set", "viewport", "390", "844");
-    await browser("open", `${origin}/en/messages/channels/${channel.id}?view=tasks`);
+    await browser("open", `${origin}${workspacePath}/channel/${channel.id}?view=tasks`);
     await waitFor(bodyHas(openTitle), 60_000);
     await waitFor(`${byText("button", "Filter")} !== undefined`);
     expect(
@@ -218,7 +221,7 @@ test("a conversation's Tasks tab is the Tasks page board, claims by moving and p
     await browser("screenshot", join(artifacts, "channel-mobile.png"));
   } finally {
     await db.conversation
-      .deleteMany({ where: { id: { in: [channel.id, direct.id] } } })
+      .deleteMany({ where: { id: { in: [channel.id, directId] } } })
       .catch(() => {});
     await db.agent.deleteMany({ where: { id: agent.id } }).catch(() => {});
     await browser("close").catch(() => undefined);

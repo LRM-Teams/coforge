@@ -109,6 +109,13 @@ test("lists only the requested Workspace directory and denies outsiders", async 
           displayName: "Agent Owner",
           description: "Owns the Workspace Agents",
           avatarUrl: null,
+          createdAgents: {
+            total: 2,
+            items: [
+              { id: assignedAgent.id, displayName: "Assigned Agent", avatarUrl: null },
+              { id: unassignedAgent.id, displayName: "Unassigned Agent", avatarUrl: null },
+            ],
+          },
         },
         {
           id: viewer.id,
@@ -116,6 +123,7 @@ test("lists only the requested Workspace directory and denies outsiders", async 
           displayName: "Directory Viewer",
           description: "Views the directory",
           avatarUrl: null,
+          createdAgents: { total: 0, items: [] },
         },
       ].sort((left, right) => left.name.localeCompare(right.name)),
       agents: [

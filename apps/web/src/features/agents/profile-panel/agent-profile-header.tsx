@@ -13,8 +13,8 @@ import { agentDisplay } from "#src/features/agents/agent-activity-presentation";
 import type { AgentRuntimeControls } from "#src/features/agents/agent-runtime-controls";
 import { useAgentRecentActivity } from "#src/features/agents/workspace-agents-realtime";
 import { m } from "#src/paraglide/messages";
-import { localizeHref } from "#src/paraglide/runtime";
 import type { AgentDisplaySnapshot } from "@lrm/coforge-sdk/internal";
+import { useOpenDirectConversation } from "#src/features/conversations/open-direct-conversation";
 
 /**
  * The panel's first band (48px, the same height as Thread's header): the Agent's identity on the
@@ -27,6 +27,7 @@ export function AgentProfileHeader({
   display,
   timeZone,
   controls,
+  canMessage,
   onClose,
   back,
 }: {
@@ -40,12 +41,15 @@ export function AgentProfileHeader({
   display?: AgentDisplaySnapshot;
   timeZone: string | null;
   controls: AgentRuntimeControls;
+  /** The viewer created this Agent: only its creator has a direct message with it. */
+  canMessage: boolean;
   onClose: () => void;
   /** Where the profile was opened from, when it is shown inside another page (a channel's
    * members): a Back button before the avatar returns there. */
   back?: { label: string; onPress: () => void };
 }) {
   const activity = useAgentRecentActivity(agent.id);
+  const openDirectConversation = useOpenDirectConversation();
   // The live status line, from the same source the avatar's own label uses.
   const statusLabel = agentDisplay(display).label;
   return (
@@ -85,12 +89,14 @@ export function AgentProfileHeader({
         )}
         {agent.description && <p className="truncate text-xs text-tertiary">{agent.description}</p>}
       </div>
-      <ButtonUtility
-        icon={MessageSquare}
-        size="sm"
-        tooltip={m.agent_profile_panel_message()}
-        href={localizeHref(`/messages/${agent.id}`)}
-      />
+      {canMessage && (
+        <ButtonUtility
+          icon={MessageSquare}
+          size="sm"
+          tooltip={m.agent_profile_panel_message()}
+          onClick={() => void openDirectConversation({ agentId: agent.id })}
+        />
+      )}
       <ButtonUtility
         icon={controls.isOnline ? Stop : Play}
         size="sm"

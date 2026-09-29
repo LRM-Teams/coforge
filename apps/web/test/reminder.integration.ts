@@ -231,11 +231,10 @@ afterAll(async () => {
 });
 
 const schedule = (
-  requestId: string,
+  idempotencyKey: string,
   extra: Partial<AgentReminderOperationRequest> = {},
 ): AgentReminderOperationRequest => ({
-  protocolMajor: 1,
-  requestId,
+  idempotencyKey,
   workspaceId: fixture.workspaceId,
   computerId: fixture.computerId,
   agentId: fixture.agentId,
@@ -398,8 +397,7 @@ test("update computes fireAt from delaySeconds exactly as snooze does", async ()
     const snoozed = (
       await reminders.execute(
         {
-          protocolMajor: 1,
-          requestId: `delay-update-snooze-${crypto.randomUUID()}`,
+          idempotencyKey: `delay-update-snooze-${crypto.randomUUID()}`,
           workspaceId: fixture.workspaceId,
           computerId: fixture.computerId,
           agentId: fixture.agentId,
@@ -773,8 +771,7 @@ test("PostgreSQL reminder lifecycle is scoped, idempotent, concurrent, and chron
   ).reminders[0]!;
   expect(noRepeat.repeat).toBeUndefined();
   const snoozeRequest: AgentReminderOperationRequest = {
-    protocolMajor: 1,
-    requestId: "snooze-replay",
+    idempotencyKey: "snooze-replay",
     workspaceId: fixture.workspaceId,
     computerId: fixture.computerId,
     agentId: fixture.agentId,
@@ -826,7 +823,7 @@ test("PostgreSQL reminder lifecycle is scoped, idempotent, concurrent, and chron
     reminders.execute(
       {
         ...snoozeRequest,
-        requestId: "snooze-at-cap",
+        idempotencyKey: "snooze-at-cap",
         reminderId: concurrent.reminderId,
       },
       fixture.userId,
@@ -835,8 +832,7 @@ test("PostgreSQL reminder lifecycle is scoped, idempotent, concurrent, and chron
   await expect(
     reminders.execute(
       {
-        protocolMajor: 1,
-        requestId: "missing-update",
+        idempotencyKey: "missing-update",
         workspaceId: fixture.workspaceId,
         computerId: fixture.computerId,
         agentId: fixture.agentId,

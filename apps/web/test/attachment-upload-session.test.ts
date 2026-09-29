@@ -18,7 +18,7 @@ type SessionRow = {
   fileName: string;
   contentType: string;
   sizeBytes: number;
-  clientRequestId: string;
+  idempotencyKey: string;
   state: string;
   terminalReason: string | null;
   expiresAt: Date;
@@ -39,16 +39,16 @@ function fakeDb() {
   >();
 
   const attachmentUploadSession = {
-    async findUnique({ where }: { where: { id?: string; agentId_clientRequestId?: unknown } }) {
+    async findUnique({ where }: { where: { id?: string; agentId_idempotencyKey?: unknown } }) {
       if (where.id) return sessions.get(where.id) ?? null;
-      if (where.agentId_clientRequestId) {
-        const { agentId, clientRequestId } = where.agentId_clientRequestId as {
+      if (where.agentId_idempotencyKey) {
+        const { agentId, idempotencyKey } = where.agentId_idempotencyKey as {
           agentId: string;
-          clientRequestId: string;
+          idempotencyKey: string;
         };
         return (
           [...sessions.values()].find(
-            (row) => row.agentId === agentId && row.clientRequestId === clientRequestId,
+            (row) => row.agentId === agentId && row.idempotencyKey === idempotencyKey,
           ) ?? null
         );
       }
@@ -67,7 +67,7 @@ function fakeDb() {
     },
     async create({ data }: { data: SessionRow }) {
       const conflict = [...sessions.values()].find(
-        (row) => row.agentId === data.agentId && row.clientRequestId === data.clientRequestId,
+        (row) => row.agentId === data.agentId && row.idempotencyKey === data.idempotencyKey,
       );
       if (conflict || sessions.has(data.id)) throw uniqueViolation();
       const row: SessionRow = {
@@ -159,7 +159,7 @@ const input = {
   fileName: "note.txt",
   contentType: "text/plain",
   sizeBytes: 5,
-  clientRequestId: "11111111-1111-1111-1111-111111111111",
+  idempotencyKey: "11111111-1111-1111-1111-111111111111",
 };
 
 test("refuses to create a session when the storage backend has no presignPut", async () => {
@@ -207,7 +207,7 @@ test("creates a pending session with a presigned PUT and the reserved object key
   );
 });
 
-test("replays the same session for a repeated clientRequestId with matching parameters", async () => {
+test("replays the same session for a repeated idempotencyKey with matching parameters", async () => {
   const { db } = fakeDb();
   const { storage } = fakeStorage();
   const first = await createAttachmentUploadSession(db as never, storage, input);
@@ -216,7 +216,7 @@ test("replays the same session for a repeated clientRequestId with matching para
   expect(second.attachmentId).toBe(first.attachmentId);
 });
 
-test("rejects a repeated clientRequestId with different parameters as UPLOAD_IDEMPOTENCY_CONFLICT", async () => {
+test("rejects a repeated idempotencyKey with different parameters as UPLOAD_IDEMPOTENCY_CONFLICT", async () => {
   const { db } = fakeDb();
   const { storage } = fakeStorage();
   await createAttachmentUploadSession(db as never, storage, input);
@@ -225,7 +225,7 @@ test("rejects a repeated clientRequestId with different parameters as UPLOAD_IDE
   ).rejects.toMatchObject({ code: "UPLOAD_IDEMPOTENCY_CONFLICT", status: 409 });
 });
 
-test("rejects a repeated clientRequestId once the existing session has completed, rather than re-signing a stale URL", async () => {
+test("rejects a repeated idempotencyKey once the existing session has completed, rather than re-signing a stale URL", async () => {
   const { db, sessions } = fakeDb();
   const { storage } = fakeStorage();
   const created = await createAttachmentUploadSession(db as never, storage, input);
@@ -235,29 +235,29 @@ test("rejects a repeated clientRequestId once the existing session has completed
     code: "UPLOAD_IDEMPOTENCY_CONFLICT",
     status: 409,
     message:
-      "clientRequestId was already used by a session that is now completed; start a new upload",
+      "idempotencyKey was already used by a session that is now completed; start a new upload",
   });
 });
 
-test("rejects a repeated clientRequestId once the existing session is canceled/expired/failed, never fabricating a pending reply", async () => {
+test("rejects a repeated idempotencyKey once the existing session is canceled/expired/failed, never fabricating a pending reply", async () => {
   const { db, sessions } = fakeDb();
   const { storage } = fakeStorage();
   for (const state of ["canceled", "expired", "failed", "verifying"]) {
     const created = await createAttachmentUploadSession(db as never, storage, {
       ...input,
-      clientRequestId: crypto.randomUUID(),
+      idempotencyKey: crypto.randomUUID(),
     });
     const row = sessions.get(created.uploadId)!;
     row.state = state;
     await expect(
       createAttachmentUploadSession(db as never, storage, {
         ...input,
-        clientRequestId: row.clientRequestId,
+        idempotencyKey: row.idempotencyKey,
       }),
     ).rejects.toMatchObject({
       code: "UPLOAD_IDEMPOTENCY_CONFLICT",
       status: 409,
-      message: `clientRequestId was already used by a session that is now ${state}; start a new upload`,
+      message: `idempotencyKey was already used by a session that is now ${state}; start a new upload`,
     });
   }
 });

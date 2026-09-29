@@ -23,7 +23,6 @@ const request = (body: unknown) =>
   });
 
 const scheduleBody = {
-  protocolMajor: 1,
   workspaceId: principal.workspaceId,
   agentId: principal.agentId,
   computerId: principal.computerId,
@@ -35,8 +34,7 @@ const scheduleBody = {
 } as const;
 
 const serviceResponse: AgentReminderOperationResponse = {
-  protocolMajor: 1,
-  requestId: "66666666-6666-4666-8666-666666666666",
+  idempotencyKey: "66666666-6666-4666-8666-666666666666",
   workspaceId: principal.workspaceId,
   computerId: principal.computerId,
   agentId: principal.agentId,
@@ -56,13 +54,10 @@ test("the reminder route reaches the service from the API's idempotencyKey", asy
     },
   );
 
-  expect(received?.requestId).toBe("66666666-6666-4666-8666-666666666666");
+  expect(received?.idempotencyKey).toBe("66666666-6666-4666-8666-666666666666");
   expect(received?.operation).toBe("schedule");
-  // The caller matches the answer against the key it sent, under the name it sent it.
-  expect(await response.json()).toEqual({
-    ...serviceResponse,
-    idempotencyKey: "66666666-6666-4666-8666-666666666666",
-  });
+  // The answer echoes the key the caller sent, under the one name the HTTP path uses for it.
+  expect(await response.json()).toEqual(serviceResponse);
 });
 
 test("a reminder command without a key is still refused, and never reaches the service", async () => {

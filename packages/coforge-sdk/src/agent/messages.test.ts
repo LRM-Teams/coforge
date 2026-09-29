@@ -23,7 +23,6 @@ test("models a message send request without internal transport fields", () => {
 
 test("models the read route's own response shape, including multiple attachments and Task metadata", () => {
   const response: AgentHistoryResponse = {
-    protocolMajor: 1,
     idempotencyKey: "request-1",
     messages: [
       {
@@ -66,7 +65,6 @@ test("models the read route's own response shape, including multiple attachments
 
 test("models the dedicated search route's own response shape", () => {
   const response: AgentSearchResponse = {
-    protocolMajor: 1,
     idempotencyKey: "request-search",
     results: [],
   };
@@ -75,7 +73,6 @@ test("models the dedicated search route's own response shape", () => {
 
 test("models the send route's state discriminant and held context", () => {
   const held: AgentSendResponse = {
-    protocolMajor: 1,
     idempotencyKey: "request-send-held",
     state: "held",
     decision: "local_hold",
@@ -97,7 +94,6 @@ test("models the send route's state discriminant and held context", () => {
     ],
   };
   const bypassed: AgentSendResponse = {
-    protocolMajor: 1,
     idempotencyKey: "request-send-bypass",
     state: "sent",
     decision: "bypass",
@@ -112,7 +108,6 @@ test("models the send route's state discriminant and held context", () => {
 
 test("models the resolve route's own response shape", () => {
   const response: AgentResolveResponse = {
-    protocolMajor: 1,
     idempotencyKey: "request-resolve",
     message: {
       id: "message-4",
@@ -131,7 +126,6 @@ test("models the resolve route's own response shape", () => {
 
 test("models the reaction route's own response shape", () => {
   const response: AgentReactionResponse = {
-    protocolMajor: 1,
     idempotencyKey: "request-react",
     messageId: "message-4",
     emoji: "👍",
@@ -143,7 +137,6 @@ test("models the reaction route's own response shape", () => {
 test("models an events drain request and its own response shape with a hasMore continuation flag", () => {
   const request: AgentEventsGetRequest = { limit: 50 };
   const response: AgentEventsResponse = {
-    protocolMajor: 1,
     idempotencyKey: "request-2",
     events: [],
     hasMore: true,
@@ -154,13 +147,11 @@ test("models an events drain request and its own response shape with a hasMore c
 
 test("models the channel and thread attention response shapes", () => {
   const muted: AgentChannelAttentionResponse = {
-    protocolMajor: 1,
     idempotencyKey: "request-3",
     target: "#general",
     muted: true,
   };
   const unfollowed: AgentThreadAttentionResponse = {
-    protocolMajor: 1,
     idempotencyKey: "request-4",
     target: "#general:12345678-0000-4000-8000-000000000001",
     followed: false,

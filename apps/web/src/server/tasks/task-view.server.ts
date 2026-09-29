@@ -45,6 +45,11 @@ export const taskSelection = {
   ownerMemberId: true,
   owner: { select: TASK_MEMBER_SELECT },
   creator: { select: TASK_MEMBER_SELECT },
+  executionSessions: {
+    select: { id: true },
+    orderBy: { createdAt: "desc" },
+    take: 1,
+  },
   // The backing message's sequence, so realtime signals need no second read, and its mention rows,
   // which a title converted from that message needs to read its mention tokens back.
   message: {
@@ -132,6 +137,7 @@ export function taskView(task: SelectedTask): TaskView {
     status: storedTaskStatus(task.status),
     revision: task.revision,
     claimedAt: task.claimedAt?.toISOString() ?? null,
+    executionSessionId: task.executionSessions[0]?.id ?? null,
     requiresResourceReceipt: task.createsResource,
     resourceReceiptRecordedAt: task.resourceReceiptRecordedAt?.toISOString() ?? null,
     ...(isRecord(resourceReceipt) && {

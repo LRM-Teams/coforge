@@ -11,8 +11,9 @@ function storageKey(workspaceKey: string) {
   return `${STORAGE_PREFIX}${workspaceKey}`;
 }
 
-/** Only allow in-app Records paths (no open redirect). Wider than `sanitizeRecordsReturnTo`:
- * the sidebar may restore `/records` or `/records?tab=…`, not only `/records/…`. */
+/** Only allow in-app Records paths (no open redirect). Paths are Workspace-relative (the
+ * AppShell adds `/w/<slug>`), and wider than `sanitizeRecordsReturnTo`: the sidebar may
+ * restore `/records` or `/records?tab=…`, not only `/records/…`. */
 export function sanitizeRecordsLastPath(value: unknown): string | undefined {
   if (typeof value !== "string") return undefined;
   if (value !== "/records" && !value.startsWith("/records?") && !value.startsWith("/records/"))

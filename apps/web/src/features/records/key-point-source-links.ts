@@ -1,7 +1,11 @@
 /** Builds a Records deep-link that can return to the overview key-points page. */
-export function memberReportKeyPointHref(reportId: string, returnTo: string): string {
+export function memberReportKeyPointHref(
+  workspaceSlug: string,
+  reportId: string,
+  returnTo: string,
+): string {
   const params = new URLSearchParams({ returnTo });
-  return `/records/${reportId}?${params.toString()}`;
+  return `/w/${workspaceSlug}/records/${reportId}?${params.toString()}`;
 }
 
 function escapeRegExp(value: string): string {
@@ -15,17 +19,18 @@ function escapeRegExp(value: string): string {
 export function linkifyKeyPointSourceAttributions(
   markdown: string,
   sources: ReadonlyArray<{ reportId: string; displayName: string }>,
-  returnTo: string,
+  link: { workspaceSlug: string; returnTo: string },
 ): string {
   if (!markdown.trim() || sources.length === 0) return markdown;
   const sorted = [...sources].sort(
     (left, right) => right.displayName.length - left.displayName.length,
   );
+  const workspaceBaseRe = escapeRegExp(`/w/${link.workspaceSlug}`);
   let result = markdown;
   for (const source of sorted) {
     const name = source.displayName.trim();
     if (!name) continue;
-    const href = memberReportKeyPointHref(source.reportId, returnTo);
+    const href = memberReportKeyPointHref(link.workspaceSlug, source.reportId, link.returnTo);
     const label = `@${name}`;
     const linked = `[${label}](${href})`;
     const nameRe = escapeRegExp(name);
@@ -33,7 +38,10 @@ export function linkifyKeyPointSourceAttributions(
 
     // Normalize any existing markdown link that already targets this report.
     result = result.replace(
-      new RegExp(`\\[@?${nameRe}\\]\\(/records/${reportRe}(?:\\?[^\\s)]*)?\\)`, "g"),
+      new RegExp(
+        `\\[@?${nameRe}\\]\\(${workspaceBaseRe}/records/${reportRe}(?:\\?[^\\s)]*)?\\)`,
+        "g",
+      ),
       linked,
     );
 

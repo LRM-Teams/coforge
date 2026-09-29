@@ -1,5 +1,4 @@
-import { memo, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import type { AgentDisplaySnapshot } from "@lrm/coforge-sdk/internal";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { FileIcon as FileTypeIcon } from "@untitledui/file-icons";
 import {
   Bookmark,
@@ -8,7 +7,6 @@ import {
   Copy01,
   CornerUpLeft,
   Download01,
-  MessageSquare01 as MessageSquare,
   XClose,
 } from "@untitledui/icons";
 import { Modal as AriaModal, ModalOverlay as AriaModalOverlay } from "react-aria-components";
@@ -18,6 +16,7 @@ import { Avatar } from "#src/components/base/avatar/avatar";
 import { Button } from "#src/components/base/buttons/button";
 import { Tooltip, TooltipTrigger } from "#src/components/base/tooltip/tooltip";
 import { useAppToast } from "#src/components/ui/toast";
+import { Skeleton } from "#src/components/ui/skeleton";
 import { ButtonUtility } from "#src/components/base/buttons/button-utility";
 import {
   Dialog,
@@ -26,6 +25,8 @@ import {
   ModalOverlay,
 } from "#src/components/application/modals/modal";
 import { AgentDisplayAvatar } from "#src/features/agents/agent-activity-avatar";
+import { useLiveAgentDisplay } from "#src/features/agents/workspace-agents-realtime";
+import { AgentModelLabel } from "#src/features/agents/agent-model-label";
 import { avatarInitial, avatarToneClassName } from "#src/lib/avatar-tone";
 import { DELETED_AGENT_AVATAR_CLASS, DeletedAgentBadge } from "#src/features/agents/deleted-agent";
 import { useBreakpoint } from "#src/hooks/use-breakpoint";
@@ -35,12 +36,12 @@ import { m } from "#src/paraglide/messages";
 import { ActionCard, type ActionCardView } from "./action-card";
 import { AttachmentPreview } from "./attachment-preview";
 import { attachmentPreviewKind } from "./attachment-preview-kind";
-import { useIsMessageSaved } from "./conversation-navigation";
+import { useIsMessageSaved } from "./conversation-host";
 import { CollapsibleMessageBody } from "./collapsible-message-body";
 import type { ChipMention } from "./message-markdown";
 import { formatSelectionQuote, selectionAffordancePlacement } from "./message-quote";
 import { MessageReactionPicker, QUICK_REACTION_EMOJIS } from "./message-reaction-picker";
-import { UnreadDot } from "./conversation-directory";
+import { ThreadPreview, ThreadSheetEntry, ThreadToolbarEntry } from "./thread-summary";
 import {
   copyFragmentMarkdown,
   copyFragmentStyled,
@@ -48,6 +49,7 @@ import {
   selectionFragmentHtml,
 } from "./selection-copy";
 import { copyText } from "#src/features/records/report-editor/lib/clipboard";
+import { MessageTask } from "#src/features/tasks/message-task";
 import { useTimeFormat } from "#src/lib/time-format-context";
 import { hour12For, type TimeFormat } from "#src/lib/time-format";
 import { dateTimeFormat } from "#src/lib/dates";
@@ -95,14 +97,6 @@ export type MessageView = {
    * Replaces the plain-text draft hint line with the interactive card; the
    * underlying `body` stays available to assistive technology. */
   actionCard?: ActionCardView;
-};
-
-/** A row's entry into the message's thread: the viewer's unread reply count and the action
- * that opens the thread. The conversation supplies the facts; the row owns presentation —
- * a hover-toolbar button on desktop, a row in the tap action sheet on touch devices. */
-export type MessageThreadEntry = {
-  unread: number;
-  open: () => void;
 };
 
 export const GROUPING_WINDOW_MS = 5 * 60 * 1000;
@@ -259,8 +253,10 @@ export function AttachmentCard({ attachment }: { attachment: MessageView["attach
   // it streams as octet-stream, which <img> refuses): drop to the plain file row below rather
   // than leaving a broken thumbnail behind.
   const [imgBroken, setImgBroken] = useState(false);
+  const [imgLoaded, setImgLoaded] = useState(false);
   const previewSrc = !previewFailed && attachment.previewUrl ? attachment.previewUrl : href;
   const handlePreviewError = () => {
+    setImgLoaded(false);
     if (previewFailed || !attachment.previewUrl) setImgBroken(true);
     else setPreviewFailed(true);
   };
@@ -298,9 +294,13 @@ export function AttachmentCard({ attachment }: { attachment: MessageView["attach
             // a card-sized box while the image loads.
             className="grid h-auto min-h-16 min-w-16 place-items-center overflow-hidden rounded-lg p-0 ring-1 ring-secondary ring-inset hover:bg-transparent"
           >
+            {!imgLoaded && (
+              <Skeleton className="pointer-events-none absolute inset-0 rounded-lg bg-secondary/70" />
+            )}
             <img
               src={previewSrc}
               onError={handlePreviewError}
+              onLoad={() => setImgLoaded(true)}
               alt={attachment.fileName}
               loading="lazy"
               className="block max-h-80 max-w-full object-contain"
@@ -505,6 +505,23 @@ export function DayDivider({ value, locale }: { value: Date | string; locale?: s
  * that pins the main thread until the renderer is killed. */
 const ROW_CLASS = "flex flex-col";
 
+/** An Agent's avatar in the stream, with that Agent's live status dot: it reads that one Agent, so
+ * another Agent's activity never repaints this row. */
+function MessageAgentAvatar({
+  agentId,
+  name,
+  src,
+  deleted,
+}: {
+  agentId: string;
+  name: string;
+  src?: string | null;
+  deleted: boolean;
+}) {
+  const display = useLiveAgentDisplay(agentId);
+  return <AgentDisplayAvatar name={name} src={src} display={display} deleted={deleted} size="sm" />;
+}
+
 /** One history row: optional day divider, then the message with its hover actions. */
 /**
  * Memoized: a conversation re-renders on every send, poll, page and pane change, and a row only
@@ -513,25 +530,22 @@ const ROW_CLASS = "flex flex-col";
  */
 export const MessageRow = memo(function MessageRow({
   message,
+  showsTask = false,
   own,
   dayChanged,
   grouped,
   expanded,
   onToggleExpanded,
   collapsible = true,
-  agentDisplay,
   unreadStartsHere,
   highlighted,
   dateLocale,
-  threadEntry,
-  threadPreview,
-  messageFooter,
+  onOpenThread,
   onToggleReaction,
   onToggleSave,
   onOpenAgentProfile,
   viewerHandle,
   plainMentions,
-  taskReferences,
   onOpenTask,
   channelNames,
   onQuoteSelection,
@@ -548,9 +562,6 @@ export const MessageRow = memo(function MessageRow({
   onToggleExpanded: (messageId: string) => void;
   /** Whether a long body may fold at all (the viewer's "Collapse long messages" preference). */
   collapsible?: boolean;
-  /** The live display snapshot for one Agent, from the app shell's subscription. Absent where the
-   * surface has no access to it; the avatar then renders without a dot rather than as a wrong one. */
-  agentDisplay?: (agentId: string) => AgentDisplaySnapshot | undefined;
   /** The conversation's unread run begins at this row: draws the divider above. */
   unreadStartsHere?: boolean;
   /** A position jump just landed on this row, so it wears the anchor highlight for a moment. The
@@ -558,9 +569,12 @@ export const MessageRow = memo(function MessageRow({
    * (#713) and the pane highlights the row by id instead — same classes, either way. */
   highlighted?: boolean;
   dateLocale?: string;
-  threadEntry?: (message: MessageView) => MessageThreadEntry;
-  threadPreview?: (message: MessageView) => ReactNode;
-  messageFooter?: (message: MessageView) => ReactNode;
+  /** Opens a root's thread. Present, the row offers its thread (the toolbar and sheet entries,
+   * and the preview card), each reading its own root's thread summary (`thread-summary.tsx`). */
+  onOpenThread?: (rootId: string) => void;
+  /** Shows the Task the message became under it (`MessageTask`): the conversation's own stream
+   * does, a thread pane (whose root the Task popup already shows) does not. */
+  showsTask?: boolean;
   /** Toggles the viewer's own emoji reaction on a message; the conversation refreshes it. */
   onToggleReaction?: (messageId: string, emoji: string, active: boolean) => void;
   /** Saves/unsaves this message for the viewer (#127): the conversation owns the write, the
@@ -575,10 +589,7 @@ export const MessageRow = memo(function MessageRow({
    * (DM text, or a channel body written without the completion) still renders the member's
    * display label. Absent, plain handles render as literal text. */
   plainMentions?: Map<string, ChipMention>;
-  /** The task numbers a body's `task #N` references resolve to in this conversation: a referenced
-   * number in the set renders as a chip that opens the task's detail popup. */
-  taskReferences?: ReadonlySet<number>;
-  /** Opens a task-reference chip's detail popup; absent, a reference stays a highlight. */
+  /** Opens a task reference's detail popup (see `MessageBody`). */
   onOpenTask?: (number: number) => void;
   /** Channel id → current name, for the channel links in the body (see `MessageBody`). */
   channelNames?: ReadonlyMap<string, string>;
@@ -603,18 +614,17 @@ export const MessageRow = memo(function MessageRow({
   // a `DELETED` badge beside the name.
   // An Agent's avatar in the stream carries the same online/working/thinking/error/offline dot the
   // sidebar, conversation header and @-mention popup use, so you can tell whether the Agent that
-  // wrote a message is around right now without opening its profile. The snapshot comes from the
-  // app shell's one subscription, looked up by the conversation and passed in. A person has no
-  // presence in the product, so a person's avatar stays plain; a deleted Agent shows no dot
+  // wrote a message is around right now without opening its profile. The avatar reads that one
+  // Agent from the app shell's live Agent store (`MessageAgentAvatar`). A person's avatar
+  // stays plain here (people's presence is drawn on the Members page); a deleted Agent shows no dot
   // either (`AgentDisplayAvatar` greys it and drops the dot) — a deletion is not a presence state.
   const avatar =
     message.senderKind === "agent" && message.senderAgentId ? (
-      <AgentDisplayAvatar
+      <MessageAgentAvatar
+        agentId={message.senderAgentId}
         name={message.senderName}
         src={message.senderAvatarUrl}
-        display={agentDisplay?.(message.senderAgentId)}
         deleted={deleted}
-        size="sm"
       />
     ) : (
       <Avatar
@@ -811,13 +821,6 @@ export const MessageRow = memo(function MessageRow({
       </li>
     );
   }
-  const thread = threadEntry?.(message);
-  // The badge already shows the count visually, so it stays out of the tooltip; screen readers
-  // still get it through the accessible name.
-  const threadLabel = m.conversation_thread_reply();
-  const threadAccessibleLabel = thread?.unread
-    ? `${threadLabel} · ${m.conversation_thread_unread({ count: thread.unread })}`
-    : threadLabel;
   // #544's whole-message copy (the IM-standard "Copy text", the only copy path for a collapsed,
   // unselectable body) rides the action strip on desktop and the tap action sheet on the mobile
   // shell; the sheet therefore also opens for a message with no thread and no reactions.
@@ -875,6 +878,9 @@ export const MessageRow = memo(function MessageRow({
                   {displayName}
                 </span>
               )}
+              {message.senderKind === "agent" && message.senderAgentId && !deleted && (
+                <AgentModelLabel agentId={message.senderAgentId} seenAt={message.createdAt} />
+              )}
               {deleted && <DeletedAgentBadge />}
               <time
                 dateTime={new Date(message.createdAt).toISOString()}
@@ -913,7 +919,6 @@ export const MessageRow = memo(function MessageRow({
                 mentions={message.mentions}
                 plainMentions={plainMentions}
                 viewerHandle={viewerHandle}
-                taskReferences={taskReferences}
                 onOpenTask={onOpenTask}
                 channelNames={channelNames}
                 onOpenAgentProfile={onOpenAgentProfile}
@@ -1002,10 +1007,10 @@ export const MessageRow = memo(function MessageRow({
               })}
             </div>
           )}
-          {messageFooter?.(message)}
-          {threadPreview?.(message)}
+          {showsTask && <MessageTask messageId={message.id} />}
+          {onOpenThread && <ThreadPreview rootId={message.id} onOpen={onOpenThread} />}
         </div>
-        {(threadEntry || onToggleReaction || onToggleSave || copyable) && (
+        {(onOpenThread || onToggleReaction || onToggleSave || copyable) && (
           /* Hidden until revealed: hover/focus in the wide desktop shell (`lg` and up, with
              a hover-capable fine pointer). An unread-thread badge stays inside this bar, but
              does not force it open: the thread preview already exposes the unread count, so
@@ -1024,24 +1029,7 @@ export const MessageRow = memo(function MessageRow({
               "lg:[@media(hover:hover)_and_(pointer:fine)]:group-hover/message:pointer-events-auto lg:[@media(hover:hover)_and_(pointer:fine)]:group-hover/message:opacity-100",
             )}
           >
-            {thread && (
-              <span className="relative inline-flex">
-                <ButtonUtility
-                  icon={MessageSquare}
-                  size="xs"
-                  color="tertiary"
-                  tooltip={threadLabel}
-                  aria-label={threadAccessibleLabel}
-                  onClick={thread.open}
-                  className="p-1 *:data-icon:size-3.5"
-                />
-                {thread.unread > 0 && (
-                  <span className="absolute -top-1 -right-1">
-                    <UnreadDot />
-                  </span>
-                )}
-              </span>
-            )}
+            {onOpenThread && <ThreadToolbarEntry rootId={message.id} onOpen={onOpenThread} />}
             {onToggleReaction && (
               <MessageReactionPicker
                 onPick={(emoji) => onToggleReaction(message.id, emoji, true)}
@@ -1077,7 +1065,7 @@ export const MessageRow = memo(function MessageRow({
             />
           </div>
         )}
-        {sheetActions && (thread || onToggleReaction || onToggleSave || copyable) && (
+        {sheetActions && (onOpenThread || onToggleReaction || onToggleSave || copyable) && (
           /* The mobile-shell counterpart of the hover toolbar: a bottom action sheet in the
              Slack/Discord mobile layout — the quoted message card, a quick-reaction row,
              then full-width actions (thread row, whole-message copy last) — opened by a tap
@@ -1178,27 +1166,19 @@ export const MessageRow = memo(function MessageRow({
                       {saveSaved ? m.conversation_unsave() : m.conversation_save()}
                     </Button>
                   )}
-                  {(onToggleReaction || onToggleSave) && (copyable || thread) && (
+                  {(onToggleReaction || onToggleSave) && (copyable || onOpenThread) && (
                     <div aria-hidden="true" className="mx-1 mt-1 mb-1 h-px bg-secondary" />
                   )}
-                  {thread && (
-                    <Button
-                      color="tertiary"
-                      size="md"
-                      noTextPadding
-                      iconLeading={MessageSquare}
-                      iconTrailing={thread.unread > 0 ? <UnreadDot /> : undefined}
-                      aria-label={threadAccessibleLabel}
-                      onPress={() => {
+                  {onOpenThread && (
+                    <ThreadSheetEntry
+                      rootId={message.id}
+                      onOpen={(rootId) => {
                         setActionsOpen(false);
-                        thread.open();
+                        onOpenThread(rootId);
                       }}
-                      className="w-full justify-start rounded-lg py-3 *:data-icon:size-5 [&>[data-text]]:flex-1 [&>[data-text]]:text-left"
-                    >
-                      {threadLabel}
-                    </Button>
+                    />
                   )}
-                  {copyable && thread && (
+                  {copyable && onOpenThread && (
                     <div aria-hidden="true" className="mx-1 my-1 h-px bg-secondary" />
                   )}
                   {copyable && (

@@ -1,5 +1,5 @@
 name: Publish Computer (staging)
-run-name: Publish Computer ${{ inputs.version || format('0.1.0-dev.{0}', github.run_number) }} to staging
+run-name: Publish Computer ${{ inputs.version || 'the next dev build' }} to staging
 
 # Publishing a local Computer distribution is manual, never automatic on a push to main - see
 # docs/release/github-actions.md: a client release leaves a persistent
@@ -10,13 +10,18 @@ on:
     inputs:
       version:
         description: >-
-          Release version to publish (e.g. 0.1.0). Leave empty to auto-generate a
-          0.1.0-dev.<run number> version for this run.
+          Release version to publish (e.g. 0.1.1). Leave empty to publish the release
+          line's next dev build (DEV_LINE below): the smallest unused <line>-dev.<N>.
         required: false
         type: string
 
 permissions:
   contents: read
+
+env:
+  # The release line staging dev builds belong to. Each line counts its own dev builds from 1
+  # (scripts/release/publish.ts `nextDevVersion`); move it when a line ships as a stable version.
+  DEV_LINE: "0.1.1"
 
 concurrency:
   group: release-staging
@@ -65,24 +70,6 @@ jobs:
       - name: Generate protocol sources
         run: bun run --cwd packages/coforge-sdk generate
 
-      - name: Select release version
-        id: version
-        # inputs.version and github.run_number are interpolated into env vars, not directly into
-        # the shell script body: a workflow_dispatch string input is caller-controlled, and
-        # substituting it inline here would let its literal text be interpreted as shell syntax
-        # before isValidReleaseVersion ever gets a chance to reject it in publish.ts.
-        env:
-          INPUT_VERSION: ${{ inputs.version }}
-          RUN_NUMBER: ${{ github.run_number }}
-        run: |
-          version="$INPUT_VERSION"
-          if [ -z "$version" ]; then
-            # Manual staging builds use the target release plus a unique workflow run number.
-            # Source identity remains in the manifest's commit field.
-            version="0.1.0-dev.${RUN_NUMBER}"
-          fi
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-
       - name: Request an OIDC token for Alibaba Cloud
         env:
           AUDIENCE: sts.aliyuncs.com
@@ -105,6 +92,12 @@ jobs:
       # publisher; a compromised token can only assume the role from this exact repo/environment,
       # and it expires with the run.
       - name: Build six platforms, upload, and verify release
+        id: publish
+        # inputs.version is passed through an env var, not substituted into the script body: a
+        # workflow_dispatch string input is caller-controlled, and substituting it inline would let
+        # its literal text be interpreted as shell syntax before publish.ts ever validates it. With
+        # no input, publish.ts picks the line's next dev number from the feed and writes the
+        # version it published to this step's outputs.
         env:
           ALIBABA_CLOUD_ROLE_ARN: acs:ram::1085194890307801:role/coforge-release-publisher
           ALIBABA_CLOUD_OIDC_PROVIDER_ARN: acs:ram::1085194890307801:oidc-provider/github-actions
@@ -113,15 +106,20 @@ jobs:
           # credentials URI after an OIDC failure, spending minutes on connection timeouts before
           # reporting the real error.
           ALIBABA_CLOUD_ECS_METADATA_DISABLED: "true"
-          RELEASE_VERSION: ${{ steps.version.outputs.version }}
+          INPUT_VERSION: ${{ inputs.version }}
           RELEASE_COMMIT: ${{ github.sha }}
         run: |
+          if [ -n "$INPUT_VERSION" ]; then
+            release=(--version "$INPUT_VERSION")
+          else
+            release=(--line "$DEV_LINE")
+          fi
           # GitHub-hosted runners reach oss-cn-beijing over the public cross-border path, measured
           # at 17-56 KB/s from dev.59 on, on both Linux and macOS runners. OSS transfer
           # acceleration routes the upload over Alibaba Cloud's backbone instead; the endpoint is
           # global, so the bucket's region is passed for V4 signing.
           bun scripts/release/publish.ts \
-            --version "$RELEASE_VERSION" \
+            "${release[@]}" \
             --commit "$RELEASE_COMMIT" \
             --feed-url "https://releases-staging.coforge.cn" \
             --endpoint oss-accelerate.aliyuncs.com \
@@ -129,7 +127,7 @@ jobs:
 
       - name: Summarize published release
         env:
-          RELEASE_VERSION: ${{ steps.version.outputs.version }}
+          RELEASE_VERSION: ${{ steps.publish.outputs.version }}
           RELEASE_COMMIT: ${{ github.sha }}
         run: |
           {

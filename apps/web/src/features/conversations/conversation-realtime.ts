@@ -1,3 +1,4 @@
+import { utf8Decoder } from "@lrm/coforge-sdk/internal";
 export const conversationRealtimeChannel = (conversationId: string) => `chat:${conversationId}`;
 
 /**
@@ -36,6 +37,12 @@ export type MessageAvailableEvent = {
    */
   agentId?: string;
   /**
+   * Set only on a member's own signal channel for a direct conversation between people: the
+   * other member, whose sidebar badge this event bumps (the member themself in their own
+   * conversation).
+   */
+  peerUserId?: string;
+  /**
    * Set only for a message a person sent from the browser: the send's idempotency key
    * (`requestId`). The sender's own page shows the message greyed the moment it is submitted and
    * uses this to replace that pending copy with the real message, even when this signal outruns
@@ -46,7 +53,7 @@ export type MessageAvailableEvent = {
 
 export function decodeMessageAvailableEvent(value: unknown): MessageAvailableEvent {
   if (value instanceof Uint8Array)
-    return decodeMessageAvailableEvent(JSON.parse(new TextDecoder().decode(value)) as unknown);
+    return decodeMessageAvailableEvent(JSON.parse(utf8Decoder.decode(value)) as unknown);
   if (!value || typeof value !== "object" || Array.isArray(value))
     throw new Error("invalid conversation event");
   const type = Reflect.get(value, "type");
@@ -56,6 +63,7 @@ export function decodeMessageAvailableEvent(value: unknown): MessageAvailableEve
   const workspaceId = Reflect.get(value, "workspaceId");
   const threadRootId = Reflect.get(value, "threadRootId");
   const agentId = Reflect.get(value, "agentId");
+  const peerUserId = Reflect.get(value, "peerUserId");
   const requestId = Reflect.get(value, "requestId");
   if (
     type !== "message.available.v1" ||
@@ -68,6 +76,7 @@ export function decodeMessageAvailableEvent(value: unknown): MessageAvailableEve
     (workspaceId !== undefined && (typeof workspaceId !== "string" || !workspaceId)) ||
     (threadRootId !== undefined && (typeof threadRootId !== "string" || !threadRootId)) ||
     (agentId !== undefined && (typeof agentId !== "string" || !agentId)) ||
+    (peerUserId !== undefined && (typeof peerUserId !== "string" || !peerUserId)) ||
     (requestId !== undefined && (typeof requestId !== "string" || !requestId))
   )
     throw new Error("invalid conversation event");
@@ -79,6 +88,7 @@ export function decodeMessageAvailableEvent(value: unknown): MessageAvailableEve
     ...(workspaceId ? { workspaceId } : {}),
     ...(threadRootId ? { threadRootId } : {}),
     ...(agentId ? { agentId } : {}),
+    ...(peerUserId ? { peerUserId } : {}),
     ...(requestId ? { requestId } : {}),
   };
 }
@@ -99,7 +109,7 @@ export type NotificationAvailableEvent = {
 
 export function decodeNotificationAvailableEvent(value: unknown): NotificationAvailableEvent {
   if (value instanceof Uint8Array)
-    return decodeNotificationAvailableEvent(JSON.parse(new TextDecoder().decode(value)) as unknown);
+    return decodeNotificationAvailableEvent(JSON.parse(utf8Decoder.decode(value)) as unknown);
   if (!value || typeof value !== "object" || Array.isArray(value))
     throw new Error("invalid conversation event");
   const type = Reflect.get(value, "type");
@@ -130,7 +140,7 @@ export type MemberChangedEvent = {
 
 export function decodeMemberChangedEvent(value: unknown): MemberChangedEvent {
   if (value instanceof Uint8Array)
-    return decodeMemberChangedEvent(JSON.parse(new TextDecoder().decode(value)) as unknown);
+    return decodeMemberChangedEvent(JSON.parse(utf8Decoder.decode(value)) as unknown);
   if (!value || typeof value !== "object" || Array.isArray(value))
     throw new Error("invalid conversation event");
   const type = Reflect.get(value, "type");
@@ -155,7 +165,7 @@ export type ActivityChangedEvent = { type: "activity.changed.v1"; workspaceId: s
 
 export function decodeActivityChangedEvent(value: unknown): ActivityChangedEvent {
   if (value instanceof Uint8Array)
-    return decodeActivityChangedEvent(JSON.parse(new TextDecoder().decode(value)) as unknown);
+    return decodeActivityChangedEvent(JSON.parse(utf8Decoder.decode(value)) as unknown);
   if (!value || typeof value !== "object" || Array.isArray(value))
     throw new Error("invalid conversation event");
   const type = Reflect.get(value, "type");
@@ -179,7 +189,7 @@ export type ChannelUpdatedEvent = {
 
 export function decodeChannelUpdatedEvent(value: unknown): ChannelUpdatedEvent {
   if (value instanceof Uint8Array)
-    return decodeChannelUpdatedEvent(JSON.parse(new TextDecoder().decode(value)) as unknown);
+    return decodeChannelUpdatedEvent(JSON.parse(utf8Decoder.decode(value)) as unknown);
   if (!value || typeof value !== "object" || Array.isArray(value))
     throw new Error("invalid conversation event");
   const type = Reflect.get(value, "type");

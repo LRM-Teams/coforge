@@ -10,8 +10,13 @@ const AGENT_WORKSPACES: [string, string] = [
 const instructions = buildCoforgeAgentInstructions({ agentWorkspaceDirectory: directory });
 
 test("ordinary requests do not require task creation or per-turn memory bookkeeping", () => {
-  expect(instructions).toContain("Do ordinary work directly");
-  expect(instructions).toContain("complex, coordinated, or already-shared Tasks");
+  expect(instructions).toContain("Answer ordinary questions freely");
+  expect(instructions).toContain("Before implementing a shared channel request");
+  expect(instructions).toContain(
+    "coforge task claim --target <channel> --message-id <root-message-id>",
+  );
+  expect(instructions).toContain("Only a successful claimant implements");
+  expect(instructions).toContain("others may analyze or review in its thread");
   expect(instructions).toContain("If a claim fails, do not start conflicting execution");
   expect(instructions).toContain("when this request lacks context");
   expect(instructions).not.toContain("## Startup sequence");
@@ -30,6 +35,19 @@ test("retains an executable reply example and thread addressing without provider
     "coforge message send --target '@alice' <<'COFORGE_MESSAGE'\nYour reply\nCOFORGE_MESSAGE",
   );
   expect(instructions).not.toContain("Bash tool");
+});
+
+test("replies where the conversation is, by default rather than as a hard rule", () => {
+  expect(instructions).toContain(
+    "a top-level message gets a top-level reply, a thread message a reply in its thread, and a request you claimed as a Task its Task thread",
+  );
+  expect(instructions).toContain(
+    "You may post a new topic or a thread's conclusion at top level, or use the place a human names",
+  );
+  expect(instructions).toContain(
+    "This is a default, not a hard rule; decide a thread-mismatch send confirmation by it",
+  );
+  expect(instructions).not.toContain("Start a thread or move to top level only for a new topic");
 });
 
 test("preserves privacy, credential handling and uncertain-send safety", () => {

@@ -1,4 +1,5 @@
 import { m } from "#src/paraglide/messages";
+import { workspacePath } from "#src/features/workspaces/workspace-url";
 
 export type StoredWebPushSubscription = {
   id: string;
@@ -43,8 +44,9 @@ export type RecipientNotification = {
   body: string;
   url: string;
   tag: string;
-  /** The un-anchored target (`/messages/channels/<id>` or `/messages/<agentId>`), so the browser can
-   * compare it against the page it is already looking at before showing an OS notification. */
+  /** The un-anchored target (`/w/<slug>/channel/<id>` or `/w/<slug>/dm/<id>`), so the
+   * browser can compare it against the page it is already looking at before showing an OS
+   * notification. */
   conversationPath: string;
 };
 
@@ -169,14 +171,20 @@ export class WebPushNotifications {
     }
   }
 
-  async sendTest(userId: string, endpoint: string, locale: Locale): Promise<DeliveryResult> {
+  /** Opens Settings in the Workspace `workspaceSlug` names when clicked. */
+  async sendTest(
+    userId: string,
+    endpoint: string,
+    locale: Locale,
+    workspaceSlug: string,
+  ): Promise<DeliveryResult> {
     const subscriptions = (await this.subscriptions.subscriptionsForUser(userId)).filter(
       (subscription) => subscription.endpoint === endpoint,
     );
     return this.deliver(subscriptions, {
       title: m.preferences_browser_notifications_test_title({}, { locale }),
       body: m.preferences_browser_notifications_test_body({}, { locale }),
-      url: "/settings",
+      url: workspacePath(workspaceSlug, "/settings"),
       tag: `test:${crypto.randomUUID()}`,
       forceDisplay: true,
     });

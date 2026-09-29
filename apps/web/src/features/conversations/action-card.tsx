@@ -21,6 +21,7 @@ import {
   listComputers,
 } from "#src/features/computers/computers.functions";
 import { formatAgentProfileParam } from "#src/features/agents/profile-panel/profile-panel-search";
+import { useWorkspaceSlug } from "#src/features/workspaces/workspace-route";
 
 export type ActionCardRef = { id: string; displayName: string };
 type ActionCardBase = {
@@ -76,6 +77,7 @@ function chipList(items: ActionCardRef[]) {
  * refreshes every currently pending card on realtime signals and window focus (see
  * `conversation-queries.ts`). */
 export function ActionCard({ card }: { card: ActionCardView }) {
+  const workspaceSlug = useWorkspaceSlug();
   const [view, setView] = useState(card);
   useEffect(() => setView(card), [card]);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -231,8 +233,8 @@ export function ActionCard({ card }: { card: ActionCardView }) {
             <>
               {" · "}
               <Link
-                to="/messages/channels/$channelId"
-                params={{ channelId: view.result.channelId }}
+                to="/w/$workspaceSlug/channel/$channelId"
+                params={{ workspaceSlug, channelId: view.result.channelId }}
                 className="text-brand-secondary hover:underline"
               >
                 #{view.name}
@@ -243,7 +245,8 @@ export function ActionCard({ card }: { card: ActionCardView }) {
             <>
               {" · "}
               <Link
-                to="/agents"
+                to="/w/$workspaceSlug/members"
+                params={{ workspaceSlug }}
                 search={{
                   profile: formatAgentProfileParam(view.result.agentId),
                   agentTab: "profile",

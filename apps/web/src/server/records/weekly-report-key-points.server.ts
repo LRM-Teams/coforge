@@ -60,6 +60,7 @@ export function buildPersonalKeyPointWakeText(input: {
 }
 
 export function buildTeamKeyPointWakeText(input: {
+  workspaceSlug: string;
   overviewReportId: string;
   prompt: string;
   year: number;
@@ -70,17 +71,18 @@ export function buildTeamKeyPointWakeText(input: {
     input.submitted.length === 0
       ? ["(本周尚无已提交成员周报)"]
       : input.submitted.map((row) => `- ${row.displayName} — reportId: ${row.reportId}`);
+  const recordsBase = `/w/${input.workspaceSlug}/records`;
   const attributionExample =
     input.submitted[0] != null
-      ? `- 完成模板拖拽 [@${input.submitted[0].displayName}](/records/${input.submitted[0].reportId})`
-      : "- 完成模板拖拽 [@显示名](/records/<reportId>)";
+      ? `- 完成模板拖拽 [@${input.submitted[0].displayName}](${recordsBase}/${input.submitted[0].reportId})`
+      : `- 完成模板拖拽 [@显示名](${recordsBase}/<reportId>)`;
   return [
     "[weekly-report-team-key-points]",
     `overviewReportId: ${input.overviewReportId}`,
     `week: ${input.year} W${input.week}`,
     "",
     "平台已触发「全员要点提炼」。请按下列提示词阅读本周所有已提交成员周报，整理成一份团队要点纪要，",
-    "然后通过 `coforge weekly-report-key-points submit --report-id <overviewReportId> --request-id <uuid> --markdown <file>`",
+    "然后通过 `coforge weekly-report-key-points submit --report-id <overviewReportId> --idempotency-key <uuid> --markdown <file>`",
     "写回 markdown（reportId 使用 overviewReportId；不要用 body-edit Confirm）。",
     "",
     "## 已提交成员",
@@ -89,7 +91,7 @@ export function buildTeamKeyPointWakeText(input: {
     "## 来源标注（必须）",
     "每条要点末尾必须附上来源成员的 Markdown 链接；链接文字以 @ 开头，href 使用上表 reportId：",
     attributionExample,
-    "同一事项多名成员则并列多个 [@姓名](/records/<reportId>)；不要只写姓名而不带链接。",
+    `同一事项多名成员则并列多个 [@姓名](${recordsBase}/<reportId>)；不要只写姓名而不带链接。`,
     "",
     "## 提示词",
     input.prompt.trim() || DEFAULT_TEAM_KEY_POINT_PROMPT,
@@ -298,6 +300,7 @@ export async function startTeamKeyPointExtraction(
       authorId: true,
       settingsId: true,
       cycle: { select: { year: true, week: true } },
+      workspace: { select: { slug: true } },
     },
   });
   if (!overview) return { started: false, status: "failed" };
@@ -394,6 +397,7 @@ export async function startTeamKeyPointExtraction(
   });
 
   const wakeBody = buildTeamKeyPointWakeText({
+    workspaceSlug: overview.workspace.slug,
     overviewReportId: overview.id,
     prompt: promptSnapshot,
     year: overview.cycle.year,
@@ -578,6 +582,7 @@ export async function applyTeamKeyPointExtraction(
       id: true,
       content: true,
       authorId: true,
+      workspace: { select: { slug: true } },
     },
   });
   if (!report) throw new AppError("NOT_FOUND");
@@ -596,7 +601,10 @@ export async function applyTeamKeyPointExtraction(
     workspaceId: input.workspaceId,
     overviewReportId: report.id,
   });
-  const markdown = linkifyTeamKeyPointMarkdown(rawMarkdown, sources, report.id);
+  const markdown = linkifyTeamKeyPointMarkdown(rawMarkdown, sources, {
+    workspaceSlug: report.workspace.slug,
+    overviewReportId: report.id,
+  });
 
   const content = normalizeReportContent(report.content);
   const promptSnapshot =
@@ -669,9 +677,12 @@ export async function loadSubmittedTeamKeyPointSources(
 export function linkifyTeamKeyPointMarkdown(
   markdown: string,
   sources: ReadonlyArray<{ reportId: string; displayName: string }>,
-  overviewReportId: string,
+  overview: { workspaceSlug: string; overviewReportId: string },
 ): string {
-  return linkifyKeyPointSourceAttributions(markdown, sources, `/records/${overviewReportId}`);
+  return linkifyKeyPointSourceAttributions(markdown, sources, {
+    workspaceSlug: overview.workspaceSlug,
+    returnTo: `/w/${overview.workspaceSlug}/records/${overview.overviewReportId}`,
+  });
 }
 
 async function postTeamKeyPointConfirmSuggestion(

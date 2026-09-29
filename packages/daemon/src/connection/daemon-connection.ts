@@ -127,6 +127,7 @@ import {
   AGENT_ENVIRONMENT_MAX_VARIABLES,
   AGENT_ENVIRONMENT_NAME_PATTERN,
   isReservedAgentEnvironmentName,
+  utf8Encoder,
 } from "@lrm/coforge-sdk/internal";
 import { isAgentApiKey } from "#src/credentials/agent-api-key";
 import type { AgentRuntimeProviderConfig } from "#src/code-agent/contract";
@@ -508,7 +509,7 @@ export class DaemonConnection implements DaemonConnectionClient {
     const client = this.clientFactory(
       this.endpoint,
       "",
-      new TextEncoder().encode(JSON.stringify({ daemonApiKey: _token })),
+      utf8Encoder.encode(JSON.stringify({ daemonApiKey: _token })),
     );
     this.#client = client;
     const daemonChannel = `daemon:${config.workspaceId}:${config.computerId}`;
@@ -793,7 +794,7 @@ export class DaemonConnection implements DaemonConnectionClient {
     void client
       .rpc(
         DAEMON_CONNECTION_STATUS_METHOD,
-        new TextEncoder().encode(
+        utf8Encoder.encode(
           JSON.stringify({
             workspaceId: config.workspaceId,
             computerId: config.computerId,
@@ -825,7 +826,7 @@ export class DaemonConnection implements DaemonConnectionClient {
       void client
         .rpc(
           DAEMON_CONNECTION_STATUS_METHOD,
-          new TextEncoder().encode(JSON.stringify({ ...config, online: true })),
+          utf8Encoder.encode(JSON.stringify({ ...config, online: true })),
         )
         .then(() => {
           // An answered round trip is the only inbound traffic a Workspace with nothing to say
@@ -934,8 +935,7 @@ export class DaemonConnection implements DaemonConnectionClient {
       const url = this.#serverEndpoint("Agent message HTTP", agentApiRoutes.cloud.events.path);
       const events = await requestEvents({ url, ...this.#agentKeys(agentApiKey), request });
       return {
-        protocolMajor: events.protocolMajor,
-        requestId: events.idempotencyKey,
+        idempotencyKey: events.idempotencyKey,
         accepted: true,
         attentionCount: events.events.length,
         messages: events.events,
@@ -957,8 +957,7 @@ export class DaemonConnection implements DaemonConnectionClient {
         request: { ...request, muted },
       });
       return {
-        protocolMajor: result.protocolMajor,
-        requestId: result.idempotencyKey,
+        idempotencyKey: result.idempotencyKey,
         accepted: true,
         attentionCount: 0,
         messages: [],
@@ -974,8 +973,7 @@ export class DaemonConnection implements DaemonConnectionClient {
       );
       const result = await requestThreadUnfollow({ url, ...this.#agentKeys(agentApiKey), request });
       return {
-        protocolMajor: result.protocolMajor,
-        requestId: result.idempotencyKey,
+        idempotencyKey: result.idempotencyKey,
         accepted: true,
         attentionCount: 0,
         messages: [],
@@ -1201,13 +1199,7 @@ export class DaemonConnection implements DaemonConnectionClient {
       daemonApiKey: this.#token,
       request,
     });
-    for (const field of [
-      "requestId",
-      "workspaceId",
-      "computerId",
-      "agentId",
-      "protocolMajor",
-    ] as const)
+    for (const field of ["idempotencyKey", "workspaceId", "computerId", "agentId"] as const)
       if (response[field] !== request[field])
         throw new Error("uncorrelated Agent reminder response");
     return response;

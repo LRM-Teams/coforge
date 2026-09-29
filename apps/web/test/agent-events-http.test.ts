@@ -28,7 +28,7 @@ test("forwards the requested limit and scope to the repository drain", async () 
 test("forwards an optional target query to the repository drain", async () => {
   let received: unknown;
   const result = await handleAgentEventsGet(
-    request("?requestId=request-1&target=@ada"),
+    request("?idempotencyKey=request-1&target=@ada"),
     { workspaceId: "workspace-1", agentId: "agent-1" },
     {
       ...baseRepository,
@@ -69,7 +69,6 @@ test("returns the canonical response shape with hasMore passthrough", async () =
   expect(result.status).toBe(200);
   const body = await result.json();
   expect(body).toEqual({
-    protocolMajor: 1,
     idempotencyKey: "request-2",
     hasMore: true,
     events: [

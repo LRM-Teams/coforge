@@ -25,6 +25,7 @@ import {
 import {
   loadConversationAround,
   loadDirectConversation,
+  loadDirectConversationTarget,
   loadDirectConversationUpdates,
 } from "./conversations.functions";
 import {
@@ -34,6 +35,8 @@ import {
 } from "./channels.functions";
 import { loadActionCardStates } from "./action-cards.functions";
 import { channelMembersQueryKey } from "./conversation-query-keys";
+import { savedMessagesQueryKey } from "./saved-messages-collection";
+import { listSavedMessages } from "./saved-messages.functions";
 import type { ActionCardView } from "./action-card";
 import { createReactionToggler, type ReactionSummary } from "./message-reactions";
 
@@ -95,12 +98,20 @@ function conversationPages<M extends PageMessage, T extends ConversationPage<M>>
   return { query, loadInitialPage };
 }
 
-export const directConversationQuery = (agentId: string) =>
+export const directConversationQuery = (conversationId: string) =>
   conversationPages(
-    ["conversation", "direct", agentId],
-    (page) => loadDirectConversation({ data: { agentId, ...page } }),
+    ["conversation", "direct", conversationId],
+    (page) => loadDirectConversation({ data: { conversationId, ...page } }),
     beforeFirstRoot,
   );
+
+/** Who a direct conversation is with; it never changes, so it is read once. */
+export const directConversationTargetQuery = (conversationId: string) =>
+  queryOptions({
+    queryKey: ["conversation", "direct-target", conversationId],
+    queryFn: () => loadDirectConversationTarget({ data: { conversationId } }),
+    staleTime: Infinity,
+  });
 
 export const publicChannelQuery = (channelId: string) =>
   conversationPages(
@@ -117,6 +128,14 @@ export const conversationAroundQuery = (conversationId: string, messageId: strin
     staleTime: 0,
   });
 
+/** The viewer's Saved list, the Query the Saved collection (`saved-messages-collection.ts`) syncs
+ * from: a host's loader reads it into the cache, and the collection starts from what is there. */
+export const savedMessagesQuery = (workspaceId: string) =>
+  queryOptions({
+    queryKey: savedMessagesQueryKey(workspaceId),
+    queryFn: () => listSavedMessages(),
+  });
+
 /** Every channel of the Workspace by id, closed ones included — what a body's channel links and
  * the composer's `#` list read. Chat reads it from its layout loader; a page outside Chat that
  * shows a conversation (the Tasks page's popup) reads it here. */
@@ -127,8 +146,8 @@ export const channelNamesQuery = (workspaceId: string) =>
     staleTime: 60_000,
   });
 
-export const directConversationUpdates = (agentId: string) => (afterSequence: number) =>
-  loadDirectConversationUpdates({ data: { agentId, afterSequence } });
+export const directConversationUpdates = (conversationId: string) => (afterSequence: number) =>
+  loadDirectConversationUpdates({ data: { conversationId, afterSequence } });
 
 export const publicChannelUpdates = (channelId: string) => (afterSequence: number) =>
   loadPublicChannelUpdates({ data: { channelId, afterSequence } });

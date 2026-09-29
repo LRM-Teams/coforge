@@ -147,6 +147,24 @@ if (mode === "content-blocks") {
   process.exit(0);
 }
 
+if (mode === "top-level-thinking") {
+  write({ type: "thinking", subtype: "delta", text: "thinking from cursor" });
+  write({ type: "thinking", subtype: "completed" });
+  write({
+    type: "assistant",
+    message: { role: "assistant", content: [{ type: "text", text: "done" }] },
+    session_id: sessionId,
+  });
+  write({
+    type: "result",
+    subtype: "success",
+    is_error: false,
+    result: "done",
+    session_id: sessionId,
+  });
+  process.exit(0);
+}
+
 if (mode === "compacting") {
   write({ type: "system", subtype: "status", status: "compacting", session_id: sessionId });
   write({ type: "system", subtype: "compact_boundary", session_id: sessionId });

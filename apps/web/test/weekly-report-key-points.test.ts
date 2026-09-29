@@ -376,6 +376,7 @@ test("applyPersonalKeyPointExtraction denies a non-owner assistant", async () =>
 
 test("buildTeamKeyPointWakeText lists submitted members and asks for overview submit", () => {
   const body = buildTeamKeyPointWakeText({
+    workspaceSlug: "acme",
     overviewReportId: "22222222-2222-4222-8222-222222222222",
     prompt: "全员提炼",
     year: 2026,
@@ -392,7 +393,7 @@ test("buildTeamKeyPointWakeText lists submitted members and asks for overview su
   expect(body).toContain("全员提炼");
   expect(body).toContain("weekly-report-key-points submit");
   expect(body).toContain("来源标注（必须）");
-  expect(body).toContain("[@Alice](/records/33333333-3333-4333-8333-333333333333)");
+  expect(body).toContain("[@Alice](/w/acme/records/33333333-3333-4333-8333-333333333333)");
 });
 
 test("startTeamKeyPointExtraction is idempotent when already generating", async () => {
@@ -573,6 +574,7 @@ test("applyTeamKeyPointExtraction writes ready markdown on the overview template
           keyPointExtraction: { status: "generating", promptSnapshot: "团队提示词" },
         },
         authorId: "leader-1",
+        workspace: { slug: "acme" },
       }),
       count: async () => 2,
       findMany: async () => [
@@ -599,7 +601,8 @@ test("applyTeamKeyPointExtraction writes ready markdown on the overview template
   expect(written).toMatchObject({
     keyPointExtraction: {
       status: "ready",
-      markdown: "## 本周进展\n- 完成 A [@Alice](/records/r-alice?returnTo=%2Frecords%2Foverview-1)",
+      markdown:
+        "## 本周进展\n- 完成 A [@Alice](/w/acme/records/r-alice?returnTo=%2Fw%2Facme%2Frecords%2Foverview-1)",
       promptSnapshot: "团队提示词",
     },
   });
@@ -625,6 +628,7 @@ test("applyTeamKeyPointExtraction parks side-chat-confirm delivery as awaiting_c
             confirmSessionId: "22222222-2222-2222-2222-222222222222",
           },
         },
+        workspace: { slug: "acme" },
       }),
       count: async () => 1,
       findMany: async () => [],
@@ -709,6 +713,7 @@ test("applyConfirmedKeyPointMarkdown writes ready extraction without replacing b
           tabs: { Notes: { markdown: "keep me" } },
           keyPointExtraction: { status: "ready", promptSnapshot: "团队提示词", markdown: "old" },
         },
+        workspace: { slug: "acme" },
       }),
       findMany: async () => [],
       update: async ({ data }: { data: { content: unknown } }) => {

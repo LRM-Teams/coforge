@@ -2,9 +2,11 @@ import { z } from "zod";
 import type { PrismaClient } from "#src/generated/prisma/client";
 import { AppError, isAppError } from "#src/lib/app-error";
 import { optionalBrowserUser } from "#src/server/auth/require-user.server";
+import { privateImageHeaders } from "#src/server/http/image-headers.server";
 import { getDatabaseClient } from "#src/server/db/client.server";
 import {
   PROFILE_IMAGE_STYLES,
+  publicImageVersion,
   publicImageUrl,
   publicImageUrlOrFallback,
   type PublicImageUrlResolver,
@@ -14,7 +16,9 @@ import { readUserAvatar } from "#src/server/profiles/user-avatar.server";
 /**
  * Where the browser reads the avatar of the person who connected a Computer. The image CDN
  * addresses the object directly; without one, the workspace-scoped route below serves it, which
- * is why that route exists at all.
+ * is why that route exists at all. The fallback carries the object's version token (`?v=`) like
+ * the other three avatars: it is what makes the route's one-year immutable answer safe — a new
+ * upload lands on a new URL. (The fallback only runs with a key, so the token is always there.)
  */
 export function computerCreatorAvatarUrl(
   computerId: string,
@@ -25,7 +29,8 @@ export function computerCreatorAvatarUrl(
   return publicImageUrlOrFallback(
     objectKey,
     PROFILE_IMAGE_STYLES.avatar,
-    () => `/api/computers/${computerId}/creator-avatar?workspaceId=${workspaceId}`,
+    (key) =>
+      `/api/computers/${computerId}/creator-avatar?workspaceId=${workspaceId}&v=${encodeURIComponent(publicImageVersion(key))}`,
     publicUrl,
   );
 }
@@ -71,12 +76,7 @@ export async function handleComputerCreatorAvatar(
     if (!connection) throw new AppError("NOT_FOUND");
     const avatar = await deps.read(db, connection.computer.ownerId);
     return new Response(avatar.body, {
-      headers: {
-        "Content-Type": avatar.contentType,
-        "Content-Disposition": "inline",
-        "X-Content-Type-Options": "nosniff",
-        "cache-control": "no-store",
-      },
+      headers: privateImageHeaders(avatar.contentType),
     });
   } catch (error) {
     const code = isAppError(error) ? error.code : "INTERNAL_ERROR";

@@ -15,6 +15,7 @@ import {
   withAssignmentUnread,
   withAutoSendCancelled,
   withWeekSendDismissed,
+  withoutWeekSendDismissed,
   isWeekSendDismissed,
   keyPointHistoryIndexOf,
 } from "#src/features/records/records-content";
@@ -137,6 +138,15 @@ test("withAutoSendCancelled stamps the ISO week and survives normalize", () => {
   expect(isAutoSendCancelled(next, 2026, 38)).toBe(true);
   expect(isAutoSendCancelled(next, 2026, 37)).toBe(false);
   expect(normalizeReportContent(next).schedule).toEqual({ cancelledYear: 2026, cancelledWeek: 38 });
+});
+
+test("withoutWeekSendDismissed clears this week's cancel stamp", () => {
+  const dismissed = withWeekSendDismissed({ tabs: { Summary: { markdown: "body" } } }, 2026, 40);
+  const cleared = withoutWeekSendDismissed(dismissed, 2026, 40);
+  expect(isWeekSendDismissed(cleared, 2026, 40)).toBe(false);
+  expect(isAutoSendCancelled(cleared, 2026, 40)).toBe(false);
+  expect(cleared.tabs?.Summary?.markdown).toBe("body");
+  expect(withoutWeekSendDismissed(dismissed, 2026, 39).schedule?.dismissSend).toBe(true);
 });
 
 test("withWeekSendDismissed blocks the week and survives normalize", () => {

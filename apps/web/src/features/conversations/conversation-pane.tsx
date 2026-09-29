@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useLatestCallback } from "#src/hooks/use-latest-callback";
 import { ProgressBar } from "react-aria-components";
+import { useHydrated } from "@tanstack/react-router";
 import { ArrowDown, Loading02 } from "@untitledui/icons";
 
 import { useStateWithRef } from "#src/hooks/use-state-with-ref";
@@ -16,10 +17,9 @@ import {
 import { cn } from "#src/lib/utils";
 import { m } from "#src/paraglide/messages";
 import { getLocale } from "#src/paraglide/runtime";
-import { useLiveAgents } from "#src/features/agents/workspace-agents-realtime";
 
 import { attachmentFileNameSummary } from "./attachment-file-name";
-import { useConversationOpenMode, useSavedMessages } from "./conversation-navigation";
+import { useConversationOpenMode, useSavedMessages } from "./conversation-host";
 import { conversationOpenPosition, unreadBoundary } from "./conversation-open-position";
 import { latestTopLevelSequence } from "./conversation-unread";
 import { streamState, type StreamRead } from "./stream-state";
@@ -28,13 +28,7 @@ import { ThreadPaneHeader, type ThreadFollow } from "./thread-pane-header";
 import { makeReferenceBodyFormatter } from "./mention-text";
 import type { ChipMention } from "./message-markdown";
 import type { ChannelSuggestion } from "./reference-completion";
-import {
-  GROUPING_WINDOW_MS,
-  MessageRow,
-  dayLabel,
-  groupsWithPrevious,
-  type MessageThreadEntry,
-} from "./message-row";
+import { GROUPING_WINDOW_MS, MessageRow, dayLabel, groupsWithPrevious } from "./message-row";
 import { optimisticSavedEntry } from "./saved-messages-collection";
 import { composerDraftKey } from "./composer-draft";
 import { OutboxMessageRow } from "./outbox-message-row";
@@ -73,10 +67,8 @@ export function ConversationPane({
   threadContext,
   onViewInConversation,
   threadFollow,
-  threadEntry,
-  threadPreview,
+  onOpenThread,
   threadHeaderAction,
-  messageFooter,
   onLoadOlder,
   onLoadNewer,
   onLoadOwnMessages,
@@ -87,7 +79,6 @@ export function ConversationPane({
   onToggleReaction,
   onOpenAgentProfile,
   plainMentions,
-  taskReferences,
   onOpenTask,
   channelNames,
   channels,
@@ -114,18 +105,15 @@ export function ConversationPane({
   onViewInConversation?: () => void;
   /** The viewer's follow state for this thread, where following is offered (channels). */
   threadFollow?: ThreadFollow;
-  threadEntry?: (message: DirectConversationView["messages"][number]) => MessageThreadEntry;
-  threadPreview?: (message: DirectConversationView["messages"][number]) => React.ReactNode;
+  /** Opens a root's thread from the stream: the rows then offer each root's thread entry and
+   * preview, which read the conversation's thread store (`ThreadStoreProvider`). */
+  onOpenThread?: (rootId: string) => void;
   /** Shown in the thread header before its actions menu (the Agents following the thread). */
   threadHeaderAction?: React.ReactNode;
-  messageFooter?: (message: DirectConversationView["messages"][number]) => React.ReactNode;
   /** Plain-`@handle` display resolution for the stream (see `MessageBody`). Built by each
    * wrapper — the DM from its Agent counterpart, a channel from its member directory. */
   plainMentions?: Map<string, ChipMention>;
-  /** The task numbers a body's `task #N` references resolve to in this conversation, and the
-   * handler that opens one's detail popup. Owned by `ThreadedConversationContent`, which reads
-   * them from the conversation's task list. */
-  taskReferences?: ReadonlySet<number>;
+  /** Opens a task reference's detail popup. Owned by `ThreadedConversationContent`. */
   onOpenTask?: (number: number) => void;
   /** Channel id → current name, for the channel links in a body (see `MessageBody`). Owned by
    * `ThreadedConversationContent`, which reads the viewer's channel list. */
@@ -149,8 +137,10 @@ export function ConversationPane({
       conversation.mentionables?.filter((mention) => mention.handle !== conversation.viewerHandle),
     [conversation.mentionables, conversation.viewerHandle],
   );
-  const [dateLocale, setDateLocale] = useState<string>();
-  useEffect(() => setDateLocale(getLocale()), []);
+  // Day labels follow the viewer's locale once hydrated; the pane mounts after hydration
+  // (`ThreadedConversation` is client-only), so its first render already has it.
+  const hydrated = useHydrated();
+  const dateLocale = hydrated ? getLocale() : undefined;
   const toast = useAppToast();
   const [newMessageCount, setNewMessageCount] = useState(0);
   // Reply-to-selection: the row hands over a finished quote, the composer puts it in the draft.
@@ -178,6 +168,7 @@ export function ConversationPane({
   );
   const openAgentProfile = useLatestCallback(onOpenAgentProfile);
   const openTaskReference = useLatestCallback(onOpenTask);
+  const openThread = useLatestCallback(onOpenThread);
   // Saving (#127) is viewer-global state with a conversation-scoped write: the pane owns the
   // conversation id, the Chat page's Saved context owns the list every star (and the Saved view)
   // reads. Membership-gated exactly like the channel gates its row actions; outside the Chat
@@ -365,17 +356,6 @@ export function ConversationPane({
     () => makeReferenceBodyFormatter(conversation.mentionables ?? [], channelNames),
     [conversation.mentionables, channelNames],
   );
-  // Agent presence for the stream's avatars: one lookup built from the app shell's single
-  // subscription, rather than each row subscribing for itself.
-  const liveAgents = useLiveAgents();
-  const agentDisplayById = useMemo(
-    () => new Map(liveAgents.map((agent) => [agent.id, agent.display])),
-    [liveAgents],
-  );
-  const agentDisplayFor = useCallback(
-    (agentId: string) => agentDisplayById.get(agentId),
-    [agentDisplayById],
-  );
   /** Message ids whose very long body the reader has opened in full. Kept here rather than in the
    * row: a row is skipped and laid out again as it leaves and re-enters the viewport, and an
    * expanded message must not re-collapse behind the reader. */
@@ -462,14 +442,19 @@ export function ConversationPane({
       // - first-unread: land on the oldest unread (divider above it).
       // - newest-read / newest-unread: land at the latest. `newest-unread` differs only in
       //   when the cursor advances: it waits for `onReadLatest` below, never for the open.
-      // A message hash (deep link, task jump) still wins over both — the anchor effect
-      // handles it and has already cleared `followingLatest` by the time this runs.
+      // A message hash (deep link, task jump) or a jump to a message (a search result, a Saved
+      // card) still wins over both: the anchor and jump effects land there instead.
       // Only an actual open positions on unread. Reaching the latest again later in the same
       // conversation (`followingLatest`) keeps following it.
-      const openMessageId =
-        firstRender || changedConversation
-          ? conversationOpenPosition(openMode, firstUnread)
-          : undefined;
+      const opening = firstRender || changedConversation;
+      // An open with a jump target is the jump effect's to position, like a hash is the anchor
+      // effect's: neither the open position nor following the latest (which scrolls a frame later)
+      // may scroll over it.
+      if (opening && jumpMessage && !window.location.hash) {
+        setFollowingLatest(false);
+        return undefined;
+      }
+      const openMessageId = opening ? conversationOpenPosition(openMode, firstUnread) : undefined;
       if (openMessageId && !window.location.hash) {
         if (conversation.messages.some((message) => message.id === openMessageId)) {
           setFollowingLatest(false);
@@ -629,7 +614,7 @@ export function ConversationPane({
       return;
     }
     pendingMessageIdRef.current = undefined;
-    message.scrollIntoView({ block: "center", behavior: "smooth" });
+    scrollToMessageRow(messageId);
     flashMessageRow(messageId);
   }, [conversation.messages, openedSystemMessages, flashMessageRow]);
 
@@ -649,6 +634,16 @@ export function ConversationPane({
   function scrollTwice(scroll: () => void) {
     scroll();
     requestAnimationFrame(scroll);
+  }
+
+  /** Centers a loaded message's row at once, in two passes like the hash landing: the router's
+   * scroll restoration can rewrite the container after this frame. A jump never scrolls smoothly:
+   * a smooth scroll that pages older history in is cut short by the paging scroll anchor. The row
+   * flashes instead, as Slack's jump to a message does. */
+  function scrollToMessageRow(messageId: string) {
+    scrollTwice(() =>
+      document.getElementById(`message-${messageId}`)?.scrollIntoView({ block: "center" }),
+    );
   }
 
   /** Scrolls to the row the pane opens on — the oldest unread, or the latest. Runs once per open;
@@ -769,7 +764,9 @@ export function ConversationPane({
     scrollToLatest("smooth");
   }
 
-  async function showMessage(messageId: string) {
+  /** Scrolls to a message, loading the window around it first. `opening`: the conversation opens on
+   * it, so a failed load leaves the pane at the latest instead. */
+  async function showMessage(messageId: string, { opening = false } = {}) {
     const loaded = conversation.messages.some((message) => message.id === messageId);
     setFollowingLatest(false);
     if (!loaded) {
@@ -780,6 +777,11 @@ export function ConversationPane({
       } catch {
         pendingMessageIdRef.current = undefined;
         toast.error(m.conversation_history_load_error());
+        // A conversation that was opening on the message opens at the latest instead.
+        if (opening) {
+          setFollowingLatest(true);
+          scrollTwice(() => scrollToLatest("instant"));
+        }
       }
       return;
     }
@@ -787,9 +789,7 @@ export function ConversationPane({
       pendingMessageIdRef.current = messageId;
       return;
     }
-    document
-      .getElementById(`message-${messageId}`)
-      ?.scrollIntoView({ block: "center", behavior: "smooth" });
+    scrollToMessageRow(messageId);
     flashMessageRow(messageId);
   }
 
@@ -820,7 +820,9 @@ export function ConversationPane({
     }
     if (decision.action === "ignore") return;
     attemptedJumpRef.current = decision.id;
-    if (decision.action === "show") void showMessageRef.current(decision.id);
+    // A jump from outside the pane: opening the conversation on a message, or another search
+    // result or link into the conversation already open.
+    if (decision.action === "show") void showMessageRef.current(decision.id, { opening: true });
     onJumpMessageConsumed?.();
   }, [jumpMessage, onJumpMessageConsumed]);
 
@@ -875,15 +877,12 @@ export function ConversationPane({
                     expanded={expandedMessages.has(root.id)}
                     onToggleExpanded={toggleExpandedMessage}
                     collapsible={collapsible}
-                    agentDisplay={agentDisplayFor}
                     dateLocale={dateLocale}
-                    messageFooter={messageFooter}
                     onToggleReaction={toggleReaction}
                     onToggleSave={onToggleSave}
                     onOpenAgentProfile={openAgentProfile}
                     viewerHandle={conversation.viewerHandle}
                     plainMentions={plainMentions}
-                    taskReferences={taskReferences}
                     onOpenTask={openTaskReference}
                     channelNames={channelNames}
                     onQuoteSelection={canCompose ? quoteSelection : undefined}
@@ -1029,17 +1028,14 @@ export function ConversationPane({
                       expanded={expandedMessages.has(message.id)}
                       onToggleExpanded={toggleExpandedMessage}
                       collapsible={collapsible}
-                      agentDisplay={agentDisplayFor}
                       dateLocale={dateLocale}
-                      threadEntry={threadEntry}
-                      threadPreview={threadPreview}
-                      messageFooter={messageFooter}
+                      onOpenThread={openThread}
+                      showsTask={!root}
                       onToggleReaction={toggleReaction}
                       onToggleSave={onToggleSave}
                       onOpenAgentProfile={openAgentProfile}
                       viewerHandle={conversation.viewerHandle}
                       plainMentions={plainMentions}
-                      taskReferences={taskReferences}
                       onOpenTask={openTaskReference}
                       channelNames={channelNames}
                       onQuoteSelection={canCompose ? quoteSelection : undefined}
@@ -1054,7 +1050,6 @@ export function ConversationPane({
                     composerShown={canCompose}
                     plainMentions={plainMentions}
                     viewerHandle={conversation.viewerHandle}
-                    taskReferences={taskReferences}
                     onOpenTask={openTaskReference}
                     onRetry={() => outbox.retry(entry)}
                     onEdit={() => outbox.edit(entry)}

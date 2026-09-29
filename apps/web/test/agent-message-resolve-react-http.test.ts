@@ -33,7 +33,6 @@ test("resolve returns one canonical message record", async () => {
   expect(calls).toEqual([["workspace-1", "agent-1", "abcd1234"]]);
   expect(result.status).toBe(200);
   expect(await result.json()).toEqual({
-    protocolMajor: 1,
     idempotencyKey: "r-1",
     message: {
       id: "abcd1234-0000-4000-8000-000000000001",
@@ -131,7 +130,6 @@ test("react adds a reaction and returns the canonical response shape with the me
   expect(calls).toEqual([["workspace-1", "agent-1", "abcd1234", "👍", true]]);
   expect(result.status).toBe(200);
   expect(await result.json()).toEqual({
-    protocolMajor: 1,
     idempotencyKey: "r-2",
     messageId: "abcd1234-0000-4000-8000-000000000001",
     emoji: "👍",

@@ -9,8 +9,8 @@
  *    HTML-looking `<` outside code is escaped (`escapeLiteralHtml`, `#src/lib/message-syntax`) so
  *    it renders as the characters the author typed. GFM autolinks (`<https://…>`) and reference
  *    tokens keep their `<`.
- * 2. A stored `<@kind:…>` token (a mention, a task, a channel or a thread) still renders as its chip, and
- *    still never inside a code span or fence — the server never stores one there either (its
+ * 2. A stored `<@kind:…>` token (a mention, a task, a channel or a thread) still renders as its
+ *    reference (a task's is resolved when it is drawn), and never inside a code span or fence — the server never stores one there either (its
  *    recognizer reads the same Markdown syntax, `#src/lib/message-syntax`).
  *
  * Chips are injected *after* `rehype-sanitize` runs. The sanitizer strips `className`, and the
@@ -42,15 +42,6 @@ export const MENTION_CHIP_SELF_CLASS = `${CHIP_BASE} bg-brand-solid text-white`;
 /** Added to an Agent chip so the renderer can recognise the clickable variant and the
  * stylesheet can give it a pointer/hover affordance. A human chip never gets this. */
 export const MENTION_CHIP_AGENT_CLASS = "message-markdown-mention-agent";
-
-/**
- * Task-reference chip classes. A `task #68` reference the server stored as a `<@task:68>` token
- * renders with the same soft fill as a mention chip so a reference reads as a reference; the
- * `-link` variant marks the one the renderer turns into a control (see `message-body.tsx`).
- */
-const TASK_CHIP_BASE = "message-markdown-task-reference rounded-sm px-0.5 font-medium";
-export const TASK_CHIP_CLASS = `${TASK_CHIP_BASE} bg-brand-primary text-brand-secondary`;
-export const TASK_CHIP_LINK_CLASS = "message-markdown-task-reference-link";
 
 /**
  * Channel-reference chip classes. A `<@channel:uuid:name>` token renders with the same soft fill as
@@ -107,8 +98,6 @@ type ReferenceChipOptions = {
   viewerHandle?: string;
   /** Plain-`@handle` display resolution: every conversation member's handle → chip. */
   plainMentions?: Map<string, ChipMention>;
-  /** The conversation's own task numbers. */
-  taskNumbers?: ReadonlySet<number>;
   /** Every channel of the Workspace, id → current name, for a view that can navigate: the authority
    * for channel and thread tokens alike. */
   channelNames?: ReadonlyMap<string, string>;
@@ -123,16 +112,17 @@ type ReferenceKind = {
 
 /**
  * Replaces every reference in an already-sanitized tree with its chip, in one pass. Every chip comes
- * from a stored `<@kind:…>` token, and each token is a claim checked against its own authority:
+ * from a stored `<@kind:…>` token, and each token is a claim checked against its own authority —
+ * here for mentions, channels and threads, at render time for tasks:
  *
  * - a mention token (`<@human|agent:uuid>`) against the message's mention rows (`mentions`): a
  *   token with no row stays as written rather than becoming a phantom highlight. The chip shows the
  *   member's display label; an Agent chip carries its id (`data-mention-agent-id`) so the renderer
  *   can open its profile. A mention is a reference, not a link — wake rules live on the server;
- * - a task token (`<@task:68>`) against the conversation's tasks (`taskNumbers`): a listed number is
- *   a **number-only** chip (`#68`, `title`/`aria-label` "task #68") carrying
- *   `data-task-reference-number` for the renderer to make a control; any other number reads as the
- *   text `task #N`;
+ * - a task token (`<@task:68>`) becomes a task reference carrying `data-task-reference-number`,
+ *   written as `task #68`. The renderer checks the claim when it draws it: the part that shows the
+ *   reference reads that one Task from the conversation (`features/tasks/task-reference.tsx`), so a Task's change
+ *   repaints its references and never re-parses the body; a number with no Task stays the text;
  * - a channel token (`<@channel:uuid:name>`) against the Workspace's channels (`channelNames`, closed
  *   and archived ones included): a listed id is a chip under the channel's current name, carrying
  *   `data-channel-id` for the renderer to make a link; any other id — unknown, deleted or forged —
@@ -242,7 +232,7 @@ export function patternAlternation(patterns: readonly RegExp[]): {
 
 /** The kinds a pass matches, each with its chip builder, the plain `@handle` only when asked for. */
 function referenceKinds(options: ReferenceChipOptions): ReferenceKind[] {
-  const { mentions, viewerHandle, plainMentions, taskNumbers, channelNames } = options;
+  const { mentions, viewerHandle, plainMentions, channelNames } = options;
   const kinds: ReferenceKind[] = [
     {
       pattern: MENTION_TOKEN_PATTERN,
@@ -262,8 +252,8 @@ function referenceKinds(options: ReferenceChipOptions): ReferenceKind[] {
       pattern: TASK_REFERENCE_TOKEN_PATTERN,
       build: ([digits], place) => {
         const number = Number(digits);
-        return place === "prose" && taskNumbers?.has(number)
-          ? taskChip(number)
+        return place === "prose"
+          ? taskReference(number)
           : { type: "text", value: `task #${number}` };
       },
     },
@@ -326,19 +316,13 @@ function mentionChip(mention: ChipMention, viewerHandle: string | undefined): El
   };
 }
 
-/** A task chip: only the number is shown; the words stay on the hover and the accessible name, so
- * "#68" still reads as a task reference. */
-function taskChip(number: number): Element {
+/** A task reference, written as the words it stands for until the renderer resolves it. */
+function taskReference(number: number): Element {
   return {
     type: "element",
     tagName: "span",
-    properties: {
-      className: [...TASK_CHIP_CLASS.split(" "), TASK_CHIP_LINK_CLASS],
-      title: `task #${number}`,
-      "aria-label": `task #${number}`,
-      "data-task-reference-number": number,
-    },
-    children: [{ type: "text", value: `#${number}` }],
+    properties: { "data-task-reference-number": number },
+    children: [{ type: "text", value: `task #${number}` }],
   };
 }
 

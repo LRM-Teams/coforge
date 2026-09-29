@@ -11,7 +11,10 @@ import {
 } from "#src/server/records/weekly-report-assistant.server";
 import { openWeeklyReportAssistantChat } from "#src/server/records/weekly-report-assistant-chat.server";
 import { parseAgentRuntimeConfig } from "#src/server/agents/agent-runtime-config.server";
-import { looksLikeMemberReportRuleIntent } from "./weekly-highlight-extract";
+import {
+  looksLikeFormatTemplateSendRequest,
+  looksLikeMemberReportRuleIntent,
+} from "./weekly-highlight-extract";
 import { normalizeReportContent, type ReportContent } from "./records-content";
 
 export const loadRecordsNavAttention = createServerFn({ method: "GET" })
@@ -378,6 +381,17 @@ export const loadWeeklyTemplates = createServerFn({ method: "GET" })
     return recordCatalog(db).listTemplates({ workspaceId, userId: user.id });
   });
 
+export const loadWeeklyTemplateForReport = createServerFn({ method: "GET" })
+  .middleware([workspaceUserMiddleware])
+  .validator(z.object({ reportId: z.string().uuid() }))
+  .handler(async ({ data, context: { user, db, workspaceId } }) => {
+    return recordCatalog(db).loadTemplateForReport({
+      workspaceId,
+      userId: user.id,
+      reportId: data.reportId,
+    });
+  });
+
 export const loadKeyPointPrompts = createServerFn({ method: "GET" })
   .middleware([workspaceUserMiddleware])
   .handler(async ({ context: { user, db, workspaceId } }) => {
@@ -700,6 +714,25 @@ export const postWeeklyReportAssistantRequest = createServerFn({ method: "POST" 
       userId: user.id,
       sessionId: data.sessionId,
     });
+    if (data.subjectType === "report" && looksLikeFormatTemplateSendRequest(data.body)) {
+      const comments = await recordCatalog(db).sendFormatTemplateFromSideChat({
+        workspaceId,
+        userId: user.id,
+        subjectType: data.subjectType,
+        subjectId: data.subjectId,
+        body: data.body,
+        assistantSessionId: data.sessionId,
+      });
+      if (comments) {
+        await touchWeeklyReportAssistantChatSession(db, {
+          workspaceId,
+          userId: user.id,
+          sessionId: data.sessionId,
+          title: data.body,
+        });
+        return { kind: "rule" as const, comments };
+      }
+    }
     if (data.subjectType === "report" && looksLikeMemberReportRuleIntent(data.body)) {
       const comments = await recordCatalog(db).postMemberReportRuleSideChatIfApplicable({
         workspaceId,

@@ -1,8 +1,14 @@
 import { expect, test } from "bun:test";
+import type { ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+import type { TaskView } from "@lrm/coforge-sdk/internal";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import { MessageBody } from "#src/features/conversations/message-body";
 import { mentionHandlesByToken } from "#src/features/conversations/message-markdown";
+import { ConversationIdProvider } from "#src/features/conversations/conversation-id";
+import { conversationTasksQuery } from "#src/features/tasks/use-conversation-tasks";
+import { taskView } from "./fixtures/task-view";
 
 const HUMAN_ID = "d9956ab1-9063-4182-8eab-861d1559c8ee";
 
@@ -44,26 +50,48 @@ test("an unresolvable token degrades to literal text, never a phantom chip", () 
   expect(markup).not.toContain("message-markdown-mention");
 });
 
-test("a stored task reference renders as a number-only chip, never the raw token", () => {
+/** A body rendered inside a conversation whose cached Task list holds `tasks`. */
+function inConversation(node: ReactNode, tasks: TaskView[]) {
+  const queryClient = new QueryClient();
+  queryClient.setQueryData(conversationTasksQuery("conversation-1").queryKey, tasks);
+  return (
+    <QueryClientProvider client={queryClient}>
+      <ConversationIdProvider conversationId="conversation-1">{node}</ConversationIdProvider>
+    </QueryClientProvider>
+  );
+}
+
+const task68 = taskView(68, { messageId: "message-68", title: "Ship it", status: "in_progress" });
+
+test("a stored task reference renders as its Task's status badge, never the raw token", () => {
   const markup = renderToStaticMarkup(
-    <MessageBody body={"pairs with <@task:68> today"} taskReferences={new Set([68])} />,
+    inConversation(<MessageBody body={"pairs with <@task:68> today"} />, [task68]),
   );
   expect(markup).not.toContain("&lt;@task:");
-  // The chip shows the bare number; the words stay on the accessible name.
   expect(markup).toContain(">#68<");
-  expect(markup).toContain('aria-label="task #68"');
+  expect(markup).toContain('data-task-status="in_progress"');
+  // The ring is decorative, so the status is spelled out in the accessible name.
+  expect(markup).toContain('aria-label="task #68, In progress"');
 });
 
-test("a referenced task the conversation knows becomes a control; any other number is plain text", () => {
+test("a referenced Task the conversation has becomes a control; any other number is plain text", () => {
   const clickable = renderToStaticMarkup(
-    <MessageBody body={"<@task:68>"} taskReferences={new Set([68])} onOpenTask={() => {}} />,
+    inConversation(<MessageBody body={"<@task:68>"} onOpenTask={() => {}} />, [task68]),
   );
-  expect(clickable).toContain("message-markdown-task-reference-link");
   expect(clickable).toContain('role="button"');
+  expect(clickable).toContain("cursor-pointer");
 
-  // A token is a claim, checked against the conversation's tasks: a number it has no task for
-  // reads as the words the author could have typed, with no chip.
-  const plain = renderToStaticMarkup(<MessageBody body={"<@task:68>"} />);
-  expect(plain).toContain(">task #68<");
-  expect(plain).not.toContain("message-markdown-task-reference");
+  // A token is a claim, checked against the conversation's Tasks: a number it has no Task for
+  // reads as the words the author could have typed.
+  const unknown = renderToStaticMarkup(
+    inConversation(<MessageBody body={"<@task:69>"} onOpenTask={() => {}} />, [task68]),
+  );
+  expect(unknown).toContain(">task #69<");
+  expect(unknown).not.toContain('role="button"');
+  expect(unknown).not.toContain("data-task-status");
+
+  // Outside a conversation (a search result, a Saved card) there are no Tasks to read.
+  const outside = renderToStaticMarkup(<MessageBody body={"<@task:68>"} />);
+  expect(outside).toContain(">task #68<");
+  expect(outside).not.toContain("data-task-status");
 });

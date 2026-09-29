@@ -2,8 +2,8 @@
 
 These rules apply to `src/features/realtime/`.
 
-- The `_app` layout owns one Centrifuge connection for the selected
-  Workspace. Feature modules may subscribe to authorized channels but must not
+- The Workspace layout (`w.$workspaceSlug.tsx`) owns one Centrifuge
+  connection for the Workspace the page URL names. Feature modules may subscribe to authorized channels but must not
   create additional browser WebSocket connections.
 - Subscribe through `useRealtimeSubscription` from `browser-realtime.tsx`; it
   owns the client type. A channel with a narrower server-issued grant supplies
@@ -15,3 +15,5 @@ These rules apply to `src/features/realtime/`.
   client, so several features may share a channel (for example
   `chat:user:<user_id>`). Never call `newSubscription` directly; Centrifuge
   rejects a second subscription to the same channel.
+- Presence and join/leave exist only in the `presence` Centrifugo namespace; do
+  not enable them on another namespace to answer "who is online".

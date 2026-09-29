@@ -87,7 +87,7 @@ test("proxy classifies Agent message failures: known validation passes through, 
     const response = await fetch(proxy.url, {
       method: "POST",
       headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
-      body: JSON.stringify({ requestId: "request-1", operation: "read", target: "@ada" }),
+      body: JSON.stringify({ idempotencyKey: "request-1", operation: "read", target: "@ada" }),
     });
     expect(response.status).toBe(status);
     expect(response.headers.get("x-coforge-correlation-id")).toBeTruthy();
@@ -121,7 +121,7 @@ test("proxy redacts known request errors in reviewer-isolated mode", async () =>
       body: JSON.stringify({ ...body, freshnessContextMode: "withheld" }),
     });
   const message = await post(agentApiRoutes.proxy.messages.path, {
-    requestId: "message",
+    idempotencyKey: "message",
     operation: "send",
     target: "@ada",
     body: "reply",
@@ -149,7 +149,7 @@ test("proxy validates and forwards channel management commands, and 404s without
       agentMessage: async () => ({}),
       agentChannel: async (context, request) => {
         calls.push({ context, request });
-        return { protocolMajor: 1, requestId: request.requestId, target: request.target };
+        return { idempotencyKey: request.idempotencyKey, target: request.target };
       },
     },
   });
@@ -164,30 +164,30 @@ test("proxy validates and forwards channel management commands, and 404s without
         body: JSON.stringify(body),
       },
     );
-  const ok = await post({ requestId: "r-1", operation: "info", target: "#general" });
+  const ok = await post({ idempotencyKey: "r-1", operation: "info", target: "#general" });
   expect(ok.status).toBe(200);
-  expect(await ok.json()).toEqual({ protocolMajor: 1, requestId: "r-1", target: "#general" });
+  expect(await ok.json()).toEqual({ idempotencyKey: "r-1", target: "#general" });
   expect(calls).toEqual([
     {
       context: expect.any(String),
-      request: { requestId: "r-1", operation: "info", target: "#general" },
+      request: { idempotencyKey: "r-1", operation: "info", target: "#general" },
     },
   ]);
 
   for (const badBody of [
-    { requestId: "r-2", operation: "not-a-real-operation", target: "#general" },
-    { requestId: "r-3", operation: "join" }, // missing target
-    { requestId: "r-4", operation: "create" }, // missing name
-    { requestId: "r-5", operation: "update", target: "#general" }, // missing name and description
-    { requestId: "r-6", operation: "add-member", target: "#general" }, // neither user nor agent
+    { idempotencyKey: "r-2", operation: "not-a-real-operation", target: "#general" },
+    { idempotencyKey: "r-3", operation: "join" }, // missing target
+    { idempotencyKey: "r-4", operation: "create" }, // missing name
+    { idempotencyKey: "r-5", operation: "update", target: "#general" }, // missing name and description
+    { idempotencyKey: "r-6", operation: "add-member", target: "#general" }, // neither user nor agent
     {
-      requestId: "r-7",
+      idempotencyKey: "r-7",
       operation: "add-member",
       target: "#general",
       user: "@a",
       agent: "@b",
     }, // both user and agent
-    { operation: "info", target: "#general" }, // missing requestId
+    { operation: "info", target: "#general" }, // missing idempotencyKey
   ]) {
     const rejected = await post(badBody);
     expect(rejected.status).toBe(400);
@@ -204,7 +204,7 @@ test("proxy 404s a channel management request when the runtime has no handler", 
     {
       method: "POST",
       headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
-      body: JSON.stringify({ requestId: "r-1", operation: "info", target: "#general" }),
+      body: JSON.stringify({ idempotencyKey: "r-1", operation: "info", target: "#general" }),
     },
   );
   expect(response.status).toBe(404);
@@ -219,7 +219,7 @@ test("one shared proxy maps opaque per-Agent tokens and fails closed", async () 
       agentMessage: async (context, request) => {
         calls.push({ context, agentId: request.target ?? "" });
         return {
-          requestId: request.requestId,
+          idempotencyKey: request.idempotencyKey,
           accepted: true,
           attentionCount: 0,
           messages: [],
@@ -241,7 +241,7 @@ test("one shared proxy maps opaque per-Agent tokens and fails closed", async () 
       method: "POST",
       headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
       body: JSON.stringify({
-        requestId: crypto.randomUUID(),
+        idempotencyKey: crypto.randomUUID(),
         operation: "send",
         target,
         body: "hello",
@@ -277,8 +277,8 @@ test("proxy forwards workspace info with the token-bound Agent API key", async (
       issueAgentContext: (agentId) => agentId,
       agentMessage: async () => ({}),
       workspaceInfo: async (context, request, agentApiKey) => {
-        calls.push({ context, protocolMajor: request.protocolMajor, agentApiKey });
-        return { requestId: request.requestId, protocolMajor: 1 } as never;
+        calls.push({ context, idempotencyKey: request.idempotencyKey, agentApiKey });
+        return { idempotencyKey: request.idempotencyKey } as never;
       },
     },
   });
@@ -294,7 +294,7 @@ test("proxy forwards workspace info with the token-bound Agent API key", async (
   );
 
   expect(response.status).toBe(200);
-  expect(calls).toEqual([{ context: "agent-a", protocolMajor: 1, agentApiKey }]);
+  expect(calls).toEqual([{ context: "agent-a", idempotencyKey: expect.any(String), agentApiKey }]);
 });
 
 test("proxy forwards validated GitHub credential requests without caching", async () => {
@@ -897,7 +897,7 @@ test("Agent API key remains usable after an idle day without refresh", async () 
       agentMessage: async () => {
         calls++;
         return {
-          requestId: "request",
+          idempotencyKey: "request",
           accepted: true,
           attentionCount: 0,
           messages: [],
@@ -912,7 +912,7 @@ test("Agent API key remains usable after an idle day without refresh", async () 
     fetch(proxy.url, {
       method: "POST",
       headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
-      body: JSON.stringify({ requestId: "request", operation: "check" }),
+      body: JSON.stringify({ idempotencyKey: "request", operation: "check" }),
     });
 
   expect((await request()).status).toBe(200);
@@ -940,7 +940,7 @@ test("forwards a message check operation that carries a target", async () => {
   const response = await fetch(proxy.url, {
     method: "POST",
     headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
-    body: JSON.stringify({ requestId: "request-1", operation: "check", target: "@ada" }),
+    body: JSON.stringify({ idempotencyKey: "request-1", operation: "check", target: "@ada" }),
   });
   expect(response.status).toBe(200);
   expect(calls).toHaveLength(1);
@@ -971,7 +971,7 @@ test("proxy forwards validated range options with token-bound identity", async (
       method: "POST",
       headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
       body: JSON.stringify({
-        requestId: `request-${calls.length}`,
+        idempotencyKey: `request-${calls.length}`,
         operation: "read",
         target: "@alice",
         context: "caller-controlled",
@@ -982,7 +982,7 @@ test("proxy forwards validated range options with token-bound identity", async (
   }
 
   expect(calls[0]).toMatchObject({
-    requestId: "request-0",
+    idempotencyKey: "request-0",
     operation: "read",
     target: "@alice",
     before: "before-id",
@@ -990,7 +990,7 @@ test("proxy forwards validated range options with token-bound identity", async (
     context: "trusted-context",
   });
   expect(calls[1]).toMatchObject({
-    requestId: "request-1",
+    idempotencyKey: "request-1",
     operation: "read",
     target: "@alice",
     after: "after-id",
@@ -998,7 +998,7 @@ test("proxy forwards validated range options with token-bound identity", async (
     context: "trusted-context",
   });
   expect(calls[2]).toMatchObject({
-    requestId: "request-2",
+    idempotencyKey: "request-2",
     operation: "read",
     target: "@alice",
     around: "around-id",
@@ -1024,7 +1024,7 @@ test("proxy validates and forwards lexical search without accepting caller ident
     method: "POST",
     headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
     body: JSON.stringify({
-      requestId: "search-1",
+      idempotencyKey: "search-1",
       operation: "search",
       query: "release",
       sender: "@ada",
@@ -1039,7 +1039,7 @@ test("proxy validates and forwards lexical search without accepting caller ident
   expect(response.status).toBe(200);
   expect(calls).toEqual([
     expect.objectContaining({
-      requestId: "search-1",
+      idempotencyKey: "search-1",
       operation: "search",
       query: "release",
       sender: "@ada",
@@ -1054,7 +1054,11 @@ test("proxy validates and forwards lexical search without accepting caller ident
   const invalid = await fetch(proxy.url, {
     method: "POST",
     headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
-    body: JSON.stringify({ requestId: "search-2", operation: "search", sender: "not-a-handle" }),
+    body: JSON.stringify({
+      idempotencyKey: "search-2",
+      operation: "search",
+      sender: "not-a-handle",
+    }),
   });
   expect(invalid.status).toBe(400);
   expect(calls).toHaveLength(1);
@@ -1088,7 +1092,7 @@ test("proxy rejects invalid range options before calling the runtime", async () 
       method: "POST",
       headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
       body: JSON.stringify({
-        requestId: crypto.randomUUID(),
+        idempotencyKey: crypto.randomUUID(),
         operation: "read",
         target: "@alice",
         ...options,
@@ -1283,7 +1287,7 @@ test("proxy forwards the direct-upload session create route as plain JSON", asyn
         fileName: "note.txt",
         contentType: "text/plain",
         sizeBytes: 4,
-        clientRequestId: crypto.randomUUID(),
+        idempotencyKey: crypto.randomUUID(),
       }),
     },
   );
@@ -1390,7 +1394,7 @@ test("proxy forwards resolve and react without accepting caller identity", async
     method: "POST",
     headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
     body: JSON.stringify({
-      requestId: "resolve-1",
+      idempotencyKey: "resolve-1",
       operation: "resolve",
       messageId: "abcd1234",
       context: "forged",
@@ -1402,7 +1406,7 @@ test("proxy forwards resolve and react without accepting caller identity", async
     method: "POST",
     headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
     body: JSON.stringify({
-      requestId: "react-1",
+      idempotencyKey: "react-1",
       operation: "react",
       messageId: "abcd1234",
       emoji: "👍",
@@ -1415,7 +1419,7 @@ test("proxy forwards resolve and react without accepting caller identity", async
     method: "POST",
     headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
     body: JSON.stringify({
-      requestId: "unreact-1",
+      idempotencyKey: "unreact-1",
       operation: "unreact",
       messageId: "abcd1234",
       emoji: "👍",
@@ -1425,20 +1429,20 @@ test("proxy forwards resolve and react without accepting caller identity", async
 
   expect(calls).toEqual([
     expect.objectContaining({
-      requestId: "resolve-1",
+      idempotencyKey: "resolve-1",
       operation: "resolve",
       messageId: "abcd1234",
       context: "trusted-context",
     }),
     expect.objectContaining({
-      requestId: "react-1",
+      idempotencyKey: "react-1",
       operation: "react",
       messageId: "abcd1234",
       emoji: "👍",
       context: "trusted-context",
     }),
     expect.objectContaining({
-      requestId: "unreact-1",
+      idempotencyKey: "unreact-1",
       operation: "unreact",
       messageId: "abcd1234",
       emoji: "👍",
@@ -1461,13 +1465,13 @@ test("proxy rejects resolve and react requests with bad ids or emoji", async () 
   const token = proxy.issue("agent-1", `sk_agent_${"a".repeat(43)}`);
 
   for (const body of [
-    { requestId: "r-1", operation: "resolve" },
-    { requestId: "r-2", operation: "resolve", messageId: "not-hex" },
-    { requestId: "r-3", operation: "react", messageId: "abcd1234" },
-    { requestId: "r-4", operation: "react", messageId: "abcd1234", emoji: "" },
-    { requestId: "r-5", operation: "react", messageId: "abcd1234", emoji: "a b" },
-    { requestId: "r-6", operation: "react", messageId: "abcd1234", emoji: "x".repeat(17) },
-    { requestId: "r-7", operation: "unreact", messageId: "abcd1234" },
+    { idempotencyKey: "r-1", operation: "resolve" },
+    { idempotencyKey: "r-2", operation: "resolve", messageId: "not-hex" },
+    { idempotencyKey: "r-3", operation: "react", messageId: "abcd1234" },
+    { idempotencyKey: "r-4", operation: "react", messageId: "abcd1234", emoji: "" },
+    { idempotencyKey: "r-5", operation: "react", messageId: "abcd1234", emoji: "a b" },
+    { idempotencyKey: "r-6", operation: "react", messageId: "abcd1234", emoji: "x".repeat(17) },
+    { idempotencyKey: "r-7", operation: "unreact", messageId: "abcd1234" },
   ]) {
     const response = await fetch(proxy.url, {
       method: "POST",
@@ -1490,7 +1494,7 @@ test("proxy forwards weekly-report-collect packs with the Agent API key path", a
         calls.push(command);
         if (!("runId" in command)) throw new Error("expected slot report command");
         return {
-          requestId: command.requestId,
+          idempotencyKey: command.idempotencyKey,
           runId: command.runId,
           status: "collecting",
           allTerminal: true,
@@ -1501,7 +1505,7 @@ test("proxy forwards weekly-report-collect packs with the Agent API key path", a
   });
   proxies.push(proxy);
   const token = proxy.issue("agent-a", `sk_agent_${"a".repeat(43)}`);
-  const requestId = "11111111-1111-4111-8111-111111111111";
+  const idempotencyKey = "11111111-1111-4111-8111-111111111111";
   const runId = "22222222-2222-4222-8222-222222222222";
   const response = await fetch(
     proxy.url.replace(
@@ -1512,7 +1516,7 @@ test("proxy forwards weekly-report-collect packs with the Agent API key path", a
       method: "POST",
       headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
       body: JSON.stringify({
-        requestId,
+        idempotencyKey,
         runId,
         outcome: "ready",
         packMarkdown: "# pack\n",
@@ -1521,13 +1525,13 @@ test("proxy forwards weekly-report-collect packs with the Agent API key path", a
   );
   expect(response.status).toBe(200);
   expect(await response.json()).toEqual({
-    requestId,
+    idempotencyKey,
     runId,
     status: "collecting",
     allTerminal: true,
     canSynthesize: true,
   });
-  expect(calls).toEqual([{ requestId, runId, outcome: "ready", packMarkdown: "# pack\n" }]);
+  expect(calls).toEqual([{ idempotencyKey, runId, outcome: "ready", packMarkdown: "# pack\n" }]);
 });
 
 test("proxy rejects unknown weekly-report-collect bodies as 400", async () => {
@@ -1551,7 +1555,7 @@ test("proxy rejects unknown weekly-report-collect bodies as 400", async () => {
     {
       method: "POST",
       headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
-      body: JSON.stringify({ requestId: "not-a-uuid", runId: "x", outcome: "ready" }),
+      body: JSON.stringify({ idempotencyKey: "not-a-uuid", runId: "x", outcome: "ready" }),
     },
   );
   expect(response.status).toBe(400);
@@ -1567,8 +1571,7 @@ test("proxy forwards weekly-report reads after validating the local command", as
       agentWeeklyReport: async (_context, command) => {
         calls.push(command);
         return {
-          protocolMajor: 1,
-          requestId: "request",
+          idempotencyKey: "request",
           operation: "list",
           result: { reports: [], nextCursor: null },
         };
@@ -1587,8 +1590,7 @@ test("proxy forwards weekly-report reads after validating the local command", as
   );
   expect(response.status).toBe(200);
   expect(await response.json()).toEqual({
-    protocolMajor: 1,
-    requestId: "request",
+    idempotencyKey: "request",
     operation: "list",
     result: { reports: [], nextCursor: null },
   });
@@ -1609,7 +1611,7 @@ test("a local precondition failure (missing API key, no held draft, ...) is a cl
     method: "POST",
     headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
     body: JSON.stringify({
-      requestId: "request-1",
+      idempotencyKey: "request-1",
       operation: "send",
       target: "@ada",
       sendDraft: true,
@@ -1679,7 +1681,7 @@ test("every route forwards the token-bound context and Agent API key to its runt
       },
       workspaceInfo: async (context, request, agentApiKey) => {
         calls.workspace = { context, agentApiKey };
-        return { requestId: request.requestId, protocolMajor: 1 } as never;
+        return { idempotencyKey: request.idempotencyKey } as never;
       },
       githubCredential: async (context, _request, agentApiKey) => {
         calls.githubCredentials = { context, agentApiKey };
@@ -1718,7 +1720,7 @@ test("every route forwards the token-bound context and Agent API key to its runt
     fetch(proxy.url, {
       method: "POST",
       headers: jsonAuth,
-      body: JSON.stringify({ requestId: "r-messages", operation: "check" }),
+      body: JSON.stringify({ idempotencyKey: "r-messages", operation: "check" }),
     }),
     fetch(at(agentApiRoutes.proxy.workspace.path), {
       method: agentApiRoutes.proxy.workspace.method,
@@ -1753,7 +1755,7 @@ test("every route forwards the token-bound context and Agent API key to its runt
     fetch(at(agentApiRoutes.proxy.reminders.path), {
       method: "POST",
       headers: jsonAuth,
-      body: JSON.stringify({ requestId: "r-1", operation: "list" }),
+      body: JSON.stringify({ idempotencyKey: "r-1", operation: "list" }),
     }),
     fetch(at(agentApiRoutes.proxy.tasks.path), {
       method: "POST",
@@ -1763,7 +1765,7 @@ test("every route forwards the token-bound context and Agent API key to its runt
     fetch(at(agentApiRoutes.proxy.channels.path), {
       method: "POST",
       headers: jsonAuth,
-      body: JSON.stringify({ requestId: "r-1", operation: "info", target: "#general" }),
+      body: JSON.stringify({ idempotencyKey: "r-1", operation: "info", target: "#general" }),
     }),
     fetch(at(agentApiRoutes.proxy.actionPrepare.path), {
       method: "POST",
@@ -1791,7 +1793,7 @@ test("every route forwards the token-bound context and Agent API key to its runt
     fetch(at(agentApiRoutes.proxy.inbox.path), {
       method: "POST",
       headers: jsonAuth,
-      body: JSON.stringify({ requestId: "r-1", operation: "check" }),
+      body: JSON.stringify({ idempotencyKey: "r-1", operation: "check" }),
     }),
     fetch(`${at(agentApiRoutes.proxy.manual.get.path)}?topic=tasks&intent=i&reason=r`, {
       headers: auth,
@@ -1860,7 +1862,7 @@ test("a runtime SyntaxError is classified, not treated as a bare body-parsing 40
   const response = await fetch(proxy.url, {
     method: "POST",
     headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
-    body: JSON.stringify({ requestId: "request-1", operation: "check" }),
+    body: JSON.stringify({ idempotencyKey: "request-1", operation: "check" }),
   });
   expect(response.status).toBe(502);
   const body = (await response.json()) as AgentProxyFailureBody;
@@ -1887,7 +1889,12 @@ test("the incident: an upstream 200 whose body cannot be trusted is a protocol-m
   const response = await fetch(proxy.url, {
     method: "POST",
     headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
-    body: JSON.stringify({ requestId: "request-1", operation: "send", target: "@ada", body: "hi" }),
+    body: JSON.stringify({
+      idempotencyKey: "request-1",
+      operation: "send",
+      target: "@ada",
+      body: "hi",
+    }),
   });
   expect(response.status).toBe(502);
   expect(response.headers.get("x-coforge-correlation-id")).toBeTruthy();

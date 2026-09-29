@@ -47,19 +47,6 @@ const PENDING_WINDOW_LIMIT = HELD_CONTEXT_LIMIT;
 const INBOX_DRAIN_HINT =
   "Drain each listed target with `coforge message check --target <target>`, or inspect with `coforge message read --target <target>`. Either may return nothing, because a message can already have been read.";
 
-/**
- * Agent-authored parent-channel chatter should not wake other Agents unless it personally
- * @mentions them. Human ordinary channel messages still wake every delivered Agent so each can
- * decide whether to participate.
- */
-function shouldWakeForDelivery(message: AgentMessageDelivery): boolean {
-  const target = message.target ?? "";
-  if (!isChannelMessageTarget(target)) return true;
-  if (target.includes(":")) return true;
-  if (message.latestSenderKind === "system") return true;
-  return !(message.latestSenderKind === "agent" && message.mentionsAgent === false);
-}
-
 /** One unreviewed delivery plus the moment this daemon learned about it. Deliveries carry no
  * message timestamp of their own (only the server knows when a message was written), so the
  * arrival time is what a locally built preview can honestly show. */
@@ -159,9 +146,14 @@ export class AgentMessageAttentionIndex {
    * here for this target at all", which its freshness decision needs. */
   readonly #latestKnown = new Map<string, Map<string, number>>();
   readonly #readContext = new Map<string, Map<string, number>>();
+  /** The newest message a review (`recordReadContext`) of each target showed. Unlike `#modelSeen`,
+   * a `check` never moves it: it answers "has a review shown the Agent anything here", which is what
+   * makes a thread count as reply context. Persisted apart from the frontier as `reviewedSeq`. */
+  readonly #reviewedSequence = new Map<string, Map<string, number>>();
   readonly #readContextCounters = new Map<string, number>();
-  /** Raft's `consumed-seqs.json`: the durable copy of `#modelSeen` (the `seq` frontier) and
-   * `#readContext` (the `readOrder` each target was last reviewed at). */
+  /** Raft's `consumed-seqs.json`: the durable copy of `#modelSeen` (the `seq` frontier),
+   * `#readContext` (the `readOrder` each target was last reviewed at) and `#reviewedSequence`
+   * (`reviewedSeq`). */
   readonly #consumedSeqs?: AgentConsumedSeqPort;
   /** Agents whose durable cursor has already been folded into the maps above. Raft reads the file
    * on every lookup; reading it once per Agent per daemon life is the same answer, minus the
@@ -247,15 +239,6 @@ export class AgentMessageAttentionIndex {
       return;
     }
     const current = this.#recordAttention(message);
-    if (!shouldWakeForDelivery(message)) {
-      generation.notified.add(message.deliveryId);
-      await this.sendAck({
-        ...message,
-        method: AGENT_MESSAGE_ACK_METHOD,
-        requestId: message.requestId,
-      });
-      return;
-    }
     if (this.hold.shouldHold(message.agentId)) {
       this.hold.enqueue(message.agentId, message);
       // Held for a later notice: the daemon has it, so it is acknowledged now.
@@ -314,9 +297,9 @@ export class AgentMessageAttentionIndex {
    * caller, right after `AgentDeliveryQueue.idle`/`release` hands back what it drained. A delivery
    * held by `receive` already passed its checks and has its attention recorded. One the runtime
    * queued before the Agent's process existed (a wake cooldown, a batched wake) gets `receive`'s
-   * treatment here: an already-consumed one is not announced, one that never wakes the Agent is
-   * recorded but not announced, and a malformed one is skipped. Every delivery was acknowledged
-   * when the daemon took it into the queue, so this only presents them.
+   * treatment here: an already-consumed one is not announced and a malformed one is skipped.
+   * Every delivery was acknowledged when the daemon took it into the queue, so this only
+   * presents them.
    */
   async flush(agentId: string, held: readonly AgentMessageDelivery[]): Promise<void> {
     if (!held.length) return;
@@ -333,7 +316,7 @@ export class AgentMessageAttentionIndex {
       this.#remember(generation, message.deliveryId);
       if (this.#consumed(message)) continue;
       this.#recordAttention(message);
-      if (shouldWakeForDelivery(message)) announced.push(message);
+      announced.push(message);
     }
     // One notice for the whole coalesced batch, carrying the batch itself: the queue is per Agent,
     // so a batch legitimately spans channels, DMs and threads, and each target needs its own line.
@@ -653,12 +636,6 @@ ${INBOX_DRAIN_HINT}]`,
     return hasDeliveryScope(message) && this.#consumed(message);
   }
 
-  /** Whether this well-formed delivery is one that never wakes the Agent (another Agent's channel
-   * chatter that does not mention it), so an exited Agent need not be launched for it. */
-  isSilent(message: AgentMessageDelivery): boolean {
-    return hasDeliveryScope(message) && !shouldWakeForDelivery(message);
-  }
-
   /**
    * ACKs a delivery the daemon has just taken into its own keeping (held for a later notice or
    * launch, or dropped), without waiting: a failed ACK only means the server replays it on the
@@ -766,13 +743,10 @@ ${INBOX_DRAIN_HINT}]`,
     const byTarget = this.#modelSeen.get(agentId) ?? new Map<string, number>();
     byTarget.set(target, Math.max(byTarget.get(target) ?? 0, sequence));
     this.#modelSeen.set(agentId, byTarget);
-    // Raft's `recordConsumedSeqs(agentId, { [target]: sequence })`: the Agent has consumed this
-    // frontier, so it survives the process — the same cursor that decides the next hold, the
-    // `seenUpToSeq` a fresh send inherits, and which target was read most recently.
-    this.#notePersistedOrder(
-      agentId,
-      this.#consumedSeqs?.recordConsumedSeqs(agentId, { [target]: sequence }),
-    );
+    // The Agent has consumed this frontier, so it survives the process: the same cursor that
+    // decides the next hold and the `seenUpToSeq` a fresh send inherits. Consuming is not reviewing:
+    // a `check` page lands here and orders nothing; only `recordReadContext` takes a read order.
+    this.#consumedSeqs?.recordConsumedSeqs(agentId, { [target]: sequence });
 
     // The window the Agent has now been shown (or the boundary it reported) is reviewed: drop what
     // it covers, so a locally decided hold cannot present the same messages twice.
@@ -794,18 +768,23 @@ ${INBOX_DRAIN_HINT}]`,
   }
 
   /**
-   * Records that the Agent just consumed messages for `target` (a `read`, a `check`/events drain
-   * page, or the held-context read inside `send`), under a per-Agent monotonically increasing
-   * counter. Volatile, like `modelSeen`; used only by the `--target-confirmed` guard to compare how
-   * recently a thread was read against how recently its parent target was read.
+   * Records that the Agent just reviewed `target` (a `read` other than `--around`, or the context a
+   * held `send` presented), under a per-Agent monotonically increasing read order, and the newest
+   * `sequence` that review showed, if any. Used only by the thread-mismatch send guard, to compare
+   * how recently a thread was read against how recently its parent target was read.
    */
-  recordReadContext(agentId: string, target: string): void {
+  recordReadContext(agentId: string, target: string, sequence?: number): void {
     this.#hydrate(agentId);
-    // Raft's `recordConsumedRead`: reviewing a target is what orders it against every other target,
-    // which is the comparison the thread-target guard makes (`parentReadOrder >= thread.readOrder`).
+    if (sequence !== undefined && Number.isInteger(sequence) && sequence > 0) {
+      const reviewed = this.#reviewedSequence.get(agentId) ?? new Map<string, number>();
+      reviewed.set(target, Math.max(reviewed.get(target) ?? 0, sequence));
+      this.#reviewedSequence.set(agentId, reviewed);
+    }
+    // Reviewing a target is what orders it against every other target, which is the comparison
+    // the thread-mismatch guard makes (Raft's `recordConsumedRead`).
     // With a durable cursor present the file hands out the order, so this process's orders continue
     // the ones a previous process handed out; without one this counter is the only home, as before.
-    const persisted = this.#consumedSeqs?.recordConsumedRead(agentId, target);
+    const persisted = this.#consumedSeqs?.recordConsumedRead(agentId, target, sequence);
     const order = persisted ?? (this.#readContextCounters.get(agentId) ?? 0) + 1;
     this.#readContextCounters.set(
       agentId,
@@ -816,21 +795,16 @@ ${INBOX_DRAIN_HINT}]`,
     this.#readContext.set(agentId, byTarget);
   }
 
-  /** Keeps this Agent's read-order counter above every order the durable cursor has handed out, so
-   * a target reviewed before a restart can never outrank one reviewed after it. */
-  #notePersistedOrder(agentId: string, order: number | undefined): void {
-    if (order === undefined) return;
-    const counter = this.#readContextCounters.get(agentId) ?? 0;
-    if (counter < order) this.#readContextCounters.set(agentId, order);
-  }
-
   /** The most recently read context order for `target`, or `undefined` if never recorded. */
   readOrder(agentId: string, target: string): number | undefined {
     this.#hydrate(agentId);
     return this.#readContext.get(agentId)?.get(target);
   }
 
-  /** The most recently read thread target rooted under `parentTarget`, or `undefined` if none. */
+  /** The most recently read thread target rooted under `parentTarget` whose reads have shown the
+   * Agent at least one message, or `undefined` if none. A thread read that returned nothing gave the
+   * Agent no thread context to reply to (Raft's `getMostRecentConsumedThreadForParent` likewise
+   * skips a record without a `seq`). */
   latestThreadReadUnderParent(
     agentId: string,
     parentTarget: string,
@@ -840,8 +814,13 @@ ${INBOX_DRAIN_HINT}]`,
     if (!byTarget) return undefined;
     const prefix = `${parentTarget}:`;
     let latest: { target: string; order: number } | undefined;
+    const reviewed = this.#reviewedSequence.get(agentId);
     for (const [target, order] of byTarget)
-      if (target.startsWith(prefix) && (!latest || order > latest.order))
+      if (
+        target.startsWith(prefix) &&
+        (reviewed?.get(target) ?? 0) > 0 &&
+        (!latest || order > latest.order)
+      )
         latest = { target, order };
     return latest;
   }
@@ -858,6 +837,7 @@ ${INBOX_DRAIN_HINT}]`,
     const state = store.read(agentId);
     const modelSeen = this.#modelSeen.get(agentId) ?? new Map<string, number>();
     const readContext = this.#readContext.get(agentId) ?? new Map<string, number>();
+    const reviewedSequence = this.#reviewedSequence.get(agentId) ?? new Map<string, number>();
     for (const [target, entry] of Object.entries(state.targets)) {
       const seq = entry.seq;
       if (typeof seq === "number" && seq > 0)
@@ -865,9 +845,13 @@ ${INBOX_DRAIN_HINT}]`,
       const order = entry.readOrder;
       if (typeof order === "number" && order > 0)
         readContext.set(target, Math.max(readContext.get(target) ?? 0, order));
+      const reviewed = entry.reviewedSeq;
+      if (typeof reviewed === "number" && reviewed > 0)
+        reviewedSequence.set(target, Math.max(reviewedSequence.get(target) ?? 0, reviewed));
     }
     if (modelSeen.size > 0) this.#modelSeen.set(agentId, modelSeen);
     if (readContext.size > 0) this.#readContext.set(agentId, readContext);
+    if (reviewedSequence.size > 0) this.#reviewedSequence.set(agentId, reviewedSequence);
     this.#readContextCounters.set(
       agentId,
       Math.max(this.#readContextCounters.get(agentId) ?? 0, state.nextReadOrder - 1),
@@ -879,6 +863,7 @@ ${INBOX_DRAIN_HINT}]`,
     this.#generations.delete(agentId);
     this.#attention.delete(agentId);
     this.#modelSeen.delete(agentId);
+    this.#reviewedSequence.delete(agentId);
     this.#seenMessageIds.delete(agentId);
     this.#pendingSequences.delete(agentId);
     this.#pendingWindow.delete(agentId);

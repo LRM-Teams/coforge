@@ -66,7 +66,9 @@ test("search never scrolls the document, on its empty page or with results", asy
   try {
     const membership = await db.workspaceMembership.findFirstOrThrow({
       where: { userId: DEV_BROWSER_USER.id },
+      include: { workspace: { select: { slug: true } } },
     });
+    const workspacePath = `/en/w/${membership.workspace.slug}`;
     const { workspaceId } = membership;
     const [channels, agents] = await Promise.all([
       db.conversation.findMany({
@@ -97,13 +99,13 @@ test("search never scrolls the document, on its empty page or with results", asy
     const storageScope = `${workspaceId}:${DEV_BROWSER_USER.id}`;
 
     await browser("set", "viewport", "390", "700");
-    await browser("open", `${origin}/en/search`);
+    await browser("open", `${origin}${workspacePath}/search`);
     await browser(
       "eval",
       `localStorage.setItem(${JSON.stringify(`coforge:search-usage:${storageScope}`)}, ${JSON.stringify(JSON.stringify(usage))});
        localStorage.removeItem(${JSON.stringify(`coforge:search-last:${storageScope}`)});`,
     );
-    await browser("open", `${origin}/en/search`);
+    await browser("open", `${origin}${workspacePath}/search`);
     await browser(
       "wait",
       "--fn",
@@ -114,7 +116,7 @@ test("search never scrolls the document, on its empty page or with results", asy
     await browser("screenshot", join(artifacts, "search-home-phone.png"));
 
     await browser("set", "viewport", "1280", "200");
-    await browser("open", `${origin}/en/search?q=atlas`);
+    await browser("open", `${origin}${workspacePath}/search?q=atlas`);
     await browser(
       "wait",
       "--fn",

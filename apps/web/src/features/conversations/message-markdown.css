@@ -2,7 +2,8 @@
  * Markdown typography for a message body.
  *
  * Message bodies are short and scanned in a narrow column, so this is the same "Compact" tier as
- * the Records rich-text prose (14px body, 1.625 line-height) rather than a document scale. It is
+ * the Records rich-text prose (14px body by default, 1.5 line-height; Settings → Message font size
+ * picks 12, 14 or 16px) rather than a document scale. It is
  * a separate stylesheet from the Records editor because that one is scoped to `.rich-text-editor`
  * and carries editor-only affordances (resize handles, selection overlays, node-view wrappers)
  * that a read-only message never needs.
@@ -16,6 +17,32 @@
   font-size: var(--text-md);
   line-height: var(--text-md--line-height);
   overflow-wrap: anywhere;
+}
+
+/* Settings → Message font size: 12, 14 (the default, no class) or 16px body text. A message row's
+ * text (`.message-text`, the element that directly wraps `MessageBody`) redefines the type scale it draws
+ * from, so the body, headings, code and chips all move together; everything outside the message
+ * text keeps the UI size. */
+.message-text {
+  --message-font-scale: 0.875;
+  --text-xs: calc(var(--spacing) * 3 * var(--message-font-scale));
+  --text-xs--line-height: calc(var(--spacing) * 4.5 * var(--message-font-scale));
+  --text-sm: calc(var(--spacing) * 3.5 * var(--message-font-scale));
+  --text-sm--line-height: calc(var(--spacing) * 5 * var(--message-font-scale));
+  --text-md: calc(var(--spacing) * 4 * var(--message-font-scale));
+  --text-md--line-height: calc(var(--spacing) * 6 * var(--message-font-scale));
+  --text-lg: calc(var(--spacing) * 4.5 * var(--message-font-scale));
+  --text-lg--line-height: calc(var(--spacing) * 7 * var(--message-font-scale));
+  --text-xl: calc(var(--spacing) * 5 * var(--message-font-scale));
+  --text-xl--line-height: calc(var(--spacing) * 7.5 * var(--message-font-scale));
+}
+
+.message-font-sm .message-text {
+  --message-font-scale: 0.75;
+}
+
+.message-font-lg .message-text {
+  --message-font-scale: 1;
 }
 
 /* Block rhythm: one owner per gap, and no stray leading/trailing space in a message row. */
@@ -155,7 +182,7 @@
   font-family: var(--font-mono);
   font-variant-ligatures: none;
   font-feature-settings: "liga" 0;
-  font-size: 0.875rem;
+  font-size: var(--text-sm);
   background: color-mix(in srgb, var(--color-text-primary) 3%, transparent);
   border: 1px solid color-mix(in srgb, var(--color-text-primary) 5%, transparent);
   border-radius: var(--radius-sm);
@@ -272,23 +299,6 @@
 }
 
 .message-markdown-mention-agent:focus-visible {
-  outline: 2px solid var(--color-focus-ring);
-  outline-offset: 2px;
-}
-
-/* Task-reference chips. A `task #68` reference the viewer can open
-   (`message-markdown-task-reference-link`) is an interactive control, so it gets the same
-   pointer affordance and focus ring as an Agent mention chip; one whose task is no longer in the
-   conversation stays a plain highlight. */
-.message-markdown-task-reference-link {
-  cursor: pointer;
-}
-
-.message-markdown-task-reference-link:hover {
-  filter: brightness(0.95);
-}
-
-.message-markdown-task-reference-link:focus-visible {
   outline: 2px solid var(--color-focus-ring);
   outline-offset: 2px;
 }

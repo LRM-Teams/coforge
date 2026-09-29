@@ -32,10 +32,9 @@ export function conversationRowMenuItems(channel: {
   ];
 }
 
-/** What one DM row needs, read from its row in the sidebar's DM list (P2b, #708): whether the Agent
- * row is a conversation at all (`enabled`), whether it is pinned, and whether it is closed. An
- * Agent the viewer has never written to has no conversation: the menu is not offered, because a
- * preference would only answer NOT_FOUND. */
+/** What one DM row needs, read from its row in the sidebar's DM list (P2b, #708): whether it is a
+ * conversation (`enabled`; the menu's preferences need one), whether it is pinned, and whether it
+ * is closed. */
 export function directRowPreference(row: DirectRow | undefined): {
   enabled: boolean;
   pinned: boolean;
@@ -43,10 +42,8 @@ export function directRowPreference(row: DirectRow | undefined): {
   sortOrder: number | null;
 } {
   return {
-    enabled: row?.conversation ?? false,
+    enabled: Boolean(row?.conversationId),
     pinned: row?.pinned ?? false,
-    // Only a conversation can be closed: an Agent row with no DM has nothing to hide and stays
-    // in the list as a way to start one.
     hidden: row?.hidden ?? false,
     sortOrder: row?.pinned ? row.pinSortOrder : null,
   };

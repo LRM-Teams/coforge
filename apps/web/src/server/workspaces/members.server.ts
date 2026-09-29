@@ -8,7 +8,7 @@ import {
   type AgentVisibilityViewer,
 } from "#src/server/agents/agent-visibility.server";
 import { workspaceUserAvatarUrl } from "#src/server/db/repositories/user-profile.repositories.server";
-import { MEMBER_PAGE_MAX } from "#src/features/workspaces/member-directory";
+import { CREATED_AGENT_FACES, MEMBER_PAGE_MAX } from "#src/features/workspaces/member-directory";
 
 /** The actor's Workspace role; ACCESS_DENIED when the user is not a member. */
 export async function workspaceMemberRole(
@@ -156,7 +156,7 @@ export class WorkspaceMembers {
    */
   async directory(workspaceId: string, userId: string) {
     const { visibleAgents } = await this.viewer(workspaceId, userId);
-    const [people, agents] = await Promise.all([
+    const [people, agents, directs] = await Promise.all([
       this.db.user.findMany({
         where: { memberships: { some: { workspaceId } } },
         select: { id: true, username: true, displayName: true, avatarObjectKey: true },
@@ -167,7 +167,22 @@ export class WorkspaceMembers {
         select: { id: true, name: true, displayName: true, avatarObjectKey: true, ownerId: true },
         orderBy: [{ name: "asc" }, { id: "asc" }],
       }),
+      // The viewer's own direct conversations with Agents, so a picker can open the one that exists.
+      this.db.conversationMember.findMany({
+        where: { workspaceId, userId, leftAt: null, conversation: { directKey: { not: null } } },
+        select: {
+          conversationId: true,
+          conversation: {
+            select: { members: { where: { agentId: { not: null } }, select: { agentId: true } } },
+          },
+        },
+      }),
     ]);
+    const dmByAgent = new Map(
+      directs.flatMap((row) =>
+        row.conversation.members.map((member) => [member.agentId!, row.conversationId] as const),
+      ),
+    );
     return {
       people: people.map((person) => ({
         id: person.id,
@@ -180,15 +195,17 @@ export class WorkspaceMembers {
         handle: agent.name,
         name: agent.displayName.trim() || agent.name,
         avatarUrl: agentAvatarUrl(workspaceId, agent.id, agent.avatarObjectKey),
-        /** The Web opens an Agent's direct conversation only for its owner (`ownedConversations`
-         * in `features/conversations/conversations.functions.ts`). */
+        /** The Web opens an Agent's direct conversation only for its owner
+         * (`DirectConversations.authorize`). */
         ownedByCurrentUser: agent.ownerId === userId,
+        /** The viewer's direct conversation with this Agent (`dm/<id>`), once there is one. */
+        dmId: dmByAgent.get(agent.id) ?? null,
       })),
     };
   }
 
   async peoplePage(workspaceId: string, userId: string, input: PeoplePageInput) {
-    await this.viewer(workspaceId, userId);
+    const { visibleAgents } = await this.viewer(workspaceId, userId);
     const query = input.query.trim();
     const limit = Math.min(Math.max(input.limit, 1), MEMBER_PAGE_MAX);
     const people = await this.db.user.findMany({
@@ -202,6 +219,13 @@ export class WorkspaceMembers {
         displayName: true,
         description: true,
         avatarObjectKey: true,
+        // Visible Agents this person created. One list feeds the count and the faces: Prisma
+        // pushes neither a nested `take` nor a page-scoped filtered `_count` into SQL.
+        agents: {
+          where: visibleAgents,
+          select: { id: true, name: true, displayName: true, avatarObjectKey: true },
+          orderBy: [{ name: "asc" }, { id: "asc" }],
+        },
       },
       orderBy: [{ username: "asc" }, { id: "asc" }],
       ...(input.cursor ? { cursor: { id: input.cursor }, skip: 1 } : {}),
@@ -214,6 +238,14 @@ export class WorkspaceMembers {
         displayName: person.displayName?.trim() || person.username,
         description: person.description,
         avatarUrl: workspaceUserAvatarUrl(workspaceId, person.id, person.avatarObjectKey),
+        createdAgents: {
+          total: person.agents.length,
+          items: person.agents.slice(0, CREATED_AGENT_FACES).map((agent) => ({
+            id: agent.id,
+            displayName: agent.displayName.trim() || agent.name,
+            avatarUrl: agentAvatarUrl(workspaceId, agent.id, agent.avatarObjectKey),
+          })),
+        },
       })),
       limit,
     );

@@ -63,6 +63,13 @@ channel:
     - name: agent
       publish_proxy_enabled: true
       publication_data_format: binary
+    # `presence:workspace:<workspace_id>`: who has a CoForge tab open in the Workspace
+    # (apps/web/src/features/workspaces/presence-channel.ts). Nothing is published here.
+    - name: presence
+      presence: true
+      join_leave: true
+      force_push_join_leave: true
+      allow_presence_for_subscriber: true
 
 rpc:
   proxy:

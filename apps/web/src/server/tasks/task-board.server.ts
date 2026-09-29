@@ -13,6 +13,7 @@ import {
   type TaskResult,
   type TaskView,
   UUID_LIKE_SOURCE,
+  utf8Encoder,
 } from "@lrm/coforge-sdk/internal";
 import { encodeAgentDelivery } from "#src/server/conversations/agent-delivery.server";
 import { ACTIVE_AGENT_WHERE } from "#src/server/agents/active-agent.server";
@@ -174,7 +175,7 @@ const BOUND_ASSIGNEE = new RegExp(`^(user|agent):(${UUID_LIKE_SOURCE})$`, "i");
 async function indexedRequestId(requestId: string, index: number) {
   if (index === 0) return requestId;
   const bytes = new Uint8Array(
-    await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`${requestId}:${index}`)),
+    await crypto.subtle.digest("SHA-256", utf8Encoder.encode(`${requestId}:${index}`)),
   );
   bytes[6] = (bytes[6]! & 0x0f) | 0x40;
   bytes[8] = (bytes[8]! & 0x3f) | 0x80;
@@ -192,6 +193,13 @@ const CLAIM_REFUSAL = {
   held: "already claimed",
   changed: "the task changed while it was being claimed; read it again",
 } as const;
+
+/** A short duplicate window catches concurrent Agent work without banning legitimate repeated work. */
+const DUPLICATE_TASK_WINDOW_MS = 15 * 60 * 1000;
+
+function normalizeTaskTitle(title: string): string {
+  return title.trim().replace(/\s+/g, " ").toLowerCase();
+}
 
 /** What another member's hold on a Task leaves open. Illustrative, not a permission table. */
 const CLAIM_CONFLICT_UNBLOCKED_EXAMPLES = [
@@ -510,9 +518,11 @@ export class TaskBoard {
         },
       });
       if (!conversation) throw new AppError("NOT_FOUND");
+      // A direct conversation's Tasks belong to the people its key names, not to whoever holds
+      // a member row.
       if (
         conversation.directKey !== null &&
-        !conversation.directKey.split(":").includes(principal.userId)
+        !conversation.directKey.split(/[|:]/).includes(principal.userId)
       )
         throw new AppError("ACCESS_DENIED");
       return {
@@ -694,6 +704,28 @@ export class TaskBoard {
       where: { messageId: before.messageId },
       select: taskSelection,
     });
+    if (before.owner?.agentId && before.ownerMemberId !== task.ownerMemberId) {
+      await tx.taskExecutionSession.updateMany({
+        where: {
+          taskMessageId: task.messageId,
+          agentId: before.owner.agentId,
+          status: { in: ["starting", "running", "waiting"] },
+        },
+        data: { status: "cancelled", finishedAt: new Date() },
+      });
+    }
+    if (task.status === "done" || task.status === "closed") {
+      await tx.taskExecutionSession.updateMany({
+        where: {
+          taskMessageId: task.messageId,
+          status: { in: ["starting", "running", "waiting"] },
+        },
+        data: { status: "completed", finishedAt: new Date() },
+      });
+    }
+    if (task.owner?.agentId && task.ownerMemberId !== before.ownerMemberId) {
+      await this.ensureTaskExecutionSession(tx, task, task.owner.agentId);
+    }
     const changes = taskChanges(before, task);
     if (!changes.length) return { task, events: [] };
     const latest = await tx.taskHistoryEvent.findFirst({
@@ -705,6 +737,48 @@ export class TaskBoard {
       data: historyRows(task.messageId, actor, changes, latest?.seq ?? 0),
     });
     return { task, events };
+  }
+
+  /** Creates the durable, idempotent hand-off record. The daemon will consume this record in the
+   * follow-up delivery phase; keeping creation under the Task write lock prevents duplicate
+   * execution sessions when two claim/assign requests race. */
+  private async ensureTaskExecutionSession(tx: Transaction, task: SelectedTask, agentId: string) {
+    const existing = await tx.taskExecutionSession.findUnique({
+      where: { taskMessageId_agentId: { taskMessageId: task.messageId, agentId } },
+      select: { id: true, status: true },
+    });
+    const session = existing
+      ? await tx.taskExecutionSession.update({
+          where: { id: existing.id },
+          data:
+            existing.status === "completed" ||
+            existing.status === "failed" ||
+            existing.status === "cancelled"
+              ? {
+                  status: "starting",
+                  attempt: { increment: 1 },
+                  finishedAt: null,
+                  lastError: null,
+                }
+              : {},
+          select: { id: true },
+        })
+      : await tx.taskExecutionSession.create({
+          data: {
+            taskMessageId: task.messageId,
+            conversationId: task.conversationId,
+            workspaceId: task.workspaceId,
+            agentId,
+            status: "starting",
+            attempt: 1,
+          },
+          select: { id: true },
+        });
+    await tx.agentMessageDelivery.updateMany({
+      where: { messageId: task.messageId, agentId },
+      data: { taskExecutionSessionId: session.id },
+    });
+    return session;
   }
 
   /** Push a committed message to every Agent it was delivered to. Failures never surface. */
@@ -719,6 +793,7 @@ export class TaskBoard {
       deliveries: Array<{
         deliveryId: string;
         agentId: string;
+        taskExecutionSessionId: string | null;
         agent: { computerId: string | null };
       }>;
     },
@@ -752,6 +827,9 @@ export class TaskBoard {
                     latestSenderDescription: sender.description,
                     // Task deliveries are directed at this Agent; treat as a personal wake.
                     mentionsAgent: true,
+                    ...(delivery.taskExecutionSessionId
+                      ? { taskExecutionSessionId: delivery.taskExecutionSessionId }
+                      : {}),
                   }),
                 ),
               ),
@@ -803,6 +881,33 @@ export class TaskBoard {
           started: assigned?.memberId === member.id,
         };
       }
+      // A repeated single create is a likely race. A batch is an explicit decomposition request;
+      // holding the whole batch because one title matches would discard its genuinely new tasks.
+      if (principal.agentId && titles.length === 1) {
+        const duplicateCandidates = await tx.task.findMany({
+          where: {
+            conversationId: scope.conversationId,
+            creatorMemberId: { not: member.id },
+            status: { in: UNFINISHED_TASK_STATUSES },
+            createdAt: { gte: new Date(Date.now() - DUPLICATE_TASK_WINDOW_MS) },
+          },
+          orderBy: { createdAt: "asc" },
+          select: taskSelection,
+        });
+        const duplicate = duplicateCandidates.find(
+          (candidate) => normalizeTaskTitle(candidate.title) === normalizeTaskTitle(titles[0]!),
+        );
+        if (duplicate)
+          return {
+            tasks: [duplicate],
+            created: false,
+            held: true,
+            sequences: [] as number[],
+            receipt: null,
+            assigneeHandle: null,
+            started: false,
+          };
+      }
       if (command.attachmentId) {
         if (!principal.userId) throw new AppError("ACCESS_DENIED");
         const attachment = await tx.attachment.findFirst({
@@ -844,6 +949,17 @@ export class TaskBoard {
             select: { agentId: true, channelMuted: true },
           })
         : [];
+      const coordinator =
+        member.userId && scope.channel
+          ? await tx.conversation.findFirst({
+              where: {
+                id: scope.conversationId,
+                coordinatorAgentId: { not: null },
+                coordinatorAgent: ACTIVE_AGENT_WHERE,
+              },
+              select: { coordinatorAgentId: true },
+            })
+          : null;
       // A title is a message like any other: its mentions, `task #N`s and `#channel`s are stored as
       // tokens, resolved against the channel's active members (a DM keeps plain `@handle` text).
       const mentionTargets = scope.channel
@@ -890,9 +1006,12 @@ export class TaskBoard {
             .filter((mention) => mention.type === "agent")
             .map((mention) => mention.id),
         );
-        const recipients = agentMembers.filter(
-          ({ agentId, channelMuted }) =>
-            !scope.channel || !channelMuted || mentionedAgentIds.has(agentId!),
+        const recipients = agentMembers.filter(({ agentId, channelMuted }) =>
+          assignee?.agentId === agentId || mentionedAgentIds.size
+            ? assignee?.agentId === agentId || mentionedAgentIds.has(agentId!)
+            : coordinator?.coordinatorAgentId
+              ? agentId === coordinator.coordinatorAgentId
+              : !scope.channel || !channelMuted,
         );
         const message = await tx.message.create({
           data: {
@@ -946,7 +1065,15 @@ export class TaskBoard {
             where: { id: command.attachmentId },
             data: { messageId: message.id, position: 0 },
           });
-        tasks.push(message.task!);
+        if (assignee?.agentId) {
+          await this.ensureTaskExecutionSession(tx, message.task!, assignee.agentId);
+          tasks.push(
+            await tx.task.findUniqueOrThrow({
+              where: { messageId: message.task!.messageId },
+              select: taskSelection,
+            }),
+          );
+        } else tasks.push(message.task!);
         sequences.push(sequence);
       }
       await tx.taskHistoryEvent.createMany({
@@ -1038,6 +1165,7 @@ export class TaskBoard {
     const { receipt } = result;
     return {
       tasks: result.tasks.map(taskView),
+      ...(result.held ? { state: "held" as const } : {}),
       ...(receipt && {
         assignmentReceipt: {
           messageId: receipt.id,
@@ -1295,8 +1423,16 @@ export class TaskBoard {
       if (
         existing.ownerMemberId === member.id &&
         (existing.status === "in_progress" || existing.status === "in_review")
-      )
+      ) {
+        if (member.agentId && !existing.executionSessions[0]) {
+          await this.ensureTaskExecutionSession(tx, existing, member.agentId);
+          return tx.task.findUniqueOrThrow({
+            where: { messageId: existing.messageId },
+            select: taskSelection,
+          });
+        }
         return existing;
+      }
       if (existing.status === "done" || existing.status === "closed")
         throw new ClaimRefused(`task is ${existing.status}`, undefined, existing.number);
       if (existing.ownerMemberId && existing.ownerMemberId !== member.id)
@@ -1862,6 +1998,8 @@ export class TaskBoard {
         deleted: change.deleted ?? [],
         userId: scope.userId,
         agentId: scope.agentId,
+        directUserIds: scope.directUserIds,
+        directPair: scope.directPair,
         publicationId: change.publicationId,
       });
     } catch {

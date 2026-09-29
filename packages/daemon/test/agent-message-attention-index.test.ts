@@ -608,7 +608,7 @@ test("the consumed cursor survives a restart, in Raft's consumed-seqs file", () 
   const store = new AgentConsumedSeqStore(temporaryStateDirectory());
   const before = indexWithConsumedSeqs(store);
   before.recordModelSeen("agent-1", "@ada", 7);
-  before.recordReadContext("agent-1", "#general:11111111");
+  before.recordReadContext("agent-1", "#general:11111111", 2);
 
   // A new daemon process: no deliveries, no reads, only the file Raft names.
   const after = indexWithConsumedSeqs(store);
@@ -629,7 +629,7 @@ test("a restart keeps the read context a thread-target confirmation is decided f
   // The Agent read a thread under the channel and never read the channel itself: exactly the shape
   // that makes a top-level send to the channel ask for confirmation (Raft's
   // `detectThreadContextParentSend`).
-  before.recordReadContext("agent-1", "#general:11111111");
+  before.recordReadContext("agent-1", "#general:11111111", 2);
   expect(before.readOrder("agent-1", "#general")).toBeUndefined();
 
   const after = indexWithConsumedSeqs(store);
@@ -694,9 +694,8 @@ test("latestThreadReadUnderParent finds the most recently read thread rooted und
     async () => {},
   );
   expect(index.latestThreadReadUnderParent("agent-1", "#general")).toBeUndefined();
-  index.recordReadContext("agent-1", "#general:11111111");
-  index.recordReadContext("agent-1", "#other:22222222");
-  index.recordReadContext("agent-1", "#general:33333333");
+  for (const thread of ["#general:11111111", "#other:22222222", "#general:33333333"])
+    index.recordReadContext("agent-1", thread, 1);
   const latest = index.latestThreadReadUnderParent("agent-1", "#general");
   expect(latest?.target).toBe("#general:33333333");
   // A read of the parent target itself is not a thread read under it.
@@ -704,6 +703,59 @@ test("latestThreadReadUnderParent finds the most recently read thread rooted und
   expect(index.latestThreadReadUnderParent("agent-1", "#general")?.target).toBe(
     "#general:33333333",
   );
+});
+
+test("a thread counts as read context only once a read of it has shown a message", () => {
+  const index = new AgentMessageAttentionIndex(
+    "workspace-1",
+    { session: () => session() },
+    async () => {},
+  );
+  // A read of a thread that returned nothing orders the thread but showed nothing in it, and
+  // messages a check consumed there do not change that.
+  index.recordReadContext("agent-1", "#general:11111111");
+  index.recordModelSeen("agent-1", "#general:11111111", 5);
+  expect(index.latestThreadReadUnderParent("agent-1", "#general")).toBeUndefined();
+
+  index.recordReadContext("agent-1", "#general:22222222", 4);
+  index.recordReadContext("agent-1", "#general:11111111");
+  expect(index.latestThreadReadUnderParent("agent-1", "#general")?.target).toBe(
+    "#general:22222222",
+  );
+});
+
+test("a consumed frontier alone does not order its target, before or after a restart", () => {
+  const store = new AgentConsumedSeqStore(temporaryStateDirectory());
+  const before = indexWithConsumedSeqs(store);
+  before.recordReadContext("agent-1", "#general:11111111", 2);
+  // What a `check` of the channel records: the messages it returned, not a review of the channel.
+  before.recordModelSeen("agent-1", "#general", 9);
+  expect(before.readOrder("agent-1", "#general")).toBeUndefined();
+
+  const after = indexWithConsumedSeqs(store);
+  expect(after.modelSeenSequence("agent-1", "#general")).toBe(9);
+  expect(after.readOrder("agent-1", "#general")).toBeUndefined();
+  expect(after.latestThreadReadUnderParent("agent-1", "#general")?.target).toBe(
+    "#general:11111111",
+  );
+});
+
+test("which threads count as read context survives the Agent's next launch", () => {
+  const store = new AgentConsumedSeqStore(temporaryStateDirectory());
+  const index = indexWithConsumedSeqs(store);
+  // Read empty, then drained by a check: shown nothing by a read.
+  index.recordReadContext("agent-1", "#general:11111111");
+  index.recordModelSeen("agent-1", "#general:11111111", 5);
+  // Paged through: a read showed message 3, without moving the consumed frontier.
+  index.recordReadContext("agent-1", "#general:22222222", 3);
+  index.recordReadContext("agent-1", "#general:11111111");
+
+  // Every launch, exit and Stop forgets the Agent and reloads it from the file.
+  index.clearAgent("agent-1");
+  expect(index.latestThreadReadUnderParent("agent-1", "#general")?.target).toBe(
+    "#general:22222222",
+  );
+  expect(index.modelSeenSequence("agent-1", "#general:22222222")).toBe(0);
 });
 
 // A fake `hold` collaborator standing in for `AgentDeliveryQueue`, matching the seam
@@ -778,7 +830,7 @@ test("flushing deliveries that waited for a launch records them as a received de
   expect(index.pendingWindow("agent-1", "@agent", 10)).toHaveLength(2);
 });
 
-test("flushing waiting deliveries treats consumed, silent, and malformed ones as receive would", async () => {
+test("flushing waiting deliveries treats consumed and malformed ones as receive would", async () => {
   const notices: string[] = [];
   const acks: string[] = [];
   const index = new AgentMessageAttentionIndex(
@@ -793,26 +845,17 @@ test("flushing waiting deliveries treats consumed, silent, and malformed ones as
   await index.flush("agent-1", [
     // Already consumed: ACKed, neither recorded nor announced.
     delivery("consumed"),
-    // Another Agent's chatter that does not mention this one: ACKed and recorded, not announced.
-    {
-      ...delivery("chatter", "agent", "builder"),
-      sequence: 2,
-      target: "#team",
-      mentionsAgent: false,
-    },
-    { ...delivery("fresh", "human", "ada"), sequence: 3 },
+    { ...delivery("fresh", "human", "ada"), sequence: 2 },
     // Missing its target: neither announced nor ACKed, and it cannot sink the batch.
-    { ...delivery("malformed"), sequence: 4, target: undefined },
+    { ...delivery("malformed"), sequence: 3, target: undefined },
   ]);
 
   expect(notices).toHaveLength(1);
   expect(notices[0]).toContain("Inbox update: 1 message delivered or held for you");
   expect(notices[0]).toContain("@agent  new: 1 message");
-  expect(notices[0]).not.toContain("#team");
   // All were acknowledged when the runtime queued them; flushing only presents them.
   expect(acks).toEqual([]);
   expect(index.pendingMessageCount("agent-1", "@agent")).toBe(1);
-  expect(index.latestSequence("agent-1", "#team")).toBe(2);
 });
 
 test("flushing only deliveries that need no notice sends none", async () => {
@@ -1151,7 +1194,10 @@ test("a coalesced flush spanning targets gives each target its own line", async 
   expect(notices[0]).toContain("@ada  new: 1 message · latest sender @ada");
 });
 
-test("ordinary human channel chatter wakes a delivered Agent", async () => {
+test.each([
+  ["human", "alice"],
+  ["agent", "helper"],
+] as const)("ordinary %s channel chatter wakes a delivered Agent", async (kind, handle) => {
   const notices: string[] = [];
   const acks: string[] = [];
   const index = new AgentMessageAttentionIndex(
@@ -1163,61 +1209,14 @@ test("ordinary human channel chatter wakes a delivered Agent", async () => {
   );
 
   await index.receive({
-    ...delivery("chatter", "human", "alice"),
+    ...delivery("chatter", kind, handle),
     target: "#team",
     mentionsAgent: false,
   });
 
   expect(notices).toHaveLength(1);
-  expect(notices[0]).toContain("#team  new: 1 message · latest sender @alice");
+  expect(notices[0]).toContain(`#team  new: 1 message · latest sender @${handle}`);
   expect(acks).toEqual(["delivery-chatter"]);
-});
-
-test("ordinary Agent channel chatter is acked without waking peer Agents", async () => {
-  const notices: string[] = [];
-  const acks: string[] = [];
-  const index = new AgentMessageAttentionIndex(
-    "workspace-1",
-    { session: () => session((notice) => notices.push(notice)) },
-    async (ack) => {
-      acks.push(ack.deliveryId);
-    },
-  );
-
-  await index.receive({
-    ...delivery("chatter", "agent", "helper"),
-    target: "#team",
-    mentionsAgent: false,
-  });
-
-  expect(notices).toEqual([]);
-  expect(acks).toEqual(["delivery-chatter"]);
-  expect(index.check("agent-1")[0]).toMatchObject({ target: "#team", pendingCount: 1 });
-  expect(index.modelSeenSequence("agent-1", "#team")).toBe(0);
-});
-
-test("a channel @mention still wakes after earlier silent Agent mail", async () => {
-  const notices: string[] = [];
-  const index = new AgentMessageAttentionIndex(
-    "workspace-1",
-    { session: () => session((notice) => notices.push(notice)) },
-    async () => {},
-  );
-
-  await index.receive({
-    ...delivery("chatter", "agent", "helper"),
-    target: "#general",
-    mentionsAgent: false,
-  });
-  await index.receive({
-    ...delivery("mention", "human", "alice"),
-    sequence: 2,
-    target: "#general",
-    mentionsAgent: true,
-  });
-  expect(notices).toHaveLength(1);
-  expect(notices[0]).toContain("#general  new: 1 message · latest sender @alice");
-  expect(notices[0]).not.toContain(" · held:");
 });
 
 test("the next notice appends a MEMORY.md over-limit reminder once", async () => {

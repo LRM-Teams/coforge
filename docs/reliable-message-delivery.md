@@ -66,7 +66,7 @@ Daemon 通过自身唯一的云端 WebSocket 接收消息，并在本地按 `age
 
 ### MVP 请求幂等
 
-浏览器首次发送时生成 UUID `request_id`；失败后正文未编辑的重试复用它，成功后的下一条消息或编辑后的失败草稿生成新的 `request_id`。Agent 回复同样复用调用方已有的 `request_id`。Backend 不代替调用方生成该身份，也不把正文、username 或 Agent 名称当作身份。
+浏览器首次发送时生成 UUID `request_id`；失败后正文未编辑的重试复用它，成功后的下一条消息或编辑后的失败草稿生成新的 `request_id`。Agent 经 HTTPS 发送时，这个身份叫 `idempotencyKey`；一次发送失败后的重试复用同一个 `idempotencyKey`。Backend 不代替调用方生成该身份，也不把正文、username 或 Agent 名称当作身份。
 
 Web/backend 使用现有 Redis，以 `(workspace_id, sender_kind, sender_stable_id, request_id)` 为 scope。User 与 Agent sender kind 明确分离。首次请求通过 Redis `SET NX EX` 原子取得短 processing claim；并发重复请求得到明确的可重试 processing 错误。claim owner 才能通过 Lua 原子完成或释放 claim，持久化失败会释放当前 owner 的 claim。PostgreSQL Message 持久化成功后，可序列化结果（包括可恢复为 `Date` 的创建时间）在 Redis 保留 24 小时。
 

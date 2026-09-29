@@ -263,7 +263,7 @@ async function handle(command: {
 
 async function call(
   operation: "check" | "read" | "send",
-  requestId: string,
+  idempotencyKey: string,
   target?: string,
   body?: string,
   options?: { sendDraft?: boolean },
@@ -274,7 +274,7 @@ async function call(
       authorization: `Bearer ${process.env.COFORGE_AGENT_CONTEXT}`,
       "content-type": "application/json",
     },
-    body: JSON.stringify({ operation, requestId, target, body, ...options }),
+    body: JSON.stringify({ operation, idempotencyKey, target, body, ...options }),
   });
   if (!response.ok) throw new Error(`proxy failed: ${response.status}`);
   return (await response.json()) as {

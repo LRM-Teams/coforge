@@ -24,6 +24,7 @@ import {
   DaemonHoldResponseSchema,
 } from "#src/internal/gen/coforge/rpc/v1/local_rpc_pb";
 import { assertValidMessageSender, type MessageSenderKind } from "./message-sender";
+import { fromWireRequestId, toWireRequestId } from "./idempotency-key-wire";
 
 export const LOCAL_RPC_PROTOCOL_MAJOR = 1 as const;
 export const LOCAL_RPC_METHODS = {
@@ -43,7 +44,7 @@ export const LOCAL_RPC_METHODS = {
   USAGE_SCAN: "usage:scan",
 } as const;
 export type LocalInboxRequest = {
-  requestId: string;
+  idempotencyKey: string;
   context: string;
   operation: "check";
 };
@@ -61,18 +62,14 @@ export type AppInboxItem = {
 export type InboxEntry =
   | { kind: "message_target"; messageTarget: MessageAttentionSummary }
   | { kind: "app"; app: AppInboxItem };
-export type InboxResponse = { requestId: string; accepted: boolean; entries: InboxEntry[] };
+export type InboxResponse = { idempotencyKey: string; accepted: boolean; entries: InboxEntry[] };
 export function encodeLocalInboxRequest(value: LocalInboxRequest): Uint8Array {
-  return toBinary(LocalInboxRequestSchema, create(LocalInboxRequestSchema, value));
+  return toBinary(LocalInboxRequestSchema, create(LocalInboxRequestSchema, toWireRequestId(value)));
 }
 export function decodeLocalInboxRequest(bytes: Uint8Array): LocalInboxRequest {
-  const value = fromBinary(LocalInboxRequestSchema, bytes);
-  if (value.operation !== "check") throw new Error("invalid App Inbox operation");
-  return {
-    requestId: value.requestId,
-    context: value.context,
-    operation: value.operation,
-  };
+  const { requestId, context, operation } = fromBinary(LocalInboxRequestSchema, bytes);
+  if (operation !== "check") throw new Error("invalid App Inbox operation");
+  return fromWireRequestId({ requestId, context, operation: "check" as const });
 }
 export function encodeInboxResponse(value: InboxResponse): Uint8Array {
   for (const entry of value.entries)
@@ -85,8 +82,7 @@ export function encodeInboxResponse(value: InboxResponse): Uint8Array {
   return toBinary(
     InboxResponseSchema,
     create(InboxResponseSchema, {
-      requestId: value.requestId,
-      accepted: value.accepted,
+      ...toWireRequestId(value),
       entries: value.entries.map((entry) =>
         create(
           InboxEntrySchema,
@@ -121,7 +117,7 @@ export function encodeInboxResponse(value: InboxResponse): Uint8Array {
 }
 export function decodeInboxResponse(bytes: Uint8Array): InboxResponse {
   const value = fromBinary(InboxResponseSchema, bytes);
-  return {
+  return fromWireRequestId({
     requestId: value.requestId,
     accepted: value.accepted,
     entries: value.entries.map((entry): InboxEntry => {
@@ -169,7 +165,7 @@ export function decodeInboxResponse(bytes: Uint8Array): InboxResponse {
         },
       };
     }),
-  };
+  });
 }
 export type UsageScanRequest = { protocolMajor: number; requestId: string; provider: string };
 export type UsageScanResponse = {
@@ -203,7 +199,7 @@ export const decodeUsageScanResponse = (b: Uint8Array): UsageScanResponse => {
 export type LocalMentionSelector = { type: "user" | "agent"; id: string; name: string };
 
 export type LocalAgentMessageRequest = {
-  requestId: string;
+  idempotencyKey: string;
   context: string;
   operation:
     | "check"
@@ -343,7 +339,7 @@ export type AgentPendingMentionAction = {
   expiresAt: string;
 };
 export type AgentMessageResponse = {
-  requestId: string;
+  idempotencyKey: string;
   accepted: boolean;
   attentionCount: number;
   messages: AgentMessageRecord[];
@@ -453,7 +449,7 @@ export function encodeAgentMessageResponse(value: AgentMessageResponse): Uint8Ar
   return toBinary(
     AgentMessageResponseSchema,
     create(AgentMessageResponseSchema, {
-      ...safeValue,
+      ...toWireRequestId(safeValue),
       messages: encodeAgentMessageRecords(safeValue.messages),
       heldMessages: encodeAgentMessageRecords(safeValue.heldMessages ?? []),
       recentUnread: encodeAgentMessageRecords(safeValue.recentUnread ?? []),
@@ -482,7 +478,7 @@ export function decodeAgentMessageResponse(bytes: Uint8Array): AgentMessageRespo
   if (v.freshnessContextMode && !["inline", "withheld"].includes(v.freshnessContextMode))
     throw new Error("invalid Agent message freshness context mode");
   if (v.freshnessContextMode === "withheld")
-    return {
+    return fromWireRequestId({
       requestId: v.requestId,
       accepted: v.accepted,
       attentionCount: v.attentionCount,
@@ -499,11 +495,11 @@ export function decodeAgentMessageResponse(bytes: Uint8Array): AgentMessageRespo
       newMessageCount: v.newMessageCount,
       shownMessageCount: v.shownMessageCount,
       omittedMessageCount: v.omittedMessageCount,
-      freshnessContextMode: "withheld",
+      freshnessContextMode: "withheld" as const,
       withheldMessageCount: v.withheldMessageCount ?? v.attentionCount,
       recentUnread: [],
-    };
-  return {
+    });
+  return fromWireRequestId({
     requestId: v.requestId,
     accepted: v.accepted,
     attentionCount: v.attentionCount,
@@ -552,7 +548,7 @@ export function decodeAgentMessageResponse(bytes: Uint8Array): AgentMessageRespo
       | undefined,
     withheldMessageCount: v.withheldMessageCount,
     hasMore: v.hasMore || undefined,
-  };
+  });
 }
 export const DAEMON_HANDSHAKE_METHOD = LOCAL_RPC_METHODS.HANDSHAKE;
 export const DAEMON_RUNTIME_CONFIGURE_METHOD = LOCAL_RPC_METHODS.CONFIGURE;

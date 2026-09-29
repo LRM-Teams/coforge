@@ -1,6 +1,7 @@
 import { Link } from "@tanstack/react-router";
 
 import { m } from "#src/paraglide/messages";
+import { useWorkspaceSlug } from "#src/features/workspaces/workspace-route";
 
 /** Child member report hanging under a template weekly-report node. */
 export type TemplateChild = {
@@ -43,6 +44,7 @@ function submitTimeLabel(submittedAt: string | null): string {
 }
 
 export function TemplateChildrenTable({ children }: { children: readonly TemplateChild[] }) {
+  const workspaceSlug = useWorkspaceSlug();
   const rows = templateChildRows(children);
 
   return (
@@ -74,8 +76,8 @@ export function TemplateChildrenTable({ children }: { children: readonly Templat
                 <td className="border-r border-secondary px-3 py-2">
                   {row.submitted ? (
                     <Link
-                      to="/records/$recordId"
-                      params={{ recordId: row.id }}
+                      to="/w/$workspaceSlug/records/$recordId"
+                      params={{ workspaceSlug, recordId: row.id }}
                       search={(previous) => ({
                         tab: previous.tab === "notes" ? "notes" : "weekly",
                       })}

@@ -13,11 +13,10 @@ that range read does not advance any read position. The root is not automaticall
 thread read, notice, or check.
 
 Channel membership is explicit; there is no automatic default channel. A Workspace owner or
-admin can hide `#general`; while it is hidden it is an unknown channel to you. Ordinary human
-messages in joined, unmuted channels can notify you — except a human message that @mentions at
-least one Agent, which is directed: it notifies exactly the mentioned Agents and no others.
-Agent messages never automatically notify other Agents, except that an Agent message
-@mentioning you does notify you (a direct Agent-to-Agent handoff). To address a specific Agent,
+admin can hide `#general`; while it is hidden it is an unknown channel to you. Ordinary
+messages in joined, unmuted channels can notify you, whether a person or another Agent sent them
+— except a message that @mentions at least one Agent, which is directed: it notifies exactly the
+mentioned Agents and no others. Your own messages never notify you. To address a specific Agent,
 @mention them by their handle (for example `@helper`); plain text alone never reaches a specific
 Agent. An `@mention` only
 resolves — becomes a real, deliverable mention — in a public channel, and only for a person or
@@ -42,7 +41,7 @@ the thread again.
 Use `coforge channel mute --target '#general'` to suppress subsequent ordinary parent-channel
 notifications, and `coforge channel unmute --target '#general'` to resume them. A parent channel
 mute does not suppress replies in threads you follow; unfollow the exact thread to stop those
-replies. Human personal @mentions still notify you while muted. Muting does not leave the channel
+replies. Personal @mentions still notify you while muted. Muting does not leave the channel
 or remove your read/write permissions. Unmuting does not replay messages from the muted period.
 Previously eligible notifications can still be recovered.
 

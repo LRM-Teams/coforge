@@ -81,12 +81,14 @@ test("the empty search page offers recent searches and frequently used places", 
     evaluate<string[]>(
       `[...document.querySelectorAll(${JSON.stringify(FREQUENT)})].map((card) => card.dataset.searchEntity)`,
     );
+  /** The dev user's Workspace pages, `/en/w/<slug>`; set once its membership is read. */
+  let workspacePath = "";
   async function openHome() {
-    await browser("open", `${origin}/en/search`);
+    await browser("open", `${origin}${workspacePath}/search`);
     await waitFor(`document.activeElement?.type === "search"`);
   }
   async function searchFor(query: string) {
-    await browser("open", `${origin}/en/search?q=${encodeURIComponent(query)}`);
+    await browser("open", `${origin}${workspacePath}/search?q=${encodeURIComponent(query)}`);
   }
 
   const channelA = seededUuid("e2e-search-home:channel-a");
@@ -95,7 +97,9 @@ test("the empty search page offers recent searches and frequently used places", 
   try {
     const membership = await db.workspaceMembership.findFirstOrThrow({
       where: { userId: DEV_BROWSER_USER.id },
+      include: { workspace: { select: { slug: true } } },
     });
+    workspacePath = `/en/w/${membership.workspace.slug}`;
     const workspaceId = membership.workspaceId;
     await db.conversation.deleteMany({ where: { id: { in: [channelA, channelB] } } });
     await db.conversation.deleteMany({
@@ -133,7 +137,7 @@ test("the empty search page offers recent searches and frequently used places", 
     await searchFor(phrase);
     await waitFor(`document.querySelector('[data-search-message-id="${message.id}"]') !== null`);
     await browser("dblclick", `[data-search-message-id="${message.id}"]`);
-    await waitFor(`location.pathname === "/en/messages/channels/${channelA}"`);
+    await waitFor(`location.pathname === "${workspacePath}/channel/${channelA}"`);
 
     // Opening a match records the typed text and the match; the same search in another case
     // replaces the older entry instead of adding one.
@@ -143,7 +147,7 @@ test("the empty search page offers recent searches and frequently used places", 
         `document.querySelector('[data-search-entity="channel:${channelB}"]') !== null`,
       );
       await browser("dblclick", `[data-search-entity="channel:${channelB}"]`);
-      await waitFor(`location.pathname === "/en/messages/channels/${channelB}"`);
+      await waitFor(`location.pathname === "${workspacePath}/channel/${channelB}"`);
     }
 
     // The empty page lists both, newest first; the channel opened twice ranks first. A reload
@@ -167,7 +171,7 @@ test("the empty search page offers recent searches and frequently used places", 
       `document.querySelector('${FREQUENT}[data-search-entity="channel:${channelA}"]') !== null`,
     );
     await browser("dblclick", `${FREQUENT}[data-search-entity="channel:${channelA}"]`);
-    await waitFor(`location.pathname === "/en/messages/channels/${channelA}"`);
+    await waitFor(`location.pathname === "${workspacePath}/channel/${channelA}"`);
 
     // One entry can be removed, then the rest cleared; the frequently used places stay.
     await openHome();
@@ -217,7 +221,9 @@ test("frequently used shows ten usable places and keeps opens from a clock sligh
   try {
     const membership = await db.workspaceMembership.findFirstOrThrow({
       where: { userId: DEV_BROWSER_USER.id },
+      include: { workspace: { select: { slug: true } } },
     });
+    const workspacePath = `/en/w/${membership.workspace.slug}`;
     const workspaceId = membership.workspaceId;
     await db.conversation.deleteMany({ where: { id: { in: ids } } });
     await db.conversation.createMany({
@@ -244,12 +250,12 @@ test("frequently used shows ten usable places and keeps opens from a clock sligh
     const usageKey = `coforge:search-usage:${workspaceId}:${DEV_BROWSER_USER.id}`;
 
     await browser("set", "viewport", "1440", "900");
-    await browser("open", `${origin}/en/search`);
+    await browser("open", `${origin}${workspacePath}/search`);
     await browser(
       "eval",
       `localStorage.clear(); localStorage.setItem(${JSON.stringify(usageKey)}, ${JSON.stringify(JSON.stringify(usage))})`,
     );
-    await browser("open", `${origin}/en/search`);
+    await browser("open", `${origin}${workspacePath}/search`);
     // The archived channel is left out and the next place fills its slot: ten cards, 1–10.
     await waitFor(`document.querySelectorAll(${JSON.stringify(FREQUENT)}).length === 10`);
     const cards = await evaluate<string[]>(
@@ -259,7 +265,7 @@ test("frequently used shows ten usable places and keeps opens from a clock sligh
 
     // Opening another place keeps the open stamped slightly ahead.
     await browser("dblclick", `${FREQUENT}[data-search-entity="channel:${ids[5]}"]`);
-    await waitFor(`location.pathname === "/en/messages/channels/${ids[5]}"`);
+    await waitFor(`location.pathname === "${workspacePath}/channel/${ids[5]}"`);
     const stored = await evaluate<Record<string, number[]>>(
       `JSON.parse(localStorage.getItem(${JSON.stringify(usageKey)}))`,
     );

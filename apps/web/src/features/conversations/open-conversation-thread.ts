@@ -35,9 +35,12 @@ type ConversationThreadSearch = {
  */
 export function useOpenConversationThread() {
   const router = useRouter();
-  const search = useSearch({ strict: false });
-  const searchThreadRootId =
-    typeof search.threadRootId === "string" ? search.threadRootId : undefined;
+  // Only the field it reads: another param changing (a search query typed beside a preview) does
+  // not re-render the conversation.
+  const searchThreadRootId = useSearch({
+    strict: false,
+    select: (search) => (typeof search.threadRootId === "string" ? search.threadRootId : undefined),
+  });
   const openThread = useCallback(
     (threadRootId: string, options?: { replace?: boolean }) => {
       if (!options?.replace && searchThreadRootId === threadRootId) return;
@@ -114,8 +117,10 @@ type ConversationTaskSearch = { task?: unknown };
  */
 export function useOpenConversationTask() {
   const router = useRouter();
-  const search = useSearch({ strict: false });
-  const openTaskNumber = typeof search.task === "number" ? search.task : undefined;
+  const openTaskNumber = useSearch({
+    strict: false,
+    select: (search) => (typeof search.task === "number" ? search.task : undefined),
+  });
   const openTask = useCallback(
     (task: number) => {
       if (openTaskNumber === task) return;
@@ -151,8 +156,10 @@ export function useOpenConversationTask() {
  */
 export function useConversationPositionJump() {
   const router = useRouter();
-  const search = useSearch({ strict: false });
-  const jumpMessageId = typeof search.message === "string" ? search.message : undefined;
+  const jumpMessageId = useSearch({
+    strict: false,
+    select: (search) => (typeof search.message === "string" ? search.message : undefined),
+  });
   const clearJumpMessage = useCallback(() => {
     void router.navigate({
       to: ".",

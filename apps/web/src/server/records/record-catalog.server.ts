@@ -1,5 +1,5 @@
 import type { Prisma, PrismaClient } from "#src/generated/prisma/client";
-import { AppError } from "#src/lib/app-error";
+import { AppError, isAppError } from "#src/lib/app-error";
 import { workspaceUserAvatarUrl } from "#src/server/db/repositories/user-profile.repositories.server";
 import {
   currentIsoWeek,
@@ -7,6 +7,7 @@ import {
   isAssignmentUnread,
   isAutoSendCancelled,
   isWeekSendDismissed,
+  withoutWeekSendDismissed,
   isValidTemplateName,
   isValidIsoWeekNumber,
   isHourlySendTime,
@@ -21,6 +22,7 @@ import {
 } from "#src/features/records/records-content";
 import {
   looksLikeCollectAgainRequest,
+  looksLikeFormatTemplateSendRequest,
   looksLikeMemberGenerateOfferAccept,
   looksLikeMemberReportRuleIntent,
   looksLikeSynthesizeWeeklyReportRequest,
@@ -59,6 +61,43 @@ function asStringArray(value: unknown): string[] {
   return Array.isArray(value)
     ? value.filter((item): item is string => typeof item === "string")
     : [];
+}
+
+function templateListItem(template: {
+  id: string;
+  name: string;
+  frequency: string;
+  sendTime: string;
+  sendWeekday: number;
+  dimensions: unknown;
+  mainTitles: unknown;
+  allMembers: boolean;
+  applied: boolean;
+  scheduleEnabled: boolean;
+  updatedAt: Date;
+  recipients: Array<{
+    user: { id: string; username: string; displayName: string | null };
+  }>;
+}) {
+  return {
+    id: template.id,
+    name: template.name,
+    frequency: template.frequency,
+    sendTime: template.sendTime,
+    sendWeekday: template.sendWeekday,
+    dimensions: asStringArray(template.dimensions),
+    mainTitles: asStringArray(template.mainTitles),
+    sections: parseTemplateSections(template.dimensions),
+    allMembers: template.allMembers,
+    active: template.applied,
+    scheduleEnabled: template.scheduleEnabled,
+    updatedAt: template.updatedAt.toISOString(),
+    recipients: template.recipients.map((row) => ({
+      userId: row.user.id,
+      username: row.user.username,
+      displayName: row.user.displayName ?? row.user.username,
+    })),
+  };
 }
 
 async function requireMembership(db: Db, workspaceId: string, userId: string) {
@@ -2071,7 +2110,13 @@ export class RecordCatalog {
 
     const report = await this.db.weeklyReport.findFirst({
       where: { id: input.reportId, workspaceId: input.workspaceId },
-      select: { id: true, authorId: true, content: true, kind: true },
+      select: {
+        id: true,
+        authorId: true,
+        content: true,
+        kind: true,
+        workspace: { select: { slug: true } },
+      },
     });
     if (!report) throw new AppError("NOT_FOUND");
     if (
@@ -2104,7 +2149,7 @@ export class RecordCatalog {
               workspaceId: input.workspaceId,
               overviewReportId: report.id,
             }),
-            report.id,
+            { workspaceSlug: report.workspace.slug, overviewReportId: report.id },
           )
         : markdown;
     const next = await writeKeyPointExtraction(this.db, {
@@ -2183,25 +2228,36 @@ export class RecordCatalog {
         },
       },
     });
-    return templates.map((template) => ({
-      id: template.id,
-      name: template.name,
-      frequency: template.frequency,
-      sendTime: template.sendTime,
-      sendWeekday: template.sendWeekday,
-      dimensions: asStringArray(template.dimensions),
-      mainTitles: asStringArray(template.mainTitles),
-      sections: parseTemplateSections(template.dimensions),
-      allMembers: template.allMembers,
-      active: template.applied,
-      scheduleEnabled: template.scheduleEnabled,
-      updatedAt: template.updatedAt.toISOString(),
-      recipients: template.recipients.map((row) => ({
-        userId: row.user.id,
-        username: row.user.username,
-        displayName: row.user.displayName ?? row.user.username,
-      })),
-    }));
+    return templates.map((template) => templateListItem(template));
+  }
+
+  /** Settings row behind a viewer's own format, for the template-detail dialog. */
+  async loadTemplateForReport(input: { workspaceId: string; userId: string; reportId: string }) {
+    await requireMembership(this.db, input.workspaceId, input.userId);
+    const report = await this.db.weeklyReport.findFirst({
+      where: {
+        id: input.reportId,
+        workspaceId: input.workspaceId,
+        authorId: input.userId,
+        kind: "template",
+      },
+      select: { settingsId: true },
+    });
+    if (!report?.settingsId) throw new AppError("NOT_FOUND");
+    const template = await this.db.weeklyReportTemplate.findFirst({
+      where: {
+        id: report.settingsId,
+        workspaceId: input.workspaceId,
+        ownerId: input.userId,
+      },
+      include: {
+        recipients: {
+          include: { user: { select: { id: true, username: true, displayName: true } } },
+        },
+      },
+    });
+    if (!template) throw new AppError("NOT_FOUND");
+    return templateListItem(template);
   }
 
   /**
@@ -2731,10 +2787,10 @@ export class RecordCatalog {
   }
 
   /**
-   * When the live format enters a sendable window, post the T2 offer-send card
-   * once per report for the current ISO week (the open session that loads first).
-   * Other sessions must not grow their own send/cancel buttons — leave those
-   * threads empty rather than stuffing a ready/cancelled tip.
+   * When the live format enters a sendable window, post one offer-send card for
+   * the current ISO week. Earlier weeks' cards stay in the thread as history.
+   * Another session that already has this week's card does not grow its own
+   * send/cancel buttons.
    */
   private async ensureFormatSendOfferIntro(input: {
     workspaceId: string;
@@ -2744,10 +2800,12 @@ export class RecordCatalog {
     existing: Awaited<ReturnType<RecordCatalog["listComments"]>>;
     now?: Date;
   }) {
-    const hasOfferSend = input.existing.some(
-      (row) => parseRecordAssistantPayload(row.payload)?.kind === "offer-send",
-    );
-    if (hasOfferSend) return input.existing;
+    const { year, week } = currentIsoWeek(zonedCalendarDate(input.now ?? new Date()));
+    const sessionHasCurrentWeek = input.existing.some((row) => {
+      const payload = parseRecordAssistantPayload(row.payload);
+      return payload?.kind === "offer-send" && payload.year === year && payload.week === week;
+    });
+    if (sessionHasCurrentWeek) return input.existing;
 
     if (
       await this.hasCurrentWeekOfferSend({
@@ -3024,6 +3082,118 @@ export class RecordCatalog {
     });
   }
 
+  /**
+   * Send (or resend) the owned weekly-report template from side chat.
+   * Clears this week's cancel stamp first, so a dismissed week can go out again.
+   * Returns null when the subject is not that user's live template.
+   */
+  async sendFormatTemplateFromSideChat(input: {
+    workspaceId: string;
+    userId: string;
+    subjectType: "report" | "cycle";
+    subjectId: string;
+    body: string;
+    assistantSessionId: string;
+    now?: Date;
+  }) {
+    if (input.subjectType !== "report" || !looksLikeFormatTemplateSendRequest(input.body)) {
+      return null;
+    }
+    const report = await this.db.weeklyReport.findFirst({
+      where: {
+        id: input.subjectId,
+        workspaceId: input.workspaceId,
+        kind: "template",
+        authorId: input.userId,
+      },
+      select: { id: true, content: true, settingsId: true },
+    });
+    if (!report) return null;
+
+    await this.addUserComment({
+      workspaceId: input.workspaceId,
+      userId: input.userId,
+      subjectType: "report",
+      subjectId: input.subjectId,
+      body: input.body,
+      assistantSessionId: input.assistantSessionId,
+    });
+
+    const now = input.now ?? new Date();
+    const { year, week } = currentIsoWeek(now);
+    const sourceContent = asReportContent(report.content);
+    const cleared = withoutWeekSendDismissed(sourceContent, year, week);
+    const alreadySent = Boolean(
+      report.settingsId &&
+      (await this.db.weeklyReport.findFirst({
+        where: {
+          workspaceId: input.workspaceId,
+          authorId: input.userId,
+          kind: "template",
+          settingsId: report.settingsId,
+          cycle: { year, week },
+          submissions: { some: { kind: "member" } },
+        },
+        select: { id: true },
+      })),
+    );
+
+    if (alreadySent) {
+      if (isAutoSendCancelled(sourceContent, year, week)) {
+        await this.db.weeklyReport.update({
+          where: { id: report.id },
+          data: { content: cleared as unknown as Prisma.InputJsonValue },
+        });
+      }
+      await this.writeAssistantComment({
+        workspaceId: input.workspaceId,
+        subjectType: "report",
+        subjectId: input.subjectId,
+        assistantSessionId: input.assistantSessionId,
+        body: "本周周报模板已经发送过了。",
+      });
+      return this.listComments({
+        workspaceId: input.workspaceId,
+        userId: input.userId,
+        subjectType: "report",
+        subjectId: input.subjectId,
+        assistantSessionId: input.assistantSessionId,
+      });
+    }
+
+    try {
+      const sent = await this.sendWeeklyAssignments({
+        workspaceId: input.workspaceId,
+        userId: input.userId,
+        sourceReportId: report.id,
+        content: cleared,
+        now,
+      });
+      await this.writeAssistantComment({
+        workspaceId: input.workspaceId,
+        subjectType: "report",
+        subjectId: input.subjectId,
+        assistantSessionId: input.assistantSessionId,
+        body: `已重新发送 ${sent.title}，共 ${sent.assignmentCount} 位成员。`,
+      });
+    } catch (error) {
+      await this.writeAssistantComment({
+        workspaceId: input.workspaceId,
+        subjectType: "report",
+        subjectId: input.subjectId,
+        assistantSessionId: input.assistantSessionId,
+        body: formatTemplateSendFailure(error),
+      });
+    }
+    return this.listComments({
+      workspaceId: input.workspaceId,
+      userId: input.userId,
+      subjectType: "report",
+      subjectId: input.subjectId,
+      assistantSessionId: input.assistantSessionId,
+    });
+  }
+
   async postSideChat(input: {
     workspaceId: string;
     userId: string;
@@ -3032,6 +3202,8 @@ export class RecordCatalog {
     body: string;
     assistantSessionId: string;
   }) {
+    const sent = await this.sendFormatTemplateFromSideChat(input);
+    if (sent) return sent;
     await this.addUserComment(input);
     if (input.subjectType === "report" && looksLikeMemberGenerateOfferAccept(input.body)) {
       const assignment = await this.db.weeklyReport.findFirst({
@@ -3417,6 +3589,18 @@ export class RecordCatalog {
     const created = await this.db.recordComment.create({ data });
     return { id: created.id, createdAt: created.createdAt.toISOString() };
   }
+}
+
+function formatTemplateSendFailure(error: unknown): string {
+  if (!isAppError(error)) return "发送周报模板失败，请稍后重试。";
+  if (error.errorId === "weekly-send-no-settings") {
+    return "还没有可用的发送设置，请先配置收件人。";
+  }
+  if (error.errorId === "weekly-send-no-recipients") {
+    return "没有可发送的收件人，请先配置收件人。";
+  }
+  if (error.code === "NOT_FOUND") return "找不到可发送的周报模板。";
+  return "发送周报模板失败，请稍后重试。";
 }
 
 /** ISO (year, week) pairs that intersect the given calendar month. */

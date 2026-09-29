@@ -1,12 +1,15 @@
-import { useMemo, type ComponentPropsWithoutRef, type KeyboardEvent } from "react";
+import { useMemo, type ComponentPropsWithoutRef, type ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
 import Markdown, { type Components, type ExtraProps, type Options } from "react-markdown";
 import rehypeSanitize from "rehype-sanitize";
 import type { Element } from "hast";
 
+import { chipControl } from "#src/lib/chip-control";
 import { MESSAGE_REMARK_PLUGINS, escapeLiteralHtml } from "#src/lib/message-syntax";
 import { mentionHandlesByToken, rehypeReferenceChips, type ChipMention } from "./message-markdown";
 import type { MentionRef } from "./mention-text";
+import { TaskReference } from "#src/features/tasks/task-reference";
+import { useWorkspaceSlug } from "#src/features/workspaces/workspace-route";
 import "./message-markdown.css";
 
 /**
@@ -35,7 +38,6 @@ export function MessageBody({
   plainMentions,
   viewerHandle,
   onOpenAgentProfile,
-  taskReferences,
   onOpenTask,
   channelNames,
 }: {
@@ -49,10 +51,7 @@ export function MessageBody({
    * the conversation owns that slot; absent, Agent chips render as inert highlights (the
    * previous behavior), never dead controls. */
   onOpenAgentProfile?: (agentId: string) => void;
-  /** The conversation's own task numbers: a stored task reference naming one of them becomes a
-   * clickable chip; any other reads as the text `task #N`. */
-  taskReferences?: ReadonlySet<number>;
-  /** Opens a task-reference chip's detail popup. Absent, a reference stays a plain highlight. */
+  /** Opens a task reference's detail popup. Absent, a known Task's badge is not a control. */
   onOpenTask?: (number: number) => void;
   /** Every channel of the Workspace, id → current name (closed ones included), for a host that can
    * navigate: a stored channel reference whose id is listed becomes a link to that channel under
@@ -78,19 +77,18 @@ export function MessageBody({
                 mentions: handles,
                 viewerHandle,
                 plainMentions,
-                taskNumbers: taskReferences,
                 channelNames,
               },
             ],
           ]
         : [rehypeSanitize],
-    [hasReference, handles, viewerHandle, plainMentions, taskReferences, channelNames],
+    [hasReference, handles, viewerHandle, plainMentions, channelNames],
   );
   // The `span` override recognises the chips `rehypeReferenceChips` injects: an Agent mention chip
-  // (`data-mention-agent-id`) and a task-reference chip (`data-task-reference-number`) become
-  // accessible buttons, a channel-reference chip (`data-channel-id`) a link to the channel, and a
-  // thread-reference chip (`data-thread-root-id`) a link that opens the thread in its channel.
-  // Every other span passes through.
+  // (`data-mention-agent-id`) becomes an accessible button, a task reference
+  // (`data-task-reference-number`) its Task's badge (`TaskReference`), a channel-reference chip
+  // (`data-channel-id`) a link to the channel, and a thread-reference chip (`data-thread-root-id`) a
+  // link that opens the thread in its channel. Every other span passes through.
   const components = useMemo<Components>(
     () => ({ ...MARKDOWN_COMPONENTS, span: chipSpan(onOpenAgentProfile, onOpenTask) }),
     [onOpenAgentProfile, onOpenTask],
@@ -124,16 +122,62 @@ const MARKDOWN_COMPONENTS = {
   ),
 };
 
+/** A channel or thread chip's router link, in the Workspace on screen. Its own component so only a
+ * message that carries such a chip reads the route. */
+function ChannelChipLink({
+  channelId,
+  threadRootId,
+  className,
+  children,
+}: {
+  channelId: string;
+  threadRootId?: string;
+  className?: string;
+  children: ReactNode;
+}) {
+  const workspaceSlug = useWorkspaceSlug();
+  if (threadRootId === undefined) {
+    return (
+      // `data-channel-id` stays on the anchor so a copied selection reads it back as `#name`
+      // (see `selection-copy.ts`), not as a Markdown link to the app's URL.
+      <Link
+        to="/w/$workspaceSlug/channel/$channelId"
+        params={{ workspaceSlug, channelId }}
+        className={className}
+        data-channel-id={channelId}
+      >
+        {children}
+      </Link>
+    );
+  }
+  return (
+    // The data attributes stay on the anchor for the same reason as a channel link's: a copied
+    // selection reads the chip back as `#name:<8 hex>` (see `selection-copy.ts`).
+    <Link
+      to="/w/$workspaceSlug/channel/$channelId"
+      params={{ workspaceSlug, channelId }}
+      search={{ threadRootId }}
+      // Opening a thread in the channel already on screen keeps the stream where it is, as the
+      // thread opener does.
+      resetScroll={false}
+      className={className}
+      data-thread-channel-id={channelId}
+      data-thread-root-id={threadRootId}
+    >
+      {children}
+    </Link>
+  );
+}
+
 /**
- * The `span` renderer. An Agent mention chip carries `data-mention-agent-id` and a task-reference
- * chip that names a conversation task carries `data-task-reference-number` (see
- * `message-markdown.ts`); when the matching handler is provided each becomes a keyboard- and
- * pointer-accessible control. A channel-reference chip carries `data-channel-id` and becomes a
- * router link to that channel: it navigates, so it is a real link (open in a new tab, copy the
- * address) rather than a button. A thread-reference chip carries `data-thread-channel-id` and
- * `data-thread-root-id` and becomes a router link to that channel with the thread pane open
- * (`?threadRootId=`), the same URL state the thread opener writes. All other spans — including human mention chips and task chips
- * whose task is gone — render unchanged.
+ * The `span` renderer. An Agent mention chip carries `data-mention-agent-id` and becomes a
+ * keyboard- and pointer-accessible control when `onOpenAgentProfile` is provided. A task reference
+ * carries `data-task-reference-number` and renders as `TaskReference`. A channel-reference chip
+ * carries `data-channel-id` and becomes a router link to that channel: it navigates, so it is a
+ * real link (open in a new tab, copy the address) rather than a button. A thread-reference chip
+ * carries `data-thread-channel-id` and `data-thread-root-id` and becomes a router link to that
+ * channel with the thread pane open (`?threadRootId=`), the same URL state the thread opener
+ * writes. All other spans, human mention chips included, render unchanged.
  */
 function chipSpan(
   onOpenAgentProfile?: (agentId: string) => void,
@@ -150,68 +194,40 @@ function chipSpan(
     const channelId = (props as Record<string, unknown>)["data-channel-id"];
     if (typeof channelId === "string") {
       return (
-        // `data-channel-id` stays on the anchor so a copied selection reads it back as `#name`
-        // (see `selection-copy.ts`), not as a Markdown link to the app's URL.
-        <Link
-          to="/messages/channels/$channelId"
-          params={{ channelId }}
-          className={className}
-          data-channel-id={channelId}
-        >
+        <ChannelChipLink channelId={channelId} className={className}>
           {children}
-        </Link>
+        </ChannelChipLink>
       );
     }
     const threadChannelId = (props as Record<string, unknown>)["data-thread-channel-id"];
     const threadRootId = (props as Record<string, unknown>)["data-thread-root-id"];
     if (typeof threadChannelId === "string" && typeof threadRootId === "string") {
       return (
-        // The data attributes stay on the anchor for the same reason as a channel link's: a copied
-        // selection reads the chip back as `#name:<8 hex>` (see `selection-copy.ts`).
-        <Link
-          to="/messages/channels/$channelId"
-          params={{ channelId: threadChannelId }}
-          search={{ threadRootId }}
-          // Opening a thread in the channel already on screen keeps the stream where it is, as
-          // the thread opener does.
-          resetScroll={false}
+        <ChannelChipLink
+          channelId={threadChannelId}
+          threadRootId={threadRootId}
           className={className}
-          data-thread-channel-id={threadChannelId}
-          data-thread-root-id={threadRootId}
         >
           {children}
-        </Link>
+        </ChannelChipLink>
+      );
+    }
+    const taskNumber = (props as Record<string, unknown>)["data-task-reference-number"];
+    if (typeof taskNumber === "number") {
+      return (
+        <TaskReference {...props} number={taskNumber} onOpenTask={onOpenTask}>
+          {children}
+        </TaskReference>
       );
     }
     const agentId = (props as Record<string, unknown>)["data-mention-agent-id"];
-    const taskNumber = (props as Record<string, unknown>)["data-task-reference-number"];
-    const openTask =
-      typeof taskNumber === "number" && onOpenTask ? () => onOpenTask(taskNumber) : undefined;
-    const open =
+    const control = chipControl(
       typeof agentId === "string" && onOpenAgentProfile
         ? () => onOpenAgentProfile(agentId)
-        : openTask;
-    if (open) {
-      return (
-        <span
-          {...props}
-          className={className}
-          role="button"
-          tabIndex={0}
-          onClick={open}
-          onKeyDown={(event: KeyboardEvent<HTMLSpanElement>) => {
-            if (event.key === "Enter" || event.key === " ") {
-              event.preventDefault();
-              open();
-            }
-          }}
-        >
-          {children}
-        </span>
-      );
-    }
+        : undefined,
+    );
     return (
-      <span {...props} className={className}>
+      <span {...props} {...control} className={className}>
         {children}
       </span>
     );

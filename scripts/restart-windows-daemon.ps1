@@ -163,6 +163,71 @@ function Clear-StrandedLaunchHold {
   return $true
 }
 
+function Clear-StaleUpgradeResults {
+  # Completed remote/local upgrade receipts accumulate. Windows Coordinator startup used to
+  # schtasks /Delete each one serially (~1s each) before opening local RPC, blowing the ~10s
+  # handshake budget. Prune them before __install-local so even an older binary can start.
+  $dir = Join-Path $env:USERPROFILE ".coforge\computer\install\upgrade-results"
+  if (-not (Test-Path -LiteralPath $dir)) { return $false }
+  $files = @(Get-ChildItem -LiteralPath $dir -Filter "*.result.json" -ErrorAction SilentlyContinue)
+  if ($files.Count -eq 0) { return $false }
+  Write-Host "==> Removing $($files.Count) stale upgrade-results before Windows reload"
+  foreach ($f in $files) {
+    Remove-Item -Force -LiteralPath $f.FullName -ErrorAction SilentlyContinue
+  }
+  return $true
+}
+
+function Stop-LocalCoforgeDaemonTree {
+  # schtasks /End is not enough on Windows: the Coordinator PID often survives and keeps
+  # supervisor.lock, so the next __install-local fails with process-tree shutdown timeout.
+  $task = "CoForge Daemon"
+  Write-Host "==> Force-stopping local CoForge Daemon tree before install"
+  schtasks /End /TN $task 2>$null | Out-Null
+  $procs = @(Get-CimInstance Win32_Process -Filter "Name = 'coforge-computer.exe'" -ErrorAction SilentlyContinue |
+    Where-Object { $_.CommandLine -match '__daemon|__workspace-daemon' })
+  foreach ($p in $procs) {
+    try { Stop-Process -Id $p.ProcessId -Force -ErrorAction Stop } catch { }
+  }
+  $owner = Join-Path $env:USERPROFILE ".coforge\daemon\supervisor.lock\owner"
+  Remove-Item -Force -LiteralPath $owner -ErrorAction SilentlyContinue
+  Start-Sleep -Milliseconds 500
+}
+
+function Clear-WorkspaceHealthLatches {
+  # Intentional Windows reload/upgrade can stop Workspace children several times inside the
+  # 60s crash window. The durable health journal then latches degraded and Coordinator
+  # reconcile refuses to start them — which also delays local RPC readiness for this script.
+  # Operator reload is allowed to reset that latch; real crash loops still re-trip it.
+  $root = Join-Path $env:USERPROFILE ".coforge\daemon\workspaces"
+  if (-not (Test-Path -LiteralPath $root)) { return $false }
+  $cleared = 0
+  foreach ($dir in @(Get-ChildItem -LiteralPath $root -Directory -ErrorAction SilentlyContinue)) {
+    $health = Join-Path $dir.FullName "health.json"
+    if (-not (Test-Path -LiteralPath $health)) { continue }
+    try {
+      $j = (Get-Content -LiteralPath $health -Raw -ErrorAction Stop) | ConvertFrom-Json
+      $crashCount = 0
+      if ($j.crashes) { $crashCount = @($j.crashes).Count }
+      $needs =
+        [bool]$j.live -or
+        ($crashCount -gt 0) -or
+        ($null -ne $j.PSObject.Properties['degraded'] -and $null -ne $j.degraded) -or
+        ($null -ne $j.PSObject.Properties['terminal'] -and $null -ne $j.terminal)
+      if (-not $needs) { continue }
+      Set-Content -LiteralPath $health -Value '{"schemaVersion":1,"live":false,"crashes":[]}' -NoNewline
+      $cleared++
+    } catch {
+      # Best-effort: a corrupt journal already reads as healthy in Daemon.
+    }
+  }
+  if ($cleared -gt 0) {
+    Write-Host "==> Cleared $cleared Workspace health latch(es) before Windows reload"
+    return $true
+  }
+  return $false
+}
+
 function Test-SupervisorRpcHealthy {
   param([string]$Exe)
   if (-not (Test-Path -LiteralPath $Exe)) { return $false }
@@ -221,6 +286,8 @@ function Ensure-HealthySupervisorBeforeInstall {
   if (-not $hasEnabled) { return }
 
   Clear-StaleSupervisorLock
+  $null = Clear-WorkspaceHealthLatches
+  $null = Clear-StaleUpgradeResults
   $clearedHold = [bool](Clear-StrandedLaunchHold)
   $active = Join-Path $env:USERPROFILE ".coforge\computer\install\active\coforge-computer.exe"
   if (-not (Test-Path -LiteralPath $active)) {
@@ -235,6 +302,7 @@ $Name`: enabled Workspace bindings exist but no active Computer binary is instal
   $needRecover = $clearedHold -or -not (Test-SupervisorRpcHealthy -Exe $active)
   if ($needRecover) {
     Write-Host "==> Recovering Computer supervisor before upgrade..."
+    Stop-LocalCoforgeDaemonTree
     Install-AndRunDaemonTask -Exe $active -Task $Task -EndFirst
   }
 
@@ -447,6 +515,10 @@ $Name`: Web backend is not reachable at $webUrl
     }
 
     $version = (Get-Content -LiteralPath $manifest -Raw | ConvertFrom-Json).version
+    # Drop leftover upgrade receipts / holds before the Coordinator is asked to upgrade itself.
+    $null = Clear-StaleUpgradeResults
+    $null = Clear-StrandedLaunchHold
+    $null = Clear-WorkspaceHealthLatches
     # __install-local upgrades through the Coordinator when bindings exist; a dead
     # supervisor.lock or stopped task fails with "no healthy supervisor".
     Ensure-HealthySupervisorBeforeInstall -Task $TaskName
@@ -457,8 +529,11 @@ $Name`: Web backend is not reachable at $webUrl
     if ($LASTEXITCODE -ne 0) {
       throw @"
 $Name`: local install failed (exit $LASTEXITCODE).
-  If you see 'no healthy supervisor', COFORGE_E2E_WEB_URL likely does not match
-  the running Daemon origin (localhost vs 127.0.0.1 differ).
+  Common Windows causes (not Web URL):
+    - old supervisor did not confirm process-tree shutdown (schtasks /End left Coordinator up)
+    - local handshake timeout (leftover CoForge Upgrade tasks / upgrade-results)
+  Check: schtasks /Query /TN 'CoForge Daemon' /V /FO LIST
+  Then: & '$env:USERPROFILE\.coforge\computer\install\active\coforge-computer.exe' status --json
   Current COFORGE_E2E_WEB_URL=$webUrl
   Bound URLs: $env:USERPROFILE\.coforge\daemon\bindings.json
 "@
@@ -521,6 +596,9 @@ if ($NoRestart) {
 $exe = if ($installed) { $installed.Exe } else { Resolve-CoforgeComputerExe -Override $ComputerExe }
 Write-Host "Using: $exe"
 
+# Reset crash-loop latches before /End so the replacement Coordinator does not refuse starts.
+$null = Clear-WorkspaceHealthLatches
+
 if ($Start) {
   Write-Host "==> Starting Computer supervisor (Coordinator)..."
   Install-AndRunDaemonTask -Exe $exe -Task $TaskName
@@ -532,7 +610,8 @@ if ($Start) {
 # schtasks only brings up the Coordinator. Workspace WSS children are separate processes;
 # without an explicit start (or waiting for reconcile) the Web UI stays offline after /End.
 Clear-StaleSupervisorLock
-if (-not (Wait-SupervisorRpcHealthy -Exe $exe -TimeoutSeconds 45)) {
+$null = Clear-WorkspaceHealthLatches
+if (-not (Wait-SupervisorRpcHealthy -Exe $exe -TimeoutSeconds 60)) {
   $statusHint = (& $exe status --json 2>$null | Out-String).Trim()
   throw @"
 $Name`: Coordinator process started but local RPC never became reachable.
@@ -542,10 +621,10 @@ $Name`: Coordinator process started but local RPC never became reachable.
 "@
 }
 
-Write-Host "==> Ensuring Workspace runtimes are online..."
-& $exe start | Out-Host
+Write-Host "==> Restarting Workspace runtimes (clears any remaining health latch)..."
+& $exe restart | Out-Host
 if ($LASTEXITCODE -ne 0) {
-  throw "$Name`: coforge-computer start failed (exit $LASTEXITCODE) after supervisor restart"
+  throw "$Name`: coforge-computer restart failed (exit $LASTEXITCODE) after supervisor restart"
 }
 
 Write-Host ""

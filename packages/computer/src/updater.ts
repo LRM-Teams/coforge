@@ -12,7 +12,7 @@ import {
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { acquireProcessLock, isLockContention } from "@lrm/coforge-daemon";
-import { isValidReleaseVersion } from "@lrm/coforge-sdk/internal";
+import { isValidReleaseVersion, utf8Encoder, utf8Decoder } from "@lrm/coforge-sdk/internal";
 import { runInstallationSource } from "#src/release/installation-source";
 
 const CHECKSUM_PATTERN = /^[0-9a-f]{64}$/;
@@ -294,7 +294,7 @@ export class ComputerUpdater {
   #parseManifest(bytes: Uint8Array, expectedVersion: string): ReleaseManifest {
     let value: unknown;
     try {
-      value = JSON.parse(new TextDecoder().decode(bytes));
+      value = JSON.parse(utf8Decoder.decode(bytes));
     } catch {
       throw new UpdateError("UPDATE_FEED_INVALID", "manifest is not valid JSON");
     }
@@ -470,12 +470,12 @@ export class ComputerUpdater {
     const computerName = this.#target.startsWith("windows-")
       ? "coforge-computer.exe"
       : "coforge-computer";
-    const agentCli = new TextEncoder().encode(
+    const agentCli = utf8Encoder.encode(
       this.#target.startsWith("windows-")
         ? '@echo off\r\n"%~dp0coforge-computer.exe" __agent-cli %*\r\n'
         : '#!/bin/sh\nexec "${0%/*}/coforge-computer" __agent-cli "$@"\n',
     );
-    const githubCli = new TextEncoder().encode(
+    const githubCli = utf8Encoder.encode(
       this.#target.startsWith("windows-")
         ? '@echo off\r\n"%~dp0coforge-computer.exe" __agent-cli github gh %*\r\n'
         : '#!/bin/sh\nexec "${0%/*}/coforge-computer" __agent-cli github gh "$@"\n',

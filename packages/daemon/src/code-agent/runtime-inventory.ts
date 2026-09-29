@@ -152,59 +152,98 @@ export async function discoverExternalCodeAgents(
   const searchPath = codeAgentExecutableSearchPath(environment, platform);
   const cache = cacheDirectory ? await readInventoryCache(cacheDirectory) : undefined;
   let dirty = false;
-  for (const { provider, executable: name } of externalCodeAgents) {
-    if (requestedProvider && requestedProvider !== provider) continue;
-    try {
-      const executable =
-        (await probe.resolve?.(provider, name, searchPath)) ?? probe.which(name, searchPath);
-      if (!executable) {
-        logger.info("Code Agent executable was not found", {
-          event: "code_agent_runtime:not_found",
-          provider,
-          executable_name: name,
-          outcome: "unavailable",
-        });
-        continue;
-      }
-      const cacheKey = cache ? await fileStatCacheKey([executable]) : undefined;
-      const cached = cacheKey ? cache?.[provider] : undefined;
-      if (cacheKey && cached?.key === cacheKey && cached.runtime) {
-        // A cache entry written by an older daemon build must be re-validated against the
-        // current minimum before it is trusted; the executable itself has not changed, so a
-        // too-old cached version would only reproduce the same gate on a live re-probe.
-        if (
-          provider === RUNTIME_PROVIDER.KIRO &&
-          isKiroVersionUnsupported(cached.runtime.version)
-        ) {
-          logKiroVersionUnsupported(name, cached.runtime.version);
-          continue;
+  const results = await Promise.all(
+    externalCodeAgents
+      .filter(({ provider }) => !requestedProvider || requestedProvider === provider)
+      .map(async ({ provider, executable: name }) => {
+        let executable: string | undefined;
+        try {
+          executable =
+            (await probe.resolve?.(provider, name, searchPath)) ?? probe.which(name, searchPath);
+          if (!executable) {
+            logger.info("Code Agent executable was not found", {
+              event: "code_agent_runtime:not_found",
+              provider,
+              executable_name: name,
+              outcome: "unavailable",
+            });
+            return undefined;
+          }
+          const cacheKey = cache ? await fileStatCacheKey([executable]) : undefined;
+          const cached = cacheKey ? cache?.[provider] : undefined;
+          if (cacheKey && cached?.key === cacheKey && cached.runtime) {
+            // A cache entry written by an older daemon build must be re-validated against the
+            // current minimum before it is trusted; the executable itself has not changed, so a
+            // too-old cached version would only reproduce the same gate on a live re-probe.
+            if (
+              provider === RUNTIME_PROVIDER.KIRO &&
+              isKiroVersionUnsupported(cached.runtime.version)
+            ) {
+              logKiroVersionUnsupported(name, cached.runtime.version);
+              return undefined;
+            }
+            logger.info("Code Agent runtime probe served from cache", {
+              event: "code_agent_runtime:cache_hit",
+              provider,
+              executable_name: name,
+              outcome: "ok",
+            });
+            return { runtime: cached.runtime, cacheKey: undefined };
+          }
+          const runtime = await probeRuntimeVersion(provider, name, executable, probe);
+          if (runtime) return { runtime, cacheKey };
+          // A transient version/app-server failure must not make an installed runtime vanish
+          // from the Computer inventory. Keep the last successful result when the executable
+          // itself is unchanged; the next refresh will retry the live probe.
+          if (cached?.runtime) {
+            logger.warning("Code Agent runtime probe failed; using cached runtime", {
+              event: "code_agent_runtime:cache_fallback",
+              provider,
+              executable_name: name,
+              outcome: "degraded",
+            });
+            return { runtime: cached.runtime, cacheKey: undefined };
+          }
+          return undefined;
+        } catch (error) {
+          logger.warning("Code Agent runtime probe failed", {
+            event: "code_agent_runtime:probe_failed",
+            provider,
+            executable_name: name,
+            error_code: diagnosticErrorCode(error),
+            outcome: "unavailable",
+          });
+          // A transient probe failure must not erase an otherwise known installed runtime.
+          const fallbackCacheKey = executable
+            ? cache
+              ? await fileStatCacheKey([executable])
+              : undefined
+            : undefined;
+          const fallbackCached = fallbackCacheKey ? cache?.[provider] : undefined;
+          if (fallbackCached?.runtime) {
+            logger.warning("Code Agent runtime probe failed; using cached runtime", {
+              event: "code_agent_runtime:cache_fallback",
+              provider,
+              executable_name: name,
+              outcome: "degraded",
+            });
+            return { runtime: fallbackCached.runtime, cacheKey: undefined };
+          }
+          // An executable without a usable version is not available inventory.
+          return undefined;
         }
-        runtimes.push(cached.runtime);
-        logger.info("Code Agent runtime probe served from cache", {
-          event: "code_agent_runtime:cache_hit",
-          provider,
-          executable_name: name,
-          outcome: "ok",
-        });
-        continue;
-      }
-      const runtime = await probeRuntimeVersion(provider, name, executable, probe);
-      if (runtime) {
-        runtimes.push(runtime);
-        if (cache && cacheKey) {
-          cache[provider] = { ...cache[provider], key: cacheKey, runtime };
-          dirty = true;
-        }
-      }
-    } catch (error) {
-      logger.warning("Code Agent runtime probe failed", {
-        event: "code_agent_runtime:probe_failed",
-        provider,
-        executable_name: name,
-        error_code: diagnosticErrorCode(error),
-        outcome: "unavailable",
-      });
-      // An executable without a usable version is not available inventory.
+      }),
+  );
+  for (const result of results) {
+    if (!result) continue;
+    runtimes.push(result.runtime);
+    if (cache && result.cacheKey) {
+      cache[result.runtime.provider] = {
+        ...cache[result.runtime.provider],
+        key: result.cacheKey,
+        runtime: result.runtime,
+      };
+      dirty = true;
     }
   }
   if (cache && dirty && cacheDirectory) await writeInventoryCache(cacheDirectory, cache);

@@ -14,14 +14,15 @@ import {
   Check,
   CheckDone01,
   Hash02,
+  Inbox01,
   Mail01,
   MessageTextSquare01,
 } from "@untitledui/icons";
 import { Link as AriaLink } from "react-aria-components";
 
+import { Tab, TabList, Tabs } from "#src/components/application/tabs/tabs";
 import { Avatar } from "#src/components/base/avatar/avatar";
 import { Badge } from "#src/components/base/badges/badges";
-import { ButtonGroup, ButtonGroupItem } from "#src/components/base/button-group/button-group";
 import { Button } from "#src/components/base/buttons/button";
 import { ButtonUtility } from "#src/components/base/buttons/button-utility";
 import { Dropdown } from "#src/components/base/dropdown/dropdown";
@@ -52,6 +53,7 @@ import { useRefreshSidebarLists } from "#src/features/conversations/sidebar-list
 import { TASK_STATUS_COLOR } from "#src/features/tasks/task-workflow";
 import { cn } from "#src/lib/utils";
 import { DeletedAgentBadge } from "#src/features/agents/deleted-agent";
+import { useWorkspaceSlug } from "#src/features/workspaces/workspace-route";
 import { m } from "#src/paraglide/messages";
 import type { ActivityInboxItem } from "#src/server/inbox/activity-inbox.server";
 import {
@@ -68,7 +70,7 @@ import {
 } from "./activity-inbox-queries";
 import type { ActivityInboxFilter } from "./activity-inbox.schemas";
 
-const appRoute = getRouteApi("/_app");
+const appRoute = getRouteApi("/w/$workspaceSlug");
 
 /**
  * The Activity page: the viewer's channels, direct messages and followed threads with activity
@@ -101,7 +103,7 @@ export function ActivityInboxView({
       .flatMap((page) => page.items)
       .filter((item) => !seen.has(item.key) && seen.add(item.key));
   }, [query.data]);
-  const totals = query.data?.pages[0];
+  const firstPage = query.data?.pages[0];
 
   const refreshList = useCallback(
     () => queryClient.invalidateQueries({ queryKey: ACTIVITY_INBOX_QUERY_PREFIX }),
@@ -117,10 +119,14 @@ export function ActivityInboxView({
 
   // A failed change is shown in the toolbar with its retry until it succeeds or is dismissed.
   const [failure, setFailure] = useState<{ retry: () => void } | null>(null);
-  const actions = useActivityItemActions({ onChanged: refresh, onFailure: setFailure });
+  const actions = useActivityItemActions({
+    workspaceId,
+    onChanged: refresh,
+    onFailure: setFailure,
+  });
 
   // Reads only what the list showed: the server's own clock at the time it read the list.
-  const loadedAt = totals?.loadedAt;
+  const loadedAt = firstPage?.loadedAt;
   const readAll = useCallback(() => {
     if (loadedAt === undefined) return;
     const run = () => {
@@ -136,38 +142,25 @@ export function ActivityInboxView({
     <div className="flex h-full min-h-0 flex-col">
       <PageHeader
         heading={m.navigation_activity()}
-        meta={
-          totals ? (
-            <span className="shrink-0 truncate text-sm text-tertiary">
-              {m.activity_inbox_active({ count: totals.totalCount })}
-              {totals.totalUnreadCount > 0 &&
-                ` · ${m.activity_inbox_unread({ count: totals.totalUnreadCount })}`}
-            </span>
-          ) : undefined
+        tabs={
+          <ActivityInboxTabs
+            filter={filter}
+            onFilterChange={onFilterChange}
+            counts={{
+              unread: firstPage?.unreadItemCount,
+              mentions: firstPage?.unreadMentionItemCount,
+            }}
+          />
+        }
+        actions={
+          firstPage &&
+          firstPage.unreadItemCount > 0 && (
+            <Button size="sm" color="secondary" iconLeading={CheckDone01} onClick={readAll}>
+              {m.activity_inbox_mark_all_read()}
+            </Button>
+          )
         }
       />
-      <div className="flex h-11 shrink-0 items-center justify-between gap-3 border-b border-secondary px-4 sm:px-6">
-        <ButtonGroup
-          aria-label={m.activity_inbox_filter_label()}
-          size="sm"
-          selectionMode="single"
-          disallowEmptySelection
-          selectedKeys={[filter]}
-          onSelectionChange={(keys) => {
-            const [next] = [...keys];
-            if (next === "all" || next === "unread" || next === "mentions") onFilterChange(next);
-          }}
-        >
-          <ButtonGroupItem id="all">{m.activity_inbox_filter_all()}</ButtonGroupItem>
-          <ButtonGroupItem id="unread">{m.activity_inbox_filter_unread()}</ButtonGroupItem>
-          <ButtonGroupItem id="mentions">{m.activity_inbox_filter_mentions()}</ButtonGroupItem>
-        </ButtonGroup>
-        {totals && totals.totalUnreadCount > 0 && (
-          <Button size="sm" color="secondary" iconLeading={CheckDone01} onClick={readAll}>
-            {m.activity_inbox_mark_all_read()}
-          </Button>
-        )}
-      </div>
       {failure && (
         <div
           role="alert"
@@ -202,6 +195,68 @@ export function ActivityInboxView({
         />
       </div>
     </div>
+  );
+}
+
+const FILTER_TABS: ReadonlyArray<{
+  id: ActivityInboxFilter;
+  icon: typeof Inbox01;
+  label: () => string;
+}> = [
+  { id: "all", icon: Inbox01, label: () => m.activity_inbox_filter_all() },
+  { id: "unread", icon: Mail01, label: () => m.activity_inbox_filter_unread() },
+  { id: "mentions", icon: AtSign, label: () => m.activity_inbox_filter_mentions() },
+];
+
+/**
+ * All / Unread / Mentions as the Chat header's icon + label underline tabs. Unread and Mentions
+ * carry how many cards have something unread and an unread mention; the numbers are the same
+ * whichever tab is showing, and a zero shows nothing.
+ */
+function ActivityInboxTabs({
+  filter,
+  onFilterChange,
+  counts,
+}: {
+  filter: ActivityInboxFilter;
+  onFilterChange: (filter: ActivityInboxFilter) => void;
+  counts: Partial<Record<ActivityInboxFilter, number>>;
+}) {
+  return (
+    <Tabs
+      selectedKey={filter}
+      onSelectionChange={(key) => {
+        const next = FILTER_TABS.find((tab) => tab.id === key);
+        if (next) onFilterChange(next.id);
+      }}
+      className="w-max shrink-0"
+    >
+      <TabList type="underline" size="md" aria-label={m.activity_inbox_filter_label()}>
+        {FILTER_TABS.map((tab) => (
+          <Tab key={tab.id} id={tab.id} icon={tab.icon}>
+            {/* The official `badge` prop hides below `md`; the count must show on phones too. */}
+            {({ isSelected, isHovered }) => {
+              const count = counts[tab.id] ?? 0;
+              return (
+                <>
+                  {tab.label()}
+                  {count > 0 && (
+                    <Badge
+                      type="pill-color"
+                      size="sm"
+                      color={isSelected || isHovered ? "brand" : "gray"}
+                      className="transition-inherit-all"
+                    >
+                      {count > 99 ? "99+" : count}
+                    </Badge>
+                  )}
+                </>
+              );
+            }}
+          </Tab>
+        ))}
+      </TabList>
+    </Tabs>
   );
 }
 
@@ -257,9 +312,11 @@ type ActivityItemActions = ReturnType<typeof useActivityItemActions>;
  * re-render only when their own item changes.
  */
 function useActivityItemActions({
+  workspaceId,
   onChanged,
   onFailure,
 }: {
+  workspaceId: string;
   onChanged: () => Promise<void>;
   onFailure: (failure: { retry: () => void } | null) => void;
 }) {
@@ -300,11 +357,13 @@ function useActivityItemActions({
           ? markChannelThreadRead({
               data: { channelId: place.conversationId, threadRootId, throughSequence },
             })
-          : markDirectThread({ data: { agentId: place.agent.id, threadRootId, throughSequence } });
+          : markDirectThread({
+              data: { conversationId: place.conversationId, threadRootId, throughSequence },
+            });
       }
       return place.kind === "channel"
         ? markChannelRead({ data: { channelId: place.conversationId, throughSequence } })
-        : markDirectRead({ data: { agentId: place.agent.id, throughSequence } });
+        : markDirectRead({ data: { conversationId: place.conversationId, throughSequence } });
     }
 
     return {
@@ -333,7 +392,8 @@ function useActivityItemActions({
       },
       done: (item: ActivityInboxItem) => {
         queryClient.setQueriesData<InfiniteData<ActivityInboxPage>>(
-          { queryKey: ACTIVITY_INBOX_LISTS_KEY },
+          // Every view of this Workspace: the counts cover them all.
+          { queryKey: [...ACTIVITY_INBOX_LISTS_KEY, workspaceId] },
           (data) => data && withoutItem(data, item),
         );
         run(() =>
@@ -358,6 +418,7 @@ function useActivityItemActions({
     };
   }, [
     queryClient,
+    workspaceId,
     onChanged,
     onFailure,
     markChannelRead,
@@ -372,59 +433,72 @@ function useActivityItemActions({
   ]);
 }
 
-/** A cached view with one item removed and its totals adjusted, until the refetch lands. */
+/**
+ * A cached view of the item's Workspace without the item, until the refetch lands. The tab counts
+ * cover every view, so each view drops the item from them, whether or not it lists the item.
+ */
 function withoutItem(
   data: InfiniteData<ActivityInboxPage>,
   item: ActivityInboxItem,
 ): InfiniteData<ActivityInboxPage> {
-  if (!data.pages.some((page) => page.items.some((entry) => entry.key === item.key))) return data;
   return {
     ...data,
     pages: data.pages.map((page) => ({
       ...page,
       items: page.items.filter((entry) => entry.key !== item.key),
-      totalCount: Math.max(0, page.totalCount - 1),
-      totalUnreadCount: Math.max(0, page.totalUnreadCount - item.unreadCount),
+      unreadItemCount: Math.max(0, page.unreadItemCount - (item.unreadCount > 0 ? 1 : 0)),
+      unreadMentionItemCount: Math.max(
+        0,
+        page.unreadMentionItemCount - (item.unreadMention ? 1 : 0),
+      ),
     })),
   };
 }
 
 /**
- * Where a card goes. A thread opens in its pane beside its root, scrolled to the first unread
- * reply; a conversation opens at its first unread message, or its newest one when everything is
- * read. A mention the viewer was notified of opens at that message, in its thread when it is a
- * reply.
+ * Where a card goes. A mention the viewer was notified of opens at that message, in its thread
+ * when it is a reply. Any other item that mentions the viewer opens at its first mention, read or
+ * not; otherwise a thread opens in its pane beside its root, scrolled to the first unread reply,
+ * and a conversation opens at its first unread message, or its newest one when everything is read.
  */
-function openTarget({
-  place,
-  thread,
-  unreadCount,
-  firstUnreadMessageId,
-  latest,
-  mentionAction,
-}: ActivityInboxItem) {
+function openTarget(
+  workspaceSlug: string,
+  {
+    place,
+    thread,
+    firstUnreadMessageId,
+    firstMentionMessageId,
+    latest,
+    mentionAction,
+  }: ActivityInboxItem,
+) {
   if (mentionAction)
     return {
-      to: "/messages/channels/$channelId" as const,
-      params: { channelId: place.conversationId },
+      to: "/w/$workspaceSlug/channel/$channelId" as const,
+      params: { workspaceSlug, channelId: place.conversationId },
       search: mentionAction.threadRootId
         ? { threadRootId: mentionAction.threadRootId, message: mentionAction.threadRootId }
         : { message: latest.id },
       hash: mentionAction.threadRootId ? `message-${latest.id}` : undefined,
     };
-  const unreadAnchor = unreadCount > 0 ? firstUnreadMessageId : null;
+  const anchor = firstMentionMessageId ?? firstUnreadMessageId;
   const search = thread
     ? { threadRootId: thread.root.id, message: thread.root.id }
-    : { message: unreadAnchor ?? latest.id };
-  const hash = thread && unreadAnchor ? `message-${unreadAnchor}` : undefined;
+    : { message: anchor ?? latest.id };
+  const hash = thread && anchor ? `message-${anchor}` : undefined;
   return place.kind === "channel"
     ? {
-        to: "/messages/channels/$channelId" as const,
-        params: { channelId: place.conversationId },
+        to: "/w/$workspaceSlug/channel/$channelId" as const,
+        params: { workspaceSlug, channelId: place.conversationId },
         search,
         hash,
       }
-    : { to: "/messages/$agentId" as const, params: { agentId: place.agent.id }, search, hash };
+    : {
+        to: "/w/$workspaceSlug/dm/$dmId" as const,
+        params: { workspaceSlug, dmId: place.conversationId },
+        search,
+        hash,
+      };
 }
 
 /** A message's text rendered as inline Markdown, or its first attachment's name. */
@@ -443,7 +517,8 @@ const ActivityInboxCard = memo(function ActivityInboxCard({
   actions: ActivityItemActions;
 }) {
   const router = useRouter();
-  const target = openTarget(item);
+  const workspaceSlug = useWorkspaceSlug();
+  const target = openTarget(workspaceSlug, item);
   const href = router.buildLocation(target).publicHref;
   const unread = item.unreadCount > 0;
   const { place, thread } = item;
@@ -677,7 +752,8 @@ export function ActivityInboxPending() {
       aria-label={m.activity_inbox_loading()}
       className="flex h-full min-h-0 flex-col"
     >
-      <PageHeader heading={m.navigation_activity()} />
+      {/* The tabs' place, so the list does not move when the page lands. */}
+      <PageHeader heading={m.navigation_activity()} tabs={<Skeleton className="mb-3 h-6 w-64" />} />
       <ol className="flex flex-col gap-2 p-4 sm:px-6">
         {[0, 1, 2, 3].map((row) => (
           <li key={row} className="rounded-xl border border-secondary p-3">

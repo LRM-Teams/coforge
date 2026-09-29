@@ -1019,6 +1019,7 @@ export function encodeAgentMessageDelivery(value: AgentMessageDelivery): Uint8Ar
       latestSenderDescription: value.latestSenderDescription ?? "",
       mentionsAgent: value.mentionsAgent,
       nonMemberMention: value.nonMemberMention,
+      taskExecutionSessionId: value.taskExecutionSessionId ?? "",
     }),
   );
 }
@@ -1057,6 +1058,9 @@ export function decodeAgentMessageDelivery(bytes: Uint8Array): AgentMessageDeliv
       : {}),
     ...(value.mentionsAgent !== undefined ? { mentionsAgent: value.mentionsAgent } : {}),
     ...(value.nonMemberMention ? { nonMemberMention: true } : {}),
+    ...(value.taskExecutionSessionId
+      ? { taskExecutionSessionId: value.taskExecutionSessionId }
+      : {}),
   };
 }
 export function encodeAgentMessageDeliveryAck(value: AgentMessageDeliveryAck): Uint8Array {
@@ -1152,7 +1156,7 @@ export function validateAgentMessageRequest(request: AgentMessageRequest): Agent
   if (request.seenUpToSeq !== undefined && request.operation !== "send")
     throw new Error("Agent message seen-up-to sequence is only valid for send");
   if (
-    !request.requestId ||
+    !request.idempotencyKey ||
     !request.agentId ||
     !AGENT_MESSAGE_OPERATIONS.includes(request.operation) ||
     (!TARGETLESS_AGENT_MESSAGE_OPERATIONS.includes(request.operation) && !request.target) ||

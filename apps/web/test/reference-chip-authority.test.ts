@@ -13,8 +13,8 @@ const FORGED = "99999999-9999-4999-8999-999999999999";
 const SCOUT = "55555555-5555-4555-8555-555555555555";
 
 /** The renderer's pipeline (`message-body.tsx`) through its chip pass, as HTML, for a viewer whose
- * Workspace has one channel (`PRODUCT`, now called `launch`), a conversation with task 7, and a
- * message that mentions the Agent `SCOUT` (displayed as "Scout #7"). */
+ * Workspace has one channel (`PRODUCT`, now called `launch`) and a message that mentions the Agent
+ * `SCOUT` (displayed as "Scout #7"). */
 const rendered = (body: string) =>
   toHtml(
     unified()
@@ -26,7 +26,6 @@ const rendered = (body: string) =>
         mentions: new Map([
           [`agent:${SCOUT}`, { handle: "scout", label: "Scout #7", agentId: SCOUT }],
         ]),
-        taskNumbers: new Set<number>([7]),
         channelNames: new Map([[PRODUCT, "launch"]]),
       })
       .runSync(
@@ -57,19 +56,18 @@ test("a channel token with an id the Workspace does not have is plain text, howe
   }
 });
 
-test("a task token backed by the conversation's tasks is a chip; any other number is plain text", () => {
-  expect(rendered("see <@task:7>")).toContain('data-task-reference-number="7"');
+test("every spelling of a task token marks a task reference; the renderer checks it names a Task", () => {
   for (const body of ["<@task:5>", "&#60;@task:5>", "_see <@task:5> x@y.io_"]) {
     const html = rendered(body);
-    expect(html).not.toContain("message-markdown-task-reference");
-    expect(html).toContain("task #5");
+    expect(html).toContain('data-task-reference-number="5"');
+    expect(html).toContain(">task #5<");
   }
 });
 
 test("a bare #N is plain text when rendered, even when it names a task: only a token is a chip", () => {
   // A bare `#N` becomes a token when the message is sent; a body stored before that stays text.
   const html = rendered("see #7 and task #7");
-  expect(html).not.toContain("message-markdown-task-reference");
+  expect(html).not.toContain("data-task-reference-number");
   expect(html).toContain("see #7 and task #7");
 });
 

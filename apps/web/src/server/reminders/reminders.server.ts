@@ -1,6 +1,7 @@
 import {
   DEFAULT_REMINDER_TIMEZONE,
   parseReminderRecurrence,
+  REMINDER_PROTOCOL_MAJOR,
   REMINDER_SYNC_MESSAGE_TYPE,
   decodeAgentReminderOperationRequest,
   encodeAgentReminderOperationRequest,
@@ -8,6 +9,7 @@ import {
   encodeReminderSync,
   type AgentReminderOperationRequest,
   type AgentReminderOperationResponse,
+  type ReminderIdentity,
   type ReminderFireRequest,
   type ReminderFireResponse,
   type ReminderJob,
@@ -236,20 +238,37 @@ const job = (r: StoredReminder): ReminderJob => ({
   fireAt: r.fireAt,
 });
 
+/** The scope of one plan-sync message. `requestId` is the id the daemon correlates the sync with:
+ * for a sync caused by an HTTP operation, the operation's `idempotencyKey`. */
+const reminderSyncScope = (identity: ReminderIdentity, requestId: string) => ({
+  protocolMajor: REMINDER_PROTOCOL_MAJOR,
+  requestId,
+  workspaceId: identity.workspaceId,
+  computerId: identity.computerId,
+  agentId: identity.agentId,
+});
+
 const upsertSync = (
-  scope: Pick<
-    ReminderSync,
-    "protocolMajor" | "requestId" | "workspaceId" | "computerId" | "agentId"
-  >,
+  identity: ReminderIdentity,
+  requestId: string,
   reminder: StoredReminder,
 ): ReminderSync => ({
-  protocolMajor: scope.protocolMajor,
-  requestId: scope.requestId,
-  workspaceId: scope.workspaceId,
-  computerId: scope.computerId,
-  agentId: scope.agentId,
+  ...reminderSyncScope(identity, requestId),
   operation: "upsert",
   jobs: [job(reminder)],
+  messageType: REMINDER_SYNC_MESSAGE_TYPE,
+});
+
+const cancelSync = (
+  identity: ReminderIdentity,
+  requestId: string,
+  reminder: Pick<StoredReminder, "reminderId" | "version">,
+): ReminderSync => ({
+  ...reminderSyncScope(identity, requestId),
+  operation: "cancel",
+  jobs: [],
+  reminderId: reminder.reminderId,
+  version: reminder.version,
   messageType: REMINDER_SYNC_MESSAGE_TYPE,
 });
 
@@ -273,7 +292,7 @@ export class Reminders {
     if (!["list", "log"].includes(request.operation)) {
       const replay = await this.repository.replay?.(
         scope,
-        request.requestId,
+        request.idempotencyKey,
         fingerprint,
         request.reminderId,
       );
@@ -303,7 +322,7 @@ export class Reminders {
           : nextOccurrence(request.repeat!, zone!, now, now);
       if (first.getTime() <= now.getTime())
         throw new ReminderRefusal("INVALID_INPUT", "reminder time must be in the future");
-      const created = await this.repository.create(scope, request.requestId, fingerprint, {
+      const created = await this.repository.create(scope, request.idempotencyKey, fingerprint, {
         ownerAgentId: request.agentId,
         computerId: request.computerId,
         version: 1,
@@ -314,7 +333,7 @@ export class Reminders {
         ...(request.repeat ? { repeat: request.repeat, timezone: zone } : {}),
       });
       reminders = [created];
-      await this.bestEffort(upsertSync(request, created));
+      await this.bestEffort(upsertSync(request, request.idempotencyKey, created));
     } else if (request.operation === "list")
       reminders = await this.repository.list(scope, request.status, request.all);
     else if (request.operation === "log")
@@ -325,7 +344,7 @@ export class Reminders {
       if (request.operation === "cancel") {
         const changed = await this.repository.update(
           scope,
-          request.requestId,
+          request.idempotencyKey,
           fingerprint,
           current.reminderId,
           request,
@@ -333,21 +352,14 @@ export class Reminders {
           "canceled",
         );
         reminders = [changed];
-        await this.bestEffort({
-          ...request,
-          operation: "cancel",
-          jobs: [],
-          reminderId: changed.reminderId,
-          version: changed.version,
-          messageType: REMINDER_SYNC_MESSAGE_TYPE,
-        });
+        await this.bestEffort(cancelSync(request, request.idempotencyKey, changed));
       } else {
         const zone = request.timezone;
         if (zone && !validTimezone(zone))
           throw new ReminderRefusal("INVALID_INPUT", "invalid IANA timezone");
         const changed = await this.repository.update(
           scope,
-          request.requestId,
+          request.idempotencyKey,
           fingerprint,
           current.reminderId,
           request,
@@ -355,12 +367,11 @@ export class Reminders {
           request.operation === "snooze" ? "snoozed" : "updated",
         );
         reminders = [changed];
-        await this.bestEffort(upsertSync(request, changed));
+        await this.bestEffort(upsertSync(request, request.idempotencyKey, changed));
       }
     }
     return {
-      protocolMajor: 1,
-      requestId: request.requestId,
+      idempotencyKey: request.idempotencyKey,
       workspaceId: request.workspaceId,
       computerId: request.computerId,
       agentId: request.agentId,
@@ -375,8 +386,7 @@ export class Reminders {
     reminders: StoredReminder[],
   ): AgentReminderOperationResponse {
     return {
-      protocolMajor: 1,
-      requestId: request.requestId,
+      idempotencyKey: request.idempotencyKey,
       workspaceId: request.workspaceId,
       computerId: request.computerId,
       agentId: request.agentId,
@@ -391,7 +401,7 @@ export class Reminders {
       throw new ReminderRefusal("ACCESS_DENIED", "reminder snapshot is not authorized");
     const reminders = await this.repository.list(scope, "scheduled", true);
     return encodeReminderSync({
-      protocolMajor: 1,
+      protocolMajor: REMINDER_PROTOCOL_MAJOR,
       ...scope,
       operation: "snapshot",
       jobs: reminders.slice(0, MAX_ACTIVE_REMINDERS).map(job),
@@ -410,7 +420,8 @@ export class Reminders {
     if (!(await this.repository.authorize(scope)))
       throw new ReminderRefusal("ACCESS_DENIED", "reminder fire is not authorized");
     const response = await this.repository.fire(scope, request, this.now());
-    if (response.nextReminder) await this.bestEffort(upsertSync(request, response.nextReminder));
+    if (response.nextReminder)
+      await this.bestEffort(upsertSync(request, request.requestId, response.nextReminder));
     return encodeReminderFireResponse(response.result);
   }
 

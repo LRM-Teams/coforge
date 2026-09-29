@@ -14,10 +14,10 @@ export function mergeMessages<T extends Sequenced>(
 }
 
 /**
- * Thread replies grouped under their root, in list order. When every reply is the same object as
- * in `previous`, returns `previous` itself: a new top-level message (or any change that leaves
- * the replies alone) keeps the grouping's identity, so what is derived from it — each row's
- * thread entry and preview — does not re-render every row.
+ * Thread replies grouped under their root, in list order. A root whose replies are the same
+ * objects as in `previous` keeps its list from `previous`, and when no root changed `previous`
+ * itself comes back: a reply in one thread (or a new top-level message) leaves every other
+ * thread's list as it was, so only that thread's summary re-renders.
  */
 export function groupRepliesByRoot<T extends { id: string; threadRootId?: string }>(
   messages: readonly T[],
@@ -30,15 +30,16 @@ export function groupRepliesByRoot<T extends { id: string; threadRootId?: string
     if (replies) replies.push(message);
     else byRoot.set(message.threadRootId, [message]);
   }
-  if (previous && previous.size === byRoot.size) {
-    const unchanged = [...byRoot].every(([rootId, replies]) => {
-      const before = previous.get(rootId);
-      return (
-        before?.length === replies.length &&
-        replies.every((reply, index) => reply === before[index])
-      );
-    });
-    if (unchanged) return previous;
+  if (!previous) return byRoot;
+  let unchanged = previous.size === byRoot.size;
+  for (const [rootId, replies] of byRoot) {
+    const before = previous.get(rootId);
+    if (
+      before?.length === replies.length &&
+      replies.every((reply, index) => reply === before[index])
+    )
+      byRoot.set(rootId, before);
+    else unchanged = false;
   }
-  return byRoot;
+  return unchanged ? previous : byRoot;
 }

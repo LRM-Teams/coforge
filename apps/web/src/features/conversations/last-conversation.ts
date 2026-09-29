@@ -1,3 +1,5 @@
+import { splitWorkspacePath } from "#src/features/workspaces/workspace-url";
+
 /**
  * Which conversation Chat opens when the URL names none: the channel, direct message, or Saved
  * view the user opened last in the Workspace (kept per device in `localStorage`, read only after
@@ -8,29 +10,35 @@
 const STORAGE_PREFIX = "coforge-last-conversation:";
 
 /** A conversation the Chat detail pane can show. */
-export type ConversationTarget = { channelId: string } | { agentId: string } | { view: "saved" };
+export type ConversationTarget = { channelId: string } | { dmId: string } | { view: "saved" };
 
-/** The route a conversation target opens, spreadable into `Link` or `navigate`. */
-export function conversationRoute(target: ConversationTarget) {
+/** The route a conversation target opens in the Workspace `workspaceSlug` names, spreadable into
+ * `Link` or `navigate`. */
+export function conversationRoute(target: ConversationTarget, workspaceSlug: string) {
   if ("channelId" in target) {
     return {
-      to: "/messages/channels/$channelId",
-      params: { channelId: target.channelId },
+      to: "/w/$workspaceSlug/channel/$channelId",
+      params: { workspaceSlug, channelId: target.channelId },
     } as const;
   }
-  if ("agentId" in target) {
-    return { to: "/messages/$agentId", params: { agentId: target.agentId } } as const;
+  if ("dmId" in target) {
+    return {
+      to: "/w/$workspaceSlug/dm/$dmId",
+      params: { workspaceSlug, dmId: target.dmId },
+    } as const;
   }
-  return { to: "/messages/saved" } as const;
+  return { to: "/w/$workspaceSlug/saved", params: { workspaceSlug } } as const;
 }
 
-/** The conversation a de-localized pathname opens, if it is one. */
+/** The conversation a de-localized pathname (`/w/<slug>/…`) opens, if it is one. */
 export function conversationAt(pathname: string): ConversationTarget | undefined {
-  if (pathname === "/messages/saved") return { view: "saved" };
-  const channel = /^\/messages\/channels\/([^/]+)$/.exec(pathname);
+  const rest = splitWorkspacePath(pathname)?.rest;
+  if (rest === undefined) return undefined;
+  if (rest === "/saved") return { view: "saved" };
+  const channel = /^\/channel\/([^/]+)$/.exec(rest);
   if (channel) return { channelId: channel[1]! };
-  const direct = /^\/messages\/([^/]+)$/.exec(pathname);
-  if (direct) return { agentId: direct[1]! };
+  const direct = /^\/dm\/([^/]+)$/.exec(rest);
+  if (direct) return { dmId: direct[1]! };
   return undefined;
 }
 
@@ -65,16 +73,15 @@ export function firstJoinedChannel(channels: readonly ListedChannel[]): string |
 
 /**
  * Where Chat lands: the remembered conversation while it is still listed (an archived or deleted
- * channel, a removed Agent, or a direct message the viewer closed is not), else the first joined
- * channel.
+ * channel, or a direct message the viewer closed or with a removed Agent, is not), else the first
+ * joined channel.
  */
 export function landingConversation(
   remembered: ConversationTarget | undefined,
   lists: {
     channels: readonly ListedChannel[];
-    agentIds: readonly string[];
-    /** Direct messages the viewer closed: out of the list until someone writes in them again. */
-    hiddenAgentIds: readonly string[];
+    /** The direct messages the sidebar lists, by conversation id. */
+    directIds: readonly string[];
   },
 ): ConversationTarget | undefined {
   if (remembered && "view" in remembered) return remembered;
@@ -84,14 +91,8 @@ export function landingConversation(
     );
     if (listed) return remembered;
   }
-  if (
-    remembered &&
-    "agentId" in remembered &&
-    lists.agentIds.includes(remembered.agentId) &&
-    !lists.hiddenAgentIds.includes(remembered.agentId)
-  ) {
+  if (remembered && "dmId" in remembered && lists.directIds.includes(remembered.dmId))
     return remembered;
-  }
   const channelId = firstJoinedChannel(lists.channels);
   return channelId ? { channelId } : undefined;
 }

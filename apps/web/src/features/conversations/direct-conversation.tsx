@@ -16,7 +16,7 @@ import {
 import { avatarInitial, avatarToneClassName } from "#src/lib/avatar-tone";
 import { m } from "#src/paraglide/messages";
 import { ConversationTaskTabs } from "#src/features/tasks/conversation-task-tabs";
-import { ConversationHeader } from "./conversation-header";
+import { TabbedHeader } from "#src/components/layout/tabbed-header";
 import { ConversationListButton } from "./conversation-navigation";
 import { ThreadedConversation } from "./threaded-conversation";
 import type {
@@ -25,7 +25,7 @@ import type {
   ThreadedConversationProps,
 } from "./conversation-types";
 
-const appRoute = getRouteApi("/_app");
+const appRoute = getRouteApi("/w/$workspaceSlug");
 
 /** The direct-message header: identity, live Agent presence, and the conversation tabs. */
 export function DirectConversationHeader({
@@ -53,7 +53,7 @@ export function DirectConversationHeader({
   const openProfile =
     onOpenAgentProfile && !deleted ? () => onOpenAgentProfile(conversation.agent.id) : undefined;
   return (
-    <ConversationHeader
+    <TabbedHeader
       identity={
         <>
           <ConversationListButton />
@@ -115,7 +115,8 @@ export function DirectConversationHeader({
 }
 
 export function DirectConversation(
-  props: ConversationProps & Pick<ThreadedConversationProps, "channels" | "taskPopup">,
+  props: ConversationProps &
+    Pick<ThreadedConversationProps, "channels" | "taskPopup" | "jumpMessage">,
 ) {
   const { conversation } = props;
   // A deleted Agent's DM stays readable, but nothing new can be sent to it.

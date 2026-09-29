@@ -142,12 +142,15 @@ export type ThreadedConversationProps = Omit<ConversationProps, "conversation" |
   /** Where this conversation's threads live, named in each thread's header. */
   threadContext: string;
   /** Every channel of the Workspace, for a body's channel links and the composer's `#` list.
-   * Under Chat it is read from the messages layout; a page outside Chat supplies it. */
+   * Read from the hosting page (`ConversationHostProvider`); a page without one supplies it. */
   channels?: readonly ChannelSuggestion[];
   /** Shows only the Task popup (the Task and its thread), for a page other than the
    * conversation's own — the Tasks page — which opens and closes it through these controls
    * instead of the conversation's `task` search param. */
   taskPopup?: TaskPopupControls;
+  /** The message the stream lands on, for a host that keeps it itself (the search preview's
+   * previewed result) instead of the conversation's one-shot `message` search param. */
+  jumpMessage?: string;
 };
 
 /** Which Task's popup is open, and how to open another or close it. */

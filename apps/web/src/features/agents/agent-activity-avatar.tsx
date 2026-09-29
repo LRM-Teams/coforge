@@ -76,6 +76,25 @@ export function AgentDisplayAvatar({
   );
 }
 
+/** One face in an overlapping stack of Agents: no status dot, which the overlap would half cover. */
+export function AgentStackFace({
+  agent,
+}: {
+  agent: { displayName: string; avatarUrl?: string | null };
+}) {
+  return (
+    <Avatar
+      size="xs"
+      alt=""
+      src={agent.avatarUrl}
+      initials={avatarInitial(agent.displayName)}
+      contentClassName={avatarToneClassName(agent.displayName)}
+      // The ring separates the overlapping faces, as an avatar group does.
+      className="ring-2 ring-bg-primary"
+    />
+  );
+}
+
 /** Activity is newest-first, ordered and deduplicated by the owning Activity module. */
 export function AgentActivityAvatar({
   agent,

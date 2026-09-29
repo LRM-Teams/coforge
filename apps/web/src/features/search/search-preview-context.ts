@@ -28,17 +28,37 @@ export function isPreviewed(
   );
 }
 
+/** A preview's `open` search param: `channel:<id>` or `dm:<id>` (read by `searchPreviewTarget`). */
+export function searchPreviewOpenParam(target: SearchPreviewTarget): string {
+  return `${target.kind}:${target.id}`;
+}
+
+/** The preview the search URL names: `open` (`channel:<id>` or `dm:<id>`) at message `msg`. */
+export function searchPreviewTarget(
+  open: string | undefined,
+  msg?: string,
+): SearchPreviewTarget | undefined {
+  const [kind, id] = open?.split(":") ?? [];
+  return (kind === "channel" || kind === "dm") && id ? { kind, id, messageId: msg } : undefined;
+}
+
 /**
- * The preview for a message result: its channel or its direct conversation's Agent, at the row
- * the stream shows it on (a thread reply's root). Undefined when its place cannot be previewed.
+ * The preview for a message result: its channel or its direct conversation, at the row
+ * the stream shows it on, with a thread reply's thread open at the reply (the stream stays at its
+ * root), as Activity opens a thread.
+ * Undefined when its place cannot be previewed.
  */
 export function messagePreviewTarget(
   conversation: { id: string; channelName: string | null; directAgent: { id: string } | null },
   message: { id: string; threadRootId?: string },
 ): SearchPreviewTarget | undefined {
   const messageId = message.threadRootId ?? message.id;
-  if (conversation.channelName) return { kind: "channel", id: conversation.id, messageId };
+  const thread = message.threadRootId
+    ? { threadRootId: message.threadRootId, threadReplyId: message.id }
+    : {};
+  if (conversation.channelName)
+    return { kind: "channel", id: conversation.id, messageId, ...thread };
   return conversation.directAgent
-    ? { kind: "agent", id: conversation.directAgent.id, messageId }
+    ? { kind: "dm", id: conversation.id, messageId, ...thread }
     : undefined;
 }

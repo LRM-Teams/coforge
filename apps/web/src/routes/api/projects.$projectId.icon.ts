@@ -3,6 +3,7 @@ import { z } from "zod";
 import { AppError, isAppError } from "#src/lib/app-error";
 import { optionalBrowserUser } from "#src/server/auth/require-user.server";
 import { requireDatabaseClient } from "#src/server/db/client.server";
+import { privateImageHeaders } from "#src/server/http/image-headers.server";
 import { ProjectImages } from "#src/server/projects/project-images.server";
 
 export const Route = createFileRoute("/api/projects/$projectId/icon")({
@@ -17,15 +18,7 @@ export const Route = createFileRoute("/api/projects/$projectId/icon")({
             user.id,
             params.projectId,
           );
-          return new Response(image.body, {
-            headers: {
-              "Content-Type": image.contentType,
-              "Content-Disposition": "inline",
-              "X-Content-Type-Options": "nosniff",
-              "Cache-Control": "private, no-cache",
-              Vary: "Cookie",
-            },
-          });
+          return new Response(image.body, { headers: privateImageHeaders(image.contentType) });
         } catch (error) {
           if (!isAppError(error)) throw error;
           return Response.json(

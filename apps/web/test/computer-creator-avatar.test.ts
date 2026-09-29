@@ -34,8 +34,9 @@ test("serves original creator avatar, not viewer, only through a member-visible 
   });
   expect(response.status).toBe(200);
   expect(await response.text()).toBe("image");
-  expect(response.headers.get("cache-control")).toBe("no-store");
+  expect(response.headers.get("cache-control")).toBe("private, max-age=31536000, immutable");
   expect(response.headers.get("x-content-type-options")).toBe("nosniff");
+  expect(response.headers.get("vary")).toBe("cookie");
 });
 
 test("denies unauthenticated, inaccessible and malformed creator-avatar requests before reading bytes", async () => {

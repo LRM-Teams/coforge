@@ -19,6 +19,7 @@ import {
 } from "#src/components/ui/empty";
 import { cn } from "#src/lib/utils";
 import { m } from "#src/paraglide/messages";
+import { useWorkspaceSlug } from "#src/features/workspaces/workspace-route";
 import {
   computerLabel,
   operatingSystemLabel,
@@ -97,6 +98,7 @@ export function ComputerLayout({
   children: ReactNode;
 }) {
   const { upgradingComputerIds } = useUpgradingComputer();
+  const workspaceSlug = useWorkspaceSlug();
   const [showMobileList, setShowMobileList] = useState(!selectedComputerId);
   const listHidden = Boolean(selectedComputerId) && !showMobileList;
 
@@ -131,8 +133,8 @@ export function ComputerLayout({
               <li key={computer.id}>
                 <div className="flex min-w-0 items-center">
                   <Link
-                    to="/computers/$computerId"
-                    params={{ computerId: computer.id }}
+                    to="/w/$workspaceSlug/computer/$computerId"
+                    params={{ workspaceSlug, computerId: computer.id }}
                     aria-current={selected ? "page" : undefined}
                     resetScroll={false}
                     onClick={() => setShowMobileList(false)}

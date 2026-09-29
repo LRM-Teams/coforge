@@ -39,6 +39,7 @@ import { TextArea } from "#src/components/base/textarea/textarea";
 import { avatarInitial, avatarToneClassName } from "#src/lib/avatar-tone";
 import { m } from "#src/paraglide/messages";
 import { formatAgentProfileParam } from "#src/features/agents/profile-panel/profile-panel-search";
+import { useWorkspaceSlug } from "#src/features/workspaces/workspace-route";
 import { cx } from "#src/utils/cx";
 import { shouldSendOnEnter } from "#src/features/conversations/composer-behavior";
 import { useConversationRealtime } from "#src/features/conversations/conversation-realtime-client";
@@ -59,6 +60,7 @@ import {
   ensureRecordAssistantIntro,
   ensureWeeklyReportAssistantChatSessions,
   dismissWeeklyFormatSend,
+  loadWeeklyTemplateForReport,
   loadWeeklyReportAssistantContext,
   loadWeeklyReportAssistantMessages,
   loadWeeklyReportAssistantStatus,
@@ -69,6 +71,7 @@ import {
 import {
   looksLikeMemberGenerateOfferAccept,
   looksLikeTeamKeyPointReorganizeRequest,
+  shouldUseFormatTemplateSendPath,
   shouldUseMemberReportRulePath,
   looksLikeSynthesizeWeeklyReportRequest,
   parseRecordAssistantPayload,
@@ -85,8 +88,14 @@ import {
   type RecordSideSurface,
 } from "./record-side-panel-pin";
 import { resolveAwaitingAssistantResume } from "./record-side-panel-awaiting";
+import { loadWorkspaceMembers } from "#src/features/workspaces/members.functions";
 import { WeeklyReportCollectPlanCard } from "./weekly-report-collect-plan-card";
 import { WeeklyReportCollectRunCard } from "./weekly-report-collect-run-card";
+import {
+  WeeklyTemplateDetailDialog,
+  type WeeklyTemplateDetail,
+} from "./weekly-template-detail-dialog";
+import type { TemplateMemberOption } from "./weekly-template-members";
 
 type CommentRow = Awaited<ReturnType<typeof ensureRecordAssistantIntro>>[number];
 type ChatSessionRow = Awaited<
@@ -100,9 +109,10 @@ function payloadOf(comment: CommentRow): RecordAssistantPayload | null {
 }
 
 const SIDE_PANEL_WIDTH_STORAGE_KEY = "coforge.records.side-panel-width";
-const appRoute = getRouteApi("/_app");
+const appRoute = getRouteApi("/w/$workspaceSlug");
 const DEFAULT_SIDE_PANEL_WIDTH = 384;
 const MIN_SIDE_PANEL_WIDTH = 280;
+const SIDE_PANEL_WIDTH_TRANSITION = "width 220ms cubic-bezier(0.32, 0.72, 0, 1)";
 
 function readStoredSidePanelWidth(): number {
   if (typeof window === "undefined") return DEFAULT_SIDE_PANEL_WIDTH;
@@ -170,6 +180,7 @@ export function RecordSidePanel({
   onRestartKeyPointExtraction?: () => void;
 }) {
   const router = useRouter();
+  const workspaceSlug = useWorkspaceSlug();
   const { user: viewer } = appRoute.useLoaderData();
   const viewerName = viewer.name?.trim() || viewer.username?.trim() || m.records_side_chat_user();
   const countdown = useSendWindowCountdown(countdownUntil);
@@ -183,6 +194,8 @@ export function RecordSidePanel({
   const confirmIntent = useServerFn(confirmMemberReportIntent);
   const declineIntent = useServerFn(declineMemberReportIntent);
   const dismissWeekSend = useServerFn(dismissWeeklyFormatSend);
+  const loadTemplateForReport = useServerFn(loadWeeklyTemplateForReport);
+  const loadMembers = useServerFn(loadWorkspaceMembers);
   const loadAssistantContext = useServerFn(loadWeeklyReportAssistantContext);
   const loadAssistantStatus = useServerFn(loadWeeklyReportAssistantStatus);
   const loadAssistantMessages = useServerFn(loadWeeklyReportAssistantMessages);
@@ -195,6 +208,8 @@ export function RecordSidePanel({
   const sessionKey = weeklyReportAssistantSubjectKey(subjectType, subjectId);
   const session = sessionStore.get(sessionKey);
   const [pinned, setPinned] = useState(() => readSidePanelPinned(subjectType, subjectId, surface));
+  const [templateDetail, setTemplateDetail] = useState<WeeklyTemplateDetail | null>(null);
+  const [templateMembers, setTemplateMembers] = useState<TemplateMemberOption[]>([]);
   const [renameOpen, setRenameOpen] = useState(false);
   const [renameDraft, setRenameDraft] = useState("");
   const [chatSessions, setChatSessions] = useState<ChatSessionRow[]>([]);
@@ -237,6 +252,7 @@ export function RecordSidePanel({
   const [panelWidth, setPanelWidth] = useState(DEFAULT_SIDE_PANEL_WIDTH);
   panelWidthRef.current = panelWidth;
   const [displayWidth, setDisplayWidth] = useState(() => (open ? DEFAULT_SIDE_PANEL_WIDTH : 0));
+  const [resizing, setResizing] = useState(false);
   const wasOpenRef = useRef(open);
 
   useEffect(() => {
@@ -279,13 +295,26 @@ export function RecordSidePanel({
     return () => window.removeEventListener("resize", clampToParent);
   }, []);
 
+  function commitPanelWidth(width: number) {
+    panelWidthRef.current = width;
+    setPanelWidth(width);
+    setDisplayWidth(width);
+  }
+
   function onPanelResizePointerDown(event: PointerEvent<HTMLDivElement>) {
     if (event.button !== 0) return;
     event.preventDefault();
     panelDragRef.current = { startX: event.clientX, startWidth: panelWidthRef.current };
-    event.currentTarget.setPointerCapture(event.pointerId);
     document.body.style.cursor = "col-resize";
     document.body.style.userSelect = "none";
+    // Drop the open/close ease before the first move, so a move in this frame cannot restart it.
+    if (asideRef.current) asideRef.current.style.transition = "none";
+    setResizing(true);
+    try {
+      event.currentTarget.setPointerCapture(event.pointerId);
+    } catch {
+      // Pointer capture is best-effort; the move handler still tracks clientX.
+    }
   }
 
   function onPanelResizePointerMove(event: PointerEvent<HTMLDivElement>) {
@@ -293,9 +322,9 @@ export function RecordSidePanel({
     if (!drag) return;
     const parent = asideRef.current?.parentElement;
     const max = parent ? Math.floor(parent.clientWidth / 2) : Math.floor(window.innerWidth / 2);
-    // Dragging the left edge leftward widens the panel.
+    // Dragging the left edge leftward widens the panel. Integer pixels keep the pinned right edge still.
     const next = drag.startWidth + (drag.startX - event.clientX);
-    setPanelWidth(Math.min(Math.max(next, MIN_SIDE_PANEL_WIDTH), max));
+    commitPanelWidth(Math.round(Math.min(Math.max(next, MIN_SIDE_PANEL_WIDTH), max)));
   }
 
   function onPanelResizePointerUp(event: PointerEvent<HTMLDivElement>) {
@@ -308,6 +337,7 @@ export function RecordSidePanel({
     }
     document.body.style.cursor = "";
     document.body.style.userSelect = "";
+    setResizing(false);
     writeStoredSidePanelWidth(panelWidthRef.current);
   }
 
@@ -555,6 +585,24 @@ export function RecordSidePanel({
     }
   }
 
+  async function openTemplateDetail() {
+    if (busy || subjectType !== "report") return;
+    setBusy(true);
+    setError(null);
+    try {
+      const [template, directory] = await Promise.all([
+        loadTemplateForReport({ data: { reportId: subjectId } }),
+        loadMembers(),
+      ]);
+      setTemplateMembers(directory.members);
+      setTemplateDetail(template);
+    } catch {
+      setError(m.records_template_detail_failed());
+    } finally {
+      setBusy(false);
+    }
+  }
+
   function dismissSuggestion(messageId: string) {
     const next = sessionStore.markSuggestionDismissed(sessionKey, messageId);
     setDismissedSuggestionIds(next);
@@ -589,7 +637,6 @@ export function RecordSidePanel({
     if (busy) return;
     if (appliedSuggestionIds.includes(messageId)) return;
     if (suggestion.type === "send-prompt") {
-      markSuggestionApplied(messageId);
       onRequestSend?.();
       return;
     }
@@ -708,6 +755,9 @@ export function RecordSidePanel({
         session.draft = "";
         setDraft("");
         setComments(rows);
+        if (shouldUseFormatTemplateSendPath(surface, body)) {
+          await router.invalidate({ sync: true });
+        }
         if (looksLikeSynthesizeWeeklyReportRequest(body)) {
           void loadThread(activeSessionId, legacySessionId);
         }
@@ -737,6 +787,9 @@ export function RecordSidePanel({
         setComments(result.comments);
         const ensured = await ensureSessions({ data: { subjectType, subjectId } });
         setChatSessions(ensured.sessions);
+        if (shouldUseFormatTemplateSendPath(surface, body)) {
+          await router.invalidate({ sync: true });
+        }
         return;
       }
 
@@ -939,7 +992,7 @@ export function RecordSidePanel({
       ref={asideRef}
       style={{
         width: displayWidth,
-        transition: "width 220ms cubic-bezier(0.32, 0.72, 0, 1)",
+        transition: resizing ? "none" : SIDE_PANEL_WIDTH_TRANSITION,
       }}
       aria-hidden={!open}
       className={cx(
@@ -1094,7 +1147,8 @@ export function RecordSidePanel({
               </div>
               <div className="flex flex-wrap items-center gap-2">
                 <Link
-                  to="/agents"
+                  to="/w/$workspaceSlug/members"
+                  params={{ workspaceSlug }}
                   search={{
                     profile: formatAgentProfileParam(assistantStatus.agentId),
                     agentTab: "profile",
@@ -1212,27 +1266,17 @@ export function RecordSidePanel({
                   </p>
                   {payload?.kind === "offer-send" ? (
                     <div className="space-y-3">
-                      <AssistantAttachmentCard payload={payload} />
+                      <AssistantAttachmentCard
+                        payload={payload}
+                        disabled={busy}
+                        onOpen={() => void openTemplateDetail()}
+                      />
                       <div className={`space-y-2 ${offerResolved ? "opacity-60" : ""}`}>
-                        <div className="flex flex-wrap gap-2">
-                          <Button
-                            size="sm"
-                            color="primary"
-                            className={RECORDS_PRIMARY_BUTTON_CLASSNAME}
-                            isDisabled={busy || offerResolved}
-                            onPress={() => onRequestSend?.()}
-                          >
-                            {m.records_assistant_confirm_send()}
-                          </Button>
-                          <Button
-                            size="sm"
-                            color="secondary"
-                            isDisabled={busy || offerResolved}
-                            onPress={() => void onDismissWeekSend()}
-                          >
-                            {m.records_assistant_cancel_week()}
-                          </Button>
-                        </div>
+                        <FormatSendActions
+                          disabled={busy || offerResolved}
+                          onSend={() => onRequestSend?.()}
+                          onCancel={() => void onDismissWeekSend()}
+                        />
                         {countdown && !offerResolved ? (
                           <p className="text-xs text-tertiary">
                             {m.records_assistant_auto_send_in({ countdown })}
@@ -1314,9 +1358,7 @@ export function RecordSidePanel({
             const suggestion = message.suggestion ?? null;
             const showSuggestion =
               suggestion !== null &&
-              (suggestion.type === "body-edit" ||
-                suggestion.type === "key-point-edit" ||
-                suggestion.type === "send-prompt");
+              (suggestion.type === "body-edit" || suggestion.type === "key-point-edit");
             const suggestionApplied = appliedSuggestionIds.includes(message.id);
             const suggestionDismissed = dismissedSuggestionIds.includes(message.id);
             const suggestionFrozen = suggestionApplied || suggestionDismissed;
@@ -1336,6 +1378,16 @@ export function RecordSidePanel({
                   </span>
                 </div>
                 <p className="whitespace-pre-wrap text-sm leading-6 text-primary">{message.body}</p>
+                {suggestion?.type === "send-prompt" && !suggestionFrozen ? (
+                  <FormatSendActions
+                    disabled={busy}
+                    onSend={() => void confirmSuggestion(message.id, suggestion)}
+                    onCancel={() => {
+                      void onIgnoreSuggestion(message.id, suggestion);
+                      void onDismissWeekSend();
+                    }}
+                  />
+                ) : null}
                 {showSuggestion ? (
                   <div
                     className={`space-y-2 rounded-lg border p-3 ${
@@ -1354,25 +1406,19 @@ export function RecordSidePanel({
                         {m.records_assistant_suggestion_inserted()}
                       </p>
                     ) : null}
-                    {suggestion.type === "send-prompt" ? (
-                      <p className="text-sm text-secondary">{m.records_assistant_confirm_send()}</p>
-                    ) : (
-                      <>
-                        <p className="text-sm font-medium text-primary">{suggestion.summary}</p>
-                        {preview ? (
-                          <div className="space-y-1">
-                            <p className="text-xs font-medium text-tertiary">
-                              {suggestion.type === "key-point-edit"
-                                ? m.records_key_points_suggestion_preview()
-                                : m.records_assistant_suggestion_preview()}
-                            </p>
-                            <pre className="max-h-80 overflow-auto whitespace-pre-wrap rounded-md bg-primary p-2 text-xs leading-5 text-secondary">
-                              {preview}
-                            </pre>
-                          </div>
-                        ) : null}
-                      </>
-                    )}
+                    <p className="text-sm font-medium text-primary">{suggestion.summary}</p>
+                    {preview ? (
+                      <div className="space-y-1">
+                        <p className="text-xs font-medium text-tertiary">
+                          {suggestion.type === "key-point-edit"
+                            ? m.records_key_points_suggestion_preview()
+                            : m.records_assistant_suggestion_preview()}
+                        </p>
+                        <pre className="max-h-80 overflow-auto whitespace-pre-wrap rounded-md bg-primary p-2 text-xs leading-5 text-secondary">
+                          {preview}
+                        </pre>
+                      </div>
+                    ) : null}
                     {!suggestionFrozen ? (
                       <div className="flex flex-wrap gap-2">
                         <Button
@@ -1382,11 +1428,9 @@ export function RecordSidePanel({
                           isDisabled={busy}
                           onPress={() => void confirmSuggestion(message.id, suggestion)}
                         >
-                          {suggestion.type === "send-prompt"
-                            ? m.records_assistant_confirm_send()
-                            : suggestion.type === "key-point-edit"
-                              ? m.records_key_points_insert()
-                              : m.records_assistant_confirm_write()}
+                          {suggestion.type === "key-point-edit"
+                            ? m.records_key_points_insert()
+                            : m.records_assistant_confirm_write()}
                         </Button>
                         <Button
                           size="sm"
@@ -1526,14 +1570,51 @@ export function RecordSidePanel({
           </Modal>
         </ModalOverlay>
       ) : null}
+
+      <WeeklyTemplateDetailDialog
+        template={templateDetail}
+        members={templateMembers}
+        onClose={() => setTemplateDetail(null)}
+      />
     </aside>
+  );
+}
+
+function FormatSendActions({
+  disabled,
+  onSend,
+  onCancel,
+}: {
+  disabled: boolean;
+  onSend: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <div className="flex flex-wrap gap-2">
+      <Button
+        size="sm"
+        color="primary"
+        className={RECORDS_PRIMARY_BUTTON_CLASSNAME}
+        isDisabled={disabled}
+        onPress={onSend}
+      >
+        {m.records_assistant_confirm_send()}
+      </Button>
+      <Button size="sm" color="secondary" isDisabled={disabled} onPress={onCancel}>
+        {m.records_assistant_cancel_week()}
+      </Button>
+    </div>
   );
 }
 
 function AssistantAttachmentCard({
   payload,
+  disabled,
+  onOpen,
 }: {
   payload: Extract<RecordAssistantPayload, { kind: "offer-send" }>;
+  disabled: boolean;
+  onOpen: () => void;
 }) {
   const title =
     payload.weekTitle?.trim() ||
@@ -1553,8 +1634,16 @@ function AssistantAttachmentCard({
       : Math.max(0, recipients.length - shown.length);
 
   return (
-    <div className="overflow-hidden rounded-xl bg-gradient-to-br from-secondary via-secondary/40 to-primary p-3">
-      <div className="flex items-start gap-3">
+    <Button
+      size="sm"
+      color="tertiary"
+      noTextPadding
+      isDisabled={disabled}
+      aria-label={`${m.records_template_open_detail()}: ${title}`}
+      onPress={onOpen}
+      className="h-auto w-full items-start justify-start whitespace-normal rounded-xl bg-gradient-to-br from-secondary via-secondary/40 to-primary p-3 text-left font-normal hover:bg-primary_hover"
+    >
+      <div className="flex w-full items-start gap-3">
         <div className="flex size-10 shrink-0 items-center justify-center rounded-full bg-tertiary text-fg-secondary">
           <LinkIcon className="size-4" />
         </div>
@@ -1587,6 +1676,6 @@ function AssistantAttachmentCard({
           ) : null}
         </div>
       </div>
-    </div>
+    </Button>
   );
 }

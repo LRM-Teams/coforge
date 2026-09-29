@@ -243,6 +243,14 @@ export const updatePublicChannelInfo = createServerFn({ method: "POST" })
     });
   });
 
+export const setPublicChannelCoordinator = createServerFn({ method: "POST" })
+  .middleware([workspaceUserMiddleware])
+  .validator(channelInput.extend({ coordinatorAgentId: z.uuid().nullable() }))
+  .handler(async ({ data, context }) => {
+    const { channels, workspaceId, userId } = channelScope(context);
+    return channels.setCoordinator(workspaceId, userId, data.channelId, data.coordinatorAgentId);
+  });
+
 export const setPublicChannelArchived = createServerFn({ method: "POST" })
   .middleware([workspaceUserMiddleware])
   .validator(channelInput.extend({ archived: z.boolean() }))

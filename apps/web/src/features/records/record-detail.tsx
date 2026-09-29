@@ -54,6 +54,7 @@ import {
   isValidTemplateName,
   isWeekSendDismissed,
   normalizeReportContent,
+  withoutWeekSendDismissed,
   reportContentToMarkdown,
   withAssignmentUnread,
   withAutoSendCancelled,
@@ -67,6 +68,7 @@ import {
   WeekBadge,
   useFormatEditHint,
 } from "./records-layout";
+import { useWorkspaceSlug } from "#src/features/workspaces/workspace-route";
 import { RecordsReadingColumn } from "./records-reading-column";
 import { RecordSidePanel } from "./record-side-panel";
 import { readSidePanelPinned } from "./record-side-panel-pin";
@@ -166,6 +168,7 @@ function ReportDetail({
 }) {
   const router = useRouter();
   const navigate = useNavigate();
+  const workspaceSlug = useWorkspaceSlug();
   const toast = useAppToast();
   const save = useServerFn(saveWeeklyReportContent);
   const removeReport = useServerFn(deleteMemberWeeklyReport);
@@ -302,7 +305,8 @@ function ReportDetail({
       clearReportDraft(report.id);
       await router.invalidate({ sync: true });
       void navigate({
-        to: "/records",
+        to: "/w/$workspaceSlug/records",
+        params: { workspaceSlug },
         search: (previous) => ({
           tab: previous.tab === "notes" ? "notes" : "weekly",
         }),
@@ -550,7 +554,7 @@ function ReportDetail({
                   onRestart={() => void restartPersonalKeyPoints()}
                   editPrompt={{
                     slot: "personal",
-                    returnTo: `/records/${report.id}`,
+                    returnTo: `/w/${workspaceSlug}/records/${report.id}`,
                   }}
                 />
               ) : null
@@ -599,6 +603,7 @@ function TemplateReportDetail({
   const startTeamKeyPoints = useServerFn(startTeamKeyPointExtraction);
   const removeOverview = useServerFn(deleteOverviewReport);
   const navigate = useNavigate();
+  const workspaceSlug = useWorkspaceSlug();
   const isOverview = report.surface === "overview";
   const isOverviewLeader = isOverview && report.editable === true;
   const formatSurface = isOverview ? ("plain" as const) : ("format" as const);
@@ -751,12 +756,25 @@ function TemplateReportDetail({
   }
 
   async function onSendAssignments() {
-    if (sending || !canSendAssignments || hasUnsavedEdits) return;
+    if (sending || hasUnsavedEdits) return;
+    if (sendSchedule?.alreadySent) {
+      setSendError(m.records_report_send_assignments_error());
+      setConfirmOpen(false);
+      return;
+    }
+    const week = currentIsoWeek(zonedCalendarDate(new Date()));
+    const draft = withoutWeekSendDismissed(
+      normalizeReportContent(contentRef.current),
+      week.year,
+      week.week,
+    );
+    setContent(draft);
+    contentRef.current = draft;
+    writeReportDraft(report.id, draft);
     setSending(true);
     setSendError(null);
     try {
       await waitForReportSave(report.id);
-      const draft = contentRef.current;
       try {
         await persist(draft);
       } catch {
@@ -846,7 +864,8 @@ function TemplateReportDetail({
       clearReportDraft(report.id);
       await router.invalidate({ sync: true });
       void navigate({
-        to: "/records",
+        to: "/w/$workspaceSlug/records",
+        params: { workspaceSlug },
         search: (previous) => ({
           tab: previous.tab === "notes" ? "notes" : "weekly",
         }),
@@ -922,7 +941,13 @@ function TemplateReportDetail({
                       size="sm"
                       color="primary"
                       className={RECORDS_PRIMARY_BUTTON_CLASSNAME}
-                      isDisabled={saving || sending || !canSendAssignments || hasUnsavedEdits}
+                      isDisabled={
+                        saving ||
+                        sending ||
+                        hasUnsavedEdits ||
+                        Boolean(sendSchedule?.alreadySent) ||
+                        (!canSendAssignments && !weekDismissed)
+                      }
                       onPress={() => setConfirmOpen(true)}
                     >
                       {m.records_report_send()}
@@ -1046,6 +1071,7 @@ function TemplateReportDetail({
 
 function NoteDetail({ note }: { note: NoteSubject["note"] }) {
   const router = useRouter();
+  const workspaceSlug = useWorkspaceSlug();
   const save = useServerFn(saveRecordNote);
   const remove = useServerFn(deleteRecordNote);
   const [title, setTitle] = useState(note.title);
@@ -1116,7 +1142,11 @@ function NoteDetail({ note }: { note: NoteSubject["note"] }) {
     try {
       await remove({ data: { noteId: note.id } });
       await router.invalidate({ sync: true });
-      void router.navigate({ to: "/records", search: { tab: "notes" } });
+      void router.navigate({
+        to: "/w/$workspaceSlug/records",
+        params: { workspaceSlug },
+        search: { tab: "notes" },
+      });
     } finally {
       setSaving(false);
     }

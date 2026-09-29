@@ -1,11 +1,12 @@
-import { TASK_STATUSES, type TaskView } from "@lrm/coforge-sdk/internal";
+import { TASK_STATUSES, type TaskView, utf8Decoder } from "@lrm/coforge-sdk/internal";
 import { z } from "zod";
 
 /**
  * A Task write's announcement: the new copy of each Task it changed and the ids of those it
  * deleted, so an open Tasks page updates those rows without reading its list again. It rides the
  * conversation signal channels: a channel's Tasks on the Workspace channel (every member sees
- * them on the Tasks page), a direct message's only on its human viewer's own channel.
+ * them on the Tasks page), a direct message's only on its people's own channels (a User–Agent
+ * one's human viewer, or each member of one between people).
  */
 export type TaskChangedEvent = {
   type: "task.changed.v1";
@@ -59,7 +60,7 @@ export function decodeTaskChangedEvent(value: unknown): TaskChangedEvent | undef
   let data = value;
   if (value instanceof Uint8Array) {
     try {
-      data = JSON.parse(new TextDecoder().decode(value)) as unknown;
+      data = JSON.parse(utf8Decoder.decode(value)) as unknown;
     } catch {
       return undefined;
     }

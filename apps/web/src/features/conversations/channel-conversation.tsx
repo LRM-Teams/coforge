@@ -8,7 +8,7 @@ import { Button } from "#src/components/base/buttons/button";
 import { ButtonUtility } from "#src/components/base/buttons/button-utility";
 import { ChannelSettingsPanel } from "./channel-settings-panel";
 import type { ChannelCapabilities } from "#src/server/conversations/channel-authority.server";
-import { ConversationHeader } from "./conversation-header";
+import { TabbedHeader } from "#src/components/layout/tabbed-header";
 import { ConversationListButton } from "./conversation-navigation";
 import { ThreadFollowingAgents } from "./thread-following-agents";
 import { ConversationTaskTabs } from "#src/features/tasks/conversation-task-tabs";
@@ -26,6 +26,7 @@ import {
 import type { ChannelSuggestion } from "./reference-completion";
 import { m } from "#src/paraglide/messages";
 import type { AgentProfileTab } from "#src/features/agents/profile-panel/profile-panel-search";
+import { useWorkspaceSlug } from "#src/features/workspaces/workspace-route";
 
 export type ChannelConversationView = Omit<DirectConversationView, "agent" | "messages"> & {
   name: string;
@@ -38,6 +39,7 @@ export type ChannelConversationView = Omit<DirectConversationView, "agent" | "me
     githubFullName: string | null;
     githubHtmlUrl: string | null;
   };
+  coordinatorAgent?: { id: string; name: string; displayName: string };
   muted: boolean;
   pinned: boolean;
   /** What this viewer may change from the settings panel. */
@@ -77,11 +79,12 @@ export function ChannelConversationHeader({
 }) {
   const [ownSettingsOpen, setOwnSettingsOpen] = useState(false);
   const navigate = useNavigate();
+  const workspaceSlug = useWorkspaceSlug();
   const settingsOpen = controlledSettingsOpen ?? ownSettingsOpen;
   const setSettingsOpen = onSettingsOpenChange ?? setOwnSettingsOpen;
   return (
     <>
-      <ConversationHeader
+      <TabbedHeader
         identity={
           <>
             <ConversationListButton />
@@ -106,7 +109,8 @@ export function ChannelConversationHeader({
               tooltip={m.search_this_channel()}
               onClick={() =>
                 void navigate({
-                  to: "/search",
+                  to: "/w/$workspaceSlug/search",
+                  params: { workspaceSlug },
                   search: { channelId: conversation.conversationId, defer: "1" },
                 })
               }
@@ -168,6 +172,7 @@ export function ChannelConversation({
   tasksPane,
   channels,
   taskPopup,
+  jumpMessage,
 }: {
   conversation: ChannelConversationView;
   onSend: (
@@ -215,6 +220,8 @@ export function ChannelConversation({
   channels?: readonly ChannelSuggestion[];
   /** Shows only the Task popup, opened and closed by a page other than the channel's own. */
   taskPopup?: TaskPopupControls;
+  /** The message the stream lands on, kept by the host (see `ThreadedConversation`). */
+  jumpMessage?: string;
 }) {
   const [joining, setJoining] = useState(false);
   const [error, setError] = useState(false);
@@ -300,6 +307,7 @@ export function ChannelConversation({
       tasksPane={tasksPane}
       channels={channels}
       taskPopup={taskPopup}
+      jumpMessage={jumpMessage}
       tasks={tasks}
       onCreateTask={conversation.senderMemberId ? onCreateTask : undefined}
       onToggleReaction={conversation.senderMemberId ? onToggleReaction : undefined}

@@ -36,15 +36,6 @@ const TASK_REFUSAL_STATUS: Record<string, number> = {
 
 const taskRequestSchema = z
   .object({
-    // Legacy Task envelope, accepted and ignored. Clients installed before the envelope was purged
-    // (#643) still send these, and `.strict()` turned that into a ZodError -> 400 for **every**
-    // Agent Task request from every installed Computer (claim, history, …), which the proxy reports
-    // as an opaque 502. The route has always taken its principal from the Agent API key, never from
-    // these body fields, so the compatible reading is to keep ignoring them until the matching
-    // client ships. Drop these three keys once no supported Computer sends them.
-    protocolMajor: z.number().optional(),
-    workspaceId: z.string().optional(),
-    agentId: z.string().optional(),
     operation: z.enum(taskOperations),
     idempotencyKey: z.string().min(1),
     conversationId: z.string().uuid().optional(),
@@ -86,15 +77,7 @@ export async function handleAgentTaskPost(
   },
 ): Promise<Response> {
   try {
-    const parsed = taskRequestSchema.parse(await request.json().catch(() => undefined));
-    // Drop the ignored legacy envelope before the board sees it, so a command is still exactly a
-    // `TaskCommand` (the fields were never part of the command).
-    const {
-      protocolMajor: _protocolMajor,
-      workspaceId: _workspaceId,
-      agentId: _agentId,
-      ...command
-    } = parsed;
+    const command = taskRequestSchema.parse(await request.json().catch(() => undefined));
     // Agent Task commands act as the agent, not its owner user.
     const result = await board.execute(
       { workspaceId: principal.workspaceId, agentId: principal.agentId },

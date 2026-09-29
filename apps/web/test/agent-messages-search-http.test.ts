@@ -45,7 +45,6 @@ test("search returns the canonical response shape and echoes the request id", as
   ]);
   expect(result.status).toBe(200);
   expect(await result.json()).toEqual({
-    protocolMajor: 1,
     idempotencyKey: "request-2",
     results: [
       {

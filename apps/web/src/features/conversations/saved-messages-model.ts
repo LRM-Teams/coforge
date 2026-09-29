@@ -13,52 +13,44 @@
  * - **A thread reply renders only through its root's row**, so its anchor is the root id —
  *   "land on the row in the stream, open the thread yourself" (the agreed ①: muse + deepseek).
  *
- * Channels route by their conversation id; direct messages route by Agent id, which the
- * repository encodes structurally in `directKey` (`agent:<agentId>|user:<userId>`, `keyFor` in
- * the direct-conversation repository), so the parse never guesses from UUIDs or a viewer id. An
- * unparsable key (a legacy row) degrades to the conversation list instead of a broken route.
+ * Channels and direct messages both route by their conversation id.
  */
 
 /** Where a saved message's card navigates: its conversation, anchored at the stream position. */
 export type SavedJumpTarget =
   | {
-      to: "/messages/channels/$channelId";
-      params: { channelId: string };
+      to: "/w/$workspaceSlug/channel/$channelId";
+      params: { workspaceSlug: string; channelId: string };
       search: { message: string };
     }
-  | { to: "/messages/$agentId"; params: { agentId: string }; search: { message: string } }
-  | { to: "/messages" };
-
-/** The Agent id encoded in a direct conversation's `directKey`; null when absent or malformed. */
-export function agentIdFromDirectKey(directKey: string | null): string | null {
-  if (!directKey) return null;
-  return /^agent:([^|]+)\|user:/.exec(directKey)?.[1] ?? null;
-}
+  | {
+      to: "/w/$workspaceSlug/dm/$dmId";
+      params: { workspaceSlug: string; dmId: string };
+      search: { message: string };
+    };
 
 /**
- * Where a saved message's card navigates: its own conversation, anchored at the row that
- * shows it in the stream — the root for a thread reply, the message itself otherwise, as a
- * position-only `?message=` search param (never a hash; see the module note).
+ * Where a saved message's card navigates: its own conversation in the Workspace `workspaceSlug`
+ * names, anchored at the row that shows it in the stream — the root for a thread reply, the
+ * message itself otherwise, as a position-only `?message=` search param (never a hash; see the
+ * module note).
  */
 export function savedJumpTarget(
-  conversation: { id: string; channelName: string | null; directKey: string | null },
+  workspaceSlug: string,
+  conversation: { id: string; channelName: string | null },
   message: { id: string; threadRootId?: string | null },
 ): SavedJumpTarget {
   const anchorId = message.threadRootId ?? message.id;
   if (conversation.channelName) {
     return {
-      to: "/messages/channels/$channelId",
-      params: { channelId: conversation.id },
+      to: "/w/$workspaceSlug/channel/$channelId",
+      params: { workspaceSlug, channelId: conversation.id },
       search: { message: anchorId },
     };
   }
-  const agentId = agentIdFromDirectKey(conversation.directKey);
-  if (agentId) {
-    return {
-      to: "/messages/$agentId",
-      params: { agentId },
-      search: { message: anchorId },
-    };
-  }
-  return { to: "/messages" };
+  return {
+    to: "/w/$workspaceSlug/dm/$dmId",
+    params: { workspaceSlug, dmId: conversation.id },
+    search: { message: anchorId },
+  };
 }

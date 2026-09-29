@@ -35,7 +35,12 @@ describe("createWebPushNotifications", () => {
     });
 
     await expect(
-      notifications.sendTest("user-a", "https://fcm.googleapis.com/wp/subscription-a", "en"),
+      notifications.sendTest(
+        "user-a",
+        "https://fcm.googleapis.com/wp/subscription-a",
+        "en",
+        "acme",
+      ),
     ).resolves.toEqual({
       sent: 0,
       failed: 1,

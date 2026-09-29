@@ -13,6 +13,7 @@ import {
   regionFromEndpoint,
   LATEST_OBJECT_KEY,
   manifestObjectKey,
+  nextDevVersion,
   ossError,
   parseTargets,
   runCli,
@@ -434,6 +435,58 @@ test("assertVersionIsUnpublished resolves for a version the feed has never seen"
   expect(fake.calls).toEqual([{ method: "HEAD", key: "1.2.3-fresh/manifest.json" }]);
 });
 
+test("the first staging build of a release line is its dev.1", async () => {
+  const fake = startFakeOssServer();
+  const client = await createOssClient(fixtureConnection(fake), CREDENTIALS);
+
+  expect(await nextDevVersion("0.1.1", { client })).toBe("0.1.1-dev.1");
+});
+
+test("a release line takes the smallest dev number the feed has not published, not max + 1", async () => {
+  // 0.1.1-dev.82 was published under the old run-number naming before per-line numbering began.
+  const fake = startFakeOssServer({
+    preexistingKeys: new Set([
+      manifestObjectKey("0.1.1-dev.1"),
+      manifestObjectKey("0.1.1-dev.82"),
+      manifestObjectKey("0.1.0-dev.2"),
+    ]),
+  });
+  const client = await createOssClient(fixtureConnection(fake), CREDENTIALS);
+
+  expect(await nextDevVersion("0.1.1", { client })).toBe("0.1.1-dev.2");
+});
+
+test("a dev number left half-uploaded by a failed publish is reused, as a rerun would", async () => {
+  const fake = startFakeOssServer({
+    preexistingKeys: new Set(["0.1.1-dev.1/linux-x64/coforge-computer.gz"]),
+  });
+  const client = await createOssClient(fixtureConnection(fake), CREDENTIALS);
+
+  expect(await nextDevVersion("0.1.1", { client })).toBe("0.1.1-dev.1");
+});
+
+test("an ambiguous probe stops the dev-number search instead of reading as unused", async () => {
+  const fake = startFakeOssServer({
+    preexistingKeys: new Set([manifestObjectKey("0.1.1-dev.1")]),
+    failProbeKeys: new Set([manifestObjectKey("0.1.1-dev.2")]),
+  });
+  const client = await createOssClient(fixtureConnection(fake), CREDENTIALS);
+
+  await expect(nextDevVersion("0.1.1", { client })).rejects.toThrow(/OSS probe failed: HTTP 403/);
+});
+
+test("the dev-number search gives up after 500 numbers instead of probing forever", async () => {
+  const published = Array.from({ length: 500 }, (_, index) =>
+    manifestObjectKey(`0.1.1-dev.${index + 1}`),
+  );
+  const fake = startFakeOssServer({ preexistingKeys: new Set(published) });
+  const client = await createOssClient(fixtureConnection(fake), CREDENTIALS);
+
+  await expect(nextDevVersion("0.1.1", { client })).rejects.toThrow(
+    /0\.1\.1 has no unused dev number up to 500/,
+  );
+});
+
 /* ------------------------------------------------------------------------------------------- */
 /* 2. Read-back verification                                                                     */
 /* ------------------------------------------------------------------------------------------- */
@@ -677,6 +730,91 @@ test("--dry-run makes no network calls and reports the objects it would publish"
   expect(outcome.latestKey).toBe(LATEST_OBJECT_KEY);
 });
 
+test("--line publishes the line's next dev number, compiled under it, and reports it to the workflow", async () => {
+  const fake = startFakeOssServer({
+    preexistingKeys: new Set([manifestObjectKey("0.1.1-dev.1")]),
+  });
+  const outputDirectory = await tempDir("coforge-publish-line-");
+  const githubOutput = join(outputDirectory, "github-output");
+  const compiledVersions = new Set<string>();
+  const compile = stubCompile();
+  const previousEnv = {
+    id: process.env.ALIBABA_CLOUD_ACCESS_KEY_ID,
+    secret: process.env.ALIBABA_CLOUD_ACCESS_KEY_SECRET,
+    output: process.env.GITHUB_OUTPUT,
+  };
+  process.env.ALIBABA_CLOUD_ACCESS_KEY_ID = CREDENTIALS.accessKeyId;
+  process.env.ALIBABA_CLOUD_ACCESS_KEY_SECRET = CREDENTIALS.accessKeySecret;
+  process.env.GITHUB_OUTPUT = githubOutput;
+  const originalLog = console.log;
+  console.log = () => undefined;
+
+  let exitCode: number;
+  try {
+    exitCode = await runCli(
+      [
+        "--line",
+        "0.1.1",
+        "--feed-url",
+        "https://releases-test.coforge.cn",
+        "--bucket",
+        BUCKET,
+        "--region",
+        REGION,
+        "--targets",
+        TEST_TARGETS.join(","),
+        "--commit",
+        "a".repeat(40),
+      ],
+      {
+        compile: (async (input) => {
+          compiledVersions.add(input.version);
+          return compile(input);
+        }) as CompileFn,
+        resolvePhotonWasm: stubResolvePhotonWasm(),
+        connection: { endpoint: fake.baseUrl, cname: true, secure: false },
+      },
+    );
+  } finally {
+    console.log = originalLog;
+    restoreEnvVar("ALIBABA_CLOUD_ACCESS_KEY_ID", previousEnv.id);
+    restoreEnvVar("ALIBABA_CLOUD_ACCESS_KEY_SECRET", previousEnv.secret);
+    restoreEnvVar("GITHUB_OUTPUT", previousEnv.output);
+  }
+
+  expect(exitCode).toBe(0);
+  // The version is chosen before compiling: it is baked into the Computer and Daemon binaries.
+  expect([...compiledVersions]).toEqual(["0.1.1-dev.2"]);
+  expect(new TextDecoder().decode(fake.peek(LATEST_OBJECT_KEY)).trim()).toBe("0.1.1-dev.2");
+  expect(await readFile(githubOutput, "utf8")).toBe("version=0.1.1-dev.2\n");
+});
+
+test("--line names a release line, never alongside --version, and needs the feed to count", async () => {
+  const originalError = console.error;
+  const errors: string[] = [];
+  console.error = (...args: unknown[]) => errors.push(args.map(String).join(" "));
+  try {
+    const feed = ["--feed-url", "https://releases-test.coforge.cn"];
+    expect(await runCli(["--line", "0.1.1", "--version", "0.1.1-dev.3", ...feed])).toBe(1);
+    expect(await runCli(["--line", "0.1.1-dev.3", ...feed])).toBe(1);
+    expect(await runCli(["--line", "0.1.1", ...feed, "--dry-run"])).toBe(1);
+    // A split publication runs one job per platform; each would pick its own number.
+    expect(await runCli(["--line", "0.1.1", ...feed, "--no-activate"])).toBe(1);
+    expect(await runCli(["--line", "0.1.1", ...feed, "--allow-existing"])).toBe(1);
+    expect(await runCli([...feed])).toBe(1);
+    expect(errors).toEqual([
+      "publish failed: pass either --version or --line, not both",
+      "publish failed: --line must be a release line such as 0.1.1: 0.1.1-dev.3",
+      "publish failed: --line reads the feed to pick a dev number; a --dry-run needs --version",
+      "publish failed: a split publication names its version: use --version with --no-activate",
+      "publish failed: a split publication names its version: use --version with --allow-existing",
+      "publish failed: --version or --line is required",
+    ]);
+  } finally {
+    console.error = originalError;
+  }
+});
+
 /* ------------------------------------------------------------------------------------------- */
 /* CLI argument parsing                                                                          */
 /* ------------------------------------------------------------------------------------------- */
@@ -694,7 +832,7 @@ test("parseTargets defaults to all six release platforms and validates unknown o
   expect(() => parseTargets("linux-x64,bogus")).toThrow(/unsupported release target: bogus/);
 });
 
-test("runCli requires --version and --feed-url, and rejects a non-https feed URL", async () => {
+test("runCli requires --version (or --line) and --feed-url, and rejects a non-https feed URL", async () => {
   const originalError = console.error;
   const errors: string[] = [];
   console.error = (...args: unknown[]) => errors.push(args.map(String).join(" "));
@@ -710,7 +848,7 @@ test("runCli requires --version and --feed-url, and rejects a non-https feed URL
         "--dry-run",
       ]),
     ).toBe(1);
-    expect(errors.some((line) => line.includes("--version is required"))).toBe(true);
+    expect(errors.some((line) => line.includes("--version or --line is required"))).toBe(true);
     expect(errors.some((line) => line.includes("--feed-url is required"))).toBe(true);
     expect(errors.some((line) => line.includes("https://"))).toBe(true);
   } finally {

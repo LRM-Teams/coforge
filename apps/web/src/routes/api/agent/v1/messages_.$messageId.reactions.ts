@@ -28,7 +28,6 @@ export async function handleAgentMessageReaction(
     const emoji = typeof body?.emoji === "string" ? body.emoji : "";
     const result = await reactToAgentMessage(repository, scope, messageId, emoji, active);
     const response: AgentReactionResponse = {
-      protocolMajor: 1,
       idempotencyKey,
       messageId: result.messageId,
       emoji,

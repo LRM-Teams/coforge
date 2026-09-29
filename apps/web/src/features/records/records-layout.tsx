@@ -22,6 +22,7 @@ import {
 } from "@untitledui/icons";
 
 import { PageHeader } from "#src/components/layout/page-header";
+import { useWorkspaceSlug } from "#src/features/workspaces/workspace-route";
 import { Tab, TabList, TabPanel, Tabs } from "#src/components/application/tabs/tabs";
 import { Avatar } from "#src/components/base/avatar/avatar";
 import { Button } from "#src/components/base/buttons/button";
@@ -92,6 +93,7 @@ export function RecordsLayout({
 }) {
   const navigate = useNavigate();
   const router = useRouter();
+  const workspaceSlug = useWorkspaceSlug();
   const workspaceId = useCurrentWorkspaceId();
   const createNote = useServerFn(createRecordNote);
   const recordOpen = detailOpen ?? Boolean(selectedRecordId || selectedPanel || selectedWeekKey);
@@ -230,8 +232,8 @@ export function RecordsLayout({
     setShowMobileList(false);
     await router.invalidate({ sync: true });
     void navigate({
-      to: "/records/$recordId",
-      params: { recordId },
+      to: "/w/$workspaceSlug/records/$recordId",
+      params: { workspaceSlug, recordId },
       search: (previous) => ({ tab: recordsTabSearch(previous.tab) }),
     });
   }
@@ -555,7 +557,8 @@ export function RecordsLayout({
                     <p className="min-w-0 flex-1">
                       {m.records_format_settings_hint()}{" "}
                       <Link
-                        to="/records/settings"
+                        to="/w/$workspaceSlug/records/settings"
+                        params={{ workspaceSlug }}
                         search={(previous) => ({ tab: recordsTabSearch(previous.tab) })}
                         className="font-medium underline"
                       >
@@ -588,7 +591,8 @@ export function RecordsLayout({
                         setShowMobileList(false);
                         const now = new Date();
                         void navigate({
-                          to: "/records/stats",
+                          to: "/w/$workspaceSlug/records/stats",
+                          params: { workspaceSlug },
                           search: (previous) => ({
                             tab: recordsTabSearch(previous.tab),
                             year:
@@ -603,7 +607,8 @@ export function RecordsLayout({
                       if (key === "settings") {
                         setShowMobileList(false);
                         void navigate({
-                          to: "/records/settings",
+                          to: "/w/$workspaceSlug/records/settings",
+                          params: { workspaceSlug },
                           search: (previous) => ({
                             tab: recordsTabSearch(previous.tab),
                           }),
@@ -646,6 +651,7 @@ function FormatChipSlot({
   selected: boolean;
   onSelect: () => void;
 }) {
+  const workspaceSlug = useWorkspaceSlug();
   const [now, setNow] = useState(() => new Date());
   const appliedSchedule = chip.appliedSchedule;
   const alreadySent = chip.alreadySent;
@@ -725,8 +731,8 @@ function FormatChipSlot({
 
   return (
     <Link
-      to="/records/$recordId"
-      params={{ recordId: chip.id }}
+      to="/w/$workspaceSlug/records/$recordId"
+      params={{ workspaceSlug, recordId: chip.id }}
       search={(previous) => ({ tab: recordsTabSearch(previous.tab) })}
       aria-current={selected ? "page" : undefined}
       resetScroll={false}
@@ -808,10 +814,11 @@ function RecordLink({
   className?: string;
   children: ReactNode;
 }) {
+  const workspaceSlug = useWorkspaceSlug();
   return (
     <Link
-      to="/records/$recordId"
-      params={{ recordId }}
+      to="/w/$workspaceSlug/records/$recordId"
+      params={{ workspaceSlug, recordId }}
       search={(previous) => ({ tab: recordsTabSearch(previous.tab) })}
       aria-current={selected ? "page" : undefined}
       resetScroll={false}

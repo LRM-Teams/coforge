@@ -4,12 +4,10 @@ import {
   decodeWeeklyReportResponse,
   encodeWeeklyReportRequest,
   encodeWeeklyReportResponse,
-  WEEKLY_REPORT_PROTOCOL_MAJOR,
 } from "./weekly-report";
 
 const identity = {
-  protocolMajor: WEEKLY_REPORT_PROTOCOL_MAJOR,
-  requestId: "request-1",
+  idempotencyKey: "request-1",
   workspaceId: "workspace-1",
   agentId: "agent-1",
 };
@@ -67,14 +65,12 @@ test("weekly-report codec rejects oversize lists and missing section reads", () 
 
 test("weekly-report responses keep request correlation", () => {
   const bytes = encodeWeeklyReportResponse({
-    protocolMajor: WEEKLY_REPORT_PROTOCOL_MAJOR,
-    requestId: "request-1",
+    idempotencyKey: "request-1",
     operation: "list",
     result: { reports: [], nextCursor: null },
   });
   expect(decodeWeeklyReportResponse(bytes)).toEqual({
-    protocolMajor: WEEKLY_REPORT_PROTOCOL_MAJOR,
-    requestId: "request-1",
+    idempotencyKey: "request-1",
     operation: "list",
     result: { reports: [], nextCursor: null },
   });
