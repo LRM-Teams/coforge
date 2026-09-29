@@ -1,4 +1,6 @@
 import type { WeeklyReportAssistantSuggestion } from "#src/server/records/weekly-report-assistant-suggestion.server";
+import { RFC_UUID_PATTERN } from "@lrm/coforge-sdk/internal";
+import { z } from "zod";
 
 export type WeeklyReportAssistantMessage = {
   id: string;
@@ -36,6 +38,67 @@ export type WeeklyReportAssistantSessionStorage = {
 
 const APPLIED_STORAGE_PREFIX = "coforge.weekly-report-assistant.applied:";
 const DISMISSED_STORAGE_PREFIX = "coforge.weekly-report-assistant.dismissed:";
+const COLLECT_RUN_STORAGE_PREFIX = "coforge.weekly-report-assistant.collect-run:";
+const COLLECT_PLAN_STORAGE_PREFIX = "coforge.weekly-report-assistant.collect-plan:";
+const collectPlanDraftSchema = z.object({
+  windowKind: z.enum(["week", "month", "quarter", "year", "custom"]),
+  optionId: z.string(),
+  customStart: z.string(),
+  customEnd: z.string(),
+  selected: z.array(z.string()),
+  pathsByComputer: z.record(z.string(), z.array(z.string())),
+  configuringComputerId: z.string().nullable(),
+});
+
+export function readCollectPlanDraft(
+  cardKey: string,
+  storage: WeeklyReportAssistantSessionStorage | null = defaultSessionStorage(),
+): z.infer<typeof collectPlanDraftSchema> | null {
+  try {
+    const raw = storage?.getItem(`${COLLECT_PLAN_STORAGE_PREFIX}${cardKey}`);
+    if (!raw) return null;
+    const parsed = collectPlanDraftSchema.safeParse(JSON.parse(raw));
+    return parsed.success ? parsed.data : null;
+  } catch {
+    return null;
+  }
+}
+
+export function writeCollectPlanDraft(
+  cardKey: string,
+  draft: z.infer<typeof collectPlanDraftSchema>,
+  storage: WeeklyReportAssistantSessionStorage | null = defaultSessionStorage(),
+): void {
+  try {
+    storage?.setItem(`${COLLECT_PLAN_STORAGE_PREFIX}${cardKey}`, JSON.stringify(draft));
+  } catch {
+    /* The mounted card still retains its form if storage is unavailable. */
+  }
+}
+
+export function readCollectCardRunId(
+  cardKey: string,
+  storage: WeeklyReportAssistantSessionStorage | null = defaultSessionStorage(),
+): string | null {
+  try {
+    const id = storage?.getItem(`${COLLECT_RUN_STORAGE_PREFIX}${cardKey}`);
+    return id && RFC_UUID_PATTERN.test(id) ? id : null;
+  } catch {
+    return null;
+  }
+}
+
+export function writeCollectCardRunId(
+  cardKey: string,
+  runId: string,
+  storage: WeeklyReportAssistantSessionStorage | null = defaultSessionStorage(),
+): void {
+  try {
+    storage?.setItem(`${COLLECT_RUN_STORAGE_PREFIX}${cardKey}`, runId);
+  } catch {
+    // Storage may be unavailable; the mounted card still retains its submitted run.
+  }
+}
 
 export function weeklyReportAssistantSubjectKey(
   subjectType: "report" | "cycle",

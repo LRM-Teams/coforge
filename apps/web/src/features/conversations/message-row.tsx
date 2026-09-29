@@ -1,4 +1,8 @@
 import { memo, useCallback, useEffect, useRef, useState } from "react";
+import {
+  WeeklyReportMessageCard,
+  type WeeklyReportMessageSuggestion,
+} from "#src/features/records/weekly-report-message-card";
 import { FileIcon as FileTypeIcon } from "@untitledui/file-icons";
 import {
   Bookmark,
@@ -99,6 +103,8 @@ export type MessageView = {
    * Replaces the plain-text draft hint line with the interactive card; the
    * underlying `body` stays available to assistive technology. */
   actionCard?: ActionCardView;
+  weeklyReportSuggestion?: WeeklyReportMessageSuggestion;
+  weeklyReportDisplayBody?: string;
 };
 
 export const GROUPING_WINDOW_MS = 5 * 60 * 1000;
@@ -917,7 +923,7 @@ export const MessageRow = memo(function MessageRow({
               )}
             >
               <CollapsibleMessageBody
-                body={message.body}
+                body={message.weeklyReportDisplayBody ?? message.body}
                 mentions={message.mentions}
                 plainMentions={plainMentions}
                 viewerHandle={viewerHandle}
@@ -928,6 +934,14 @@ export const MessageRow = memo(function MessageRow({
                 collapsible={collapsible}
                 onToggleExpanded={() => onToggleExpanded(message.id)}
               />
+              {message.weeklyReportSuggestion ? (
+                <WeeklyReportMessageCard
+                  messageId={message.id}
+                  suggestion={message.weeklyReportSuggestion}
+                  onOpenAgentProfile={onOpenAgentProfile}
+                  disabled={deleted}
+                />
+              ) : null}
               {quoteOffer && onQuoteSelection && (
                 <div
                   ref={quoteAffordanceRef}

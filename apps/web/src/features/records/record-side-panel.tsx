@@ -88,6 +88,7 @@ import {
 import { resolveAwaitingAssistantResume } from "./record-side-panel-awaiting";
 import { loadWorkspaceMembers } from "#src/features/workspaces/members.functions";
 import { WeeklyReportCollectPlanCard } from "./weekly-report-collect-plan-card";
+import { WeeklyReportMessageCard } from "./weekly-report-message-card";
 import { WeeklyReportCollectRunCard } from "./weekly-report-collect-run-card";
 import {
   WeeklyTemplateDetailDialog,
@@ -1321,6 +1322,7 @@ export function RecordSidePanel({
                   ) : null}
                   {payload?.kind === "collect-plan" ? (
                     <WeeklyReportCollectPlanCard
+                      storageKey={comment.id}
                       reportId={payload.reportId}
                       year={payload.year}
                       week={payload.week}
@@ -1382,6 +1384,13 @@ export function RecordSidePanel({
                   </span>
                 </div>
                 <p className="whitespace-pre-wrap text-sm leading-6 text-primary">{message.body}</p>
+                {suggestion?.type === "collect-plan" ? (
+                  <WeeklyReportMessageCard
+                    messageId={message.id}
+                    suggestion={suggestion}
+                    disabled={suggestionFrozen}
+                  />
+                ) : null}
                 {suggestion?.type === "send-prompt" && !suggestionFrozen ? (
                   <FormatSendActions
                     disabled={busy}

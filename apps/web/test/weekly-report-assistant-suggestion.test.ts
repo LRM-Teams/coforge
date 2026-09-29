@@ -6,6 +6,29 @@ import {
   type WeeklyReportAssistantSuggestion,
 } from "#src/server/records/weekly-report-assistant-suggestion.server";
 
+test("collector setup requests carry a report and bounded ISO week in a fillable card", () => {
+  const suggestion = {
+    type: "collect-plan" as const,
+    reportId: "7f83f236-78fc-4bb6-b35a-d5713be78973",
+    year: 2026,
+    week: 40,
+  };
+  const envelope = (value: unknown) =>
+    `[weekly-report-suggestion]\n${JSON.stringify(value)}\n[/weekly-report-suggestion]`;
+  expect(parseWeeklyReportAssistantSuggestion(envelope(suggestion))).toEqual(suggestion);
+  for (const invalid of [
+    { reportId: "guessed-report" },
+    { week: 0 },
+    { week: 54 },
+    { week: 1.5 },
+    { year: "2026" },
+  ]) {
+    expect(
+      parseWeeklyReportAssistantSuggestion(envelope({ ...suggestion, ...invalid })),
+    ).toBeNull();
+  }
+});
+
 test("prose that mentions the suggestion tag does not truncate the display body", () => {
   const body = [
     "明白你的疑问。区别在于这是两条不同的流程：",

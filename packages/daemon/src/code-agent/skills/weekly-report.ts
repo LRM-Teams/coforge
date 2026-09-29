@@ -3,7 +3,8 @@ export const WEEKLY_REPORT_SKILL_FILES = {
   "weekly-report-navigation": `---
 name: weekly-report-navigation
 description: >-
-  Use for weekly-report conversations: discover real templates, configure sends,
+  Use for weekly-report conversations: collect work from Computers/servers,
+  configure reusable collector Agents, discover templates, configure sends,
   fill and submit reports, and save summaries in DM or Records side chat.
 ---
 
@@ -99,6 +100,35 @@ when summarizing others. These tools enforce the owner's Records permissions.
 Use workflow operations for explicit user writes in both chat surfaces. If the User
 only asks for a preview, provide a draft without writing. Platform extraction and
 Collect handoffs use the separate weekly-report-writing skill.
+
+## Collect work from Computers
+
+Requests such as “看看143、144服务器我做了什么”, “找采集agent”, or “创建采集Agent”
+use the product's collection plan. Resolve the User's member report and cycle from
+the current report context or inbox; ask only if the report/week is ambiguous.
+Reply with a fillable card using real reportId, year and week from that result:
+
+\`\`\`
+[weekly-report-suggestion]
+{"type":"collect-plan","reportId":"<member report UUID>","year":2026,"week":40}
+[/weekly-report-suggestion]
+\`\`\`
+
+The card lists the User's owned Computers, scan paths and collector readiness.
+The User can select Computers, configure missing collectors, and submit the plan.
+Configuration creates or reuses the User-owned per-Computer collector with its
+assigned collection skill. Existing configured collectors are reused on later runs.
+After submission the platform dispatches collectors and wakes you with their packs
+to synthesize the draft. Do not send ad-hoc messages to collectors without a run.
+
+Do not substitute a generic agent:create card. Agent ownership restrictions do not
+prevent proposing this User-confirmed collection card. “Collector not ready” does
+not prove the daemon is uninstalled; runtime/model configuration may be missing.
+Use Computer identity from the card rather than guessing from stale Agent names.
+Do not search home directories, other Agents' memories, credentials, shell histories,
+SSH keys or third-party machine registries to discover collectors. Do not guess CLI
+subcommands or probe SSH as a fallback. The collector scans only the submitted paths
+and time window; installation history alone is not the User's weekly work summary.
 `,
 
   "weekly-report-writing": `---
@@ -112,7 +142,7 @@ description: >-
 
 For user-authored requests, load weekly-report-navigation: explicit writes use the
 same workflow operations in DM and Records side chat. Do not require a UI confirmation
-or emit a suggestion card unless the user requests a preview.
+or emit a suggestion card unless the user requests a preview or a collection plan.
 
 For platform wakes only:
 

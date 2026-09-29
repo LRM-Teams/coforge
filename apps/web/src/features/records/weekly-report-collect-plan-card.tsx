@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Link, useNavigate } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
+import { useQuery } from "@tanstack/react-query";
 import { Edit01 as Edit, Settings01 as Settings } from "@untitledui/icons";
 
 import { Button } from "#src/components/base/buttons/button";
@@ -8,8 +8,13 @@ import { ButtonUtility } from "#src/components/base/buttons/button-utility";
 import { Checkbox } from "#src/components/base/checkbox/checkbox";
 import { Input } from "#src/components/base/input/input";
 import { Select } from "#src/components/base/select/select";
-import { formatAgentProfileParam } from "#src/features/agents/profile-panel/profile-panel-search";
+import type { AgentProfileTab } from "#src/features/agents/profile-panel/profile-panel-search";
+import { AgentProfilePanel } from "#src/features/agents/profile-panel/agent-profile-panel";
+import { Dialog, Modal, ModalOverlay } from "#src/components/application/modals/modal";
+import type { OpenAgentProfile } from "#src/features/agents/profile-panel/open-agent-profile";
+import { agentProfileQuery } from "#src/features/agents/profile-panel/agent-profile-queries";
 import { useWorkspaceSlug } from "#src/features/workspaces/workspace-route";
+import { readCollectPlanDraft, writeCollectPlanDraft } from "./weekly-report-assistant-session";
 import { m } from "#src/paraglide/messages";
 import {
   collectPathLines,
@@ -42,12 +47,14 @@ export function WeeklyReportCollectPlanCard(props: {
   week: number;
   disabled?: boolean;
   onSubmitted?: (runId: string) => void;
+  onOpenAgentProfile?: OpenAgentProfile;
+  storageKey?: string;
 }) {
+  const workspaceSlug = useWorkspaceSlug();
+  const storageKey = `${workspaceSlug}:${props.storageKey ?? props.reportId}`;
   const listSlots = useServerFn(listWeeklyReportCollectorSlots);
   const ensure = useServerFn(ensureWeeklyReportCollector);
   const submit = useServerFn(submitWeeklyReportCollectPlan);
-  const navigate = useNavigate();
-  const workspaceSlug = useWorkspaceSlug();
   const [slots, setSlots] = useState<SlotRow[]>([]);
   const [windowKind, setWindowKind] = useState<CollectWindowKind>("week");
   const [optionId, setOptionId] = useState(`${props.year}-W${props.week}`);
@@ -59,37 +66,106 @@ export function WeeklyReportCollectPlanCard(props: {
   const [pathFocus, setPathFocus] = useState<{ computerId: string; index: number } | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [initialized, setInitialized] = useState(false);
+  const [profileAgentId, setProfileAgentId] = useState<string | null>(null);
+  const [profileTab, setProfileTab] = useState<AgentProfileTab>("profile");
+  const [configuringComputerId, setConfiguringComputerId] = useState<string | null>(null);
+  const configuringAgent = useQuery(
+    agentProfileQuery(
+      slots.find((slot) => slot.computerId === configuringComputerId)?.collectorAgentId ??
+        undefined,
+    ),
+  );
 
   useEffect(() => {
+    if (!configuringComputerId || !configuringAgent.dataUpdatedAt) return;
     let cancelled = false;
-    void listSlots().then((rows) => {
-      if (cancelled) return;
-      setSlots(rows);
-      setSelected(rows.filter((row) => row.ready).map((row) => row.computerId));
-      setPathsByComputer(
-        Object.fromEntries(
-          rows.map((row) => [
-            row.computerId,
-            collectPathLines(defaultCollectScanPath(row.platform)),
-          ]),
-        ),
-      );
-    });
+    async function refresh() {
+      try {
+        const rows = await listSlots();
+        if (cancelled) return;
+        setSlots(rows);
+      } catch {
+        if (!cancelled) setError(m.records_collect_plan_ensure_failed());
+      }
+    }
+    void refresh();
     return () => {
       cancelled = true;
     };
-  }, [listSlots]);
+  }, [configuringComputerId, configuringAgent.dataUpdatedAt, listSlots]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const draft = readCollectPlanDraft(storageKey);
+    if (draft) {
+      setWindowKind(draft.windowKind);
+      setOptionId(draft.optionId);
+      setCustomStart(draft.customStart);
+      setCustomEnd(draft.customEnd);
+      setConfiguringComputerId(draft.configuringComputerId);
+    }
+    void listSlots()
+      .then((rows) => {
+        if (cancelled) return;
+        setSlots(rows);
+        setSelected(
+          draft
+            ? draft.selected.filter((id) => rows.some((row) => row.computerId === id))
+            : rows.filter((row) => row.ready).map((row) => row.computerId),
+        );
+        setPathsByComputer(
+          Object.fromEntries(
+            rows.map((row) => [
+              row.computerId,
+              draft?.pathsByComputer[row.computerId] ??
+                collectPathLines(defaultCollectScanPath(row.platform)),
+            ]),
+          ),
+        );
+        setInitialized(true);
+      })
+      .catch(() => {
+        if (!cancelled) setError(m.records_collect_plan_ensure_failed());
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [listSlots, storageKey]);
+
+  useEffect(() => {
+    if (!initialized) return;
+    writeCollectPlanDraft(storageKey, {
+      windowKind,
+      optionId,
+      customStart,
+      customEnd,
+      selected,
+      pathsByComputer,
+      configuringComputerId,
+    });
+  }, [
+    initialized,
+    storageKey,
+    windowKind,
+    optionId,
+    customStart,
+    customEnd,
+    selected,
+    pathsByComputer,
+    configuringComputerId,
+  ]);
 
   const options = useMemo(() => listCollectWindowOptions(windowKind), [windowKind]);
   const selectedOption = options.find((row) => row.id === optionId) ?? options[0];
 
-  useEffect(() => {
-    if (windowKind === "week") {
-      setOptionId(`${props.year}-W${props.week}`);
-    } else if (options[0]) {
-      setOptionId(options[0].id);
+  function openProfile(agentId: string) {
+    if (props.onOpenAgentProfile) props.onOpenAgentProfile(agentId, "profile");
+    else {
+      setProfileTab("profile");
+      setProfileAgentId(agentId);
     }
-  }, [windowKind, props.year, props.week, options]);
+  }
 
   async function onEnsure(computerId: string) {
     setBusy(true);
@@ -100,14 +176,9 @@ export function WeeklyReportCollectPlanCard(props: {
       setSlots(rows);
       // New collectors start unconfigured; open Agent edit so the User can pick runtime.
       if (binding.collectorAgentId) {
-        void navigate({
-          to: "/w/$workspaceSlug/members",
-          params: { workspaceSlug },
-          search: {
-            profile: formatAgentProfileParam(binding.collectorAgentId),
-            agentTab: "profile",
-          },
-        });
+        setConfiguringComputerId(computerId);
+        setSelected((previous) => [...new Set([...previous, computerId])]);
+        openProfile(binding.collectorAgentId);
       }
     } catch {
       setError(m.records_collect_plan_ensure_failed());
@@ -118,6 +189,10 @@ export function WeeklyReportCollectPlanCard(props: {
 
   async function onSubmit() {
     if (busy || props.disabled) return;
+    if (selected.some((id) => !slots.find((slot) => slot.computerId === id)?.ready)) {
+      setError(m.records_collect_plan_not_ready());
+      return;
+    }
     const computers = selected
       .map((computerId) => {
         const slot = slots.find((row) => row.computerId === computerId);
@@ -181,9 +256,34 @@ export function WeeklyReportCollectPlanCard(props: {
     setPathFocus({ computerId, index: Math.max(0, index - 1) });
   }
 
+  if (!initialized)
+    return <p className="text-sm text-tertiary">{error ?? m.records_collect_run_loading()}</p>;
+
   return (
-    <div className="rounded-xl border border-secondary bg-primary p-4">
-      <div className="grid grid-cols-[4.5rem_minmax(0,1fr)] items-start gap-x-3 gap-y-4">
+    <div className="@container rounded-xl border border-secondary bg-primary p-4">
+      {profileAgentId ? (
+        <ModalOverlay
+          isOpen
+          onOpenChange={(open) => {
+            if (!open) setProfileAgentId(null);
+          }}
+        >
+          <Modal className="w-[calc(100vw-2rem)] max-w-2xl">
+            <Dialog
+              aria-label={m.records_collect_plan_setup()}
+              className="h-[40rem] overflow-hidden"
+            >
+              <AgentProfilePanel
+                agentId={profileAgentId}
+                requestedTab={profileTab}
+                onTabChange={setProfileTab}
+                onClose={() => setProfileAgentId(null)}
+              />
+            </Dialog>
+          </Modal>
+        </ModalOverlay>
+      ) : null}
+      <div className="grid grid-cols-1 items-start gap-x-3 gap-y-4 @sm:grid-cols-[4.5rem_minmax(0,1fr)]">
         <p className="pt-2 text-sm text-tertiary">{m.records_collect_plan_window()}</p>
         <div className="space-y-2">
           <Select
@@ -191,7 +291,15 @@ export function WeeklyReportCollectPlanCard(props: {
             size="sm"
             selectedKey={windowKind}
             onSelectionChange={(key) => {
-              if (typeof key === "string") setWindowKind(key as CollectWindowKind);
+              if (typeof key === "string") {
+                const kind = key as CollectWindowKind;
+                setWindowKind(kind);
+                setOptionId(
+                  kind === "week"
+                    ? `${props.year}-W${props.week}`
+                    : (listCollectWindowOptions(kind)[0]?.id ?? ""),
+                );
+              }
             }}
             isDisabled={busy || props.disabled}
           >
@@ -270,32 +378,31 @@ export function WeeklyReportCollectPlanCard(props: {
                       <Button
                         size="sm"
                         color="secondary"
-                        isDisabled={busy}
+                        isDisabled={busy || props.disabled}
                         onPress={() => void onEnsure(slot.computerId)}
                       >
                         {m.records_collect_plan_setup()}
                       </Button>
                     ) : null}
                     {slot.collectorAgentId ? (
-                      <Link
-                        to="/w/$workspaceSlug/members"
-                        params={{ workspaceSlug }}
-                        search={{
-                          profile: formatAgentProfileParam(slot.collectorAgentId),
-                          agentTab: "profile",
-                        }}
+                      <ButtonUtility
+                        size="sm"
+                        color="tertiary"
+                        icon={Settings}
                         aria-label={m.records_collect_plan_gear()}
-                        className="text-tertiary hover:text-primary"
-                      >
-                        <Settings className="size-4" />
-                      </Link>
+                        isDisabled={busy || props.disabled}
+                        onClick={() => {
+                          setConfiguringComputerId(slot.computerId);
+                          openProfile(slot.collectorAgentId!);
+                        }}
+                      />
                     ) : null}
                   </div>
                   <div className="mt-2 flex items-center gap-2">
                     <Checkbox
                       className={`${COLLECT_PLAN_CHECKBOX_CLASSNAME} self-center`}
                       isSelected={checked}
-                      isDisabled={busy || props.disabled || !slot.ready}
+                      isDisabled={busy || props.disabled}
                       onChange={(next) => {
                         setSelected((prev) =>
                           next
@@ -341,7 +448,11 @@ export function WeeklyReportCollectPlanCard(props: {
           size="md"
           color="primary"
           className={`px-8 ${RECORDS_PRIMARY_BUTTON_CLASSNAME}`}
-          isDisabled={busy || props.disabled}
+          isDisabled={
+            busy ||
+            props.disabled ||
+            selected.some((id) => !slots.find((slot) => slot.computerId === id)?.ready)
+          }
           isLoading={busy}
           onPress={() => void onSubmit()}
         >
