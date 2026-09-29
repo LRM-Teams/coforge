@@ -225,3 +225,76 @@ test("logout includes the Authing id_token hint from the session cookie", async 
 function cookieHeader(response: Response): string {
   return response.headers.getSetCookie().join("\n");
 }
+
+async function loginRoundTrip(
+  returnTo: string | null,
+  options: {
+    tamper?: (payload: Record<string, unknown>) => void;
+    enrollUser?: () => Promise<void>;
+  } = {},
+) {
+  const started = handleLoginStart({ config, sessionSecret, returnTo });
+  const location = new URL(started.headers.get("location") ?? "");
+  const state = location.searchParams.get("state") ?? "";
+  let stateCookie = started.headers.getSetCookie()[0]?.split(";", 1)[0] ?? "";
+  if (options.tamper) {
+    // Rewrite the payload but keep Authing's state and the old signature.
+    const [name, value] = stateCookie.split("=");
+    const [body, signature] = (value ?? "").split(".");
+    const payload = JSON.parse(Buffer.from(body ?? "", "base64url").toString("utf8"));
+    options.tamper(payload);
+    stateCookie = `${name}=${Buffer.from(JSON.stringify(payload)).toString("base64url")}.${signature}`;
+  }
+  return handleLoginCallback({
+    request: new Request(`http://localhost:3000/auth/callback?code=valid-code&state=${state}`, {
+      headers: { cookie: stateCookie },
+    }),
+    config,
+    sessionSecret,
+    authing: fakeAuthing(),
+    resolveUser: async () => persistedAda,
+    enrollUser: options.enrollUser ?? (async () => {}),
+  });
+}
+
+test("the page a sign-in started from rides in the signed state and is where it ends", async () => {
+  const device = await loginRoundTrip("/oauth/verify?user_code=AB-CD");
+  expect(device.headers.get("location")).toBe("/oauth/verify?user_code=AB-CD");
+  // Pages carry the locale prefix; /oauth has none.
+  const page = await loginRoundTrip("/w/acme/channel/1?view=chat");
+  expect(page.headers.get("location")).toBe("/en/w/acme/channel/1?view=chat");
+});
+
+test("a returnTo that could leave CoForge, or none, ends sign-in at /", async () => {
+  for (const returnTo of ["//evil.com", "https://evil.com", "/\\evil", null]) {
+    const response = await loginRoundTrip(returnTo);
+    expect(response.headers.get("location")).toBe("/");
+  }
+});
+
+test("a tampered state cookie is rejected, and its returnTo is not followed", async () => {
+  const response = await loginRoundTrip("/w/acme", {
+    tamper: (payload) => {
+      payload.returnTo = "https://evil.com";
+    },
+  });
+  const location = new URL(response.headers.get("location") ?? "");
+  expect(location.pathname).toBe("/login");
+  expect(location.searchParams.get("error")).toBe("login_failed");
+  expect(location.searchParams.get("returnTo")).toBeNull();
+  expect(
+    response.headers.getSetCookie().some((cookie) => cookie.startsWith("coforge_session=")),
+  ).toBe(false);
+});
+
+test("a failed sign-in goes back to /login with the page it started from", async () => {
+  const response = await loginRoundTrip("/join/abc", {
+    enrollUser: async () => {
+      throw new Error("database is required");
+    },
+  });
+  const location = new URL(response.headers.get("location") ?? "");
+  expect(location.pathname).toBe("/login");
+  expect(location.searchParams.get("error")).toBe("login_failed");
+  expect(location.searchParams.get("returnTo")).toBe("/join/abc");
+});

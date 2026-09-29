@@ -6,6 +6,7 @@ import type { BrowserUser } from "#src/server/auth/browser-login.server";
 import { isValidWorkspaceSlug } from "#src/features/workspaces/workspace-slug";
 import { workspaceSlugFromPath } from "#src/features/workspaces/workspace-url";
 import { requireBrowserUser } from "#src/server/auth/require-user.server";
+import { deLocalizeHref } from "#src/paraglide/runtime";
 
 export type WorkspaceUserContext = {
   user: BrowserUser;
@@ -13,14 +14,41 @@ export type WorkspaceUserContext = {
   workspaceId: string;
 };
 
-/** Authentication boundary for server functions. Route guards are not enough. */
-export const authMiddleware = createMiddleware({ type: "function" }).server(async ({ next }) =>
-  next({
-    context: {
-      user: await requireBrowserUser(getRequest().headers.get("cookie") ?? undefined),
-    },
-  }),
-);
+/**
+ * Authentication boundary for server functions. Route guards are not enough. A signed-out caller
+ * is redirected to /login with the page being opened as `returnTo`: the browser sends its
+ * location with each call, and during SSR the page request is the request itself.
+ */
+export const authMiddleware = createMiddleware({ type: "function" })
+  .client(async ({ next }) =>
+    next({
+      sendContext: {
+        page:
+          typeof window === "undefined"
+            ? undefined
+            : `${window.location.pathname}${window.location.search}`,
+      },
+    }),
+  )
+  .server(async ({ next, context }) => {
+    const request = getRequest();
+    const page = typeof context.page === "string" ? context.page : ssrPage(request);
+    return next({
+      context: {
+        user: await requireBrowserUser(
+          request.headers.get("cookie") ?? undefined,
+          page === undefined ? undefined : deLocalizeHref(page),
+        ),
+      },
+    });
+  });
+
+/** The page an SSR render is for; a call from the browser (`/_serverFn/…`) is not a page. */
+function ssrPage(request: Request): string | undefined {
+  const url = new URL(request.url);
+  const serverFnBase = process.env.TSS_SERVER_FN_BASE ?? "/_serverFn/";
+  return url.pathname.startsWith(serverFnBase) ? undefined : `${url.pathname}${url.search}`;
+}
 
 /**
  * Server functions called by a signed-in User (browser session) inside a Workspace. Agents

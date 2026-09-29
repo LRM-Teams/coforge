@@ -9,7 +9,11 @@ import { publicOrigin } from "#src/server/http/public-origin.server";
 
 export function loginStartHandler({ request }: { request: Request }): Promise<Response> {
   return withAuthConfig(request, (config, sessionSecret) =>
-    handleLoginStart({ config, sessionSecret }),
+    handleLoginStart({
+      config,
+      sessionSecret,
+      returnTo: new URL(request.url).searchParams.get("returnTo"),
+    }),
   );
 }
 
