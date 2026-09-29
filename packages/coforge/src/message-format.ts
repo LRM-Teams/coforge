@@ -117,11 +117,9 @@ export function formatReadWindow(
   if (taskHint) lines.push(taskHint);
   lines.push("");
 
-  const includeReplyTarget = !isThreadTarget(target);
   messages.forEach((message, index) => {
-    const replyTarget = includeReplyTarget ? ` replyTarget=${target}:${shortId(message.id)}` : "";
     lines.push(
-      `[${index + 1}/${messages.length} msg=${message.id} time=${formatUtcTimestamp(message.createdAt)} type=${message.senderKind}${replyTarget}] ${messageSender(message)}: ${message.body}${attachmentSuffix(message)}${taskSuffix(message)}`,
+      `[${index + 1}/${messages.length} msg=${message.id} time=${formatUtcTimestamp(message.createdAt)} type=${message.senderKind} target=${target}] ${messageSender(message)}: ${message.body}${attachmentSuffix(message)}${taskSuffix(message)}`,
     );
   });
 
@@ -274,12 +272,7 @@ export function formatSendSuccess(
   const verb = queued ? "queued" : "sent";
   const base = !response.messageId
     ? `Message ${verb} to ${target}.`
-    : (() => {
-        const hint = isThreadTarget(target)
-          ? ""
-          : ` (to reply in this message's thread, use target "${target}:${shortId(response.messageId!)}")`;
-        return `Message ${verb} to ${target}. Message ID: ${response.messageId}${hint}`;
-      })();
+    : `Message ${verb} to ${target}. Message ID: ${response.messageId}`;
   if (!recentUnread?.length) return base;
   const lines = [
     base,

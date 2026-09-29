@@ -185,10 +185,10 @@ test("formatReadWindow reports older/newer availability and includes an around l
   expect(lines[1]).toBe("Around: 22222222.");
   expect(lines[2]).toBe("");
   expect(lines[3]).toBe(
-    "[1/2 msg=11111111-0000-4000-8000-000000000001 time=2026-09-07 10:00:00Z type=human replyTarget=#general:11111111] @ada: first",
+    "[1/2 msg=11111111-0000-4000-8000-000000000001 time=2026-09-07 10:00:00Z type=human target=#general] @ada: first",
   );
   expect(lines[4]).toBe(
-    "[2/2 msg=22222222-0000-4000-8000-000000000002 time=2026-09-07 10:00:00Z type=human replyTarget=#general:22222222] @ada: second",
+    "[2/2 msg=22222222-0000-4000-8000-000000000002 time=2026-09-07 10:00:00Z type=human target=#general] @ada: second",
   );
   expect(lines.at(-2)).toBe("");
   expect(lines.at(-1)).toBe("End of window: 2/2 shown.");
@@ -204,11 +204,15 @@ test("formatReadWindow says No older/No newer when neither exists and omits the 
   expect(output).not.toContain("Around:");
 });
 
-test("formatReadWindow omits replyTarget when the target is already a thread target", () => {
-  const output = formatReadWindow("#general:11111111", { messages: [message()] });
-  expect(output).toContain("] @ada: hello there");
-  expect(output).not.toContain("replyTarget=");
-});
+test.each(["@ada", "#general", "@ada:11111111", "#general:11111111"])(
+  "formatReadWindow preserves the conversation target %s instead of opening a thread",
+  (target) => {
+    const output = formatReadWindow(target, { messages: [message({ target })] });
+    expect(output).toContain(`target=${target}] @ada: hello there`);
+    expect(output).not.toContain("replyTarget=");
+    expect(output).not.toContain(`${target}:aaaaaaaa`);
+  },
+);
 
 test("formatReadWindow reports an empty window with nothing else", () => {
   expect(formatReadWindow("#general", { messages: [] })).toBe("No messages in #general.");
@@ -295,9 +299,9 @@ test("formatSearchResults reports no results plainly", () => {
   expect(formatSearchResults("release", { messages: [] })).toBe("No search results.");
 });
 
-test("formatSendSuccess adds a reply-thread hint only for a non-thread target", () => {
+test("formatSendSuccess reports the destination without suggesting a new reply thread", () => {
   expect(formatSendSuccess("@ada", { messageId: "aaaaaaaa-0000-4000-8000-000000000001" })).toBe(
-    'Message sent to @ada. Message ID: aaaaaaaa-0000-4000-8000-000000000001 (to reply in this message\'s thread, use target "@ada:aaaaaaaa")',
+    "Message sent to @ada. Message ID: aaaaaaaa-0000-4000-8000-000000000001",
   );
   expect(
     formatSendSuccess("@ada:11111111", { messageId: "aaaaaaaa-0000-4000-8000-000000000001" }),

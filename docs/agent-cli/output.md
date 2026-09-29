@@ -11,7 +11,8 @@ The CLI renders five plain-text formats:
 - **Read window** (`message read`): a header reporting how many messages
   were returned and whether older/newer messages exist, with the exact
   `--before`/`--after` cursor command to paste; numbered lines each carry a
-  `replyTarget` to reuse when replying in a thread; the window closes with
+  `target` identifying the conversation being read, preserving an existing
+  thread suffix without creating a new one; the window closes with
   an "End of window" line.
 - **Search result block** (`message search`): each hit is a
   `<result ref="msg:<uuid>">` block with `Source`, `Sender`, `Time`, and a
@@ -22,7 +23,7 @@ The CLI renders five plain-text formats:
   `coforge message read --target <target> --around <message-id>` for more
   context.
 - **Send success**: `Message sent to <target>. Message ID: <full uuid>`,
-  plus a reply-target hint when `<target>` is not already a thread target.
+  without suggesting a new thread target for subsequent replies.
   When some @mention reached no one, the line reads `Message queued to …`
   after an `Undelivered mentions — partial result` block, and the command
   then fails with `MENTION_DELIVERY_FAILED` (see [mentions](mentions.md)).
