@@ -35,13 +35,10 @@ export function LeaveDeletedWorkspace({ workspaceId }: { workspaceId: string }) 
     if (checking.current) return;
     checking.current = true;
     checkWorkspace()
-      .then(
-        () => undefined,
-        (error: unknown) => {
-          const code = isAppError(error) ? error.code : undefined;
-          if (code === "NOT_FOUND" || code === "ACCESS_DENIED") return navigate({ to: "/" });
-        },
-      )
+      .catch((error: unknown) => {
+        const code = isAppError(error) ? error.code : undefined;
+        if (code === "NOT_FOUND" || code === "ACCESS_DENIED") return navigate({ to: "/" });
+      })
       .finally(() => {
         checking.current = false;
       });

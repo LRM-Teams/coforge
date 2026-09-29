@@ -48,6 +48,9 @@ export interface BulkFileRemoval {
   removePrefix(prefix: string): Promise<void>;
 }
 
+/** A bucket the app writes to and removes from, one object or many at a time. */
+export type ManagedFileStorage = FileStorage & BulkFileRemoval;
+
 /** A prefix `removePrefix` accepts: at least two non-empty segments, no `.` or `..`, ending in `/`. */
 export function assertRemovablePrefix(prefix: string): void {
   const segments = prefix.split("/");
@@ -125,17 +128,15 @@ export async function readFileStorageConfig(env: NodeJS.ProcessEnv): Promise<Fil
   };
 }
 
-let current: Promise<FileStorage & BulkFileRemoval> | undefined;
+let current: Promise<ManagedFileStorage> | undefined;
 
 /** The process-wide storage selected by the environment, created on first use. */
-export function getFileStorage(): Promise<FileStorage & BulkFileRemoval> {
+export function getFileStorage(): Promise<ManagedFileStorage> {
   current ??= readFileStorageConfig(process.env).then(createFileStorage);
   return current;
 }
 
-export async function createFileStorage(
-  config: FileStorageConfig,
-): Promise<FileStorage & BulkFileRemoval> {
+export async function createFileStorage(config: FileStorageConfig): Promise<ManagedFileStorage> {
   if (config.kind === "local") return new LocalFileStorage(config.root);
   const { createOssFileStorage } = await import("./oss-file-storage.server");
   return createOssFileStorage(config);

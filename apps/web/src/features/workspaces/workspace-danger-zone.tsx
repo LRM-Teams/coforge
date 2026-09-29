@@ -15,7 +15,7 @@ import {
   SettingsGroup,
   type SaveError,
 } from "#src/components/settings-content";
-import { isAppError } from "#src/lib/app-error";
+import { isAppError, type AppError, type AppErrorCode } from "#src/lib/app-error";
 import { m } from "#src/paraglide/messages";
 import { leaveWorkspace } from "./members.functions";
 import { canDeleteWorkspace } from "./workspace-roles";
@@ -39,26 +39,23 @@ export function WorkspaceDangerZone({
   const [open, setOpen] = useState(false);
   const owner = canDeleteWorkspace(actorRole);
   const dialog = { open, workspaceName, onClose: () => setOpen(false) };
+  const action = owner
+    ? {
+        title: m.settings_delete_workspace(),
+        description: m.settings_delete_workspace_description(),
+        icon: Trash01,
+      }
+    : // Only a new invitation undoes leaving, so it is a destructive action too (docs/design).
+      {
+        title: m.settings_leave_workspace(),
+        description: m.settings_leave_workspace_description(),
+        icon: LogOut01,
+      };
 
   return (
     <SettingsGroup icon={AlertTriangle} label={m.settings_danger_zone()}>
       <SettingsCard>
-        {owner ? (
-          <DangerAction
-            title={m.settings_delete_workspace()}
-            description={m.settings_delete_workspace_description()}
-            icon={Trash01}
-            onPress={() => setOpen(true)}
-          />
-        ) : (
-          // Only a new invitation undoes leaving, so it is a destructive action too (docs/design).
-          <DangerAction
-            title={m.settings_leave_workspace()}
-            description={m.settings_leave_workspace_description()}
-            icon={LogOut01}
-            onPress={() => setOpen(true)}
-          />
-        )}
+        <DangerAction {...action} onPress={() => setOpen(true)} />
       </SettingsCard>
       {owner ? (
         <DeleteWorkspaceDialog {...dialog} workspaceSlug={workspaceSlug} />
@@ -109,8 +106,9 @@ function useWorkspaceDeparture({
   messageFor,
 }: {
   write: () => Promise<{ nextWorkspaceSlug: string | null }>;
-  outAlready: readonly string[];
-  messageFor: (refusal: { code?: string; errorId?: string }) => string;
+  outAlready: readonly AppErrorCode[];
+  /** The inline copy for a failure; `refusal` is absent when the server gave no reason. */
+  messageFor: (refusal: AppError | undefined) => string;
 }) {
   const navigate = useNavigate();
   const [busy, setBusy] = useState(false);
@@ -123,8 +121,8 @@ function useWorkspaceDeparture({
     try {
       next = (await write()).nextWorkspaceSlug;
     } catch (cause) {
-      const refusal = isAppError(cause) ? { code: cause.code, errorId: cause.errorId } : {};
-      if (!refusal.code || !outAlready.includes(refusal.code)) {
+      const refusal = isAppError(cause) ? cause : undefined;
+      if (!refusal || !outAlready.includes(refusal.code)) {
         setError(saveErrorFrom(messageFor(refusal), cause));
         setBusy(false);
         return;
@@ -150,8 +148,10 @@ function LeaveWorkspaceDialog({ open, workspaceName, onClose }: DialogProps) {
     write: () => leave(),
     // No longer a member (removed meanwhile): they are out already.
     outAlready: ["NOT_FOUND", "ACCESS_DENIED"],
-    messageFor: ({ code }) =>
-      code === "CONFLICT" ? m.settings_leave_workspace_owner() : m.settings_leave_workspace_error(),
+    messageFor: (refusal) =>
+      refusal?.code === "CONFLICT"
+        ? m.settings_leave_workspace_owner()
+        : m.settings_leave_workspace_error(),
   });
 
   return (
@@ -172,12 +172,15 @@ function LeaveWorkspaceDialog({ open, workspaceName, onClose }: DialogProps) {
 }
 
 /** What a refused delete says, by the refusal's `errorId`, else its code. */
-const deleteRefusals: Record<string, (slug: string) => string> = {
-  "workspace-memory-bound": () => m.settings_delete_workspace_memory_bound(),
-  "workspace-memory-cleanup-pending": () => m.settings_delete_workspace_memory_cleanup(),
-  INVALID_INPUT: (slug) => m.settings_delete_workspace_mismatch({ slug }),
-  ACCESS_DENIED: () => m.settings_delete_workspace_denied(),
-};
+function deleteRefusalMessage(refusal: AppError | undefined, slug: string) {
+  if (refusal?.errorId === "workspace-memory-bound")
+    return m.settings_delete_workspace_memory_bound();
+  if (refusal?.errorId === "workspace-memory-cleanup-pending")
+    return m.settings_delete_workspace_memory_cleanup();
+  if (refusal?.code === "INVALID_INPUT") return m.settings_delete_workspace_mismatch({ slug });
+  if (refusal?.code === "ACCESS_DENIED") return m.settings_delete_workspace_denied();
+  return m.settings_delete_workspace_error();
+}
 
 /** Confirms deleting with the Workspace's slug typed exactly; the server checks it again. */
 function DeleteWorkspaceDialog({
@@ -192,9 +195,7 @@ function DeleteWorkspaceDialog({
     write: () => remove({ data: { confirmSlug: typed } }),
     // Deleted from another tab meanwhile.
     outAlready: ["NOT_FOUND"],
-    messageFor: ({ code, errorId }) =>
-      (deleteRefusals[errorId ?? ""] ?? deleteRefusals[code ?? ""])?.(workspaceSlug) ??
-      m.settings_delete_workspace_error(),
+    messageFor: (refusal) => deleteRefusalMessage(refusal, workspaceSlug),
   });
 
   return (

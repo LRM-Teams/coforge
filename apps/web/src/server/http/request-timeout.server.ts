@@ -6,13 +6,11 @@
  * without one (Vite dev) this does nothing and answers `false`.
  */
 export function extendRequestTimeout(request: Request, seconds: number): boolean {
-  const runtime: unknown = Reflect.get(request, "runtime");
-  const bun: unknown =
-    runtime && typeof runtime === "object" ? Reflect.get(runtime, "bun") : undefined;
-  const server: unknown = bun && typeof bun === "object" ? Reflect.get(bun, "server") : undefined;
-  const timeout: unknown =
-    server && typeof server === "object" ? Reflect.get(server, "timeout") : undefined;
-  if (typeof timeout !== "function") return false;
-  Reflect.apply(timeout, server, [request, seconds]);
+  const server = (request as { runtime?: { bun?: { server?: Partial<BunTimeout> } } }).runtime?.bun
+    ?.server;
+  if (typeof server?.timeout !== "function") return false;
+  server.timeout(request, seconds);
   return true;
 }
+
+type BunTimeout = { timeout(request: Request, seconds: number): void };

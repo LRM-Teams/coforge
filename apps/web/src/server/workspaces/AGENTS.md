@@ -11,8 +11,8 @@ These rules apply to `src/server/workspaces/`.
   large Workspace slow (one FK trigger per row per referencing table).
 - Lock conversations first, then the Workspace row, then the conversations again:
   the order every writer takes (conversation lock, then a key naming the
-  Workspace). Retry the transaction on a PostgreSQL write conflict (P2034, or a
-  raw query's `TransactionWriteConflict`), never on anything else.
+  Workspace). Retry only on a PostgreSQL write conflict, through
+  `server/db/write-conflict.server.ts`.
 - Memory Offer citations and messages are deleted before the Workspace: they name
   rows the same cascade removes with `Restrict`. A new `Restrict` or `NO ACTION`
   reference into the Workspace's cascade goes there too, or the delete fails;

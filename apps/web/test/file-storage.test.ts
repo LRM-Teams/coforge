@@ -11,7 +11,7 @@ import {
   FileStorageConfigError,
   LocalFileStorage,
   readFileStorageConfig,
-  type BulkFileRemoval,
+  type ManagedFileStorage,
   type FileStorage,
 } from "#src/server/files/file-storage.server";
 import { createOssFileStorage } from "#src/server/files/oss-file-storage.server";
@@ -153,7 +153,7 @@ describe("oss file storage", () => {
   const bucketListCalls: string[] = [];
   const bucketDeleteCalls: number[] = [];
   let server: ReturnType<typeof Bun.serve>;
-  let storage: FileStorage & BulkFileRemoval;
+  let storage: ManagedFileStorage;
 
   beforeAll(async () => {
     server = Bun.serve({
@@ -327,8 +327,8 @@ describe("oss file storage", () => {
    * (`POST /?delete`), the two bucket-level calls a bulk removal makes. */
   async function bucketRequest(request: Request, url: URL) {
     if (request.method === "GET" && url.searchParams.get("list-type") === "2") {
-      bucketListCalls.push(url.searchParams.get("prefix") ?? "");
       const prefix = url.searchParams.get("prefix") ?? "";
+      bucketListCalls.push(prefix);
       const max = Number(url.searchParams.get("max-keys") ?? "100");
       const after = url.searchParams.get("continuation-token") ?? "";
       const matching = [...objects.keys()].filter((k) => k.startsWith(prefix) && k > after).sort();

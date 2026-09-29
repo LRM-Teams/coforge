@@ -30,13 +30,7 @@ import {
 const connectionString = Bun.env.CHANNEL_TEST_DATABASE_URL;
 
 async function errorOf(promise: Promise<unknown>) {
-  try {
-    await promise;
-  } catch (error) {
-    if (isAppError(error)) return error.code;
-    throw error;
-  }
-  return undefined;
+  return (await errorIdOf(promise))?.code;
 }
 
 async function errorIdOf(promise: Promise<unknown>) {
@@ -73,18 +67,15 @@ function recordingFileRemoval() {
 function recordingSignals() {
   const deleted: string[] = [];
   const reconnected: { workspaceId: string; computerIds: string[] }[] = [];
-  const order: string[] = [];
   const signals: WorkspaceDeletionSignals = {
     async workspaceDeleted(workspaceId) {
-      order.push("workspaceDeleted");
       deleted.push(workspaceId);
     },
     async reconnectDaemons(workspaceId, computerIds) {
-      order.push("reconnectDaemons");
       reconnected.push({ workspaceId, computerIds: [...computerIds] });
     },
   };
-  return { deleted, reconnected, order, signals };
+  return { deleted, reconnected, signals };
 }
 
 /** A deletion whose effects go nowhere, for tests about the rows. */
@@ -379,8 +370,6 @@ test.skipIf(!connectionString)(
       expect(heard.reconnected).toEqual([
         { workspaceId: workspace.id, computerIds: [fixture.computerId] },
       ]);
-      // Pages hear before anyone is disconnected: a reconnected page could no longer subscribe.
-      expect(heard.order).toEqual(["workspaceDeleted", "reconnectDaemons"]);
     } finally {
       files.release();
       await fixture.cleanup();

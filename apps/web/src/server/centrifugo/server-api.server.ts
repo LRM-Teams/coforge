@@ -1,5 +1,6 @@
 import {
   AGENT_START_METHOD,
+  DAEMON_RECONNECT_DISCONNECT,
   encodeAgentContextScanRequest,
   encodeDaemonRuntimeUsageScanRequest,
   type RuntimeProvider,
@@ -118,6 +119,26 @@ export function createCentrifugoServerApi(
 /** A private control channel for one authenticated Workspace–Computer connection. */
 export const daemonControlChannel = (workspaceId: string, computerId: string) =>
   `daemon:${workspaceId}:${computerId}`;
+
+/**
+ * Makes a Computer's daemon connection for one Workspace reconnect now, so it meets whatever its
+ * connect check now answers. The connection is found by the presence of its own control channel
+ * (the `daemon` namespace keeps presence for this) and only that client is disconnected, with
+ * `DAEMON_RECONNECT_DISCONNECT`; the same person's pages and other daemons stay connected. A
+ * Computer not connected has nothing to disconnect.
+ */
+export async function reconnectDaemon(
+  api: CentrifugoConnections,
+  workspaceId: string,
+  computerId: string,
+): Promise<void> {
+  const clients = await api.presence(daemonControlChannel(workspaceId, computerId));
+  await Promise.all(
+    clients.map(({ user, client }) =>
+      api.disconnect({ user, client, disconnect: DAEMON_RECONNECT_DISCONNECT }),
+    ),
+  );
+}
 export { AGENT_START_METHOD };
 export function createUsageScan(
   api: Pick<CentrifugoServerApi, "publish">,

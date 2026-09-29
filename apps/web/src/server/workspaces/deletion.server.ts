@@ -1,17 +1,17 @@
-import { DAEMON_RECONNECT_DISCONNECT } from "@lrm/coforge-sdk/internal";
 import type { Prisma, PrismaClient } from "#src/generated/prisma/client";
 import { AppError } from "#src/lib/app-error";
 import { attachmentKeys } from "#src/server/attachments/attachment.server";
 import { lockWorkspaceConversations } from "#src/server/conversations/conversation-lock.server";
 import { DaemonCredentialRevocations } from "#src/server/db/repositories/daemon-credential-revocation.repositories.server";
+import { retryOnWriteConflict } from "#src/server/db/write-conflict.server";
 import {
-  daemonControlChannel,
+  reconnectDaemon,
   type CentrifugoConnections,
   type CentrifugoServerApi,
 } from "#src/server/centrifugo/server-api.server";
 import { workspaceConversationChannel } from "#src/features/conversations/conversation-realtime";
 import type { WorkspaceDeletedEvent } from "#src/features/workspaces/workspace-realtime";
-import type { WorkspaceFileKeys } from "./file-cleanup.server";
+import type { WorkspaceFileCleanup } from "./file-cleanup.server";
 import { assertCanDeleteWorkspace } from "./member-role.server";
 import { workspaceMemberRole } from "./members.server";
 
@@ -24,18 +24,14 @@ export type WorkspaceDeletionSignals = {
   reconnectDaemons(workspaceId: string, computerIds: readonly string[]): Promise<void>;
 };
 
-/** Removes a deleted Workspace's stored files (`WorkspaceFileCleanup`). */
-export type WorkspaceFileRemoval = {
-  remove(workspaceId: string, keys: WorkspaceFileKeys): Promise<void>;
-};
+/** Removes a deleted Workspace's stored files. */
+export type WorkspaceFileRemoval = Pick<WorkspaceFileCleanup, "remove">;
 
 /**
- * The signals over Centrifugo. Pages get `workspace.deleted.v1` and are never disconnected. A
- * daemon connection is found by its own channel `daemon:<workspace>:<computer>` (the `daemon`
- * namespace keeps presence for this) and only that client is disconnected, with
- * `DAEMON_RECONNECT_DISCONNECT`; the same person's pages and other daemons stay connected. The
- * API is built only when a signal is sent, after the delete has committed, so a missing
- * Centrifugo configuration is a failed signal, never a failed delete.
+ * The signals over Centrifugo. Pages get `workspace.deleted.v1` and are never disconnected; each
+ * Computer's daemon connection for the Workspace alone reconnects (`reconnectDaemon`). The API is
+ * built only when a signal is sent, after the delete has committed, so a missing Centrifugo
+ * configuration is a failed signal, never a failed delete.
  */
 export function centrifugoWorkspaceDeletionSignals(
   centrifugo: () => Pick<CentrifugoServerApi, "publishJson"> & CentrifugoConnections,
@@ -48,38 +44,31 @@ export function centrifugoWorkspaceDeletionSignals(
     async reconnectDaemons(workspaceId, computerIds) {
       const api = centrifugo();
       await Promise.all(
-        computerIds.map(async (computerId) => {
-          const clients = await api.presence(daemonControlChannel(workspaceId, computerId));
-          await Promise.all(
-            clients.map(({ user, client }) =>
-              api.disconnect({ user, client, disconnect: DAEMON_RECONNECT_DISCONNECT }),
-            ),
-          );
-        }),
+        computerIds.map((computerId) => reconnectDaemon(api, workspaceId, computerId)),
       );
     },
   };
 }
 
 /**
- * Long enough for a Workspace with years of history: every row in it goes in this one
- * transaction, which holds the Workspace and its conversations locked meanwhile.
+ * The final transaction, after the message batches: the rest of the Workspace's rows go in it,
+ * with the Workspace and its conversations locked meanwhile.
  */
 const DELETE_TRANSACTION_TIMEOUT_MS = 60_000;
 
 /** Messages deleted per statement before the final transaction. */
 const MESSAGE_DELETE_BATCH = 5_000;
 
-/** Attempts at the delete transaction when PostgreSQL aborts it for a deadlock or a serialization
- * conflict with a concurrent write; the next attempt usually finds the writer done. */
+/** Attempts at each delete statement or transaction PostgreSQL aborts for a write conflict. */
 const DELETE_ATTEMPTS = 3;
 
 /**
- * Deleting a Workspace for good; its owner only, confirming with its slug. Everything in it goes
- * in one transaction: the daemon keys it held are recorded as revoked first, so its Computers park
- * the binding when they next connect; what members wrote goes before the Workspace, since messages
- * and Tasks name their sender, owner and creator member with `Restrict`. Afterwards the open pages
- * and the Computers hear of it, and its stored files are removed in the background, best effort.
+ * Deleting a Workspace for good; its owner only, confirming with its slug. Its messages go in
+ * batches first; everything else goes in one transaction: the daemon keys it held are recorded as
+ * revoked, so its Computers park the binding when they next connect; what members wrote goes
+ * before the Workspace, since messages and Tasks name their sender, owner and creator member with
+ * `Restrict`. Afterwards the open pages and the Computers hear of it, and its stored files are
+ * removed in the background, best effort.
  */
 export class WorkspaceDeletion {
   constructor(
@@ -105,7 +94,7 @@ export class WorkspaceDeletion {
     // Refused before anything goes; checked again under the locks.
     await refuseForMemory(this.db, workspaceId);
     await this.#deleteMessagesInBatches(workspaceId);
-    const { computerIds, fileKeys } = await this.#retryOnWriteConflict(workspaceId, () =>
+    const { computerIds, fileKeys } = await this.#retrying(workspaceId, () =>
       this.db.$transaction((tx) => this.#deleteRowsIn(tx, workspaceId), {
         timeout: DELETE_TRANSACTION_TIMEOUT_MS,
       }),
@@ -130,7 +119,7 @@ export class WorkspaceDeletion {
    */
   async #deleteMessagesInBatches(workspaceId: string) {
     for (;;) {
-      const deleted = await this.#retryOnWriteConflict(
+      const deleted = await this.#retrying(
         workspaceId,
         () => this.db.$executeRaw`
           DELETE FROM "messages" WHERE "id" IN (
@@ -141,21 +130,18 @@ export class WorkspaceDeletion {
     }
   }
 
-  async #retryOnWriteConflict<T>(workspaceId: string, run: () => Promise<T>): Promise<T> {
-    for (let attempt = 1; ; attempt++) {
-      try {
-        return await run();
-      } catch (error) {
-        if (attempt >= DELETE_ATTEMPTS || !isWriteConflict(error)) throw error;
+  #retrying<T>(workspaceId: string, run: () => Promise<T>): Promise<T> {
+    return retryOnWriteConflict(run, {
+      attempts: DELETE_ATTEMPTS,
+      onRetry: (attempt) =>
         console.warn(
           JSON.stringify({
             event: "workspace_deletion:retried",
             workspace_id: workspaceId,
             attempt,
           }),
-        );
-      }
-    }
+        ),
+    });
   }
 
   async #deleteRowsIn(tx: Prisma.TransactionClient, workspaceId: string) {
@@ -199,15 +185,18 @@ export class WorkspaceDeletion {
     return { computerIds: computers.map(({ computerId }) => computerId), fileKeys };
   }
 
-  /** Open pages hear first: once the daemons reconnect nothing else changes for them. */
+  /** Pages and daemons hear independently: no page is disconnected. */
   async #announce(workspaceId: string, computerIds: readonly string[]) {
-    await this.#signal("workspace_deleted", workspaceId, () =>
-      this.effects.signals.workspaceDeleted(workspaceId),
-    );
-    if (computerIds.length)
-      await this.#signal("daemon_reconnect", workspaceId, () =>
-        this.effects.signals.reconnectDaemons(workspaceId, computerIds),
-      );
+    await Promise.all([
+      this.#signal("workspace_deleted", workspaceId, () =>
+        this.effects.signals.workspaceDeleted(workspaceId),
+      ),
+      computerIds.length
+        ? this.#signal("daemon_reconnect", workspaceId, () =>
+            this.effects.signals.reconnectDaemons(workspaceId, computerIds),
+          )
+        : undefined,
+    ]);
   }
 
   /** The Workspace icon, its Project icons and its Agents' avatars, deleted Agents included. */
@@ -267,19 +256,4 @@ function logEffectFailure(effect: string, workspaceId: string, error: unknown) {
       error_type: error instanceof Error ? error.name : typeof error,
     }),
   );
-}
-
-/**
- * PostgreSQL aborted the transaction for a deadlock (40P01) or a serialization failure (40001),
- * which it asks the client to retry (https://www.postgresql.org/docs/current/mvcc-serialization-failure-handling.html).
- * Prisma reports it as P2034, or, from a raw query through the driver adapter, as P2010 carrying
- * the adapter's `TransactionWriteConflict`.
- */
-function isWriteConflict(error: unknown): boolean {
-  if (typeof error !== "object" || error === null) return false;
-  const { code, meta } = error as { code?: unknown; meta?: unknown };
-  if (code === "P2034") return true;
-  const cause = (meta as { driverAdapterError?: { cause?: { kind?: unknown } } } | undefined)
-    ?.driverAdapterError?.cause;
-  return code === "P2010" && cause?.kind === "TransactionWriteConflict";
 }

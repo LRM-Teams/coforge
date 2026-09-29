@@ -33,17 +33,14 @@ export class WorkspaceFileCleanup {
   ) {}
 
   async remove(workspaceId: string, keys: WorkspaceFileKeys): Promise<void> {
-    this.schedule(() => this.#sweep(workspaceId), SWEEP_AFTER_MS);
+    this.schedule(() => this.#removeAll(workspaceId, { files: [], images: [] }), SWEEP_AFTER_MS);
+    await this.#removeAll(workspaceId, keys);
+  }
+
+  async #removeAll(workspaceId: string, keys: WorkspaceFileKeys) {
     await Promise.all([
       this.#removeFrom("files", workspaceId, keys.files),
       this.#removeFrom("images", workspaceId, keys.images),
-    ]);
-  }
-
-  async #sweep(workspaceId: string) {
-    await Promise.all([
-      this.#removeFrom("files", workspaceId, []),
-      this.#removeFrom("images", workspaceId, []),
     ]);
   }
 

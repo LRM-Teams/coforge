@@ -6,6 +6,7 @@ import OSS from "ali-oss";
 import {
   assertRemovablePrefix,
   type BulkFileRemoval,
+  type ManagedFileStorage,
   type FileStorage,
   type FileStorageConfig,
   type StoredFile,
@@ -26,9 +27,7 @@ type OssConfig = Extract<FileStorageConfig, { kind: "oss" }>;
  * STS token; the chain refreshes that token itself, and `refreshSTSToken` re-reads it so the
  * OSS client never signs with an expired one.
  */
-export async function createOssFileStorage(
-  config: OssConfig,
-): Promise<FileStorage & BulkFileRemoval> {
+export async function createOssFileStorage(config: OssConfig): Promise<ManagedFileStorage> {
   const region = `oss-${config.region}`;
   // Two clients, one credential source. Server-side traffic may use the region's internal
   // endpoint (cheaper and faster from an Aliyun host); a presigned URL is handed to a browser or

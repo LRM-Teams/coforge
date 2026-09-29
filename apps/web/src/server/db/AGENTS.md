@@ -33,3 +33,7 @@ These rules apply to `src/server/db/`.
   carrying that report's envelope, so a late or repeated report never reopens
   delivered or lost. An issue holds its Agents' rows (`FOR SHARE`) while it
   writes, so a concurrent Stop is either seen or waits and then settles it.
+- `write-conflict.server.ts` is the one place that recognizes a PostgreSQL
+  deadlock or serialization failure (Prisma P2034, or a raw query's P2010 with
+  the adapter's `TransactionWriteConflict`). Retry only those, a bounded number
+  of times, and only a transaction that takes its locks in the writers' order.

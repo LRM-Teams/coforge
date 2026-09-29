@@ -30,7 +30,8 @@ mechanics only; domain rules stay in the owning `src/server/` module.
   ([`../computers/AGENTS.md`](../computers/AGENTS.md)). Every refusal logs
   `daemon_connect:refused` with its reason.
 - Disconnect one daemon connection, never a whole user: a daemon's connection
-  user is its key owner, whose pages and other daemons share it. Find the client
+  user is its key owner, whose pages and other daemons share it.
+  `reconnectDaemon` does this; otherwise find the client
   through `presence` on its `daemon:<workspace_id>:<computer_id>` channel (the
   `daemon` namespace keeps presence for this) and pass `user` and `client` to
   `disconnect`. To make it connect again, use the SDK's
