@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, setDefaultTimeout, test } from "bun:test";
 import { mkdir, mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -11,6 +11,24 @@ import {
 import { CoforgeProvider, PiProvider } from "#src/code-agent/pi/provider";
 
 const TEST_AGENT_INSTRUCTIONS = "Test Agent instructions.";
+
+/**
+ * An embedded Pi session runs in-process and **the product does not bound it**: `@coforge/agent`
+ * exports exactly one timeout, `PI_MODEL_REFRESH_TIMEOUT_MS` (5s), and that bounds the model
+ * refresh, not a session's turn. A healthy embedded-session test here takes 1.2-4.7s on an idle
+ * host (measured), so it sits right on top of `bun:test`'s 5s default: on a busy host (this machine
+ * runs several agents at once) the same file failed 8 of 17 on unmodified `main`.
+ *
+ * `docs/agents/testing.md` says a test that really spawns a child process sets its own timeout from
+ * the product's own bound, and never to raise the global timeout. The same reasoning applies to
+ * in-process work that outlives the default. This is scoped to this file, not the repo-wide
+ * default, and set from measurement (~6x the slowest healthy run) because there is no product bound
+ * to derive it from. The three argument-only tests at the end of the file finish in milliseconds;
+ * a budget costs them nothing. (A per-test third argument is the other spelling of this, but oxfmt
+ * then re-wraps every test body, turning a two-line change into a 1400-line diff.)
+ */
+const EMBEDDED_SESSION_BUDGET_MS = 30_000;
+setDefaultTimeout(EMBEDDED_SESSION_BUDGET_MS);
 
 test("Pi resolves native provider environment auth below stored auth and Agent keys", async () => {
   const root = await mkdtemp(join(tmpdir(), "coforge-pi-env-auth-"));
