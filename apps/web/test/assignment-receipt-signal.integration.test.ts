@@ -52,16 +52,15 @@ test.skipIf(!connectionString)(
           activity.push(input);
         },
       };
-      await new TaskBoard(db, { realtime }).execute(
-        { workspaceId: workspace.id, userId: ada.id },
-        {
-          operation: "create",
-          idempotencyKey: crypto.randomUUID(),
-          conversationId: general.id,
-          title: "Review the plan",
-          assignee: `@${bob.username}`,
-        },
-      );
+      const board = new TaskBoard(db, { realtime });
+      const asAda = { workspaceId: workspace.id, userId: ada.id };
+      await board.execute(asAda, {
+        operation: "create",
+        idempotencyKey: crypto.randomUUID(),
+        conversationId: general.id,
+        title: "Review the plan",
+        assignee: `@${bob.username}`,
+      });
       const receipt = await db.message.findFirstOrThrow({
         where: { conversationId: general.id, senderMemberId: null, mentions: { some: {} } },
       });
@@ -70,6 +69,54 @@ test.skipIf(!connectionString)(
         { conversationId: general.id, messageId: receipt.id, sequence: receipt.sequence },
       ]);
       expect(activity).toEqual([{ workspaceId: workspace.id, userId: bob.id }]);
+
+      // Assigning later tells the person the same way; an Agent assignee has no Activity to tell.
+      const agent = await db.agent.create({
+        data: {
+          workspaceId: workspace.id,
+          name: `ars-agent-${suffix}`,
+          displayName: "Helper",
+          ownerId: ada.id,
+          runtimeConfig: {
+            runtime: "pi",
+            provider: { kind: "default" },
+            model: "",
+            modelProvider: "",
+            reasoning: "",
+          },
+        },
+      });
+      await db.conversationMember.create({
+        data: { conversationId: general.id, workspaceId: workspace.id, agentId: agent.id },
+      });
+      const later = await board.execute(asAda, {
+        operation: "create",
+        idempotencyKey: crypto.randomUUID(),
+        conversationId: general.id,
+        title: "Draft the notes",
+      });
+      const assign = (assignee: string) =>
+        board.execute(asAda, {
+          operation: "assign",
+          idempotencyKey: crypto.randomUUID(),
+          conversationId: general.id,
+          number: later.tasks[0]!.number,
+          assignee,
+        });
+      activity.length = 0;
+      await assign(`@${agent.name}`);
+      expect(activity).toEqual([]);
+      await assign(`@${bob.username}`);
+      expect(activity).toEqual([{ workspaceId: workspace.id, userId: bob.id }]);
+      const receipts = await db.message.findMany({
+        where: { conversationId: general.id, senderMemberId: null, mentions: { some: {} } },
+        select: { id: true },
+      });
+      expect(receipts).toHaveLength(3);
+      for (const { id } of receipts)
+        expect(messages.filter((message) => message.messageId === id)).toEqual([
+          expect.not.objectContaining({ workspaceId: expect.anything() }),
+        ]);
     } finally {
       await db.workspace.delete({ where: { id: workspace.id } }).catch(() => {});
       await db.user.deleteMany({ where: { username: { endsWith: suffix } } }).catch(() => {});

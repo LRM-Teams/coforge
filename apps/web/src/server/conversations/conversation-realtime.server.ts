@@ -169,8 +169,8 @@ export type ConversationRealtime = {
   /** A push telling open Tasks pages the new copies of the Tasks a write changed. Optional: a
    * port without it announces nothing. */
   taskChanged?(input: TaskChangedSignal): Promise<void>;
-  /** A push telling one person's Activity inbox that it changed outside their conversations.
-   * Optional: a port without it announces nothing. */
+  /** A push telling one person's Activity inbox that it changed where no badge signal says so
+   * (`ActivityChangedEvent`). Optional: a port without it announces nothing. */
   activityChanged?(input: { workspaceId: string; userId: string }): Promise<void>;
   /** A push telling each named person's own pages that their place in a conversation changed
    * (`ViewerEvent`). Optional: a port without it announces nothing. */
