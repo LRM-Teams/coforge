@@ -3,6 +3,25 @@ import type { PrismaClient } from "#src/generated/prisma/client";
 import { currentIsoWeek } from "#src/features/records/records-content";
 import { RecordCatalog } from "#src/server/records/record-catalog.server";
 
+/** Minimal transactional Prisma adapter for distribution tests; concurrency is tested on PostgreSQL. */
+function distributionDatabase(db: PrismaClient): PrismaClient {
+  const findFirst = db.weeklyReport.findFirst.bind(db.weeklyReport);
+  db.weeklyReport.findFirst = (async (query: { select?: { submissions?: unknown } }) =>
+    query.select?.submissions
+      ? null
+      : findFirst(query as never)) as unknown as typeof db.weeklyReport.findFirst;
+  db.weeklyReportCycle.upsert = (async () =>
+    db.weeklyReportCycle.findUnique({} as never)) as unknown as typeof db.weeklyReportCycle.upsert;
+  db.weeklyReport.createManyAndReturn = (async (query: { data: Array<{ authorId: string }> }) => {
+    await db.weeklyReport.createMany(query as never);
+    return query.data.map((row, index) => ({ id: `assignment-${index}`, authorId: row.authorId }));
+  }) as unknown as typeof db.weeklyReport.createManyAndReturn;
+  db.$queryRaw = (async () => []) as unknown as typeof db.$queryRaw;
+  db.$transaction = (async (callback: (tx: PrismaClient) => Promise<unknown>) =>
+    callback(db)) as unknown as typeof db.$transaction;
+  return db;
+}
+
 test("sendWeeklyAssignments creates a new parent and unread assignments for recipients", async () => {
   const created: Array<Record<string, unknown>> = [];
   let createManyCalls = 0;
@@ -58,7 +77,7 @@ test("sendWeeklyAssignments creates a new parent and unread assignments for reci
     },
   } as unknown as PrismaClient;
 
-  const result = await new RecordCatalog(db).sendWeeklyAssignments({
+  const result = await new RecordCatalog(distributionDatabase(db)).sendWeeklyAssignments({
     workspaceId: "workspace-1",
     userId: "leader",
     sourceReportId: "source-1",
@@ -66,7 +85,7 @@ test("sendWeeklyAssignments creates a new parent and unread assignments for reci
     now: new Date("2026-09-14T12:00:00+08:00"),
   });
 
-  expect(result).toEqual({
+  expect(result).toMatchObject({
     parentId: "created-1",
     title: "2026 W38 工作周报",
     year: 2026,
@@ -169,7 +188,7 @@ test("sendFormatTemplateFromSideChat resends after this week was cancelled", asy
     },
   } as unknown as PrismaClient;
 
-  const rows = await new RecordCatalog(db).sendFormatTemplateFromSideChat({
+  const rows = await new RecordCatalog(distributionDatabase(db)).sendFormatTemplateFromSideChat({
     workspaceId: "workspace-1",
     userId: "leader",
     subjectType: "report",
@@ -239,7 +258,7 @@ test("sendWeeklyAssignments does not post a #general notice", async () => {
     },
   } as unknown as PrismaClient;
 
-  const result = await new RecordCatalog(db).sendWeeklyAssignments({
+  const result = await new RecordCatalog(distributionDatabase(db)).sendWeeklyAssignments({
     workspaceId: "workspace-1",
     userId: "leader",
     sourceReportId: "source-1",
@@ -501,39 +520,6 @@ test("createTemplate allows a regular Workspace member during MVP rollout", asyn
   ).resolves.toEqual({ id: "member-settings" });
 });
 
-test("loadLatestEditableMemberReport selects the current user's newest draft", async () => {
-  let query: unknown;
-  const db = {
-    workspaceMembership: { findUnique: async () => ({ role: "member" }) },
-    weeklyReport: {
-      findFirst: async (input: unknown) => {
-        query = input;
-        return {
-          id: "report-current",
-          title: "2026 W39 周报",
-          cycle: { year: 2026, week: 39, title: "2026 W39" },
-        };
-      },
-    },
-  } as unknown as PrismaClient;
-
-  await expect(
-    new RecordCatalog(db).loadLatestEditableMemberReport({
-      workspaceId: "workspace-1",
-      userId: "member-a",
-    }),
-  ).resolves.toMatchObject({ id: "report-current" });
-  expect(query).toMatchObject({
-    where: {
-      workspaceId: "workspace-1",
-      authorId: "member-a",
-      kind: "member",
-      status: "draft",
-      hiddenFromAuthor: false,
-    },
-  });
-});
-
 test("createTemplate with scheduleEnabled false stays inactive", async () => {
   const createdTemplates: Array<Record<string, unknown>> = [];
   const db = {
@@ -690,6 +676,7 @@ test("runDueScheduledWeeklyAssignments skips when the ISO week already has assig
       ],
     },
     weeklyReport: {
+      findMany: async () => [],
       findFirst: async (query: {
         where?: { settingsId?: string; submissions?: { some?: unknown } };
       }) => {
@@ -781,7 +768,9 @@ test("runDueScheduledWeeklyAssignments sends when due and not yet sent", async (
     },
   } as unknown as PrismaClient;
 
-  const result = await new RecordCatalog(db).runDueScheduledWeeklyAssignments({
+  const result = await new RecordCatalog(distributionDatabase(db), {
+    notify: async () => ({ status: "notified" }),
+  }).runDueScheduledWeeklyAssignments({
     now: new Date("2026-09-18T07:30:00.000Z"),
   });
 

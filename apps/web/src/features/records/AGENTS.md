@@ -45,3 +45,14 @@ These rules also cover `src/server/records/`.
   (Leader report, dashboard summary, PPT) keep the last sent copy in
   `content.delivered` until the author sends again. Do not add a column for
   this snapshot.
+
+- `server/records/weekly-report-workflow.server.ts` owns owner-scoped DM actions
+  (discover, configure, send, save, submit, summarize); `weekly-report-distribution.server.ts`
+  owns atomic per-settings/per-week distribution, and `weekly-report-notification.server.ts`
+  posts invitations in the recipient's own assistant DM. Agent operations reuse
+  the existing HTTPS weekly-reports endpoint; no generic job or mailbox is added.
+- The Records tools menu has dashboard, stats and settings; the private assistant
+  DM is the conversational entry point. Do not restore a duplicate assistant page.
+- Agent template discovery does not require a cycle or submitted member reports.
+  Direct-chat explicit requests can write through workflow operations; page-scoped
+  side chat retains its preview/Insert flow.

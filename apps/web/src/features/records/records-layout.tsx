@@ -18,7 +18,6 @@ import {
   Plus,
   SearchLg as Search,
   Settings01 as Settings,
-  Stars01 as Stars,
   XClose as X,
 } from "@untitledui/icons";
 
@@ -51,7 +50,7 @@ import {
 } from "./weekly-send-window";
 
 export type RecordsTab = "weekly" | "notes";
-export type RecordsPanel = "settings" | "stats" | "dashboard" | "assistant";
+export type RecordsPanel = "settings" | "stats" | "dashboard";
 export type RecordsCatalog = Awaited<ReturnType<typeof loadRecordsCatalog>>;
 
 function recordsTabSearch(tab: string | undefined): RecordsTab {
@@ -596,14 +595,6 @@ export function RecordsLayout({
                           search: (previous) => ({ tab: recordsTabSearch(previous.tab) }),
                         });
                       }
-                      if (key === "assistant") {
-                        setShowMobileList(false);
-                        void navigate({
-                          to: "/w/$workspaceSlug/records/assistant",
-                          params: { workspaceSlug },
-                          search: (previous) => ({ tab: recordsTabSearch(previous.tab) }),
-                        });
-                      }
                       if (key === "stats") {
                         setShowMobileList(false);
                         const now = new Date();
@@ -633,11 +624,6 @@ export function RecordsLayout({
                       }
                     }}
                   >
-                    <Dropdown.Item
-                      id="assistant"
-                      icon={Stars}
-                      label={m.records_assistant_page_title()}
-                    />
                     <Dropdown.Item id="dashboard" icon={LineChart} label={m.records_dashboard()} />
                     <Dropdown.Item id="stats" icon={LineChart} label={m.records_stats()} />
                     {catalog.canManageWeeklyReports ? (

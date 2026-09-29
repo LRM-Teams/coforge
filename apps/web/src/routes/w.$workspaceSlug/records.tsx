@@ -37,11 +37,9 @@ function RecordsPage() {
     ? "settings"
     : matchRoute({ to: "/w/$workspaceSlug/records/dashboard", fuzzy: false })
       ? "dashboard"
-      : matchRoute({ to: "/w/$workspaceSlug/records/assistant", fuzzy: false })
-        ? "assistant"
-        : matchRoute({ to: "/w/$workspaceSlug/records/stats", fuzzy: false })
-          ? "stats"
-          : null;
+      : matchRoute({ to: "/w/$workspaceSlug/records/stats", fuzzy: false })
+        ? "stats"
+        : null;
   const routeRecordId = params?.recordId;
   const selectedWeekKey = weekParams ? `${weekParams.year}-${weekParams.week}` : undefined;
   const landing =

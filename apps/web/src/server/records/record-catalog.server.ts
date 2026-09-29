@@ -1,3 +1,8 @@
+import {
+  distributeWeeklyReport,
+  retryWeeklyReportInvitations,
+  type WeeklyReportNotifier,
+} from "./weekly-report-distribution.server";
 import type { Prisma, PrismaClient } from "#src/generated/prisma/client";
 import { AppError, isAppError } from "#src/lib/app-error";
 import { workspaceUserAvatarUrl } from "#src/server/db/repositories/user-profile.repositories.server";
@@ -49,7 +54,6 @@ import {
 } from "#src/features/records/template-outline-sections";
 import { isVisibleTemplateSubmission } from "./template-submission-visibility.server";
 import { canEditWeeklyReportContent } from "./weekly-report-editability.server";
-import { recipientUserIdsForSend } from "./weekly-report-send-recipients.server";
 import { buildWeeklyReportPresentation } from "./weekly-report-presentation.server";
 import {
   isWeeklyScheduleDue,
@@ -164,7 +168,10 @@ function templateWriteData(input: TemplateInput, sections: TemplateOutlineSectio
 }
 
 export class RecordCatalog {
-  constructor(private readonly db: Db) {}
+  constructor(
+    private readonly db: Db,
+    private readonly notifier?: WeeklyReportNotifier,
+  ) {}
 
   private async loadFormatSendState(input: {
     workspaceId: string;
@@ -1026,72 +1033,17 @@ export class RecordCatalog {
     });
     if (!sendSettings) throw new AppError("INVALID_INPUT", { errorId: "weekly-send-no-settings" });
 
-    const memberships = await this.db.workspaceMembership.findMany({
-      where: { workspaceId: input.workspaceId },
-      select: { userId: true },
-    });
-    const recipientIds = recipientUserIdsForSend({
-      allMembers: sendSettings.allMembers,
-      recipientUserIds: sendSettings.recipients.map((row) => row.userId),
-      workspaceMemberIds: memberships.map((row) => row.userId),
-      senderUserId: input.userId,
-    });
-    if (recipientIds.length === 0) {
-      throw new AppError("INVALID_INPUT", { errorId: "weekly-send-no-recipients" });
-    }
-
-    const cycle = await this.ensureCurrentCycle(input);
-    const parent = await this.db.weeklyReport.create({
-      data: {
+    return distributeWeeklyReport(
+      this.db,
+      {
         workspaceId: input.workspaceId,
-        cycleId: cycle.id,
-        authorId: input.userId,
-        settingsId: source.settingsId,
-        kind: "template",
-        title: memberWeekTitle(cycle.year, cycle.week),
-        status: "draft",
-        content: content as unknown as Prisma.InputJsonValue,
+        userId: input.userId,
+        templateId: source.settingsId,
+        content,
+        now: input.now,
       },
-      select: { id: true, title: true },
-    });
-
-    const recipients = await this.db.user.findMany({
-      where: { id: { in: recipientIds } },
-      select: { id: true, displayName: true, username: true },
-    });
-    const byId = new Map(recipients.map((user) => [user.id, user]));
-
-    const assignments: Prisma.WeeklyReportCreateManyInput[] = [];
-    for (const memberId of recipientIds) {
-      const member = byId.get(memberId);
-      if (!member) continue;
-      const displayName = member.displayName ?? member.username;
-      assignments.push({
-        workspaceId: input.workspaceId,
-        cycleId: cycle.id,
-        authorId: memberId,
-        kind: "member",
-        sourceTemplateId: parent.id,
-        title: memberReportTitle(displayName, cycle.year, cycle.week),
-        status: "draft",
-        content: withAssignmentUnread(content, true) as unknown as Prisma.InputJsonValue,
-      });
-    }
-
-    const assignmentCount = assignments.length;
-    if (assignmentCount === 0) {
-      throw new AppError("INVALID_INPUT", { errorId: "weekly-send-no-recipients" });
-    }
-
-    await this.db.weeklyReport.createMany({ data: assignments });
-
-    return {
-      parentId: parent.id,
-      title: parent.title,
-      year: cycle.year,
-      week: cycle.week,
-      assignmentCount,
-    };
+      this.notifier,
+    );
   }
 
   /**
@@ -1120,6 +1072,7 @@ export class RecordCatalog {
       reason?: string;
       parentId?: string;
       assignmentCount?: number;
+      notifications?: Array<{ reportId: string; status: string }>;
     }> = [];
 
     for (const row of settings) {
@@ -1153,12 +1106,35 @@ export class RecordCatalog {
         select: { id: true },
       });
       if (alreadySent) {
-        results.push({
-          workspaceId: row.workspaceId,
-          templateId: row.id,
-          status: "skipped",
-          reason: "already-sent",
-        });
+        try {
+          const notifications = await retryWeeklyReportInvitations(
+            this.db,
+            {
+              workspaceId: row.workspaceId,
+              parentId: alreadySent.id,
+              templateName: row.name,
+              year,
+              week,
+            },
+            this.notifier,
+          );
+          const failed = notifications.some((result) => result.status === "failed");
+          results.push({
+            workspaceId: row.workspaceId,
+            templateId: row.id,
+            parentId: alreadySent.id,
+            status: failed ? "failed" : "skipped",
+            reason: failed ? "invitation-failed" : "already-sent",
+            notifications,
+          });
+        } catch {
+          results.push({
+            workspaceId: row.workspaceId,
+            templateId: row.id,
+            status: "failed",
+            reason: "invitation-failed",
+          });
+        }
         continue;
       }
 
@@ -1211,14 +1187,17 @@ export class RecordCatalog {
           workspaceId: row.workspaceId,
           userId: row.ownerId,
           sourceReportId: source.id,
-          now: scheduleNow,
+          now,
         });
         results.push({
           workspaceId: row.workspaceId,
           templateId: row.id,
-          status: "sent",
+          status: sent.notifications.some((result) => result.status === "failed")
+            ? "failed"
+            : "sent",
           parentId: sent.parentId,
           assignmentCount: sent.assignmentCount,
+          notifications: sent.notifications,
         });
       } catch (error) {
         results.push({
@@ -2638,11 +2617,14 @@ export class RecordCatalog {
     return { sections: parseTemplateSections(input.sections), enabled: input.scheduleEnabled };
   }
 
-  async createTemplate(input: TemplateInput & { workspaceId: string; userId: string }) {
+  async createTemplate(
+    input: TemplateInput & { workspaceId: string; userId: string; id?: string },
+  ) {
     await requireWeeklyReportLeader(this.db, input.workspaceId, input.userId);
     const { sections, enabled } = await this.validateTemplateInput(input);
     const created = await this.db.weeklyReportTemplate.create({
       data: {
+        ...(input.id ? { id: input.id } : {}),
         workspaceId: input.workspaceId,
         ownerId: input.userId,
         ...templateWriteData(input, sections),
@@ -2813,26 +2795,6 @@ export class RecordCatalog {
         displayName: member.user.displayName ?? member.user.username,
       })),
     };
-  }
-
-  async loadLatestEditableMemberReport(input: { workspaceId: string; userId: string }) {
-    await requireMembership(this.db, input.workspaceId, input.userId);
-    const report = await this.db.weeklyReport.findFirst({
-      where: {
-        workspaceId: input.workspaceId,
-        authorId: input.userId,
-        kind: "member",
-        status: "draft",
-        hiddenFromAuthor: false,
-      },
-      orderBy: [{ cycle: { year: "desc" } }, { cycle: { week: "desc" } }, { updatedAt: "desc" }],
-      select: {
-        id: true,
-        title: true,
-        cycle: { select: { year: true, week: true, title: true } },
-      },
-    });
-    return report;
   }
 
   /** Builds the checked-in Foundation Models weekly PPT for one Leader overview. */

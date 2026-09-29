@@ -677,25 +677,10 @@ export function isValidIsoWeekNumber(week: number): boolean {
   return Number.isInteger(week) && week >= 1 && week <= 53;
 }
 
-/** Rough name budget: up to 10 CJK chars or 20 Latin letters. */
+/** Template names include full named formats such as Foundation Models Weekly. */
 export function isValidTemplateName(name: string): boolean {
-  const trimmed = name.trim();
-  if (!trimmed) return false;
-  let units = 0;
-  let chinese = 0;
-  let letters = 0;
-  for (const char of trimmed) {
-    if (/[\u4e00-\u9fff]/.test(char)) {
-      chinese += 1;
-      units += 2;
-    } else if (/[A-Za-z]/.test(char)) {
-      letters += 1;
-      units += 1;
-    } else {
-      units += 1;
-    }
-  }
-  return chinese <= 10 && letters <= 20 && units <= 20;
+  const length = name.trim().length;
+  return length > 0 && length <= 100;
 }
 
 export function hourlySendTimes(): string[] {
