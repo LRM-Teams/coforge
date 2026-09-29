@@ -8,8 +8,10 @@ export type JoinFailure =
   | { kind: "signed-out" }
   /** The link was revoked, expired or used up after the page loaded. */
   | { kind: "link-invalid" }
-  /** A lost connection or a server failure; asking again can work. */
-  | { kind: "unavailable"; errorId?: string };
+  /** The server failed the join; asking again later can work. */
+  | { kind: "server-error"; errorId?: string }
+  /** No answer came back, most likely a lost connection; asking again can work. */
+  | { kind: "unavailable" };
 
 /**
  * What a rejected `joinWorkspaceByLink` means. A call that finds no session comes back as a
@@ -20,7 +22,9 @@ export function joinFailure(error: unknown): JoinFailure {
   if (isRedirect(error)) return { kind: "signed-out" };
   if (isAppError(error)) {
     if (error.code === "NOT_FOUND") return { kind: "link-invalid" };
-    if (error.errorId) return { kind: "unavailable", errorId: error.errorId };
+    return error.errorId
+      ? { kind: "server-error", errorId: error.errorId }
+      : { kind: "server-error" };
   }
   return { kind: "unavailable" };
 }

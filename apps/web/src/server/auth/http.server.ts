@@ -105,7 +105,7 @@ export function handleLogout(input: {
     returnTo: input.returnTo,
   });
   return redirect(ended.authingLogoutUrl, {
-    "set-cookie": [ended.clearSessionCookie, ...(ended.returnCookie ? [ended.returnCookie] : [])],
+    "set-cookie": [ended.clearSessionCookie, ended.returnCookie],
     "cache-control": "no-store",
   });
 }

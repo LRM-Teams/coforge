@@ -297,8 +297,9 @@ export function endBrowserLogin(input: {
   clearSessionCookie: string;
   authingLogoutUrl: string;
   /** Carries `returnTo` across Authing's redirect, which can only land on the registered
-   * `postLogoutRedirectUri`; `consumeLogoutReturnTo` reads it there. */
-  returnCookie?: string;
+   * `postLogoutRedirectUri`; `consumeLogoutReturnTo` reads it there. Without a `returnTo` it
+   * expires any earlier one, so a switch that never came back cannot redirect this sign-out. */
+  returnCookie: string;
 } {
   const now = input.now ?? Date.now;
   const session = readSigned<SignedSession>(
@@ -317,16 +318,14 @@ export function endBrowserLogin(input: {
       input.postLogoutRedirectUri,
       session?.idToken,
     ),
-    ...(remembered
-      ? {
-          returnCookie: serializeCookie(
-            LOGOUT_RETURN_COOKIE,
-            sign("logout-return", remembered, input.sessionSecret),
-            LOGOUT_RETURN_TTL_SECONDS,
-            input.config.redirectUri,
-          ),
-        }
-      : {}),
+    returnCookie: remembered
+      ? serializeCookie(
+          LOGOUT_RETURN_COOKIE,
+          sign("logout-return", remembered, input.sessionSecret),
+          LOGOUT_RETURN_TTL_SECONDS,
+          input.config.redirectUri,
+        )
+      : clearCookie(LOGOUT_RETURN_COOKIE, input.config.redirectUri),
   };
 }
 
@@ -339,8 +338,7 @@ export function endBrowserLogin(input: {
 export function consumeLogoutReturnTo(input: {
   sessionSecret: string;
   cookieHeader: string;
-  /** Where the browser is (its origin): decides whether the clearing cookie is `Secure`. */
-  origin: string;
+  config: AuthingConfig;
   now?: () => number;
 }): { returnTo?: string; clearCookie: string } | undefined {
   const now = input.now ?? Date.now;
@@ -350,7 +348,7 @@ export function consumeLogoutReturnTo(input: {
   const returnTo = signed && signed.exp * 1000 > now() ? safeReturnTo(signed.returnTo) : undefined;
   return {
     ...(returnTo ? { returnTo } : {}),
-    clearCookie: clearCookie(LOGOUT_RETURN_COOKIE, input.origin),
+    clearCookie: clearCookie(LOGOUT_RETURN_COOKIE, input.config.redirectUri),
   };
 }
 

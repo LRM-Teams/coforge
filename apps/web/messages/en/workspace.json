@@ -204,6 +204,7 @@
   "workspace_join_signed_in_as": "Signed in as {email}",
   "workspace_join_switch_account": "Use another account",
   "workspace_join_failed": "Couldn’t join. Check your connection and try again.",
+  "workspace_join_server_failed": "Couldn’t join because of a problem on our side. Try again in a moment.",
   "workspace_join_signed_out": "Your session has expired. Sign in again to join.",
   "workspace_join_invalid_title": "This invite link can’t be used",
   "workspace_join_invalid_description": "This invite link is invalid or has expired. Ask the person who invited you for a new link.",

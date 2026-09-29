@@ -247,7 +247,7 @@ test("logout with a page to come back to remembers it in a short-lived signed co
   expect(remembered[0]).not.toContain("join");
 });
 
-test("logout without a page of this site to come back to remembers nothing", () => {
+test("logout without a page of this site to come back to forgets any page remembered before", () => {
   for (const returnTo of [undefined, null, "", "//evil.com", "https://evil.com", "/\\evil"]) {
     const response = handleLogout({
       origin: "http://localhost:3000",
@@ -257,7 +257,10 @@ test("logout without a page of this site to come back to remembers nothing", () 
       returnTo,
     });
     const cookies = response.headers.getSetCookie();
-    expect(cookies.some((cookie) => cookie.startsWith("coforge_logout_return="))).toBe(false);
+    // A page left by an earlier switch that never came back must not send this sign-out there.
+    expect(cookies.filter((cookie) => cookie.startsWith("coforge_logout_return="))).toEqual([
+      expect.stringMatching(/^coforge_logout_return=;.*Max-Age=0/),
+    ]);
     expect(cookies.some((cookie) => cookie.startsWith("coforge_session=;"))).toBe(true);
   }
 });

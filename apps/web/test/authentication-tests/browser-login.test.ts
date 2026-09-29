@@ -73,6 +73,8 @@ test("each sign-in keeps its own state cookie, named by its state", () => {
   expect(first.stateCookie).toStartWith(`coforge_oauth_state_${firstState}=`);
   expect(second.stateCookie).toStartWith(`coforge_oauth_state_${secondState}=`);
   expect(first.stateCookie).toContain("Max-Age=600");
+  // Site-wide: Authing returns to the unprefixed callback, which the locale middleware redirects
+  // to `/<locale>/auth/callback` before it reads the cookie, so a callback-only path would miss.
   expect(first.stateCookie).toContain("Path=/;");
 });
 
@@ -124,6 +126,8 @@ test("completeBrowserLogin creates a CoForge user session from Authing", async (
   expect(completed.sessionCookie).not.toContain("Domain=");
   expect(completed.clearStateCookie).toStartWith(`coforge_oauth_state_${state}=`);
   expect(completed.clearStateCookie).toContain("Max-Age=0");
+  expect(completed.clearStateCookie).toContain("Path=/;");
+  expect(completed.sessionCookie).toContain("Path=/;");
 
   const user = readBrowserSession({
     sessionSecret,
@@ -262,36 +266,33 @@ function logoutReturn(returnTo: string, now?: () => number) {
 
 test("coming back from Authing after switching account gives the page to sign in to, once", () => {
   const returnCookie = logoutReturn("/join/abc");
-  if (!returnCookie) throw new Error("return cookie missing");
 
   const landed = consumeLogoutReturnTo({
     sessionSecret,
     cookieHeader: cookieHeader(returnCookie),
-    origin: "http://localhost:3000",
+    config,
   });
   expect(landed?.returnTo).toBe("/join/abc");
   expect(landed?.clearCookie).toStartWith("coforge_logout_return=;");
   expect(landed?.clearCookie).toContain("Max-Age=0");
 
   // The browser applied the clearing cookie, so the next landing on / has nothing to consume.
-  expect(
-    consumeLogoutReturnTo({ sessionSecret, cookieHeader: "", origin: "http://localhost:3000" }),
-  ).toBeUndefined();
+  expect(consumeLogoutReturnTo({ sessionSecret, cookieHeader: "", config })).toBeUndefined();
 });
 
 test("the clearing cookie of the landing step is Secure on an https site", () => {
-  const returnCookie = logoutReturn("/join/abc") ?? "";
+  const returnCookie = logoutReturn("/join/abc");
   const landed = consumeLogoutReturnTo({
     sessionSecret,
     cookieHeader: cookieHeader(returnCookie),
-    origin: "https://staging.coforge.cn",
+    config: { ...config, redirectUri: "https://staging.coforge.cn/auth/callback" },
   });
   expect(landed?.clearCookie).toContain("Secure");
 });
 
 test("a forged or expired switch-account cookie gives no page, and is cleared", () => {
   const start = 1_700_000_000_000;
-  const valid = cookieHeader(logoutReturn("/join/abc", () => start) ?? "");
+  const valid = cookieHeader(logoutReturn("/join/abc", () => start));
   const [name, value] = valid.split("=");
   const [body, signature] = (value ?? "").split(".");
   const forgedBody = Buffer.from(
@@ -306,7 +307,7 @@ test("a forged or expired switch-account cookie gives no page, and is cleared", 
       cookieHeader: "",
       returnTo: "/join/abc",
       now: () => start,
-    }).returnCookie ?? "",
+    }).returnCookie,
   );
 
   const cases = [
@@ -323,7 +324,7 @@ test("a forged or expired switch-account cookie gives no page, and is cleared", 
     const landed = consumeLogoutReturnTo({
       sessionSecret,
       cookieHeader: header,
-      origin: "http://localhost:3000",
+      config,
       now: () => now,
     });
     expect(landed?.returnTo).toBeUndefined();
@@ -334,7 +335,7 @@ test("a forged or expired switch-account cookie gives no page, and is cleared", 
     consumeLogoutReturnTo({
       sessionSecret,
       cookieHeader: valid,
-      origin: "http://localhost:3000",
+      config,
       now: () => start + 599_000,
     })?.returnTo,
   ).toBe("/join/abc");
@@ -342,7 +343,7 @@ test("a forged or expired switch-account cookie gives no page, and is cleared", 
 
 test("switching account only remembers a page of this site", () => {
   for (const returnTo of ["//evil.com", "https://evil.com", "/\\evil"]) {
-    expect(logoutReturn(returnTo)).toBeUndefined();
+    expect(logoutReturn(returnTo)).toMatch(/^coforge_logout_return=;.*Max-Age=0/);
   }
 });
 
@@ -402,7 +403,7 @@ test("a switch-account return cookie replayed as the session cookie signs nobody
   expect(
     readBrowserSession({
       sessionSecret,
-      cookieHeader: `coforge_session=${cookieValue(ended.returnCookie!)}`,
+      cookieHeader: `coforge_session=${cookieValue(ended.returnCookie)}`,
     }),
   ).toBeNull();
 });

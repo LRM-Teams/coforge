@@ -57,9 +57,8 @@ async function withAuthConfig(
   ) => Response | Promise<Response>,
 ): Promise<Response> {
   try {
-    const origin = new URL(request.url).origin;
     return handle(
-      await readAuthingConfig(process.env, origin),
+      await readAuthingConfig(process.env, publicOrigin(request)),
       await readSessionSecret(process.env),
     );
   } catch (error) {
