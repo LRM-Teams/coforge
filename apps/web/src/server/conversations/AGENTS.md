@@ -54,6 +54,8 @@ These rules apply to `src/server/conversations/`.
   Done state on the row (`server/inbox/activity-inbox.server.ts`).
   `PublicChannels.executeMentionActions` carries out a person's `add` through
   `addMembers`; an Agent's `add` is refused (`add_requires_human_member_authority`).
+- `mention-deliveries.server.ts` owns tracked @mention outcomes: issuing each
+  push's envelope, the daemon's reports on it, and when an Agent can be woken.
 - `channel-agent-control.server.ts` (`ChannelAgentControl`) owns a channel's
   "Stop all Agents" and "Resume all": which Agents each acts on, who may ask,
   and the resume prompt built from the member's guidance. The control itself
@@ -98,13 +100,11 @@ These rules apply to `src/server/conversations/`.
   changes apply to it, and it is never archived. The only admin-derived
   capability on it is `update`, for a Workspace owner or admin, and only its
   description can change: its name is fixed.
-
 - A Workspace owner or admin can hide `#general` from the whole Workspace
   (`Conversation.hiddenFromWorkspaceAt`) and restore it. While hidden it is gone
   for everyone, themselves included: every channel read filters through
   `VISIBLE_CONVERSATION_WHERE` (raw SQL: `"hiddenFromWorkspaceAt" IS NULL`), so a
   new channel read must too. Enrollment keeps running, so a restore is whole.
-
 - Only a Workspace owner or admin deletes a channel (`deleteChannel`), never
   `#general`; a channel admin cannot, and no Agent command does. Deletion is
   hard and whole: everything in the channel goes, Reminders aimed at it or its

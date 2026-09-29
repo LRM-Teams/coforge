@@ -1,3 +1,5 @@
+import { MentionDeliveryIssuer } from "./mention-deliveries.server";
+import { PrismaMentionDeliveryRepository } from "#src/server/db/repositories/mention-delivery.repositories.server";
 import type { PrismaClient } from "#src/generated/prisma/client";
 import { AppError } from "#src/lib/app-error";
 import { ACTIVE_AGENT_WHERE, assertAgentLive } from "#src/server/agents/active-agent.server";
@@ -327,6 +329,8 @@ export class DirectConversations {
             idempotency,
             centrifugo,
             realtime,
+            undefined,
+            new MentionDeliveryIssuer(new PrismaMentionDeliveryRepository(this.db)),
           ).execute({
             workspaceId,
             conversationId,

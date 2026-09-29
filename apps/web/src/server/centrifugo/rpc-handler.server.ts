@@ -72,10 +72,15 @@ import {
   computerObservationSchema,
   type ComputerObservation,
 } from "#src/server/computers/computer-metadata.server";
+import type { MentionDeliveryEnvelope } from "@lrm/coforge-sdk/internal";
 export {
   createAgentSessionMethod,
   createAgentSessionInvalidateMethod,
 } from "./agent-session-receiver.server";
+export {
+  createMentionDeliveryTransitionMethod,
+  createMentionDeliveryTerminalErrorMethod,
+} from "./mention-delivery-receiver.server";
 
 export const createAgentReminderMethod =
   (reminders: Reminders): CentrifugoRpcMethod =>
@@ -149,7 +154,9 @@ export const createReminderSnapshotMethod =
     }
   };
 
-export function createAgentDeliveryAckMethod(repository: {
+/** Records a daemon's delivery ACK through `acks`; `MentionDeliveryReports` also settles the
+ * tracked mention it answers. */
+export function createAgentDeliveryAckMethod(acks: {
   receiveDeliveryAck(input: {
     workspaceId: string;
     computerId: string;
@@ -157,6 +164,7 @@ export function createAgentDeliveryAckMethod(repository: {
     deliveryId: string;
     messageId: string;
     sequence: number;
+    mentionDelivery?: MentionDeliveryEnvelope;
   }): Promise<void>;
 }): CentrifugoRpcMethod {
   return async (payload, metadata) => {
@@ -168,7 +176,7 @@ export function createAgentDeliveryAckMethod(repository: {
     )
       return { code: 403, message: "workspace scope is not authorized" };
     try {
-      await repository.receiveDeliveryAck({
+      await acks.receiveDeliveryAck({
         ...ack,
         computerId: metadata.principal.computerId,
       });

@@ -15,7 +15,9 @@ import {
   UUID_LIKE_SOURCE,
   utf8Encoder,
 } from "@lrm/coforge-sdk/internal";
-import { encodeAgentDelivery } from "#src/server/conversations/agent-delivery.server";
+import { AgentDeliveryPublisher } from "#src/server/conversations/agent-delivery.server";
+import { MentionDeliveryIssuer } from "#src/server/conversations/mention-deliveries.server";
+import { PrismaMentionDeliveryRepository } from "#src/server/db/repositories/mention-delivery.repositories.server";
 import { ACTIVE_AGENT_WHERE } from "#src/server/agents/active-agent.server";
 import { channelThreadRootWhere } from "#src/server/db/message-anchor.server";
 import type { Prisma, PrismaClient } from "#src/generated/prisma/client";
@@ -819,39 +821,32 @@ export class TaskBoard {
   ) {
     const publisher = this.dependencies.publisher;
     if (!publisher) return;
-    await Promise.allSettled(
-      message.deliveries.flatMap((delivery) =>
-        delivery.agent.computerId
-          ? [
-              // Deferred so a synchronous publisher failure settles like an async one.
-              Promise.resolve().then(() =>
-                publisher.publish(
-                  daemonControlChannel(message.workspaceId, delivery.agent.computerId!),
-                  encodeAgentDelivery({
-                    requestId,
-                    workspaceId: message.workspaceId,
-                    conversationId: message.conversationId,
-                    agentId: delivery.agentId,
-                    messageId: message.id,
-                    deliveryId: delivery.deliveryId,
-                    sequence: message.sequence,
-                    body: message.body,
-                    mentions: message.mentions,
-                    target,
-                    latestSenderKind: sender.kind,
-                    latestSenderHandle: sender.handle,
-                    latestSenderDescription: sender.description,
-                    // Task deliveries are directed at this Agent; treat as a personal wake.
-                    mentionsAgent: true,
-                    ...(delivery.taskExecutionSessionId
-                      ? { taskExecutionSessionId: delivery.taskExecutionSessionId }
-                      : {}),
-                  }),
-                ),
-              ),
-            ]
-          : [],
-      ),
+    // A Task delivery is directed at its Agent: a personal wake, tracked like a mention. Failures
+    // never surface.
+    await new AgentDeliveryPublisher(
+      publisher,
+      new MentionDeliveryIssuer(new PrismaMentionDeliveryRepository(this.db)),
+    ).publish(
+      message.workspaceId,
+      message.deliveries.map((delivery) => ({
+        computerId: delivery.agent.computerId,
+        requestId,
+        conversationId: message.conversationId,
+        agentId: delivery.agentId,
+        messageId: message.id,
+        deliveryId: delivery.deliveryId,
+        sequence: message.sequence,
+        body: message.body,
+        mentions: message.mentions,
+        target,
+        latestSenderKind: sender.kind,
+        latestSenderHandle: sender.handle,
+        latestSenderDescription: sender.description,
+        mentionsAgent: true,
+        ...(delivery.taskExecutionSessionId
+          ? { taskExecutionSessionId: delivery.taskExecutionSessionId }
+          : {}),
+      })),
     );
   }
 

@@ -1,7 +1,6 @@
 import { isChannelMessageTarget, isPrintableSenderHandle } from "@lrm/coforge-sdk/internal";
-import { encodeAgentDelivery } from "./agent-delivery.server";
+import { AgentDeliveryPublisher } from "./agent-delivery.server";
 import type { CentrifugoServerApi } from "#src/server/centrifugo/server-api.server";
-import { daemonControlChannel } from "#src/server/centrifugo/server-api.server";
 import type {
   DirectConversationRepository,
   LatestSenderFields,
@@ -9,6 +8,7 @@ import type {
 import type { MessageRequestIdempotency } from "./message-request-idempotency.server";
 import type { ConversationRealtime } from "./conversation-realtime.server";
 import { deliveryMentionsAgent } from "./mentions.server";
+import type { MentionDeliveryIssuer } from "./mention-deliveries.server";
 import type { MessageNotifier } from "#src/server/notifications/web-push-composition.server";
 
 export class ReadDirectMessages {
@@ -36,6 +36,8 @@ export class SendDirectMessage {
     private readonly centrifugo: Pick<CentrifugoServerApi, "publish">,
     private readonly realtime?: ConversationRealtime,
     private readonly notifications?: MessageNotifier,
+    /** Tracks the @mentions an Agent's message delivers; untracked without it. */
+    private readonly mentionIssuer?: Pick<MentionDeliveryIssuer, "issue">,
   ) {}
 
   async execute(input: {
@@ -168,34 +170,24 @@ export class SendDirectMessage {
     } & Partial<LatestSenderFields>,
   ) {
     if (!message.deliveries?.length) return;
-    await Promise.allSettled(
-      message.deliveries.flatMap((delivery) =>
-        delivery.computerId
-          ? [
-              Promise.resolve().then(() =>
-                this.centrifugo.publish(
-                  daemonControlChannel(message.workspaceId, delivery.computerId!),
-                  encodeAgentDelivery({
-                    requestId,
-                    workspaceId: message.workspaceId,
-                    conversationId,
-                    agentId: delivery.agentId,
-                    messageId: message.id,
-                    deliveryId: delivery.deliveryId,
-                    sequence: message.sequence,
-                    body: message.body,
-                    mentions: message.mentions ?? [],
-                    target: message.target ?? "",
-                    latestSenderKind: message.latestSenderKind,
-                    latestSenderHandle: message.latestSenderHandle,
-                    latestSenderDescription: message.latestSenderDescription,
-                    mentionsAgent: deliveryMentionsAgent(message.mentions, delivery.agentId),
-                  }),
-                ),
-              ),
-            ]
-          : [],
-      ),
+    await new AgentDeliveryPublisher(this.centrifugo, this.mentionIssuer).publish(
+      message.workspaceId,
+      message.deliveries.map((delivery) => ({
+        computerId: delivery.computerId,
+        requestId,
+        conversationId,
+        agentId: delivery.agentId,
+        messageId: message.id,
+        deliveryId: delivery.deliveryId,
+        sequence: message.sequence,
+        body: message.body,
+        mentions: message.mentions ?? [],
+        target: message.target ?? "",
+        latestSenderKind: message.latestSenderKind,
+        latestSenderHandle: message.latestSenderHandle,
+        latestSenderDescription: message.latestSenderDescription,
+        mentionsAgent: deliveryMentionsAgent(message.mentions, delivery.agentId),
+      })),
     );
   }
 
@@ -243,24 +235,28 @@ export class SendDirectMessage {
     )
       throw new Error("message sender must be a public @username");
     if (!message.computerId) throw new Error("Agent is not assigned to a Computer");
-    await this.centrifugo.publish(
-      daemonControlChannel(message.workspaceId, message.computerId),
-      encodeAgentDelivery({
-        requestId,
-        messageId: message.id,
-        deliveryId: message.deliveryId,
-        sequence: message.sequence,
-        workspaceId: message.workspaceId,
-        conversationId,
-        agentId: message.agentId,
-        // A DM has no mention rows; its task and channel tokens still read back as text.
-        body: message.body,
-        mentions: [],
-        target: message.deliveryTarget ?? `@${message.latestSenderHandle}`,
-        latestSenderKind: message.latestSenderKind,
-        latestSenderHandle: message.latestSenderHandle,
-        latestSenderDescription: message.latestSenderDescription,
-      }),
+    const [pushed] = await new AgentDeliveryPublisher(this.centrifugo, this.mentionIssuer).publish(
+      message.workspaceId,
+      [
+        {
+          computerId: message.computerId,
+          requestId,
+          messageId: message.id,
+          deliveryId: message.deliveryId,
+          sequence: message.sequence,
+          conversationId,
+          agentId: message.agentId,
+          // A DM has no mention rows; its task and channel tokens still read back as text. It
+          // carries no `mentionsAgent`, so the issuer tracks it only once a DM can mention.
+          body: message.body,
+          mentions: [],
+          target: message.deliveryTarget ?? `@${message.latestSenderHandle}`,
+          latestSenderKind: message.latestSenderKind,
+          latestSenderHandle: message.latestSenderHandle,
+          latestSenderDescription: message.latestSenderDescription,
+        },
+      ],
     );
+    if (pushed?.status === "rejected") throw pushed.reason;
   }
 }

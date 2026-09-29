@@ -1,4 +1,8 @@
 import { markHumanRead } from "#src/server/conversations/human-unread.server";
+import {
+  TRACKED_MENTION_STATE_SELECT,
+  type TrackedMentionState,
+} from "./mention-delivery.repositories.server";
 import { lockConversation } from "#src/server/conversations/conversation-lock.server";
 import { agentDirectKey, peopleDirectPeerId } from "#src/features/conversations/direct-key";
 import {
@@ -425,7 +429,7 @@ export type DirectConversationRepository = {
     deliveryId?: string;
     messageId: string;
     sequence: number;
-  }): Promise<void>;
+  }): Promise<TrackedMentionState>;
   readMessages?(
     workspaceId: string,
     agentId: string,
@@ -1418,7 +1422,9 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
     messageId: string;
     sequence: number;
   }) {
-    const result = await this.db.agentMessageDelivery.updateMany({
+    // Returns the delivery's tracked-mention state from the same write, so an untracked ACK needs
+    // nothing more.
+    const acked = await this.db.agentMessageDelivery.updateManyAndReturn({
       where: {
         deliveryId: input.deliveryId,
         workspaceId: input.workspaceId,
@@ -1428,13 +1434,19 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
         agent: { computerId: input.computerId },
       },
       data: { receivedAt: new Date() },
+      select: TRACKED_MENTION_STATE_SELECT,
     });
-    if (result.count !== 1) throw new Error("delivery acknowledgement is not authorized");
+    if (acked.length !== 1) throw new Error("delivery acknowledgement is not authorized");
+    // The migration's CHECK constraints hold these columns to their closed sets.
+    return acked[0] as TrackedMentionState;
   }
 
   async readPendingAgentDeliveries(
     workspaceId: string,
     agentId: string,
+    /** Only these deliveries, received or not, when given: a mention re-sent after a daemon's
+     * report. */
+    only?: { deliveryIds: readonly string[] },
   ): Promise<AgentFacing<PendingAgentDelivery>[]> {
     const deliveries = await this.db.agentMessageDelivery.findMany({
       // Deliveries into a channel hidden from the Workspace wait there until it is restored. A
@@ -1444,7 +1456,7 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
       where: {
         workspaceId,
         agentId,
-        receivedAt: null,
+        ...(only ? { deliveryId: { in: [...only.deliveryIds] } } : { receivedAt: null }),
         conversation: VISIBLE_CONVERSATION_WHERE,
         OR: [
           { conversation: { channelName: null } },

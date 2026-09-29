@@ -109,9 +109,9 @@ describe("PrismaDirectConversationRepository", () => {
     const db = {
       conversationMember: { findMany: async () => [] },
       agentMessageDelivery: {
-        updateMany: async (input: object) => {
+        updateManyAndReturn: async (input: object) => {
           updates.push(input);
-          return { count: 1 };
+          return [{ mentionOutcome: null, mentionLaunchId: null }];
         },
       },
     } as unknown as PrismaClient;

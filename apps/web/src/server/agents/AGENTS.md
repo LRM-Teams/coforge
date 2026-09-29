@@ -102,6 +102,9 @@ these modules have their own rules in `src/server/centrifugo/AGENTS.md`.
 - `Agent.stoppedAt` is the persisted user stop intent, independent of
   `controlState`. Nothing may start or wake a stopped Agent except an explicit
   user Start, Restart, Reset Session, Full Reset, or a channel's "Resume all".
+- A person's Stop (`execute` or `stopMany`) settles the Agent's pending tracked
+  @mentions as not launched through the `StoppedAgentMentions` port, after
+  `stoppedAt` is recorded; a failure there is logged and never fails the Stop.
 - `stop` persists `stoppedAt` before running the stop chain, so the intent
   survives an unresponsive Computer. The other user operations clear it first.
 - `stopMany` and `startMany` (a channel's "Stop all Agents" and "Resume

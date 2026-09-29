@@ -8,7 +8,7 @@ import {
   type AgentStartIntent,
   type AgentStopIntent,
 } from "@lrm/coforge-sdk/internal";
-import { encodeAgentDelivery } from "#src/server/conversations/agent-delivery.server";
+import { publishPendingDelivery } from "#src/server/conversations/agent-delivery.server";
 import {
   daemonControlChannel,
   type CentrifugoServerApi,
@@ -160,16 +160,10 @@ export class WorkspaceAgentRecovery {
             );
             await Promise.all(
               deliveries.map((delivery) =>
-                this.api.publish(
-                  daemonControlChannel(workspaceId, computerId),
-                  encodeAgentDelivery({
-                    requestId: crypto.randomUUID(),
-                    workspaceId,
-                    agentId: agent.id,
-                    ...delivery,
-                    // Pending deliveries are already read back as text; reading again is a no-op.
-                    mentions: [],
-                  }),
+                publishPendingDelivery(
+                  this.api,
+                  { workspaceId, computerId, agentId: agent.id },
+                  delivery,
                 ),
               ),
             );

@@ -125,6 +125,10 @@ export type AgentControlAgent = {
    * reconcile one the Daemon still runs; the user-initiated `execute()` refuses it outright. */
   deletedAt?: Date | null;
 };
+/** The tracked @mentions a person's Stop settles as not launched. */
+export type StoppedAgentMentions = {
+  settleStopped(input: { workspaceId: string; agentId: string; stoppedAt: Date }): Promise<void>;
+};
 /** get/replace both require current owner membership and Workspace–Computer assignment. */
 export interface AgentControlStore {
   get(agentId: string): Promise<AgentControlAgent | undefined>;
@@ -258,6 +262,8 @@ export class AgentControl {
     /** Only consulted for a user-initiated `execute({action:"start"})`; Restart/Reset/Full reset
      * and the internal `recover`/`publishStart` paths are unchanged. */
     private readonly conversations?: AgentControlRecoveryReader,
+    /** Settles the tracked mentions a person's Stop leaves undelivered. */
+    private readonly stoppedMentions?: StoppedAgentMentions,
   ) {}
 
   /** WeeklyReportAssistant subject launches override the global current session for one start. */
@@ -511,6 +517,26 @@ export class AgentControl {
     if (!canSeeAgent({ kind: "user", userId, role }, agent)) throw new AppError("NOT_FOUND");
     return agent;
   }
+  /** A person stopped the Agent: its pending tracked mentions will not be launched. The stop is
+   * already recorded, so a failure here is logged and never fails it. */
+  private async settleStoppedMentions(agent: AgentControlAgent, stoppedAt: Date) {
+    try {
+      await this.stoppedMentions?.settleStopped({
+        workspaceId: agent.workspaceId,
+        agentId: agent.id,
+        stoppedAt,
+      });
+    } catch (error) {
+      console.warn(
+        JSON.stringify({
+          event: "agent_control:stopped_mentions_failed",
+          agent_id: agent.id,
+          workspace_id: agent.workspaceId,
+          error_type: error instanceof Error ? error.name : typeof error,
+        }),
+      );
+    }
+  }
   private async begin(
     agent: AgentControlAgent,
     action: AgentControlAction,
@@ -575,8 +601,12 @@ export class AgentControl {
       ...(identity ? { identity } : {}),
       ...(action === "start" ? { launchId: crypto.randomUUID() } : {}),
     };
-    if (await this.store.replace(agent, state, stoppedAt !== undefined ? { stoppedAt } : undefined))
+    if (
+      await this.store.replace(agent, state, stoppedAt !== undefined ? { stoppedAt } : undefined)
+    ) {
+      if (stoppedAt) await this.settleStoppedMentions(agent, stoppedAt);
       return state;
+    }
 
     // Session reports do not take the runtime lock. Reauthorize and rebuild from
     // their fresh identity, but never absorb a configuration or operation change.

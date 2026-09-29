@@ -33,3 +33,8 @@ mechanics only; domain rules stay in the owning `src/server/` module.
   connection user is its key owner, so it also drops that person's pages and
   other daemons. Pass a code in centrifuge-js's reconnecting 4000-4499 range
   unless the client must stop for good (4500-4999, as the connect proxy does).
+- The delivery ACK receiver stays thin: `MentionDeliveryReports` records the
+  ACK and then settles a tracked @mention, and a mention failure is logged and
+  never turns the ACK into a 403. The mention transition and terminal-error
+  receivers answer 403 only for a malformed report or a foreign Workspace; a
+  stale report is `MentionDeliveryReports`' own no-op.

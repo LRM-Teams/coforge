@@ -25,6 +25,8 @@ import {
   type AgentSendMessageResult,
 } from "#src/server/agents/agent-messages.server";
 import { SendDirectMessage } from "#src/server/conversations/direct-message.server";
+import { MentionDeliveryIssuer } from "#src/server/conversations/mention-deliveries.server";
+import { PrismaMentionDeliveryRepository } from "#src/server/db/repositories/mention-delivery.repositories.server";
 import { getMessageRequestIdempotency } from "#src/server/conversations/redis-message-request-idempotency.server";
 import {
   MessageRequestInProgressError,
@@ -364,6 +366,7 @@ export const Route = createFileRoute("/api/agent/v1/messages")({
             centrifugo,
             new CentrifugoConversationRealtime(centrifugo),
             bestEffortMessageNotifier(db),
+            new MentionDeliveryIssuer(new PrismaMentionDeliveryRepository(db)),
           ),
         });
       },

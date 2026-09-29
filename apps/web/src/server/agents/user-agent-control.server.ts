@@ -6,6 +6,7 @@ import { createCentrifugoServerApi } from "#src/server/centrifugo/server-api.ser
 import { PrismaAgentControlStore } from "#src/server/db/repositories/agent-control.repositories.server";
 import { createAgentSessions } from "#src/server/db/repositories/agent-session.repositories.server";
 import { PrismaDirectConversationRepository } from "#src/server/db/repositories/direct-conversation.repositories.server";
+import { PrismaMentionDeliveryRepository } from "#src/server/db/repositories/mention-delivery.repositories.server";
 
 /** The `AgentControl` a signed-in user's Start, Stop, Restart and Reset go through. */
 export function userAgentControl(db: PrismaClient) {
@@ -17,5 +18,6 @@ export function userAgentControl(db: PrismaClient) {
     createAgentSessions(db),
     getAgentControlSignal(),
     new PrismaDirectConversationRepository(db),
+    new PrismaMentionDeliveryRepository(db),
   );
 }

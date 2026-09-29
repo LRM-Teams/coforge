@@ -17,6 +17,12 @@ const referenceSchema = z.object({
   daemonInstanceId: z.string(),
   launchId: z.string().optional(),
 });
+/** An Agent's persisted `runtimeSession` launch fence, or null when it has none or it does not
+ * parse. */
+export function parseRuntimeSessionReference(value: unknown) {
+  const parsed = referenceSchema.safeParse(value);
+  return parsed.success ? parsed.data : null;
+}
 const sessionStateSchema = z.enum(["empty", "unknown", "resumable"]);
 const controlScopeSchema = z.object({
   requestId: z.string(),
