@@ -7,7 +7,7 @@ import { getLogger } from "@logtape/logtape";
 import { diagnosticErrorCode } from "#src/platform/diagnostic-error-code";
 import { runCatalogCommand } from "#src/code-agent/catalog-command";
 
-const logger = getLogger(["coforge", "daemon", "code-agent", "grok"]);
+const logger = getLogger(["coforge", "daemon", "code-agent", RUNTIME_PROVIDER.GROK]);
 
 // eslint-disable-next-line no-control-regex -- Strips ANSI escapes from `grok models`.
 const ANSI_ESCAPE_PATTERN = /\x1b\[[0-9;]*m/g;

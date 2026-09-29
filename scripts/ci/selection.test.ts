@@ -5,6 +5,33 @@ test("a Web-only PR does not run client or infrastructure checks", () => {
   expect(selectChecks(["apps/web/src/features/tasks/task-board.tsx"], "changes")).toEqual(["web"]);
 });
 
+test("CI policy runs when its scripts, setup, or shared inputs change", () => {
+  expect(selectChecks(["scripts/ci/selection.ts"], "changes")).toContain("ci");
+  expect(selectChecks([".agents/setup"], "changes")).toContain("ci");
+  expect(selectChecks(["bun.lock"], "changes")).toContain("ci");
+});
+
+test("test-only client changes validate their owner without rebuilding native executables", () => {
+  expect(selectChecks(["packages/daemon/test/held-publications.test.ts"], "changes")).toEqual([
+    "daemon",
+  ]);
+  expect(selectChecks(["packages/computer/test/setup.test.ts"], "changes")).toEqual(["computer"]);
+  expect(selectChecks(["packages/daemon/test/macos-supervisor.test.ts"], "changes")).toEqual([
+    "daemon",
+    "macos-lifecycle",
+  ]);
+});
+
+test("workspace manifests validate their consumers and the image that copies them", () => {
+  expect(selectChecks(["apps/web/package.json"], "changes")).toEqual(["web"]);
+  expect(selectChecks(["packages/computer/package.json"], "changes")).toEqual([
+    "computer",
+    "macos-lifecycle",
+    "web",
+    "windows-release",
+  ]);
+});
+
 test("dependency changes include downstream consumers, but not unrelated modules", () => {
   expect(selectChecks(["packages/daemon/src/runtime.ts"], "changes")).toEqual([
     "computer",
@@ -36,6 +63,7 @@ test("documentation skips application checks, while shared and unknown inputs fa
   const all = [
     "agent",
     "cdn-certs",
+    "ci",
     "coforge",
     "coforge-sdk",
     "computer",
@@ -52,8 +80,6 @@ test("documentation skips application checks, while shared and unknown inputs fa
     "bun.lock",
     "mise.toml",
     "package.json",
-    "packages/computer/package.json",
-    "apps/web/package.json",
     ".github/workflows/ci.yml",
     "packages/new/src/index.ts",
     "packages/coforge-sdk/messages.ts",
@@ -94,15 +120,16 @@ test("deployment validates the exact Web track only when the image or deployment
     "apps/web/src/index.ts",
     "scripts/release/install.ps1",
     "packages/agent/src/contract.ts",
-    "bun.lock",
   ]) {
     expect(selectChecks([path], "web")).toEqual(["deploy", "coforge-sdk", "web"]);
   }
+  expect(selectChecks(["bun.lock"], "web")).toEqual(["ci", "deploy", "coforge-sdk", "web"]);
 });
 
 test("manual local publication always validates its complete track, regardless of changed files", () => {
   expect(selectChecks([], "local")).toEqual([
     "agent",
+    "ci",
     "coforge",
     "coforge-sdk",
     "computer",

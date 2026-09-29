@@ -39,19 +39,11 @@ jobs:
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           fetch-depth: 0
-      - name: Set up mise
+      - name: Install pinned Bun
         uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
         with:
           version: "2026.9.2"
-          install: false
-      - name: Install toolchain
-        run: mise install
-      - name: Install dependencies
-        run: bun install --frozen-lockfile
-      - name: Test CI policy
-        run: bun run test:ci
-      - name: Lint workflows and CI scripts
-        run: bun run check:ci
+          install_args: bun
       - name: Find the last successful run
         id: base
         if: github.event_name == 'push'
@@ -113,6 +105,13 @@ jobs:
       - name: Install toolchain
         run: mise install
 
+      - name: Cache Bun packages
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('mise.toml', 'bun.lock') }}
+          restore-keys: bun-${{ runner.os }}-${{ runner.arch }}-
+
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
@@ -145,6 +144,13 @@ jobs:
 
       - name: Install toolchain
         run: mise install
+
+      - name: Cache Bun packages
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('mise.toml', 'bun.lock') }}
+          restore-keys: bun-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
@@ -182,6 +188,13 @@ jobs:
       - name: Install toolchain
         run: mise install
 
+      - name: Cache Bun packages
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('mise.toml', 'bun.lock') }}
+          restore-keys: bun-${{ runner.os }}-${{ runner.arch }}-
+
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
@@ -214,6 +227,13 @@ jobs:
       - name: Install toolchain
         run: mise install
 
+      - name: Cache Bun packages
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('mise.toml', 'bun.lock') }}
+          restore-keys: bun-${{ runner.os }}-${{ runner.arch }}-
+
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
@@ -242,6 +262,13 @@ jobs:
           install: false
       - name: Install toolchain
         run: mise install
+      - name: Cache Bun packages
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('mise.toml', 'bun.lock') }}
+          restore-keys: bun-${{ runner.os }}-${{ runner.arch }}-
+
       - name: Install dependencies
         run: bun install --frozen-lockfile
       - name: Generate protocol
@@ -273,6 +300,13 @@ jobs:
       - name: Install toolchain
         run: mise install
 
+      - name: Cache Bun packages
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('mise.toml', 'bun.lock') }}
+          restore-keys: bun-${{ runner.os }}-${{ runner.arch }}-
+
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
@@ -283,6 +317,8 @@ jobs:
         run: mise run check:web
 
       - name: Build package
+        # The deployment's Docker build validates and tests the actual runtime image.
+        if: inputs.track != 'web'
         run: mise run build:web
 
   windows-release:
@@ -303,6 +339,13 @@ jobs:
         with:
           version: "2026.9.2"
           install_args: bun
+      - name: Cache Bun packages
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('mise.toml', 'bun.lock') }}
+          restore-keys: bun-${{ runner.os }}-${{ runner.arch }}-
+
       - name: Install dependencies
         run: bun install --frozen-lockfile
       - name: Generate protocol
