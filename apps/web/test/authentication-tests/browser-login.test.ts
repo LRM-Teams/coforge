@@ -407,27 +407,26 @@ test("a switch-account return cookie replayed as the session cookie signs nobody
   ).toBeNull();
 });
 
-test("a session cookie replayed as a sign-in state or switch-account cookie is refused", async () => {
-  const started = startBrowserLogin({ config, sessionSecret });
-  const state = new URL(started.authorizationUrl).searchParams.get("state")!;
-  const completed = await completeBrowserLogin({
-    config,
-    sessionSecret,
-    code: "valid-code",
-    state,
-    cookieHeader: started.stateCookie.split(";")[0]!,
-    authing: fakeAuthing({ sub: "authing-user-1", email: "ada@example.com" }),
-  });
-  const session = cookieValue(completed.sessionCookie);
+test("only a signature made for a session reads as a session", () => {
+  const body = Buffer.from(
+    JSON.stringify({
+      id: "user-1",
+      email: "ada@example.com",
+      name: "Ada",
+      authingSub: "authing-user-1",
+      username: "ada",
+      exp: Math.floor(Date.now() / 1000) + 3600,
+    }),
+  ).toString("base64url");
+  const signedOver = (input: string) =>
+    new Bun.CryptoHasher("sha256", sessionSecret).update(input).digest("base64url");
+  const read = (value: string) =>
+    readBrowserSession({ sessionSecret, cookieHeader: `coforge_session=${value}` });
 
-  expect(
-    consumeLogoutReturnTo({
-      sessionSecret,
-      cookieHeader: `coforge_logout_return=${session}`,
-      origin: "http://localhost:3000",
-    })?.returnTo,
-  ).toBeUndefined();
-  expect(
-    readBrowserSession({ sessionSecret, cookieHeader: completed.sessionCookie.split(";")[0]! }),
-  ).toMatchObject({ email: "ada@example.com" });
+  expect(read(`${body}.${signedOver(`session.${body}`)}`)).toMatchObject({ id: "user-1" });
+  // Signed over the body alone, or for another kind of cookie.
+  expect(read(`${body}.${signedOver(body)}`)).toBeNull();
+  expect(read(`${body}.${signedOver(`login-state.${body}`)}`)).toBeNull();
+  expect(read(`${body}.${signedOver(`logout-return.${body}`)}`)).toBeNull();
+  expect(read(`${body}.${signedOver(`session.${body}`)}.extra`)).toBeNull();
 });

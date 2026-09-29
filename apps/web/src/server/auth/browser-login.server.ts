@@ -405,8 +405,8 @@ function sign(purpose: SignedPurpose, payload: object, secret: string): string {
 
 function readSigned<T>(purpose: SignedPurpose, value: string | null, secret: string): T | null {
   if (!value) return null;
-  const [body, signature] = value.split(".");
-  if (!body || !signature) return null;
+  const [body, signature, ...rest] = value.split(".");
+  if (!body || !signature || rest.length > 0) return null;
   const expected = utf8Encoder.encode(hmacSha256(secret, `${purpose}.${body}`));
   const given = utf8Encoder.encode(signature);
   if (expected.length !== given.length || !timingSafeEqual(expected, given)) return null;
