@@ -31,6 +31,13 @@ function emptySection(): TemplateOutlineSection {
   return { title: "", children: [] };
 }
 
+const FOUNDATION_MODELS_WEEKLY_SECTIONS: TemplateOutlineSection[] = [
+  { title: "Summary", children: ["Work Summary", "Next Steps"] },
+  { title: "Technique", children: ["Technique"] },
+  { title: "Achievements", children: ["Achievements"] },
+  { title: "Research", children: ["New paper / model / product"] },
+];
+
 export type CreateWeeklyTemplateInput = {
   name: string;
   frequency: "weekly";
@@ -95,6 +102,22 @@ export function CreateWeeklyTemplateDialog({
     setEnabled(true);
     setNameError(false);
     setSaving(false);
+  }
+
+  function applyFoundationModelsPreset() {
+    setName("Foundation Weekly");
+    setSections(
+      FOUNDATION_MODELS_WEEKLY_SECTIONS.map((section) => ({
+        ...section,
+        children: [...section.children],
+      })),
+    );
+    setAllMembers(true);
+    setRecipientIds([]);
+    setSendWeekday(5);
+    setSendTime("15:00");
+    setEnabled(true);
+    setNameError(false);
   }
 
   function applyInitial(template: WeeklyTemplateDraft | null | undefined) {
@@ -269,6 +292,16 @@ export function CreateWeeklyTemplateDialog({
                   <p className="text-sm font-semibold text-primary">
                     {m.records_template_details()}
                   </p>
+                  {!editing ? (
+                    <Button
+                      type="button"
+                      size="sm"
+                      color="secondary"
+                      onPress={applyFoundationModelsPreset}
+                    >
+                      {m.records_template_use_foundation_preset()}
+                    </Button>
+                  ) : null}
 
                   <Input
                     label={m.records_template_name()}
