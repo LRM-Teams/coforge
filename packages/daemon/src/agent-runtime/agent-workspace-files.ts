@@ -2,6 +2,7 @@ import { constants } from "node:fs";
 import { lstat, open, readdir, realpath } from "node:fs/promises";
 import { join, resolve, sep } from "node:path";
 import { getCoforgeAgentDir, getCoforgeSessionDir } from "@coforge/agent";
+import { RPC_PAYLOAD_MAX_BYTES } from "@lrm/coforge-sdk/internal";
 
 export type AgentWorkspaceFileEntry = {
   name: string;
@@ -28,9 +29,10 @@ export type AgentWorkspaceFileReadOutcome = {
   contentBase64: string;
 };
 
-// Must stay under Centrifugo's websocket.message_size_limit (infra/*/centrifugo/config.yaml):
-// the whole text travels in one RPC message.
-const MAX_TEXT_BYTES = 1024 * 1024;
+// Must stay under Centrifugo's websocket.message_size_limit (infra/*/centrifugo/config.yaml),
+// which `RPC_PAYLOAD_MAX_BYTES` is the SDK's single statement of; the whole text travels in one RPC
+// message.
+const MAX_TEXT_BYTES = RPC_PAYLOAD_MAX_BYTES;
 // An image travels that same single-publish path, so it is bounded by that same ceiling; past it
 // the read reports `too_large` rather than risking a publish the transport would refuse.
 const MAX_IMAGE_BYTES = MAX_TEXT_BYTES;
