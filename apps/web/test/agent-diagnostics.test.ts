@@ -54,14 +54,14 @@ test("an Agent in error leads with the error message; missing facts read as unkn
       display: {
         activityKind: "error",
         detailKind: "runtime_crashed",
-        detail: "Provider process exited (code 1)",
+        detail: "Crashed (provider exited)",
       },
       lastActivityAtMs: undefined,
       reportedAt: new Date(Date.UTC(2026, 8, 29, 2, 1, 0)),
     }).split("\n"),
   ).toEqual([
     "CoForge Agent diagnostic info",
-    "errorMessage: Provider process exited (code 1)",
+    "errorMessage: Crashed (provider exited)",
     "reportedAtUtc: 2026-09-29T02:01:00.000Z",
     "workspaceId: workspace-1",
     "agentId: agent-1",

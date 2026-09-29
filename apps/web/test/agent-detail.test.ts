@@ -741,6 +741,33 @@ test("runtime_stalled presents with a dedicated Stalled label at error tone", ()
   ]);
 });
 
+test("a crashed runtime reads Error followed by the daemon's own Crashed detail, never Crashed twice", () => {
+  // The daemon words this detail itself (`buildRuntimeCrashedActivity`: "Crashed (<message>)").
+  const observation = {
+    activityKind: "error" as const,
+    detailKind: "runtime_crashed",
+    level: "error",
+    detail: "Crashed (provider exited)",
+  };
+  expect(presentActivity(observation)).toMatchObject([
+    {
+      label: "Error",
+      detail: "Crashed (provider exited)",
+      recentLabel: "Error: Crashed (provider exited)",
+      tone: "error",
+    },
+  ]);
+  expect(
+    agentDisplay(
+      display({
+        activityKind: "error",
+        detailKind: "runtime_crashed",
+        detail: "Crashed (provider exited)",
+      }),
+    ).label,
+  ).toBe("Error: Crashed (provider exited)");
+});
+
 test("system_message has no dedicated label and falls back to its own detail", () => {
   const observation = {
     activityKind: "working" as const,
