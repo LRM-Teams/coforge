@@ -1,12 +1,11 @@
 # OpenViking prototype public-runtime interface inventory
 
-> **Context 2026-09-22:** Causal Memory is removed ([ADR 0062](../adr/0062-openviking-only-workspace-memory.md)). The pinned interface inventory and route classification below remain authoritative for the OpenViking gateway; the causal-recall analysis sections are historical.
+> **Context 2026-09-22:** Causal Memory is removed ([OpenViking channel memory](../memory/openviking.md)). The pinned interface inventory and route classification below remain authoritative for the OpenViking gateway; the causal-recall analysis sections are historical.
 
-
-**Status:** Stage 1 D3 evidence. Inventory findings are not a second architecture source.  
-**Classification:** every route below is **unclassified**. Later G3 work must assign `data-plane | typed-control-only | denied`. Unknown future routes stay denied.  
-**Inspection date:** 2026-09-21.  
-**Method:** read-only local checkout plus that checkout's official docs. No project data or code was sent to a third party. Official GitHub/docs fetch was not used in this pass.
+- **Status:** Stage 1 D3 evidence. Inventory findings are not a second architecture source.
+- **Classification:** every route below is **unclassified**. Later G3 work must assign `data-plane | typed-control-only | denied`. Unknown future routes stay denied.
+- **Inspection date:** 2026-09-21.
+- **Method:** read-only local checkout plus that checkout's official docs. No project data or code was sent to a third party. Official GitHub/docs fetch was not used in this pass.
 
 ## 1. Exact revision and license
 

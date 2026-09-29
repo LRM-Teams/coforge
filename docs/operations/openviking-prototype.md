@@ -3,7 +3,8 @@
 > **NON-PRODUCTION / LICENSE-REVIEW-REQUIRED**
 >
 > The local OpenViking source is AGPL-3.0 and has **not** received project-level
-> approval for a distributable product integration ([ADR 0060](../adr/0060-workspace-openviking-memory-profiles.md),
+> approval for a distributable product integration (ADR 0060, retired to git
+> history with the repository's ADR directory;
 > approval ledger `AGPL license / shipping` is still **pending** and user-owned).
 > This runbook is an isolated, synthetic-data-only prototype. It is not a
 > release, staging, or production procedure. Do not add OpenViking to default
@@ -11,7 +12,8 @@
 > runtime as a shippable CoForge capability.
 
 This runbook delivers I1 of the
-historical [OpenViking + Causal Memory profiles plan](../implementation-slices/openviking-causal-memory-profiles-plan.md), superseded by [ADR 0062](../adr/0062-openviking-only-workspace-memory.md).
+historical OpenViking + Causal Memory profiles plan (retired to git history with the repository's
+implementation slices), superseded by [OpenViking channel memory](../memory/openviking.md).
 It applies to one local development machine. The only added runtime is the
 private `openviking-prototype` HTTP service declared in
 [`infra/compose.openviking-prototype.yml`](../../infra/compose.openviking-prototype.yml).
@@ -242,7 +244,7 @@ Unset `OPENVIKING_PROTOTYPE_ENABLED` on Web. Default `docker compose -f infra/do
 must keep working without this override.
 
 Deleting the volume is destruction of the synthetic workspace, not a profile
-`off` transition. Profile `off` retains data ([ADR 0060](../adr/0060-workspace-openviking-memory-profiles.md)).
+`off` transition. Profile `off` retains data (ADR 0060, retired to git history).
 
 ## First initialization
 
