@@ -16,7 +16,9 @@ message DaemonHandshakeResponse {
   string version = 6;
   uint32 process_id = 7;
   // Where this Workspace daemon's latest cloud connect stands: "connecting", "connected", or
-  // "not_connected" with cloud_connection_error. A refusal for good parks the Workspace and exits.
+  // "not_connected" with cloud_connection_error. While "connecting" is retrying, including after a
+  // dropped connection, cloud_connection_error names its latest failed attempt. A refusal for good
+  // parks the Workspace and exits.
   optional string cloud_connection = 8;
   optional string cloud_connection_error = 9;
 }

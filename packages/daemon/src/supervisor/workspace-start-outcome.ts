@@ -2,7 +2,11 @@ import type {
   DaemonConnectRejectionReason,
   WorkspaceCloudConnection,
 } from "@lrm/coforge-sdk/internal";
+import { join } from "node:path";
+import { LocalDaemonLauncher } from "#src/daemon-host/launcher";
+import { answeredWithin } from "./runner-hold";
 import { WorkspaceParkedError } from "./workspace-health-journal";
+import { workspaceStateDirectory } from "./workspace-instance";
 
 /**
  * One operator start or restart's whole budget: process readiness plus the first cloud connect,
@@ -12,6 +16,45 @@ import { WorkspaceParkedError } from "./workspace-health-journal";
  */
 export const OPERATOR_COMMAND_BUDGET_MS = 25_000;
 const POLL_MS = 50;
+/** How long one Workspace handshake read may take before it counts as not answering. */
+const CLOUD_CONNECTION_PROBE_MS = 2_000;
+
+/** What a Workspace process's own handshake says about its cloud connection. */
+export type WorkspaceCloudConnectionReport = { state: WorkspaceCloudConnection; error?: string };
+
+/** The socket a Workspace process answers on, under the machine's state root. */
+export function workspaceSocketPath(stateRoot: string, workspaceId: string): string {
+  return join(workspaceStateDirectory(stateRoot, workspaceId), "daemon.sock");
+}
+
+/**
+ * Asks one Workspace process's handshake where its cloud connection stands, bounded so a socket
+ * that accepts and then stalls cannot hold its caller. Null when it does not answer in time.
+ */
+export async function readWorkspaceCloudConnection(
+  stateRoot: string,
+  workspaceId: string,
+): Promise<WorkspaceCloudConnectionReport | null> {
+  const launcher = new LocalDaemonLauncher({
+    executablePath: process.execPath,
+    socketPath: workspaceSocketPath(stateRoot, workspaceId),
+    spawn: () => {},
+  });
+  const reported = await answeredWithin(
+    launcher.identity(),
+    CLOUD_CONNECTION_PROBE_MS,
+    "Workspace handshake timed out",
+  ).catch(() => null);
+  if (!reported?.cloudConnection) return null;
+  return connectionReport(reported.cloudConnection, reported.cloudConnectionError);
+}
+
+function connectionReport(
+  state: WorkspaceCloudConnection,
+  error: string | undefined,
+): WorkspaceCloudConnectionReport {
+  return { state, ...(error ? { error } : {}) };
+}
 
 /** Where one started Workspace's first cloud connect stood when the command answered. */
 export type WorkspaceStartOutcome = {
@@ -24,12 +67,17 @@ export type WorkspaceStartPorts = {
   /** Why the cloud refused this Workspace for good, when it is parked. */
   parkReason(workspaceId: string): Promise<DaemonConnectRejectionReason | undefined>;
   /** What the Workspace process's handshake reports, or null while it does not answer. */
-  cloudConnection(
-    workspaceId: string,
-  ): Promise<{ state: WorkspaceCloudConnection; error?: string } | null>;
+  cloudConnection(workspaceId: string): Promise<WorkspaceCloudConnectionReport | null>;
   now?(): number;
   sleep?(milliseconds: number): Promise<void>;
 };
+
+function startOutcome(
+  workspaceId: string,
+  { state, error }: WorkspaceCloudConnectionReport,
+): WorkspaceStartOutcome {
+  return { workspaceId, cloudConnection: state, ...(error ? { error } : {}) };
+}
 
 /** Throws the Workspace's park, if it has one: a Workspace the cloud refuses at once parks and
  * exits, possibly before its process ever answers. */
@@ -62,14 +110,12 @@ export async function awaitCloudConnections(
       // process has not answered or is still connecting.
       const connection = await ports.cloudConnection(workspaceId);
       if (connection && connection.state !== "connecting")
-        return {
-          workspaceId,
-          cloudConnection: connection.state,
-          ...(connection.error ? { error: connection.error } : {}),
-        };
+        return startOutcome(workspaceId, connection);
       const reason = await ports.parkReason(workspaceId);
       if (reason) return new WorkspaceParkedError(workspaceId, reason);
-      if (now() >= deadline) return { workspaceId, cloudConnection: "connecting" };
+      // Still connecting: with why its latest attempt failed, when it is retrying.
+      if (now() >= deadline)
+        return startOutcome(workspaceId, connectionReport("connecting", connection?.error));
       await sleep(POLL_MS);
     }
   };

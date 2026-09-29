@@ -306,6 +306,31 @@ test("a restart still under way at its deadline says so and succeeds", async () 
   ]);
 });
 
+test("a Workspace still connecting says why its latest attempt failed", async () => {
+  const progress = output();
+  const command = createCommand({
+    daemon: {
+      ensureRunning: async () => {},
+      command: async () => [
+        runtime("ws-a", {
+          cloudConnection: "connecting",
+          cloudConnectionError: "connect error 100: internal server error",
+        }),
+      ],
+    },
+    resolveWorkspace: async (selector) => ({ id: selector, slug: `slug-${selector}` }),
+    write: progress.write,
+  });
+
+  await command.start();
+
+  expect(progress.lines).toEqual([
+    "Starting CoForge...",
+    "CoForge Computer started, but not every Workspace is connected yet:",
+    "  slug-ws-a: still starting, retrying after connect error 100: internal server error. Run 'coforge-computer status' to follow it.",
+  ]);
+});
+
 test("a restart naming several Workspaces that did not connect gives the command for each", async () => {
   const command = createCommand({
     daemon: {

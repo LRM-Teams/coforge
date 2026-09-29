@@ -83,7 +83,10 @@ export function createCommand(input: {
       const name = names[index]!;
       if (runtime.cloudConnection === "connecting") {
         const under = operation === "start" ? "still starting" : "still restarting";
-        write(`  ${name}: ${under}. Run 'coforge-computer status' to follow it.`);
+        const retrying = runtime.cloudConnectionError
+          ? `, retrying after ${terminalText(runtime.cloudConnectionError)}`
+          : "";
+        write(`  ${name}: ${under}${retrying}. Run 'coforge-computer status' to follow it.`);
         continue;
       }
       failed.push(name);

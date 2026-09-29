@@ -4717,6 +4717,11 @@ export class DaemonRuntime {
     }));
   }
 
+  /** Why this runtime's cloud connection last failed to connect, while it is not up. */
+  cloudConnectFailure(): string | undefined {
+    return this.#transport.connectFailure?.();
+  }
+
   stop(): Promise<void> {
     if (this.#stopPromise) return this.#stopPromise;
     this.#runnerHold = undefined;

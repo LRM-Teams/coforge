@@ -37,7 +37,9 @@ Rules for the machine Coordinator in `src/supervisor/`. They extend
 - `workspace-parking.ts` owns the Workspace process's side: every runtime start
   goes through it, a refusal records the park before the process shuts down
   and exits 0, and its handshake reports where the latest cloud connect stands
-  (`connecting`, `connected`, `not_connected` with why).
+  (`connecting`, `connected`, `not_connected` with why). A connection that is
+  retrying, before or after it first connected, reports `connecting` with its
+  latest failed attempt; an operator answer carries that reason.
 - An operator `start`/`restart` has one deadline for the whole command
   (`OPERATOR_COMMAND_BUDGET_MS` in `workspace-start-outcome.ts`, below the
   local lifecycle client's 35 s timeout). It bounds the answer, not the work:

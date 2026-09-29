@@ -50,6 +50,20 @@ test("once the command's one deadline passes, every later Workspace is still che
   expect(subject.clock.now).toBeLessThan(300);
 });
 
+test("a Workspace still connecting at the deadline carries its latest connect failure", async () => {
+  const subject = ports({
+    slow: [{ state: "connecting", error: "connect error 100: internal server error" }],
+  });
+
+  expect(await awaitCloudConnections(subject, ["slow"], 200)).toEqual([
+    {
+      workspaceId: "slow",
+      cloudConnection: "connecting",
+      error: "connect error 100: internal server error",
+    },
+  ]);
+});
+
 test("a Workspace that parks during the wait refuses the command, after the others were checked", async () => {
   const subject = ports({ live: [{ state: "connected" }] }, { gone: "workspace_deleted" });
 

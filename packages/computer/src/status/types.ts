@@ -3,7 +3,7 @@
  * exception is `install`: a corrupt or unreadable `active.json` fails the whole command, because
  * every other section is meaningless without knowing which Computer build is even running. */
 
-import type { WorkspaceHealthState } from "@lrm/coforge-daemon";
+import type { WorkspaceCloudConnectionReport, WorkspaceHealthState } from "@lrm/coforge-daemon";
 
 export type SupportedStatusPlatform = "darwin" | "linux" | "win32";
 
@@ -65,6 +65,10 @@ export type WorkspacePidSource = "daemon-snapshot" | "os-job";
  * good (only `setup` attaching it again lifts it). */
 export type WorkspaceHealth = WorkspaceHealthState;
 
+/** Where a running Workspace's cloud connection stands, from its own handshake: `connecting`
+ * carries its latest failed attempt while it retries, `not_connected` why its start gave up. */
+export type WorkspaceCloudStatus = WorkspaceCloudConnectionReport;
+
 export type WorkspaceStatus = {
   workspaceId: string;
   /** From the local Workspace registration; `null` when none is readable. */
@@ -77,6 +81,8 @@ export type WorkspaceStatus = {
   pending: PendingRequest[];
   unsettledUpgrades: UnsettledUpgradeOperation[];
   health: WorkspaceHealth;
+  /** `null` when the Workspace is not running or its handshake did not answer. */
+  cloudConnection: WorkspaceCloudStatus | null;
 };
 
 export type WorkspacesStatus =
@@ -167,6 +173,9 @@ export interface StatusPorts {
   readSupervisorLockOwner(): Promise<number | null>;
   listLeftoverUpgradeJobs: { supported: boolean; list(): Promise<LeftoverJob[]> };
   readWorkspaceHealth(workspaceId: string): Promise<WorkspaceHealth>;
+  /** The Workspace process's own report of its cloud connection, or null when it does not
+   * answer in time. */
+  readCloudConnection(workspaceId: string): Promise<WorkspaceCloudStatus | null>;
   /** Workspace id to slug, from the local Workspace registrations; empty when unreadable. */
   readWorkspaceSlugs(): Promise<ReadonlyMap<string, string>>;
 }

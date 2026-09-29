@@ -7,7 +7,7 @@ const logger = getLogger(["coforge", "daemon"]);
 
 /** Where this Workspace process's latest cloud connect stands, as its handshake reports it. */
 export type WorkspaceCloudConnectionState =
-  | { state: "connecting" }
+  | { state: "connecting"; error?: string }
   | { state: "connected" }
   | { state: "not_connected"; error: string };
 
@@ -25,11 +25,17 @@ export class WorkspaceParking {
   constructor(
     private readonly journal: WorkspaceHealthJournal,
     private readonly workspaceId: () => string | undefined,
+    /** Why the running connection's latest connect attempt failed, while it is not up. */
+    private readonly connectFailure: () => string | undefined,
   ) {}
 
-  /** A refusal for good stays "connecting": the process parks and exits instead. */
+  /** A refusal for good stays "connecting": the process parks and exits instead. A connection
+   * that is retrying reports "connecting" with its latest failure, also after it first connected
+   * and dropped. */
   get cloudConnection(): WorkspaceCloudConnectionState {
-    return this.#connection;
+    if (this.#connection.state === "not_connected") return this.#connection;
+    const failure = this.connectFailure();
+    return failure ? { state: "connecting", error: failure } : this.#connection;
   }
 
   /** Starts a Workspace runtime. Every start goes through here, so a refusal parks the Workspace
