@@ -18,6 +18,7 @@ import { m } from "#src/paraglide/messages";
 import { BackToComputers, useUpgradingComputer } from "./computer-layout";
 import {
   computerLabel,
+  computerVersionLabel,
   isComputerUpdateAvailable,
   operatingSystemLabel,
   type ComputerIdentity,
@@ -571,8 +572,4 @@ function DetailRow({
 function shortReleaseVersion(version: string) {
   const tail = version.split("-").at(-1);
   return tail && tail !== version ? tail : version;
-}
-
-function computerVersionLabel(computer: ComputerDetailView) {
-  return computer.computerVersion || "—";
 }
