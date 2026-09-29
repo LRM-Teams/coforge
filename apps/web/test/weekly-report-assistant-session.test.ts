@@ -2,7 +2,58 @@ import { expect, test } from "bun:test";
 import {
   createWeeklyReportAssistantSessionStore,
   weeklyReportAssistantSubjectKey,
+  readCollectCardRunId,
+  writeCollectCardRunId,
+  readCollectPlanDraft,
+  writeCollectPlanDraft,
 } from "#src/features/records/weekly-report-assistant-session";
+
+test("pending collection settings survive remounts and remain isolated per card", () => {
+  const values = new Map<string, string>();
+  const storage = {
+    getItem: (key: string) => values.get(key) ?? null,
+    setItem: (key: string, value: string) => {
+      values.set(key, value);
+    },
+  };
+  const draft = {
+    windowKind: "custom" as const,
+    optionId: "2026-W40",
+    customStart: "2026-09-28",
+    customEnd: "2026-10-04",
+    selected: ["computer-143"],
+    pathsByComputer: { "computer-143": ["/home/owner/project", "/tmp/work"] },
+    configuringComputerId: "computer-143",
+  };
+  writeCollectPlanDraft("workspace:message-a", draft, storage);
+  expect(readCollectPlanDraft("workspace:message-a", storage)).toEqual(draft);
+  expect(readCollectPlanDraft("workspace:message-b", storage)).toBeNull();
+  expect(
+    readCollectPlanDraft("workspace:message-a", {
+      getItem: () => '{"windowKind":"broken"}',
+      setItem() {},
+    }),
+  ).toBeNull();
+});
+
+test("collection cards recover their submitted run across remounts without sharing another card", () => {
+  const values = new Map<string, string>();
+  const storage = {
+    getItem: (key: string) => values.get(key) ?? null,
+    setItem: (key: string, value: string) => {
+      values.set(key, value);
+    },
+  };
+  const runId = "7f83f236-78fc-4bb6-b35a-d5713be78973";
+  expect(readCollectCardRunId("workspace:message-a", storage)).toBeNull();
+  writeCollectCardRunId("workspace:message-a", runId, storage);
+  expect(readCollectCardRunId("workspace:message-a", storage)).toBe(runId);
+  expect(readCollectCardRunId("workspace:message-b", storage)).toBeNull();
+  expect(readCollectCardRunId("other-workspace:message-a", storage)).toBeNull();
+  expect(
+    readCollectCardRunId("workspace:message-a", { getItem: () => "corrupt", setItem() {} }),
+  ).toBeNull();
+});
 
 test("weekly report subject keys isolate independent page sessions", () => {
   expect(weeklyReportAssistantSubjectKey("report", "report-a")).toBe("report:report-a");

@@ -9,6 +9,10 @@ import { MESSAGE_REACTIONS_SELECT, reactionSummaries } from "./message-reactions
 import { browserSenderHandle, browserSenderName } from "./sender-display.server";
 import { attachmentFileNameSummary } from "#src/features/conversations/attachment-file-name";
 import type { ActionCardView } from "./action-cards.server";
+import {
+  parseWeeklyReportAssistantSuggestion,
+  weeklyReportAssistantSuggestionDisplayBody,
+} from "#src/server/records/weekly-report-assistant-suggestion.server";
 
 /** Exported so projections that must render exactly like the message stream (the Saved list,
  * #120/#124) reuse this same row shape instead of growing a near-copy. */
@@ -49,7 +53,18 @@ export type BrowserMessageRow = Prisma.MessageGetPayload<{
 
 /** Exported for a pure unit test of this projection (no database needed). */
 export function mapBrowserMessage(message: BrowserMessageRow, workspaceId: string) {
+  const suggestion = message.sender?.agentId
+    ? parseWeeklyReportAssistantSuggestion(message.body)
+    : null;
+  const weeklyReportSuggestion =
+    suggestion?.type === "collect-plan" || suggestion?.type === "body-edit" ? suggestion : null;
   return {
+    ...(weeklyReportSuggestion
+      ? {
+          weeklyReportSuggestion,
+          weeklyReportDisplayBody: weeklyReportAssistantSuggestionDisplayBody(message.body),
+        }
+      : {}),
     id: message.id,
     sequence: message.sequence,
     threadRootId: message.threadRootId ?? undefined,

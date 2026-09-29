@@ -60,3 +60,6 @@ These rules also cover `src/server/records/`.
 - Template discovery shares the workspace format catalog across DM/page context;
   only owner entries expose delivery settings and can be configured or sent.
   Other entries are reusable outlines, not grants to another owner's settings.
+- `weekly-report-message-card.tsx` renders assistant collection plans and collected
+  draft previews in chat using the existing Records configuration and write functions.
+  Collector setup opens the profile in place and retains the plan until submission.

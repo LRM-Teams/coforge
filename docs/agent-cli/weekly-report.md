@@ -61,7 +61,27 @@ follow the existing best-effort messaging contract, not a read receipt.
 A clear user request authorizes the corresponding operation in either chat surface: selecting a
 format, specifying recipients/time, submitting, or writing a summary needs no
 additional page click. Ask about ambiguous targets or missing required fields.
-Only requested previews and platform Collect drafts use the side-panel Insert interaction.
+Requested previews and platform Collect drafts use Insert; collection requests use
+a fillable plan in DM or Records side chat:
+
+```text
+[weekly-report-suggestion]
+{"type":"collect-plan","reportId":"<member report UUID>","year":2026,"week":40}
+[/weekly-report-suggestion]
+```
+
+Resolve the actual member report and week through context/inbox. The card lists
+owned Computers and lets the User configure their persistent per-Computer collector,
+select paths/time, and submit. In DM, configuration opens the Agent profile in place;
+the plan retains its fields and refreshes readiness. Pending fields and submitted
+run references are restored from browser storage after remount or refresh. Submit dispatches the existing
+Collect Run and synthesis flow. A selected unready Computer blocks submission instead
+of being silently omitted. Later plans reuse the configured collectors.
+Do not use a generic `agent:create` card, guess collector commands, probe SSH or
+search home directories/other Agents' memory to discover collectors. Not-ready does
+not establish that the Computer daemon is missing. Agent ownership remains human;
+the assistant proposes the card and the authenticated User configures/submits it.
+
 Existing pending preview cards remain usable; new user sends and summaries are
 handled by the Agent, without a separate keyword-triggered write path.
 Workspace members may manage their own settings during the current MVP. They

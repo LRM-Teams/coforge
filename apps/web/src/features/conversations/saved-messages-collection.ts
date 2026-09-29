@@ -209,6 +209,8 @@ type StreamMessage = Pick<
       | "senderDeleted"
       | "reactions"
       | "actionCard"
+      | "weeklyReportSuggestion"
+      | "weeklyReportDisplayBody"
       | "mentions"
     >
   > & {
@@ -243,6 +245,12 @@ export function optimisticSavedEntry(message: StreamMessage, conversationId: str
       attachments: message.attachments,
       reactions: message.reactions,
       actionCard: message.actionCard,
+      ...(message.weeklyReportSuggestion
+        ? {
+            weeklyReportSuggestion: message.weeklyReportSuggestion,
+            weeklyReportDisplayBody: message.weeklyReportDisplayBody,
+          }
+        : {}),
     },
   };
 }

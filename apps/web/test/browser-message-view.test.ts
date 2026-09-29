@@ -7,6 +7,37 @@ import {
 
 const WORKSPACE_ID = "11111111-2222-4333-8444-555555555555";
 
+test("Agent collection cards survive message history reads without exposing the JSON envelope", () => {
+  const suggestion = {
+    type: "collect-plan" as const,
+    reportId: WORKSPACE_ID,
+    year: 2026,
+    week: 40,
+  };
+  const message = row({
+    body: `请确认采集设置。\n[weekly-report-suggestion]\n${JSON.stringify(suggestion)}\n[/weekly-report-suggestion]`,
+    sender: {
+      userId: null,
+      agentId: "assistant",
+      user: null,
+      agent: {
+        name: "assistant",
+        displayName: "Assistant",
+        deletedAt: null,
+        avatarObjectKey: null,
+      },
+    },
+  });
+  const view = mapBrowserMessage(message, WORKSPACE_ID);
+  expect(view.weeklyReportSuggestion).toEqual(suggestion);
+  // The Records side panel parses the original body from this shared projection too.
+  expect(view.body).toBe(message.body);
+  expect(view.weeklyReportDisplayBody).toBe("请确认采集设置。");
+  expect(
+    mapBrowserMessage({ ...message, sender: null }, WORKSPACE_ID).weeklyReportSuggestion,
+  ).toBeUndefined();
+});
+
 function row(overrides: Partial<BrowserMessageRow>): BrowserMessageRow {
   return {
     id: "message-1",

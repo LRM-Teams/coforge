@@ -54,6 +54,7 @@ export type WeeklyReportTemplateCreateSuggestion = {
 };
 
 export type WeeklyReportAssistantSuggestion =
+  | { type: "collect-plan"; reportId: string; year: number; week: number }
   | WeeklyReportBodyEditSuggestion
   | WeeklyReportKeyPointEditSuggestion
   | WeeklyReportSendPromptSuggestion
@@ -127,6 +128,24 @@ function extractLeadingJsonObject(text: string): string | null {
 function normalizeSuggestion(value: unknown): WeeklyReportAssistantSuggestion | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const row = value as Record<string, unknown>;
+  if (row.type === "collect-plan") {
+    if (typeof row.reportId !== "string" || !UUID_RE.test(row.reportId)) return null;
+    if (
+      typeof row.year !== "number" ||
+      !Number.isInteger(row.year) ||
+      row.year < 1 ||
+      row.year > 9999
+    )
+      return null;
+    if (
+      typeof row.week !== "number" ||
+      !Number.isInteger(row.week) ||
+      row.week < 1 ||
+      row.week > 53
+    )
+      return null;
+    return { type: "collect-plan", reportId: row.reportId, year: row.year, week: row.week };
+  }
   if (row.type === "send-prompt") {
     return typeof row.reportId === "string" && UUID_RE.test(row.reportId)
       ? { type: "send-prompt", reportId: row.reportId }
