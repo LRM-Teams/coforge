@@ -5,8 +5,9 @@ import { Button } from "#src/components/base/buttons/button";
 import { PageHeader } from "#src/components/layout/page-header";
 import { Skeleton } from "#src/components/ui/skeleton";
 import { m } from "#src/paraglide/messages";
-import { TaskStatusIcon } from "./task-status-icon";
-import { HIDDEN_COLUMN_CLASS, statusLabel, type TaskLayout } from "./task-workflow";
+import { HIDDEN_COLUMN_CLASS } from "#src/features/settings/task-hidden-columns";
+import { TaskStatusIcon, statusLabel } from "./task-status-icon";
+import type { TaskLayout } from "./task-workflow";
 import { cn } from "#src/lib/utils";
 
 /** A card's shape while its Task loads: the number line, a title of two lines, the owner. */

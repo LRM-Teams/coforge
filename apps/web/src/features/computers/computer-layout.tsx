@@ -1,14 +1,8 @@
 import { createContext, useContext, useState, type ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
-import {
-  Dataflow03 as Cable,
-  ChevronLeft,
-  Laptop01 as LaptopMinimal,
-  Plus,
-} from "@untitledui/icons";
+import { Dataflow03 as Cable, Laptop01 as LaptopMinimal, Plus } from "@untitledui/icons";
 
 import { PageHeader } from "#src/components/layout/page-header";
-import { ButtonUtility } from "#src/components/base/buttons/button-utility";
 import {
   Empty,
   EmptyContent,
@@ -26,6 +20,7 @@ import {
   type ComputerIdentity,
   type ComputerPlatformInfo,
 } from "./computer-identity";
+import { BackToComputersContext } from "./back-to-computers";
 import { ComputerTile } from "./computer-tile";
 import { Avatar } from "#src/components/base/avatar/avatar";
 import { Tooltip, TooltipTrigger } from "#src/components/base/tooltip/tooltip";
@@ -41,13 +36,6 @@ export type ComputerListItem = ComputerIdentity &
     ownedByCurrentUser: boolean;
     creator?: { username: string; displayName: string | null; avatarUrl: string | null } | null;
   };
-
-/**
- * Lets the selected Computer put the "back to the list" control in its own
- * header band, the way the conversation panels do. Below `md` only one panel
- * fits, so the layout owns which one is showing and shares the way back.
- */
-const BackToComputersContext = createContext<(() => void) | undefined>(undefined);
 
 /**
  * Which Computers have an upgrade operation in flight. The control that starts one lives on the
@@ -230,25 +218,6 @@ function AddComputer({ onAdd }: { onAdd: () => void }) {
     <Button size="sm" color="secondary" iconLeading={Plus} onPress={onAdd}>
       {m.computer_add_title()}
     </Button>
-  );
-}
-
-/** Returns to the Computer list on small screens, where only one panel fits. */
-export function BackToComputers() {
-  const back = useContext(BackToComputersContext);
-  if (!back) {
-    return null;
-  }
-
-  return (
-    <ButtonUtility
-      color="tertiary"
-      size="sm"
-      onClick={back}
-      aria-label={m.computer_back_to_list()}
-      className="-ml-2 size-11 shrink-0 md:hidden"
-      icon={ChevronLeft}
-    />
   );
 }
 

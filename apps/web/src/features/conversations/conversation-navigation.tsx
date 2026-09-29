@@ -10,10 +10,9 @@ import {
 import { useParams, useRouter, useRouterState } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { useQuery, useSuspenseQuery } from "@tanstack/react-query";
-import { ArrowLeft } from "@untitledui/icons";
-import { ButtonUtility } from "#src/components/base/buttons/button-utility";
 import { PageHeader } from "#src/components/layout/page-header";
 import { useBreakpoint } from "#src/hooks/use-breakpoint";
+import { ConversationListContext } from "./conversation-list-button";
 import { ConversationDirectory } from "./conversation-directory";
 import { LiveAgentActivityBar } from "./live-agent-activity-bar";
 import { m } from "#src/paraglide/messages";
@@ -38,14 +37,6 @@ import {
 import { useApplyChannelSignal, useRefreshSidebar, useSidebarLists } from "./sidebar-lists";
 import { listedDirectIds } from "./sidebar-rows";
 import { workspacePath } from "#src/features/workspaces/workspace-url";
-
-const ConversationListContext = createContext<{
-  showList: () => void;
-  /** Hides the list and reveals the detail pane. Called when a directory row is chosen, so a tap
-   * opens the conversation even when the URL does not change (the row that is already current). */
-  closeList: () => void;
-  detailVisible: boolean;
-} | null>(null);
 
 type UnreadControls = {
   /** Per-conversation unread counts (channels and DMs), keyed by conversation id. */
@@ -267,20 +258,5 @@ export function ConversationNavigation({ children }: { children: ReactNode }) {
         </UnreadContext>
       </ConversationHostProvider>
     </ConversationListContext>
-  );
-}
-
-export function ConversationListButton() {
-  const navigation = useContext(ConversationListContext);
-  if (!navigation) return null;
-  return (
-    <ButtonUtility
-      icon={ArrowLeft}
-      size="sm"
-      color="tertiary"
-      aria-label={m.conversation_back_to_list()}
-      onClick={navigation.showList}
-      className="-ml-2 shrink-0 lg:hidden"
-    />
   );
 }

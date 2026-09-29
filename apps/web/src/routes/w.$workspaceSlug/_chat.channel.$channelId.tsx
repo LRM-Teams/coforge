@@ -1,9 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { z } from "zod";
-import {
-  ConversationLoadError,
-  ConversationPending,
-} from "#src/features/conversations/conversation-pending";
+import { ConversationLoadError } from "#src/features/conversations/conversation-load-error";
+import { ConversationPending } from "#src/features/conversations/conversation-pending";
 import { conversationPageSearchShape } from "#src/features/conversations/conversation-page-search";
 import {
   conversationPageLoaderDeps,

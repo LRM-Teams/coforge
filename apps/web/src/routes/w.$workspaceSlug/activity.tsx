@@ -2,7 +2,8 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { z } from "zod";
 
 import { PageLoadError } from "#src/features/errors/page-load-error";
-import { ActivityInboxPending, ActivityInboxView } from "#src/features/inbox/activity-inbox-view";
+import { ActivityInboxPending } from "#src/features/inbox/activity-inbox-pending";
+import { ActivityInboxView } from "#src/features/inbox/activity-inbox-view";
 import { activityInboxQuery } from "#src/features/inbox/activity-inbox-queries";
 import { ACTIVITY_INBOX_FILTERS } from "#src/features/inbox/activity-inbox.schemas";
 

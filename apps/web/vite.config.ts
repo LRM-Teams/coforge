@@ -143,21 +143,6 @@ const config = defineConfig({
       importProtection: {
         client: { files: ["**/*.server.*", "**/src/server/**", "**/src/generated/**"] },
       },
-      router: {
-        codeSplittingOptions: {
-          // `pendingComponent` is critical by default, so a route file that imports its
-          // skeleton from the feature's view module pulls that whole view into the entry
-          // chunk of every page. Split it like `component`; the router loads both before
-          // it needs either (`loadComponents` in @tanstack/router-core).
-          // https://tanstack.com/router/latest/docs/guide/automatic-code-splitting
-          defaultBehavior: [
-            ["component"],
-            ["pendingComponent"],
-            ["errorComponent"],
-            ["notFoundComponent"],
-          ],
-        },
-      },
     }),
     nitro({
       preset: "bun",

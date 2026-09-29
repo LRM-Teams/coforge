@@ -4,7 +4,7 @@ import { AlertCircle } from "@untitledui/icons";
 import { Button } from "#src/components/base/buttons/button";
 import { Skeleton } from "#src/components/ui/skeleton";
 import { m } from "#src/paraglide/messages";
-import { BackToComputers } from "./computer-layout";
+import { BackToComputers } from "./back-to-computers";
 
 export function ComputersPending() {
   return (

@@ -23,7 +23,10 @@ import { cn } from "#src/lib/utils";
 import { m } from "#src/paraglide/messages";
 import { getTaskMoveCommand } from "./task-move";
 import { TaskStatusIcon, statusLabel } from "./task-status-icon";
-import { isTaskColumnHidden } from "#src/features/settings/task-hidden-columns";
+import {
+  HIDDEN_COLUMN_CLASS,
+  isTaskColumnHidden,
+} from "#src/features/settings/task-hidden-columns";
 
 export type TaskLayout = "board" | "list";
 export type TaskMoveCommand = NonNullable<ReturnType<typeof getTaskMoveCommand>>;
@@ -436,15 +439,6 @@ function HiddenColumn({
 
 // The status colours and labels live with the icon; the popup and timeline read them from here too.
 export { TASK_STATUS_COLOR, statusLabel } from "./task-status-icon";
-
-/** A hidden board column before hydration: the boot script's class on <html> hides it. */
-export const HIDDEN_COLUMN_CLASS: Record<TaskStatus, string> = {
-  todo: "[.task-column-hidden-todo_&]:hidden",
-  in_progress: "[.task-column-hidden-in_progress_&]:hidden",
-  in_review: "[.task-column-hidden-in_review_&]:hidden",
-  done: "[.task-column-hidden-done_&]:hidden",
-  closed: "[.task-column-hidden-closed_&]:hidden",
-};
 
 function parseTaskStatus(value: string | null): TaskStatus | undefined {
   return TASK_STATUSES.find((status) => status === value);

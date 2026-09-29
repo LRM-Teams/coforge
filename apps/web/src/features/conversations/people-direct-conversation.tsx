@@ -6,7 +6,7 @@ import { MemberAvatar } from "#src/features/workspaces/member-avatar";
 import { useMemberOnline } from "#src/features/workspaces/member-presence";
 import { m } from "#src/paraglide/messages";
 import { conversationHeaderTabs, type HeaderTabs } from "./conversation-header-tabs";
-import { ConversationListButton } from "./conversation-navigation";
+import { ConversationListButton } from "./conversation-list-button";
 import type { ThreadedConversationProps } from "./conversation-types";
 import { DirectThreadedConversation } from "./direct-threaded-conversation";
 import { plainMentionsByHandle } from "./message-markdown";
