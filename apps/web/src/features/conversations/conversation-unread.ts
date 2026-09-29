@@ -150,9 +150,9 @@ export function applyMarked(
   return next;
 }
 
-/** A list the Chat page keeps: the sidebar's channel rows or DM rows, or every channel's name
- * (what a body's channel links and the composer's `#` list read). */
-export type ChatList = "channels" | "dms" | "channelNames";
+/** A list the Chat page keeps: the sidebar's channel rows or DM rows, every channel's name
+ * (what a body's channel links and the composer's `#` list read), or the viewer's Saved list. */
+export type ChatList = "channels" | "dms" | "channelNames" | "saved";
 
 /**
  * Which of the sidebar's lists a viewer event makes stale, for the page to re-read those alone. A
@@ -161,6 +161,7 @@ export type ChatList = "channels" | "dms" | "channelNames";
  */
 export function sidebarListsChangedBy(event: ViewerEvent): readonly ChatList[] {
   if ("unreadCount" in event) return [];
+  if ("messageId" in event) return ["saved"];
   if (event.type === "pref.changed.v1")
     return event.name === "pins" ? ["channels", "dms"] : ["channels"];
   return event.type.startsWith("dm.") ? ["dms"] : ["channels"];

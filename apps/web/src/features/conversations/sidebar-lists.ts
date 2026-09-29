@@ -18,6 +18,7 @@ import {
   type Sidebar,
 } from "./sidebar-collections";
 import { directListsOf, type DirectRow } from "./sidebar-rows";
+import { savedMessagesQueryKey } from "./saved-messages-collection";
 import { sidebarRefreshQueue, type ChatList } from "./conversation-unread";
 
 // React access to the Chat sidebar's lists (`sidebar-collections.ts`).
@@ -95,6 +96,7 @@ const listQueryKey: Record<ChatList, (workspaceId: string) => readonly unknown[]
   channels: sidebarChannelsQueryKey,
   dms: sidebarDirectsQueryKey,
   channelNames: channelNamesQueryKey,
+  saved: savedMessagesQueryKey,
 };
 
 /**

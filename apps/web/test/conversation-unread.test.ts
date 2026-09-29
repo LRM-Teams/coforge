@@ -458,6 +458,12 @@ describe("the viewer's own DM events", () => {
   });
 });
 
+test("a save or unsave elsewhere makes only the Saved list stale", () => {
+  const ids = { workspaceId: "workspace-a", conversationId: "conversation-a", messageId: "m-1" };
+  expect(sidebarListsChangedBy({ type: "saved.added.v1", ...ids })).toEqual(["saved"]);
+  expect(sidebarListsChangedBy({ type: "saved.removed.v1", ...ids })).toEqual(["saved"]);
+});
+
 describe("sidebarRefreshQueue", () => {
   test("lists named while a re-read is running are read once, together, after it", async () => {
     const reads: string[][] = [];
