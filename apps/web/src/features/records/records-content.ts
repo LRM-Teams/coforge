@@ -115,6 +115,11 @@ export type ReportContent = {
   keyPointPrompts?: KeyPointPromptsMeta;
   /** Member report only: personal extraction run state + markdown. */
   keyPointExtraction?: KeyPointExtractionMeta;
+  /**
+   * Last body a recipient already received. Working `tabs` may move ahead
+   * until the author sends again.
+   */
+  delivered?: { tabs: Record<string, ReportTab> };
 };
 
 type LegacyOutlineNode = {
@@ -130,6 +135,39 @@ type LegacySection = {
 
 function newTabName() {
   return "Summary";
+}
+
+function parseReportTabs(value: unknown): Record<string, ReportTab> | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const tabs = Object.fromEntries(
+    Object.entries(value as Record<string, { markdown?: unknown; sections?: LegacySection[] }>).map(
+      ([name, tab]) => [
+        name,
+        {
+          markdown:
+            typeof tab?.markdown === "string"
+              ? tab.markdown
+              : legacySectionsToMarkdown(tab?.sections ?? []),
+        },
+      ],
+    ),
+  );
+  return Object.keys(tabs).length > 0 ? tabs : undefined;
+}
+
+function parseDeliveredBody(value: unknown): { tabs: Record<string, ReportTab> } | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const tabs = parseReportTabs((value as { tabs?: unknown }).tabs);
+  if (!tabs) return undefined;
+  return { tabs };
+}
+
+function withDeliveredBody(
+  content: ReportContent,
+  delivered: { tabs: Record<string, ReportTab> } | undefined,
+): ReportContent {
+  if (!delivered) return content;
+  return { ...content, delivered };
 }
 
 function parseAssignmentMeta(value: unknown): ReportAssignmentMeta | undefined {
@@ -414,44 +452,80 @@ export function normalizeReportContent(value: unknown): ReportContent {
     schedule?: unknown;
     keyPointPrompts?: unknown;
     keyPointExtraction?: unknown;
+    delivered?: unknown;
   };
   const assignment = parseAssignmentMeta(record.assignment);
   const schedule = parseScheduleMeta(record.schedule);
   const keyPointPrompts = parseKeyPointPrompts(record.keyPointPrompts);
   const keyPointExtraction = parseKeyPointExtraction(record.keyPointExtraction);
+  const delivered = parseDeliveredBody(record.delivered);
 
   if (record.tabs && typeof record.tabs === "object") {
-    const tabs = Object.fromEntries(
-      Object.entries(record.tabs).map(([name, tab]) => [
-        name,
-        {
-          markdown:
-            typeof tab?.markdown === "string"
-              ? tab.markdown
-              : legacySectionsToMarkdown(tab?.sections ?? []),
-        },
-      ]),
+    const tabs = parseReportTabs(record.tabs);
+    const base = tabs ? { tabs } : emptyReportContent();
+    return withDeliveredBody(
+      withOptionalMeta(base, assignment, schedule, keyPointPrompts, keyPointExtraction),
+      delivered,
     );
-    const base = Object.keys(tabs).length > 0 ? { tabs } : emptyReportContent();
-    return withOptionalMeta(base, assignment, schedule, keyPointPrompts, keyPointExtraction);
   }
 
   if (typeof record.markdown === "string") {
-    return withOptionalMeta(
-      { tabs: { [newTabName()]: { markdown: record.markdown } } },
+    return withDeliveredBody(
+      withOptionalMeta(
+        { tabs: { [newTabName()]: { markdown: record.markdown } } },
+        assignment,
+        schedule,
+        keyPointPrompts,
+        keyPointExtraction,
+      ),
+      delivered,
+    );
+  }
+  return withDeliveredBody(
+    withOptionalMeta(
+      emptyReportContent(),
       assignment,
       schedule,
       keyPointPrompts,
       keyPointExtraction,
-    );
-  }
-  return withOptionalMeta(
-    emptyReportContent(),
-    assignment,
-    schedule,
-    keyPointPrompts,
-    keyPointExtraction,
+    ),
+    delivered,
   );
+}
+
+/** Copy the working body into the copy recipients already hold. */
+export function publishMemberReportDelivery(content: ReportContent): ReportContent {
+  const next = normalizeReportContent(content);
+  return { ...next, delivered: { tabs: { ...(next.tabs ?? {}) } } };
+}
+
+/**
+ * Keep the last sent body while the author keeps editing.
+ * Reports sent before a delivery snapshot existed freeze the stored body.
+ */
+export function retainMemberReportDelivery(
+  stored: ReportContent,
+  incoming: ReportContent,
+): ReportContent {
+  const previous = normalizeReportContent(stored);
+  const next = normalizeReportContent(incoming);
+  return {
+    ...next,
+    delivered: { tabs: { ...(previous.delivered?.tabs ?? previous.tabs ?? {}) } },
+  };
+}
+
+/** Author editor: working body, without the recipient snapshot. */
+export function reportContentForAuthor(content: ReportContent): ReportContent {
+  const { delivered: _delivered, ...rest } = normalizeReportContent(content);
+  return rest;
+}
+
+/** Recipient view: the last sent body, or the only stored body when none was snapshotted. */
+export function reportContentForRecipient(content: ReportContent): ReportContent {
+  const { delivered, ...rest } = normalizeReportContent(content);
+  if (!delivered) return rest;
+  return { ...rest, tabs: delivered.tabs };
 }
 
 export function isAssignmentUnread(content: ReportContent): boolean {

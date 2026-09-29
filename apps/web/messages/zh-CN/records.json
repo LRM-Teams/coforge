@@ -73,6 +73,7 @@
   "records_report_confirm_send_body": "确认要将「周报模板」发送给名单中的成员吗？确认后，成员将收到最新的周报模板。",
   "records_report_shared_toast": "周报已分享给相关成员",
   "records_report_resend": "重新发送",
+  "records_report_send_succeeded": "发送成功",
   "records_report_sent_badge": "已发送",
   "records_report_unread_badge": "未读",
   "records_report_favorite": "收藏",

@@ -41,3 +41,7 @@ These rules also cover `src/server/records/`.
 - Present mode shows one template-dimension page at a time and zooms images in
   place. It does not rewrite report JSON. Use a full-bleed portal
   (`report-present-mode.tsx`); `ModalOverlay` is padded and is not full-bleed.
+- After a member sends, further edits stay on the working body. Recipients
+  (Leader report, dashboard summary, PPT) keep the last sent copy in
+  `content.delivered` until the author sends again. Do not add a column for
+  this snapshot.

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useRouter } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import {
+  CheckCircle,
   DotsHorizontal,
   Download01 as Download,
   Heart,
@@ -210,11 +211,20 @@ function ReportDetail({
   const [keyPointRestartBusy, setKeyPointRestartBusy] = useState(false);
   const [status, setStatus] = useState(report.status);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const submitInFlightRef = useRef(false);
+  const sendAckTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const [sendAck, setSendAck] = useState(false);
   const sent = status === "submitted" || status === "shared";
 
   useEffect(() => {
     setFavorited(Boolean(report.favorited));
   }, [report.favorited, report.id]);
+
+  useEffect(() => {
+    return () => {
+      if (sendAckTimerRef.current) clearTimeout(sendAckTimerRef.current);
+    };
+  }, []);
 
   async function shareReport() {
     const url = typeof window !== "undefined" ? window.location.href : "";
@@ -272,10 +282,40 @@ function ReportDetail({
         if (nextStatus) setStatus(nextStatus);
       }
       if (nextStatus === "submitted" || nextStatus === "shared") {
+        showSendAck();
         await router.invalidate({ sync: true });
       }
     } finally {
       if (reportId === reportIdRef.current) setSaving(false);
+    }
+  }
+
+  function clearScheduledPersist() {
+    if (!saveTimerRef.current) return;
+    clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = undefined;
+  }
+
+  function showSendAck() {
+    setSendAck(true);
+    if (sendAckTimerRef.current) clearTimeout(sendAckTimerRef.current);
+    sendAckTimerRef.current = setTimeout(() => {
+      sendAckTimerRef.current = undefined;
+      setSendAck(false);
+    }, 1600);
+  }
+
+  async function submitReport() {
+    if (submitInFlightRef.current) return;
+    submitInFlightRef.current = true;
+    clearScheduledPersist();
+    try {
+      await waitForReportSave(report.id);
+      await persist(contentRef.current, "submitted");
+    } catch {
+      // Leave the label on 发送 / 重新发送 when the write fails.
+    } finally {
+      submitInFlightRef.current = false;
     }
   }
 
@@ -470,15 +510,26 @@ function ReportDetail({
               </div>
               <div className="ml-auto flex shrink-0 items-center gap-1 pt-0.5">
                 {editable && isAssignment ? (
-                  <Button
-                    size="sm"
-                    color="primary"
-                    className={RECORDS_PRIMARY_BUTTON_CLASSNAME}
-                    isDisabled={saving}
-                    onPress={() => void persist(contentRef.current, "submitted")}
-                  >
-                    {sent ? m.records_report_resend() : m.records_report_send()}
-                  </Button>
+                  <>
+                    {sendAck ? (
+                      <span
+                        role="status"
+                        className="inline-flex items-center gap-1 text-sm font-medium text-success-primary duration-200 animate-in fade-in"
+                      >
+                        <CheckCircle aria-hidden="true" className="size-4" />
+                        {m.records_report_send_succeeded()}
+                      </span>
+                    ) : null}
+                    <Button
+                      size="sm"
+                      color="primary"
+                      className={RECORDS_PRIMARY_BUTTON_CLASSNAME}
+                      preventFocusOnPress
+                      onPress={() => void submitReport()}
+                    >
+                      {sent ? m.records_report_resend() : m.records_report_send()}
+                    </Button>
+                  </>
                 ) : null}
                 <ButtonUtility
                   size="sm"
@@ -561,8 +612,8 @@ function ReportDetail({
             }
             onChange={schedulePersist}
             onBlur={() => {
-              if (!editable) return;
-              if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+              if (!editable || submitInFlightRef.current) return;
+              clearScheduledPersist();
               void persist(contentRef.current);
             }}
           />

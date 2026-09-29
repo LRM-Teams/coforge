@@ -14,7 +14,11 @@ import {
   memberReportTitle,
   memberWeekTitle,
   normalizeReportContent,
+  publishMemberReportDelivery,
+  reportContentForAuthor,
+  reportContentForRecipient,
   reportTabsEqual,
+  retainMemberReportDelivery,
   withAssignmentUnread,
   withAutoSendCancelled,
   withWeekSendDismissed,
@@ -56,6 +60,21 @@ type Db = PrismaClient;
 
 function asReportContent(value: unknown): ReportContent {
   return normalizeReportContent(value);
+}
+
+function isSentMemberReport(kind: string, status: string): boolean {
+  return kind === "member" && (status === "submitted" || status === "shared");
+}
+
+/** Authors keep the working body. Other viewers see the last send. */
+function memberReportContentForViewer(
+  content: ReportContent,
+  input: { viewerIsAuthor: boolean; status: string },
+): ReportContent {
+  if (input.viewerIsAuthor || (input.status !== "submitted" && input.status !== "shared")) {
+    return reportContentForAuthor(content);
+  }
+  return reportContentForRecipient(content);
 }
 
 function asStringArray(value: unknown): string[] {
@@ -1664,7 +1683,13 @@ export class RecordCatalog {
       }
 
       const isTemplateAuthor = report.author.id === input.userId;
-      const content = asReportContent(report.content);
+      const content =
+        report.kind === "member"
+          ? memberReportContentForViewer(asReportContent(report.content), {
+              viewerIsAuthor: isTemplateAuthor,
+              status: report.status,
+            })
+          : asReportContent(report.content);
       const assignmentCount =
         report.kind === "template"
           ? await this.db.weeklyReport.count({
@@ -1980,6 +2005,13 @@ export class RecordCatalog {
     }
     if (stored.keyPointExtraction && !content.keyPointExtraction) {
       content = { ...content, keyPointExtraction: stored.keyPointExtraction };
+    }
+    const publishing = isSentMemberReport(report.kind, input.status ?? "");
+    const alreadySent = isSentMemberReport(report.kind, report.status);
+    if (publishing) {
+      content = publishMemberReportDelivery(content);
+    } else if (alreadySent) {
+      content = retainMemberReportDelivery(stored, content);
     }
     const now = input.now ?? new Date();
     // Live format may still be bound to the week it was created; cancel/send keys follow the calendar week.
@@ -2731,7 +2763,7 @@ export class RecordCatalog {
       total: members.length,
       reports: cycle.reports.map((report) => {
         const author = members.find((member) => member.user.id === report.authorId)?.user;
-        const content = asReportContent(report.content);
+        const content = reportContentForRecipient(asReportContent(report.content));
         const summary = Object.values(content.tabs ?? {})
           .map((tab) => tab.markdown.trim())
           .find(Boolean);
@@ -2808,7 +2840,7 @@ export class RecordCatalog {
       period: `${overview.cycle.year} W${overview.cycle.week}`,
       summary: asReportContent(overview.content).keyPointExtraction?.markdown,
       members: overview.submissions.map((submission) => {
-        const content = asReportContent(submission.content);
+        const content = reportContentForRecipient(asReportContent(submission.content));
         const tabs = content.tabs ?? {};
         return {
           displayName: submission.author.displayName ?? submission.author.username,
