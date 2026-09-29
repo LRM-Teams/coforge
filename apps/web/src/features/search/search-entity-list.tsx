@@ -7,6 +7,7 @@ import { AgentDisplayAvatar } from "#src/features/agents/agent-activity-avatar";
 import { agentDisplay } from "#src/features/agents/agent-activity-presentation";
 import { formatAgentProfileParam } from "#src/features/agents/profile-panel/profile-panel-search";
 import { useAgentDisplays } from "#src/features/agents/workspace-agents-realtime";
+import { MemberAvatar } from "#src/features/workspaces/member-avatar";
 import { useWorkspaceSlug } from "#src/features/workspaces/workspace-route";
 import { computerIcon } from "#src/features/computers/computer-identity";
 import { conversationRoute } from "#src/features/conversations/last-conversation";
@@ -26,8 +27,8 @@ export const ENTITY_CARD_CLASS =
 /**
  * An entity as a link to where it opens: a channel itself; the viewer's own Agent its direct
  * messages (the Web opens an Agent's DM only for its owner), any other Agent its profile; a
- * Computer its page. Each branch is its own `Link`, so the router checks every destination.
- * `onOpen` runs as it opens.
+ * Computer its page; a direct message with a member that DM. Each branch is its own `Link`, so the
+ * router checks every destination. `onOpen` runs as it opens.
  */
 export function SearchEntityRow({
   entity,
@@ -42,9 +43,14 @@ export function SearchEntityRow({
 }) {
   const { previewed, preview } = useSearchPreview();
   const workspaceSlug = useWorkspaceSlug();
-  // The viewer's DM with their own Agent, once there is one.
-  const dmId = entity.kind === "agent" && entity.ownedByCurrentUser ? entity.dmId : null;
-  // A channel or that DM previews; others just open.
+  // The viewer's DM with their own Agent, once there is one, or with a member.
+  const dmId =
+    entity.kind === "dm"
+      ? entity.id
+      : entity.kind === "agent" && entity.ownedByCurrentUser
+        ? entity.dmId
+        : null;
+  // A channel or a DM previews; others just open.
   const target =
     entity.kind === "channel"
       ? ({ kind: "channel", id: entity.id } as const)
@@ -77,6 +83,8 @@ export function SearchEntityRow({
           {...props}
         />
       );
+    case "dm":
+      return <Link {...conversationRoute({ dmId: entity.id }, workspaceSlug)} {...props} />;
     case "agent":
       // Opens the viewer's DM with the Agent when there is one, as in Chat; else its profile.
       return dmId ? (
@@ -122,6 +130,7 @@ const KIND_LABEL: Record<SearchEntity["kind"], () => string> = {
   channel: () => m.search_entity_channel(),
   computer: () => m.search_entity_computer(),
   agent: () => m.search_entity_agent(),
+  dm: () => m.search_entity_dm(),
 };
 
 /** The channels, Computers and Agents a query names, listed above the messages. */
@@ -164,11 +173,13 @@ function entitySubtitle(entity: SearchEntity): string {
     case "computer":
       return entity.hostname;
     case "agent":
+    case "dm":
       return `@${entity.handle}`;
   }
 }
 
-/** The row's leading mark: the channel icon, the Computer's icon, an Agent's live avatar. */
+/** The row's leading mark: the channel icon, the Computer's icon, an Agent's live avatar, the
+ * member's avatar. */
 function EntityMark({
   entity,
   display,
@@ -193,6 +204,13 @@ function EntityMark({
       </>
     );
   }
+  if (entity.kind === "dm")
+    // The row's own text names the member.
+    return (
+      <span aria-hidden="true" className="shrink-0">
+        <MemberAvatar userId={entity.peerId} name={entity.name} src={entity.avatarUrl} size="xs" />
+      </span>
+    );
   const Icon =
     entity.kind === "channel"
       ? Hash

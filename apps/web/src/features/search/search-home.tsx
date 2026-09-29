@@ -134,7 +134,7 @@ export function SearchHome({
 
 /**
  * The remembered places, ranked, as the Workspace lists name them now. A place that is gone, or a
- * channel that has been archived, is left out.
+ * channel that has been archived, is left out; a DM with a member is named after that member.
  */
 function useFrequentEntities(
   workspaceId: string,
@@ -149,13 +149,24 @@ function useFrequentEntities(
         .map((channel) => [channel.id, channel]),
     );
     const agents = new Map(directory.agents.map((agent) => [agent.id, agent]));
-    const usable = ({ kind, id }: RememberedEntity) =>
-      kind === "channel" ? channels.has(id) : agents.has(id);
-    return frequentEntities(usage, Date.now(), usable).map(({ kind, id }): SearchEntity =>
-      kind === "channel"
-        ? { kind: "channel", ...channels.get(id)! }
-        : { kind: "agent", ...agents.get(id)! },
+    // The viewer's DMs with members, by conversation id.
+    const dms = new Map(
+      directory.people.flatMap((person) => (person.dmId ? [[person.dmId, person]] : [])),
     );
+    const places = { channel: channels, agent: agents, dm: dms };
+    const usable = ({ kind, id }: RememberedEntity) => places[kind].has(id);
+    return frequentEntities(usage, Date.now(), usable).map(({ kind, id }): SearchEntity => {
+      switch (kind) {
+        case "channel":
+          return { kind, ...channels.get(id)! };
+        case "agent":
+          return { kind, ...agents.get(id)! };
+        case "dm": {
+          const { id: peerId, name, handle, avatarUrl } = dms.get(id)!;
+          return { kind, id, peerId, name, handle, avatarUrl };
+        }
+      }
+    });
   }, [directory, usage]);
   // With nothing remembered there is nothing to wait for.
   const remembered = Object.keys(usage).length > 0;

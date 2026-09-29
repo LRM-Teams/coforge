@@ -489,14 +489,22 @@ function messageOpenTarget(
     : target;
 }
 
-/** The remembered place a message result opens: its channel, or its direct conversation's Agent. */
+/**
+ * The remembered place a message result opens: its channel, its direct conversation's Agent (whose
+ * card opens that DM), or its direct conversation with a member.
+ */
 function conversationKey(
   conversation: MessageSearchHit["conversation"],
 ): SearchEntityKey | undefined {
   if (conversation.channelName) return searchEntityKey({ kind: "channel", id: conversation.id });
-  return conversation.direct?.kind === "agent"
-    ? searchEntityKey({ kind: "agent", id: conversation.direct.agent.id })
-    : undefined;
+  switch (conversation.direct?.kind) {
+    case "agent":
+      return searchEntityKey({ kind: "agent", id: conversation.direct.agent.id });
+    case "people":
+      return searchEntityKey({ kind: "dm", id: conversation.id });
+    default:
+      return undefined;
+  }
 }
 
 /** The name of who a direct conversation is with: its Agent, or the member on the other side. */

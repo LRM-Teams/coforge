@@ -1,6 +1,7 @@
 import { nameMatchTier } from "#src/lib/name-match";
 
-/** A place or participant the search page can open directly: a channel, a Computer, an Agent. */
+/** A place or participant the search page can open directly: a channel, a Computer, an Agent, or
+ * the viewer's direct message with a member (`id` is the conversation's; Frequently used only). */
 export type SearchEntity =
   | { kind: "channel"; id: string; name: string; description: string; archived: boolean }
   | { kind: "computer"; id: string; name: string; hostname: string; computerKind: string }
@@ -13,12 +14,25 @@ export type SearchEntity =
       ownedByCurrentUser: boolean;
       /** The viewer's direct conversation with this Agent, once there is one. */
       dmId: string | null;
+    }
+  | {
+      kind: "dm";
+      id: string;
+      peerId: string;
+      name: string;
+      handle: string;
+      avatarUrl: string | null;
     };
 
 /** Most matches listed above the messages. */
 const SEARCH_ENTITY_LIMIT = 5;
 
-const KIND_ORDER: Record<SearchEntity["kind"], number> = { channel: 0, computer: 1, agent: 2 };
+const KIND_ORDER: Record<SearchEntity["kind"], number> = {
+  channel: 0,
+  computer: 1,
+  agent: 2,
+  dm: 3,
+};
 
 /** A description match ranks below every name match. */
 const DESCRIPTION_TIER = 4;
@@ -33,6 +47,7 @@ function matchTier(entity: SearchEntity, lowerQuery: string): number | undefined
     case "computer":
       return nameMatchTier(entity.name, [entity.hostname], lowerQuery);
     case "agent":
+    case "dm":
       return nameMatchTier(entity.name, [entity.handle], lowerQuery);
   }
 }
