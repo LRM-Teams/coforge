@@ -25,7 +25,6 @@ import {
 import {
   loadConversationAround,
   loadDirectConversation,
-  loadDirectConversationTarget,
   loadDirectConversationUpdates,
 } from "./conversations.functions";
 import {
@@ -104,14 +103,6 @@ export const directConversationQuery = (conversationId: string) =>
     (page) => loadDirectConversation({ data: { conversationId, ...page } }),
     beforeFirstRoot,
   );
-
-/** Who a direct conversation is with; it never changes, so it is read once. */
-export const directConversationTargetQuery = (conversationId: string) =>
-  queryOptions({
-    queryKey: ["conversation", "direct-target", conversationId],
-    queryFn: () => loadDirectConversationTarget({ data: { conversationId } }),
-    staleTime: Infinity,
-  });
 
 export const publicChannelQuery = (channelId: string) =>
   conversationPages(

@@ -49,7 +49,7 @@ export function searchPreviewTarget(
  * Undefined when its place cannot be previewed.
  */
 export function messagePreviewTarget(
-  conversation: { id: string; channelName: string | null; directAgent: { id: string } | null },
+  conversation: { id: string; channelName: string | null; directKey: string | null },
   message: { id: string; threadRootId?: string },
 ): SearchPreviewTarget | undefined {
   const messageId = message.threadRootId ?? message.id;
@@ -58,7 +58,7 @@ export function messagePreviewTarget(
     : {};
   if (conversation.channelName)
     return { kind: "channel", id: conversation.id, messageId, ...thread };
-  return conversation.directAgent
+  return conversation.directKey
     ? { kind: "dm", id: conversation.id, messageId, ...thread }
     : undefined;
 }

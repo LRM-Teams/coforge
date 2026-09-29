@@ -66,7 +66,10 @@ These rules apply to `src/features/conversations/`.
 - The main stream's side room (and its "Full-width messages" device setting)
   is `MESSAGE_COLUMN_CLASS` in `features/settings/message-width.ts`; history
   and composer both use it so they line up. Do not add a second width rule.
-- `direct-conversation.tsx` is the DM wrapper and header; `threaded-conversation.tsx`
+- `direct-conversation.tsx` is the Agent DM wrapper and header;
+  `people-direct-conversation.tsx` is the DM between members (a member's DM with
+  themself included): always writable, no Agent in it, and its composer offers no
+  @-completion because the server keeps a mention there as plain text. `threaded-conversation.tsx`
   coordinates thread/profile panes; `conversation-pane.tsx` renders one message
   stream; `use-conversation-sync.ts` owns browser-only deep-link and read-cursor
   synchronization.

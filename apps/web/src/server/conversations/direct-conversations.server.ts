@@ -1,11 +1,7 @@
 import type { PrismaClient } from "#src/generated/prisma/client";
 import { AppError } from "#src/lib/app-error";
 import { ACTIVE_AGENT_WHERE, assertAgentLive } from "#src/server/agents/active-agent.server";
-import {
-  agentDirectKey,
-  isPeopleDirectKey,
-  peopleDirectKeyPair,
-} from "#src/features/conversations/direct-key";
+import { agentDirectKey, peopleDirectPeerId } from "#src/features/conversations/direct-key";
 import type { CentrifugoServerApi } from "#src/server/centrifugo/server-api.server";
 import {
   PrismaDirectConversationRepository,
@@ -113,10 +109,10 @@ export class DirectConversations {
     });
     const viewerMemberId = conversation?.members.find((member) => member.userId === viewerId)?.id;
     if (!conversation?.directKey || !viewerMemberId) throw new AppError("NOT_FOUND");
-    if (isPeopleDirectKey(conversation.directKey)) {
-      const [first, second] = peopleDirectKeyPair(conversation.directKey);
+    const peerUserId = peopleDirectPeerId(conversation.directKey, viewerId);
+    if (peerUserId) {
       return {
-        target: { kind: "people", peerUserId: first === viewerId ? second : first },
+        target: { kind: "people", peerUserId },
         viewerMemberId,
       };
     }

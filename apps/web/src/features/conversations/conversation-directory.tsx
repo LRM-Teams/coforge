@@ -4,15 +4,13 @@ import { Link, useRouter } from "@tanstack/react-router";
 import { DndContext } from "@dnd-kit/core";
 import { Link as AriaLink } from "react-aria-components";
 
-import { Avatar } from "#src/components/base/avatar/avatar";
 import { Button } from "#src/components/base/buttons/button";
 import { ButtonUtility } from "#src/components/base/buttons/button-utility";
 import { useAppToast } from "#src/components/ui/toast";
 import { AgentDisplayAvatar } from "#src/features/agents/agent-activity-avatar";
 import type { LiveAgent } from "#src/features/agents/workspace-agents-realtime";
-import { useMemberOnline } from "#src/features/workspaces/member-presence";
+import { MemberAvatar } from "#src/features/workspaces/member-avatar";
 import { useWorkspaceSlug } from "#src/features/workspaces/workspace-route";
-import { avatarInitial, avatarToneClassName } from "#src/lib/avatar-tone";
 import { cx } from "#src/utils/cx";
 import { m } from "#src/paraglide/messages";
 import { useChannelUnreadCounts, useCloseConversationList } from "./conversation-navigation";
@@ -55,20 +53,6 @@ type DirectEntry = DirectRow & { name: string; agent?: LiveAgent; self: boolean 
 
 /** A member's avatar in their DM row, with the online dot once presence is known (an unknown
  * state is never drawn as offline). */
-function MemberAvatar({ userId, name, src }: { userId: string; name: string; src: string | null }) {
-  const online = useMemberOnline(userId);
-  return (
-    <Avatar
-      size="xs"
-      alt={name}
-      src={src ?? undefined}
-      initials={avatarInitial(name)}
-      contentClassName={avatarToneClassName(name)}
-      status={online === undefined ? undefined : online ? "online" : "offline"}
-    />
-  );
-}
-
 /** Slack-style badge: the count up to 99, then "99+". Hidden from AT by the row's label. */
 export function UnreadBadge({ count }: { count: number }) {
   return (
@@ -355,7 +339,7 @@ export function ConversationDirectory({
               size="xs"
             />
           ) : peer.kind === "people" ? (
-            <MemberAvatar userId={peer.userId} name={name} src={peer.avatarUrl} />
+            <MemberAvatar size="xs" userId={peer.userId} name={name} src={peer.avatarUrl} />
           ) : null
         }
       >

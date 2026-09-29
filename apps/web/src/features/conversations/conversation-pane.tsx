@@ -84,6 +84,7 @@ export function ConversationPane({
   channels,
   jumpMessage,
   onJumpMessageConsumed,
+  mentionCompletion = true,
 }: Omit<ConversationProps, "conversation" | "agentStatus"> & {
   conversation: Omit<DirectConversationView, "agent">;
   header?: React.ReactNode;
@@ -134,8 +135,12 @@ export function ConversationPane({
   // question, and the composer answers it with its own rule: you never mention yourself.
   const mentionCandidates = useMemo(
     () =>
-      conversation.mentionables?.filter((mention) => mention.handle !== conversation.viewerHandle),
-    [conversation.mentionables, conversation.viewerHandle],
+      mentionCompletion
+        ? conversation.mentionables?.filter(
+            (mention) => mention.handle !== conversation.viewerHandle,
+          )
+        : undefined,
+    [mentionCompletion, conversation.mentionables, conversation.viewerHandle],
   );
   // Day labels follow the viewer's locale once hydrated; the pane mounts after hydration
   // (`ThreadedConversation` is client-only), so its first render already has it.
