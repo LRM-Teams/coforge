@@ -3,13 +3,15 @@ import { Outlet, createFileRoute } from "@tanstack/react-router";
 import { MessagesPending } from "#src/features/conversations/conversation-pending";
 import { ConversationNavigation } from "#src/features/conversations/conversation-navigation";
 import { PageLoadError } from "#src/features/errors/page-load-error";
-import { listChannelNames } from "#src/features/conversations/channels.functions";
 import {
+  channelNamesBehind,
   sidebarChannelsQuery,
   sidebarDirectsQuery,
 } from "#src/features/conversations/sidebar-collections";
-import { listProjects } from "#src/features/projects/projects.functions";
-import { savedMessagesQuery } from "#src/features/conversations/conversation-queries";
+import {
+  channelNamesQuery,
+  savedMessagesQuery,
+} from "#src/features/conversations/conversation-queries";
 
 export const Route = createFileRoute("/w/$workspaceSlug/_chat")({
   loader: async ({ context: { queryClient }, parentMatchPromise, cause }) => {
@@ -47,20 +49,25 @@ export const Route = createFileRoute("/w/$workspaceSlug/_chat")({
             queryClient.setQueryData(query.queryKey, []);
         });
     });
-    const [channelNames, projects, , , currentWorkspaceId] = await Promise.all([
-      listChannelNames(),
-      listProjects(),
+    // Every channel by id, closed ones included: the authority a body's channel links check. The
+    // Query cache keeps it across navigations; `channel.created.v1` and `channel.updated.v1`
+    // re-read it (`conversation-navigation.tsx`). A page that was away from Chat heard neither, so
+    // names behind the channel list just read are read again.
+    const channelNames = workspaceId.then(async (workspaceId) => {
+      const query = channelNamesQuery(workspaceId);
+      const [names] = await Promise.all([queryClient.ensureQueryData(query), sidebarLists]);
+      const channels = queryClient.getQueryData(sidebarChannelsQuery(workspaceId).queryKey);
+      if (channels && channelNamesBehind(names, channels.rows))
+        await queryClient.fetchQuery({ ...query, staleTime: 0 });
+    });
+    const [, , , currentWorkspaceId] = await Promise.all([
+      channelNames,
       saved,
       sidebarLists,
       workspaceId,
     ]);
-    return {
-      // Keys the conversation pages' Workspace-scoped reads (a Tasks tab's finished counts).
-      workspaceId: currentWorkspaceId,
-      // Every channel by id, closed ones included: the authority a body's channel links check.
-      channelNames,
-      projects,
-    };
+    // Keys the conversation pages' Workspace-scoped reads (a Tasks tab's finished counts).
+    return { workspaceId: currentWorkspaceId };
   },
   pendingComponent: MessagesPending,
   errorComponent: PageLoadError,

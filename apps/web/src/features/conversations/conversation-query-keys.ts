@@ -22,3 +22,8 @@ export function sidebarChannelsQueryKey(workspaceId: string) {
 export function sidebarDirectsQueryKey(workspaceId: string) {
   return ["conversation", "sidebar", workspaceId, "directs"] as const;
 }
+
+/** Every channel of the Workspace by id, closed ones included (`channelNamesQuery`). */
+export function channelNamesQueryKey(workspaceId: string) {
+  return ["conversation", "channel-names", workspaceId] as const;
+}

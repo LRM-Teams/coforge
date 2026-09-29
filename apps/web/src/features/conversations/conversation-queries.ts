@@ -33,7 +33,7 @@ import {
   loadPublicChannelUpdates,
 } from "./channels.functions";
 import { loadActionCardStates } from "./action-cards.functions";
-import { channelMembersQueryKey } from "./conversation-query-keys";
+import { channelMembersQueryKey, channelNamesQueryKey } from "./conversation-query-keys";
 import { savedMessagesQueryKey } from "./saved-messages-collection";
 import { listSavedMessages } from "./saved-messages.functions";
 import type { ActionCardView } from "./action-card";
@@ -128,11 +128,11 @@ export const savedMessagesQuery = (workspaceId: string) =>
   });
 
 /** Every channel of the Workspace by id, closed ones included — what a body's channel links and
- * the composer's `#` list read. Chat reads it from its layout loader; a page outside Chat that
- * shows a conversation (the Tasks page's popup) reads it here. */
+ * the composer's `#` list read, in Chat and on any page that shows a conversation (the Tasks page's
+ * popup). Chat keeps it live: `channel.created.v1` and `channel.updated.v1` re-read it. */
 export const channelNamesQuery = (workspaceId: string) =>
   queryOptions({
-    queryKey: ["conversation", "channel-names", workspaceId],
+    queryKey: channelNamesQueryKey(workspaceId),
     queryFn: () => listChannelNames(),
     staleTime: 60_000,
   });

@@ -7,8 +7,9 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { getRouteApi, useParams, useRouter, useRouterState } from "@tanstack/react-router";
+import { useParams, useRouter, useRouterState } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
+import { useQuery, useSuspenseQuery } from "@tanstack/react-query";
 import { ArrowLeft } from "@untitledui/icons";
 import { ButtonUtility } from "#src/components/base/buttons/button-utility";
 import { PageHeader } from "#src/components/layout/page-header";
@@ -25,13 +26,14 @@ import {
 } from "#src/features/agents/workspace-agents-realtime";
 import { useWorkspaceSlug } from "#src/features/workspaces/workspace-route";
 import { CreateChannelDialog } from "./create-channel-dialog";
+import { channelNamesQuery } from "./conversation-queries";
+import { projectsQuery } from "#src/features/projects/project-tree-queries";
 import { rememberConversation } from "./last-conversation";
 import { unknownAgentOf, useChannelUnread } from "./conversation-unread";
 import { useRefreshSidebar, useSidebarLists } from "./sidebar-lists";
 import { listedDirectIds } from "./sidebar-rows";
 import { workspacePath } from "#src/features/workspaces/workspace-url";
 
-const messagesRoute = getRouteApi("/w/$workspaceSlug/_chat");
 const ConversationListContext = createContext<{
   showList: () => void;
   /** Hides the list and reveals the detail pane. Called when a directory row is chosen, so a tap
@@ -74,16 +76,20 @@ export function useMarkConversationSeen(): (
 
 /** Keep both panels mounted so returning to the list preserves scroll and drafts. */
 export function ConversationNavigation({ children }: { children: ReactNode }) {
-  const { projects, channelNames } = messagesRoute.useLoaderData();
   const { channels, directs, viewerId, readAt } = useSidebarLists();
   const agents = useLiveAgents();
   const workspaceId = useCurrentWorkspaceId();
+  // Every channel by id, from the Query cache the chat loader filled; kept live by
+  // `channel.created.v1` / `channel.updated.v1` (`workspaceSignalLists`).
+  const channelNames = useSuspenseQuery(channelNamesQuery(workspaceId ?? "")).data;
   const workspaceSlug = useWorkspaceSlug();
   const desktop = useBreakpoint("lg");
   const router = useRouter();
   const pathname = useRouterState({ select: (state) => state.location.pathname });
   const [browsing, setBrowsing] = useState(false);
   const [creating, setCreating] = useState(false);
+  // The projects a new channel can join: read when the dialog opens, not on every navigation.
+  const projects = useQuery({ ...projectsQuery(workspaceId ?? ""), enabled: creating }).data;
   const create = useServerFn(createPublicChannel);
   const channel = useParams({
     from: "/w/$workspaceSlug/_chat/channel/$channelId",
@@ -224,7 +230,8 @@ export function ConversationNavigation({ children }: { children: ReactNode }) {
               projects={projects}
               onCreate={async (name, projectId) => {
                 const result = await create({ data: { name, projectId } });
-                await router.invalidate({ sync: true });
+                // Only the channel list and names changed: re-read those before opening it.
+                await refreshSidebar(["channels", "channelNames"]);
                 await router.navigate({
                   to: "/w/$workspaceSlug/channel/$channelId",
                   params: { workspaceSlug, channelId: result.id },

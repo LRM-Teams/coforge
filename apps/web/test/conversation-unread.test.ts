@@ -13,6 +13,7 @@ import {
   replaceUnreadCounts,
   latestTopLevelSequence,
   persistReadCursor,
+  type ChatList,
 } from "#src/features/conversations/conversation-unread";
 import {
   decodeMessageAvailableEvent,
@@ -487,14 +488,16 @@ describe("sidebarRefreshQueue", () => {
 describe("workspaceSignalLists", () => {
   const ids = { workspaceId: "workspace-a", conversationId: "channel-z" };
 
-  test("a channel created or changed anywhere in the Workspace makes the channel list stale", () => {
-    expect(workspaceSignalLists({ type: "channel.created.v1", ...ids })).toEqual(["channels"]);
-    expect(workspaceSignalLists({ type: "channel.updated.v1", ...ids })).toEqual(["channels"]);
+  test("a channel created or changed anywhere in the Workspace makes the channel list and names stale", () => {
+    // The channel list, and every channel's name that a body's channel links and the `#` list read.
+    const stale: ChatList[] = ["channels", "channelNames"];
+    expect(workspaceSignalLists({ type: "channel.created.v1", ...ids })).toEqual(stale);
+    expect(workspaceSignalLists({ type: "channel.updated.v1", ...ids })).toEqual(stale);
     expect(
       workspaceSignalLists(
         new TextEncoder().encode(JSON.stringify({ type: "channel.created.v1", ...ids })),
       ),
-    ).toEqual(["channels"]);
+    ).toEqual(stale);
   });
 
   test("anything else on the Workspace channel is not a list change", () => {

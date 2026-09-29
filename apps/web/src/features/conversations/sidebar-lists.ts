@@ -5,7 +5,11 @@ import type { QueryClient } from "@tanstack/react-query";
 import { useLiveQuery } from "@tanstack/react-db";
 
 import { useCurrentWorkspaceId } from "#src/features/agents/workspace-agents-realtime";
-import { sidebarChannelsQueryKey, sidebarDirectsQueryKey } from "./conversation-query-keys";
+import {
+  channelNamesQueryKey,
+  sidebarChannelsQueryKey,
+  sidebarDirectsQueryKey,
+} from "./conversation-query-keys";
 import {
   createSidebar,
   sidebarChannelsQuery,
@@ -14,7 +18,7 @@ import {
   type Sidebar,
 } from "./sidebar-collections";
 import { directListsOf, type DirectRow } from "./sidebar-rows";
-import { sidebarRefreshQueue, type SidebarList } from "./conversation-unread";
+import { sidebarRefreshQueue, type ChatList } from "./conversation-unread";
 
 // React access to the Chat sidebar's lists (`sidebar-collections.ts`).
 
@@ -87,9 +91,10 @@ export function useSidebarLists() {
   };
 }
 
-const listQueryKey: Record<SidebarList, (workspaceId: string) => readonly unknown[]> = {
+const listQueryKey: Record<ChatList, (workspaceId: string) => readonly unknown[]> = {
   channels: sidebarChannelsQueryKey,
   dms: sidebarDirectsQueryKey,
+  channelNames: channelNamesQueryKey,
 };
 
 /**

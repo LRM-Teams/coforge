@@ -4,7 +4,15 @@ import {
   getProjectDirectoryCommits,
   getProjectObject,
   getProjectTree,
+  listProjects,
 } from "./projects.functions";
+
+/** The Workspace's projects, as the create-channel dialog offers them: read when it opens. */
+export const projectsQuery = (workspaceId: string) =>
+  queryOptions({
+    queryKey: ["projects", workspaceId],
+    queryFn: () => listProjects(),
+  });
 
 export const projectQuery = (slug: string) =>
   queryOptions({
