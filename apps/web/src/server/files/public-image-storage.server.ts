@@ -8,8 +8,8 @@ import {
 } from "./file-storage.server";
 
 /**
- * Where profile-image bytes live: user avatars and project icons, the two classes delivered
- * without an access check (`public-image-delivery.server.ts`).
+ * Where profile-image bytes live: user and Agent avatars, project icons, and Workspace icons, the
+ * classes delivered without an access check (`public-image-delivery.server.ts`).
  *
  * They need their own bucket because the CDN's private-origin authorization is bucket-wide per
  * origin: the domain that serves an unsigned object key can serve every key in the bucket behind

@@ -5,13 +5,17 @@ import {
   isReservedWorkspaceSlug,
   isValidWorkspaceSlug,
 } from "#src/features/workspaces/workspace-slug";
+import { WORKSPACE_NAME_MAX_LENGTH } from "#src/features/workspaces/workspace.schemas";
 import { isUniqueViolation } from "#src/server/db/unique-violation.server";
+import { assertCanManageWorkspaceSettings } from "#src/server/workspaces/member-role.server";
+import { workspaceIconUrl } from "#src/server/workspaces/workspace-images.server";
 
-export type WorkspaceRecord = { id: string; slug: string; name: string };
+export type WorkspaceRecord = { id: string; slug: string; name: string; iconUrl: string | null };
 
 export type WorkspaceCatalogStore = {
   listForUser(userId: string): Promise<WorkspaceRecord[]>;
   createForUser(input: { slug: string; name: string; userId: string }): Promise<WorkspaceRecord>;
+  rename(workspaceId: string, name: string): Promise<WorkspaceRecord>;
 };
 
 /** The preferred Workspace when the User belongs to it, otherwise their first one. */
@@ -53,28 +57,64 @@ export class WorkspaceCatalog {
       throw new Error("workspace creation failed");
     }
   }
+
+  /** Renames the Workspace; its owner or an admin only. The slug, and so every URL, stays. */
+  async rename(workspaceId: string, actorRole: string, name: string): Promise<WorkspaceRecord> {
+    assertCanManageWorkspaceSettings(actorRole);
+    const trimmed = name.trim();
+    if (!trimmed || trimmed.length > WORKSPACE_NAME_MAX_LENGTH) throw new AppError("INVALID_INPUT");
+    return this.store.rename(workspaceId, trimmed);
+  }
+}
+
+const workspaceSelect = { id: true, slug: true, name: true, iconObjectKey: true } as const;
+
+function workspaceRecord(row: {
+  id: string;
+  slug: string;
+  name: string;
+  iconObjectKey: string | null;
+}): WorkspaceRecord {
+  return {
+    id: row.id,
+    slug: row.slug,
+    name: row.name,
+    iconUrl: workspaceIconUrl(row.id, row.iconObjectKey),
+  };
 }
 
 export class PrismaWorkspaceCatalogStore implements WorkspaceCatalogStore {
   constructor(private readonly db: PrismaClient) {}
 
   async listForUser(userId: string) {
-    return this.db.workspace.findMany({
+    const rows = await this.db.workspace.findMany({
       where: { members: { some: { userId } } },
-      select: { id: true, slug: true, name: true },
+      select: workspaceSelect,
       orderBy: { createdAt: "asc" },
     });
+    return rows.map(workspaceRecord);
   }
 
   async createForUser(input: { slug: string; name: string; userId: string }) {
-    return this.db.workspace.create({
+    const row = await this.db.workspace.create({
       data: {
         slug: input.slug,
         name: input.name,
         members: { create: { userId: input.userId, role: "owner" } },
         conversations: generalChannelForCreator(input.userId),
       },
-      select: { id: true, slug: true, name: true },
+      select: workspaceSelect,
     });
+    return workspaceRecord(row);
+  }
+
+  async rename(workspaceId: string, name: string) {
+    return workspaceRecord(
+      await this.db.workspace.update({
+        where: { id: workspaceId },
+        data: { name },
+        select: workspaceSelect,
+      }),
+    );
   }
 }

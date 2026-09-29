@@ -1,6 +1,10 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
-import { createWorkspaceInputSchema } from "./workspace.schemas";
+import {
+  createWorkspaceInputSchema,
+  renameWorkspaceInputSchema,
+  workspaceIconUploadInput,
+} from "./workspace.schemas";
 
 import { authMiddleware, workspaceUserMiddleware } from "#src/features/auth/function-auth";
 import { requireDatabaseClient } from "#src/server/db/client.server";
@@ -12,7 +16,8 @@ import {
   preferredWorkspaceSlugFromRequest,
   writePreferredWorkspaceSlug,
 } from "#src/server/workspaces/selection.server";
-import { WorkspaceMembers } from "#src/server/workspaces/members.server";
+import { WorkspaceMembers, workspaceMemberRole } from "#src/server/workspaces/members.server";
+import { WorkspaceImages } from "#src/server/workspaces/workspace-images.server";
 import { MEMBER_PAGE_MAX } from "./member-directory";
 
 function catalog() {
@@ -101,3 +106,23 @@ export const createWorkspace = createServerFn({ method: "POST" })
     writePreferredWorkspaceSlug(workspace.slug);
     return workspace;
   });
+
+/** Renames the Workspace the page URL names; its owner or an admin only. */
+export const renameWorkspace = createServerFn({ method: "POST" })
+  .middleware([workspaceUserMiddleware])
+  .validator(renameWorkspaceInputSchema)
+  .handler(async ({ data, context: { user, db, workspaceId } }) =>
+    new WorkspaceCatalog(new PrismaWorkspaceCatalogStore(db)).rename(
+      workspaceId,
+      await workspaceMemberRole(db, workspaceId, user.id),
+      data.name,
+    ),
+  );
+
+/** Replaces the icon of the Workspace the page URL names; its owner or an admin only. */
+export const uploadWorkspaceIcon = createServerFn({ method: "POST" })
+  .middleware([workspaceUserMiddleware])
+  .validator(workspaceIconUploadInput)
+  .handler(async ({ data, context }) =>
+    new WorkspaceImages(context.db).store(context.workspaceId, context.user.id, data.file),
+  );

@@ -64,6 +64,7 @@ import { Route as ApiIntegrationsGithubCallbackRouteImport } from './routes/api/
 import { Route as ApiIntegrationsGithubWebhookRouteImport } from './routes/api/integrations/github/webhook'
 import { Route as ApiOpenvikingWorkspaceIdSplatRouteImport } from './routes/api/openviking/$workspaceId/$'
 import { Route as ApiProjectsProjectIdIconRouteImport } from './routes/api/projects.$projectId.icon'
+import { Route as ApiWorkspacesWorkspaceIdIconRouteImport } from './routes/api/workspaces/$workspaceId/icon'
 import { Route as WWorkspaceSlugChatIndexRouteImport } from './routes/w.$workspaceSlug/_chat.index'
 import { Route as WWorkspaceSlugChatSavedRouteImport } from './routes/w.$workspaceSlug/_chat.saved'
 import { Route as WWorkspaceSlugComputersComputersRouteImport } from './routes/w.$workspaceSlug/_computers.computers'
@@ -394,6 +395,12 @@ const ApiProjectsProjectIdIconRoute =
     path: '/api/projects/$projectId/icon',
     getParentRoute: () => rootRouteImport,
   } as any)
+const ApiWorkspacesWorkspaceIdIconRoute =
+  ApiWorkspacesWorkspaceIdIconRouteImport.update({
+    id: '/api/workspaces/$workspaceId/icon',
+    path: '/api/workspaces/$workspaceId/icon',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const WWorkspaceSlugChatIndexRoute = WWorkspaceSlugChatIndexRouteImport.update({
   id: '/',
   path: '/',
@@ -697,6 +704,7 @@ export interface FileRoutesByFullPath {
   '/api/integrations/github/webhook': typeof ApiIntegrationsGithubWebhookRoute
   '/api/openviking/$workspaceId/$': typeof ApiOpenvikingWorkspaceIdSplatRoute
   '/api/projects/$projectId/icon': typeof ApiProjectsProjectIdIconRoute
+  '/api/workspaces/$workspaceId/icon': typeof ApiWorkspacesWorkspaceIdIconRoute
   '/w/$workspaceSlug/saved': typeof WWorkspaceSlugChatSavedRoute
   '/w/$workspaceSlug/computers': typeof WWorkspaceSlugComputersComputersRoute
   '/w/$workspaceSlug/agent/$agentId': typeof WWorkspaceSlugAgentAgentIdRoute
@@ -793,6 +801,7 @@ export interface FileRoutesByTo {
   '/api/integrations/github/webhook': typeof ApiIntegrationsGithubWebhookRoute
   '/api/openviking/$workspaceId/$': typeof ApiOpenvikingWorkspaceIdSplatRoute
   '/api/projects/$projectId/icon': typeof ApiProjectsProjectIdIconRoute
+  '/api/workspaces/$workspaceId/icon': typeof ApiWorkspacesWorkspaceIdIconRoute
   '/w/$workspaceSlug/saved': typeof WWorkspaceSlugChatSavedRoute
   '/w/$workspaceSlug/computers': typeof WWorkspaceSlugComputersComputersRoute
   '/w/$workspaceSlug/agent/$agentId': typeof WWorkspaceSlugAgentAgentIdRoute
@@ -892,6 +901,7 @@ export interface FileRoutesById {
   '/api/integrations/github/webhook': typeof ApiIntegrationsGithubWebhookRoute
   '/api/openviking/$workspaceId/$': typeof ApiOpenvikingWorkspaceIdSplatRoute
   '/api/projects/$projectId/icon': typeof ApiProjectsProjectIdIconRoute
+  '/api/workspaces/$workspaceId/icon': typeof ApiWorkspacesWorkspaceIdIconRoute
   '/w/$workspaceSlug/_chat/saved': typeof WWorkspaceSlugChatSavedRoute
   '/w/$workspaceSlug/_computers/computers': typeof WWorkspaceSlugComputersComputersRoute
   '/w/$workspaceSlug/agent/$agentId': typeof WWorkspaceSlugAgentAgentIdRoute
@@ -991,6 +1001,7 @@ export interface FileRouteTypes {
     | '/api/integrations/github/webhook'
     | '/api/openviking/$workspaceId/$'
     | '/api/projects/$projectId/icon'
+    | '/api/workspaces/$workspaceId/icon'
     | '/w/$workspaceSlug/saved'
     | '/w/$workspaceSlug/computers'
     | '/w/$workspaceSlug/agent/$agentId'
@@ -1087,6 +1098,7 @@ export interface FileRouteTypes {
     | '/api/integrations/github/webhook'
     | '/api/openviking/$workspaceId/$'
     | '/api/projects/$projectId/icon'
+    | '/api/workspaces/$workspaceId/icon'
     | '/w/$workspaceSlug/saved'
     | '/w/$workspaceSlug/computers'
     | '/w/$workspaceSlug/agent/$agentId'
@@ -1185,6 +1197,7 @@ export interface FileRouteTypes {
     | '/api/integrations/github/webhook'
     | '/api/openviking/$workspaceId/$'
     | '/api/projects/$projectId/icon'
+    | '/api/workspaces/$workspaceId/icon'
     | '/w/$workspaceSlug/_chat/saved'
     | '/w/$workspaceSlug/_computers/computers'
     | '/w/$workspaceSlug/agent/$agentId'
@@ -1275,6 +1288,7 @@ export interface RootRouteChildren {
   ApiIntegrationsGithubWebhookRoute: typeof ApiIntegrationsGithubWebhookRoute
   ApiOpenvikingWorkspaceIdSplatRoute: typeof ApiOpenvikingWorkspaceIdSplatRoute
   ApiProjectsProjectIdIconRoute: typeof ApiProjectsProjectIdIconRoute
+  ApiWorkspacesWorkspaceIdIconRoute: typeof ApiWorkspacesWorkspaceIdIconRoute
   ApiAgentV1ActionsPrepareRoute: typeof ApiAgentV1ActionsPrepareRoute
   ApiAgentV1AttachmentUploadSessionsUploadIdRoute: typeof ApiAgentV1AttachmentUploadSessionsUploadIdRouteWithChildren
   ApiAgentV1AttachmentsAttachmentIdRoute: typeof ApiAgentV1AttachmentsAttachmentIdRoute
@@ -1680,6 +1694,13 @@ declare module '@tanstack/react-router' {
       path: '/api/projects/$projectId/icon'
       fullPath: '/api/projects/$projectId/icon'
       preLoaderRoute: typeof ApiProjectsProjectIdIconRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/workspaces/$workspaceId/icon': {
+      id: '/api/workspaces/$workspaceId/icon'
+      path: '/api/workspaces/$workspaceId/icon'
+      fullPath: '/api/workspaces/$workspaceId/icon'
+      preLoaderRoute: typeof ApiWorkspacesWorkspaceIdIconRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/w/$workspaceSlug/_chat/': {
@@ -2191,6 +2212,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiIntegrationsGithubWebhookRoute: ApiIntegrationsGithubWebhookRoute,
   ApiOpenvikingWorkspaceIdSplatRoute: ApiOpenvikingWorkspaceIdSplatRoute,
   ApiProjectsProjectIdIconRoute: ApiProjectsProjectIdIconRoute,
+  ApiWorkspacesWorkspaceIdIconRoute: ApiWorkspacesWorkspaceIdIconRoute,
   ApiAgentV1ActionsPrepareRoute: ApiAgentV1ActionsPrepareRoute,
   ApiAgentV1AttachmentUploadSessionsUploadIdRoute:
     ApiAgentV1AttachmentUploadSessionsUploadIdRouteWithChildren,

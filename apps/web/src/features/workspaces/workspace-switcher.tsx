@@ -20,8 +20,9 @@ import {
 } from "#src/features/workspaces/workspace-slug";
 import { cx } from "#src/utils/cx";
 import { DialogHeader } from "#src/components/application/modals/dialog-header";
+import { WorkspaceIcon } from "#src/features/workspaces/workspace-icon";
 
-export type WorkspaceOption = { id: string; slug: string; name: string };
+export type WorkspaceOption = { id: string; slug: string; name: string; iconUrl: string | null };
 
 export function WorkspaceSwitcher({
   workspaces,
@@ -57,7 +58,7 @@ export function WorkspaceSwitcher({
             aria-label={`${m.workspace_switcher()}: ${label}`}
             className="flex size-8 items-center justify-center rounded-lg bg-transparent outline-none transition-colors hover:bg-primary_hover focus-visible:ring-2 focus-visible:ring-brand"
           >
-            <WorkspaceMark />
+            <WorkspaceMark workspace={current} />
           </AriaButton>
         ) : (
           <AriaButton
@@ -67,7 +68,7 @@ export function WorkspaceSwitcher({
             {/* size-5 column matches every sidebar row's icon column, so the
                 name below lines up with row text even though the mark itself is 24px. */}
             <span className="mr-2 flex size-5 shrink-0 items-center justify-center">
-              <WorkspaceMark />
+              <WorkspaceMark workspace={current} />
             </span>
             <span
               data-workspace-name
@@ -105,7 +106,7 @@ export function WorkspaceSwitcher({
                         state.isFocusVisible && "outline-2 -outline-offset-2",
                       )}
                     >
-                      <WorkspaceMark />
+                      <WorkspaceMark workspace={workspace} />
                       <span className="min-w-0 flex-1 truncate font-medium text-secondary">
                         {workspace.name}
                       </span>
@@ -138,7 +139,14 @@ export function WorkspaceSwitcher({
   );
 }
 
-function WorkspaceMark() {
+/** The Workspace's uploaded icon, or the building mark when it has none. */
+function WorkspaceMark({ workspace }: { workspace: WorkspaceOption | null }) {
+  if (workspace?.iconUrl)
+    return (
+      <span data-workspace-mark className="flex size-6 shrink-0">
+        <WorkspaceIcon name={workspace.name} url={workspace.iconUrl} className="rounded-md" />
+      </span>
+    );
   return (
     <span
       data-workspace-mark
