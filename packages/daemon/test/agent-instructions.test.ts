@@ -30,7 +30,7 @@ test("before a long task, progress goes to notes/active-context.md rather than M
   expect(instructions).not.toContain("Active Context");
 });
 
-test("retains an executable reply example and thread addressing without provider tool names", () => {
+test("retains reply instructions and thread addressing without provider tool names", () => {
   expect(instructions).toContain(
     "text outside an executed `coforge message send` command is not delivered",
   );
@@ -38,7 +38,7 @@ test("retains an executable reply example and thread addressing without provider
   expect(instructions).toContain("exact `target=`");
   expect(instructions).toContain("including its thread suffix");
   expect(instructions).toContain(
-    "coforge message send --target '@alice' <<'COFORGE_MESSAGE'\nYour reply\nCOFORGE_MESSAGE",
+    "Send the reply on stdin with `coforge message send --target <target>`",
   );
   expect(instructions).not.toContain("Bash tool");
 });
@@ -67,13 +67,14 @@ test("preserves privacy, credential handling and uncertain-send safety", () => {
   expect(instructions).toContain("If a failed send says `Retryable: yes`, run its next action");
 });
 
-test("recovers context on demand and keeps help discoverable", () => {
+test("recovers context on demand without loading the Manual into every session", () => {
   expect(instructions).toContain("coforge message check --target");
   expect(instructions).toContain("Do not announce the notice or read MEMORY.md first");
   expect(instructions).toContain("an inbox notice is not missing context");
   expect(instructions).toContain("coforge message search");
   expect(instructions).toContain("read --around");
-  expect(instructions).toContain("coforge manual get");
+  expect(instructions).not.toContain("coforge manual get");
+  expect(instructions).not.toContain("## Help");
   expect(instructions).not.toContain("automatically join");
   expect(instructions).not.toContain("Use channel mute");
 });
@@ -114,11 +115,10 @@ test("known runtime identity remains available without repeating the role", () =
     "Agent ID: agent-1",
     "Workspace: Acme (acme)",
     "Computer: Builder (computer-1)",
-    "Hostname: host",
-    "OS: linux",
-    "Computer version: v1.0",
   ])
     expect(rendered).toContain(`- ${line}`);
+  for (const line of ["Hostname: host", "OS: linux", "Computer version: v1.0"])
+    expect(rendered).not.toContain(`- ${line}`);
 });
 
 test("runtime labels work without IDs and IDs work without labels", () => {
