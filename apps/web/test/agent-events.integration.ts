@@ -563,48 +563,59 @@ test("an Agent's channel send freshness reads count only its delivered messages 
     await ownPost("own post");
     await post("undelivered", false);
     const root = await post("delivered root", true);
-    await post("delivered reply", true, root.id);
+    const reply = await post("delivered reply", true, root.id);
     await post("undelivered reply", false, root.id);
     const first = await post("delivered 1", true);
-    await post("delivered 2", true);
+    const second = await post("delivered 2", true);
     await post("undelivered late", false);
-    await post("delivered 3", true);
+    const third = await post("delivered 3", true);
 
+    const channel = await repo.agentTargetFreshness(workspace.id, agent.id, "#general");
     // With no reported boundary, the Agent's own last post in the target is the boundary.
-    expect(bodies(await repo.readPendingAgentContext(workspace.id, agent.id, "#general"))).toEqual([
+    expect(bodies(await channel.readPending())).toEqual([
       "delivered 1",
       "delivered 2",
       "delivered 3",
     ]);
-    expect(await repo.countPendingAgentContext(workspace.id, agent.id, "#general")).toBe(4);
+    expect(await channel.countPending()).toBe(4);
+    expect(await channel.maxPendingSequence()).toBe(third.sequence);
     // A reported boundary replaces it.
-    expect(
-      bodies(
-        await repo.readPendingAgentContext(workspace.id, agent.id, "#general", first.sequence),
-      ),
-    ).toEqual(["delivered 2", "delivered 3"]);
-    // The boundary-driven reads still count the Agent's own delivered post.
-    expect(await repo.countPendingAgentContext(workspace.id, agent.id, "#general", 0)).toBe(6);
-    // A thread target reads its own delivered replies.
-    const thread = `#general:${root.id}`;
-    expect(bodies(await repo.readPendingAgentContext(workspace.id, agent.id, thread))).toEqual([
-      "delivered reply",
+    expect(bodies(await channel.readPending(first.sequence))).toEqual([
+      "delivered 2",
+      "delivered 3",
     ]);
-    expect(await repo.countPendingAgentContext(workspace.id, agent.id, thread)).toBe(1);
-    // First-touch context ignores every boundary but still skips the Agent's own and undelivered
-    // messages.
+    // The Agent's own post is never context to review, even delivered (Raft's `isMessageModelSeen`
+    // counts an Agent's own message as seen).
+    expect(await channel.countPending(0)).toBe(5);
+    // A thread target reads its own delivered replies.
+    const thread = await repo.agentTargetFreshness(workspace.id, agent.id, `#general:${root.id}`);
+    expect(bodies(await thread.readPending())).toEqual(["delivered reply"]);
+    expect(await thread.countPending()).toBe(1);
+    // Messages the Agent reported it was shown one by one (Raft 1.0.38's `seenExactSeqs`) are not
+    // pending, for a channel's top level (read from deliveries) and a thread (read from messages);
+    // one at or below the lower bound changes nothing.
     expect(
-      bodies(await repo.readRecentAgentContext(workspace.id, agent.id, "#general", 10)),
-    ).toEqual([
+      bodies(await channel.readPending(first.sequence, [first.sequence, third.sequence])),
+    ).toEqual(["delivered 2"]);
+    expect(await channel.countPending(first.sequence, [second.sequence, third.sequence])).toBe(0);
+    expect(await thread.countPending(undefined, [reply.sequence])).toBe(0);
+    // First-touch context ignores every boundary and skips undelivered messages; the Agent's own
+    // messages are in its window (Raft reads the target's newest rows) but are already seen.
+    const recent = await channel.readRecent(10);
+    expect(bodies(recent.unseen)).toEqual([
       "delivered before own post",
       "delivered root",
       "delivered 1",
       "delivered 2",
       "delivered 3",
     ]);
-    expect(
-      bodies(await repo.readRecentAgentContext(workspace.id, agent.id, "#general", 2)),
-    ).toEqual(["delivered 2", "delivered 3"]);
+    expect(recent.maxSequence).toBe(third.sequence);
+    const ownLast = await ownPost("own last");
+    const fresh = await repo.agentTargetFreshness(workspace.id, agent.id, "#general");
+    const window = await fresh.readRecent(3);
+    expect(bodies(window.unseen)).toEqual(["delivered 2", "delivered 3"]);
+    expect(window.maxSequence).toBe(ownLast.sequence);
+    expect(bodies((await fresh.readRecent(3, [third.sequence])).unseen)).toEqual(["delivered 2"]);
   } finally {
     await db.agentMessageDelivery.deleteMany({ where: { workspaceId: workspace.id } });
     await db.message.deleteMany({ where: { workspaceId: workspace.id } });

@@ -808,9 +808,9 @@ test("a channel @mention persists as a token and wakes only the mentioned Agent,
       target: "#general",
     });
     expect(
-      (await repo.readPendingAgentContext(workspace.id, scout.id, "#general", 0)).find(
-        (message) => message.id === handoff.id,
-      ),
+      (
+        await (await repo.agentTargetFreshness(workspace.id, scout.id, "#general")).readPending(0)
+      ).find((message) => message.id === handoff.id),
     ).toMatchObject({ senderKind: "agent", senderHandle: "helper", target: "#general" });
     expect<string | undefined>(
       (await repo.readMessages(workspace.id, scout.id, "#general")).find(
@@ -1852,9 +1852,11 @@ test("a #channel reference is stored as a channel token on every send path, and 
     expect(
       bodyOf((await repo.readAgentRecoveryContext(workspace.id, helper.id)).resumeMessages),
     ).toBe(readable);
-    expect(bodyOf(await repo.readPendingAgentContext(workspace.id, helper.id, "#general", 0))).toBe(
-      readable,
-    );
+    expect(
+      bodyOf(
+        await (await repo.agentTargetFreshness(workspace.id, helper.id, "#general")).readPending(0),
+      ),
+    ).toBe(readable);
     expect(bodyOf((await repo.drainAgentEvents(workspace.id, helper.id)).messages)).toBe(readable);
     expect(
       bodyOf(await repo.readMessages(workspace.id, helper.id, "#general", { around: human.id })),
@@ -2231,9 +2233,11 @@ test("a #name:shortid naming a channel thread is stored as a thread token, and e
     expect(
       bodyOf((await repo.readAgentRecoveryContext(workspace.id, helper.id)).resumeMessages),
     ).toBe(readable);
-    expect(bodyOf(await repo.readPendingAgentContext(workspace.id, helper.id, "#general", 0))).toBe(
-      readable,
-    );
+    expect(
+      bodyOf(
+        await (await repo.agentTargetFreshness(workspace.id, helper.id, "#general")).readPending(0),
+      ),
+    ).toBe(readable);
     expect(bodyOf((await repo.drainAgentEvents(workspace.id, helper.id)).messages)).toBe(readable);
     expect(
       bodyOf(await repo.readMessages(workspace.id, helper.id, "#general", { around: human.id })),

@@ -34,6 +34,61 @@ export type FreshnessDecisionFactInput = {
  */
 export const HELD_CONTEXT_LIMIT = 3;
 
+/**
+ * Raft 1.0.38's `MAX_EXACT_SEQS_PER_TARGET`, which is also its send body's `seenExactSeqs` limit:
+ * how many messages above a target's contiguous boundary the daemon remembers the Agent was shown
+ * one by one, and how many a send may report. The newest are kept.
+ */
+export const SEEN_EXACT_SEQS_LIMIT = 2500;
+
+/** Raft 1.0.38's `normalizedExactSeqs`, for input nobody in this process wrote (a file, a request):
+ * the distinct positive integers above `after`, ascending, the newest `SEEN_EXACT_SEQS_LIMIT`. */
+export function normalizeSeenExactSeqs(values: unknown, after = 0): number[] {
+  if (!Array.isArray(values)) return [];
+  const kept = new Set<number>();
+  for (const value of values)
+    if (typeof value === "number" && Number.isSafeInteger(value) && value > after) kept.add(value);
+  const sorted = [...kept].sort((left, right) => left - right);
+  return sorted.length > SEEN_EXACT_SEQS_LIMIT ? sorted.slice(-SEEN_EXACT_SEQS_LIMIT) : sorted;
+}
+
+/**
+ * Two ascending lists of exact sequences this process already holds, merged in one pass: each
+ * sequence once, only those above `after`, ascending, the newest `SEEN_EXACT_SEQS_LIMIT`.
+ */
+export function mergeSeenExactSeqs(
+  after: number,
+  left: readonly number[],
+  right: readonly number[],
+): number[] {
+  const merged: number[] = [];
+  let i = 0;
+  let j = 0;
+  while (i < left.length || j < right.length) {
+    const next =
+      j >= right.length || (i < left.length && left[i]! <= right[j]!) ? left[i++]! : right[j++]!;
+    if (next > after && next !== merged[merged.length - 1]) merged.push(next);
+  }
+  const surplus = merged.length - SEEN_EXACT_SEQS_LIMIT;
+  if (surplus > 0) merged.splice(0, surplus);
+  return merged;
+}
+
+/** The largest message sequence: the `sequence` column is a PostgreSQL `integer` (int4). */
+export const MAX_MESSAGE_SEQUENCE = 2_147_483_647;
+
+/** A send's `seenExactSeqs`: positive integer sequences a message can have, at most
+ * `SEEN_EXACT_SEQS_LIMIT` of them. */
+export function isSeenExactSeqs(value: unknown): value is number[] {
+  return (
+    Array.isArray(value) &&
+    value.length <= SEEN_EXACT_SEQS_LIMIT &&
+    value.every(
+      (sequence) => Number.isInteger(sequence) && sequence > 0 && sequence <= MAX_MESSAGE_SEQUENCE,
+    )
+  );
+}
+
 /** Raft's `stableNormalizeApmHeldFreshness`: keys sorted recursively, `undefined` dropped, so the
  * same decision always serializes to the same bytes. */
 export function stableNormalizeFreshnessFact(value: unknown): unknown {

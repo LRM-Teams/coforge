@@ -10,6 +10,7 @@ import {
   encodeAgentMessageResponse,
   validateAgentMessageRequest,
   isChannelMessageTarget,
+  SEEN_EXACT_SEQS_LIMIT,
 } from "./index";
 
 test("accepts the targetless events-drain check operation", () => {
@@ -215,6 +216,35 @@ test("rejects seen-up-to sequences on non-send operations", () => {
   expect(
     validateAgentMessageRequest({ ...request, operation: "send", content: "reply" }),
   ).toMatchObject({ operation: "send" });
+});
+
+test("accepts exact seen sequences only on send, and only as positive integers within the limit", () => {
+  const send = {
+    idempotencyKey: "send-exact",
+    agentId: "agent-a",
+    workspaceId: "workspace-a",
+    operation: "send" as const,
+    target: "@ada",
+    content: "reply",
+    seenUpToSeq: 4,
+    seenExactSeqs: [6, 9],
+  };
+  expect(validateAgentMessageRequest(send)).toBe(send);
+  expect(() =>
+    validateAgentMessageRequest({ ...send, operation: "read", content: undefined }),
+  ).toThrow("only valid for send");
+  expect(() => validateAgentMessageRequest({ ...send, seenExactSeqs: [0] })).toThrow(
+    "invalid Agent message exact seen sequences",
+  );
+  expect(() => validateAgentMessageRequest({ ...send, seenExactSeqs: [1.5] })).toThrow(
+    "invalid Agent message exact seen sequences",
+  );
+  expect(() =>
+    validateAgentMessageRequest({
+      ...send,
+      seenExactSeqs: Array.from({ length: SEEN_EXACT_SEQS_LIMIT + 1 }, (_, index) => index + 1),
+    }),
+  ).toThrow("invalid Agent message exact seen sequences");
 });
 
 test("round-trips all Agent delivery ACK identity and ordering fields", () => {

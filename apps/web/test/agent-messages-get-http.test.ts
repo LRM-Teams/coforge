@@ -30,6 +30,7 @@ test("read forwards the sequence window to the repository and returns the canoni
           ],
           hasOlder: false,
           hasNewer: true,
+          modelSeenUpToSeq: null,
         };
       },
     },
@@ -68,6 +69,7 @@ test("read forwards the sequence window to the repository and returns the canoni
     hasNewer: true,
     olderCursor: "message-1",
     newerCursor: "message-1",
+    modelSeenUpToSeq: null,
   });
 });
 
@@ -78,7 +80,12 @@ test("read generates a request id when the daemon omits one", async () => {
     {
       setAgentChannelMuted: async () => {},
       setAgentThreadFollowed: async () => {},
-      readMessagesPage: async () => ({ messages: [], hasOlder: false, hasNewer: false }),
+      readMessagesPage: async () => ({
+        messages: [],
+        hasOlder: false,
+        hasNewer: false,
+        modelSeenUpToSeq: null,
+      }),
     },
   );
   const body = await result.json();
@@ -112,3 +119,69 @@ test("rejects a non-integer sequence window with 400", async () => {
   );
   expect(result.status).toBe(400);
 });
+
+test("read reports the model-seen boundary and the consumption scope the repository gives", async () => {
+  const scope = {
+    agentId: "agent-1",
+    conversationId: "conversation-1",
+    channelType: "dm" as const,
+    target: "@ada",
+  };
+  const result = await handleAgentMessagesGet(
+    request("?target=%40ada"),
+    { workspaceId: "workspace-1", agentId: "agent-1" },
+    {
+      setAgentChannelMuted: async () => {},
+      setAgentThreadFollowed: async () => {},
+      readMessagesPage: async () => ({
+        messages: [],
+        hasOlder: false,
+        hasNewer: false,
+        modelSeenUpToSeq: 6,
+        consumptionScope: scope,
+      }),
+    },
+  );
+  expect(await result.json()).toMatchObject({ modelSeenUpToSeq: 6, consumptionScope: scope });
+});
+
+test("read states a missing model-seen boundary as null and leaves out a missing scope", async () => {
+  const result = await handleAgentMessagesGet(
+    request("?target=%23general"),
+    { workspaceId: "workspace-1", agentId: "agent-1" },
+    {
+      setAgentChannelMuted: async () => {},
+      setAgentThreadFollowed: async () => {},
+      readMessagesPage: async () => ({
+        messages: [],
+        hasOlder: false,
+        hasNewer: false,
+        modelSeenUpToSeq: null,
+      }),
+    },
+  );
+  const body = await result.json();
+  expect(body.modelSeenUpToSeq).toBeNull();
+  expect("consumptionScope" in body).toBe(false);
+});
+
+test.each(["before", "after", "around"])(
+  "rejects fromSequence together with a %s anchor with 400",
+  async (anchor) => {
+    let read = false;
+    const result = await handleAgentMessagesGet(
+      request(`?target=%40ada&${anchor}=abcdef12&fromSequence=50`),
+      { workspaceId: "workspace-1", agentId: "agent-1" },
+      {
+        setAgentChannelMuted: async () => {},
+        setAgentThreadFollowed: async () => {},
+        readMessagesPage: async () => {
+          read = true;
+          return { messages: [], hasOlder: false, hasNewer: false, modelSeenUpToSeq: null };
+        },
+      },
+    );
+    expect(result.status).toBe(400);
+    expect(read).toBe(false);
+  },
+);

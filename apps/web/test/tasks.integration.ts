@@ -820,9 +820,9 @@ test("assignment receipts survive mute and disconnect without waking unrelated A
       receipt.messageId,
     ]);
     expect(
-      (await repo.readPendingAgentContext(workspace.id, assigned!.id, target, 0)).map(
-        (message) => message.senderKind,
-      ),
+      (
+        await (await repo.agentTargetFreshness(workspace.id, assigned!.id, target)).readPending(0)
+      ).map((message) => message.senderKind),
     ).toEqual(["system"]);
     const page = await repo.readMessagesPage(workspace.id, assigned!.id, target, {
       around: receipt.messageId,

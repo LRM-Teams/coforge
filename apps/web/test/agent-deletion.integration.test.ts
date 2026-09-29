@@ -328,12 +328,12 @@ test.skipIf(!connectionString)(
 
       // The reader still sees the deleted Agent's message, under a handle distinct from the
       // name the new Agent now holds.
-      const context = await new PrismaDirectConversationRepository(db).readRecentAgentContext(
+      const freshness = await new PrismaDirectConversationRepository(db).agentTargetFreshness(
         workspace.id,
         reader.id,
         "#general",
-        10,
       );
+      const context = (await freshness.readRecent(10)).unseen;
       const read = context.find((row) => row.id === message.id);
       expect(read).toBeDefined();
       expect(read!.senderKind).toBe("agent");

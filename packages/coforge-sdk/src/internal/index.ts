@@ -65,15 +65,25 @@ export const isChannelMessageTarget = (target: string): boolean =>
   /^#[a-z0-9][a-z0-9_-]{0,31}(?::(?:[0-9a-f]{8}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}))?$/.test(
     target,
   );
+/** A thread target split at its first `:` into parent and root, or `undefined` for a top-level
+ * target. */
+const splitThreadTarget = (target: string): [parent: string, root: string] | undefined => {
+  const index = target.indexOf(":");
+  return index === -1 ? undefined : [target.slice(0, index), target.slice(index + 1)];
+};
 /**
  * The parent of a thread target (everything before the first `:`), or `undefined` for a
  * top-level target. `#general:12345678` → `#general`; `@frank:12345678` → `@frank`; `#general` →
  * `undefined`.
  */
-export const threadParentTarget = (target: string): string | undefined => {
-  const index = target.indexOf(":");
-  return index === -1 ? undefined : target.slice(0, index);
-};
+export const threadParentTarget = (target: string): string | undefined =>
+  splitThreadTarget(target)?.[0];
+/**
+ * The root of a thread target (everything after the first `:`), or `undefined` for a top-level
+ * target. `#general:12345678` → `12345678`; `#general` → `undefined`.
+ */
+export const threadRootTarget = (target: string): string | undefined =>
+  splitThreadTarget(target)?.[1];
 /** A reaction emoji: trimmed, one to sixteen characters, no whitespace. */
 export const isValidReactionEmoji = (value: string): boolean =>
   value.trim() === value && value.length >= 1 && value.length <= 16 && !/\s/.test(value);
@@ -690,6 +700,10 @@ export type AgentMessageDeliveryAck = Omit<
 export { parseActivityEntries } from "./activity-entries";
 export {
   HELD_CONTEXT_LIMIT,
+  SEEN_EXACT_SEQS_LIMIT,
+  isSeenExactSeqs,
+  mergeSeenExactSeqs,
+  normalizeSeenExactSeqs,
   freshnessDecisionFactId,
   stableNormalizeFreshnessFact,
 } from "./freshness-decision";
@@ -763,6 +777,9 @@ export type AgentMessageRequest = {
   continueAnyway?: boolean;
   /** `send` only: the boundary the sender has already reviewed. */
   seenUpToSeq?: number;
+  /** `send` only: Raft 1.0.38's `seenExactSeqs`, the messages above `seenUpToSeq` the sender was
+   * shown one by one, ascending, at most `SEEN_EXACT_SEQS_LIMIT`. */
+  seenExactSeqs?: number[];
   /** `send` only: how many times this draft has already been held (`continueAnywaySuggested`). */
   draftReholdCount?: number;
   /** `send` only: a normal send that replaced an already-held draft. */

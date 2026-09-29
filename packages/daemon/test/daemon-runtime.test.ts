@@ -943,6 +943,39 @@ describe("Agent Task freshness", () => {
     }
   });
 
+  test("a claim on a target the Agent drained with a check reads no context first", async () => {
+    const messageCalls: AgentMessageRequest[] = [];
+    const harness = await messageHarness(
+      async (request) => {
+        messageCalls.push(request);
+        return {
+          idempotencyKey: request.idempotencyKey,
+          accepted: true,
+          attentionCount: 0,
+          hasMore: false,
+          messages: request.operation === "check" ? [messageRecord(4, "@ada", "#tasks")] : [],
+        };
+      },
+      async (request) => ({ idempotencyKey: request.idempotencyKey, tasks: [] }),
+    );
+    try {
+      await harness.deliver(4, "#tasks");
+      await harness.runtime.agentMessage(
+        harness.context,
+        { idempotencyKey: "check", context: harness.context, operation: "check" },
+        harness.apiKey,
+      );
+      await harness.runtime.agentTask(
+        harness.context,
+        { operation: "claim", idempotencyKey: "claim", target: "#tasks", number: 7 },
+        harness.apiKey,
+      );
+      expect(messageCalls.map(({ operation }) => operation)).toEqual(["check"]);
+    } finally {
+      await harness.runtime.stop();
+    }
+  });
+
   test("claim isolates exact-target freshness, bounds pending reads, and preserves Task results", async () => {
     const messageCalls: AgentMessageRequest[] = [];
     const upstream = {
@@ -1784,6 +1817,8 @@ describe("DaemonRuntime", () => {
         attentionCount: 0,
         messageId: request.operation === "send" ? "sent" : undefined,
         messages: request.operation === "read" ? [messageRecord(7, "@ada", fullTarget)] : [],
+        // The read joins what the Agent had read, so the server reports its boundary.
+        ...(request.operation === "read" ? { modelSeenUpToSeq: 7 } : {}),
       };
     });
     try {
@@ -1941,6 +1976,8 @@ describe("DaemonRuntime", () => {
           accepted: true,
           attentionCount: 0,
           messages: [messageRecord(1, "@ada", request.target)],
+          // An unpaged read joins what the Agent had read.
+          modelSeenUpToSeq: 1,
         };
       sends.push(request);
       return {
@@ -2033,20 +2070,32 @@ describe("DaemonRuntime", () => {
     const rootId = "12345678-1234-4234-8234-123456789abc";
     const threadTarget = `@ada:${rootId}`;
 
-    /** A transport whose reads and checks answer with `rowsFor(request)` and whose sends go out. */
-    async function guardHarness(rowsFor: (request: AgentMessageRequest) => number[]) {
+    /** A transport whose reads and checks answer with `rowsFor(request)` and whose sends go out.
+     * A read joins what the Agent had read (its newest row is the server's model-seen boundary)
+     * unless `contiguous` says it does not. */
+    async function guardHarness(
+      rowsFor: (request: AgentMessageRequest) => number[],
+      contiguous: (request: AgentMessageRequest) => boolean = () => true,
+    ) {
       const sends: AgentMessageRequest[] = [];
       const harness = await messageHarness(async (request) => {
-        if (request.operation === "read" || request.operation === "check")
+        if (request.operation === "read" || request.operation === "check") {
+          const rows = rowsFor(request);
           return {
             protocolMajor: 1,
             idempotencyKey: request.idempotencyKey,
             accepted: true,
             attentionCount: 0,
-            messages: rowsFor(request).map((sequence) =>
+            messages: rows.map((sequence) =>
               messageRecord(sequence, "@ada", request.target || "@ada"),
             ),
+            ...(request.operation === "read"
+              ? {
+                  modelSeenUpToSeq: rows.length && contiguous(request) ? Math.max(...rows) : null,
+                }
+              : {}),
           };
+        }
         sends.push(request);
         return {
           protocolMajor: 1,
@@ -2123,6 +2172,28 @@ describe("DaemonRuntime", () => {
           "THREAD_CONTEXT_TARGET_CONFIRMATION_REQUIRED",
         );
         expect(sends).toEqual([]);
+      } finally {
+        await harness.runtime.stop();
+      }
+    });
+
+    test("a paged thread read the server does not call contiguous does not count", async () => {
+      // Raft 1.0.38's `message read`: a page with rows and no model-seen boundary records exact
+      // sequences only (`recordConsumedExactSeqs`), never a read (`recordConsumedRead`).
+      const { harness, sends, run, sendTopLevel } = await guardHarness(
+        () => [3],
+        () => false,
+      );
+      try {
+        await run({
+          idempotencyKey: "read-thread-before",
+          operation: "read",
+          target: threadTarget,
+          before: "message-9",
+        });
+        const result = await sendTopLevel();
+        expect(result).not.toBeInstanceOf(AgentPreflightError);
+        expect(sends).toHaveLength(1);
       } finally {
         await harness.runtime.stop();
       }
@@ -2242,6 +2313,8 @@ describe("DaemonRuntime", () => {
           accepted: true,
           attentionCount: 0,
           messages: [messageRecord(1, "@ada", request.target)],
+          // An unpaged read joins what the Agent had read.
+          modelSeenUpToSeq: 1,
         };
       sends.push(request);
       return {
@@ -2367,6 +2440,8 @@ describe("DaemonRuntime", () => {
           accepted: true,
           attentionCount: 0,
           messages: [messageRecord(1, "@ada", request.target)],
+          // An unpaged read joins what the Agent had read.
+          modelSeenUpToSeq: 1,
         };
       sends.push(request);
       return {
@@ -3349,7 +3424,11 @@ describe("DaemonRuntime", () => {
   test("acknowledges a message the Agent has already seen without waking its exited process", async () => {
     // The Agent reviewed @agent through message 3 before its process exited; the consumed cursor
     // outlives the process.
-    new AgentConsumedSeqStore().recordConsumedSeqs("agent-a", { "@agent": 3 });
+    new AgentConsumedSeqStore().write("agent-a", {
+      targets: { "@agent": { seq: 3 } },
+      aliases: {},
+      nextReadOrder: 1,
+    });
     const credentials = new InMemoryDaemonCredentialStore();
     await credentials.save(connection.workspaceId, connection.computerId, "token-a");
     const exits = new Set<() => void>();
@@ -9338,5 +9417,295 @@ describe("one logical send keeps one idempotency key (Raft 1.0.38)", () => {
         await harness.runtime.stop();
       }
     });
+  });
+});
+
+describe("the Agent read boundary (Raft 1.0.38's exact seen sequences)", () => {
+  type Harness = Awaited<ReturnType<typeof messageHarness>>;
+  type Respond = Parameters<typeof messageHarness>[0];
+  const sent = (request: AgentMessageRequest): AgentMessageTransportResponse => ({
+    idempotencyKey: request.idempotencyKey,
+    accepted: true,
+    attentionCount: 0,
+    messageId: "sent",
+    messages: [],
+    state: "sent",
+    decision: "forward",
+  });
+  const page = (
+    request: AgentMessageRequest,
+    messages: ReturnType<typeof messageRecord>[],
+    fields: Partial<AgentMessageTransportResponse> = {},
+  ): AgentMessageTransportResponse => ({
+    idempotencyKey: request.idempotencyKey,
+    accepted: true,
+    attentionCount: 0,
+    hasMore: false,
+    messages,
+    ...fields,
+  });
+  /** A harness whose sends are answered `sent` and recorded; reads and checks go to `respond`. */
+  const harnessWithSends = async (respond: Respond) => {
+    const sends: AgentMessageRequest[] = [];
+    const harness = await messageHarness(async (request) => {
+      if (request.operation !== "send") return respond(request);
+      sends.push(request);
+      return sent(request);
+    });
+    return { harness, sends };
+  };
+  const run = (
+    harness: Harness,
+    idempotencyKey: string,
+    fields: Omit<
+      import("@lrm/coforge-sdk/internal").LocalAgentMessageRequest,
+      "idempotencyKey" | "context"
+    >,
+  ) =>
+    harness.runtime.agentMessage(
+      harness.context,
+      { idempotencyKey, context: harness.context, ...fields },
+      harness.apiKey,
+    );
+
+  test("a check and an anchored read record exact sequences; the next send reports those above its frontier", async () => {
+    const { harness, sends } = await harnessWithSends(async (request) => {
+      if (request.operation === "check")
+        return page(request, [messageRecord(6, "@ada", "@ada"), messageRecord(8, "@ada", "@ada")]);
+      if (request.around)
+        // An anchored read never joins what the Agent read, whatever boundary comes with it.
+        return page(
+          request,
+          [messageRecord(10, "@ada", "@ada"), messageRecord(11, "@ada", "@ada")],
+          {
+            modelSeenUpToSeq: 11,
+          },
+        );
+      return page(request, [messageRecord(3, "@ada", "@ada")], { modelSeenUpToSeq: 4 });
+    });
+    try {
+      await run(harness, "read", { operation: "read", target: "@ada" });
+      await run(harness, "check", { operation: "check" });
+      await run(harness, "around", { operation: "read", target: "@ada", around: "abcdef12" });
+      await run(harness, "send", { operation: "send", target: "@ada", content: "reply" });
+
+      expect(sends).toHaveLength(1);
+      expect(sends[0]).toMatchObject({ seenUpToSeq: 4, seenExactSeqs: [6, 8, 10, 11] });
+    } finally {
+      await harness.runtime.stop();
+    }
+  });
+
+  test("a send reports at most the newest 2500 exact sequences", async () => {
+    const shown = Array.from({ length: 2600 }, (_, index) =>
+      messageRecord(index + 1, "@ada", "@ada"),
+    );
+    const { harness, sends } = await harnessWithSends(async (request) => page(request, shown));
+    try {
+      await run(harness, "check", { operation: "check" });
+      await run(harness, "send", { operation: "send", target: "@ada", content: "reply" });
+
+      const exact = sends[0]?.seenExactSeqs ?? [];
+      expect(sends[0]?.seenUpToSeq).toBeUndefined();
+      expect(exact).toHaveLength(2500);
+      expect([exact[0], exact.at(-1)]).toEqual([101, 2600]);
+    } finally {
+      await harness.runtime.stop();
+    }
+  });
+
+  test("the server's model-seen boundary advances the frontier", async () => {
+    const { harness, sends } = await harnessWithSends(async (request) =>
+      page(request, [messageRecord(5, "@ada", "@ada")], { modelSeenUpToSeq: 7 }),
+    );
+    try {
+      await run(harness, "read", { operation: "read", target: "@ada" });
+      await run(harness, "send", { operation: "send", target: "@ada", content: "reply" });
+
+      expect(sends[0]?.seenUpToSeq).toBe(7);
+      expect(sends[0]?.seenExactSeqs).toBeUndefined();
+    } finally {
+      await harness.runtime.stop();
+    }
+  });
+
+  test("a read without a model-seen boundary moves no frontier: the daemon infers none", async () => {
+    const { harness, sends } = await harnessWithSends(async (request) =>
+      page(request, [messageRecord(5, "@ada", "@ada")]),
+    );
+    try {
+      await run(harness, "read", { operation: "read", target: "@ada" });
+      await run(harness, "send", { operation: "send", target: "@ada", content: "reply" });
+
+      expect(sends[0]?.seenUpToSeq).toBeUndefined();
+      expect(sends[0]?.seenExactSeqs).toEqual([5]);
+    } finally {
+      await harness.runtime.stop();
+    }
+  });
+
+  test("an accepted send whose pending messages were all checked moves the frontier and empties the exact set", async () => {
+    const sends: AgentMessageRequest[] = [];
+    const harness = await messageHarness(async (request) => {
+      if (request.operation === "check")
+        return page(request, [messageRecord(6, "@ada", "@ada"), messageRecord(8, "@ada", "@ada")]);
+      sends.push(request);
+      // The server found every pending message already seen and advanced the boundary over them.
+      return sends.length === 1
+        ? {
+            ...sent(request),
+            reason: "exact_target_pending_already_seen",
+            seenUpToSeq: 8,
+          }
+        : sent(request);
+    });
+    try {
+      await harness.deliver(6, "@ada");
+      await harness.deliver(8, "@ada");
+      await run(harness, "check", { operation: "check" });
+      await run(harness, "send", { operation: "send", target: "@ada", content: "one" });
+      await run(harness, "send", { operation: "send", target: "@ada", content: "two" });
+
+      expect(sends[0]).toMatchObject({ seenExactSeqs: [6, 8] });
+      expect(sends[1]?.seenUpToSeq).toBe(8);
+      expect(sends[1]?.seenExactSeqs).toBeUndefined();
+    } finally {
+      await harness.runtime.stop();
+    }
+  });
+
+  test("a locally held send presents the newest message the Agent has not seen as its boundary", async () => {
+    const { harness, sends } = await harnessWithSends(async (request) =>
+      request.operation === "check"
+        ? page(request, [messageRecord(7, "@ada", "@ada")])
+        : page(request, []),
+    );
+    try {
+      await harness.deliver(5, "@ada");
+      await harness.deliver(7, "@ada");
+      // A check that showed only message 7 leaves message 5 unseen.
+      await run(harness, "check", { operation: "check", target: "@ada" });
+      const held = await run(harness, "send", { operation: "send", target: "@ada", content: "x" });
+
+      expect(sends).toHaveLength(0);
+      expect(held).toMatchObject({ state: "held", decision: "local_hold" });
+      expect(held.messages.map(({ sequence }) => sequence)).toEqual([5]);
+      const resent = await run(harness, "resend", {
+        operation: "send",
+        target: "@ada",
+        sendDraft: true,
+      });
+      expect(resent.state).toBe("sent");
+      expect(sends[0]?.seenUpToSeq).toBe(5);
+    } finally {
+      await harness.runtime.stop();
+    }
+  });
+
+  test("a read the server does not call contiguous records exact sequences, not a frontier", async () => {
+    const { harness, sends } = await harnessWithSends(async (request) =>
+      page(request, [messageRecord(2, "@ada", "@ada"), messageRecord(3, "@ada", "@ada")], {
+        modelSeenUpToSeq: null,
+        hasOlder: true,
+      }),
+    );
+    try {
+      await run(harness, "older", { operation: "read", target: "@ada", before: "abcdef12" });
+      await run(harness, "send", { operation: "send", target: "@ada", content: "reply" });
+
+      expect(sends[0]?.seenUpToSeq).toBeUndefined();
+      expect(sends[0]?.seenExactSeqs).toEqual([2, 3]);
+    } finally {
+      await harness.runtime.stop();
+    }
+  });
+
+  test("a held send's frontier replaces the exact sequences it covers in the draft", async () => {
+    const sends: AgentMessageRequest[] = [];
+    const harness = await messageHarness(async (request) => {
+      if (request.operation === "check") return page(request, [messageRecord(6, "@ada", "@ada")]);
+      sends.push(request);
+      if (sends.length > 1) return sent(request);
+      return {
+        idempotencyKey: request.idempotencyKey,
+        accepted: false,
+        attentionCount: 1,
+        state: "held",
+        decision: "local_hold",
+        reason: "exact_target_pending",
+        newMessageCount: 1,
+        shownMessageCount: 1,
+        omittedMessageCount: 0,
+        seenUpToSeq: 8,
+        messages: [messageRecord(8, "@ada", "@ada")],
+      };
+    });
+    try {
+      await run(harness, "check", { operation: "check" });
+      await run(harness, "send", { operation: "send", target: "@ada", content: "reply" });
+      await run(harness, "resend", { operation: "send", target: "@ada", sendDraft: true });
+
+      expect(sends[0]).toMatchObject({ seenExactSeqs: [6] });
+      expect(sends[1]?.seenUpToSeq).toBe(8);
+      expect(sends[1]?.seenExactSeqs).toBeUndefined();
+    } finally {
+      await harness.runtime.stop();
+    }
+  });
+
+  test.each([
+    [
+      "a read's consumption scope settles a pending notice delivered under another spelling",
+      "agent-a",
+      0,
+    ],
+    ["a consumption scope for another Agent is not the read's to apply", "agent-b", 1],
+  ] as const)("%s", async (_, agentId, pending) => {
+    const { harness } = await harnessWithSends(async (request) =>
+      request.operation === "check"
+        ? page(request, [])
+        : page(request, [messageRecord(5, "@ada", "@ada")], {
+            modelSeenUpToSeq: 5,
+            consumptionScope: {
+              agentId,
+              conversationId: "conversation-a",
+              channelType: "dm",
+              target: "@ada",
+            },
+          }),
+    );
+    try {
+      await harness.deliver(5, "@Ada");
+      await run(harness, "read", { operation: "read", target: "@ada" });
+      const checked = await run(harness, "check", { operation: "check" });
+
+      expect(checked.attentionCount).toBe(pending);
+    } finally {
+      await harness.runtime.stop();
+    }
+  });
+
+  test("a target spelled another way shares the consumed state the server's scope names", async () => {
+    const spelled = "#general:0F0E0D0C-0B0A-4908-8706-050403020100";
+    const canonical = spelled.toLowerCase();
+    const { harness, sends } = await harnessWithSends(async (request) =>
+      page(request, [messageRecord(9, "@ada", canonical)], {
+        modelSeenUpToSeq: 9,
+        consumptionScope: {
+          agentId: "agent-a",
+          conversationId: "conversation-a",
+          channelType: "thread",
+          target: canonical,
+        },
+      }),
+    );
+    try {
+      await run(harness, "read", { operation: "read", target: spelled });
+      await run(harness, "send", { operation: "send", target: spelled, content: "reply" });
+
+      expect(sends[0]).toMatchObject({ target: canonical, seenUpToSeq: 9 });
+    } finally {
+      await harness.runtime.stop();
+    }
   });
 });

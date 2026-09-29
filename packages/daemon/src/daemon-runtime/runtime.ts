@@ -57,6 +57,7 @@ import type {
   DaemonConnectionClient,
   DaemonConnectionClientFactory,
 } from "#src/connection/daemon-connection";
+import type { AgentMessageTransportResponse } from "#src/connection/agent-http-clients";
 import {
   type DaemonConnectRejectionReason,
   WORKSPACE_PROTOCOL_MAJOR,
@@ -129,7 +130,11 @@ import {
 import { AgentMessageAttentionIndex } from "./agent-message-attention-index";
 import { AgentDeliveryQueue } from "./agent-delivery-queue";
 import { AgentInboxStateMachine } from "./agent-inbox-state-machine";
-import { locallyHeldSend, planAgentInboxFreshness } from "./agent-inbox-freshness";
+import {
+  locallyHeldSend,
+  planAgentInboxFreshness,
+  sendSeenExactSeqs,
+} from "./agent-inbox-freshness";
 import { heldFreshnessActivity, heldFreshnessMessageCount } from "./agent-inbox-freshness-activity";
 import { AgentConsumedSeqStore } from "#src/persistence/agent-consumed-seq-store";
 import {
@@ -3379,8 +3384,12 @@ export class DaemonRuntime {
       operation: request.operation,
       target: request.target ?? "*",
     });
+    // A spelling a read has already mapped to its canonical target shares that target's state.
     const target = request.target
-      ? await this.#canonicalAgentMessageTarget(agentId, request.target, agentApiKey)
+      ? this.#messageAttention.resolveTarget(
+          agentId,
+          await this.#canonicalAgentMessageTarget(agentId, request.target, agentApiKey),
+        )
       : undefined;
     const { operation } = request;
     if (operation === "check") return this.#checkAgentMessages(agentId, request, agentApiKey);
@@ -3425,16 +3434,16 @@ export class DaemonRuntime {
       hasMore = Boolean(result.hasMore);
       if (!hasMore) break;
     }
-    const maxSequenceByTarget = new Map<string, number>();
+    // Raft 1.0.38's `check` records the exact sequences it showed, per target, and no frontier: a
+    // check drains what notified the Agent, which need not be every message of the target. It
+    // reviews nothing either, so it takes no read order.
+    const shownByTarget = new Map<string, number[]>();
     for (const message of messages) {
-      const current = maxSequenceByTarget.get(message.target) ?? 0;
-      if (message.sequence > current) maxSequenceByTarget.set(message.target, message.sequence);
+      const shown = shownByTarget.get(message.target);
+      if (shown) shown.push(message.sequence);
+      else shownByTarget.set(message.target, [message.sequence]);
     }
-    for (const [target, sequence] of maxSequenceByTarget) {
-      // A check consumes what it returned without reviewing the target, so it takes no read order
-      // and never outranks a thread the Agent read (Raft's `check` records none either).
-      this.#messageAttention.recordModelSeen(agentId, target, sequence);
-    }
+    this.#messageAttention.recordExactSeen(agentId, shownByTarget);
     logger.info("Agent checked pending messages", {
       event: "agent.message.checked",
       ...this.#agentLogScope(agentId, request.idempotencyKey),
@@ -3520,6 +3529,13 @@ export class DaemonRuntime {
     const draftSeenUpToSeq = request.sendDraft ? draft?.seenUpToSeq : priorDraft?.seenUpToSeq;
     const modelSeenSequence = this.#messageAttention.modelSeenSequence(agentId, target);
     const seenUpToSeq = draftSeenUpToSeq ?? (modelSeenSequence > 0 ? modelSeenSequence : undefined);
+    // Raft 1.0.38: the messages above that frontier the Agent was shown one by one travel with it,
+    // so the server's freshness check does not count them as unreviewed.
+    const seenExactSeqs = sendSeenExactSeqs(
+      request.sendDraft ? draft?.seenExactSeqs : priorDraft?.seenExactSeqs,
+      this.#messageAttention.seenExactSequences(agentId, target),
+      seenUpToSeq,
+    );
     // `--send-draft` re-sends the saved draft's attachments/mentions unless the Agent explicitly
     // supplies new `--mention` values, which replace them (Feature 2's documented override).
     const attachmentIds = request.sendDraft ? draft?.attachmentIds : request.attachmentIds;
@@ -3586,7 +3602,7 @@ export class DaemonRuntime {
       continueAnyway: Boolean(request.continueAnyway),
       modelSeenSequence,
       pendingMessageCount: this.#messageAttention.pendingMessageCount(agentId, target),
-      latestSequence: this.#messageAttention.latestSequence(agentId, target),
+      pendingMaxSequence: this.#messageAttention.pendingMaxSequence(agentId, target),
     });
     const result =
       freshness.decision === "local_hold"
@@ -3632,6 +3648,7 @@ export class DaemonRuntime {
               draftReplacedExisting: !request.sendDraft && draftReholdCount > 0,
               sendDraft: request.sendDraft,
               seenUpToSeq,
+              seenExactSeqs,
               freshnessContextMode: request.freshnessContextMode,
               attachmentIds: attachmentIds ? [...attachmentIds] : undefined,
               mentions: mentions ? [...mentions] : undefined,
@@ -3665,6 +3682,9 @@ export class DaemonRuntime {
         // hold later, remembering the frontier the notice presented so the resend clears the hold.
         reholdCount: draftReholdCount + 1,
         seenUpToSeq: contextWasWithheld ? seenUpToSeq : (result.seenUpToSeq ?? seenUpToSeq),
+        // Raft 1.0.38: a presented hold's frontier covers what the draft saw one by one; a withheld
+        // one presented nothing, so the draft keeps them.
+        seenExactSeqs: contextWasWithheld ? seenExactSeqs : undefined,
         idempotencyKey,
       });
     } else if (result.accepted) {
@@ -3672,31 +3692,30 @@ export class DaemonRuntime {
       // consumes it, so an older send accepted late leaves a newer draft alone (task #70).
       await inbox.clearIfIdempotencyKeyMatches(target, idempotencyKey);
     }
-    const targetMessages = result.messages.filter((message) => message.target === target);
-    // Raft's `recordConsumedSeqs(data.seenUpToSeq)`: the notice presented this frontier, so the
-    // Agent has consumed it and the same context will not hold the next attempt. The shown window's
-    // newest sequence counts as well, for a hold whose response carries no frontier of its own.
-    const consumedBoundary = Math.max(
-      contextWasWithheld ? 0 : (result.seenUpToSeq ?? 0),
-      ...targetMessages.map(({ sequence }) => sequence),
-      0,
-    );
-    if (consumedBoundary > 0) {
-      this.#messageAttention.recordModelSeen(agentId, target, consumedBoundary);
-      // The held-context read inside `send`: the Agent just reviewed these messages for `target`.
-      // A withheld context was never presented, so it reviews nothing (Raft records none either).
-      if (!contextWasWithheld)
-        this.#messageAttention.recordReadContext(agentId, target, consumedBoundary);
+    // Raft's consume effects, one write for the send. A presented hold consumed the frontier its
+    // notice presented (`recordConsumedSeqs(data.seenUpToSeq)`, or the shown window's newest for a
+    // hold that carries no frontier) and reviewed the target; a withheld one presented nothing.
+    // A sent send whose server advanced the boundary over messages the Agent had already seen
+    // (`exact_target_pending_already_seen`, `target_first_touch_recent_context_already_seen`)
+    // consumes that boundary in either mode, which is what empties the exact set.
+    let presented = 0;
+    if (held && !contextWasWithheld) {
+      presented = result.seenUpToSeq ?? 0;
+      for (const message of result.messages)
+        if (message.target === target && message.sequence > presented) presented = message.sequence;
     }
     const recentUnread = contextWasWithheld
       ? []
       : (result.recentUnread ?? []).filter((message) => message.target === target);
-    if (recentUnread.length > 0)
-      this.#messageAttention.recordModelSeen(
-        agentId,
-        target,
-        Math.max(...recentUnread.map(({ sequence }) => sequence)),
-      );
+    let through = presented;
+    if (!held && result.accepted) through = Math.max(through, result.seenUpToSeq ?? 0);
+    for (const message of recentUnread) through = Math.max(through, message.sequence);
+    this.#messageAttention.recordSendContext(
+      agentId,
+      target,
+      through,
+      presented > 0 ? { sequence: presented } : undefined,
+    );
     // Raft's freshness-decision activity (`recordFreshnessDecisionActivity`, bundle 843454): one
     // working status row per held send, titled `Send held by freshness check`, carrying the target,
     // the count line and the decision line(s) as its text. A held context in `withheld` mode was
@@ -3809,11 +3828,14 @@ export class DaemonRuntime {
     target: string | undefined,
     agentApiKey: string,
   ): Promise<AgentMessageResponse> {
-    const settlesAttention =
-      operation === "read" && target && !request.before && !request.after && !request.around;
-    const attentionUpperBound = settlesAttention
-      ? this.#messageAttention.check(agentId).find((item) => item.target === target)?.latestSequence
-      : undefined;
+    // An unpaged read looks at what is unread now; when it finds nothing, the attention the daemon
+    // held for the target up to this point is stale.
+    const unpaged = operation === "read" && !request.before && !request.after && !request.around;
+    const attentionUpperBound =
+      unpaged && target
+        ? this.#messageAttention.check(agentId).find((item) => item.target === target)
+            ?.latestSequence
+        : undefined;
     const result = await this.#transport.agentMessage!(
       {
         idempotencyKey: request.idempotencyKey,
@@ -3835,28 +3857,8 @@ export class DaemonRuntime {
       },
       agentApiKey,
     );
-    // Whatever a read showed the Agent counts as seen, including what an anchored read showed
-    // beyond the contiguous frontier, which it does not move. A search does not: it shows a
-    // truncated preview without whether the message mentions the Agent.
-    if (result.accepted && operation === "read")
-      this.#messageAttention.recordSeenMessages(agentId, result.messages);
-    // The newest message a successful read showed for `target` itself; one pass, no copies.
-    let visibleSequence = 0;
-    if (operation === "read" && result.accepted && !request.around)
-      for (const message of result.messages)
-        if (message.target === target && message.sequence > visibleSequence)
-          visibleSequence = message.sequence;
-    if (settlesAttention && result.accepted) {
-      if (visibleSequence > 0)
-        this.#messageAttention.recordModelSeen(agentId, target, visibleSequence);
-      else if (result.messages.length === 0 && attentionUpperBound !== undefined)
-        this.#messageAttention.clearThrough(agentId, target, attentionUpperBound);
-    }
-    // The thread-mismatch guard's read context: a successful `read` reviews `target`, including a
-    // paged one, and remembers the newest message it showed. An `--around` read only looks
-    // something up, so it orders nothing (Raft's `read --around` records no order either).
-    if (operation === "read" && target && result.accepted && !request.around)
-      this.#messageAttention.recordReadContext(agentId, target, visibleSequence);
+    if (operation === "read" && target && result.accepted)
+      this.#consumeHistoryRead(agentId, target, request, result, unpaged, attentionUpperBound);
     return {
       idempotencyKey: request.idempotencyKey,
       accepted: result.accepted,
@@ -3869,6 +3871,53 @@ export class DaemonRuntime {
       olderCursor: result.olderCursor,
       newerCursor: result.newerCursor,
     };
+  }
+
+  /**
+   * What a history read showed the Agent (Raft 1.0.38's `message read` bookkeeping), kept under the
+   * target the server resolved the read to (its consumption scope; a channel's top level has none
+   * and is already canonical). An anchored `--around` read, and a page the server does not call
+   * contiguous (`modelSeenUpToSeq` null, such as a `--before` page), record the exact sequences they
+   * showed and nothing else. A read with a boundary moves the frontier there, records what it
+   * showed above it as exact, and reviews the target; so does a read that returned nothing (Raft
+   * 1.0.38's `message read`: `recordConsumedRead` with a boundary or without rows, else
+   * `recordConsumedExactSeqs`). A consumption scope for this Agent settles what the read returned
+   * in every spelling of its conversation.
+   */
+  #consumeHistoryRead(
+    agentId: string,
+    requestedTarget: string,
+    request: LocalAgentMessageRequest,
+    result: AgentMessageTransportResponse,
+    unpaged: boolean,
+    attentionUpperBound: number | undefined,
+  ): void {
+    const scope =
+      result.consumptionScope?.agentId === agentId ? result.consumptionScope : undefined;
+    const target = scope?.target ?? requestedTarget;
+    const shown: number[] = [];
+    let visibleSequence = 0;
+    for (const message of result.messages)
+      if (message.target === target) {
+        shown.push(message.sequence);
+        if (message.sequence > visibleSequence) visibleSequence = message.sequence;
+      }
+    const through = request.around ? 0 : (result.modelSeenUpToSeq ?? 0);
+    this.#messageAttention.recordHistoryRead(agentId, {
+      spelling: requestedTarget,
+      target,
+      shown,
+      through,
+      // The thread-mismatch guard's read context: a read that joined what the Agent had read, or
+      // found nothing, reviews `target` and remembers the newest message it showed.
+      review:
+        !request.around && (through > 0 || result.messages.length === 0)
+          ? { sequence: visibleSequence }
+          : undefined,
+      scope,
+    });
+    if (unpaged && result.messages.length === 0 && attentionUpperBound !== undefined)
+      this.#messageAttention.clearThrough(agentId, target, attentionUpperBound);
   }
 
   /** The log's correlation field is `request_id`; on the Agent HTTP path it carries the request's
@@ -4098,8 +4147,14 @@ export class DaemonRuntime {
             withheldMessageCount: attention.pendingCount,
           }
         : undefined;
-    const modelSeen = this.#messageAttention.modelSeenSequence(agentId, target);
-    if (!attention && modelSeen !== 0) return undefined;
+    // Nothing pending and the Agent has seen this target (to a frontier, or one by one from a
+    // check): there is no context to present.
+    if (
+      !attention &&
+      (this.#messageAttention.modelSeenSequence(agentId, target) !== 0 ||
+        this.#messageAttention.hasExactSeen(agentId, target))
+    )
+      return undefined;
     const context = await this.#transport.agentMessage?.(
       {
         idempotencyKey: crypto.randomUUID(),
@@ -4118,7 +4173,11 @@ export class DaemonRuntime {
       agentApiKey,
     );
     const heldMessages = (context?.accepted ? context.messages : [])
-      .filter((message) => message.target === target && message.sequence > modelSeen)
+      .filter(
+        (message) =>
+          message.target === target &&
+          !this.#messageAttention.hasSeen(agentId, target, message.sequence),
+      )
       .slice(-3);
     if (heldMessages.length > 0) {
       this.#messageAttention.recordModelSeen(

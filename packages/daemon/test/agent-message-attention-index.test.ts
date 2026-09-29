@@ -826,7 +826,7 @@ test("flushing deliveries that waited for a launch records them as a received de
     expect.objectContaining({ target: "@agent", pendingCount: 2, latestSequence: 2 }),
   ]);
   expect(index.pendingMessageCount("agent-1", "@agent")).toBe(2);
-  expect(index.latestSequence("agent-1", "@agent")).toBe(2);
+  expect(index.pendingMaxSequence("agent-1", "@agent")).toBe(2);
   expect(index.pendingWindow("agent-1", "@agent", 10)).toHaveLength(2);
 });
 
@@ -886,10 +886,10 @@ test("a delivery the Agent already saw out of order is acknowledged without a no
       acks.push(ack.deliveryId);
     },
   );
-  // Reviewed through message 5, then shown message 7 by itself (an anchored read or a search),
+  // Reviewed through message 5, then shown message 7 by itself (a check or an anchored read),
   // which leaves message 6 unreviewed and the frontier at 5.
   index.recordModelSeen("agent-1", "@agent", 5);
-  index.recordSeenMessages("agent-1", [{ target: "@agent", id: "message-seven" }]);
+  index.recordExactSeen("agent-1", new Map([["@agent", [7]]]));
 
   const seven = { ...delivery("seven"), messageId: "message-seven", sequence: 7 };
   expect(index.hasConsumed(seven)).toBe(true);
@@ -913,7 +913,7 @@ test("flushing a waiting delivery the Agent already saw out of order does not an
       acks.push(ack.deliveryId);
     },
   );
-  index.recordSeenMessages("agent-1", [{ target: "@agent", id: "message-seven" }]);
+  index.recordExactSeen("agent-1", new Map([["@agent", [7]]]));
 
   await index.flush("agent-1", [{ ...delivery("seven"), messageId: "message-seven", sequence: 7 }]);
 
@@ -1240,4 +1240,236 @@ test("the next notice appends a MEMORY.md over-limit reminder once", async () =>
     target: "@ada",
   });
   expect(notices[1]).not.toContain("MEMORY.md");
+});
+
+test("messages shown one by one settle their attention without moving the frontier", async () => {
+  const index = new AgentMessageAttentionIndex("workspace-1", runtime, async () => {});
+  await index.receive({ ...delivery("three"), sequence: 3 });
+  await index.receive({ ...delivery("four"), sequence: 4 });
+
+  index.recordExactSeen("agent-1", new Map([["@agent", [3]]]));
+
+  expect(index.pendingMessageCount("agent-1", "@agent")).toBe(1);
+  expect(
+    index.pendingWindow("agent-1", "@agent", 3).map((entry) => entry.delivery.sequence),
+  ).toEqual([4]);
+  expect(index.modelSeenSequence("agent-1", "@agent")).toBe(0);
+  expect(index.seenExactSequences("agent-1", "@agent")).toEqual([3]);
+});
+
+test("exact sequences survive a restart and a frontier that reaches them prunes them", () => {
+  const store = new AgentConsumedSeqStore(temporaryStateDirectory());
+  const first = indexWithConsumedSeqs(store);
+  first.recordExactSeen(
+    "agent-1",
+    new Map([
+      ["@agent", [8, 6]],
+      ["#general", [2]],
+    ]),
+  );
+  first.recordModelSeen("agent-1", "@agent", 6);
+  expect(first.seenExactSequences("agent-1", "@agent")).toEqual([8]);
+
+  const restarted = indexWithConsumedSeqs(store);
+  expect(restarted.seenExactSequences("agent-1", "@agent")).toEqual([8]);
+  expect(restarted.seenExactSequences("agent-1", "#general")).toEqual([2]);
+  expect(restarted.hasConsumed({ ...delivery("eight"), sequence: 8 })).toBe(true);
+  expect(restarted.hasConsumed({ ...delivery("seven"), sequence: 7 })).toBe(false);
+});
+
+test("an alias spelling shares its target's consumed state, across a restart", () => {
+  const store = new AgentConsumedSeqStore(temporaryStateDirectory());
+  const index = indexWithConsumedSeqs(store);
+  index.recordTargetAlias("agent-1", "@Agent", "@agent");
+  index.recordExactSeen("agent-1", new Map([["@agent", [4]]]));
+
+  expect(index.resolveTarget("agent-1", "@Agent")).toBe("@agent");
+  expect(index.resolveTarget("agent-1", "@bea")).toBe("@bea");
+  const restarted = indexWithConsumedSeqs(store);
+  const canonical = restarted.resolveTarget("agent-1", "@Agent");
+  expect(canonical).toBe("@agent");
+  expect(restarted.hasSeen("agent-1", canonical, 4)).toBe(true);
+});
+
+test("an alias of an alias names the canonical target directly", () => {
+  const store = new AgentConsumedSeqStore(temporaryStateDirectory());
+  const index = indexWithConsumedSeqs(store);
+  index.recordTargetAlias("agent-1", "a", "b");
+  index.recordTargetAlias("agent-1", "b", "c");
+  index.recordTargetAlias("agent-1", "z", "a");
+
+  for (const spelling of ["a", "b", "z"])
+    expect(index.resolveTarget("agent-1", spelling)).toBe("c");
+  expect(store.read("agent-1").aliases).toEqual({ a: "c", b: "c", z: "c" });
+});
+
+test("a history read records its alias, frontier, exact sequences and read order in one write", () => {
+  const writes: unknown[] = [];
+  const store = new AgentConsumedSeqStore(temporaryStateDirectory());
+  const counting = {
+    read: (agentId: string) => store.read(agentId),
+    write: (agentId: string, state: Parameters<AgentConsumedSeqStore["write"]>[1]) => {
+      writes.push(state);
+      store.write(agentId, state);
+    },
+  };
+  const index = new AgentMessageAttentionIndex(
+    "workspace-1",
+    runtime,
+    async () => {},
+    () => {},
+    { shouldHold: () => false, enqueue: () => {}, busy: () => {}, consumedSeqs: counting },
+  );
+
+  index.recordHistoryRead("agent-1", {
+    spelling: "@Agent",
+    target: "@agent",
+    shown: [3, 4, 6, 9],
+    through: 4,
+    review: { sequence: 9 },
+  });
+
+  expect(writes).toHaveLength(1);
+  expect(store.read("agent-1")).toEqual({
+    targets: { "@agent": { seq: 4, readOrder: 1, reviewedSeq: 9, exactSeqs: [6, 9] } },
+    aliases: { "@Agent": "@agent" },
+    nextReadOrder: 2,
+  });
+});
+
+test("a read's consumption scope settles the messages it showed in every spelling of that conversation", async () => {
+  const index = new AgentMessageAttentionIndex("workspace-1", runtime, async () => {});
+  await index.receive({ ...delivery("five"), target: "@Agent", sequence: 5 });
+  await index.receive({ ...delivery("six"), target: "@Agent", sequence: 6 });
+  // Another conversation's message and a thread of this one are not the read's to settle.
+  await index.receive({
+    ...delivery("other"),
+    conversationId: "conversation-2",
+    target: "@bea",
+    sequence: 5,
+  });
+  const thread = "@Agent:0f0e0d0c-0b0a-4908-8706-050403020100";
+  await index.receive({ ...delivery("thread"), target: thread, sequence: 5 });
+
+  index.recordHistoryRead("agent-1", {
+    spelling: "@agent",
+    target: "@agent",
+    shown: [5],
+    through: 0,
+    scope: { conversationId: "conversation-1", channelType: "dm", target: "@agent" },
+  });
+
+  expect(index.pendingMessageCount("agent-1", "@Agent")).toBe(1);
+  expect(index.pendingMessageCount("agent-1", "@bea")).toBe(1);
+  expect(index.pendingMessageCount("agent-1", thread)).toBe(1);
+
+  const canonicalThread = "@agent:0f0e0d0c-0b0a-4908-8706-050403020100";
+  index.recordHistoryRead("agent-1", {
+    spelling: canonicalThread,
+    target: canonicalThread,
+    shown: [5],
+    through: 5,
+    scope: { conversationId: "conversation-1", channelType: "thread", target: canonicalThread },
+  });
+  expect(index.pendingMessageCount("agent-1", thread)).toBe(0);
+  expect(index.pendingMessageCount("agent-1", "@Agent")).toBe(1);
+});
+
+/** A durable store that counts the snapshots written to it. */
+function countingStore() {
+  const store = new AgentConsumedSeqStore(temporaryStateDirectory());
+  const writes: unknown[] = [];
+  return {
+    store,
+    writes,
+    port: {
+      read: (agentId: string) => store.read(agentId),
+      write: (agentId: string, state: Parameters<AgentConsumedSeqStore["write"]>[1]) => {
+        writes.push(state);
+        store.write(agentId, state);
+      },
+    },
+  };
+}
+
+const indexOver = (port: ReturnType<typeof countingStore>["port"]) =>
+  new AgentMessageAttentionIndex(
+    "workspace-1",
+    runtime,
+    async () => {},
+    () => {},
+    {
+      shouldHold: () => false,
+      enqueue: () => {},
+      busy: () => {},
+      consumedSeqs: port,
+    },
+  );
+
+test("a lower frontier or review after a higher one never lowers either, in memory or on disk", () => {
+  const { store, port } = countingStore();
+  const index = indexOver(port);
+  const thread = "@agent:0f0e0d0c-0b0a-4908-8706-050403020100";
+
+  index.recordModelSeen("agent-1", "@agent", 9);
+  index.recordModelSeen("agent-1", "@agent", 4);
+  index.recordReadContext("agent-1", thread, 6);
+  index.recordReadContext("agent-1", thread, 2);
+
+  expect(index.modelSeenSequence("agent-1", "@agent")).toBe(9);
+  expect(store.read("agent-1").targets).toEqual({
+    "@agent": { seq: 9 },
+    [thread]: { readOrder: 2, reviewedSeq: 6 },
+  });
+  const restarted = indexOver(port);
+  expect(restarted.modelSeenSequence("agent-1", "@agent")).toBe(9);
+  expect(restarted.latestThreadReadUnderParent("agent-1", "@agent")).toEqual({
+    target: thread,
+    order: 2,
+  });
+});
+
+test("an operation that changes nothing writes no snapshot", () => {
+  const { writes, port } = countingStore();
+  const index = indexOver(port);
+
+  index.recordModelSeen("agent-1", "@agent", 9);
+  index.recordModelSeen("agent-1", "@agent", 4);
+  index.recordModelSeen("agent-1", "@agent", 9);
+  index.recordTargetAlias("agent-1", "@Agent", "@agent");
+  index.recordTargetAlias("agent-1", "@Agent", "@agent");
+  index.recordExactSeen("agent-1", new Map([["@agent", [12]]]));
+  index.recordExactSeen("agent-1", new Map([["@agent", [12, 8]]]));
+  index.recordSendContext("agent-1", "@agent", 7);
+  index.recordHistoryRead("agent-1", {
+    spelling: "@agent",
+    target: "@agent",
+    shown: [],
+    through: 0,
+  });
+
+  expect(writes).toHaveLength(3);
+});
+
+test("a consumption scope settles in other spellings only the messages the read returned", async () => {
+  const index = new AgentMessageAttentionIndex("workspace-1", runtime, async () => {});
+  const upper = "@Agent:0F0E0D0C-0B0A-4908-8706-050403020100";
+  await index.receive({ ...delivery("five"), target: upper, sequence: 5 });
+  await index.receive({ ...delivery("six"), target: upper, sequence: 6 });
+
+  // The page showed message 5 and reports a boundary through 6: Raft suppresses a pending notice
+  // only for a message the history response carried, matched however its thread root is spelled.
+  const canonical = "@agent:0f0e0d0c-0b0a-4908-8706-050403020100";
+  index.recordHistoryRead("agent-1", {
+    spelling: canonical,
+    target: canonical,
+    shown: [5],
+    through: 6,
+    scope: { conversationId: "conversation-1", channelType: "thread", target: canonical },
+  });
+
+  expect(index.pendingMessageCount("agent-1", upper)).toBe(1);
+  expect(index.pendingWindow("agent-1", upper, 3).map(({ delivery }) => delivery.sequence)).toEqual(
+    [6],
+  );
 });

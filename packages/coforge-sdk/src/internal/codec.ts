@@ -79,6 +79,7 @@ import {
   AGENT_CONTEXT_SCAN_RESPONSE_MESSAGE_TYPE,
 } from "./index";
 import { AGENT_MESSAGE_METHOD, AGENT_MESSAGE_ACK_METHOD } from "./index";
+import { isSeenExactSeqs } from "./freshness-decision";
 import type {
   RuntimeMetadata,
   DaemonRuntimeCodeAgentsUpdateRequest,
@@ -1155,6 +1156,10 @@ export function validateAgentMessageRequest(request: AgentMessageRequest): Agent
     throw new Error("invalid Agent message freshness context mode");
   if (request.seenUpToSeq !== undefined && request.operation !== "send")
     throw new Error("Agent message seen-up-to sequence is only valid for send");
+  if (request.seenExactSeqs !== undefined && request.operation !== "send")
+    throw new Error("Agent message exact seen sequences are only valid for send");
+  if (request.seenExactSeqs !== undefined && !isSeenExactSeqs(request.seenExactSeqs))
+    throw new Error("invalid Agent message exact seen sequences");
   if (
     !request.idempotencyKey ||
     !request.agentId ||

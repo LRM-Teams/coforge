@@ -129,7 +129,7 @@ test("read preserves the authenticated scope and page arguments", async () => {
     repository({
       readMessagesPage: async (...args) => {
         received = args;
-        return { messages: [], hasOlder: true, hasNewer: false };
+        return { messages: [], hasOlder: true, hasNewer: false, modelSeenUpToSeq: null };
       },
     }),
     { workspaceId: "workspace-1", agentId: "agent-1" },
@@ -142,7 +142,7 @@ test("read preserves the authenticated scope and page arguments", async () => {
     "#general",
     { around: "message-1", limit: 10 },
   ]);
-  expect(result).toEqual({ messages: [], hasOlder: true, hasNewer: false });
+  expect(result).toEqual({ messages: [], hasOlder: true, hasNewer: false, modelSeenUpToSeq: null });
 });
 
 test("send policy forwards a clean message to the sender", async () => {
@@ -321,7 +321,7 @@ test("send policy resolves the target once, then advances the read-through bound
   expect(calls).toEqual([
     ["target", "workspace-1", "agent-a", "@user"],
     ["advance", 7],
-    ["pending", 5],
+    ["pending", 5, undefined],
   ]);
   expect(result).toMatchObject({
     state: "sent",
@@ -362,6 +362,15 @@ function pendingRow(sequence: number, body: string) {
     attachments: [],
   };
 }
+
+/** A target's newest `rows` as the repository reports them: the window less what the Agent was
+ * shown one by one, and the window's newest sequence. */
+const recentContext =
+  (rows: ReturnType<typeof pendingRow>[]) =>
+  async (_limit: number, excluding?: readonly number[]) => ({
+    unseen: rows.filter((row) => !(excluding ?? []).includes(row.sequence)),
+    maxSequence: rows.length ? Math.max(...rows.map((row) => row.sequence)) : undefined,
+  });
 
 const sendInput = (overrides: Record<string, unknown> = {}) => ({
   idempotencyKey: "request-1",
@@ -435,7 +444,7 @@ test("send policy holds a first touch of a target that already carries context",
     {
       repository: freshnessRepository({
         readPending: async () => [],
-        readRecent: async () => [pendingRow(4, "recent context")],
+        readRecent: recentContext([pendingRow(4, "recent context")]),
       }),
       sender: { executeFromAgent: async () => ({ id: "unreachable" }) },
     },
@@ -457,7 +466,7 @@ test("send policy forwards a first touch of a target with no context at all", as
     {
       repository: freshnessRepository({
         readPending: async () => [],
-        readRecent: async () => [],
+        readRecent: recentContext([]),
       }),
       sender: { executeFromAgent: async () => ({ id: "message-1" }) },
     },
@@ -510,7 +519,7 @@ test("send policy reports the unbounded newer count, so omitted messages stay vi
 });
 
 test("every freshness decision names its own fact id", async () => {
-  const send = (options: { seenUpToSeq?: number; readRecent?: () => Promise<never[]> }) =>
+  const send = (options: { seenUpToSeq?: number; readRecent?: ReturnType<typeof recentContext> }) =>
     executeAgentSendMessageWithPolicy(
       {
         repository: freshnessRepository({
@@ -559,4 +568,198 @@ test("send policy in withheld mode hides bodies and reports the repository's tru
   expect(boundary).toBeUndefined();
   expect(result.heldMessages).toEqual([]);
   expect(JSON.stringify(result)).not.toContain("SECRET");
+});
+
+test("send policy leaves out of its pending context the messages the Agent was shown one by one", async () => {
+  const pending = [pendingRow(7, "checked"), pendingRow(9, "never shown")];
+  const excluded: unknown[] = [];
+  const freshness: AgentTargetFreshness = {
+    advanceReadThrough: async () => 4,
+    readPending: async (after, excluding) => {
+      excluded.push(excluding);
+      return pending.filter(
+        (row) => row.sequence > (after ?? 0) && !(excluding ?? []).includes(row.sequence),
+      );
+    },
+    countPending: async (after, excluding) =>
+      pending.filter(
+        (row) => row.sequence > (after ?? 0) && !(excluding ?? []).includes(row.sequence),
+      ).length,
+  };
+  const dependencies = {
+    repository: freshnessRepository(freshness),
+    sender: { executeFromAgent: async () => ({ id: "message-10" }) },
+  };
+
+  // The repository, which knows each read's lower bound, drops what lies at or below it.
+  const held = await executeAgentSendMessageWithPolicy(
+    dependencies,
+    sendInput({ seenUpToSeq: 4, seenExactSeqs: [2, 7] }),
+  );
+  expect(excluded[0]).toEqual([2, 7]);
+  expect(held).toMatchObject({ state: "held", newMessageCount: 1, seenUpToSeq: 9 });
+  expect(held.heldMessages?.map((message) => message.id)).toEqual(["message-9"]);
+
+  const sent = await executeAgentSendMessageWithPolicy(
+    dependencies,
+    sendInput({ seenUpToSeq: 4, seenExactSeqs: [7, 9] }),
+  );
+  expect(sent).toMatchObject({ state: "sent", decision: "forward", messageId: "message-10" });
+
+  // A withheld send presented nothing, but what the Agent saw one by one it still saw.
+  const withheld = await executeAgentSendMessageWithPolicy(
+    dependencies,
+    sendInput({ seenUpToSeq: 4, seenExactSeqs: [7, 9], freshnessContextMode: "withheld" }),
+  );
+  expect(withheld).toMatchObject({ state: "sent" });
+});
+
+test("a first touch holds only on the recent context the Agent was not shown, presenting the window's newest boundary", async () => {
+  const held = await executeAgentSendMessageWithPolicy(
+    {
+      repository: freshnessRepository({
+        readPending: async () => [],
+        readRecent: recentContext([
+          pendingRow(3, "checked"),
+          pendingRow(4, "not shown"),
+          pendingRow(5, "checked"),
+        ]),
+      }),
+      sender: { executeFromAgent: async () => ({ id: "unreachable" }) },
+    },
+    sendInput({ seenExactSeqs: [3, 5] }),
+  );
+  // Raft's `planFirstTouchRecentContext`: the held context is the unconsumed messages, and its
+  // `seenUpToSeq` is the whole recent window's newest (the consume boundary).
+  expect(held).toMatchObject({
+    state: "held",
+    decision: "syncing_hold",
+    reason: "target_first_touch_recent_context",
+    newMessageCount: 1,
+    shownMessageCount: 1,
+    seenUpToSeq: 5,
+  });
+  expect(held.heldMessages?.map((message) => message.id)).toEqual(["message-4"]);
+});
+
+test("a first touch whose recent context the Agent was all shown forwards and advances the boundary over it", async () => {
+  const advanced: number[] = [];
+  const sent = await executeAgentSendMessageWithPolicy(
+    {
+      repository: freshnessRepository({
+        advanceReadThrough: async (sequence) => {
+          advanced.push(sequence);
+          return sequence;
+        },
+        readPending: async () => [],
+        readRecent: recentContext([pendingRow(4, "checked"), pendingRow(5, "checked")]),
+      }),
+      sender: { executeFromAgent: async () => ({ id: "message-6" }) },
+    },
+    sendInput({ seenExactSeqs: [4, 5] }),
+  );
+  expect(sent).toMatchObject({
+    state: "sent",
+    decision: "forward",
+    reason: "target_first_touch_recent_context_already_seen",
+    messageId: "message-6",
+    seenUpToSeq: 5,
+  });
+  expect(advanced).toEqual([5]);
+});
+
+test("pending messages the Agent was all shown forward, advancing the boundary only when a known boundary reaches them", async () => {
+  const pending = [pendingRow(6, "checked"), pendingRow(8, "checked")];
+  const send = async (readThrough: number) => {
+    const advanced: number[] = [];
+    let pendingReads = 0;
+    const result = await executeAgentSendMessageWithPolicy(
+      {
+        repository: freshnessRepository({
+          advanceReadThrough: async (sequence) => {
+            advanced.push(sequence);
+            return Math.min(sequence, 8);
+          },
+          readThrough: async () => readThrough,
+          readPending: async (after, excluding) => {
+            pendingReads += 1;
+            return pending.filter(
+              (row) => row.sequence > (after ?? 0) && !(excluding ?? []).includes(row.sequence),
+            );
+          },
+          // The pending maximum is one aggregate, not a second window read with its bodies.
+          maxPendingSequence: async (after) =>
+            Math.max(
+              0,
+              ...pending.filter((row) => row.sequence > (after ?? 0)).map((row) => row.sequence),
+            ),
+        }),
+        sender: { executeFromAgent: async () => ({ id: "message-9" }) },
+      },
+      sendInput({ seenUpToSeq: 5, seenExactSeqs: [6, 8] }),
+    );
+    expect(pendingReads).toBe(1);
+    return { result, advanced };
+  };
+
+  // The check that showed them moved the server's read-through past them: the boundary advances.
+  const caughtUp = await send(8);
+  expect(caughtUp.result).toMatchObject({
+    state: "sent",
+    decision: "forward",
+    reason: "exact_target_pending_already_seen",
+    seenUpToSeq: 8,
+  });
+  expect(caughtUp.advanced).toEqual([5, 8]);
+
+  // Nothing known reaches message 8: the send goes, and no boundary moves.
+  const behind = await send(5);
+  expect(behind.result).toMatchObject({
+    state: "sent",
+    reason: "exact_target_pending_already_seen",
+  });
+  expect(behind.result.seenUpToSeq).toBeUndefined();
+  expect(behind.advanced).toEqual([5]);
+});
+
+test("a withheld send still treats what lies at or below the reported boundary as seen", async () => {
+  const boundaries: (number | undefined)[] = [];
+  await executeAgentSendMessageWithPolicy(
+    {
+      repository: freshnessRepository({
+        advanceReadThrough: async (sequence) => sequence,
+        readPending: async (after) => {
+          boundaries.push(after);
+          return [];
+        },
+      }),
+      sender: { executeFromAgent: async () => ({ id: "message-9" }) },
+    },
+    sendInput({ seenUpToSeq: 5, freshnessContextMode: "withheld" }),
+  );
+  // Raft's `isMessageModelSeen` does not depend on the mode.
+  expect(boundaries).toEqual([5]);
+});
+
+test("a withheld send never loads first-touch context", async () => {
+  let recentLoaded = false;
+  const result = await executeAgentSendMessageWithPolicy(
+    {
+      repository: freshnessRepository({
+        readPending: async () => [],
+        readRecent: async (limit, excluding) => {
+          recentLoaded = true;
+          return recentContext([pendingRow(4, "recent")])(limit, excluding);
+        },
+      }),
+      sender: { executeFromAgent: async () => ({ id: "message-5" }) },
+    },
+    sendInput({ freshnessContextMode: "withheld" }),
+  );
+  expect(result).toMatchObject({
+    state: "sent",
+    decision: "forward",
+    reason: "no_exact_target_pending_or_recent_context",
+  });
+  expect(recentLoaded).toBe(false);
 });

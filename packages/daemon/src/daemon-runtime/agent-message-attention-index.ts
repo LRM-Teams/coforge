@@ -10,10 +10,16 @@ import {
   HELD_CONTEXT_LIMIT,
   isChannelMessageTarget,
   isValidMessageSender,
+  mergeSeenExactSeqs,
   renderMessageSender,
+  threadRootTarget,
 } from "@lrm/coforge-sdk/internal";
+import type { AgentHistoryConsumptionScope } from "@lrm/coforge-sdk/agent";
 import type { AgentProcessManager } from "#src/agent-runtime/agent-process-manager";
-import type { AgentConsumedSeqPort } from "#src/persistence/agent-consumed-seq-store";
+import type {
+  AgentConsumedSeqEntry,
+  AgentConsumedSeqPort,
+} from "#src/persistence/agent-consumed-seq-store";
 
 const logger = getLogger(["coforge", "daemon", "message-attention"]);
 
@@ -33,8 +39,6 @@ export type MessageAttention = Readonly<{
  * as new, which only costs one extra inbox notice.
  */
 const REMEMBERED_DELIVERIES = 4096;
-/** Out-of-order seen message ids remembered per Agent and target; the oldest go first. */
-const SEEN_MESSAGE_LIMIT = 1024;
 
 /** How many of the newest unreviewed deliveries per target the index keeps for a locally decided
  * freshness hold to show: exactly Raft's `DEFAULT_HELD_CONTEXT_LIMIT` (`HELD_CONTEXT_LIMIT` in
@@ -129,10 +133,20 @@ export class AgentMessageAttentionIndex {
   >();
   readonly #attention = new Map<string, Map<string, MessageAttention>>();
   readonly #modelSeen = new Map<string, Map<string, number>>();
-  /** Messages the Agent was shown one by one, per target, beyond its contiguous frontier: an
-   * anchored `read` or a `search` shows messages without moving `#modelSeen`. Volatile, bounded by
-   * `SEEN_MESSAGE_LIMIT` per target, and dropped with the Agent. */
-  readonly #seenMessageIds = new Map<string, Map<string, Set<string>>>();
+  /** Raft 1.0.38's `exactSeqs`: the sequences above each target's contiguous frontier that the
+   * Agent was shown one by one (a `check`, an anchored `read`, a read the server did not call
+   * contiguous), kept ascending so a lookup is a binary search and an addition a linear merge.
+   * Durable with the frontier, bounded by `SEEN_EXACT_SEQS_LIMIT` per target, and pruned as the
+   * frontier reaches them. */
+  readonly #exactSeen = new Map<string, Map<string, readonly number[]>>();
+  /** Raft 1.0.38's `aliases`, with chains compressed: every spelling maps straight to the canonical
+   * target its consumed state is kept under, so a lookup is one `get`. */
+  readonly #aliases = new Map<string, Map<string, string>>();
+  /** The targets with attention in each conversation, learned from their deliveries and pruned with
+   * the attention, so a history read's consumption scope settles a conversation's targets however
+   * each is spelled. `#attentionConversation` is the way back, for the pruning. */
+  readonly #conversationTargets = new Map<string, Map<string, Set<string>>>();
+  readonly #attentionConversation = new Map<string, Map<string, string>>();
   readonly #pendingSequences = new Map<string, Map<string, Set<number>>>();
   /** The newest unreviewed deliveries per Agent and target, with the moment the daemon learned
    * about each. Kept so a locally decided freshness hold can show the Agent the same bounded
@@ -140,20 +154,18 @@ export class AgentMessageAttentionIndex {
    * reviewed, which is what lets a resend through instead of holding it again. Bounded by
    * `PENDING_WINDOW_LIMIT`; pruned as the boundary advances and dropped with the Agent. */
   readonly #pendingWindow = new Map<string, Map<string, PendingWindowEntry[]>>();
-  /** The newest sequence ever seen per (agent, target), reviewed or not. Unlike `#attention` (which
-   * is cleared once the boundary catches up) this is only forgotten with the Agent, so a settled
-   * target still reports the context it once held — the daemon's own answer to "is there anything
-   * here for this target at all", which its freshness decision needs. */
-  readonly #latestKnown = new Map<string, Map<string, number>>();
   readonly #readContext = new Map<string, Map<string, number>>();
-  /** The newest message a review (`recordReadContext`) of each target showed. Unlike `#modelSeen`,
-   * a `check` never moves it: it answers "has a review shown the Agent anything here", which is what
-   * makes a thread count as reply context. Persisted apart from the frontier as `reviewedSeq`. */
+  /** The newest message a review of each target showed: a `read` other than `--around`, or the
+   * context a presented (not withheld) hold showed, which reviews the target as well as moving its
+   * frontier. Unlike `#modelSeen`, a `check`, an anchored read and a sent send's advanced boundary
+   * never move it: it answers "has a review shown the Agent anything here", which is what makes a
+   * thread count as reply context. Persisted apart from the frontier as `reviewedSeq`. */
   readonly #reviewedSequence = new Map<string, Map<string, number>>();
   readonly #readContextCounters = new Map<string, number>();
   /** Raft's `consumed-seqs.json`: the durable copy of `#modelSeen` (the `seq` frontier),
-   * `#readContext` (the `readOrder` each target was last reviewed at) and `#reviewedSequence`
-   * (`reviewedSeq`). */
+   * `#readContext` (the `readOrder` each target was last reviewed at), `#reviewedSequence`
+   * (`reviewedSeq`), `#exactSeen` (`exactSeqs`) and `#aliases`. Once an Agent is hydrated these maps
+   * are the source of truth, and each operation writes one snapshot of them. */
   readonly #consumedSeqs?: AgentConsumedSeqPort;
   /** Agents whose durable cursor has already been folded into the maps above. Raft reads the file
    * on every lookup; reading it once per Agent per daemon life is the same answer, minus the
@@ -255,7 +267,7 @@ export class AgentMessageAttentionIndex {
   }
 
   /** Records one delivery the Agent has not been shown yet: its target's attention, pending
-   * sequences, newest known sequence, and the window a local hold presents. */
+   * sequences, and the window a local hold presents. */
   #recordAttention(message: AgentMessageDelivery & { target: string }): MessageAttention {
     const target = message.target;
     const latestSender = printableSender(message.latestSenderKind, message.latestSenderHandle);
@@ -286,7 +298,7 @@ export class AgentMessageAttentionIndex {
     };
     byTarget.set(target, current);
     this.#attention.set(message.agentId, byTarget);
-    this.#recordLatest(message.agentId, target, message.sequence);
+    this.#recordConversation(message.agentId, target, message.conversationId);
     this.#recordPendingWindow(message.agentId, target, message);
     return current;
   }
@@ -397,7 +409,7 @@ export class AgentMessageAttentionIndex {
     // Recovery is a wakeup, not a second copy of the bodies: the same messages will come back
     // through `coforge message check`. DM and channel share `#localViewRows` (one target per
     // line, no body). `recordModelSeen` is not advanced here — the server cursor has not moved,
-    // and `check` is what advances both.
+    // and `check` is what advances it (and records what it showed as exact sequences).
     const recoveryRows = this.#localViewRows(recoveredMessages, []);
     const rows = [
       ...this.#renderLocalViewRows(recoveryRows.rows),
@@ -420,7 +432,7 @@ ${INBOX_DRAIN_HINT}]`,
     if (this.#generations.get(agentId) !== generation) return;
     this.#attention.set(agentId, byTarget);
     for (const message of recoveredMessages) {
-      this.#recordLatest(agentId, message.target, message.sequence);
+      this.#recordConversation(agentId, message.target, message.conversationId);
       this.#remember(generation, message.deliveryId, message.messageId);
       generation.notified.add(message.deliveryId);
       const pendingByTarget = this.#pendingSequences.get(agentId) ?? new Map<string, Set<number>>();
@@ -661,29 +673,295 @@ ${INBOX_DRAIN_HINT}]`,
     });
   }
 
-  /** Records messages the Agent was shown individually, so a later delivery of any of them is
-   * treated as already consumed even when the contiguous frontier has not reached it. */
-  recordSeenMessages(agentId: string, messages: readonly { target: string; id: string }[]): void {
-    for (const { target, id } of messages) {
-      if (!target || !id) continue;
-      const byTarget = this.#seenMessageIds.get(agentId) ?? new Map<string, Set<string>>();
-      const ids = byTarget.get(target) ?? new Set<string>();
-      ids.delete(id);
-      ids.add(id);
-      if (ids.size > SEEN_MESSAGE_LIMIT) ids.delete(ids.values().next().value!);
-      byTarget.set(target, ids);
-      this.#seenMessageIds.set(agentId, byTarget);
+  /**
+   * Records the messages the Agent was shown one by one, per target, above its contiguous frontier
+   * (Raft 1.0.38's `recordConsumedExactSeqs`, which a `check` calls): a later delivery of any of them
+   * is already consumed, a send reports them as `seenExactSeqs`, and their pending attention is
+   * settled. The frontier does not move. At most one write, for every target.
+   */
+  recordExactSeen(agentId: string, shown: ReadonlyMap<string, readonly number[]>): void {
+    this.#hydrate(agentId);
+    let changed = false;
+    for (const [target, sequences] of shown) {
+      if (!target || !this.#addExact(agentId, target, sequences)) continue;
+      changed = true;
+      this.#settleSeen(agentId, target);
+    }
+    if (changed) this.#persist(agentId);
+  }
+
+  /**
+   * What one history read showed the Agent (Raft 1.0.38's `message read` bookkeeping), in at most
+   * one write: `spelling` becomes an alias of `target`; the frontier moves to `through` (0 for
+   * none); the `shown` sequences (ascending) above it become exact; a `review` orders the target;
+   * and a consumption scope settles, in every other target of its conversation, exactly the
+   * messages the read returned.
+   */
+  recordHistoryRead(
+    agentId: string,
+    read: {
+      spelling: string;
+      target: string;
+      shown: readonly number[];
+      through: number;
+      review?: { sequence: number };
+      scope?: Pick<AgentHistoryConsumptionScope, "conversationId" | "channelType" | "target">;
+    },
+  ): void {
+    this.#hydrate(agentId);
+    const { target } = read;
+    let changed = this.#setAlias(agentId, read.spelling, target);
+    if (read.through > 0) changed = this.#advanceFrontier(agentId, target, read.through) || changed;
+    changed = this.#addExact(agentId, target, read.shown) || changed;
+    this.#settleSeen(agentId, target);
+    if (read.review) {
+      this.#takeReadOrder(agentId, target, read.review.sequence);
+      changed = true;
+    }
+    if (read.scope) this.#settleScope(agentId, read.scope, read.shown, target);
+    if (changed) this.#persist(agentId);
+  }
+
+  /**
+   * Context a send presented or a sent send's advanced boundary (Raft's `recordConsumedSeqs` of a
+   * held response, and the consume effect of a forwarded one), in one write: the frontier moves to
+   * `through`, and a presented context (`review`) also reviews the target.
+   */
+  recordSendContext(
+    agentId: string,
+    target: string,
+    through: number,
+    review?: { sequence: number },
+  ): void {
+    if (!Number.isInteger(through) || through < 1) return;
+    this.#hydrate(agentId);
+    const changed = this.#advanceFrontier(agentId, target, through);
+    if (review) this.#takeReadOrder(agentId, target, review.sequence);
+    if (changed || review) this.#persist(agentId);
+  }
+
+  /** The exact sequences a send reports for `target` (Raft 1.0.38's `seenExactSeqs`): those above
+   * its frontier, ascending, at most `SEEN_EXACT_SEQS_LIMIT`. Returned as held, never copied. */
+  seenExactSequences(agentId: string, target: string): readonly number[] {
+    this.#hydrate(agentId);
+    return this.#exactSeen.get(agentId)?.get(target) ?? NO_SEQUENCES;
+  }
+
+  /** Whether the Agent was shown anything of `target` one by one above its frontier. */
+  hasExactSeen(agentId: string, target: string): boolean {
+    this.#hydrate(agentId);
+    return (this.#exactSeen.get(agentId)?.get(target)?.length ?? 0) > 0;
+  }
+
+  /** The spelling `target`'s consumed state is kept under (Raft's `canonicalTargetKey`). */
+  resolveTarget(agentId: string, target: string): string {
+    this.#hydrate(agentId);
+    return this.#aliases.get(agentId)?.get(target) ?? target;
+  }
+
+  /** Raft's `recordTargetAlias`: `spelling` shares the consumed state kept under `canonical`. */
+  recordTargetAlias(agentId: string, spelling: string, canonical: string): void {
+    this.#hydrate(agentId);
+    if (this.#setAlias(agentId, spelling, canonical)) this.#persist(agentId);
+  }
+
+  /** Whether the Agent has already been shown message `sequence` of the canonical `target`: at or
+   * below its contiguous frontier, or shown one by one. */
+  hasSeen(agentId: string, target: string, sequence: number): boolean {
+    return (
+      this.modelSeenSequence(agentId, target) >= sequence ||
+      containsSorted(this.#exactSeen.get(agentId)?.get(target), sequence)
+    );
+  }
+
+  /** A delivery's target is the server's canonical spelling, so it needs no alias lookup. */
+  #consumed(message: AgentMessageDelivery & { target: string }): boolean {
+    return this.hasSeen(message.agentId, message.target, message.sequence);
+  }
+
+  /** Adds `sequences` above the frontier to `target`'s exact set; whether anything was added. */
+  #addExact(agentId: string, target: string, sequences: readonly number[]): boolean {
+    if (sequences.length === 0) return false;
+    const byTarget = this.#exactSeen.get(agentId) ?? new Map<string, readonly number[]>();
+    const existing = byTarget.get(target) ?? NO_SEQUENCES;
+    const incoming = isAscending(sequences) ? sequences : [...sequences].sort(byNumber);
+    const merged = mergeSeenExactSeqs(
+      this.#modelSeen.get(agentId)?.get(target) ?? 0,
+      existing,
+      incoming,
+    );
+    if (merged.length === existing.length && merged.every((value, i) => value === existing[i]))
+      return false;
+    byTarget.set(target, merged);
+    this.#exactSeen.set(agentId, byTarget);
+    return true;
+  }
+
+  /** Moves `target`'s frontier up to `sequence` (never lower), drops the exact sequences it now
+   * covers, and settles the pending attention at or below it. Whether the frontier moved. */
+  #advanceFrontier(agentId: string, target: string, sequence: number): boolean {
+    const byTarget = this.#modelSeen.get(agentId) ?? new Map<string, number>();
+    const prior = byTarget.get(target) ?? 0;
+    if (sequence <= prior) return false;
+    const frontier = sequence;
+    byTarget.set(target, frontier);
+    this.#modelSeen.set(agentId, byTarget);
+    const exactByTarget = this.#exactSeen.get(agentId);
+    const exact = exactByTarget?.get(target);
+    if (exact?.length) {
+      const kept = exact.slice(firstAbove(exact, frontier));
+      if (kept.length === 0) exactByTarget!.delete(target);
+      else if (kept.length !== exact.length) exactByTarget!.set(target, kept);
+    }
+    this.#settlePending(agentId, target, (pending) => pending <= frontier);
+    return true;
+  }
+
+  /** Settles `target`'s pending attention for everything the Agent has seen of it. */
+  #settleSeen(agentId: string, target: string): void {
+    const frontier = this.#modelSeen.get(agentId)?.get(target) ?? 0;
+    const exact = this.#exactSeen.get(agentId)?.get(target);
+    this.#settlePending(
+      agentId,
+      target,
+      (sequence) => sequence <= frontier || containsSorted(exact, sequence),
+    );
+  }
+
+  /**
+   * Settles, in every target of the conversation (and thread) a consumption scope names other than
+   * `settled` (which the caller settled already), exactly the messages the history read returned:
+   * Raft 1.0.38 suppresses a pending notice only when the history response carried that message
+   * (`legacyDmIds.has(visibleMessageId(message))`, daemon chunk 26330), however its target is
+   * spelled. Targets are matched by conversation, and a thread by its root whatever its case or
+   * length. `shown` is ascending.
+   */
+  #settleScope(
+    agentId: string,
+    scope: Pick<AgentHistoryConsumptionScope, "conversationId" | "channelType" | "target">,
+    shown: readonly number[],
+    settled: string,
+  ): void {
+    if (shown.length === 0) return;
+    const targets = this.#conversationTargets.get(agentId)?.get(scope.conversationId);
+    if (!targets) return;
+    const scopeRoot = threadRootTarget(scope.target);
+    if (scope.channelType === "thread" && scopeRoot === undefined) return;
+    for (const target of targets) {
+      if (target === settled) continue;
+      const root = threadRootTarget(target);
+      if (scope.channelType === "dm" ? root !== undefined : !sameThreadRoot(root, scopeRoot!))
+        continue;
+      this.#settlePending(agentId, target, (sequence) => containsSorted(shown, sequence));
     }
   }
 
-  /** Whether the Agent has already been shown this delivery's message: at or below its target's
-   * contiguous frontier, or shown individually. */
-  #consumed(message: AgentMessageDelivery & { target: string }): boolean {
-    return (
-      this.modelSeenSequence(message.agentId, message.target) >= message.sequence ||
-      this.#seenMessageIds.get(message.agentId)?.get(message.target)?.has(message.messageId) ===
-        true
-    );
+  /** Drops the pending sequences `settled` covers from one target's attention and window, and the
+   * attention itself once nothing is left pending. */
+  #settlePending(agentId: string, target: string, settled: (sequence: number) => boolean): void {
+    const pending = this.#pendingSequences.get(agentId)?.get(target);
+    if (pending) for (const sequence of pending) if (settled(sequence)) pending.delete(sequence);
+    const byTarget = this.#pendingWindow.get(agentId);
+    const entries = byTarget?.get(target);
+    if (byTarget && entries) {
+      const kept = entries.filter((entry) => !settled(entry.delivery.sequence));
+      if (kept.length === 0) byTarget.delete(target);
+      else if (kept.length !== entries.length) byTarget.set(target, kept);
+    }
+    const attention = this.#attention.get(agentId)?.get(target);
+    if (!attention) return;
+    if (!pending || pending.size === 0) {
+      this.clear(agentId, target);
+      return;
+    }
+    if (pending.size === attention.pendingCount) return;
+    let first = Infinity;
+    for (const sequence of pending) if (sequence < first) first = sequence;
+    this.#attention.get(agentId)?.set(target, {
+      ...attention,
+      pendingCount: pending.size,
+      firstPendingSequence: first,
+    });
+  }
+
+  #recordConversation(agentId: string, target: string, conversationId: string): void {
+    const byTarget = this.#attentionConversation.get(agentId) ?? new Map<string, string>();
+    this.#attentionConversation.set(agentId, byTarget);
+    if (byTarget.get(target) === conversationId) return;
+    byTarget.set(target, conversationId);
+    const byConversation = this.#conversationTargets.get(agentId) ?? new Map<string, Set<string>>();
+    this.#conversationTargets.set(agentId, byConversation);
+    const targets = byConversation.get(conversationId) ?? new Set<string>();
+    targets.add(target);
+    byConversation.set(conversationId, targets);
+  }
+
+  #forgetConversation(agentId: string, target: string): void {
+    const byTarget = this.#attentionConversation.get(agentId);
+    const conversationId = byTarget?.get(target);
+    if (conversationId === undefined) return;
+    byTarget!.delete(target);
+    const byConversation = this.#conversationTargets.get(agentId);
+    const targets = byConversation?.get(conversationId);
+    targets?.delete(target);
+    if (targets?.size === 0) byConversation!.delete(conversationId);
+  }
+
+  /** Maps `spelling` to `canonical`'s canonical target and repoints any spelling that named
+   * `spelling`, keeping every chain one step long. Whether anything changed. */
+  #setAlias(agentId: string, spelling: string, canonical: string): boolean {
+    if (!spelling || !canonical || spelling === canonical) return false;
+    const aliases = this.#aliases.get(agentId) ?? new Map<string, string>();
+    let target = aliases.get(canonical) ?? canonical;
+    // `canonical` was itself a spelling of `spelling`: the newer mapping wins.
+    if (target === spelling) {
+      aliases.delete(canonical);
+      target = canonical;
+    }
+    if (aliases.get(spelling) === target) return false;
+    aliases.set(spelling, target);
+    for (const [other, named] of aliases) if (named === spelling) aliases.set(other, target);
+    this.#aliases.set(agentId, aliases);
+    return true;
+  }
+
+  #takeReadOrder(agentId: string, target: string, sequence: number): void {
+    if (Number.isInteger(sequence) && sequence > 0) {
+      const reviewed = this.#reviewedSequence.get(agentId) ?? new Map<string, number>();
+      reviewed.set(target, Math.max(reviewed.get(target) ?? 0, sequence));
+      this.#reviewedSequence.set(agentId, reviewed);
+    }
+    // Reviewing a target is what orders it against every other target, which is the comparison
+    // the thread-mismatch guard makes (Raft's `recordConsumedRead`). The counter resumes above every
+    // order the durable cursor held (see `#hydrate`).
+    const order = (this.#readContextCounters.get(agentId) ?? 0) + 1;
+    this.#readContextCounters.set(agentId, order);
+    const byTarget = this.#readContext.get(agentId) ?? new Map<string, number>();
+    byTarget.set(target, order);
+    this.#readContext.set(agentId, byTarget);
+  }
+
+  /** Writes one snapshot of the Agent's durable consumed state (Raft 1.0.38's file shape). */
+  #persist(agentId: string): void {
+    const store = this.#consumedSeqs;
+    if (!store) return;
+    const targets: Record<string, AgentConsumedSeqEntry> = {};
+    const entry = (target: string) => (targets[target] ??= {}) as MutableEntry;
+    for (const [target, seq] of this.#modelSeen.get(agentId) ?? []) entry(target).seq = seq;
+    const reviewed = this.#reviewedSequence.get(agentId);
+    for (const [target, readOrder] of this.#readContext.get(agentId) ?? []) {
+      const record = entry(target);
+      record.readOrder = readOrder;
+      const reviewedSeq = reviewed?.get(target);
+      if (reviewedSeq !== undefined) record.reviewedSeq = reviewedSeq;
+    }
+    for (const [target, exactSeqs] of this.#exactSeen.get(agentId) ?? [])
+      if (exactSeqs.length > 0) entry(target).exactSeqs = exactSeqs;
+    store.write(agentId, {
+      targets,
+      aliases: Object.fromEntries(this.#aliases.get(agentId) ?? []),
+      nextReadOrder: (this.#readContextCounters.get(agentId) ?? 0) + 1,
+    });
   }
 
   modelSeenSequence(agentId: string, target: string): number {
@@ -697,17 +975,20 @@ ${INBOX_DRAIN_HINT}]`,
     return this.#attention.get(agentId)?.get(target)?.pendingCount ?? 0;
   }
 
+  /** The newest message the Agent has not been shown for this exact target, or 0: what a locally
+   * held send presents as its `seenUpToSeq` (Raft's held boundary is the unconsumed maximum). */
+  pendingMaxSequence(agentId: string, target: string): number {
+    let max = 0;
+    for (const sequence of this.#pendingSequences.get(agentId)?.get(target) ?? [])
+      if (sequence > max) max = sequence;
+    return max;
+  }
+
   /** The newest unreviewed deliveries for `target`, oldest first, at most `limit` of them: the
    * window a locally decided hold presents (Raft's `DEFAULT_HELD_CONTEXT_LIMIT`). */
   pendingWindow(agentId: string, target: string, limit: number): readonly PendingWindowEntry[] {
     const entries = this.#pendingWindow.get(agentId)?.get(target) ?? [];
     return entries.slice(-limit);
-  }
-
-  /** The newest sequence this Agent has ever seen for `target`, reviewed or not; 0 means the daemon
-   * has never carried anything for it. */
-  latestSequence(agentId: string, target: string): number {
-    return this.#latestKnown.get(agentId)?.get(target) ?? 0;
   }
 
   #recordPendingWindow(agentId: string, target: string, delivery: AgentMessageDelivery): void {
@@ -720,51 +1001,13 @@ ${INBOX_DRAIN_HINT}]`,
     this.#pendingWindow.set(agentId, byTarget);
   }
 
-  #prunePendingWindow(agentId: string, target: string, through: number): void {
-    const byTarget = this.#pendingWindow.get(agentId);
-    const entries = byTarget?.get(target);
-    if (!byTarget || !entries) return;
-    const kept = entries.filter((entry) => entry.delivery.sequence > through);
-    if (kept.length === 0) byTarget.delete(target);
-    else byTarget.set(target, kept);
-  }
-
-  #recordLatest(agentId: string, target: string, sequence: number): void {
-    if (!Number.isInteger(sequence) || sequence < 1) return;
-    const byTarget = this.#latestKnown.get(agentId) ?? new Map<string, number>();
-    if ((byTarget.get(target) ?? 0) >= sequence) return;
-    byTarget.set(target, sequence);
-    this.#latestKnown.set(agentId, byTarget);
-  }
-
+  /** Moves `target`'s consumed frontier to `sequence` (never lower), in one write: the cursor that
+   * decides the next hold and the `seenUpToSeq` a fresh send inherits. Consuming is not reviewing:
+   * it orders nothing. */
   recordModelSeen(agentId: string, target: string, sequence: number): void {
     if (!Number.isInteger(sequence) || sequence < 1) return;
     this.#hydrate(agentId);
-    const byTarget = this.#modelSeen.get(agentId) ?? new Map<string, number>();
-    byTarget.set(target, Math.max(byTarget.get(target) ?? 0, sequence));
-    this.#modelSeen.set(agentId, byTarget);
-    // The Agent has consumed this frontier, so it survives the process: the same cursor that
-    // decides the next hold and the `seenUpToSeq` a fresh send inherits. Consuming is not reviewing:
-    // a `check` page lands here and orders nothing; only `recordReadContext` takes a read order.
-    this.#consumedSeqs?.recordConsumedSeqs(agentId, { [target]: sequence });
-
-    // The window the Agent has now been shown (or the boundary it reported) is reviewed: drop what
-    // it covers, so a locally decided hold cannot present the same messages twice.
-    this.#prunePendingWindow(agentId, target, sequence);
-    const attention = this.#attention.get(agentId)?.get(target);
-    if (!attention || sequence < attention.firstPendingSequence) return;
-    if (sequence >= attention.latestSequence) {
-      this.clear(agentId, target);
-      return;
-    }
-    const pending = this.#pendingSequences.get(agentId)?.get(target);
-    if (!pending) return;
-    for (const value of pending) if (value <= sequence) pending.delete(value);
-    this.#attention.get(agentId)?.set(target, {
-      ...attention,
-      pendingCount: pending.size,
-      firstPendingSequence: Math.min(...pending),
-    });
+    if (this.#advanceFrontier(agentId, target, sequence)) this.#persist(agentId);
   }
 
   /**
@@ -773,26 +1016,10 @@ ${INBOX_DRAIN_HINT}]`,
    * `sequence` that review showed, if any. Used only by the thread-mismatch send guard, to compare
    * how recently a thread was read against how recently its parent target was read.
    */
-  recordReadContext(agentId: string, target: string, sequence?: number): void {
+  recordReadContext(agentId: string, target: string, sequence = 0): void {
     this.#hydrate(agentId);
-    if (sequence !== undefined && Number.isInteger(sequence) && sequence > 0) {
-      const reviewed = this.#reviewedSequence.get(agentId) ?? new Map<string, number>();
-      reviewed.set(target, Math.max(reviewed.get(target) ?? 0, sequence));
-      this.#reviewedSequence.set(agentId, reviewed);
-    }
-    // Reviewing a target is what orders it against every other target, which is the comparison
-    // the thread-mismatch guard makes (Raft's `recordConsumedRead`).
-    // With a durable cursor present the file hands out the order, so this process's orders continue
-    // the ones a previous process handed out; without one this counter is the only home, as before.
-    const persisted = this.#consumedSeqs?.recordConsumedRead(agentId, target, sequence);
-    const order = persisted ?? (this.#readContextCounters.get(agentId) ?? 0) + 1;
-    this.#readContextCounters.set(
-      agentId,
-      Math.max(this.#readContextCounters.get(agentId) ?? 0, order),
-    );
-    const byTarget = this.#readContext.get(agentId) ?? new Map<string, number>();
-    byTarget.set(target, order);
-    this.#readContext.set(agentId, byTarget);
+    this.#takeReadOrder(agentId, target, sequence);
+    this.#persist(agentId);
   }
 
   /** The most recently read context order for `target`, or `undefined` if never recorded. */
@@ -825,37 +1052,32 @@ ${INBOX_DRAIN_HINT}]`,
     return latest;
   }
 
-  /** Folds the durable consumed cursor for one Agent into this index's own maps, once per daemon
-   * life. Every value is merged with `Math.max`, so a cursor that travelled backwards — a file
-   * written by an older build, or a hand-edit — can never un-review context this process already
-   * consumed. The read-order counter resumes above every order in the file, exactly as Raft's
-   * `normalizeState` leaves `nextReadOrder`. */
+  /** Loads the durable consumed cursor for one Agent into this index's own maps, once per daemon
+   * life, before anything else touches that Agent's cursor; from then on these maps are the source
+   * of truth and each operation writes a snapshot of them. The store has already normalized the
+   * file (it is input nobody in this process wrote). The read-order counter resumes above every
+   * order in the file, exactly as Raft's `normalizeState` leaves `nextReadOrder`. */
   #hydrate(agentId: string): void {
     const store = this.#consumedSeqs;
     if (!store || this.#hydrated.has(agentId)) return;
     this.#hydrated.add(agentId);
     const state = store.read(agentId);
-    const modelSeen = this.#modelSeen.get(agentId) ?? new Map<string, number>();
-    const readContext = this.#readContext.get(agentId) ?? new Map<string, number>();
-    const reviewedSequence = this.#reviewedSequence.get(agentId) ?? new Map<string, number>();
+    const modelSeen = new Map<string, number>();
+    const readContext = new Map<string, number>();
+    const reviewedSequence = new Map<string, number>();
+    const exactSeen = new Map<string, readonly number[]>();
     for (const [target, entry] of Object.entries(state.targets)) {
-      const seq = entry.seq;
-      if (typeof seq === "number" && seq > 0)
-        modelSeen.set(target, Math.max(modelSeen.get(target) ?? 0, seq));
-      const order = entry.readOrder;
-      if (typeof order === "number" && order > 0)
-        readContext.set(target, Math.max(readContext.get(target) ?? 0, order));
-      const reviewed = entry.reviewedSeq;
-      if (typeof reviewed === "number" && reviewed > 0)
-        reviewedSequence.set(target, Math.max(reviewedSequence.get(target) ?? 0, reviewed));
+      if (entry.seq !== undefined) modelSeen.set(target, entry.seq);
+      if (entry.readOrder !== undefined) readContext.set(target, entry.readOrder);
+      if (entry.reviewedSeq !== undefined) reviewedSequence.set(target, entry.reviewedSeq);
+      if (entry.exactSeqs?.length) exactSeen.set(target, entry.exactSeqs);
     }
-    if (modelSeen.size > 0) this.#modelSeen.set(agentId, modelSeen);
-    if (readContext.size > 0) this.#readContext.set(agentId, readContext);
-    if (reviewedSequence.size > 0) this.#reviewedSequence.set(agentId, reviewedSequence);
-    this.#readContextCounters.set(
-      agentId,
-      Math.max(this.#readContextCounters.get(agentId) ?? 0, state.nextReadOrder - 1),
-    );
+    this.#modelSeen.set(agentId, modelSeen);
+    this.#readContext.set(agentId, readContext);
+    this.#reviewedSequence.set(agentId, reviewedSequence);
+    this.#exactSeen.set(agentId, exactSeen);
+    this.#aliases.set(agentId, new Map(Object.entries(state.aliases)));
+    this.#readContextCounters.set(agentId, state.nextReadOrder - 1);
   }
 
   clearAgent(agentId: string): void {
@@ -864,10 +1086,12 @@ ${INBOX_DRAIN_HINT}]`,
     this.#attention.delete(agentId);
     this.#modelSeen.delete(agentId);
     this.#reviewedSequence.delete(agentId);
-    this.#seenMessageIds.delete(agentId);
+    this.#exactSeen.delete(agentId);
+    this.#aliases.delete(agentId);
+    this.#conversationTargets.delete(agentId);
+    this.#attentionConversation.delete(agentId);
     this.#pendingSequences.delete(agentId);
     this.#pendingWindow.delete(agentId);
-    this.#latestKnown.delete(agentId);
     this.#readContext.delete(agentId);
     this.#readContextCounters.delete(agentId);
     this.#memoryReminders.delete(agentId);
@@ -887,6 +1111,7 @@ ${INBOX_DRAIN_HINT}]`,
   }
 
   clear(agentId: string, target: string): void {
+    this.#forgetConversation(agentId, target);
     this.#pendingSequences.get(agentId)?.delete(target);
     this.#pendingWindow.get(agentId)?.delete(target);
     const byTarget = this.#attention.get(agentId);
@@ -898,4 +1123,43 @@ ${INBOX_DRAIN_HINT}]`,
     const attention = this.#attention.get(agentId)?.get(target);
     if (!attention || attention.latestSequence <= sequence) this.clear(agentId, target);
   }
+}
+
+const NO_SEQUENCES: readonly number[] = [];
+
+type MutableEntry = { -readonly [K in keyof AgentConsumedSeqEntry]: AgentConsumedSeqEntry[K] };
+
+const byNumber = (left: number, right: number) => left - right;
+
+function isAscending(values: readonly number[]): boolean {
+  for (let i = 1; i < values.length; i++) if (values[i]! < values[i - 1]!) return false;
+  return true;
+}
+
+/** The index of the first value above `bound` in an ascending list. */
+function firstAbove(values: readonly number[], bound: number): number {
+  let low = 0;
+  let high = values.length;
+  while (low < high) {
+    const middle = (low + high) >>> 1;
+    if (values[middle]! <= bound) low = middle + 1;
+    else high = middle;
+  }
+  return low;
+}
+
+/** Whether two thread roots name the same message: compared without case, and a short (8-hex)
+ * root names the full root it begins. */
+function sameThreadRoot(left: string | undefined, right: string): boolean {
+  if (left === undefined) return false;
+  const a = left.toLowerCase();
+  const b = right.toLowerCase();
+  return a === b || (a.length < b.length ? b.startsWith(a) : a.startsWith(b));
+}
+
+/** Whether an ascending list holds `value`. */
+function containsSorted(values: readonly number[] | undefined, value: number): boolean {
+  if (!values?.length) return false;
+  const index = firstAbove(values, value - 1);
+  return values[index] === value;
 }

@@ -9,6 +9,7 @@ import {
   UUID_LIKE_PATTERN,
   isChannelMessageTarget,
   isValidMentionSelectorArray,
+  isSeenExactSeqs,
   MEMORY_OFFER_REQUIRED_MESSAGE,
 } from "@lrm/coforge-sdk/internal";
 import { createPrismaMemoryAgentDirectory } from "#src/server/workspace-memory/memory-agent-http.server";
@@ -72,10 +73,20 @@ export async function handleAgentMessagesGet(
     if (!target) return Response.json({ error: "target is required" }, { status: 400 });
     const fromSequence = parseSequenceParam(query, "fromSequence");
     const throughSequence = parseSequenceParam(query, "throughSequence");
+    const before = query.get("before") ?? undefined;
+    const after = query.get("after") ?? undefined;
+    const around = query.get("around") ?? undefined;
+    // A window start is a read from a sequence, an anchor a read around a message: together they
+    // would page across a range the anchor alone does not describe.
+    if (fromSequence !== undefined && (before || after || around))
+      return Response.json(
+        { error: "fromSequence cannot be combined with before, after or around" },
+        { status: 400 },
+      );
     const result = await readAgentMessages(repository, scope, target, {
-      before: query.get("before") ?? undefined,
-      after: query.get("after") ?? undefined,
-      around: query.get("around") ?? undefined,
+      before,
+      after,
+      around,
       limit: query.has("limit") ? Number(query.get("limit")) : undefined,
       fromSequence,
       throughSequence,
@@ -88,6 +99,8 @@ export async function handleAgentMessagesGet(
       hasNewer: result.hasNewer,
       olderCursor: messages[0]?.id,
       newerCursor: messages.at(-1)?.id,
+      modelSeenUpToSeq: result.modelSeenUpToSeq,
+      ...(result.consumptionScope ? { consumptionScope: result.consumptionScope } : {}),
     };
     return Response.json(response);
   } catch {
@@ -118,7 +131,9 @@ function mapSendResult(idempotencyKey: string, result: AgentSendMessageResult) {
     newMessageCount: result.newMessageCount,
     shownMessageCount: result.shownMessageCount,
     omittedMessageCount: result.omittedMessageCount,
-    seenUpToSeq: result.state === "held" ? result.seenUpToSeq : undefined,
+    // Held: the boundary the notice presented. Sent: the boundary the send advanced over messages
+    // the Agent had already seen, when it advanced one.
+    seenUpToSeq: result.seenUpToSeq,
     freshnessContextMode: result.freshnessContextMode,
     withheldMessageCount: result.withheldMessageCount,
     recentUnread: (result.recentUnread ?? []).map(toAgentMessage),
@@ -242,6 +257,8 @@ export async function handleAgentMessagesPost(
     return Response.json({ error: "invalid attachmentIds" }, { status: 400 });
   if (body.mentions !== undefined && !isValidMentionSelectorArray(body.mentions))
     return Response.json({ error: "invalid mentions" }, { status: 400 });
+  if (body.seenExactSeqs !== undefined && !isSeenExactSeqs(body.seenExactSeqs))
+    return Response.json({ error: "invalid seenExactSeqs" }, { status: 400 });
   // Raft's own name for this request's idempotency key (task #58 ④), and our only one: a request
   // must not be deduplicable under two spellings, so `requestId` is not read. Raft's
   // declared-but-unused `continue` field needs no handling here — this handler only reads what it
@@ -274,6 +291,7 @@ export async function handleAgentMessagesPost(
           : undefined,
       draftReplacedExisting: body.draftReplacedExisting === true,
       seenUpToSeq: typeof body.seenUpToSeq === "number" ? body.seenUpToSeq : undefined,
+      seenExactSeqs: body.seenExactSeqs,
       freshnessContextMode,
       attachmentIds: Array.isArray(body.attachmentIds)
         ? (body.attachmentIds as string[])

@@ -326,6 +326,100 @@ test("accepts two distinct attachmentIds and forwards them in order to the sende
   expect(received).toEqual(ids);
 });
 
+test("rejects seenExactSeqs that are not positive integers within Raft's 2500 limit with 400", async () => {
+  for (const seenExactSeqs of [
+    [0],
+    [1.5],
+    "7",
+    // Past the int4 `sequence` column: refused here, not failed in the database.
+    [2_147_483_648],
+    Array.from({ length: 2501 }, (_, index) => index + 1),
+  ]) {
+    const result = await handleAgentMessagesPost(
+      request({ target: "@ada", content: "hello", seenExactSeqs }),
+      { workspaceId: "workspace-1", agentId: "agent-1" },
+      {
+        requestRecords: noRequestRecords,
+        repository: {},
+        sender: { executeFromAgent: async () => ({ id: "unreachable" }) },
+      },
+    );
+    expect(result.status).toBe(400);
+    expect(await result.json()).toEqual({ error: "invalid seenExactSeqs" });
+  }
+});
+
+test("a send whose unreviewed messages the Agent was all shown one by one is not held", async () => {
+  const pending = [7, 9].map((sequence) => ({
+    id: `message-${sequence}`,
+    sequence,
+    senderKind: "human" as const,
+    senderHandle: "ada",
+    senderDescription: "",
+    target: "@ada",
+    body: "seen through a check",
+    createdAt: new Date("2026-09-29T00:00:00Z"),
+    attachments: [],
+  }));
+  const result = await handleAgentMessagesPost(
+    request({ target: "@ada", content: "hello", seenUpToSeq: 4, seenExactSeqs: [7, 9] }),
+    { workspaceId: "workspace-1", agentId: "agent-1" },
+    {
+      requestRecords: noRequestRecords,
+      repository: {
+        agentTargetFreshness: async () => ({
+          advanceReadThrough: async (sequence: number) => sequence,
+          readPending: async (after?: number, excluding?: readonly number[]) =>
+            pending.filter(
+              (row) => row.sequence > (after ?? 0) && !(excluding ?? []).includes(row.sequence),
+            ),
+        }),
+      },
+      sender: { executeFromAgent: async () => ({ id: "sent-1" }) },
+    },
+  );
+  expect(result.status).toBe(200);
+  expect(await result.json()).toMatchObject({ state: "sent", decision: "forward" });
+});
+
+test("a sent response carries the boundary the server advanced over messages the Agent had seen", async () => {
+  const pending = [6, 8].map((sequence) => ({
+    id: `message-${sequence}`,
+    sequence,
+    senderKind: "human" as const,
+    senderHandle: "ada",
+    senderDescription: "",
+    target: "@ada",
+    body: "seen through a check",
+    createdAt: new Date("2026-09-29T00:00:00Z"),
+    attachments: [],
+  }));
+  const result = await handleAgentMessagesPost(
+    request({ target: "@ada", content: "hello", seenUpToSeq: 5, seenExactSeqs: [6, 8] }),
+    { workspaceId: "workspace-1", agentId: "agent-1" },
+    {
+      requestRecords: noRequestRecords,
+      repository: {
+        agentTargetFreshness: async () => ({
+          advanceReadThrough: async (sequence: number) => sequence,
+          readThrough: async () => 8,
+          readPending: async (after?: number, excluding?: readonly number[]) =>
+            pending.filter(
+              (row) => row.sequence > (after ?? 0) && !(excluding ?? []).includes(row.sequence),
+            ),
+          maxPendingSequence: async () => 8,
+        }),
+      },
+      sender: { executeFromAgent: async () => ({ id: "sent-1" }) },
+    },
+  );
+  expect(await result.json()).toMatchObject({
+    state: "sent",
+    reason: "exact_target_pending_already_seen",
+    seenUpToSeq: 8,
+  });
+});
+
 test("rejects malformed mentions with 400", async () => {
   const result = await handleAgentMessagesPost(
     request({ target: "@ada", content: "hello @Ada", mentions: [{ type: "human", id: "x" }] }),
