@@ -6,6 +6,7 @@ import {
   type AgentMessageTransportResponse,
   type AgentSendReconciliationRequest,
 } from "#src/connection/agent-http-clients";
+import { AgentExplainedRefusalError } from "#src/connection/agent-explained-refusal-error";
 import { AgentTransportError } from "#src/connection/agent-transport-error";
 import { AgentSendVerdictError, type AgentSendVerdict } from "./agent-send-verdict";
 
@@ -25,7 +26,8 @@ export type AgentSendSettlementPorts = {
  * whether this key committed: `committed` is the send's success; `not_found` replays the original
  * request once under the same key. A failed reconciliation leaves the original failure, whose
  * delivery state stays unknown. A failed replay is retryable only while the target's draft still
- * holds this key, since only then does the retry reuse it.
+ * holds this key, since only then does the retry reuse it. A refusal because an earlier request
+ * with this key is still being processed is unknown delivery too, retryable under the draft's key.
  */
 export async function settleAgentSend(
   send: AgentMessageRequest,
@@ -36,6 +38,12 @@ export async function settleAgentSend(
   try {
     return await ports.send(send);
   } catch (error) {
+    if (isStillProcessing(error))
+      throw new AgentSendVerdictError(
+        "an earlier request with the send's key is still being processed",
+        error,
+        stillProcessingVerdict(send, options.reviewerIsolation),
+      );
     if (!isAmbiguousSendFailure(error)) throw error;
     failure = error;
   }
@@ -94,6 +102,33 @@ function isAmbiguousSendFailure(error: unknown): boolean {
     error.failureClass === "pre_response_transport" ||
     (error.upstreamStatus !== undefined && error.upstreamStatus >= 500)
   );
+}
+
+/** The server refused this request because an earlier one with the same key is still working. */
+function isStillProcessing(error: unknown): error is AgentExplainedRefusalError {
+  return (
+    error instanceof AgentExplainedRefusalError && error.code === "MESSAGE_REQUEST_IN_PROGRESS"
+  );
+}
+
+/** An earlier request with this key may still commit, so delivery is unknown; the saved draft
+ * holds the key, and `--expected-draft-key` keeps a resend from sending a draft that replaced it. */
+function stillProcessingVerdict(
+  send: { idempotencyKey: string; target: string },
+  reviewerIsolation: boolean,
+): AgentSendVerdict {
+  const isolation = reviewerIsolation ? " --reviewer-isolation" : "";
+  return {
+    retryable: true,
+    draftSaved: true,
+    suggestedNextAction:
+      "An earlier request with this send's idempotency key is still being processed, so this " +
+      "message may still be delivered. Do not write it again as a new send. Wait a moment, then " +
+      `run \`coforge message send${isolation} --send-draft --expected-draft-key ` +
+      `${JSON.stringify(send.idempotencyKey)} --target ${JSON.stringify(send.target)}\`: it ` +
+      "reuses the same key, so it cannot create a second message, and it refuses if another " +
+      "send replaced the draft.",
+  };
 }
 
 function replayVerdict(details: {

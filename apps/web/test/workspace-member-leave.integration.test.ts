@@ -604,6 +604,72 @@ test.skipIf(!connectionString || !redisUrl)(
   },
 );
 
+test.skipIf(!connectionString || !redisUrl)(
+  "a replay of an Agent's committed channel message reports the same mentions it did not reach",
+  async () => {
+    const { db, channels, workspace, owner, bob } = await setup();
+    const redis = new RedisClient(redisUrl!);
+    try {
+      const helper = await createAgent(db, workspace.id, bob);
+      const other = await createAgent(db, workspace.id, owner);
+      const channelName = `ops-${helper.id.slice(0, 8)}`;
+      const ops = await channels.create(workspace.id, owner.id, channelName);
+      await channels.addMembers(workspace.id, { userId: owner.id }, ops.id, {
+        userIds: [],
+        agentIds: [helper.id, other.id],
+      });
+      const repo = new PrismaDirectConversationRepository(db);
+      const records = new RedisMessageRequestIdempotency(redis);
+      const dependencies = {
+        repository: repo,
+        requestRecords: records,
+        sender: new SendDirectMessage(repo, records, { publish: async () => {} }),
+      };
+      const idempotencyKey = crypto.randomUUID();
+      const ghost = `ghost-${helper.id.slice(0, 8)}`;
+      // Bob is in the Workspace but not in the channel; the ghost is nobody.
+      const send = () =>
+        handleAgentMessagesPost(
+          new Request("https://server.example/api/agent/v1/messages", {
+            method: "POST",
+            body: JSON.stringify({
+              target: `#${channelName}`,
+              content: `@${bob.username} @${ghost} please look`,
+              idempotencyKey,
+              continueAnyway: true,
+            }),
+          }),
+          { workspaceId: workspace.id, agentId: helper.id },
+          dependencies,
+        ).then(async (response) => ({ status: response.status, body: await response.json() }));
+
+      const first = await send();
+      expect(first).toMatchObject({ status: 200, body: { state: "sent" } });
+      expect(first.body.pendingMentionActions).toMatchObject([{ targetHandle: bob.username }]);
+      expect(first.body.unresolvedMentionHandles).toEqual([ghost]);
+
+      const replay = await send();
+      expect(replay).toMatchObject({
+        status: 200,
+        body: {
+          state: "sent",
+          reason: "already_committed",
+          messageId: first.body.messageId,
+          pendingMentionActions: first.body.pendingMentionActions,
+          unresolvedMentionHandles: first.body.unresolvedMentionHandles,
+        },
+      });
+      // Another Agent in the same channel never reads this Agent's report for the message.
+      expect(
+        await repo.committedAgentMentionReport(workspace.id, other.id, first.body.messageId),
+      ).toEqual({ pendingMentionActions: [], unresolvedMentionHandles: [] });
+    } finally {
+      redis.close();
+      await teardown(db, workspace.id, [owner.id, bob.id]);
+    }
+  },
+);
+
 /** A route's answer, or what it threw past the handler (which the Agent middleware turns into 401). */
 async function outcome(respond: () => Promise<Response>) {
   try {

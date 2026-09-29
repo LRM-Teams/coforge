@@ -14,8 +14,8 @@ const NOTHING_DONE: Readonly<Record<string, string | undefined>> = {
  * The next step for a refusal the server explained. For a send it errs toward "delivery unknown":
  * "No message was sent" is said only for a code known to refuse before anything is committed, or
  * for a 400/403 without a code (the send route's validation, and `AgentSendRejectedError`, whose
- * transaction rolls back). `MESSAGE_REQUEST_IN_PROGRESS` refuses only this request while an
- * earlier one with the same key may still commit.
+ * transaction rolls back). Anything else (`MESSAGE_REQUEST_IN_PROGRESS` among them, whose next
+ * step the daemon names with the draft's key) keeps delivery unknown.
  */
 export function refusalNextAction(
   operation: string,
@@ -25,13 +25,6 @@ export function refusalNextAction(
   const nothingDone = NOTHING_DONE[operation];
   const person = target.split(":")[0] ?? target;
   switch (code) {
-    case "MESSAGE_REQUEST_IN_PROGRESS":
-      return (
-        "An earlier request with this send's idempotency key is still being processed, so " +
-        "this message may still be delivered. Do not write it again as a new send. Wait a " +
-        `moment, then run \`coforge message send --send-draft --target ${JSON.stringify(target)}\`: ` +
-        "the saved draft keeps the same key, so it cannot create a second message."
-      );
     case "DM_PEER_NOT_IN_WORKSPACE":
       return (
         `${nothingDone ?? "Nothing was done"}: ${person} has left this Workspace, so this ` +

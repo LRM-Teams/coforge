@@ -1471,13 +1471,19 @@ const context = `sfp_${"a".repeat(43)}`;
 const refusedByServer = (
   refusal: { error: string; code?: string; retryable?: boolean },
   status = 403,
+  /** The daemon's verdict on the send, when it judged one. */
+  verdict: { suggested_next_action?: string; draft_saved?: boolean } = {},
 ) =>
   Response.json(
     {
       error: refusal.error,
       ...(refusal.code !== undefined ? { code: refusal.code } : {}),
       ...(refusal.retryable !== undefined ? { retryable: refusal.retryable } : {}),
+      ...(verdict.suggested_next_action !== undefined
+        ? { suggested_next_action: verdict.suggested_next_action }
+        : {}),
       proxy: {
+        ...(verdict.draft_saved !== undefined ? { draft_saved: verdict.draft_saved } : {}),
         layer: "local_daemon_proxy",
         correlation_id: "corr-refused",
         route_family: "agent-api/send",
@@ -1532,7 +1538,9 @@ test("a send to a target this Agent cannot use says to correct the target", asyn
   expect(error.suggestedNextAction).toContain("coforge user info");
 });
 
-test("a send whose same-key request is still processing keeps delivery unknown and names the retry", async () => {
+test("a send whose same-key request is still processing shows the daemon's resend under the draft's key", async () => {
+  const resend =
+    'Wait a moment, then run `coforge message send --send-draft --expected-draft-key "key-1" --target "@ada"`.';
   spyOn(globalThis, "fetch").mockResolvedValue(
     refusedByServer(
       {
@@ -1541,19 +1549,17 @@ test("a send whose same-key request is still processing keeps delivery unknown a
         retryable: true,
       },
       409,
+      { suggested_next_action: resend, draft_saved: true },
     ),
   );
 
-  const error = await sendFailure("@ada");
+  const text = renderCliErrorText(await sendFailure("@ada"));
 
-  expect(error).toMatchObject({
-    code: "MESSAGE_REQUEST_IN_PROGRESS",
-    retryable: true,
-    draftSaved: true,
-  });
-  expect(error.suggestedNextAction).toContain("may still be delivered");
-  expect(error.suggestedNextAction).toContain('coforge message send --send-draft --target "@ada"');
-  expect(error.suggestedNextAction).not.toContain("No message was sent");
+  expect(text).toContain("Code: MESSAGE_REQUEST_IN_PROGRESS");
+  expect(text).toContain("Retryable: yes");
+  expect(text).toContain("Draft saved: yes");
+  expect(text).toContain(`Next action: ${resend}`);
+  expect(text).not.toContain("No message was sent");
 });
 
 test("a send refused without a code keeps the server's reason under the send's own code", async () => {

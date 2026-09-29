@@ -105,7 +105,9 @@ Rules for one Workspace child's runtime in `src/daemon-runtime/`. They extend
 - `agent-send-verdict.ts` is the one shape for what the daemon judged about a
   failed request (`retryable`, `draftSaved`, `suggestedNextAction`).
   `agent-proxy-failure.ts` classifies the cause, then applies the verdict. A
-  failed replay is retryable only while the draft still holds its key.
+  failed replay is retryable only while the draft still holds its key. A
+  `MESSAGE_REQUEST_IN_PROGRESS` refusal is judged too: delivery unknown,
+  retryable under the draft's key with `--expected-draft-key`.
 - Agent Task operations use the Credential Proxy and the authenticated Agent
   HTTPS connection. Task parsing and wire contracts belong to the SDK and CLI;
   claim/review applies to complex, coordinated, or already-shared Tasks, not
