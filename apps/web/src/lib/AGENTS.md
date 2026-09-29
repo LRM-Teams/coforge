@@ -11,5 +11,9 @@ These rules apply to `src/lib/`; the date and time rules apply to all of `apps/w
   missing. Use no other Temporal polyfill.
 - Compare Temporal values with `.equals()` or `Temporal.X.compare()`, never `===` or `<`.
 - Format for people with `Intl` through `dates.ts`; Temporal does not replace it.
-- Render time text that depends on "now", the locale or the zone only after `useHydrated()`
-  (TanStack Router); before that, emit the instant in `dateTime` only.
+- Render time text that depends on "now" (relative times) only after `useHydrated()` (TanStack
+  Router); before that, emit the instant in `dateTime` only. Text that depends on the locale and
+  the zone alone (a message's clock and day) renders on the server in the zone `useTimeZone()`
+  gives: the saved preference, else the browser's, which the browser writes in the
+  `coforge-time-zone` cookie. Server and hydrating render then agree; the zone is unknown only on
+  a browser's first visit, and the text stays unformatted until it reports.

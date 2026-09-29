@@ -2,6 +2,8 @@ import { Outlet, createFileRoute } from "@tanstack/react-router";
 
 import { MessagesPending } from "#src/features/conversations/conversation-pending";
 import { ConversationNavigation } from "#src/features/conversations/conversation-navigation";
+import { loadPanelLayouts } from "#src/features/conversations/panel-layouts.functions";
+import { PanelLayoutProvider } from "#src/features/conversations/panel-layouts";
 import { PageLoadError } from "#src/features/errors/page-load-error";
 import {
   channelNamesBehind,
@@ -66,8 +68,9 @@ export const Route = createFileRoute("/w/$workspaceSlug/_chat")({
       sidebarLists,
       workspaceId,
     ]);
-    // Keys the conversation pages' Workspace-scoped reads (a Tasks tab's finished counts).
-    return { workspaceId: currentWorkspaceId };
+    // `workspaceId` keys the conversation pages' Workspace-scoped reads (a Tasks tab's finished
+    // counts); `panelLayouts` are the panel sizes the server render starts from.
+    return { workspaceId: currentWorkspaceId, panelLayouts: loadPanelLayouts() };
   },
   pendingComponent: MessagesPending,
   errorComponent: PageLoadError,
@@ -75,9 +78,12 @@ export const Route = createFileRoute("/w/$workspaceSlug/_chat")({
 });
 
 function MessagesPage() {
+  const { panelLayouts } = Route.useLoaderData();
   return (
-    <ConversationNavigation>
-      <Outlet />
-    </ConversationNavigation>
+    <PanelLayoutProvider layouts={panelLayouts}>
+      <ConversationNavigation>
+        <Outlet />
+      </ConversationNavigation>
+    </PanelLayoutProvider>
   );
 }

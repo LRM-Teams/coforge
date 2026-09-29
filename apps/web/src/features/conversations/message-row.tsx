@@ -41,7 +41,7 @@ import { cn } from "#src/lib/utils";
 import { m } from "#src/paraglide/messages";
 import { ActionCard, type ActionCardView } from "./action-card";
 import { AttachmentPreview } from "./attachment-preview";
-import { attachmentPreviewKind } from "./attachment-preview-kind";
+import { useAttachmentPreviewKind } from "./use-attachment-preview-kind";
 import { useIsMessageSaved } from "./conversation-host";
 import { CollapsibleMessageBody } from "./collapsible-message-body";
 import type { ChipMention } from "./message-markdown";
@@ -57,6 +57,7 @@ import {
 import { copyText } from "#src/features/records/report-editor/lib/clipboard";
 import { MessageTask } from "#src/features/tasks/message-task";
 import { useTimeFormat } from "#src/lib/time-format-context";
+import { useTimeZone } from "#src/lib/time-zone-context";
 import { hour12For, type TimeFormat } from "#src/lib/time-format";
 import { dateTimeFormat } from "#src/lib/dates";
 
@@ -124,26 +125,33 @@ function visibleBoundary(el: HTMLElement): { top: number; bottom: number } {
   return { top: 0, bottom: window.innerHeight };
 }
 
-export function dayLabel(value: Date | string, locale?: string): string {
-  // Keep server/first-client markup identical; browser locale and zone apply after mount.
+/**
+ * The day a message was sent on, in `timeZone`. Without a `locale` (the zone is not known yet: see
+ * `TimeZoneProvider`) it is the UTC date, which every render agrees on.
+ */
+export function dayLabel(value: Date | string, locale?: string, timeZone?: string): string {
   if (!locale) return new Date(value).toISOString().slice(0, 10);
   return dateTimeFormat(locale, {
     year: "numeric",
     month: "short",
     day: "numeric",
+    timeZone,
   }).format(new Date(value));
 }
 
+/** The time of day a message was sent at, in `timeZone`; empty without a `locale`. */
 export function clockLabel(
   value: Date | string,
   locale?: string,
   timeFormat: TimeFormat | null = null,
+  timeZone?: string,
 ): string {
   if (!locale) return "";
   return dateTimeFormat(locale, {
     hour: "2-digit",
     minute: "2-digit",
     hour12: hour12For(timeFormat),
+    timeZone,
   }).format(new Date(value));
 }
 
@@ -154,9 +162,12 @@ export function groupsWithPrevious(
   own: boolean,
   previousOwn: boolean,
   locale?: string,
+  timeZone?: string,
 ) {
   if (!previous) return { dayChanged: true, grouped: false };
-  const dayChanged = dayLabel(previous.createdAt, locale) !== dayLabel(message.createdAt, locale);
+  const dayChanged =
+    dayLabel(previous.createdAt, locale, timeZone) !==
+    dayLabel(message.createdAt, locale, timeZone);
   const sameSender =
     !dayChanged &&
     previousOwn === own &&
@@ -263,11 +274,27 @@ export function AttachmentCard({ attachment }: { attachment: MessageView["attach
   const [imgBroken, setImgBroken] = useState(false);
   const [imgLoaded, setImgLoaded] = useState(false);
   const previewSrc = !previewFailed && attachment.previewUrl ? attachment.previewUrl : href;
-  const handlePreviewError = () => {
+  const previewKind = useAttachmentPreviewKind(
+    attachment.fileName,
+    attachment.contentType,
+    attachment.previewUrl,
+  );
+  const handlePreviewError = useCallback(() => {
     setImgLoaded(false);
     if (previewFailed || !attachment.previewUrl) setImgBroken(true);
     else setPreviewFailed(true);
-  };
+  }, [previewFailed, attachment.previewUrl]);
+  // The server's markup starts the image loading before the page hydrates, so its `load` (or
+  // `error`) can fire with no handler attached yet. An image already settled when this attaches
+  // reports the same outcome here.
+  const settledImage = useCallback(
+    (image: HTMLImageElement | null) => {
+      if (!image?.complete) return;
+      if (image.naturalWidth > 0) setImgLoaded(true);
+      else handlePreviewError();
+    },
+    [handlePreviewError],
+  );
   const downloadButton = (className?: string) => (
     <ButtonUtility
       icon={Download01}
@@ -306,6 +333,7 @@ export function AttachmentCard({ attachment }: { attachment: MessageView["attach
               <Skeleton className="pointer-events-none absolute inset-0 rounded-lg bg-secondary/70" />
             )}
             <img
+              ref={settledImage}
               src={previewSrc}
               onError={handlePreviewError}
               onLoad={() => setImgLoaded(true)}
@@ -372,11 +400,6 @@ export function AttachmentCard({ attachment }: { attachment: MessageView["attach
     );
   const typeLabel = attachmentTypeLabel(attachment.fileName, attachment.contentType);
   const iconType = fileIconType(attachment.fileName, attachment.contentType);
-  const previewKind = attachmentPreviewKind(
-    attachment.fileName,
-    attachment.contentType,
-    attachment.previewUrl,
-  );
   // The row owns its own flex: `Button` puts its children inside one `display: block` span, so an
   // icon and a text block handed to it directly stack vertically instead of sitting side by side.
   const card = (
@@ -489,13 +512,21 @@ export function UnreadDivider() {
   );
 }
 
-/** The date rule drawn above the first message of a day. */
+/** The date rule drawn above the first message of a day. Its text, like the message clocks, is
+ * formatted by `Intl` on the server and again in the browser, whose ICU data may differ in a detail
+ * (a narrow no-break space before AM/PM): React's documented escape hatch for such unavoidable text
+ * differences is `suppressHydrationWarning`, which keeps the server's markup instead of discarding
+ * the subtree. https://react.dev/reference/react-dom/client/hydrateRoot#suppressing-unavoidable-hydration-mismatch-errors */
 export function DayDivider({ value, locale }: { value: Date | string; locale?: string }) {
+  const timeZone = useTimeZone();
   return (
     <div className="flex items-center gap-3 px-4 py-2 md:px-6">
       <span aria-hidden="true" className="h-px flex-1 bg-secondary" />
-      <span className="shrink-0 bg-primary px-2 text-xs text-tertiary tabular-nums">
-        {dayLabel(value, locale)}
+      <span
+        className="shrink-0 bg-primary px-2 text-xs text-tertiary tabular-nums"
+        suppressHydrationWarning
+      >
+        {dayLabel(value, locale, timeZone)}
       </span>
       <span aria-hidden="true" className="h-px flex-1 bg-secondary" />
     </div>
@@ -609,6 +640,7 @@ export const MessageRow = memo(function MessageRow({
   onQuoteSelection?: (quote: string) => void;
 }) {
   const timeFormat = useTimeFormat();
+  const timeZone = useTimeZone();
   const displayName = own ? m.conversation_you() : message.senderName;
   const deleted = Boolean(message.senderDeleted);
   const openableAgentId =
@@ -678,7 +710,10 @@ export const MessageRow = memo(function MessageRow({
       return;
     }
     const quote = formatSelectionQuote(
-      { author: displayName, time: clockLabel(message.createdAt, dateLocale, timeFormat) },
+      {
+        author: displayName,
+        time: clockLabel(message.createdAt, dateLocale, timeFormat, timeZone),
+      },
       selection.toString(),
     );
     if (!quote) {
@@ -702,7 +737,7 @@ export const MessageRow = memo(function MessageRow({
       text: selection.toString(),
       ...placement,
     });
-  }, [onQuoteSelection, displayName, message.createdAt, dateLocale, timeFormat]);
+  }, [onQuoteSelection, displayName, message.createdAt, dateLocale, timeFormat, timeZone]);
   // A gesture anywhere else (a click, a scroll, Escape) withdraws the offer. The affordance
   // itself is exempt: pointerdown on it would otherwise unmount the button before its click.
   useEffect(() => {
@@ -822,9 +857,10 @@ export const MessageRow = memo(function MessageRow({
           </Tooltip>
           <time
             dateTime={new Date(message.createdAt).toISOString()}
+            suppressHydrationWarning
             className="shrink-0 tabular-nums opacity-0 group-hover/message:opacity-100"
           >
-            {clockLabel(message.createdAt, dateLocale, timeFormat)}
+            {clockLabel(message.createdAt, dateLocale, timeFormat, timeZone)}
           </time>
         </div>
       </li>
@@ -852,9 +888,10 @@ export const MessageRow = memo(function MessageRow({
           {grouped ? (
             <time
               dateTime={new Date(message.createdAt).toISOString()}
+              suppressHydrationWarning
               className="mt-0.5 text-xs text-quaternary tabular-nums opacity-0 group-hover/message:opacity-100 group-focus-within/message:opacity-100"
             >
-              {clockLabel(message.createdAt, dateLocale, timeFormat)}
+              {clockLabel(message.createdAt, dateLocale, timeFormat, timeZone)}
             </time>
           ) : openableAgentId && onOpenAgentProfile ? (
             <AgentHoverCard
@@ -892,9 +929,10 @@ export const MessageRow = memo(function MessageRow({
               {deleted && <DeletedAgentBadge />}
               <time
                 dateTime={new Date(message.createdAt).toISOString()}
+                suppressHydrationWarning
                 className="shrink-0 text-xs text-tertiary tabular-nums"
               >
-                {clockLabel(message.createdAt, dateLocale, timeFormat)}
+                {clockLabel(message.createdAt, dateLocale, timeFormat, timeZone)}
               </time>
             </p>
           )}
@@ -1129,9 +1167,10 @@ export const MessageRow = memo(function MessageRow({
                       </span>
                       <time
                         dateTime={new Date(message.createdAt).toISOString()}
+                        suppressHydrationWarning
                         className="shrink-0 text-xs text-tertiary tabular-nums"
                       >
-                        {clockLabel(message.createdAt, dateLocale, timeFormat)}
+                        {clockLabel(message.createdAt, dateLocale, timeFormat, timeZone)}
                       </time>
                     </p>
                     <p className="line-clamp-2 text-sm leading-5 text-secondary [overflow-wrap:anywhere]">

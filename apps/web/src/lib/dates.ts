@@ -167,7 +167,7 @@ export function formatRelativeTime(
 // (`validateTimeZone` runs on the server).
 const canonicalTimeZones = new Set<string>();
 
-function isValidTimeZone(value: string) {
+export function isValidTimeZone(value: string) {
   if (canonicalTimeZones.has(value)) return true;
   let resolved: string;
   try {

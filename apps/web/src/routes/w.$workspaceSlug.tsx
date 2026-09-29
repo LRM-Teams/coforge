@@ -4,6 +4,10 @@ import { useServerFn } from "@tanstack/react-start";
 
 import { AppShell } from "#src/components/app-shell";
 import { TimeFormatProvider } from "#src/lib/time-format-context";
+import { TimeZoneProvider } from "#src/lib/time-zone-context";
+import { loadTimeZoneHint } from "#src/features/settings/time-zone-hint.functions";
+import { loadAssumedPhone } from "#src/features/settings/assumed-viewport.functions";
+import { AssumedViewportProvider } from "#src/hooks/assumed-viewport";
 import { getUserProfile } from "#src/features/profiles/profile.functions";
 import {
   loadWorkspaceSwitcher,
@@ -71,6 +75,8 @@ export const Route = createFileRoute("/w/$workspaceSlug")({
       notifications,
       agents,
       timeZone: preferences.timeZone,
+      timeZoneHint: loadTimeZoneHint(),
+      assumedPhone: loadAssumedPhone(),
       timeFormat: preferences.timeFormat,
       conversationOpenMode: preferences.conversationOpenMode,
       tabOrders,
@@ -88,6 +94,9 @@ function AppLayout() {
     agents,
     recordsPreview,
     notifications,
+    timeZone,
+    timeZoneHint,
+    assumedPhone,
     timeFormat,
     tabOrders,
   } = Route.useLoaderData();
@@ -105,55 +114,58 @@ function AppLayout() {
   const createAndOpen = useCreateAndOpenWorkspace();
   return (
     <TimeFormatProvider timeFormat={timeFormat}>
-      <BrowserRealtimeProvider
-        workspaceId={currentWorkspace.id}
-        getConnectionToken={getConnectionToken}
-      >
-        <WorkspacePresenceProvider workspaceId={currentWorkspace.id}>
-          <WorkspaceAgentsProvider workspaceId={currentWorkspace.id} agents={agents}>
-            <PanelTabOrderProvider workspaceId={currentWorkspace.id} orders={tabOrders}>
-              {/* Every open page leaves a Workspace its owner deleted. */}
-              <LeaveDeletedWorkspace workspaceId={currentWorkspace.id} />
-              {/* The server prunes dead web-push subscriptions (404/410), and nothing else ever
+      <TimeZoneProvider saved={timeZone} hint={timeZoneHint}>
+        <AssumedViewportProvider phone={assumedPhone}>
+          <BrowserRealtimeProvider
+            workspaceId={currentWorkspace.id}
+            getConnectionToken={getConnectionToken}
+          >
+            <WorkspacePresenceProvider workspaceId={currentWorkspace.id}>
+              <WorkspaceAgentsProvider workspaceId={currentWorkspace.id} agents={agents}>
+                <PanelTabOrderProvider workspaceId={currentWorkspace.id} orders={tabOrders}>
+                  {/* Every open page leaves a Workspace its owner deleted. */}
+                  <LeaveDeletedWorkspace workspaceId={currentWorkspace.id} />
+                  {/* The server prunes dead web-push subscriptions (404/410), and nothing else ever
             re-registers them — without this the phone stays silent until a manual toggle. */}
-              <BrowserPushLifecycle
-                enabled={notifications.enabled}
-                publicKey={notifications.publicKey}
-              />
-              {/* While a tab is open, show the OS notification here instead of relying on
+                  <BrowserPushLifecycle
+                    enabled={notifications.enabled}
+                    publicKey={notifications.publicKey}
+                  />
+                  {/* While a tab is open, show the OS notification here instead of relying on
                 Web Push, which mainland-China staging/clients cannot reach for Chrome. */}
-              <InPageNotifications
-                enabled={notifications.enabled}
-                viewerId={user.id}
-                workspaceId={currentWorkspace.id}
-              />
-              <AppShell
-                user={{
-                  id: user.id,
-                  name: user.name,
-                  email: user.email,
-                  avatarUrl: user.avatarUrl,
-                }}
-                workspaces={workspaces}
-                currentWorkspace={currentWorkspace}
-                recordsPreview={recordsPreview}
-                onSelectWorkspace={async (slug) => {
-                  await navigate({ to: "/w/$workspaceSlug", params: { workspaceSlug: slug } });
-                }}
-                onCreateWorkspace={createAndOpen}
-                /** Like FirstWorkspacePage's link: a full browser navigation so the server route
-                 * can clear the session cookie and send the browser to Authing. Passing
-                 * `?returnTo=<this page>` would carry it back to `/login` (the root route's
-                 * switch-account step consumes it); left off so a plain sign-out lands on the
-                 * homepage, matching that link's behavior. */
-                onSignOut={() => void window.location.assign("/auth/logout")}
-              >
-                <Outlet />
-              </AppShell>
-            </PanelTabOrderProvider>
-          </WorkspaceAgentsProvider>
-        </WorkspacePresenceProvider>
-      </BrowserRealtimeProvider>
+                  <InPageNotifications
+                    enabled={notifications.enabled}
+                    viewerId={user.id}
+                    workspaceId={currentWorkspace.id}
+                  />
+                  <AppShell
+                    user={{
+                      id: user.id,
+                      name: user.name,
+                      email: user.email,
+                      avatarUrl: user.avatarUrl,
+                    }}
+                    workspaces={workspaces}
+                    currentWorkspace={currentWorkspace}
+                    recordsPreview={recordsPreview}
+                    onSelectWorkspace={async (slug) => {
+                      await navigate({ to: "/w/$workspaceSlug", params: { workspaceSlug: slug } });
+                    }}
+                    onCreateWorkspace={createAndOpen}
+                    /** Like FirstWorkspacePage's link: a full browser navigation so the server route
+                     * can clear the session cookie and send the browser to Authing. `?returnTo`
+                     * carries this page back across the sign-out (the root route hands it to
+                     * `/login`) once the switch-account return step is in. */
+                    onSignOut={() => void window.location.assign("/auth/logout")}
+                  >
+                    <Outlet />
+                  </AppShell>
+                </PanelTabOrderProvider>
+              </WorkspaceAgentsProvider>
+            </WorkspacePresenceProvider>
+          </BrowserRealtimeProvider>
+        </AssumedViewportProvider>
+      </TimeZoneProvider>
     </TimeFormatProvider>
   );
 }

@@ -43,7 +43,7 @@ import { useWorkspaceSlug } from "#src/features/workspaces/workspace-route";
 import { InviteMemberDialog } from "#src/features/workspaces/invite-member-dialog";
 import { MemberAvatar } from "#src/features/workspaces/member-avatar";
 import { useMemberOnline } from "#src/features/workspaces/member-presence";
-import { conversationLayoutStorage } from "#src/features/conversations/layout-storage";
+import { localLayoutStorage } from "#src/features/conversations/local-layout-storage";
 import type { AgentStatusView } from "./agent-status-realtime";
 import type { AgentDisplaySnapshot } from "@lrm/coforge-sdk/internal";
 
@@ -166,8 +166,9 @@ export function AgentsContent({
     if (pages.hasNextPage && !pages.isFetchingNextPage) void pages.fetchNextPage();
   };
   const profileOpen = Boolean(profileAgentId);
-  // `useBreakpoint` is true during SSR. Stay stacked until after mount so a phone never
-  // first-paints the profile as a 35% column with a blank left side.
+  // `useBreakpoint` is true during SSR for a desktop's request (a phone's request assumes narrow,
+  // `AssumedViewportProvider`), which cannot tell a narrow desktop window. Stay stacked until after
+  // mount so a phone never first-paints the profile as a 35% column with a blank left side.
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
   const desktop = useBreakpoint("md");
@@ -176,7 +177,7 @@ export function AgentsContent({
     id: "coforge-members",
     panelIds: splitOpen ? ["main", "profile"] : ["main"],
     onlySaveAfterUserInteractions: true,
-    storage: conversationLayoutStorage,
+    storage: localLayoutStorage,
   });
 
   const profile =

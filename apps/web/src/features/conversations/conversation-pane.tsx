@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useLatestCallback } from "#src/hooks/use-latest-callback";
 import { ProgressBar } from "react-aria-components";
-import { useHydrated } from "@tanstack/react-router";
 import { ArrowDown, Loading02 } from "@untitledui/icons";
 
 import { useStateWithRef } from "#src/hooks/use-state-with-ref";
 import { ButtonUtility } from "#src/components/base/buttons/button-utility";
 import { useAppToast } from "#src/components/ui/toast";
+import { useTimeZone } from "#src/lib/time-zone-context";
 import {
   Empty,
   EmptyDescription,
@@ -24,6 +24,7 @@ import { conversationOpenPosition, unreadBoundary } from "./conversation-open-po
 import { latestTopLevelSequence } from "./conversation-unread";
 import { streamState, type StreamRead } from "./stream-state";
 import { MessageComposer } from "./message-composer";
+import { PinToLatestOnFirstPaint } from "./pin-to-latest";
 import { ThreadPaneHeader, type ThreadFollow } from "./thread-pane-header";
 import { makeReferenceBodyFormatter } from "./mention-text";
 import type { ChipMention } from "./message-markdown";
@@ -142,10 +143,11 @@ export function ConversationPane({
         : undefined,
     [mentionCompletion, conversation.mentionables, conversation.viewerHandle],
   );
-  // Day labels follow the viewer's locale once hydrated; the pane mounts after hydration
-  // (`ThreadedConversation` is client-only), so its first render already has it.
-  const hydrated = useHydrated();
-  const dateLocale = hydrated ? getLocale() : undefined;
+  // Days and times follow the viewer's locale and time zone. The server render and the hydrating
+  // one agree on both (`TimeZoneProvider`), so the rows render once, the same on both; where the
+  // zone is not known yet (a browser's first visit) they show the UTC date and no time.
+  const timeZone = useTimeZone();
+  const dateLocale = timeZone ? getLocale() : undefined;
   const toast = useAppToast();
   const [newMessageCount, setNewMessageCount] = useState(0);
   // Reply-to-selection: the row hands over a finished quote, the composer puts it in the draft.
@@ -248,6 +250,10 @@ export function ConversationPane({
   // by the first render's state initializer: a ref written during render could be left set by
   // a render React then discards, showing a divider for a conversation never opened.
   const [openBoundary] = useState(firstUnread);
+  // The open position is the latest messages (see the mount effect below); the server render
+  // pins them at first paint, before the effect can.
+  const opensAtLatest =
+    !root && !openAtTop && !jumpMessage && !conversationOpenPosition(openMode, firstUnread);
   const lastSequence = conversation.messages.at(-1)?.sequence;
   const firstSequence = conversation.messages[0]?.sequence;
   // Handles that recently sent a message here, most-recent first: the mention completion popup
@@ -352,7 +358,8 @@ export function ConversationPane({
   const outboxContinuesRun =
     lastMessage !== undefined &&
     isOwn(lastMessage) &&
-    dayLabel(lastMessage.createdAt, dateLocale) === dayLabel(new Date(), dateLocale) &&
+    dayLabel(lastMessage.createdAt, dateLocale, timeZone) ===
+      dayLabel(new Date(), dateLocale, timeZone) &&
     Date.now() - new Date(lastMessage.createdAt).getTime() <= GROUPING_WINDOW_MS;
   // The own-messages index shows the stored body, which spells a mention as its raw
   // `<@agent:uuid>` token. Resolve those to `@handle` the way the message list does, using the
@@ -382,9 +389,10 @@ export function ConversationPane({
         conversation.messages,
         (message, previous) =>
           message.sequence === openBoundary?.sequence ||
-          dayLabel(message.createdAt, dateLocale) !== dayLabel(previous.createdAt, dateLocale),
+          dayLabel(message.createdAt, dateLocale, timeZone) !==
+            dayLabel(previous.createdAt, dateLocale, timeZone),
       ),
-    [conversation.messages, openBoundary, dateLocale],
+    [conversation.messages, openBoundary, dateLocale, timeZone],
   );
   /** System message ids whose folded group is open. A group is open while any of its messages is
    * here, so a group that grows (a new notice, older history) stays open for the reader. */
@@ -989,7 +997,8 @@ export function ConversationPane({
                         onToggleExpanded={toggleSystemGroup}
                         dayChanged={
                           !opensThread &&
-                          groupsWithPrevious(first, previous, false, false, dateLocale).dayChanged
+                          groupsWithPrevious(first, previous, false, false, dateLocale, timeZone)
+                            .dayChanged
                         }
                         unreadStartsHere={unreadStartsHere}
                         dateLocale={dateLocale}
@@ -1020,6 +1029,7 @@ export function ConversationPane({
                     own,
                     previous ? isOwn(previous) : false,
                     dateLocale,
+                    timeZone,
                   );
                   return (
                     <MessageRow
@@ -1156,6 +1166,7 @@ export function ConversationPane({
           />
         )}
       </div>
+      {opensAtLatest && <PinToLatestOnFirstPaint />}
     </div>
   );
 }

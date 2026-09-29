@@ -1,20 +1,20 @@
 import { afterEach, describe, expect, test } from "bun:test";
 
-import { conversationLayoutStorage } from "#src/features/conversations/layout-storage";
+import { localLayoutStorage } from "#src/features/conversations/local-layout-storage";
 
-const key = "coforge-conversation-layout-storage-test";
+const key = "coforge-local-layout-storage-test";
 
 afterEach(() => {
   // @ts-expect-error clear test stub
   delete globalThis.localStorage;
 });
 
-describe("conversationLayoutStorage", () => {
+describe("localLayoutStorage", () => {
   test("getItem and setItem do not throw when localStorage is absent", () => {
     // @ts-expect-error intentional deletion for SSR regression
     delete globalThis.localStorage;
-    expect(conversationLayoutStorage.getItem(key)).toBeNull();
-    expect(() => conversationLayoutStorage.setItem(key, "{}")).not.toThrow();
+    expect(localLayoutStorage.getItem(key)).toBeNull();
+    expect(() => localLayoutStorage.setItem(key, "{}")).not.toThrow();
   });
 
   test("delegates to localStorage when available", () => {
@@ -35,7 +35,7 @@ describe("conversationLayoutStorage", () => {
         return store.size;
       },
     };
-    conversationLayoutStorage.setItem(key, '{"main":60}');
-    expect(conversationLayoutStorage.getItem(key)).toBe('{"main":60}');
+    localLayoutStorage.setItem(key, '{"main":60}');
+    expect(localLayoutStorage.getItem(key)).toBe('{"main":60}');
   });
 });
