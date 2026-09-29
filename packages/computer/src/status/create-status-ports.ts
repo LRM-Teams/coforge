@@ -5,6 +5,7 @@ import {
   FileBindingStore,
   isLockContention,
   LocalDaemonLauncher,
+  readWorkspaceCloudConnection,
   resolveDaemonExecutablePath,
   workspaceHealthJournalPath,
   workspaceStateDirectory,
@@ -162,6 +163,8 @@ export function createStatusPorts(input: CreateStatusPortsInput): StatusPorts {
         return new Map();
       }
     },
+    readCloudConnection: (workspaceId) =>
+      readWorkspaceCloudConnection(input.stateDirectory, workspaceId),
     async readWorkspaceHealth(workspaceId) {
       try {
         const directory = workspaceStateDirectory(input.stateDirectory, workspaceId);

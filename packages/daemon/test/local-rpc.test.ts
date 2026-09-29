@@ -102,6 +102,33 @@ test("daemon accepts a Computer handshake over its Unix socket", async () => {
   expect(started).toBe(1);
 });
 
+test("the handshake names the latest failed attempt of a connection still connecting", async () => {
+  const socketPath = join(tmpdir(), `coforge-${crypto.randomUUID()}.sock`);
+  const server = await startDaemonLocalRpcServer({
+    socketPath,
+    serverUrl: launcherEnvironment.serverUrl,
+    validateCredential: () => true,
+    runtime: {
+      cloudConnection: () => ({
+        state: "connecting",
+        error: "connect error 100: internal server error",
+      }),
+    },
+    credentials: new InMemoryDaemonCredentialStore(),
+  });
+  servers.push(server);
+  const launcher = new LocalDaemonLauncher({
+    ...launcherEnvironment,
+    executablePath: "/unused",
+    socketPath,
+  });
+
+  expect(await launcher.identity()).toMatchObject({
+    cloudConnection: "connecting",
+    cloudConnectionError: "connect error 100: internal server error",
+  });
+});
+
 test("daemon stores configured connection metadata without its token", async () => {
   const socketPath = join(tmpdir(), `coforge-${crypto.randomUUID()}.sock`);
   const saved: WorkspaceConfig[] = [];

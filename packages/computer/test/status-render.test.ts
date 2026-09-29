@@ -37,6 +37,7 @@ const REPORT: ComputerStatusReport = {
           { requestId: "req-2", expectedVersion: "1.6.0", state: "failed", ageMs: 65_000 },
         ],
         health: { status: "ok" },
+        cloudConnection: { state: "connected" },
       },
     ],
   },
@@ -79,7 +80,7 @@ test("renderStatusHuman prints short aligned sections, one fact per line", () =>
   expect(text).toContain("Local RPC:             reachable (1 workspace runtime(s))");
   expect(text).toContain("Workspaces (1)");
   expect(text).toContain("ws-1");
-  expect(text).toContain("pid=111 (daemon-snapshot)");
+  expect(text).toContain("pid=111 (daemon-snapshot)  cloud=connected");
   expect(text).toContain("pending: upgrade req-1 -> 1.5.0");
   expect(text).toContain("unsettled upgrade: req-2 -> 1.6.0  state=failed  age=65s");
   expect(text).toContain("Agents");
@@ -129,12 +130,47 @@ test("renderStatusHuman shows which source a Workspace's pid came from", () => {
           pending: [],
           unsettledUpgrades: [],
           health: { status: "ok" },
+          cloudConnection: null,
         },
       ],
     },
   });
 
   expect(lines.join("\n")).toContain("pid=9001 (os-job)");
+});
+
+test("renderStatusHuman shows a Workspace's cloud connection and why it is not up", () => {
+  if (!REPORT.workspaces.readable) throw new Error("fixture has readable workspaces");
+  const workspace = REPORT.workspaces.workspaces[0]!;
+  const lines = renderStatusHuman({
+    ...REPORT,
+    workspaces: {
+      readable: true,
+      workspaces: [
+        {
+          ...workspace,
+          workspaceId: "ws-1",
+          cloudConnection: {
+            state: "connecting",
+            error: "connect error 100: internal server error",
+          },
+        },
+        {
+          ...workspace,
+          workspaceId: "ws-2",
+          cloudConnection: { state: "not_connected", error: "transport closed (2)" },
+        },
+        { ...workspace, workspaceId: "ws-3", running: false, cloudConnection: null },
+      ],
+    },
+  });
+  const text = lines.join("\n");
+
+  expect(text).toContain("cloud=connecting");
+  expect(text).toContain("    cloud: retrying after connect error 100: internal server error");
+  expect(text).toContain("cloud=not_connected");
+  expect(text).toContain("    cloud: not connected (transport closed (2))");
+  expect(lines.find((line) => line.includes("ws-3"))).toContain("cloud=-");
 });
 
 test("renderStatusHuman states a degraded Workspace's real reason and the recovery command", () => {
@@ -159,6 +195,7 @@ test("renderStatusHuman states a degraded Workspace's real reason and the recove
             crashCount: 3,
             since: "2026-01-01T00:00:00.000Z",
           },
+          cloudConnection: null,
         },
       ],
     },
@@ -192,6 +229,7 @@ test("renderStatusHuman states why a Workspace is parked and the setup command t
             reason: "computer_unlinked",
             since: "2026-09-29T08:00:00.000Z",
           },
+          cloudConnection: null,
         },
       ],
     },
@@ -227,6 +265,7 @@ test("renderStatusHuman never crashes on control characters embedded in untruste
           pending: [],
           unsettledUpgrades: [],
           health: { status: "ok" },
+          cloudConnection: null,
         },
       ],
     },

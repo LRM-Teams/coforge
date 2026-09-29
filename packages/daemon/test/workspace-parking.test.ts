@@ -16,7 +16,14 @@ afterEach(async () => {
 
 function parking() {
   const journal = new WorkspaceHealthJournal(join(directory, "health.json"));
-  return { journal, parking: new WorkspaceParking(journal, () => "workspace-a") };
+  return {
+    journal,
+    parking: new WorkspaceParking(
+      journal,
+      () => "workspace-a",
+      () => undefined,
+    ),
+  };
 }
 
 test("a start that connects reports the Workspace connected", async () => {
@@ -26,6 +33,28 @@ test("a start that connects reports the Workspace connected", async () => {
   await subject.start(async () => {});
 
   expect(subject.cloudConnection).toEqual({ state: "connected" });
+});
+
+test("a connection that keeps failing reports connecting with its latest failure, before and after it first connected", async () => {
+  const journal = new WorkspaceHealthJournal(join(directory, "health.json"));
+  let failure: string | undefined = "connect error 100: internal server error";
+  const subject = new WorkspaceParking(
+    journal,
+    () => "workspace-a",
+    () => failure,
+  );
+  const connecting = Promise.withResolvers<void>();
+  const started = subject.start(() => connecting.promise);
+
+  expect(subject.cloudConnection).toEqual({ state: "connecting", error: failure });
+  failure = undefined;
+  connecting.resolve();
+  await started;
+  expect(subject.cloudConnection).toEqual({ state: "connected" });
+
+  // The connection dropped later and its reconnects are failing: it is not connected any more.
+  failure = "transport error 2: transport closed";
+  expect(subject.cloudConnection).toEqual({ state: "connecting", error: failure });
 });
 
 test("a start that fails for an ordinary reason reports it not connected, with why, and leaves the Workspace unparked", async () => {

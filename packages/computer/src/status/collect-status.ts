@@ -120,6 +120,10 @@ async function collectWorkspaces(
         const pid = snapshotPid ?? osJobPid;
         const pidSource =
           snapshotPid !== null ? "daemon-snapshot" : osJobPid !== null ? "os-job" : null;
+        const [health, cloudConnection] = await Promise.all([
+          ports.readWorkspaceHealth(binding.workspaceId),
+          pid === null ? null : ports.readCloudConnection(binding.workspaceId),
+        ]);
         return {
           workspaceId: binding.workspaceId,
           workspaceSlug: slugs.get(binding.workspaceId) ?? null,
@@ -130,7 +134,8 @@ async function collectWorkspaces(
           pidSource,
           pending: pendingRequestsFor(binding),
           unsettledUpgrades: unsettledUpgradesFor(binding, now),
-          health: await ports.readWorkspaceHealth(binding.workspaceId),
+          health,
+          cloudConnection,
         };
       }),
     ),

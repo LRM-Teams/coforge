@@ -42,6 +42,7 @@ function fakePorts(overrides: Partial<StatusPorts> = {}): StatusPorts {
     readSupervisorLockOwner: async () => 4821,
     listLeftoverUpgradeJobs: { supported: true, list: async () => [] },
     readWorkspaceHealth: async () => ({ status: "ok" }),
+    readCloudConnection: async () => ({ state: "connected" }),
     readWorkspaceSlugs: async () => new Map([["ws-1", "acme"]]),
     ...overrides,
   };
@@ -80,6 +81,7 @@ test("healthy machine reports every section as readable and reachable", async ()
         pending: [],
         unsettledUpgrades: [],
         health: { status: "ok" },
+        cloudConnection: { state: "connected" },
       },
     ],
   });
@@ -151,6 +153,7 @@ test("Coordinator missing: not loaded, no PID, RPC unreachable", async () => {
         pending: [],
         unsettledUpgrades: [],
         health: { status: "ok" },
+        cloudConnection: null,
       },
     ],
   });
@@ -207,6 +210,44 @@ test("a Workspace pid prefers the daemon snapshot over the OS job when both are 
   expect(report.workspaces).toMatchObject({
     workspaces: [{ pid: 111, pidSource: "daemon-snapshot" }],
   });
+});
+
+test("a running Workspace reports where its cloud connection stands, with why while it retries", async () => {
+  const report = await collectComputerStatus(
+    fakePorts({
+      readCloudConnection: async () => ({
+        state: "connecting",
+        error: "connect error 100: internal server error",
+      }),
+    }),
+  );
+
+  expect(report.workspaces).toMatchObject({
+    workspaces: [
+      {
+        cloudConnection: {
+          state: "connecting",
+          error: "connect error 100: internal server error",
+        },
+      },
+    ],
+  });
+});
+
+test("a Workspace that is not running is not asked about its cloud connection", async () => {
+  const asked: string[] = [];
+  const report = await collectComputerStatus(
+    fakePorts({
+      probeDaemonSnapshot: async () => ({ reachable: true, runtimes: [] }),
+      readCloudConnection: async (workspaceId) => {
+        asked.push(workspaceId);
+        return { state: "connected" };
+      },
+    }),
+  );
+
+  expect(asked).toEqual([]);
+  expect(report.workspaces).toMatchObject({ workspaces: [{ cloudConnection: null }] });
 });
 
 test("a stale remote-upgrade job is listed with its PID and run count", async () => {
