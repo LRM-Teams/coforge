@@ -1,6 +1,8 @@
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { Centrifuge, type ClientInfo, type Subscription } from "centrifuge/build/protobuf";
 
+import type { SubscribedRecovery } from "./subscription-gap";
+
 /** The one realtime subscription type for the shared Workspace connection. */
 export type BrowserRealtimeSubscription = Subscription;
 
@@ -78,7 +80,7 @@ type SharedSubscriptionEntry = {
   subscription: Subscription;
   refCount: number;
   publicationHandlers: Set<(publication: RealtimePublication) => void>;
-  subscribedHandlers: Set<() => void>;
+  subscribedHandlers: Set<(recovery: SubscribedRecovery) => void>;
   joinHandlers: Set<(client: RealtimeClient) => void>;
   leaveHandlers: Set<(client: RealtimeClient) => void>;
   errorHandlers: Set<(error: RealtimeSubscriptionError) => void>;
@@ -100,12 +102,12 @@ function acquireSharedSubscription(
   if (!entry) {
     const subscription = client.newSubscription(channel, getToken ? { getToken } : undefined);
     const publicationHandlers = new Set<(publication: RealtimePublication) => void>();
-    const subscribedHandlers = new Set<() => void>();
+    const subscribedHandlers = new Set<(recovery: SubscribedRecovery) => void>();
     const joinHandlers = new Set<(client: RealtimeClient) => void>();
     const leaveHandlers = new Set<(client: RealtimeClient) => void>();
     const errorHandlers = new Set<(error: RealtimeSubscriptionError) => void>();
-    subscription.on("subscribed", () => {
-      for (const handler of subscribedHandlers) handler();
+    subscription.on("subscribed", (context) => {
+      for (const handler of subscribedHandlers) handler(context);
     });
     subscription.on("publication", (publication) => {
       for (const handler of publicationHandlers) handler(publication);
@@ -167,16 +169,16 @@ export function useRealtimeSubscription({
   onPublication,
   onJoin,
   onLeave,
-  onConnected,
   onError,
 }: {
   channel?: string;
   getToken?: () => Promise<string>;
-  onSubscribed?: () => void;
+  /** The channel became `subscribed`: its first subscribe and every resubscribe. The recovery
+   * flags say whether publications may have been missed (see `subscriptionGap`). */
+  onSubscribed?: (recovery: SubscribedRecovery) => void;
   onPublication?: (publication: RealtimePublication) => void;
   onJoin?: (client: RealtimeClient) => void;
   onLeave?: (client: RealtimeClient) => void;
-  onConnected?: () => void;
   onError?: (error: RealtimeSubscriptionError) => void;
 }) {
   const client = useBrowserRealtime();
@@ -186,7 +188,6 @@ export function useRealtimeSubscription({
     onPublication,
     onJoin,
     onLeave,
-    onConnected,
     onError,
   });
 
@@ -200,7 +201,6 @@ export function useRealtimeSubscription({
       onPublication,
       onJoin,
       onLeave,
-      onConnected,
       onError,
     };
   });
@@ -211,7 +211,8 @@ export function useRealtimeSubscription({
     const entry = acquireSharedSubscription(client, channel, getToken);
     const onPublicationHandler = (publication: RealtimePublication) =>
       current()?.onPublication?.(publication);
-    const onSubscribedHandler = () => current()?.onSubscribed?.();
+    const onSubscribedHandler = (recovery: SubscribedRecovery) =>
+      current()?.onSubscribed?.(recovery);
     const onJoinHandler = (joined: RealtimeClient) => current()?.onJoin?.(joined);
     const onLeaveHandler = (left: RealtimeClient) => current()?.onLeave?.(left);
     const onErrorHandler = (error: RealtimeSubscriptionError) => current()?.onError?.(error);
@@ -220,12 +221,11 @@ export function useRealtimeSubscription({
     entry.joinHandlers.add(onJoinHandler);
     entry.leaveHandlers.add(onLeaveHandler);
     entry.errorHandlers.add(onErrorHandler);
-    // A caller joining an already-subscribed shared channel missed its "subscribed" event.
-    if (entry.subscription.state === "subscribed") onSubscribedHandler();
-    const connected = () => current()?.onConnected?.();
-    client.on("connected", connected);
+    // A caller joining an already-subscribed shared channel missed its "subscribed" event, and
+    // everything published before it joined.
+    if (entry.subscription.state === "subscribed")
+      onSubscribedHandler({ wasRecovering: false, recovered: false });
     return () => {
-      client.off("connected", connected);
       entry.publicationHandlers.delete(onPublicationHandler);
       entry.subscribedHandlers.delete(onSubscribedHandler);
       entry.joinHandlers.delete(onJoinHandler);
