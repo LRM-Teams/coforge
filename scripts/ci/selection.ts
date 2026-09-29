@@ -7,6 +7,7 @@ const allChecks = [
   "computer",
   "daemon",
   "deploy",
+  "installer-crate",
   "macos-lifecycle",
   "oss-cdn",
   "release",
@@ -17,7 +18,10 @@ const allChecks = [
 
 export function selectChecks(paths: string[], track: "changes" | "web" | "local") {
   if (track === "local") {
-    return allChecks.filter((check) => !["cdn-certs", "deploy", "oss-cdn", "web"].includes(check));
+    // Computer publication does not ship the installer crate, which has its own release.
+    return allChecks.filter(
+      (check) => !["cdn-certs", "deploy", "installer-crate", "oss-cdn", "web"].includes(check),
+    );
   }
   const checks = new Set<string>();
   for (const path of paths) {
@@ -25,7 +29,9 @@ export function selectChecks(paths: string[], track: "changes" | "web" | "local"
     // Markdown prompts) inside application directories may affect runtime behavior.
     if (/^(docs\/|[^/]+\.md$)/.test(path) || /\/(AGENTS|README)\.md$/.test(path)) continue;
     let affected: string[];
-    if (path === "scripts/release/install.ps1") {
+    if (path.startsWith("installer/")) {
+      affected = ["installer-crate"];
+    } else if (path === "scripts/release/install.ps1") {
       affected = ["release", "web", "windows-installer"];
     } else if (path === "scripts/release/install.sh") {
       affected = ["release", "web"];
