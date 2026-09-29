@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { QueryClient } from "@tanstack/react-query";
-import { createLiveQueryCollection, eq, gte, inArray } from "@tanstack/react-db";
+import { and, createLiveQueryCollection, eq, gte, inArray, lte } from "@tanstack/react-db";
 
 import {
   createConversationTasks,
@@ -278,4 +278,32 @@ test("a Task that leaves Done and comes back within one burst ends Done, and Don
   ]);
   expect(tasks.store.state.byNumber.get(2)).toMatchObject({ status: "done", revision: 3 });
   expect(finishedChanged).toBe(true);
+});
+
+test("a window pinned in history reads the Tasks between its first and last message", async () => {
+  const { tasks, reads } = fixture();
+  const pinned = createLiveQueryCollection((q) =>
+    q
+      .from({ task: tasks.collection })
+      .where(({ task }) => and(gte(task.sequence, 20), lte(task.sequence, 40))),
+  );
+  await pinned.preload();
+  expect(reads).toEqual([{ sequenceFrom: 20, sequenceTo: 40 }]);
+  expect([...tasks.store.state.byNumber.keys()].sort()).toEqual([2, 3, 4]);
+});
+
+test("a read the server refuses leaves its live query in error, which the Tasks tab shows", async () => {
+  const failing = createConversationTasks(
+    new QueryClient({ defaultOptions: { queries: { retry: false } } }),
+    "conversation-1",
+    {
+      load: async () => {
+        throw new Error("ACCESS_DENIED");
+      },
+    },
+  );
+  const board = unfinishedQuery(failing);
+  await board.preload().catch(() => {});
+  expect(board.status).toBe("error");
+  expect(failing.store.state.byId.size).toBe(0);
 });

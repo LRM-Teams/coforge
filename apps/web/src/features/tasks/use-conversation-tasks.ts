@@ -39,9 +39,13 @@ const appRoute = getRouteApi("/w/$workspaceSlug");
 
 const tasksByClient = new WeakMap<QueryClient, Map<string, ConversationTasks>>();
 
-/** One collection (and store) per `QueryClient` and conversation, so every reader shares one. The
- * readers sit under `ThreadedConversation`, which renders only in the browser, so it is never
- * created during a server render. */
+/**
+ * One collection (and store) per `QueryClient` and conversation, so every reader shares one. Never
+ * call it while rendering on the server: every hook that reaches it at render
+ * (`useConversationTasksCollection`) runs under `ThreadedConversation`'s `ClientOnly` (the rows,
+ * the Tasks tab, `ConversationTaskDemand`) or the Tasks page popup's; `useConversationTasks`, which
+ * the server renders, reaches it only from events.
+ */
 export function conversationTasksFor(queryClient: QueryClient, conversationId: string) {
   let byConversation = tasksByClient.get(queryClient);
   if (!byConversation) tasksByClient.set(queryClient, (byConversation = new Map()));
@@ -136,7 +140,6 @@ export type ConversationTaskCommands = ReturnType<typeof useConversationTasks>;
 export function useConversationTasks(conversationId: string) {
   const queryClient = useQueryClient();
   const execute = useServerFn(executeTask);
-  const tasks = useConversationTasksCollection(conversationId);
   const userId = appRoute.useLoaderData({ select: (data) => data.user.id });
   const workspaceId = useCurrentWorkspaceId() ?? "";
   const getWorkspaceToken = useServerFn(getWorkspaceConversationSubscriptionToken);
@@ -191,7 +194,9 @@ export function useConversationTasks(conversationId: string) {
         });
         const deletedTask =
           input.operation === "delete" && input.number !== undefined
-            ? tasks.store.state.byNumber.get(input.number)
+            ? conversationTasksFor(queryClient, conversationId).store.state.byNumber.get(
+                input.number,
+              )
             : undefined;
         // Its announcement, arriving after, then finds these copies already held and changes
         // nothing. A deleted Task the collection does not hold (a finished one read from a page)
@@ -210,7 +215,7 @@ export function useConversationTasks(conversationId: string) {
         throw cause;
       }
     },
-    [execute, conversationId, tasks, write, queryClient],
+    [execute, conversationId, write, queryClient],
   );
 
   return { command, error };
