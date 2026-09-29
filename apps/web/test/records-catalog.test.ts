@@ -2947,3 +2947,100 @@ test("updateFormatReportMeta rejects overview templates and blank titles", async
     }),
   ).rejects.toMatchObject({ code: "INVALID_INPUT" });
 });
+
+test("member edits after submit stay off the leader copy until resend", async () => {
+  const row = {
+    id: "assignment-1",
+    authorId: "member-a",
+    kind: "member" as const,
+    title: "Alice 2026 W38 工作周报",
+    status: "submitted" as "draft" | "submitted" | "shared",
+    hiddenFromAuthor: false,
+    settingsId: null as string | null,
+    content: { tabs: { Summary: { markdown: "已发送" } } } as {
+      tabs: Record<string, { markdown: string }>;
+      delivered?: { tabs: Record<string, { markdown: string }> };
+      keyPointExtraction?: { status: string; promptSnapshot: string; markdown: string };
+    },
+    submittedAt: new Date("2026-09-18T08:00:00.000Z") as Date | null,
+    updatedAt: new Date("2026-09-18T08:00:00.000Z"),
+    sourceTemplateId: "parent-1",
+    cycle: { id: "cycle-1", year: 2026, week: 38, title: "2026 W38 工作周报" },
+    author: { id: "member-a", username: "alice", displayName: "Alice", avatarObjectKey: null },
+    sourceTemplate: {
+      authorId: "leader",
+      author: { id: "leader", username: "lead", displayName: "Lead", avatarObjectKey: null },
+    },
+    submissions: [] as Array<{ id: string }>,
+  };
+  const db = {
+    workspaceMembership: { findUnique: async () => ({ role: "member" }) },
+    weeklyReport: {
+      findFirst: async () => ({
+        ...row,
+        author: { ...row.author },
+        sourceTemplate: {
+          ...row.sourceTemplate,
+          author: { ...row.sourceTemplate.author },
+        },
+        cycle: { ...row.cycle },
+        content: row.content,
+      }),
+      update: async (query: {
+        data: {
+          content?: typeof row.content;
+          status?: typeof row.status;
+          submittedAt?: Date | null;
+        };
+      }) => {
+        if (query.data.content !== undefined) row.content = query.data.content;
+        if (query.data.status) row.status = query.data.status;
+        if (query.data.submittedAt !== undefined) row.submittedAt = query.data.submittedAt;
+        row.updatedAt = new Date("2026-09-18T09:00:00.000Z");
+        return { id: row.id, status: row.status, updatedAt: row.updatedAt };
+      },
+      count: async () => 0,
+    },
+    weeklyReportFavorite: { findUnique: async () => null },
+  } as unknown as PrismaClient;
+  const catalog = new RecordCatalog(db);
+
+  await catalog.saveReportContent({
+    workspaceId: "workspace-1",
+    userId: "member-a",
+    reportId: "assignment-1",
+    content: { tabs: { Summary: { markdown: "本地修改" } } },
+  });
+
+  const leader = await catalog.getSubject({
+    workspaceId: "workspace-1",
+    userId: "leader",
+    id: "assignment-1",
+  });
+  const author = await catalog.getSubject({
+    workspaceId: "workspace-1",
+    userId: "member-a",
+    id: "assignment-1",
+  });
+  if (leader.type !== "report" || author.type !== "report") {
+    throw new Error("expected report subjects");
+  }
+  expect(leader.report.content.tabs).toEqual({ Summary: { markdown: "已发送" } });
+  expect(JSON.stringify(leader.report.content)).not.toContain("本地修改");
+  expect(author.report.content.tabs).toEqual({ Summary: { markdown: "本地修改" } });
+
+  await catalog.saveReportContent({
+    workspaceId: "workspace-1",
+    userId: "member-a",
+    reportId: "assignment-1",
+    content: { tabs: { Summary: { markdown: "重新发送" } } },
+    status: "submitted",
+  });
+  const resent = await catalog.getSubject({
+    workspaceId: "workspace-1",
+    userId: "leader",
+    id: "assignment-1",
+  });
+  if (resent.type !== "report") throw new Error("expected report subject");
+  expect(resent.report.content.tabs).toEqual({ Summary: { markdown: "重新发送" } });
+});
