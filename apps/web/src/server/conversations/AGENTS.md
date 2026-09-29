@@ -122,11 +122,13 @@ These rules apply to `src/server/conversations/`.
 - Human (Web UI) and Agent (CLI) channel operations take a
   `ChannelActor = { userId } | { agentId }` and share one authorization and
   write path. Do not add a parallel Agent-only path.
-- Leaving and removal are soft: set `ConversationMember.leftAt` through the
-  one `softLeaveMember` helper. Never hard-delete a membership row on its own
-  (only deleting the whole channel does); `Message.sender` is
-  `onDelete: Restrict`. Leaving the Workspace and deleting an Agent set
-  `leftAt` on every row at once, in their own store's transaction.
+- Leaving and removal are soft: they set `ConversationMember.leftAt`, filtered
+  by `ACTIVE_MEMBER_WHERE`, and never hard-delete a membership row on its own
+  (only deleting the whole channel does); `Message.sender`, `Task.owner` and
+  `Task.creator` are `onDelete: Restrict`. Web UI channel leave and removal
+  go through `softLeaveMember`; the Agent CLI's channel commands, an Agent
+  going private, deleting an Agent and leaving the Workspace write `leftAt`
+  in their own module.
 - When an Agent leaves or is removed from a channel, after the write commits,
   publish an inbox purge through `AgentInboxPurgePublisher`
   (`server/agents/agent-inbox-purge.server.ts`) so its daemon drops that
@@ -138,6 +140,18 @@ These rules apply to `src/server/conversations/`.
 - Any active member may leave a channel. Removing a member requires the
   `remove_member` capability; changing a stored `channelRole` requires
   `manage_roles`.
+
+## Leaving and returning to the Workspace
+
+- Leaving or being removed soft-leaves every conversation (channels and direct
+  conversations) in one write; coming back (`acceptInvitation`) makes the
+  person's direct conversations and `#general` active again on the same rows,
+  read positions kept. Other channels stay left until they join.
+- A direct conversation whose person left stays readable to the other side (a
+  person, or an Agent that still reads it and marks it read) and takes no new
+  message. An Agent posting to it, a message or an attachment, resolves the
+  target with `resolveAgentSendTarget`, which refuses with
+  `DM_PEER_NOT_IN_WORKSPACE` (403 with that `code`) before anything is written.
 
 ## Channel authority
 

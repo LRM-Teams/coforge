@@ -10,7 +10,10 @@ import {
   attachToMessage,
   claimUploadedAttachments,
 } from "#src/server/attachments/message-attachments.server";
-import { allocateSequence } from "#src/server/db/repositories/direct-conversation.repositories.server";
+import {
+  allocateSequence,
+  restoreDirectConversationMembers,
+} from "#src/server/db/repositories/direct-conversation.repositories.server";
 import { isUniqueViolation } from "#src/server/db/unique-violation.server";
 import { ACTIVE_MEMBER_WHERE } from "./active-member.server";
 import type { ConversationRealtime } from "./conversation-realtime.server";
@@ -43,10 +46,10 @@ export async function openPeopleDirectConversation(
   const where = { workspaceId_directKey: { workspaceId, directKey } };
   const existing = await db.conversation.findUnique({ where, select: { id: true } });
   if (existing) {
-    // A member's row can be missing altogether; opening the conversation again restores it.
-    await db.conversationMember.createMany({
-      data: userIds.map((userId) => ({ conversationId: existing.id, workspaceId, userId })),
-      skipDuplicates: true,
+    await restoreDirectConversationMembers(db, {
+      conversationId: existing.id,
+      workspaceId,
+      userIds,
     });
     return { conversationId: existing.id };
   }

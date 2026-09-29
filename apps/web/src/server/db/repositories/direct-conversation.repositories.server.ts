@@ -244,6 +244,25 @@ function toBrowserMessage(message: BrowserMessageRow, workspaceId: string) {
 }
 
 /**
+ * Opening a direct conversation that already exists gives each of these people their member row
+ * back if it is missing altogether: a Workspace removal once deleted those rows. Both kinds of
+ * direct conversation (with a person, with an Agent) restore through here.
+ */
+export async function restoreDirectConversationMembers(
+  db: Pick<PrismaClient, "conversationMember">,
+  input: { conversationId: string; workspaceId: string; userIds: readonly string[] },
+) {
+  await db.conversationMember.createMany({
+    data: input.userIds.map((userId) => ({
+      conversationId: input.conversationId,
+      workspaceId: input.workspaceId,
+      userId,
+    })),
+    skipDuplicates: true,
+  });
+}
+
+/**
  * Next sequence for a conversation; holds the conversation row lock until the transaction ends.
  * Exported so other message-anchored writers (e.g. `ActionCards.prepare`) serialize through the
  * same lock instead of reimplementing sequence allocation.
@@ -665,11 +684,37 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
     agentId: string,
     target: string,
   ): Promise<ResolvedAgentTarget> {
+    return this.#resolveAgentTarget(workspaceId, agentId, target, (userId) =>
+      this.agentDirectConversation(workspaceId, userId, agentId),
+    );
+  }
+
+  /**
+   * `resolveAgentTarget` for something the Agent is about to post (a message or an attachment):
+   * a direct message to someone who is not a Workspace member is refused with
+   * `DM_PEER_NOT_IN_WORKSPACE` before anything is written.
+   */
+  async resolveAgentSendTarget(
+    workspaceId: string,
+    agentId: string,
+    target: string,
+  ): Promise<ResolvedAgentTarget> {
+    return this.#resolveAgentTarget(workspaceId, agentId, target, (userId) =>
+      this.getOrCreateUserAgent(workspaceId, userId, agentId),
+    );
+  }
+
+  async #resolveAgentTarget(
+    workspaceId: string,
+    agentId: string,
+    target: string,
+    directConversation: (userId: string) => Promise<{ id: string }>,
+  ): Promise<ResolvedAgentTarget> {
     const parentTarget = target.split(":")[0]!;
     const isChannel = parentTarget.startsWith("#");
     const conversation = isChannel
       ? await this.getAgentChannel(workspaceId, agentId, parentTarget)
-      : await this.getOrCreateUserAgent(workspaceId, await this.userIdForUsername(target), agentId);
+      : await directConversation(await this.userIdForUsername(target));
     const threadRootId = await this.targetRoot(conversation.id, target);
     return {
       conversationId: conversation.id,
@@ -857,6 +902,17 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
         GREATEST("thread_reads"."readThroughSequence", EXCLUDED."readThroughSequence")`;
   }
 
+  /**
+   * The Agent's DM with a person to read: the one they already have, which stays as history after
+   * they left the Workspace, or else one started while they are a member.
+   */
+  private async agentDirectConversation(workspaceId: string, userId: string, agentId: string) {
+    return (
+      (await this.findUserAgentConversation(workspaceId, userId, agentId)) ??
+      this.getOrCreateUserAgent(workspaceId, userId, agentId)
+    );
+  }
+
   async getOrCreateUserAgent(workspaceId: string, userId: string, agentId: string) {
     // Deliberately *not* filtered by `ACTIVE_AGENT_WHERE`: a deleted Agent's direct conversation
     // stays readable (history is kept), and `DirectConversations.authorize` decides per operation
@@ -866,7 +922,14 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
       where: { id: agentId, workspaceId, workspace: { members: { some: { userId } } } },
       select: { id: true, ownerId: true, visibility: true },
     });
-    if (!agent) throw new Error("conversation scope is not authorized");
+    if (!agent) {
+      const member = await this.db.workspaceMembership.findUnique({
+        where: { workspaceId_userId: { workspaceId, userId } },
+        select: { userId: true },
+      });
+      if (!member) throw new AppError("DM_PEER_NOT_IN_WORKSPACE");
+      throw new Error("conversation scope is not authorized");
+    }
     const where = {
       workspaceId_directKey: { workspaceId, directKey: agentDirectKey(userId, agentId) },
     };
@@ -887,6 +950,18 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
         return this.db.conversation.findUniqueOrThrow({ where, select: { id: true } });
       throw error;
     }
+  }
+
+  /** The person's DM with an Agent as they open it: `getOrCreateUserAgent`, with their member row
+   * restored if it is missing. */
+  async openUserAgent(workspaceId: string, userId: string, agentId: string) {
+    const conversation = await this.getOrCreateUserAgent(workspaceId, userId, agentId);
+    await restoreDirectConversationMembers(this.db, {
+      conversationId: conversation.id,
+      workspaceId,
+      userIds: [userId],
+    });
+    return conversation;
   }
 
   /** Read-only counterpart to `getOrCreateUserAgent`: looks the DM up, never creates it. Used by
@@ -924,8 +999,7 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
 
   /**
    * The member on the other side of a DM between people, named by its key: the viewer in their
-   * conversation with themself, and still the same person after they left the Workspace (which
-   * removes their member row).
+   * conversation with themself, and still the same person after they left the Workspace.
    */
   private async peerOf(
     conversation: {
@@ -1809,7 +1883,7 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
    * a send checks against it (`executeAgentSendMessageWithPolicy`), so they share that resolution.
    */
   async agentTargetFreshness(workspaceId: string, agentId: string, target: string) {
-    const resolved = await this.resolveAgentTarget(workspaceId, agentId, target);
+    const resolved = await this.resolveAgentSendTarget(workspaceId, agentId, target);
     return {
       advanceReadThrough: (seenUpToSequence: number) =>
         this.#advanceAgentReadThrough(workspaceId, agentId, resolved, seenUpToSequence),

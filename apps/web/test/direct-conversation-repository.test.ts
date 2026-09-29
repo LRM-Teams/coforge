@@ -607,6 +607,9 @@ describe("PrismaDirectConversationRepository", () => {
       override async userIdForUsername() {
         return "user-1";
       }
+      override async findUserAgentConversation() {
+        return { id: "conversation-1" };
+      }
       override async getOrCreateUserAgent() {
         return { id: "conversation-1" };
       }
@@ -657,6 +660,9 @@ describe("PrismaDirectConversationRepository", () => {
       override async userIdForUsername() {
         return "user-1";
       }
+      override async findUserAgentConversation() {
+        return { id: "conversation-1" };
+      }
       override async getOrCreateUserAgent() {
         return { id: "conversation-1" };
       }
@@ -683,6 +689,15 @@ describe("PrismaDirectConversationRepository", () => {
       override async userIdForUsername(target: string) {
         expect(target).toBe("@alice");
         return "user-1";
+      }
+      // Reading resolves an existing DM first; the person is still a member here.
+      override async findUserAgentConversation(
+        workspaceId: string,
+        userId: string,
+        agentId: string,
+      ) {
+        expect([workspaceId, userId, agentId]).toEqual(["workspace-1", "user-1", "agent-1"]);
+        return { id: "conversation-1" };
       }
       override async getOrCreateUserAgent(workspaceId: string, userId: string, agentId: string) {
         expect([workspaceId, userId, agentId]).toEqual(["workspace-1", "user-1", "agent-1"]);
@@ -720,6 +735,9 @@ describe("PrismaDirectConversationRepository", () => {
     class TestConversationRepository extends PrismaDirectConversationRepository {
       override async userIdForUsername() {
         return "user-1";
+      }
+      override async findUserAgentConversation() {
+        return { id: "conversation-1" };
       }
       override async getOrCreateUserAgent() {
         return { id: "conversation-1" };

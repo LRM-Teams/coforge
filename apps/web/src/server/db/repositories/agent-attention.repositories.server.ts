@@ -85,8 +85,9 @@ export function agentAttentionDeliveryWhere(scope: AgentAttentionScope) {
  * the message's own author (an Agent, else a human) as separate columns rather than one merged
  * name, so the caller can tell which kind it is and attach its description; a raw SQL
  * statement cannot call the shared `agentMessageSender` projection directly. `otherUsername` is
- * the *recipient* — the conversation's other active member, which a DM target needs and a
- * message's sender cannot supply.
+ * the *recipient* — the conversation's other member, which a DM target needs and a message's
+ * sender cannot supply. It is read whether or not that member has left, the way
+ * `conversationTarget` names a DM: someone who left the Workspace still names the DM's history.
  *
  * The `m` subquery narrows the scan before the rule is applied, one disjoint branch per
  * conversation kind and level: a channel message only counts with a delivery row, so a channel's
@@ -122,7 +123,7 @@ export function unreadAgentMessagesFragment(
         FROM "conversation_members" om
         LEFT JOIN "users" ou ON ou."id" = om."userId"
         LEFT JOIN "agents" oa ON oa."id" = om."agentId"
-        WHERE om."conversationId" = c."id" AND om."id" <> am."id" AND om."leftAt" IS NULL
+        WHERE om."conversationId" = c."id" AND om."id" <> am."id"
         ORDER BY ou."username" NULLS LAST LIMIT 1) AS "otherUsername"
     FROM (
       SELECT cm."id", cm."sequence", cm."body", cm."conversationId", cm."threadRootId",

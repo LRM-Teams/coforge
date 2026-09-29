@@ -5,7 +5,10 @@ import { storeAgentAttachment } from "#src/server/attachments/attachment.server"
 import { isFile } from "#src/server/attachments/upload-file.server";
 import { PrismaDirectConversationRepository } from "#src/server/db/repositories/direct-conversation.repositories.server";
 import { isAppError } from "#src/lib/app-error";
-import { targetResolutionStatus } from "#src/server/agents/agent-target-status.server";
+import {
+  dmPeerNotInWorkspaceResponse,
+  targetResolutionStatus,
+} from "#src/server/agents/agent-target-status.server";
 
 export type AgentAttachmentUploadPrincipal = { workspaceId: string; agentId: string };
 
@@ -59,6 +62,8 @@ export async function handleAgentAttachmentUpload(
     );
     conversationId = resolved.conversationId;
   } catch (error) {
+    const refused = dmPeerNotInWorkspaceResponse(error, parentTarget);
+    if (refused) return refused;
     return Response.json(
       { error: "target is not accessible" },
       { status: targetResolutionStatus(error) },
@@ -96,7 +101,7 @@ export const Route = createFileRoute("/api/agent/v1/attachments/")({
         const repository = new PrismaDirectConversationRepository(db);
         return handleAgentAttachmentUpload(request, principal, {
           resolveTarget: (workspaceId, agentId, target) =>
-            repository.resolveAgentTarget(workspaceId, agentId, target),
+            repository.resolveAgentSendTarget(workspaceId, agentId, target),
           store: (input) => storeAgentAttachment(db, input),
         });
       },
