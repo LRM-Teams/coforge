@@ -12,7 +12,7 @@ import {
   replaceUnreadCounts,
   latestTopLevelSequence,
   persistReadCursor,
-  type SidebarList,
+  type ChatList,
 } from "#src/features/conversations/conversation-unread";
 import {
   decodeMessageAvailableEvent,
@@ -484,7 +484,7 @@ describe("workspaceSignalLists", () => {
 
   test("a channel created or changed anywhere in the Workspace makes the channel list and names stale", () => {
     // The channel list, and every channel's name that a body's channel links and the `#` list read.
-    const stale: SidebarList[] = ["channels", "channelNames"];
+    const stale: ChatList[] = ["channels", "channelNames"];
     expect(workspaceSignalLists({ type: "channel.created.v1", ...ids })).toEqual(stale);
     expect(workspaceSignalLists({ type: "channel.updated.v1", ...ids })).toEqual(stale);
     expect(

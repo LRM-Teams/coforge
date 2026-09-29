@@ -7,7 +7,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { getRouteApi, useParams, useRouter, useRouterState } from "@tanstack/react-router";
+import { useParams, useRouter, useRouterState } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { useQuery, useSuspenseQuery } from "@tanstack/react-query";
 import { ArrowLeft } from "@untitledui/icons";
@@ -34,7 +34,6 @@ import { useRefreshSidebar, useSidebarLists } from "./sidebar-lists";
 import { listedDirectIds } from "./sidebar-rows";
 import { workspacePath } from "#src/features/workspaces/workspace-url";
 
-const messagesRoute = getRouteApi("/w/$workspaceSlug/_chat");
 const ConversationListContext = createContext<{
   showList: () => void;
   /** Hides the list and reveals the detail pane. Called when a directory row is chosen, so a tap
@@ -77,13 +76,12 @@ export function useMarkConversationSeen(): (
 
 /** Keep both panels mounted so returning to the list preserves scroll and drafts. */
 export function ConversationNavigation({ children }: { children: ReactNode }) {
-  const { workspaceId: chatWorkspaceId } = messagesRoute.useLoaderData();
-  // Every channel by id, from the Query cache the chat loader filled; kept live by
-  // `channel.created.v1` / `channel.updated.v1` (`workspaceSignalLists`).
-  const channelNames = useSuspenseQuery(channelNamesQuery(chatWorkspaceId)).data;
   const { channels, directs, viewerId, readAt } = useSidebarLists();
   const agents = useLiveAgents();
   const workspaceId = useCurrentWorkspaceId();
+  // Every channel by id, from the Query cache the chat loader filled; kept live by
+  // `channel.created.v1` / `channel.updated.v1` (`workspaceSignalLists`).
+  const channelNames = useSuspenseQuery(channelNamesQuery(workspaceId ?? "")).data;
   const workspaceSlug = useWorkspaceSlug();
   const desktop = useBreakpoint("lg");
   const router = useRouter();
@@ -91,7 +89,7 @@ export function ConversationNavigation({ children }: { children: ReactNode }) {
   const [browsing, setBrowsing] = useState(false);
   const [creating, setCreating] = useState(false);
   // The projects a new channel can join: read when the dialog opens, not on every navigation.
-  const projects = useQuery({ ...projectsQuery(chatWorkspaceId), enabled: creating }).data;
+  const projects = useQuery({ ...projectsQuery(workspaceId ?? ""), enabled: creating }).data;
   const create = useServerFn(createPublicChannel);
   const channel = useParams({
     from: "/w/$workspaceSlug/_chat/channel/$channelId",

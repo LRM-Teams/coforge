@@ -134,6 +134,20 @@ export const sidebarDirectsQuery = (
     ...LIST_OPTIONS,
   });
 
+/**
+ * Whether every channel's name (`channelNamesQuery`) is behind the channel list just read: a listed
+ * channel it lacks, or one renamed since. The names cover closed and archived channels too, so a
+ * shorter list is not behind. A page that was away from Chat misses the channel signals, so the
+ * chat loader re-reads the names when this says so.
+ */
+export function channelNamesBehind(
+  names: readonly { id: string; name: string }[],
+  channels: readonly { id: string; name: string }[],
+): boolean {
+  const byId = new Map(names.map((channel) => [channel.id, channel.name]));
+  return channels.some((channel) => byId.get(channel.id) !== channel.name);
+}
+
 /** The fields of a row that a sidebar change touches, named alike on channel and DM rows. */
 type SidebarFields = {
   pinned: boolean;

@@ -135,14 +135,14 @@ export function applyMarked(
 
 /** A list the Chat page keeps: the sidebar's channel rows or DM rows, or every channel's name
  * (what a body's channel links and the composer's `#` list read). */
-export type SidebarList = "channels" | "dms" | "channelNames";
+export type ChatList = "channels" | "dms" | "channelNames";
 
 /**
  * Which of the sidebar's lists a viewer event makes stale, for the page to re-read those alone. A
  * read carries its own count (`applyMarked`) and needs none; pins are one order across
  * channels and DMs, so they touch both.
  */
-export function sidebarListsChangedBy(event: ViewerEvent): readonly SidebarList[] {
+export function sidebarListsChangedBy(event: ViewerEvent): readonly ChatList[] {
   if ("unreadCount" in event) return [];
   if (event.type === "pref.changed.v1")
     return event.name === "pins" ? ["channels", "dms"] : ["channels"];
@@ -154,7 +154,7 @@ export function sidebarListsChangedBy(event: ViewerEvent): readonly SidebarList[
  * the Workspace (`channel.created.v1`, `channel.updated.v1`) makes the channel list and the channel
  * names stale; anything else (a message signal) is undefined.
  */
-export function workspaceSignalLists(data: unknown): readonly SidebarList[] | undefined {
+export function workspaceSignalLists(data: unknown): readonly ChatList[] | undefined {
   if (decodeChannelCreatedEvent(data)) return ["channels", "channelNames"];
   try {
     decodeChannelUpdatedEvent(data);
@@ -169,12 +169,12 @@ export function workspaceSignalLists(data: unknown): readonly SidebarList[] | un
  * while one is running go into a single re-read after it, so a burst of events costs at most one
  * read in flight and one queued. Each call settles once a re-read covering its lists has.
  */
-export function sidebarRefreshQueue(read: (lists: ReadonlySet<SidebarList>) => Promise<void>) {
+export function sidebarRefreshQueue(read: (lists: ReadonlySet<ChatList>) => Promise<void>) {
   let running: Promise<void> = Promise.resolve();
-  let queued: { lists: Set<SidebarList>; done: Promise<void> } | undefined;
-  return (lists: readonly SidebarList[]): Promise<void> => {
+  let queued: { lists: Set<ChatList>; done: Promise<void> } | undefined;
+  return (lists: readonly ChatList[]): Promise<void> => {
     if (!queued) {
-      const batch = new Set<SidebarList>();
+      const batch = new Set<ChatList>();
       const done = running.then(() => {
         queued = undefined;
         return read(batch);
@@ -287,7 +287,7 @@ export function useChannelUnread({
   /** These lists are stale: a channel was created, renamed, described, archived or unarchived
    * (`channel.created.v1`, `channel.updated.v1`), or the viewer's own place in a chat changed
    * elsewhere (`ViewerEvent`). */
-  onSidebarListsChanged: (lists: readonly SidebarList[]) => void;
+  onSidebarListsChanged: (lists: readonly ChatList[]) => void;
 }): UnreadState {
   const [counts, setCounts] = useState<UnreadCounts>({});
   const getWorkspaceToken = useServerFn(getWorkspaceConversationSubscriptionToken);

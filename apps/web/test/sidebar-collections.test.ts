@@ -7,6 +7,7 @@ import {
   sidebarDirectsQuery,
   type Arrangement,
   type SidebarApi,
+  channelNamesBehind,
 } from "#src/features/conversations/sidebar-collections";
 
 /**
@@ -212,4 +213,18 @@ test("drags are saved one after another, in the order they were made", async () 
   }
   await Promise.all([first, second]);
   expect(started).toEqual(["general", "random"]);
+});
+
+test("the channel names are behind the sidebar when a listed channel is missing or renamed there", () => {
+  const names = [
+    { id: "c1", name: "general" },
+    { id: "c2", name: "design" },
+  ];
+  expect(channelNamesBehind(names, [{ id: "c1", name: "general" }])).toBe(false);
+  // Created elsewhere while this page was away from Chat.
+  expect(channelNamesBehind(names, [{ id: "c3", name: "launch" }])).toBe(true);
+  // Renamed elsewhere.
+  expect(channelNamesBehind(names, [{ id: "c2", name: "design-team" }])).toBe(true);
+  // The names list closed and archived channels too: fewer rows is not behind.
+  expect(channelNamesBehind(names, [])).toBe(false);
 });
