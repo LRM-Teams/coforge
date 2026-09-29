@@ -1,5 +1,5 @@
-import { expect, test } from "bun:test";
-import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { afterEach, expect, test } from "bun:test";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -21,8 +21,22 @@ async function git(cwd: string, args: readonly string[]): Promise<string> {
   return stdout.trim();
 }
 
+const repositories: string[] = [];
+afterEach(async () => {
+  await Promise.all(
+    repositories.splice(0).map((repo) => rm(repo, { recursive: true, force: true })),
+  );
+});
+
+/** A fresh scratch directory for a repository, removed after the test. */
+async function repositoryDirectory(prefix: string): Promise<string> {
+  const repo = await mkdtemp(join(tmpdir(), prefix));
+  repositories.push(repo);
+  return repo;
+}
+
 async function initRepo(): Promise<string> {
-  const repo = await mkdtemp(join(tmpdir(), "coforge-prepare-commit-msg-"));
+  const repo = await repositoryDirectory("coforge-prepare-commit-msg-");
   await git(repo, ["init", "--quiet"]);
   await git(repo, ["config", "user.email", "test@example.com"]);
   await git(repo, ["config", "user.name", "Test"]);
@@ -191,7 +205,7 @@ test("adds no trailer when the server returns none, without failing", async () =
 });
 
 test("passes null when origin is missing or not a github.com remote", async () => {
-  const repo = await mkdtemp(join(tmpdir(), "coforge-prepare-commit-msg-noremote-"));
+  const repo = await repositoryDirectory("coforge-prepare-commit-msg-noremote-");
   await git(repo, ["init", "--quiet"]);
   await git(repo, ["config", "user.email", "test@example.com"]);
   await git(repo, ["config", "user.name", "Test"]);

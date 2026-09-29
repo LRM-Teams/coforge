@@ -1,11 +1,19 @@
-import { expect, test } from "bun:test";
+import { afterEach, expect, test } from "bun:test";
 import { FileDaemonCredentialStore } from "#src/credentials/credential-store";
-import { mkdtemp, readFile, stat } from "node:fs/promises";
+import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+const directories: string[] = [];
+afterEach(async () => {
+  await Promise.all(
+    directories.splice(0).map((path) => rm(path, { recursive: true, force: true })),
+  );
+});
+
 test("Daemon credential store persists a private API key file", async () => {
   const directory = await mkdtemp(join(tmpdir(), "coforge-daemon-credentials-"));
+  directories.push(directory);
   const store = new FileDaemonCredentialStore(directory);
 
   await store.save("workspace-a", "computer-a", "daemon-runtime-secret");
