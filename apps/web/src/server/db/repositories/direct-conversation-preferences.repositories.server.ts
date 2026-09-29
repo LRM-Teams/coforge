@@ -46,30 +46,37 @@ export class PrismaDirectConversationPreferences {
   }
 
   /** Marks the viewer's DM unread, anchored on the newest top-level message someone else sent, or
-   * clears the marker. A DM where only the viewer has spoken has nothing to mark. */
+   * clears the marker, and says whether the marker changed. A DM where only the viewer has spoken
+   * has nothing to mark. */
   async setUnread({ conversationId, memberId }: ViewerDirectMembership, unread: boolean) {
     let marker: number | null = null;
-    await this.db.$transaction(async (tx) => {
+    const changed = await this.db.$transaction(async (tx) => {
       await lockConversation(tx, conversationId);
       if (unread) marker = await markUnreadAnchor(tx, conversationId, memberId);
+      const before = await tx.conversationMember.findUniqueOrThrow({
+        where: { id: memberId },
+        select: { unreadFromSequence: true },
+      });
       await tx.conversationMember.update({
         where: { id: memberId },
         data: { unreadFromSequence: marker },
       });
+      return before.unreadFromSequence !== marker;
     });
-    return { unread: marker !== null };
+    return { unread: marker !== null, changed };
   }
 
-  /** Closes the viewer's DM in their list only, or brings it back. */
+  /** Closes the viewer's DM in their list only, or brings it back, and says whether that changed. */
   async setHidden({ conversationId, memberId }: ViewerDirectMembership, hidden: boolean) {
-    await this.db.$transaction(async (tx) => {
+    const changed = await this.db.$transaction(async (tx) => {
       await lockConversation(tx, conversationId);
-      await tx.conversationMember.update({
-        where: { id: memberId },
+      const updated = await tx.conversationMember.updateMany({
+        where: { id: memberId, NOT: { hiddenAt: hidden ? { not: null } : null } },
         data: { hiddenAt: hidden ? new Date() : null },
       });
+      return updated.count > 0;
     });
-    return { hidden };
+    return { hidden, changed };
   }
 
   /**

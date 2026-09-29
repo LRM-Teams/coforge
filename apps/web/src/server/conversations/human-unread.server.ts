@@ -1,4 +1,4 @@
-import { Prisma } from "#src/generated/prisma/client";
+import { Prisma, type PrismaClient } from "#src/generated/prisma/client";
 
 /**
  * A person's unread rule, their read and Done cursor writes, and where marking unread anchors,
@@ -36,6 +36,48 @@ export async function humanUnreadCount(
       AND m."threadRootId" IS NULL
       AND ${HUMAN_UNREAD_MESSAGE_SQL}`;
   return row?.count ?? 0;
+}
+
+/**
+ * Advances the person's top-level read cursor in a channel or DM they are in: monotone and clamped
+ * to the conversation's newest message, so a stale client cannot move it back nor push it past the
+ * conversation. Reading past a mark-as-unread marker consumes it. Returns the unread count the move
+ * left (0 when it read through the newest message, else counted after the commit), or undefined
+ * when nothing moved, so a caller announces only real moves.
+ */
+export async function markHumanRead(
+  db: PrismaClient,
+  read: { conversationId: string; userId: string; throughSequence: number },
+): Promise<number | undefined> {
+  const { conversationId, userId } = read;
+  const moved = await db.$transaction(async (tx) => {
+    const latest = await tx.message.findFirst({
+      where: { conversationId },
+      orderBy: { sequence: "desc" },
+      select: { sequence: true },
+    });
+    const boundary = Math.min(read.throughSequence, latest?.sequence ?? 0);
+    if (boundary < 1) return undefined;
+    const advanced = await tx.conversationMember.updateMany({
+      where: { conversationId, userId, readThroughSequence: { lt: boundary }, leftAt: null },
+      data: { readThroughSequence: boundary },
+    });
+    // Reading past the forced `mark as unread` marker consumes it, so the badge does not come
+    // back on the next render (see the marker's note in the schema).
+    const consumed = await tx.conversationMember.updateMany({
+      where: {
+        conversationId,
+        userId,
+        unreadFromSequence: { not: null, lte: boundary },
+        leftAt: null,
+      },
+      data: { unreadFromSequence: null },
+    });
+    if (advanced.count === 0 && consumed.count === 0) return undefined;
+    return { throughLatest: boundary === latest?.sequence };
+  });
+  if (!moved) return undefined;
+  return moved.throughLatest ? 0 : humanUnreadCount(db, conversationId, userId);
 }
 
 /**

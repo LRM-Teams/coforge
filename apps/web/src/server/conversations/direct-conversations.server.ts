@@ -10,6 +10,7 @@ import {
 import { PrismaDirectConversationPreferences } from "#src/server/db/repositories/direct-conversation-preferences.repositories.server";
 import { announceViewerEvent, type ConversationRealtime } from "./conversation-realtime.server";
 import { SendDirectMessage } from "./direct-message.server";
+import { humanUnreadCount } from "./human-unread.server";
 import type { MessageRequestIdempotency } from "./message-request-idempotency.server";
 import { toggleUserMessageReaction } from "./user-message-reactions.server";
 import {
@@ -40,7 +41,10 @@ export class DirectConversations {
   private readonly conversations: PrismaDirectConversationRepository;
   private readonly preferences: PrismaDirectConversationPreferences;
 
-  constructor(private readonly db: PrismaClient) {
+  constructor(
+    private readonly db: PrismaClient,
+    private readonly realtime?: Pick<ConversationRealtime, "viewerChanged">,
+  ) {
     this.conversations = new PrismaDirectConversationRepository(db);
     this.preferences = new PrismaDirectConversationPreferences(db);
   }
@@ -51,6 +55,21 @@ export class DirectConversations {
     viewerId: string,
     peer: { agentId: string } | { userId: string },
   ): Promise<{ conversationId: string }> {
+    const { conversationId, created } = await this.openOrStart(workspaceId, viewerId, peer);
+    // A DM that did not exist before shows up in every list it belongs to (Slack's `im_created`).
+    if (created)
+      await announceViewerEvent(this.realtime, {
+        userIds: [...new Set([viewerId, "userId" in peer ? peer.userId : viewerId])],
+        event: { type: "dm.created.v1", workspaceId, conversationId },
+      });
+    return { conversationId };
+  }
+
+  private async openOrStart(
+    workspaceId: string,
+    viewerId: string,
+    peer: { agentId: string } | { userId: string },
+  ) {
     if ("userId" in peer)
       return openPeopleDirectConversation(this.db, workspaceId, viewerId, peer.userId);
     // A DM with an Agent is its creator's alone, and never starts with a deleted one.
@@ -64,7 +83,7 @@ export class DirectConversations {
       viewerId,
       peer.agentId,
     );
-    return { conversationId: conversation.id };
+    return { conversationId: conversation.id, created: conversation.created };
   }
 
   /**
@@ -147,7 +166,7 @@ export class DirectConversations {
       pinned,
     );
     if (changed)
-      await announceViewerEvent(undefined, {
+      await announceViewerEvent(this.realtime, {
         userIds: [viewerId],
         event: { type: "pref.changed.v1", workspaceId, name: "pins" },
       });
@@ -158,14 +177,37 @@ export class DirectConversations {
    * marker. */
   async setUnread(workspaceId: string, viewerId: string, conversationId: string, unread: boolean) {
     const memberId = await this.viewerMember(workspaceId, viewerId, conversationId);
-    return this.preferences.setUnread({ conversationId, memberId }, unread);
+    const { changed, ...result } = await this.preferences.setUnread(
+      { conversationId, memberId },
+      unread,
+    );
+    if (changed)
+      await announceViewerEvent(this.realtime, {
+        userIds: [viewerId],
+        event: {
+          type: "dm.marked.v1",
+          workspaceId,
+          conversationId,
+          unreadCount: await humanUnreadCount(this.db, conversationId, viewerId),
+        },
+      });
+    return result;
   }
 
   /** Closes the DM in the viewer's list only, or brings it back; someone else's next top-level
    * message brings it back too. */
   async setHidden(workspaceId: string, viewerId: string, conversationId: string, hidden: boolean) {
     const memberId = await this.viewerMember(workspaceId, viewerId, conversationId);
-    return this.preferences.setHidden({ conversationId, memberId }, hidden);
+    const { changed, ...result } = await this.preferences.setHidden(
+      { conversationId, memberId },
+      hidden,
+    );
+    if (changed)
+      await announceViewerEvent(this.realtime, {
+        userIds: [viewerId],
+        event: { type: hidden ? "dm.closed.v1" : "dm.opened.v1", workspaceId, conversationId },
+      });
+    return result;
   }
 
   /** The viewer's own member row in a DM they may use; a list preference never needs more. */
@@ -208,7 +250,18 @@ export class DirectConversations {
     throughSequence: number,
   ) {
     await this.authorize(workspaceId, viewerId, conversationId);
-    await this.conversations.markReadForUser(viewerId, conversationId, throughSequence);
+    // Like a channel read: a move tells the reader's other pages the badge it leaves (Slack's
+    // `im_marked`); a read that moved nothing says nothing.
+    const unreadCount = await this.conversations.markReadForUser(
+      viewerId,
+      conversationId,
+      throughSequence,
+    );
+    if (unreadCount !== undefined)
+      await announceViewerEvent(this.realtime, {
+        userIds: [viewerId],
+        event: { type: "dm.marked.v1", workspaceId, conversationId, unreadCount },
+      });
   }
 
   /** Advances the viewer's read position in one thread. */

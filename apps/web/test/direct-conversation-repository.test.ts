@@ -1761,6 +1761,7 @@ describe("PrismaDirectConversationRepository", () => {
           conversationMember: {
             updateMany: async (input: { where: object; data: object }) => {
               updated.push(input);
+              return { count: 1 };
             },
           },
         }),
@@ -1806,6 +1807,7 @@ describe("PrismaDirectConversationRepository", () => {
           conversationMember: {
             updateMany: async (input: { where: object; data: object }) => {
               updated.push(input);
+              return { count: 1 };
             },
           },
         }),

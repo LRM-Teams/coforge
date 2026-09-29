@@ -1,3 +1,4 @@
+import { markHumanRead } from "#src/server/conversations/human-unread.server";
 import { lockConversation } from "#src/server/conversations/conversation-lock.server";
 import { agentDirectKey, peopleDirectPeerId } from "#src/features/conversations/direct-key";
 import {
@@ -966,8 +967,13 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
 
   /** The person's DM with an Agent as they open it: `getOrCreateUserAgent`, with their member row
    * restored if it is missing. */
+  /** Also says whether this open started the DM (`created`), for its `dm.created.v1`. */
   async openUserAgent(workspaceId: string, userId: string, agentId: string) {
-    const conversation = await this.getOrCreateUserAgent(workspaceId, userId, agentId);
+    const created = !(await this.findUserAgentConversation(workspaceId, userId, agentId));
+    const conversation = {
+      ...(await this.getOrCreateUserAgent(workspaceId, userId, agentId)),
+      created,
+    };
     await restoreDirectConversationMembers(this.db, {
       conversationId: conversation.id,
       workspaceId,
@@ -1226,38 +1232,12 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
     return messages.map((message) => toBrowserMessage(message, workspaceId));
   }
 
+  /** Advances the person's DM read cursor (`markHumanRead`): the unread count it left, or
+   * undefined when nothing moved. */
   async markReadForUser(userId: string, conversationId: string, throughSequence: number) {
     if (!Number.isSafeInteger(throughSequence) || throughSequence < 1)
       throw new AppError("INVALID_INPUT");
-    await this.db.$transaction(async (tx) => {
-      const latest = await tx.message.findFirst({
-        where: { conversationId },
-        orderBy: { sequence: "desc" },
-        select: { sequence: true },
-      });
-      const boundary = Math.min(throughSequence, latest?.sequence ?? 0);
-      if (boundary < 1) return;
-      await tx.conversationMember.updateMany({
-        where: {
-          conversationId,
-          userId,
-          readThroughSequence: { lt: boundary },
-          leftAt: null,
-        },
-        data: { readThroughSequence: boundary },
-      });
-      // Reading past the forced `mark as unread` marker consumes it, so the badge does not come
-      // back on the next render (same rule as the channel side).
-      await tx.conversationMember.updateMany({
-        where: {
-          conversationId,
-          userId,
-          unreadFromSequence: { not: null, lte: boundary },
-          leftAt: null,
-        },
-        data: { unreadFromSequence: null },
-      });
-    });
+    return markHumanRead(this.db, { conversationId, userId, throughSequence });
   }
 
   async markThreadReadForUser(
