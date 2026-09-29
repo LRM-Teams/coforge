@@ -17,6 +17,7 @@ import {
   COFORGE_PROVIDER_MODELS_GENERATED,
   discoverPiModels,
   getAgentDir,
+  PI_MODEL_REFRESH_TIMEOUT_MS,
   PI_SDK_VERSION,
 } from "@coforge/agent";
 import { COFORGE_AGENT_RUNTIME_METADATA } from "#src/code-agent/pi/metadata";
@@ -806,14 +807,16 @@ function definedEnvironment(environment: Readonly<Record<string, string | undefi
 export const CATALOG_DISCOVERY_TIMEOUT_MS = 5_000;
 
 /**
- * How long Pi's in-process catalog discovery may run: two waits, like Codex's initialize and
- * model/list. A healthy Pi discovery can legitimately outlast one. Its network refresh is capped at
- * 5 s (`refreshPiModelCatalog` in `packages/agent/src/runner.ts` passes `AbortSignal.timeout(5_000)`
- * to `ModelRuntime.refresh` of `@earendil-works/pi-coding-agent@0.84.3`,
- * `dist/core/model-runtime.d.ts`), and creating the model runtime and `createAgentSessionServices`
- * (its resource loader) run around it. One wait would cut a discovery the SDK itself still bounds.
+ * How long Pi's in-process catalog discovery may run: the network refresh cap plus one wait for the
+ * stages around it. A healthy Pi discovery can legitimately outlast one wait. Its network refresh
+ * is capped at `PI_MODEL_REFRESH_TIMEOUT_MS` (`refreshPiModelCatalog` in
+ * `packages/agent/src/runner.ts` aborts `ModelRuntime.refresh` of
+ * `@earendil-works/pi-coding-agent@0.84.3`, `dist/core/model-runtime.d.ts`), and creating the model
+ * runtime and `createAgentSessionServices` (its resource loader) run around it. A flat single wait
+ * would cut a discovery the SDK itself still bounds.
  */
-export const PI_CATALOG_DISCOVERY_TIMEOUT_MS = 2 * CATALOG_DISCOVERY_TIMEOUT_MS;
+export const PI_CATALOG_DISCOVERY_TIMEOUT_MS =
+  PI_MODEL_REFRESH_TIMEOUT_MS + CATALOG_DISCOVERY_TIMEOUT_MS;
 
 function within<T>(
   promise: Promise<T>,

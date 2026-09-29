@@ -9,6 +9,7 @@ export {
   discoverPiModels,
   evalDisablesHostPiInjection,
   findSessionFile,
+  PI_MODEL_REFRESH_TIMEOUT_MS,
   resolveAgentSessionFile,
 } from "#src/runner";
 export { classifyPiLaunchFailure, PiLaunchError, piLaunchTrace } from "#src/launch-error";

@@ -3,7 +3,10 @@ import {
   OPENCODE_VERBOSE_MODELS_TIMEOUT_MS,
 } from "#src/code-agent/opencode/catalog";
 import { PROCESS_TREE_EXIT_GRACE_MS } from "#src/code-agent/process-tree-cleanup";
-import { CATALOG_DISCOVERY_TIMEOUT_MS } from "#src/code-agent/runtime-inventory";
+import {
+  CATALOG_DISCOVERY_TIMEOUT_MS,
+  PI_CATALOG_DISCOVERY_TIMEOUT_MS,
+} from "#src/code-agent/runtime-inventory";
 
 /**
  * The longest a catalog discovery pass over spawned provider processes can run before the product
@@ -15,11 +18,13 @@ import { CATALOG_DISCOVERY_TIMEOUT_MS } from "#src/code-agent/runtime-inventory"
  * slow but healthy run before the product's deadline can, and the abandoned test keeps running
  * into the tests after it.
  *
- * Pi's in-process discovery has no process to clean up and is bounded by two of the same waits
- * (`PI_CATALOG_DISCOVERY_TIMEOUT_MS`), so it never lengthens the pass.
+ * Pi's in-process discovery has no process to clean up; its own bound
+ * (`PI_CATALOG_DISCOVERY_TIMEOUT_MS`) is part of the maximum, so the budget stays true if it grows.
  */
-export const CATALOG_DISCOVERY_BUDGET_MS =
-  2 * CATALOG_DISCOVERY_TIMEOUT_MS + 2 * PROCESS_TREE_EXIT_GRACE_MS;
+export const CATALOG_DISCOVERY_BUDGET_MS = Math.max(
+  2 * CATALOG_DISCOVERY_TIMEOUT_MS + 2 * PROCESS_TREE_EXIT_GRACE_MS,
+  PI_CATALOG_DISCOVERY_TIMEOUT_MS,
+);
 
 /**
  * The longest one OpenCode catalog discovery over a spawned process can run before the product

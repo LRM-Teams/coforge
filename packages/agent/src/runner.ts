@@ -658,6 +658,9 @@ async function createPiModelRuntime(
   return modelRuntime;
 }
 
+/** How long a Pi model catalog network refresh may run before it is aborted. */
+export const PI_MODEL_REFRESH_TIMEOUT_MS = 5_000;
+
 async function refreshPiModelCatalog(
   modelRuntime: ModelRuntime,
   environment: Readonly<Record<string, string>>,
@@ -678,7 +681,7 @@ async function refreshPiModelCatalog(
     await modelRuntime.refresh({
       providers: configuredProviders,
       allowNetwork: true,
-      signal: AbortSignal.timeout(5_000),
+      signal: AbortSignal.timeout(PI_MODEL_REFRESH_TIMEOUT_MS),
     });
   } catch {
     // A catalog refresh must never fail the launch.
