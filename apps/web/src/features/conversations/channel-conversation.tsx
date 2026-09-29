@@ -1,6 +1,5 @@
 import { useMemo, useState, type ReactNode } from "react";
 import { useNavigate } from "@tanstack/react-router";
-import type { ConversationTab } from "#src/features/conversations/conversation-tabs";
 import { useQuery } from "@tanstack/react-query";
 import { Hash01 as Hash, SearchLg, Settings01 as Settings } from "@untitledui/icons";
 import type { TaskView } from "@lrm/coforge-sdk/internal";
@@ -11,8 +10,9 @@ import type { ChannelCapabilities } from "#src/server/conversations/channel-auth
 import { TabbedHeader } from "#src/components/layout/tabbed-header";
 import { ConversationListButton } from "./conversation-navigation";
 import { ThreadFollowingAgents } from "./thread-following-agents";
-import { ConversationTaskTabs } from "#src/features/tasks/conversation-task-tabs";
+import { conversationHeaderTabs, type HeaderTabs } from "./conversation-header-tabs";
 import type { Mentionable } from "./mention-text";
+import { plainMentionsByHandle } from "./message-markdown";
 import {
   loadPublicChannelMentionables,
   loadPublicChannelMentionOutsiders,
@@ -59,19 +59,12 @@ export type ChannelConversationView = Omit<DirectConversationView, "agent" | "me
 
 export function ChannelConversationHeader({
   conversation,
-  active,
-  onShowChat,
-  onShowTasks,
-  onShowFiles,
   onChanged,
   settingsOpen: controlledSettingsOpen,
   onSettingsOpenChange,
-}: {
+  ...tabs
+}: HeaderTabs & {
   conversation: ChannelConversationView;
-  active: ConversationTab;
-  onShowChat?: () => void;
-  onShowTasks?: () => void;
-  onShowFiles?: () => void;
   /** Refreshes the page and the sidebar after the settings panel changed the channel. */
   onChanged: () => Promise<void>;
   /** Set when something outside the header (the archived notice) also opens the panel. */
@@ -125,16 +118,7 @@ export function ChannelConversationHeader({
             />
           </div>
         }
-        tabs={
-          (onShowChat || onShowTasks || onShowFiles) && (
-            <ConversationTaskTabs
-              active={active}
-              onShowChat={onShowChat}
-              onShowTasks={onShowTasks}
-              onShowFiles={onShowFiles}
-            />
-          )
-        }
+        tabs={conversationHeaderTabs(tabs)}
       />
       {settingsOpen && (
         <ChannelSettingsPanel
@@ -274,19 +258,7 @@ export function ChannelConversation({
   // `MessageBody`): a body written without the @-completion still reads the member's display
   // label. Display-only — bodies, wake rules and mention rows are unchanged.
   const plainMentions = useMemo(
-    () =>
-      conversationWithFreshDirectory.mentionables?.length
-        ? new Map(
-            conversationWithFreshDirectory.mentionables.map((mentionable) => [
-              mentionable.handle,
-              {
-                handle: mentionable.handle,
-                label: mentionable.label,
-                agentId: mentionable.kind === "agent" ? mentionable.id : undefined,
-              },
-            ]),
-          )
-        : undefined,
+    () => plainMentionsByHandle(conversationWithFreshDirectory.mentionables),
     [conversationWithFreshDirectory.mentionables],
   );
   return (

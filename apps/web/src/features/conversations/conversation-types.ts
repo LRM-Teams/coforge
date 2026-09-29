@@ -133,8 +133,9 @@ export type ConversationProps = {
 
 export type ThreadedConversationProps = Omit<ConversationProps, "conversation" | "agentStatus"> & {
   conversation: Omit<DirectConversationView, "agent">;
-  /** Plain-`@handle` display resolution for the stream (see `MessageBody`). Built by each
-   * wrapper — the DM from its Agent counterpart, a channel from its member directory. */
+  /** Plain-`@handle` display resolution for the stream (see `MessageBody`). Each wrapper builds
+   * it with `plainMentionsByHandle`: an Agent DM from its Agent, a member DM or a channel from its
+   * member directory. */
   plainMentions?: Map<string, ChipMention>;
   header: ReactNode;
   readOnlyNotice?: ReactNode;

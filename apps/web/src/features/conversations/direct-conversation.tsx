@@ -1,20 +1,17 @@
 import { useMemo } from "react";
 
-import type { ConversationTab } from "#src/features/conversations/conversation-tabs";
-
-import { Avatar } from "#src/components/base/avatar/avatar";
 import { Button } from "#src/components/base/buttons/button";
 import { StatusDot } from "#src/components/ui/status-dot";
 import { AgentDisplayAvatar } from "#src/features/agents/agent-activity-avatar";
 import { agentDisplay } from "#src/features/agents/agent-activity-presentation";
 import { DeletedAgentBadge } from "#src/features/agents/deleted-agent";
 import { useLiveAgent } from "#src/features/agents/workspace-agents-realtime";
-import { avatarInitial, avatarToneClassName } from "#src/lib/avatar-tone";
 import { m } from "#src/paraglide/messages";
-import { ConversationTaskTabs } from "#src/features/tasks/conversation-task-tabs";
 import { TabbedHeader } from "#src/components/layout/tabbed-header";
+import { conversationHeaderTabs, type HeaderTabs } from "./conversation-header-tabs";
 import { ConversationListButton } from "./conversation-navigation";
-import { ThreadedConversation } from "./threaded-conversation";
+import { DirectThreadedConversation } from "./direct-threaded-conversation";
+import { plainMentionsByHandle } from "./message-markdown";
 import type {
   ConversationProps,
   DirectConversationView,
@@ -24,17 +21,10 @@ import type {
 /** The direct-message header: identity, live Agent presence, and the conversation tabs. */
 export function DirectConversationHeader({
   conversation,
-  active,
-  onShowChat,
-  onShowTasks,
-  onShowFiles,
   onOpenAgentProfile,
-}: {
+  ...tabs
+}: HeaderTabs & {
   conversation: DirectConversationView;
-  active: ConversationTab;
-  onShowChat?: () => void;
-  onShowTasks?: () => void;
-  onShowFiles?: () => void;
   /** Opens the Agent profile panel from this DM's own Agent identity. */
   onOpenAgentProfile?: (agentId: string) => void;
 }) {
@@ -104,16 +94,7 @@ export function DirectConversationHeader({
           </div>
         </>
       }
-      tabs={
-        (onShowChat || onShowTasks || onShowFiles) && (
-          <ConversationTaskTabs
-            active={active}
-            onShowChat={onShowChat}
-            onShowTasks={onShowTasks}
-            onShowFiles={onShowFiles}
-          />
-        )
-      }
+      tabs={conversationHeaderTabs(tabs)}
     />
   );
 }
@@ -131,28 +112,25 @@ export function DirectConversation(
   // A DM carries no member directory: its only member counterpart is the conversation's own
   // Agent, whose messages keep plain text by design. Chip that one handle (display-only) so the
   // stream still reads the Agent's display label.
+  const agentName = conversation.agent.displayName?.trim() || conversation.agent.name;
   const plainMentions = useMemo(
     () =>
       deleted
         ? undefined
-        : new Map([
-            [
-              conversation.agent.name,
-              {
-                handle: conversation.agent.name,
-                label: conversation.agent.displayName?.trim() || conversation.agent.name,
-                agentId: conversation.agent.id,
-              },
-            ],
+        : plainMentionsByHandle([
+            {
+              kind: "agent",
+              id: conversation.agent.id,
+              handle: conversation.agent.name,
+              label: agentName,
+            },
           ]),
-    [deleted, conversation.agent],
+    [deleted, conversation.agent.id, conversation.agent.name, agentName],
   );
-  const agentName = conversation.agent.displayName?.trim() || conversation.agent.name;
   return (
-    <ThreadedConversation
+    <DirectThreadedConversation
       {...props}
-      conversationName={agentName}
-      threadContext={`@${agentName}`}
+      name={agentName}
       plainMentions={plainMentions}
       header={
         <DirectConversationHeader
@@ -177,15 +155,7 @@ export function DirectConversation(
       emptyState={{
         title: m.conversation_empty_title({ name: conversation.agent.displayName }),
         description: m.conversation_empty_description(),
-        media: (
-          <Avatar
-            size="2xl"
-            alt={conversation.agent.displayName}
-            initials={avatarInitial(conversation.agent.displayName)}
-            contentClassName={avatarToneClassName(conversation.agent.displayName)}
-            className="ring-1 ring-secondary"
-          />
-        ),
+        avatar: { name: conversation.agent.displayName, src: conversation.agent.avatarUrl },
       }}
     />
   );

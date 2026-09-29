@@ -28,7 +28,7 @@ import {
 } from "@lrm/coforge-sdk/internal";
 import type { Element, Root, Text } from "hast";
 
-import type { MentionRef } from "./mention-text";
+import type { Mentionable, MentionRef } from "./mention-text";
 
 /**
  * Complete class literals so Tailwind's source scan emits every utility. The chip treatment
@@ -81,6 +81,27 @@ export function mentionHandlesByToken(mentions: readonly MentionRef[]): Map<stri
         handle: mention.handle,
         label: mention.label,
         agentId: mention.kind === "agent" ? mention.actorId : undefined,
+      },
+    ]),
+  );
+}
+
+/**
+ * The plain-`@handle` display resolution for a conversation's members (see `MessageBody`): each
+ * member's handle → its chip, an Agent's carrying its id for the profile panel. Undefined when there
+ * is no member to resolve, so the stream skips the plain-handle pass.
+ */
+export function plainMentionsByHandle(
+  members: readonly Pick<Mentionable, "kind" | "id" | "handle" | "label">[] | undefined,
+): Map<string, ChipMention> | undefined {
+  if (!members?.length) return undefined;
+  return new Map(
+    members.map((member) => [
+      member.handle,
+      {
+        handle: member.handle,
+        label: member.label,
+        agentId: member.kind === "agent" ? member.id : undefined,
       },
     ]),
   );
