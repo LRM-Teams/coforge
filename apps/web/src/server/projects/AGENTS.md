@@ -16,6 +16,8 @@ These rules apply to `src/server/projects/`.
 - A Project may be created from a public github.com URL without a GitHub
   Connection. Private repositories and later repository changes still require
   the caller's GitHub access.
-- Project images are replaced and read through `FileStorage` after
-  authorization; the GET icon route only serves authorized image bytes.
+- Project icons live in the public image store (`getPublicImageStorage`), not
+  the private files store: uploading, replacing, reading, and deleting a
+  Project all reach the icon there, after authorization. The GET icon route
+  only serves authorized image bytes.
   Validate uploads with the shared `server/files/image-upload.server.ts`.
