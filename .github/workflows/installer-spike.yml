@@ -5,6 +5,10 @@ name: Installer spike (Rust)
 # Runner labels: https://docs.github.com/en/actions/reference/runners/github-hosted-runners
 on:
   workflow_dispatch:
+  # A workflow_dispatch workflow can only be dispatched once it exists on the default branch, so the
+  # spike branch runs it on push instead.
+  push:
+    branches: [spike/rust-installer]
 
 permissions:
   contents: read
