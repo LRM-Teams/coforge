@@ -24,6 +24,7 @@ import { discoverKiroCatalog } from "#src/code-agent/kiro/catalog";
 import { isKiroVersionUnsupported, logKiroVersionUnsupported } from "#src/code-agent/kiro/version";
 import { discoverCursorCatalog } from "#src/code-agent/cursor/catalog";
 import { isGrokVersionUnsupported, logGrokVersionUnsupported } from "#src/code-agent/grok/version";
+import { discoverGrokCatalog } from "#src/code-agent/grok/catalog";
 import { discoverOpenCodeCatalog } from "#src/code-agent/opencode/catalog";
 import {
   isOpenCodeVersionUnsupported,
@@ -260,6 +261,7 @@ type CatalogCommands = {
   kiro?: readonly string[];
   cursor?: readonly string[];
   opencode?: readonly string[];
+  grok?: readonly string[];
 };
 
 export type CodeAgentDiscoveryOptions = {
@@ -274,6 +276,7 @@ export type CodeAgentDiscoveryOptions = {
 
 /** A provider whose model catalog is expensive enough (spawns a CLI) to be worth caching. */
 const CACHEABLE_CATALOG_PROVIDERS = [
+  RUNTIME_PROVIDER.GROK,
   RUNTIME_PROVIDER.PI,
   RUNTIME_PROVIDER.CODEX,
   RUNTIME_PROVIDER.KIRO,
@@ -432,6 +435,22 @@ export async function discoverCodeAgentCatalogs(
           .catch(() => undefined)
           .then((catalog) => ({
             provider: RUNTIME_PROVIDER.CURSOR,
+            keyPaths: [executable],
+            catalog,
+          })),
+      );
+  }
+  // Grok was the cacheable provider this refresh had no branch for, so its catalog was never
+  // probed: an Agent whose runtime is Grok Build saw an empty model list in the UI even though
+  // `grok models` lists models fine on the CLI.
+  if (runtimes.some((runtime) => runtime.provider === RUNTIME_PROVIDER.GROK)) {
+    const executable = probe.which(externalCodeAgentExecutable[RUNTIME_PROVIDER.GROK], searchPath);
+    if (executable)
+      discoveries.push(
+        discoverGrokCatalog(commands.grok ?? [executable, "models"], cwd, environment)
+          .catch(() => undefined)
+          .then((catalog) => ({
+            provider: RUNTIME_PROVIDER.GROK,
             keyPaths: [executable],
             catalog,
           })),
