@@ -966,8 +966,8 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
   }
 
   /** The person's DM with an Agent as they open it: `getOrCreateUserAgent`, with their member row
-   * restored if it is missing. */
-  /** Also says whether this open started the DM (`created`), for its `dm.created.v1`. */
+   * restored if it is missing, and whether this open started it (`created`, for `dm.created.v1`;
+   * two first opens at once may both say so, which costs a list re-read, not a wrong list). */
   async openUserAgent(workspaceId: string, userId: string, agentId: string) {
     const created = !(await this.findUserAgentConversation(workspaceId, userId, agentId));
     const conversation = {

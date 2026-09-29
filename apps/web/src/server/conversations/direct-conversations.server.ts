@@ -57,9 +57,11 @@ export class DirectConversations {
   ): Promise<{ conversationId: string }> {
     const { conversationId, created } = await this.openOrStart(workspaceId, viewerId, peer);
     // A DM that did not exist before shows up in every list it belongs to (Slack's `im_created`).
+    // Everyone in it: both people, one for a member's DM with themself, the viewer with an Agent.
+    const members = new Set([viewerId, "userId" in peer ? peer.userId : viewerId]);
     if (created)
       await announceViewerEvent(this.realtime, {
-        userIds: [...new Set([viewerId, "userId" in peer ? peer.userId : viewerId])],
+        userIds: [...members],
         event: { type: "dm.created.v1", workspaceId, conversationId },
       });
     return { conversationId };

@@ -1,4 +1,5 @@
 import { Prisma, type PrismaClient } from "#src/generated/prisma/client";
+import { ACTIVE_MEMBER_WHERE } from "./active-member.server";
 
 /**
  * A person's unread rule, their read and Done cursor writes, and where marking unread anchors,
@@ -59,7 +60,12 @@ export async function markHumanRead(
     const boundary = Math.min(read.throughSequence, latest?.sequence ?? 0);
     if (boundary < 1) return undefined;
     const advanced = await tx.conversationMember.updateMany({
-      where: { conversationId, userId, readThroughSequence: { lt: boundary }, leftAt: null },
+      where: {
+        conversationId,
+        userId,
+        readThroughSequence: { lt: boundary },
+        ...ACTIVE_MEMBER_WHERE,
+      },
       data: { readThroughSequence: boundary },
     });
     // Reading past the forced `mark as unread` marker consumes it, so the badge does not come
@@ -69,7 +75,7 @@ export async function markHumanRead(
         conversationId,
         userId,
         unreadFromSequence: { not: null, lte: boundary },
-        leftAt: null,
+        ...ACTIVE_MEMBER_WHERE,
       },
       data: { unreadFromSequence: null },
     });

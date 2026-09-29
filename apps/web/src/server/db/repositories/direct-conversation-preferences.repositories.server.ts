@@ -66,12 +66,15 @@ export class PrismaDirectConversationPreferences {
     return { unread: marker !== null, changed };
   }
 
-  /** Closes the viewer's DM in their list only, or brings it back, and says whether that changed. */
+  /** Closes the viewer's DM in their list only, or brings it back, and says whether that wrote
+   * anything (a close always does). */
   async setHidden({ conversationId, memberId }: ViewerDirectMembership, hidden: boolean) {
     const changed = await this.db.$transaction(async (tx) => {
       await lockConversation(tx, conversationId);
+      // Closing always stamps the time: a closed DM that the other side's newer message brought
+      // back still has an old `hiddenAt`, and closing it again must move it past that message.
       const updated = await tx.conversationMember.updateMany({
-        where: { id: memberId, NOT: { hiddenAt: hidden ? { not: null } : null } },
+        where: hidden ? { id: memberId } : { id: memberId, hiddenAt: { not: null } },
         data: { hiddenAt: hidden ? new Date() : null },
       });
       return updated.count > 0;

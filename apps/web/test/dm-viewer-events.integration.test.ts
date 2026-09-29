@@ -98,7 +98,7 @@ test.skipIf(!connectionString)(
 );
 
 test.skipIf(!connectionString)(
-  "marking a DM unread, closing it or bringing it back tells the viewer's pages, once per change",
+  "marking a DM unread, closing it or bringing it back tells the viewer's pages when it changed",
   async () => {
     const { workspace, ada, bob, dms, announced, post, teardown } = await setup();
     try {
@@ -113,8 +113,11 @@ test.skipIf(!connectionString)(
       await dms.setHidden(workspace.id, bob.id, conversationId, true);
       await dms.setHidden(workspace.id, bob.id, conversationId, true);
       await dms.setHidden(workspace.id, bob.id, conversationId, false);
+      await dms.setHidden(workspace.id, bob.id, conversationId, false);
       expect(announced).toEqual([
         { userIds: [bob.id], event: { type: "dm.marked.v1", ...ids, unreadCount: 1 } },
+        // A close always stamps the time (see the next test), so each one is announced.
+        { userIds: [bob.id], event: { type: "dm.closed.v1", ...ids } },
         { userIds: [bob.id], event: { type: "dm.closed.v1", ...ids } },
         { userIds: [bob.id], event: { type: "dm.opened.v1", ...ids } },
       ]);
@@ -159,6 +162,31 @@ test.skipIf(!connectionString)(
         { userIds: [ada.id], event: created(self.conversationId) },
         { userIds: [ada.id], event: created(withAgent.conversationId) },
       ]);
+    } finally {
+      await teardown();
+    }
+  },
+);
+
+test.skipIf(!connectionString)(
+  "a closed DM brought back by the other person's message can be closed again",
+  async () => {
+    const { db, workspace, ada, bob, dms, announced, post, teardown } = await setup();
+    try {
+      const { conversationId } = await dms.open(workspace.id, ada.id, { userId: bob.id });
+      await dms.setHidden(workspace.id, bob.id, conversationId, true);
+      // Closed a minute ago; Ada's message after that brings the DM back into Bob's list.
+      await db.conversationMember.updateMany({
+        where: { conversationId, userId: bob.id },
+        data: { hiddenAt: new Date(Date.now() - 60_000) },
+      });
+      await post(conversationId, ada.id);
+      expect((await dms.list(workspace.id, bob.id)).hidden).not.toContain(conversationId);
+      announced.length = 0;
+
+      await dms.setHidden(workspace.id, bob.id, conversationId, true);
+      expect((await dms.list(workspace.id, bob.id)).hidden).toContain(conversationId);
+      expect(announced.map(({ event }) => event.type)).toEqual(["dm.closed.v1"]);
     } finally {
       await teardown();
     }

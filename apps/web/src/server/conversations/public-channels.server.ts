@@ -103,21 +103,21 @@ export async function softLeaveMember(
 }
 
 /**
- * Sets fields on a person's active membership row unless they already hold `unless`, and says
- * whether anything changed, so an unchanged write announces nothing. A person who is not an active
+ * Sets fields on a person's active membership row unless they already hold `unless` (always,
+ * without it), and says whether anything changed, so an unchanged write announces nothing. A person who is not an active
  * member is refused with `ACCESS_DENIED`.
  */
 async function changeMemberRow(
   tx: Prisma.TransactionClient,
   member: { conversationId: string; userId: string },
   change: {
-    unless: Prisma.ConversationMemberWhereInput;
+    unless?: Prisma.ConversationMemberWhereInput;
     data: Prisma.ConversationMemberUpdateManyMutationInput;
   },
 ): Promise<boolean> {
   const where = { ...member, ...ACTIVE_MEMBER_WHERE };
   const updated = await tx.conversationMember.updateMany({
-    where: { ...where, NOT: change.unless },
+    where: change.unless ? { ...where, NOT: change.unless } : where,
     data: change.data,
   });
   if (updated.count > 0) return true;
@@ -541,7 +541,9 @@ export class PublicChannels {
         tx,
         { conversationId: channel.id, userId },
         {
-          unless: { hiddenAt: hidden ? { not: null } : null },
+          // Closing always stamps the time: a closed chat that someone's newer message brought
+          // back still has an old `hiddenAt`, and closing it again must move it past that message.
+          ...(hidden ? {} : { unless: { hiddenAt: null } }),
           data: { hiddenAt: hidden ? new Date() : null },
         },
       );
