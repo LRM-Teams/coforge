@@ -26,6 +26,12 @@ COPY scripts/release/install.ps1 scripts/release/install.ps1
 RUN bun run --cwd packages/coforge-sdk generate \
   && bun run --cwd apps/web db:generate
 
+# The browser keeps a copy of some queries between page loads, and the deployed build's id is
+# the buster that invalidates it (apps/web/src/features/cache-persistence/). The workflow
+# passes the commit; without it the build falls back to a timestamp and two builds of the
+# same commit would emit differently named assets.
+ARG COFORGE_BUILD_ID
+ENV COFORGE_BUILD_ID=$COFORGE_BUILD_ID
 RUN bun run --cwd apps/web build
 
 FROM oven/bun:1.4.0-alpine@sha256:07235578f79ef8c6f97d94aee7938e76f5cdba5f21ae5dbfdd3d3d38058437eb AS migrate
