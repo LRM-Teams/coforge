@@ -181,6 +181,44 @@ test("ready and reconnect snapshots report the executable version and observed O
   }
 });
 
+test("startup does not wait for optional Code Agent inventory discovery", async () => {
+  const credentials = new InMemoryDaemonCredentialStore();
+  await credentials.save(connection.workspaceId, connection.computerId, "token-inventory-delay");
+  let releaseDiscovery!: () => void;
+  const discoveryStarted = new Promise<void>((resolve) => {
+    releaseDiscovery = resolve;
+  });
+  const inventoryDiscovery = {
+    runtimes: () => discoveryStarted.then(() => []),
+    cachedCatalogs: async () => ({ catalogs: [], needsRefresh: false }),
+    catalogs: async () => [],
+  };
+  const runtime = new DaemonRuntime(
+    connection,
+    () => ({ provider: "pi", createAgentSession: async () => sessionSpy() }),
+    credentials,
+    {
+      create: () => ({
+        async start() {},
+        async stop() {},
+        async ready() {},
+      }),
+    },
+    undefined,
+    inventoryDiscovery,
+    workspaceRoot,
+  );
+  const starting = runtime.start(connection);
+  const outcome = await Promise.race([
+    starting.then(() => "started" as const),
+    new Promise<"timed_out">((resolve) => setTimeout(() => resolve("timed_out"), 100)),
+  ]);
+  releaseDiscovery();
+  await starting;
+  await runtime.stop();
+  expect(outcome).toBe("started");
+});
+
 test("a refused Computer upgrade request reports exactly one failed result with its code instead of being swallowed", async () => {
   const credentials = new InMemoryDaemonCredentialStore();
   await credentials.save(connection.workspaceId, connection.computerId, "token-upgrade-refused");
@@ -4667,6 +4705,7 @@ describe("DaemonRuntime", () => {
     );
 
     await runtime.start(connection);
+    await Bun.sleep(0);
     expect(catalogDiscoveryStarted).toBe(true);
     expect(updates).toHaveLength(1);
     expect(updates[0]).toMatchObject({
