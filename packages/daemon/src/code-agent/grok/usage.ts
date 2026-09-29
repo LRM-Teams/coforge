@@ -103,14 +103,21 @@ function projectBilling(value: unknown, accountLabel?: string): UsageSnapshot {
   const percent =
     explicit ??
     (used !== undefined && limit !== undefined && limit > 0 ? (used / limit) * 100 : undefined);
-  if (percent === undefined || percent < 0)
+  if (percent === undefined || percent < 0) {
+    // Grok 1.0.41 answers a unified-billing account with no usage figure at all: no
+    // `creditUsagePercent`, no `used`/`monthlyLimit`, a weekly period, and the only numbers present
+    // are the on-demand cap and the prepaid balance, both zero. Retrying cannot produce a
+    // percentage, so this is "this account has no metered usage to report" — a state the popup can
+    // name — rather than the failed scan it showed.
+    if (config.isUnifiedBillingUser === true) throw new UsageUnsupportedError();
     throw new Error("Grok returned no usable account usage percentage");
+  }
   const period = asRecord(config.currentPeriod);
   const reset = instant(period?.end ?? config.billingPeriodEnd);
   const primary = window(periodLabel(period?.type), percent, reset, 43200);
-  const cap = finiteNumber(config.onDemandCap);
+  const cap = quotaNumber(config.onDemandCap);
   const over =
-    finiteNumber(config.onDemandUsed) ??
+    quotaNumber(config.onDemandUsed) ??
     (used !== undefined && limit !== undefined ? Math.max(0, used - limit) : 0);
   const secondary =
     cap !== undefined && cap > 0
@@ -151,6 +158,14 @@ function number(value: unknown): number | undefined {
 function finiteNumber(value: unknown): number | undefined {
   const n = number(value);
   return n === undefined ? undefined : n;
+}
+/** Grok 1.0.41 wraps the on-demand cap and its usage as `{ val: number }` where the shape this
+ * reader was built against sent plain numbers; accept both rather than pick one. */
+function quotaNumber(value: unknown): number | undefined {
+  const direct = finiteNumber(value);
+  if (direct !== undefined) return direct;
+  const wrapped = asRecord(value);
+  return wrapped ? finiteNumber(wrapped.val) : undefined;
 }
 function instant(value: unknown): string | undefined {
   const date = new Date(typeof value === "number" ? value * 1000 : String(value ?? ""));
