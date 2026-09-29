@@ -1,12 +1,4 @@
-import {
-  createContext,
-  useCallback,
-  useContext,
-  useEffect,
-  useMemo,
-  useSyncExternalStore,
-  type ReactNode,
-} from "react";
+import { createContext, useContext, useMemo, useSyncExternalStore, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useDbClient } from "@tanstack/react-db";
 import { getRouteApi, useHydrated } from "@tanstack/react-router";
@@ -24,7 +16,6 @@ import {
   cachedSavedMessagesStore,
   materializeSavedMessages,
   savedMessagesStore,
-  switchableSavedMessagesStore,
   type SavedEntry,
   type SavedMessagesStore,
 } from "./saved-messages-collection";
@@ -68,32 +59,20 @@ export function ConversationHostProvider({
   const dbClient = useDbClient();
   const queryClient = useQueryClient();
   const hydrated = useHydrated();
-  const cached = useCallback(
-    () => queryClient.getQueryData(savedMessagesQuery(workspaceId).queryKey) ?? [],
-    [queryClient, workspaceId],
-  );
-  // One store for the page's whole life: it shows the cached list until hydrated, then the
-  // collection, so the rows that read it (and this context's value) do not change when the page
-  // hydrates.
-  const { switching, savedMessages } = useMemo(() => {
-    const switching = switchableSavedMessagesStore(cachedSavedMessagesStore(cached()));
-    const { store } = switching;
-    const savedMessages: SavedMessagesState = { store, save: store.save, unsave: store.unsave };
-    return { switching, savedMessages };
-  }, [cached]);
-  useEffect(() => {
-    if (!hydrated) return;
-    switching.use(
-      savedMessagesStore(
-        materializeSavedMessages(dbClient, workspaceId, cached(), {
-          list: () => listSavedMessages(),
-          save: (target) => saveMessage({ data: target }),
-          unsave: (target) => unsaveMessage({ data: target }),
-        }),
-        cached,
-      ),
-    );
-  }, [hydrated, switching, dbClient, workspaceId, cached]);
+  const savedMessages = useMemo<SavedMessagesState>(() => {
+    const cached = () => queryClient.getQueryData(savedMessagesQuery(workspaceId).queryKey) ?? [];
+    const store = hydrated
+      ? savedMessagesStore(
+          materializeSavedMessages(dbClient, workspaceId, cached(), {
+            list: () => listSavedMessages(),
+            save: (target) => saveMessage({ data: target }),
+            unsave: (target) => unsaveMessage({ data: target }),
+          }),
+          cached,
+        )
+      : cachedSavedMessagesStore(cached());
+    return { store, save: store.save, unsave: store.unsave };
+  }, [hydrated, dbClient, queryClient, workspaceId]);
   return (
     <OpenModeContext value={conversationOpenMode(savedOpenMode)}>
       <SavedMessagesContext value={savedMessages}>

@@ -49,8 +49,8 @@ export function EmptyConversation() {
   }, [desktop, navigating, workspaceId, workspaceSlug, channels, agents, directs, navigate]);
 
   // While a channel or direct message is opening, this pane would still ask for the choice just
-  // made until the router's pending fallback is due: show the conversation skeleton instead. The
-  // server render shows it too when a joined channel will be opened, so no frame asks first.
+  // made until the router's pending fallback is due: show the conversation skeleton instead, and
+  // likewise when a joined channel will be opened, so no frame asks first.
   const opening = useRouterState({
     select: (state) => {
       if (state.status !== "pending") return false;

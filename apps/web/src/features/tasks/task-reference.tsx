@@ -1,5 +1,4 @@
 import type { ComponentPropsWithoutRef } from "react";
-import type { TaskStatus } from "@lrm/coforge-sdk/internal";
 
 import { useConversationId } from "#src/features/conversations/conversation-id";
 import { chipControl } from "#src/lib/chip-control";
@@ -42,26 +41,14 @@ function ConversationTaskReference({
 }: TaskReferenceProps & { conversationId: string }) {
   const task = useNumberedTask(conversationId, number);
   if (!task) return <span {...props}>{children}</span>;
-  return (
-    <TaskReferenceChip {...props} status={task.status} number={number} onOpenTask={onOpenTask} />
-  );
-}
-
-/** A known Task's reference: its number on its status's badge, a control when it can open the Task. */
-export function TaskReferenceChip({
-  status,
-  number,
-  onOpenTask,
-  ...props
-}: Omit<TaskReferenceProps, "children"> & { status: TaskStatus }) {
   const control = chipControl(onOpenTask && (() => onOpenTask(number)));
   return (
     <span
       {...props}
       {...control}
       // The ring is decorative, so the status is spelled out in the chip's name.
-      aria-label={`task #${number}, ${statusLabel(status)}`}
-      data-task-status={status}
+      aria-label={`task #${number}, ${statusLabel(task.status)}`}
+      data-task-status={task.status}
       // A badge that opens its Task is a control: the pointer, hover and focus ring of one.
       className={cn(
         "inline-block rounded-md align-middle",
@@ -69,7 +56,7 @@ export function TaskReferenceChip({
           "cursor-pointer hover:brightness-95 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring",
       )}
     >
-      <TaskNumberBadge number={number} status={status} />
+      <TaskNumberBadge number={number} status={task.status} />
     </span>
   );
 }

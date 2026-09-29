@@ -26,8 +26,7 @@ import { ThreadPane } from "./thread-pane";
 import { NO_THREADS } from "./thread-summary-model";
 import { useThreadTailSequence } from "./thread-queries";
 import { ThreadRootState, type ThreadRootLoad } from "./thread-root-state";
-import { usePanelLayoutStorage } from "./panel-layouts";
-import { ConversationPending } from "./conversation-pending";
+import { localLayoutStorage } from "./local-layout-storage";
 import { ConversationIdProvider } from "./conversation-id";
 import { ThreadStoreProvider, useConversationThreadStore } from "./thread-store";
 import { resolveConversationThreadRoot } from "./conversation-thread-search";
@@ -45,8 +44,9 @@ export function ThreadedConversation(props: ThreadedConversationProps) {
       <ThreadedConversationContent {...props} />
     </ConversationIdProvider>
   );
-  // The conversation renders on the server, so its messages are in the first paint. A Task popup
-  // shown alone (the Tasks page) has no stream to show and reads Tasks at once: client-only.
+  // A conversation is rendered in the browser only: Chat's routes are `ssr: false` and the search
+  // preview is under `ClientOnly`. A Task popup shown alone is on the Tasks page, which the
+  // server renders: it has no stream to show and reads Tasks at once, so it is client-only too.
   return props.taskPopup ? <ClientOnly fallback={null}>{conversation}</ClientOnly> : conversation;
 }
 
@@ -150,21 +150,16 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
     />
   ) : null;
   // The Tasks the stream and the popup show are read here, once per window rather than per row. A
-  // popup shown alone has no stream: only its thread's references are read. The collection they
-  // read is client-only, so the read starts after hydration and the Tasks appear once it answers.
+  // popup shown alone has no stream: only its thread's references are read.
   const taskLayer = (
     <>
-      <ClientOnly>
-        <ConversationTaskDemand
-          conversationId={conversation.conversationId}
-          messages={
-            !taskPopup ? conversation.messages : openTaskRoot ? [openTaskRoot] : NO_MESSAGES
-          }
-          hasNewer={conversation.hasNewer ?? false}
-          readWindow={!taskPopup}
-          openTaskNumber={openTaskNumber}
-        />
-      </ClientOnly>
+      <ConversationTaskDemand
+        conversationId={conversation.conversationId}
+        messages={!taskPopup ? conversation.messages : openTaskRoot ? [openTaskRoot] : NO_MESSAGES}
+        hasNewer={conversation.hasNewer ?? false}
+        readWindow={!taskPopup}
+        openTaskNumber={openTaskNumber}
+      />
       {dialog}
     </>
   );
@@ -189,12 +184,11 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
   // The thread/profile pane's share of the width is the user's to set; remembered across visits,
   // and kept separate per slot (`react-resizable-panels` derives its storage key from `panelIds`,
   // so ["main","thread"] and ["main","profile"] never share or corrupt each other's saved size).
-  const layoutStorage = usePanelLayoutStorage();
   const threadLayout = useDefaultLayout({
     id: "coforge-conversation",
     panelIds: visibleSlot ? ["main", visibleSlot] : ["main"],
     onlySaveAfterUserInteractions: true,
-    storage: layoutStorage,
+    storage: localLayoutStorage,
   });
   // Panels are flex items sized by the library's inline styles, so a narrow viewport cannot
   // collapse the split with CSS; unmount the resizable Group and stack full-width panes
@@ -276,13 +270,6 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
       />
     </ThreadStoreProvider>
   );
-  // The Tasks tab is a TanStack DB live query over the collection, which is client-only, and a
-  // drag-and-drop board: it mounts after hydration.
-  const mainPane = tasksPane ? (
-    <ClientOnly fallback={<ConversationPending />}>{tasksPane}</ClientOnly>
-  ) : (
-    conversationMainPane
-  );
   const conversationSidePane = visibleSlot && (
     <>
       {visibleSlot === "profile" && profileAgentId && (
@@ -349,7 +336,7 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
       <>
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
           <div className={cn("flex min-h-0 min-w-0 flex-1 flex-col", visibleSlot && "hidden")}>
-            {mainPane}
+            {tasksPane ?? conversationMainPane}
           </div>
           {conversationSidePane && (
             <div className="flex min-h-0 min-w-0 flex-1 flex-col">{conversationSidePane}</div>
@@ -374,7 +361,7 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
           minSize="40"
           className="flex min-h-0 min-w-0 flex-col"
         >
-          {mainPane}
+          {tasksPane ?? conversationMainPane}
         </Panel>
         {visibleSlot && (
           <>

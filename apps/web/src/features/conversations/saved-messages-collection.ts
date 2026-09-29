@@ -175,43 +175,6 @@ export function cachedSavedMessagesStore(list: readonly SavedEntry[]): SavedMess
   };
 }
 
-/**
- * One store that shows `initial` until `use` gives it another. The page renders from the cached
- * list and, once hydrated, from the collection: behind one identity, the rows that read the store
- * are not re-rendered by the switch (they would be by a new context value); each re-reads its own
- * answer and re-renders only if that changed. Listeners move to the new store as it takes over.
- */
-export function switchableSavedMessagesStore(initial: SavedMessagesStore) {
-  let current = initial;
-  const readers = new Set<{ listener: () => void; unsubscribe: () => void }>();
-  const store: SavedMessagesStore = {
-    entries: () => current.entries(),
-    has: (messageId) => current.has(messageId),
-    subscribe(listener) {
-      const reader = { listener, unsubscribe: current.subscribe(listener) };
-      readers.add(reader);
-      return () => {
-        reader.unsubscribe();
-        readers.delete(reader);
-      };
-    },
-    save: (saved) => current.save(saved),
-    unsave: (messageId) => current.unsave(messageId),
-  };
-  return {
-    store,
-    use(next: SavedMessagesStore) {
-      if (next === current) return;
-      current = next;
-      for (const reader of readers) {
-        reader.unsubscribe();
-        reader.unsubscribe = next.subscribe(reader.listener);
-        reader.listener();
-      }
-    },
-  };
-}
-
 /** Saves at once; resolves when the server has it, rejects (after rolling back) when it fails. */
 export async function saveMessageOptimistically(
   collection: SavedMessagesCollection,

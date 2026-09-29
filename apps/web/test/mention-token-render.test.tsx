@@ -7,7 +7,6 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MessageBody } from "#src/features/conversations/message-body";
 import { mentionHandlesByToken } from "#src/features/conversations/message-markdown";
 import { ConversationIdProvider } from "#src/features/conversations/conversation-id";
-import { TaskReferenceChip } from "#src/features/tasks/task-reference";
 import { conversationTasksFor } from "#src/features/tasks/use-conversation-tasks";
 import { taskView } from "./fixtures/task-view";
 
@@ -64,34 +63,24 @@ function inConversation(node: ReactNode, tasks: TaskView[]) {
 
 const task68 = taskView(68, { messageId: "message-68", title: "Ship it", status: "in_progress" });
 
-test("a stored task reference is never the raw token: the server render reads it as words", () => {
-  // The Tasks collection is client-only, so the render on the server, and the one that hydrates
-  // its markup, show no Task even when the conversation's store holds it; the badge follows once
-  // the page hydrated (`useHeldTasks`).
+test("a stored task reference renders as its Task's status badge, never the raw token", () => {
   const markup = renderToStaticMarkup(
     inConversation(<MessageBody body={"pairs with <@task:68> today"} />, [task68]),
   );
   expect(markup).not.toContain("&lt;@task:");
-  expect(markup).toContain(">task #68<");
-  expect(markup).not.toContain("data-task-status");
+  expect(markup).toContain(">#68<");
+  expect(markup).toContain('data-task-status="in_progress"');
+  // The ring is decorative, so the status is spelled out in the accessible name.
+  expect(markup).toContain('aria-label="task #68, In progress"');
 });
 
-test("a known Task's reference is its status badge, a control only when it can open the Task", () => {
-  const badge = renderToStaticMarkup(<TaskReferenceChip number={68} status="in_progress" />);
-  expect(badge).toContain(">#68<");
-  expect(badge).toContain('data-task-status="in_progress"');
-  // The ring is decorative, so the status is spelled out in the accessible name.
-  expect(badge).toContain('aria-label="task #68, In progress"');
-  expect(badge).not.toContain('role="button"');
-
+test("a referenced Task the conversation has becomes a control; any other number is plain text", () => {
   const clickable = renderToStaticMarkup(
-    <TaskReferenceChip number={68} status="in_progress" onOpenTask={() => {}} />,
+    inConversation(<MessageBody body={"<@task:68>"} onOpenTask={() => {}} />, [task68]),
   );
   expect(clickable).toContain('role="button"');
   expect(clickable).toContain("cursor-pointer");
-});
 
-test("a task reference outside a conversation, or to no Task, reads as the words the author typed", () => {
   // A token is a claim, checked against the conversation's Tasks: a number it has no Task for
   // reads as the words the author could have typed.
   const unknown = renderToStaticMarkup(

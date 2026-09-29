@@ -109,9 +109,6 @@ workspaceId]` Query its loader fills (`task-overview-collection.ts`,
   `useMessageTask`, selectors over the collection's TanStack Store (`byId`,
   `byNumber`, where an unchanged Task keeps its object), never from a list
   passed down. They never read anything themselves, so a row adds no request.
-  The server render and the hydrating render show no Task (the collection is
-  client-only), and each part moves to the store once it hydrated
-  (`useHeldTasks`), so a badge appears when the collection has read its Task.
 - Board columns can be hidden from their "···" menu, as Linear allows; hidden
   ones are listed last (`HiddenColumn`), stay drop targets, and show again when
   pressed. Every column shows by default; the choice is per device

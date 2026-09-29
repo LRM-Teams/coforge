@@ -16,7 +16,7 @@ export function resolveTimeZone(preference: string | null | undefined, browserTi
 let cachedBrowserTimeZone: string | undefined;
 
 /** The browser's own zone, read once per page load like the formatters below that bake it in. */
-function browserTimeZone() {
+export function browserTimeZone() {
   cachedBrowserTimeZone ??=
     typeof Intl !== "undefined" ? Intl.DateTimeFormat().resolvedOptions().timeZone : undefined;
   return cachedBrowserTimeZone;
@@ -167,7 +167,7 @@ export function formatRelativeTime(
 // (`validateTimeZone` runs on the server).
 const canonicalTimeZones = new Set<string>();
 
-export function isValidTimeZone(value: string) {
+function isValidTimeZone(value: string) {
   if (canonicalTimeZones.has(value)) return true;
   let resolved: string;
   try {

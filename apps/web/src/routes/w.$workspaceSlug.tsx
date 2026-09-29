@@ -5,7 +5,6 @@ import { useServerFn } from "@tanstack/react-start";
 import { AppShell } from "#src/components/app-shell";
 import { TimeFormatProvider } from "#src/lib/time-format-context";
 import { TimeZoneProvider } from "#src/lib/time-zone-context";
-import { loadTimeZoneHint } from "#src/features/settings/time-zone-hint.functions";
 import { loadAssumedPhone } from "#src/features/settings/assumed-viewport.functions";
 import { AssumedViewportProvider } from "#src/hooks/assumed-viewport";
 import { getUserProfile } from "#src/features/profiles/profile.functions";
@@ -75,7 +74,6 @@ export const Route = createFileRoute("/w/$workspaceSlug")({
       notifications,
       agents,
       timeZone: preferences.timeZone,
-      timeZoneHint: loadTimeZoneHint(),
       assumedPhone: loadAssumedPhone(),
       timeFormat: preferences.timeFormat,
       conversationOpenMode: preferences.conversationOpenMode,
@@ -95,7 +93,6 @@ function AppLayout() {
     recordsPreview,
     notifications,
     timeZone,
-    timeZoneHint,
     assumedPhone,
     timeFormat,
     tabOrders,
@@ -114,7 +111,7 @@ function AppLayout() {
   const createAndOpen = useCreateAndOpenWorkspace();
   return (
     <TimeFormatProvider timeFormat={timeFormat}>
-      <TimeZoneProvider saved={timeZone} hint={timeZoneHint}>
+      <TimeZoneProvider saved={timeZone}>
         <AssumedViewportProvider phone={assumedPhone}>
           <BrowserRealtimeProvider
             workspaceId={currentWorkspace.id}

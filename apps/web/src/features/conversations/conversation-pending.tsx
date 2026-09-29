@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { useMatch, useNavigate, useRouter } from "@tanstack/react-router";
 import { AlertCircle } from "@untitledui/icons";
 import { Button } from "#src/components/base/buttons/button";
+import { PageHeader } from "#src/components/layout/page-header";
 import { Skeleton } from "#src/components/ui/skeleton";
 import { isAppError } from "#src/lib/app-error";
 import { m } from "#src/paraglide/messages";
@@ -11,10 +12,40 @@ import { ConversationListButton } from "./conversation-navigation";
 import { isConversationGone } from "./conversation-queries";
 import { useRefreshSidebarChannels } from "./sidebar-lists";
 
+/**
+ * The loading screen Chat shows until its lists and the open conversation have been read in the
+ * browser: the frame `ConversationNavigation` draws (the list column from a desktop width, the
+ * conversation beside it), with skeletons where the rows will be. It is also what the server
+ * sends for a Chat page.
+ */
 export function MessagesPending() {
   return (
-    <main className="flex h-svh min-w-0 flex-col bg-primary">
-      <ConversationPending />
+    <main className="flex h-svh min-w-0 flex-col bg-primary lg:flex-row">
+      <section className="hidden min-h-0 flex-col lg:flex lg:w-72 lg:flex-none lg:border-r lg:border-secondary">
+        <PageHeader heading={m.navigation_chat()} />
+        <div
+          aria-hidden="true"
+          className="min-h-0 flex-1 space-y-6 overflow-hidden px-6 py-4 motion-safe:animate-pulse"
+        >
+          {[
+            ["w-24", "w-32", "w-20", "w-28"],
+            ["w-28", "w-24", "w-32"],
+          ].map((widths, group) => (
+            <div key={group} className="space-y-3">
+              <Skeleton className="h-2.5 w-16" />
+              {widths.map((width) => (
+                <div key={width} className="flex items-center gap-3">
+                  <Skeleton className="size-5 shrink-0" />
+                  <Skeleton className={`h-3 ${width}`} />
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
+      </section>
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+        <ConversationPending />
+      </div>
     </main>
   );
 }
@@ -49,6 +80,13 @@ export function ConversationPending() {
             </div>
           ))}
         </div>
+      </div>
+      {/* The composer's frame, in the same column as the stream above. */}
+      <div className={MESSAGE_COLUMN_CLASS}>
+        <div
+          aria-hidden="true"
+          className="mx-4 mt-2 mb-3 h-16 shrink-0 rounded-xl border border-primary md:mx-6"
+        />
       </div>
     </div>
   );

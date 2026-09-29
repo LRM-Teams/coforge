@@ -2,8 +2,6 @@ import { Outlet, createFileRoute } from "@tanstack/react-router";
 
 import { MessagesPending } from "#src/features/conversations/conversation-pending";
 import { ConversationNavigation } from "#src/features/conversations/conversation-navigation";
-import { loadPanelLayouts } from "#src/features/conversations/panel-layouts.functions";
-import { PanelLayoutProvider } from "#src/features/conversations/panel-layouts";
 import { PageLoadError } from "#src/features/errors/page-load-error";
 import {
   channelNamesBehind,
@@ -17,11 +15,15 @@ import {
 } from "#src/features/conversations/conversation-queries";
 
 export const Route = createFileRoute("/w/$workspaceSlug/_chat")({
+  // Chat's lists and conversations are read and rendered in the browser: the server sends the app's
+  // chrome and this route's `pendingComponent` (a loading screen), as Slack's HTML does, and this
+  // loader and every one below it run in the browser. Every route under this one inherits it.
+  // https://tanstack.com/start/latest/docs/framework/react/guide/selective-ssr
+  ssr: false,
   loader: async ({ context: { queryClient }, parentMatchPromise, cause }) => {
-    // The sidebar's channel and DM lists go into the Query cache, which the server render reads and
-    // the client hydrates; after hydration they back the sidebar's collections
-    // (`sidebar-collections.ts`). Realtime keeps them live, so a navigation inside Chat reads only
-    // a list not cached or marked stale (`chatListStaleTime`).
+    // The sidebar's channel and DM lists go into the Query cache, where they back the sidebar's
+    // collections (`sidebar-collections.ts`). Realtime keeps them live, so a navigation inside Chat
+    // reads only a list not cached or marked stale (`chatListStaleTime`).
     const workspaceId = parentMatchPromise.then(
       (parent) => parent.loaderData?.currentWorkspace?.id ?? "",
     );
@@ -57,9 +59,8 @@ export const Route = createFileRoute("/w/$workspaceSlug/_chat")({
       sidebarLists,
       workspaceId,
     ]);
-    // `workspaceId` keys the conversation pages' Workspace-scoped reads (a Tasks tab's finished
-    // counts); `panelLayouts` are the panel sizes the server render starts from.
-    return { workspaceId: currentWorkspaceId, panelLayouts: loadPanelLayouts() };
+    // Keys the conversation pages' Workspace-scoped reads (a Tasks tab's finished counts).
+    return { workspaceId: currentWorkspaceId };
   },
   pendingComponent: MessagesPending,
   errorComponent: PageLoadError,
@@ -67,12 +68,9 @@ export const Route = createFileRoute("/w/$workspaceSlug/_chat")({
 });
 
 function MessagesPage() {
-  const { panelLayouts } = Route.useLoaderData();
   return (
-    <PanelLayoutProvider layouts={panelLayouts}>
-      <ConversationNavigation>
-        <Outlet />
-      </ConversationNavigation>
-    </PanelLayoutProvider>
+    <ConversationNavigation>
+      <Outlet />
+    </ConversationNavigation>
   );
 }

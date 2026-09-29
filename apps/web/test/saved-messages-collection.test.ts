@@ -8,10 +8,8 @@ import {
   savedMessagesQueryKey,
   savedMessagesStore,
   saveMessageOptimistically,
-  switchableSavedMessagesStore,
   unsaveMessageOptimistically,
   type SavedEntry,
-  type SavedMessagesStore,
 } from "#src/features/conversations/saved-messages-collection";
 
 function entry(id: string, savedAt = new Date(0)): SavedEntry {
@@ -99,66 +97,6 @@ describe("saved messages collection", () => {
     expect(store.has("m1")).toBe(true);
     expect(store.has("m3")).toBe(false);
     expect(store.entries().map((saved) => saved.message.id)).toEqual(["m2", "m1"]);
-  });
-
-  describe("the store behind the page's hydration", () => {
-    /** A store that answers `saved` and counts who is subscribed to it. */
-    function fakeStore(saved: string[]) {
-      const listeners = new Set<() => void>();
-      const store: SavedMessagesStore = {
-        entries: () => saved.map((id) => entry(id)),
-        has: (id) => saved.includes(id),
-        subscribe: (listener) => {
-          listeners.add(listener);
-          return () => listeners.delete(listener);
-        },
-        save: async () => {},
-        unsave: async () => {},
-      };
-      return { store, listeners, change: () => listeners.forEach((notify) => notify()) };
-    }
-
-    test("keeps one identity across the switch, so a reader is not re-rendered by it", () => {
-      const before = fakeStore(["m1"]);
-      const switching = switchableSavedMessagesStore(before.store);
-      const { store } = switching;
-      expect(store.has("m1")).toBe(true);
-      switching.use(fakeStore(["m1"]).store);
-      // The reader's own answer did not change; it holds the same store either way.
-      expect(switching.store).toBe(store);
-      expect(store.has("m1")).toBe(true);
-    });
-
-    test("moves a reader's subscription to the new store, and tells it to read again once", () => {
-      const before = fakeStore(["m1"]);
-      const after = fakeStore(["m2"]);
-      const switching = switchableSavedMessagesStore(before.store);
-      let notified = 0;
-      const unsubscribe = switching.store.subscribe(() => notified++);
-      expect(before.listeners.size).toBe(1);
-      switching.use(after.store);
-      expect(notified).toBe(1);
-      expect(before.listeners.size).toBe(0);
-      expect(after.listeners.size).toBe(1);
-      expect(switching.store.has("m1")).toBe(false);
-      expect(switching.store.has("m2")).toBe(true);
-      // A change in the new store reaches the reader; leaving detaches it from that store.
-      after.change();
-      expect(notified).toBe(2);
-      unsubscribe();
-      expect(after.listeners.size).toBe(0);
-    });
-
-    test("saves and unsaves through whichever store is current", async () => {
-      const cached = switchableSavedMessagesStore(cachedSavedMessagesStore([]));
-      await expect(cached.store.save(entry("m1"))).rejects.toThrow("not hydrated");
-      const calls: string[] = [];
-      const real = fakeStore([]);
-      real.store.save = async (saved) => void calls.push(`save:${saved.message.id}`);
-      cached.use(real.store);
-      await cached.store.save(entry("m1"));
-      expect(calls).toEqual(["save:m1"]);
-    });
   });
 
   test("a save shows at once and persists through the save call", async () => {

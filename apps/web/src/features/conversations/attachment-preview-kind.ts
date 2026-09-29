@@ -49,9 +49,9 @@ export function mediaMimeType(fileName: string): string | null {
  * decided by no check at all: the browser can begin loading `src` from the SSR HTML — with host
  * cookies, if the delivery origin is misconfigured to this one — before hydration re-runs this
  * function and removes it. A check that only runs after the frame exists is not fail-closed, so
- * the answer without a known origin is "no". Components get the origin from
- * `useAttachmentPreviewKind`, which withholds it from the render that hydrates server markup, so
- * that render says "no" too and a PDF offers its preview once the page is hydrated.
+ * the answer without a known origin is "no". Every caller renders inside the browser only (a
+ * conversation is never server-rendered), which is why this costs no visible behaviour: the browser
+ * always has an origin to compare.
  */
 export function isFrameableDocumentUrl(
   previewUrl: string | undefined,
@@ -68,11 +68,6 @@ export function isFrameableDocumentUrl(
   return url.origin !== applicationOrigin;
 }
 
-/** Whether an attachment is a PDF, the one whose preview depends on the page's origin. */
-export function isPdfAttachment(fileName: string, contentType: string): boolean {
-  return extensionOf(fileName) === "pdf" || contentType === "application/pdf";
-}
-
 /**
  * Which preview one attachment supports, or `null` for the rest (which stay download-only).
  *
@@ -84,12 +79,12 @@ export function attachmentPreviewKind(
   contentType: string,
   /** The signed delivery URL, when the server supplied one. Required for a PDF, and only when it
    * is genuinely off this origin — see `isFrameableDocumentUrl`. */
-  previewUrl: string | undefined,
+  previewUrl?: string,
   /** The page's own origin; absent during server rendering. */
-  applicationOrigin: string | undefined,
+  applicationOrigin: string | undefined = globalThis.location?.origin,
 ): AttachmentPreviewKind | null {
   const extension = extensionOf(fileName);
-  if (isPdfAttachment(fileName, contentType))
+  if (extension === "pdf" || contentType === "application/pdf")
     return isFrameableDocumentUrl(previewUrl, applicationOrigin) ? "pdf" : null;
   if (MARKDOWN_EXTENSIONS.has(extension)) return "markdown";
   if (HTML_EXTENSIONS.has(extension)) return "html";

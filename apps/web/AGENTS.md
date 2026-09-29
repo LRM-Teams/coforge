@@ -121,7 +121,7 @@ responsibility.
 - `features/realtime/` — the one browser Centrifuge connection.
 - `features/records/` — Workspace Records (see the last section).
 - `features/settings/` — preference pages and device-local preferences, and what the request says
-  about the browser for the server render (its time zone, phone or desktop).
+  about the browser for the server render (phone or desktop).
 - `features/search/` — the Workspace search page (`search`): filters, matching channels, Agents and Computers, message results with their preview, and the browser-local search history and frequently used places.
 - `features/tasks/` — Task board, list, overview, and message task actions.
 - `features/workspaces/` — Workspace switcher and creation (the switcher dialog and the page a signed-in person in no Workspace lands on, `/workspaces/new`), the Workspace a page URL names (`/w/<slug>`) and the one each QueryClient last showed, member directory reads, member presence (`presence:workspace:<workspace_id>`), invitations, join links and the invite-link page (`/join/<token>`), human roles, the Settings → Workspace profile Danger zone (leave, or delete for its owner), leaving a page whose Workspace was deleted (`workspace.deleted.v1`), and the last page `/` returns to.
