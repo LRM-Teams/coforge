@@ -10,6 +10,7 @@ import {
   type CentrifugeWorkspaceClient,
 } from "#src/connection/daemon-connection";
 import { DaemonConnectionRefusedError } from "#src/connection/daemon-connection-refused-error";
+import { DaemonConnectionStoppedError } from "#src/connection/daemon-connection-stopped-error";
 import type { AgentSendDecisionResponse } from "@lrm/coforge-sdk/agent";
 import { AgentUpstreamRefusalError } from "#src/connection/agent-upstream-refusal-error";
 import {
@@ -1072,37 +1073,167 @@ test("waits for connected and does not send a business payload", async () => {
   expect(connected).toBe(true);
 });
 
-test("an ordinary failure on the first connect keeps start waiting while the client retries", async () => {
+/** A timing port whose scheduled callbacks run only when the test says so. */
+function manualTiming() {
+  const scheduled: { callback: () => void; delayMs: number }[] = [];
+  const cancelled: unknown[] = [];
+  return {
+    scheduled,
+    cancelled,
+    timing: {
+      schedule: (callback: () => void, delayMs: number) => {
+        scheduled.push({ callback, delayMs });
+        return scheduled.length;
+      },
+      cancel: (timer: unknown) => void cancelled.push(timer),
+    },
+  };
+}
+
+/** A connection over `fake` whose scheduled retries run only when the test says so. */
+function manualConnection(fake: ReturnType<typeof fakeClient>) {
+  const manual = manualTiming();
+  const transport = new DaemonConnection(
+    "wss://cloud.example",
+    () => fake.client,
+    undefined,
+    manual.timing,
+  );
+  return { transport, ...manual };
+}
+
+const connectError = { type: "connect", error: { code: 100, message: "internal server error" } };
+const transportError = { type: "transport", error: { code: 2, message: "transport closed" } };
+
+function eventRecords(records: LogRecord[], event: string): LogRecord[] {
+  return records.filter((record) => (record.properties as { event?: string }).event === event);
+}
+
+test("an ordinary failure on the first connect is left to the client's own retry", async () => {
   const fake = fakeClient();
   fake.client.connect = () => undefined;
   let disconnectCalls = 0;
   fake.client.disconnect = () => void disconnectCalls++;
   const transport = new DaemonConnection("wss://cloud.example", () => fake.client);
-  let settled = false;
-  const start = transport.start("secret", config).finally(() => (settled = true));
 
-  // centrifuge-js reports a temporary connect error or a transport that closed before opening as
-  // `error` and stays in `connecting`, retrying with its own backoff.
-  fake.fail({ type: "connect", error: { code: 100, message: "internal server error" } });
-  fake.fail({ type: "transport", error: { code: 2, message: "transport closed" } });
-  await Promise.resolve();
-  expect(settled).toBe(false);
-  expect(disconnectCalls).toBe(0);
+  const { records } = await captureLogs(async () => {
+    const start = transport.start("secret", config);
+    // centrifuge-js reports a temporary connect error or a transport that closed before opening as
+    // `error` and stays in `connecting`, retrying with its own backoff.
+    fake.fail(connectError);
+    fake.fail(transportError);
+    expect(disconnectCalls).toBe(0);
+    fake.connect();
+    await start;
+  });
 
-  fake.connect();
-  await start;
+  expect(
+    eventRecords(records, "daemon_connection:retry_scheduled").map(
+      (record) => record.properties.retry_by,
+    ),
+  ).toEqual(["client", "client"]);
 });
 
-test("a first connect the client gives up on for a reason other than a refusal fails start", async () => {
+test("a first connect the client gives up on is resumed after the daemon's own backoff", async () => {
+  const fake = fakeClient();
+  let connectCalls = 0;
+  // 3501 (bad request) is one the client never reconnects after.
+  fake.client.connect = () => {
+    if (++connectCalls === 1) fake.disconnect({ code: 3501, reason: "bad request" });
+    else fake.connect();
+  };
+  const { transport, scheduled } = manualConnection(fake);
+
+  const start = transport.start("secret", config);
+  expect(scheduled.map(({ delayMs }) => delayMs)).toEqual([1_000]);
+  scheduled[0]!.callback();
+  await start;
+
+  expect(connectCalls).toBe(2);
+});
+
+test("a give-up disconnect after the connection was up is resumed with a doubling backoff", async () => {
+  const fake = fakeClient();
+  let connectCalls = 0;
+  fake.client.connect = () => {
+    connectCalls += 1;
+    // The first connect works; the resumed ones are given up on again until the last.
+    if (connectCalls === 1 || connectCalls === 4) fake.connect();
+    else fake.disconnect({ code: 3, reason: "message size limit exceeded" });
+  };
+  const { transport, scheduled } = manualConnection(fake);
+  await transport.start("secret", config);
+
+  fake.disconnect({ code: 3, reason: "message size limit exceeded" });
+  scheduled[0]!.callback();
+  scheduled[1]!.callback();
+  scheduled[2]!.callback();
+
+  expect(scheduled.map(({ delayMs }) => delayMs)).toEqual([1_000, 2_000, 4_000]);
+  expect(connectCalls).toBe(4);
+  // A connection that came back starts the next outage from the shortest delay again.
+  fake.disconnect({ code: 3, reason: "message size limit exceeded" });
+  expect(scheduled[3]!.delayMs).toBe(1_000);
+});
+
+test("a disconnect the daemon asked for itself is not resumed", async () => {
+  const fake = fakeClient();
+  const { transport, scheduled } = manualConnection(fake);
+  await transport.start("secret", config);
+
+  fake.disconnect({ code: 0, reason: "disconnect called" });
+
+  expect(scheduled).toEqual([]);
+});
+
+test("stop cancels a pending resume after a give-up disconnect", async () => {
   const fake = fakeClient();
   fake.client.connect = () => fake.disconnect({ code: 3501, reason: "bad request" });
+  const { transport, scheduled, cancelled } = manualConnection(fake);
+  const start = transport.start("secret", config).catch((error: unknown) => error);
+
+  await transport.stop();
+
+  expect(await start).toBeInstanceOf(DaemonConnectionStoppedError);
+  expect(cancelled).toEqual([scheduled.length]);
+});
+
+test("a run of failed connect attempts escalates to an error, then repeats it only now and then", async () => {
+  const fake = fakeClient();
+  fake.client.connect = () => undefined;
   const transport = new DaemonConnection("wss://cloud.example", () => fake.client);
 
-  const failure = await transport.start("secret", config).catch((error: unknown) => error);
+  const { records } = await captureLogs(async () => {
+    const start = transport.start("secret", config);
+    for (let attempt = 0; attempt < 20; attempt += 1) fake.fail(transportError);
+    fake.connect();
+    await start;
+    // Connected again: the count starts over.
+    fake.fail(transportError);
+  });
 
-  expect(failure).toBeInstanceOf(Error);
-  expect(failure).not.toBeInstanceOf(DaemonConnectionRefusedError);
-  expect(failure).toMatchObject({ code: 3501 });
+  const retries = eventRecords(records, "daemon_connection:retry_scheduled");
+  expect(retries.map((record) => record.properties.attempt)).toEqual([
+    ...Array.from({ length: 20 }, (_, index) => index + 1),
+    1,
+  ]);
+  const errorAttempts = retries
+    .filter((record) => record.level === "error")
+    .map((record) => record.properties.attempt);
+  expect(errorAttempts).toEqual([8, 10, 20]);
+});
+
+test("a client error that is not a connect attempt is not reported as a retry", async () => {
+  const fake = fakeClient();
+  const transport = new DaemonConnection("wss://cloud.example", () => fake.client);
+  await transport.start("secret", config);
+
+  const { records } = await captureLogs(async () => {
+    fake.fail({ type: "configuration", error: { code: 8, message: "bad configuration" } });
+  });
+
+  expect(eventRecords(records, "daemon_connection:retry_scheduled")).toEqual([]);
+  expect(eventRecords(records, "daemon_connection:client_error")).toHaveLength(1);
 });
 
 test("stop ends a start still waiting for its first connection", async () => {
@@ -1112,13 +1243,34 @@ test("stop ends a start still waiting for its first connection", async () => {
   fake.client.disconnect = () => void disconnectCalls++;
   const transport = new DaemonConnection("wss://cloud.example", () => fake.client);
   const start = transport.start("secret", config).catch((error: unknown) => error);
-  fake.fail({ type: "connect", error: { code: 100, message: "internal server error" } });
+  fake.fail(connectError);
 
   await transport.stop();
 
-  expect(await start).toBeInstanceOf(Error);
-  expect(await start).not.toBeInstanceOf(DaemonConnectionRefusedError);
+  expect(await start).toBeInstanceOf(DaemonConnectionStoppedError);
   expect(disconnectCalls).toBeGreaterThan(0);
+});
+
+test("a start that connected stops listening to its abort signal", async () => {
+  const fake = fakeClient();
+  const transport = new DaemonConnection("wss://cloud.example", () => fake.client);
+  const abort = new AbortController();
+  const listeners = new Set<unknown>();
+  const { signal } = abort;
+  const add = signal.addEventListener.bind(signal);
+  const remove = signal.removeEventListener.bind(signal);
+  signal.addEventListener = ((type: string, listener: EventListener, options?: unknown) => {
+    listeners.add(listener);
+    add(type, listener, options as AddEventListenerOptions);
+  }) as typeof signal.addEventListener;
+  signal.removeEventListener = ((type: string, listener: EventListener) => {
+    listeners.delete(listener);
+    remove(type, listener);
+  }) as typeof signal.removeEventListener;
+
+  await transport.start("secret", { ...config, signal });
+
+  expect(listeners.size).toBe(0);
 });
 
 test("stop is idempotent and a stopped transport can restart", async () => {

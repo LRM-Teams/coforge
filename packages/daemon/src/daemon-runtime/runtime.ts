@@ -58,6 +58,7 @@ import type {
   DaemonConnectionClientFactory,
 } from "#src/connection/daemon-connection";
 import type { AgentMessageTransportResponse } from "#src/connection/agent-http-clients";
+import { DaemonConnectionStoppedError } from "#src/connection/daemon-connection-stopped-error";
 import {
   type DaemonConnectRejectionReason,
   WORKSPACE_PROTOCOL_MAJOR,
@@ -907,7 +908,7 @@ export class DaemonRuntime {
     ) {
       throw new Error("Daemon cannot be started for another Workspace connection");
     }
-    if (this.#stopping) return Promise.reject(new Error("daemon runtime is stopping"));
+    if (this.#stopping) return Promise.reject(new DaemonConnectionStoppedError());
     if (this.#started) return Promise.resolve();
     if (this.#startPromise) return this.#startPromise;
 
@@ -4624,7 +4625,7 @@ export class DaemonRuntime {
     this.#unsubscribeAll();
     // A start still waiting for its first cloud connection would otherwise hold this stop up for
     // as long as the cloud stays unreachable.
-    this.#startAbort?.abort(new Error("daemon runtime is stopping"));
+    this.#startAbort?.abort(new DaemonConnectionStoppedError());
     this.#reminders.stop();
     for (const token of this.#agentProxyTokens.values()) this.#agentProxy?.revoke(token);
     this.#agentProxyTokens.clear();
