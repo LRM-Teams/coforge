@@ -526,3 +526,103 @@ test.skipIf(process.platform !== "darwin")(
   },
   90_000,
 );
+
+test.skipIf(process.platform !== "darwin")(
+  "a restart that answers before it is done finishes behind the answer, and a stop requested next wins",
+  async () => {
+    const root = await mkdtemp("/private/tmp/cf-mac-budget-");
+    const serverUrl = "http://127.0.0.1:1";
+    const executable = join(root, "computer");
+    // A 1 ms operator budget: every start and restart answers while its work is still under way.
+    const build = Bun.spawn(
+      [
+        process.execPath,
+        join(import.meta.dir, "fixtures/build-macos-computer.ts"),
+        executable,
+        serverUrl,
+        "1",
+      ],
+      { stdout: "inherit", stderr: "inherit" },
+    );
+    expect(await build.exited).toBe(0);
+    const socketPath = join(root, "daemon.sock");
+    const coordinator = Bun.spawn(
+      [executable, "__daemon", "--socket", socketPath, "--state-directory", root],
+      { stdout: "ignore", stderr: "inherit" },
+    );
+    const client = new LocalDaemonLauncher({
+      executablePath: executable,
+      socketPath,
+      stateDirectory: root,
+      serverUrl,
+    });
+    /** Polls the unqueued snapshot of Workspace a until `accepts` holds. */
+    const until = async (
+      accepts: (runtime: Awaited<ReturnType<typeof client.control>>[number]) => boolean,
+      message: string,
+    ) => {
+      const deadline = Date.now() + 60_000;
+      while (true) {
+        const runtime = (await client.control("snapshot")).find(
+          (entry) => entry.workspaceId === "a",
+        );
+        if (runtime && accepts(runtime)) return runtime;
+        if (Date.now() >= deadline) throw new Error(message);
+        await Bun.sleep(50);
+      }
+    };
+    try {
+      await client.ensureRunning();
+      await client.ensureStarted({
+        workspaceId: "a",
+        computerId: "fixture-computer",
+        workspaceRoot: join(root, "data-a"),
+        daemonApiKey: "fixture-only",
+        serverHttpUrl: serverUrl,
+      });
+      const before = await until((runtime) => runtime.processId > 0, "Workspace a never started");
+
+      // The restart answers at once with the Workspace still under way ...
+      const answered = await client.control("restart", "a", "restart-1");
+      expect(answered.find((runtime) => runtime.workspaceId === "a")).toMatchObject({
+        cloudConnection: "connecting",
+      });
+      // ... and finishes behind the answer: the replacement is adopted and nothing is under way,
+      // which is what `status` and an upgrade's check read.
+      const after = await until(
+        (runtime) =>
+          runtime.cloudConnection === undefined &&
+          runtime.processId > 0 &&
+          runtime.processId !== before.processId,
+        "the restart never finished behind its answer",
+      );
+      expect(after).toMatchObject({ enabled: true, version: before.version });
+      // Its result was recorded: replaying the request changes nothing.
+      await client.control("restart", "a", "restart-1");
+      expect(await until(() => true, "unreachable")).toEqual(after);
+
+      // A stop requested right behind the next restart wins over it.
+      await client.control("restart", "a", "restart-2");
+      await client.control("stop", "a");
+      await until(
+        (runtime) =>
+          !runtime.enabled && runtime.processId === 0 && runtime.cloudConnection === undefined,
+        "the stop did not win over the restart under way",
+      );
+
+      // A start after it still runs.
+      await client.control("start", "a");
+      await until(
+        (runtime) =>
+          runtime.enabled && runtime.processId > 0 && runtime.cloudConnection === undefined,
+        "the start after the stop never finished",
+      );
+    } finally {
+      await client.control("stop").catch(() => {});
+      coordinator.kill("SIGTERM");
+      await coordinator.exited;
+      await rm(root, { recursive: true, force: true });
+    }
+  },
+  150_000,
+);
