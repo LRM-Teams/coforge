@@ -116,7 +116,7 @@ test("with no Coordinator running, an enabled binding that is not parked names t
   );
 });
 
-test("an upgrade waits for a start or restart still under way before it pauses the Coordinator", async () => {
+test("an upgrade pauses the Coordinator, then waits for a start or restart already under way", async () => {
   const calls: string[] = [];
   let snapshots = 0;
   const server = await startDaemonLocalRpcServer({
@@ -136,11 +136,12 @@ test("an upgrade waits for a start or restart still under way before it pauses t
   try {
     await lifecycle({ timeoutMs: 5_000, pollMs: 1 }).pauseLaunches("request-1");
 
+    // Pausing first means nothing queued behind the check can start before the pause.
     expect(calls).toEqual([
-      "daemon:snapshot",
-      "daemon:snapshot",
-      "daemon:snapshot",
       "daemon:pause",
+      "daemon:snapshot",
+      "daemon:snapshot",
+      "daemon:snapshot",
     ]);
   } finally {
     await server.close();
@@ -166,7 +167,8 @@ test("an upgrade gives up on a restart that stays under way, naming it with the 
     ).rejects.toThrow(
       "Workspace a is still starting or restarting. Run 'coforge-computer status' to follow it, then upgrade again.",
     );
-    expect(calls).not.toContain("daemon:pause");
+    // It lifts the pause it took and leaves no launch hold behind.
+    expect(calls.at(-1)).toBe("daemon:resume");
     expect(await Bun.file(join(root, "launch-hold")).exists()).toBe(false);
   } finally {
     await server.close();

@@ -1280,3 +1280,18 @@ test("a stop marked while a restart is under way records that restart cancelled 
   await fixture.supervisor.snapshot();
   expect(fixture.saved()[0]?.restartResults).toHaveLength(1);
 });
+
+test("a pause takes effect at once instead of waiting behind a start under way; work queued behind it is refused", async () => {
+  const fixture = gatedFixture([binding("a", false), binding("b", false)]);
+  await fixture.supervisor.recover();
+  const startA = fixture.supervisor.command("start", "a");
+  const startB = fixture.supervisor.command("start", "b").catch((error: unknown) => error);
+  await untilStarted(fixture);
+
+  await fixture.supervisor.pause();
+
+  fixture.open();
+  await expect(startA).resolves.toEqual({ started: ["a"], pending: [] });
+  expect(await startB).toBeInstanceOf(UpgradeLaunchesPausedError);
+  expect(fixture.starts).toEqual(["a"]);
+});

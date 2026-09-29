@@ -663,10 +663,15 @@ export class MachineSupervisor {
     });
   }
 
+  /**
+   * Stops new lifecycle work at once. Work already running finishes; work still queued is refused
+   * when its turn comes (`#assertMutable`). It does not wait behind the queue: a restart's hold
+   * and readiness would outlast the local lifecycle client, and an upgrade waits for the work
+   * under way through the view instead.
+   */
   pause() {
-    return this.#serialize(async () => {
-      this.#paused = true;
-    });
+    this.#paused = true;
+    return Promise.resolve();
   }
   resume() {
     return this.#serialize(async () => {
