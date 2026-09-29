@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { TaskCommand, TaskView } from "@lrm/coforge-sdk/internal";
-import { queryOptions, useQuery, useQueryClient } from "@tanstack/react-query";
+import type { TaskCommand } from "@lrm/coforge-sdk/internal";
+import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { getRouteApi } from "@tanstack/react-router";
-
 import { useServerFn } from "@tanstack/react-start";
+import { useSelector } from "@tanstack/react-store";
+import { inArray, useLiveQuery } from "@tanstack/react-db";
 
 import { useCurrentWorkspaceId } from "#src/features/agents/workspace-agents-realtime";
 import {
@@ -17,117 +18,135 @@ import {
 } from "#src/features/realtime/realtime.functions";
 import { decodeTaskChangedEvent } from "./task-realtime";
 import { executeTask } from "./tasks.functions";
+import { browserTimers, createTaskChangeBurst } from "./conversation-task-changes";
 import {
-  browserTimers,
-  createTaskChangeBurst,
-  writeTaskChanges,
+  conversationTasksKey,
+  createConversationTasks,
+  UNFINISHED_STATUSES,
+  type ConversationTasks,
   type TaskChanges,
-} from "./conversation-task-changes";
+} from "./conversation-tasks-collection";
 import { finishedTasksScopeKey } from "./use-finished-tasks";
 import { m } from "#src/paraglide/messages";
 
 const appRoute = getRouteApi("/w/$workspaceSlug");
 
-/** The empty list while the Tasks load: one array, so what is memoized on `tasks` keeps. */
-const NO_TASKS: TaskView[] = [];
+// React access to a conversation's Tasks (`conversation-tasks-collection.ts`). Its readers never
+// read anything themselves: the live queries that do are the Tasks tab's (`useUnfinishedTasks`)
+// and the message stream's (`ConversationTaskDemand`), and `useConversationTasks` keeps what they
+// read live.
 
-/**
- * The Tasks of one conversation: read once, then kept live by the Task write's own announcement
- * (`useConversationTasks`), with a window focus as the only safety net. There is deliberately no
- * interval: a poll re-reads a list that changes only when a Task changes, and the announcement
- * says exactly which Tasks those were.
- */
-const TASKS_QUERY_STALE_TIME_MS = 5_000;
+const tasksByClient = new WeakMap<QueryClient, Map<string, ConversationTasks>>();
 
-export const conversationTasksQuery = (conversationId: string) =>
-  queryOptions({
-    queryKey: ["conversation", "tasks", conversationId],
-    queryFn: async () =>
-      (
-        await executeTask({
-          data: { operation: "list", idempotencyKey: crypto.randomUUID(), conversationId },
-        })
-      ).tasks,
-    // A remount or focus within a few seconds of a read does not read again; realtime writes and
-    // the focus safety net are unaffected.
-    staleTime: TASKS_QUERY_STALE_TIME_MS,
-    refetchOnWindowFocus: true,
-  });
-
-/**
- * One Task of a conversation, read from the list `useConversationTasks` keeps, for the part of a
- * message row that shows it. A reader is told only when its own Task changes (`select` plus
- * `notifyOnChangeProps`), and never reads the list itself (`enabled: false`): the list's owner reads
- * it and keeps it live, and rows mounting as the stream scrolls must not each read it again.
- * https://tanstack.com/query/latest/docs/framework/react/guides/render-optimizations
- */
-const conversationTaskReader = (
-  conversationId: string,
-  select: (tasks: TaskView[]) => TaskView | undefined,
-) =>
-  queryOptions({
-    ...conversationTasksQuery(conversationId),
-    select,
-    notifyOnChangeProps: ["data"],
-    // A disabled observer never reads the list, not even before its first read, yet still takes
-    // the cached list and every write to it.
-    // https://tanstack.com/query/latest/docs/framework/react/guides/disabling-queries
-    enabled: false,
-  });
-
-/** The conversation's Task `#number`, which a body's task reference names. */
-export const numberedTaskReader = (conversationId: string, number: number) =>
-  conversationTaskReader(conversationId, (tasks) => tasks.find((task) => task.number === number));
-
-/** The Task a message became. */
-export const messageTaskReader = (conversationId: string, messageId: string) =>
-  conversationTaskReader(conversationId, (tasks) =>
-    tasks.find((task) => task.messageId === messageId),
-  );
-
-/** The conversation's Task `#number`, read with `numberedTaskReader`. */
-export function useNumberedTask(conversationId: string, number: number) {
-  const reader = useMemo(
-    () => numberedTaskReader(conversationId, number),
-    [conversationId, number],
-  );
-  return useQuery(reader).data;
+/** One collection (and store) per `QueryClient` and conversation, so every reader shares one. The
+ * readers sit under `ThreadedConversation`, which renders only in the browser, so it is never
+ * created during a server render. */
+export function conversationTasksFor(queryClient: QueryClient, conversationId: string) {
+  let byConversation = tasksByClient.get(queryClient);
+  if (!byConversation) tasksByClient.set(queryClient, (byConversation = new Map()));
+  let tasks = byConversation.get(conversationId);
+  if (!tasks)
+    byConversation.set(
+      conversationId,
+      (tasks = createConversationTasks(queryClient, conversationId)),
+    );
+  return tasks;
 }
 
-/** The Task a message became, read with `messageTaskReader`. */
+export function useConversationTasksCollection(conversationId: string) {
+  const queryClient = useQueryClient();
+  return useMemo(
+    () => conversationTasksFor(queryClient, conversationId),
+    [queryClient, conversationId],
+  );
+}
+
+/**
+ * The conversation's Task `#number`, which a body's task reference names. A reader re-renders only
+ * when its own Task changes: the store keeps every other Task's object as it was.
+ */
+export function useNumberedTask(conversationId: string, number: number | undefined) {
+  const { store } = useConversationTasksCollection(conversationId);
+  return useSelector(store, (held) =>
+    number === undefined ? undefined : held.byNumber.get(number),
+  );
+}
+
+/** The Task a message became, read as `useNumberedTask` reads one. */
 export function useMessageTask(conversationId: string, messageId: string) {
-  const reader = useMemo(
-    () => messageTaskReader(conversationId, messageId),
-    [conversationId, messageId],
-  );
-  return useQuery(reader).data;
+  const { store } = useConversationTasksCollection(conversationId);
+  return useSelector(store, (held) => held.byId.get(messageId));
 }
 
-export type ConversationTasks = ReturnType<typeof useConversationTasks>;
+/**
+ * The Tasks tab's Tasks: reads the unfinished ones while the tab shows (one live query, whose
+ * predicate is the read), and lists every Task the conversation holds in number order — a Task the
+ * board showed unfinished stays held after it moves to Done, which the board keeps in place.
+ */
+export function useUnfinishedTasks(conversationId: string) {
+  const tasks = useConversationTasksCollection(conversationId);
+  const unfinished = useLiveQuery({
+    query: (q) =>
+      q
+        .from({ task: tasks.collection })
+        .where(({ task }) => inArray(task.status, UNFINISHED_STATUSES)),
+    gcTime: tasks.demandGcTime,
+  });
+  const byId = useSelector(tasks.store, (held) => held.byId);
+  const listed = useMemo(
+    () => [...byId.values()].sort((left, right) => left.number - right.number),
+    [byId],
+  );
+  return {
+    tasks: listed,
+    loading: unfinished.isLoading,
+    failed: unfinished.isError,
+  };
+}
 
+/**
+ * Writes Task changes (a command's result, announced changes) into a conversation's Tasks, and
+ * reads that conversation's Done and Closed again when they changed: the server counts and pages
+ * those. Returns whether they did.
+ */
+export function useConversationTaskWrites() {
+  const queryClient = useQueryClient();
+  const workspaceId = useCurrentWorkspaceId() ?? "";
+  return useCallback(
+    (conversationId: string, changes: readonly TaskChanges[], finishedChanged = false) => {
+      if (conversationTasksFor(queryClient, conversationId).apply(changes).finishedChanged)
+        finishedChanged = true;
+      if (finishedChanged)
+        void queryClient.invalidateQueries({
+          queryKey: finishedTasksScopeKey({ workspaceId, conversationId }),
+        });
+    },
+    [queryClient, workspaceId],
+  );
+}
+
+export type ConversationTaskCommands = ReturnType<typeof useConversationTasks>;
+
+/**
+ * A conversation's Task commands, and what keeps its Tasks live: `task.changed.v1` (see
+ * `task-realtime.ts`) carries this conversation's new Task copies and the ids it deleted, written
+ * into the collection instead of reading anything again. Everything else a conversation publishes
+ * — every message — is dropped before any parsing beyond its type. The subscriptions are the ones
+ * the nav rail already holds (the Workspace channel for channel Tasks, the viewer's own for direct
+ * messages), so an open conversation adds no connection of its own.
+ */
 export function useConversationTasks(conversationId: string) {
   const queryClient = useQueryClient();
   const execute = useServerFn(executeTask);
-  const query = useQuery(conversationTasksQuery(conversationId));
-  const queryKey = useMemo(() => conversationTasksQuery(conversationId).queryKey, [conversationId]);
-  // Kept live by `task.changed.v1` (see `task-realtime.ts`): the event carries this conversation's
-  // new Task copies and the ids it deleted, so a Task change writes the cached list instead of
-  // making its readers read it again. Everything else a conversation publishes — every message —
-  // is dropped before any parsing beyond its type. The subscriptions are the ones the nav rail
-  // already holds (the Workspace channel for channel Tasks, the viewer's own for direct messages),
-  // so an open panel adds no connection of its own.
+  const tasks = useConversationTasksCollection(conversationId);
   const userId = appRoute.useLoaderData({ select: (data) => data.user.id });
   const workspaceId = useCurrentWorkspaceId() ?? "";
   const getWorkspaceToken = useServerFn(getWorkspaceConversationSubscriptionToken);
   const getUserToken = useServerFn(getUserConversationSubscriptionToken);
+  const write = useConversationTaskWrites();
   const apply = useCallback(
-    (changes: readonly TaskChanges[]) =>
-      writeTaskChanges(
-        queryClient,
-        { list: queryKey, finished: finishedTasksScopeKey({ workspaceId, conversationId }) },
-        changes,
-      ),
-    [queryClient, queryKey, workspaceId, conversationId],
+    (changes: readonly TaskChanges[]) => write(conversationId, changes),
+    [write, conversationId],
   );
   // Announcements arriving together (an Agent working through several Tasks) apply in one write,
   // as on the Tasks page. One burst per conversation and `apply`; its cleanup applies whatever is
@@ -156,25 +175,14 @@ export function useConversationTasks(conversationId: string) {
     getToken: getUserToken,
     onPublication: onTaskChanged,
   });
-  const [mutationError, setMutationError] = useState("");
-  // A failed command keeps its error on screen through the refetch it triggers; the next
-  // successful read after that clears it, as any later read would.
-  const holdErrorRef = useRef(false);
-  useEffect(() => {
-    if (!query.isSuccess) return;
-    if (holdErrorRef.current) holdErrorRef.current = false;
-    else setMutationError("");
-  }, [query.isSuccess, query.dataUpdatedAt]);
-  useEffect(() => {
-    setMutationError("");
-    holdErrorRef.current = false;
-  }, [conversationId]);
+  const [error, setError] = useState("");
+  useEffect(() => setError(""), [conversationId]);
 
   const command = useCallback(
     async (
       input: Omit<TaskCommand, "idempotencyKey" | "conversationId"> & { idempotencyKey?: string },
     ) => {
-      setMutationError("");
+      setError("");
       try {
         const result = await execute({
           data: {
@@ -183,33 +191,29 @@ export function useConversationTasks(conversationId: string) {
             conversationId,
           },
         });
-        // A list read that started before this command must not overwrite its result.
-        await queryClient.cancelQueries({ queryKey });
-        const deleted =
-          input.operation === "delete"
-            ? (queryClient
-                .getQueryData<TaskView[]>(queryKey)
-                ?.filter((task) => task.number === input.number)
-                .map((task) => task.messageId) ?? [])
-            : [];
-        // Its announcement, arriving after, then finds these copies already held and reads
-        // nothing again.
-        apply([{ tasks: result.tasks, deleted }]);
+        const deletedTask =
+          input.operation === "delete" && input.number !== undefined
+            ? tasks.store.state.byNumber.get(input.number)
+            : undefined;
+        // Its announcement, arriving after, then finds these copies already held and changes
+        // nothing. A deleted Task the collection does not hold (a finished one read from a page)
+        // still changed Done or Closed.
+        write(
+          conversationId,
+          [{ tasks: result.tasks, deleted: deletedTask ? [deletedTask.messageId] : [] }],
+          input.operation === "delete" && !deletedTask,
+        );
         return result.tasks;
       } catch (cause) {
-        setMutationError(m.tasks_mutation_error());
-        holdErrorRef.current = true;
-        await queryClient.refetchQueries({ queryKey });
+        setError(m.tasks_mutation_error());
+        // A refusal may come from a change made elsewhere (a stale revision): every subset the page
+        // shows is read again, so the next try starts from the Tasks as they are.
+        void queryClient.invalidateQueries({ queryKey: conversationTasksKey(conversationId) });
         throw cause;
       }
     },
-    [execute, conversationId, queryClient, queryKey, apply],
+    [execute, conversationId, tasks, write, queryClient],
   );
 
-  return {
-    tasks: query.data ?? NO_TASKS,
-    loading: query.isPending,
-    error: mutationError || (query.isError ? m.tasks_load_error() : ""),
-    command,
-  };
+  return { command, error };
 }

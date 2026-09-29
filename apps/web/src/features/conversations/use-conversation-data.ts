@@ -44,8 +44,8 @@ export function useChannelConversation(channelId: string) {
     ...publicChannelQuery(channelId),
     loadUpdates: publicChannelUpdates(channelId),
     // No Task refresh here: a Task change arrives as its own `task.changed.v1` event, which
-    // `useConversationTasks` applies to the cached list. Reloading the list on every publication
-    // meant one list read per message in the conversation.
+    // `useConversationTasks` writes into the conversation's Tasks. Reading Tasks again on every
+    // publication meant one read per message in the conversation.
     onRealtime: () =>
       queryClient.invalidateQueries({
         queryKey: threadFollowingAgentsQueryPrefix(channelId),
@@ -74,7 +74,6 @@ export function useChannelConversation(channelId: string) {
     refreshChannelAndSidebar,
     conversationProps: {
       conversation,
-      tasks: taskView.tasks,
       onCreateTask: async (title: string, idempotencyKey: string, attachmentId?: string) => {
         await taskView.command({ operation: "create", title, idempotencyKey, attachmentId });
         await page.invalidate();
@@ -154,7 +153,6 @@ export function useDirectConversation(conversationId: string) {
     taskView,
     conversationProps: {
       conversation,
-      tasks: taskView.tasks,
       onCreateTask: async (title: string, idempotencyKey: string, attachmentId?: string) => {
         await taskView.command({ operation: "create", title, idempotencyKey, attachmentId });
         await page.invalidate();

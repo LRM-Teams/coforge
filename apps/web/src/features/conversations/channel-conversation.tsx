@@ -2,7 +2,6 @@ import { useMemo, useState, type ReactNode } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { Hash01 as Hash, SearchLg, Settings01 as Settings } from "@untitledui/icons";
-import type { TaskView } from "@lrm/coforge-sdk/internal";
 import { Button } from "#src/components/base/buttons/button";
 import { ButtonUtility } from "#src/components/base/buttons/button-utility";
 import { ChannelSettingsPanel } from "./channel-settings-panel";
@@ -145,7 +144,6 @@ export function ChannelConversation({
   onReadThread,
   onReadLatest,
   onThreadFollowedChange,
-  tasks,
   onCreateTask,
   onToggleReaction,
   onShowTasks,
@@ -188,7 +186,6 @@ export function ChannelConversation({
   /** The main pane's own scroll reached the latest message; advances the conversation cursor. */
   onReadLatest?: (throughSequence: number) => void;
   onThreadFollowedChange?: (rootMessageId: string, followed: boolean) => Promise<void>;
-  tasks?: TaskView[];
   onCreateTask?: (title: string, requestId: string, attachmentId?: string) => Promise<void>;
   /** Toggles the viewer's own emoji reaction on a message; the route refreshes it. */
   onToggleReaction?: (messageId: string, emoji: string, active: boolean) => Promise<void>;
@@ -282,7 +279,6 @@ export function ChannelConversation({
       channels={channels}
       taskPopup={taskPopup}
       jumpMessage={jumpMessage}
-      tasks={tasks}
       onCreateTask={conversation.senderMemberId ? onCreateTask : undefined}
       onToggleReaction={conversation.senderMemberId ? onToggleReaction : undefined}
       threadContext={`#${conversation.name}`}

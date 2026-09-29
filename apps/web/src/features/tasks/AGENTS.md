@@ -41,12 +41,29 @@ These rules apply to `src/features/tasks/`.
   finished Task itself only once it showed it unfinished (moved there
   since). `/tasks` holds only unfinished Tasks in its collection, reads Done
   and Closed again after every Task command and `task.changed.v1` burst, and
-  fetches a `task` it has not read alone (`loadOverviewTask`). A conversation's own list still reads every
-  Task; the tab keeps the unfinished ones. Its commands and announced changes
-  go through `writeTaskChanges` (`conversation-task-changes.ts`): announcements
-  apply once per burst, and Done and Closed are read again only when a burst
-  or command changed them, never for the echo of a change already held. A
-  change before the list's first read has answered restarts that read.
+  fetches a `task` it has not read alone (`loadOverviewTask`).
+- A conversation's Tasks are one TanStack DB Query Collection per
+  conversation in on-demand sync (`conversation-tasks-collection.ts`, created
+  per `QueryClient` by `conversationTasksFor`), read through
+  `loadConversationTasks`; nothing reads the whole list. Only live queries
+  read, their predicate being the read: the Tasks tab's unfinished ones
+  (`useUnfinishedTasks`) and `ConversationTaskDemand` (in
+  `ThreadedConversation`): the loaded message window as a sequence range,
+  open at the live end so a new message needs no read, the numbers its bodies
+  name, and the open popup's number. Never add a live query per row or a
+  collection per predicate; a new kind of read is a predicate that
+  `conversationTaskSubset` and the server accept. Demands keep their read for
+  `demandGcTime` after they stop showing, so a moving window never blanks
+  badges.
+- Commands and announced changes are written into that collection
+  (`useConversationTaskWrites`, the collection's `apply`): announcements
+  apply once per burst, a read that started before a change never brings the
+  older copy back, and Done and Closed are read again when a burst or command
+  may have changed them; the collection holds only what the page shows, so a
+  Task it does not hold counts as possibly finished. `query-db-collection`
+  1.2.15 copies every held row into each subset's Query cache on a direct
+  write (its docs describe a refetch instead): check that again when upgrading
+  it.
 - Cards and list rows carry no status select: the column or group is the
   status. Moves go through drag or the card menu's "Move to" section, which
   both offer every move `getTaskMoveCommand` allows.
@@ -89,9 +106,9 @@ workspaceId]` Query its loader fills (`task-overview-collection.ts`,
   A task reference in a message body is `TaskNumberBadge`: `#N` on the
   status's Untitled UI colour badge with the same ring leading.
 - A message row's part reads its one Task through `useNumberedTask` /
-  `useMessageTask` (disabled observers of the conversation's list), never
-  from a list passed down. They never read the list: `useConversationTasks`
-  owns reading it and keeping it live.
+  `useMessageTask`, selectors over the collection's TanStack Store (`byId`,
+  `byNumber`, where an unchanged Task keeps its object), never from a list
+  passed down. They never read anything themselves, so a row adds no request.
 - Board columns can be hidden from their "···" menu, as Linear allows; hidden
   ones are listed last (`HiddenColumn`), stay drop targets, and show again when
   pressed. Every column shows by default; the choice is per device

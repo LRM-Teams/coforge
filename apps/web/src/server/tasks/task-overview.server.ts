@@ -1,4 +1,8 @@
 import type { TaskMember, TaskView } from "@lrm/coforge-sdk/internal";
+import {
+  CONVERSATION_TASK_NUMBERS_MAX,
+  type ConversationTaskSubset,
+} from "#src/features/tasks/conversation-task-subset";
 import type { Prisma, PrismaClient } from "#src/generated/prisma/client";
 import { AppError } from "#src/lib/app-error";
 import { VISIBLE_CONVERSATION_WHERE } from "#src/server/conversations/active-member.server";
@@ -213,6 +217,40 @@ export class TaskOverviewReads {
       select: overviewSelection(userId),
     });
     return task && overviewRow(task, userId);
+  }
+
+  /**
+   * The Tasks of one conversation a page shows, in number order (as `list` returns them), read as
+   * `list` allows. Every filter is served by an index: the conversation and number, the
+   * conversation and status, the message's conversation and sequence.
+   */
+  async conversationTasks(
+    viewer: { workspaceId: string; userId: string },
+    conversationId: string,
+    subset: ConversationTaskSubset,
+  ): Promise<{ tasks: Array<TaskView & { sequence: number }> }> {
+    const { statuses, numbers, sequenceFrom, sequenceTo } = subset;
+    const window = sequenceFrom !== undefined || sequenceTo !== undefined;
+    if (
+      (statuses === undefined && numbers === undefined && !window) ||
+      statuses?.length === 0 ||
+      numbers?.length === 0 ||
+      (numbers?.length ?? 0) > CONVERSATION_TASK_NUMBERS_MAX
+    )
+      throw new AppError("INVALID_INPUT");
+    const readable = await this.access.listableConversation(viewer, conversationId);
+    const tasks = await this.db.task.findMany({
+      where: {
+        workspaceId: viewer.workspaceId,
+        conversationId: readable,
+        status: statuses && { in: [...statuses] },
+        number: numbers && { in: [...numbers] },
+        message: window ? { sequence: { gte: sequenceFrom, lte: sequenceTo } } : undefined,
+      },
+      orderBy: { number: "asc" },
+      select: taskSelection,
+    });
+    return { tasks: tasks.map((task) => ({ ...taskView(task), sequence: task.message.sequence })) };
   }
 
   /**
