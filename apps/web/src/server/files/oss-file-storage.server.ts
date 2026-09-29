@@ -3,7 +3,18 @@ import { Readable } from "node:stream";
 import Credential from "@alicloud/credentials";
 import OSS from "ali-oss";
 
-import type { FileStorage, FileStorageConfig, StoredFile } from "./file-storage.server";
+import {
+  assertRemovablePrefix,
+  type BulkFileRemoval,
+  type FileStorage,
+  type FileStorageConfig,
+  type StoredFile,
+} from "./file-storage.server";
+
+/** DeleteMultipleObjects takes at most 1,000 keys per request, and ListObjectsV2 returns at most
+ * 1,000 per page (https://help.aliyun.com/zh/oss/developer-reference/deletemultipleobjects,
+ * https://help.aliyun.com/zh/oss/developer-reference/listobjectsv2). */
+const OSS_BATCH_MAX = 1000;
 
 type OssConfig = Extract<FileStorageConfig, { kind: "oss" }>;
 
@@ -15,7 +26,9 @@ type OssConfig = Extract<FileStorageConfig, { kind: "oss" }>;
  * STS token; the chain refreshes that token itself, and `refreshSTSToken` re-reads it so the
  * OSS client never signs with an expired one.
  */
-export async function createOssFileStorage(config: OssConfig): Promise<FileStorage> {
+export async function createOssFileStorage(
+  config: OssConfig,
+): Promise<FileStorage & BulkFileRemoval> {
   const region = `oss-${config.region}`;
   // Two clients, one credential source. Server-side traffic may use the region's internal
   // endpoint (cheaper and faster from an Aliyun host); a presigned URL is handed to a browser or
@@ -68,7 +81,7 @@ export async function createOssFileStorage(config: OssConfig): Promise<FileStora
   );
 }
 
-export class OssFileStorage implements FileStorage {
+export class OssFileStorage implements FileStorage, BulkFileRemoval {
   /** Server-side traffic (put/open/remove/head) may ride the internal endpoint; `presignPut`
    * signs on the public-endpoint client because its URL is consumed outside this server. */
   constructor(
@@ -101,6 +114,31 @@ export class OssFileStorage implements FileStorage {
 
   async remove(objectKey: string) {
     await this.client.delete(objectKey);
+  }
+
+  /** `deleteMulti` in quiet mode, a thousand keys per request; authorized by `oss:DeleteObject`. */
+  async removeMany(objectKeys: readonly string[]) {
+    for (let start = 0; start < objectKeys.length; start += OSS_BATCH_MAX)
+      await this.client.deleteMulti(objectKeys.slice(start, start + OSS_BATCH_MAX), {
+        quiet: true,
+      });
+  }
+
+  /** Lists the prefix a page at a time (`listV2`, which needs `oss:ListObjects` on the bucket)
+   * and removes each page with one `deleteMulti`. */
+  async removePrefix(prefix: string) {
+    assertRemovablePrefix(prefix);
+    let continuationToken: string | undefined;
+    do {
+      const page = await this.client.listV2({
+        prefix,
+        "max-keys": OSS_BATCH_MAX,
+        ...(continuationToken ? { "continuation-token": continuationToken } : {}),
+      });
+      const keys = (page.objects ?? []).map((object) => object.name);
+      if (keys.length) await this.client.deleteMulti(keys, { quiet: true });
+      continuationToken = page.isTruncated ? page.nextContinuationToken : undefined;
+    } while (continuationToken);
   }
 
   async head(objectKey: string) {

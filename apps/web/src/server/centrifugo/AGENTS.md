@@ -29,10 +29,13 @@ mechanics only; domain rules stay in the owning `src/server/` module.
   ([`../workspaces/AGENTS.md`](../workspaces/AGENTS.md)) and Computer removal
   ([`../computers/AGENTS.md`](../computers/AGENTS.md)). Every refusal logs
   `daemon_connect:refused` with its reason.
-- The server API's `disconnect` ends every connection of one user; a daemon's
-  connection user is its key owner, so it also drops that person's pages and
-  other daemons. Pass a code in centrifuge-js's reconnecting 4000-4499 range
-  unless the client must stop for good (4500-4999, as the connect proxy does).
+- Disconnect one daemon connection, never a whole user: a daemon's connection
+  user is its key owner, whose pages and other daemons share it. Find the client
+  through `presence` on its `daemon:<workspace_id>:<computer_id>` channel (the
+  `daemon` namespace keeps presence for this) and pass `user` and `client` to
+  `disconnect`. To make it connect again, use the SDK's
+  `DAEMON_RECONNECT_DISCONNECT` (4000-4499, which the client reconnects on);
+  4500-4999 stops it for good, as the connect proxy's refusals do.
 - The delivery ACK receiver stays thin: `MentionDeliveryReports` records the
   ACK and then settles a tracked @mention, and a mention failure is logged and
   never turns the ACK into a 403. The mention transition and terminal-error

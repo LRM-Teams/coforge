@@ -53,8 +53,8 @@ description = "Run Web package tests"
 run = "bun run --cwd packages/coforge-sdk generate && cd apps/web && bun run test"
 
 [tasks."test:centrifugo"]
-description = "Run the Daemon's connection against the Centrifugo image staging uses (Docker required)"
-run = "bun run --cwd packages/coforge-sdk generate && bun test ./packages/daemon/test/daemon-connection-refusal.integration.ts"
+description = "Run the Daemon's connection, and Workspace deletion's daemon reconnect, against the Centrifugo image staging uses (Docker required)"
+run = "bun run --cwd packages/coforge-sdk generate && bun run --cwd apps/web db:generate && bun test ./packages/daemon/test/daemon-connection-refusal.integration.ts ./apps/web/test/centrifugo-daemon-reconnect.integration.ts"
 
 [tasks."test:thread"]
 description = "Run thread isolation against local PostgreSQL (THREAD_TEST_DATABASE_URL required)"
@@ -65,8 +65,8 @@ description = "Run the Agent events drain against local PostgreSQL (EVENTS_TEST_
 run = "bun run --cwd packages/coforge-sdk generate && bun run --cwd apps/web db:generate && bun test ./apps/web/test/agent-events.integration.ts"
 
 [tasks."test:channel"]
-description = "Run public channels, Workspace members, and daemon credential revocations against local PostgreSQL and Redis (CHANNEL_TEST_DATABASE_URL and CHANNEL_TEST_REDIS_URL required)"
-run = "bun run --cwd packages/coforge-sdk generate && bun run --cwd apps/web db:generate && bun test ./apps/web/test/daemon-credential-revocations.integration.test.ts ./apps/web/test/public-channel.integration.ts ./apps/web/test/project-channels.integration.ts ./apps/web/test/project-images.integration.ts ./apps/web/test/workspace-images.integration.ts ./apps/web/test/workspace-catalog.integration.ts ./apps/web/test/workspace-members.integration.ts ./apps/web/test/action-cards.integration.ts ./apps/web/test/channel-member-changed.integration.test.ts ./apps/web/test/channel-settings.integration.test.ts ./apps/web/test/channel-viewer-events.integration.test.ts ./apps/web/test/dm-viewer-events.integration.test.ts ./apps/web/test/activity-viewer-events.integration.test.ts ./apps/web/test/saved-viewer-events.integration.test.ts ./apps/web/test/general-channel.integration.test.ts ./apps/web/test/general-channel-hidden.integration.test.ts ./apps/web/test/user-direct-conversations.integration.ts ./apps/web/test/workspace-url-selection.integration.ts ./apps/web/test/workspace-member-leave.integration.test.ts ./apps/web/test/workspace-join-links.integration.test.ts"
+description = "Run public channels, Workspace members and deletion, and daemon credential revocations against local PostgreSQL and Redis (CHANNEL_TEST_DATABASE_URL and CHANNEL_TEST_REDIS_URL required)"
+run = "bun run --cwd packages/coforge-sdk generate && bun run --cwd apps/web db:generate && bun test ./apps/web/test/daemon-credential-revocations.integration.test.ts ./apps/web/test/public-channel.integration.ts ./apps/web/test/project-channels.integration.ts ./apps/web/test/project-images.integration.ts ./apps/web/test/workspace-images.integration.ts ./apps/web/test/workspace-catalog.integration.ts ./apps/web/test/workspace-members.integration.ts ./apps/web/test/action-cards.integration.ts ./apps/web/test/channel-member-changed.integration.test.ts ./apps/web/test/channel-settings.integration.test.ts ./apps/web/test/channel-viewer-events.integration.test.ts ./apps/web/test/dm-viewer-events.integration.test.ts ./apps/web/test/activity-viewer-events.integration.test.ts ./apps/web/test/saved-viewer-events.integration.test.ts ./apps/web/test/general-channel.integration.test.ts ./apps/web/test/general-channel-hidden.integration.test.ts ./apps/web/test/user-direct-conversations.integration.ts ./apps/web/test/workspace-url-selection.integration.ts ./apps/web/test/workspace-member-leave.integration.test.ts ./apps/web/test/workspace-join-links.integration.test.ts ./apps/web/test/workspace-delete.integration.test.ts ./apps/web/test/channel-delete.integration.test.ts"
 
 [tasks."test:e2e:agent-direct-message"]
 description = "Run the managed Agent direct-message end-to-end slice"

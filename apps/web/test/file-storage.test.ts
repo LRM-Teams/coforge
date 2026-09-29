@@ -11,6 +11,7 @@ import {
   FileStorageConfigError,
   LocalFileStorage,
   readFileStorageConfig,
+  type BulkFileRemoval,
   type FileStorage,
 } from "#src/server/files/file-storage.server";
 import { createOssFileStorage } from "#src/server/files/oss-file-storage.server";
@@ -113,6 +114,28 @@ describe("local file storage", () => {
     await storage.remove(key);
   });
 
+  test("removes many objects, and everything under a prefix, never outside its root", async () => {
+    const storage = new LocalFileStorage(root);
+    const keys = ["a", "b", "c"].map((id) => `workspaces/bulk/attachments/${id}/original`);
+    for (const key of keys) await storage.put(key, new Blob([key]), "text/plain");
+    await storage.put("workspaces/kept/icons/i/original", new Blob(["kept"]), "image/png");
+
+    await storage.removeMany(keys.slice(0, 2));
+    expect(await storage.open(keys[0]!)).toBeNull();
+    expect(await storage.open(keys[2]!)).not.toBeNull();
+
+    await storage.removePrefix("workspaces/bulk/");
+    expect(await storage.open(keys[2]!)).toBeNull();
+    expect(await Bun.file(join(root, "workspaces/bulk")).exists()).toBe(false);
+    expect(await storage.open("workspaces/kept/icons/i/original")).not.toBeNull();
+    // A prefix that names no directory is nothing to remove.
+    await storage.removePrefix("workspaces/never/");
+
+    for (const prefix of ["", "/", "workspaces/", "../x/", "workspaces/../../x/"])
+      await expect(storage.removePrefix(prefix)).rejects.toThrow();
+    expect(await storage.open("workspaces/kept/icons/i/original")).not.toBeNull();
+  });
+
   test("reports an object's size on head, and has no presignPut (direct upload disabled)", async () => {
     const storage: FileStorage = new LocalFileStorage(root);
     const key = "workspaces/w/attachments/head/original";
@@ -127,16 +150,20 @@ describe("local file storage", () => {
 describe("oss file storage", () => {
   const objects = new Map<string, { bytes: Uint8Array<ArrayBuffer>; contentType: string }>();
   const requests: Array<{ method: string; key: string; headers: Headers }> = [];
+  const bucketListCalls: string[] = [];
+  const bucketDeleteCalls: number[] = [];
   let server: ReturnType<typeof Bun.serve>;
-  let storage: FileStorage;
+  let storage: FileStorage & BulkFileRemoval;
 
   beforeAll(async () => {
     server = Bun.serve({
       port: 0,
       hostname: "127.0.0.1",
       async fetch(request) {
-        const key = new URL(request.url).pathname.slice(1);
+        const url = new URL(request.url);
+        const key = url.pathname.slice(1);
         requests.push({ method: request.method, key, headers: request.headers });
+        if (key === "") return bucketRequest(request, url);
         const existing = objects.get(key);
         switch (request.method) {
           case "PUT":
@@ -213,6 +240,37 @@ describe("oss file storage", () => {
     expect(await storage.open(key)).toBeNull();
   });
 
+  test("removes many objects a thousand per request, and a prefix page by page", async () => {
+    const put = (key: string) =>
+      objects.set(key, { bytes: new Uint8Array([1]), contentType: "text/plain" });
+    const many = Array.from(
+      { length: 1001 },
+      (_, index) => `workspaces/many/attachments/${String(index).padStart(4, "0")}/original`,
+    );
+    many.forEach(put);
+    bucketDeleteCalls.length = 0;
+    await storage.removeMany(many);
+    expect(bucketDeleteCalls).toEqual([1000, 1]);
+    expect(many.some((key) => objects.has(key))).toBe(false);
+    await storage.removeMany([]);
+    expect(bucketDeleteCalls).toEqual([1000, 1]);
+
+    const swept = Array.from(
+      { length: 1500 },
+      (_, index) => `workspaces/swept/attachments/${String(index).padStart(4, "0")}/original`,
+    );
+    swept.forEach(put);
+    put("workspaces/kept/icons/i/original");
+    bucketListCalls.length = 0;
+    bucketDeleteCalls.length = 0;
+    await storage.removePrefix("workspaces/swept/");
+    expect(bucketListCalls.every((prefix) => prefix === "workspaces/swept/")).toBe(true);
+    expect(bucketDeleteCalls).toEqual([1000, 500]);
+    expect(swept.some((key) => objects.has(key))).toBe(false);
+    expect(objects.has("workspaces/kept/icons/i/original")).toBe(true);
+    await expect(storage.removePrefix("")).rejects.toThrow();
+  });
+
   test("head reports size and content type, or null when missing", async () => {
     const key = "workspaces/w/attachments/head/original";
     expect(await storage.head(key)).toBeNull();
@@ -264,6 +322,40 @@ describe("oss file storage", () => {
     });
     expect(new URL(url).hostname).toBe("coforge-files-staging.oss-cn-beijing.aliyuncs.com");
   });
+
+  /** ListObjectsV2 (`GET /?list-type=2`) a page of `max-keys` at a time, and DeleteMultipleObjects
+   * (`POST /?delete`), the two bucket-level calls a bulk removal makes. */
+  async function bucketRequest(request: Request, url: URL) {
+    if (request.method === "GET" && url.searchParams.get("list-type") === "2") {
+      bucketListCalls.push(url.searchParams.get("prefix") ?? "");
+      const prefix = url.searchParams.get("prefix") ?? "";
+      const max = Number(url.searchParams.get("max-keys") ?? "100");
+      const after = url.searchParams.get("continuation-token") ?? "";
+      const matching = [...objects.keys()].filter((k) => k.startsWith(prefix) && k > after).sort();
+      const page = matching.slice(0, max);
+      const truncated = matching.length > max;
+      const contents = page
+        .map(
+          (k) =>
+            `<Contents><Key>${k}</Key><LastModified>2026-09-29T00:00:00.000Z</LastModified><ETag>"1"</ETag><Type>Normal</Type><Size>1</Size><StorageClass>Standard</StorageClass></Contents>`,
+        )
+        .join("");
+      return new Response(
+        `<?xml version="1.0" encoding="UTF-8"?><ListBucketResult><Name>coforge-files-test</Name><Prefix>${prefix}</Prefix><MaxKeys>${max}</MaxKeys><KeyCount>${page.length}</KeyCount><IsTruncated>${truncated}</IsTruncated>${truncated ? `<NextContinuationToken>${page.at(-1)}</NextContinuationToken>` : ""}${contents}</ListBucketResult>`,
+        { headers: { "content-type": "application/xml", "x-oss-request-id": "r" } },
+      );
+    }
+    if (request.method === "POST" && url.searchParams.has("delete")) {
+      const body = await request.text();
+      const names = [...body.matchAll(/<Key>([^<]*)<\/Key>/g)].map((match) => match[1]!);
+      bucketDeleteCalls.push(names.length);
+      for (const name of names) objects.delete(name);
+      return new Response(`<?xml version="1.0" encoding="UTF-8"?><DeleteResult></DeleteResult>`, {
+        headers: { "content-type": "application/xml", "x-oss-request-id": "r" },
+      });
+    }
+    return ossError(405, "MethodNotAllowed");
+  }
 
   function ossError(status: number, code: string) {
     return new Response(

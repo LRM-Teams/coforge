@@ -92,17 +92,6 @@ async function teardown(db: PrismaClient, workspaceId: string, userIds: string[]
   await db.$disconnect();
 }
 
-/** Leaving the way the Leave Workspace server function does: leave, then go where `departure`
- * says. */
-async function leaveAndGo(
-  directory: WorkspaceMemberDirectory,
-  departure: WorkspaceDeparture,
-  input: { workspaceId: string; userId: string },
-) {
-  await directory.leave(input);
-  return departure.next(input.userId);
-}
-
 /** The Workspace `/` returns to, kept in memory the way the browser keeps its cookie. */
 function rememberedWorkspace(slug?: string) {
   const remembered = { slug };
@@ -156,7 +145,7 @@ test.skipIf(!connectionString)(
       // `/` remembered the Workspace being left: the first one still theirs takes over.
       const leavingOpened = departure(workspace.slug);
       expect(
-        await leaveAndGo(directory, leavingOpened.departure, {
+        await leavingOpened.departure.leave(directory, {
           workspaceId: workspace.id,
           userId: bob.id,
         }),
@@ -167,7 +156,7 @@ test.skipIf(!connectionString)(
       await invite();
       const leavingElsewhere = departure(second.slug);
       expect(
-        await leaveAndGo(directory, leavingElsewhere.departure, {
+        await leavingElsewhere.departure.leave(directory, {
           workspaceId: workspace.id,
           userId: bob.id,
         }),
@@ -188,7 +177,7 @@ test.skipIf(!connectionString)(
       const catalog = new WorkspaceCatalog(new PrismaWorkspaceCatalogStore(db));
       const bobs = rememberedWorkspace(workspace.slug);
       expect(
-        await leaveAndGo(directory, new WorkspaceDeparture(catalog, bobs.port), {
+        await new WorkspaceDeparture(catalog, bobs.port).leave(directory, {
           workspaceId: workspace.id,
           userId: bob.id,
         }),
@@ -197,7 +186,7 @@ test.skipIf(!connectionString)(
 
       const owners = rememberedWorkspace(workspace.slug);
       await expect(
-        leaveAndGo(directory, new WorkspaceDeparture(catalog, owners.port), {
+        new WorkspaceDeparture(catalog, owners.port).leave(directory, {
           workspaceId: workspace.id,
           userId: owner.id,
         }),

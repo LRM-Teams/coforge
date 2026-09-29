@@ -3,6 +3,7 @@ import {
   FileStorageConfigError,
   getFileStorage,
   readFileStorageConfig,
+  type BulkFileRemoval,
   type FileStorage,
   type FileStorageConfig,
 } from "./file-storage.server";
@@ -51,17 +52,19 @@ export async function readPublicImageStorageConfig(
   return { ...privateStore, bucket };
 }
 
-let current: Promise<FileStorage> | undefined;
+let current: Promise<FileStorage & BulkFileRemoval> | undefined;
 
 /**
  * The process-wide profile-image storage. Without its own bucket this is the private store, so
  * uploads keep working unchanged and the authenticated routes keep serving them.
  */
-export function getPublicImageStorage(): Promise<FileStorage> {
+export function getPublicImageStorage(): Promise<FileStorage & BulkFileRemoval> {
   current ??= readPublicImageStorageConfig(process.env).then(createPublicImageStorage);
   return current;
 }
 
-export function createPublicImageStorage(config: FileStorageConfig | null): Promise<FileStorage> {
+export function createPublicImageStorage(
+  config: FileStorageConfig | null,
+): Promise<FileStorage & BulkFileRemoval> {
   return config ? createFileStorage(config) : getFileStorage();
 }

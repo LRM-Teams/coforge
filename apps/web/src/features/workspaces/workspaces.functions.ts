@@ -1,4 +1,5 @@
 import { createServerFn } from "@tanstack/react-start";
+import { getRequest } from "@tanstack/react-start/server";
 import { z } from "zod";
 import {
   createWorkspaceInputSchema,
@@ -22,6 +23,8 @@ import { createCentrifugoServerApi } from "#src/server/centrifugo/server-api.ser
 import { getFileStorage } from "#src/server/files/file-storage.server";
 import { getPublicImageStorage } from "#src/server/files/public-image-storage.server";
 import { WorkspaceDeparture } from "#src/server/workspaces/departure.server";
+import { WorkspaceFileCleanup } from "#src/server/workspaces/file-cleanup.server";
+import { extendRequestTimeout } from "#src/server/http/request-timeout.server";
 import {
   centrifugoWorkspaceDeletionSignals,
   WorkspaceDeletion,
@@ -137,6 +140,9 @@ export const uploadWorkspaceIcon = createServerFn({ method: "POST" })
     new WorkspaceImages(context.db).store(context.workspaceId, context.user.id, data.file),
   );
 
+/** How long the Delete Workspace request may take: about eight million messages. */
+const DELETE_WORKSPACE_REQUEST_SECONDS = 300;
+
 /**
  * Deletes the Workspace the page URL names for good; its owner only, confirming with its slug
  * (INVALID_INPUT otherwise). Answers which Workspace to open next, `null` when the owner is in no
@@ -146,13 +152,18 @@ export const deleteWorkspace = createServerFn({ method: "POST" })
   .middleware([workspaceUserMiddleware])
   .validator(deleteWorkspaceInputSchema)
   .handler(async ({ data, context: { user, db, workspaceId } }) => {
-    await new WorkspaceDeletion(db, {
-      files: getFileStorage,
-      images: getPublicImageStorage,
-      signals: centrifugoWorkspaceDeletionSignals(createCentrifugoServerApi),
-    }).delete({ workspaceId, userId: user.id, confirmSlug: data.confirmSlug });
+    // Deleting a Workspace with a long history outlasts Bun's 10 s idle close (about 37 s per
+    // million messages); the page waits on this one answer.
+    if (!extendRequestTimeout(getRequest(), DELETE_WORKSPACE_REQUEST_SECONDS))
+      console.warn(JSON.stringify({ event: "workspace_deletion:request_timeout_unchanged" }));
     return new WorkspaceDeparture(
       new WorkspaceCatalog(new PrismaWorkspaceCatalogStore(db)),
       rememberedWorkspaceCookie,
-    ).next(user.id);
+    ).delete(
+      new WorkspaceDeletion(db, {
+        files: new WorkspaceFileCleanup({ files: getFileStorage, images: getPublicImageStorage }),
+        signals: centrifugoWorkspaceDeletionSignals(createCentrifugoServerApi),
+      }),
+      { workspaceId, userId: user.id, confirmSlug: data.confirmSlug },
+    );
   });

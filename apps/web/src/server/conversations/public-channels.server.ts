@@ -74,7 +74,7 @@ import {
 import { AgentMessageValidationError } from "./agent-message-validation-error.server";
 import { agentAvatarUrl } from "#src/server/agents/agent-avatar.server";
 import { workspaceUserAvatarUrl } from "#src/server/db/repositories/user-profile.repositories.server";
-import { getFileStorage, type FileStorage } from "#src/server/files/file-storage.server";
+import { getFileStorage, type BulkFileRemoval } from "#src/server/files/file-storage.server";
 import { attachmentKeys, removeAttachmentFiles } from "#src/server/attachments/attachment.server";
 import {
   agentVisibilityViewerForUser,
@@ -1058,7 +1058,7 @@ export class PublicChannels {
     workspaceId: string,
     userId: string,
     channelId: string,
-    storage: () => Promise<FileStorage> = getFileStorage,
+    storage: () => Promise<BulkFileRemoval> = getFileStorage,
   ) {
     const [channel, serverRole] = await Promise.all([
       this.findChannelById(workspaceId, channelId),

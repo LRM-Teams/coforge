@@ -33,6 +33,32 @@ export interface FileStorage {
   ): Promise<{ url: string; headers: Record<string, string> }>;
 }
 
+/**
+ * Removing objects in bulk, for deletes that end a whole Workspace. Kept apart from
+ * {@link FileStorage}, which every per-object caller (and test fake) implements; the storages this
+ * module creates implement both.
+ */
+export interface BulkFileRemoval {
+  /** Removes these objects, as few requests as the backend allows; missing ones are not an error. */
+  removeMany(objectKeys: readonly string[]): Promise<void>;
+  /**
+   * Removes every object whose key starts with `prefix`, which must name a directory-like key
+   * prefix ending in `/` below the top level (`workspaces/<id>/`), never the whole store.
+   */
+  removePrefix(prefix: string): Promise<void>;
+}
+
+/** A prefix `removePrefix` accepts: at least two non-empty segments, no `.` or `..`, ending in `/`. */
+export function assertRemovablePrefix(prefix: string): void {
+  const segments = prefix.split("/");
+  if (
+    !prefix.endsWith("/") ||
+    segments.length < 3 ||
+    segments.slice(0, -1).some((segment) => !segment || segment === "." || segment === "..")
+  )
+    throw new Error(`refusing to remove objects under ${JSON.stringify(prefix)}`);
+}
+
 export interface StoredFile {
   body: Blob | ReadableStream<Uint8Array>;
   contentType: string | null;
@@ -99,15 +125,17 @@ export async function readFileStorageConfig(env: NodeJS.ProcessEnv): Promise<Fil
   };
 }
 
-let current: Promise<FileStorage> | undefined;
+let current: Promise<FileStorage & BulkFileRemoval> | undefined;
 
 /** The process-wide storage selected by the environment, created on first use. */
-export function getFileStorage(): Promise<FileStorage> {
+export function getFileStorage(): Promise<FileStorage & BulkFileRemoval> {
   current ??= readFileStorageConfig(process.env).then(createFileStorage);
   return current;
 }
 
-export async function createFileStorage(config: FileStorageConfig): Promise<FileStorage> {
+export async function createFileStorage(
+  config: FileStorageConfig,
+): Promise<FileStorage & BulkFileRemoval> {
   if (config.kind === "local") return new LocalFileStorage(config.root);
   const { createOssFileStorage } = await import("./oss-file-storage.server");
   return createOssFileStorage(config);
@@ -117,7 +145,7 @@ export async function createFileStorage(config: FileStorageConfig): Promise<File
  * Bytes under one private directory on the Web/backend host. Verification-only: no sharing
  * between backends, no orphan cleanup, no direct upload.
  */
-export class LocalFileStorage implements FileStorage {
+export class LocalFileStorage implements FileStorage, BulkFileRemoval {
   constructor(private readonly root: string) {}
 
   path(objectKey: string) {
@@ -139,6 +167,15 @@ export class LocalFileStorage implements FileStorage {
   async remove(objectKey: string) {
     // Every key ends in `<id>/original`, so the object's own directory goes with it.
     await rm(dirname(this.path(objectKey)), { recursive: true, force: true });
+  }
+
+  async removeMany(objectKeys: readonly string[]) {
+    await Promise.all(objectKeys.map((objectKey) => this.remove(objectKey)));
+  }
+
+  async removePrefix(prefix: string) {
+    assertRemovablePrefix(prefix);
+    await rm(this.path(prefix.slice(0, -1)), { recursive: true, force: true });
   }
 
   async head(objectKey: string) {

@@ -5,7 +5,7 @@ import { isAppError } from "#src/lib/app-error";
 import { PublicChannels } from "#src/server/conversations/public-channels.server";
 import type { ConversationRealtime } from "#src/server/conversations/conversation-realtime.server";
 import type { AgentInboxPurgeRequest } from "#src/server/agents/agent-inbox-purge.server";
-import type { FileStorage } from "#src/server/files/file-storage.server";
+import type { BulkFileRemoval } from "#src/server/files/file-storage.server";
 import { PrismaWorkspaceCatalogStore } from "#src/server/workspaces/catalog.server";
 import { TaskBoard } from "#src/server/tasks/task-board.server";
 
@@ -57,12 +57,12 @@ test.skipIf(!connectionString)(
           tasksDeleted.push({ conversationId: input.conversationId, deleted: input.deleted });
       },
     };
-    const storage = async () =>
-      ({
-        async remove(objectKey: string) {
-          removed.push(objectKey);
-        },
-      }) as unknown as FileStorage;
+    const storage = async (): Promise<BulkFileRemoval> => ({
+      async removeMany(objectKeys) {
+        removed.push(...objectKeys);
+      },
+      async removePrefix() {},
+    });
     try {
       await db.workspaceMembership.create({
         data: { workspaceId: workspace.id, userId: creator.id, role: "member" },

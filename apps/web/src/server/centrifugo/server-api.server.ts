@@ -18,10 +18,17 @@ export type CentrifugoServerApi = {
 
 /** Centrifugo's server API for the connections themselves, not what is published on them. */
 export type CentrifugoConnections = {
-  /** Disconnects every connection of one user with the given code
+  /** The clients subscribed to a channel whose namespace keeps presence
+   * (https://centrifugal.dev/docs/server/server_api#presence). */
+  presence(channel: string): Promise<{ client: string; user: string }[]>;
+  /** Disconnects one client of a user with the given code
    * (https://centrifugal.dev/docs/server/server_api#disconnect). Whether the client reconnects is
    * the code's range: centrifuge-js stops only on 3500-3999 and 4500-4999. */
-  disconnect(user: string, disconnect: { code: number; reason: string }): Promise<void>;
+  disconnect(input: {
+    user: string;
+    client: string;
+    disconnect: { code: number; reason: string };
+  }): Promise<void>;
 };
 
 /** How long one Centrifugo server-API call may take, connect included, before it is aborted. */
@@ -54,7 +61,10 @@ export function createCentrifugoServerApi(
     if (!response.ok) throw new Error(`Centrifugo ${method} failed (${response.status})`);
     const result = (await response.json()) as {
       error?: { code?: unknown };
-      result?: { responses?: Array<{ error?: { code?: unknown } }> };
+      result?: {
+        responses?: Array<{ error?: { code?: unknown } }>;
+        presence?: Record<string, { client?: unknown; user?: unknown }>;
+      };
     };
     if (result.error)
       throw new Error(
@@ -65,6 +75,7 @@ export function createCentrifugoServerApi(
       throw new Error(
         `Centrifugo ${method} failed (${typeof failed.error?.code === "number" ? failed.error.code : "command error"})`,
       );
+    return result.result;
   }
   return {
     async publish(channel, data) {
@@ -92,8 +103,14 @@ export function createCentrifugoServerApi(
         ...(idempotencyKey ? { idempotency_key: idempotencyKey } : {}),
       });
     },
-    async disconnect(user, disconnect) {
-      await call("disconnect", { user, disconnect });
+    async presence(channel) {
+      const clients = Object.values((await call("presence", { channel }))?.presence ?? {});
+      return clients.flatMap(({ client, user }) =>
+        typeof client === "string" && typeof user === "string" ? [{ client, user }] : [],
+      );
+    },
+    async disconnect({ user, client, disconnect }) {
+      await call("disconnect", { user, client, disconnect });
     },
   };
 }
