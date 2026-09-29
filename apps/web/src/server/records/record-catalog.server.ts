@@ -46,6 +46,7 @@ import {
 import { isVisibleTemplateSubmission } from "./template-submission-visibility.server";
 import { canEditWeeklyReportContent } from "./weekly-report-editability.server";
 import { recipientUserIdsForSend } from "./weekly-report-send-recipients.server";
+import { buildWeeklyReportPresentation } from "./weekly-report-presentation.server";
 import {
   isWeeklyScheduleDue,
   zonedCalendarDate,
@@ -2699,6 +2700,56 @@ export class RecordCatalog {
           weeks: Object.fromEntries(byWeek),
         };
       }),
+    };
+  }
+
+  /** Builds the checked-in Foundation Models weekly PPT for one Leader overview. */
+  async exportWeeklyReportPresentation(input: {
+    workspaceId: string;
+    userId: string;
+    overviewReportId: string;
+  }) {
+    await requireWeeklyReportLeader(this.db, input.workspaceId, input.userId);
+    const overview = await this.db.weeklyReport.findFirst({
+      where: {
+        id: input.overviewReportId,
+        workspaceId: input.workspaceId,
+        kind: "template",
+        authorId: input.userId,
+      },
+      select: {
+        title: true,
+        content: true,
+        cycle: { select: { year: true, week: true } },
+        submissions: {
+          where: { kind: "member", status: { in: ["submitted", "shared"] } },
+          orderBy: { createdAt: "asc" },
+          select: {
+            content: true,
+            author: { select: { username: true, displayName: true } },
+          },
+        },
+      },
+    });
+    if (!overview) throw new AppError("NOT_FOUND");
+    const bytes = await buildWeeklyReportPresentation({
+      title: overview.title,
+      period: `${overview.cycle.year} W${overview.cycle.week}`,
+      summary: asReportContent(overview.content).keyPointExtraction?.markdown,
+      members: overview.submissions.map((submission) => {
+        const content = asReportContent(submission.content);
+        const tabs = content.tabs ?? {};
+        return {
+          displayName: submission.author.displayName ?? submission.author.username,
+          sections: Object.fromEntries(
+            Object.entries(tabs).map(([name, tab]) => [name, tab.markdown]),
+          ),
+        };
+      }),
+    });
+    return {
+      bytes,
+      fileName: `${overview.title.replace(/[\\/:*?"<>|]+/g, "-")}-${overview.cycle.year}-W${overview.cycle.week}.pptx`,
     };
   }
 

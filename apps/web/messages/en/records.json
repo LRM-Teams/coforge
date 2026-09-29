@@ -267,6 +267,7 @@
   "records_key_points_team_section_title": "Team weekly key points",
   "records_key_points_team_section_hint": "Ask the weekly-report assistant to summarize all submitted member reports for this week.",
   "records_key_points_team_start": "Summarize",
+  "records_weekly_export_ppt": "Export PPT",
   "records_key_points_team_restart": "Re-summarize",
   "records_key_points_team_generating": "Summarizing team key points…",
   "records_key_points_team_waiting": "Use the button above to have the assistant summarize submitted member reports.",

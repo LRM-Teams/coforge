@@ -102,6 +102,7 @@ import { Route as ApiAgentV1MessagesMessageIdResolveRouteImport } from './routes
 import { Route as ApiAgentV1ThreadsThreadUnfollowRouteImport } from './routes/api/agent/v1/threads_.$thread.unfollow'
 import { Route as ApiWorkspacesWorkspaceIdAgentsAgentIdAvatarRouteImport } from './routes/api/workspaces/$workspaceId/agents/$agentId/avatar'
 import { Route as ApiWorkspacesWorkspaceIdUsersUserIdAvatarRouteImport } from './routes/api/workspaces/$workspaceId/users/$userId/avatar'
+import { Route as ApiWorkspacesWorkspaceSlugWeeklyReportsReportIdPresentationRouteImport } from './routes/api/workspaces/$workspaceSlug/weekly-reports/$reportId/presentation'
 import { Route as WWorkspaceSlugProjectsProjectSlugTreeSplatRouteImport } from './routes/w.$workspaceSlug/projects.$projectSlug_.tree.$'
 import { Route as WWorkspaceSlugRecordsWeeksYearWeekRouteImport } from './routes/w.$workspaceSlug/records.weeks.$year.$week'
 
@@ -617,6 +618,14 @@ const ApiWorkspacesWorkspaceIdUsersUserIdAvatarRoute =
     path: '/api/workspaces/$workspaceId/users/$userId/avatar',
     getParentRoute: () => rootRouteImport,
   } as any)
+const ApiWorkspacesWorkspaceSlugWeeklyReportsReportIdPresentationRoute =
+  ApiWorkspacesWorkspaceSlugWeeklyReportsReportIdPresentationRouteImport.update(
+    {
+      id: '/api/workspaces/$workspaceSlug/weekly-reports/$reportId/presentation',
+      path: '/api/workspaces/$workspaceSlug/weekly-reports/$reportId/presentation',
+      getParentRoute: () => rootRouteImport,
+    } as any,
+  )
 const WWorkspaceSlugProjectsProjectSlugTreeSplatRoute =
   WWorkspaceSlugProjectsProjectSlugTreeSplatRouteImport.update({
     id: '/projects/$projectSlug_/tree/$',
@@ -722,6 +731,7 @@ export interface FileRoutesByFullPath {
   '/api/agent/v1/threads/$thread/unfollow': typeof ApiAgentV1ThreadsThreadUnfollowRoute
   '/api/workspaces/$workspaceId/agents/$agentId/avatar': typeof ApiWorkspacesWorkspaceIdAgentsAgentIdAvatarRoute
   '/api/workspaces/$workspaceId/users/$userId/avatar': typeof ApiWorkspacesWorkspaceIdUsersUserIdAvatarRoute
+  '/api/workspaces/$workspaceSlug/weekly-reports/$reportId/presentation': typeof ApiWorkspacesWorkspaceSlugWeeklyReportsReportIdPresentationRoute
   '/w/$workspaceSlug/projects/$projectSlug/tree/$': typeof WWorkspaceSlugProjectsProjectSlugTreeSplatRoute
   '/w/$workspaceSlug/records/weeks/$year/$week': typeof WWorkspaceSlugRecordsWeeksYearWeekRoute
 }
@@ -815,6 +825,7 @@ export interface FileRoutesByTo {
   '/api/agent/v1/threads/$thread/unfollow': typeof ApiAgentV1ThreadsThreadUnfollowRoute
   '/api/workspaces/$workspaceId/agents/$agentId/avatar': typeof ApiWorkspacesWorkspaceIdAgentsAgentIdAvatarRoute
   '/api/workspaces/$workspaceId/users/$userId/avatar': typeof ApiWorkspacesWorkspaceIdUsersUserIdAvatarRoute
+  '/api/workspaces/$workspaceSlug/weekly-reports/$reportId/presentation': typeof ApiWorkspacesWorkspaceSlugWeeklyReportsReportIdPresentationRoute
   '/w/$workspaceSlug/projects/$projectSlug/tree/$': typeof WWorkspaceSlugProjectsProjectSlugTreeSplatRoute
   '/w/$workspaceSlug/records/weeks/$year/$week': typeof WWorkspaceSlugRecordsWeeksYearWeekRoute
 }
@@ -913,6 +924,7 @@ export interface FileRoutesById {
   '/api/agent/v1/threads_/$thread/unfollow': typeof ApiAgentV1ThreadsThreadUnfollowRoute
   '/api/workspaces/$workspaceId/agents/$agentId/avatar': typeof ApiWorkspacesWorkspaceIdAgentsAgentIdAvatarRoute
   '/api/workspaces/$workspaceId/users/$userId/avatar': typeof ApiWorkspacesWorkspaceIdUsersUserIdAvatarRoute
+  '/api/workspaces/$workspaceSlug/weekly-reports/$reportId/presentation': typeof ApiWorkspacesWorkspaceSlugWeeklyReportsReportIdPresentationRoute
   '/w/$workspaceSlug/projects/$projectSlug_/tree/$': typeof WWorkspaceSlugProjectsProjectSlugTreeSplatRoute
   '/w/$workspaceSlug/records/weeks/$year/$week': typeof WWorkspaceSlugRecordsWeeksYearWeekRoute
 }
@@ -1010,6 +1022,7 @@ export interface FileRouteTypes {
     | '/api/agent/v1/threads/$thread/unfollow'
     | '/api/workspaces/$workspaceId/agents/$agentId/avatar'
     | '/api/workspaces/$workspaceId/users/$userId/avatar'
+    | '/api/workspaces/$workspaceSlug/weekly-reports/$reportId/presentation'
     | '/w/$workspaceSlug/projects/$projectSlug/tree/$'
     | '/w/$workspaceSlug/records/weeks/$year/$week'
   fileRoutesByTo: FileRoutesByTo
@@ -1103,6 +1116,7 @@ export interface FileRouteTypes {
     | '/api/agent/v1/threads/$thread/unfollow'
     | '/api/workspaces/$workspaceId/agents/$agentId/avatar'
     | '/api/workspaces/$workspaceId/users/$userId/avatar'
+    | '/api/workspaces/$workspaceSlug/weekly-reports/$reportId/presentation'
     | '/w/$workspaceSlug/projects/$projectSlug/tree/$'
     | '/w/$workspaceSlug/records/weeks/$year/$week'
   id:
@@ -1200,6 +1214,7 @@ export interface FileRouteTypes {
     | '/api/agent/v1/threads_/$thread/unfollow'
     | '/api/workspaces/$workspaceId/agents/$agentId/avatar'
     | '/api/workspaces/$workspaceId/users/$userId/avatar'
+    | '/api/workspaces/$workspaceSlug/weekly-reports/$reportId/presentation'
     | '/w/$workspaceSlug/projects/$projectSlug_/tree/$'
     | '/w/$workspaceSlug/records/weeks/$year/$week'
   fileRoutesById: FileRoutesById
@@ -1266,6 +1281,7 @@ export interface RootRouteChildren {
   ApiAgentV1ThreadsThreadUnfollowRoute: typeof ApiAgentV1ThreadsThreadUnfollowRoute
   ApiWorkspacesWorkspaceIdAgentsAgentIdAvatarRoute: typeof ApiWorkspacesWorkspaceIdAgentsAgentIdAvatarRoute
   ApiWorkspacesWorkspaceIdUsersUserIdAvatarRoute: typeof ApiWorkspacesWorkspaceIdUsersUserIdAvatarRoute
+  ApiWorkspacesWorkspaceSlugWeeklyReportsReportIdPresentationRoute: typeof ApiWorkspacesWorkspaceSlugWeeklyReportsReportIdPresentationRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -1921,6 +1937,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiWorkspacesWorkspaceIdUsersUserIdAvatarRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/workspaces/$workspaceSlug/weekly-reports/$reportId/presentation': {
+      id: '/api/workspaces/$workspaceSlug/weekly-reports/$reportId/presentation'
+      path: '/api/workspaces/$workspaceSlug/weekly-reports/$reportId/presentation'
+      fullPath: '/api/workspaces/$workspaceSlug/weekly-reports/$reportId/presentation'
+      preLoaderRoute: typeof ApiWorkspacesWorkspaceSlugWeeklyReportsReportIdPresentationRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/w/$workspaceSlug/projects/$projectSlug_/tree/$': {
       id: '/w/$workspaceSlug/projects/$projectSlug_/tree/$'
       path: '/projects/$projectSlug/tree/$'
@@ -2174,6 +2197,8 @@ const rootRouteChildren: RootRouteChildren = {
     ApiWorkspacesWorkspaceIdAgentsAgentIdAvatarRoute,
   ApiWorkspacesWorkspaceIdUsersUserIdAvatarRoute:
     ApiWorkspacesWorkspaceIdUsersUserIdAvatarRoute,
+  ApiWorkspacesWorkspaceSlugWeeklyReportsReportIdPresentationRoute:
+    ApiWorkspacesWorkspaceSlugWeeklyReportsReportIdPresentationRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
