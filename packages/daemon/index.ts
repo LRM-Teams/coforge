@@ -80,7 +80,11 @@ export { readCodexUsage } from "#src/code-agent/codex/usage";
 export { readClaudeCodeUsage } from "#src/code-agent/claude-code/usage";
 export { CoforgeProvider, PiProvider } from "#src/code-agent/pi/provider";
 export { KiroProvider } from "#src/code-agent/kiro/provider";
-export { createDaemonHost } from "#src/daemon-host/index";
+export {
+  COORDINATOR_SERVICE,
+  coordinatorServiceName,
+  createDaemonHost,
+} from "#src/daemon-host/index";
 export { startDaemonLocalRpcServer } from "#src/local-rpc";
 export { startAgentProxy } from "#src/agent-proxy";
 export {
@@ -97,8 +101,19 @@ export {
   LocalDaemonLauncher,
   resolveDaemonExecutablePath,
 } from "#src/daemon-host/launcher";
-export { cleanupComputerUpgradeJob } from "#src/platform/computer-upgrade-launcher";
-export { acquireProcessLock, isLockContention } from "#src/platform/process-lock";
+export {
+  cleanupComputerUpgradeJob,
+  computerUpgradeJobLabel,
+  computerUpgradeTaskName,
+  computerUpgradeUnitName,
+} from "#src/platform/computer-upgrade-launcher";
+export { readComputerUpgradeReceipt } from "#src/platform/computer-upgrade-receipts";
+export {
+  acquireProcessLock,
+  isLockContention,
+  PROCESS_LOCK_CONTENTION_CODES,
+  PROCESS_LOCK_STATEMENTS,
+} from "#src/platform/process-lock";
 export { readOperatingSystem } from "#src/platform/operating-system";
 export type { ProcessLock } from "#src/platform/process-lock";
 export type {

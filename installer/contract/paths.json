@@ -1,0 +1,59 @@
+{
+  "home_directory": "os.homedir(): HOME on POSIX, else the account's passwd entry; USERPROFILE on Windows, else the profile directory",
+  "cases": [
+    {
+      "platform": "linux",
+      "home": "/home/example",
+      "environment": {},
+      "install_root": "/home/example/.coforge/computer/install",
+      "state_directory": "/home/example/.coforge/daemon",
+      "binary_directory": "/home/example/.local/bin"
+    },
+    {
+      "platform": "linux",
+      "home": "/home/example",
+      "environment": {
+        "XDG_BIN_HOME": "/home/example/bin"
+      },
+      "install_root": "/home/example/.coforge/computer/install",
+      "state_directory": "/home/example/.coforge/daemon",
+      "binary_directory": "/home/example/bin"
+    },
+    {
+      "platform": "linux",
+      "home": "/home/example",
+      "environment": {
+        "XDG_BIN_HOME": "relative/bin"
+      },
+      "install_root": "/home/example/.coforge/computer/install",
+      "state_directory": "/home/example/.coforge/daemon",
+      "binary_directory": "/home/example/.local/bin"
+    },
+    {
+      "platform": "darwin",
+      "home": "/Users/example",
+      "environment": {},
+      "install_root": "/Users/example/.coforge/computer/install",
+      "state_directory": "/Users/example/.coforge/daemon",
+      "binary_directory": "/Users/example/.local/bin"
+    },
+    {
+      "platform": "win32",
+      "home": "C:\\Users\\example",
+      "environment": {},
+      "install_root": "C:\\Users\\example\\.coforge\\computer\\install",
+      "state_directory": "C:\\Users\\example\\.coforge\\daemon",
+      "binary_directory": "C:\\Users\\example\\.coforge\\computer\\bin"
+    },
+    {
+      "platform": "win32",
+      "home": "C:\\Users\\example",
+      "environment": {
+        "XDG_BIN_HOME": "C:\\bin"
+      },
+      "install_root": "C:\\Users\\example\\.coforge\\computer\\install",
+      "state_directory": "C:\\Users\\example\\.coforge\\daemon",
+      "binary_directory": "C:\\Users\\example\\.coforge\\computer\\bin"
+    }
+  ]
+}

@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "version": "0.1.0",
+  "commit": "0123456789abcdef0123456789abcdef01234567",
+  "buildDate": "2026-09-29T00:00:00.000Z",
+  "installer_protocol": 1,
+  "platforms": {
+    "darwin-arm64": {
+      "installer": {
+        "file": "coforge-installer",
+        "size": 1572864,
+        "checksum": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "gzip": {
+          "file": "coforge-installer.gz",
+          "size": 786432,
+          "checksum": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+        }
+      }
+    },
+    "linux-x64": {
+      "installer": {
+        "file": "coforge-installer",
+        "size": 1572864,
+        "checksum": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "gzip": {
+          "file": "coforge-installer.gz",
+          "size": 786432,
+          "checksum": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+        }
+      }
+    },
+    "windows-x64": {
+      "installer": {
+        "file": "coforge-installer.exe",
+        "size": 1572864,
+        "checksum": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "gzip": {
+          "file": "coforge-installer.exe.gz",
+          "size": 786432,
+          "checksum": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+        }
+      }
+    }
+  }
+}

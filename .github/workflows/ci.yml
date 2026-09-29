@@ -201,6 +201,18 @@ jobs:
       - name: Run tests
         run: mise run test:computer
 
+      # installer/contract/ is generated from this package (see installer/AGENTS.md); a change to
+      # a contract source must commit the regenerated files.
+      - name: Check the installer contract is regenerated
+        run: |
+          bun run --cwd packages/computer generate:installer-contract
+          git diff --exit-code -- installer/contract
+          untracked="$(git ls-files --others --exclude-standard -- installer/contract)"
+          if [ -n "$untracked" ]; then
+            echo "::error::Commit the generated installer contract files: $untracked"
+            exit 1
+          fi
+
       - name: Run static checks
         run: mise run check:computer
 
@@ -521,6 +533,18 @@ jobs:
       - name: Test
         if: matrix.native
         run: mise exec rust -- cargo test --locked --target "${{ matrix.rust_target }}"
+
+      # The tests write what the installer produces into contract/rust/, which the Computer
+      # package's tests read back; the committed copy must match on every native target.
+      - name: Check the contract output is committed
+        if: matrix.native
+        run: |
+          git diff --exit-code -- contract
+          untracked="$(git ls-files --others --exclude-standard -- contract)"
+          if [ -n "$untracked" ]; then
+            echo "::error::Commit the installer's contract output: $untracked"
+            exit 1
+          fi
 
       - name: Build release binary
         run: mise exec rust -- cargo build --locked --release --target "${{ matrix.rust_target }}"

@@ -2,6 +2,7 @@ import { readFile, realpath, stat } from "node:fs/promises";
 import { join, posix, win32 } from "node:path";
 import {
   acquireProcessLock,
+  coordinatorServiceName,
   FileBindingStore,
   isLockContention,
   LocalDaemonLauncher,
@@ -13,6 +14,7 @@ import {
 } from "@lrm/coforge-daemon";
 import type { FileComputerConfig } from "#src/local-config";
 import { resolveDaemonSocketPath } from "#src/paths";
+import { MACHINE_MUTATION_LOCK_FILE } from "#src/updater";
 import {
   listDarwinLeftoverUpgradeJobs,
   listDarwinWorkspaceAgents,
@@ -30,9 +32,6 @@ import type {
   SupportedStatusPlatform,
 } from "./types";
 
-const COORDINATOR_LABEL_DARWIN = "cn.coforge.computer.daemon";
-const COORDINATOR_SERVICE_LINUX = "coforge-daemon.service";
-const COORDINATOR_TASK_WINDOWS = "CoForge Daemon";
 /** How long a Workspace process gets to answer its handshake before status reports it unknown. */
 const CLOUD_CONNECTION_PROBE_MS = 2_000;
 
@@ -61,14 +60,9 @@ export function createStatusPorts(input: CreateStatusPortsInput): StatusPorts {
     platform: input.platform,
   });
   const binaryName = input.platform === "win32" ? "coforge-computer.cmd" : "coforge-computer";
-  const machineMutationLockPath = join(input.installDirectory, "machine-mutation-lock.sqlite");
+  const machineMutationLockPath = join(input.installDirectory, MACHINE_MUTATION_LOCK_FILE);
   const supervisorLockOwnerPath = join(input.stateDirectory, "supervisor.lock", "owner");
-  const coordinatorLabel =
-    input.platform === "darwin"
-      ? COORDINATOR_LABEL_DARWIN
-      : input.platform === "linux"
-        ? COORDINATOR_SERVICE_LINUX
-        : COORDINATOR_TASK_WINDOWS;
+  const coordinatorLabel = coordinatorServiceName(input.platform);
 
   return {
     now: () => new Date(),

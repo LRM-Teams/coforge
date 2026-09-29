@@ -9,8 +9,9 @@ import {
   symlink,
   writeFile,
 } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { dirname, join, win32 } from "node:path";
 import { tmpdir } from "node:os";
+import { z } from "zod";
 import { acquireProcessLock, isLockContention } from "@lrm/coforge-daemon";
 import { isValidReleaseVersion, utf8Encoder, utf8Decoder } from "@lrm/coforge-sdk/internal";
 import { runInstallationSource } from "#src/release/installation-source";
@@ -29,53 +30,125 @@ const CHECKSUM_PATTERN = /^[0-9a-f]{64}$/;
  * path can drift from the other's notion of "valid". */
 const isValidVersion = isValidReleaseVersion;
 
-type ArtifactIdentity = { size: number; checksum: string };
-type PlatformArtifact = ArtifactIdentity & {
-  binary: string;
-  gzip: ArtifactIdentity & { binary: string };
-};
+/* The zod schemas below are the cross-language contract with the Rust installer: the installer
+ * writes active.json and installation.json and reads the release manifest, and
+ * `bun run generate:installer-contract` exports them as JSON Schema plus golden instances into
+ * installer/contract/. Every object is loose: a later version only ever adds fields, and a reader
+ * ignores the ones it does not know. The hand-written checks in this module stay the runtime
+ * validation; the contract test runs both over the same goldens. */
+
+export const ArtifactIdentitySchema = z.looseObject({
+  size: z.number().int().nonnegative(),
+  checksum: z.string().regex(CHECKSUM_PATTERN),
+});
+type ArtifactIdentity = z.infer<typeof ArtifactIdentitySchema>;
+
+const PlatformArtifactSchema = z.looseObject({
+  binary: z.literal("coforge-computer"),
+  ...ArtifactIdentitySchema.shape,
+  gzip: z.looseObject({
+    binary: z.literal("coforge-computer.gz"),
+    ...ArtifactIdentitySchema.shape,
+  }),
+});
+type PlatformArtifact = z.infer<typeof PlatformArtifactSchema>;
+
 /** Pi's image-resize WASM: one platform-independent object per version, named explicitly (not
  * merely "some safe filename") the same way a per-target `binary` field is - see
  * docs/release/local-distribution.md's feed layout. */
-type PhotonWasmArtifact = ArtifactIdentity & { file: string };
+const PhotonWasmArtifactSchema = z.looseObject({
+  file: z.literal("photon_rs_bg.wasm"),
+  ...ArtifactIdentitySchema.shape,
+});
+type PhotonWasmArtifact = z.infer<typeof PhotonWasmArtifactSchema>;
 
-type ReleaseManifest = {
-  schema_version: 2;
-  version: string;
-  commit: string;
-  buildDate: string;
-  platforms: Record<string, { computer: PlatformArtifact }>;
-  photonWasm: PhotonWasmArtifact;
-};
+/** `<version>/manifest.json`. `installer_protocol` is additive to schema 2: the lowest
+ * coforge-installer protocol that can install this version. */
+export const ReleaseManifestSchema = z
+  .looseObject({
+    schema_version: z.literal(2),
+    version: z.string(),
+    commit: z.string(),
+    buildDate: z.string(),
+    // A platform entry holds exactly the computer artifact: no daemon payload exists.
+    platforms: z.record(z.string(), z.strictObject({ computer: PlatformArtifactSchema })),
+    photonWasm: PhotonWasmArtifactSchema,
+    installer_protocol: z.number().int().positive().optional(),
+  })
+  .meta({ title: "CoForge release manifest" });
+type ReleaseManifest = z.infer<typeof ReleaseManifestSchema>;
 
-type ActiveState = {
-  schema_version: 1;
-  current: string;
-  previous: string | null;
-};
+/** `<install root>/active.json`: the selected version and the one before it. */
+export const ActiveStateSchema = z
+  .looseObject({
+    schema_version: z.literal(1),
+    current: z.string(),
+    previous: z.string().nullable(),
+  })
+  .meta({ title: "CoForge active version" });
+type ActiveState = z.infer<typeof ActiveStateSchema>;
 
-type InstalledIdentityV2 = {
-  schema_version: 2;
-  version: string;
-  computer: ArtifactIdentity;
-  agentCli: ArtifactIdentity;
-};
+const InstalledIdentityV2Schema = z.looseObject({
+  schema_version: z.literal(2),
+  version: z.string(),
+  computer: ArtifactIdentitySchema,
+  agentCli: ArtifactIdentitySchema,
+});
 
-type InstalledIdentityV3 = Omit<InstalledIdentityV2, "schema_version"> & {
-  schema_version: 3;
-  githubCli: ArtifactIdentity;
-};
+const InstalledIdentityV3Schema = z.looseObject({
+  ...InstalledIdentityV2Schema.shape,
+  schema_version: z.literal(3),
+  githubCli: ArtifactIdentitySchema,
+});
 
 /** photon_rs_bg.wasm joins the installed identity here, not in schema 3: dev policy is no
  * compatibility fallback, so every version installed from here on ships and verifies it. Schemas
  * 2 and 3 remain valid only because older retained versions (rollback targets) were installed
  * before this field existed - see #assertInstalled. */
-type InstalledIdentityV4 = Omit<InstalledIdentityV3, "schema_version"> & {
-  schema_version: 4;
-  photonWasm: ArtifactIdentity;
-};
+const InstalledIdentityV4Schema = z.looseObject({
+  ...InstalledIdentityV3Schema.shape,
+  schema_version: z.literal(4),
+  photonWasm: ArtifactIdentitySchema,
+});
 
-type InstalledIdentity = InstalledIdentityV2 | InstalledIdentityV3 | InstalledIdentityV4;
+/** `versions/<version>/installation.json`. New installations write schema 4. */
+export const InstalledIdentitySchema = z
+  .discriminatedUnion("schema_version", [
+    InstalledIdentityV2Schema,
+    InstalledIdentityV3Schema,
+    InstalledIdentityV4Schema,
+  ])
+  .meta({ title: "CoForge installed version identity" });
+type InstalledIdentity = z.infer<typeof InstalledIdentitySchema>;
+
+/** The machine mutation lock, relative to the install root. Held for a whole install, upgrade,
+ * or rollback, and probed by `status`. */
+export const MACHINE_MUTATION_LOCK_FILE = "machine-mutation-lock.sqlite";
+
+/** The version-local `coforge` launcher that runs the adjacent executable's Agent CLI. */
+export function agentCliLauncher(windows: boolean): string {
+  return windows
+    ? '@echo off\r\n"%~dp0coforge-computer.exe" __agent-cli %*\r\n'
+    : '#!/bin/sh\nexec "${0%/*}/coforge-computer" __agent-cli "$@"\n';
+}
+
+/** The version-local `gh` launcher that runs the adjacent executable's GitHub CLI bridge. */
+export function githubCliLauncher(windows: boolean): string {
+  return windows
+    ? '@echo off\r\n"%~dp0coforge-computer.exe" __agent-cli github gh %*\r\n'
+    : '#!/bin/sh\nexec "${0%/*}/coforge-computer" __agent-cli github gh "$@"\n';
+}
+
+/** Windows' PATH shim `coforge-computer.cmd`: reads active.json on every run and starts that
+ * version's executable, so activation never rewrites it. */
+export function windowsComputerLauncher(installRoot: string): string {
+  return [
+    "@echo off",
+    `for /f "usebackq tokens=*" %%i in (\`powershell -NoProfile -Command "(Get-Content -Raw '${win32.join(installRoot, "active.json").replaceAll("'", "''")}' | ConvertFrom-Json).current"\`) do set COFORGE_ACTIVE=%%i`,
+    `"${win32.join(installRoot, "versions")}\\%COFORGE_ACTIVE%\\coforge-computer.exe" %*`,
+    "",
+  ].join("\r\n");
+}
 
 export type PreparedUpdate = {
   version: string;
@@ -470,16 +543,8 @@ export class ComputerUpdater {
     const computerName = this.#target.startsWith("windows-")
       ? "coforge-computer.exe"
       : "coforge-computer";
-    const agentCli = utf8Encoder.encode(
-      this.#target.startsWith("windows-")
-        ? '@echo off\r\n"%~dp0coforge-computer.exe" __agent-cli %*\r\n'
-        : '#!/bin/sh\nexec "${0%/*}/coforge-computer" __agent-cli "$@"\n',
-    );
-    const githubCli = utf8Encoder.encode(
-      this.#target.startsWith("windows-")
-        ? '@echo off\r\n"%~dp0coforge-computer.exe" __agent-cli github gh %*\r\n'
-        : '#!/bin/sh\nexec "${0%/*}/coforge-computer" __agent-cli github gh "$@"\n',
-    );
+    const agentCli = utf8Encoder.encode(agentCliLauncher(this.#target.startsWith("windows-")));
+    const githubCli = utf8Encoder.encode(githubCliLauncher(this.#target.startsWith("windows-")));
     const installedIdentity: InstalledIdentity = {
       schema_version: 4,
       version,
@@ -586,12 +651,7 @@ export class ComputerUpdater {
     // create would otherwise leave `~/.local` itself owner-only for every one of them.
     await mkdir(this.#binaryDirectory, { recursive: true, mode: 0o755 });
     if (this.#target.startsWith("windows-")) {
-      const launcher = [
-        "@echo off",
-        `for /f "usebackq tokens=*" %%i in (\`powershell -NoProfile -Command "(Get-Content -Raw '${join(this.#installRoot, "active.json").replaceAll("'", "''")}' | ConvertFrom-Json).current"\`) do set COFORGE_ACTIVE=%%i`,
-        `"${join(this.#installRoot, "versions")}\\%COFORGE_ACTIVE%\\coforge-computer.exe" %*`,
-        "",
-      ].join("\r\n");
+      const launcher = windowsComputerLauncher(this.#installRoot);
       const launcherPath = join(this.#binaryDirectory, "coforge-computer.cmd");
       const temporary = `${launcherPath}.${crypto.randomUUID()}.tmp`;
       await writeFile(temporary, launcher, { mode: 0o700 });
@@ -639,7 +699,7 @@ export class ComputerUpdater {
     await mkdir(this.#installRoot, { recursive: true, mode: 0o700 });
     let lock: ReturnType<typeof acquireProcessLock>;
     try {
-      lock = acquireProcessLock(join(this.#installRoot, "machine-mutation-lock.sqlite"));
+      lock = acquireProcessLock(join(this.#installRoot, MACHINE_MUTATION_LOCK_FILE));
     } catch (error) {
       if (isLockContention(error)) {
         throw new UpdateError("UPDATE_BUSY", "another install, upgrade, or rollback is running");

@@ -1,0 +1,10 @@
+{
+  "agentCli": {
+    "file": "coforge",
+    "contents": "#!/bin/sh\nexec \"${0%/*}/coforge-computer\" __agent-cli \"$@\"\n"
+  },
+  "githubCli": {
+    "file": "gh",
+    "contents": "#!/bin/sh\nexec \"${0%/*}/coforge-computer\" __agent-cli github gh \"$@\"\n"
+  }
+}

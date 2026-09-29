@@ -4,6 +4,7 @@ import type { ManagedRuntimeIdentity } from "@lrm/coforge-sdk/internal";
 import { nativeCommandDiagnostic, type NativeCommandResult } from "#src/platform/native-command";
 import { LocalDaemonLauncher } from "./launcher";
 import type { DaemonLauncher, DaemonStarted, DaemonWorkspaceConfig } from "./launcher";
+import { COORDINATOR_SERVICE } from "./service-identity";
 
 type CommandRunner = (command: string[]) => Promise<NativeCommandResult>;
 
@@ -26,7 +27,7 @@ export class SystemdUserDaemonHost implements DaemonLauncher {
     writeFile?: (path: string, content: string) => Promise<void>;
     run?: CommandRunner;
   }) {
-    const serviceName = options.serviceName ?? "coforge-daemon.service";
+    const serviceName = options.serviceName ?? COORDINATOR_SERVICE.systemdUserUnit;
     if (!isValidServiceName(serviceName)) throw new Error("invalid systemd user service name");
     this.#unitPath = join(options.homeDirectory, ".config", "systemd", "user", serviceName);
     this.#run = options.run ?? runCommand;

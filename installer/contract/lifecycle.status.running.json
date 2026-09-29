@@ -1,0 +1,24 @@
+{
+  "lifecycle_protocol": 1,
+  "version": "0.1.0",
+  "supervisor": {
+    "running": true,
+    "id": "supervisor_example",
+    "version": "0.1.0"
+  },
+  "bindings": [
+    {
+      "binding_id": "ws_example",
+      "enabled": true,
+      "running": true,
+      "process_id": 4243
+    },
+    {
+      "binding_id": "ws_stopped",
+      "enabled": false,
+      "running": false,
+      "process_id": null
+    }
+  ],
+  "healthy": true
+}

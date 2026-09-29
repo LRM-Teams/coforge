@@ -3,6 +3,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { getLogger } from "@logtape/logtape";
 import {
+  coordinatorServiceName,
   createDaemonHost,
   holdRunnersUntilQuiescent,
   LocalDaemonLauncher,
@@ -128,6 +129,12 @@ export type SupervisorUpgradeIntegrationOptions = {
  */
 const LIFECYCLE_SETTLE = { timeoutMs: 120_000, pollMs: 500 };
 
+/** `<state>/launch-hold`: the owning request ID and a newline. The Coordinator refuses to launch
+ * Workspaces while it exists and reads the trimmed ID back; see installer/contract/launch-hold.txt. */
+export function launchHoldContents(requestId: string): string {
+  return `${requestId}\n`;
+}
+
 export function createSupervisorUpgradeLifecycle(
   options: SupervisorUpgradeIntegrationOptions,
 ): UpgradeLifecycle {
@@ -156,13 +163,7 @@ export function createSupervisorUpgradeLifecycle(
   // Diagnostic identity only, matching each host's own default label/unit/task name; never used
   // for control flow. The 2026-09-16 incident where the Coordinator was left unloaded after a
   // remote upgrade reported success had no record of what `stop`/`start` actually did.
-  const coordinatorLabel =
-    options.serviceName ??
-    (process.platform === "linux"
-      ? "coforge-daemon.service"
-      : process.platform === "win32"
-        ? "CoForge Daemon"
-        : "cn.coforge.computer.daemon");
+  const coordinatorLabel = options.serviceName ?? coordinatorServiceName(process.platform);
   let previousSupervisorId: string | undefined;
   let supervisorWasRunning = false;
   // Capability check, never an `instanceof`/platform branch: only `LaunchdDaemonHost`
@@ -233,7 +234,7 @@ export function createSupervisorUpgradeLifecycle(
     },
     async pauseLaunches(requestId) {
       await mkdir(options.supervisorStatePath, { recursive: true, mode: 0o700 });
-      await writeFile(holdPath, `${requestId}\n`, { mode: 0o600 });
+      await writeFile(holdPath, launchHoldContents(requestId), { mode: 0o600 });
       supervisorWasRunning = await local.identity().then(
         () => true,
         () => false,

@@ -1,5 +1,6 @@
 import { LocalDaemonLauncher, type LocalDaemonLauncherOptions } from "./launcher";
 import type { DaemonLauncher, DaemonStarted, DaemonWorkspaceConfig } from "./launcher";
+import { COORDINATOR_SERVICE } from "./service-identity";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ManagedRuntimeIdentity } from "@lrm/coforge-sdk/internal";
@@ -108,7 +109,7 @@ export class WindowsUserDaemonHost implements DaemonLauncher {
     connect?: LocalDaemonLauncherOptions["connect"];
     timeoutMilliseconds?: number;
   }) {
-    this.#taskName = options.taskName ?? "CoForge Daemon";
+    this.#taskName = options.taskName ?? COORDINATOR_SERVICE.windowsTask;
     this.#run = options.run ?? runSchtasks;
     this.#writeTaskXml = options.writeTaskXml ?? writeUtf16XmlFile;
     this.#removeTaskXml = options.removeTaskXml ?? removeFileQuietly;

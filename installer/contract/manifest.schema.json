@@ -1,0 +1,122 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "type": "number",
+      "const": 2
+    },
+    "version": {
+      "type": "string"
+    },
+    "commit": {
+      "type": "string"
+    },
+    "buildDate": {
+      "type": "string"
+    },
+    "platforms": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "computer": {
+            "type": "object",
+            "properties": {
+              "binary": {
+                "type": "string",
+                "const": "coforge-computer"
+              },
+              "size": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "checksum": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              "gzip": {
+                "type": "object",
+                "properties": {
+                  "binary": {
+                    "type": "string",
+                    "const": "coforge-computer.gz"
+                  },
+                  "size": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "checksum": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{64}$"
+                  }
+                },
+                "required": [
+                  "binary",
+                  "size",
+                  "checksum"
+                ],
+                "additionalProperties": {}
+              }
+            },
+            "required": [
+              "binary",
+              "size",
+              "checksum",
+              "gzip"
+            ],
+            "additionalProperties": {}
+          }
+        },
+        "required": [
+          "computer"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "photonWasm": {
+      "type": "object",
+      "properties": {
+        "file": {
+          "type": "string",
+          "const": "photon_rs_bg.wasm"
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "checksum": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      },
+      "required": [
+        "file",
+        "size",
+        "checksum"
+      ],
+      "additionalProperties": {}
+    },
+    "installer_protocol": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    }
+  },
+  "required": [
+    "schema_version",
+    "version",
+    "commit",
+    "buildDate",
+    "platforms",
+    "photonWasm"
+  ],
+  "additionalProperties": {},
+  "title": "CoForge release manifest"
+}

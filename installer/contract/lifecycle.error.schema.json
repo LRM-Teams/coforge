@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "lifecycle_protocol": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    },
+    "ok": {
+      "type": "boolean",
+      "const": false
+    },
+    "code": {
+      "type": "string",
+      "pattern": "^[A-Z][A-Z0-9_]{2,63}$"
+    },
+    "message": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "lifecycle_protocol",
+    "ok",
+    "code",
+    "message"
+  ],
+  "additionalProperties": {},
+  "title": "__lifecycle error"
+}

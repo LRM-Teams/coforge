@@ -1,0 +1,12 @@
+{
+  "schema_version": 2,
+  "version": "0.0.8",
+  "computer": {
+    "size": 70254592,
+    "checksum": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "agentCli": {
+    "size": 63,
+    "checksum": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  }
+}

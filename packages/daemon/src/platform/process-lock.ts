@@ -6,6 +6,14 @@ export type ProcessLock = {
   release(): void;
 };
 
+/** What a holder runs, in order, on its own connection to the lock database. Any process that
+ * must exclude this one (the installer, too) runs the same statements on the same file; see
+ * installer/contract/lock.json. */
+export const PROCESS_LOCK_STATEMENTS = ["PRAGMA busy_timeout = 0", "BEGIN IMMEDIATE"] as const;
+
+/** The SQLite result codes that mean another process holds the lock. */
+export const PROCESS_LOCK_CONTENTION_CODES = ["SQLITE_BUSY", "SQLITE_LOCKED"] as const;
+
 /**
  * Holds SQLite's native RESERVED lock for the lifetime of the returned handle.
  * The database is a permanent lock object: callers must never replace or remove it.
@@ -15,8 +23,7 @@ export function acquireProcessLock(path: string): ProcessLock {
   const database = new Database(path, { create: true, strict: true });
   try {
     chmodSync(path, 0o600);
-    database.exec("PRAGMA busy_timeout = 0");
-    database.exec("BEGIN IMMEDIATE");
+    for (const statement of PROCESS_LOCK_STATEMENTS) database.exec(statement);
   } catch (error) {
     database.close();
     throw error;
@@ -44,6 +51,6 @@ export function isLockContention(error: unknown): boolean {
     typeof error === "object" &&
     error !== null &&
     "code" in error &&
-    (error.code === "SQLITE_BUSY" || error.code === "SQLITE_LOCKED")
+    (PROCESS_LOCK_CONTENTION_CODES as readonly unknown[]).includes(error.code)
   );
 }

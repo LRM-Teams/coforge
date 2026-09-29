@@ -1,0 +1,13 @@
+{
+  "default_feed": "https://releases.coforge.cn/",
+  "environments": [
+    {
+      "feed": "https://releases.coforge.cn",
+      "server": "https://coforge.cn"
+    },
+    {
+      "feed": "https://releases-staging.coforge.cn",
+      "server": "https://staging.coforge.cn"
+    }
+  ]
+}

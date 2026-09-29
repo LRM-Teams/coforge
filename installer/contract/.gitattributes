@@ -1,0 +1,3 @@
+# Contract files are compared byte for byte on every platform, so Git must never convert their
+# line endings (CRLF launcher bytes are carried only as JSON escapes).
+* -text

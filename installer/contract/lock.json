@@ -1,0 +1,16 @@
+{
+  "directory": "install_root",
+  "file": "machine-mutation-lock.sqlite",
+  "mode": "0600",
+  "engine": "sqlite",
+  "statements": [
+    "PRAGMA busy_timeout = 0",
+    "BEGIN IMMEDIATE"
+  ],
+  "contention_codes": [
+    "SQLITE_BUSY",
+    "SQLITE_LOCKED"
+  ],
+  "busy_error_code": "UPDATE_BUSY",
+  "held_for": "the whole install, upgrade, or repair transaction"
+}

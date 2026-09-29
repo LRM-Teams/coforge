@@ -1,0 +1,38 @@
+{
+  "schema_version": 2,
+  "version": "0.2.0",
+  "commit": "0123456789abcdef0123456789abcdef01234567",
+  "buildDate": "2026-09-29T00:00:00.000Z",
+  "platforms": {
+    "darwin-arm64": {
+      "computer": {
+        "binary": "coforge-computer",
+        "size": 71303168,
+        "checksum": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "gzip": {
+          "binary": "coforge-computer.gz",
+          "size": 23767722,
+          "checksum": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        }
+      }
+    },
+    "windows-x64": {
+      "computer": {
+        "binary": "coforge-computer",
+        "size": 125829120,
+        "checksum": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "gzip": {
+          "binary": "coforge-computer.gz",
+          "size": 41943040,
+          "checksum": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        }
+      }
+    }
+  },
+  "photonWasm": {
+    "file": "photon_rs_bg.wasm",
+    "size": 1843200,
+    "checksum": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+  },
+  "installer_protocol": 1
+}

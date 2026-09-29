@@ -1,0 +1,104 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "type": "number",
+      "const": 1
+    },
+    "version": {
+      "type": "string"
+    },
+    "commit": {
+      "type": "string"
+    },
+    "buildDate": {
+      "type": "string"
+    },
+    "installer_protocol": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    },
+    "platforms": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "installer": {
+            "type": "object",
+            "properties": {
+              "file": {
+                "type": "string",
+                "enum": [
+                  "coforge-installer",
+                  "coforge-installer.exe"
+                ]
+              },
+              "size": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "checksum": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              "gzip": {
+                "type": "object",
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "enum": [
+                      "coforge-installer.gz",
+                      "coforge-installer.exe.gz"
+                    ]
+                  },
+                  "size": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "checksum": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{64}$"
+                  }
+                },
+                "required": [
+                  "file",
+                  "size",
+                  "checksum"
+                ],
+                "additionalProperties": {}
+              }
+            },
+            "required": [
+              "file",
+              "size",
+              "checksum",
+              "gzip"
+            ],
+            "additionalProperties": {}
+          }
+        },
+        "required": [
+          "installer"
+        ],
+        "additionalProperties": {}
+      }
+    }
+  },
+  "required": [
+    "schema_version",
+    "version",
+    "commit",
+    "buildDate",
+    "installer_protocol",
+    "platforms"
+  ],
+  "additionalProperties": {},
+  "title": "coforge-installer release manifest"
+}
