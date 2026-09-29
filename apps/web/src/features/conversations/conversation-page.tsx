@@ -12,6 +12,7 @@ import { useMarkConversationSeen } from "./conversation-navigation";
 import type { ConversationPageTarget } from "./conversation-page-loader";
 import type { ConversationPageSearch } from "./conversation-page-search";
 import type { ConversationTab } from "./conversation-tabs";
+import type { DirectConversationView } from "./conversation-types";
 import { latestTopLevelSequence, persistReadCursor } from "./conversation-unread";
 import { markDirectConversationRead } from "./conversations.functions";
 import { DirectConversation, DirectConversationHeader } from "./direct-conversation";
@@ -80,8 +81,23 @@ function DirectConversationPage({
   conversationId,
   ...props
 }: ConversationPageProps & { conversationId: string }) {
-  const { page, taskView, conversationProps } = useDirectConversation(conversationId);
-  const { conversation } = page;
+  const data = useDirectConversation(conversationId);
+  const { conversation } = data.page;
+  // A DM between members has no page yet: its route answers not found before this renders.
+  if (conversation.kind !== "agent") return null;
+  return <AgentDirectConversationPage {...props} data={data} conversation={conversation} />;
+}
+
+function AgentDirectConversationPage({
+  data: { page, taskView, conversationProps },
+  conversation,
+  ...props
+}: ConversationPageProps & {
+  data: ReturnType<typeof useDirectConversation>;
+  /** The page's conversation, known to be with an Agent. */
+  conversation: DirectConversationView;
+}) {
+  const { conversationId } = conversation;
   // The sidebar keeps a DM's badge under its Agent.
   const agentId = conversation.agent.id;
   const agentStatus = useLiveAgent(agentId)?.status.value;
@@ -108,8 +124,9 @@ function DirectConversationPage({
       )}
       conversation={(chat) => (
         <DirectConversation
-          key={conversation.agent.id}
+          key={agentId}
           {...conversationProps}
+          conversation={conversation}
           {...chat}
           agentStatus={agentStatus}
         />

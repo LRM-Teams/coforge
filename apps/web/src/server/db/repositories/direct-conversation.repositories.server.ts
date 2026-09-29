@@ -1,5 +1,9 @@
 import { lockConversation } from "#src/server/conversations/conversation-lock.server";
-import { agentDirectKey } from "#src/features/conversations/direct-key";
+import {
+  agentDirectKey,
+  isPeopleDirectKey,
+  peopleDirectKeyPair,
+} from "#src/features/conversations/direct-key";
 import {
   UUID_LIKE_SOURCE,
   type MessageSenderKind,
@@ -40,9 +44,9 @@ import {
   type PendingMentionActionView,
 } from "#src/server/conversations/pending-mention-actions.server";
 import { unresolvedMentionHandles } from "#src/server/conversations/unresolved-mentions.server";
-import { toggleUserMessageReaction } from "#src/server/conversations/user-message-reactions.server";
 import {
   agentMessageSender,
+  browserSenderName,
   MESSAGE_SENDER_SELECT,
 } from "#src/server/conversations/sender-display.server";
 import { agentAvatarUrl } from "#src/server/agents/agent-avatar.server";
@@ -330,6 +334,9 @@ export type AgentMentionReport = {
   unresolvedMentionHandles: string[];
 };
 
+/** Which slice of a conversation's top-level history to read: before or after a sequence. */
+export type HistoryWindow = { beforeSequence?: number; afterSequence?: number; limit?: number };
+
 export type DirectConversationRepository = {
   userIdForUsername?(target: string): Promise<string>;
   getAgentChannel?(workspaceId: string, agentId: string, target: string): Promise<{ id: string }>;
@@ -492,13 +499,6 @@ export type DirectConversationRepository = {
       unread: number;
     }>
   >;
-  /** Advances the human member's DM read cursor; monotone and clamped like the channel one. */
-  markReadForUser?(
-    workspaceId: string,
-    userId: string,
-    agentId: string,
-    throughSequence: number,
-  ): Promise<void>;
   agentMentionReport?(
     workspaceId: string,
     agentId: string,
@@ -532,36 +532,20 @@ export type DirectConversationRepository = {
       // The sending Agent's identity, for delivery envelopes.
     } & Partial<LatestSenderFields>
   >;
-  openForUser?(
-    workspaceId: string,
-    userId: string,
-    agentId: string,
-    page?: { beforeSequence?: number; afterSequence?: number; limit?: number },
-  ): Promise<{
-    conversationId: string;
-    senderMemberId: string;
-    /** The viewer's conversation-level read cursor over top-level messages. */
-    readThroughSequence?: number;
-    threadReadThrough?: Record<string, number>;
-    agent: { id: string; name: string; displayName: string; deletedAt: Date | null };
-    /** Whether this viewer may still send here; see `PrismaDirectConversationRepository`. */
-    dmWritable: boolean;
-    hasOlder: boolean;
-    hasNewer?: boolean;
-    messages: Array<{
-      id: string;
-      sequence: number;
-      senderKind: "user" | "agent" | "system";
-      senderName: string;
-      senderAvatarUrl?: string | null;
-      body: string;
-      createdAt: Date;
-      threadRootId?: string;
-      /** Always present, possibly empty; order matches send/upload order. */
-      attachments: AttachmentMetadata[];
-    }>;
-  }>;
 };
+
+const PEER_PROFILE_SELECT = {
+  id: true,
+  username: true,
+  displayName: true,
+  avatarObjectKey: true,
+} satisfies Prisma.UserSelect;
+type PeerProfile = Prisma.UserGetPayload<{ select: typeof PEER_PROFILE_SELECT }>;
+
+/** A direct conversation with neither an Agent nor another person on the other side. */
+function unauthorizedScope(): never {
+  throw new Error("conversation scope is not authorized");
+}
 
 export const buildUserAgentConversationCreateInput = (
   workspaceId: string,
@@ -879,31 +863,6 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
     return { messageId: row.id };
   }
 
-  /**
-   * The browser's own emoji reaction in this user's DM with one Agent. Read-only
-   * conversation lookup: reacting must never start a DM as a side effect. Scope
-   * authorization stays with the caller (`DirectConversations.authorize`).
-   */
-  async setUserMessageReaction(
-    workspaceId: string,
-    userId: string,
-    agentId: string,
-    messageId: string,
-    emoji: string,
-    active: boolean,
-  ) {
-    const conversation = await this.findUserAgentConversation(workspaceId, userId, agentId);
-    if (!conversation) throw new AppError("NOT_FOUND");
-    return toggleUserMessageReaction(this.db, {
-      workspaceId,
-      conversationId: conversation.id,
-      userId,
-      messageId,
-      emoji,
-      active,
-    });
-  }
-
   private async advanceThreadRead(
     client: Prisma.TransactionClient | PrismaClient,
     memberId: string,
@@ -996,21 +955,60 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
     return this.preferences.preferencesForUser(workspaceId, userId);
   }
 
+  /** The viewer's DM with an Agent, started on first open, as `openConversationForUser` reads it. */
   async openForUser(
     workspaceId: string,
     userId: string,
     agentId: string,
-    page: { beforeSequence?: number; afterSequence?: number; limit?: number } = {},
+    page: HistoryWindow = {},
   ) {
     const conversation = await this.getOrCreateUserAgent(workspaceId, userId, agentId);
+    const opened = await this.openConversationForUser(workspaceId, userId, conversation.id, page);
+    if (opened.kind !== "agent") throw new Error("conversation scope is not authorized");
+    return opened;
+  }
+
+  /**
+   * The member on the other side of a DM between people, named by its key: the viewer in their
+   * conversation with themself, and still the same person after they left the Workspace (which
+   * removes their member row).
+   */
+  private async peerOf(
+    conversation: {
+      directKey: string | null;
+      members: { userId: string | null; user: PeerProfile | null }[];
+    },
+    viewerId: string,
+  ): Promise<PeerProfile | null> {
+    if (!conversation.directKey || !isPeopleDirectKey(conversation.directKey)) return null;
+    const [first, second] = peopleDirectKeyPair(conversation.directKey);
+    const peerId = first === viewerId ? second : first;
+    return (
+      conversation.members.find((member) => member.userId === peerId)?.user ??
+      this.db.user.findUnique({ where: { id: peerId }, select: PEER_PROFILE_SELECT })
+    );
+  }
+
+  /**
+   * A window of one of the viewer's direct conversations, by its id, and who is on the other side:
+   * an Agent, or a member (the viewer themself in their own). Whether the viewer may read it is
+   * `DirectConversations.authorize`'s to decide.
+   */
+  async openConversationForUser(
+    workspaceId: string,
+    userId: string,
+    conversationId: string,
+    page: HistoryWindow = {},
+  ) {
     const limit = Math.min(page.limit ?? 50, 100);
     // A forward fetch reads towards the live end, from the newest sequence the retained window
     // still holds; a backward fetch reads history upwards from its oldest. Neither is the initial
     // (uncursored) load, which lands on the newest page (see `lib/conversation-window.ts`).
     const forward = page.afterSequence !== undefined;
     const row = await this.db.conversation.findUnique({
-      where: { id: conversation.id },
+      where: { id: conversationId },
       select: {
+        directKey: true,
         members: {
           select: {
             id: true,
@@ -1068,9 +1066,9 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
       },
     });
     const sender = row?.members.find((member) => member.userId === userId);
-    const agentMember = row?.members.find((member) => member.agentId === agentId);
-    if (!row || !sender || !agentMember?.agent)
-      throw new Error("conversation scope is not authorized");
+    if (!row || !sender) throw new Error("conversation scope is not authorized");
+    const agent = row.members.find((member) => member.agent)?.agent;
+    const peer = agent ? undefined : await this.peerOf(row, userId);
     // Read by the viewer's own member row, not nested under every member: the Agent records a
     // boundary for every thread it drains, which this open never returns.
     const threadReads = await this.db.threadRead.findMany({
@@ -1090,7 +1088,7 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
       .flatMap((message) => [message, ...message.replies])
       .sort((left, right) => left.sequence - right.sequence);
     return {
-      conversationId: conversation.id,
+      conversationId,
       senderMemberId: sender.id,
       // The viewer's conversation-level read boundary: first unread = first top-level
       // message past this. Thread replies are positioned by their thread instead.
@@ -1098,23 +1096,38 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
       threadReadThrough: Object.fromEntries(
         threadReads.map((r) => [r.rootMessageId, r.readThroughSequence]),
       ),
-      // Never `agentMember.agent` wholesale: `ownerId`/`visibility` are read above only to
-      // compute `dmWritable` and must not reach the browser payload.
-      agent: {
-        id: agentMember.agent.id,
-        name: agentMember.agent.name,
-        displayName: agentMember.agent.displayName,
-        deletedAt: agentMember.agent.deletedAt,
-        avatarUrl: agentAvatarUrl(
-          workspaceId,
-          agentMember.agent.id,
-          agentMember.agent.avatarObjectKey,
-        ),
-      },
-      // Whether this viewer may still send here: a private Agent's DM stays scoped to
-      // its own creator, so an existing DM held by anyone else reads read-only once it goes
-      // private. Independent of `deletedAt`'s own read-only rule.
-      dmWritable: canDirectMessageAgent(userId, agentMember.agent),
+      ...(agent
+        ? {
+            kind: "agent" as const,
+            // Never the Agent row wholesale: `ownerId`/`visibility` are read above only to
+            // compute `dmWritable` and must not reach the browser payload.
+            agent: {
+              id: agent.id,
+              name: agent.name,
+              displayName: agent.displayName,
+              deletedAt: agent.deletedAt,
+              avatarUrl: agentAvatarUrl(workspaceId, agent.id, agent.avatarObjectKey),
+            },
+            // Whether this viewer may still send here: a private Agent's DM stays scoped to
+            // its own creator, so an existing DM held by anyone else reads read-only once it goes
+            // private. Independent of `deletedAt`'s own read-only rule.
+            dmWritable: canDirectMessageAgent(userId, agent),
+          }
+        : peer
+          ? {
+              kind: "people" as const,
+              peer: {
+                id: peer.id,
+                username: peer.username,
+                displayName: browserSenderName({ user: peer }),
+                avatarUrl: workspaceUserAvatarUrl(
+                  workspaceId,
+                  peer.id,
+                  peer.avatarObjectKey ?? null,
+                ),
+              },
+            }
+          : unauthorizedScope()),
       viewerHandle: sender.user?.username,
       // Who a mention here can be resolved to. A direct conversation has no candidate affinity to
       // rank (see `mentionAffinityScores`), so every member scores 0 and handle order is the whole
@@ -1160,16 +1173,11 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
     };
   }
 
-  async updatesForUser(
-    workspaceId: string,
-    userId: string,
-    agentId: string,
-    afterSequence: number,
-  ) {
-    const conversation = await this.getOrCreateUserAgent(workspaceId, userId, agentId);
+  /** What arrived in a direct conversation after `afterSequence`, threads included. */
+  async updatesSince(workspaceId: string, conversationId: string, afterSequence: number) {
     const messages = await this.db.message.findMany({
       where: {
-        conversationId: conversation.id,
+        conversationId,
         sequence: { gt: afterSequence },
       },
       orderBy: { sequence: "asc" },
@@ -1218,18 +1226,12 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
     return rows;
   }
 
-  async markReadForUser(
-    workspaceId: string,
-    userId: string,
-    agentId: string,
-    throughSequence: number,
-  ) {
+  async markReadForUser(userId: string, conversationId: string, throughSequence: number) {
     if (!Number.isSafeInteger(throughSequence) || throughSequence < 1)
       throw new AppError("INVALID_INPUT");
-    const conversation = await this.getOrCreateUserAgent(workspaceId, userId, agentId);
     await this.db.$transaction(async (tx) => {
       const latest = await tx.message.findFirst({
-        where: { conversationId: conversation.id },
+        where: { conversationId },
         orderBy: { sequence: "desc" },
         select: { sequence: true },
       });
@@ -1237,7 +1239,7 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
       if (boundary < 1) return;
       await tx.conversationMember.updateMany({
         where: {
-          conversationId: conversation.id,
+          conversationId,
           userId,
           readThroughSequence: { lt: boundary },
           leftAt: null,
@@ -1248,7 +1250,7 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
       // back on the next render (same rule as the channel side).
       await tx.conversationMember.updateMany({
         where: {
-          conversationId: conversation.id,
+          conversationId,
           userId,
           unreadFromSequence: { not: null, lte: boundary },
           leftAt: null,
@@ -1261,15 +1263,14 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
   async markThreadReadForUser(
     workspaceId: string,
     userId: string,
-    agentId: string,
+    conversationId: string,
     rootMessageId: string,
     throughSequence: number,
   ) {
-    const conversation = await this.getOrCreateUserAgent(workspaceId, userId, agentId);
-    const root = await this.resolveMessage(conversation.id, rootMessageId, true);
+    const root = await this.resolveMessage(conversationId, rootMessageId, true);
     const latest = await this.db.message.findFirst({
       where: {
-        conversationId: conversation.id,
+        conversationId,
         threadRootId: root.id,
         sequence: { lte: throughSequence },
       },
@@ -1278,13 +1279,13 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
     if (!latest) return;
     const member = await this.db.conversationMember.findUniqueOrThrow({
       where: {
-        conversationId_userId: { conversationId: conversation.id, userId },
+        conversationId_userId: { conversationId, userId },
       },
     });
     await this.advanceThreadRead(
       this.db,
       member.id,
-      conversation.id,
+      conversationId,
       workspaceId,
       root.id,
       latest.sequence,

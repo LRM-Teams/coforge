@@ -458,16 +458,9 @@ describe("PrismaDirectConversationRepository", () => {
         },
       },
     } as unknown as PrismaClient;
-    class TestConversationRepository extends PrismaDirectConversationRepository {
-      override async getOrCreateUserAgent() {
-        return { id: "conversation-1" };
-      }
-    }
-
-    const updates = await new TestConversationRepository(db).updatesForUser(
+    const updates = await new PrismaDirectConversationRepository(db).updatesSince(
       "workspace-1",
-      "user-1",
-      "agent-1",
+      "conversation-1",
       11,
     );
 
@@ -1777,12 +1770,6 @@ describe("PrismaDirectConversationRepository", () => {
   test("markRead clamps the boundary to the conversation end and stays monotone", async () => {
     const updated: { where: object; data: object }[] = [];
     const db = {
-      agent: {
-        findFirst: async () => ({ id: "agent-1" }),
-      },
-      conversation: {
-        findUnique: async () => ({ id: "conversation-1" }),
-      },
       $transaction: async (callback: (tx: object) => Promise<void>) =>
         callback({
           message: {
@@ -1798,9 +1785,8 @@ describe("PrismaDirectConversationRepository", () => {
 
     // An over-eager client is clamped to the conversation's current end.
     await new PrismaDirectConversationRepository(db).markReadForUser(
-      "workspace-1",
       "user-1",
-      "agent-1",
+      "conversation-1",
       10_000,
     );
     expect(updated).toEqual([
@@ -1829,12 +1815,6 @@ describe("PrismaDirectConversationRepository", () => {
     // An empty conversation refuses to move the cursor to a non-positive boundary.
     updated.length = 0;
     const emptyDb = {
-      agent: {
-        findFirst: async () => ({ id: "agent-1" }),
-      },
-      conversation: {
-        findUnique: async () => ({ id: "conversation-1" }),
-      },
       $transaction: async (callback: (tx: object) => Promise<void>) =>
         callback({
           message: {
@@ -1848,9 +1828,8 @@ describe("PrismaDirectConversationRepository", () => {
         }),
     } as unknown as PrismaClient;
     await new PrismaDirectConversationRepository(emptyDb).markReadForUser(
-      "workspace-1",
       "user-1",
-      "agent-1",
+      "conversation-1",
       5,
     );
     expect(updated).toEqual([]);

@@ -66,11 +66,11 @@ test("DM unread counts are keyed by the conversation's Agent member and survive 
 
     // markRead advances the cursor; a stale boundary cannot move it backwards, and an
     // over-eager one is clamped to the conversation's current end.
-    await conversations.markReadForUser(workspace.id, alice.id, agent.id, 10_000);
+    await conversations.markReadForUser(alice.id, conversation.id, 10_000);
     expect(await conversations.unreadCountsForUser(workspace.id, alice.id)).toEqual([
       { agentId: agent.id, unread: 0 },
     ]);
-    await conversations.markReadForUser(workspace.id, alice.id, agent.id, 1);
+    await conversations.markReadForUser(alice.id, conversation.id, 1);
     expect(await conversations.unreadCountsForUser(workspace.id, alice.id)).toEqual([
       { agentId: agent.id, unread: 0 },
     ]);
@@ -170,7 +170,7 @@ test("a DM marked unread below its read cursor counts from the marker until a re
 
     await agentMessage("one");
     await agentMessage("two");
-    await conversations.markReadForUser(workspace.id, alice.id, agent.id, 10_000);
+    await conversations.markReadForUser(alice.id, conversation.id, 10_000);
     expect(await conversations.unreadCountsForUser(workspace.id, alice.id)).toEqual([
       { agentId: agent.id, unread: 0 },
     ]);
@@ -186,7 +186,7 @@ test("a DM marked unread below its read cursor counts from the marker until a re
     ]);
 
     // Reading through the end clears the marker.
-    await conversations.markReadForUser(workspace.id, alice.id, agent.id, 10_000);
+    await conversations.markReadForUser(alice.id, conversation.id, 10_000);
     expect(await conversations.unreadCountsForUser(workspace.id, alice.id)).toEqual([
       { agentId: agent.id, unread: 0 },
     ]);

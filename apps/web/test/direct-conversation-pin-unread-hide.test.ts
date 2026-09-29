@@ -30,7 +30,7 @@ function fixture(options: { exists?: boolean } = {}) {
   }[] = [];
   const created: Record<string, unknown>[] = [];
   const db = {
-    // `getOrCreateUserAgent` (used by markReadForUser) resolves the Agent first.
+    // `getOrCreateUserAgent` resolves the Agent first.
     agent: { findFirst: async () => ({ id: AGENT_ID, ownerId: USER_ID, visibility: "public" }) },
     conversation: {
       // Both `findUserAgentConversation` and `getOrCreateUserAgent` begin here.
@@ -153,7 +153,7 @@ test("marking a DM unread anchors on its newest top-level message; clearing sets
 test("reading past the forced marker consumes it, on the DM path too", async () => {
   const { repository, member } = fixture();
   await repository.setUnreadForUser(WORKSPACE_ID, USER_ID, AGENT_ID, true);
-  await repository.markReadForUser(WORKSPACE_ID, USER_ID, AGENT_ID, 12);
+  await repository.markReadForUser(USER_ID, CONVERSATION_ID, 12);
   expect(member.unreadFromSequence).toBeNull();
   expect(member.readThroughSequence).toBe(12);
 });

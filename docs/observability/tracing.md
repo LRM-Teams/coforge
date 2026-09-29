@@ -1,7 +1,7 @@
 # OpenTelemetry Tracing
 
 Web/backend 为一次 `sendDirectConversationMessage` 创建 `message.send` 根 span，并包含
-`message.context` 和 `message.persist_and_publish` 子 span。仅记录 request ID 和 Agent ID，
+`message.persist_and_publish` 子 span（授权、存储与发布都在其中）。仅记录 request ID 和会话 ID，
 不记录消息正文、凭据、Cookie 或接入 Token。导出采用 OTLP/HTTP protobuf 的批量发送，导出失败
 不得阻塞消息发送。
 
