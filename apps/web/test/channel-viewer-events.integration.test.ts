@@ -296,18 +296,18 @@ test.skipIf(!connectionString)(
 );
 
 test.skipIf(!connectionString)(
-  "a write that leaves the member's place as it was announces nothing",
+  "a write that leaves the member's place as it was announces nothing (a close always stamps the time)",
   async () => {
     const { teardown, db, workspace, bob, team, channels, realtime, announced } = await setup();
     try {
       await channels.setUserMuted(workspace.id, bob.id, team.id, true);
-      await channels.setUserHidden(workspace.id, bob.id, team.id, true);
       await channels.setUserPinned(workspace.id, bob.id, team.id, true);
       announced.length = 0;
 
       await channels.setUserMuted(workspace.id, bob.id, team.id, true);
-      await channels.setUserHidden(workspace.id, bob.id, team.id, true);
       await channels.setUserPinned(workspace.id, bob.id, team.id, true);
+      // Not closed: bringing it back changes nothing.
+      await channels.setUserHidden(workspace.id, bob.id, team.id, false);
       await arrangeConversationPins(
         db,
         workspace.id,
@@ -370,6 +370,32 @@ test.skipIf(!connectionString)(
         if (value === undefined) delete process.env[name];
         else process.env[name] = value;
       await centrifugo.stop(true);
+      await teardown();
+    }
+  },
+);
+
+test.skipIf(!connectionString)(
+  "a closed channel brought back by someone else's message can be closed again",
+  async () => {
+    const { teardown, db, workspace, ada, bob, team, channels, announced, post } = await setup();
+    try {
+      await channels.setUserHidden(workspace.id, bob.id, team.id, true);
+      // Closed a minute ago; Ada's message after that brings the channel back into Bob's list.
+      await db.conversationMember.updateMany({
+        where: { conversationId: team.id, userId: bob.id },
+        data: { hiddenAt: new Date(Date.now() - 60_000) },
+      });
+      await post(ada.id);
+      expect((await channels.list(workspace.id, bob.id)).map((row) => row.id)).toContain(team.id);
+      announced.length = 0;
+
+      await channels.setUserHidden(workspace.id, bob.id, team.id, true);
+      expect((await channels.list(workspace.id, bob.id)).map((row) => row.id)).not.toContain(
+        team.id,
+      );
+      expect(announced.map(({ event }) => event.type)).toEqual(["channel.closed.v1"]);
+    } finally {
       await teardown();
     }
   },
