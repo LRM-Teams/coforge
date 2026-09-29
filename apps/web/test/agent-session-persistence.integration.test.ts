@@ -1,47 +1,66 @@
 import { expect, test } from "bun:test";
-import { Pool } from "pg";
+import { readdirSync } from "node:fs";
+import { Pool, type PoolClient } from "pg";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { Prisma, PrismaClient } from "#src/generated/prisma/client";
 import { AgentSessions } from "#src/server/agents/agent-sessions.server";
 import { PrismaAgentSessionRepository } from "#src/server/db/repositories/agent-session.repositories.server";
 
+/**
+ * Builds a scratch database from the committed migrations, in deploy order: every migration
+ * before the session backfill, then a legacy Agent row, then the backfill, then the rest. The
+ * Agent tables are therefore always the ones `prisma migrate deploy` creates, so a new column
+ * cannot leave this suite behind. Skipped unless `MIGRATION_TEST_DATABASE_URL` points at local
+ * PostgreSQL; its role needs CREATEDB, since each run creates and drops its own database.
+ */
 const connectionString = Bun.env.MIGRATION_TEST_DATABASE_URL;
+
+const migrationsDirectory = new URL("../prisma/migrations/", import.meta.url);
+const migrations = readdirSync(migrationsDirectory, { withFileTypes: true })
+  .filter((entry) => entry.isDirectory())
+  .map((entry) => entry.name)
+  .sort();
+const backfill = migrations.indexOf("20260908130000_backfill_agent_session_binding");
+
+async function applyMigrations(client: PoolClient, names: readonly string[]) {
+  for (const name of names) {
+    await client.query(
+      await Bun.file(new URL(`${name}/migration.sql`, migrationsDirectory)).text(),
+    );
+  }
+}
+
 test.skipIf(!connectionString)(
   "PostgreSQL session migration and fenced reference survive a new repository",
   async () => {
-    const pool = new Pool({ connectionString });
-    const schema = `session_${crypto.randomUUID().replaceAll("-", "")}`;
+    const admin = new Pool({ connectionString });
+    const database = `session_${crypto.randomUUID().replaceAll("-", "")}`;
+    await admin.query(`CREATE DATABASE "${database}"`);
+    const scratchUrl = new URL(connectionString!);
+    scratchUrl.pathname = `/${database}`;
+    const pool = new Pool({ connectionString: scratchUrl.href });
     const client = await pool.connect();
-    const db = new PrismaClient({ adapter: new PrismaPg({ connectionString }, { schema }) });
+    const db = new PrismaClient({ adapter: new PrismaPg({ connectionString: scratchUrl.href }) });
     try {
-      await client.query(`CREATE SCHEMA "${schema}"`);
-      await client.query(`SET search_path TO "${schema}"`);
-      await client.query(`CREATE TABLE agents (
-      id UUID PRIMARY KEY, "workspaceId" UUID NOT NULL, name TEXT NOT NULL,
-      "displayName" TEXT NOT NULL, description TEXT NOT NULL DEFAULT '', "createdAt" TIMESTAMP NOT NULL,
-      "ownerId" UUID NOT NULL, "computerId" UUID, "runtimeConfig" JSONB NOT NULL,
-      role TEXT NOT NULL DEFAULT 'member',
-      UNIQUE (id, "workspaceId"))`);
-      await client.query(
-        await Bun.file(
-          new URL(
-            "../prisma/migrations/20260908040000_agent_runtime_session/migration.sql",
-            import.meta.url,
-          ),
-        ).text(),
-      );
-      await client.query(
-        await Bun.file(
-          new URL(
-            "../prisma/migrations/20260908120000_agent_session_binding/migration.sql",
-            import.meta.url,
-          ),
-        ).text(),
-      );
+      expect(backfill).toBeGreaterThan(0);
+      await applyMigrations(client, migrations.slice(0, backfill));
       const legacyAgentId = crypto.randomUUID();
       const legacyWorkspaceId = crypto.randomUUID();
+      const legacyOwnerId = crypto.randomUUID();
       const reassignedComputerId = crypto.randomUUID();
       const storedComputerId = crypto.randomUUID();
+      // The parents the legacy Agent's foreign keys need, as those tables stood before the backfill.
+      await client.query(`INSERT INTO users (id, username) VALUES ($1, 'legacy-owner')`, [
+        legacyOwnerId,
+      ]);
+      await client.query(
+        `INSERT INTO workspaces (id, slug, name, "updatedAt") VALUES ($1, 'legacy', 'Legacy', NOW())`,
+        [legacyWorkspaceId],
+      );
+      await client.query(
+        `INSERT INTO computers (id, "ownerId", "machineId") VALUES ($1, $2, 'legacy-machine')`,
+        [reassignedComputerId, legacyOwnerId],
+      );
       await client.query(
         `INSERT INTO agents
           (id, "workspaceId", name, "displayName", "createdAt", "ownerId", "computerId", "runtimeConfig", "runtimeSession")
@@ -49,7 +68,7 @@ test.skipIf(!connectionString)(
         [
           legacyAgentId,
           legacyWorkspaceId,
-          crypto.randomUUID(),
+          legacyOwnerId,
           reassignedComputerId,
           { runtime: "pi" },
           {
@@ -62,14 +81,7 @@ test.skipIf(!connectionString)(
           },
         ],
       );
-      await client.query(
-        await Bun.file(
-          new URL(
-            "../prisma/migrations/20260908130000_backfill_agent_session_binding/migration.sql",
-            import.meta.url,
-          ),
-        ).text(),
-      );
+      await applyMigrations(client, [migrations[backfill]!]);
       const migrated = await client.query(
         `SELECT a."runtimeSession", s."computerId", s.provider, s."nativeSessionId"
          FROM agents a JOIN agent_sessions s ON s.id = a."currentSessionId"
@@ -89,15 +101,21 @@ test.skipIf(!connectionString)(
           nativeSessionId: "legacy-native",
         },
       ]);
-      const agentId = crypto.randomUUID(),
-        workspaceId = crypto.randomUUID(),
-        computerId = crypto.randomUUID();
+      await applyMigrations(client, migrations.slice(backfill + 1));
+      const owner = await db.user.create({ data: { username: "session-owner" } });
+      const { id: workspaceId } = await db.workspace.create({
+        data: { slug: "session", name: "Session" },
+      });
+      const { id: computerId } = await db.computer.create({
+        data: { ownerId: owner.id, machineId: "session-machine" },
+      });
+      const agentId = crypto.randomUUID();
       await db.agent.create({
         data: {
           id: agentId,
           workspaceId,
           computerId,
-          ownerId: crypto.randomUUID(),
+          ownerId: owner.id,
           name: "session-test",
           displayName: "Session",
           runtimeConfig: {
@@ -240,9 +258,10 @@ test.skipIf(!connectionString)(
       ).toBeUndefined();
     } finally {
       await db.$disconnect();
-      await client.query(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`);
       client.release();
       await pool.end();
+      await admin.query(`DROP DATABASE IF EXISTS "${database}" WITH (FORCE)`);
+      await admin.end();
     }
   },
 );
