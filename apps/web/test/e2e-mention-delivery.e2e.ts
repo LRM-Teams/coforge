@@ -286,7 +286,13 @@ function send(
   channelId: string,
   body: string,
 ) {
-  return channels.send({ workspaceId, userId, channelId, requestId: crypto.randomUUID(), body });
+  return channels.send({
+    workspaceId,
+    userId,
+    channelId,
+    idempotencyKey: crypto.randomUUID(),
+    body,
+  });
 }
 
 function agentRoot(workspaceId: string, agentId: string) {
