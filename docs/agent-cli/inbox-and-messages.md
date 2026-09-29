@@ -47,11 +47,13 @@ success: the CLI prints `Message commit confirmed … no message was replayed`
 once under the same key; if that replay fails while the draft still holds the
 key, the error is `Retryable: yes` and names the exact
 `message send --send-draft --expected-draft-key "<key>" --target "<target>"`
-command. Otherwise, or when reconciliation is unavailable, delivery stays
-unknown: `Draft saved: yes`, not retryable, do not resend. Each daemon request
-of a send has a 30-second deadline (Raft's pre-response deadline), and the CLI
-waits for the daemon's whole settlement plus a margin
-(`AGENT_SEND_LOCAL_DEADLINE_MS` in the SDK), so the verdict always arrives.
+command. When the draft belongs to another send, or cannot be read, the error
+is not retryable and `Draft saved: no`. When reconciliation is unavailable,
+it is `Draft saved: yes`, not retryable. In both, delivery stays unknown: do
+not resend. Each daemon request of a send has a 30-second deadline (Raft's
+pre-response deadline), and the CLI waits for the daemon's whole settlement
+plus a margin (`AGENT_SEND_LOCAL_DEADLINE_MS` in the SDK), so the verdict
+always arrives.
 
 `message send` accepts `--attachment-id <uuid>` (repeatable, up to ten per
 message; duplicate values collapse to one) to attach one or more attachments
