@@ -2,16 +2,16 @@ import { readdir } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { getLogger } from "@logtape/logtape";
-import { RFC_UUID_SOURCE } from "@lrm/coforge-sdk/internal";
 import { LaunchdJob, launchdJobs, type LaunchdJobPlatform } from "./launchd-job";
-import { runSchtasks } from "./windows-scheduled-task";
 import {
   computerUpgradeTaskName,
   type WindowsUpgradeTaskRunner,
 } from "./computer-upgrade-launcher";
 
-const UPGRADE_JOB_LABEL = new RegExp(`^cn\\.coforge\\.upgrade\\.(${RFC_UUID_SOURCE})$`, "i");
-const UPGRADE_RESULT_FILE = new RegExp(`^(${RFC_UUID_SOURCE})\\.result\\.json$`, "i");
+const UPGRADE_JOB_LABEL =
+  /^cn\.coforge\.upgrade\.([0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})$/i;
+const UPGRADE_RESULT_FILE =
+  /^([0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\.result\.json$/i;
 
 export type SweepLeftoverComputerUpgradeJobsOptions = {
   platform: NodeJS.Platform;
@@ -27,6 +27,8 @@ export type SweepLeftoverComputerUpgradeJobsOptions = {
   windowsTaskRunner?: WindowsUpgradeTaskRunner;
   /** Injectable listing of completed upgrade request IDs (Windows), for tests only. */
   listCompletedRequestIds?: () => Promise<string[]>;
+  /** Injectable listing of currently registered Windows upgrade task names, for tests only. */
+  listRegisteredUpgradeTaskNames?: () => Promise<Set<string>>;
 };
 
 /**
@@ -90,15 +92,24 @@ async function sweepDarwin(options: SweepLeftoverComputerUpgradeJobsOptions): Pr
 async function sweepWindows(options: SweepLeftoverComputerUpgradeJobsOptions): Promise<void> {
   const home = options.homeDirectory ?? homedir();
   const logger = getLogger(["coforge", "daemon", "supervisor"]);
-  const run = options.windowsTaskRunner ?? runSchtasks;
+  const run = options.windowsTaskRunner ?? defaultSchtasks;
   const requestIds =
     (await options.listCompletedRequestIds?.()) ??
     (await listCompletedUpgradeRequestIds(home, options.resultExists));
+  if (requestIds.length === 0) return;
+  // Result files accumulate across many local reloads; the Scheduled Task is often already gone.
+  // One Query + skip-missing avoids serial schtasks /Delete (each ~1s) blocking Coordinator
+  // startup past the ~10s local handshake budget. Darwin/Linux never enter this path.
+  const registered =
+    (await options.listRegisteredUpgradeTaskNames?.()) ??
+    (await listRegisteredWindowsUpgradeTaskNames());
   for (const requestId of requestIds) {
     const taskName = computerUpgradeTaskName(requestId);
+    if (!registered.has(taskName)) continue;
     try {
       const code = await run(["schtasks.exe", "/Delete", "/TN", taskName, "/F"]);
-      if (code !== 0) throw new Error(`schtasks /Delete exited ${code}`);
+      // Exit 1 commonly means the task disappeared between Query and Delete; treat as cleared.
+      if (code !== 0 && code !== 1) throw new Error(`schtasks /Delete exited ${code}`);
       logger.info("Removed a leftover Computer upgrade Scheduled Task", {
         event: "upgrade:leftover_job_removed",
         label: taskName,
@@ -111,6 +122,26 @@ async function sweepWindows(options: SweepLeftoverComputerUpgradeJobsOptions): P
       });
     }
   }
+}
+
+async function listRegisteredWindowsUpgradeTaskNames(): Promise<Set<string>> {
+  // /FO LIST /V is heavy; CSV TaskName column is enough to decide which Deletes are worth it.
+  const child = Bun.spawn(["schtasks.exe", "/Query", "/FO", "CSV", "/NH"], {
+    stdin: "ignore",
+    stdout: "pipe",
+    stderr: "ignore",
+  });
+  const text = await new Response(child.stdout).text();
+  await child.exited;
+  const names = new Set<string>();
+  for (const line of text.split(/\r?\n/)) {
+    // CSV: "\TaskName","Next Run Time","Status",...
+    const match = /^"(\\.?[^"]*)"/.exec(line.trim());
+    if (!match) continue;
+    const taskName = match[1]!.replace(/^\\/, "");
+    if (taskName.startsWith("CoForge Upgrade ")) names.add(taskName);
+  }
+  return names;
 }
 
 async function listCompletedUpgradeRequestIds(
@@ -134,4 +165,9 @@ async function listCompletedUpgradeRequestIds(
     ids.push(requestId);
   }
   return ids;
+}
+
+async function defaultSchtasks(command: string[]): Promise<number> {
+  const child = Bun.spawn(command, { stdin: "ignore", stdout: "ignore", stderr: "ignore" });
+  return await child.exited;
 }

@@ -82,7 +82,9 @@ export async function runMachineSupervisor(
           logger.info("Coordinator process started", { event: "coordinator:started" });
           // Best-effort: a leftover one-shot upgrade job never respawns, but it can still hold a
           // stale `launchctl list` entry and plist across restarts until this sweep clears it.
-          await sweepLeftoverComputerUpgradeJobs({
+          // Windows: do not await — accumulated upgrade-result files used to drive serial
+          // schtasks /Delete that exceeded the ~10s local handshake budget and failed upgrades.
+          const leftoverSweep = sweepLeftoverComputerUpgradeJobs({
             platform: process.platform,
             stateDirectory,
           }).catch((error) =>
@@ -91,6 +93,7 @@ export async function runMachineSupervisor(
               error_message: error instanceof Error ? error.message : String(error),
             }),
           );
+          if (process.platform !== "win32") await leftoverSweep;
           await runWithSupervisorLock(socketPath, stateDirectory, createBindings(stateDirectory));
         } finally {
           lock.release();

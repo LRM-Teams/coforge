@@ -29,6 +29,26 @@ async function windowsSupervisorLockOwnerAlive(ownerPath: string): Promise<boole
   }
 }
 
+/** Windows only: after schtasks /End, force the owner PID down and remove the lock marker.
+ * `/End` often returns success while the Coordinator keeps running, which otherwise burns the
+ * full 35s wait and fails the upgrade with "old supervisor did not confirm process-tree shutdown". */
+async function windowsForceClearSupervisorLockOwner(ownerPath: string): Promise<void> {
+  try {
+    const text = (await Bun.file(ownerPath).text()).trim();
+    const pid = Number(text);
+    if (Number.isInteger(pid) && pid > 0) {
+      try {
+        process.kill(pid, "SIGKILL");
+      } catch {
+        // already gone
+      }
+    }
+  } catch {
+    // unreadable owner — still remove the marker below
+  }
+  await rm(ownerPath, { force: true });
+}
+
 /**
  * What a person is told when the Computer supervisor could not be stopped for an upgrade.
  * `foregroundSupervised` is true only where CoForge has actually established that no user
@@ -264,11 +284,24 @@ export function createSupervisorUpgradeLifecycle(
       });
       const ownerPath = join(options.supervisorStatePath, "supervisor.lock", "owner");
       const deadline = Date.now() + 35_000;
+      // Windows: give schtasks /End a short grace, then SIGKILL the lock owner. Other platforms
+      // keep waiting for a clean owner removal as before.
+      const windowsForceAfter = process.platform === "win32" ? Date.now() + 3_000 : null;
       while (await Bun.file(ownerPath).exists()) {
-        // Windows: schtasks /End can kill the Coordinator without removing owner. Clear only a
-        // dead PID there; other platforms wait for a clean owner removal as before.
         if (process.platform === "win32" && !(await windowsSupervisorLockOwnerAlive(ownerPath))) {
           await rm(ownerPath, { force: true });
+          break;
+        }
+        if (windowsForceAfter !== null && Date.now() >= windowsForceAfter) {
+          logger.warn(
+            "Windows Coordinator still held supervisor.lock after schtasks /End; forcing",
+            {
+              event: "upgrade:coordinator_stop_forced",
+              label: coordinatorLabel,
+              operation: "stop",
+            },
+          );
+          await windowsForceClearSupervisorLockOwner(ownerPath);
           break;
         }
         if (Date.now() > deadline) {
