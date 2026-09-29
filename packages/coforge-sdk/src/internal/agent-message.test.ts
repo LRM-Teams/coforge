@@ -2,8 +2,11 @@ import { expect, test } from "bun:test";
 import {
   AGENT_MESSAGE_ACK_METHOD,
   AGENT_MESSAGE_METHOD,
+  AGENT_MESSAGE_REJECT_METHOD,
   decodeAgentMessageDeliveryAck,
+  decodeAgentMessageDeliveryRejection,
   encodeAgentMessageDeliveryAck,
+  encodeAgentMessageDeliveryRejection,
   decodeAgentMessageDelivery,
   decodeAgentMessageResponse,
   encodeAgentMessageDelivery,
@@ -260,6 +263,42 @@ test("round-trips all Agent delivery ACK identity and ordering fields", () => {
   } as const;
 
   expect(decodeAgentMessageDeliveryAck(encodeAgentMessageDeliveryAck(ack))).toMatchObject(ack);
+});
+
+test("round-trips an Agent delivery rejection with its delivery identity and reason", () => {
+  const rejection = {
+    protocolMajor: 1,
+    requestId: "request-a",
+    messageId: "message-a",
+    deliveryId: "delivery-a",
+    workspaceId: "workspace-a",
+    agentId: "agent-a",
+    sequence: 42,
+    reason: "no_process",
+    method: AGENT_MESSAGE_REJECT_METHOD,
+  } as const;
+
+  expect(
+    decodeAgentMessageDeliveryRejection(encodeAgentMessageDeliveryRejection(rejection)),
+  ).toEqual(rejection);
+});
+
+test("refuses an Agent delivery rejection with a reason outside the closed vocabulary", () => {
+  const rejection = {
+    protocolMajor: 1,
+    requestId: "request-a",
+    messageId: "message-a",
+    deliveryId: "delivery-a",
+    workspaceId: "workspace-a",
+    agentId: "agent-a",
+    sequence: 42,
+    reason: "busy" as "no_process",
+    method: AGENT_MESSAGE_REJECT_METHOD,
+  } as const;
+
+  expect(() => encodeAgentMessageDeliveryRejection(rejection)).toThrow(
+    "invalid agent delivery rejection",
+  );
 });
 
 test("round-trips daemon-local message attention summaries", () => {

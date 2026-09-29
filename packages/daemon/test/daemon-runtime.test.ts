@@ -3496,6 +3496,345 @@ describe("DaemonRuntime", () => {
     }
   });
 
+  test("rejects a delivery as no_process when the Agent has no process, no launch, and nothing to relaunch", async () => {
+    const credentials = new InMemoryDaemonCredentialStore();
+    await credentials.save(connection.workspaceId, connection.computerId, "token-a");
+    const acknowledgements: string[] = [];
+    const rejections: import("@lrm/coforge-sdk/internal").AgentMessageDeliveryRejection[] = [];
+    let launches = 0;
+    const runtime = new DaemonRuntime(
+      connection,
+      () => ({
+        provider: "pi",
+        createAgentSession: async () => {
+          launches++;
+          return sessionSpy();
+        },
+      }),
+      credentials,
+      {
+        create: () => ({
+          async start() {},
+          async ready() {},
+          sendAgentStatus() {},
+          async sendAgentDeliveryAck(ack) {
+            acknowledgements.push(ack.deliveryId);
+          },
+          async sendAgentDeliveryRejection(rejection) {
+            rejections.push(rejection);
+          },
+          async requestAgentApiKey() {
+            return `sk_agent_${"a".repeat(43)}`;
+          },
+          async revokeAgentApiKey() {},
+          async stop() {},
+        }),
+      },
+    );
+
+    try {
+      await runtime.start(connection);
+      await runtime.handleAgentMessage({
+        protocolMajor: 1,
+        requestId: "message-request-4",
+        messageId: "message-4",
+        deliveryId: "delivery-4",
+        sequence: 4,
+        workspaceId: connection.workspaceId,
+        conversationId: "conversation-1",
+        agentId: "agent-a",
+        body: "nobody is running",
+        method: "agent:v1:message:deliver",
+        target: "@agent",
+      });
+
+      expect(rejections).toEqual([
+        {
+          protocolMajor: 1,
+          requestId: "message-request-4",
+          messageId: "message-4",
+          deliveryId: "delivery-4",
+          workspaceId: connection.workspaceId,
+          agentId: "agent-a",
+          sequence: 4,
+          reason: "no_process",
+          method: "agent:v1:message:reject",
+        },
+      ]);
+      expect(acknowledgements).toEqual([]);
+      expect(launches).toBe(0);
+    } finally {
+      await runtime.stop();
+    }
+  });
+
+  test("rejects the deliveries a lifted runner hold left queued for an Agent with no process", async () => {
+    const credentials = new InMemoryDaemonCredentialStore();
+    await credentials.save(connection.workspaceId, connection.computerId, "token-a");
+    const acknowledgements: string[] = [];
+    const rejections: string[] = [];
+    const runtime = new DaemonRuntime(
+      connection,
+      () => ({ provider: "pi", createAgentSession: async () => sessionSpy() }),
+      credentials,
+      {
+        create: () => ({
+          async start() {},
+          async ready() {},
+          sendAgentStatus() {},
+          async sendAgentDeliveryAck(ack) {
+            acknowledgements.push(ack.deliveryId);
+          },
+          async sendAgentDeliveryRejection(rejection) {
+            rejections.push(rejection.deliveryId);
+          },
+          async requestAgentApiKey() {
+            return `sk_agent_${"a".repeat(43)}`;
+          },
+          async revokeAgentApiKey() {},
+          async stop() {},
+        }),
+      },
+    );
+    const deliver = (sequence: number) =>
+      runtime.handleAgentMessage({
+        protocolMajor: 1,
+        requestId: `message-request-${sequence}`,
+        messageId: `message-${sequence}`,
+        deliveryId: `delivery-${sequence}`,
+        sequence,
+        workspaceId: connection.workspaceId,
+        conversationId: "conversation-1",
+        agentId: "agent-a",
+        body: "nobody is running",
+        method: "agent:v1:message:deliver",
+        target: "@agent",
+      });
+
+    try {
+      await runtime.start(connection);
+      runtime.holdRunners("upgrade");
+      await deliver(5);
+      runtime.releaseRunners();
+      await deliver(6);
+
+      expect(rejections).toEqual(["delivery-5", "delivery-6"]);
+      expect(acknowledgements).toEqual([]);
+    } finally {
+      await runtime.stop();
+    }
+  });
+
+  /** A runtime whose Agent has never launched here, started only through a server Start whose
+   * first `failures` launch attempts fail. */
+  async function pendingStartHarness(failures: number) {
+    const stateDirectory = join(tempRoot, `coforge-start-buffer-${crypto.randomUUID()}`);
+    const credentials = new InMemoryDaemonCredentialStore();
+    await credentials.save(connection.workspaceId, connection.computerId, "token-a");
+    const acknowledgements: string[] = [];
+    const rejections: string[] = [];
+    const notices: string[] = [];
+    let acknowledged: () => void = () => {};
+    const firstAck = new Promise<void>((resolve) => (acknowledged = resolve));
+    let launches = 0;
+    const runtime = new DaemonRuntime(
+      connection,
+      () => ({
+        provider: "pi",
+        async createAgentSession() {
+          launches++;
+          if (launches <= failures) throw new Error("spawn failed");
+          return {
+            ...sessionSpy(),
+            notify: async (notice) => {
+              notices.push(notice);
+            },
+            readSessionIdentity: async () => ({ sessionId: "session-a", state: "empty" }),
+          };
+        },
+      }),
+      credentials,
+      {
+        create: () => ({
+          async start() {},
+          async ready() {},
+          async stop() {},
+          sendAgentStatus() {},
+          async requestAgentLaunchConfig() {
+            return agentLaunchConfig(`sk_agent_${"a".repeat(43)}`);
+          },
+          async revokeAgentApiKey() {},
+          async sendAgentControlResult() {},
+          async reportAgentSession() {},
+          async sendAgentDeliveryAck(ack) {
+            acknowledgements.push(ack.deliveryId);
+            acknowledged();
+          },
+          async sendAgentDeliveryRejection(rejection) {
+            rejections.push(rejection.deliveryId);
+          },
+        }),
+      },
+      undefined,
+      emptyCodeAgentDiscovery,
+      stateDirectory,
+    );
+    await runtime.start(connection);
+    const start = {
+      protocolMajor: 1,
+      requestId: "server-start",
+      workspaceId: connection.workspaceId,
+      computerId: connection.computerId,
+      agentId: "agent-a",
+      ...config,
+      controlEpoch: 1,
+      launchId: "launch-1",
+    };
+    return {
+      runtime,
+      acknowledgements,
+      rejections,
+      notices,
+      firstAck,
+      start: () => runtime.handleAgentStart(start),
+      stop: () =>
+        runtime.handleAgentStop({
+          protocolMajor: 1,
+          requestId: "server-stop",
+          workspaceId: connection.workspaceId,
+          computerId: connection.computerId,
+          agentId: "agent-a",
+          provider: config.provider,
+          controlEpoch: 2,
+        }),
+      deliver: (sequence: number) =>
+        runtime.handleAgentMessage({
+          protocolMajor: 1,
+          requestId: `message-request-${sequence}`,
+          messageId: `message-${sequence}`,
+          deliveryId: `delivery-${sequence}`,
+          sequence,
+          workspaceId: connection.workspaceId,
+          conversationId: "conversation-1",
+          agentId: "agent-a",
+          body: "while starting",
+          method: "agent:v1:message:deliver",
+          target: "@agent",
+        }),
+    };
+  }
+
+  test("holds a delivery that arrives while a server Start is being set up, unacknowledged, and presents it once the Agent launches", async () => {
+    const h = await pendingStartHarness(0);
+    try {
+      const starting = h.start();
+      await h.deliver(7);
+      expect(h.rejections).toEqual([]);
+      expect(h.acknowledgements).toEqual([]);
+
+      await starting;
+      await h.firstAck;
+
+      expect(h.acknowledgements).toEqual(["delivery-7"]);
+      expect(h.notices.some((notice) => notice.includes("@agent"))).toBe(true);
+      expect(h.rejections).toEqual([]);
+    } finally {
+      await h.runtime.stop();
+    }
+  });
+
+  test("holds a delivery that arrives during a server Start's launch-retry cooldown until the retry launches", async () => {
+    const h = await pendingStartHarness(1);
+    try {
+      await h.start().catch(() => {});
+      await h.deliver(8);
+      expect(h.rejections).toEqual([]);
+      expect(h.acknowledgements).toEqual([]);
+
+      // The first retry fires after the real one-second cooldown.
+      await h.firstAck;
+
+      expect(h.acknowledgements).toEqual(["delivery-8"]);
+      expect(h.rejections).toEqual([]);
+    } finally {
+      await h.runtime.stop();
+    }
+  });
+
+  test("drops, unacknowledged and unrejected, what a server Start held when it ends without a launch", async () => {
+    const h = await pendingStartHarness(Number.POSITIVE_INFINITY);
+    try {
+      await h.start().catch(() => {});
+      await h.deliver(9);
+
+      await h.stop();
+
+      expect(h.acknowledgements).toEqual([]);
+      expect(h.rejections).toEqual([]);
+      await h.deliver(10);
+      expect(h.rejections).toEqual(["delivery-10"]);
+    } finally {
+      await h.runtime.stop();
+    }
+  });
+
+  test("acknowledges, rather than rejects, a message an Agent with no process has already seen", async () => {
+    new AgentConsumedSeqStore().write("agent-a", {
+      targets: { "@agent": { seq: 3 } },
+      aliases: {},
+      nextReadOrder: 1,
+    });
+    const credentials = new InMemoryDaemonCredentialStore();
+    await credentials.save(connection.workspaceId, connection.computerId, "token-a");
+    const acknowledgements: string[] = [];
+    const rejections: string[] = [];
+    const runtime = new DaemonRuntime(
+      connection,
+      () => ({ provider: "pi", createAgentSession: async () => sessionSpy() }),
+      credentials,
+      {
+        create: () => ({
+          async start() {},
+          async ready() {},
+          sendAgentStatus() {},
+          async sendAgentDeliveryAck(ack) {
+            acknowledgements.push(ack.deliveryId);
+          },
+          async sendAgentDeliveryRejection(rejection) {
+            rejections.push(rejection.deliveryId);
+          },
+          async requestAgentApiKey() {
+            return `sk_agent_${"a".repeat(43)}`;
+          },
+          async revokeAgentApiKey() {},
+          async stop() {},
+        }),
+      },
+    );
+
+    try {
+      await runtime.start(connection);
+      await runtime.handleAgentMessage({
+        protocolMajor: 1,
+        requestId: "message-request-3",
+        messageId: "message-3",
+        deliveryId: "delivery-3",
+        sequence: 3,
+        workspaceId: connection.workspaceId,
+        conversationId: "conversation-1",
+        agentId: "agent-a",
+        body: "already reviewed",
+        method: "agent:v1:message:deliver",
+        target: "@agent",
+      });
+
+      expect(acknowledgements).toEqual(["delivery-3"]);
+      expect(rejections).toEqual([]);
+    } finally {
+      await runtime.stop();
+    }
+  });
+
   test("another Agent's channel chatter that does not mention an exited Agent wakes it like a person's", async () => {
     const credentials = new InMemoryDaemonCredentialStore();
     await credentials.save(connection.workspaceId, connection.computerId, "token-a");

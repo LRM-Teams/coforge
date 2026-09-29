@@ -29,6 +29,10 @@ export const AGENT_INBOX_PURGE_MESSAGE_TYPE = "coforge.rpc.v1.AgentInboxPurge" a
 /** Why an Agent lost read access to channels. */
 export const AGENT_INBOX_PURGE_REASONS = ["member_removed", "left", "visibility_private"] as const;
 export type AgentInboxPurgeReason = (typeof AGENT_INBOX_PURGE_REASONS)[number];
+/** Why a daemon rejected a delivery instead of taking custody of it. */
+export const AGENT_MESSAGE_DELIVERY_REJECTION_REASONS = ["no_process"] as const;
+export type AgentDeliveryRejectionReason =
+  (typeof AGENT_MESSAGE_DELIVERY_REJECTION_REASONS)[number];
 export const USAGE_SCAN_MESSAGE_TYPE = "coforge.rpc.v1.DaemonRuntimeUsageScanRequest" as const;
 export const USAGE_SCAN_RESPONSE_MESSAGE_TYPE =
   "coforge.rpc.v1.DaemonRuntimeUsageScanResponse" as const;
@@ -56,6 +60,7 @@ export type DaemonRuntimeMessageType =
   | typeof AGENT_CONTEXT_SCAN_RESPONSE_MESSAGE_TYPE;
 export const AGENT_MESSAGE_METHOD = RPC_METHODS.agentMessage;
 export const AGENT_MESSAGE_ACK_METHOD = RPC_METHODS.agentMessageAck;
+export const AGENT_MESSAGE_REJECT_METHOD = RPC_METHODS.agentMessageReject;
 export const AGENT_CHANNEL_MUTE_METHOD = RPC_METHODS.agentChannelMute;
 export const AGENT_CHANNEL_UNMUTE_METHOD = RPC_METHODS.agentChannelUnmute;
 export const AGENT_THREAD_UNFOLLOW_METHOD = RPC_METHODS.agentThreadUnfollow;
@@ -697,6 +702,11 @@ export type AgentMessageDeliveryAck = Omit<
   AgentMessageDelivery,
   "body" | "conversationId" | "method" | "requestId"
 > & { method: typeof AGENT_MESSAGE_ACK_METHOD; requestId: string };
+/** Versioned daemon-to-server rejection of a delivery: never an ACK, so the delivery stays unread. */
+export type AgentMessageDeliveryRejection = Omit<AgentMessageDeliveryAck, "method"> & {
+  method: typeof AGENT_MESSAGE_REJECT_METHOD;
+  reason: AgentDeliveryRejectionReason;
+};
 export { parseActivityEntries } from "./activity-entries";
 export {
   HELD_CONTEXT_LIMIT,

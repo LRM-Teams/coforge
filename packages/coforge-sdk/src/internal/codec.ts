@@ -48,6 +48,7 @@ import {
   AgentActivitySchema,
   AgentStatusSchema,
   AgentMessageDeliveryAckSchema,
+  AgentMessageDeliveryRejectionSchema,
 } from "#src/internal/gen/coforge/rpc/v1/workspace_pb";
 import type {
   AgentSessionReport,
@@ -63,6 +64,7 @@ import type {
   AgentActivity,
   AgentStatus,
   AgentMessageDeliveryAck,
+  AgentMessageDeliveryRejection,
   AgentMessageRequest,
 } from "./index";
 import {
@@ -71,6 +73,7 @@ import {
   AGENT_ACTIVITY_PROBE_MESSAGE_TYPE,
   AGENT_INBOX_PURGE_MESSAGE_TYPE,
   AGENT_INBOX_PURGE_REASONS,
+  AGENT_MESSAGE_DELIVERY_REJECTION_REASONS,
   USAGE_SCAN_MESSAGE_TYPE,
   USAGE_SCAN_RESPONSE_MESSAGE_TYPE,
   MODEL_REFRESH_MESSAGE_TYPE,
@@ -78,7 +81,11 @@ import {
   AGENT_CONTEXT_SCAN_MESSAGE_TYPE,
   AGENT_CONTEXT_SCAN_RESPONSE_MESSAGE_TYPE,
 } from "./index";
-import { AGENT_MESSAGE_METHOD, AGENT_MESSAGE_ACK_METHOD } from "./index";
+import {
+  AGENT_MESSAGE_METHOD,
+  AGENT_MESSAGE_ACK_METHOD,
+  AGENT_MESSAGE_REJECT_METHOD,
+} from "./index";
 import { isSeenExactSeqs } from "./freshness-decision";
 import type {
   RuntimeMetadata,
@@ -1071,23 +1078,78 @@ export function encodeAgentMessageDeliveryAck(value: AgentMessageDeliveryAck): U
     create(AgentMessageDeliveryAckSchema, { ...value, sequence: BigInt(value.sequence) }),
   );
 }
+/** The delivery identity an ACK and a rejection both carry; every field is required. */
+function hasDeliveryIdentity(value: {
+  requestId: string;
+  deliveryId: string;
+  messageId: string;
+  workspaceId: string;
+  agentId: string;
+  sequence: unknown;
+}): boolean {
+  return Boolean(
+    value.requestId &&
+    value.deliveryId &&
+    value.messageId &&
+    value.workspaceId &&
+    value.agentId &&
+    value.sequence,
+  );
+}
 export function decodeAgentMessageDeliveryAck(bytes: Uint8Array): AgentMessageDeliveryAck {
   const v = fromBinary(AgentMessageDeliveryAckSchema, bytes);
-  if (
-    v.method !== AGENT_MESSAGE_ACK_METHOD ||
-    !v.requestId ||
-    !v.deliveryId ||
-    !v.messageId ||
-    !v.workspaceId ||
-    !v.agentId ||
-    !v.sequence
-  )
+  if (v.method !== AGENT_MESSAGE_ACK_METHOD || !hasDeliveryIdentity(v))
     throw new Error("invalid agent delivery ack");
   return {
     ...v,
     sequence: safeUint64(v.sequence, "Agent delivery ACK sequence"),
     method: AGENT_MESSAGE_ACK_METHOD,
   };
+}
+function validateAgentMessageDeliveryRejection(
+  value: Omit<AgentMessageDeliveryRejection, "method" | "reason"> & {
+    method: string;
+    reason: string;
+  },
+): AgentMessageDeliveryRejection {
+  const reason = AGENT_MESSAGE_DELIVERY_REJECTION_REASONS.find(
+    (candidate) => candidate === value.reason,
+  );
+  if (value.method !== AGENT_MESSAGE_REJECT_METHOD || !reason || !hasDeliveryIdentity(value))
+    throw new Error("invalid agent delivery rejection");
+  return {
+    protocolMajor: value.protocolMajor,
+    requestId: value.requestId,
+    deliveryId: value.deliveryId,
+    messageId: value.messageId,
+    workspaceId: value.workspaceId,
+    agentId: value.agentId,
+    sequence: value.sequence,
+    reason,
+    method: AGENT_MESSAGE_REJECT_METHOD,
+  };
+}
+export function encodeAgentMessageDeliveryRejection(
+  value: AgentMessageDeliveryRejection,
+): Uint8Array {
+  assertUint(value.sequence, Number.MAX_SAFE_INTEGER, "Agent delivery rejection sequence");
+  const rejection = validateAgentMessageDeliveryRejection(value);
+  return toBinary(
+    AgentMessageDeliveryRejectionSchema,
+    create(AgentMessageDeliveryRejectionSchema, {
+      ...rejection,
+      sequence: BigInt(rejection.sequence),
+    }),
+  );
+}
+export function decodeAgentMessageDeliveryRejection(
+  bytes: Uint8Array,
+): AgentMessageDeliveryRejection {
+  const v = fromBinary(AgentMessageDeliveryRejectionSchema, bytes);
+  return validateAgentMessageDeliveryRejection({
+    ...v,
+    sequence: safeUint64(v.sequence, "Agent delivery rejection sequence"),
+  });
 }
 export function encodeAgentActivity(value: AgentActivity): Uint8Array {
   validateAgentActivity(value);

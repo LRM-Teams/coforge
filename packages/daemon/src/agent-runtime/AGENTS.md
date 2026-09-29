@@ -35,6 +35,10 @@ Rules for Agent lifecycle, control, Session state, and Activity in
   plus their control completion. It does not deliver Session input.
 - A managed Start launches under the server-supplied `launchId`, never a
   locally minted one.
+- `startPending(agentId)` is true from the synchronous `start` call until the
+  Start launches, runs out of attempts, or is ended by a Stop or newer
+  operation, launch-retry cooldowns included; `Runtime.startSettled` fires once
+  when it turns false.
 - A Start that meets an already running process under an older, terminal
   operation rebinds it through the injected `Runtime.rebind(intent, launchId)`
   hook: no second process and no new launch config. A running process without

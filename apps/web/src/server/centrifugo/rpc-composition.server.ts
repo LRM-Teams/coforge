@@ -59,7 +59,12 @@ import {
   PrismaAgentRepository,
   RepositoryAgentAuthorization,
 } from "#src/server/db/repositories/agent.repositories.server";
-import { createAgentStartMethod, createAgentDeliveryAckMethod } from "./rpc-handler.server";
+import {
+  createAgentStartMethod,
+  createAgentDeliveryAckMethod,
+  createAgentDeliveryRejectMethod,
+} from "./rpc-handler.server";
+import { AgentDeliveryRejections } from "#src/server/agents/agent-delivery-rejection.server";
 import {
   PublishAgentRuntimeControl,
   WorkspaceAgentRecovery,
@@ -69,7 +74,11 @@ import { AgentControl } from "#src/server/agents/agent-control.server";
 import { getAgentControlSignal } from "#src/server/agents/agent-control-signal.server";
 import { PrismaAgentControlStore } from "#src/server/db/repositories/agent-control.repositories.server";
 import { createCentrifugoServerApi } from "./server-api.server";
-import { AGENT_START_METHOD, AGENT_MESSAGE_ACK_METHOD } from "@lrm/coforge-sdk/internal";
+import {
+  AGENT_START_METHOD,
+  AGENT_MESSAGE_ACK_METHOD,
+  AGENT_MESSAGE_REJECT_METHOD,
+} from "@lrm/coforge-sdk/internal";
 import { PrismaDirectConversationRepository } from "#src/server/db/repositories/direct-conversation.repositories.server";
 import { verifyDaemonApiKey } from "#src/server/auth/daemon-api-key.server";
 import {
@@ -321,6 +330,14 @@ export function createCentrifugoRpcHandler(db: PrismaClient | null = getDatabase
         [AGENT_MESSAGE_ACK_METHOD]: createAgentDeliveryAckMethod(
           new PrismaDirectConversationRepository(db),
         ),
+        [AGENT_MESSAGE_REJECT_METHOD]: createAgentDeliveryRejectMethod(
+          new AgentDeliveryRejections(
+            controlStore,
+            directConversations,
+            getAgentRuntimeLock(),
+            control,
+          ),
+        ),
       },
       authenticateEnvelope: (request, context) =>
         requireAuthenticatedCentrifugoUser(request, context, new PrismaDaemonApiKeyRepository(db)),
@@ -348,6 +365,7 @@ export function createCentrifugoRpcHandler(db: PrismaClient | null = getDatabase
       [AGENT_START_METHOD]: unavailableMethod,
       [AGENT_STATUS_METHOD]: unavailableMethod,
       [AGENT_MESSAGE_ACK_METHOD]: unavailableMethod,
+      [AGENT_MESSAGE_REJECT_METHOD]: unavailableMethod,
       ...reminderCallbackMethods(unavailableMethod, unavailableMethod),
     },
     authenticateEnvelope: (request, context) =>

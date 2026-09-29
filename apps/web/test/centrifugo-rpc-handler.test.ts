@@ -3,6 +3,7 @@ import {
   CentrifugoRpcAuthenticationError,
   CentrifugoRpcHandler,
   createAgentDeliveryAckMethod,
+  createAgentDeliveryRejectMethod,
   createAgentStatusMethod,
   createDaemonRuntimeCodeAgentsUpdateMethod,
   createDaemonRuntimeReadyMethod,
@@ -13,9 +14,11 @@ import {
   type CentrifugoRpcMethod,
 } from "#src/server/centrifugo/rpc-handler.server";
 import { createCentrifugoRpcHandler } from "#src/server/centrifugo/rpc-composition.server";
+import { AgentDeliveryRejectionScopeError } from "#src/server/agents/agent-delivery-rejection.server";
 import { AgentMessageValidationError } from "#src/server/conversations/agent-message-validation-error.server";
 import {
   encodeAgentMessageDeliveryAck,
+  encodeAgentMessageDeliveryRejection,
   encodeAgentStatus,
   encodeDaemonRuntimeCodeAgentsUpdateRequest,
   encodeDaemonRuntimeProviderModelRefreshResponse,
@@ -227,6 +230,48 @@ describe("CentrifugoRpcHandler", () => {
       const response = await handler.handleRequest(json({ method: "read", b64data: "AA==" }));
       expect(await response.json()).toEqual({ error: expected });
     }
+  });
+
+  test("hands a delivery rejection to the Agent wake with the authenticated Computer's scope", async () => {
+    const received: { scope: unknown; deliveryId: string }[] = [];
+    const method = createAgentDeliveryRejectMethod({
+      async receive(scope, rejection) {
+        if (scope.computerId !== "computer-1") throw new AgentDeliveryRejectionScopeError();
+        if (rejection.agentId === "agent-broken") throw new Error("database unavailable");
+        received.push({ scope, deliveryId: rejection.deliveryId });
+        return "woken";
+      },
+    });
+    const payload = (agentId = "agent-1") =>
+      encodeAgentMessageDeliveryRejection({
+        protocolMajor: 1,
+        method: "agent:v1:message:reject",
+        requestId: "request-1",
+        workspaceId: "workspace-1",
+        agentId,
+        deliveryId: "delivery-1",
+        messageId: "message-1",
+        sequence: 1,
+        reason: "no_process",
+      });
+
+    expect(await method(payload(), { principal: principal("agent-1") })).toEqual({
+      code: 403,
+      message: "daemon authentication required",
+    });
+    expect(
+      await method(payload(), { principal: { ...principal(), workspaceId: "workspace-2" } }),
+    ).toEqual({ code: 403, message: "delivery rejection is not authorized" });
+    expect(
+      await method(payload(), { principal: { ...principal(), computerId: "computer-2" } }),
+    ).toEqual({ code: 403, message: "delivery rejection is not authorized" });
+    await expect(
+      Promise.resolve(method(payload("agent-broken"), { principal: principal() })),
+    ).rejects.toThrow("database unavailable");
+    expect(await method(payload(), { principal: principal() })).toBeInstanceOf(Uint8Array);
+    expect(received).toEqual([
+      { scope: { workspaceId: "workspace-1", computerId: "computer-1" }, deliveryId: "delivery-1" },
+    ]);
   });
 
   test("authorizes delivery ACKs against the authenticated Computer", async () => {

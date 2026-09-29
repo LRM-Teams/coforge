@@ -15,6 +15,7 @@ import type { AgentSendDecisionResponse } from "@lrm/coforge-sdk/agent";
 import { AgentUpstreamRefusalError } from "#src/connection/agent-upstream-refusal-error";
 import {
   AGENT_MESSAGE_ACK_METHOD,
+  AGENT_MESSAGE_REJECT_METHOD,
   AGENT_STATUS_METHOD,
   AGENT_SESSION_INVALIDATE_METHOD,
   AGENT_CONTEXT_USAGE_METHOD,
@@ -24,6 +25,7 @@ import {
   decodeAgentContextUsage,
   decodeAgentStatus,
   decodeAgentMessageDeliveryAck,
+  decodeAgentMessageDeliveryRejection,
   decodeDaemonRuntimeReadyRequest,
   encodeAgentContextScanRequest,
   decodeAgentContextScanResponse,
@@ -126,6 +128,34 @@ test("sends delivery ACK through the RPC method, not a publication", async () =>
     AGENT_MESSAGE_ACK_METHOD,
   ]);
   expect(decodeAgentMessageDeliveryAck(calls[1]!.data)).toMatchObject(ack);
+});
+
+test("sends a delivery rejection through its own RPC method, never as an ACK", async () => {
+  const fake = fakeClient();
+  const calls: { method: string; data: Uint8Array }[] = [];
+  fake.client.rpc = async (method, data) => {
+    calls.push({ method, data });
+    return new Uint8Array();
+  };
+  const transport = new DaemonConnection("wss://cloud.example", () => fake.client);
+  await transport.start("secret", config);
+  const rejection = {
+    protocolMajor: 1,
+    requestId: "request-1",
+    messageId: "message-1",
+    deliveryId: "delivery-1",
+    sequence: 1,
+    workspaceId: config.workspaceId,
+    agentId: "agent-1",
+    reason: "no_process",
+    method: AGENT_MESSAGE_REJECT_METHOD,
+  } as const;
+  await transport.sendAgentDeliveryRejection(rejection);
+  expect(calls.map(({ method }) => method)).toEqual([
+    "daemon:v1:connection:status",
+    AGENT_MESSAGE_REJECT_METHOD,
+  ]);
+  expect(decodeAgentMessageDeliveryRejection(calls[1]!.data)).toEqual(rejection);
 });
 
 test("sends the Daemon API key as Connect Proxy data instead of a JWT token", async () => {

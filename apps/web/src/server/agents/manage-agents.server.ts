@@ -266,7 +266,7 @@ function publicAgent(agent: AgentRecord): AgentRecord {
 
 /** A stop intent for the Agent's current Computer, or an explicit one while it moves. */
 export function agentStopIntent(
-  agent: AgentRecord,
+  agent: Pick<AgentRecord, "id" | "workspaceId" | "computerId">,
   computerId = agent.computerId!,
 ): AgentStopIntent {
   return {
@@ -278,7 +278,10 @@ export function agentStopIntent(
   };
 }
 
-export function agentStartIntent(agent: AgentRecord, computerId?: string): AgentStartIntent {
+export function agentStartIntent(
+  agent: Pick<AgentRecord, "id" | "workspaceId" | "computerId" | "runtimeConfig">,
+  computerId?: string,
+): AgentStartIntent {
   return { ...agentStopIntent(agent, computerId), ...runtimeStartFields(agent.runtimeConfig) };
 }
 

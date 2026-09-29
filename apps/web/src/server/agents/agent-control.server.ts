@@ -181,6 +181,21 @@ function current(agent: AgentControlAgent, state: AgentControlState) {
     agentControlRevision(agent.runtimeConfig) === state.configRevision
   );
 }
+/**
+ * Where the Agent's latest control operation stands, for a caller deciding whether a new Start
+ * may be sent: `in_flight` while any operation is unfinished (for this configuration or an older
+ * one), `failed` when the latest operation for the current Computer and configuration ended failed
+ * after it began a Start or a chain ending in one (whatever step failed), `settled` otherwise.
+ */
+export function controlOperationState(
+  agent: AgentControlAgent,
+): "in_flight" | "failed" | "settled" {
+  const state = agent.state;
+  if (!state) return "settled";
+  if (!terminal(state)) return "in_flight";
+  if (current(agent, state) && state.phase === "failed" && state.action !== "stop") return "failed";
+  return "settled";
+}
 function sameScope(a: AgentControlScope, b: AgentControlScope) {
   return (
     a.workspaceId === b.workspaceId &&
