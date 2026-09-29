@@ -1,0 +1,90 @@
+# coforge-installer instructions
+
+These rules extend the repository root `AGENTS.md` for `installer/`, the Rust
+crate that builds `coforge-installer`. The root architecture invariants state
+what the installer owns and how it controls a running Computer; this file holds
+the crate's commands, toolchain, and gotchas.
+
+## Module map
+
+- `src/main.rs`: command line. Parses arguments, calls the library, prints the
+  result, maps outcomes to exit codes. No installation logic.
+- `src/lib.rs`: crate root; declares the library modules.
+- `src/fetch.rs`: verified download. One HTTPS object, hashed as it arrives,
+  optionally gunzipped under a byte cap, renamed into place only after every
+  check passes. Tests in `src/fetch/tests.rs` (loopback HTTP, no network).
+
+The `fetch` subcommand is the download primitive exposed for tests and so the
+release build links the whole HTTPS/TLS/gzip stack. It is not a product command
+(install, upgrade, repair, status, recover); `install` replaces it.
+
+## Toolchain
+
+- `installer/mise.toml` pins Rust (with rustfmt and clippy) and the supply-chain
+  tools: cargo-deny, cargo-audit (`github:rustsec/rustsec`), and cargo-about.
+  They are deliberately not in the root `mise.toml`: the root `mise install`
+  that every CI job and `.agents/setup` runs must never download Rust.
+- Run every command from `installer/`. mise merges the root config there too, so
+  install only what you need: `mise install rust`, or the four tools above for
+  the supply-chain checks.
+- Bumping a tool: change `installer/mise.toml` (and `rust-version` in
+  `Cargo.toml` for a Rust bump), then relock with
+  `mise lock --platform linux-x64,macos-arm64`. Keep `lockfile_version = 1`:
+  CI pins mise 2026.9.2, which cannot read revision 2, so never run
+  `mise lock --upgrade` here. The core Rust backend locks no URL; rustup
+  verifies it.
+- Change dependencies with `cargo add` / `cargo remove`, commit `Cargo.lock`,
+  and pass `--locked` to every cargo command so CI never resolves a new graph.
+- There is no mise task for this crate, and it is not part of the root
+  `mise run test` / `check` / `build`.
+
+## Commands
+
+```sh
+mise exec -- cargo fmt --check
+mise exec -- cargo clippy --locked --all-targets -- -D warnings
+mise exec -- cargo test --locked
+mise exec -- cargo build --locked --release     # target/release/coforge-installer
+mise exec -- cargo deny --locked check licenses bans sources advisories
+mise exec -- cargo audit --deny warnings
+mise exec -- cargo about generate --locked --fail --output-file THIRD_PARTY_NOTICES.txt about/notices.hbs
+```
+
+## CI
+
+- Job `installer-crate` in `.github/workflows/ci.yml`. `scripts/ci/selection.ts`
+  selects it for any `installer/` path and for the fail-open cases (CI,
+  toolchain, unclassified paths), but not for workspace `package.json` changes
+  or the Computer publication (`local`) track.
+- One matrix entry per release target, each on its native runner:
+  `darwin-arm64` and `darwin-x64` on `macos-latest` (x64 cross-compiled),
+  `linux-x64` / `linux-arm64` on `ubuntu-24.04` / `ubuntu-24.04-arm` (musl,
+  static), `windows-x64` / `windows-arm64` on `windows-latest` /
+  `windows-11-arm` (MSVC).
+- Every entry: clippy for its target, release build, size in the job summary,
+  `--version` smoke run. Tests run on native entries only; darwin-x64 is built,
+  signed, and run under Rosetta only when the runner has it.
+- `linux-x64` alone also runs `cargo fmt --check`, cargo-deny, cargo-audit, and
+  cargo-about, and uploads `THIRD_PARTY_NOTICES.txt` as the
+  `coforge-installer-third-party-notices` artifact.
+
+## Rules and gotchas
+
+- `Cargo.toml` keeps `publish = false` and no `license` field; the repository
+  has no license. `deny.toml` and `about.toml` ignore the private crate itself.
+- The license allow list in `deny.toml` is the gate. Adding a license to it is a
+  licensing decision for Frank, not a CI fix. Keep `about.toml`'s `accepted`
+  list in step with it.
+- `THIRD_PARTY_NOTICES.txt` is generated, never committed. The template must
+  not print `source_path`: it is an absolute path on the build machine.
+- No new lint, test, or advisory exemptions (`#[allow]`, `deny.toml` `ignore`
+  or `skip`, `cargo audit --ignore`) without Frank's prior approval.
+- `ureq` runs with default features off: its `gzip` feature would decode
+  `Content-Encoding` transparently, and the manifest checksum covers the exact
+  wire bytes.
+- ring's build script compiles C. On Linux it needs `musl-gcc` (`musl-tools`)
+  through `CC_<target>`; on `windows-11-arm` the runner's Visual Studio clang
+  is enough.
+- macOS 27 kills a binary whose signature is invalid. The arm64 linker signs
+  its output; x86_64 output is unsigned, so CI ad-hoc signs it
+  (`codesign --sign - --force`) and both must pass `codesign --verify --strict`.

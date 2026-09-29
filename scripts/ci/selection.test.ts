@@ -41,6 +41,7 @@ test("documentation skips application checks, while shared and unknown inputs fa
     "computer",
     "daemon",
     "deploy",
+    "installer-crate",
     "macos-lifecycle",
     "oss-cdn",
     "release",
@@ -52,13 +53,17 @@ test("documentation skips application checks, while shared and unknown inputs fa
     "bun.lock",
     "mise.toml",
     "package.json",
-    "packages/computer/package.json",
-    "apps/web/package.json",
     ".github/workflows/ci.yml",
     "packages/new/src/index.ts",
     "packages/coforge-sdk/messages.ts",
   ]) {
     expect(selectChecks([path], "changes")).toEqual(all);
+  }
+  // Workspace manifests feed the frozen install and Docker build, which the Rust crate is not in.
+  for (const path of ["packages/computer/package.json", "apps/web/package.json"]) {
+    expect(selectChecks([path], "changes")).toEqual(
+      all.filter((check) => check !== "installer-crate"),
+    );
   }
   expect(selectChecks(["packages/computer/src/cli.ts"], "changes")).toEqual([
     "computer",
@@ -71,6 +76,10 @@ test("documentation skips application checks, while shared and unknown inputs fa
     "windows-installer",
   ]);
   expect(selectChecks(["scripts/release/install.sh"], "changes")).toEqual(["release", "web"]);
+  for (const path of ["installer/src/fetch.rs", "installer/Cargo.lock", "installer/mise.toml"]) {
+    expect(selectChecks([path], "changes")).toEqual(["installer-crate"]);
+  }
+  expect(selectChecks(["installer/AGENTS.md"], "changes")).toEqual([]);
   expect(selectChecks(["infra/staging/caddy/Caddyfile"], "changes")).toEqual(["deploy", "web"]);
   expect(selectChecks(["scripts/ops/renew-cdn-certificates.sh"], "changes")).toEqual(["cdn-certs"]);
   expect(selectChecks(["scripts/release/compile-targets.ts"], "changes")).toEqual([
@@ -100,7 +109,7 @@ test("deployment validates the exact Web track only when the image or deployment
   }
 });
 
-test("manual local publication always validates its complete track, regardless of changed files", () => {
+test("manual local publication always validates its complete track, regardless of changed files, without the separately released installer crate", () => {
   expect(selectChecks([], "local")).toEqual([
     "agent",
     "coforge",

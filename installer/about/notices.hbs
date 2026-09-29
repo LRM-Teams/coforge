@@ -1,0 +1,22 @@
+Third-party software notices for coforge-installer
+
+coforge-installer includes the following third-party crates. Each license below is
+followed by the crates it covers and its full text.
+
+Licenses:
+{{#each overview}}
+  {{{name}}} ({{{id}}}): {{count}}
+{{/each}}
+{{#each licenses}}
+
+================================================================================
+{{{name}}} ({{{id}}})
+
+Used by:
+{{#each used_by}}
+  {{{crate.name}}} {{{crate.version}}}{{#if crate.repository}} <{{{crate.repository}}}>{{/if}}
+{{/each}}
+--------------------------------------------------------------------------------
+
+{{{text}}}
+{{/each}}

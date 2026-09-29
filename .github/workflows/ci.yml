@@ -378,10 +378,168 @@ jobs:
             exit 1
           }
 
+  # The Rust installer crate (installer/, its own toolchain in installer/mise.toml): lint, test,
+  # and release-build it on the native runner of each of its six release targets, and gate its
+  # dependency graph (licenses, bans, sources, RustSec advisories) once on linux-x64.
+  # Runner labels: https://docs.github.com/en/actions/reference/runners/github-hosted-runners
+  installer-crate:
+    name: Check installer ${{ matrix.release_target }}
+    needs: changes
+    if: contains(fromJSON(needs.changes.outputs.checks), 'installer-crate')
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Apple's linker ad-hoc signs arm64 output itself; macOS 27 kills arm64 binaries whose
+          # signature is invalid, so the job verifies it with `codesign --verify --strict`.
+          - release_target: darwin-arm64
+            rust_target: aarch64-apple-darwin
+            runner: macos-latest
+            native: true
+            tools: rust
+          # Cross-compiled on the arm64 runner. The linker leaves x86_64 output unsigned, so the
+          # job ad-hoc signs it the way Bun signs its darwin-x64 executables.
+          - release_target: darwin-x64
+            rust_target: x86_64-apple-darwin
+            runner: macos-latest
+            native: false
+            tools: rust
+          # musl, statically linked: no glibc version floor on the user's machine. This entry
+          # also runs the target-independent checks, so it installs the supply-chain tools.
+          - release_target: linux-x64
+            rust_target: x86_64-unknown-linux-musl
+            runner: ubuntu-24.04
+            native: true
+            tools: rust cargo-deny github:rustsec/rustsec github:EmbarkStudios/cargo-about
+          - release_target: linux-arm64
+            rust_target: aarch64-unknown-linux-musl
+            runner: ubuntu-24.04-arm
+            native: true
+            tools: rust
+          - release_target: windows-x64
+            rust_target: x86_64-pc-windows-msvc
+            runner: windows-latest
+            native: true
+            tools: rust
+          # ring needs clang for this target; ring's own CI builds it on windows-11-arm with the
+          # runner image's Visual Studio toolchain and no extra install step.
+          - release_target: windows-arm64
+            rust_target: aarch64-pc-windows-msvc
+            runner: windows-11-arm
+            native: true
+            tools: rust
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+        working-directory: installer
+    env:
+      BINARY: target/${{ matrix.rust_target }}/release/coforge-installer${{ startsWith(matrix.release_target, 'windows') && '.exe' || '' }}
+      # `mise exec` would otherwise install every tool in installer/mise.toml (and the root one)
+      # that is missing, including supply-chain tools only linux-x64 installs and uses; cargo-audit
+      # publishes no windows-arm64 build. Each entry uses exactly its `tools`.
+      # https://mise.jdx.dev/configuration/settings.html#exec_auto_install
+      MISE_EXEC_AUTO_INSTALL: "false"
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      # From installer/ mise also sees the root tools, so install only what this entry uses.
+      - name: Install pinned Rust tools
+        uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
+        with:
+          version: "2026.9.2"
+          working_directory: installer
+          install_args: ${{ matrix.tools }}
+
+      - name: Add the Rust target
+        run: mise exec -- rustup target add "${{ matrix.rust_target }}"
+
+      - name: Install the musl C compiler for ring
+        if: startsWith(matrix.release_target, 'linux')
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends musl-tools
+          target="${{ matrix.rust_target }}"
+          echo "CC_${target//-/_}=musl-gcc" >> "$GITHUB_ENV"
+
+      - name: Check formatting
+        if: matrix.release_target == 'linux-x64'
+        run: mise exec -- cargo fmt --check
+
+      # Per target: cfg(unix) and cfg(windows) code differs.
+      - name: Lint
+        run: mise exec -- cargo clippy --locked --all-targets --target "${{ matrix.rust_target }}" -- -D warnings
+
+      - name: Test
+        if: matrix.native
+        run: mise exec -- cargo test --locked --target "${{ matrix.rust_target }}"
+
+      - name: Build release binary
+        run: mise exec -- cargo build --locked --release --target "${{ matrix.rust_target }}"
+
+      - name: Ad-hoc sign the x86_64 darwin binary
+        if: matrix.release_target == 'darwin-x64'
+        run: codesign --sign - --force "$BINARY"
+
+      - name: Verify the darwin signature
+        if: startsWith(matrix.release_target, 'darwin')
+        run: |
+          codesign -dv --verbose=2 "$BINARY"
+          codesign --verify --strict --verbose=2 "$BINARY"
+
+      - name: Report binary size
+        run: |
+          size="$(wc -c < "$BINARY" | tr -d ' ')"
+          echo "${{ matrix.release_target }}: $size bytes"
+          echo "coforge-installer ${{ matrix.release_target }}: $size bytes" >> "$GITHUB_STEP_SUMMARY"
+          file "$BINARY" || true
+
+      - name: Show that the Linux binary is static
+        if: startsWith(matrix.release_target, 'linux')
+        run: ldd "$BINARY" || true
+
+      - name: Run on the native host
+        if: matrix.native
+        run: '"$BINARY" --version'
+
+      - name: Run under Rosetta when available
+        if: matrix.release_target == 'darwin-x64'
+        run: |
+          if arch -x86_64 /usr/bin/true 2>/dev/null; then
+            arch -x86_64 "$BINARY" --version
+          else
+            echo "::warning::Rosetta is not installed on this runner; darwin-x64 was built but not run"
+          fi
+
+      - name: Check dependency licenses, bans, sources, and advisories
+        if: matrix.release_target == 'linux-x64'
+        run: mise exec -- cargo deny --locked check licenses bans sources advisories
+
+      - name: Audit dependencies against RustSec
+        if: matrix.release_target == 'linux-x64'
+        run: mise exec -- cargo audit --deny warnings
+
+      - name: Generate third-party notices
+        if: matrix.release_target == 'linux-x64'
+        run: mise exec -- cargo about generate --locked --fail --output-file THIRD_PARTY_NOTICES.txt about/notices.hbs
+
+      - name: Upload third-party notices
+        if: matrix.release_target == 'linux-x64'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: coforge-installer-third-party-notices
+          path: installer/THIRD_PARTY_NOTICES.txt
+          if-no-files-found: error
+
   ci-passed:
     name: CI passed
     if: always()
-    needs: [changes, infrastructure-contracts, libraries, computer, daemon, macos-lifecycle, web, windows-release, windows-installer]
+    needs: [changes, infrastructure-contracts, libraries, computer, daemon, macos-lifecycle, web, windows-release, windows-installer, installer-crate]
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:
