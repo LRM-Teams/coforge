@@ -58,6 +58,33 @@ const config = defineConfig({
       "/connection": "ws://127.0.0.1:8000",
     },
   },
+  environments: {
+    // Client build only: nitro's server build inlines its dynamic imports.
+    client: {
+      build: {
+        rolldownOptions: {
+          output: {
+            codeSplitting: {
+              groups: [
+                // Rolldown makes a chunk for every icon that two lazy chunks share: about
+                // thirty files of 0.3-1 KB on a chat page. Icons are leaf modules without
+                // side effects, so one chunk for the shared ones is safe. Do not add a group
+                // for app modules: merging them across sharing sets drags Records-only code
+                // into chat and reorders execution between chunks (a trial failed at load
+                // with `e is not a constructor`).
+                // https://rolldown.rs/in-depth/manual-code-splitting
+                {
+                  name: "icons",
+                  test: /node_modules[\\/]@untitledui[\\/]icons[\\/]/,
+                  minShareCount: 2,
+                },
+              ],
+            },
+          },
+        },
+      },
+    },
+  },
   plugins: [
     {
       name: "externalize-bun-builtin",
