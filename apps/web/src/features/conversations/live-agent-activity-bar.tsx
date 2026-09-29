@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { Button as AriaButton } from "react-aria-components";
 
-import { AgentDisplayAvatar } from "#src/features/agents/agent-activity-avatar";
+import { AgentDisplayAvatar } from "#src/features/agents/agent-display-avatar";
 import { useWorkspaceSlug } from "#src/features/workspaces/workspace-route";
 import { m } from "#src/paraglide/messages";
 

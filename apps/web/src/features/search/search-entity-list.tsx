@@ -3,7 +3,7 @@ import { Hash01 as Hash } from "@untitledui/icons";
 import type { AgentDisplaySnapshot } from "@lrm/coforge-sdk/internal";
 
 import { Badge } from "#src/components/base/badges/badges";
-import { AgentDisplayAvatar } from "#src/features/agents/agent-activity-avatar";
+import { AgentDisplayAvatar } from "#src/features/agents/agent-display-avatar";
 import { agentDisplay } from "#src/features/agents/agent-activity-presentation";
 import { formatAgentProfileParam } from "#src/features/agents/profile-panel/profile-panel-search";
 import { useAgentDisplays } from "#src/features/agents/workspace-agents-realtime";

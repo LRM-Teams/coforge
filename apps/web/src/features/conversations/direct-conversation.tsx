@@ -2,7 +2,7 @@ import { useMemo } from "react";
 
 import { Button } from "#src/components/base/buttons/button";
 import { StatusDot } from "#src/components/ui/status-dot";
-import { AgentDisplayAvatar } from "#src/features/agents/agent-activity-avatar";
+import { AgentDisplayAvatar } from "#src/features/agents/agent-display-avatar";
 import { agentDisplay } from "#src/features/agents/agent-activity-presentation";
 import { DeletedAgentBadge } from "#src/features/agents/deleted-agent";
 import { useLiveAgent } from "#src/features/agents/workspace-agents-realtime";

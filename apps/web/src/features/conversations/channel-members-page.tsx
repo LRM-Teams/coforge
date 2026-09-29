@@ -20,7 +20,7 @@ import { CheckboxBase } from "#src/components/base/checkbox/checkbox";
 import { Input } from "#src/components/base/input/input";
 import { AgentCreateDialog } from "#src/features/agents/agent-create-dialog";
 import { createAgent } from "#src/features/agents/agents.functions";
-import { AgentDisplayAvatar } from "#src/features/agents/agent-activity-avatar";
+import { AgentDisplayAvatar } from "#src/features/agents/agent-display-avatar";
 import { agentDisplay } from "#src/features/agents/agent-activity-presentation";
 import { useAgentDisplays } from "#src/features/agents/workspace-agents-realtime";
 import type { AgentDisplaySnapshot } from "@lrm/coforge-sdk/internal";

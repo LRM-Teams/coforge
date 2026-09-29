@@ -11,7 +11,7 @@ import { AlertCircle, XClose } from "@untitledui/icons";
 import { Button } from "#src/components/base/buttons/button";
 import { ButtonUtility } from "#src/components/base/buttons/button-utility";
 import { useAppToast } from "#src/components/ui/toast";
-import { AgentDisplayAvatar, AgentStackFace } from "#src/features/agents/agent-activity-avatar";
+import { AgentDisplayAvatar, AgentStackFace } from "#src/features/agents/agent-display-avatar";
 import { useLiveAgent } from "#src/features/agents/workspace-agents-realtime";
 import { cn } from "#src/lib/utils";
 import { m } from "#src/paraglide/messages";
