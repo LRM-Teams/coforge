@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test";
 import {
-  decodeAgentMessageDelivery,
   decodeAgentStartIntent,
   decodeAgentStopIntent,
   encodeAgentActivity,
@@ -21,7 +20,7 @@ describe("PublishAgentRuntimeControl", () => {
     const payloads: Uint8Array[] = [];
     const channels: string[] = [];
     const recoveryReads: string[] = [];
-    const pendingReads: string[] = [];
+    const resent: unknown[] = [];
     const agents = [
       {
         id: "agent-running",
@@ -90,22 +89,6 @@ describe("PublishAgentRuntimeControl", () => {
             unreadSummary: { "@alice": 4 },
           };
         },
-        readPendingAgentDeliveries: async (_workspaceId, agentId) => {
-          pendingReads.push(agentId);
-          return [
-            {
-              messageId: "running-message-1",
-              deliveryId: "running-delivery-1",
-              conversationId: "running-conversation-1",
-              sequence: 3,
-              target: "@bob",
-              latestSenderKind: "human",
-              latestSenderHandle: "bob",
-              latestSenderDescription: "",
-              body: "redeliver this body",
-            },
-          ];
-        },
       },
       {
         publish: async (channel, payload) => {
@@ -114,28 +97,19 @@ describe("PublishAgentRuntimeControl", () => {
         },
       },
       { run: async (_agentId, callback) => callback() },
+      { resendPending: async (scope) => void resent.push(scope) },
     );
 
     await recovery.recoverWorkspace("workspace-1", "computer-1", ["agent-running"]);
 
-    expect(payloads).toHaveLength(2);
-    expect(channels).toEqual(["daemon:workspace-1:computer-1", "daemon:workspace-1:computer-1"]);
-    expect(pendingReads).toEqual(["agent-running"]);
+    // The running Agent is sent what it has not received; the stopped one is started.
+    expect(resent).toEqual([
+      { workspaceId: "workspace-1", computerId: "computer-1", agentId: "agent-running" },
+    ]);
+    expect(payloads).toHaveLength(1);
+    expect(channels).toEqual(["daemon:workspace-1:computer-1"]);
     expect(recoveryReads).toEqual(["agent-1"]);
-    expect(decodeAgentMessageDelivery(payloads[0]!)).toMatchObject({
-      messageId: "running-message-1",
-      deliveryId: "running-delivery-1",
-      conversationId: "running-conversation-1",
-      sequence: 3,
-      workspaceId: "workspace-1",
-      agentId: "agent-running",
-      target: "@bob",
-      latestSenderKind: "human",
-      latestSenderHandle: "bob",
-      latestSenderDescription: "",
-      body: "redeliver this body",
-    });
-    expect(decodeAgentStartIntent(payloads[1]!)).toMatchObject({
+    expect(decodeAgentStartIntent(payloads[0]!)).toMatchObject({
       workspaceId: "workspace-1",
       computerId: "computer-1",
       agentId: "agent-1",
@@ -216,10 +190,10 @@ describe("PublishAgentRuntimeControl", () => {
           resumeMessages: [],
           unreadSummary: {},
         }),
-        readPendingAgentDeliveries: async () => [],
       },
       { publish: async (_channel, payload) => void payloads.push(payload) },
       lock,
+      { resendPending: async () => {} },
     );
 
     const recovering = recovery.recoverWorkspace("workspace-1", "computer-1", []);
@@ -277,13 +251,10 @@ describe("PublishAgentRuntimeControl", () => {
           recoveryReads.push(agentId);
           return { resumeMessages: [], unreadSummary: {} };
         },
-        readPendingAgentDeliveries: async (_workspaceId, agentId) => {
-          pendingReads.push(agentId);
-          return [];
-        },
       },
       { publish: async (_channel, payload) => void payloads.push(payload) },
       { run: async (_agentId, callback) => callback() },
+      { resendPending: async (scope) => void pendingReads.push(scope.agentId) },
     );
 
     await recovery.recoverWorkspace("workspace-1", "computer-1", []);
@@ -375,7 +346,6 @@ describe("PublishAgentRuntimeControl", () => {
       },
       {
         readAgentRecoveryContext: async () => ({ resumeMessages: [], unreadSummary: {} }),
-        readPendingAgentDeliveries: async () => [],
       },
       {
         publish: async () => {
@@ -383,6 +353,7 @@ describe("PublishAgentRuntimeControl", () => {
         },
       },
       { run: async (_agentId, callback) => callback() },
+      { resendPending: async () => {} },
       undefined,
       control,
     );

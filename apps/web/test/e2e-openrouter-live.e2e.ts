@@ -135,7 +135,7 @@ test("live OpenRouter Pi delivery writes an Agent reply to canonical DB", async 
       { findOwnedAgent: async () => undefined, updateRuntimeConfig: async () => undefined },
       await readAgentRuntimeCredentialEncryptionKey(process.env),
     );
-    const sessions = createAgentSessions(db);
+    const sessions = createAgentSessions(db, { resendForCurrentSession: async () => {} });
     const centrifugo = createCentrifugoServerApi();
     const runtimeControl = new PublishAgentRuntimeControl(
       new RepositoryAgentAuthorization(agents),

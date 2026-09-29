@@ -82,7 +82,9 @@ test("cloud and daemon preserve Restart identity, reset sessions, fence Full Res
     },
     { run: async (_id, work) => work() },
   );
-  const sessions = new AgentSessionReceiver(store, async () => "daemon");
+  const sessions = new AgentSessionReceiver(store, async () => "daemon", {
+    resendForCurrentSession: async () => {},
+  });
   const credentials = new InMemoryDaemonCredentialStore();
   await credentials.save("w", "c", "daemon-token");
   const launches: AgentSessionOptions[] = [];
@@ -287,8 +289,11 @@ test("a Start that meets an already-running process rebinds it: one process, pre
       },
     },
     async () => daemonInstanceId,
+    { resendForCurrentSession: async () => {} },
   );
-  const sessionReceiver = new AgentSessionReceiver(store, async () => daemonInstanceId);
+  const sessionReceiver = new AgentSessionReceiver(store, async () => daemonInstanceId, {
+    resendForCurrentSession: async () => {},
+  });
   const reports: AgentSessionReport[] = [];
   const reportAgentSession = async (report: AgentSessionReport) => {
     reports.push(report);
@@ -569,7 +574,9 @@ test("Full Reset completes, not fails, when the workspace clear cannot finish", 
     },
     { run: async (_id, work) => work() },
   );
-  const sessions = new AgentSessionReceiver(store, async () => "daemon");
+  const sessions = new AgentSessionReceiver(store, async () => "daemon", {
+    resendForCurrentSession: async () => {},
+  });
   const credentials = new InMemoryDaemonCredentialStore();
   await credentials.save("w", "c", "daemon-token");
   let launches = 0;

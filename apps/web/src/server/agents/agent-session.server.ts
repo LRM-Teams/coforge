@@ -4,8 +4,10 @@ import type {
   AgentSessionInvalidate,
 } from "@lrm/coforge-sdk/internal";
 import { requireCurrentAgentScope, type AgentControlStore } from "./agent-control.server";
+import type { AcceptedSessionMentions } from "./agent-sessions.server";
 
-/** Persists current Session identity; never advances or completes a control operation. */
+/** Persists current Session identity, then issues the Agent's pending tracked mentions for it;
+ * never advances or completes a control operation. */
 export class AgentSessionReceiver {
   constructor(
     private readonly store: AgentControlStore,
@@ -15,6 +17,8 @@ export class AgentSessionReceiver {
       workspaceId: string,
       computerId: string,
     ) => Promise<string | undefined>,
+    /** Required, so an accepted session can never leave its Agent's pending mentions behind. */
+    private readonly mentions: AcceptedSessionMentions,
   ) {}
 
   async authorize(claim: { workspaceId: string; computerId: string }, report: AgentSessionReport) {
@@ -55,6 +59,11 @@ export class AgentSessionReceiver {
       }))
     )
       throw new Error("Session snapshot lost its fence");
+    await this.mentions.resendForCurrentSession({
+      workspaceId: claim.workspaceId,
+      computerId: claim.computerId,
+      agentId: agent.id,
+    });
   }
 
   /**

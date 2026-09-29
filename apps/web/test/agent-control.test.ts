@@ -104,6 +104,7 @@ function observationRace() {
       },
     },
     async () => "daemon",
+    { resendForCurrentSession: async () => {} },
   );
   const control = new AgentControl(
     store,
@@ -128,7 +129,9 @@ function observationRace() {
   return {
     fixture,
     snapshot: (sequence: number) =>
-      new AgentSessionReceiver(store, async () => "daemon").accept(scope, {
+      new AgentSessionReceiver(store, async () => "daemon", {
+        resendForCurrentSession: async () => {},
+      }).accept(scope, {
         ...scope,
         sequence,
         identity: { sessionId: "native", state: "resumable" },
@@ -557,7 +560,9 @@ test("a Session snapshot cannot complete control, and recovered identity binds o
     { publish: async () => {} },
     { run: async (_id, work) => work() },
   );
-  const sessions = new AgentSessionReceiver(store, async () => "daemon");
+  const sessions = new AgentSessionReceiver(store, async () => "daemon", {
+    resendForCurrentSession: async () => {},
+  });
   const scope = {
     protocolMajor: 1 as const,
     requestId: "request-a",

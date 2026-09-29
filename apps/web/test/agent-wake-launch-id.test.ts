@@ -128,7 +128,9 @@ test("a session report after a wake is accepted by AgentSessionReceiver.authoriz
     memberRole: async () => "owner",
     replace: async () => true,
   };
-  const receiver = new AgentSessionReceiver(store, async () => "daemon-1");
+  const receiver = new AgentSessionReceiver(store, async () => "daemon-1", {
+    resendForCurrentSession: async () => {},
+  });
   await expect(
     receiver.authorize(
       { workspaceId: "w", computerId: "c" },

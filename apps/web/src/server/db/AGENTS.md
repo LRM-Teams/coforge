@@ -31,8 +31,10 @@ These rules apply to `src/server/db/`.
   `agent_message_deliveries`. Every write is conditional on the outcome still
   being open (pending or unknown) and, for a daemon report, on the row still
   carrying that report's envelope, so a late or repeated report never reopens
-  delivered or lost. An issue holds its Agents' rows (`FOR SHARE`) while it
-  writes, so a concurrent Stop is either seen or waits and then settles it.
+  delivered or lost. An issue locks its Agents' rows (`FOR SHARE`) before it
+  reads their state. A re-issue selects by outcome and envelope, never by
+  `receivedAt`, and writes a row only while it still carries the envelope it
+  was read with.
 - `write-conflict.server.ts` is the one place that recognizes a PostgreSQL
   deadlock or serialization failure (Prisma P2034, or a raw query's P2010 with
   the adapter's `TransactionWriteConflict`). Retry only those, a bounded number

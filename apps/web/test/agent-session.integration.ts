@@ -73,6 +73,7 @@ test("recovery creates a new current AgentSession and preserves the previous nat
     const sessions = new AgentSessions(
       new PrismaAgentSessionRepository(db),
       async () => "daemon-current",
+      { resendForCurrentSession: async () => {} },
     );
     const prepared = await sessions.prepare({
       protocolMajor: 1,

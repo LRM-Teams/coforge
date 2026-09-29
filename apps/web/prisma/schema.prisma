@@ -1,7 +1,7 @@
 generator client {
   provider        = "prisma-client"
   output          = "../src/generated/prisma"
-  previewFeatures = ["fullTextSearchPostgres"]
+  previewFeatures = ["fullTextSearchPostgres", "partialIndexes"]
 }
 
 datasource db {
@@ -617,6 +617,8 @@ model WorkspaceInvitation {
 
   @@index([workspaceId, status])
   @@index([inviteeUserId, status])
+  /// Only one live pending invitation per invitee inside a Workspace.
+  @@unique([workspaceId, inviteeUserId], where: { status: "pending" }, map: "workspace_invitations_pending_workspace_invitee_key")
   @@map("workspace_invitations")
 }
 
@@ -1226,6 +1228,9 @@ model AgentMessageDelivery {
   /// an Agent only with its delivery row, so the send path's freshness reads walk these rows
   /// instead of the channel's whole history.
   @@index([agentId, conversationId, sequence])
+  /// An Agent's still-pending tracked mentions, which a session report, a daemon's ready and a
+  /// person's Stop read or settle; every other row stays out of it.
+  @@index([workspaceId, agentId], where: { mentionOutcome: "pending" }, map: "agent_message_deliveries_pending_mentions_idx")
   @@map("agent_message_deliveries")
 }
 

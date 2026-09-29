@@ -6,6 +6,49 @@ import {
   type RuntimeSessionReference,
 } from "#src/server/agents/agent-sessions.server";
 
+test("an accepted session report issues the Agent's pending mentions again; a rejected one does not", async () => {
+  let reference: RuntimeSessionReference | null = {
+    provider: "codex",
+    computerId: "c",
+    startRequestId: "start-1",
+    daemonInstanceId: "daemon-1",
+    launchId: "launch-1",
+  };
+  const repository = {
+    read: async () => ({ workspaceId: "w", computerId: "c", provider: "codex", reference }),
+    async replace(
+      _id: string,
+      previous: RuntimeSessionReference | null,
+      next: RuntimeSessionReference,
+    ) {
+      if (reference !== previous) return false;
+      reference = next;
+      return true;
+    },
+  };
+  const resent: unknown[] = [];
+  const sessions = new AgentSessions(repository, async () => "daemon-1", {
+    resendForCurrentSession: async (scope) => void resent.push(scope),
+  });
+  const report = {
+    protocolMajor: 1,
+    requestId: "report",
+    workspaceId: "w",
+    computerId: "c",
+    agentId: "a",
+    provider: "codex" as const,
+    sessionId: "thread-1",
+    startRequestId: "start-1",
+    daemonInstanceId: "daemon-1",
+    launchId: "launch-1",
+  };
+
+  await expect(sessions.accept({ ...report, launchId: "stale" })).rejects.toThrow();
+  expect(resent).toEqual([]);
+  await sessions.accept(report);
+  expect(resent).toEqual([{ workspaceId: "w", computerId: "c", agentId: "a" }]);
+});
+
 test("cloud selection survives recreation and stale launches cannot replace a session", async () => {
   let reference: RuntimeSessionReference | null = null;
   const repository = {
@@ -23,7 +66,9 @@ test("cloud selection survives recreation and stale launches cannot replace a se
     },
   };
   const current = async () => "daemon-new";
-  const sessions = new AgentSessions(repository, current);
+  const sessions = new AgentSessions(repository, current, {
+    resendForCurrentSession: async () => {},
+  });
   const intent = {
     protocolMajor: 1,
     requestId: "start-1",
@@ -60,7 +105,9 @@ test("cloud selection survives recreation and stale launches cannot replace a se
     }),
   ).toBeInstanceOf(Uint8Array);
   await sessions.accept(report);
-  const recovered = new AgentSessions(repository, current);
+  const recovered = new AgentSessions(repository, current, {
+    resendForCurrentSession: async () => {},
+  });
   const repeated = await recovered.prepare({ ...intent, requestId: "start-2" });
   expect(repeated.sessionId).toBe("thread-1");
   expect(repeated.requestId).toBe("start-1");
@@ -107,9 +154,13 @@ test("cloud selection survives recreation and stale launches cannot replace a se
   ).rejects.toThrow();
   await sessions.accept(fallback);
   await sessions.accept(fallback);
-  expect((await new AgentSessions(repository, current).prepare(intent)).sessionId).toBe(
-    "new-after-missing",
-  );
+  expect(
+    (
+      await new AgentSessions(repository, current, {
+        resendForCurrentSession: async () => {},
+      }).prepare(intent)
+    ).sessionId,
+  ).toBe("new-after-missing");
   await expect(sessions.accept({ ...fallback, sessionId: "another-new" })).rejects.toThrow();
   await expect(
     sessions.accept({ ...report, startRequestId: "fresh", sessionId: "explicit-selection" }),
@@ -130,6 +181,7 @@ test("cloud creates a fresh CoForge identity instead of reviving historical defa
       },
     },
     async () => daemon,
+    { resendForCurrentSession: async () => {} },
   );
   const intent = {
     protocolMajor: 1,
@@ -186,6 +238,7 @@ test("stop never relabels another Computer's provider session as locally resumab
       },
     },
     async () => "computer-b-daemon",
+    { resendForCurrentSession: async () => {} },
   );
   await sessions.retire("a", "w", "computer-b");
   const selected = await sessions.prepare({
@@ -215,6 +268,7 @@ test.each(["coforge", "pi", "codex", "claude-code"] as const)(
         },
       },
       async () => "daemon",
+      { resendForCurrentSession: async () => {} },
     );
     const intent = {
       protocolMajor: 1,
@@ -321,6 +375,7 @@ function sessionRace() {
       },
     },
     async () => daemon,
+    { resendForCurrentSession: async () => {} },
   );
   const intent = {
     protocolMajor: 1,

@@ -3,16 +3,23 @@ import { PrismaPg } from "@prisma/adapter-pg";
 import {
   AGENT_MESSAGE_ACK_METHOD,
   decodeAgentMessageDelivery,
+  decodeAgentStartIntent,
   encodeAgentMentionDeliveryTerminalError,
   encodeAgentMentionDeliveryTransition,
   encodeAgentMessageDeliveryAck,
+  encodeAgentSessionReport,
   type AgentMessageDelivery,
+  type AgentStartIntent,
   type MentionDeliveryEnvelope,
 } from "@lrm/coforge-sdk/internal";
 import { PrismaClient } from "#src/generated/prisma/client";
 import { AgentControl } from "#src/server/agents/agent-control.server";
+import { AgentSessionReceiver } from "#src/server/agents/agent-session.server";
+import { WorkspaceAgentRecovery } from "#src/server/agents/agent-runtime-control.server";
+import { AgentSessions } from "#src/server/agents/agent-sessions.server";
 import {
   createAgentDeliveryAckMethod,
+  createAgentSessionMethod,
   createMentionDeliveryTerminalErrorMethod,
   createMentionDeliveryTransitionMethod,
   type CentrifugoRpcMethod,
@@ -25,6 +32,8 @@ import {
 import type { MessageRequestIdempotency } from "#src/server/conversations/message-request-idempotency.server";
 import { PublicChannels } from "#src/server/conversations/public-channels.server";
 import { PrismaAgentControlStore } from "#src/server/db/repositories/agent-control.repositories.server";
+import { PrismaAgentSessionRepository } from "#src/server/db/repositories/agent-session.repositories.server";
+import { PrismaAgentRepository } from "#src/server/db/repositories/agent.repositories.server";
 import { PrismaMentionDeliveryRepository } from "#src/server/db/repositories/mention-delivery.repositories.server";
 import { PrismaDirectConversationRepository } from "#src/server/db/repositories/direct-conversation.repositories.server";
 import { PrismaWorkspaceCatalogStore } from "#src/server/workspaces/catalog.server";
@@ -37,8 +46,10 @@ import { PrismaWorkspaceCatalogStore } from "#src/server/workspaces/catalog.serv
  * instrument failed; an ACK that echoes no envelope for a delivery sent with one leaves it
  * unknown, which a later echoed ACK can still settle. An Agent that was not running is woken as
  * before, without an envelope. A person's Stop settles the Agent's pending mentions as not
- * launched. Deliveries that do not mention the Agent are never tracked. Drives the real services
- * against local PostgreSQL.
+ * launched. A pending mention that went out without an envelope, or with one for a launch that is
+ * no longer the Agent's, is issued again for its current launch and session when a launch reports
+ * its session and when its daemon comes back ready. Deliveries that do not mention the Agent are
+ * never tracked. Drives the real services against local PostgreSQL.
  *
  * Skipped unless `CHANNEL_TEST_DATABASE_URL` points at local PostgreSQL.
  */
@@ -224,8 +235,30 @@ async function setup() {
     undefined,
     undefined,
     undefined,
-    new PrismaMentionDeliveryRepository(db),
+    mentions,
   );
+  /** The cloud's side of a real session report: a start's fence, then the accepted report. */
+  const sessions = new AgentSessions(
+    new PrismaAgentSessionRepository(db),
+    async () => "daemon-1",
+    mentions,
+  );
+  const scope = (agentId: string) => ({
+    workspaceId: workspace.id,
+    computerId: computer.id,
+    agentId,
+  });
+  /** A launch's session was accepted as the Agent's current one. */
+  const sessionAccepted = (agentId: string) => mentions.resendForCurrentSession(scope(agentId));
+  /** The daemon came back ready with these Agents running. */
+  const ready = (running: string[], reports = mentions) =>
+    new WorkspaceAgentRecovery(
+      new PrismaAgentRepository(db),
+      conversations,
+      publisher,
+      { run: async (_id, work) => work() },
+      reports,
+    ).recoverWorkspace(workspace.id, computer.id, running);
   const cleanup = async () => {
     await db.workspace.delete({ where: { id: workspace.id } }).catch(() => {});
     await db.computer.deleteMany({ where: { ownerId: owner.id } });
@@ -251,6 +284,14 @@ async function setup() {
     transition,
     pushTo,
     control,
+    principal,
+    publisher,
+    conversations,
+    mentions,
+    sessions,
+    scope,
+    sessionAccepted,
+    ready,
     cleanup,
   };
 }
@@ -493,7 +534,7 @@ test.skipIf(!connectionString)(
 );
 
 test.skipIf(!connectionString)(
-  "IDENTITY_DRIFT re-issues once for the Agent's current launch, then settles not launched",
+  "IDENTITY_DRIFT issues the mention for a newer launch the cloud knows, once per launch, and otherwise keeps it pending for the next session",
   async () => {
     const t = await setup();
     try {
@@ -516,23 +557,38 @@ test.skipIf(!connectionString)(
         mentionTerminalCode: "IDENTITY_DRIFT",
       });
 
-      // The re-issue drifted too: no second re-issue.
+      // The re-issue drifted too, and the cloud knows nothing newer: it waits, pending and
+      // without an envelope, for the next session.
       t.published.length = 0;
       await t.terminal(reissued, "IDENTITY_DRIFT");
       expect(t.published).toHaveLength(0);
       expect(await t.row(sent.id, t.bob.id)).toMatchObject({
-        mentionOutcome: "lost",
-        mentionReasonCategory: "not_launched",
+        mentionOutcome: "pending",
+        mentionLaunchId: null,
+        mentionTerminalCode: "IDENTITY_DRIFT",
       });
 
-      // Drift with no newer launch to re-issue for settles at once.
-      const same = await t.send(`@carol-${t.suffix} no relaunch`);
+      // The next launch's session issues it, and the drift it answered no longer counts.
+      await t.launch(t.bob.id, "launch-bob-3", "native-bob-3");
+      await t.sessionAccepted(t.bob.id);
+      expect(t.published).toHaveLength(1);
+      const third = t.published[0]!;
+      expect(third.mentionDelivery).toMatchObject({ launchId: "launch-bob-3" });
+      expect(await t.row(sent.id, t.bob.id)).toMatchObject({
+        mentionOutcome: "pending",
+        mentionLaunchId: "launch-bob-3",
+        mentionTerminalCode: null,
+      });
+
+      // A second relaunch the cloud already knows is issued for at once.
+      await t.launch(t.bob.id, "launch-bob-4", "native-bob-4");
       t.published.length = 0;
-      await t.terminal(t.pushTo(same.deliveries, t.carol.id), "IDENTITY_DRIFT");
-      expect(t.published).toHaveLength(0);
-      expect(await t.row(same.id, t.carol.id)).toMatchObject({
-        mentionOutcome: "lost",
-        mentionReasonCategory: "not_launched",
+      await t.terminal(third, "IDENTITY_DRIFT");
+      expect(t.published).toHaveLength(1);
+      expect(t.published[0]!.mentionDelivery).toMatchObject({ launchId: "launch-bob-4" });
+      expect(await t.row(sent.id, t.bob.id)).toMatchObject({
+        mentionOutcome: "pending",
+        mentionLaunchId: "launch-bob-4",
       });
     } finally {
       await t.cleanup();
@@ -569,34 +625,108 @@ test.skipIf(!connectionString)(
 );
 
 test.skipIf(!connectionString)(
-  "a Stop that lands while a mention is being issued settles it not launched, never pending",
+  "a Stop that lands while a mention is being issued waits for it, then settles it not launched",
   async () => {
     const t = await setup();
     try {
-      // An untracked delivery row to Bob, then issued as a mention while a person stops him
-      // between the issuer's read and its writes.
+      // An untracked delivery row to Bob, then issued as a mention while a person stops him from
+      // inside the issuing transaction: the Stop waits for it, and settles what it wrote.
       const sent = await t.send("status update for the channel");
       const row = await t.row(sent.id, t.bob.id);
+      let stopping: Promise<unknown> = Promise.resolve();
       const racing = Object.assign(Object.create(t.repository), {
-        async readIssuable(workspaceId: string, deliveryIds: readonly string[]) {
-          const rows = await t.repository.readIssuable(workspaceId, deliveryIds);
-          await t.control.stopMany({
-            userId: t.owner.id,
-            workspaceId: t.workspace.id,
-            agentIds: [t.bob.id],
-          });
-          return rows;
-        },
+        issue: (
+          ...[workspaceId, deliveryIds, decide, now]: Parameters<typeof t.repository.issue>
+        ) =>
+          t.repository.issue(
+            workspaceId,
+            deliveryIds,
+            (mentions) => {
+              stopping = t.control.stopMany({
+                userId: t.owner.id,
+                workspaceId: t.workspace.id,
+                agentIds: [t.bob.id],
+              });
+              return decide(mentions);
+            },
+            now,
+          ),
       }) as typeof t.repository;
       const envelopes = await new MentionDeliveryIssuer(racing).issue(t.workspace.id, [
         { deliveryId: row.deliveryId, agentId: t.bob.id, mentionsAgent: true },
       ]);
-      expect(envelopes.size).toBe(0);
+      expect(envelopes.get(row.deliveryId)).toMatchObject({ launchId: "launch-bob-1" });
+      await stopping;
       expect(await t.row(sent.id, t.bob.id)).toMatchObject({
         mentionOutcome: "lost",
         mentionReasonCategory: "not_launched",
-        mentionLaunchId: null,
       });
+    } finally {
+      await t.cleanup();
+    }
+  },
+);
+
+test.skipIf(!connectionString)(
+  "a session report that lands while a mention is being issued waits for it, then issues the wake it wrote",
+  async () => {
+    const t = await setup();
+    try {
+      const startRequestId = crypto.randomUUID();
+      await t.sessions.prepare({
+        protocolMajor: 1,
+        requestId: startRequestId,
+        workspaceId: t.workspace.id,
+        computerId: t.computer.id,
+        agentId: t.dave.id,
+        provider: "pi",
+        model: "",
+        reasoning: "",
+        launchId: "launch-dave-1",
+      });
+      const sent = await t.send("status update for the channel");
+      const row = await t.row(sent.id, t.dave.id);
+      let accepting: Promise<unknown> = Promise.resolve();
+      const racing = Object.assign(Object.create(t.repository), {
+        issue: (
+          ...[workspaceId, deliveryIds, decide, now]: Parameters<typeof t.repository.issue>
+        ) =>
+          t.repository.issue(
+            workspaceId,
+            deliveryIds,
+            (mentions) => {
+              accepting = t.sessions.accept({
+                protocolMajor: 1,
+                requestId: crypto.randomUUID(),
+                workspaceId: t.workspace.id,
+                computerId: t.computer.id,
+                agentId: t.dave.id,
+                provider: "pi",
+                sessionId: "native-dave-1",
+                startRequestId,
+                daemonInstanceId: "daemon-1",
+                launchId: "launch-dave-1",
+              });
+              return decide(mentions);
+            },
+            now,
+          ),
+      }) as typeof t.repository;
+      t.published.length = 0;
+      const envelopes = await new MentionDeliveryIssuer(racing).issue(t.workspace.id, [
+        { deliveryId: row.deliveryId, agentId: t.dave.id, mentionsAgent: true },
+      ]);
+      expect(envelopes.size).toBe(0);
+      await accepting;
+      expect(t.published).toEqual([
+        expect.objectContaining({
+          deliveryId: row.deliveryId,
+          mentionDelivery: expect.objectContaining({
+            launchId: "launch-dave-1",
+            sessionId: "native-dave-1",
+          }),
+        }),
+      ]);
     } finally {
       await t.cleanup();
     }
@@ -711,6 +841,415 @@ test.skipIf(!connectionString)(
         mentionStage: null,
         mentionTerminalCode: null,
         mentionLaunchId: "launch-bob-1",
+      });
+    } finally {
+      await t.cleanup();
+    }
+  },
+);
+
+test.skipIf(!connectionString)(
+  "a woken Agent's session report issues its pending mention for the new launch, and an echoed ACK delivers it",
+  async () => {
+    const t = await setup();
+    try {
+      // Dave is being started: his launch is fenced, his session not yet reported.
+      const startRequestId = crypto.randomUUID();
+      await t.sessions.prepare({
+        protocolMajor: 1,
+        requestId: startRequestId,
+        workspaceId: t.workspace.id,
+        computerId: t.computer.id,
+        agentId: t.dave.id,
+        provider: "pi",
+        model: "",
+        reasoning: "",
+        launchId: "launch-dave-1",
+      });
+      const sent = await t.send(`@dave-${t.suffix} wake up`);
+      const wake = t.pushTo(sent.deliveries, t.dave.id);
+      expect(wake.mentionDelivery).toBeUndefined();
+      await t.ack(wake);
+      expect(await t.row(sent.id, t.dave.id)).toMatchObject({
+        mentionOutcome: "pending",
+        mentionLaunchId: null,
+      });
+
+      const report = createAgentSessionMethod(t.sessions);
+      const payload = encodeAgentSessionReport({
+        protocolMajor: 1,
+        requestId: crypto.randomUUID(),
+        workspaceId: t.workspace.id,
+        computerId: t.computer.id,
+        agentId: t.dave.id,
+        provider: "pi",
+        sessionId: "native-dave-1",
+        startRequestId,
+        daemonInstanceId: "daemon-1",
+        launchId: "launch-dave-1",
+      });
+      t.published.length = 0;
+      expect(await report(payload, { principal: t.principal })).toBeInstanceOf(Uint8Array);
+      expect(t.published).toHaveLength(1);
+      const reissued = t.published[0]!;
+      expect(reissued).toMatchObject({
+        deliveryId: wake.deliveryId,
+        mentionsAgent: true,
+        mentionDelivery: {
+          messageId: sent.id,
+          launchId: "launch-dave-1",
+          sessionId: "native-dave-1",
+          computerId: t.computer.id,
+        },
+      });
+      expect(await t.row(sent.id, t.dave.id)).toMatchObject({
+        mentionOutcome: "pending",
+        mentionLaunchId: "launch-dave-1",
+        mentionSessionId: "native-dave-1",
+      });
+
+      // The same report again finds nothing left to issue.
+      t.published.length = 0;
+      expect(await report(payload, { principal: t.principal })).toBeInstanceOf(Uint8Array);
+      expect(t.published).toHaveLength(0);
+
+      await t.ack(reissued, reissued.mentionDelivery);
+      expect(await t.row(sent.id, t.dave.id)).toMatchObject({ mentionOutcome: "delivered" });
+    } finally {
+      await t.cleanup();
+    }
+  },
+);
+
+test.skipIf(!connectionString)(
+  "a controlled launch's sequenced session snapshot, or its started result, issues the pending mention for it",
+  async () => {
+    const t = await setup();
+    try {
+      const store = new PrismaAgentControlStore(t.db);
+      const starts: AgentStartIntent[] = [];
+      // The started result does not wait for its re-send; the test awaits the one it began.
+      let resending: Promise<void> = Promise.resolve();
+      const control = new AgentControl(
+        store,
+        { publish: async (_channel, bytes) => void starts.push(decodeAgentStartIntent(bytes)) },
+        { run: async (_id, work) => work() },
+        { timeoutMs: 60_000 },
+        t.sessions,
+        undefined,
+        undefined,
+        {
+          settleStopped: (input) => t.mentions.settleStopped(input),
+          resendForCurrentSession: (scope) =>
+            (resending = t.mentions.resendForCurrentSession(scope)),
+        },
+      );
+      const start = async (agentId: string) => {
+        await control.publishStart(
+          {
+            protocolMajor: 1,
+            requestId: crypto.randomUUID(),
+            workspaceId: t.workspace.id,
+            computerId: t.computer.id,
+            agentId,
+            provider: "pi",
+            model: "",
+            reasoning: "",
+          },
+          t.owner.id,
+        );
+        return starts.at(-1)!;
+      };
+
+      // Dave's launch reports its session as a sequenced snapshot.
+      const daveStart = await start(t.dave.id);
+      const woken = await t.send(`@dave-${t.suffix} wake up`);
+      await t.ack(t.pushTo(woken.deliveries, t.dave.id));
+      const snapshot = createAgentSessionMethod(
+        t.sessions,
+        new AgentSessionReceiver(store, async () => "daemon-1", t.mentions),
+      );
+      t.published.length = 0;
+      expect(
+        await snapshot(
+          encodeAgentSessionReport({
+            protocolMajor: 1,
+            requestId: crypto.randomUUID(),
+            workspaceId: t.workspace.id,
+            computerId: t.computer.id,
+            agentId: t.dave.id,
+            provider: "pi",
+            sessionId: "native-dave-1",
+            startRequestId: daveStart.requestId,
+            daemonInstanceId: "daemon-1",
+            launchId: daveStart.launchId!,
+            controlEpoch: daveStart.controlEpoch!,
+            sequence: 1,
+            sessionState: "resumable",
+          }),
+          { principal: t.principal },
+        ),
+      ).toBeInstanceOf(Uint8Array);
+      expect(t.published).toEqual([
+        expect.objectContaining({
+          messageId: woken.id,
+          mentionDelivery: expect.objectContaining({
+            launchId: daveStart.launchId,
+            sessionId: "native-dave-1",
+          }),
+        }),
+      ]);
+
+      // Carol's mention went out for her old launch; her restart binds its session in the
+      // started result.
+      const stale = await t.send(`@carol-${t.suffix} before the restart`);
+      const carolStart = await start(t.carol.id);
+      t.published.length = 0;
+      await control.result(t.principal, {
+        protocolMajor: 1,
+        requestId: carolStart.requestId,
+        workspaceId: t.workspace.id,
+        computerId: t.computer.id,
+        agentId: t.carol.id,
+        provider: "pi",
+        epoch: carolStart.controlEpoch!,
+        phase: "started",
+        launchId: carolStart.launchId,
+        sequence: 1,
+        identity: { sessionId: "native-carol-2", state: "resumable" },
+      });
+      await resending;
+      expect(t.published).toEqual([
+        expect.objectContaining({
+          messageId: stale.id,
+          mentionDelivery: expect.objectContaining({
+            launchId: carolStart.launchId,
+            sessionId: "native-carol-2",
+          }),
+        }),
+      ]);
+    } finally {
+      await t.cleanup();
+    }
+  },
+);
+
+test.skipIf(!connectionString)(
+  "daemon ready re-sends a running Agent's pending mentions with an envelope for its current launch",
+  async () => {
+    const t = await setup();
+    try {
+      const before = await t.send(`@bob-${t.suffix} before the relaunch`);
+      const status = await t.send("status update for the channel");
+      await t.launch(t.bob.id, "launch-bob-2", "native-bob-2");
+      const after = await t.send(`@bob-${t.suffix} after the relaunch`);
+      const woken = await t.send(`@dave-${t.suffix} wake up`);
+      await t.ack(t.pushTo(woken.deliveries, t.dave.id));
+      await t.launch(t.dave.id, "launch-dave-1", "native-dave-1");
+
+      t.published.length = 0;
+      await t.ready([t.bob.id, t.carol.id, t.dave.id]);
+
+      const pushed = (agentId: string, messageId: string) =>
+        t.published.filter((push) => push.agentId === agentId && push.messageId === messageId);
+      expect(new Set(t.published.map((push) => push.deliveryId)).size).toBe(t.published.length);
+      const bobBefore = pushed(t.bob.id, before.id);
+      expect(bobBefore).toHaveLength(1);
+      expect(bobBefore[0]!.mentionDelivery).toEqual({
+        messageId: before.id,
+        launchId: "launch-bob-2",
+        sessionId: "native-bob-2",
+        computerId: t.computer.id,
+      });
+      expect(pushed(t.bob.id, status.id)).toEqual([
+        expect.not.objectContaining({ mentionDelivery: expect.anything() }),
+      ]);
+      // Issued for the current launch when sent: its envelope goes out again with it.
+      expect(pushed(t.bob.id, after.id)).toEqual([
+        expect.objectContaining({
+          mentionDelivery: expect.objectContaining({
+            launchId: "launch-bob-2",
+            sessionId: "native-bob-2",
+          }),
+        }),
+      ]);
+      // Received as a wake, so only its re-issue sends it again.
+      expect(pushed(t.dave.id, woken.id)).toEqual([
+        expect.objectContaining({
+          mentionsAgent: true,
+          mentionDelivery: expect.objectContaining({
+            launchId: "launch-dave-1",
+            sessionId: "native-dave-1",
+          }),
+        }),
+      ]);
+
+      await t.ack(bobBefore[0]!, bobBefore[0]!.mentionDelivery);
+      expect(await t.row(before.id, t.bob.id)).toMatchObject({ mentionOutcome: "delivered" });
+    } finally {
+      await t.cleanup();
+    }
+  },
+);
+
+test.skipIf(!connectionString)(
+  "at daemon ready, a running Agent with no session yet gets a stale mention as a wake, and a plain ACK leaves it pending",
+  async () => {
+    const t = await setup();
+    try {
+      const sent = await t.send(`@bob-${t.suffix} before the session`);
+      await t.db.agent.update({ where: { id: t.bob.id }, data: { currentSessionId: null } });
+
+      t.published.length = 0;
+      await t.ready([t.bob.id, t.carol.id, t.dave.id]);
+
+      const push = t.published.find(
+        (delivery) => delivery.agentId === t.bob.id && delivery.messageId === sent.id,
+      )!;
+      expect(push.mentionDelivery).toBeUndefined();
+      expect(await t.row(sent.id, t.bob.id)).toMatchObject({
+        mentionOutcome: "pending",
+        mentionLaunchId: null,
+      });
+      await t.ack(push);
+      expect(await t.row(sent.id, t.bob.id)).toMatchObject({ mentionOutcome: "pending" });
+    } finally {
+      await t.cleanup();
+    }
+  },
+);
+
+test.skipIf(!connectionString)(
+  "at daemon ready, a mention a concurrent drift answer took is left to it, not sent without its envelope",
+  async () => {
+    const t = await setup();
+    try {
+      const sent = await t.send(`@bob-${t.suffix} taken`);
+      await t.launch(t.bob.id, "launch-bob-2", "native-bob-2");
+      // Between ready's read and its re-issue, a drift answer issues the mention for another launch.
+      const racing = Object.assign(Object.create(t.repository), {
+        async readPending(workspaceId: string, agentId: string) {
+          const read = await t.repository.readPending(workspaceId, agentId);
+          await t.db.agentMessageDelivery.updateMany({
+            where: { messageId: sent.id, agentId: t.bob.id },
+            data: { mentionLaunchId: "launch-bob-9", mentionSessionId: "native-bob-9" },
+          });
+          return read;
+        },
+      }) as typeof t.repository;
+
+      t.published.length = 0;
+      await t.ready(
+        [t.bob.id, t.carol.id, t.dave.id],
+        new MentionDeliveryReports(racing, t.publisher, t.conversations),
+      );
+      expect(
+        t.published.filter((push) => push.agentId === t.bob.id && push.messageId === sent.id),
+      ).toEqual([]);
+      expect(await t.row(sent.id, t.bob.id)).toMatchObject({
+        mentionOutcome: "pending",
+        mentionLaunchId: "launch-bob-9",
+      });
+    } finally {
+      await t.cleanup();
+    }
+  },
+);
+
+test.skipIf(!connectionString)(
+  "a re-issued mention that is not sent keeps no envelope, so the next session issues it again",
+  async () => {
+    const t = await setup();
+    try {
+      const failed = await t.send(`@bob-${t.suffix} publish fails`);
+      await t.launch(t.bob.id, "launch-bob-2", "native-bob-2");
+      const unavailable = {
+        async publish() {
+          throw new Error("centrifugo unavailable");
+        },
+      } as unknown as CentrifugoServerApi;
+      await new MentionDeliveryReports(
+        t.repository,
+        unavailable,
+        t.conversations,
+      ).resendForCurrentSession(t.scope(t.bob.id));
+      expect(await t.row(failed.id, t.bob.id)).toMatchObject({
+        mentionOutcome: "pending",
+        mentionLaunchId: null,
+      });
+      t.published.length = 0;
+      await t.sessionAccepted(t.bob.id);
+      expect(t.published).toEqual([
+        expect.objectContaining({
+          messageId: failed.id,
+          mentionDelivery: expect.objectContaining({ launchId: "launch-bob-2" }),
+        }),
+      ]);
+
+      // A mention whose delivery is not read back (Carol left the channel) is not sent either.
+      const left = await t.send(`@carol-${t.suffix} then she leaves`);
+      await t.launch(t.carol.id, "launch-carol-2", "native-carol-2");
+      await t.db.conversationMember.updateMany({
+        where: { agentId: t.carol.id },
+        data: { leftAt: new Date() },
+      });
+      t.published.length = 0;
+      await t.sessionAccepted(t.carol.id);
+      expect(t.published).toHaveLength(0);
+      expect(await t.row(left.id, t.carol.id)).toMatchObject({
+        mentionOutcome: "pending",
+        mentionLaunchId: null,
+      });
+    } finally {
+      await t.cleanup();
+    }
+  },
+);
+
+test.skipIf(!connectionString)(
+  "a drift and the new launch's session send the mention once and leave the same outcome, whichever comes first",
+  async () => {
+    const t = await setup();
+    try {
+      // Drift first, the newer launch already known.
+      const known = await t.send(`@bob-${t.suffix} drift first, launch known`);
+      await t.launch(t.bob.id, "launch-bob-2", "native-bob-2");
+      t.published.length = 0;
+      await t.terminal(t.pushTo(known.deliveries, t.bob.id), "IDENTITY_DRIFT");
+      await t.sessionAccepted(t.bob.id);
+      expect(t.published).toHaveLength(1);
+      expect(await t.row(known.id, t.bob.id)).toMatchObject({
+        mentionOutcome: "pending",
+        mentionLaunchId: "launch-bob-2",
+      });
+
+      // Session first: the drift names an envelope already replaced.
+      const reported = await t.send(`@carol-${t.suffix} session first`);
+      await t.launch(t.carol.id, "launch-carol-2", "native-carol-2");
+      t.published.length = 0;
+      await t.sessionAccepted(t.carol.id);
+      await t.terminal(t.pushTo(reported.deliveries, t.carol.id), "IDENTITY_DRIFT");
+      expect(t.published).toHaveLength(1);
+      expect(await t.row(reported.id, t.carol.id)).toMatchObject({
+        mentionOutcome: "pending",
+        mentionLaunchId: "launch-carol-2",
+      });
+
+      // Drift first, the newer launch not yet known: it waits for the session.
+      const unknown = await t.send(`@carol-${t.suffix} drift first, launch unknown`);
+      t.published.length = 0;
+      await t.terminal(t.pushTo(unknown.deliveries, t.carol.id), "IDENTITY_DRIFT");
+      expect(t.published).toHaveLength(0);
+      await t.launch(t.carol.id, "launch-carol-3", "native-carol-3");
+      await t.sessionAccepted(t.carol.id);
+      expect(t.published.filter((push) => push.messageId === unknown.id)).toEqual([
+        expect.objectContaining({
+          mentionDelivery: expect.objectContaining({ launchId: "launch-carol-3" }),
+        }),
+      ]);
+      expect(await t.row(unknown.id, t.carol.id)).toMatchObject({
+        mentionOutcome: "pending",
+        mentionLaunchId: "launch-carol-3",
       });
     } finally {
       await t.cleanup();

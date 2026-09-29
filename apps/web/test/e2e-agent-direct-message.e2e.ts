@@ -481,7 +481,7 @@ test("Agent runtime, status, Message Inbox, and App Inbox cross the real system"
     ).toBe(offlineMessage.sequence);
 
     const centrifugo = createCentrifugoServerApi();
-    const sessions = createAgentSessions(db);
+    const sessions = createAgentSessions(db, { resendForCurrentSession: async () => {} });
     const runtimeControl = new PublishAgentRuntimeControl(
       new RepositoryAgentAuthorization(agents),
       centrifugo,
