@@ -40,7 +40,7 @@ function message(overrides: Partial<OutgoingMessage> = {}): OutgoingMessage {
     localId: `local-${counter}`,
     draftKey: "chat-a",
     body: `message ${counter}`,
-    requestId: `request-${counter}`,
+    idempotencyKey: `request-${counter}`,
     asTask: false,
     attachments: [],
     ...overrides,
@@ -78,7 +78,7 @@ describe("createComposerOutbox", () => {
     ]);
   });
 
-  test("retrying an unsent message sends it again under the same request id and clears it", async () => {
+  test("retrying an unsent message sends it again under the same idempotency key and clears it", async () => {
     const outbox = createComposerOutbox(memoryStorage());
     const failing = message();
     await outbox.send(failing, async () => {
@@ -86,9 +86,9 @@ describe("createComposerOutbox", () => {
     });
     const requestIds: string[] = [];
     await outbox.retry(failing.localId, async (entry) => {
-      requestIds.push(entry.requestId);
+      requestIds.push(entry.idempotencyKey);
     });
-    expect(requestIds).toEqual([failing.requestId]);
+    expect(requestIds).toEqual([failing.idempotencyKey]);
     expect(outbox.entries("chat-a")).toEqual([]);
   });
 
@@ -120,6 +120,15 @@ describe("createComposerOutbox", () => {
     outbox.discard(failing.localId);
     expect(storage.length).toBe(0);
     expect(createComposerOutbox(storage).entries("chat-a")).toEqual([]);
+  });
+
+  test("an outbox entry this page can no longer read is removed from the device on load", () => {
+    const storage = memoryStorage();
+    storage.setItem("coforge.composer-outbox:stale", JSON.stringify({ localId: "stale" }));
+    storage.setItem("another-app:key", "kept");
+    expect(createComposerOutbox(storage).entries("chat-a")).toEqual([]);
+    expect(storage.getItem("coforge.composer-outbox:stale")).toBeNull();
+    expect(storage.getItem("another-app:key")).toBe("kept");
   });
 
   test("each chat sees only its own messages, as the same list until something changes", async () => {
@@ -159,11 +168,11 @@ describe("createComposerOutbox", () => {
 });
 
 describe("acknowledge", () => {
-  test("a signal naming a pending send's request id marks it delivered as that message", async () => {
+  test("a signal naming a pending send's idempotency key marks it delivered as that message", async () => {
     const outbox = createComposerOutbox(memoryStorage());
     const pending = message();
     void outbox.send(pending, () => new Promise<never>(() => {}));
-    outbox.acknowledge(pending.requestId, "message-9");
+    outbox.acknowledge(pending.idempotencyKey, "message-9");
     expect(outbox.entries("chat-a")).toEqual([
       { ...pending, state: "delivered", messageId: "message-9" },
     ]);
@@ -186,7 +195,7 @@ describe("acknowledge", () => {
         }),
     );
     await started;
-    outbox.acknowledge(pending.requestId, "message-9");
+    outbox.acknowledge(pending.idempotencyKey, "message-9");
     failAttempt(new TypeError("Failed to fetch"));
     await done;
     expect(outbox.entries("chat-a")).toEqual([
@@ -200,7 +209,7 @@ describe("acknowledge", () => {
     await outbox.send(failing, async () => {
       throw new TypeError("Failed to fetch");
     });
-    outbox.acknowledge(failing.requestId, "message-9");
+    outbox.acknowledge(failing.idempotencyKey, "message-9");
     expect(outbox.entries("chat-a")).toEqual([
       { ...failing, state: "delivered", messageId: "message-9" },
     ]);
@@ -232,7 +241,7 @@ describe("acknowledge", () => {
     expect(outbox.entries("chat-a")).toEqual([]);
   });
 
-  test("a request id this page never sent changes nothing", async () => {
+  test("an idempotency key this page never sent changes nothing", async () => {
     const outbox = createComposerOutbox(memoryStorage());
     const listed = outbox.entries("chat-a");
     outbox.acknowledge("someone-elses-request", "message-9");
@@ -244,7 +253,7 @@ describe("acknowledge", () => {
     const before = createComposerOutbox(storage);
     const pending = message();
     void before.send(pending, () => new Promise<never>(() => {}));
-    before.acknowledge(pending.requestId, "message-9");
+    before.acknowledge(pending.idempotencyKey, "message-9");
     expect(createComposerOutbox(storage).entries("chat-a")).toEqual([]);
   });
 });

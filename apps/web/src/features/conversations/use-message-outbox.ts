@@ -74,7 +74,13 @@ export function canEditUnsent(entry: OutboxEntry) {
 /** What a conversation row asks of its chat's composer: take back an unsent message for editing,
  * or just take the focus back after the row's button that held it went away. */
 export type ComposerRequest =
-  | { kind: "edit"; body: string; requestId: string; asTask: boolean; chips: PendingAttachment[] }
+  | {
+      kind: "edit";
+      body: string;
+      idempotencyKey: string;
+      asTask: boolean;
+      chips: PendingAttachment[];
+    }
   | { kind: "focus" };
 
 const composerListeners = new Map<string, Set<(request: ComposerRequest) => void>>();
@@ -118,10 +124,10 @@ export function useMessageOutbox({
   draftKey: string;
   onSend: (
     body: string,
-    requestId: string,
+    idempotencyKey: string,
     attachmentIds?: string[],
   ) => Promise<SentMessage | void>;
-  onCreateTask?: (title: string, requestId: string, attachmentId?: string) => Promise<void>;
+  onCreateTask?: (title: string, idempotencyKey: string, attachmentId?: string) => Promise<void>;
   onSent?: (message: SentMessage) => void;
 }) {
   /** Posts one outbox message through this chat's send (or task) operation. */
@@ -129,8 +135,8 @@ export function useMessageOutbox({
     const attachmentIds = message.attachments.map((attachment) => attachment.id);
     return message.asTask && onCreateTask
       ? // Task creation stays single-attachment; the first upload (send order) is used.
-        onCreateTask(message.body, message.requestId, attachmentIds[0]).then(() => undefined)
-      : onSend(message.body, message.requestId, attachmentIds);
+        onCreateTask(message.body, message.idempotencyKey, attachmentIds[0]).then(() => undefined)
+      : onSend(message.body, message.idempotencyKey, attachmentIds);
   }
 
   async function settle(localId: string, sending: Promise<SentMessage | void | undefined>) {
@@ -161,7 +167,7 @@ export function useMessageOutbox({
     retry(entry: OutboxEntry) {
       unannouncedFailures.add(entry.localId);
       askComposer(draftKey, { kind: "focus" });
-      // The same request id, so a send the server did accept is not posted twice.
+      // The same idempotency key, so a send the server did accept is not posted twice.
       void settle(
         entry.localId,
         deviceComposerOutbox().retry(entry.localId, deliver, deliveredMessageId),
@@ -183,7 +189,7 @@ export function useMessageOutbox({
       const taken = askComposer(draftKey, {
         kind: "edit",
         body: entry.body,
-        requestId: entry.requestId,
+        idempotencyKey: entry.idempotencyKey,
         asTask: entry.asTask,
         chips: sentChips.get(entry.localId) ?? [],
       });

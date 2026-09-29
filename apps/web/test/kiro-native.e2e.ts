@@ -152,7 +152,7 @@ test("real Kiro v3 reads and replies through Web, Centrifugo and Daemon", async 
     );
     const marker = `KIRO-E2E-${crypto.randomUUID()}`;
     const sent = await sender.execute({
-      requestId: crypto.randomUUID(),
+      idempotencyKey: crypto.randomUUID(),
       workspaceId,
       conversationId: opened.conversationId,
       senderMemberId: opened.senderMemberId,

@@ -56,7 +56,7 @@ export function weeklyReportNotifier(
           workspaceId: input.workspaceId,
           agentId: assistant.agentId,
           target: `@${user.username}`,
-          requestId: `weekly-report-invite:${input.reportId}`,
+          idempotencyKey: `weekly-report-invite:${input.reportId}`,
           body,
         });
       }

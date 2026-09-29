@@ -160,7 +160,7 @@ export function ChannelConversation({
   conversation: ChannelConversationView;
   onSend: (
     body: string,
-    requestId: string,
+    idempotencyKey: string,
     attachmentIds?: string[],
     threadRootId?: string,
   ) => Promise<OwnMessageIndexEntry | void>;
@@ -186,7 +186,7 @@ export function ChannelConversation({
   /** The main pane's own scroll reached the latest message; advances the conversation cursor. */
   onReadLatest?: (throughSequence: number) => void;
   onThreadFollowedChange?: (rootMessageId: string, followed: boolean) => Promise<void>;
-  onCreateTask?: (title: string, requestId: string, attachmentId?: string) => Promise<void>;
+  onCreateTask?: (title: string, idempotencyKey: string, attachmentId?: string) => Promise<void>;
   /** Toggles the viewer's own emoji reaction on a message; the route refreshes it. */
   onToggleReaction?: (messageId: string, emoji: string, active: boolean) => Promise<void>;
   onShowTasks?: () => void;

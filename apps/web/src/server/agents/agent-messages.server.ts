@@ -183,10 +183,8 @@ const HELD_SEND_AVAILABLE_ACTIONS = ["check_messages", "send_draft", "send_anywa
 
 export async function executeAgentSendMessage(
   sender: {
-    // The domain layer (the shared `SendDirectMessage`) calls this key `requestId`; the Agent API
-    // calls it `idempotencyKey`, so the two names meet here and nowhere else.
     executeFromAgent(input: {
-      requestId: string;
+      idempotencyKey: string;
       workspaceId: string;
       agentId: string;
       target: string;
@@ -206,7 +204,7 @@ export async function executeAgentSendMessage(
   unresolvedMentionHandles: readonly string[];
 }> {
   const message = await sender.executeFromAgent({
-    requestId: input.idempotencyKey,
+    idempotencyKey: input.idempotencyKey,
     workspaceId: input.workspaceId,
     agentId: input.agentId,
     target: input.target,
@@ -240,7 +238,7 @@ export async function reconcileAgentSendMessage(
     workspaceId: input.workspaceId,
     senderKind: "agent",
     senderId: input.agentId,
-    requestId: input.idempotencyKey,
+    idempotencyKey: input.idempotencyKey,
   });
   if (!record) return { state: "not_found" };
   if (record.state === "processing") throw new MessageRequestInProgressError();

@@ -209,7 +209,7 @@ test("a DM between members reads, sends and is read by its conversation id", asy
     workspaceId,
     ada.id,
     conversationId,
-    { requestId: crypto.randomUUID(), body: "Lunch at noon?" },
+    { idempotencyKey: crypto.randomUUID(), body: "Lunch at noon?" },
     sending,
   );
 
@@ -266,7 +266,7 @@ test("a send in a DM with an Agent is stored as the viewer's and read back", asy
     workspaceId,
     ada.id,
     conversationId,
-    { requestId: crypto.randomUUID(), body: "Ship it" },
+    { idempotencyKey: crypto.randomUUID(), body: "Ship it" },
     sending,
   );
   const page = await conversations.page(workspaceId, ada.id, conversationId);

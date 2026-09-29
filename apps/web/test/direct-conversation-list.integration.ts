@@ -141,7 +141,7 @@ test("pin, mark unread and close go by conversation id, for a DM with an Agent a
     workspaceId,
     lin.id,
     withLin.conversationId,
-    { requestId: crypto.randomUUID(), body: "hello" },
+    { idempotencyKey: crypto.randomUUID(), body: "hello" },
     sending,
   );
   await conversations.markRead(workspaceId, kay.id, withLin.conversationId, sent.sequence);
@@ -210,7 +210,7 @@ test("a closed DM comes back when someone other than the viewer posts a top-leve
       workspaceId,
       senderId,
       conversationId,
-      { requestId: crypto.randomUUID(), body, threadRootId },
+      { idempotencyKey: crypto.randomUUID(), body, threadRootId },
       sending,
     );
   const closed = async () => (await conversations.list(workspaceId, mo.id)).hidden;
@@ -234,7 +234,7 @@ test("a closed DM comes back when someone other than the viewer posts a top-leve
     workspaceId,
     mo.id,
     self.conversationId,
-    { requestId: crypto.randomUUID(), body: "a note to self" },
+    { idempotencyKey: crypto.randomUUID(), body: "a note to self" },
     sending,
   );
   expect(await closed()).toEqual([self.conversationId]);
@@ -262,7 +262,7 @@ test("badges count each DM by conversation id, DMs between members included", as
       workspaceId,
       senderId,
       conversationId,
-      { requestId: crypto.randomUUID(), body },
+      { idempotencyKey: crypto.randomUUID(), body },
       sending,
     );
   await send(lin.id, withLin.conversationId, "one");

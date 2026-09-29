@@ -38,7 +38,7 @@ async function initializeTracing() {
 }
 
 export async function withMessageSendTrace<T>(
-  requestId: string,
+  idempotencyKey: string,
   attributes: Attributes,
   operation: (trace: MessageSendTrace) => Promise<T>,
 ): Promise<T> {
@@ -57,7 +57,7 @@ export async function withMessageSendTrace<T>(
 
   const tracer = trace.getTracer("coforge-web", "1.0.0");
   const root = tracer.startSpan("message.send", {
-    attributes: { ...attributes, "coforge.request_id": requestId },
+    attributes: { ...attributes, "coforge.request_id": idempotencyKey },
   });
   const rootContext = trace.setSpan(context.active(), root);
   const handle: MessageSendTrace = {

@@ -969,7 +969,7 @@ test("a person notified of a mention outside their channels finds it in Activity
       workspaceId: workspace.id,
       userId: alice.id,
       channelId: triage.id,
-      requestId: crypto.randomUUID(),
+      idempotencyKey: crypto.randomUUID(),
       body: `@mb-${suffix} can you look at this`,
     });
     const inbox = new ActivityInbox(db);

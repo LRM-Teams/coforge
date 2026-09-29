@@ -343,9 +343,9 @@ test("Agent runtime, status, Message Inbox, and App Inbox cross the real system"
       new RedisMessageRequestIdempotency(redis),
       createCentrifugoServerApi(),
     );
-    const requestId = crypto.randomUUID();
+    const idempotencyKey = crypto.randomUUID();
     const input = {
-      requestId,
+      idempotencyKey,
       workspaceId,
       conversationId: opened.conversationId,
       senderMemberId: opened.senderMemberId,
@@ -437,7 +437,7 @@ test("Agent runtime, status, Message Inbox, and App Inbox cross the real system"
     daemonClient!.disconnect();
     await daemonDisconnected;
     const offlineMessage = await sender.execute({
-      requestId: crypto.randomUUID(),
+      idempotencyKey: crypto.randomUUID(),
       workspaceId,
       conversationId: opened.conversationId,
       senderMemberId: opened.senderMemberId,

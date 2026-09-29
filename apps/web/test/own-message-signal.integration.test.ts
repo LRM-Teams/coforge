@@ -55,7 +55,7 @@ test.skipIf(!connectionString)("a person's channel message names its sender", as
       workspaceId: workspace.id,
       userId: ada.id,
       channelId: general.id,
-      requestId: crypto.randomUUID(),
+      idempotencyKey: crypto.randomUUID(),
       body: "my own words",
     });
     expect(announced).toEqual([

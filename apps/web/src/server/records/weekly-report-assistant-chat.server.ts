@@ -165,7 +165,7 @@ export class WeeklyReportAssistantChat {
       this.centrifugo,
       this.realtime,
     ).execute({
-      requestId: input.requestId,
+      idempotencyKey: input.requestId,
       workspaceId: input.workspaceId,
       conversationId: opened.conversationId,
       senderMemberId: opened.senderMemberId,

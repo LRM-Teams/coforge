@@ -100,12 +100,12 @@ export class UserDirectConversations {
   }
 
   /**
-   * Stores a member's message once per `requestId`, then tells the conversation's open pages and
+   * Stores a member's message once per `idempotencyKey`, then tells the conversation's open pages and
    * the other member's list. Nothing is
    * delivered to an Agent, and `@handle` stays plain text: a direct conversation between people
    * has no one else to mention.
    */
-  async send(input: UserDirectMessageInput & { requestId: string }) {
+  async send(input: UserDirectMessageInput & { idempotencyKey: string }) {
     const { workspaceId, conversationId, senderUserId } = input;
     const conversation = await this.db.conversation.findFirst({
       where: { id: conversationId, workspaceId },
@@ -120,7 +120,12 @@ export class UserDirectConversations {
     if (!sender || !conversation?.directKey || !isPeopleDirectKey(conversation.directKey))
       throw new AppError("ACCESS_DENIED");
     const message = await this.idempotency.execute(
-      { workspaceId, senderKind: "user", senderId: senderUserId, requestId: input.requestId },
+      {
+        workspaceId,
+        senderKind: "user",
+        senderId: senderUserId,
+        idempotencyKey: input.idempotencyKey,
+      },
       () => this.store(input, sender.id),
     );
     try {
@@ -133,7 +138,7 @@ export class UserDirectConversations {
           member.userId && member.userId !== senderUserId ? [member.userId] : [],
         ),
         directPair: peopleDirectKeyPair(conversation.directKey),
-        requestId: input.requestId,
+        idempotencyKey: input.idempotencyKey,
         ...(message.threadRootId ? { threadRootId: message.threadRootId } : {}),
       });
     } catch {

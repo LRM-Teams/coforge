@@ -227,7 +227,7 @@ function AttachmentChip({
 /**
  * The message form at the foot of a conversation or thread. Owns the draft, the pending
  * attachments (each uploaded sequentially as soon as it is chosen, so its progress is
- * visible), the "as task" toggle and the retry request id, so typing never re-renders the
+ * visible), the "as task" toggle and the retry idempotency key, so typing never re-renders the
  * history above it.
  */
 export function MessageComposer({
@@ -265,10 +265,10 @@ export function MessageComposer({
   quotedDraft?: { id: number; text: string };
   onSend: (
     body: string,
-    requestId: string,
+    idempotencyKey: string,
     attachmentIds?: string[],
   ) => Promise<SentMessage | void>;
-  onCreateTask?: (title: string, requestId: string, attachmentId?: string) => Promise<void>;
+  onCreateTask?: (title: string, idempotencyKey: string, attachmentId?: string) => Promise<void>;
   /** A message of the current user's was accepted by the server. */
   onSent?: (message: SentMessage) => void;
 }) {
@@ -277,8 +277,8 @@ export function MessageComposer({
   // Device-local draft, scoped to this chat (and thread): typing here never touches another
   // conversation, and the text survives switching chats, reloads, and restarts on this device.
   const draftKey = composerDraftKey(conversationId, threadRootId);
-  // A failed send keeps its request id so a retry of the same text is idempotent.
-  const retryRef = useRef<{ body: string; requestId: string; asTask: boolean } | undefined>(
+  // A failed send keeps its idempotency key so a retry of the same text is idempotent.
+  const retryRef = useRef<{ body: string; idempotencyKey: string; asTask: boolean } | undefined>(
     undefined,
   );
   const [body, setBody] = useState(() => readComposerDraft(draftKey));
@@ -436,9 +436,9 @@ export function MessageComposer({
     event?.preventDefault();
     const text = body.trim() || attachments[0]?.file.name || "";
     if (!text || uploading || anyFailed || attachments.length > MAX_ATTACHMENTS) return;
-    const requestId =
+    const idempotencyKey =
       retryRef.current?.body === text && retryRef.current.asTask === asTask
-        ? retryRef.current.requestId
+        ? retryRef.current.idempotencyKey
         : crypto.randomUUID();
     // Only files that finished uploading and were not removed.
     const uploaded = attachments.filter((item) => item.id);
@@ -446,7 +446,7 @@ export function MessageComposer({
       localId: crypto.randomUUID(),
       draftKey,
       body: text,
-      requestId,
+      idempotencyKey,
       asTask: asTask && !inThread && Boolean(onCreateTask),
       attachments: uploaded.flatMap((item) =>
         item.id ? [{ id: item.id, fileName: item.file.name }] : [],
@@ -464,7 +464,7 @@ export function MessageComposer({
   }
 
   // "Edit" on an unsent message in the conversation puts it back here, ahead of anything typed
-  // since; sending it again unchanged reuses its request id. Retry and Delete just hand the focus
+  // since; sending it again unchanged reuses its idempotency key. Retry and Delete just hand the focus
   // back, since the row button that held it is gone.
   useComposerRequests(draftKey, (request) => {
     if (request.kind === "focus") {
@@ -476,7 +476,7 @@ export function MessageComposer({
     if (request.asTask) setAsTask(true);
     retryRef.current = {
       body: request.body,
-      requestId: request.requestId,
+      idempotencyKey: request.idempotencyKey,
       asTask: request.asTask,
     };
     requestAnimationFrame(focusComposer);

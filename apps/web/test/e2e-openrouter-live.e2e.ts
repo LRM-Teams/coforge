@@ -234,7 +234,7 @@ test("live OpenRouter Pi delivery writes an Agent reply to canonical DB", async 
       workspaceId: workspace.id,
       userId: user.id,
       channelId: channel.id,
-      requestId: crypto.randomUUID(),
+      idempotencyKey: crypto.randomUUID(),
       body: "Reply with exactly: live OpenRouter E2E confirmed.",
     });
     diagnostic("message_sent", { messageId: sent.id, target: channel.name });
@@ -307,7 +307,7 @@ test("live OpenRouter Pi delivery writes an Agent reply to canonical DB", async 
       workspaceId: workspace.id,
       userId: user.id,
       channelId: channel.id,
-      requestId: crypto.randomUUID(),
+      idempotencyKey: crypto.randomUUID(),
       body: "ordinary muted message: do not answer",
     });
     await waitForQuiet(
@@ -344,7 +344,7 @@ test("live OpenRouter Pi delivery writes an Agent reply to canonical DB", async 
       workspaceId: workspace.id,
       userId: user.id,
       channelId: channel.id,
-      requestId: crypto.randomUUID(),
+      idempotencyKey: crypto.randomUUID(),
       body: `@${agent.agent.name} Reply with exactly: muted mention pierced.`,
     });
     const mentionDelivery = await waitFor(
@@ -379,7 +379,7 @@ test("live OpenRouter Pi delivery writes an Agent reply to canonical DB", async 
       workspaceId: workspace.id,
       userId: user.id,
       channelId: channel.id,
-      requestId: crypto.randomUUID(),
+      idempotencyKey: crypto.randomUUID(),
       body: "Follow this thread. For the next ordinary reply, respond with exactly: followed thread pierced.",
     });
     await channels.setAgentThreadFollowed(
@@ -392,7 +392,7 @@ test("live OpenRouter Pi delivery writes an Agent reply to canonical DB", async 
       workspaceId: workspace.id,
       userId: user.id,
       channelId: channel.id,
-      requestId: crypto.randomUUID(),
+      idempotencyKey: crypto.randomUUID(),
       threadRootId: threadRoot.id,
       body: "Reply with exactly: followed thread pierced.",
     });

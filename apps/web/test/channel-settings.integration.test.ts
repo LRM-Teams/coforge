@@ -179,7 +179,7 @@ test.skipIf(!connectionString)(
             workspaceId: workspace.id,
             userId: bob.id,
             channelId: team.id,
-            requestId: crypto.randomUUID(),
+            idempotencyKey: crypto.randomUUID(),
             body: "still here?",
           }),
         ),

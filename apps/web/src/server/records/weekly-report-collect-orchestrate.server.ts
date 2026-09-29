@@ -209,7 +209,7 @@ export async function submitWeeklyReportCollectPlan(
       slot.collectorAgentId,
     );
     await sender.execute({
-      requestId: crypto.randomUUID(),
+      idempotencyKey: crypto.randomUUID(),
       workspaceId: input.workspaceId,
       conversationId: opened.conversationId,
       senderMemberId: opened.senderMemberId,

@@ -158,7 +158,7 @@ async function setup() {
       workspaceId: workspace.id,
       userId: owner.id,
       channelId: team.id,
-      requestId: crypto.randomUUID(),
+      idempotencyKey: crypto.randomUUID(),
       body,
     });
     return { id: message.id, deliveries: [...published] };
@@ -1280,7 +1280,7 @@ test.skipIf(!connectionString)(
         new MentionDeliveryIssuer(t.repository),
       );
       const sent = await sender.executeFromAgent({
-        requestId: crypto.randomUUID(),
+        idempotencyKey: crypto.randomUUID(),
         workspaceId: t.workspace.id,
         agentId: t.bob.id,
         target: `#team-${t.suffix}`,
@@ -1330,7 +1330,7 @@ test.skipIf(!connectionString)(
 
       // A message of Bob's that tracked no mention answers an empty list.
       const plain = await sender.executeFromAgent({
-        requestId: crypto.randomUUID(),
+        idempotencyKey: crypto.randomUUID(),
         workspaceId: t.workspace.id,
         agentId: t.bob.id,
         target: `#team-${t.suffix}`,

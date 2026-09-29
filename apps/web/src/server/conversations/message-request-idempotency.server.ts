@@ -10,7 +10,7 @@ export type PersistedDirectMessage = {
    * Redis with the rest of the persisted result on idempotent retries. */
   threadRootId: string | null;
   /** Always present, possibly empty; order matches send/upload order. Not itself compared for
-   * equality anywhere: a retried `requestId` returns this same persisted result verbatim
+   * equality anywhere: a retried `idempotencyKey` returns this same persisted result verbatim
    * rather than recomputing or hashing it, so the array's order is preserved automatically by
    * round-tripping through storage. */
   attachments: {
@@ -29,7 +29,7 @@ export type MessageRequestScope = {
   workspaceId: string;
   senderKind: "user" | "agent";
   senderId: string;
-  requestId: string;
+  idempotencyKey: string;
 };
 
 /** Short-lived duplicate suppression around canonical Message persistence. */
@@ -40,13 +40,13 @@ export interface MessageRequestIdempotency {
   ): Promise<PersistedDirectMessage>;
 }
 
-/** What is recorded under one request key: a send still working, or its persisted result. */
+/** What is recorded under one idempotency key: a send still working, or its persisted result. */
 export type MessageRequestRecord =
   | { state: "processing" }
   | { state: "completed"; message: PersistedDirectMessage };
 
 /**
- * Reads a request key's record without claiming it — the lookup behind an Agent's `reconcileOnly`
+ * Reads an idempotency key's record without claiming it — the lookup behind an Agent's `reconcileOnly`
  * send, which must learn whether a key committed without ever sending or holding a message.
  */
 export interface MessageRequestRecords {

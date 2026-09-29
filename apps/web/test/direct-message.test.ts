@@ -33,7 +33,7 @@ class MemoryMessageRequestIdempotency implements MessageRequestIdempotency {
   readonly results = new Map<string, typeof persisted>();
 
   async execute(scope: MessageRequestScope, persist: () => Promise<typeof persisted>) {
-    const key = `${scope.workspaceId}:${scope.senderKind}:${scope.senderId}:${scope.requestId}`;
+    const key = `${scope.workspaceId}:${scope.senderKind}:${scope.senderId}:${scope.idempotencyKey}`;
     const existing = this.results.get(key);
     if (existing) return existing;
     const message = await persist();
@@ -57,7 +57,7 @@ describe("SendDirectMessage", () => {
         publication = data;
       },
     }).execute({
-      requestId: "thread-request",
+      idempotencyKey: "thread-request",
       workspaceId: "workspace-a",
       conversationId: "conversation-a",
       senderMemberId: "member-a",
@@ -103,7 +103,7 @@ describe("SendDirectMessage", () => {
     });
 
     const result = await useCase.execute({
-      requestId: "multi-attachment-request",
+      idempotencyKey: "multi-attachment-request",
       workspaceId: "workspace-a",
       conversationId: "conversation-a",
       senderMemberId: "member-a",
@@ -145,7 +145,7 @@ describe("SendDirectMessage", () => {
     });
 
     await useCase.execute({
-      requestId: "request-a",
+      idempotencyKey: "request-a",
       workspaceId: "workspace-a",
       conversationId: "conversation-a",
       senderMemberId: "member-a",
@@ -204,7 +204,7 @@ describe("SendDirectMessage", () => {
 
     await expect(
       useCase.execute({
-        requestId: "request-a",
+        idempotencyKey: "request-a",
         workspaceId: "workspace-a",
         conversationId: "conversation-a",
         senderMemberId: "member-a",
@@ -215,7 +215,7 @@ describe("SendDirectMessage", () => {
     expect(calls).toEqual(["persist", "browser:conversation-a:message-a:1", "daemon"]);
   });
 
-  test("signals a human message with its request id, so the sender's browser can match it", async () => {
+  test("signals a human message with its idempotency key, so the sender's browser can match it", async () => {
     const signals: unknown[] = [];
     const repository = {
       async getOrCreateUserAgent() {
@@ -238,7 +238,7 @@ describe("SendDirectMessage", () => {
     );
 
     await useCase.execute({
-      requestId: "request-a",
+      idempotencyKey: "request-a",
       workspaceId: "workspace-a",
       conversationId: "conversation-a",
       senderMemberId: "member-a",
@@ -246,7 +246,7 @@ describe("SendDirectMessage", () => {
       body: "Hello Agent",
     });
     expect(signals).toEqual([
-      expect.objectContaining({ messageId: "message-a", requestId: "request-a" }),
+      expect.objectContaining({ messageId: "message-a", idempotencyKey: "request-a" }),
     ]);
   });
 
@@ -280,7 +280,7 @@ describe("SendDirectMessage", () => {
 
       await expect(
         useCase.execute({
-          requestId: "request-a",
+          idempotencyKey: "request-a",
           workspaceId: "workspace-a",
           conversationId: "conversation-a",
           senderMemberId: "member-a",
@@ -311,7 +311,7 @@ describe("SendDirectMessage", () => {
       });
       await expect(
         useCase.execute({
-          requestId: "request-a",
+          idempotencyKey: "request-a",
           workspaceId: "workspace-a",
           conversationId: "conversation-a",
           senderMemberId: "member-a",
@@ -368,7 +368,7 @@ describe("SendDirectMessage", () => {
     );
 
     await useCase.executeFromAgent({
-      requestId: "request-a",
+      idempotencyKey: "request-a",
       workspaceId: "workspace-a",
       agentId: "agent-a",
       target: "@user",
@@ -414,7 +414,7 @@ describe("SendDirectMessage", () => {
 
     await expect(
       useCase.executeFromAgent({
-        requestId: "request-a",
+        idempotencyKey: "request-a",
         workspaceId: "workspace-a",
         agentId: "agent-a",
         target: "@user",
@@ -472,7 +472,7 @@ describe("SendDirectMessage", () => {
 
     await expect(
       useCase.executeFromAgent({
-        requestId: "channel-thread-request",
+        idempotencyKey: "channel-thread-request",
         workspaceId: "workspace-a",
         agentId: "agent-a",
         target: `#general:${rootId}`,
@@ -517,7 +517,7 @@ describe("SendDirectMessage", () => {
     });
 
     await useCase.executeFromAgent({
-      requestId: "attachment-mention-request",
+      idempotencyKey: "attachment-mention-request",
       workspaceId: "workspace-a",
       agentId: "agent-a",
       target: "@frank",
@@ -561,7 +561,7 @@ describe("SendDirectMessage", () => {
     });
     await expect(
       useCase.executeFromAgent({
-        requestId: "request-a",
+        idempotencyKey: "request-a",
         workspaceId: "workspace-a",
         agentId: "agent-a",
         target: "@user",
@@ -606,7 +606,7 @@ describe("SendDirectMessage", () => {
     );
     await expect(
       useCase.executeFromAgent({
-        requestId: "request-a",
+        idempotencyKey: "request-a",
         workspaceId: "workspace-a",
         agentId: "agent-a",
         target: "@user",
@@ -617,7 +617,7 @@ describe("SendDirectMessage", () => {
     expect(calls).toEqual(["notify:message-a"]);
   });
 
-  test("same sender scope and requestId persists once and returns the same message", async () => {
+  test("same sender scope and idempotencyKey persists once and returns the same message", async () => {
     let persistenceCalls = 0;
     let notificationCalls = 0;
     const repository = {
@@ -641,7 +641,7 @@ describe("SendDirectMessage", () => {
       },
     );
     const input = {
-      requestId: "request-a",
+      idempotencyKey: "request-a",
       workspaceId: "workspace-a",
       conversationId: "conversation-a",
       senderMemberId: "member-a",
@@ -679,7 +679,7 @@ describe("SendDirectMessage", () => {
       },
     });
     const input = {
-      requestId: "request-a",
+      idempotencyKey: "request-a",
       workspaceId: "workspace-a",
       conversationId: "conversation-a",
       senderMemberId: "member-a",
@@ -718,8 +718,8 @@ describe("SendDirectMessage", () => {
       body: "Hello Agent",
     };
 
-    const first = await useCase.execute({ ...input, requestId: "request-a" });
-    const second = await useCase.execute({ ...input, requestId: "request-b" });
+    const first = await useCase.execute({ ...input, idempotencyKey: "request-a" });
+    const second = await useCase.execute({ ...input, idempotencyKey: "request-b" });
 
     expect(persistenceCalls).toBe(2);
     expect(second.id).not.toBe(first.id);
@@ -754,7 +754,7 @@ describe("SendDirectMessage", () => {
     });
 
     await useCase.execute({
-      requestId: "same-request",
+      idempotencyKey: "same-request",
       workspaceId: "workspace-a",
       conversationId: "conversation-a",
       senderMemberId: "member-a",
@@ -762,7 +762,7 @@ describe("SendDirectMessage", () => {
       body: "User message",
     });
     await useCase.executeFromAgent({
-      requestId: "same-request",
+      idempotencyKey: "same-request",
       workspaceId: "workspace-a",
       agentId: "shared-stable-id",
       target: "@user",

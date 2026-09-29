@@ -310,14 +310,19 @@ export class DirectConversations {
   }
 
   /**
-   * Stores the viewer's message once per `requestId` and tells both sides: an Agent is delivered
+   * Stores the viewer's message once per `idempotencyKey` and tells both sides: an Agent is delivered
    * to, a member only sees it arrive.
    */
   async send(
     workspaceId: string,
     viewerId: string,
     conversationId: string,
-    message: { requestId: string; body: string; attachmentIds?: string[]; threadRootId?: string },
+    message: {
+      idempotencyKey: string;
+      body: string;
+      attachmentIds?: string[];
+      threadRootId?: string;
+    },
     { idempotency, centrifugo, realtime }: DirectMessageSending,
   ) {
     const { target, viewerMemberId } = await this.access(workspaceId, viewerId, conversationId, {

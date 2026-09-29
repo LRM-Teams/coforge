@@ -167,7 +167,7 @@ test("send policy forwards a clean message to the sender", async () => {
   );
   expect(calls).toMatchObject([
     {
-      requestId: "request-1",
+      idempotencyKey: "request-1",
       workspaceId: "workspace-1",
       agentId: "agent-1",
       target: "#general",

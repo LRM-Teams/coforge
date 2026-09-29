@@ -38,8 +38,8 @@ export type ConversationRealtimeMessage = {
    * even after the other's member row is gone. */
   directPair?: readonly [string, string];
   /** Present only for a person's send: its idempotency key, so the sender's page can match the
-   * pending copy it shows to this message (see `MessageAvailableEvent.requestId`). */
-  requestId?: string;
+   * pending copy it shows to this message (see `MessageAvailableEvent.idempotencyKey`). */
+  idempotencyKey?: string;
   /** The person who wrote the message (`MessageAvailableEvent.senderUserId`); absent for an
    * Agent's or a system message. */
   senderUserId?: string;

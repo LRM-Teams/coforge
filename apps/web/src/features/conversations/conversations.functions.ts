@@ -195,7 +195,7 @@ export const sendDirectConversationMessage = createServerFn({ method: "POST" })
   .handler(async ({ context, data }) => {
     const { user, db, workspaceId } = context;
     return withMessageSendTrace(
-      data.requestId,
+      data.idempotencyKey,
       { "coforge.conversation_id": data.conversationId },
       async (sendTrace) => {
         const centrifugo = createCentrifugoServerApi();
@@ -207,7 +207,7 @@ export const sendDirectConversationMessage = createServerFn({ method: "POST" })
               user.id,
               data.conversationId,
               {
-                requestId: data.requestId,
+                idempotencyKey: data.idempotencyKey,
                 body: data.body,
                 attachmentIds: data.attachmentIds,
                 threadRootId: data.threadRootId,
