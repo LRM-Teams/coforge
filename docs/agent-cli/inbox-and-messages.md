@@ -83,7 +83,10 @@ action follows the code:
   daemon names the draft's key: wait, then run
   `message send --send-draft --expected-draft-key "<key>" --target "<target>"`,
   which reuses the key and refuses if another send replaced the draft; never
-  rewrite it as a new send.
+  rewrite it as a new send. When another send has already replaced the draft
+  (or the draft cannot be read), no command can retry this send: the error is
+  not retryable, `Draft saved: no`, delivery stays UNKNOWN, and it names
+  `message read --target "<target>"` only as a place to look, not as proof.
 - `AGENT_DM_RESTRICTED`: a private Agent's direct message that is read-only
   for it. Reply in a conversation it may post to.
 - A 400 or 403 without a code (the send's own validation, or a rejection whose
