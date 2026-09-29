@@ -23,6 +23,8 @@ import { SendDirectMessage } from "#src/server/conversations/direct-message.serv
 import { handleAgentMessagesPost } from "#src/routes/api/agent/v1/messages";
 import { handleAgentAttachmentUpload } from "#src/routes/api/agent/v1/attachments/index";
 import { handleAttachmentUploadSessionCreate } from "#src/routes/api/agent/v1/attachment-upload-sessions/index";
+import { handleAgentActionPrepare } from "#src/routes/api/agent/v1/actions/prepare";
+import { ActionCards } from "#src/server/conversations/action-cards.server";
 
 type Person = { id: string; username: string };
 
@@ -431,6 +433,134 @@ test.skipIf(!connectionString)(
           body: departedRefusal(bob),
         });
       expect(stored).toBe(0);
+    } finally {
+      await teardown(db, workspace.id, [owner.id, bob.id]);
+    }
+  },
+);
+
+/** A route's answer, or what it threw past the handler (which the Agent middleware turns into 401). */
+async function outcome(respond: () => Promise<Response>) {
+  try {
+    const response = await respond();
+    return { status: response.status, body: await response.json() };
+  } catch (error) {
+    return { thrown: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+test.skipIf(!connectionString || !redisUrl)(
+  "an Agent's send or upload to someone outside the Workspace reads exactly like an unknown username",
+  async () => {
+    const { db, workspace, owner, bob } = await setup();
+    const redis = new RedisClient(redisUrl!);
+    const elsewhere = await db.user.create({
+      data: { username: `ml-elsewhere-${crypto.randomUUID().slice(0, 8)}` },
+    });
+    const otherWorkspace = await db.workspace.create({
+      data: {
+        slug: `ml-other-${crypto.randomUUID().slice(0, 8)}`,
+        name: "Elsewhere",
+        members: { create: { userId: elsewhere.id, role: "owner" } },
+      },
+    });
+    try {
+      const helper = await createAgent(db, workspace.id, bob);
+      const repo = new PrismaDirectConversationRepository(db);
+      const records = new RedisMessageRequestIdempotency(redis);
+      const principal = { workspaceId: workspace.id, agentId: helper.id };
+      const resolveTarget = repo.resolveAgentSendTarget.bind(repo);
+      const refuseStore = async (): Promise<never> => {
+        throw new Error("nothing is stored for a refused target");
+      };
+      const answers = async (target: string) => {
+        const form = new FormData();
+        form.set("target", target);
+        form.set("file", new File(["notes"], "notes.txt", { type: "text/plain" }));
+        return {
+          send: await outcome(() =>
+            handleAgentMessagesPost(
+              new Request("https://server.example/api/agent/v1/messages", {
+                method: "POST",
+                body: JSON.stringify({
+                  target,
+                  content: "hi",
+                  idempotencyKey: crypto.randomUUID(),
+                }),
+              }),
+              principal,
+              {
+                repository: repo,
+                requestRecords: records,
+                sender: new SendDirectMessage(repo, records, { publish: async () => {} }),
+              },
+            ),
+          ),
+          upload: await outcome(() =>
+            handleAgentAttachmentUpload(
+              new Request("https://server.example/api/agent/v1/attachments", {
+                method: "POST",
+                body: form,
+              }),
+              principal,
+              { resolveTarget, store: refuseStore },
+            ),
+          ),
+          session: await outcome(() =>
+            handleAttachmentUploadSessionCreate(
+              new Request("https://server.example/api/agent/v1/attachment-upload-sessions", {
+                method: "POST",
+                body: JSON.stringify({
+                  target,
+                  fileName: "notes.txt",
+                  contentType: "text/plain",
+                  sizeBytes: 5,
+                  idempotencyKey: crypto.randomUUID(),
+                }),
+              }),
+              principal,
+              { resolveTarget, create: refuseStore },
+            ),
+          ),
+        };
+      };
+
+      const unknown = await answers(`@ml-nobody-${crypto.randomUUID().slice(0, 8)}`);
+      expect(await answers(`@${elsewhere.username}`)).toEqual(unknown);
+      expect(unknown.send).toEqual({ status: 403, body: { error: "target is not accessible" } });
+      expect(unknown.upload).toEqual(unknown.send);
+    } finally {
+      redis.close();
+      await db.workspace.delete({ where: { id: otherWorkspace.id } }).catch(() => {});
+      await db.user.delete({ where: { id: elsewhere.id } }).catch(() => {});
+      await teardown(db, workspace.id, [owner.id, bob.id]);
+    }
+  },
+);
+
+test.skipIf(!connectionString)(
+  "an Agent's action card to someone who left is refused with the same code",
+  async () => {
+    const { db, directory, workspace, owner, bob } = await setup();
+    try {
+      const { repo, helper } = await unreadAgentDirectMessage(db, workspace.id, bob);
+      await directory.leave({ workspaceId: workspace.id, userId: bob.id });
+
+      const response = await handleAgentActionPrepare(
+        new Request("https://server.example/api/agent/v1/actions/prepare", {
+          method: "POST",
+          body: JSON.stringify({
+            target: `@${bob.username}`,
+            action: { type: "channel:create", name: `ops-${bob.username}` },
+          }),
+        }),
+        { workspaceId: workspace.id, agentId: helper.id },
+        new ActionCards(db, repo),
+      );
+      expect({ status: response.status, body: await response.json() }).toEqual({
+        status: 403,
+        body: departedRefusal(bob),
+      });
     } finally {
       await teardown(db, workspace.id, [owner.id, bob.id]);
     }

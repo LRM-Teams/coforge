@@ -2,11 +2,13 @@ import { isAppError } from "#src/lib/app-error";
 import { errorResponse } from "./agent-http-error.server";
 
 /**
- * Maps a target-resolution failure to the Agent API's status contract. `resolveAgentTarget`
- * (and the private helpers it calls) throws `AppError("INVALID_INPUT")` for a malformed
- * `#channel`, `AppError("ACCESS_DENIED")` for a channel the Agent is not a member of, and a
- * plain `Error` (`"invalid message target"`, `"target user not found"`,
- * `"conversation scope is not authorized"`) for the `@user` grammar and DM authorization.
+ * Maps a target-resolution failure to the Agent API's status contract. Resolving a target throws
+ * `AppError("INVALID_INPUT")` for a malformed `#channel`, `AppError("ACCESS_DENIED")` for a
+ * channel the Agent is not a member of, `AppError("DM_PEER_NOT_IN_WORKSPACE")` for a direct
+ * message whose person has left (answered by `dmPeerNotInWorkspaceResponse`, not here), and a
+ * plain `Error` for the `@user` grammar (`"invalid message target"`) and for a username that does
+ * not exist or belongs to no member this Agent can reach (`"target user not found"`, and
+ * `"conversation scope is not authorized"` for an Agent outside the Workspace).
  *
  * Shared by the attachment upload and attachment-upload-session routes, so the contract is stated
  * once instead of a copy mirrored between them.
@@ -17,6 +19,16 @@ export function targetResolutionStatus(error: unknown): number {
   // "target user not found" / "conversation scope is not authorized": an unknown target or one
   // the Agent cannot reach reads the same to the caller as "not a member".
   return 403;
+}
+
+/**
+ * The answer to an Agent posting to an `@user` it cannot reach: a username that does not exist or
+ * someone outside the Workspace it never had a direct message with. The message route answers it
+ * the way the attachment routes do. Undefined for any other error.
+ */
+export function unknownTargetUserResponse(error: unknown) {
+  if (!(error instanceof Error) || error.message !== "target user not found") return undefined;
+  return Response.json({ error: "target is not accessible" }, { status: 403 });
 }
 
 /**

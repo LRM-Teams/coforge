@@ -927,7 +927,14 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
         where: { workspaceId_userId: { workspaceId, userId } },
         select: { userId: true },
       });
-      if (!member) throw new AppError("DM_PEER_NOT_IN_WORKSPACE");
+      if (!member) {
+        // Someone this Agent already has a DM with, who left: say so. Anyone else outside the
+        // Workspace reads exactly like a username that does not exist, so an Agent cannot probe
+        // who is registered elsewhere.
+        if (await this.findUserAgentConversation(workspaceId, userId, agentId))
+          throw new AppError("DM_PEER_NOT_IN_WORKSPACE");
+        throw new Error("target user not found");
+      }
       throw new Error("conversation scope is not authorized");
     }
     const where = {
