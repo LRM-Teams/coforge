@@ -502,6 +502,7 @@ test("a channel send is refused while an explicit @memory question is unanswered
     request({ target: "#general", content: "from memory" }),
     { workspaceId: "workspace-1", agentId: "agent-1" },
     {
+      requestRecords: noRequestRecords,
       repository: {},
       memoryOfferRequired: async () => true,
       sender: {
