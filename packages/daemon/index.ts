@@ -19,6 +19,7 @@ import {
   defaultCentrifugeWorkspaceClientFactory,
 } from "#src/connection/daemon-connection";
 import { COFORGE_DAEMON_SERVER_URL, daemonConnectionEndpoint } from "#src/connection/built-server";
+import { DaemonConnectionStoppedError } from "#src/connection/daemon-connection-stopped-error";
 import { COFORGE_DAEMON_VERSION } from "#src/version";
 import { LocalDaemonLauncher } from "#src/daemon-host/launcher";
 import { configureDaemonLogging } from "#src/platform/daemon-logging";
@@ -430,7 +431,10 @@ export async function runDaemon(args: string[], computerVersion?: string): Promi
       } catch (error) {
         // A refusal for good is parking the Workspace instead (`WorkspaceParking`). A shutdown
         // ends a start still waiting for the cloud on purpose.
-        if (parking.cloudConnection.state === "not_connected" && !shuttingDown)
+        if (
+          parking.cloudConnection.state === "not_connected" &&
+          !(error instanceof DaemonConnectionStoppedError)
+        )
           logger.error("Daemon failed to recover configured Workspace", {
             event: "daemon:workspace_recovery_failed",
             error_code: diagnosticErrorCode(error),

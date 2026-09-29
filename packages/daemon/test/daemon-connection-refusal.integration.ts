@@ -8,6 +8,7 @@ import {
   defaultCentrifugeWorkspaceClientFactory,
 } from "#src/connection/daemon-connection";
 import { DaemonConnectionRefusedError } from "#src/connection/daemon-connection-refused-error";
+import { DaemonConnectionStoppedError } from "#src/connection/daemon-connection-stopped-error";
 
 // Runs the Daemon's real connection against the Centrifugo image staging uses, behind a connect
 // proxy that answers the way the Web proxy does. Docker required: `mise run test:centrifugo`.
@@ -25,6 +26,8 @@ let answer: "accept" | "workspace_deleted" | "unauthorized" = "accept";
 let connectAttempts = 0;
 /** How many of the next connects fail the ordinary way before `answer` applies again. */
 let ordinaryFailures = 0;
+/** How many of the next connects get an error the client never retries by itself. */
+let givingUpFailures = 0;
 
 beforeAll(async () => {
   root = await mkdtemp(join(tmpdir(), "coforge-connection-refusal-"));
@@ -33,6 +36,11 @@ beforeAll(async () => {
     port: 0,
     fetch() {
       connectAttempts++;
+      if (givingUpFailures > 0) {
+        givingUpFailures--;
+        // A 200 answer with a non-temporary custom error: centrifuge-js disconnects for good.
+        return Response.json({ error: { code: 403, message: "forbidden" } });
+      }
       if (ordinaryFailures > 0) {
         ordinaryFailures--;
         return Response.json({ error: { code: 401, message: "unauthorized" } }, { status: 401 });
@@ -163,6 +171,25 @@ test("an ordinary failure on the first connect is retried until the cloud accept
   await connection.stop();
 }, 30_000);
 
+test("a first connect the client gives up on is resumed until the cloud accepts", async () => {
+  answer = "accept";
+  givingUpFailures = 1;
+  connectAttempts = 0;
+  const states: string[] = [];
+  const connection = new DaemonConnection(endpoint(), (url, token, data) => {
+    const created = defaultCentrifugeWorkspaceClientFactory(url, token, data);
+    created.on("disconnected", () => states.push((created as unknown as { state: string }).state));
+    return created;
+  });
+
+  await connection.start("dk_known", config);
+
+  // The client gave up once (it reported `disconnected`), and the daemon connected it again.
+  expect(states).toEqual(["disconnected"]);
+  expect(connectAttempts).toBe(2);
+  await connection.stop();
+}, 30_000);
+
 test("stopping during first-connect retries ends start without a refusal and stops retrying", async () => {
   answer = "unauthorized";
   connectAttempts = 0;
@@ -174,14 +201,16 @@ test("stopping during first-connect retries ends start without a refusal and sto
     created.on("error", () => failures.resolve());
     return created;
   });
-  const start = connection.start("dk_bad", config).catch((error: unknown) => error);
-  await failures.promise;
-  expect(client?.state).toBe("connecting");
+  try {
+    const start = connection.start("dk_bad", config).catch((error: unknown) => error);
+    await failures.promise;
+    expect(client?.state).toBe("connecting");
 
-  await connection.stop();
+    await connection.stop();
 
-  const failure = await start;
-  expect(failure).toBeInstanceOf(Error);
-  expect(failure).not.toBeInstanceOf(DaemonConnectionRefusedError);
-  expect(client?.state).toBe("disconnected");
+    expect(await start).toBeInstanceOf(DaemonConnectionStoppedError);
+    expect(client?.state).toBe("disconnected");
+  } finally {
+    answer = "accept";
+  }
 }, 30_000);
