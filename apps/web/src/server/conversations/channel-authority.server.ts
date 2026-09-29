@@ -159,8 +159,20 @@ export async function resolveChannelAuthority(
       select: { channelRole: true },
     }),
   ]);
-  const isActiveMember = Boolean(membership);
-  const adminBasis = deriveChannelAdminBasis(serverRole, membership?.channelRole);
+  return deriveChannelAuthority(actor, channel, serverRole, membership);
+}
+
+/** Pure: `resolveChannelAuthority` from rows the caller already holds, the actor's server role and
+ * their own member row in the channel when it is active, so a read that needs those rows anyway
+ * does not read them twice. */
+export function deriveChannelAuthority(
+  actor: ChannelActor,
+  channel: { channelName: string | null },
+  serverRole: string | undefined,
+  activeMembership: { channelRole: string } | null | undefined,
+): ChannelAuthority {
+  const isActiveMember = Boolean(activeMembership);
+  const adminBasis = deriveChannelAdminBasis(serverRole, activeMembership?.channelRole);
   const capabilities = deriveChannelCapabilities({
     isHuman: "userId" in actor,
     isActiveMember,
@@ -170,7 +182,7 @@ export async function resolveChannelAuthority(
   return {
     isActiveMember,
     serverRole,
-    channelRole: membership?.channelRole,
+    channelRole: activeMembership?.channelRole,
     adminBasis,
     capabilities,
   };

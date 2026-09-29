@@ -58,6 +58,7 @@ import { workspaceUserAvatarUrl } from "./user-profile.repositories.server";
 import { attachmentView } from "#src/server/attachments/attachment-view.server";
 import {
   browserMessageFields,
+  browserRootMessageFields,
   mapBrowserMessage,
   type BrowserMessageRow,
 } from "#src/server/conversations/conversation-history.server";
@@ -1039,21 +1040,11 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
   }
 
   /**
-   * A window of one of the viewer's direct conversations, by its id, and who is on the other side:
-   * an Agent, or a member (the viewer themself in their own). Whether the viewer may read it is
-   * `DirectConversations.authorize`'s to decide.
+   * Who is in one of the viewer's direct conversations, from the viewer's seat: every member's
+   * public profile, the viewer's own row and thread read boundaries, and the Agent or member on
+   * the other side.
    */
-  async openConversationForUser(
-    workspaceId: string,
-    userId: string,
-    conversationId: string,
-    page: HistoryWindow = {},
-  ) {
-    const limit = Math.min(page.limit ?? 50, 100);
-    // A forward fetch reads towards the live end, from the newest sequence the retained window
-    // still holds; a backward fetch reads history upwards from its oldest. Neither is the initial
-    // (uncursored) load, which lands on the newest page (see `lib/conversation-window.ts`).
-    const forward = page.afterSequence !== undefined;
+  private async viewerSide(conversationId: string, userId: string) {
     const row = await this.db.conversation.findUnique({
       where: { id: conversationId },
       select: {
@@ -1086,30 +1077,12 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
                 description: true,
                 deletedAt: true,
                 avatarObjectKey: true,
-                // Not sent to the browser (see the trimmed `agent:` field below); read only to
-                // compute `dmWritable`.
+                // Not sent to the browser (see the trimmed `agent:` field of the open); read only
+                // to compute `dmWritable`.
                 ownerId: true,
                 visibility: true,
               },
             },
-          },
-        },
-        messages: {
-          where: {
-            threadRootId: null,
-            sequence: forward
-              ? { gt: page.afterSequence }
-              : page.beforeSequence
-                ? { lt: page.beforeSequence }
-                : undefined,
-          },
-          // Both directions take `limit + 1` rows to learn whether one more remains; the page
-          // itself is re-sorted by sequence below, so only the overflow row's presence matters.
-          orderBy: { sequence: forward ? ("asc" as const) : ("desc" as const) },
-          take: limit + 1,
-          select: {
-            ...browserMessageFields,
-            replies: { orderBy: { sequence: "asc" }, select: browserMessageFields },
           },
         },
       },
@@ -1117,14 +1090,56 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
     const sender = row?.members.find((member) => member.userId === userId);
     if (!row || !sender) throw new Error("conversation scope is not authorized");
     const agent = row.members.find((member) => member.agent)?.agent;
-    const peer = agent ? undefined : await this.peerOf(row, userId);
-    // Read by the viewer's own member row, not nested under every member: the Agent records a
-    // boundary for every thread it drains, which this open never returns.
-    const threadReads = await this.db.threadRead.findMany({
-      where: { memberId: sender.id },
-      select: { rootMessageId: true, readThroughSequence: true },
-    });
-    const overflow = row.messages.length > limit;
+    const [peer, threadReads] = await Promise.all([
+      agent ? undefined : this.peerOf(row, userId),
+      // Read by the viewer's own member row, not nested under every member: the Agent records a
+      // boundary for every thread it drains, which this open never returns.
+      this.db.threadRead.findMany({
+        where: { memberId: sender.id },
+        select: { rootMessageId: true, readThroughSequence: true },
+      }),
+    ]);
+    return { members: row.members, sender, agent, peer, threadReads };
+  }
+
+  /**
+   * A window of one of the viewer's direct conversations, by its id, and who is on the other side:
+   * an Agent, or a member (the viewer themself in their own). Whether the viewer may read it is
+   * `DirectConversations.authorize`'s to decide.
+   */
+  async openConversationForUser(
+    workspaceId: string,
+    userId: string,
+    conversationId: string,
+    page: HistoryWindow = {},
+  ) {
+    const limit = Math.min(page.limit ?? 50, 100);
+    // A forward fetch reads towards the live end, from the newest sequence the retained window
+    // still holds; a backward fetch reads history upwards from its oldest. Neither is the initial
+    // (uncursored) load, which lands on the newest page (see `lib/conversation-window.ts`).
+    const forward = page.afterSequence !== undefined;
+    // The window does not wait for the conversation's members: both are read by the conversation
+    // id alone, and whether the viewer may read it is the caller's to have decided already.
+    const [{ members, sender, agent, peer, threadReads }, windowRows] = await Promise.all([
+      this.viewerSide(conversationId, userId),
+      this.db.message.findMany({
+        where: {
+          conversationId,
+          threadRootId: null,
+          sequence: forward
+            ? { gt: page.afterSequence }
+            : page.beforeSequence
+              ? { lt: page.beforeSequence }
+              : undefined,
+        },
+        // Both directions take `limit + 1` rows to learn whether one more remains; the page
+        // itself is re-sorted by sequence below, so only the overflow row's presence matters.
+        orderBy: { sequence: forward ? ("asc" as const) : ("desc" as const) },
+        take: limit + 1,
+        select: browserRootMessageFields,
+      }),
+    ]);
+    const overflow = windowRows.length > limit;
     const { hasOlder, hasNewer } = windowPageFlags(
       forward ? "forward" : page.beforeSequence ? "backward" : "initial",
       overflow,
@@ -1132,7 +1147,7 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
     // The overflow row is always the newest of the fetched rows, so dropping the tail of the
     // ordered list keeps the reader's side of the window and drops the row that only proved there
     // was more.
-    const pageRows = row.messages.slice(0, limit);
+    const pageRows = windowRows.slice(0, limit);
     const messages = (forward ? pageRows : pageRows.reverse())
       .flatMap((message) => [message, ...message.replies])
       .sort((left, right) => left.sequence - right.sequence);
@@ -1182,7 +1197,7 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
       // rank (see `mentionAffinityScores`), so every member scores 0 and handle order is the whole
       // ordering; the viewer's own row is included because this list is also what *resolves* a
       // mention of them — leaving it out rendered `<@human:uuid>` raw in their own pane.
-      mentionables: row.members
+      mentionables: members
         .map((member) =>
           member.user
             ? {

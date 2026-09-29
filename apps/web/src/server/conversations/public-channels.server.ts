@@ -15,6 +15,7 @@ import {
 import {
   channelActorMemberWhere,
   deriveChannelAdminBasis,
+  deriveChannelAuthority,
   deriveChannelCapabilities,
   isChannelRole,
   resolveActorServerRole,
@@ -938,17 +939,14 @@ export class PublicChannels {
    * carry a mention. Reading `message_mentions` filtered by sender instead let PostgreSQL walk every
    * mention in the channel newest first, so a viewer who writes often but seldom mentions anyone
    * paid for every mention the channel's Agents ever wrote. A mention row is written with its
-   * message, so message order is mention order. A reader with no member row has mentioned no one
-   * here.
+   * message, so message order is mention order. `memberId` is the viewer's member row, left or
+   * not (someone who left still ranks by what they wrote); a reader with no member row has
+   * mentioned no one here.
    */
-  private async viewerRecentMentions(channelId: string, userId: string) {
-    const member = await this.db.conversationMember.findUnique({
-      where: { conversationId_userId: { conversationId: channelId, userId } },
-      select: { id: true },
-    });
-    if (!member) return [];
+  private async viewerRecentMentions(memberId: string | undefined) {
+    if (!memberId) return [];
     const messages = await this.db.message.findMany({
-      where: { senderMemberId: member.id, mentions: { some: {} } },
+      where: { senderMemberId: memberId, mentions: { some: {} } },
       orderBy: { sequence: "desc" },
       take: 50,
       select: { mentions: { select: { kind: true, actorId: true, createdAt: true } } },
@@ -1192,23 +1190,50 @@ export class PublicChannels {
   }
 
   private async channel(workspaceId: string, userId: string, channelId: string) {
-    await this.authorize(workspaceId, userId);
-    const channel = await this.db.conversation.findFirst({
-      where: {
-        id: channelId,
-        workspaceId,
-        channelName: { not: null },
-        ...VISIBLE_CONVERSATION_WHERE,
-      },
-      include: {
-        project: {
-          select: { id: true, name: true, slug: true, githubFullName: true, githubHtmlUrl: true },
+    return (await this.viewerChannel(workspaceId, userId, channelId)).channel;
+  }
+
+  /** `channel`, with the viewer's Workspace role. The membership and the channel are read at once;
+   * a non-member is still refused before a missing channel is reported. */
+  private async viewerChannel(workspaceId: string, userId: string, channelId: string) {
+    const [membership, channel] = await Promise.all([
+      this.db.workspaceMembership.findUnique({
+        where: { workspaceId_userId: { workspaceId, userId } },
+        select: { role: true },
+      }),
+      this.db.conversation.findFirst({
+        where: {
+          id: channelId,
+          workspaceId,
+          channelName: { not: null },
+          ...VISIBLE_CONVERSATION_WHERE,
         },
-        coordinatorAgent: { select: { id: true, name: true, displayName: true } },
+        include: {
+          project: {
+            select: { id: true, name: true, slug: true, githubFullName: true, githubHtmlUrl: true },
+          },
+          coordinatorAgent: { select: { id: true, name: true, displayName: true } },
+        },
+      }),
+    ]);
+    if (!membership) throw new AppError("ACCESS_DENIED");
+    if (!channel) throw new AppError("NOT_FOUND");
+    return { channel, serverRole: membership.role };
+  }
+
+  /** The viewer's own member row in a channel, whether or not they left it, with everything an
+   * open shows them from it. `open` reads it alongside the channel, not after it. */
+  private viewerMemberRow(channelId: string, userId: string) {
+    return this.db.conversationMember.findUnique({
+      where: { conversationId_userId: { conversationId: channelId, userId } },
+      include: {
+        // Every thread the viewer ever read or followed here, so only the columns the page sends.
+        threadReads: { select: { rootMessageId: true, readThroughSequence: true } },
+        threadFollows: { select: { rootMessageId: true } },
+        user: { select: { username: true } },
+        pins: { select: { sortOrder: true } },
       },
     });
-    if (!channel) throw new AppError("NOT_FOUND");
-    return channel;
   }
 
   async join(workspaceId: string, userId: string, channelId: string) {
@@ -1704,25 +1729,22 @@ export class PublicChannels {
     channelId: string,
     page: { beforeSequence?: number; afterSequence?: number; limit?: number } = {},
   ) {
-    const channel = await this.channel(workspaceId, userId, channelId);
+    const [{ channel, serverRole }, viewerRow] = await Promise.all([
+      this.viewerChannel(workspaceId, userId, channelId),
+      this.viewerMemberRow(channelId, userId),
+    ]);
+    // Only an active row (ACTIVE_MEMBER_WHERE): a human who left or was removed sees the read-only
+    // preview (`senderMemberId` empty) like anyone who never joined, not their old member state.
+    // The row itself survives untouched for a later rejoin.
+    const member = viewerRow?.leftAt === null ? viewerRow : undefined;
+    // What the settings panel offers this viewer: edit, archive, leave.
+    const authority = deriveChannelAuthority({ userId }, channel, serverRole, member);
     const limit = Math.min(page.limit ?? 50, 100);
     // A forward fetch reads towards the live end from the newest sequence the retained window still
     // holds; a backward fetch reads history upwards. Neither is the initial (uncursored) load,
     // which lands on the newest page (see `lib/conversation-window.ts`).
     const forward = page.afterSequence !== undefined;
-    const [member, messages, mentionRows, viewerRecentMentions, authority] = await Promise.all([
-      // Filtered through ACTIVE_MEMBER_WHERE (not findUnique on the raw row): a human who left or
-      // was removed must see the read-only preview (`senderMemberId` empty) like anyone who never
-      // joined, not their old member state. The row itself survives untouched for a later rejoin.
-      this.db.conversationMember.findFirst({
-        where: { conversationId: channelId, userId, ...ACTIVE_MEMBER_WHERE },
-        include: {
-          threadReads: true,
-          threadFollows: true,
-          user: { select: { username: true } },
-          pins: { select: { sortOrder: true } },
-        },
-      }),
+    const [messages, mentionRows, viewerRecentMentions] = await Promise.all([
       this.db.message.findMany({
         where: {
           conversationId: channelId,
@@ -1764,9 +1786,7 @@ export class PublicChannels {
         },
       }),
       // Scores each completion candidate by the viewer's own recent mentions here.
-      this.viewerRecentMentions(channelId, userId),
-      // What the settings panel offers this viewer: edit, archive, leave.
-      resolveChannelAuthority(this.db, workspaceId, { userId }, channel),
+      this.viewerRecentMentions(viewerRow?.id),
     ]);
     const mentionScores = mentionAffinityScores(viewerRecentMentions);
     const activeCoordinator =
@@ -1859,7 +1879,13 @@ export class PublicChannels {
    * full refresh; the composer refetches this while the conversation stays open.
    */
   async mentionDirectory(workspaceId: string, userId: string, channelId: string) {
-    await this.channel(workspaceId, userId, channelId);
+    const [, viewerRow] = await Promise.all([
+      this.channel(workspaceId, userId, channelId),
+      this.db.conversationMember.findUnique({
+        where: { conversationId_userId: { conversationId: channelId, userId } },
+        select: { id: true },
+      }),
+    ]);
     const [mentionRows, viewerRecentMentions] = await Promise.all([
       this.db.conversationMember.findMany({
         where: { conversationId: channelId, ...ACTIVE_MEMBER_WHERE },
@@ -1884,7 +1910,7 @@ export class PublicChannels {
           },
         },
       }),
-      this.viewerRecentMentions(channelId, userId),
+      this.viewerRecentMentions(viewerRow?.id),
     ]);
     const mentionScores = mentionAffinityScores(viewerRecentMentions);
     return mentionRows
