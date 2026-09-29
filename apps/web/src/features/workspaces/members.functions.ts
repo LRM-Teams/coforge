@@ -6,6 +6,12 @@ import { authMiddleware, workspaceUserMiddleware } from "#src/features/auth/func
 import { requireDatabaseClient } from "#src/server/db/client.server";
 import { workspaceMemberDirectory } from "#src/server/workspaces/member-directory-store.server";
 import { INVITABLE_WORKSPACE_ROLES } from "#src/server/workspaces/member-role.server";
+import {
+  PrismaWorkspaceCatalogStore,
+  WorkspaceCatalog,
+} from "#src/server/workspaces/catalog.server";
+import { WorkspaceDeparture } from "#src/server/workspaces/departure.server";
+import { rememberedWorkspaceCookie } from "#src/server/workspaces/selection.server";
 import { canManageMembers } from "./workspace-roles";
 
 const inviteInputSchema = z.object({
@@ -112,12 +118,19 @@ export const removeWorkspaceMember = createServerFn({ method: "POST" })
     return { ok: true as const };
   });
 
+/**
+ * Takes the caller out of the Workspace the page URL names (not its owner: CONFLICT) and answers
+ * which Workspace to open next, `null` when they are in none; `/` remembers that one from now on.
+ */
 export const leaveWorkspace = createServerFn({ method: "POST" })
   .middleware([workspaceUserMiddleware])
-  .handler(async ({ context: { user, db, workspaceId } }) => {
-    await workspaceMemberDirectory(db).leave({ workspaceId, userId: user.id });
-    return { ok: true as const };
-  });
+  .handler(async ({ context: { user, db, workspaceId } }) =>
+    new WorkspaceDeparture(
+      workspaceMemberDirectory(db),
+      new WorkspaceCatalog(new PrismaWorkspaceCatalogStore(db)),
+      rememberedWorkspaceCookie,
+    ).leave({ workspaceId, userId: user.id }),
+  );
 
 export const loadMyWorkspaceInvitations = createServerFn({ method: "GET" })
   .middleware([authMiddleware])

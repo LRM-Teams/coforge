@@ -3,6 +3,7 @@ import { expect, test } from "bun:test";
 import {
   memoizeForRequest,
   readPreferredWorkspaceSlug,
+  serializeForgottenWorkspaceCookie,
   serializeWorkspaceCookie,
 } from "#src/server/workspaces/selection.server";
 
@@ -14,6 +15,19 @@ test("the preferred Workspace cookie is host-only and readable from the header",
   expect(cookie).not.toContain("Domain=");
   expect(cookie).not.toContain("Secure");
   expect(readPreferredWorkspaceSlug(`session=abc; ${cookie.split(";", 1)[0]}`)).toBe("research");
+});
+
+test("forgetting the preferred Workspace expires the same host-only cookie", () => {
+  const cookie = serializeForgottenWorkspaceCookie(true);
+  expect(cookie.split("; ")).toEqual([
+    "coforge_workspace=",
+    "Path=/",
+    "HttpOnly",
+    "SameSite=Lax",
+    "Max-Age=0",
+    "Secure",
+  ]);
+  expect(readPreferredWorkspaceSlug(cookie.split(";", 1)[0]!)).toBeUndefined();
 });
 
 test("the selected Workspace is resolved once per request and user", async () => {
