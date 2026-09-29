@@ -29,7 +29,12 @@ import { CreateChannelDialog } from "./create-channel-dialog";
 import { channelNamesQuery } from "./conversation-queries";
 import { projectsQuery } from "#src/features/projects/project-tree-queries";
 import { rememberConversation } from "./last-conversation";
-import { unknownAgentOf, useChannelUnread } from "./conversation-unread";
+import {
+  unknownAgentOf,
+  unreadIdsToKeep,
+  useChannelUnread,
+  type SeededList,
+} from "./conversation-unread";
 import { useApplyChannelSignal, useRefreshSidebar, useSidebarLists } from "./sidebar-lists";
 import { listedDirectIds } from "./sidebar-rows";
 import { workspacePath } from "#src/features/workspaces/workspace-url";
@@ -166,20 +171,32 @@ export function ConversationNavigation({ children }: { children: ReactNode }) {
   const { counts } = unread;
   const refresh = unread.replace;
   const seed = useMemo(() => {
-    const entries = [
-      ...visibleChannels.map((listed) => ({ id: listed.id, unreadCount: listed.unreadCount })),
-      ...Object.entries(directs.unread).map(([conversationId, unreadCount]) => ({
-        id: conversationId,
-        unreadCount,
-      })),
+    const lists: SeededList[] = [
+      {
+        readAt: readAt.channels,
+        rows: visibleChannels.map((listed) => ({ id: listed.id, unreadCount: listed.unreadCount })),
+      },
+      {
+        readAt: readAt.dms,
+        rows: Object.entries(directs.unread).map(([conversationId, unreadCount]) => ({
+          id: conversationId,
+          unreadCount,
+        })),
+      },
     ];
+    const entries = lists.flatMap((list) => list.rows);
     const counts = entries
-      .flatMap((entry) => (entry.unreadCount > 0 ? [`${entry.id}:${entry.unreadCount}`] : []))
+      .flatMap((entry) =>
+        entry.unreadCount && entry.unreadCount > 0 ? [`${entry.id}:${entry.unreadCount}`] : [],
+      )
       .join(",");
-    return { entries, key: `${readAt}|${counts}` };
-  }, [visibleChannels, directs, readAt]);
+    return { lists, entries, key: `${readAt.channels}:${readAt.dms}|${counts}` };
+  }, [visibleChannels, directs, readAt.channels, readAt.dms]);
+  // A list not read again since the last seed keeps its live counts (`unreadIdsToKeep`).
+  const lastSeed = useRef<readonly SeededList[] | undefined>(undefined);
   useEffect(() => {
-    refresh(seed.entries);
+    refresh(seed.entries, unreadIdsToKeep(seed.lists, lastSeed.current));
+    lastSeed.current = seed.lists;
   }, [refresh, seed.key]);
   const controls = useMemo<UnreadControls>(
     () => ({ counts, clear: unread.clear }),

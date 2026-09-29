@@ -276,21 +276,51 @@ export function replaceUnreadCounts(
   current: UnreadCounts,
   entries: readonly UnreadChannel[],
   suppressKeys: ReadonlySet<string> = new Set<string>(),
+  keepIds: ReadonlySet<string> = new Set<string>(),
 ): UnreadCounts {
   const boundaries: UnreadCounts = {};
   for (const entry of entries) {
     const boundary = current[`${entry.id}:seq`];
     if (boundary !== undefined) boundaries[`${entry.id}:seq`] = boundary;
   }
-  const seeded = seedUnreadCounts(entries);
+  const seeded = seedUnreadCounts(
+    entries.map((entry) =>
+      keepIds.has(entry.id) ? { id: entry.id, unreadCount: current[entry.id] ?? 0 } : entry,
+    ),
+  );
   for (const key of suppressKeys) delete seeded[key];
   return { ...seeded, ...boundaries };
+}
+
+/** One Chat list's rows as last seeded, and when the server sent them. */
+export type SeededList = { readAt: number; rows: readonly UnreadChannel[] };
+
+/**
+ * The conversations whose live count a re-seed keeps (`replaceUnreadCounts`' `keepIds`): the rows
+ * of a list not read again since the last seed, whose own count has not changed either. A row's
+ * `unreadCount` is as old as its list's last read, since reading a chat moves only the live count,
+ * so re-seeding from a list not read again would bring back counts already read. A list read again
+ * brings the server's counts, and a row whose count changed (a mark-unread) brings its own.
+ */
+export function unreadIdsToKeep(
+  lists: readonly SeededList[],
+  last: readonly SeededList[] | undefined,
+): Set<string> {
+  const keep = new Set<string>();
+  lists.forEach((list, index) => {
+    const before = last?.[index];
+    if (!before || before.readAt !== list.readAt) return;
+    const counts = new Map(before.rows.map((row) => [row.id, row.unreadCount ?? 0]));
+    for (const row of list.rows)
+      if (counts.get(row.id) === (row.unreadCount ?? 0)) keep.add(row.id);
+  });
+  return keep;
 }
 
 export type UnreadState = {
   counts: UnreadCounts;
   clear: (key: string, readThroughSequence?: number) => void;
-  replace: (entries: readonly UnreadChannel[]) => void;
+  replace: (entries: readonly UnreadChannel[], keepIds?: ReadonlySet<string>) => void;
 };
 
 /**
@@ -416,12 +446,14 @@ export function useChannelUnread({
       setCounts((current) => clearUnread(current, key, readThroughSequence)),
     [],
   );
-  const replace = useCallback((next: readonly UnreadChannel[]) => {
+  const replace = useCallback((next: readonly UnreadChannel[], keepIds?: ReadonlySet<string>) => {
     // The conversation on screen keeps no badge, exactly like a live event for it: in
     // `newest-unread` the server cursor deliberately lags, so seeding it here would
     // re-raise the badge of the conversation being read.
     const open = refs.current.openConversationId;
-    setCounts((current) => replaceUnreadCounts(current, next, new Set(open ? [open] : [])));
+    setCounts((current) =>
+      replaceUnreadCounts(current, next, new Set(open ? [open] : []), keepIds),
+    );
   }, []);
   return { counts, clear, replace };
 }
