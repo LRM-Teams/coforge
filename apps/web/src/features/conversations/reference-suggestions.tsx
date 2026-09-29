@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef } from "react";
 import { Hash01 as Hash } from "@untitledui/icons";
 import { Avatar } from "#src/components/base/avatar/avatar";
 import { Badge } from "#src/components/base/badges/badges";
-import { AgentDisplayAvatar } from "#src/features/agents/agent-activity-avatar";
+import { AgentDisplayAvatar } from "#src/features/agents/agent-display-avatar";
 import { useLiveAgents } from "#src/features/agents/workspace-agents-realtime";
 import { avatarInitial, avatarToneClassName } from "#src/lib/avatar-tone";
 import { cx } from "#src/utils/cx";

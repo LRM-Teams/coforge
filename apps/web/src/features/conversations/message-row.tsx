@@ -24,7 +24,7 @@ import {
   Modal,
   ModalOverlay,
 } from "#src/components/application/modals/modal";
-import { AgentDisplayAvatar } from "#src/features/agents/agent-activity-avatar";
+import { AgentDisplayAvatar } from "#src/features/agents/agent-display-avatar";
 import { AgentHoverCard } from "#src/features/agents/agent-hover-card";
 import type { OpenAgentProfile } from "#src/features/agents/profile-panel/open-agent-profile";
 import { useLiveAgentDisplay } from "#src/features/agents/workspace-agents-realtime";

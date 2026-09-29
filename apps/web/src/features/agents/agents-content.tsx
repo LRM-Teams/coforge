@@ -47,7 +47,7 @@ import { conversationLayoutStorage } from "#src/features/conversations/layout-st
 import type { AgentStatusView } from "./agent-status-realtime";
 import type { AgentDisplaySnapshot } from "@lrm/coforge-sdk/internal";
 
-import { AgentDisplayAvatar, AgentStackFace } from "./agent-activity-avatar";
+import { AgentDisplayAvatar, AgentStackFace } from "./agent-display-avatar";
 import { AgentCreateDialog } from "./agent-create-dialog";
 import { AgentDeleteDialog } from "./agent-delete-dialog";
 import type { RuntimeCatalog } from "./agent-runtime-fields";
