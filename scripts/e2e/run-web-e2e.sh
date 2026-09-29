@@ -48,6 +48,9 @@ done
 # not used, so a caller who already exported them keeps theirs.
 export DATABASE_URL="${DATABASE_URL:-postgresql://coforge:$(<"$secrets/postgres_password")@127.0.0.1:5432/coforge}"
 export REDIS_URL="${REDIS_URL:-redis://:$(<"$secrets/redis_password")@127.0.0.1:6379}"
+# 8788 is the dev server's port (`bun run dev` in apps/web, and what run-mobile-overflow.sh
+# assumes). The standard managed stack publishes Web on 8789 instead: pass
+# COFORGE_E2E_WEB_URL=http://127.0.0.1:8789 when the page under test is served by that one.
 export COFORGE_E2E_WEB_URL="${COFORGE_E2E_WEB_URL:-http://127.0.0.1:8788}"
 
 cd "$root/apps/web"
