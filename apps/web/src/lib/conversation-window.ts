@@ -108,14 +108,33 @@ export type WindowUpdateFold<M> = { messages: M[] | undefined; pending: M[] };
  * never fetch that reply. `merge` is the caller's page merge (de-duplicating by id, ordered by
  * sequence), passed in so this stays a pure decision with no dependency of its own.
  */
-export function foldWindowUpdates<M extends { id: string; sequence: number }>(
+export function foldWindowUpdates<
+  M extends { id: string; sequence: number; threadRootId?: string | null },
+>(
   latestPage: { hasNewer?: boolean; messages: M[] } | undefined,
   pending: readonly M[],
   updates: readonly M[],
   merge: MergeMessages<M>,
 ): WindowUpdateFold<M> | undefined {
   if (!latestPage) return undefined;
-  if (latestPage.hasNewer) return { messages: undefined, pending: merge(pending, updates) };
+  if (latestPage.hasNewer) {
+    // A reply to a root still in the retained window must be visible in an open thread even while
+    // the main stream is pinned to history. Top-level updates (and replies to roots outside the
+    // window) still wait for the tail, because fetching forward is what restores those rows.
+    const roots = new Set(
+      latestPage.messages.filter((message) => !message.threadRootId).map((message) => message.id),
+    );
+    const visibleReplies: M[] = [];
+    const waiting: M[] = [];
+    for (const message of [...pending, ...updates]) {
+      if (message.threadRootId && roots.has(message.threadRootId)) visibleReplies.push(message);
+      else waiting.push(message);
+    }
+    return {
+      messages: visibleReplies.length ? merge(latestPage.messages, visibleReplies) : undefined,
+      pending: merge([], waiting),
+    };
+  }
   return { messages: merge(latestPage.messages, [...pending, ...updates]), pending: [] };
 }
 
