@@ -124,13 +124,13 @@ export const removeWorkspaceMember = createServerFn({ method: "POST" })
  */
 export const leaveWorkspace = createServerFn({ method: "POST" })
   .middleware([workspaceUserMiddleware])
-  .handler(async ({ context: { user, db, workspaceId } }) =>
-    new WorkspaceDeparture(
-      workspaceMemberDirectory(db),
+  .handler(async ({ context: { user, db, workspaceId } }) => {
+    await workspaceMemberDirectory(db).leave({ workspaceId, userId: user.id });
+    return new WorkspaceDeparture(
       new WorkspaceCatalog(new PrismaWorkspaceCatalogStore(db)),
       rememberedWorkspaceCookie,
-    ).leave({ workspaceId, userId: user.id }),
-  );
+    ).next(user.id);
+  });
 
 export const loadMyWorkspaceInvitations = createServerFn({ method: "GET" })
   .middleware([authMiddleware])

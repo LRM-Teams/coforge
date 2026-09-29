@@ -16,6 +16,14 @@ export type CentrifugoServerApi = {
   broadcast(channels: string[], data: unknown, idempotencyKey?: string): Promise<void>;
 };
 
+/** Centrifugo's server API for the connections themselves, not what is published on them. */
+export type CentrifugoConnections = {
+  /** Disconnects every connection of one user with the given code
+   * (https://centrifugal.dev/docs/server/server_api#disconnect). Whether the client reconnects is
+   * the code's range: centrifuge-js stops only on 3500-3999 and 4500-4999. */
+  disconnect(user: string, disconnect: { code: number; reason: string }): Promise<void>;
+};
+
 /** How long one Centrifugo server-API call may take, connect included, before it is aborted. */
 const CENTRIFUGO_REQUEST_TIMEOUT_MS = 5_000;
 
@@ -27,7 +35,7 @@ const CENTRIFUGO_REQUEST_TIMEOUT_MS = 5_000;
 export function createCentrifugoServerApi(
   env = process.env,
   { timeoutMs = CENTRIFUGO_REQUEST_TIMEOUT_MS }: { timeoutMs?: number } = {},
-): CentrifugoServerApi {
+): CentrifugoServerApi & CentrifugoConnections {
   const endpoint = env.COFORGE_CENTRIFUGO_API_URL;
   const apiKey = env.COFORGE_CENTRIFUGO_API_KEY;
   if (!endpoint || !apiKey) throw new Error("Centrifugo server API is not configured");
@@ -83,6 +91,9 @@ export function createCentrifugoServerApi(
         data,
         ...(idempotencyKey ? { idempotency_key: idempotencyKey } : {}),
       });
+    },
+    async disconnect(user, disconnect) {
+      await call("disconnect", { user, disconnect });
     },
   };
 }

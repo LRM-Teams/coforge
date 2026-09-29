@@ -7,3 +7,9 @@ import type { Prisma } from "#src/generated/prisma/client";
 export function lockConversation(tx: Prisma.TransactionClient, conversationId: string) {
   return tx.$queryRaw`SELECT "id" FROM "conversations" WHERE "id" = ${conversationId}::uuid FOR UPDATE`;
 }
+
+/** Every conversation row of a Workspace, locked the same way: the Workspace delete holds off each
+ * writer above until its conversations are gone. */
+export function lockWorkspaceConversations(tx: Prisma.TransactionClient, workspaceId: string) {
+  return tx.$queryRaw`SELECT "id" FROM "conversations" WHERE "workspaceId" = ${workspaceId}::uuid FOR UPDATE`;
+}

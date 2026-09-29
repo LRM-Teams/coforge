@@ -15,6 +15,11 @@ export const renameWorkspaceInputSchema = z.object({
   name: z.string().trim().min(1).max(WORKSPACE_NAME_MAX_LENGTH),
 });
 
+/** The slug the owner types to confirm deleting the Workspace; compared exactly, untrimmed. */
+export const deleteWorkspaceInputSchema = z.object({
+  confirmSlug: z.string().max(200),
+});
+
 export const workspaceIconUploadInput = z
   .instanceof(FormData)
   .transform((form) => ({ file: form.get("file") }))

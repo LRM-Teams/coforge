@@ -392,7 +392,11 @@ function SettingsPage() {
         <ArchivedChannelsGroup channels={archivedChannels} timeZone={savedTimeZone} />
       }
       dangerZone={
-        <WorkspaceDangerZone workspaceName={currentWorkspace.name} actorRole={members.actorRole} />
+        <WorkspaceDangerZone
+          workspaceName={currentWorkspace.name}
+          workspaceSlug={currentWorkspace.slug}
+          actorRole={members.actorRole}
+        />
       }
     />
   );

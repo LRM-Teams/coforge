@@ -9,7 +9,8 @@ export const conversationRealtimeChannel = (conversationId: string) => `chat:${c
  * without holding a per-conversation subscription for every channel in the
  * list. It also carries `channel.updated.v1`, so the sidebar re-reads a renamed, deleted
  * or archived channel, and `task.changed.v1` (`features/tasks/task-realtime.ts`), so an open
- * Tasks page updates the rows a Task write changed. Authorization mirrors the status/activity workspace channels: the
+ * Tasks page updates the rows a Task write changed, and `workspace.deleted.v1`
+ * (`features/workspaces/workspace-realtime.ts`), so every open page leaves a deleted Workspace. Authorization mirrors the status/activity workspace channels: the
  * subscription token is issued only to Workspace members.
  */
 export const workspaceConversationChannel = (workspaceId: string) =>

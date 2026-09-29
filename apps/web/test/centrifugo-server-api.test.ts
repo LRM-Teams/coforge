@@ -227,3 +227,24 @@ test("abandons a Centrifugo call that never answers at its deadline, aborting th
   ).rejects.toMatchObject({ name: "TimeoutError" });
   expect(signal?.aborted).toBe(true);
 });
+
+test("disconnects one user's connections with the given code through the Centrifugo v6 HTTP API", async () => {
+  let request: Request | undefined;
+  globalThis.fetch = Object.assign(
+    (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+      request = new Request(input, init);
+      return Promise.resolve(Response.json({ result: {} }));
+    },
+    { preconnect: originalFetch.preconnect },
+  );
+
+  await createCentrifugoServerApi({
+    COFORGE_CENTRIFUGO_API_URL: "http://centrifugo.test/api",
+    COFORGE_CENTRIFUGO_API_KEY: "test-api-key",
+  }).disconnect("user-1", { code: 4000, reason: "workspace deleted" });
+
+  expect(await request?.json()).toEqual({
+    method: "disconnect",
+    params: { user: "user-1", disconnect: { code: 4000, reason: "workspace deleted" } },
+  });
+});
