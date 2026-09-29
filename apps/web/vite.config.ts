@@ -58,6 +58,33 @@ const config = defineConfig({
       "/connection": "ws://127.0.0.1:8000",
     },
   },
+  environments: {
+    // Client build only: nitro's server build inlines its dynamic imports.
+    client: {
+      build: {
+        rolldownOptions: {
+          output: {
+            codeSplitting: {
+              groups: [
+                // Rolldown makes a chunk for every icon that two lazy chunks share: about
+                // thirty files of 0.3-1 KB on a chat page. Icons are leaf modules without
+                // side effects, so one chunk for the shared ones is safe. Do not add a group
+                // for app modules: merging them across sharing sets drags Records-only code
+                // into chat and reorders execution between chunks (a trial failed at load
+                // with `e is not a constructor`).
+                // https://rolldown.rs/in-depth/manual-code-splitting
+                {
+                  name: "icons",
+                  test: /node_modules[\\/]@untitledui[\\/]icons[\\/]/,
+                  minShareCount: 2,
+                },
+              ],
+            },
+          },
+        },
+      },
+    },
+  },
   plugins: [
     {
       name: "externalize-bun-builtin",
@@ -84,6 +111,29 @@ const config = defineConfig({
         });
       },
     },
+    {
+      // Start builds each route's `modulepreload` links from `chunk.imports`. Rollup listed a
+      // chunk's whole static graph there (`hoistTransitiveImports`); Rolldown lists direct
+      // imports only and does not implement that option (rolldown/rolldown#10820), so chunks two
+      // levels down are fetched only after their importer has downloaded, in serial waves.
+      // Widen `imports` to the static closure before Start's client-bundle capture reads it
+      // (it runs at `enforce: "post"`). Remove once @tanstack/react-start ships the same change
+      // in its manifest builder (TanStack/router#8520, #8511).
+      name: "hoist-transitive-chunk-imports",
+      applyToEnvironment: (environment) => environment.name === "client",
+      generateBundle(_options, bundle) {
+        for (const output of Object.values(bundle)) {
+          if (output.type !== "chunk") continue;
+          // A `Set` visits what is added while iterating, so this walks the whole graph.
+          const closure = new Set(output.imports);
+          for (const fileName of closure) {
+            const imported = bundle[fileName];
+            if (imported?.type === "chunk") for (const next of imported.imports) closure.add(next);
+          }
+          output.imports = [...closure];
+        }
+      },
+    },
     paraglideVitePlugin(paraglideOptions),
     tanstackStart({
       // Default protection only covers `*.server.*` file names; also keep the
@@ -92,6 +142,21 @@ const config = defineConfig({
       // https://tanstack.com/start/latest/docs/framework/react/guide/import-protection
       importProtection: {
         client: { files: ["**/*.server.*", "**/src/server/**", "**/src/generated/**"] },
+      },
+      router: {
+        codeSplittingOptions: {
+          // `pendingComponent` is critical by default, so a route file that imports its
+          // skeleton from the feature's view module pulls that whole view into the entry
+          // chunk of every page. Split it like `component`; the router loads both before
+          // it needs either (`loadComponents` in @tanstack/router-core).
+          // https://tanstack.com/router/latest/docs/guide/automatic-code-splitting
+          defaultBehavior: [
+            ["component"],
+            ["pendingComponent"],
+            ["errorComponent"],
+            ["notFoundComponent"],
+          ],
+        },
       },
     }),
     nitro({
