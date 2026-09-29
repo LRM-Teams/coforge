@@ -423,7 +423,9 @@ test("TaskBoard atomically creates, converts, claims and revision-checks message
     });
     expect(assignmentMessage.senderMemberId).toBeNull();
     expect(assignmentMessage.body).toBe(batch.assignmentReceipt!.content);
-    expect(assignmentMessage.deliveries.map((delivery) => delivery.agentId)).toEqual([agent.id]);
+    // An Agent that assigns itself already holds the receipt in its command result; delivering
+    // it too would wake the Agent with its own action.
+    expect(assignmentMessage.deliveries).toEqual([]);
     expect(batch.tasks[0]!.claimedAt).toEqual(expect.any(String));
     const allTasks = await board.execute(
       { workspaceId: workspace.id, agentId: agent.id },
@@ -913,17 +915,12 @@ test("assignment receipts survive mute and disconnect without waking unrelated A
       title: "Direct assignment",
       assignee: `@${assigned!.name}`,
     });
+    // The receipt of the Agent's own self-assignment is not replayed to it on the next `ready`.
     expect(
       (await repo.readPendingAgentDeliveries(workspace.id, assigned!.id)).find(
         (message) => message.conversationId === direct.id,
       ),
-    ).toMatchObject({
-      target: `@${human.username}`,
-      latestSenderKind: "system",
-      latestSenderHandle: "",
-      latestSenderDescription: "",
-      messageId: directCreated.assignmentReceipt!.messageId,
-    });
+    ).toBeUndefined();
     const directMine = await board.execute(agentPrincipal, {
       operation: "list",
       idempotencyKey: crypto.randomUUID(),
@@ -932,17 +929,12 @@ test("assignment receipts survive mute and disconnect without waking unrelated A
     expect(directMine.tasks.find((task) => task.conversationId === direct.id)?.channelRef).toBe(
       `@${human.username}`,
     );
+    // Nor does the Agent owe attention to it.
     expect(
       (await repo.readAgentRecoveryContext(workspace.id, assigned!.id)).resumeMessages.find(
         (message) => message.conversationId === direct.id,
       ),
-    ).toMatchObject({
-      messageId: directCreated.assignmentReceipt!.messageId,
-      latestSenderKind: "system",
-      latestSenderHandle: "",
-      latestSenderDescription: "",
-      target: `@${human.username}`,
-    });
+    ).toBeUndefined();
     await board.execute(agentPrincipal, {
       operation: "unclaim",
       idempotencyKey: crypto.randomUUID(),
@@ -963,6 +955,11 @@ test("assignment receipts survive mute and disconnect without waking unrelated A
       assignee: `@${assigned!.name}`,
     };
     const selfAssigned = await board.execute(agentPrincipal, selfAssignCommand);
+    expect(
+      await db.agentMessageDelivery.count({
+        where: { messageId: selfAssigned.assignmentReceipt!.messageId },
+      }),
+    ).toBe(0);
     await board.execute(principal, {
       ...selfAssignCommand,
       idempotencyKey: crypto.randomUUID(),
@@ -974,6 +971,31 @@ test("assignment receipts survive mute and disconnect without waking unrelated A
     const selfRetried = await board.execute(agentPrincipal, selfAssignCommand);
     expect(selfRetried.assignmentReceipt).toEqual(selfAssigned.assignmentReceipt);
     expect(signaled).toHaveLength(signalsBeforeRetry);
+    // A person assigning the Agent in the direct message still delivers the receipt to it.
+    const humanAssigned = await board.execute(principal, {
+      operation: "assign",
+      idempotencyKey: crypto.randomUUID(),
+      conversationId: direct.id,
+      number: directCreated.tasks[0]!.number,
+      assignee: `@${assigned!.name}`,
+    });
+    const directPending = {
+      messageId: humanAssigned.assignmentReceipt!.messageId,
+      latestSenderKind: "system",
+      latestSenderHandle: "",
+      latestSenderDescription: "",
+      target: `@${human.username}`,
+    };
+    expect(
+      (await repo.readPendingAgentDeliveries(workspace.id, assigned!.id)).find(
+        (message) => message.conversationId === direct.id,
+      ),
+    ).toMatchObject(directPending);
+    expect(
+      (await repo.readAgentRecoveryContext(workspace.id, assigned!.id)).resumeMessages.find(
+        (message) => message.conversationId === direct.id,
+      ),
+    ).toMatchObject(directPending);
     await board.execute(principal, {
       operation: "delete",
       idempotencyKey: crypto.randomUUID(),

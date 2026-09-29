@@ -129,9 +129,16 @@ type NoticeWriter = {
   /**
    * The assignee's receipt: its fixed id, its one mention row naming the assignee (so it reaches a
    * human assignee who muted the channel, and an Agent assignee reads it as its mention), and its
-   * one delivery to an Agent assignee. The body stays the server-built `@handle` text.
+   * one delivery to an Agent assignee other than the acting member (an Agent that assigns itself
+   * already holds the receipt in its command result and never wakes itself). The body stays the
+   * server-built `@handle` text.
    */
-  receipt(input: { id: string; body: string; assignee: Member }): Promise<PostedNotice>;
+  receipt(input: {
+    id: string;
+    body: string;
+    assignee: Member;
+    actor: Member;
+  }): Promise<PostedNotice>;
 };
 
 /** What an Agent's own Task list reads: every kind, archived channels included. */
@@ -1104,12 +1111,14 @@ export class TaskBoard {
       const quoted = await notices.quote(tasks);
       await notices.inConversation(noticeText.created(quoted));
       // The assignee's receipt, started or only reserved: one assignment notice in the
-      // conversation, with its fixed id and its one delivery to an Agent assignee.
+      // conversation, with its fixed id and its one delivery to an Agent assignee that is not
+      // the creator.
       const receipt = assignee
         ? await notices.receipt({
             id: receiptId,
             body: noticeText.assigned(assigneeMention(assignee), quoted),
             assignee,
+            actor: member,
           })
         : null;
       return {
@@ -1235,8 +1244,12 @@ export class TaskBoard {
           const [quoted] = await quote([task]);
           return postAndSignal({ body: body(quoted!), threadRootId: task.messageId });
         },
-        receipt: ({ assignee, ...input }) =>
-          post({ ...input, deliverTo: assignee.agentId, mentions: assignee }),
+        receipt: ({ assignee, actor, ...input }) =>
+          post({
+            ...input,
+            deliverTo: assignee.id === actor.id ? null : assignee.agentId,
+            mentions: assignee,
+          }),
       });
     });
     await this.signalNotices(posted);
@@ -1673,6 +1686,7 @@ export class TaskBoard {
           id: receiptId,
           body: noticeText.assigned(assigneeMention(owner), await notices.quote([task])),
           assignee: owner,
+          actor: member,
         }),
       };
     });
