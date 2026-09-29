@@ -4159,14 +4159,14 @@ test("a thread reply from a person or an Agent enrolls its sender, the members i
       workspaceId: workspace.id,
       userId: alice.id,
       channelId: general.id,
-      requestId: crypto.randomUUID(),
+      idempotencyKey: crypto.randomUUID(),
       body: "root by alice",
     });
     await channels.send({
       workspaceId: workspace.id,
       userId: bob.id,
       channelId: general.id,
-      requestId: crypto.randomUUID(),
+      idempotencyKey: crypto.randomUUID(),
       body: `@${carol.username} can you look?`,
       threadRootId: root.id,
     });
@@ -4192,7 +4192,7 @@ test("a thread reply from a person or an Agent enrolls its sender, the members i
       workspaceId: workspace.id,
       userId: erin.id,
       channelId: general.id,
-      requestId: crypto.randomUUID(),
+      idempotencyKey: crypto.randomUUID(),
       body: "root by erin",
     });
     await repo.sendAgentMessage(general.id, scout.id, "On it.", [], erinRoot.id.slice(0, 8));
@@ -4200,7 +4200,7 @@ test("a thread reply from a person or an Agent enrolls its sender, the members i
       workspaceId: workspace.id,
       userId: dave.id,
       channelId: general.id,
-      requestId: crypto.randomUUID(),
+      idempotencyKey: crypto.randomUUID(),
       body: `@${dave.username} noting this for myself`,
       threadRootId: erinRoot.id,
     });
