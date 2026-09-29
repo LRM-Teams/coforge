@@ -589,7 +589,12 @@ test.skipIf(!connectionString || !redisUrl)(
       const replay = await send();
       expect(replay).toMatchObject({
         status: 200,
-        body: { state: "sent", messageId: first.body.messageId },
+        body: {
+          state: "sent",
+          messageId: first.body.messageId,
+          pendingMentionActions: first.body.pendingMentionActions,
+          unresolvedMentionHandles: first.body.unresolvedMentionHandles,
+        },
       });
       expect(await messageCount()).toBe(committed);
     } finally {

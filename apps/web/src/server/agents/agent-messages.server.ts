@@ -23,6 +23,16 @@ export type AgentMessageRepository = {
     agentId: string,
     target: string,
   ): Promise<AgentTargetFreshness>;
+  /** What a message this Agent already committed did not reach, read from the message by its id:
+   * the report a replay of its send answers with, the same one the original send gave. */
+  committedAgentMentionReport?(
+    workspaceId: string,
+    agentId: string,
+    messageId: string,
+  ): Promise<{
+    pendingMentionActions: PendingMentionActionView[];
+    unresolvedMentionHandles: string[];
+  }>;
   setAgentChannelMuted(
     workspaceId: string,
     agentId: string,
@@ -258,7 +268,10 @@ type ForwardPlan = {
  */
 export async function executeAgentSendMessageWithPolicy(
   dependencies: {
-    repository: Pick<AgentMessageRepository, "agentTargetFreshness">;
+    repository: Pick<
+      AgentMessageRepository,
+      "agentTargetFreshness" | "committedAgentMentionReport"
+    >;
     sender: Parameters<typeof executeAgentSendMessage>[0];
     /** The send's request records: a key that already committed is answered from its record. */
     requestRecords?: MessageRequestRecords;
@@ -268,17 +281,26 @@ export async function executeAgentSendMessageWithPolicy(
   // A replay of a key that already committed is answered from its record before the target is
   // resolved or its freshness read: whatever changed since (the person left, newer messages
   // arrived) must not report a committed send as refused or held. Like a `reconcileOnly`
-  // `committed`, it carries only the message id and publishes nothing again; a key still being
-  // processed is the in-flight duplicate.
+  // `committed`, it publishes nothing again; what the message did not reach is read from the
+  // message, so the replay reports what the original did. A key still being processed is the
+  // in-flight duplicate.
   if (dependencies.requestRecords) {
     const reconciliation = await reconcileAgentSendMessage(dependencies.requestRecords, input);
-    if (reconciliation.state === "committed")
+    if (reconciliation.state === "committed") {
+      const report = await dependencies.repository.committedAgentMentionReport?.(
+        input.workspaceId,
+        input.agentId,
+        reconciliation.messageId,
+      );
       return {
         state: "sent",
         decision: "forward",
         reason: "already_committed",
         messageId: reconciliation.messageId,
+        pendingMentionActions: report?.pendingMentionActions ?? [],
+        unresolvedMentionHandles: report?.unresolvedMentionHandles ?? [],
       };
+    }
   }
   const mode = input.freshnessContextMode ?? "inline";
   const freshness = await dependencies.repository.agentTargetFreshness?.(
