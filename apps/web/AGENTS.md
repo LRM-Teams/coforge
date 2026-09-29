@@ -118,7 +118,7 @@ responsibility.
 - `features/settings/` — preference pages and device-local preferences.
 - `features/search/` — the Workspace search page (`search`): filters, matching channels, Agents and Computers, message results with their preview, and the browser-local search history and frequently used places.
 - `features/tasks/` — Task board, list, overview, and message task actions.
-- `features/workspaces/` — Workspace switcher and creation, the Workspace a page URL names (`/w/<slug>`) and the one each QueryClient last showed, member directory reads, member presence (`presence:workspace:<workspace_id>`), invitations, join links, human roles, the Settings → Workspace profile Danger zone (leave, or delete for its owner), leaving a page whose Workspace was deleted (`workspace.deleted.v1`), and the last page `/` returns to.
+- `features/workspaces/` — Workspace switcher and creation, the Workspace a page URL names (`/w/<slug>`) and the one each QueryClient last showed, member directory reads, member presence (`presence:workspace:<workspace_id>`), invitations, join links and the invite-link page (`/join/<token>`), human roles, the Settings → Workspace profile Danger zone (leave, or delete for its owner), leaving a page whose Workspace was deleted (`workspace.deleted.v1`), and the last page `/` returns to.
 - `server/agents/` — Agent lifecycle, control, sessions, display reduction,
   visibility, deletion, and the Agent HTTPS API.
 - `server/attachments/` — attachment upload sessions, claiming a sender's uploads for a new message, and delivery.
