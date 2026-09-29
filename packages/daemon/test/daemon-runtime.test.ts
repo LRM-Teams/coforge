@@ -50,6 +50,7 @@ import {
   AGENT_SEND_REQUEST_TIMEOUT_MS,
   AGENT_ACTIVITY_DETAIL_KIND,
   AGENT_CONTEXT_SCAN_STATUS,
+  DAEMON_RUNTIME_READY_METHOD,
   type AgentContextScanRequest,
   type AgentMessageRequest,
   type LocalAgentMessageRequest,
@@ -8707,6 +8708,67 @@ test("a stop that arrives before the first cloud connect begins still ends it", 
   await runtime.stop();
 
   expect(await start).toBeInstanceOf(DaemonConnectionStoppedError);
+});
+
+test("stopping a runtime whose first ready keeps failing ends its start", async () => {
+  const credentials = new InMemoryDaemonCredentialStore();
+  await credentials.save(connection.workspaceId, connection.computerId, "token-ready-failing");
+  const readyAttempted = Promise.withResolvers<void>();
+  const client: CentrifugeWorkspaceClient = {
+    ...connectedClient(),
+    async rpc(method) {
+      if (method !== DAEMON_RUNTIME_READY_METHOD) return new Uint8Array();
+      readyAttempted.resolve();
+      throw Object.assign(new Error("daemon ready failed"), { code: 503 });
+    },
+  };
+  const runtime = new DaemonRuntime(
+    connection,
+    () => ({ provider: "pi", createAgentSession: async () => sessionSpy() }),
+    credentials,
+    { create: () => new DaemonConnection("wss://cloud.example", () => client) },
+    undefined,
+    emptyCodeAgentDiscovery,
+    workspaceRoot,
+  );
+  const start = runtime.start(connection).catch((error: unknown) => error);
+  await readyAttempted.promise;
+
+  await runtime.stop();
+
+  expect(await start).toBeInstanceOf(DaemonConnectionStoppedError);
+});
+
+test("a start that fails after connecting stops that connection instead of leaving it online", async () => {
+  const credentials = new InMemoryDaemonCredentialStore();
+  await credentials.save(connection.workspaceId, connection.computerId, "token-start-fails");
+  const calls: string[] = [];
+  const runtime = new DaemonRuntime(
+    connection,
+    () => ({ provider: "pi", createAgentSession: async () => sessionSpy() }),
+    credentials,
+    {
+      create: () => ({
+        async start() {
+          calls.push("start");
+        },
+        async ready() {
+          calls.push("ready");
+          throw new Error("ready failed");
+        },
+        async stop() {
+          calls.push("stop");
+        },
+      }),
+    },
+    undefined,
+    emptyCodeAgentDiscovery,
+    workspaceRoot,
+  );
+
+  await expect(runtime.start(connection)).rejects.toThrow("ready failed");
+
+  expect(calls).toEqual(["start", "ready", "stop"]);
 });
 
 test("a send the daemon holds locally is never issued, and what it showed is then reviewed", async () => {

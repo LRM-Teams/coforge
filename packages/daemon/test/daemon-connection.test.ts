@@ -1469,6 +1469,75 @@ test("retries reconnect ready on the same connection before releasing buffered p
   expect(reconnects).toBe(1);
 });
 
+const readyRequest = () => ({
+  protocolMajor: 1,
+  requestId: crypto.randomUUID(),
+  workspaceId: config.workspaceId,
+  computerId: config.computerId,
+  workerInstanceId: "runtime-1",
+  startedAt: 123,
+  runningAgentIds: [],
+});
+
+/** A connection whose first `failures` ready RPCs fail with a server error. */
+async function failingReadyConnection(failures: number) {
+  const fake = fakeClient();
+  let readyCalls = 0;
+  fake.client.rpc = async (method) => {
+    if (method === DAEMON_RUNTIME_READY_METHOD && ++readyCalls <= failures)
+      throw Object.assign(new Error("daemon ready failed at agent_recovery"), { code: 503 });
+    return new Uint8Array();
+  };
+  const connection = manualConnection(fake);
+  await connection.transport.start("secret", config);
+  return { ...connection, readyCalls: () => readyCalls };
+}
+
+/** Waits until the connection has scheduled `count` retries in all. */
+async function scheduledRetries(scheduled: unknown[], count: number): Promise<void> {
+  while (scheduled.length < count) await new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+test("a failed first ready retries with the reconnect backoff until the cloud accepts it", async () => {
+  const { transport, scheduled, readyCalls } = await failingReadyConnection(2);
+  let reconnects = 0;
+  transport.onReconnect(() => void reconnects++);
+
+  const ready = transport.ready(readyRequest);
+  await scheduledRetries(scheduled, 1);
+  scheduled[0]!.callback();
+  await scheduledRetries(scheduled, 2);
+  scheduled[1]!.callback();
+  await ready;
+
+  expect(scheduled.map(({ delayMs }) => delayMs)).toEqual([1_000, 2_000]);
+  expect(readyCalls()).toBe(3);
+  // The first ready is not a reconnect: the runtime's own start reports what follows it.
+  expect(reconnects).toBe(0);
+});
+
+test("stop ends a first ready that keeps failing", async () => {
+  const { transport, scheduled } = await failingReadyConnection(Infinity);
+  const ready = transport.ready(readyRequest).catch((error: unknown) => error);
+  await scheduledRetries(scheduled, 1);
+
+  await transport.stop();
+
+  expect(await ready).toBeInstanceOf(DaemonConnectionStoppedError);
+});
+
+test("an aborted signal ends a first ready that keeps failing", async () => {
+  const { transport, scheduled, cancelled } = await failingReadyConnection(Infinity);
+  const abort = new AbortController();
+  const ready = transport.ready(readyRequest, abort.signal).catch((error: unknown) => error);
+  await scheduledRetries(scheduled, 1);
+
+  abort.abort(new DaemonConnectionStoppedError());
+
+  expect(await ready).toBeInstanceOf(DaemonConnectionStoppedError);
+  expect(cancelled).toHaveLength(1);
+});
+
 test("stop cancels a pending reconnect ready retry", async () => {
   const fake = fakeClient();
   let readyCalls = 0;
