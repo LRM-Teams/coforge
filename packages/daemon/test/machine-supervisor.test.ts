@@ -1199,3 +1199,17 @@ test("a restart a stop took over after its answer is not recorded as a failure",
 
   expect(fixture.saved()[0]?.lastFailure).toBeUndefined();
 });
+
+test("a failure without a message is still recorded, with a reason that says so", async () => {
+  const fixture = gatedFixture([binding("a", false)]);
+  await fixture.supervisor.recover();
+  await fixture.supervisor.command("start", "a", undefined, { deadline: Date.now() + 10 });
+
+  fixture.fail(new Error(""));
+  const deadline = Date.now() + 1_000;
+  while (!fixture.saved()[0]?.lastFailure && Date.now() < deadline) await Bun.sleep(1);
+
+  expect(fixture.saved()[0]?.lastFailure?.message).toBe(
+    "The start failed without a reason; the Computer log has the details.",
+  );
+});

@@ -239,3 +239,27 @@ test("binding registry keeps a Workspace's last lifecycle failure and refuses a 
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test("a malformed last lifecycle failure is dropped on load instead of failing the registry", async () => {
+  const root = await mkdtemp(join(tmpdir(), "coforge-bindings-bad-failure-"));
+  try {
+    await Bun.write(
+      join(root, "bindings.json"),
+      JSON.stringify([
+        {
+          workspaceId: "a",
+          computerId: "c",
+          workspaceRoot: "/a",
+          enabled: true,
+          lastFailure: { operation: "start", message: "", at: 5 },
+        },
+      ]),
+    );
+
+    expect(await new FileBindingStore(root).load()).toEqual([
+      { workspaceId: "a", computerId: "c", workspaceRoot: "/a", enabled: true },
+    ]);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});

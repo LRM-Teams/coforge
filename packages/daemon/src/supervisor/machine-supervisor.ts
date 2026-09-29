@@ -272,7 +272,9 @@ export class MachineSupervisor {
     workspaceIds: readonly string[],
     error: unknown,
   ): void {
-    const message = error instanceof Error ? error.message : String(error);
+    const message =
+      (error instanceof Error ? error.message : String(error)) ||
+      `The ${operation} failed without a reason; the Computer log has the details.`;
     if (error instanceof WorkspaceParkedError || error instanceof WorkspaceLifecycleSupersededError)
       return;
     logger.warn("A lifecycle command failed after it had already answered", {
