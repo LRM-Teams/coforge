@@ -1,0 +1,2 @@
+[test]
+preload = ["./test/cli-temp-state.preload.ts"]
