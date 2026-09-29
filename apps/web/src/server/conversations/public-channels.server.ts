@@ -2234,6 +2234,8 @@ export class PublicChannels {
           workspaceId,
           threadRootId: message.threadRootId ?? undefined,
           requestId,
+          // Only a person sends here; an Agent's channel message goes through `SendDirectMessage`.
+          senderUserId: userId,
         });
       } catch {
         // PostgreSQL remains canonical; browser reconciliation repairs a missed publication.

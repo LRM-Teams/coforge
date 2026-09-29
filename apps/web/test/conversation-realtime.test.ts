@@ -113,6 +113,9 @@ describe("conversation realtime", () => {
     );
     expect(() => decodeMessageAvailableEvent({ ...event, type: "message.available.v2" })).toThrow();
     expect(() => decodeMessageAvailableEvent({ ...event, sequence: 0 })).toThrow();
+    // A person's message names them, so their own pages never count it unread.
+    const own = { ...event, senderUserId: "user-a" };
+    expect(decodeMessageAvailableEvent(own)).toEqual(own);
     // The `chat:user:` channel also carries `notification.available.v1`; the message decoder
     // must reject it so a subscriber ignoring undecodable publications skips it cleanly.
     expect(() =>

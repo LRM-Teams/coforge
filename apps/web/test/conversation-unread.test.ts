@@ -574,3 +574,46 @@ describe("listsMissedBySubscribe", () => {
     }
   });
 });
+
+describe("a person's own message", () => {
+  const own = { conversationId: "channel-a", sequence: 4, senderUserId: "viewer" };
+
+  test("never bumps their badge, from any page or device", () => {
+    const conversations = new Set(["channel-a"]);
+    expect(applyUnreadEvent({}, own, { conversations, viewerId: "viewer" })).toEqual({
+      "channel-a:seq": 4,
+    });
+    expect(
+      applyUnreadEvent(
+        {},
+        { ...own, senderUserId: "someone" },
+        { conversations, viewerId: "viewer" },
+      ),
+    ).toEqual({ "channel-a": 1, "channel-a:seq": 4 });
+    // An event without a sender (an Agent, or an older server) counts as before.
+    const { senderUserId: _unused, ...unnamed } = own;
+    void _unused;
+    expect(applyUnreadEvent({}, unnamed, { conversations, viewerId: "viewer" })).toEqual({
+      "channel-a": 1,
+      "channel-a:seq": 4,
+    });
+  });
+
+  test("still sets the high-water, so the same message sent again without a sender never counts", () => {
+    // A Task change re-sends its message at the original sequence, naming no sender.
+    const conversations = new Set(["channel-a"]);
+    const skipped = applyUnreadEvent({}, own, { conversations, viewerId: "viewer" });
+    expect(skipped).toEqual({ "channel-a:seq": 4 });
+    const { senderUserId: _unused, ...resent } = own;
+    void _unused;
+    expect(applyUnreadEvent(skipped, resent, { conversations, viewerId: "viewer" })).toBe(skipped);
+  });
+
+  test("never brings a closed chat back, so no list is re-read for it", () => {
+    // The server brings a closed chat back only for someone else's message.
+    expect(closedConversationLists(own, new Set(), "viewer")).toEqual([]);
+    expect(
+      closedConversationLists({ ...own, senderUserId: "someone" }, new Set(), "viewer"),
+    ).toEqual(["channels"]);
+  });
+});
