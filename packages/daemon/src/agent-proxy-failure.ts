@@ -13,11 +13,7 @@ import {
   type AgentSendVerdict,
 } from "#src/daemon-runtime/agent-send-verdict";
 
-import {
-  AGENT_REQUEST_REFUSED_CODE,
-  type AgentProxyFailureBody,
-  type AgentProxyFailureClass,
-} from "@lrm/coforge-sdk/internal";
+import type { AgentProxyFailureBody, AgentProxyFailureClass } from "@lrm/coforge-sdk/internal";
 
 /** Response header carrying the same correlation id as the JSON error body. */
 export const AGENT_PROXY_CORRELATION_HEADER = "x-coforge-correlation-id";
@@ -117,7 +113,8 @@ function classifyFailure(
     causeCode: string,
     options: {
       publicError?: string;
-      topLevelCode?: string;
+      /** `null`: the failure has no code of its own (a refusal whose server named none). */
+      topLevelCode?: string | null;
       /** The server's own answer to "can the same request succeed later", when it gave one. */
       retryable?: boolean;
       detail?: string;
@@ -132,7 +129,9 @@ function classifyFailure(
   ): AgentProxyClassifiedFailure => {
     const body: AgentProxyFailureBody = {
       error: options.publicError ?? "upstream HTTP response failed",
-      code: options.topLevelCode ?? "agent_proxy_failed",
+      ...(options.topLevelCode !== null
+        ? { code: options.topLevelCode ?? "agent_proxy_failed" }
+        : {}),
       ...(options.retryable !== undefined ? { retryable: options.retryable } : {}),
       ...(options.detail !== undefined ? { detail: options.detail } : {}),
       proxy: {
@@ -223,7 +222,7 @@ function classifyFailure(
   if (error instanceof AgentExplainedRefusalError)
     return build(error.status, "upstream_refusal", error.code ?? `HTTP_${error.status}`, {
       publicError: boundedDetail(error.message),
-      topLevelCode: error.code ?? AGENT_REQUEST_REFUSED_CODE,
+      topLevelCode: error.code ?? null,
       retryable: error.retryable,
       upstreamLayer: "http_status",
       upstreamStatus: error.status,

@@ -10,7 +10,6 @@ import { AgentSendVerdictError } from "#src/daemon-runtime/agent-send-verdict";
 import { AgentMessageRequestError } from "#src/connection/agent-message-request-error";
 import { AgentUpstreamRefusalError } from "#src/connection/agent-upstream-refusal-error";
 import { AgentExplainedRefusalError } from "#src/connection/agent-explained-refusal-error";
-import { AGENT_REQUEST_REFUSED_CODE } from "@lrm/coforge-sdk/internal";
 
 const context = {
   method: "POST",
@@ -292,7 +291,7 @@ test("an explained refusal without a code carries its reason and names no upstre
   expect(classified.status).toBe(403);
   expect(classified.body.error).toBe("target is not accessible");
   expect(classified.body.proxy.failure_class).toBe("upstream_refusal");
-  expect(classified.body.code).toBe(AGENT_REQUEST_REFUSED_CODE);
+  expect(classified.body.code).toBeUndefined();
   expect(classified.body.proxy.cause_code).toBe("HTTP_403");
   expect(classified.body.retryable).toBeUndefined();
 });

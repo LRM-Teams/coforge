@@ -18,13 +18,11 @@ export type AgentProxyFailureDetails = {
   discarded_draft?: { content: string; saved_at: string };
 };
 
-/** The `code` of an `upstream_refusal` whose server named no code of its own; the caller then
- * reports it under its own operation's code. Any other `upstream_refusal` code is the server's. */
-export const AGENT_REQUEST_REFUSED_CODE = "agent_request_refused";
-
 export type AgentProxyFailureBody = {
   error: string;
-  code: string;
+  /** Absent only on an `upstream_refusal` whose server named no code; the caller then reports it
+   * under its own operation's code. On an `upstream_refusal` it is always the server's code. */
+  code?: string;
   detail?: string;
   /** `suggested_next_action`, `retryable` and `proxy.draft_saved` come from the daemon's verdict
    * when the failure carries one. An absent `retryable` means "decide from the class". */

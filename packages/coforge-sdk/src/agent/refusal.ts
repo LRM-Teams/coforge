@@ -1,9 +1,9 @@
-import { isRecord } from "../internal";
+import { isRecord } from "#src/internal/json-record";
 
 /**
  * The Agent API's explained refusal: the body a route answers when it refuses a request for a
  * reason the Agent can act on (`{ error, code, retryable }` from the Web route helper
- * `errorResponse`, or `{ error }` alone, as for `target is not accessible`). `error` is written for
+ * `errorResponse`; a plain validation answer may carry `{ error }` alone). `error` is written for
  * the Agent; `code` is a stable UPPER_SNAKE code; `retryable` says whether the same request can
  * succeed later.
  */

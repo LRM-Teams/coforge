@@ -540,8 +540,16 @@ test.skipIf(!connectionString || !redisUrl)(
 
       const unknown = await answers(`@ml-nobody-${crypto.randomUUID().slice(0, 8)}`);
       expect(await answers(`@${elsewhere.username}`)).toEqual(unknown);
-      expect(unknown.send).toEqual({ status: 403, body: { error: "target is not accessible" } });
+      expect(unknown.send).toEqual({
+        status: 403,
+        body: {
+          error: "target is not accessible",
+          code: "TARGET_NOT_ACCESSIBLE",
+          retryable: false,
+        },
+      });
       expect(unknown.upload).toEqual(unknown.send);
+      expect(unknown.session).toEqual(unknown.send);
       expect(unknown.prepare).toEqual(unknown.send);
     } finally {
       redis.close();

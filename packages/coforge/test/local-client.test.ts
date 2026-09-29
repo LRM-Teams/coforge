@@ -3,10 +3,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { agentApiRoutes } from "@lrm/coforge-sdk/agent";
-import {
-  AGENT_REQUEST_REFUSED_CODE,
-  AGENT_SEND_LOCAL_DEADLINE_MS,
-} from "@lrm/coforge-sdk/internal";
+import { AGENT_SEND_LOCAL_DEADLINE_MS } from "@lrm/coforge-sdk/internal";
 import { connectLocal } from "#src/local-client";
 import { CliError, renderCliErrorJson, renderCliErrorText } from "#src/cli-error";
 
@@ -1468,70 +1465,112 @@ test("a mention action server error is SERVER_5XX, and a refusal carries the ser
 
 const departedReason =
   "@bob is not a member of this Workspace, so this Agent cannot send them a direct message";
+const context = `sfp_${"a".repeat(43)}`;
 
-/** The daemon proxy's body for a send the server refused with an explained reason. */
-const refusedByServer = (refusal: { error: string; code?: string; retryable?: boolean }) =>
+/** The daemon proxy's body for a request the server refused with an explained reason. */
+const refusedByServer = (
+  refusal: { error: string; code?: string; retryable?: boolean },
+  status = 403,
+) =>
   Response.json(
     {
       error: refusal.error,
-      code: refusal.code ?? AGENT_REQUEST_REFUSED_CODE,
+      ...(refusal.code !== undefined ? { code: refusal.code } : {}),
       ...(refusal.retryable !== undefined ? { retryable: refusal.retryable } : {}),
       proxy: {
         layer: "local_daemon_proxy",
         correlation_id: "corr-refused",
         route_family: "agent-api/send",
         failure_class: "upstream_refusal",
-        cause_code: refusal.code ?? "HTTP_403",
+        cause_code: refusal.code ?? `HTTP_${status}`,
         upstream_layer: "http_status",
-        upstream_status: 403,
+        upstream_status: status,
         response_started: true,
         response_complete: true,
       },
     },
-    { status: 403 },
+    { status },
   );
 
-test("a send the server refuses shows the Agent its code and reason, and that nothing was sent", async () => {
+const sendFailure = (target: string) =>
+  connectLocal("", context, proxyUrl(agentApiRoutes.local.messages))
+    .send(target, "hi")
+    .then(
+      () => Promise.reject(new Error("the request was expected to fail")),
+      (thrown: unknown) => thrown as CliError,
+    );
+
+test("a send to someone who left shows the server's code and that the conversation is read-only", async () => {
   spyOn(globalThis, "fetch").mockResolvedValue(
     refusedByServer({ error: departedReason, code: "DM_PEER_NOT_IN_WORKSPACE", retryable: false }),
   );
 
-  const error = await connectLocal(
-    "",
-    `sfp_${"a".repeat(43)}`,
-    proxyUrl(agentApiRoutes.local.messages),
-  )
-    .send("@bob", "hi")
-    .catch((thrown: unknown) => thrown);
+  const text = renderCliErrorText(await sendFailure("@bob"));
 
-  expect(error).toBeInstanceOf(CliError);
-  const text = renderCliErrorText(error as CliError);
   expect(text).toContain(`Error: ${departedReason}`);
   expect(text).toContain("Code: DM_PEER_NOT_IN_WORKSPACE");
   expect(text).toContain("Retryable: no");
-  expect(text).toContain("Next action: No message was sent; fix the problem above");
+  expect(text).toContain("read-only");
+  expect(text).toContain('coforge message read --target "@bob"');
+  expect(text).not.toContain("run the command again");
   expect(text).not.toContain("Delivery state is UNKNOWN");
 });
 
-test("a send refused without a code keeps the server's reason under the send's own code", async () => {
+test("a send to a target this Agent cannot use says to correct the target", async () => {
   spyOn(globalThis, "fetch").mockResolvedValue(
-    refusedByServer({ error: "target is not accessible" }),
+    refusedByServer({
+      error: "target is not accessible",
+      code: "TARGET_NOT_ACCESSIBLE",
+      retryable: false,
+    }),
   );
 
-  const attempt = connectLocal(
-    "",
-    `sfp_${"a".repeat(43)}`,
-    proxyUrl(agentApiRoutes.local.messages),
-  ).send("@nobody", "hi");
+  const error = await sendFailure("@nobody");
 
-  await expect(attempt).rejects.toMatchObject({
-    code: "SEND_FAILED",
-    message: "target is not accessible",
-    retryable: false,
-  });
+  expect(error).toMatchObject({ code: "TARGET_NOT_ACCESSIBLE", retryable: false });
+  expect(error.suggestedNextAction).toContain("No message was sent");
+  expect(error.suggestedNextAction).toContain("coforge user info");
 });
 
-test("an upload the server refuses shows the Agent its code and reason", async () => {
+test("a send whose same-key request is still processing keeps delivery unknown and names the retry", async () => {
+  spyOn(globalThis, "fetch").mockResolvedValue(
+    refusedByServer(
+      {
+        error: "message request is already processing; retry later",
+        code: "MESSAGE_REQUEST_IN_PROGRESS",
+        retryable: true,
+      },
+      409,
+    ),
+  );
+
+  const error = await sendFailure("@ada");
+
+  expect(error).toMatchObject({
+    code: "MESSAGE_REQUEST_IN_PROGRESS",
+    retryable: true,
+    draftSaved: true,
+  });
+  expect(error.suggestedNextAction).toContain("may still be delivered");
+  expect(error.suggestedNextAction).toContain('coforge message send --send-draft --target "@ada"');
+  expect(error.suggestedNextAction).not.toContain("No message was sent");
+});
+
+test("a send refused without a code keeps the server's reason under the send's own code", async () => {
+  spyOn(globalThis, "fetch").mockResolvedValue(refusedByServer({ error: "invalid mentions" }, 400));
+
+  const error = await sendFailure("@ada");
+
+  expect(error).toMatchObject({
+    code: "SEND_FAILED",
+    message: "invalid mentions",
+    retryable: false,
+  });
+  expect(error.suggestedNextAction).toStartWith("No message was sent");
+});
+
+/** A capabilities lookup that allows the multipart path, then `answer` for the upload itself. */
+const uploadAnswering = (answer: () => Response) =>
   spyOn(globalThis, "fetch").mockImplementation((async (input) => {
     if (String(input).endsWith("/capabilities"))
       return Response.json({
@@ -1540,61 +1579,96 @@ test("an upload the server refuses shows the Agent its code and reason", async (
         directUploadThresholdBytes: 0,
         sessionExpiresInSeconds: 900,
       });
-    return Response.json(
-      { error: departedReason, code: "DM_PEER_NOT_IN_WORKSPACE", retryable: false },
-      { status: 403 },
-    );
+    return answer();
   }) as typeof fetch);
+
+async function uploadFailure(target: string): Promise<CliError> {
   const dir = await mkdtemp(join(tmpdir(), "coforge-local-client-"));
   const path = join(dir, "note.txt");
   await writeFile(path, "hello");
   try {
-    const attempt = connectLocal(
-      "",
-      `sfp_${"a".repeat(43)}`,
-      proxyUrl(agentApiRoutes.local.messages),
-    ).upload!({ path, target: "@bob" });
-    await expect(attempt).rejects.toMatchObject({
-      code: "DM_PEER_NOT_IN_WORKSPACE",
-      message: departedReason,
-      retryable: false,
-    });
+    return await connectLocal("", context, proxyUrl(agentApiRoutes.local.messages)).upload!({
+      path,
+      target,
+    }).then(
+      () => {
+        throw new Error("the upload was expected to fail");
+      },
+      (thrown: unknown) => thrown as CliError,
+    );
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
-});
+}
 
-test("an action card the server refuses shows the Agent its code and reason", async () => {
-  spyOn(globalThis, "fetch").mockResolvedValue(
-    refusedByServer({ error: departedReason, code: "DM_PEER_NOT_IN_WORKSPACE", retryable: false }),
+test("an upload the server refuses shows its code, reason and next step", async () => {
+  uploadAnswering(() =>
+    Response.json(
+      { error: departedReason, code: "DM_PEER_NOT_IN_WORKSPACE", retryable: false },
+      { status: 403 },
+    ),
   );
 
-  const attempt = connectLocal(
-    "",
-    `sfp_${"a".repeat(43)}`,
-    proxyUrl(agentApiRoutes.local.actionPrepare),
-  ).actionPrepare("@bob", { type: "channel:create", name: "ops", visibility: "public" });
+  const error = await uploadFailure("@bob");
 
-  await expect(attempt).rejects.toMatchObject({
+  expect(error).toMatchObject({
     code: "DM_PEER_NOT_IN_WORKSPACE",
     message: departedReason,
     retryable: false,
   });
+  expect(error.suggestedNextAction).toContain("read-only");
 });
 
-test("an action card refused without a code keeps the server's reason under the prepare code", async () => {
-  spyOn(globalThis, "fetch").mockResolvedValue(
-    refusedByServer({ error: "target is not accessible" }),
+test("a 5xx upload answer stays SERVER_5XX even in the refusal shape", async () => {
+  uploadAnswering(() =>
+    Response.json(
+      { error: "database is down", code: "INTERNAL", retryable: true },
+      { status: 500 },
+    ),
   );
 
-  const attempt = connectLocal(
-    "",
-    `sfp_${"a".repeat(43)}`,
-    proxyUrl(agentApiRoutes.local.actionPrepare),
-  ).actionPrepare("@nobody", { type: "channel:create", name: "ops", visibility: "public" });
+  expect(await uploadFailure("@ada")).toMatchObject({ code: "SERVER_5XX", message: "HTTP 500" });
+});
 
-  await expect(attempt).rejects.toMatchObject({
-    code: "PREPARE_FAILED",
-    message: "target is not accessible",
+test("an upload answer outside the refusal shape is never relayed", async () => {
+  uploadAnswering(() => new Response("proxy detail sk_agent_secret", { status: 400 }));
+
+  expect(await uploadFailure("@ada")).toMatchObject({ code: "UPLOAD_FAILED", message: "HTTP 400" });
+});
+
+const prepareFailure = (target: string) =>
+  connectLocal("", context, proxyUrl(agentApiRoutes.local.actionPrepare))
+    .actionPrepare(target, { type: "channel:create", name: "ops", visibility: "public" })
+    .then(
+      () => Promise.reject(new Error("the request was expected to fail")),
+      (thrown: unknown) => thrown as CliError,
+    );
+
+test("an action card the server refuses shows its code, reason and next step", async () => {
+  spyOn(globalThis, "fetch").mockResolvedValue(
+    refusedByServer({ error: departedReason, code: "DM_PEER_NOT_IN_WORKSPACE", retryable: false }),
+  );
+
+  const error = await prepareFailure("@bob");
+
+  expect(error).toMatchObject({
+    code: "DM_PEER_NOT_IN_WORKSPACE",
+    message: departedReason,
+    retryable: false,
   });
+  expect(error.suggestedNextAction).toContain("read-only");
+});
+
+test("an action card refused without a code keeps the reason under the prepare code", async () => {
+  spyOn(globalThis, "fetch").mockResolvedValue(
+    refusedByServer({ error: "action.humans[0]: unknown human handle: @x" }, 422),
+  );
+
+  const error = await prepareFailure("#ops");
+
+  expect(error).toMatchObject({
+    code: "PREPARE_FAILED",
+    message: "action.humans[0]: unknown human handle: @x",
+  });
+  expect(error.suggestedNextAction).toStartWith("No action card was posted");
 });

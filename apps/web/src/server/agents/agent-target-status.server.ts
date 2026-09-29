@@ -1,4 +1,3 @@
-import type { AgentApiRefusal } from "@lrm/coforge-sdk/agent";
 import { isAppError } from "#src/lib/app-error";
 import { errorResponse } from "./agent-http-error.server";
 
@@ -23,15 +22,21 @@ export function targetResolutionStatus(error: unknown): number {
 }
 
 /**
+ * `target is not accessible`: the one answer to a target this Agent cannot use, the same for a
+ * username that does not exist and for someone outside the Workspace, so it reveals neither.
+ */
+export function targetNotAccessibleResponse(status: number) {
+  return errorResponse("TARGET_NOT_ACCESSIBLE", "target is not accessible", status, false);
+}
+
+/**
  * The answer to an Agent posting to an `@user` it cannot reach: a username that does not exist or
  * someone outside the Workspace it never had a direct message with. The message route answers it
  * the way the attachment routes do. Undefined for any other error.
  */
 function unknownTargetUserResponse(error: unknown) {
   if (!(error instanceof Error) || error.message !== "target user not found") return undefined;
-  return Response.json({ error: "target is not accessible" } satisfies AgentApiRefusal, {
-    status: 403,
-  });
+  return targetNotAccessibleResponse(403);
 }
 
 /**

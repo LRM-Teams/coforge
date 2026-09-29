@@ -11,6 +11,7 @@ import { getFileStorage } from "#src/server/files/file-storage.server";
 import { PrismaDirectConversationRepository } from "#src/server/db/repositories/direct-conversation.repositories.server";
 import {
   dmPeerNotInWorkspaceResponse,
+  targetNotAccessibleResponse,
   targetResolutionStatus,
 } from "#src/server/agents/agent-target-status.server";
 
@@ -92,12 +93,7 @@ export async function handleAttachmentUploadSessionCreate(
   } catch (error) {
     const refused = dmPeerNotInWorkspaceResponse(error, parentTarget);
     if (refused) return refused;
-    return errorResponse(
-      "UPLOAD_FORBIDDEN",
-      "target is not accessible",
-      targetResolutionStatus(error),
-      false,
-    );
+    return targetNotAccessibleResponse(targetResolutionStatus(error));
   }
 
   try {
